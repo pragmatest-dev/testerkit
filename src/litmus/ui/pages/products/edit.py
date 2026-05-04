@@ -6,6 +6,7 @@ from nicegui import ui
 
 from litmus.ui.shared.components import (
     AutoSaver,
+    data_table,
     labeled_input,
     labeled_textarea,
     setup_hash_sync_for_tabs,
@@ -152,7 +153,7 @@ def _render_pins_tab(form_data: dict, saver: AutoSaver):
                     {"name": p.get("name", ""), "type": p.get("type", ""), "net": p.get("net", "")}
                     for p in form_data["pins"]
                 ]
-                ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
+                data_table(columns=columns, rows=rows, row_key="name")
             else:
                 ui.label("No pins defined. Click 'Add Pin' to add one.").classes(
                     "text-slate-500 italic"

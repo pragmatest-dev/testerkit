@@ -93,9 +93,9 @@ logger = logging.getLogger(__name__)
 
 def _build_filter_clauses(
     *,
-    product: str | None = None,
-    station: str | None = None,
-    phase: str | None = None,
+    product: str | list[str] | None = None,
+    station: str | list[str] | None = None,
+    phase: str | list[str] | None = None,
     since: str | None = None,
     until: str | None = None,
     product_expr: str = "product",
@@ -105,10 +105,14 @@ def _build_filter_clauses(
 ) -> list[str]:
     """Build SQL filter clauses from parameters.
 
+    Each filter accepts a single value, a list (multi-select), or
+    ``None`` (no filter). Lists become ``IN (...)`` clauses; single
+    values become ``= ...`` clauses.
+
     Phase filtering:
       - phase=None (default): excludes ``development`` phase
-      - phase='all': no phase filter (includes development)
-      - phase='<value>': filters to that specific phase
+      - phase='all' or ['all']: no phase filter (includes development)
+      - phase='<value>' or list: filters to those specific phases
 
     The ``*_expr`` parameters control the SQL column/expression names,
     allowing the same filter logic to work in both subquery-based queries
@@ -116,14 +120,23 @@ def _build_filter_clauses(
     names with COALESCE wrappers are used).
     """
     clauses: list[str] = []
-    if phase and phase != "all":
-        clauses.append(f"{phase_expr} = '{sql_escape(phase)}'")
-    elif not phase:
+    phase_values = _coerce_filter_values(phase)
+    if phase_values and "all" in phase_values:
+        # 'all' is a sentinel meaning "no phase filter" — match
+        # historical single-value behavior even when bundled in a
+        # list (e.g. ['all', 'production'] disables filtering).
+        pass
+    elif phase_values:
+        clauses.append(_in_or_eq(phase_expr, phase_values))
+    else:
+        # Default: hide development phase from analytics
         clauses.append(f"{phase_expr} != 'development'")
-    if product:
-        clauses.append(f"{product_expr} = '{sql_escape(product)}'")
-    if station:
-        clauses.append(f"{station_expr} = '{sql_escape(station)}'")
+    product_values = _coerce_filter_values(product)
+    if product_values:
+        clauses.append(_in_or_eq(product_expr, product_values))
+    station_values = _coerce_filter_values(station)
+    if station_values:
+        clauses.append(_in_or_eq(station_expr, station_values))
     if since:
         clauses.append(f"{date_expr} >= '{sql_escape(since)}'")
     if until:
@@ -131,11 +144,37 @@ def _build_filter_clauses(
     return clauses
 
 
+def _coerce_filter_values(value: str | list[str] | None) -> list[str]:
+    """Normalize a filter value into a list of non-empty strings.
+
+    ``None`` / empty string / empty list → ``[]`` (no filter).
+    Single string → ``[value]``.
+    List → filter out empty strings.
+    """
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [v for v in value if v]
+
+
+def _in_or_eq(column_expr: str, values: list[str]) -> str:
+    """Render ``column = 'x'`` for one value or ``column IN (...)`` for many.
+
+    DuckDB handles both the same way at the planner level; the
+    ``=`` form is just shorter and reads better in logs.
+    """
+    if len(values) == 1:
+        return f"{column_expr} = '{sql_escape(values[0])}'"
+    quoted = ", ".join(f"'{sql_escape(v)}'" for v in values)
+    return f"{column_expr} IN ({quoted})"
+
+
 def _build_where(
     *,
-    product: str | None = None,
-    station: str | None = None,
-    phase: str | None = None,
+    product: str | list[str] | None = None,
+    station: str | list[str] | None = None,
+    phase: str | list[str] | None = None,
     since: str | None = None,
     until: str | None = None,
 ) -> str:
@@ -155,9 +194,9 @@ def _build_where(
 
 def _build_and_clauses(
     *,
-    product: str | None = None,
-    station: str | None = None,
-    phase: str | None = None,
+    product: str | list[str] | None = None,
+    station: str | list[str] | None = None,
+    phase: str | list[str] | None = None,
     since: str | None = None,
     until: str | None = None,
 ) -> str:
@@ -172,7 +211,11 @@ def _build_and_clauses(
         since=since,
         until=until,
         product_expr="COALESCE(dut_part_number, product_id, 'unknown')",
-        station_expr="COALESCE(station_name, station_id, 'unknown')",
+        # Match the same column the operator's dropdown is built
+        # from (``station_hostname`` first; see ``get_yield_filter_options``
+        # in ``ui/shared/services.py``). ``station_name`` is admin-
+        # facing — never used as a filter target.
+        station_expr="COALESCE(station_hostname, station_id, 'unknown')",
         phase_expr="COALESCE(test_phase, 'unknown')",
         date_expr="CAST(run_started_at AS DATE)",
     )
@@ -197,7 +240,7 @@ WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
         COALESCE(dut_part_number, product_id, 'unknown') AS product,
-        COALESCE(station_name, station_id, 'unknown') AS station,
+        COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         dut_serial,
         run_outcome,
@@ -254,7 +297,7 @@ ORDER BY period_day
 _PARETO_SQL = """
 SELECT
     COALESCE(dut_part_number, product_id, 'unknown') AS product,
-    COALESCE(station_name, station_id, 'unknown') AS station,
+    COALESCE(station_hostname, station_id, 'unknown') AS station,
     step_name,
     measurement_name,
     COUNT(*) AS total_count,
@@ -273,7 +316,7 @@ LIMIT {top_n}
 _CPK_SQL = """
 SELECT
     COALESCE(dut_part_number, product_id, 'unknown') AS product,
-    COALESCE(station_name, station_id, 'unknown') AS station,
+    COALESCE(station_hostname, station_id, 'unknown') AS station,
     measurement_name,
     COUNT(*) AS n,
     ROUND(AVG(measurement_value), 6) AS mean,
@@ -307,7 +350,7 @@ WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
         COALESCE(dut_part_number, product_id, 'unknown') AS product,
-        COALESCE(station_name, station_id, 'unknown') AS station,
+        COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         run_outcome,
         {period_expr} AS period_day
@@ -334,7 +377,7 @@ WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
         COALESCE(dut_part_number, product_id, 'unknown') AS product,
-        COALESCE(station_name, station_id, 'unknown') AS station,
+        COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         dut_serial,
         {period_expr} AS period_day
@@ -369,7 +412,7 @@ WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
         COALESCE(dut_part_number, product_id, 'unknown') AS product,
-        COALESCE(station_name, station_id, 'unknown') AS station,
+        COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         run_outcome,
         EPOCH(run_ended_at::TIMESTAMP - run_started_at::TIMESTAMP) AS duration_s,
@@ -435,12 +478,18 @@ class MeasurementsQuery:
         self._flight.close()
         runs_duckdb_manager.release(self._runs_dir)
 
+    def __enter__(self) -> MeasurementsQuery:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
     def yield_summary(
         self,
         *,
-        product: str | None = None,
-        station: str | None = None,
-        phase: str | None = None,
+        product: str | list[str] | None = None,
+        station: str | list[str] | None = None,
+        phase: str | list[str] | None = None,
         since: str | None = None,
         until: str | None = None,
         period: str = "day",
@@ -465,9 +514,9 @@ class MeasurementsQuery:
     def pareto(
         self,
         *,
-        product: str | None = None,
-        station: str | None = None,
-        phase: str | None = None,
+        product: str | list[str] | None = None,
+        station: str | list[str] | None = None,
+        phase: str | list[str] | None = None,
         since: str | None = None,
         until: str | None = None,
         top_n: int = 10,
@@ -491,9 +540,9 @@ class MeasurementsQuery:
     def cpk(
         self,
         *,
-        product: str | None = None,
-        station: str | None = None,
-        phase: str | None = None,
+        product: str | list[str] | None = None,
+        station: str | list[str] | None = None,
+        phase: str | list[str] | None = None,
         since: str | None = None,
         until: str | None = None,
         min_samples: int = 10,
@@ -517,9 +566,9 @@ class MeasurementsQuery:
     def trend(
         self,
         *,
-        product: str | None = None,
-        station: str | None = None,
-        phase: str | None = None,
+        product: str | list[str] | None = None,
+        station: str | list[str] | None = None,
+        phase: str | list[str] | None = None,
         since: str | None = None,
         until: str | None = None,
         period: str = "day",
@@ -544,9 +593,9 @@ class MeasurementsQuery:
     def retest(
         self,
         *,
-        product: str | None = None,
-        station: str | None = None,
-        phase: str | None = None,
+        product: str | list[str] | None = None,
+        station: str | list[str] | None = None,
+        phase: str | list[str] | None = None,
         since: str | None = None,
         until: str | None = None,
         period: str = "day",
@@ -571,9 +620,9 @@ class MeasurementsQuery:
     def time_loss(
         self,
         *,
-        product: str | None = None,
-        station: str | None = None,
-        phase: str | None = None,
+        product: str | list[str] | None = None,
+        station: str | list[str] | None = None,
+        phase: str | list[str] | None = None,
         since: str | None = None,
         until: str | None = None,
         period: str = "day",
@@ -617,6 +666,7 @@ class MeasurementsQuery:
         chart_type: str = "scatter",
         bins: int = 30,
         limit: int = 5000,
+        include_incomplete: bool = False,
     ) -> list[ParametricRow] | list[HistogramRow]:
         """Generic Y vs X query over measurements, optionally split by ``group_by``.
 
@@ -633,6 +683,11 @@ class MeasurementsQuery:
         string and enum facets plus optional date range. Column names
         are validated as bare identifiers, values escape via
         :func:`sql_escape`.
+
+        ``include_incomplete`` (default ``False``) excludes
+        measurements whose owning run has not finalized — same
+        semantic as the other public methods. UI live views pass
+        ``True`` to plot in-flight values.
         """
         y_col = _safe_ident(y)
         x_col = _safe_ident(x) if chart_type != "histogram" else None
@@ -641,6 +696,8 @@ class MeasurementsQuery:
         clauses = [f"{y_col} IS NOT NULL"]
         if x_col is not None:
             clauses.append(f"{x_col} IS NOT NULL")
+        if not include_incomplete:
+            clauses.append("run_outcome IS NOT NULL")
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
 
@@ -748,7 +805,7 @@ class MeasurementsQuery:
             COUNT(*) AS total_rows,
             COUNT(DISTINCT run_id) AS distinct_runs,
             COUNT(DISTINCT measurement_name) AS distinct_measurements,
-            COUNT(DISTINCT product_id) AS distinct_products
+            COUNT(DISTINCT COALESCE(dut_part_number, product_id, 'unknown')) AS distinct_products
         FROM measurements{where}
         """
         rows = self._query_dicts(sql)

@@ -26,12 +26,14 @@ from litmus.execution._state import (
     get_active_instruments,
     get_active_product_context,
     get_active_profile,
+    get_active_slot_runner,
     get_current_logger,
     set_active_instruments,
     set_active_profile,
     set_channel_store,
     set_collected_items,
     set_current_code_identity,
+    set_current_slot_id,
     set_current_step_aliases,
     set_current_step_config,
     set_event_store,
@@ -56,6 +58,7 @@ from litmus.execution.sidecar import load_sidecar as _load_sidecar
 from litmus.execution.vectors import Vector
 from litmus.models.test_config import MockEntry, RetryConfig, SweepEntry, TestEntry
 from litmus.pytest_plugin.helpers import (
+    find_fixture_file,
     find_station_file,
     join_marker_names,
     mocks_active,
@@ -74,6 +77,98 @@ from litmus.pytest_plugin.sweeps import (
     parametrize_calls_for_entry,
     sweep_to_parametrize_args,
 )
+
+# Step ids (UUIDs as strings) that have shown verdict intent during
+# their execution — either pytest's rewritten assert hit and passed,
+# or a Litmus measurement with a limit was recorded against them.
+# Used by ``_stamp_step_from_call_outcome`` to pick PASSED (intent
+# present) vs DONE (no intent) on a clean exit. Cleared per session
+# in ``pytest_sessionfinish``.
+_STEP_JUDGMENT_INTENT: set[str] = set()
+
+
+def mark_step_judgment_intent(step_id: str) -> None:
+    """Record that a step has shown verdict intent.
+
+    Public so the measurement layer can call us when
+    ``logger.measure(..., limit=...)`` records a limited value —
+    that's structurally equivalent to a passing assert (the test
+    code declared an intent to judge).
+    """
+    _STEP_JUDGMENT_INTENT.add(step_id)
+
+
+def _install_termination_handler() -> None:
+    """Convert SIGTERM into KeyboardInterrupt so pytest's existing
+    keyboard-interrupt path runs full fixture teardown.
+
+    The chain we get for free once SIGTERM is converted:
+
+    1. ``KeyboardInterrupt`` raised in the main thread on the next
+       Python eval-loop tick.
+    2. Pytest's runner catches it and fires our
+       :func:`pytest_keyboard_interrupt` hook → step + run stamped
+       ``TERMINATED`` (cleanup-ran semantic).
+    3. Fixture teardowns run (instruments → safe state, channel /
+       event store close, parquet finalize).
+    4. Process exits cleanly.
+
+    Real-world limits worth knowing:
+
+    * **Main thread blocked in C extension** (PyVISA query, scope
+      transfer, etc.) — the signal queues until Python re-enters
+      its eval loop. Cleanup fires eventually; not instant.
+    * **External SIGKILL after timeout** (Docker: ~10s, systemd
+      default: 90s) — if cleanup runs longer than the budget, we
+      get partial state. The fixture teardown order matters:
+      instrument-safe-state runs first (highest priority), parquet
+      flush runs last (most likely casualty).
+    * **SIGKILL straight up** — no Python runs; nothing to do.
+
+    We install only when no user handler is already registered, so
+    operator scripts that wrap pytest don't get stomped on.
+    """
+    import signal
+
+    existing = signal.getsignal(signal.SIGTERM)
+    # SIG_DFL is "default action" (terminate); SIG_IGN is ignore.
+    # Anything else is a user-installed handler we shouldn't touch.
+    if existing not in (signal.SIG_DFL, signal.SIG_IGN, None):
+        return
+
+    def _term_to_interrupt(signum, frame):  # noqa: ARG001
+        raise KeyboardInterrupt
+
+    try:
+        signal.signal(signal.SIGTERM, _term_to_interrupt)
+    except ValueError:
+        # ``signal.signal`` only works in the main thread. If
+        # pytest is already running on a non-main thread (rare —
+        # only via embedding), we silently skip; cleanup falls back
+        # to atexit-style flushing.
+        pass
+
+
+def pytest_assertion_pass(item: pytest.Item, lineno: int, orig: str, expl: str) -> None:
+    """Pytest fires this whenever a rewritten ``assert`` passes.
+
+    We use it as the runtime signal that the currently-open step
+    declared verdict intent. At step-end, if a step exited cleanly
+    AND we saw at least one passing assertion (or a limited
+    measurement), we stamp ``PASSED``; otherwise ``DONE``.
+
+    This is the runtime version of the AST scan we tried first —
+    accurate by construction (per assert hit, per step), no static
+    analysis, no module/function scoping puzzles. Cross-module
+    helpers come along for free as long as their module is
+    registered with ``pytest.register_assert_rewrite()``.
+    """
+    _ = item, lineno, orig, expl
+    from litmus.execution._state import get_current_step
+
+    step = get_current_step()
+    if step is not None:
+        _STEP_JUDGMENT_INTENT.add(str(step.id))
 
 
 @contextmanager
@@ -201,6 +296,8 @@ def pytest_report_header(config):
 
 def pytest_sessionstart(session):
     """Wire prompt routing + validate DUT serial at session start."""
+    _install_termination_handler()
+
     # If we're a test subprocess launched by ``litmus serve``, bridge
     # ``litmus.prompts.ask`` to the dialog UI over HTTP. Otherwise the
     # TTY / auto-confirm chain still applies.
@@ -211,6 +308,8 @@ def pytest_sessionstart(session):
         register_as_prompt_handler(server_url=server_url)
 
     config = session.config
+    _resolve_and_install_slot_id(config)
+
     dut_serial = config.getoption("--dut-serial")
     dut_serials = config.getoption("--dut-serials")
 
@@ -226,6 +325,77 @@ def pytest_sessionstart(session):
     if dut_serial == "DUT001":
         serial = prompt_for_serial(test_phase)
         config.option.dut_serial = serial
+
+
+def _resolve_and_install_slot_id(config) -> None:
+    """Resolve which slot this process is running against, install on ContextVar.
+
+    Resolution chain:
+
+    1. **Worker child** (``_LITMUS_SLOT_ID`` env var set by orchestrator)
+       — env wins. ``--slot`` on the worker's invocation is a usage
+       error (operator confusion: orchestrator already chose).
+    2. **Operator-set** ``--slot=N`` — validated against the resolved
+       fixture's slot list when one exists; an unknown slot is a usage
+       error so typos surface immediately.
+    3. **Orchestrator parent** (multi-slot fixture, no ``--slot``,
+       this process is *about to* dispatch per-slot children) —
+       leave the ContextVar at ``None``. The orchestrator parent
+       never runs tests itself; each child carries its own slot_id
+       via ``_LITMUS_SLOT_ID`` env var.
+    4. **No fixture / single-slot fixture** — leave the ContextVar at
+       ``None``; the run row's ``slot_id`` column reads as null.
+    """
+    env_slot_id = os.environ.get("_LITMUS_SLOT_ID")
+    cli_slot = config.getoption("--slot")
+
+    if env_slot_id:
+        if cli_slot:
+            raise pytest.UsageError(
+                "--slot is for single-process runs; this process was spawned "
+                "by the multi-slot orchestrator (saw _LITMUS_SLOT_ID env var). "
+                "Use --dut-serials at the orchestrator level instead."
+            )
+        set_current_slot_id(env_slot_id)
+        return
+
+    fixture_slots = _resolved_fixture_slot_ids(config)
+
+    if cli_slot:
+        if fixture_slots and cli_slot not in fixture_slots:
+            raise pytest.UsageError(
+                f"--slot={cli_slot!r} not in fixture's slot list "
+                f"(known: {', '.join(fixture_slots)})."
+            )
+        set_current_slot_id(cli_slot)
+        return
+    # Multi-slot fixture without --slot: this is the orchestrator
+    # parent. It dispatches per-slot children that each carry their
+    # own slot_id via env var; the parent never emits a RunStarted
+    # of its own, so leaving the ContextVar at None is correct.
+
+
+def _resolved_fixture_slot_ids(config) -> list[str]:
+    """Return ordered slot ids from the resolved fixture, or ``[]``.
+
+    Returns ``[]`` for single-slot fixtures, missing fixtures, or load
+    errors — callers treat any of those as "no slot validation
+    available," matching the pre-fixture / bringup-tier flow. Errors
+    here must not block test collection; the normal config-loading
+    path will surface a real error if one exists.
+    """
+    from litmus.store import load_fixture
+
+    fixture_path = find_fixture_file(config)
+    if fixture_path is None:
+        return []
+    try:
+        fixture_config = load_fixture(fixture_path)
+    except (ValidationError, yaml.YAMLError, OSError, ValueError):
+        return []
+    if not fixture_config.is_multi_slot or not fixture_config.slots:
+        return []
+    return list(fixture_config.slots.keys())
 
 
 def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
@@ -408,10 +578,28 @@ def pytest_sessionfinish(session, exitstatus):
     set_channel_store(None)
     set_event_store(None)
     set_active_profile(None)
+    _STEP_JUDGMENT_INTENT.clear()
 
 
 def pytest_load_initial_conftests(early_config, parser, args):
-    """Apply ``profile.pytest.addopts`` via ``PYTEST_ADDOPTS`` before collection."""
+    """Apply ``profile.pytest.addopts`` and force-on the assertion-pass hook.
+
+    ``enable_assertion_pass_hook`` is an INI option that pytest's
+    assertion rewriter consults to decide whether to fire
+    :func:`pytest_assertion_pass` on every passing rewritten assert.
+    Litmus uses that hook to detect verdict intent (PASSED-vs-DONE
+    on step exit). Without it, every clean-exit step lands as DONE
+    and runs cascade to "aborted" via the parquet close-fallback.
+
+    We force it on for every project that loads the Litmus plugin
+    rather than asking each one to remember the magic line in
+    ``pyproject.toml``. Set on ``early_config._inicache`` *before*
+    test modules are imported and rewritten — by the time
+    ``pytest_configure`` fires, the rewriter has already cached
+    its decision per-module.
+    """
+    _ = parser
+    early_config._inicache["enable_assertion_pass_hook"] = True
     with _profile_errors_as_usage():
         apply_profile_addopts_env(args)
 
@@ -425,6 +613,15 @@ def pytest_addoption(parser):
         "--dut-serials",
         default=None,
         help="Per-slot DUT serials: slot_1=SN1,slot_2=SN2",
+    )
+    group.addoption(
+        "--slot",
+        default=None,
+        help="Physical fixture slot for this single-process run "
+        "(e.g. ``slot_1``, ``slot_2``). Use this when running a single "
+        "DUT against a specific position in a multi-slot fixture so the "
+        "run records which slot was exercised. Multi-slot orchestration "
+        "uses ``--dut-serials`` instead — supplying both is an error.",
     )
     group.addoption("--dut-part-number", default=None, help="DUT part number")
     group.addoption("--dut-revision", default=None, help="DUT revision")
@@ -642,14 +839,26 @@ def _escalate_step_and_run(logger_inst: Any, step: Any, new_outcome: Outcome) ->
 def _stamp_step_from_call_outcome(logger_inst: Any, outcome_obj: Any) -> None:
     """Translate the pluggy outcome of pytest's call phase into ``step.outcome``.
 
-    Called from inside the ``pytest_runtest_call`` wrapper while the step
-    is still open. The pluggy ``_Result`` carries excinfo for any
-    exception raised during the test body. The exception type tells us
-    which Litmus outcome to escalate to:
+    Called from inside the ``pytest_runtest_call`` wrapper while the
+    step is still open. The pluggy ``_Result`` carries ``excinfo`` for
+    any exception raised during the test body. The mapping:
 
+    * No exception:
+        - if the step recorded any verdict intent at runtime — a
+          rewritten assert that passed (via
+          :func:`pytest_assertion_pass`) or a measurement with
+          limits — → ``PASSED``
+        - otherwise → ``DONE`` (the step ran code, recorded no
+          judgment; "recorded but unjudged" is the right semantic)
     * ``Skipped`` (``pytest.skip``, ``@pytest.mark.skip``, skipif) → SKIPPED
-    * ``LimitFailure`` / ``AssertionError`` → FAILED (closes bare-assert gap)
+    * ``AssertionError`` (rewritten or bare) → FAILED
     * Anything else → ERRORED
+
+    The PASSED-vs-DONE branch consults the runtime
+    ``_STEP_JUDGMENT_INTENT`` set instead of guessing from the AST.
+    Accurate by construction; cross-module helpers come along for
+    free if their module is registered via
+    ``pytest.register_assert_rewrite()``.
 
     Uses ``escalate_outcome`` so a measurement-level FAILED that already
     cascaded into the step is not weakened by a later runner-side stamp.
@@ -661,14 +870,15 @@ def _stamp_step_from_call_outcome(logger_inst: Any, outcome_obj: Any) -> None:
         return
     excinfo = outcome_obj.excinfo
     if excinfo is None:
-        return
-    exc_type = excinfo[0]
-    if issubclass(exc_type, pytest.skip.Exception):
-        new_outcome = Outcome.SKIPPED
-    elif issubclass(exc_type, AssertionError):
-        new_outcome = Outcome.FAILED
+        new_outcome = Outcome.PASSED if str(step.id) in _STEP_JUDGMENT_INTENT else Outcome.DONE
     else:
-        new_outcome = Outcome.ERRORED
+        exc_type = excinfo[0]
+        if issubclass(exc_type, pytest.skip.Exception):
+            new_outcome = Outcome.SKIPPED
+        elif issubclass(exc_type, AssertionError):
+            new_outcome = Outcome.FAILED
+        else:
+            new_outcome = Outcome.ERRORED
     _escalate_step_and_run(logger_inst, step, new_outcome)
 
 
@@ -723,20 +933,34 @@ def _find_step_for_nodeid(logger_inst: Any, node_id: str) -> Any | None:
 
 
 def pytest_keyboard_interrupt(excinfo: Any) -> None:
-    """Stamp ABORTED on any in-flight step + the active run on Ctrl-C.
+    """Stamp TERMINATED on any in-flight step + the active run on Ctrl-C.
 
     Pytest fires this once when KeyboardInterrupt propagates out of the
-    test loop. Any step still open at that point was killed mid-flight;
-    the run as a whole is aborted. ``escalate_outcome`` ensures we don't
-    downgrade an existing ERRORED state.
+    test loop. Any step still open at that point was stopped
+    mid-flight; the run as a whole is terminated. We use TERMINATED
+    rather than ABORTED because pytest is about to run fixture
+    teardowns — instruments get safe-stated, the parquet gets
+    finalized via the logger fixture's teardown. TestStand
+    semantics: Terminated = stopped with cleanup; Aborted is reserved
+    for the no-cleanup case.
+
+    In orchestrator mode (the active :class:`SlotRunner` is exposed
+    via ContextVar) the orchestrator forwards SIGTERM to every live
+    child *before* its own teardown unwinds. Each child's installed
+    SIGTERM-to-KeyboardInterrupt converter then drives the same
+    cleanup chain, landing every per-slot run as ``Terminated``
+    instead of orphan ``Aborted`` fallbacks.
     """
     _ = excinfo
     logger_inst = get_current_logger()
-    if logger_inst is None:
-        return
-    from litmus.execution._state import get_current_step
+    if logger_inst is not None:
+        from litmus.execution._state import get_current_step
 
-    _escalate_step_and_run(logger_inst, get_current_step(), Outcome.ABORTED)
+        _escalate_step_and_run(logger_inst, get_current_step(), Outcome.TERMINATED)
+
+    runner = get_active_slot_runner()
+    if runner is not None:
+        runner._propagate_termination()
 
 
 def _audit_traceability(logger_inst: Any, *, strict: bool) -> None:

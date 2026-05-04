@@ -716,7 +716,7 @@ class TestRunLogger:
                     step_name=step.name,
                     step_index=step_index,
                     step_path=step.step_path,
-                    outcome=step.outcome.value,
+                    outcome=step.outcome.value if step.outcome else None,
                     node_id=step.node_id,
                     file=step.file,
                     module=step.module,
@@ -767,12 +767,25 @@ class TestRunLogger:
                 "Stamp via logger.measure(outcome=...), check_limit(), or "
                 "set measurement.outcome explicitly before calling."
             )
-        # Cascade outcome up the test run hierarchy via the 7-rank
-        # severity ladder (ABORTED > ERRORED > FAILED > PASSED > DONE >
-        # SKIPPED > PLANNED).
+        # Cascade outcome up the test run hierarchy via the severity
+        # ladder (ABORTED > TERMINATED > ERRORED > FAILED > PASSED >
+        # DONE > SKIPPED). ``None`` ranks below everything.
         vector.outcome = escalate_outcome(vector.outcome, measurement.outcome)
         step.outcome = escalate_outcome(step.outcome, measurement.outcome)
         self.test_run.outcome = escalate_outcome(self.test_run.outcome, measurement.outcome)
+
+        # A measurement carrying limits is structurally equivalent
+        # to a passing assert — the test code declared an intent to
+        # judge. Flag the step so a clean exit lands as PASSED
+        # rather than DONE. (See pytest_plugin.hooks.pytest_assertion_pass
+        # for the assert-side counterpart.)
+        if measurement.limit_low is not None or measurement.limit_high is not None:
+            try:
+                from litmus.pytest_plugin.hooks import mark_step_judgment_intent
+
+                mark_step_judgment_intent(str(step.id))
+            except ImportError:
+                pass  # non-pytest path; flag is unused
 
         # Emit event if event log is wired
         if self._event_log is not None:
@@ -790,7 +803,7 @@ class TestRunLogger:
                 measurement_timestamp=measurement.timestamp,
                 value=measurement.value,
                 units=measurement.units,
-                outcome=measurement.outcome.value,
+                outcome=measurement.outcome.value if measurement.outcome else None,
                 limit_low=measurement.limit_low,
                 limit_high=measurement.limit_high,
                 limit_nominal=measurement.limit_nominal,
@@ -829,7 +842,7 @@ class TestRunLogger:
                     step_name=step.name,
                     step_index=self._current_step_index,
                     step_path=step.step_path,
-                    outcome=step.outcome.value,
+                    outcome=step.outcome.value if step.outcome else None,
                     node_id=step.node_id,
                     file=step.file,
                     module=step.module,
@@ -1064,7 +1077,7 @@ class TestRunLogger:
                 RunEnded(
                     session_id=self._session_id,
                     run_id=self.test_run.id,
-                    outcome=self.test_run.outcome.value,
+                    outcome=self.test_run.outcome.value if self.test_run.outcome else None,
                 )
             )
 

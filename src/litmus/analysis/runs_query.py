@@ -23,6 +23,28 @@ from litmus.data._sql_helpers import sql_escape
 from litmus.data.results_dir import resolve_results_dir
 
 
+def _multi_filter_clauses(filters: dict[str, str | list[str] | None]) -> list[str]:
+    """Build ``col = '…' / col IN (…)`` clauses from multi-value filters.
+
+    Empty / ``None`` values contribute nothing. Used by query
+    methods that take ``str | list[str] | None`` filters so a
+    multi-select widget can drive an ``IN (…)`` clause directly.
+    """
+    out: list[str] = []
+    for column, value in filters.items():
+        if value is None or value == "":
+            continue
+        values = [value] if isinstance(value, str) else [v for v in value if v]
+        if not values:
+            continue
+        if len(values) == 1:
+            out.append(f"{column} = '{sql_escape(values[0])}'")
+        else:
+            quoted = ", ".join(f"'{sql_escape(v)}'" for v in values)
+            out.append(f"{column} IN ({quoted})")
+    return out
+
+
 class RunRow(BaseModel):
     """One row from the ``runs`` table — denormalized run-level summary.
 
@@ -35,10 +57,13 @@ class RunRow(BaseModel):
     steps_file_path: str | None = None
     run_id: str | None = None
     session_id: str | None = None
+    slot_id: str | None = None
     dut_serial: str | None = None
     dut_part_number: str | None = None
     station_id: str | None = None
     station_name: str | None = None
+    station_hostname: str | None = None
+    fixture_id: str | None = None
     outcome: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
@@ -82,18 +107,42 @@ class RunsQuery:
         self._flight.close()
         runs_duckdb_manager.release(self._runs_dir)
 
-    def list_recent(self, limit: int = 50) -> list[RunRow]:
-        """Return the ``limit`` most recent runs, most recent first."""
+    def __enter__(self) -> RunsQuery:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def list_recent(
+        self,
+        limit: int = 50,
+        *,
+        include_incomplete: bool = False,
+    ) -> list[RunRow]:
+        """Return the ``limit`` most recent runs, most recent first.
+
+        Args:
+            limit: Max rows.
+            include_incomplete: Default ``False`` — only finalized
+                runs (``ended_at IS NOT NULL``). UI list pages that
+                surface in-flight runs pass ``True``.
+        """
+        where = "" if include_incomplete else "WHERE ended_at IS NOT NULL"
         rows = self._query_dicts(f"""
             SELECT *
             FROM runs
+            {where}
             ORDER BY started_at DESC
             LIMIT {int(limit)}
         """)
         return [RunRow(**r) for r in rows]
 
     def get(self, run_id: str) -> RunRow | None:
-        """Return one run by id-prefix (8-char) or ``None`` if not found."""
+        """Return one run by id-prefix (8-char) or ``None`` if not found.
+
+        Returns whatever's in the table — including in-flight rows.
+        Single-id lookup; the caller asked for this specific run.
+        """
         prefix = run_id[:8] if len(run_id) >= 8 else run_id
         rows = self._query_dicts(f"""
             SELECT *
@@ -103,15 +152,111 @@ class RunsQuery:
         """)
         return RunRow(**rows[0]) if rows else None
 
-    def find_for_session(self, session_id: str) -> list[RunRow]:
-        """Return all runs sharing a ``session_id`` (multi-DUT siblings)."""
+    def find_for_session(
+        self,
+        session_id: str,
+        *,
+        include_incomplete: bool = False,
+    ) -> list[RunRow]:
+        """Return all runs sharing a ``session_id`` (multi-DUT siblings).
+
+        Default excludes in-flight rows; pass ``include_incomplete=True``
+        to surface running peers (e.g. live multi-slot view).
+        """
+        ended_clause = "" if include_incomplete else "AND ended_at IS NOT NULL"
         rows = self._query_dicts(f"""
             SELECT *
             FROM runs
             WHERE session_id = '{sql_escape(session_id)}'
+            {ended_clause}
             ORDER BY started_at
         """)
         return [RunRow(**r) for r in rows]
+
+    def failure_pareto(
+        self,
+        *,
+        group_by: str = "dut_part_number",
+        top_n: int = 10,
+        phase: str | list[str] | None = None,
+        product: str | list[str] | None = None,
+        station: str | list[str] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Pareto of failing runs grouped by ``group_by`` column.
+
+        Answers "where are the failures concentrated?" at the run
+        level — most-failing products, most-failing stations, etc.
+        Default groups by ``dut_part_number`` (a.k.a. product) since
+        that's the most useful pareto for an operator: which product
+        SKU is hurting yield.
+
+        ``failed_count`` includes both ``failed`` and ``errored``
+        outcomes — both mean the run did not pass. ``terminated`` /
+        ``aborted`` are excluded (operator stops, not product
+        failures). Sorted by ``failed_count`` descending; ties broken
+        by ``total`` descending so a low-volume group with 100% fail
+        rate doesn't outrank a high-volume group with the same fail
+        count.
+
+        Args:
+            group_by: Column to group by — ``dut_part_number``
+                (product), ``station_id``, ``operator_id``,
+                ``test_phase``. Validated against an allowlist; bad
+                values raise ``ValueError``.
+            top_n: Max rows.
+            phase / product / station / since / until: Filter the
+                run set before grouping. Same semantics as the
+                ``MeasurementsQuery`` filters.
+        """
+        # Operator-facing group-by dimensions only — internal IDs
+        # like ``station_id`` / ``product_id`` are not exposed.
+        # See feedback_operator_facing_identifiers.md.
+        valid_group = {
+            "dut_part_number",
+            "station_hostname",
+            "operator_id",
+            "test_phase",
+            "fixture_id",
+        }
+        if group_by not in valid_group:
+            raise ValueError(f"Invalid group_by={group_by!r}; must be one of {sorted(valid_group)}")
+        clauses = ["ended_at IS NOT NULL", f"{group_by} IS NOT NULL"]
+        # Operator-facing filters match against ``station_hostname``
+        # (the machine name the operator knows), not internal IDs.
+        # See feedback_operator_facing_identifiers.md.
+        clauses.extend(
+            _multi_filter_clauses(
+                {
+                    "test_phase": phase,
+                    "dut_part_number": product,
+                    "station_hostname": station,
+                }
+            )
+        )
+        if since:
+            clauses.append(f"started_at >= '{sql_escape(since)}'")
+        if until:
+            clauses.append(f"started_at <= '{sql_escape(until)}'")
+        where = " AND ".join(clauses)
+        return self._query_dicts(f"""
+            SELECT
+                {group_by} AS bucket,
+                COUNT(*) FILTER (WHERE outcome IN ('failed', 'errored')) AS failed_count,
+                COUNT(*) AS total,
+                CAST(
+                    100.0 * COUNT(*) FILTER (WHERE outcome IN ('failed', 'errored'))
+                    / COUNT(*)
+                    AS DOUBLE
+                ) AS fail_rate_pct
+            FROM runs
+            WHERE {where}
+            GROUP BY {group_by}
+            HAVING failed_count > 0
+            ORDER BY failed_count DESC, total DESC
+            LIMIT {int(top_n)}
+        """)
 
     def count_by_outcome(self) -> dict[str, int]:
         """Return ``{outcome: count}`` over all runs."""

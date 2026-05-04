@@ -372,7 +372,7 @@ class ParquetBackend:
                         step_class=step.class_name,
                         step_function=step.function,
                         step_markers=step.markers,
-                        step_outcome=step.outcome.value,
+                        step_outcome=step.outcome.value if step.outcome else None,
                         meta=meta,
                     )
                     rows.append(row_model.to_flat_dict())
@@ -412,7 +412,7 @@ class ParquetBackend:
         }
         # Overlay run-level metadata (populates run_id, dut_serial, etc.)
         row.update(build_run_metadata(test_run))
-        row["run_outcome"] = test_run.outcome.value
+        row["run_outcome"] = test_run.outcome.value if test_run.outcome else None
 
         # Add instrument identity arrays (default to empty lists for schema consistency)
         if instrument_arrays:
@@ -743,8 +743,14 @@ class ParquetSubscriber(EventSubscriber):
         ``_steps.parquet`` so the run is visible in the index.
 
         Args:
-            outcome: Run outcome from RunEnded. If None (crash/close without
-                RunEnded), defaults to "errored" since the run didn't complete.
+            outcome: Run outcome from RunEnded. If None — close()
+                fired without ever seeing a RunEnded event — the
+                run was killed mid-flight without the cleanup chain
+                running, so falls back to ``aborted`` (no-safe-state
+                signal: rig may not be in a known state). Operator
+                stops that reached the cleanup path get ``terminated``
+                stamped via the SIGTERM handler / pytest hook before
+                we get here.
         """
         if self._written:
             return
@@ -755,7 +761,7 @@ class ParquetSubscriber(EventSubscriber):
             return
 
         ended_at = _utcnow()
-        final_outcome = outcome if outcome is not None else "errored"
+        final_outcome = outcome if outcome is not None else "aborted"
 
         rows = self._build_final_rows(ended_at, final_outcome)
         if not rows and not self._step_ends:

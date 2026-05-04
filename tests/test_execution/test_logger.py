@@ -24,7 +24,7 @@ class TestTestRunLogger:
         )
         assert logger.test_run.dut.serial == "SN001"
         assert logger.test_run.station_id == "station_001"
-        assert logger.test_run.outcome == Outcome.PASSED
+        assert logger.test_run.outcome is None
 
     def test_init_with_all_options(self):
         logger = TestRunLogger(

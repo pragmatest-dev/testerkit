@@ -11,12 +11,10 @@ view is shareable by copy-paste.
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 import traceback
 from datetime import date
 from typing import Any
-from urllib.parse import urlencode
 
 from fastapi import Request
 from nicegui import ui
@@ -28,6 +26,12 @@ from litmus.analysis.measurement_facets import (
     FilterSet,
 )
 from litmus.analysis.measurements_query import MeasurementsQuery
+from litmus.ui.shared.components import (
+    page_header,
+    page_layout,
+    push_url_state,
+    render_empty_card,
+)
 from litmus.ui.shared.layout import create_layout
 
 logger = logging.getLogger(__name__)
@@ -51,6 +55,46 @@ _NUMERIC_TYPES = {
     "TINYINT",
     "HUGEINT",
 }
+
+
+def _render_no_measurements_state() -> None:
+    """Render the empty state for ``/explore`` when no measurements exist.
+
+    The page is otherwise an elaborate filter-first dashboard with
+    nothing to filter — that's a confusing landing for someone who
+    just opened the app. Replace it with a single card that names
+    the cause and points at the next step.
+
+    Uses the shared :func:`page_layout` + :func:`page_header`
+    primitives so the empty state shares the same outer shell as
+    every other Litmus page.
+    """
+    with page_layout():
+        page_header("Measurements", icon="scatter_plot")
+        with ui.card().classes("w-full max-w-3xl"):
+            with ui.card_section():
+                ui.label("No measurements recorded yet.").classes("text-lg text-slate-700")
+                ui.label(
+                    "This page plots numeric measurements across runs — "
+                    "yield trends, drift, distributions. It needs at "
+                    "least one test that recorded a value via "
+                    "``logger.measure()`` or the ``verify`` fixture."
+                ).classes("text-sm text-slate-500 mt-1")
+            ui.separator()
+            with ui.card_section():
+                ui.label("Quick start").classes("text-xs uppercase tracking-wider text-slate-500")
+                ui.html(
+                    """
+                    <pre class="text-xs bg-slate-50 p-3 rounded mt-2 overflow-auto">"""
+                    """from litmus.models.test_config import Limit\n\n"""
+                    """def test_voltage_in_range(verify):\n"""
+                    """    verify("vout", 3.3, limit=Limit(low=3.0, high=3.6, units="V"))</pre>""",
+                    sanitize=False,
+                )
+                ui.label(
+                    "Run that with ``litmus serve`` (or ``pytest`` directly), "
+                    "then revisit this page."
+                ).classes("text-xs text-slate-500 mt-2")
 
 
 def _classify_columns(
@@ -101,16 +145,44 @@ def explore_page(request: Request):
 
     results_dir = str(resolve_results_dir())
 
-    create_layout("Parametric Viewer")
+    create_layout("Measurements")
 
     # Schema fetch — drives the Y/X/group_by dropdowns.
+    from litmus.data._flight_query import IndexOutOfDate
+
     try:
-        q = MeasurementsQuery(_results_dir=results_dir)
-        schema = q.describe_columns()
-        q.close()
+        with MeasurementsQuery(_results_dir=results_dir) as q:
+            schema = q.describe_columns()
+    except IndexOutOfDate:
+        # No measurement parquets exist yet — daemon's measurements
+        # view was deferred. Render the same empty state we use when
+        # the table is present-but-empty so the user sees one
+        # consistent landing.
+        _render_no_measurements_state()
+        return
     except (OSError, ValueError, RuntimeError) as exc:
-        with ui.column().classes("w-full p-6"):
-            ui.label(f"Error loading schema: {exc}").classes("text-red-600")
+        with page_layout():
+            page_header("Measurements", icon="scatter_plot")
+            error_container = ui.column().classes("w-full")
+            render_empty_card(
+                error_container,
+                "Schema unavailable",
+                f"Error loading schema: {exc}",
+            )
+        return
+
+    # Schema exists but the table may be empty (the more common case):
+    # no test run has recorded a measurement yet. Render an empty
+    # state with a concrete next step rather than dropping the
+    # operator into a fully-configured filter UI that has no data
+    # to show.
+    try:
+        with MeasurementsQuery(_results_dir=results_dir) as q:
+            initial_counts = q.summary_counts()
+    except (OSError, ValueError, RuntimeError):
+        initial_counts = None
+    if initial_counts is not None and initial_counts.total_rows == 0:
+        _render_no_measurements_state()
         return
 
     y_options, x_options, group_options = _classify_columns(schema)
@@ -141,12 +213,9 @@ def explore_page(request: Request):
     # (cross-run trend) for older data without vector_index.
     if is_bare_url:
         try:
-            q = MeasurementsQuery(_results_dir=results_dir)
-            try:
+            with MeasurementsQuery(_results_dir=results_dir) as q:
                 top_names = q.distinct_values("measurement_name", filters=FilterSet(), limit=20)
-            finally:
-                q.close()
-        except (OSError, ValueError, RuntimeError):
+        except (OSError, ValueError, RuntimeError, IndexOutOfDate):
             top_names = []
         # Skip synthetic step-level rollups (Litmus convention: '_'
         # prefix marks names that don't carry a measurement value).
@@ -191,26 +260,29 @@ def explore_page(request: Request):
         return MeasurementsQuery(_results_dir=results_dir)
 
     def _push_url() -> None:
-        params: list[tuple[str, str]] = list(state["filter_set"].to_url_params())
+        # Group multi-value facets so a single key carries a list —
+        # ``push_url_state`` renders lists as repeated query keys.
+        grouped: dict[str, list[str]] = {}
+        for key, value in state["filter_set"].to_url_params():
+            grouped.setdefault(key, []).append(value)
+        params: dict[str, Any] = dict(grouped)
         if state["y"]:
-            params.append(("y", state["y"]))
+            params["y"] = state["y"]
         if state["x"] and state["chart_type"] != "histogram":
-            params.append(("x", state["x"]))
+            params["x"] = state["x"]
         if state["chart_type"] != "scatter":
-            params.append(("chart_type", state["chart_type"]))
+            params["chart_type"] = state["chart_type"]
         if state["group_by"]:
-            params.append(("group_by", state["group_by"]))
+            params["group_by"] = state["group_by"]
         if state["bins"] != DEFAULT_BINS:
-            params.append(("bins", str(state["bins"])))
+            params["bins"] = str(state["bins"])
         if state["limit"] != DEFAULT_LIMIT:
-            params.append(("limit", str(state["limit"])))
-        new_url = "/explore" + (f"?{urlencode(params)}" if params else "")
-        ui.run_javascript(f"history.replaceState(null, '', {json.dumps(new_url)})")
+            params["limit"] = str(state["limit"])
+        push_url_state("/explore", params)
 
     def _refresh_string_facets() -> None:
         """Re-populate STRING facet options based on current filter set."""
-        q = _new_query()
-        try:
+        with _new_query() as q:
             for facet in MEASUREMENT_FACETS:
                 if facet.kind is not FacetKind.STRING:
                     continue
@@ -230,15 +302,10 @@ def explore_page(request: Request):
                 if still_valid != current:
                     state["filter_set"].string_filters[facet.column] = still_valid
                 widget.update()
-        finally:
-            q.close()
 
     def _refresh_cardinality() -> None:
-        q = _new_query()
-        try:
+        with _new_query() as q:
             counts = q.summary_counts(filters=state["filter_set"])
-        finally:
-            q.close()
         cardinality_label.text = (
             f"{counts.total_rows:,} measurements · "
             f"{counts.distinct_runs:,} runs · "
@@ -256,8 +323,7 @@ def explore_page(request: Request):
                 ui.label("Pick a Y and X column").classes("text-slate-500 italic")
             return
         try:
-            q = _new_query()
-            try:
+            with _new_query() as q:
                 rows = q.parametric(
                     y=y_val,
                     x=x_val,
@@ -267,8 +333,6 @@ def explore_page(request: Request):
                     bins=state["bins"],
                     limit=state["limit"],
                 )
-            finally:
-                q.close()
         except (OSError, ValueError, RuntimeError) as exc:
             with chart_container:
                 ui.label(f"Query failed: {exc}").classes("text-red-600")
@@ -312,7 +376,7 @@ def explore_page(request: Request):
     with ui.column().classes("w-full p-6 gap-4"):
         with ui.row().classes("items-center gap-2"):
             ui.icon("scatter_plot").classes("text-slate-600")
-            ui.label("Parametric Viewer").classes("text-2xl font-semibold text-slate-700")
+            ui.label("Measurements").classes("text-2xl font-semibold text-slate-700")
 
         # FILTER section
         with ui.card().classes("w-full"):
@@ -401,6 +465,23 @@ def explore_page(request: Request):
     _ = (y_select, x_select, chart_type_select, group_select, bins_input, limit_input)
 
     _refresh_all()
+
+    # Subscribe to ``run.ended`` so the chart refreshes once a new
+    # run finalizes (and its measurements parquet ingests). We
+    # intentionally don't subscribe to ``test.measurement`` — the
+    # measurements view is parquet-driven and only sees rows after
+    # the canonical aggregate lands; per-event point append is
+    # tracked in ROADMAP.
+    from pathlib import Path as _Path
+
+    from litmus.data.event_store import EventStore
+    from litmus.ui.shared.components import subscribe_with_refresh
+
+    try:
+        event_store = EventStore(_results_dir=_Path(results_dir))
+        subscribe_with_refresh(event_store, ["run.ended"], _refresh_all)
+    except (OSError, RuntimeError) as exc:
+        logger.warning("Live updates unavailable: %s", exc)
 
 
 def _parse_iso_date(value: Any) -> date | None:

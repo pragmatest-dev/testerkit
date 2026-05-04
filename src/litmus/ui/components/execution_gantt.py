@@ -22,9 +22,9 @@ _OUTCOME_COLORS = {
     "done": "#10b981",  # emerald-500
     "failed": "#ef4444",  # red-500
     "errored": "#f59e0b",  # amber-500
-    "aborted": "#f59e0b",  # amber-500
+    "terminated": "#f59e0b",  # amber-500
+    "aborted": "#ef4444",  # red-500
     "skipped": "#94a3b8",  # slate-400
-    "planned": "#94a3b8",  # slate-400
 }
 _DEFAULT_COLOR = "#94a3b8"  # slate-400
 

@@ -50,6 +50,15 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 - Operator UI uses NiceGUI with Tailwind CSS classes via `.classes()`
 - **UI inputs:** Use dropdowns/autocomplete for fields with known value sets, even if dynamically populated from data
 - API routes use FastAPI for JSON endpoints
+- **UI consistency is a hard rule** — every page must use the same patterns:
+  - **Layout primitives**: `page_layout()` shell, `page_header()` title, `data_table()` for any tabular list, `format_datetime()` for any timestamp. All from `litmus.ui.shared.components`.
+  - **Data path**: pages read through the public Query API (`RunsQuery`, `StepsQuery`, `MeasurementsQuery`) — never directly from parquet, ContextVars, or in-process dicts.
+  - **No admin leaks in operator pages**: `results_dir` and other infrastructure paths resolve from `ProjectConfig`; never expose them in filter rows or inputs.
+  - **URL state**: pages with filters mirror state into the URL via `history.replaceState` so views are bookmarkable and shareable.
+  - **Filters above content**: filter widgets always render above the data they filter — never below.
+  - **Tabs subordinate to filters**: when a page has multiple analytical lenses (e.g. /metrics: Yield / Pareto / Cpk / Retest / Time loss / Assets), filters live above the tab strip.
+  - **One-word sidebar labels**: "Metrics", "Measurements", "Channels", "Events", "Results" — no multi-word labels.
+  - **Real empty states**: when a query returns 0 rows, render a card naming the cause and a concrete next step. Never "No data".
 - **Top-level imports** — Prefer module-level imports. Only use lazy imports inside functions when needed to break circular imports or defer heavy optional dependencies (e.g., `import numpy`). Never use in-function imports just for convenience.
 
 ## Documentation Updates

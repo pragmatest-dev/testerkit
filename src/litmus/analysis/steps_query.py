@@ -96,33 +96,129 @@ class StepsQuery:
         self._flight.close()
         runs_duckdb_manager.release(self._runs_dir)
 
-    def list_for_run(self, run_id: str) -> list[StepRow]:
+    def __enter__(self) -> StepsQuery:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def list_for_run(
+        self,
+        run_id: str,
+        *,
+        include_incomplete: bool = False,
+    ) -> list[StepRow]:
         """Return every step row for a run, ordered by ``step_index``.
 
         Matches the run by id-prefix (8-char) so callers can pass
         either the full UUID or its short form.
+
+        Args:
+            run_id: UUID or 8-char prefix.
+            include_incomplete: Default ``False`` — only finalized
+                steps (``ended_at IS NOT NULL``). UI live views pass
+                ``True`` to surface in-flight steps.
         """
         prefix = run_id[:8] if len(run_id) >= 8 else run_id
+        ended_clause = "" if include_incomplete else "AND ended_at IS NOT NULL"
         rows = self._query_dicts(f"""
             SELECT *
             FROM steps
             WHERE run_id LIKE '{sql_escape(prefix)}%'
+            {ended_clause}
             ORDER BY step_index
         """)
         return [StepRow(**r) for r in rows]
 
-    def list_for_session(self, session_id: str) -> list[StepRow]:
+    def failure_pareto(
+        self,
+        *,
+        top_n: int = 10,
+        phase: str | list[str] | None = None,
+        product: str | list[str] | None = None,
+        station: str | list[str] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Pareto of failing steps grouped by ``step_path``.
+
+        Cross-run aggregate: which test step name has the most
+        failures across the matching set of runs. Same semantic as
+        :meth:`MeasurementsQuery.pareto` but at step-level instead
+        of measurement-level — useful when the operator wants to
+        spot a flaky test rather than a flaky measurement within a
+        test.
+
+        ``failed_count`` includes ``failed`` + ``errored`` outcomes.
+        Optional filters scope to product / phase / station / time
+        window — same shape the rest of the metrics tabs use.
+
+        Note: filters apply to the runs context (joined via
+        ``run_id``), not to the steps directly, so a "production
+        phase / product PN-100" view shows only the failures from
+        runs matching those facets.
+        """
+        from litmus.analysis.runs_query import _multi_filter_clauses
+
+        run_filters = ["runs.ended_at IS NOT NULL"]
+        # Operator-facing filters — see
+        # feedback_operator_facing_identifiers.md (universal rule:
+        # match against ``station_hostname``, never ``station_id``).
+        run_filters.extend(
+            _multi_filter_clauses(
+                {
+                    "runs.test_phase": phase,
+                    "runs.dut_part_number": product,
+                    "runs.station_hostname": station,
+                }
+            )
+        )
+        if since:
+            run_filters.append(f"runs.started_at >= '{sql_escape(since)}'")
+        if until:
+            run_filters.append(f"runs.started_at <= '{sql_escape(until)}'")
+        where = " AND ".join(run_filters)
+        return self._query_dicts(f"""
+            SELECT
+                steps.step_path AS bucket,
+                COUNT(*) FILTER (WHERE steps.outcome IN ('failed', 'errored')) AS failed_count,
+                COUNT(*) AS total,
+                CAST(
+                    100.0 * COUNT(*) FILTER (WHERE steps.outcome IN ('failed', 'errored'))
+                    / COUNT(*)
+                    AS DOUBLE
+                ) AS fail_rate_pct
+            FROM steps
+            JOIN runs USING (run_id)
+            WHERE {where} AND steps.step_path IS NOT NULL
+            GROUP BY steps.step_path
+            HAVING failed_count > 0
+            ORDER BY failed_count DESC, total DESC
+            LIMIT {int(top_n)}
+        """)
+
+    def list_for_session(
+        self,
+        session_id: str,
+        *,
+        include_incomplete: bool = False,
+    ) -> list[StepRow]:
         """Return every step row across every run sharing a ``session_id``.
 
         Used by multi-slot timeline / Gantt views: a session spans N
         sibling runs (one per slot), and the timeline needs them all.
         Ordered by ``slot_id`` then ``step_index`` so each slot's
         lane reads top-to-bottom.
+
+        Default excludes in-flight rows; pass ``include_incomplete=True``
+        for the live timeline view.
         """
+        ended_clause = "" if include_incomplete else "AND ended_at IS NOT NULL"
         rows = self._query_dicts(f"""
             SELECT *
             FROM steps
             WHERE session_id = '{sql_escape(session_id)}'
+            {ended_clause}
             ORDER BY slot_id, step_index
         """)
         return [StepRow(**r) for r in rows]

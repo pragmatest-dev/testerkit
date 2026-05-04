@@ -22,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import json as json_mod
+import logging
 import threading
 import warnings
 from collections import OrderedDict
@@ -41,6 +42,8 @@ from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.event_log import EventLog
 from litmus.data.events import EventBase
 from litmus.data.results_dir import resolve_results_dir
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_timestamp(ts: object) -> datetime | None:
@@ -356,6 +359,11 @@ class EventStore:
 
         Skips events already delivered in-process (via ``_notify_subscribers``).
         Parses the ``json`` column so subscribers get full event dicts.
+
+        Wraps each Flight query in a try/except so a transient failure
+        (events daemon mid-restart, schema not yet created) doesn't
+        kill the watcher thread silently — we'd lose all live updates
+        until the next process restart, with no log trace.
         """
         last_received_at: str | None = None
 
@@ -371,7 +379,12 @@ class EventStore:
                 {condition}
                 ORDER BY received_at ASC
             """
-            rows = self._flight_query(query)
+            try:
+                rows = self._flight_query(query)
+            except Exception as exc:  # noqa: BLE001 — log and retry on next tick
+                logger.debug("Watcher poll failed (will retry): %s", exc)
+                self._watcher_stop.wait(timeout=0.5)
+                continue
 
             for row in rows:
                 ts = row.get("received_at")

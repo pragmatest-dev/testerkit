@@ -241,6 +241,8 @@ class ChannelStore:
         units: str | None = None,
         sample_interval: float | None = None,
         source: str = "observe",
+        instrument_role: str = "",
+        resource: str = "",
     ) -> str:
         """Write a value directly to a channel.
 
@@ -253,6 +255,14 @@ class ChannelStore:
             units: Optional unit string.
             sample_interval: For array data, seconds between samples.
             source: Source label for the channel registry.
+            instrument_role: Station-config role of the instrument
+                producing this channel (e.g. ``"psu"``, ``"dmm"``).
+                Stamped on the registry descriptor on first write so
+                the channels list shows which instrument owns each
+                channel without parsing the channel id.
+            resource: Driver connection string (VISA address etc.) of
+                the instrument producing this channel. Same purpose
+                as ``instrument_role`` — first-write provenance.
 
         Returns:
             ``channel://`` URI pointing to this data in the store.
@@ -291,6 +301,8 @@ class ChannelStore:
                 channel_id=channel_id,
                 data_type=data_type,
                 units=units,
+                instrument_role=instrument_role,
+                resource=resource,
                 first_seen=now,
             )
 
@@ -362,7 +374,16 @@ class ChannelStore:
 
         if isinstance(normalized, dict):
             row: dict = {**common, **normalized}
-            data_type = "struct"
+            # A normalized dict with a ``samples`` list is a waveform
+            # capture (the result of ``_normalize_value`` folding an
+            # array / tuple / numpy ndarray into ``{samples,
+            # sample_interval}``). Tag it accordingly so the registry
+            # carries the precise shape, not the generic ``struct``
+            # used for arbitrary structured records.
+            if isinstance(normalized.get("samples"), list):
+                data_type = "waveform"
+            else:
+                data_type = "struct"
             sample_value = normalized
         elif isinstance(normalized, bool):
             row = {**common, "value": normalized}

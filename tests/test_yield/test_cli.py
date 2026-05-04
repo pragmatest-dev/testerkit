@@ -103,9 +103,23 @@ class TestMetricsCLI:
         assert result.exit_code == 0
         assert "total_runs" in result.output
 
-    def test_pareto(self, results_dir):
+    def test_pareto_default_dispatches_to_product_lens(self, results_dir):
+        """Default ``--group-by`` is ``product`` — exits 0 even when the fixture
+        only has measurement parquets (no ``_steps.parquet``); content is
+        verified separately for the measurement lens which uses the
+        always-populated measurements view.
+        """
         runner = CliRunner()
         result = runner.invoke(main, ["metrics", "pareto", "--results-dir", str(results_dir)])
+        assert result.exit_code == 0
+
+    def test_pareto_group_by_measurement(self, results_dir):
+        """Historical lens: ``--group-by measurement`` surfaces measurement names."""
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            ["metrics", "pareto", "--results-dir", str(results_dir), "--group-by", "measurement"],
+        )
         assert result.exit_code == 0
         assert "output_voltage" in result.output
 

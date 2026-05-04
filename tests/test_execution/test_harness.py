@@ -222,7 +222,10 @@ class TestHarnessRunWithRetry:
     """Tests for TestHarness.run_with_retry method."""
 
     def test_retry_on_failure(self):
-        config = {"retry": {"max_attempts": 3, "delay": 0}}
+        config = {
+            "retry": {"max_attempts": 3, "delay": 0},
+            "limits": {"voltage": {"low": 3.0, "high": 4.0}},
+        }
         harness = TestHarness(config=config)
 
         call_count = 0
@@ -232,7 +235,7 @@ class TestHarnessRunWithRetry:
             call_count += 1
             if call_count < 3:
                 raise ValueError("Fail")
-            return 3.3
+            harness.measure("voltage", 3.3)
 
         with harness.step():
             tv = harness.run_with_retry(Vector(_index=0), test_fn)
@@ -242,7 +245,10 @@ class TestHarnessRunWithRetry:
         assert tv.outcome == Outcome.PASSED
 
     def test_no_retry_on_pass(self):
-        config = {"retry": {"max_attempts": 3, "delay": 0}}
+        config = {
+            "retry": {"max_attempts": 3, "delay": 0},
+            "limits": {"voltage": {"low": 3.0, "high": 4.0}},
+        }
         harness = TestHarness(config=config)
 
         call_count = 0
@@ -250,7 +256,7 @@ class TestHarnessRunWithRetry:
         def test_fn(vector):
             nonlocal call_count
             call_count += 1
-            return 3.3
+            harness.measure("voltage", 3.3)
 
         with harness.step():
             tv = harness.run_with_retry(Vector(_index=0), test_fn)

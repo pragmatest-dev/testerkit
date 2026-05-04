@@ -4,7 +4,7 @@ import logging
 
 from nicegui import ui
 
-from litmus.ui.shared.components import format_datetime
+from litmus.ui.shared.components import data_table, format_datetime
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import discover_stations, get_recent_runs
 
@@ -129,26 +129,33 @@ def _getting_started_card():
 def _render_recent_runs(runs: list) -> None:
     """Render recent runs table."""
     if runs:
-        with ui.card().classes("w-full"):
-            columns = [
-                {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
-                {"name": "dut", "label": "DUT", "field": "dut_serial", "align": "left"},
-                {"name": "station", "label": "Station", "field": "station_id", "align": "left"},
-                {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
-                {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
-            ]
-            rows = [
-                {
-                    "run_id": (r.test_run_id or "")[:8],
-                    "full_run_id": r.test_run_id or "",
-                    "dut_serial": r.dut_serial or "",
-                    "station_id": r.station_id or "",
-                    "started_at": format_datetime(r.started_at),
-                    "outcome": r.outcome or "",
-                }
-                for r in runs
-            ]
-            table = ui.table(columns=columns, rows=rows, row_key="run_id").classes("w-full")
-            table.on("row-click", lambda e: ui.navigate.to(f"/results/{e.args[1]['full_run_id']}"))
+        # Station column shows ``station_hostname`` (the machine an
+        # operator recognizes), not the internal slug. Universal
+        # rule — see feedback_operator_facing_identifiers.md.
+        columns = [
+            {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
+            {"name": "dut", "label": "DUT", "field": "dut_serial", "align": "left"},
+            {"name": "station", "label": "Station", "field": "station_hostname", "align": "left"},
+            {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
+            {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
+        ]
+        rows = [
+            {
+                "run_id": (r.test_run_id or "")[:8],
+                "full_run_id": r.test_run_id or "",
+                "dut_serial": r.dut_serial or "",
+                "station_hostname": r.station_hostname or "",
+                "started_at": format_datetime(r.started_at),
+                "outcome": r.outcome or "",
+            }
+            for r in runs
+        ]
+        data_table(
+            columns=columns,
+            rows=rows,
+            row_key="run_id",
+            on_row_click=lambda r: ui.navigate.to(f"/results/{r['full_run_id']}"),
+            time_columns=["started"],
+        )
     else:
         ui.label("No test runs yet.").classes("text-slate-500 italic")

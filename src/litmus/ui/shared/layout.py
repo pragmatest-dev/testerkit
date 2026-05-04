@@ -121,8 +121,8 @@ def create_sidebar():
             _nav_item("/", "dashboard", "Dashboard")
             _nav_item("/launch", "play_arrow", "Launch Test")
             _nav_item("/results", "history", "Results")
-            _nav_item("/metrics", "analytics", "Yield Analytics")
-            _nav_item("/explore", "scatter_plot", "Parametric Viewer")
+            _nav_item("/metrics", "analytics", "Metrics")
+            _nav_item("/explore", "scatter_plot", "Measurements")
 
             ui.separator().classes("bg-slate-700 my-2")
             ui.label("DATA STORES").classes("text-xs text-slate-500 px-3 pt-2")
@@ -160,7 +160,29 @@ def _nav_item(target: str, icon: str, label: str):
 
 def create_layout(title: str = "Litmus"):
     """Create the standard page layout with sidebar."""
-    ui.add_head_html('<link rel="stylesheet" href="/static/global.css">')
+    # Cache-bust the design-system stylesheet against the file's
+    # mtime so edits land in the browser without a hard reload.
+    # Cheap (one stat per page render) and only relevant in
+    # development; production deploys hash-stable mtimes.
+    from pathlib import Path
+
+    from litmus.ui.shared.components import local_time_init_script
+
+    css_path = Path(__file__).parent.parent / "static" / "global.css"
+    try:
+        version = int(css_path.stat().st_mtime)
+    except OSError:
+        version = 0
+    ui.add_head_html(f'<link rel="stylesheet" href="/static/global.css?v={version}">')
+    # Browser-local-time formatter: every ``.litmus-time`` span on the
+    # page (rendered via :func:`format_datetime`) gets rewritten from
+    # UTC ISO to the browser's locale on load. UTC stored, local
+    # displayed — the design-system convention.
+    ui.add_head_html(
+        "<script>document.addEventListener('DOMContentLoaded', () => {"
+        f" {local_time_init_script()} "
+        "});</script>"
+    )
     ui.query("body").classes("bg-slate-50")
 
     create_sidebar()

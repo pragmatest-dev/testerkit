@@ -154,6 +154,127 @@ class TestListRecent:
         assert by_id["run-cccccccc"].num_steps == 1
 
 
+@pytest.fixture()
+def results_dir_with_in_flight(tmp_path: Path) -> Path:
+    """Same fixture as ``results_dir`` plus one in-flight run.
+
+    The in-flight run is written as a parquet with ``run_ended_at``
+    and ``run_outcome`` set to NULL — parquet ingest then produces a
+    runs row with ``ended_at IS NULL``, exactly the shape the
+    streaming UPSERT path would produce after a ``RunStarted`` event.
+    """
+    runs_dir = tmp_path / "runs"
+    base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
+    _write_run(
+        runs_dir,
+        run_id="run-aaaaaaaa",
+        session_id="sess-A",
+        started=base,
+        outcome="passed",
+        n_steps=2,
+    )
+    _write_run(
+        runs_dir,
+        run_id="run-bbbbbbbb",
+        session_id="sess-A",
+        started=base + timedelta(minutes=10),
+        outcome="failed",
+        n_steps=3,
+        dut_serial="SN002",
+    )
+    _write_run(
+        runs_dir,
+        run_id="run-cccccccc",
+        session_id="sess-B",
+        started=base + timedelta(minutes=20),
+        outcome="passed",
+        n_steps=1,
+    )
+    _write_in_flight_run(
+        runs_dir,
+        run_id="run-in-flight",
+        session_id="sess-LIVE",
+        started=base + timedelta(minutes=30),
+    )
+    return tmp_path
+
+
+def _write_in_flight_run(
+    runs_dir: Path,
+    *,
+    run_id: str,
+    session_id: str,
+    started: datetime,
+) -> None:
+    """Write a steps parquet for an in-flight run (no ended_at, no outcome).
+
+    Mirrors what the daemon's ``runs`` table looks like after a
+    ``RunStarted`` event: ``ended_at IS NULL``, ``outcome IS NULL``.
+    """
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    populated: dict = {f.name: None for f in STEP_SCHEMA}
+    populated.update(
+        {
+            "index": 0,
+            "name": "in_flight_step",
+            "step_path": "in_flight_step",
+            "outcome": None,
+            "started_at": started,
+            "ended_at": None,
+            "duration_s": None,
+            "has_measurements": False,
+            "measurement_count": 0,
+            "vector_count": 1,
+            "run_id": run_id,
+            "session_id": session_id,
+            "run_started_at": started,
+            "run_ended_at": None,
+            "run_outcome": None,
+            "dut_serial": "SN-LIVE",
+            "station_id": "STA-01",
+            "test_phase": "production",
+            "product_id": "PN-100",
+        }
+    )
+    cols = {f.name: [populated[f.name]] for f in STEP_SCHEMA}
+    pq.write_table(
+        pa.table(cols, schema=STEP_SCHEMA),
+        runs_dir / f"{run_id}_steps.parquet",
+    )
+
+
+class TestIncludeIncomplete:
+    """``include_incomplete`` switch — surfaces or hides in-flight rows.
+
+    A partial run row has ``ended_at IS NULL`` / ``outcome IS NULL``.
+    ``list_recent`` defaults to excluding them; UI list pages opt in
+    to see live runs.
+    """
+
+    def test_default_excludes_in_flight(self, results_dir_with_in_flight: Path):
+        """Default ``include_incomplete=False`` skips rows with ended_at=NULL."""
+        q = RunsQuery(_results_dir=results_dir_with_in_flight)
+        try:
+            ids = [r.run_id for r in q.list_recent(limit=10)]
+        finally:
+            q.close()
+        assert "run-in-flight" not in ids
+        assert set(ids) == {"run-aaaaaaaa", "run-bbbbbbbb", "run-cccccccc"}
+
+    def test_include_incomplete_true_surfaces_in_flight(self, results_dir_with_in_flight: Path):
+        """``include_incomplete=True`` returns rows with ended_at=NULL."""
+        q = RunsQuery(_results_dir=results_dir_with_in_flight)
+        try:
+            rows = q.list_recent(limit=10, include_incomplete=True)
+        finally:
+            q.close()
+        ids = [r.run_id for r in rows]
+        assert "run-in-flight" in ids
+        live = next(r for r in rows if r.run_id == "run-in-flight")
+        assert live.ended_at is None
+        assert live.outcome is None
+
+
 class TestGet:
     def test_id_prefix_match(self, results_dir: Path):
         q = RunsQuery(_results_dir=results_dir)

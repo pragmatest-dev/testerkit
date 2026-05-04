@@ -101,6 +101,7 @@ class SlotRunner:
         session_id: UUID | None = None,
         instrument_server_address: str | None = None,
         shared_roles: set[str] | None = None,
+        child_grace_seconds: float = 5.0,
     ) -> None:
         if not slots:
             raise ValueError("At least one slot is required")
@@ -114,6 +115,37 @@ class SlotRunner:
         self._session_id = session_id or uuid4()
         self._instrument_server_address = instrument_server_address
         self._shared_roles = shared_roles or set()
+        self._child_grace_seconds = child_grace_seconds
+        # Live child processes, keyed by slot id. Populated as each child
+        # is spawned in :meth:`run`; consulted by
+        # :meth:`_propagate_termination` (called from
+        # ``pytest_keyboard_interrupt``) to forward SIGTERM and by the
+        # ``finally`` cleanup path to kill survivors past the grace
+        # budget. Empty outside of a ``run()`` call.
+        self._processes: dict[str, subprocess.Popen] = {}
+
+    def _propagate_termination(self) -> None:
+        """Forward SIGTERM to every live child.
+
+        Called from the orchestrator's ``pytest_keyboard_interrupt``
+        path so each child gets a chance to run its own cleanup chain
+        (``pytest_keyboard_interrupt`` → fixture teardown →
+        ``Terminated``) *before* the orchestrator's existing
+        ``finally`` block falls through to ``proc.kill()``.
+
+        Idempotent — already-exited children are skipped, and a second
+        call after the first SIGTERM has been delivered is a no-op.
+        Errors raised by ``proc.terminate`` (e.g. process gone between
+        ``poll`` and the syscall) are swallowed; the goal is best-effort
+        propagation, not a strict delivery guarantee.
+        """
+        for slot_id, proc in self._processes.items():
+            if proc.poll() is None:
+                logger.info("Forwarding SIGTERM to slot '%s'", slot_id)
+                try:
+                    proc.terminate()
+                except (ProcessLookupError, OSError):
+                    pass
 
     @property
     def session_id(self) -> UUID:
@@ -143,7 +175,7 @@ class SlotRunner:
             Dict mapping slot_id -> SlotResult.
         """
         results: dict[str, SlotResult] = {}
-        processes: dict[str, subprocess.Popen] = {}
+        self._processes = {}
         threads: list[threading.Thread] = []
 
         base_env = os.environ.copy()
@@ -212,7 +244,7 @@ class SlotRunner:
                     env=slot_env,
                     text=True,
                 )
-                processes[slot_id] = proc
+                self._processes[slot_id] = proc
 
                 # Emit SlotStarted event
                 if event_log is not None:
@@ -261,15 +293,20 @@ class SlotRunner:
                     )
 
         finally:
-            # Terminate any still-running worker processes
-            for slot_id, proc in processes.items():
+            # Terminate any still-running worker processes. If
+            # ``_propagate_termination`` already fired (KeyboardInterrupt
+            # path), most children are already exiting and ``terminate``
+            # below is a no-op; the wait/kill cascade then enforces the
+            # grace budget for any laggard.
+            for slot_id, proc in self._processes.items():
                 if proc.poll() is None:
                     logger.warning("Terminating orphaned slot '%s'", slot_id)
                     proc.terminate()
                     try:
-                        proc.wait(timeout=5)
+                        proc.wait(timeout=self._child_grace_seconds)
                     except subprocess.TimeoutExpired:
                         proc.kill()
+            self._processes = {}
             if coordinator:
                 coordinator.stop()
             if owns_event_store and event_store is not None:
@@ -319,11 +356,22 @@ def is_orchestrator_mode(config) -> bool:
     """Detect if this process should orchestrate multi-slot execution.
 
     Orchestrator mode activates when:
+
     1. ``_LITMUS_SLOT_ID`` is NOT set (we're not a worker child)
-    2. A multi-slot fixture config is detected
+    2. ``--slot=N`` is NOT set (operator is targeting one specific
+       slot in single-process mode — bypass orchestrator dispatch)
+    3. A multi-slot fixture config is detected
+
+    The ``--slot`` opt-out is what makes operator targeting work
+    against a multi-slot fixture: the operator passes ``--slot=slot_2``
+    (and a single ``--dut-serial``) and gets a single-process run that
+    records as ``slot_id=slot_2`` instead of N parallel children.
     """
     if os.environ.get("_LITMUS_SLOT_ID"):
         return False  # Already a worker
+
+    if config.getoption("--slot"):
+        return False  # Operator targeting a single slot in single-process mode
 
     from litmus.pytest_plugin.helpers import find_fixture_file
 
@@ -423,6 +471,7 @@ def _run_subprocess_mode(
     shared_roles: set[str] | None = None,
     station_instruments: dict[str, Any] | None = None,
     mock_all: bool = False,
+    child_grace_seconds: float = 5.0,
 ) -> None:
     """Run multi-slot tests using subprocess-per-slot.
 
@@ -535,19 +584,29 @@ def _run_subprocess_mode(
             sys.stdout.write(f"[{slot_id}] {line}")
             sys.stdout.flush()
 
+        from litmus.execution._state import set_active_slot_runner
+
         runner = SlotRunner(
             slots,
             duts,
             session_id=session_id,
             instrument_server_address=server.address_str if server else None,
             shared_roles=served_roles if server else None,
+            child_grace_seconds=child_grace_seconds,
         )
         child_cmd = _build_child_cmd(session.config)
-        results = runner.run(
-            child_cmd,
-            on_output=_stream_output,
-            event_store=event_store,
-        )
+        # Expose the runner via ContextVar so
+        # ``pytest_keyboard_interrupt`` can forward SIGTERM to live
+        # children before the orchestrator's own teardown unwinds.
+        set_active_slot_runner(runner)
+        try:
+            results = runner.run(
+                child_cmd,
+                on_output=_stream_output,
+                event_store=event_store,
+            )
+        finally:
+            set_active_slot_runner(None)
 
         _report_slot_results(session, results)
 
@@ -600,7 +659,7 @@ def run_multi_slot_session(
     from litmus.execution.slots import detect_shared_instruments, resolve_fixture_slots
     from litmus.pytest_plugin import _mocks_active
     from litmus.pytest_plugin.helpers import find_fixture_file
-    from litmus.store import load_fixture
+    from litmus.store import load_fixture, load_project_config
 
     fixture_path = find_fixture_file(session.config)
     if fixture_path is None:
@@ -639,6 +698,8 @@ def run_multi_slot_session(
     current_logger = get_current_logger()
     session_id = current_logger.test_run.session_id if current_logger else uuid4()
 
+    project_config = load_project_config()
+
     _run_subprocess_mode(
         session,
         slots,
@@ -648,6 +709,7 @@ def run_multi_slot_session(
         shared_roles=shared_roles,
         station_instruments=station_instruments,
         mock_all=_mocks_active(session.config),
+        child_grace_seconds=project_config.multi_slot.child_grace_seconds,
     )
 
     return True

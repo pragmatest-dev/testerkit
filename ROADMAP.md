@@ -6,7 +6,224 @@ through, just move.
 
 ---
 
+## Prioritization
+
+RICE scoring: **R** = reach (runs/users touched), **I** = impact
+(0.5/1/2/3), **C** = confidence the work pays off, **E** = effort
+in person-weeks. Score = R·I·C / E. Sorted within each release
+bucket by score.
+
+### 0.1.0 — required for first real users
+
+Demo-quality coherence, no rough edges. Most of what's needed here
+isn't in the backlog — it's in-flight session work (terminology,
+design system, viewport-bound tables, browser-local time).
+Backlog items that are 0.1.0 gates:
+
+| Item | R | I | C | E | Score |
+|---|---|---|---|---|---|
+| `response_model=` coverage on FastAPI endpoints | high | 1.5 | 0.9 | 1.0 | high |
+| `litmus plan --profile=X` — dry-run profile resolution | medium | 1 | 0.9 | 0.5 | medium |
+
+### 0.2.0 — first adoption push
+
+Things that make Litmus *good* (not just shippable). Sorted by RICE.
+
+| Item | R | I | C | E | Score |
+|---|---|---|---|---|---|
+| Runner-invocation capture (full vs ad-hoc) | high | 2 | 0.9 | 1.0 | high |
+| Parquet compaction | medium | 2 | 0.7 | 3.0 | high |
+| `ReactiveChart` shared chart primitive | high | 2 | 0.8 | 2.0 | high |
+| Limit resolution strategies (expr / lookup / step / callable) | high | 2 | 0.5 | 3.0 | high |
+| Capability-aware runnability inference | high | 2 | 0.6 | 2.0 | high |
+| Live updates on Events/Channels store pages | medium | 1.5 | 0.6 | 2.0 | medium |
+| Consumer-side ref materialization (waveform viewing) | medium | 2 | 0.7 | 2.0 | medium |
+| Operator-UI store browser (Sessions + Artifacts) | medium | 1.5 | 0.7 | 1.5 | medium |
+| Artifact viewer — inline previews + grid | medium | 2 | 0.6 | 2.0 | medium |
+| Facet prompt fallback (TTY interactive) | medium | 2 | 0.7 | 1.0 | medium |
+| Parametric viewer follow-ups | medium | 1.5 | 0.8 | 1.0 | medium |
+| StationType → StationConfig inheritance | medium | 1 | 0.8 | 1.0 | medium |
+| SpecQualifier matching scoring | medium | 1.5 | 0.6 | 1.0 | medium |
+| Exporter row-level cascade outcomes | medium | 1 | 0.7 | 1.0 | medium |
+| Channel EventStore-bridging subscription | medium | 1 | 0.6 | 1.0 | medium |
+| CLI fallback for multi-DUT operator prompts | low-med | 1 | 0.7 | 1.0 | medium |
+| HTTP support for ImageDialog | small | 0.5 | 0.7 | 0.5 | small |
+| Channel attribution (`instrument_role`/`resource`) | small | 0.5 | 0.9 | 0.3 | small |
+| Array channel empty-result schema | small | 0.5 | 0.9 | 0.2 | small |
+| Runs daemon — record actual `row_count` in `_ingested` | small | 0.5 | 0.9 | 0.2 | small |
+
+### Later — strategic but not pre-1.0
+
+Big architectural moves or features that depend on adoption signals
+to confirm direction.
+
+| Item | R | I | C | E | Notes |
+|---|---|---|---|---|---|
+| UI Extensions API — third-party plugins | high | 3 | 0.5 | 8.0 | The OpenHTF-killer pitch; needs early adopters to shape the API |
+| Alternate runner wrappers (OpenHTF / unittest / Robot) | high | 3 | 0.4 | 6.0 | Migration story; build *one* (OpenHTF) once we know which mappings stick |
+| Split into `pytest-litmus` + `litmus-test` | high | 2 | 0.5 | 4.0 | Packaging refactor; only worth it once API surfaces stabilize |
+| Switch-matrix routing | low (specialized) | 2 | 0.5 | 4.0 | Needed by some shops, irrelevant to many |
+| Sequences for fine-grained execution control | low | 1 | 0.4 | 4.0 | Was deleted in v1; revisit if pytest's primitives prove insufficient |
+| Transports — read side (download / fetch / replay) | medium | 1.5 | 0.6 | 2.0 | Wait until storage layer settles |
+| `@litmus.judges` marker | low (escape hatch) | 0.5 | 0.7 | 0.5 | Only if the runtime `pytest_assertion_pass` + measurement-with-limits inference proves insufficient in practice |
+
+---
+
 ## Backlog
+
+### Test audit — find brittle / implementation-coupled tests
+
+Sweep the existing test suite for patterns that test the *shape* of
+an implementation rather than the *behavior* an operator or
+end-user would observe. Each finding is a candidate to either rewrite
+behavior-first or delete.
+
+What "brittle" looks like:
+
+- Tests that import private helpers (``_foo``-prefixed) and assert on
+  their internal return shapes instead of going through the public
+  API the rest of the system uses.
+- Tests that read/write parquet directly, poke ContextVars, or check
+  internal in-memory dicts when an equivalent ``RunsQuery`` /
+  ``StepsQuery`` / HTTP route would exercise the same flow.
+- Tests that recreate the production logic in fixtures (helper
+  functions that mirror what the production code does), making the
+  test pass when the helper agrees with itself rather than when the
+  system behaves correctly.
+- Tests that pin specific exception types, log messages, or column
+  orders without reason — making refactors loud without catching
+  real regressions.
+- Tests asserting on outcomes derived through several layers of
+  knowledge of how outcomes flow internally, rather than just
+  invoking pytest and reading the run row through the same surface
+  the UI uses.
+
+Goal posture: a test should look like *"someone runs this command, then
+inspects the recorded result through the public API and asserts on
+the observable outcome."* Minimal new logic, minimal coupling to
+internals.
+
+Deliverable: a checklist (or follow-up tickets) of specific files /
+test classes that need rewrites, plus the rewrite for the worst
+offenders. Establish a "behavior-first" pattern others can copy when
+adding new tests.
+
+### Runner-invocation capture — distinguish full sweeps from ad-hoc subsets
+
+The runs table records *what* was collected (every step that ran)
+but not *how* the runner was invoked. Two runs with identical
+collected sets but different intent — a production sweep vs a
+debug-by-node-id cherry-pick — look indistinguishable in the
+record. This breaks several real workflows:
+
+- **Yield analytics** double-count ad-hoc reruns of failures alongside
+  production runs, biasing first-pass yield.
+- **Triage** can't filter "show me only the runs that exercised the
+  full suite" from a results page that mixes everything.
+- **Audit** can't tell whether a passing run was a comprehensive
+  qualification or a single-test smoke-check.
+
+Pytest exposes everything we need on ``config`` /
+``config.option`` / ``config.invocation_params``:
+
+| Field | Captures |
+|---|---|
+| ``config.invocation_params.args`` | Literal positional args (paths, node-ids the user typed) |
+| ``config.invocation_params.dir`` | CWD pytest ran from |
+| ``config.option.keyword`` | ``-k expression`` |
+| ``config.option.markexpr`` | ``-m expression`` |
+| ``config.option.exitfirst`` | ``-x`` |
+| ``config.option.maxfail`` | ``--maxfail=N`` |
+| ``config.option.lf`` / ``ff`` | ``--last-failed`` / ``--failed-first`` |
+| ``config.getini("addopts")`` | Sticky options from pytest.ini / pyproject.toml |
+| ``config.pluginmanager.list_plugin_distinfo()`` | Active plugins (audit trail) |
+
+New persistent shape on ``TestRun``:
+
+```python
+class RunnerInvocation(BaseModel):
+    argv: list[str] = []
+    cwd: str | None = None
+    keyword_filter: str | None = None
+    marker_filter: str | None = None
+    exit_first: bool = False
+    maxfail: int | None = None
+    last_failed: bool = False
+    failed_first: bool = False
+    addopts: list[str] = []
+    collected_count: int = 0
+    deselected_count: int = 0
+    pytest_version: str | None = None
+    is_adhoc: bool = False  # derived: argv has node-ids OR -k/-m set
+
+# TestRun
+runner_invocation: RunnerInvocation = Field(default_factory=RunnerInvocation)
+```
+
+Capture site: ``pytest_sessionstart`` — read once, attach to
+``logger.test_run`` before any test runs. Persists with the run via
+the existing parquet schema (the field becomes a JSON column or a
+dedicated set of columns on the steps sidecar — TBD).
+
+Display:
+
+- **/results table** — a small chip column "Scope" with values
+  ``Full`` / ``Filtered`` / ``Selected``, colored. At-a-glance scan
+  separates production sweeps from triage runs.
+- **Run-detail "Invocation" card** — full literal ``argv``, active
+  filters, plugin list, collected/deselected counts.
+- **Filter on /results** — facet by Scope so analytics surfaces can
+  exclude ad-hoc reruns from yield calculations.
+
+Out-of-scope for this entry but likely follow-up: similar capture
+for non-pytest runners (OpenHTF, ``with conn:``) once the runner-
+adapter shape is settled.
+
+### `@litmus.judges` marker — explicit verdict-intent override
+
+The runner's pass-vs-done decision for a step that ends without an
+exception or a measurement-level verdict relies on a static AST
+scan of the test's module: any `assert` or `limit*=` kwarg in any
+function in that module marks the test as "judging", which means a
+clean pass becomes `PASSED`. Otherwise (no judgment signal in the
+module) a clean pass becomes `DONE` — the recorded-but-unjudged
+semantic.
+
+The AST scan handles the common cases:
+- bare asserts in the test body or a same-module helper
+- `logger.measure(..., limit=...)` anywhere in the same module
+- Litmus wrappers that internally record limits — the cascade
+  from the measurement layer surfaces the real verdict regardless
+
+The gap: a test that delegates judgment to a **cross-module**
+helper. AST static analysis can't follow imports cheaply or
+reliably; we'd over-stamp `DONE` for what's actually a judging
+test.
+
+The escape hatch:
+
+```python
+@litmus.judges
+def test_with_imported_helper(measure):
+    _check_thing(measure)  # asserts live in another module
+```
+
+`@litmus.judges` flips the inference to "this test makes a verdict";
+clean exit → `PASSED`, no AST guessing. The complementary
+`@litmus.records_only` would force `DONE` for a setup-style step
+that explicitly opts out of a verdict even when its module has
+asserts elsewhere.
+
+Both markers are tiny: one entry in the marker registry, a check
+in `_stamp_step_from_call_outcome` (`hooks.py:642`-ish) ahead of
+the AST cache lookup, and the corresponding rows in
+`tests/test_pytest_plugin/test_outcome_inference.py`.
+
+This is what makes Litmus's combination of pytest's organic style
+and OpenHTF's typed verdict semantics actually robust — pytest
+gives you fixtures / parametrize / conftest / plugins; OpenHTF's
+declarative-intent story is recovered via these two markers when
+the AST inference can't reach.
 
 ### UI Extensions API — third-party Python plugins ship as native UI
 

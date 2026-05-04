@@ -28,7 +28,10 @@ import re
 import sys
 import threading
 import warnings
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pyarrow as pa
@@ -139,16 +142,26 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("CREATE TABLE _schema_version (v INTEGER PRIMARY KEY)")
     conn.execute(f"INSERT INTO _schema_version VALUES ({_SCHEMA_VERSION})")
 
+    # ``run_id`` is the primary key so the streaming subscriber can
+    # UPSERT partial rows on ``RunStarted`` and update them on
+    # ``RunEnded``. The parquet ingest path also writes through the
+    # same UPSERT so its canonical aggregate replaces any streaming
+    # row already there. ``file_path`` is nullable: streaming-only
+    # runs (in flight, or that never recorded measurements) have no
+    # measurements parquet on disk.
     conn.execute("""
         CREATE TABLE runs (
+            run_id VARCHAR PRIMARY KEY,
             file_path VARCHAR,
             steps_file_path VARCHAR,
-            run_id VARCHAR,
             session_id VARCHAR,
+            slot_id VARCHAR,
             dut_serial VARCHAR,
             dut_part_number VARCHAR,
             station_id VARCHAR,
             station_name VARCHAR,
+            station_hostname VARCHAR,
+            fixture_id VARCHAR,
             outcome outcome_kind,
             started_at TIMESTAMPTZ,
             ended_at TIMESTAMPTZ,
@@ -160,13 +173,18 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
             project_name VARCHAR
         )
     """)
+    # Same UPSERT pattern for steps. ``(run_id, step_index)`` is the
+    # composite PK because step_index is unique within a run. Both
+    # streaming and parquet ingest go through the same insert, with
+    # parquet's row replacing the streaming partial when it lands.
+    # ``file_path`` is nullable for the streaming-only case.
     conn.execute("""
         CREATE TABLE steps (
-            file_path VARCHAR NOT NULL,
-            run_id VARCHAR,
+            run_id VARCHAR NOT NULL,
+            step_index INTEGER NOT NULL,
+            file_path VARCHAR,
             session_id VARCHAR,
             slot_id VARCHAR,
-            step_index INTEGER,
             step_name VARCHAR,
             step_path VARCHAR,
             outcome outcome_kind,
@@ -178,7 +196,8 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
             vector_count INTEGER,
             markers VARCHAR,
             dut_serial VARCHAR,
-            station_id VARCHAR
+            station_id VARCHAR,
+            PRIMARY KEY (run_id, step_index)
         )
     """)
     # ``measurements`` stays a VIEW over the parquet glob (created
@@ -524,17 +543,31 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -
 
     flist = _file_list_sql(steps_paths)
     try:
+        # Explicit column list so a future schema reorder doesn't
+        # silently misalign. ``ON CONFLICT (run_id) DO UPDATE``
+        # lets the parquet path overwrite any streaming partial row
+        # the event subscriber inserted earlier — parquet is
+        # canonical, streaming is the live overlay.
         conn.execute(f"""
-            INSERT INTO runs
+            INSERT INTO runs (
+                run_id, file_path, steps_file_path, session_id, slot_id,
+                dut_serial, dut_part_number, station_id, station_name,
+                station_hostname, fixture_id, outcome, started_at, ended_at,
+                num_measurements, num_steps, test_phase, product_id,
+                operator_id, project_name
+            )
             SELECT
+                s.run_id,
                 ANY_VALUE(e.measurements_path) AS file_path,
                 s.filename AS steps_file_path,
-                s.run_id,
                 CAST(s.session_id AS VARCHAR) AS session_id,
+                ANY_VALUE(s.slot_id) AS slot_id,
                 ANY_VALUE(s.dut_serial) AS dut_serial,
                 ANY_VALUE(s.dut_part_number) AS dut_part_number,
                 ANY_VALUE(s.station_id) AS station_id,
                 ANY_VALUE(s.station_name) AS station_name,
+                ANY_VALUE(s.station_hostname) AS station_hostname,
+                ANY_VALUE(s.fixture_id) AS fixture_id,
                 ANY_VALUE(s.run_outcome) AS outcome,
                 ANY_VALUE(s.run_started_at) AS started_at,
                 ANY_VALUE(s.run_ended_at) AS ended_at,
@@ -548,22 +581,53 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -
             LEFT JOIN _meas_existence e ON s.filename = e.filename
             WHERE s.run_id IS NOT NULL
             GROUP BY s.filename, s.run_id, s.session_id
+            ON CONFLICT (run_id) DO UPDATE SET
+                file_path = excluded.file_path,
+                steps_file_path = excluded.steps_file_path,
+                session_id = excluded.session_id,
+                slot_id = excluded.slot_id,
+                dut_serial = excluded.dut_serial,
+                dut_part_number = excluded.dut_part_number,
+                station_id = excluded.station_id,
+                station_name = excluded.station_name,
+                station_hostname = excluded.station_hostname,
+                fixture_id = excluded.fixture_id,
+                outcome = excluded.outcome,
+                started_at = excluded.started_at,
+                ended_at = excluded.ended_at,
+                num_measurements = excluded.num_measurements,
+                num_steps = excluded.num_steps,
+                test_phase = excluded.test_phase,
+                product_id = excluded.product_id,
+                operator_id = excluded.operator_id,
+                project_name = excluded.project_name
         """)
     finally:
         conn.unregister("_meas_existence")
 
 
 def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -> None:
-    """Populate the ``steps`` TABLE from ``_steps.parquet`` files."""
+    """Populate the ``steps`` TABLE from ``_steps.parquet`` files.
+
+    Goes through ``ON CONFLICT (run_id, step_index) DO UPDATE`` so a
+    parquet ingest replaces any streaming partial row the event
+    subscriber inserted earlier — parquet is canonical, streaming
+    is the live overlay.
+    """
     flist = _file_list_sql(steps_paths)
     conn.execute(f"""
-        INSERT INTO steps
+        INSERT INTO steps (
+            run_id, step_index, file_path, session_id, slot_id,
+            step_name, step_path, outcome, started_at, ended_at,
+            duration_s, has_measurements, measurement_count,
+            vector_count, markers, dut_serial, station_id
+        )
         SELECT
-            filename AS file_path,
             run_id,
+            "index" AS step_index,
+            filename AS file_path,
             CAST(session_id AS VARCHAR) AS session_id,
             CAST(slot_id AS VARCHAR) AS slot_id,
-            "index" AS step_index,
             name AS step_name,
             step_path,
             outcome,
@@ -577,6 +641,22 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) 
             CAST(dut_serial AS VARCHAR) AS dut_serial,
             CAST(station_id AS VARCHAR) AS station_id
         FROM read_parquet({flist}, filename=true, union_by_name=true)
+        ON CONFLICT (run_id, step_index) DO UPDATE SET
+            file_path = excluded.file_path,
+            session_id = excluded.session_id,
+            slot_id = excluded.slot_id,
+            step_name = excluded.step_name,
+            step_path = excluded.step_path,
+            outcome = excluded.outcome,
+            started_at = excluded.started_at,
+            ended_at = excluded.ended_at,
+            duration_s = excluded.duration_s,
+            has_measurements = excluded.has_measurements,
+            measurement_count = excluded.measurement_count,
+            vector_count = excluded.vector_count,
+            markers = excluded.markers,
+            dut_serial = excluded.dut_serial,
+            station_id = excluded.station_id
     """)
 
 
@@ -791,6 +871,202 @@ def _create_views(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:
         logger.debug("No parquet files yet in %s — measurements view deferred", runs_dir)
 
 
+# ── Live event subscriber (in-flight visibility) ─────────────────────
+
+
+def _upsert_run_started(conn: duckdb.DuckDBPyConnection, evt: dict[str, Any]) -> None:
+    """Insert a partial ``runs`` row for an in-flight run.
+
+    On ``run.started`` we know who's running and on what fixture, but
+    not the outcome. ``ended_at`` and ``outcome`` stay NULL until the
+    matching ``run.ended`` arrives (or the parquet ingest path
+    overwrites the row with the canonical aggregate).
+    """
+    run_id = evt.get("run_id")
+    if not run_id:
+        return
+    conn.execute(
+        """
+        INSERT INTO runs (
+            run_id, session_id, slot_id, dut_serial, dut_part_number,
+            station_id, station_name, station_hostname, fixture_id,
+            started_at, test_phase, product_id, operator_id, project_name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (run_id) DO UPDATE SET
+            session_id = COALESCE(excluded.session_id, runs.session_id),
+            slot_id = COALESCE(excluded.slot_id, runs.slot_id),
+            dut_serial = COALESCE(excluded.dut_serial, runs.dut_serial),
+            dut_part_number = COALESCE(excluded.dut_part_number, runs.dut_part_number),
+            station_id = COALESCE(excluded.station_id, runs.station_id),
+            station_name = COALESCE(excluded.station_name, runs.station_name),
+            station_hostname = COALESCE(excluded.station_hostname, runs.station_hostname),
+            fixture_id = COALESCE(excluded.fixture_id, runs.fixture_id),
+            started_at = COALESCE(excluded.started_at, runs.started_at),
+            test_phase = COALESCE(excluded.test_phase, runs.test_phase),
+            product_id = COALESCE(excluded.product_id, runs.product_id),
+            operator_id = COALESCE(excluded.operator_id, runs.operator_id),
+            project_name = COALESCE(excluded.project_name, runs.project_name)
+        """,
+        [
+            run_id,
+            _str_or_none(evt.get("session_id")),
+            evt.get("slot_id"),
+            evt.get("dut_serial") or "",
+            evt.get("dut_part_number"),
+            evt.get("station_id"),
+            evt.get("station_name"),
+            evt.get("station_hostname"),
+            evt.get("fixture_id"),
+            _ts_or_none(evt.get("occurred_at")),
+            evt.get("test_phase"),
+            evt.get("product_id"),
+            evt.get("operator_id"),
+            evt.get("project_name"),
+        ],
+    )
+
+
+def _upsert_run_ended(conn: duckdb.DuckDBPyConnection, evt: dict[str, Any]) -> None:
+    """Update a ``runs`` row with the final outcome + ended_at.
+
+    If the row didn't exist (run.started was missed because the
+    daemon started after the run did), we INSERT a sparse row with
+    just run_id + outcome + ended_at — the parquet path will fill in
+    the rest when it lands.
+    """
+    run_id = evt.get("run_id")
+    if not run_id:
+        return
+    conn.execute(
+        """
+        INSERT INTO runs (run_id, outcome, ended_at)
+        VALUES (?, CAST(? AS outcome_kind), ?)
+        ON CONFLICT (run_id) DO UPDATE SET
+            outcome = excluded.outcome,
+            ended_at = excluded.ended_at
+        """,
+        [
+            run_id,
+            _coerce_outcome(evt.get("outcome")),
+            _ts_or_none(evt.get("occurred_at")),
+        ],
+    )
+
+
+def _upsert_step_started(conn: duckdb.DuckDBPyConnection, evt: dict[str, Any]) -> None:
+    """Insert a partial ``steps`` row for an in-flight step."""
+    run_id = evt.get("run_id")
+    step_index = evt.get("step_index")
+    if not run_id or step_index is None:
+        return
+    conn.execute(
+        """
+        INSERT INTO steps (
+            run_id, step_index, session_id, step_name, step_path, started_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (run_id, step_index) DO UPDATE SET
+            session_id = COALESCE(excluded.session_id, steps.session_id),
+            step_name = COALESCE(excluded.step_name, steps.step_name),
+            step_path = COALESCE(excluded.step_path, steps.step_path),
+            started_at = COALESCE(excluded.started_at, steps.started_at)
+        """,
+        [
+            run_id,
+            step_index,
+            _str_or_none(evt.get("session_id")),
+            evt.get("step_name"),
+            evt.get("step_path"),
+            _ts_or_none(evt.get("occurred_at")),
+        ],
+    )
+
+
+def _upsert_step_ended(conn: duckdb.DuckDBPyConnection, evt: dict[str, Any]) -> None:
+    """Update a ``steps`` row with outcome + ended_at + duration."""
+    run_id = evt.get("run_id")
+    step_index = evt.get("step_index")
+    if not run_id or step_index is None:
+        return
+    conn.execute(
+        """
+        INSERT INTO steps (
+            run_id, step_index, outcome, ended_at
+        ) VALUES (?, ?, CAST(? AS outcome_kind), ?)
+        ON CONFLICT (run_id, step_index) DO UPDATE SET
+            outcome = excluded.outcome,
+            ended_at = excluded.ended_at,
+            duration_s = CASE
+                WHEN steps.started_at IS NOT NULL AND excluded.ended_at IS NOT NULL
+                THEN EPOCH(excluded.ended_at) - EPOCH(steps.started_at)
+                ELSE steps.duration_s
+            END
+        """,
+        [
+            run_id,
+            step_index,
+            _coerce_outcome(evt.get("outcome")),
+            _ts_or_none(evt.get("occurred_at")),
+        ],
+    )
+
+
+def _coerce_outcome(value: Any) -> str | None:
+    """Pass-through for canonical ``Outcome`` values; ``None`` for absent.
+
+    The model is the contract — producers must emit canonical
+    past-tense values (``passed`` / ``failed`` / ``errored`` / etc.).
+    The DuckDB CAST will reject anything else, which is the right
+    failure: bad data should not silently cause a NULL update.
+    """
+    return None if value is None else str(value)
+
+
+def _str_or_none(value: Any) -> str | None:
+    """Coerce UUIDs / datetimes / etc. to str, preserving None."""
+    return None if value is None else str(value)
+
+
+def _ts_or_none(value: Any) -> datetime | None:
+    """Parse ISO-string timestamps; pass-through datetimes; ``None`` unchanged."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _make_event_dispatcher(
+    conn: duckdb.DuckDBPyConnection,
+) -> Callable[[dict[str, Any]], None]:
+    """Build the ``on_event`` callback that routes lifecycle events to UPSERTs.
+
+    Single dispatcher so the daemon only registers one subscription
+    (cleaner cleanup, less Flight chatter) and event-type filtering
+    happens here in Python.
+    """
+    handlers: dict[str, Callable[[duckdb.DuckDBPyConnection, dict[str, Any]], None]] = {
+        "run.started": _upsert_run_started,
+        "run.ended": _upsert_run_ended,
+        "test.step_started": _upsert_step_started,
+        "test.step_ended": _upsert_step_ended,
+    }
+
+    def _on_event(evt: dict[str, Any]) -> None:
+        et = evt.get("event_type")
+        handler = handlers.get(str(et) if et else "")
+        if handler is None:
+            return
+        try:
+            handler(conn, evt)
+        except Exception as exc:  # noqa: BLE001 — defensive; never let a bad event kill the subscriber
+            logger.warning("Event upsert failed for %s: %s", et, exc)
+
+    return _on_event
+
+
 # ── Daemon entry point ───────────────────────────────────────────────
 
 
@@ -846,10 +1122,79 @@ def daemon_run(runs_dir: Path) -> None:
         name="runs-ingest",
     ).start()
 
+    # Live event subscriber — surfaces in-flight runs / steps as they
+    # happen by upserting partial rows into the same tables the
+    # parquet ingest path writes to. ``since=now`` skips historical
+    # replay (those runs are already in the index via parquet).
+    event_unsub = _start_event_subscriber(conn, runs_dir.parent)
+
     mgr.monitor_refs()
+
+    if event_unsub is not None:
+        try:
+            event_unsub()
+        except Exception:  # noqa: BLE001 — defensive on shutdown
+            pass
 
     shutdown_flight_server_in_daemon(server, port_file, conn)
     mgr.cleanup_state_files()
+
+
+def _start_event_subscriber(
+    conn: duckdb.DuckDBPyConnection,
+    results_dir: Path,
+) -> Callable[[], None] | None:
+    """Subscribe to the EventStore for live UPSERTs into runs/steps tables.
+
+    Returns the unsubscribe callable, or ``None`` if the EventStore
+    is unavailable (e.g. tests that mock the daemon). A failure here
+    must never break the parquet ingest path — the daemon stays
+    useful even if live subscriptions are down.
+
+    Subscribes with a bounded replay window (``since = now - 1h``) so
+    we catch any in-flight run that started recently without flooding
+    the daemon with the full event history on every spawn. The
+    earlier ``since=now`` strategy raced with the spawn → ready →
+    emit sequence and silently filtered events emitted in that
+    ~50ms window; ``since=None`` (full replay) flooded the daemon
+    with thousands of legacy events and caused malloc corruption
+    on large indices. The 1-hour window covers normal operator
+    workflow while keeping startup cheap. Handlers are idempotent
+    UPSERTs, so re-dispatching is a no-op.
+    """
+    try:
+        from litmus.data.event_store import EventStore
+
+        event_store = EventStore(_results_dir=results_dir)
+    except Exception as exc:  # noqa: BLE001 — best-effort wire-up
+        logger.warning("EventStore unavailable; live subscriber not started: %s", exc)
+        return None
+
+    dispatcher = _make_event_dispatcher(conn)
+    # Bound replay to the last hour — catches in-flight runs without
+    # re-processing every historical event on every daemon spawn.
+    replay_since = datetime.now(UTC) - timedelta(hours=1)
+    try:
+        unsubscribe = event_store.on_event(dispatcher, since=replay_since)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("EventStore.on_event failed; live subscriber not started: %s", exc)
+        try:
+            event_store.close()
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def _cleanup() -> None:
+        try:
+            unsubscribe()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            event_store.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    return _cleanup
 
 
 if __name__ == "__main__":

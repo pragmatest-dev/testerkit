@@ -668,8 +668,8 @@ def show(
             for entry in manifest:
                 mc = entry.get("measurement_count")
                 meas_info = f" ({mc} measurements)" if mc else ""
-                outcome = entry.get("outcome", "?")
-                if outcome == "planned":
+                outcome = entry.get("outcome") or "never_ran"
+                if outcome == "never_ran":
                     func = entry.get("function", "")
                     loc = f" [{func}]" if func else ""
                 else:
@@ -2130,17 +2130,74 @@ def metrics_summary(results_dir, phase, since, until_date, product, station, per
 @metrics_group.command("pareto")
 @_base_filters
 @click.option("--top", "top_n", default=10, help="Number of top failures")
-def metrics_pareto(results_dir, phase, since, until_date, product, station, top_n, as_json):
-    """Top failure modes (Pareto analysis)."""
-    store = _measurements_query(results_dir)
-    rows = store.pareto(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-        top_n=top_n,
-    )
+@click.option(
+    "--group-by",
+    type=click.Choice(["product", "step", "measurement"]),
+    default="product",
+    help=(
+        "Lens for the pareto: ``product`` groups runs by ``dut_part_number`` "
+        "(most-failing SKUs); ``step`` groups steps by ``step_path`` "
+        "(most-failing tests); ``measurement`` groups limit-bearing "
+        "measurements by name (the historical default)."
+    ),
+)
+def metrics_pareto(
+    results_dir, phase, since, until_date, product, station, top_n, group_by, as_json
+):
+    """Top failures (Pareto). Group by product / step / measurement."""
+    if group_by == "step":
+        from litmus.analysis.steps_query import StepsQuery
+
+        store = StepsQuery(_results_dir=results_dir or None)
+        try:
+            rows = store.failure_pareto(
+                top_n=top_n,
+                phase=phase,
+                product=product,
+                station=station,
+                since=since,
+                until=until_date,
+            )
+        finally:
+            store.close()
+        header = "Step (step_path)"
+    elif group_by == "product":
+        from litmus.analysis.runs_query import RunsQuery
+
+        store = RunsQuery(_results_dir=results_dir or None)
+        try:
+            rows = store.failure_pareto(
+                group_by="dut_part_number",
+                top_n=top_n,
+                phase=phase,
+                product=product,
+                station=station,
+                since=since,
+                until=until_date,
+            )
+        finally:
+            store.close()
+        header = "Product (dut_part_number)"
+    else:  # measurement (historical)
+        store = _measurements_query(results_dir)
+        raw = store.pareto(
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until_date,
+            top_n=top_n,
+        )
+        rows = [
+            {
+                "bucket": f"{r.get('step_name', '')}: {r.get('measurement_name', '')}",
+                "failed_count": r.get("fail_count", 0),
+                "total": r.get("fail_count", 0),
+                "fail_rate_pct": r.get("fail_rate", 0),
+            }
+            for r in raw
+        ]
+        header = "Measurement (step: name)"
 
     if not rows:
         click.echo("[]" if as_json else "No data found.")
@@ -2150,13 +2207,17 @@ def metrics_pareto(results_dir, phase, since, until_date, product, station, top_
         click.echo(json.dumps(rows, indent=2, default=str))
         return
 
-    click.echo(f"{'#':<4} {'Step / Measurement':<40} {'Count':>6} {'Rate':>7}")
-    click.echo("-" * 60)
+    click.echo(f"{'#':<4} {header:<40} {'Failed':>7} {'Total':>7} {'Rate':>7}")
+    click.echo("-" * 70)
     for i, r in enumerate(rows, 1):
-        label = f"{r.get('step_name', '')}: {r.get('measurement_name', '')}"
+        label = str(r.get("bucket") or "(none)")
         if len(label) > 38:
             label = label[:35] + "..."
-        click.echo(f"{i:<4} {label:<40} {r.get('fail_count', 0):>6} {r.get('fail_rate', 0):>6.1f}%")
+        rate = r.get("fail_rate_pct")
+        rate_str = f"{rate:>6.1f}%" if rate is not None else "      —"
+        click.echo(
+            f"{i:<4} {label:<40} {r.get('failed_count', 0):>7} {r.get('total', 0):>7} {rate_str}"
+        )
 
 
 @metrics_group.command("cpk")

@@ -2,7 +2,11 @@
 
 from nicegui import ui
 
-from litmus.ui.shared.components import render_capability_detail, setup_hash_sync_for_tabs
+from litmus.ui.shared.components import (
+    data_table,
+    render_capability_detail,
+    setup_hash_sync_for_tabs,
+)
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_stations,
@@ -91,53 +95,102 @@ def _render_instrument_detail(instrument_type: str, entry):
 
 
 def _render_capabilities_tab(capabilities: list):
-    """Render the capabilities tab."""
-    if capabilities:
-        with ui.card().classes("w-full"):
-            for cap in capabilities:
-                _render_capability_card(cap)
-    else:
+    """Render the capabilities tab as a table — one row per capability.
+
+    Click a row to open the typed-detail dialog showing the
+    capability's full schema (specs, qualifiers, parameters).
+    """
+    if not capabilities:
         ui.label("No capabilities defined.").classes("text-slate-500 italic")
+        return
+
+    rows: list[dict] = []
+    detail_by_name: dict[str, dict] = {}
+    for cap in capabilities:
+        if hasattr(cap, "function"):
+            function = cap.function.value
+            direction = cap.direction.value
+            cap_dict = cap.model_dump()
+            description = ""
+        else:
+            function = cap.get("function", "")
+            direction = cap.get("direction", "")
+            cap_dict = cap
+            description = cap.get("description") or ""
+        name = f"{function}_{direction}"
+        # Count specs/qualifiers/parameters for an at-a-glance density column.
+        specs = cap_dict.get("specs") or []
+        qualifiers = cap_dict.get("qualifiers") or []
+        parameters = cap_dict.get("parameters") or []
+        rows.append(
+            {
+                "name": name,
+                "function": function,
+                "direction": direction,
+                "specs": len(specs),
+                "qualifiers": len(qualifiers),
+                "parameters": len(parameters),
+                "description": description,
+            }
+        )
+        detail_by_name[name] = cap_dict
+
+    columns = [
+        {
+            "name": "name",
+            "label": "Capability",
+            "field": "name",
+            "align": "left",
+            "sortable": True,
+        },
+        {
+            "name": "function",
+            "label": "Function",
+            "field": "function",
+            "align": "left",
+            "sortable": True,
+        },
+        {
+            "name": "direction",
+            "label": "Direction",
+            "field": "direction",
+            "align": "left",
+            "sortable": True,
+        },
+        {"name": "specs", "label": "Specs", "field": "specs", "align": "right"},
+        {"name": "qualifiers", "label": "Qualifiers", "field": "qualifiers", "align": "right"},
+        {"name": "parameters", "label": "Params", "field": "parameters", "align": "right"},
+        {"name": "description", "label": "Description", "field": "description", "align": "left"},
+    ]
+    data_table(
+        columns=columns,
+        rows=rows,
+        row_key="name",
+        on_row_click=lambda r: _open_capability_dialog(r["name"], detail_by_name[r["name"]]),
+    )
 
 
-def _render_capability_card(cap):
-    """Render a capability card."""
-    # Accept both model and dict
-    if hasattr(cap, "function"):
-        name = f"{cap.function.value}_{cap.direction.value}"
-        description = None
-        function = cap.function.value
-        direction = cap.direction.value
-        cap_dict = cap.model_dump()
-    else:
-        name = cap.get("name", "")
-        description = cap.get("description")
-        function = cap.get("function", "")
-        direction = cap.get("direction", "")
-        cap_dict = cap
-
-    with ui.expansion(name, icon="tune").classes("w-full"):
-        with ui.column().classes("gap-2 p-2"):
-            if description:
-                ui.label(description).classes("text-sm text-slate-600")
-
-            with ui.grid(columns=2).classes("gap-4"):
-                _info_field("Function", function)
-                _info_field("Direction", direction)
-
+def _open_capability_dialog(name: str, cap_dict: dict) -> None:
+    """Open a dialog with the full capability schema."""
+    with ui.dialog() as dialog, ui.card().classes("min-w-[600px]"):
+        with ui.card_section():
+            with ui.row().classes("items-center justify-between w-full"):
+                ui.label(name).classes("text-lg font-semibold")
+                ui.button(icon="close", on_click=dialog.close).props("flat dense round")
+        with ui.card_section():
             render_capability_detail(cap_dict)
+    dialog.open()
 
 
 def _render_scpi_tab(scpi_commands: dict):
     """Render the SCPI commands tab."""
     if scpi_commands:
-        with ui.card().classes("w-full"):
-            columns = [
-                {"name": "command", "label": "Command", "field": "command", "align": "left"},
-                {"name": "scpi", "label": "SCPI", "field": "scpi", "align": "left"},
-            ]
-            rows = [{"command": cmd, "scpi": scpi} for cmd, scpi in scpi_commands.items()]
-            ui.table(columns=columns, rows=rows, row_key="command").classes("w-full")
+        columns = [
+            {"name": "command", "label": "Command", "field": "command", "align": "left"},
+            {"name": "scpi", "label": "SCPI", "field": "scpi", "align": "left"},
+        ]
+        rows = [{"command": cmd, "scpi": scpi} for cmd, scpi in scpi_commands.items()]
+        data_table(columns=columns, rows=rows, row_key="command")
     else:
         ui.label("No SCPI commands defined.").classes("text-slate-500 italic")
 

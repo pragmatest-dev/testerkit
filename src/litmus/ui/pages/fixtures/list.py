@@ -1,21 +1,22 @@
-"""Fixtures listing page."""
+"""Fixtures listing page — table view."""
 
 from nicegui import ui
 
+from litmus.ui.shared.components import data_table, format_datetime, page_layout
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_fixtures, discover_products
+from litmus.ui.shared.services import discover_fixtures, discover_products, usage_stats_by
 
 
 @ui.page("/fixtures")
 def fixtures_page():
-    """Fixtures listing page showing all test fixtures."""
+    """Fixtures listing — one row per fixture, dense table."""
     create_layout("Fixtures")
 
     fixtures = discover_fixtures()
     products = {p["id"]: p for p in discover_products()}
+    usage = usage_stats_by("fixture_id")
 
-    with ui.column().classes("w-full p-6 gap-6"):
-        # Header
+    with page_layout():
         with ui.row().classes("items-center justify-between w-full"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("hub").classes("text-slate-600")
@@ -27,117 +28,77 @@ def fixtures_page():
                 on_click=lambda: ui.navigate.to("/fixtures/new"),
             ).props("color=primary")
 
-        # Info card
-        with ui.card().classes("w-full bg-blue-50 border-blue-200"):
-            with ui.card_section():
-                with ui.row().classes("items-start gap-3"):
-                    ui.icon("info", color="blue").classes("mt-1")
-                    with ui.column().classes("gap-1"):
-                        ui.label("What are Fixtures?").classes("font-semibold text-blue-900")
-                        ui.label(
-                            "Fixtures define how DUT pins connect to station instruments. "
-                            "Each fixture is tied to a product family and maps pin names to "
-                            "instrument names (which must exist at the test station)."
-                        ).classes("text-sm text-blue-800")
+        if not fixtures:
+            with ui.card().classes("w-full p-8 text-center"):
+                ui.icon("hub", size="xl").classes("text-slate-300")
+                ui.label("No fixtures configured").classes("text-xl text-slate-600 mt-4")
+                ui.label(
+                    "Fixtures define how DUT pins connect to station instruments. "
+                    "Each fixture is tied to a product family and maps pin names to "
+                    "instrument names."
+                ).classes("text-slate-500 mt-2")
+                ui.button(
+                    "Create Fixture",
+                    icon="add",
+                    on_click=lambda: ui.navigate.to("/fixtures/new"),
+                ).props("color=primary").classes("mt-4")
+            return
 
-        # Fixtures grid
-        if fixtures:
-            with ui.row().classes("gap-4 flex-wrap"):
-                for fixture in fixtures:
-                    _fixture_card(fixture, products.get(fixture.product_family))
-        else:
-            _render_empty_state()
+        columns = [
+            {"name": "id", "label": "ID", "field": "id", "align": "left", "sortable": True},
+            {"name": "name", "label": "Name", "field": "name", "align": "left", "sortable": True},
+            {
+                "name": "product",
+                "label": "Product",
+                "field": "product",
+                "align": "left",
+                "sortable": True,
+            },
+            {"name": "revision", "label": "Rev", "field": "revision", "align": "left"},
+            {
+                "name": "connections",
+                "label": "Connections",
+                "field": "connections",
+                "align": "right",
+                "sortable": True,
+            },
+            {"name": "runs", "label": "Runs", "field": "runs", "align": "right", "sortable": True},
+            {"name": "passed", "label": "Passed", "field": "passed", "align": "right"},
+            {"name": "failed", "label": "Failed", "field": "failed", "align": "right"},
+            {
+                "name": "last_run",
+                "label": "Last Run",
+                "field": "last_run",
+                "align": "left",
+                "sortable": True,
+            },
+        ]
+        rows = []
+        for f in fixtures:
+            product_id = f.product_id or f.product_family or ""
+            product = products.get(product_id, {})
+            stats = usage.get(f.id, {})
+            rows.append(
+                {
+                    "id": f.id,
+                    "name": f.name or "",
+                    "product": product.get("name") or product_id,
+                    "product_id": product_id,
+                    "revision": f.product_revision or "",
+                    "connections": len(f.connections or {}),
+                    "runs": stats.get("runs", 0),
+                    "passed": stats.get("passed", 0),
+                    "failed": stats.get("failed", 0),
+                    "last_run": format_datetime(stats.get("last_run"))
+                    if stats.get("last_run")
+                    else "—",
+                }
+            )
 
-
-def _fixture_card(fixture, product: dict | None):
-    """Render a fixture card for a FixtureConfig model."""
-    connections = fixture.connections or {}
-
-    with ui.card().classes("w-80"):
-        with ui.card_section():
-            with ui.row().classes("items-center justify-between"):
-                with ui.row().classes("items-center gap-2"):
-                    ui.icon("hub").classes("text-slate-600")
-                    ui.label(fixture.name or fixture.id).classes("text-lg font-semibold")
-                ui.badge(f"{len(connections)} connections").props("outline")
-
-        with ui.card_section():
-            # Product link
-            product_id = fixture.product_id or fixture.product_family or ""
-            product_revision = fixture.product_revision
-            if product_id:
-                with ui.row().classes("items-center gap-2 mb-2"):
-                    ui.icon("memory", size="xs").classes("text-slate-400")
-                    ui.label("Product:").classes("text-sm text-slate-500")
-                    if product:
-                        label = product.get("name", product_id)
-                        if product_revision:
-                            label += f" (Rev {product_revision})"
-                        ui.link(
-                            label,
-                            f"/products/{product_id}",
-                        ).classes("text-sm text-blue-600 hover:underline")
-                    else:
-                        label = product_id
-                        if product_revision:
-                            label += f" (Rev {product_revision})"
-                        ui.label(label).classes("text-sm font-mono")
-
-            # Description
-            if fixture.description:
-                ui.label(fixture.description).classes("text-sm text-slate-600")
-
-            # Connections preview
-            if connections:
-                ui.label("Pin Mappings").classes("text-xs text-slate-500 uppercase mt-3")
-                with ui.column().classes("gap-1 mt-1"):
-                    for connection_name, connection in list(connections.items())[:3]:
-                        _connection_row(connection_name, connection)
-                    if len(connections) > 3:
-                        ui.label(f"... and {len(connections) - 3} more").classes(
-                            "text-xs text-slate-400 italic"
-                        )
-
-        with ui.card_actions():
-            ui.button(
-                "View",
-                icon="visibility",
-                on_click=lambda _, f=fixture: ui.navigate.to(f"/fixtures/{f.id}"),
-            ).props("flat")
-            ui.button(
-                "Edit",
-                icon="edit",
-                on_click=lambda _, f=fixture: ui.navigate.to(f"/fixtures/{f.id}/edit"),
-            ).props("flat")
-
-
-def _connection_row(connection_name: str, connection):
-    """Render a fixture connection row."""
-    with ui.row().classes("items-center gap-2 text-sm"):
-        # DUT pin
-        dut_pin = connection.dut_pin or connection_name
-        ui.label(dut_pin).classes("font-mono text-green-700 bg-green-50 px-1 rounded")
-        ui.icon("arrow_forward", size="xs").classes("text-slate-400")
-        # Instrument
-        instrument = connection.instrument or "?"
-        channel = connection.instrument_channel
-        channel_str = f":{channel}" if channel else ""
-        ui.label(f"{instrument}{channel_str}").classes(
-            "font-mono text-blue-700 bg-blue-50 px-1 rounded"
+        data_table(
+            columns=columns,
+            rows=rows,
+            row_key="id",
+            on_row_click=lambda r: ui.navigate.to(f"/fixtures/{r['id']}"),
+            time_columns=["last_run"],
         )
-
-
-def _render_empty_state():
-    """Render empty state when no fixtures exist."""
-    with ui.card().classes("w-full p-8 text-center"):
-        ui.icon("hub", size="xl").classes("text-slate-300")
-        ui.label("No fixtures configured").classes("text-xl text-slate-600 mt-4")
-        ui.label("Create a fixture to define how DUT pins connect to instruments.").classes(
-            "text-slate-500 mt-2"
-        )
-        with ui.row().classes("justify-center mt-4"):
-            ui.button(
-                "Create Fixture",
-                icon="add",
-                on_click=lambda: ui.navigate.to("/fixtures/new"),
-            ).props("color=primary")

@@ -359,12 +359,17 @@ def _list_instrument_assets(project: str) -> list[dict[str, Any]]:
 
 
 def _list_runs(project: str) -> list[dict[str, Any]]:
-    """List recent test runs."""
-    from litmus.data.backends.parquet import ParquetBackend
+    """List recent test runs (typed RunRow rows from RunsQuery)."""
+    from litmus.analysis.runs_query import RunsQuery
 
     results_dir = str(get_project_root(project) / "results")
-    backend = ParquetBackend(results_dir=results_dir)
-    return [r.model_dump(exclude={"file_path"}) for r in backend.list_runs(limit=50)]
+    q = RunsQuery(_results_dir=results_dir)
+    try:
+        return [
+            r.model_dump(exclude={"file_path", "steps_file_path"}) for r in q.list_recent(limit=50)
+        ]
+    finally:
+        q.close()
 
 
 # =============================================================================
@@ -462,21 +467,13 @@ def _get_instrument_asset(instrument_id: str, project: str) -> dict[str, Any]:
 
 
 def _get_run(run_id: str, project: str) -> dict[str, Any]:
-    """Get test run details."""
-    from litmus.api.schemas import build_run_view
-    from litmus.data.backends.parquet import ParquetBackend
+    """Get test run details — typed run+steps+measurements composition."""
+    from litmus.api.schemas import load_run_view
 
     results_dir = str(get_project_root(project) / "results")
-    backend = ParquetBackend(results_dir=results_dir)
-    run = backend.get_run(run_id)
-
-    if not run:
+    view = load_run_view(run_id, results_dir=results_dir)
+    if view is None:
         return {"error": f"Run '{run_id}' not found"}
-
-    rows = backend.get_measurements(run_id)
-    view = build_run_view(rows)
-    if view.outcome is None:
-        view.outcome = run.outcome
     return view.model_dump(mode="json")
 
 
@@ -1341,6 +1338,106 @@ def channels_list_query(*, results_dir: Path | None = None) -> dict[str, Any]:
     if not registry_path.exists():
         return {"channels": {}}
     return {"channels": json.loads(registry_path.read_text())}
+
+
+def channels_recent_query(
+    *,
+    last_n: int = 50,
+    results_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Registry + recent samples per channel for live dashboards.
+
+    Returns the same descriptors as :func:`channels_list_query`, plus
+    a ``recent`` block per channel: the most recent ``last_n`` samples
+    as ``{"latest": float | str | None, "samples": [(iso_ts, value), ...]}``.
+    Used by the operator UI to render sparkline cells alongside the
+    descriptor row, and to update them live via short-poll.
+
+    Array channels return ``latest`` as a one-line summary string and
+    ``samples`` as the per-capture-time scalar series (one point per
+    capture; the array contents themselves aren't sparkline-friendly).
+    """
+    from litmus.data.channels.store import ChannelStore
+    from litmus.data.results_dir import resolve_results_dir
+
+    base = results_dir if results_dir else resolve_results_dir()
+    registry_path = base / "channels" / "_registry.json"
+    if not (base / "channels").exists() or not registry_path.exists():
+        return {"channels": {}}
+
+    registry: dict[str, dict[str, Any]] = json.loads(registry_path.read_text())
+    store = ChannelStore(base, uuid4())
+
+    out: dict[str, dict[str, Any]] = {}
+    for channel_id, descriptor in registry.items():
+        try:
+            table = store.query(channel_id, last_n=last_n)
+            rows = table.to_pylist()
+        except (OSError, ValueError, RuntimeError):
+            rows = []
+
+        samples, latest = _build_recent_series(rows)
+        last_updated = str(rows[-1]["timestamp"]) if rows and rows[-1].get("timestamp") else None
+
+        out[channel_id] = {
+            **descriptor,
+            "recent": {
+                "latest": latest,
+                "samples": samples,
+                "last_updated": last_updated,
+            },
+        }
+    return {"channels": out}
+
+
+def _build_recent_series(rows: list[dict[str, Any]]) -> tuple[list[Any], Any]:
+    """Build the sparkline series + latest value from raw channel rows.
+
+    Two cases:
+
+    * **Waveform / array rows** — the most recent row carries a
+      ``samples`` list. The sparkline is that capture's samples
+      directly (the within-capture trace), and ``latest`` is the
+      array's final value. This matches what an operator wants to
+      see for scope traces: the actual waveform shape.
+    * **Scalar rows** — each row's ``value`` (or ``y`` / ``reading``)
+      contributes one point to the sparkline keyed by timestamp.
+      ``latest`` is the most recent point's value.
+
+    The sparkline output is ``[(ts_str, value), ...]`` for scalars
+    and ``[value, ...]`` for waveforms (no timestamp per intra-
+    capture sample). The UI's sparkline renderer accepts either —
+    it pulls the second element of tuples and treats bare numbers
+    as a value sequence.
+    """
+    if not rows:
+        return [], None
+
+    last_row = rows[-1]
+    last_samples = last_row.get("samples")
+    if isinstance(last_samples, list) and last_samples:
+        numeric = [v for v in last_samples if isinstance(v, (int, float))]
+        latest_value = numeric[-1] if numeric else None
+        return list(numeric), latest_value
+
+    samples: list[tuple[str, Any]] = []
+    latest: Any = None
+    for row in rows:
+        ts = row.get("timestamp")
+        value = _channel_row_scalar(row)
+        if ts is not None and value is not None:
+            samples.append((str(ts), value))
+    if samples:
+        latest = samples[-1][1]
+    return samples, latest
+
+
+def _channel_row_scalar(row: dict[str, Any]) -> Any:
+    """Pull a single scalar from a channel row, or ``None`` if none stamped."""
+    for key in ("value", "y", "reading"):
+        if key in row and row[key] is not None:
+            return row[key]
+    return None
 
 
 # Thin wrappers for MCP tools (resolve project → results_dir)

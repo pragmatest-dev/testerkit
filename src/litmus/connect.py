@@ -409,11 +409,21 @@ class StationConnection:
         return self._channel_store
 
     def _emergency_stop(self) -> None:
-        """Best-effort cleanup on SIGTERM/atexit."""
+        """Best-effort cleanup on SIGTERM/atexit.
+
+        ``stop()`` runs the full cleanup chain (instruments to safe
+        state, channel/event store close, parquet finalize) — the
+        TestStand definition of TERMINATED. We only fall back to
+        ABORTED if ``stop()`` itself blows up partway, signaling the
+        rig is in an unknown state.
+        """
         try:
-            self.stop(outcome="aborted")
+            self.stop(outcome="terminated")
         except Exception:
-            pass
+            try:
+                self.stop(outcome="aborted")
+            except Exception:
+                pass
 
     def __enter__(self) -> StationConnection:
         self.start()
@@ -425,7 +435,17 @@ class StationConnection:
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
-        outcome = "passed" if exc_type is None else "errored"
+        # Operator-initiated stops (Ctrl-C, ``kill <pid>``, pytest's
+        # KeyboardInterrupt → SystemExit) reach the context manager
+        # via this exit path, which means we ARE running cleanup
+        # (``stop()`` below). That's TestStand-Terminated, not
+        # Errored, and not Aborted.
+        if exc_type is None:
+            outcome = "passed"
+        elif issubclass(exc_type, KeyboardInterrupt | SystemExit):
+            outcome = "terminated"
+        else:
+            outcome = "errored"
         self.stop(outcome=outcome)
 
 

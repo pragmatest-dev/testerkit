@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from litmus.api._mime import sniff_mime
 from litmus.api.models import DialogCreate, DialogRespondRequest, LaunchRequest, SaveRequest
-from litmus.api.schemas import CapabilitySummary, RequirementSummary, RunView, build_run_view
+from litmus.api.schemas import CapabilitySummary, RequirementSummary, RunView, load_run_view
 from litmus.data.backends.parquet import ParquetBackend, is_file_reference, load_ref
 from litmus.data.models import Waveform
 
@@ -125,20 +125,21 @@ def create_api_router() -> APIRouter:
     @router.get("/runs", response_class=ORJSONResponse)
     def list_runs(limit: int = 50):
         """List recent test runs."""
-        runs = backend.list_runs(limit=limit)
-        return {"runs": [r.model_dump(exclude={"file_path"}) for r in runs]}
+        from litmus.analysis.runs_query import RunsQuery
+
+        q = RunsQuery(_results_dir=results_dir)
+        try:
+            rows = q.list_recent(limit=limit)
+        finally:
+            q.close()
+        return {"runs": [r.model_dump(exclude={"file_path", "steps_file_path"}) for r in rows]}
 
     @router.get("/runs/{run_id}", response_model=RunView, response_class=ORJSONResponse)
     def get_run(run_id: str):
         """Get a specific test run with steps, instruments, and measurements."""
-        run = backend.get_run(run_id)
-        if not run:
+        view = load_run_view(run_id, results_dir=results_dir)
+        if view is None:
             raise HTTPException(status_code=404, detail="Run not found")
-        rows = backend.get_measurements(run_id)
-        view = build_run_view(rows)
-        # Backfill outcome from RunSummary if not present in measurements
-        if view.outcome is None:
-            view.outcome = run.outcome
         return view
 
     @router.get("/runs/{run_id}/measurements", response_class=ORJSONResponse)
@@ -390,6 +391,18 @@ def create_api_router() -> APIRouter:
         from litmus.mcp.tools import channels_list_query
 
         return channels_list_query(results_dir=results_dir)
+
+    @router.get("/channels/_recent", response_class=ORJSONResponse)
+    def list_channels_recent(last_n: int = 50):
+        """Channel registry + recent samples per channel.
+
+        Used by the operator UI to render sparkline cells and live-
+        updated latest values. ``last_n`` caps the per-channel sample
+        count returned (default 50 — enough for a sparkline trace).
+        """
+        from litmus.mcp.tools import channels_recent_query
+
+        return channels_recent_query(last_n=last_n, results_dir=results_dir)
 
     @router.get("/channels/{channel_id}", response_class=ORJSONResponse)
     def get_channel_data(

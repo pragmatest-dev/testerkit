@@ -78,9 +78,16 @@ class FlightQueryClient:
                 return table.to_pylist()
             except (flight.FlightError, OSError, pa.ArrowException) as exc:
                 err_msg = str(exc)
-                # Cold start: measurements view not yet created in the
-                # runs daemon. Treat as empty result set rather than retry.
-                if "measurements" in err_msg and "does not exist" in err_msg:
+                # Cold start: ``measurements`` view not yet created in
+                # the runs daemon (no measurement parquets on disk).
+                # Treat any reference to a missing ``measurements``
+                # relation — Catalog Error / Binder Error / "Table not
+                # found" — as an empty result rather than 500.
+                if "measurements" in err_msg and (
+                    "does not exist" in err_msg
+                    or "not found" in err_msg
+                    or "Table with name measurements" in err_msg
+                ):
                     return []
                 last_exc = exc
                 self._client = None

@@ -6,15 +6,21 @@ Field names mirror the write-side event hierarchy in litmus/data/events.py:
   MeasurementView ← MeasurementRecorded
   InstrumentView  ← InstrumentConnected
 
-build_run_view() reconstructs the entity tree from flat parquet rows returned
-by RunStore.get_measurements(). Flat in_*/out_*/custom_*/step_instruments_* columns are
-re-categorized into structured dicts / lists matching the original event fields.
+build_run_view() composes the entity tree from typed sources:
+- Run-level fields from a RunRow (the daemon's ``runs`` table).
+- Step list from a list[StepRow] (the daemon's ``steps`` table).
+- Measurements per step from flat parquet measurement rows,
+  filtered by step_index.
+
+Each layer is sourced independently so measurement-less runs
+(setup-only / all-skipped) still render their step list.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
@@ -116,7 +122,6 @@ class RunView(BaseModel):
     run_id: str
     session_id: str | None = None
     station_id: str | None = None
-    station_name: str | None = None
     dut_serial: str | None = None
     dut_part_number: str | None = None
     product_id: str | None = None
@@ -177,92 +182,166 @@ def _instruments_from_step_rows(rows: list[dict[str, Any]]) -> list[InstrumentVi
     return instruments
 
 
-def _step_outcome(rows: list[dict[str, Any]]) -> str | None:
-    """Derive step outcome by escalating measurement outcomes."""
-    outcomes = {row.get("measurement_outcome") for row in rows if row.get("measurement_outcome")}
-    for severity in ("aborted", "errored", "failed", "passed", "done", "skipped", "planned"):
-        if severity in outcomes:
-            return severity
-    return next(iter(outcomes), None)
+def _measurements_for_step(
+    step_rows: list[dict[str, Any]],
+    *,
+    in_keys: list[str],
+    out_keys: list[str],
+    custom_keys: list[str],
+) -> list[MeasurementView]:
+    """Build MeasurementViews for one step from its measurement rows.
 
-
-def build_run_view(rows: list[dict[str, Any]]) -> RunView:
-    """Build a RunView from flat parquet measurement rows.
-
-    Groups rows by step_index, reconstructs step_instruments_* arrays into
-    InstrumentView lists, and rehydrates in_*/out_*/custom_* prefixed
-    columns into typed dicts on each MeasurementView.
+    Rehydrates the dynamic ``in_*`` / ``out_*`` / ``custom_*`` parquet
+    columns into typed dicts on each MeasurementView. The prefix-key
+    lists are precomputed by the caller once per run (the parquet
+    schema is uniform across all rows of a run).
     """
-    if not rows:
-        return RunView(run_id="")
+    return [
+        MeasurementView(
+            measurement_name=row.get("measurement_name") or "",
+            measurement_timestamp=row.get("measurement_timestamp"),
+            value=row.get("measurement_value"),
+            units=row.get("measurement_units"),
+            outcome=row.get("measurement_outcome"),
+            limit_low=row.get("limit_low"),
+            limit_high=row.get("limit_high"),
+            limit_nominal=row.get("limit_nominal"),
+            limit_comparator=row.get("limit_comparator"),
+            characteristic_id=row.get("characteristic_id"),
+            spec_ref=row.get("spec_ref"),
+            dut_pin=row.get("dut_pin"),
+            fixture_connection=row.get("fixture_connection"),
+            instrument_name=row.get("instrument_name"),
+            instrument_resource=row.get("instrument_resource"),
+            instrument_channel=row.get("instrument_channel"),
+            inputs={k[3:]: row[k] for k in in_keys if row[k] is not None},
+            outputs={k[4:]: row[k] for k in out_keys if row[k] is not None},
+            custom={k[7:]: row[k] for k in custom_keys if row[k] is not None},
+        )
+        for row in step_rows
+    ]
 
-    first = rows[0]
 
-    # Pre-compute prefix key lists once — schema is uniform across all rows in a run,
-    # so scanning for startswith() once beats doing it per-row (5k× for large runs).
-    in_keys: list[str] = [k for k in first if k.startswith("in_")]
-    out_keys: list[str] = [k for k in first if k.startswith("out_")]
-    custom_keys: list[str] = [k for k in first if k.startswith("custom_")]
+def build_run_view(
+    run: Any,
+    steps: list[Any],
+    measurement_rows: list[dict[str, Any]],
+) -> RunView:
+    """Compose a RunView from typed inputs.
 
-    # Group by step_index preserving insertion order
-    step_map: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        step_map[int(row.get("step_index") or 0)].append(row)
+    Args:
+        run: ``RunRow`` from ``RunsQuery.get(run_id)`` — the run-level
+            metadata source. Typed as ``Any`` to avoid a hard import
+            cycle (``api.schemas`` is imported by paths that don't
+            need ``litmus.analysis.runs_query``).
+        steps: ``list[StepRow]`` from
+            ``StepsQuery.list_for_run(run_id)`` — the step list. One
+            ``StepView`` is rendered per ``StepRow`` regardless of
+            whether the step has measurements.
+        measurement_rows: Flat measurement parquet rows (from
+            ``ParquetBackend.get_measurements``). May be empty for
+            setup-only / all-skipped runs.
 
-    steps: list[StepView] = []
-    for step_idx in sorted(step_map):
-        step_rows = step_map[step_idx]
-        first_step = step_rows[0]
+    Each step's ``MeasurementView``s come from ``measurement_rows``
+    filtered by ``step_index``; instruments are reconstructed from
+    the per-step ``step_instruments_*`` arrays carried on those
+    rows. Measurement-less steps render with empty instruments and
+    measurements but still appear in the view.
+    """
+    # Group measurement rows by step_index. Steps without measurements
+    # get an empty list — the step still renders.
+    #
+    # Filter out the placeholder "empty row" written by
+    # ``ParquetBackend._build_empty_row`` for measurement-less runs.
+    # That row exists only to keep the measurement parquet schema
+    # well-formed; it has no real measurement (``measurement_name``
+    # is None) and shouldn't show up as a measurement in the view.
+    rows_by_step: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in measurement_rows:
+        if not row.get("measurement_name"):
+            continue
+        rows_by_step[int(row.get("step_index") or 0)].append(row)
 
-        measurements = [
-            MeasurementView(
-                measurement_name=row.get("measurement_name") or "",
-                measurement_timestamp=row.get("measurement_timestamp"),
-                value=row.get("measurement_value"),
-                units=row.get("measurement_units"),
-                outcome=row.get("measurement_outcome"),
-                limit_low=row.get("limit_low"),
-                limit_high=row.get("limit_high"),
-                limit_nominal=row.get("limit_nominal"),
-                limit_comparator=row.get("limit_comparator"),
-                characteristic_id=row.get("characteristic_id"),
-                spec_ref=row.get("spec_ref"),
-                dut_pin=row.get("dut_pin"),
-                fixture_connection=row.get("fixture_connection"),
-                instrument_name=row.get("instrument_name"),
-                instrument_resource=row.get("instrument_resource"),
-                instrument_channel=row.get("instrument_channel"),
-                inputs={k[3:]: row[k] for k in in_keys if row[k] is not None},
-                outputs={k[4:]: row[k] for k in out_keys if row[k] is not None},
-                custom={k[7:]: row[k] for k in custom_keys if row[k] is not None},
-            )
-            for row in step_rows
-        ]
+    # Prefix-key lists are uniform across rows of a run; precompute
+    # once and reuse per step (avoids scanning row keys 5k× for large runs).
+    in_keys: list[str] = []
+    out_keys: list[str] = []
+    custom_keys: list[str] = []
+    if measurement_rows:
+        first = measurement_rows[0]
+        in_keys = [k for k in first if k.startswith("in_")]
+        out_keys = [k for k in first if k.startswith("out_")]
+        custom_keys = [k for k in first if k.startswith("custom_")]
 
-        steps.append(
+    step_views: list[StepView] = []
+    for step in sorted(steps, key=lambda s: s.step_index or 0):
+        step_idx = int(step.step_index or 0)
+        step_rows = rows_by_step.get(step_idx, [])
+        step_views.append(
             StepView(
-                step_name=first_step.get("step_name") or "",
+                step_name=step.step_name or "",
                 step_index=step_idx,
-                step_path=first_step.get("step_path") or "",
-                started_at=first_step.get("step_started_at"),
-                ended_at=first_step.get("step_ended_at"),
-                outcome=_step_outcome(step_rows),
+                step_path=step.step_path or "",
+                started_at=step.started_at,
+                ended_at=step.ended_at,
+                outcome=step.outcome,
                 instruments=_instruments_from_step_rows(step_rows),
-                measurements=measurements,
+                measurements=_measurements_for_step(
+                    step_rows,
+                    in_keys=in_keys,
+                    out_keys=out_keys,
+                    custom_keys=custom_keys,
+                ),
             )
         )
 
     return RunView(
-        run_id=first.get("run_id") or "",
-        session_id=first.get("session_id"),
-        station_id=first.get("station_id"),
-        station_name=first.get("station_name"),
-        dut_serial=first.get("dut_serial"),
-        dut_part_number=first.get("dut_part_number"),
-        product_id=first.get("product_id"),
-        test_phase=first.get("test_phase"),
-        started_at=first.get("run_started_at"),
-        ended_at=first.get("run_ended_at"),
-        outcome=first.get("run_outcome"),
-        steps=steps,
+        run_id=run.run_id or "",
+        session_id=run.session_id,
+        station_id=run.station_id,
+        dut_serial=run.dut_serial,
+        dut_part_number=run.dut_part_number,
+        product_id=run.product_id,
+        test_phase=run.test_phase,
+        started_at=run.started_at,
+        ended_at=run.ended_at,
+        outcome=run.outcome,
+        steps=step_views,
     )
+
+
+def load_run_view(
+    run_id: str,
+    *,
+    results_dir: Path | str | None = None,
+) -> RunView | None:
+    """Compose a RunView for ``run_id`` from typed queries + measurements.
+
+    Single shared composition path used by:
+    - ``GET /api/runs/{run_id}`` (HTTP)
+    - ``litmus`` MCP tool's ``get`` action
+    - report generation in ``litmus.reports``
+
+    Returns ``None`` if the run isn't in the runs table. Callers
+    decide whether that means 404 or a fallback view.
+    """
+    # Lazy imports — avoid circular: api.schemas is imported by paths
+    # that don't always need the analysis or backends modules.
+    from litmus.analysis.runs_query import RunsQuery
+    from litmus.analysis.steps_query import StepsQuery
+    from litmus.data.backends.parquet import ParquetBackend
+
+    runs_q = RunsQuery(_results_dir=results_dir)
+    steps_q = StepsQuery(_results_dir=results_dir)
+    try:
+        run = runs_q.get(run_id)
+        if run is None:
+            return None
+        steps = steps_q.list_for_run(run_id)
+    finally:
+        runs_q.close()
+        steps_q.close()
+
+    backend = ParquetBackend(results_dir=results_dir)
+    measurement_rows = backend.get_measurements(run_id)
+    return build_run_view(run, steps, measurement_rows)

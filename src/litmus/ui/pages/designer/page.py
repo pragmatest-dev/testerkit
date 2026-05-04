@@ -21,6 +21,7 @@ from litmus.ui.pages.designer.properties import (
     show_instrument_properties,
 )
 from litmus.ui.pages.designer.state import DesignerState
+from litmus.ui.shared.components import data_table
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_fixtures,
@@ -423,10 +424,11 @@ def _rebuild_connections_tab(state, container, drawer, rebuild) -> None:
                 }
             )
 
-        table = ui.table(columns=columns, rows=rows, row_key="point").classes("w-full")
-        table.on(
-            "row-click",
-            lambda e: show_connection_properties(e.args[1]["point"], state, drawer, rebuild),
+        data_table(
+            columns=columns,
+            rows=rows,
+            row_key="point",
+            on_row_click=lambda r: show_connection_properties(r["point"], state, drawer, rebuild),
         )
 
 
