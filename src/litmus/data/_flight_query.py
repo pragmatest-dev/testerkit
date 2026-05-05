@@ -2,10 +2,30 @@
 
 Used by EventStore and RunStore to avoid duplicating the same
 connect → query → retry → re-acquire pattern.
+
+Channel pooling
+---------------
+
+``flight.FlightClient`` instances are pooled per ``location``
+process-wide. ``litmus serve`` constructs new ``RunsQuery`` /
+``StepsQuery`` / ``EventStore`` per page render — without
+pooling, each construction → a fresh gRPC channel → a fresh
+client thread pool. ``FlightClient.close()`` doesn't fully
+release gRPC C++ thread resources synchronously, so threads
+accumulated monotonically with UI activity. The ``litmus serve``
+process eventually hit an internal gRPC limit and aborted with
+``std::system_error: Resource temporarily unavailable``.
+
+Pooling keeps ONE client per daemon location for the lifetime
+of the process. ``FlightQueryClient.close()`` becomes a no-op
+on the underlying client (still releases the manager ref count
+the caller holds). Process exit drops everything via the
+gRPC C++ runtime's shutdown path.
 """
 
 from __future__ import annotations
 
+import threading
 import time
 import warnings
 from collections.abc import Callable
@@ -19,6 +39,40 @@ class IndexOutOfDate(Exception):
     """Raised when the DuckDB index schema doesn't match the current code."""
 
 
+# Process-wide pool: one ``FlightClient`` per ``location``.
+# Reused across every ``FlightQueryClient`` that targets the same
+# daemon. Lock guards both the dict and the "client is alive"
+# invariant against concurrent reset/close attempts.
+_CLIENT_POOL: dict[str, flight.FlightClient] = {}
+_CLIENT_POOL_LOCK = threading.Lock()
+
+
+def _get_pooled_client(location: str) -> flight.FlightClient:
+    """Return the process-wide ``FlightClient`` for ``location``, creating one if needed."""
+    with _CLIENT_POOL_LOCK:
+        client = _CLIENT_POOL.get(location)
+        if client is None:
+            client = flight.connect(location)
+            _CLIENT_POOL[location] = client
+        return client
+
+
+def _drop_pooled_client(location: str) -> None:
+    """Remove a pooled client (e.g. after a transient gRPC failure).
+
+    Lets the next ``_get_pooled_client(location)`` reconnect. The
+    dropped client is closed best-effort — gRPC C++ shutdown is
+    eventual, but we don't block the caller.
+    """
+    with _CLIENT_POOL_LOCK:
+        client = _CLIENT_POOL.pop(location, None)
+    if client is not None:
+        try:
+            client.close()
+        except (flight.FlightError, OSError, pa.ArrowException):
+            pass
+
+
 class FlightQueryClient:
     """Lazy Flight client with retrying SQL queries.
 
@@ -29,7 +83,7 @@ class FlightQueryClient:
         label: Human label for warning messages (e.g. "EventStore").
     """
 
-    __slots__ = ("_client", "_label", "_location", "_reacquire", "_ticket_prefix")
+    __slots__ = ("_label", "_location", "_reacquire", "_ticket_prefix")
 
     def __init__(
         self,
@@ -43,17 +97,14 @@ class FlightQueryClient:
         self._ticket_prefix = ticket_prefix
         self._reacquire = reacquire
         self._label = label
-        self._client: flight.FlightClient | None = None
 
     @property
     def location(self) -> str:
         return self._location
 
     def get_client(self) -> flight.FlightClient:
-        """Get or create a Flight client."""
-        if self._client is None:
-            self._client = flight.connect(self._location)
-        return self._client
+        """Get the process-wide Flight client for this location."""
+        return _get_pooled_client(self._location)
 
     def query(self, sql: str, *, _retries: int = 2) -> list[dict[str, Any]]:
         """Execute a SQL query via Flight and return list of dicts.
@@ -90,7 +141,9 @@ class FlightQueryClient:
                 ):
                     return []
                 last_exc = exc
-                self._client = None
+                # Drop the pooled client so the next attempt
+                # reconnects — daemon may have restarted.
+                _drop_pooled_client(self._location)
                 if attempt < _retries:
                     time.sleep(0.2)
                     if self._reacquire is not None:
@@ -109,17 +162,18 @@ class FlightQueryClient:
         return []
 
     def reset(self) -> None:
-        """Drop the cached client (e.g. after a non-fatal error)."""
-        self._client = None
+        """Drop the pooled client for this location so the next query reconnects."""
+        _drop_pooled_client(self._location)
 
     def close(self) -> None:
-        """Close the Flight client."""
-        if self._client is not None:
-            try:
-                self._client.close()
-            except (flight.FlightError, OSError, pa.ArrowException) as exc:
-                warnings.warn(
-                    f"Failed to close Flight client: {exc}",
-                    stacklevel=2,
-                )
-            self._client = None
+        """No-op on the pooled client.
+
+        The pooled ``FlightClient`` is shared across every
+        ``FlightQueryClient`` instance targeting the same
+        location. Closing here would invalidate everyone else's
+        next query and reintroduce the per-call thread churn that
+        made ``litmus serve`` abort. The pool is released only at
+        process exit (via gRPC's shutdown path) or on a transient
+        gRPC error (via :func:`_drop_pooled_client`).
+        """
+        return

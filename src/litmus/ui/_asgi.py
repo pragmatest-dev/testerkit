@@ -138,6 +138,14 @@ def _install_global_exception_handler() -> None:
 _install_global_exception_handler()
 
 
+# Diagnostic thread-count logger — same one ``create_app`` starts
+# in the non-reload path. Both paths converge on the shared helper
+# in ``litmus.api.app`` so one source of truth.
+from litmus.api.app import _start_thread_count_logger  # noqa: E402
+
+_start_thread_count_logger()
+
+
 def _hold_serve_level_daemon_refs() -> None:
     """Eagerly spawn the data daemons and hold persistent refs.
 

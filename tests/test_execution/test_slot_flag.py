@@ -90,8 +90,13 @@ def _run_pytest(
     return subprocess.run(args, capture_output=True, text=True, timeout=60, env=env)
 
 
-def _list_runs(session_id: str, *, timeout: float = 3.0) -> list:
-    """Bounded poll over canonical RunsQuery, scoped to ``session_id``."""
+def _list_runs(session_id: str, *, timeout: float = 15.0) -> list:
+    """Bounded poll over canonical RunsQuery, scoped to ``session_id``.
+
+    Generous budget (15s) — under full-suite load the canonical
+    runs daemon may have queued other tests' notifications ahead of
+    ours. Same reasoning as ``test_outcome_cascade._read_step_outcomes``.
+    """
     deadline = time.monotonic() + timeout
     q = RunsQuery()
     try:

@@ -814,6 +814,38 @@ def create_api_router() -> APIRouter:
     return router
 
 
+def _start_thread_count_logger() -> None:
+    """Log live thread count every 30s — diagnostic for slow leaks.
+
+    The ``litmus serve`` process has been observed to abort after
+    extended uptime with ``std::system_error: Resource temporarily
+    unavailable`` (gRPC pthread_create failing). The Aborted /
+    core-dumped path bypasses Python so we can't catch + trace at
+    the failure moment. This logger gives a chronology: if the
+    last few ``[litmus] threads=N`` lines show a monotonic climb,
+    we have a leak. If they're flat just before the abort, the
+    issue is elsewhere (FD exhaustion, gRPC internal limits, etc.).
+    """
+    import sys
+    import threading
+    import time
+
+    def _tick() -> None:
+        while True:
+            try:
+                sys.stderr.write(f"[litmus] threads={threading.active_count()}\n")
+                sys.stderr.flush()
+            except Exception:  # noqa: BLE001 — diagnostic must never crash serve
+                pass
+            time.sleep(30)
+
+    threading.Thread(
+        target=_tick,
+        daemon=True,
+        name="litmus-thread-counter",
+    ).start()
+
+
 def create_app():
     """Create the combined FastAPI + NiceGUI application."""
     from nicegui import app
@@ -831,5 +863,13 @@ def create_app():
     # auto-confirm. Test subprocesses with ``LITMUS_SERVER_URL`` set
     # install their own bridge in HTTP mode (see pytest plugin).
     register_as_prompt_handler(server_url=None)
+
+    # Diagnostic thread count logger — tracks the slow-leak pattern
+    # we suspect in ``litmus serve``. Runs in both the reload path
+    # (via ``_asgi.py``'s explicit start) and the non-reload path
+    # (here in ``create_app``). One process = one logger; the
+    # ``daemon=True`` thread dies with the process so we don't
+    # have to worry about reload-cycle duplication.
+    _start_thread_count_logger()
 
     return app
