@@ -6,6 +6,7 @@ All filtering uses pyarrow.compute — no DuckDB, no pandas.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -61,6 +62,7 @@ def load_runs(results_dir: str | Path) -> pa.Table:
     Returns:
         PyArrow Table with analysis-relevant columns.
     """
+    from litmus.data._daemon_lifecycle import _pid_alive
     from litmus.data.run_store import RunStore
 
     results_path = Path(results_dir)
@@ -68,19 +70,37 @@ def load_runs(results_dir: str | Path) -> pa.Table:
     if not runs_dir.exists():
         return pa.table({})
 
-    # Use RunStore to discover run files via DuckDB index
+    # Use RunStore to discover run files via DuckDB index — but
+    # only if a daemon is already serving this dir. Spawning a
+    # fresh daemon for a one-shot ``load_runs`` call is wasted
+    # work: the spawn pays ~100 gRPC-thread tax and the daemon
+    # then idles for ``LITMUS_DAEMON_IDLE_TIMEOUT`` (default 300s).
+    # The filesystem-scan fallback below covers the no-daemon
+    # case correctly. Production callers (``litmus serve``, the
+    # CLI) keep the canonical daemon alive across calls so this
+    # short-circuit only skips the spawn for ad-hoc / test paths.
     parquet_files: list[Path] = []
-    try:
-        run_store = RunStore(_results_dir=results_path)
+    state_file = runs_dir / "_runs_duckdb.json"
+    daemon_alive = False
+    if state_file.exists():
         try:
-            runs = run_store.list_runs(limit=10000)
-            parquet_files = [
-                Path(r.file_path) for r in runs if r.file_path and Path(r.file_path).exists()
-            ]
-        finally:
-            run_store.close()
-    except Exception as exc:
-        logger.debug("RunStore index failed, using filesystem scan: %s", exc)
+            data = json.loads(state_file.read_text())
+            pid = data.get("pid")
+            daemon_alive = isinstance(pid, int) and _pid_alive(pid)
+        except (json.JSONDecodeError, OSError):
+            pass
+    if daemon_alive:
+        try:
+            run_store = RunStore(_results_dir=results_path)
+            try:
+                runs = run_store.list_runs(limit=10000)
+                parquet_files = [
+                    Path(r.file_path) for r in runs if r.file_path and Path(r.file_path).exists()
+                ]
+            finally:
+                run_store.close()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("RunStore index failed, using filesystem scan: %s", exc)
 
     # Fallback: direct file scan if RunStore found nothing (mixed schemas, etc.)
     if not parquet_files:

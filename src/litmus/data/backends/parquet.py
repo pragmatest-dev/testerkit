@@ -329,7 +329,18 @@ class ParquetBackend:
         Catches transport-level failures (network, file I/O, gRPC
         flake) so a daemon outage doesn't block the write. Other
         exceptions — programming errors, schema bugs — propagate.
+
+        Set ``LITMUS_SKIP_DAEMON_NOTIFY=1`` (e.g. in test conftest)
+        to skip notification entirely. Without this, every
+        ``ParquetBackend.save_test_run(results_dir=tmp_path)`` call
+        in unit tests transitively spawns a runs daemon for that
+        tmp_path — accumulating daemons across test files quickly
+        exhausts the OS thread limit.
         """
+        import os as _os
+
+        if _os.environ.get("LITMUS_SKIP_DAEMON_NOTIFY") == "1":
+            return
         try:
             with self._run_store_ctx() as store:
                 store.notify_new_run(parquet_path)
@@ -579,51 +590,47 @@ class ParquetBackend:
         return parquet_path
 
 
-class ParquetSubscriber(EventSubscriber):
-    """EventSubscriber that accumulates measurements and writes Parquet on close.
+class EventAccumulator:
+    """Pure projection of run events into row state — no I/O.
 
-    Caches ``RunStarted`` for run metadata and ``InstrumentConnected``
-    for instrument arrays. On ``MeasurementRecorded``, builds a denormalized
-    row using cached context. On ``RunEnded`` or ``close()``, writes Parquet.
+    The single canonical projection function from the litmus event
+    stream into the parquet row shape. One per in-flight run.
+
+    Accumulates ``RunStarted`` / ``InstrumentConnected`` /
+    ``StepsDiscovered`` / ``StepStarted`` / ``MeasurementRecorded`` /
+    ``StepEnded`` events into in-memory state. ``RunEnded`` is
+    handled by subclasses (it's the trigger for the parquet
+    write) — the base class doesn't act on it.
+
+    Snapshot methods (``snapshot_run_row``, ``snapshot_step_rows``,
+    ``snapshot_measurement_rows``) materialize the current state
+    as the same dict shape ``ParquetSubscriber`` writes to disk,
+    but without writing anything. Used by the runs daemon to
+    surface in-flight runs in queries via an in-memory overlay.
+
+    The "one applier, multiple destinations" pattern from
+    event-sourcing / materialized-view design (Prometheus head
+    block, Materialize, RisingWave, CQRS read models): both the
+    test runner's parquet writer (``ParquetSubscriber``) and the
+    runs daemon's live overlay use this same projection so the
+    finalized parquet and the in-flight overlay can never drift.
     """
 
-    format_name = "parquet"
-
-    event_types: set[type] = {
-        RunStarted,
-        InstrumentConnected,
-        StepsDiscovered,
-        StepStarted,
-        MeasurementRecorded,
-        StepEnded,
-        RunEnded,
-    }
-
-    def __init__(
-        self,
-        output_dir: Path,
-        *,
-        on_output: Callable[[OutputFile], None] | None = None,
-    ) -> None:
-        self._output_dir = output_dir
-        self._on_output = on_output
-        self._backend = ParquetBackend(results_dir=output_dir)
+    def __init__(self) -> None:
         self._run_started: Any = None  # RunStarted event (run context)
         self._instruments: list[Any] = []  # InstrumentConnected events
         self._measurement_events: list[Any] = []  # MeasurementRecorded events
-        self._written = False
         self._step_starts: dict[int, Any] = {}  # step_index → StepStarted
         self._step_ends: dict[int, Any] = {}  # step_index → StepEnded
+        self._run_ended: Any = None  # RunEnded event (None for in-flight)
         self._collected_items: list[dict[str, str | None]] = []
         # node_id → markers, populated when StepsDiscovered arrives so
-        # _build_row can stamp step_markers on every measurement row
+        # ``_build_row`` can stamp step_markers on every measurement row
         # without rebuilding the lookup per measurement.
         self._markers_by_node: dict[str, str | None] = {}
 
-    def open(self) -> None:
-        """No-op — subscriber protocol requires this but Parquet needs no setup."""
-
     def on_event(self, event: Any) -> None:
+        """Accumulate one event into in-memory state. No I/O."""
         if isinstance(event, RunStarted):
             self._run_started = event
         elif isinstance(event, InstrumentConnected):
@@ -643,11 +650,108 @@ class ParquetSubscriber(EventSubscriber):
         elif isinstance(event, StepEnded):
             self._step_ends[event.step_index] = event
         elif isinstance(event, RunEnded):
-            self._write(outcome=event.outcome)
+            self._run_ended = event
 
-    def close(self) -> None:
-        if not self._written:
-            self._write()
+    # ------------------------------------------------------------------
+    # Snapshot — materialize current state as row dicts (no I/O)
+    # ------------------------------------------------------------------
+
+    def snapshot_run_row(self) -> dict[str, Any] | None:
+        """Return a single dict matching the runs daemon's ``runs`` row shape.
+
+        ``None`` if no ``RunStarted`` has been seen yet (nothing to
+        project). For in-flight runs ``ended_at`` and ``outcome`` are
+        ``None``; those fields populate when ``RunEnded`` arrives.
+        """
+        s = self._run_started
+        if not s:
+            return None
+        ended_at = self._run_ended.occurred_at if self._run_ended else None
+        outcome = self._run_ended.outcome if self._run_ended else None
+        return {
+            "run_id": str(s.run_id) if s.run_id else None,
+            "session_id": str(s.session_id) if s.session_id else None,
+            "slot_id": s.slot_id,
+            "dut_serial": s.dut_serial,
+            "dut_part_number": s.dut_part_number,
+            "station_id": s.station_id,
+            "station_name": s.station_name,
+            "station_hostname": s.station_hostname,
+            "fixture_id": s.fixture_id,
+            "outcome": outcome,
+            "started_at": s.occurred_at,
+            "ended_at": ended_at,
+            "num_measurements": len(self._measurement_events),
+            "num_steps": len(set(self._step_starts) | set(self._step_ends)),
+            "test_phase": s.test_phase,
+            "product_id": s.product_id,
+            "operator_id": s.operator_id,
+            "project_name": s.project_name,
+            "file_path": None,  # Populated by parquet ingest, not by overlay
+            "steps_file_path": None,
+        }
+
+    def snapshot_step_rows(self) -> list[dict[str, Any]]:
+        """Return step rows matching the runs daemon's ``steps`` row shape."""
+        s = self._run_started
+        if not s:
+            return []
+        ended_at = self._run_ended.occurred_at if self._run_ended else None
+        outcome = self._run_ended.outcome if self._run_ended else None
+        rows: list[dict[str, Any]] = []
+        for entry in self._build_step_results_from_events():
+            started_at = _to_datetime(entry.get("started_at"))
+            entry_ended_at = _to_datetime(entry.get("ended_at"))
+            duration_s = (
+                (entry_ended_at - started_at).total_seconds()
+                if started_at and entry_ended_at
+                else None
+            )
+            rows.append(
+                {
+                    "run_id": str(s.run_id) if s.run_id else None,
+                    "step_index": entry.get("index"),
+                    "session_id": str(s.session_id) if s.session_id else None,
+                    "slot_id": s.slot_id,
+                    "step_name": entry.get("name"),
+                    "step_path": entry.get("step_path"),
+                    "outcome": entry.get("outcome"),
+                    "started_at": started_at,
+                    "ended_at": entry_ended_at,
+                    "duration_s": duration_s,
+                    "has_measurements": entry.get("has_measurements", False),
+                    "measurement_count": entry.get("measurement_count", 0),
+                    "vector_count": entry.get("vector_count", 0),
+                    "markers": entry.get("markers"),
+                    "dut_serial": s.dut_serial,
+                    "station_id": s.station_id,
+                    "file_path": None,
+                    # Run-level outcome / ended_at, mirrored on each step
+                    # row so step queries can answer run-level questions
+                    # without joining to runs.
+                    "run_outcome": outcome,
+                    "run_ended_at": ended_at,
+                }
+            )
+        return rows
+
+    def snapshot_measurement_rows(self) -> list[dict[str, Any]]:
+        """Return measurement rows matching the parquet measurements shape."""
+        if not self._run_started:
+            return []
+        ended_at = self._run_ended.occurred_at if self._run_ended else None
+        outcome = self._run_ended.outcome if self._run_ended else None
+        rows: list[dict[str, Any]] = []
+        for event in self._measurement_events:
+            row = self._build_row(event)
+            row["run_ended_at"] = ended_at
+            row["run_outcome"] = outcome
+            rows.append(row)
+        return rows
+
+    # ------------------------------------------------------------------
+    # Pure projection helpers — used by both snapshot and parquet write
+    # ------------------------------------------------------------------
 
     def _build_instrument_arrays(self) -> dict[str, list]:
         """Build instrument arrays from cached InstrumentConnected events."""
@@ -727,6 +831,114 @@ class ParquetSubscriber(EventSubscriber):
             custom=dict(event.custom),
         )
         return row.to_flat_dict()
+
+    def _build_step_results_from_events(self) -> list[dict[str, Any]]:
+        """Build step manifest from cached StepStarted/StepEnded events.
+
+        Appends ``not_started`` entries for collected items that never
+        executed (e.g. run aborted via Ctrl-C or ``--maxfail``).
+        """
+        manifest: list[dict[str, Any]] = []
+        executed_node_ids: set[str] = set()
+
+        # Pre-compute measurement counts per step index (avoids O(M*N) scan)
+        meas_counts: dict[int, int] = {}
+        for e in self._measurement_events:
+            meas_counts[e.step_index] = meas_counts.get(e.step_index, 0) + 1
+
+        all_indices = sorted(set(self._step_starts) | set(self._step_ends))
+        for idx in all_indices:
+            start = self._step_starts.get(idx)
+            end = self._step_ends.get(idx)
+            node_id = start.node_id if start else None
+            if node_id:
+                executed_node_ids.add(node_id)
+            manifest.append(self._build_step_entry(idx, start, end, meas_counts.get(idx, 0)))
+
+        # Append not-started entries from collected items
+        _append_not_started(manifest, self._collected_items, executed_node_ids)
+
+        return manifest
+
+    def _build_step_entry(
+        self,
+        idx: int,
+        start: Any | None,
+        end: Any | None,
+        meas_count: int,
+    ) -> dict[str, Any]:
+        """Build one step manifest entry from cached StepStarted/StepEnded.
+
+        Either ``start`` or ``end`` (typically both) describes the step.
+        Falls back across them so a partial run (e.g., aborted mid-step)
+        still yields a usable entry.
+        """
+        node_id = start.node_id if start else None
+        return step_entry_dict(
+            index=idx,
+            name=start.step_name if start else (end.step_name if end else ""),
+            node_id=node_id,
+            file=start.file if start else None,
+            function=start.function if start else None,
+            class_name=start.class_name if start else None,
+            module=start.module if start else None,
+            step_path=start.step_path if start else (end.step_path if end else ""),
+            description=start.description if start else None,
+            markers=self._markers_by_node.get(node_id) if node_id else None,
+            outcome=end.outcome if end else None,
+            started_at=start.occurred_at if start else None,
+            ended_at=end.occurred_at if end else None,
+            has_measurements=meas_count > 0,
+            measurement_count=meas_count,
+            vector_count=0,
+        )
+
+
+class ParquetSubscriber(EventAccumulator, EventSubscriber):
+    """EventSubscriber that writes the canonical parquet on RunEnded.
+
+    Inherits the full event projection from :class:`EventAccumulator`.
+    Adds only the parquet write tail: on ``RunEnded`` (or ``close()``
+    fallback) materialize the accumulated state via the inherited
+    ``_build_*`` helpers and persist it to disk via
+    :class:`ParquetBackend`.
+    """
+
+    format_name = "parquet"
+
+    event_types: set[type] = {
+        RunStarted,
+        InstrumentConnected,
+        StepsDiscovered,
+        StepStarted,
+        MeasurementRecorded,
+        StepEnded,
+        RunEnded,
+    }
+
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        on_output: Callable[[OutputFile], None] | None = None,
+    ) -> None:
+        super().__init__()
+        self._output_dir = output_dir
+        self._on_output = on_output
+        self._backend = ParquetBackend(results_dir=output_dir)
+        self._written = False
+
+    def open(self) -> None:
+        """No-op — subscriber protocol requires this but Parquet needs no setup."""
+
+    def on_event(self, event: Any) -> None:
+        super().on_event(event)
+        if isinstance(event, RunEnded):
+            self._write(outcome=event.outcome)
+
+    def close(self) -> None:
+        if not self._written:
+            self._write()
 
     def _write(self, outcome: str | None = None) -> None:
         """Write accumulated rows to Parquet.
@@ -914,67 +1126,6 @@ class ParquetSubscriber(EventSubscriber):
         return _build_parquet_metadata(
             environment_json=s.environment_json,
             step_results=results,
-        )
-
-    def _build_step_results_from_events(self) -> list[dict[str, Any]]:
-        """Build step manifest from cached StepStarted/StepEnded events.
-
-        Appends ``not_started`` entries for collected items that never
-        executed (e.g. run aborted via Ctrl-C or ``--maxfail``).
-        """
-        manifest: list[dict[str, Any]] = []
-        executed_node_ids: set[str] = set()
-
-        # Pre-compute measurement counts per step index (avoids O(M*N) scan)
-        meas_counts: dict[int, int] = {}
-        for e in self._measurement_events:
-            meas_counts[e.step_index] = meas_counts.get(e.step_index, 0) + 1
-
-        all_indices = sorted(set(self._step_starts) | set(self._step_ends))
-        for idx in all_indices:
-            start = self._step_starts.get(idx)
-            end = self._step_ends.get(idx)
-            node_id = start.node_id if start else None
-            if node_id:
-                executed_node_ids.add(node_id)
-            manifest.append(self._build_step_entry(idx, start, end, meas_counts.get(idx, 0)))
-
-        # Append not-started entries from collected items
-        _append_not_started(manifest, self._collected_items, executed_node_ids)
-
-        return manifest
-
-    def _build_step_entry(
-        self,
-        idx: int,
-        start: Any | None,
-        end: Any | None,
-        meas_count: int,
-    ) -> dict[str, Any]:
-        """Build one step manifest entry from cached StepStarted/StepEnded.
-
-        Either ``start`` or ``end`` (typically both) describes the step.
-        Falls back across them so a partial run (e.g., aborted mid-step)
-        still yields a usable entry.
-        """
-        node_id = start.node_id if start else None
-        return step_entry_dict(
-            index=idx,
-            name=start.step_name if start else (end.step_name if end else ""),
-            node_id=node_id,
-            file=start.file if start else None,
-            function=start.function if start else None,
-            class_name=start.class_name if start else None,
-            module=start.module if start else None,
-            step_path=start.step_path if start else (end.step_path if end else ""),
-            description=start.description if start else None,
-            markers=self._markers_by_node.get(node_id) if node_id else None,
-            outcome=end.outcome if end else None,
-            started_at=start.occurred_at if start else None,
-            ended_at=end.occurred_at if end else None,
-            has_measurements=meas_count > 0,
-            measurement_count=meas_count,
-            vector_count=0,
         )
 
 

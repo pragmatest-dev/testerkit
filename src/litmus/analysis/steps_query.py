@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
-from litmus.data._sql_helpers import sql_escape
+from litmus.data._sql_helpers import multi_filter_clauses, sql_escape
 from litmus.data.results_dir import resolve_results_dir
 
 
@@ -32,7 +32,7 @@ class StepRow(BaseModel):
     ``_query_dicts`` output.
     """
 
-    file_path: str
+    file_path: str | None = None
     run_id: str | None = None
     session_id: str | None = None
     slot_id: str | None = None
@@ -158,14 +158,12 @@ class StepsQuery:
         phase / product PN-100" view shows only the failures from
         runs matching those facets.
         """
-        from litmus.analysis.runs_query import _multi_filter_clauses
-
         run_filters = ["runs.ended_at IS NOT NULL"]
         # Operator-facing filters — see
         # feedback_operator_facing_identifiers.md (universal rule:
         # match against ``station_hostname``, never ``station_id``).
         run_filters.extend(
-            _multi_filter_clauses(
+            multi_filter_clauses(
                 {
                     "runs.test_phase": phase,
                     "runs.dut_part_number": product,

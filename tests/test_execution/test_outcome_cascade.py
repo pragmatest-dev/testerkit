@@ -1,7 +1,7 @@
 """End-to-end tests pinning the step → run outcome cascade.
 
 Subprocess-style pytest invocations against tiny synthetic test files.
-Each test asserts on the resulting parquet so the assertion-pass hook
+Each test asserts on the resulting step rows so the assertion-pass hook
 + cascade chain is proven end-to-end:
 
 * Passing rewritten asserts must register verdict intent so the step
@@ -19,50 +19,78 @@ This file is the load-bearing regression net for that.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
+from uuid import uuid4
 
-import duckdb
+from litmus.analysis.runs_query import RunsQuery
+from litmus.analysis.steps_query import StepsQuery
 
 
 def _write_test(path: Path, body: str) -> None:
     path.write_text(textwrap.dedent(body))
 
 
-def _run_pytest(test_file: Path, results_dir: Path) -> subprocess.CompletedProcess:
-    """Spawn ``pytest <test_file>`` writing parquet under ``results_dir``."""
+def _run_pytest(test_file: Path, *, session_id: str) -> subprocess.CompletedProcess:
+    """Spawn ``pytest <test_file>`` writing to the canonical results dir.
+
+    ``session_id`` flows in via ``_LITMUS_SESSION_ID`` so the outer
+    test scopes its assertions to exactly this subprocess's run.
+    """
+    env = {**os.environ, "_LITMUS_SESSION_ID": session_id}
     return subprocess.run(
         [
             sys.executable,
             "-m",
             "pytest",
             str(test_file),
-            f"--results-dir={results_dir}",
             "-v",
         ],
         capture_output=True,
         text=True,
         timeout=60,
+        env=env,
     )
 
 
-def _read_step_outcomes(results_dir: Path) -> list[tuple[str, str | None, str | None]]:
-    """Return ``[(step_path, step.outcome, run_outcome), ...]`` from parquet."""
-    rows = (
-        duckdb.connect()
-        .execute(
-            f"""
-        SELECT step_path, outcome, run_outcome
-        FROM read_parquet('{results_dir}/runs/*/*_steps.parquet')
-        WHERE step_path != ''
-        ORDER BY step_path
-        """
-        )
-        .fetchall()
-    )
-    return [(r[0], r[1], r[2]) for r in rows]
+def _read_step_outcomes(
+    session_id: str, *, timeout: float = 15.0
+) -> list[tuple[str, str | None, str | None]]:
+    """Return ``[(step_path, step.outcome, run_outcome), ...]`` for the session.
+
+    Reads through the public Query API (``StepsQuery`` +
+    ``RunsQuery``) — same path the operator UI uses. Polls until
+    the daemon ingests the subprocess's parquet. Budget is generous
+    (15s) because under full-suite load the canonical daemon may
+    have queued other tests' notifications ahead of ours.
+    """
+    deadline = time.monotonic() + timeout
+    runs_q = RunsQuery()
+    steps_q = StepsQuery()
+    try:
+        while time.monotonic() < deadline:
+            runs = runs_q.find_for_session(session_id, include_incomplete=True)
+            if runs:
+                break
+            time.sleep(0.2)
+        else:
+            return []
+
+        out: list[tuple[str, str | None, str | None]] = []
+        for run in runs:
+            assert run.run_id is not None
+            for step in steps_q.list_for_run(run.run_id, include_incomplete=True):
+                if step.step_path:
+                    out.append((step.step_path, step.outcome, run.outcome))
+        out.sort()
+        return out
+    finally:
+        runs_q.close()
+        steps_q.close()
 
 
 class TestOutcomeCascade:
@@ -70,6 +98,7 @@ class TestOutcomeCascade:
 
     def test_passing_asserts_land_as_passed(self, tmp_path):
         """A test with passing rewritten asserts → step + run = passed."""
+        session_id = str(uuid4())
         test_file = tmp_path / "test_with_asserts.py"
         _write_test(
             test_file,
@@ -81,12 +110,12 @@ class TestOutcomeCascade:
                 assert "abc".upper() == "ABC"
             """,
         )
-        result = _run_pytest(test_file, tmp_path / "results")
+        result = _run_pytest(test_file, session_id=session_id)
         assert result.returncode == 0, (
             f"pytest exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
 
-        outcomes = _read_step_outcomes(tmp_path / "results")
+        outcomes = _read_step_outcomes(session_id)
         assert outcomes == [
             ("test_one", "passed", "passed"),
             ("test_two", "passed", "passed"),
@@ -99,6 +128,7 @@ class TestOutcomeCascade:
         runs that never saw ``RunEnded``. A clean-exit unjudged run
         is a real, recorded outcome.
         """
+        session_id = str(uuid4())
         test_file = tmp_path / "test_no_asserts.py"
         _write_test(
             test_file,
@@ -111,12 +141,12 @@ class TestOutcomeCascade:
                 pass
             """,
         )
-        result = _run_pytest(test_file, tmp_path / "results")
+        result = _run_pytest(test_file, session_id=session_id)
         assert result.returncode == 0, (
             f"pytest exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
 
-        outcomes = _read_step_outcomes(tmp_path / "results")
+        outcomes = _read_step_outcomes(session_id)
         assert outcomes == [
             ("test_also_no_judgment", "done", "done"),
             ("test_no_judgment", "done", "done"),
@@ -124,6 +154,7 @@ class TestOutcomeCascade:
 
     def test_failing_assert_lands_as_failed(self, tmp_path):
         """A test with a failing assert → step + run = failed."""
+        session_id = str(uuid4())
         test_file = tmp_path / "test_fails.py"
         _write_test(
             test_file,
@@ -135,10 +166,10 @@ class TestOutcomeCascade:
                 assert 1 == 2
             """,
         )
-        result = _run_pytest(test_file, tmp_path / "results")
+        result = _run_pytest(test_file, session_id=session_id)
         assert result.returncode != 0, "expected pytest to fail"
 
-        outcomes = _read_step_outcomes(tmp_path / "results")
+        outcomes = _read_step_outcomes(session_id)
         # Run cascades to the worst outcome (failed) once any step fails.
         assert outcomes == [
             ("test_fails", "failed", "failed"),

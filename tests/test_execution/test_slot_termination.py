@@ -18,28 +18,29 @@ import subprocess
 import sys
 import textwrap
 import time
-from pathlib import Path
 from unittest import mock
+from uuid import uuid4
 
 from litmus.analysis.runs_query import RunsQuery
 from litmus.execution.slot_runner import SlotRunner
 
 
-def _wait_for_runs(results_dir: Path, expected: int, *, timeout: float = 3.0) -> list:
-    """Bounded poll over RunsQuery — same model the operator UI sees.
+def _wait_for_session_runs(session_id: str, expected: int, *, timeout: float = 3.0) -> list:
+    """Bounded poll over RunsQuery for a specific session.
 
-    The runs daemon ingests parquet asynchronously after the producing
-    process exits; a bounded retry mirrors a UI page refresh.
+    Same canonical daemon every Litmus client uses; filter by the
+    test's own ``session_id`` so we ignore everything else in the
+    shared store.
     """
     deadline = time.monotonic() + timeout
-    q = RunsQuery(_results_dir=str(results_dir))
+    q = RunsQuery()
     try:
         while time.monotonic() < deadline:
-            runs = q.list_recent(limit=10)
+            runs = q.find_for_session(session_id, include_incomplete=True)
             if len(runs) >= expected:
                 return runs
             time.sleep(0.2)
-        return q.list_recent(limit=10)
+        return q.find_for_session(session_id, include_incomplete=True)
     finally:
         q.close()
 
@@ -48,7 +49,10 @@ class TestSingleProcessTermination:
     """SIGTERM → run lands ``terminated`` (full handler chain)."""
 
     def test_sigterm_during_test_lands_terminated(self, tmp_path):
-        results_dir = tmp_path / "results"
+        # Subprocess writes to the canonical results_dir (the singleton
+        # daemon every Litmus client shares). Test isolation is by the
+        # unique ``session_id`` we hand the subprocess via env.
+        session_id = str(uuid4())
         marker = tmp_path / "started"
         test_file = tmp_path / "test_slow.py"
         test_file.write_text(
@@ -65,19 +69,20 @@ class TestSingleProcessTermination:
             )
         )
 
+        env = {**os.environ, "_LITMUS_SESSION_ID": session_id}
         proc = subprocess.Popen(
             [
                 sys.executable,
                 "-m",
                 "pytest",
                 str(test_file),
-                f"--results-dir={results_dir}",
                 "-v",
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            env=env,
         )
 
         try:
@@ -93,7 +98,7 @@ class TestSingleProcessTermination:
             proc.wait(timeout=5)
             raise
 
-        runs = _wait_for_runs(results_dir, expected=1)
+        runs = _wait_for_session_runs(session_id, expected=1)
         assert len(runs) == 1, runs
         assert runs[0].outcome == "terminated"
         assert runs[0].ended_at is not None

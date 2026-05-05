@@ -1240,11 +1240,18 @@ def events_query(
     try:
         since_dt = datetime.fromisoformat(since) if since else None
         sid = UUID(session_id) if session_id else None
+        # ``role`` filtering happens client-side (it inspects event
+        # fields not directly indexed in SQL). Over-fetch a bit so
+        # role filters still produce ``limit`` final rows on
+        # average — a 4× headroom is cheap and avoids surprising
+        # under-fills on common role-filter queries.
+        sql_limit = limit * 4 if role else limit
         events = store.events(
             session_id=sid,
             event_type=event_type,
             role=role,
             since=since_dt,
+            limit=sql_limit,
         )
         return {"events": events[:limit], "count": len(events[:limit])}
     finally:

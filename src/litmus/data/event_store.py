@@ -216,10 +216,19 @@ class EventStore:
         """Flush all buffered events to IPC files and Flight.
 
         Call this after emitting events that must be visible to other
-        processes immediately (e.g., sync events).
+        processes immediately (e.g., sync events). Drains the
+        persistent do_put stream too so the events daemon has acked
+        every batch before flush returns — without that drain, IPC is
+        on disk but the events daemon's table may not yet contain the
+        rows that subsequent cross-process queries / subscribers
+        depend on.
         """
         for log in self._event_logs.values():
             log.flush()
+        try:
+            self._put_stream.drain()
+        except Exception:  # noqa: BLE001 — drain is best-effort; data is already in IPC
+            pass
 
     # -- Read path -----------------------------------------------------------
 
@@ -230,8 +239,20 @@ class EventStore:
         event_type: str | None = None,
         role: str | None = None,
         since: datetime | None = None,
+        limit: int | None = None,
     ) -> list[dict]:
-        """Query events from the DuckDB index via Flight."""
+        """Query events from the DuckDB index via Flight.
+
+        ``limit`` pushes the row cap into the SQL so the daemon
+        returns at most ``limit`` rows instead of streaming the
+        full event log over Flight. Critical for projects with
+        large IPC histories — without it, even a "show me the
+        latest 100 events" page pulls millions of rows.
+
+        ``limit`` is applied to the **most recent** rows (the SQL
+        sorts ``received_at DESC`` under the limit, then re-sorts
+        ASC for the caller). ``None`` returns all matching rows.
+        """
         # Flush any buffered events to IPC + Flight before querying
         # (on_flush callback pushes batches to Flight automatically)
         for log in self._event_logs.values():
@@ -252,16 +273,32 @@ class EventStore:
             conditions.append(f"event_type = '{_sql_escape(event_type)}'")
         if since:
             conditions.append(f"received_at >= '{_sql_escape(since.isoformat())}'")
-
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        query = f"""
-            SELECT *
-            FROM events
-            {where}
-            ORDER BY received_at ASC
-        """
-        rows = self._flight_query(query)
+        # Latest-N pushdown: SQL sorts received_at DESC under the
+        # LIMIT (cheap with the index on received_at), then re-sorts
+        # ASC in the outer SELECT so the caller still sees
+        # chronological order. Without this, "show me the last 100
+        # events" pulls every event over Flight.
+        if limit is not None and limit > 0:
+            sql = f"""
+                SELECT * FROM (
+                    SELECT *
+                    FROM events
+                    {where}
+                    ORDER BY received_at DESC
+                    LIMIT {int(limit)}
+                )
+                ORDER BY received_at ASC
+            """
+        else:
+            sql = f"""
+                SELECT *
+                FROM events
+                {where}
+                ORDER BY received_at ASC
+            """
+        rows = self._flight_query(sql)
 
         db_events: list[dict] = []
         for row in rows:
@@ -360,16 +397,26 @@ class EventStore:
         Skips events already delivered in-process (via ``_notify_subscribers``).
         Parses the ``json`` column so subscribers get full event dicts.
 
-        Wraps each Flight query in a try/except so a transient failure
-        (events daemon mid-restart, schema not yet created) doesn't
-        kill the watcher thread silently — we'd lose all live updates
-        until the next process restart, with no log trace.
+        Wraps each Flight query *and* each subscriber dispatch in a
+        try/except so a transient failure (events daemon
+        mid-restart, schema not yet created, a single dispatcher
+        UPSERT raising) doesn't kill the watcher thread silently.
+        Without that guard the thread dies on the first bad
+        dispatch, every later cross-process event is dropped, and
+        the live UPSERT path looks broken with no log trace.
         """
         last_received_at: str | None = None
 
         while not self._watcher_stop.is_set():
+            # ``>=`` not ``>``: two events emitted in the same
+            # microsecond (e.g., back-to-back RunStarted +
+            # RunEnded with no flush between) share a
+            # ``received_at`` timestamp. ``>`` would skip the
+            # second one; ``>=`` re-fetches the boundary event
+            # but ``_delivered_ids`` deduplicates downstream so
+            # subscribers see each event exactly once.
             condition = (
-                f" WHERE received_at > '{_sql_escape(last_received_at)}'"
+                f" WHERE received_at >= '{_sql_escape(last_received_at)}'"
                 if last_received_at
                 else ""
             )
@@ -386,11 +433,12 @@ class EventStore:
                 self._watcher_stop.wait(timeout=0.5)
                 continue
 
+            # Advance the cursor only past rows we successfully
+            # dispatched. If a dispatch raises (transient daemon
+            # contention, locked DuckDB conn, etc.) the next poll
+            # re-fetches that row and retries — at-least-once
+            # delivery, deduped by ``_delivered_ids``.
             for row in rows:
-                ts = row.get("received_at")
-                if ts is not None:
-                    last_received_at = str(ts)
-
                 # Parse the full event from the json column
                 json_str = row.get("json")
                 if json_str:
@@ -403,10 +451,24 @@ class EventStore:
 
                 # Skip events already delivered in-process
                 event_id = str(evt.get("id") or row.get("id", ""))
-                with self._lock:
-                    if event_id in self._delivered_ids:
-                        continue
-                    self._dispatch_to_subscribers(evt)
+                try:
+                    with self._lock:
+                        if event_id not in self._delivered_ids:
+                            self._dispatch_to_subscribers(evt)
+                except Exception as exc:  # noqa: BLE001 — never let one bad dispatch kill the watcher
+                    logger.debug(
+                        "Watcher dispatch failed for event id=%s (will retry): %s",
+                        event_id,
+                        exc,
+                    )
+                    # Don't advance ``last_received_at`` past a row
+                    # we failed to dispatch — leave the cursor where
+                    # it was and re-fetch on the next poll.
+                    break
+
+                ts = row.get("received_at")
+                if ts is not None:
+                    last_received_at = str(ts)
 
             self._watcher_stop.wait(timeout=0.5)
 

@@ -25,8 +25,23 @@ from pathlib import Path
 
 from filelock import FileLock
 
-_IDLE_TIMEOUT = int(os.environ.get("LITMUS_DAEMON_IDLE_TIMEOUT", "10"))
+# 300s (5 min) so daemons survive routine UI page switches. The
+# previous 10s was timed to die exactly between operator
+# navigations, causing every page click to wait for a fresh spawn
+# (~1s python startup + parquet rediscovery, observed as ~10s
+# loads with multi-daemon pages). Override via env var if a
+# constrained dev environment needs more aggressive shutdown.
+_IDLE_TIMEOUT = int(os.environ.get("LITMUS_DAEMON_IDLE_TIMEOUT", "300"))
 _POLL_INTERVAL = 2  # seconds between daemon ref-count checks
+
+# Spawn timeout — how long a client waits for a freshly-spawned
+# daemon to write its ready file. The python interpreter startup
+# alone is ~500ms; loading the litmus package + DuckDB + Flight
+# adds another second; on slow CI runners or under contention
+# (multiple tests spawning daemons concurrently), this can stretch
+# past the previous 10s ceiling. 30s is a safer ceiling that still
+# surfaces real spawn failures (corrupt index, unbindable port).
+_SPAWN_TIMEOUT = float(os.environ.get("LITMUS_DAEMON_SPAWN_TIMEOUT", "30"))
 
 # Track acquired managers so atexit/signal can release them all
 _acquired: dict[str, DaemonManager] = {}
@@ -351,7 +366,7 @@ class DaemonManager:
             # the parent process doesn't keep the log file open.
             log_handle.close()
 
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + _SPAWN_TIMEOUT
         while time.monotonic() < deadline:
             if ready_file.exists():
                 return
@@ -359,7 +374,9 @@ class DaemonManager:
 
         proc.kill()
         proc.wait(timeout=2)
-        raise RuntimeError(f"Daemon failed to start within 10s. dir={self._dir}, cmd={cmd}")
+        raise RuntimeError(
+            f"Daemon failed to start within {_SPAWN_TIMEOUT}s. dir={self._dir}, cmd={cmd}"
+        )
 
     def _read_pid(self) -> int:
         """Read the daemon PID from its PID file."""

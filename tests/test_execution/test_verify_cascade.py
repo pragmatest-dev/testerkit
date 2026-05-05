@@ -22,9 +22,12 @@ What we assert here:
 from __future__ import annotations
 
 import textwrap
+from uuid import uuid4
 
 import pyarrow.parquet as pq
 import pytest
+
+from litmus.data.results_dir import resolve_results_dir
 
 pytest_plugins = ["pytester"]
 
@@ -38,15 +41,22 @@ _INI = textwrap.dedent(
 )
 
 
-def _read_measurement_row(results_dir, measurement_name: str) -> dict:
-    """Find the parquet row for a given measurement name."""
-    # Measurement rows live in *_test.parquet (not *_test_steps.parquet —
-    # that's the step manifest).
-    parquet_files = [p for p in results_dir.glob("**/*.parquet") if not p.stem.endswith("_steps")]
-    assert parquet_files, f"no measurement parquet under {results_dir}"
-    table = pq.read_table(parquet_files[0])
+# Project-local results via repo ``litmus.yaml``.
+_CANONICAL_RESULTS = resolve_results_dir()
+
+
+def _read_measurement_row(serial: str, measurement_name: str) -> dict:
+    """Find the parquet row for ``serial`` + ``measurement_name`` under canonical."""
+    matches = [
+        p
+        for p in _CANONICAL_RESULTS.glob(f"runs/**/*_{serial}.parquet")
+        if not p.stem.endswith("_steps")
+    ]
+    assert matches, f"no measurement parquet for serial={serial!r}"
+    parquet = max(matches, key=lambda p: p.stat().st_mtime)
+    table = pq.read_table(parquet)
     rows = [r for r in table.to_pylist() if r.get("measurement_name") == measurement_name]
-    assert rows, f"no row for {measurement_name!r} in {parquet_files[0]}"
+    assert rows, f"no row for {measurement_name!r} in {parquet}"
     return rows[0]
 
 
@@ -78,11 +88,10 @@ def test_verify_cascade_to_streaming_row(
             """
         )
     )
-    results_dir = pytester.path / "results"
+    serial = f"test-{uuid4().hex[:8]}"
     result = pytester.runpytest_subprocess(
-        "--dut-serial=test",
+        f"--dut-serial={serial}",
         "--mock-instruments",
-        f"--results-dir={results_dir}",
         "-q",
     )
     if expected_outcome == "passed":
@@ -90,7 +99,7 @@ def test_verify_cascade_to_streaming_row(
     else:
         result.assert_outcomes(failed=1)
 
-    row = _read_measurement_row(results_dir, "v_rail")
+    row = _read_measurement_row(serial, "v_rail")
 
     # Bug-catch: pre-fix this was "done" for a passing verify; the
     # streaming subscriber materializes from MeasurementRecorded events,
@@ -119,16 +128,15 @@ def test_logger_measure_alone_still_stamps_done(pytester: pytest.Pytester) -> No
             """
         )
     )
-    results_dir = pytester.path / "results"
+    serial = f"test-{uuid4().hex[:8]}"
     result = pytester.runpytest_subprocess(
-        "--dut-serial=test",
+        f"--dut-serial={serial}",
         "--mock-instruments",
-        f"--results-dir={results_dir}",
         "-q",
     )
     result.assert_outcomes(passed=1)
 
-    row = _read_measurement_row(results_dir, "v_rail")
+    row = _read_measurement_row(serial, "v_rail")
     assert row["measurement_outcome"] == "done"
 
 
@@ -163,19 +171,23 @@ def test_in_test_vector_iteration_allows_repeat_name(pytester: pytest.Pytester) 
             """
         )
     )
-    results_dir = pytester.path / "results"
+    serial = f"test-{uuid4().hex[:8]}"
     result = pytester.runpytest_subprocess(
-        "--dut-serial=test",
+        f"--dut-serial={serial}",
         "--mock-instruments",
-        f"--results-dir={results_dir}",
         "-q",
     )
     result.assert_outcomes(passed=1)
 
     # Three vector rows, all with the same measurement name and outcome.
-    parquet_files = [p for p in results_dir.glob("**/*.parquet") if not p.stem.endswith("_steps")]
-    assert parquet_files
-    table = pq.read_table(parquet_files[0])
+    matches = [
+        p
+        for p in _CANONICAL_RESULTS.glob(f"runs/**/*_{serial}.parquet")
+        if not p.stem.endswith("_steps")
+    ]
+    assert matches, f"no parquet for {serial}"
+    parquet = max(matches, key=lambda p: p.stat().st_mtime)
+    table = pq.read_table(parquet)
     rows = [r for r in table.to_pylist() if r.get("measurement_name") == "v_rail"]
     assert len(rows) == 3, f"expected 3 rows (one per vector), got {len(rows)}"
     assert {r["measurement_outcome"] for r in rows} == {"passed"}

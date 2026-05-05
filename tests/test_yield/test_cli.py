@@ -1,7 +1,14 @@
-"""CLI tests for litmus yield commands."""
+"""CLI tests for litmus yield/metrics commands.
+
+Uses the canonical singleton runs daemon. Synthetic measurement
+parquets land at ``canonical/runs/test-yield-cli/`` under a unique
+``product_id`` so the CLI's ``--product`` filter can scope cleanly
+past whatever else the canonical store holds.
+"""
 
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pyarrow.parquet as pq
 import pytest
@@ -9,12 +16,15 @@ from click.testing import CliRunner
 
 from litmus.cli import main
 from litmus.data.backends._row_helpers import MeasurementRow
+from litmus.data.results_dir import resolve_results_dir
+from litmus.data.run_store import RunStore
 from litmus.data.schemas import _build_write_schema, table_from_rows
 
 
 def _row(
     *,
-    run_id: str = "run-001",
+    run_id: str,
+    dut_part_number: str,
     dut_serial: str = "SN001",
     run_outcome: str = "passed",
     run_started_at: datetime = datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
@@ -25,7 +35,6 @@ def _row(
     outcome: str = "passed",
     limit_low: float = 3.1,
     limit_high: float = 3.5,
-    dut_part_number: str = "prod_a",
     station_name: str = "bench_1",
     test_phase: str = "production",
 ) -> MeasurementRow:
@@ -53,29 +62,34 @@ def _row(
     )
 
 
-def _write(runs_dir: Path, rows: list[MeasurementRow]) -> None:
+def _write(runs_dir: Path, rows: list[MeasurementRow], filename: str) -> Path:
     flat = [r.to_flat_dict() for r in rows]
     schema = _build_write_schema(flat)
     table = table_from_rows(flat, schema)
-    pq.write_table(table, runs_dir / "20260101T100000Z.parquet")
+    path = runs_dir / filename
+    pq.write_table(table, path)
+    return path
 
 
-@pytest.fixture()
-def results_dir(tmp_path):
-    """Create sample results for CLI testing."""
-    runs_dir = tmp_path / "runs" / "2026-01-01"
-    runs_dir.mkdir(parents=True)
+@pytest.fixture(scope="module")
+def fixture_data() -> dict[str, str]:
+    """Sample measurement data under a unique product, in canonical."""
+    product = f"prod-yield-{uuid4().hex[:8]}"
+    canonical_runs = resolve_results_dir() / "runs" / "test-yield-cli" / "2026-01-01"
+    canonical_runs.mkdir(parents=True, exist_ok=True)
 
     rows = [
         _row(
-            run_id="run-001",
+            run_id=f"yld-{uuid4()}",
+            dut_part_number=product,
             dut_serial="SN001",
             run_outcome="passed",
             value=3.3,
             outcome="passed",
         ),
         _row(
-            run_id="run-002",
+            run_id=f"yld-{uuid4()}",
+            dut_part_number=product,
             dut_serial="SN002",
             run_outcome="failed",
             run_started_at=datetime(2026, 1, 1, 11, 0, tzinfo=UTC),
@@ -84,63 +98,81 @@ def results_dir(tmp_path):
             outcome="failed",
         ),
     ]
-    _write(runs_dir, rows)
-    return tmp_path
+    path = _write(canonical_runs, rows, f"{product}_main.parquet")
+
+    notifier = RunStore()
+    try:
+        notifier.notify_new_run(path)
+    finally:
+        notifier.close()
+
+    return {"product": product}
 
 
 class TestMetricsCLI:
-    def test_summary(self, results_dir):
+    def test_summary(self, fixture_data):
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "summary", "--results-dir", str(results_dir)])
+        result = runner.invoke(main, ["metrics", "summary", "--product", fixture_data["product"]])
         assert result.exit_code == 0
         assert "Pass" in result.output or "Runs" in result.output
 
-    def test_summary_json(self, results_dir):
+    def test_summary_json(self, fixture_data):
         runner = CliRunner()
         result = runner.invoke(
-            main, ["metrics", "summary", "--results-dir", str(results_dir), "--json"]
+            main,
+            ["metrics", "summary", "--product", fixture_data["product"], "--json"],
         )
         assert result.exit_code == 0
         assert "total_runs" in result.output
 
-    def test_pareto_default_dispatches_to_product_lens(self, results_dir):
+    def test_pareto_default_dispatches_to_product_lens(self, fixture_data):
         """Default ``--group-by`` is ``product`` — exits 0 even when the fixture
         only has measurement parquets (no ``_steps.parquet``); content is
         verified separately for the measurement lens which uses the
         always-populated measurements view.
         """
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "pareto", "--results-dir", str(results_dir)])
+        result = runner.invoke(main, ["metrics", "pareto", "--product", fixture_data["product"]])
         assert result.exit_code == 0
 
-    def test_pareto_group_by_measurement(self, results_dir):
+    def test_pareto_group_by_measurement(self, fixture_data):
         """Historical lens: ``--group-by measurement`` surfaces measurement names."""
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["metrics", "pareto", "--results-dir", str(results_dir), "--group-by", "measurement"],
+            [
+                "metrics",
+                "pareto",
+                "--product",
+                fixture_data["product"],
+                "--group-by",
+                "measurement",
+            ],
         )
         assert result.exit_code == 0
         assert "output_voltage" in result.output
 
-    def test_cpk(self, results_dir):
+    def test_cpk(self, fixture_data):
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "cpk", "--results-dir", str(results_dir)])
+        result = runner.invoke(main, ["metrics", "cpk", "--product", fixture_data["product"]])
         assert result.exit_code == 0
 
-    def test_trend(self, results_dir):
+    def test_trend(self, fixture_data):
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "trend", "--results-dir", str(results_dir)])
+        result = runner.invoke(main, ["metrics", "trend", "--product", fixture_data["product"]])
         assert result.exit_code == 0
         assert "2026-01-01" in result.output
 
-    def test_retest(self, results_dir):
+    def test_retest(self, fixture_data):
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "retest", "--results-dir", str(results_dir)])
+        result = runner.invoke(main, ["metrics", "retest", "--product", fixture_data["product"]])
         assert result.exit_code == 0
 
-    def test_time_loss(self, results_dir):
+    def test_time_loss(self, fixture_data):
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "time-loss", "--results-dir", str(results_dir)])
+        result = runner.invoke(
+            main,
+            ["metrics", "time-loss", "--product", fixture_data["product"]],
+        )
         assert result.exit_code == 0
         assert "Total(s)" in result.output

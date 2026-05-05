@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -13,9 +12,8 @@ from litmus.data.events import SessionStarted
 
 
 @pytest.fixture(scope="module")
-def store(tmp_path_factory: pytest.TempPathFactory) -> Generator[EventStore]:
-    d = tmp_path_factory.mktemp("event_store")
-    s = EventStore(_results_dir=d / "results")
+def store() -> Generator[EventStore]:
+    s = EventStore()
     yield s
     s.close()
 
@@ -119,11 +117,11 @@ class TestGetEventLog:
 
 
 class TestClose:
-    def test_close_cleans_up(self, tmp_path: Path):
-        store = EventStore(_results_dir=tmp_path / "results")
+    def test_close_cleans_up(self):
+        store = EventStore()
         sid = uuid4()
         store.emit(_make_session_started(sid))
-        store.on_event(lambda e: None, session_id=sid)
+        store.on_event(lambda _: None, session_id=sid)
         store.close()
         assert len(store._event_logs) == 0
         assert len(store._subscriptions) == 0

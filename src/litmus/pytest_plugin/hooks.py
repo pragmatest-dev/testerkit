@@ -597,11 +597,54 @@ def pytest_load_initial_conftests(early_config, parser, args):
     test modules are imported and rewritten — by the time
     ``pytest_configure`` fires, the rewriter has already cached
     its decision per-module.
+
+    **Cache invalidation**: Pytest's assertion rewriter caches the
+    rewritten bytecode in ``__pycache__/`` files. The cache key
+    bakes in the rewriter's input but NOT the value of
+    ``enable_assertion_pass_hook`` at compile time. So if a
+    project ever ran tests with the flag off (or with the Litmus
+    plugin not loaded yet — possible during plugin-development
+    workflows or during rebuilds), the cached ``.pyc`` files
+    contain bytecode WITHOUT the hook calls injected. Subsequent
+    runs reuse those stale ``.pyc``s and silently skip the hook,
+    landing every test as DONE despite passing asserts. We tag the
+    rewriter's bytecode hash so toggling the flag busts the cache.
     """
     _ = parser
     early_config._inicache["enable_assertion_pass_hook"] = True
+    _enable_hook_in_rewriter_cache_key()
     with _profile_errors_as_usage():
         apply_profile_addopts_env(args)
+
+
+_LITMUS_REWRITER_TAG = "litmus-asserthook-v1"
+
+
+def _enable_hook_in_rewriter_cache_key() -> None:
+    """Mix our plugin tag into pytest's assertion-rewriter cache key.
+
+    ``_pytest.assertion.rewrite.PYTEST_TAG`` is the cache-tag string
+    pytest writes into ``.pyc`` filenames in ``__pycache__/``. When
+    that string changes, pytest treats existing ``.pyc``s as a
+    different bytecode flavor and recompiles. We append a
+    Litmus-specific suffix so any cache compiled before this plugin
+    was loaded (or with the assertion-pass hook off) gets
+    recompiled — matching the actually-active hook setting.
+
+    Idempotent: a second append is skipped if the tag is already in
+    place.
+    """
+    try:
+        from _pytest.assertion import rewrite as _rewrite
+
+        if _LITMUS_REWRITER_TAG not in _rewrite.PYTEST_TAG:
+            _rewrite.PYTEST_TAG = f"{_rewrite.PYTEST_TAG}-{_LITMUS_REWRITER_TAG}"
+            _rewrite.PYC_TAIL = "." + _rewrite.PYTEST_TAG + _rewrite.PYC_EXT
+    except (ImportError, AttributeError):
+        # If pytest internals change, fall back silently — the worst
+        # case is the historical staleness bug, which is fixable by
+        # clearing __pycache__ manually.
+        pass
 
 
 def pytest_addoption(parser):

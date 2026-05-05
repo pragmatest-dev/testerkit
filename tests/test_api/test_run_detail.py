@@ -44,20 +44,29 @@ def _make_run(*, run_id, steps):
 
 
 @pytest.fixture
-def client_with_run_factory(tmp_path, monkeypatch):
-    """Factory that saves a run and returns ``(client, run_id)``."""
-    results_root = tmp_path / "results"
+def client_with_run_factory():
+    """Factory that saves a run to canonical and returns ``(client, run_id)``.
+
+    Per-test isolation is by uuid4 ``run_id``; the API queries by id
+    via ``RunsQuery.get`` / ``StepsQuery.get`` so other tests' rows
+    in the canonical store don't leak in.
+    """
+    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.run_store import RunStore
+
+    results_root = resolve_results_dir()
     backend = ParquetBackend(results_dir=results_root)
 
-    from litmus.models.project import ProjectConfig
-
-    monkeypatch.setattr(
-        "litmus.store.load_project_config",
-        lambda *a, **kw: ProjectConfig(name="test", results_dir=str(results_root)),
-    )
-
     def make(test_run: TestRun):
-        backend.save_test_run(test_run)
+        parquet_path = backend.save_test_run(test_run)
+        # Canonical daemon needs to know about this parquet so the
+        # API's typed queries find it; ``LITMUS_SKIP_DAEMON_NOTIFY``
+        # blocks the auto-notify, so we trigger it directly.
+        notifier = RunStore()
+        try:
+            notifier.notify_new_run(parquet_path)
+        finally:
+            notifier.close()
         app = FastAPI()
         app.include_router(create_api_router())
         return TestClient(app), str(test_run.id)

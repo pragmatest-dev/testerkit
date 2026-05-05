@@ -163,6 +163,7 @@ class _ChannelWriter(BufferedIPCWriter):
 
     def _on_flush(self, batch: pa.RecordBatch) -> None:
         """Rotate: close this segment so it's readable, open next on demand."""
+        del batch  # rotation logic doesn't read the batch — only the parent's signature requires it
         if self._writer is not None:
             self._closed_paths.append(self.path)
             self._writer.close()

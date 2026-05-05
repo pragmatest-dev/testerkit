@@ -19,30 +19,21 @@ from pydantic import BaseModel
 
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
-from litmus.data._sql_helpers import sql_escape
+from litmus.data._sql_helpers import multi_filter_clauses, sql_escape
 from litmus.data.results_dir import resolve_results_dir
 
-
-def _multi_filter_clauses(filters: dict[str, str | list[str] | None]) -> list[str]:
-    """Build ``col = '…' / col IN (…)`` clauses from multi-value filters.
-
-    Empty / ``None`` values contribute nothing. Used by query
-    methods that take ``str | list[str] | None`` filters so a
-    multi-select widget can drive an ``IN (…)`` clause directly.
-    """
-    out: list[str] = []
-    for column, value in filters.items():
-        if value is None or value == "":
-            continue
-        values = [value] if isinstance(value, str) else [v for v in value if v]
-        if not values:
-            continue
-        if len(values) == 1:
-            out.append(f"{column} = '{sql_escape(values[0])}'")
-        else:
-            quoted = ", ".join(f"'{sql_escape(v)}'" for v in values)
-            out.append(f"{column} IN ({quoted})")
-    return out
+# Operator-facing group-by dimensions only — internal IDs like
+# ``station_id`` / ``product_id`` are not exposed.
+# See feedback_operator_facing_identifiers.md.
+_VALID_PARETO_GROUP_BY = frozenset(
+    {
+        "dut_part_number",
+        "station_hostname",
+        "operator_id",
+        "test_phase",
+        "fixture_id",
+    }
+)
 
 
 class RunRow(BaseModel):
@@ -210,24 +201,16 @@ class RunsQuery:
                 run set before grouping. Same semantics as the
                 ``MeasurementsQuery`` filters.
         """
-        # Operator-facing group-by dimensions only — internal IDs
-        # like ``station_id`` / ``product_id`` are not exposed.
-        # See feedback_operator_facing_identifiers.md.
-        valid_group = {
-            "dut_part_number",
-            "station_hostname",
-            "operator_id",
-            "test_phase",
-            "fixture_id",
-        }
-        if group_by not in valid_group:
-            raise ValueError(f"Invalid group_by={group_by!r}; must be one of {sorted(valid_group)}")
+        if group_by not in _VALID_PARETO_GROUP_BY:
+            raise ValueError(
+                f"Invalid group_by={group_by!r}; must be one of {sorted(_VALID_PARETO_GROUP_BY)}"
+            )
         clauses = ["ended_at IS NOT NULL", f"{group_by} IS NOT NULL"]
         # Operator-facing filters match against ``station_hostname``
         # (the machine name the operator knows), not internal IDs.
         # See feedback_operator_facing_identifiers.md.
         clauses.extend(
-            _multi_filter_clauses(
+            multi_filter_clauses(
                 {
                     "test_phase": phase,
                     "dut_part_number": product,

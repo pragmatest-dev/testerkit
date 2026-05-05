@@ -20,11 +20,13 @@ the operator UI uses.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import textwrap
 import time
 from pathlib import Path
+from uuid import uuid4
 
 import yaml
 
@@ -58,11 +60,17 @@ def _run_pytest(
     test_file: Path,
     fixture_path: Path,
     station_path: Path,
-    results_dir: Path,
     *,
+    session_id: str,
     slot: str | None = None,
     extra: list[str] | None = None,
 ) -> subprocess.CompletedProcess:
+    """Run pytest in a subprocess writing to the canonical results dir.
+
+    ``session_id`` flows through the ``_LITMUS_SESSION_ID`` env so
+    the outer test can identify exactly its own runs in the shared
+    canonical store.
+    """
     args = [
         sys.executable,
         "-m",
@@ -70,7 +78,6 @@ def _run_pytest(
         str(test_file),
         f"--fixture={fixture_path}",
         f"--station={station_path}",
-        f"--results-dir={results_dir}",
         "--mock-instruments",
         "--dut-serial=SN42",
         "-v",
@@ -79,20 +86,21 @@ def _run_pytest(
         args.append(f"--slot={slot}")
     if extra:
         args.extend(extra)
-    return subprocess.run(args, capture_output=True, text=True, timeout=60)
+    env = {**os.environ, "_LITMUS_SESSION_ID": session_id}
+    return subprocess.run(args, capture_output=True, text=True, timeout=60, env=env)
 
 
-def _list_runs(results_dir: Path, *, timeout: float = 3.0) -> list:
-    """Bounded poll over RunsQuery — same eventual-consistency model the UI sees."""
+def _list_runs(session_id: str, *, timeout: float = 3.0) -> list:
+    """Bounded poll over canonical RunsQuery, scoped to ``session_id``."""
     deadline = time.monotonic() + timeout
-    q = RunsQuery(_results_dir=str(results_dir))
+    q = RunsQuery()
     try:
         while time.monotonic() < deadline:
-            runs = q.list_recent(limit=10)
+            runs = q.find_for_session(session_id, include_incomplete=True)
             if runs:
                 return runs
             time.sleep(0.2)
-        return q.list_recent(limit=10)
+        return q.find_for_session(session_id, include_incomplete=True)
     finally:
         q.close()
 
@@ -101,16 +109,22 @@ class TestSlotFlag:
     """``--slot=N`` records the operator's intended slot in the run row."""
 
     def test_known_slot_records_slot_id_and_runs_single_process(self, tmp_path):
+        session_id = str(uuid4())
         fixture_path = tmp_path / "fixture.yaml"
         station_path = tmp_path / "station.yaml"
         test_file = tmp_path / "test_pass.py"
-        results_dir = tmp_path / "results"
 
         _write_multi_slot_fixture(fixture_path, ["slot_1", "slot_2"])
         _write_station(station_path)
         _write_pass_test(test_file)
 
-        result = _run_pytest(test_file, fixture_path, station_path, results_dir, slot="slot_2")
+        result = _run_pytest(
+            test_file,
+            fixture_path,
+            station_path,
+            session_id=session_id,
+            slot="slot_2",
+        )
         assert result.returncode == 0, (
             f"pytest exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
@@ -118,39 +132,50 @@ class TestSlotFlag:
         # header should NOT appear.
         assert "Multi-DUT Results" not in result.stdout
 
-        runs = _list_runs(results_dir)
+        runs = _list_runs(session_id)
         # Exactly one run row; ``slot_id`` reflects the operator's choice.
         assert len(runs) == 1, runs
         assert runs[0].slot_id == "slot_2", runs[0]
         assert runs[0].outcome == "passed"
 
     def test_unknown_slot_errors_at_session_start(self, tmp_path):
+        session_id = str(uuid4())
         fixture_path = tmp_path / "fixture.yaml"
         station_path = tmp_path / "station.yaml"
         test_file = tmp_path / "test_pass.py"
-        results_dir = tmp_path / "results"
 
         _write_multi_slot_fixture(fixture_path, ["slot_1", "slot_2"])
         _write_station(station_path)
         _write_pass_test(test_file)
 
-        result = _run_pytest(test_file, fixture_path, station_path, results_dir, slot="slot_99")
+        result = _run_pytest(
+            test_file,
+            fixture_path,
+            station_path,
+            session_id=session_id,
+            slot="slot_99",
+        )
         assert result.returncode != 0
         combined = result.stdout + result.stderr
         assert "slot_99" in combined and "slot_1" in combined and "slot_2" in combined, combined
 
     def test_no_slot_against_multi_slot_fixture_errors(self, tmp_path):
         """Single-process invocation against multi-slot needs --slot or --dut-serials."""
+        session_id = str(uuid4())
         fixture_path = tmp_path / "fixture.yaml"
         station_path = tmp_path / "station.yaml"
         test_file = tmp_path / "test_pass.py"
-        results_dir = tmp_path / "results"
 
         _write_multi_slot_fixture(fixture_path, ["slot_1", "slot_2"])
         _write_station(station_path)
         _write_pass_test(test_file)
 
-        result = _run_pytest(test_file, fixture_path, station_path, results_dir)
+        result = _run_pytest(
+            test_file,
+            fixture_path,
+            station_path,
+            session_id=session_id,
+        )
         # Either a usage error (--slot required) OR orchestrator
         # dispatch — either is acceptable, both prove the bare
         # multi-slot fixture isn't silently miscaptured. The flag

@@ -27,9 +27,16 @@ from litmus.data.events import MeasurementRecorded, SessionStarted
 
 
 @pytest.fixture(scope="module")
-def event_store(tmp_path_factory: pytest.TempPathFactory) -> Generator[EventStore]:
-    d = tmp_path_factory.mktemp("perf_events")
-    s = EventStore(_results_dir=d / "results")
+def event_store() -> Generator[EventStore]:
+    """Module-scoped EventStore on the canonical singleton results_dir.
+
+    Per-process isolation isn't needed for perf benchmarks — they
+    measure throughput, not state. Per-test isolation is via unique
+    ``session_id`` (each ``_make_measurement`` callsite mints its
+    own). Pointing this at the canonical store prevents spawning a
+    fresh events daemon (~100 gRPC threads) just for benchmarks.
+    """
+    s = EventStore()
     yield s
     s.close()
 

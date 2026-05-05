@@ -28,10 +28,7 @@ import re
 import sys
 import threading
 import warnings
-from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import duckdb
 import pyarrow as pa
@@ -39,6 +36,10 @@ import pyarrow as pa
 from litmus.data._duckdb_flight_server import (
     shutdown_flight_server_in_daemon,
     start_flight_server_in_daemon,
+)
+from litmus.data._live_runs_subscriber import (
+    LiveRunsSubscriber,
+    create_inflight_tables,
 )
 from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.models import Outcome
@@ -55,7 +56,7 @@ logger = logging.getLogger(__name__)
 # dropped, NOT NULL toggled, type changed). Existing ``_index.duckdb``
 # files at any other version are wiped and re-ingested from the
 # parquet files on disk — files are the source of truth.
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2  # bumped: runs/steps split into runs_persisted/steps_persisted + UNION views
 
 
 def _create_enum_types(conn: duckdb.DuckDBPyConnection) -> None:
@@ -142,15 +143,14 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("CREATE TABLE _schema_version (v INTEGER PRIMARY KEY)")
     conn.execute(f"INSERT INTO _schema_version VALUES ({_SCHEMA_VERSION})")
 
-    # ``run_id`` is the primary key so the streaming subscriber can
-    # UPSERT partial rows on ``RunStarted`` and update them on
-    # ``RunEnded``. The parquet ingest path also writes through the
-    # same UPSERT so its canonical aggregate replaces any streaming
-    # row already there. ``file_path`` is nullable: streaming-only
-    # runs (in flight, or that never recorded measurements) have no
-    # measurements parquet on disk.
+    # ``runs_persisted`` is the on-disk table populated only by the
+    # parquet-ingest path (``_bulk_insert_runs`` / ``_on_put``).
+    # In-flight rows live in the in-memory ``AccumulatorPool``; the
+    # ``runs`` view UNIONs the two so callers see one logical table.
+    # ``file_path`` is nullable to keep the schema compatible with
+    # the in-flight rows the view UNIONs in.
     conn.execute("""
-        CREATE TABLE runs (
+        CREATE TABLE runs_persisted (
             run_id VARCHAR PRIMARY KEY,
             file_path VARCHAR,
             steps_file_path VARCHAR,
@@ -173,13 +173,11 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
             project_name VARCHAR
         )
     """)
-    # Same UPSERT pattern for steps. ``(run_id, step_index)`` is the
-    # composite PK because step_index is unique within a run. Both
-    # streaming and parquet ingest go through the same insert, with
-    # parquet's row replacing the streaming partial when it lands.
-    # ``file_path`` is nullable for the streaming-only case.
+    # ``steps_persisted`` mirrors the runs split: parquet-ingest writes
+    # here; in-flight steps come from the accumulator pool via the
+    # ``steps`` UNION view.
     conn.execute("""
-        CREATE TABLE steps (
+        CREATE TABLE steps_persisted (
             run_id VARCHAR NOT NULL,
             step_index INTEGER NOT NULL,
             file_path VARCHAR,
@@ -258,12 +256,12 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
 
-    conn.execute("CREATE INDEX idx_runs_run_id ON runs(run_id)")
-    conn.execute("CREATE INDEX idx_runs_session ON runs(session_id)")
-    conn.execute("CREATE INDEX idx_runs_started ON runs(started_at)")
-    conn.execute("CREATE INDEX idx_runs_fp ON runs(file_path)")
-    conn.execute("CREATE INDEX idx_steps_run ON steps(run_id)")
-    conn.execute("CREATE INDEX idx_steps_fp ON steps(file_path)")
+    conn.execute("CREATE INDEX idx_runs_run_id ON runs_persisted(run_id)")
+    conn.execute("CREATE INDEX idx_runs_session ON runs_persisted(session_id)")
+    conn.execute("CREATE INDEX idx_runs_started ON runs_persisted(started_at)")
+    conn.execute("CREATE INDEX idx_runs_fp ON runs_persisted(file_path)")
+    conn.execute("CREATE INDEX idx_steps_run ON steps_persisted(run_id)")
+    conn.execute("CREATE INDEX idx_steps_fp ON steps_persisted(file_path)")
     conn.execute("CREATE INDEX idx_meas_name ON measurement_stats(measurement_name)")
     conn.execute("CREATE INDEX idx_meas_run ON measurement_stats(run_id)")
     conn.execute("CREATE INDEX idx_meas_fp ON measurement_stats(file_path)")
@@ -431,10 +429,11 @@ def _delete_file_rows(conn: duckdb.DuckDBPyConnection, path_str: str) -> None:
     """
     is_steps = _is_steps_file(Path(path_str).name)
     if is_steps:
-        # `runs` rows reference the steps file path under
-        # `steps_file_path`; `steps` rows reference it as `file_path`.
-        conn.execute("DELETE FROM runs WHERE steps_file_path = ?", [path_str])
-        conn.execute("DELETE FROM steps WHERE file_path = ?", [path_str])
+        # `runs_persisted` rows reference the steps file path under
+        # `steps_file_path`; `steps_persisted` rows reference it as
+        # `file_path`.
+        conn.execute("DELETE FROM runs_persisted WHERE steps_file_path = ?", [path_str])
+        conn.execute("DELETE FROM steps_persisted WHERE file_path = ?", [path_str])
     else:
         for table in _INDEX_TABLES_BY_FILE_PATH:
             conn.execute(f"DELETE FROM {table} WHERE file_path = ?", [path_str])
@@ -479,12 +478,16 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
     max_expr = "MAX(measurement_value)" if has_value else "NULL"
     avg_expr = "AVG(measurement_value)" if has_value else "NULL"
 
+    # ``INSERT BY NAME`` matches SELECT output column names to
+    # destination column names — aliases are load-bearing. A
+    # missing / misspelled / misordered alias becomes a SQL error
+    # at INSERT time, not silently miscolumned data.
     conn.execute(f"""
-        INSERT INTO measurement_stats
+        INSERT INTO measurement_stats BY NAME
         SELECT
             filename AS file_path,
             run_id,
-            CAST(session_id AS VARCHAR) AS session_id,
+            session_id,
             {step_idx_expr},
             {step_name_expr},
             measurement_name,
@@ -543,24 +546,18 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -
 
     flist = _file_list_sql(steps_paths)
     try:
-        # Explicit column list so a future schema reorder doesn't
-        # silently misalign. ``ON CONFLICT (run_id) DO UPDATE``
-        # lets the parquet path overwrite any streaming partial row
-        # the event subscriber inserted earlier — parquet is
-        # canonical, streaming is the live overlay.
+        # ``INSERT BY NAME`` matches SELECT aliases to destination
+        # column names — a misnamed alias is a SQL error rather than
+        # a silent miscolumned row. ``ON CONFLICT (run_id)`` covers
+        # re-ingest of the same parquet path; in-flight rows live
+        # in the in-memory accumulator pool, not in this table.
         conn.execute(f"""
-            INSERT INTO runs (
-                run_id, file_path, steps_file_path, session_id, slot_id,
-                dut_serial, dut_part_number, station_id, station_name,
-                station_hostname, fixture_id, outcome, started_at, ended_at,
-                num_measurements, num_steps, test_phase, product_id,
-                operator_id, project_name
-            )
+            INSERT INTO runs_persisted BY NAME
             SELECT
-                s.run_id,
+                s.run_id AS run_id,
                 ANY_VALUE(e.measurements_path) AS file_path,
                 s.filename AS steps_file_path,
-                CAST(s.session_id AS VARCHAR) AS session_id,
+                s.session_id AS session_id,
                 ANY_VALUE(s.slot_id) AS slot_id,
                 ANY_VALUE(s.dut_serial) AS dut_serial,
                 ANY_VALUE(s.dut_part_number) AS dut_part_number,
@@ -607,39 +604,33 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -
 
 
 def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -> None:
-    """Populate the ``steps`` TABLE from ``_steps.parquet`` files.
+    """Populate the ``steps_persisted`` TABLE from ``_steps.parquet`` files.
 
-    Goes through ``ON CONFLICT (run_id, step_index) DO UPDATE`` so a
-    parquet ingest replaces any streaming partial row the event
-    subscriber inserted earlier — parquet is canonical, streaming
-    is the live overlay.
+    The ``ON CONFLICT`` is for re-ingest of the same parquet path
+    (e.g. on schema rebuild); in-flight rows live in the in-memory
+    accumulator pool, not in this table.
     """
     flist = _file_list_sql(steps_paths)
     conn.execute(f"""
-        INSERT INTO steps (
-            run_id, step_index, file_path, session_id, slot_id,
-            step_name, step_path, outcome, started_at, ended_at,
-            duration_s, has_measurements, measurement_count,
-            vector_count, markers, dut_serial, station_id
-        )
+        INSERT INTO steps_persisted BY NAME
         SELECT
-            run_id,
+            run_id AS run_id,
             "index" AS step_index,
             filename AS file_path,
-            CAST(session_id AS VARCHAR) AS session_id,
-            CAST(slot_id AS VARCHAR) AS slot_id,
+            session_id AS session_id,
+            slot_id AS slot_id,
             name AS step_name,
-            step_path,
-            outcome,
-            started_at,
-            ended_at,
-            duration_s,
-            has_measurements,
-            measurement_count,
-            vector_count,
-            markers,
-            CAST(dut_serial AS VARCHAR) AS dut_serial,
-            CAST(station_id AS VARCHAR) AS station_id
+            step_path AS step_path,
+            outcome AS outcome,
+            started_at AS started_at,
+            ended_at AS ended_at,
+            duration_s AS duration_s,
+            has_measurements AS has_measurements,
+            measurement_count AS measurement_count,
+            vector_count AS vector_count,
+            markers AS markers,
+            dut_serial AS dut_serial,
+            station_id AS station_id
         FROM read_parquet({flist}, filename=true, union_by_name=true)
         ON CONFLICT (run_id, step_index) DO UPDATE SET
             file_path = excluded.file_path,
@@ -664,11 +655,25 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) 
 
 
 def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
-    """Ingest new/changed parquet files into the runs index.
+    """Ingest new/changed parquet files into the runs index, newest first.
 
-    Phase 1: bulk INSERT runs + measurements + steps (3 queries total).
-    Phase 2: per-file io_schema + refs (UNION ALL per file).
-    Phase 3: health check for vanished files.
+    Always per-file. We used to do a bulk INSERT...SELECT across every
+    parquet at once for throughput, with per-file as a fallback. That
+    pattern was catastrophic for resilience: a single file with a row
+    that fails the ``outcome_kind`` ENUM cast (e.g. a legacy ``planned``
+    value) rolled back the entire bulk INSERT, leaving the table empty
+    until the per-file fallback caught up — and `/results` blank in the
+    meantime.
+
+    Per-file is the only path now. Each file's failure is contained to
+    itself (it gets quarantined in ``_ingested`` with the error string),
+    and the operator-facing pages render whatever's already in the
+    table without waiting on bad data behind it.
+
+    Order: newest mtime first. The most recent runs are what operators
+    actually want to see; old data backfills behind. If the daemon
+    idle-shuts-down mid-ingest, the next spawn picks up where we left
+    off via the ``_ingested`` ledger.
 
     Opens its own connection so the Flight server's connection is never
     blocked by bulk ingest I/O.
@@ -676,7 +681,7 @@ def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
     conn = duckdb.connect(str(index_path))
     try:
         disk_entries: list[tuple[str, float, int, os.stat_result]] = []
-        for pq_file in sorted(runs_dir.rglob("*.parquet")):
+        for pq_file in runs_dir.rglob("*.parquet"):
             if pq_file.name.endswith(".tmp.parquet"):
                 continue
             try:
@@ -699,7 +704,7 @@ def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
         conn.register("_disk_snapshot", disk_table)
         try:
             needs_ingest = conn.execute("""
-                SELECT d.path
+                SELECT d.path, d.mtime
                 FROM _disk_snapshot d
                 LEFT JOIN _ingested i
                     ON d.path = i.path
@@ -707,47 +712,15 @@ def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
                    AND d.size = i.size
                    AND i.status = 'ok'
                 WHERE i.path IS NULL
+                ORDER BY d.mtime DESC
             """).fetchall()
 
             if needs_ingest:
                 stat_map = {e[0]: e[3] for e in disk_entries}
-                new_paths = [p for (p,) in needs_ingest]
-                meas_paths = [p for p in new_paths if not _is_steps_file(Path(p).name)]
-                steps_paths = [p for p in new_paths if _is_steps_file(Path(p).name)]
-
-                try:
-                    conn.begin()
-                    if meas_paths:
-                        _bulk_insert_measurements(conn, meas_paths)
-                    if steps_paths:
-                        _bulk_insert_runs(conn, steps_paths)
-                        _bulk_insert_steps(conn, steps_paths)
-                    conn.commit()
-                except Exception as exc:  # noqa: BLE001 — bulk ingest fallback to per-file
-                    conn.rollback()
-                    warnings.warn(
-                        f"Bulk ingest failed, falling back to per-file: {exc}", stacklevel=2
-                    )
-                    for path_str in new_paths:
-                        stat = stat_map.get(path_str)
-                        if stat is not None:
-                            _ingest_one_file(conn, Path(path_str), stat)
-                else:
-                    for path_str in meas_paths:
-                        error = _index_io_and_refs(conn, path_str)
-                        stat = stat_map.get(path_str)
-                        if stat is not None:
-                            _mark_ingested(
-                                conn,
-                                path_str,
-                                stat,
-                                "ok" if error is None else "quarantined",
-                                error,
-                            )
-                    for path_str in steps_paths:
-                        stat = stat_map.get(path_str)
-                        if stat is not None:
-                            _mark_ingested(conn, path_str, stat, "ok")
+                for path_str, _mtime in needs_ingest:
+                    stat = stat_map.get(path_str)
+                    if stat is not None:
+                        _ingest_one_file(conn, Path(path_str), stat)
 
             gone = conn.execute("""
                 SELECT i.path FROM _ingested i
@@ -803,6 +776,29 @@ def _ingest_one_file(
     _mark_ingested(conn, path_str, stat, "ok" if error is None else "quarantined", error)
 
 
+_LEGACY_OUTCOME_HINT = (
+    "Outcome value is not in the canonical Outcome enum "
+    "(passed/failed/skipped/errored/terminated/aborted/done). "
+    "This parquet was written by an older Litmus version. "
+    "Either delete the file or re-run the test."
+)
+
+
+def _quarantine_message(fkey: str, exc: Exception) -> str:
+    """Format a single human-readable quarantine reason for the daemon log.
+
+    Pulls the error class + message into one line so an operator can grep
+    `_daemon.log` for ``Quarantined parquet`` and immediately see which
+    file failed and why. Calls out legacy-outcome hints specifically since
+    that's the most-common cause across the upgrade boundary.
+    """
+    msg = str(exc)
+    body = f"Quarantined parquet {fkey}: {type(exc).__name__}: {msg}"
+    if "Could not convert string" in msg and "outcome" in msg.lower():
+        body += f"\n  → {_LEGACY_OUTCOME_HINT}"
+    return body
+
+
 def _index_steps_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
     """Index a single ``_steps.parquet`` into the ``runs`` and ``steps`` tables."""
     try:
@@ -813,7 +809,7 @@ def _index_steps_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
         logger.debug("Steps file gone during ingest (will retry next run): %s — %s", fkey, exc)
         return f"file unavailable: {exc}"
     except Exception as exc:  # noqa: BLE001 — per-file ingest tolerance: warn + skip
-        warnings.warn(f"Error ingesting steps {fkey}: {exc}", stacklevel=2)
+        warnings.warn(_quarantine_message(fkey, exc), stacklevel=2)
         return str(exc)
 
 
@@ -834,7 +830,7 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | Non
         logger.debug("File gone during ingest (will retry next run): %s — %s", fkey, exc)
         return f"file unavailable: {exc}"
     except Exception as exc:  # noqa: BLE001 — per-file ingest tolerance: warn + skip
-        warnings.warn(f"Error ingesting {fkey}: {exc}", stacklevel=2)
+        warnings.warn(_quarantine_message(fkey, exc), stacklevel=2)
         return str(exc)
 
 
@@ -870,204 +866,31 @@ def _create_views(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:
     except duckdb.IOException:
         logger.debug("No parquet files yet in %s — measurements view deferred", runs_dir)
 
-
-# ── Live event subscriber (in-flight visibility) ─────────────────────
-
-
-def _upsert_run_started(conn: duckdb.DuckDBPyConnection, evt: dict[str, Any]) -> None:
-    """Insert a partial ``runs`` row for an in-flight run.
-
-    On ``run.started`` we know who's running and on what fixture, but
-    not the outcome. ``ended_at`` and ``outcome`` stay NULL until the
-    matching ``run.ended`` arrives (or the parquet ingest path
-    overwrites the row with the canonical aggregate).
-    """
-    run_id = evt.get("run_id")
-    if not run_id:
-        return
-    conn.execute(
-        """
-        INSERT INTO runs (
-            run_id, session_id, slot_id, dut_serial, dut_part_number,
-            station_id, station_name, station_hostname, fixture_id,
-            started_at, test_phase, product_id, operator_id, project_name
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (run_id) DO UPDATE SET
-            session_id = COALESCE(excluded.session_id, runs.session_id),
-            slot_id = COALESCE(excluded.slot_id, runs.slot_id),
-            dut_serial = COALESCE(excluded.dut_serial, runs.dut_serial),
-            dut_part_number = COALESCE(excluded.dut_part_number, runs.dut_part_number),
-            station_id = COALESCE(excluded.station_id, runs.station_id),
-            station_name = COALESCE(excluded.station_name, runs.station_name),
-            station_hostname = COALESCE(excluded.station_hostname, runs.station_hostname),
-            fixture_id = COALESCE(excluded.fixture_id, runs.fixture_id),
-            started_at = COALESCE(excluded.started_at, runs.started_at),
-            test_phase = COALESCE(excluded.test_phase, runs.test_phase),
-            product_id = COALESCE(excluded.product_id, runs.product_id),
-            operator_id = COALESCE(excluded.operator_id, runs.operator_id),
-            project_name = COALESCE(excluded.project_name, runs.project_name)
-        """,
-        [
-            run_id,
-            _str_or_none(evt.get("session_id")),
-            evt.get("slot_id"),
-            evt.get("dut_serial") or "",
-            evt.get("dut_part_number"),
-            evt.get("station_id"),
-            evt.get("station_name"),
-            evt.get("station_hostname"),
-            evt.get("fixture_id"),
-            _ts_or_none(evt.get("occurred_at")),
-            evt.get("test_phase"),
-            evt.get("product_id"),
-            evt.get("operator_id"),
-            evt.get("project_name"),
-        ],
-    )
+    # ``runs`` and ``steps`` are UNION views: persistent rows from
+    # the on-disk tables (parquet ingest) UNION ALL in-flight rows
+    # from the in-memory temp tables (refreshed from the
+    # ``AccumulatorPool`` via the Flight server's pre-query hook).
+    # Suppress in-flight rows whose ``run_id`` already has a
+    # finalized parquet — parquet has won and the in-flight
+    # projection is stale.
+    conn.execute("""
+        CREATE OR REPLACE VIEW runs AS
+        SELECT * FROM runs_persisted
+        UNION ALL
+        SELECT * FROM inflight_runs
+        WHERE run_id NOT IN (SELECT run_id FROM runs_persisted)
+    """)
+    conn.execute("""
+        CREATE OR REPLACE VIEW steps AS
+        SELECT * FROM steps_persisted
+        UNION ALL
+        SELECT * FROM inflight_steps
+        WHERE run_id NOT IN (SELECT run_id FROM runs_persisted)
+    """)
 
 
-def _upsert_run_ended(conn: duckdb.DuckDBPyConnection, evt: dict[str, Any]) -> None:
-    """Update a ``runs`` row with the final outcome + ended_at.
-
-    If the row didn't exist (run.started was missed because the
-    daemon started after the run did), we INSERT a sparse row with
-    just run_id + outcome + ended_at — the parquet path will fill in
-    the rest when it lands.
-    """
-    run_id = evt.get("run_id")
-    if not run_id:
-        return
-    conn.execute(
-        """
-        INSERT INTO runs (run_id, outcome, ended_at)
-        VALUES (?, CAST(? AS outcome_kind), ?)
-        ON CONFLICT (run_id) DO UPDATE SET
-            outcome = excluded.outcome,
-            ended_at = excluded.ended_at
-        """,
-        [
-            run_id,
-            _coerce_outcome(evt.get("outcome")),
-            _ts_or_none(evt.get("occurred_at")),
-        ],
-    )
-
-
-def _upsert_step_started(conn: duckdb.DuckDBPyConnection, evt: dict[str, Any]) -> None:
-    """Insert a partial ``steps`` row for an in-flight step."""
-    run_id = evt.get("run_id")
-    step_index = evt.get("step_index")
-    if not run_id or step_index is None:
-        return
-    conn.execute(
-        """
-        INSERT INTO steps (
-            run_id, step_index, session_id, step_name, step_path, started_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT (run_id, step_index) DO UPDATE SET
-            session_id = COALESCE(excluded.session_id, steps.session_id),
-            step_name = COALESCE(excluded.step_name, steps.step_name),
-            step_path = COALESCE(excluded.step_path, steps.step_path),
-            started_at = COALESCE(excluded.started_at, steps.started_at)
-        """,
-        [
-            run_id,
-            step_index,
-            _str_or_none(evt.get("session_id")),
-            evt.get("step_name"),
-            evt.get("step_path"),
-            _ts_or_none(evt.get("occurred_at")),
-        ],
-    )
-
-
-def _upsert_step_ended(conn: duckdb.DuckDBPyConnection, evt: dict[str, Any]) -> None:
-    """Update a ``steps`` row with outcome + ended_at + duration."""
-    run_id = evt.get("run_id")
-    step_index = evt.get("step_index")
-    if not run_id or step_index is None:
-        return
-    conn.execute(
-        """
-        INSERT INTO steps (
-            run_id, step_index, outcome, ended_at
-        ) VALUES (?, ?, CAST(? AS outcome_kind), ?)
-        ON CONFLICT (run_id, step_index) DO UPDATE SET
-            outcome = excluded.outcome,
-            ended_at = excluded.ended_at,
-            duration_s = CASE
-                WHEN steps.started_at IS NOT NULL AND excluded.ended_at IS NOT NULL
-                THEN EPOCH(excluded.ended_at) - EPOCH(steps.started_at)
-                ELSE steps.duration_s
-            END
-        """,
-        [
-            run_id,
-            step_index,
-            _coerce_outcome(evt.get("outcome")),
-            _ts_or_none(evt.get("occurred_at")),
-        ],
-    )
-
-
-def _coerce_outcome(value: Any) -> str | None:
-    """Pass-through for canonical ``Outcome`` values; ``None`` for absent.
-
-    The model is the contract — producers must emit canonical
-    past-tense values (``passed`` / ``failed`` / ``errored`` / etc.).
-    The DuckDB CAST will reject anything else, which is the right
-    failure: bad data should not silently cause a NULL update.
-    """
-    return None if value is None else str(value)
-
-
-def _str_or_none(value: Any) -> str | None:
-    """Coerce UUIDs / datetimes / etc. to str, preserving None."""
-    return None if value is None else str(value)
-
-
-def _ts_or_none(value: Any) -> datetime | None:
-    """Parse ISO-string timestamps; pass-through datetimes; ``None`` unchanged."""
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value
-    try:
-        return datetime.fromisoformat(str(value))
-    except (TypeError, ValueError):
-        return None
-
-
-def _make_event_dispatcher(
-    conn: duckdb.DuckDBPyConnection,
-) -> Callable[[dict[str, Any]], None]:
-    """Build the ``on_event`` callback that routes lifecycle events to UPSERTs.
-
-    Single dispatcher so the daemon only registers one subscription
-    (cleaner cleanup, less Flight chatter) and event-type filtering
-    happens here in Python.
-    """
-    handlers: dict[str, Callable[[duckdb.DuckDBPyConnection, dict[str, Any]], None]] = {
-        "run.started": _upsert_run_started,
-        "run.ended": _upsert_run_ended,
-        "test.step_started": _upsert_step_started,
-        "test.step_ended": _upsert_step_ended,
-    }
-
-    def _on_event(evt: dict[str, Any]) -> None:
-        et = evt.get("event_type")
-        handler = handlers.get(str(et) if et else "")
-        if handler is None:
-            return
-        try:
-            handler(conn, evt)
-        except Exception as exc:  # noqa: BLE001 — defensive; never let a bad event kill the subscriber
-            logger.warning("Event upsert failed for %s: %s", et, exc)
-
-    return _on_event
-
-
-# ── Daemon entry point ───────────────────────────────────────────────
+# Inflight TEMP-table setup + materialization moved into
+# :class:`~litmus.data._live_runs_subscriber.LiveRunsSubscriber`.
 
 
 def daemon_run(runs_dir: Path) -> None:
@@ -1085,6 +908,19 @@ def daemon_run(runs_dir: Path) -> None:
 
     index_path = runs_dir / "_index.duckdb"
     conn, is_fresh = _open_index(index_path)
+
+    # Live-runs subscriber — owns the events-daemon attach loop,
+    # the per-run accumulator pool, the inflight-table
+    # materialization, and the orphan sweep. Mirrors the producer
+    # side's ``ParquetSubscriber`` (same projection logic via
+    # ``EventAccumulator``, different output target).
+    live_subscriber = LiveRunsSubscriber(runs_dir.parent)
+
+    # Empty TEMP tables matching the persistent schemas; the
+    # subscriber's ``refresh`` repopulates them from the pool
+    # snapshot before each query so the UNION views in
+    # ``_create_views`` see current in-flight state.
+    create_inflight_tables(conn)
     _create_views(conn, runs_dir)
 
     def _on_put(table: pa.Table) -> None:
@@ -1113,6 +949,7 @@ def daemon_run(runs_dir: Path) -> None:
         port_file_name="_runs_duckdb_flight_port",
         thread_name="runs-duckdb-flight",
         pre_ready=_pre_ready,
+        pre_query_hook=live_subscriber.refresh,
     )
 
     threading.Thread(
@@ -1122,79 +959,14 @@ def daemon_run(runs_dir: Path) -> None:
         name="runs-ingest",
     ).start()
 
-    # Live event subscriber — surfaces in-flight runs / steps as they
-    # happen by upserting partial rows into the same tables the
-    # parquet ingest path writes to. ``since=now`` skips historical
-    # replay (those runs are already in the index via parquet).
-    event_unsub = _start_event_subscriber(conn, runs_dir.parent)
+    live_subscriber.start()
 
     mgr.monitor_refs()
 
-    if event_unsub is not None:
-        try:
-            event_unsub()
-        except Exception:  # noqa: BLE001 — defensive on shutdown
-            pass
+    live_subscriber.stop()
 
     shutdown_flight_server_in_daemon(server, port_file, conn)
     mgr.cleanup_state_files()
-
-
-def _start_event_subscriber(
-    conn: duckdb.DuckDBPyConnection,
-    results_dir: Path,
-) -> Callable[[], None] | None:
-    """Subscribe to the EventStore for live UPSERTs into runs/steps tables.
-
-    Returns the unsubscribe callable, or ``None`` if the EventStore
-    is unavailable (e.g. tests that mock the daemon). A failure here
-    must never break the parquet ingest path — the daemon stays
-    useful even if live subscriptions are down.
-
-    Subscribes with a bounded replay window (``since = now - 1h``) so
-    we catch any in-flight run that started recently without flooding
-    the daemon with the full event history on every spawn. The
-    earlier ``since=now`` strategy raced with the spawn → ready →
-    emit sequence and silently filtered events emitted in that
-    ~50ms window; ``since=None`` (full replay) flooded the daemon
-    with thousands of legacy events and caused malloc corruption
-    on large indices. The 1-hour window covers normal operator
-    workflow while keeping startup cheap. Handlers are idempotent
-    UPSERTs, so re-dispatching is a no-op.
-    """
-    try:
-        from litmus.data.event_store import EventStore
-
-        event_store = EventStore(_results_dir=results_dir)
-    except Exception as exc:  # noqa: BLE001 — best-effort wire-up
-        logger.warning("EventStore unavailable; live subscriber not started: %s", exc)
-        return None
-
-    dispatcher = _make_event_dispatcher(conn)
-    # Bound replay to the last hour — catches in-flight runs without
-    # re-processing every historical event on every daemon spawn.
-    replay_since = datetime.now(UTC) - timedelta(hours=1)
-    try:
-        unsubscribe = event_store.on_event(dispatcher, since=replay_since)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("EventStore.on_event failed; live subscriber not started: %s", exc)
-        try:
-            event_store.close()
-        except Exception:  # noqa: BLE001
-            pass
-        return None
-
-    def _cleanup() -> None:
-        try:
-            unsubscribe()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            event_store.close()
-        except Exception:  # noqa: BLE001
-            pass
-
-    return _cleanup
 
 
 if __name__ == "__main__":

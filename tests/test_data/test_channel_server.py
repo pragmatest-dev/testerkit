@@ -7,6 +7,14 @@ Tests exercise:
 - Remote subscribe via ChannelClient → live samples
 - Historical query via ChannelClient
 - In-process server (start_server_background) for unit-level tests
+
+Daemon-spawning tests (``TestDaemonLifecycle``) point at the
+canonical channels dir so they all share **one** daemon for the
+whole test file — spawning a fresh daemon per test (~100 gRPC
+threads each) hits WSL's pids cgroup at ~30 daemons. In-process
+server tests (``TestInProcessServer``) keep using ``tmp_path``
+because the in-process FlightServerBase shuts down at end of
+test; no detached daemon survives.
 """
 
 from __future__ import annotations
@@ -19,11 +27,17 @@ from litmus.data.channels.client import ChannelClient
 from litmus.data.channels.models import ChannelSample
 from litmus.data.channels.server import start_server_background
 from litmus.data.channels.store import ChannelStore
+from litmus.data.results_dir import resolve_results_dir
+
+# Project-local results via repo ``litmus.yaml`` — daemon-spawning
+# tests share this so we get exactly one channels daemon for the
+# whole TestDaemonLifecycle class.
+_CANONICAL_RESULTS = resolve_results_dir()
 
 
-def _make_store(tmp_path: Path, *, serve: bool = False) -> ChannelStore:
+def _make_store(results_dir: Path, *, serve: bool = False) -> ChannelStore:
     store = ChannelStore(
-        tmp_path,
+        results_dir,
         uuid4(),
         flush_threshold=10,
         serve=serve,
@@ -186,21 +200,28 @@ class TestInProcessServer:
 
 
 class TestDaemonLifecycle:
-    """Test the flight_manager acquire/release and daemon spawning."""
+    """Test the flight_manager acquire/release and daemon spawning.
 
-    def test_acquire_starts_daemon(self, tmp_path: Path) -> None:
-        store = _make_store(tmp_path, serve=True)
+    All four tests share **one** canonical channels daemon —
+    spawned on the first test, reused thereafter (idle timeout
+    keeps it alive across the file). Per-test isolation is by
+    unique ``session_id`` (the ``uuid4()`` in ``_make_store``)
+    and unique channel names.
+    """
+
+    def test_acquire_starts_daemon(self) -> None:
+        store = _make_store(_CANONICAL_RESULTS, serve=True)
         assert store.flight_location is not None
         assert store.flight_location.startswith("grpc://")
-        assert (tmp_path / "channels" / "_flight.json").exists()
+        assert (_CANONICAL_RESULTS / "channels" / "_flight.json").exists()
         store.close()
 
-    def test_second_acquire_reuses_daemon(self, tmp_path: Path) -> None:
-        store_a = _make_store(tmp_path, serve=True)
+    def test_second_acquire_reuses_daemon(self) -> None:
+        store_a = _make_store(_CANONICAL_RESULTS, serve=True)
         loc_a = store_a.flight_location
 
         store_b = ChannelStore(
-            tmp_path,
+            _CANONICAL_RESULTS,
             uuid4(),
             flush_threshold=10,
             serve=True,
@@ -213,8 +234,8 @@ class TestDaemonLifecycle:
         store_a.close()
         store_b.close()
 
-    def test_client_can_connect_to_daemon(self, tmp_path: Path) -> None:
-        store = _make_store(tmp_path, serve=True)
+    def test_client_can_connect_to_daemon(self) -> None:
+        store = _make_store(_CANONICAL_RESULTS, serve=True)
         assert store.flight_location is not None
 
         client = ChannelClient(store.flight_location)
@@ -224,17 +245,21 @@ class TestDaemonLifecycle:
         client.close()
         store.close()
 
-    def test_write_via_daemon(self, tmp_path: Path) -> None:
+    def test_write_via_daemon(self) -> None:
         """Write via ChannelClient → daemon persists → queryable."""
-        store = _make_store(tmp_path, serve=True)
+        store = _make_store(_CANONICAL_RESULTS, serve=True)
         assert store.flight_location is not None
 
+        # Unique channel name so we don't read another test's writes
+        # from the shared canonical store.
+        ch = f"remote.val.{uuid4().hex[:8]}"
+
         client = ChannelClient(store.flight_location)
-        client.write("remote.val", 99.0)
+        client.write(ch, 99.0)
         time.sleep(0.2)
 
         # Query via client (reads from daemon's store)
-        table = client.query("remote.val")
+        table = client.query(ch)
         assert len(table) == 1
 
         client.close()

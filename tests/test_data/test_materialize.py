@@ -1,9 +1,21 @@
-"""Tests for copy-on-prune channel ref materialization."""
+"""Tests for copy-on-prune channel ref materialization.
+
+Uses an isolated tree under ``tmp_path`` because
+``materialize_channel_refs`` opens a ``RunStore`` on the
+results_dir — spawning a fresh runs daemon there. To keep this
+on the canonical singleton instead (~100 gRPC threads saved per
+test), we create the fake results tree under the canonical
+``runs/`` and ``channels/`` paths but namespaced by a per-test
+UUID date directory. ``materialize_channel_refs(canonical, ...)``
+uses the canonical runs daemon already alive in the test session.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pyarrow as pa
 import pyarrow.ipc as ipc
@@ -12,25 +24,44 @@ import pytest
 
 from litmus.data.materialize import materialize_channel_refs
 from litmus.data.ref import make_channel_uri
+from litmus.data.results_dir import resolve_results_dir
+from litmus.data.run_store import RunStore
+
+# Resolved via repo's ``litmus.yaml`` → project-local store.
+_CANONICAL_RESULTS = resolve_results_dir()
+
+
+class _ResultsTree:
+    """Bundle of paths for a per-test materialize fixture under canonical."""
+
+    def __init__(self, root: Path, date_stem: str) -> None:
+        self.root = root
+        self.date_stem = date_stem
+        self.channel_dir = root / "channels" / date_stem
+        self.runs_dir = root / "runs" / date_stem
+        self.parquet = self.runs_dir / "test_run.parquet"
 
 
 @pytest.fixture()
-def results_tree(tmp_path: Path) -> Path:
-    """Create a minimal results directory with parquet + channel arrow files.
+def results_tree() -> Generator[_ResultsTree, None, None]:
+    """Create channel + run files under the canonical results dir.
 
-    Arrow filenames follow ChannelStore convention: {channel_id}_{session_short}.arrow
+    Per-test isolation is via a unique date-stem directory
+    (``2099-99-<uuid>`` ensures no collision with real run dates).
+    The fixture returns paths into the canonical results root;
+    ``materialize_channel_refs`` uses the canonical runs daemon
+    that's already alive for the test session.
     """
-    results = tmp_path / "results"
+    suffix = uuid4().hex[:8]
+    date_stem = f"2099-99-{suffix}"
+    tree = _ResultsTree(_CANONICAL_RESULTS, date_stem)
+    tree.channel_dir.mkdir(parents=True, exist_ok=True)
+    tree.runs_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create a channel arrow file matching ChannelStore layout
-    channel_dir = results / "channels" / "2026-03-01"
-    channel_dir.mkdir(parents=True)
+    session_id = f"{suffix}-0000-0000-0000-000000000000"
+    session_short = suffix
+    channel_id = f"scope.ch1.waveform.{suffix}"
 
-    session_id = "abcd1234-0000-0000-0000-000000000000"
-    session_short = "abcd1234"
-    channel_id = "scope.ch1.waveform"
-
-    # ChannelStore arrow files include a timestamp column
     now = datetime.now(UTC)
     arrow_table = pa.table(
         {
@@ -39,12 +70,11 @@ def results_tree(tmp_path: Path) -> Path:
             "source_method": ["observe", "observe", "observe"],
         }
     )
-    arrow_path = channel_dir / f"{channel_id}_{session_short}.arrow"
+    arrow_path = tree.channel_dir / f"{channel_id}_{session_short}.arrow"
     writer = ipc.new_stream(arrow_path, arrow_table.schema)
     writer.write_table(arrow_table)
     writer.close()
 
-    # Create a parquet file referencing that channel
     uri = make_channel_uri(channel_id, session_id)
 
     def _dt(iso: str) -> datetime:
@@ -52,7 +82,7 @@ def results_tree(tmp_path: Path) -> Path:
 
     pq_table = pa.table(
         {
-            "run_id": ["run1"],
+            "run_id": [f"run-{suffix}"],
             "session_id": [session_id],
             "run_started_at": [_dt("2026-03-01T10:00:00Z")],
             "run_ended_at": [_dt("2026-03-01T10:05:00Z")],
@@ -64,32 +94,45 @@ def results_tree(tmp_path: Path) -> Path:
             "out_waveform": [uri],
         }
     )
-    runs_dir = results / "runs" / "2026-03-01"
-    runs_dir.mkdir(parents=True)
-    pq.write_table(pq_table, runs_dir / "test_run.parquet")
+    pq.write_table(pq_table, tree.parquet)
 
-    return results
+    # Index the test parquet into the canonical runs daemon so
+    # ``materialize_channel_refs`` (which queries the index) can
+    # find it. ``LITMUS_SKIP_DAEMON_NOTIFY`` only affects the
+    # ParquetBackend.save_test_run path; calling notify directly
+    # is fine and necessary for tests that exercise queries.
+    notifier = RunStore()
+    try:
+        notifier.notify_new_run(tree.parquet)
+    finally:
+        notifier.close()
+
+    yield tree
+
+    import shutil
+
+    shutil.rmtree(tree.channel_dir, ignore_errors=True)
+    shutil.rmtree(tree.runs_dir, ignore_errors=True)
 
 
-def test_materialize_rewrites_parquet(results_tree: Path) -> None:
+def test_materialize_rewrites_parquet(results_tree: _ResultsTree) -> None:
     """Materializing channel refs rewrites parquet URIs to file:// refs."""
-    channel_dir = results_tree / "channels" / "2026-03-01"
-    count = materialize_channel_refs(results_tree, [channel_dir])
+    count = materialize_channel_refs(results_tree.root, [results_tree.channel_dir])
 
     assert count == 1
 
-    # Read rewritten parquet
-    pq_path = results_tree / "runs" / "2026-03-01" / "test_run.parquet"
-    table = pq.read_table(pq_path)
+    table = pq.read_table(results_tree.parquet)
     new_uri = table.column("out_waveform")[0].as_py()
 
     assert new_uri.startswith("file://_ref/")
     assert new_uri.endswith(".arrow")
-    assert "abcd1234" in new_uri
+    # session_short and channel_id both contain the per-test uuid suffix
+    suffix = results_tree.date_stem.rsplit("-", 1)[-1]
+    assert suffix in new_uri
     assert "scope.ch1.waveform" in new_uri
 
     # Verify the sidecar arrow file exists and contains correct data
-    ref_dir = pq_path.parent / "test_run_ref"
+    ref_dir = results_tree.parquet.parent / "test_run_ref"
     assert ref_dir.is_dir()
     arrow_files = list(ref_dir.glob("*.arrow"))
     assert len(arrow_files) == 1
@@ -99,20 +142,24 @@ def test_materialize_rewrites_parquet(results_tree: Path) -> None:
     assert saved.column("value").to_pylist() == [1.0, 2.0, 3.0]
 
 
-def test_materialize_no_matching_refs(results_tree: Path) -> None:
+def test_materialize_no_matching_refs(results_tree: _ResultsTree) -> None:
     """No-op when channel dirs don't match any parquet refs."""
-    fake_dir = results_tree / "channels" / "2099-01-01"
+    fake_dir = results_tree.root / "channels" / f"2099-99-{uuid4().hex[:8]}-empty"
     fake_dir.mkdir(parents=True)
-    count = materialize_channel_refs(results_tree, [fake_dir])
-    assert count == 0
+    try:
+        count = materialize_channel_refs(results_tree.root, [fake_dir])
+        assert count == 0
+    finally:
+        import shutil
+
+        shutil.rmtree(fake_dir, ignore_errors=True)
 
 
-def test_materialize_preserves_non_channel_columns(results_tree: Path) -> None:
+def test_materialize_preserves_non_channel_columns(results_tree: _ResultsTree) -> None:
     """Non-channel columns are preserved through rewrite."""
-    channel_dir = results_tree / "channels" / "2026-03-01"
-    materialize_channel_refs(results_tree, [channel_dir])
+    materialize_channel_refs(results_tree.root, [results_tree.channel_dir])
 
-    pq_path = results_tree / "runs" / "2026-03-01" / "test_run.parquet"
-    table = pq.read_table(pq_path)
-    assert table.column("run_id")[0].as_py() == "run1"
+    table = pq.read_table(results_tree.parquet)
+    suffix = results_tree.date_stem.rsplit("-", 1)[-1]
+    assert table.column("run_id")[0].as_py() == f"run-{suffix}"
     assert table.column("measurement_name")[0].as_py() == "voltage"

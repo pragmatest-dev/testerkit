@@ -53,27 +53,49 @@ def results_page():
         state: dict[str, Any] = {"table": None}
 
         def refresh() -> None:
+            # The page clears in two distinct ways and both have hit us:
+            #
+            # 1. Exception path — a transient Flight error from the
+            #    daemon respawning. We swallow the exception and keep
+            #    the current view; the next event tick re-fires.
+            #
+            # 2. Empty-result path — the daemon answered, but with zero
+            #    rows. This happens during cold-start ingest (fresh
+            #    schema, parquets being walked one at a time) when the
+            #    table is briefly empty. If we already have rows
+            #    rendered, dropping them mid-ingest is jarring and not
+            #    what the operator wants. So a live refresh that
+            #    returns ``[]`` is treated the same as the exception
+            #    path: keep the current view, wait for the next tick.
+            #
+            # The "real empty" state — first load with no runs at all —
+            # still renders correctly because ``state["table"]`` is
+            # ``None`` on first load and we render the empty card.
             try:
                 runs = get_recent_runs(limit=50, include_incomplete=True)
             except (OSError, ValueError) as exc:
-                logger.warning("Failed to load results: %s", exc)
-                runs = []
-
-            _render_stats(stats_holder, runs)
+                logger.warning("Failed to load results (keeping current view): %s", exc)
+                return
 
             if not runs:
-                empty_holder.clear()
-                with empty_holder, ui.card().classes("w-full p-6 text-center"):
-                    ui.label("No test results found.").classes("text-slate-500")
-                    ui.button(
-                        "Launch a Test",
-                        icon="play_arrow",
-                        on_click=lambda: ui.navigate.to("/launch"),
-                    ).classes("mt-4")
-                if state["table"] is not None:
-                    state["table"].rows.clear()
-                    state["table"].update()
+                if state["table"] is None:
+                    # First load with no runs anywhere — render the
+                    # empty card. (No table to preserve.)
+                    _render_stats(stats_holder, runs)
+                    empty_holder.clear()
+                    with empty_holder, ui.card().classes("w-full p-6 text-center"):
+                        ui.label("No test results found.").classes("text-slate-500")
+                        ui.button(
+                            "Launch a Test",
+                            icon="play_arrow",
+                            on_click=lambda: ui.navigate.to("/launch"),
+                        ).classes("mt-4")
+                # Live refresh returning empty while a table exists →
+                # daemon is mid-ingest or just respawned. Keep the
+                # current view; the next event tick will re-fire.
                 return
+
+            _render_stats(stats_holder, runs)
 
             empty_holder.clear()
             new_rows = [_row_for_run(r) for r in runs]

@@ -542,21 +542,65 @@ def get_recent_runs(
     return list_all_runs(limit=limit, include_incomplete=include_incomplete)
 
 
+def _run_row_to_summary(row: Any) -> RunSummary:
+    """Adapt a daemon ``RunRow`` to the legacy ``RunSummary`` UI shape.
+
+    Centralizes the field-by-field copy so every callsite that swaps
+    ``backend.get_run`` for ``RunsQuery.get`` doesn't reinvent it. The
+    UI consumes ``RunSummary``; the daemon emits ``RunRow``; this is
+    the only place that names every field.
+    """
+    return RunSummary(
+        test_run_id=row.run_id or "",
+        session_id=row.session_id,
+        slot_id=row.slot_id,
+        started_at=row.started_at,
+        ended_at=row.ended_at,
+        dut_serial=row.dut_serial,
+        dut_part_number=row.dut_part_number,
+        product_id=row.product_id,
+        station_id=row.station_id,
+        station_name=row.station_name,
+        station_hostname=row.station_hostname,
+        fixture_id=row.fixture_id,
+        test_phase=row.test_phase,
+        project_name=row.project_name,
+        operator=row.operator_id,
+        outcome=row.outcome,
+        total_measurements=row.num_measurements or 0,
+        total_steps=row.num_steps or 0,
+        file_path=row.file_path,
+    )
+
+
 def get_run_detail(run_id: str):
     """Return ``(run, steps, measurements)`` for a run.
 
-    ``run`` is a ``RunSummary`` (legacy UI shape), ``steps`` is the
-    typed ``list[StepRow]`` from the daemon's ``steps`` table (so
-    measurement-less runs still have their step list), and
-    ``measurements`` is the flat measurement parquet rows for the
-    "Measurements" tab and ``aggregate_run_stats``.
+    Resolves the run through the daemon's typed ``RunsQuery`` rather
+    than the parquet backend. The backend's ``get_run`` walks the
+    measurement parquet glob, which silently misses any run that
+    didn't record measurements (step-only runs land a
+    ``_steps.parquet`` and no measurement parquet, so the backend
+    returns ``None`` and the page renders "Run not found"). The
+    daemon's index includes both shapes, so any run reachable from
+    ``/results`` resolves here.
+
+    ``run`` is adapted to ``RunSummary`` (the legacy UI shape the
+    detail page expects). ``steps`` is the typed ``list[StepRow]``
+    from the daemon's ``steps`` table. ``measurements`` is the flat
+    measurement parquet rows when the run has a measurement parquet,
+    or ``[]`` when it's a step-only run.
     """
+    from litmus.analysis.runs_query import RunsQuery
     from litmus.analysis.steps_query import StepsQuery
 
     backend = _results_backend()
-    run = backend.get_run(run_id)
-    if run is None:
+    with RunsQuery(_results_dir=backend.results_dir) as rq:
+        run_row = rq.get(run_id)
+    if run_row is None:
         return None, [], []
+
+    run = _run_row_to_summary(run_row)
 
     measurements: list[dict] = (
         backend.get_measurements(run_id, _file=run.file_path) if run.file_path else []

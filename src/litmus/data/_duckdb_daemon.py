@@ -55,7 +55,13 @@ def _table_to_rows(table: pa.Table) -> list[tuple]:
 
 
 def _open_index(index_path: Path) -> duckdb.DuckDBPyConnection:
-    """Open or create the persistent DuckDB index; rebuild on schema mismatch."""
+    """Open or create the persistent DuckDB index; rebuild on schema mismatch.
+
+    Always calls ``_ensure_events_indexes`` after opening — idempotent
+    so it's a no-op when the indexes already exist. Old DuckDB files
+    that were created before the index helper existed pick up the
+    indexes here without forcing a full schema rebuild.
+    """
     conn = duckdb.connect(str(index_path))
     needs_rebuild = False
     try:
@@ -67,6 +73,8 @@ def _open_index(index_path: Path) -> duckdb.DuckDBPyConnection:
         needs_rebuild = True  # Fresh DB or corrupt — rebuild silently
     if needs_rebuild:
         _rebuild_schema(conn)
+    else:
+        _ensure_events_indexes(conn)
     return conn
 
 
@@ -99,6 +107,27 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
             last_attempt TIMESTAMPTZ NOT NULL DEFAULT now()
         )
     """)
+    _ensure_events_indexes(conn)
+
+
+def _ensure_events_indexes(conn: duckdb.DuckDBPyConnection) -> None:
+    """Create the indexes the events table needs for UI queries.
+
+    Critical: ``ORDER BY received_at DESC LIMIT N`` (the latest-N
+    pattern the events page uses) is a full table scan + sort
+    without an index on ``received_at``. With ~millions of rows /
+    ~GB of data, that's ~10s per query — exactly the page-load
+    pain operators hit.
+
+    Idempotent (``IF NOT EXISTS``) so this runs both on fresh
+    schema rebuilds AND on every spawn against an existing
+    schema, picking up indexes for old DuckDB files that were
+    created before this helper existed.
+    """
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_received_at ON events(received_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id)")
 
 
 # ── Background ingest ────────────────────────────────────────────────
@@ -147,8 +176,17 @@ def _ingest_ipc_files(index_path: Path, events_dir: Path) -> None:
         stat_map = {e[0]: e[3] for e in disk_entries}
         for (path_str,) in needs_ingest:
             stat = stat_map.get(path_str)
-            if stat is not None:
+            if stat is None:
+                continue
+            try:
                 _ingest_one_file(conn, Path(path_str), stat)
+            except Exception as exc:  # noqa: BLE001
+                # Belt-and-suspenders: ``_ingest_one_file`` already
+                # quarantines known bad-data classes, but anything
+                # unexpected (e.g. transient FS error) must not kill
+                # the ingest thread — that would silently stop ALL
+                # future event indexing for the daemon's lifetime.
+                warnings.warn(f"Ingest skipped {path_str}: {exc}", stacklevel=2)
 
         conn.unregister("_disk_snapshot")
     finally:
@@ -193,7 +231,15 @@ def _ingest_one_file(
         rows = _table_to_rows(table)
         conn.executemany(_INSERT_SQL, rows)
         _mark("ok", row_count=len(rows))
-    except duckdb.Error as exc:
+    except (duckdb.Error, UnicodeDecodeError, pa.ArrowException, ValueError) as exc:
+        # ``UnicodeDecodeError`` happens when an IPC file has a torn /
+        # partial string buffer (mid-write crash, FS bit-flip).
+        # ``pa.ArrowException`` covers other arrow decode failures.
+        # Quarantining keeps the ingest thread alive — a single bad
+        # file can otherwise stop ALL future event ingestion (was
+        # observed in pytest suite runs: events daemon's ingest
+        # thread died on first 0xff byte, runs daemon's subscriber
+        # then saw zero new events for the rest of the session).
         warnings.warn(f"Skipping bad data in {fpath.name}: {exc}", stacklevel=2)
         _mark("quarantined", str(exc))
 

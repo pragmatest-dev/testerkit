@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -36,25 +35,26 @@ _LANDING_TIMEOUT_S = 10.0
 
 
 def _wait_for_run(
-    results_dir: Path,
     run_id: str,
     *,
     predicate,
     timeout: float = _LANDING_TIMEOUT_S,
 ) -> RunRow | None:
-    """Poll ``RunsQuery.list_recent(include_incomplete=True)`` until ``predicate``.
+    """Poll ``RunsQuery.get(run_id)`` until ``predicate`` matches.
 
     Returns the matching ``RunRow`` on success, or ``None`` on timeout.
-    The query opens a fresh ``RunsQuery`` each tick so the daemon's
-    table is observed at its current state, not a cached snapshot.
+    Uses direct primary-key lookup (``get``) rather than
+    ``list_recent`` because the canonical singleton store can hold
+    many concurrent in-flight runs from other tests / the UI; a
+    LIMIT-50 sorted scan can miss this test's run when the pool is
+    busy. ``get(run_id)`` is O(1) and finds it regardless.
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        with RunsQuery(_results_dir=results_dir) as q:
-            rows = q.list_recent(limit=50, include_incomplete=True)
-        for r in rows:
-            if r.run_id == run_id and predicate(r):
-                return r
+        with RunsQuery() as q:
+            row = q.get(run_id)
+        if row is not None and predicate(row):
+            return row
         time.sleep(0.2)
     return None
 
@@ -120,14 +120,13 @@ def _emit_run_ended(
 class TestLiveRunVisibility:
     """End-to-end: events emitted by the test process land in the daemon's runs table."""
 
-    def test_run_started_inserts_partial_row(self, tmp_path: Path):
+    def test_run_started_inserts_partial_row(self):
         """``RunStarted`` → daemon UPSERTs a partial row (``ended_at IS NULL``)."""
-        results_dir = tmp_path / "results"
-        store = EventStore(_results_dir=results_dir)
+        store = EventStore()
 
         # Force the runs daemon to start by opening a query connection;
         # its event subscriber attaches as part of ``daemon_run``.
-        with RunsQuery(_results_dir=results_dir):
+        with RunsQuery():
             pass
 
         session_id = uuid4()
@@ -145,7 +144,6 @@ class TestLiveRunVisibility:
         store.close()
 
         row = _wait_for_run(
-            results_dir,
             str(run_id),
             predicate=lambda r: r.ended_at is None and r.outcome is None,
         )
@@ -160,12 +158,11 @@ class TestLiveRunVisibility:
         assert row.dut_serial == "SN-LIVE-001"
         assert row.station_hostname == "bench-01.local"
 
-    def test_run_ended_finalizes_row(self, tmp_path: Path):
+    def test_run_ended_finalizes_row(self):
         """``RunStarted`` then ``RunEnded`` → row gets ``outcome`` and ``ended_at``."""
-        results_dir = tmp_path / "results"
-        store = EventStore(_results_dir=results_dir)
+        store = EventStore()
 
-        with RunsQuery(_results_dir=results_dir):
+        with RunsQuery():
             pass
 
         session_id = uuid4()
@@ -182,7 +179,6 @@ class TestLiveRunVisibility:
         store.flush()
 
         partial = _wait_for_run(
-            results_dir,
             str(run_id),
             predicate=lambda r: r.ended_at is None,
         )
@@ -200,7 +196,6 @@ class TestLiveRunVisibility:
         store.close()
 
         finalized = _wait_for_run(
-            results_dir,
             str(run_id),
             predicate=lambda r: r.outcome == "passed" and r.ended_at is not None,
         )
@@ -209,17 +204,16 @@ class TestLiveRunVisibility:
             "is not firing or the watcher loop is missing the event."
         )
 
-    def test_default_query_excludes_in_flight_partial(self, tmp_path: Path):
+    def test_default_query_excludes_in_flight_partial(self):
         """``include_incomplete=False`` (default) filters out partial rows.
 
         The streaming UPSERT and the parquet path write to the same
         table; the query layer is the gate that hides in-flight rows
         from analytics callers. Pin that the gate works.
         """
-        results_dir = tmp_path / "results"
-        store = EventStore(_results_dir=results_dir)
+        store = EventStore()
 
-        with RunsQuery(_results_dir=results_dir):
+        with RunsQuery():
             pass
 
         session_id = uuid4()
@@ -236,25 +230,23 @@ class TestLiveRunVisibility:
 
         # Wait for the partial row to land via include_incomplete=True.
         partial = _wait_for_run(
-            results_dir,
             str(run_id),
             predicate=lambda r: r.ended_at is None,
         )
         assert partial is not None, "RunStarted never landed (precondition)"
 
         # Now confirm the default (``include_incomplete=False``) hides it.
-        with RunsQuery(_results_dir=results_dir) as q:
+        with RunsQuery() as q:
             visible_ids = [r.run_id for r in q.list_recent(limit=50)]
         assert str(run_id) not in visible_ids
 
 
 @pytest.mark.parametrize("outcome", ["passed", "failed", "errored"])
-def test_run_ended_outcomes(tmp_path: Path, outcome: str):
+def test_run_ended_outcomes(outcome: str):
     """Each canonical ``RunEnded`` outcome lands in the table verbatim."""
-    results_dir = tmp_path / "results"
-    store = EventStore(_results_dir=results_dir)
+    store = EventStore()
 
-    with RunsQuery(_results_dir=results_dir):
+    with RunsQuery():
         pass
 
     session_id = uuid4()
@@ -279,7 +271,6 @@ def test_run_ended_outcomes(tmp_path: Path, outcome: str):
     store.close()
 
     row = _wait_for_run(
-        results_dir,
         str(run_id),
         predicate=lambda r: r.outcome == outcome,
     )

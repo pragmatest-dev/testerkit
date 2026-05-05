@@ -1,22 +1,30 @@
-"""Unit tests for StepsQuery — list + tree shape from the steps table."""
+"""Unit tests for StepsQuery — list + tree shape from the steps table.
+
+Uses the canonical singleton runs daemon. Synthetic steps go into
+``canonical/runs/test-steps-query/`` with uuid4 run/session ids so
+assertions filter cleanly past any other tests' / users' rows.
+"""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
 from litmus.analysis.steps_query import StepNode, StepRow, StepsQuery
+from litmus.data.results_dir import resolve_results_dir
+from litmus.data.run_store import RunStore
 from litmus.data.schemas import STEP_SCHEMA
 
 
 def _step(
     *,
     run_id: str,
-    session_id: str = "sess-1",
+    session_id: str,
     started: datetime,
     step_index: int,
     step_name: str,
@@ -56,7 +64,7 @@ def _step(
 
 
 def _write_steps_file(runs_dir: Path, run_id: str, rows: list[dict]) -> Path:
-    """Write a single ``_steps.parquet`` for a run."""
+    """Write a ``_steps.parquet`` and notify the canonical daemon to ingest it."""
     runs_dir.mkdir(parents=True, exist_ok=True)
     cols = {f.name: [r[f.name] for r in rows] for f in STEP_SCHEMA}
     path = runs_dir / f"{run_id}_steps.parquet"
@@ -64,50 +72,60 @@ def _write_steps_file(runs_dir: Path, run_id: str, rows: list[dict]) -> Path:
     return path
 
 
-@pytest.fixture()
-def results_dir(tmp_path: Path) -> Path:
-    """Two runs with a mix of flat and nested step paths.
+@pytest.fixture(scope="module")
+def fixture_data() -> dict[str, str]:
+    """Two runs (flat + nested step paths) under a unique session.
 
-    run-aaaaaaaa: flat steps step_0, step_1
-    run-bbbbbbbb: nested step paths (power, power/voltage, power/current)
+    Single fixture per file → one acquire/release of the canonical
+    daemon for the whole module.
     """
-    runs_dir = tmp_path / "runs"
+    session_id = str(uuid4())
+    run_flat = str(uuid4())
+    run_nested = str(uuid4())
+
+    canonical_runs = resolve_results_dir() / "runs" / "test-steps-query"
+    runs_dir = canonical_runs
     base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
 
     flat = [
         _step(
-            run_id="run-aaaaaaaa-0001",
+            run_id=run_flat,
+            session_id=session_id,
             started=base,
             step_index=0,
             step_name="step_0",
         ),
         _step(
-            run_id="run-aaaaaaaa-0001",
+            run_id=run_flat,
+            session_id=session_id,
             started=base,
             step_index=1,
             step_name="step_1",
             outcome="failed",
         ),
     ]
-    _write_steps_file(runs_dir, "run-aaaaaaaa", flat)
+    flat_path = _write_steps_file(runs_dir, run_flat, flat)
 
     nested = [
         _step(
-            run_id="run-bbbbbbbb-0002",
+            run_id=run_nested,
+            session_id=session_id,
             started=base,
             step_index=0,
             step_name="power",
             step_path="power",
         ),
         _step(
-            run_id="run-bbbbbbbb-0002",
+            run_id=run_nested,
+            session_id=session_id,
             started=base,
             step_index=1,
             step_name="voltage",
             step_path="power/voltage",
         ),
         _step(
-            run_id="run-bbbbbbbb-0002",
+            run_id=run_nested,
+            session_id=session_id,
             started=base,
             step_index=2,
             step_name="current",
@@ -115,61 +133,58 @@ def results_dir(tmp_path: Path) -> Path:
             outcome="failed",
         ),
     ]
-    _write_steps_file(runs_dir, "run-bbbbbbbb", nested)
+    nested_path = _write_steps_file(runs_dir, run_nested, nested)
 
-    return tmp_path
+    notifier = RunStore()
+    try:
+        notifier.notify_new_run(flat_path.with_name(f"{run_flat}.parquet"))
+        notifier.notify_new_run(nested_path.with_name(f"{run_nested}.parquet"))
+    finally:
+        notifier.close()
+
+    return {
+        "session_id": session_id,
+        "run_flat": run_flat,
+        "run_nested": run_nested,
+    }
 
 
 class TestListForRun:
-    def test_returns_typed_rows(self, results_dir: Path):
-        q = StepsQuery(_results_dir=results_dir)
-        try:
-            rows = q.list_for_run("run-aaaaaaaa")
-        finally:
-            q.close()
+    def test_returns_typed_rows(self, fixture_data: dict[str, str]):
+        with StepsQuery() as q:
+            rows = q.list_for_run(fixture_data["run_flat"])
         assert len(rows) == 2
         assert all(isinstance(r, StepRow) for r in rows)
         assert [r.step_index for r in rows] == [0, 1]
         assert [r.step_name for r in rows] == ["step_0", "step_1"]
         assert [r.outcome for r in rows] == ["passed", "failed"]
 
-    def test_id_prefix_match(self, results_dir: Path):
+    def test_id_prefix_match(self, fixture_data: dict[str, str]):
         """8-char prefix matches the full run id."""
-        q = StepsQuery(_results_dir=results_dir)
-        try:
-            rows = q.list_for_run("run-aaaa")  # short prefix
-        finally:
-            q.close()
+        with StepsQuery() as q:
+            rows = q.list_for_run(fixture_data["run_flat"][:8])
         assert len(rows) == 2
-        assert all(r.run_id and r.run_id.startswith("run-aaaa") for r in rows)
+        run_id = fixture_data["run_flat"]
+        assert all(r.run_id == run_id for r in rows)
 
-    def test_unknown_run_returns_empty(self, results_dir: Path):
-        q = StepsQuery(_results_dir=results_dir)
-        try:
-            rows = q.list_for_run("does-not-exist")
-        finally:
-            q.close()
+    def test_unknown_run_returns_empty(self):
+        with StepsQuery() as q:
+            rows = q.list_for_run("does-not-exist-xxxxxxxx")
         assert rows == []
 
 
 class TestTreeForRun:
-    def test_flat_steps_become_roots(self, results_dir: Path):
-        q = StepsQuery(_results_dir=results_dir)
-        try:
-            tree = q.tree_for_run("run-aaaaaaaa")
-        finally:
-            q.close()
+    def test_flat_steps_become_roots(self, fixture_data: dict[str, str]):
+        with StepsQuery() as q:
+            tree = q.tree_for_run(fixture_data["run_flat"])
         assert len(tree) == 2
         assert all(isinstance(n, StepNode) for n in tree)
         assert [n.step.step_name for n in tree] == ["step_0", "step_1"]
         assert all(n.children == [] for n in tree)
 
-    def test_nested_paths_build_tree(self, results_dir: Path):
-        q = StepsQuery(_results_dir=results_dir)
-        try:
-            tree = q.tree_for_run("run-bbbbbbbb")
-        finally:
-            q.close()
+    def test_nested_paths_build_tree(self, fixture_data: dict[str, str]):
+        with StepsQuery() as q:
+            tree = q.tree_for_run(fixture_data["run_nested"])
         assert len(tree) == 1
         root = tree[0]
         assert root.step.step_path == "power"
@@ -181,33 +196,40 @@ class TestTreeForRun:
 
 
 class TestListForSession:
-    @pytest.fixture()
-    def multi_slot_results_dir(self, tmp_path: Path) -> Path:
-        """Two runs in one session, each with its own slot_id (multi-DUT timeline)."""
-        runs_dir = tmp_path / "runs"
+    """Multi-slot session: two sibling runs sharing one ``session_id``."""
+
+    @pytest.fixture(scope="class")
+    def multi_slot_data(self) -> dict[str, str]:
+        """Two runs (different slots) sharing one unique session."""
+        session_id = str(uuid4())
+        run_a = str(uuid4())
+        run_b = str(uuid4())
+
+        canonical_runs = resolve_results_dir() / "runs" / "test-steps-query-multi"
         base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
-        slot_a = [
+
+        slot_a_steps = [
             _step(
-                run_id="run-aaaaaaaa-0001",
-                session_id="sess-multi",
+                run_id=run_a,
+                session_id=session_id,
                 slot_id="slot-A",
                 started=base,
                 step_index=0,
                 step_name="warmup",
             ),
             _step(
-                run_id="run-aaaaaaaa-0001",
-                session_id="sess-multi",
+                run_id=run_a,
+                session_id=session_id,
                 slot_id="slot-A",
                 started=base,
                 step_index=1,
                 step_name="measure",
             ),
         ]
-        slot_b = [
+        slot_b_steps = [
             _step(
-                run_id="run-bbbbbbbb-0002",
-                session_id="sess-multi",
+                run_id=run_b,
+                session_id=session_id,
                 slot_id="slot-B",
                 started=base,
                 step_index=0,
@@ -215,16 +237,25 @@ class TestListForSession:
                 dut_serial="SN002",
             ),
         ]
-        _write_steps_file(runs_dir, "run-aaaaaaaa", slot_a)
-        _write_steps_file(runs_dir, "run-bbbbbbbb", slot_b)
-        return tmp_path
+        path_a = _write_steps_file(canonical_runs, run_a, slot_a_steps)
+        path_b = _write_steps_file(canonical_runs, run_b, slot_b_steps)
 
-    def test_returns_steps_across_session_siblings(self, multi_slot_results_dir: Path):
-        q = StepsQuery(_results_dir=multi_slot_results_dir)
+        notifier = RunStore()
         try:
-            rows = q.list_for_session("sess-multi")
+            notifier.notify_new_run(path_a.with_name(f"{run_a}.parquet"))
+            notifier.notify_new_run(path_b.with_name(f"{run_b}.parquet"))
         finally:
-            q.close()
+            notifier.close()
+
+        return {
+            "session_id": session_id,
+            "run_a": run_a,
+            "run_b": run_b,
+        }
+
+    def test_returns_steps_across_session_siblings(self, multi_slot_data: dict[str, str]):
+        with StepsQuery() as q:
+            rows = q.list_for_session(multi_slot_data["session_id"])
         assert len(rows) == 3
         assert {r.slot_id for r in rows} == {"slot-A", "slot-B"}
         slot_a_rows = [r for r in rows if r.slot_id == "slot-A"]
@@ -232,11 +263,8 @@ class TestListForSession:
 
 
 class TestDescribeColumns:
-    def test_returns_table_columns(self, results_dir: Path):
-        q = StepsQuery(_results_dir=results_dir)
-        try:
+    def test_returns_table_columns(self):
+        with StepsQuery() as q:
             cols = q.describe_columns()
-        finally:
-            q.close()
         names = {c["column_name"] for c in cols}
         assert {"run_id", "step_index", "step_name", "step_path", "outcome"} <= names

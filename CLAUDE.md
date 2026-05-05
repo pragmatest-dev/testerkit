@@ -39,6 +39,35 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 - **YAML config**: `catalog/`, `instruments/`, `stations/`, `products/`, `fixtures/`, `sequences/`
 - **Python code**: `drivers/`, `tests/`
 
+## Test Storage Convention
+
+Tests in this repo write to the project-local results dir
+(`<repo>/results/`, scoped by the repo's `litmus.yaml`). Per-test
+isolation is by **identifier** (uuid4 `run_id`, `session_id`,
+unique `dut_serial` / `product_id`), NEVER by `tmp_path` for any
+constructor that spawns a daemon.
+
+**Forbidden** (each spawns a per-test daemon, ~100 gRPC threads;
+the suite hits WSL's pids cgroup at ~30 such tests):
+- `RunStore(_results_dir=tmp_path)` / `EventStore(_results_dir=tmp_path)`
+- `ChannelStore(tmp_path, ..., serve=True)`
+- `StationConnection(..., results_dir=tmp_path)`
+- `--results-dir=<tmp_path>` to a pytester subprocess
+- Hardcoded `platformdirs.user_data_dir("litmus")` (bypasses the project's `litmus.yaml`)
+
+**Required:**
+```python
+from litmus.data.results_dir import resolve_results_dir
+canonical = resolve_results_dir()
+store = RunStore()              # no _results_dir → canonical
+backend = ParquetBackend(results_dir=canonical)
+```
+
+The forbidden patterns are enforced by `tests/test_conventions.py`,
+which fails the suite if anyone reintroduces them. `ParquetBackend(results_dir=tmp_path)`
+is fine because `LITMUS_SKIP_DAEMON_NOTIFY=1` (set in conftest)
+suppresses its daemon-notify hop.
+
 ## Development Guidelines
 
 - **Pydantic everywhere** — Use Pydantic models for ALL configuration and data structures. NEVER pass raw dicts when a Pydantic model exists. `model_dump()` ONLY at actual write boundaries (YAML files, JSON API responses). Functions return and accept models, not dicts.

@@ -84,13 +84,43 @@ def metrics_page(
 
     from litmus.ui.shared.components import push_url_state
 
+    # Forward declarations — needed because ``bind_value`` on date
+    # pickers fires ``on_change`` synchronously during construction
+    # (propagating the initial value), and that callback chain calls
+    # ``update_url`` / ``_do_refresh`` before later widgets are built.
+    # Pre-declaring as None lets ``update_url`` short-circuit safely
+    # during early fires; once construction completes, all are bound.
+    phase_filter: Any = None
+    product_filter: Any = None
+    station_filter: Any = None
+    lot_filter: Any = None
+    since_filter: Any = None
+    until_filter: Any = None
+    pareto_group_select: Any = None
+    tabs: Any = None
+
     def update_url():
         """Mirror filter values into the URL via the shared helper.
 
         Multi-select filters render as repeated query keys
         (``?phase=production&phase=qual``); ``push_url_state``
         handles list values natively.
+
+        Returns early if any widget hasn't been constructed yet —
+        ``bind_value`` triggers ``on_change`` synchronously during
+        page setup, so this fires before all widgets exist.
         """
+        if (
+            phase_filter is None
+            or product_filter is None
+            or station_filter is None
+            or lot_filter is None
+            or since_filter is None
+            or until_filter is None
+            or pareto_group_select is None
+            or tabs is None
+        ):
+            return
         push_url_state(
             "/metrics",
             {
@@ -117,6 +147,18 @@ def metrics_page(
         # Helper to trigger refresh from current filter values (closure captures by reference)
         def _do_refresh():
             update_url()
+            # Same guard as ``update_url``: ``bind_value`` may fire
+            # ``on_change`` before all widgets are constructed, so
+            # short-circuit until everything's wired up.
+            if (
+                phase_filter is None
+                or product_filter is None
+                or station_filter is None
+                or since_filter is None
+                or until_filter is None
+                or pareto_group_select is None
+            ):
+                return
             _refresh_dashboard(
                 results_dir,
                 list(phase_filter.value or []) or None,
