@@ -352,6 +352,11 @@ def explore_page(request: Request):
             _render_chart([r.model_dump() for r in rows], ct, y_val, x_val)
 
     def _refresh_all() -> None:
+        # Guard against bind_value firing on_change synchronously during
+        # construction — cardinality_label and chart_container are None
+        # until their ui.* assignments execute below the filter card.
+        if cardinality_label is None or chart_container is None:
+            return
         _push_url()
         _refresh_cardinality()
         _refresh_string_facets()

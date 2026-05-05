@@ -57,7 +57,16 @@ def channel_detail_page(
         # if the URL points at a session that no longer has data.
         initial_session = session if session in session_options else "(any)"
 
+        # Forward-declared so refresh() can guard against early fires.
+        # bind_value on date pickers propagates the initial input value
+        # synchronously during construction, which triggers on_change
+        # before chart_card / data_card are built below.
+        chart_card: ui.card | None = None
+        data_card: ui.card | None = None
+
         def refresh() -> None:
+            if chart_card is None or data_card is None:
+                return
             push_url_state(
                 f"/channels/{channel_id}",
                 {
