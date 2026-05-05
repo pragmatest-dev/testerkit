@@ -527,19 +527,94 @@ def _results_backend() -> ParquetBackend:
 def get_recent_runs(
     limit: int = 10,
     *,
+    offset: int = 0,
     include_incomplete: bool = False,
+    phase: str | list[str] | None = None,
+    product: str | list[str] | None = None,
+    station: str | list[str] | None = None,
+    lot: str | list[str] | None = None,
+    outcome: str | list[str] | None = None,
+    since: str | None = None,
+    until: str | None = None,
 ) -> list[RunSummary]:
-    """Return the most recent test runs as RunSummary rows.
+    """Return one page of recent runs as RunSummary rows.
 
-    Same RunsQuery → RunSummary adapter as :func:`list_all_runs`,
-    just with a smaller default limit for the dashboard.
+    Same RunsQuery → RunSummary adapter as :func:`list_all_runs`.
+    ``offset`` paginates per the Quasar server-side contract:
+    ``offset = (page - 1) * rows_per_page``. Filter args narrow
+    by phase / product / station / lot / outcome / since / until.
 
     ``include_incomplete=True`` surfaces in-flight runs (no
     ``ended_at``) — UI list pages opt in so operators see what's
     running. Default ``False`` keeps the legacy "completed only"
     behavior for callers that expect aggregates.
     """
-    return list_all_runs(limit=limit, include_incomplete=include_incomplete)
+    return list_all_runs(
+        limit=limit,
+        offset=offset,
+        include_incomplete=include_incomplete,
+        phase=phase,
+        product=product,
+        station=station,
+        lot=lot,
+        outcome=outcome,
+        since=since,
+        until=until,
+    )
+
+
+def count_recent_runs(
+    *,
+    include_incomplete: bool = False,
+    phase: str | list[str] | None = None,
+    product: str | list[str] | None = None,
+    station: str | list[str] | None = None,
+    lot: str | list[str] | None = None,
+    outcome: str | list[str] | None = None,
+    since: str | None = None,
+    until: str | None = None,
+) -> int:
+    """Total run count under the same filters as ``get_recent_runs``.
+
+    Used by ``/results/list`` to render the absolute "of N" in the
+    Quasar pagination footer and the Total Runs stats card. Filter
+    args mirror ``get_recent_runs`` so the count stays consistent
+    with the paginated rows.
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    with RunsQuery() as q:
+        return q.count(
+            include_incomplete=include_incomplete,
+            phase=phase,
+            product=product,
+            station=station,
+            lot=lot,
+            outcome=outcome,
+            since=since,
+            until=until,
+        )
+
+
+def get_runs_filter_options() -> dict[str, list[str]]:
+    """Return distinct filter values for the /results filter strip.
+
+    Keys: ``test_phase``, ``dut_part_number``, ``station_hostname``,
+    ``dut_lot_number``. Each maps to the sorted distinct values
+    present in the runs table — so the dropdowns only show options
+    that have at least one matching run.
+
+    Per-column failure isolation lives in
+    :meth:`RunsQuery.distinct_filter_values` (a missing column
+    yields ``[]`` for that one filter without affecting the
+    others). Wholesale daemon failure (transient connection
+    error after retries) raises here; the page handler catches
+    and renders a blank-options state.
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    with RunsQuery() as q:
+        return q.distinct_filter_values()
 
 
 def _run_row_to_summary(row: Any) -> RunSummary:
@@ -650,23 +725,43 @@ def get_session_steps(session_id: str):
 def list_all_runs(
     limit: int = 100,
     *,
+    offset: int = 0,
     include_incomplete: bool = False,
+    phase: str | list[str] | None = None,
+    product: str | list[str] | None = None,
+    station: str | list[str] | None = None,
+    lot: str | list[str] | None = None,
+    outcome: str | list[str] | None = None,
+    since: str | None = None,
+    until: str | None = None,
 ) -> list[RunSummary]:
-    """List more runs for cross-run views (DUT history etc.).
+    """List a page of runs for cross-run views (DUT history etc.).
 
     Sources from ``RunsQuery`` (typed) and adapts each ``RunRow``
     to the legacy ``RunSummary`` shape the UI's run-list page
     consumes. Same data, no parquet read.
 
-    ``include_incomplete=True`` surfaces in-flight runs (where
-    ``ended_at IS NULL``); default ``False`` returns only finalized
-    runs.
+    ``offset`` skips that many rows before returning ``limit``;
+    used by Quasar's server-side pagination. Filter args
+    (``phase`` / ``product`` / ``station`` / ``lot`` / ``outcome`` /
+    ``since`` / ``until``) pass through to :meth:`RunsQuery.list_recent`.
     """
     from litmus.analysis.runs_query import RunsQuery
 
     backend = _results_backend()
     with RunsQuery(_results_dir=backend.results_dir) as q:
-        rows = q.list_recent(limit=limit, include_incomplete=include_incomplete)
+        rows = q.list_recent(
+            limit=limit,
+            offset=offset,
+            include_incomplete=include_incomplete,
+            phase=phase,
+            product=product,
+            station=station,
+            lot=lot,
+            outcome=outcome,
+            since=since,
+            until=until,
+        )
     return [
         RunSummary(
             test_run_id=r.run_id or "",

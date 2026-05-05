@@ -39,7 +39,7 @@ from litmus.data._duckdb_flight_server import (
 )
 from litmus.data._live_runs_subscriber import (
     LiveRunsSubscriber,
-    create_inflight_tables,
+    register_empty_inflight,
 )
 from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.models import Outcome
@@ -877,14 +877,29 @@ def _create_views(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:
         CREATE OR REPLACE VIEW runs AS
         SELECT * FROM runs_persisted
         UNION ALL
-        SELECT * FROM inflight_runs
+        SELECT
+            run_id, file_path, steps_file_path, session_id, slot_id,
+            dut_serial, dut_part_number, station_id, station_name,
+            station_hostname, fixture_id,
+            TRY_CAST(outcome AS outcome_kind) AS outcome,
+            started_at, ended_at,
+            num_measurements, num_steps, test_phase, product_id,
+            operator_id, project_name
+        FROM inflight_runs
         WHERE run_id NOT IN (SELECT run_id FROM runs_persisted)
     """)
     conn.execute("""
         CREATE OR REPLACE VIEW steps AS
         SELECT * FROM steps_persisted
         UNION ALL
-        SELECT * FROM inflight_steps
+        SELECT
+            run_id, step_index, file_path, session_id, slot_id,
+            step_name, step_path,
+            TRY_CAST(outcome AS outcome_kind) AS outcome,
+            started_at, ended_at,
+            duration_s, has_measurements, measurement_count, vector_count,
+            markers, dut_serial, station_id
+        FROM inflight_steps
         WHERE run_id NOT IN (SELECT run_id FROM runs_persisted)
     """)
 
@@ -916,11 +931,13 @@ def daemon_run(runs_dir: Path) -> None:
     # ``EventAccumulator``, different output target).
     live_subscriber = LiveRunsSubscriber(runs_dir.parent)
 
-    # Empty TEMP tables matching the persistent schemas; the
-    # subscriber's ``refresh`` repopulates them from the pool
-    # snapshot before each query so the UNION views in
-    # ``_create_views`` see current in-flight state.
-    create_inflight_tables(conn)
+    # Bind ``inflight_runs`` / ``inflight_steps`` to empty
+    # Arrow tables so the UNION views in ``_create_views`` can
+    # compile. The subscriber's ``refresh`` re-binds them to the
+    # current accumulator-pool snapshot before each query
+    # (read-only metadata via ``conn.register``; no WAL write,
+    # no lock contention with ingest).
+    register_empty_inflight(conn)
     _create_views(conn, runs_dir)
 
     def _on_put(table: pa.Table) -> None:

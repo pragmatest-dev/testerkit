@@ -108,23 +108,61 @@ class RunsQuery:
         self,
         limit: int = 50,
         *,
+        offset: int = 0,
         include_incomplete: bool = False,
+        phase: str | list[str] | None = None,
+        product: str | list[str] | None = None,
+        station: str | list[str] | None = None,
+        lot: str | list[str] | None = None,
+        outcome: str | list[str] | None = None,
+        since: str | None = None,
+        until: str | None = None,
     ) -> list[RunRow]:
-        """Return the ``limit`` most recent runs, most recent first.
+        """Return one page of recent runs, most recent first.
 
         Args:
-            limit: Max rows.
+            limit: Max rows in the page.
+            offset: Skip this many rows before returning ``limit``.
+                ``offset = (page - 1) * rows_per_page`` for the
+                Quasar server-side-pagination pattern.
             include_incomplete: Default ``False`` — only finalized
                 runs (``ended_at IS NOT NULL``). UI list pages that
                 surface in-flight runs pass ``True``.
+            phase / product / station / lot / outcome: Multi-value
+                filters. ``str`` collapses to ``=``, ``list`` to
+                ``IN (…)``. ``None`` / empty contributes nothing.
+                ``product`` filters by ``dut_part_number`` (operator-
+                facing); ``station`` by ``station_hostname``; ``lot``
+                by ``dut_lot_number``.
+            since / until: ISO date or datetime strings. Filter
+                ``started_at`` to ``[since, until]`` (inclusive).
+                ``None`` / empty contributes nothing.
         """
-        where = "" if include_incomplete else "WHERE ended_at IS NOT NULL"
+        clauses: list[str] = []
+        if not include_incomplete:
+            clauses.append("ended_at IS NOT NULL")
+        clauses.extend(
+            multi_filter_clauses(
+                {
+                    "test_phase": phase,
+                    "dut_part_number": product,
+                    "station_hostname": station,
+                    "dut_lot_number": lot,
+                    "outcome": outcome,
+                }
+            )
+        )
+        if since:
+            clauses.append(f"started_at >= '{sql_escape(since)}'")
+        if until:
+            clauses.append(f"started_at <= '{sql_escape(until)}'")
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         rows = self._query_dicts(f"""
             SELECT *
             FROM runs
             {where}
             ORDER BY started_at DESC
-            LIMIT {int(limit)}
+            LIMIT {int(limit)} OFFSET {int(offset)}
         """)
         return [RunRow(**r) for r in rows]
 
@@ -240,6 +278,77 @@ class RunsQuery:
             ORDER BY failed_count DESC, total DESC
             LIMIT {int(top_n)}
         """)
+
+    def count(
+        self,
+        *,
+        include_incomplete: bool = False,
+        phase: str | list[str] | None = None,
+        product: str | list[str] | None = None,
+        station: str | list[str] | None = None,
+        lot: str | list[str] | None = None,
+        outcome: str | list[str] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> int:
+        """Total number of runs matching the same filters as :meth:`list_recent`.
+
+        ``include_incomplete=False`` (default) counts only finalized
+        runs (``ended_at IS NOT NULL``). Filter args mirror
+        :meth:`list_recent` so the count and the page agree on what's
+        being shown.
+        """
+        clauses: list[str] = []
+        if not include_incomplete:
+            clauses.append("ended_at IS NOT NULL")
+        clauses.extend(
+            multi_filter_clauses(
+                {
+                    "test_phase": phase,
+                    "dut_part_number": product,
+                    "station_hostname": station,
+                    "dut_lot_number": lot,
+                    "outcome": outcome,
+                }
+            )
+        )
+        if since:
+            clauses.append(f"started_at >= '{sql_escape(since)}'")
+        if until:
+            clauses.append(f"started_at <= '{sql_escape(until)}'")
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = self._query_dicts(f"SELECT COUNT(*) AS n FROM runs{where}")
+        return int(rows[0]["n"]) if rows else 0
+
+    def distinct_filter_values(self) -> dict[str, list[str]]:
+        """Return distinct values for each filterable run column.
+
+        Used by the /results filter strip to populate the
+        multi-select dropdowns. Only non-null, non-empty values
+        appear; sort is alphabetical for consistent UI.
+
+        Per-column failure isolation: any column the daemon's
+        schema doesn't know about raises ``FlightPermanentError``
+        (fast-fail, classified at the Flight layer); we catch
+        per-column and yield an empty list for it. The other
+        columns are unaffected. New columns can be added without
+        coordinating a schema bump first — the dropdown stays
+        empty until the column actually exists.
+        """
+        from litmus.data._flight_errors import FlightPermanentError
+
+        out: dict[str, list[str]] = {}
+        for column in ("test_phase", "dut_part_number", "station_hostname"):
+            try:
+                rows = self._query_dicts(
+                    f"SELECT DISTINCT {column} AS v FROM runs "
+                    f"WHERE {column} IS NOT NULL AND {column} != '' "
+                    f"ORDER BY {column}"
+                )
+                out[column] = [r["v"] for r in rows]
+            except FlightPermanentError:
+                out[column] = []
+        return out
 
     def count_by_outcome(self) -> dict[str, int]:
         """Return ``{outcome: count}`` over all runs."""

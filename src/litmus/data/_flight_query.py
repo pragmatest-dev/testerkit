@@ -1,43 +1,49 @@
-"""Shared Flight query helper with retry logic.
+"""Shared Flight query helper with classified retry logic.
 
-Used by EventStore and RunStore to avoid duplicating the same
-connect → query → retry → re-acquire pattern.
+Used by EventStore, RunStore, RunsQuery, StepsQuery,
+MeasurementsQuery — every read path that talks to a litmus daemon
+over Flight.
 
-Channel pooling
----------------
+Two responsibilities, both shared across the site:
 
-``flight.FlightClient`` instances are pooled per ``location``
-process-wide. ``litmus serve`` constructs new ``RunsQuery`` /
-``StepsQuery`` / ``EventStore`` per page render — without
-pooling, each construction → a fresh gRPC channel → a fresh
-client thread pool. ``FlightClient.close()`` doesn't fully
-release gRPC C++ thread resources synchronously, so threads
-accumulated monotonically with UI activity. The ``litmus serve``
-process eventually hit an internal gRPC limit and aborted with
-``std::system_error: Resource temporarily unavailable``.
+1. **Channel pooling**: one ``flight.FlightClient`` per location
+   per process. ``litmus serve`` constructs fresh
+   ``RunsQuery`` / ``StepsQuery`` / ``EventStore`` per page
+   render — without pooling, each construction opened a new gRPC
+   channel + client thread pool. ``FlightClient.close()`` doesn't
+   release gRPC C++ thread resources synchronously, so threads
+   accumulated monotonically with UI activity until the serve
+   process aborted with ``std::system_error: Resource temporarily
+   unavailable``. Pooling keeps ONE client per daemon location
+   for the lifetime of the process; ``FlightQueryClient.close()``
+   is a no-op on the underlying client.
 
-Pooling keeps ONE client per daemon location for the lifetime
-of the process. ``FlightQueryClient.close()`` becomes a no-op
-on the underlying client (still releases the manager ref count
-the caller holds). Process exit drops everything via the
-gRPC C++ runtime's shutdown path.
+2. **Selective retry**: errors are classified via
+   :mod:`litmus.data._flight_errors` and routed through
+   :func:`litmus.data._flight_retry.with_retry`. Transient
+   failures (daemon mid-restart, gRPC deadline) retry with
+   exponential backoff. Permanent failures (Binder Error,
+   Catalog Error, syntax) raise immediately. The legacy
+   "retry everything" loop turned a single bad column into a
+   ~7s page hang; classified retry returns in milliseconds with
+   a typed exception the caller can render.
 """
 
 from __future__ import annotations
 
 import threading
-import time
-import warnings
 from collections.abc import Callable
 from typing import Any
 
 import pyarrow as pa
 import pyarrow.flight as flight
 
-
-class IndexOutOfDate(Exception):
-    """Raised when the DuckDB index schema doesn't match the current code."""
-
+from litmus.data._flight_errors import (
+    FlightQueryError,  # noqa: F401 — re-exported for callers
+    FlightTransientError,  # noqa: F401 — re-exported for callers
+    IndexOutOfDate,  # noqa: F401 — back-compat alias re-exported
+)
+from litmus.data._flight_retry import with_retry
 
 # Process-wide pool: one ``FlightClient`` per ``location``.
 # Reused across every ``FlightQueryClient`` that targets the same
@@ -106,60 +112,41 @@ class FlightQueryClient:
         """Get the process-wide Flight client for this location."""
         return _get_pooled_client(self._location)
 
-    def query(self, sql: str, *, _retries: int = 2) -> list[dict[str, Any]]:
+    def query(self, sql: str) -> list[dict[str, Any]]:
         """Execute a SQL query via Flight and return list of dicts.
 
-        Retries on transient gRPC errors (e.g. daemon restart).
-        DuckDB raises errors back through the Flight stream as
-        ``flight.FlightError`` with the original error text inline —
-        we string-match for the two expected DuckDB error messages
-        (``measurements`` view missing during cold start, "Binder
-        Error" on index schema drift) because DuckDB's typed exceptions
-        don't survive the gRPC round-trip.
+        Selective retry: TRANSIENT errors (daemon mid-restart,
+        gRPC channel torn) retry up to 3× with exponential
+        backoff + jitter. PERMANENT errors (Binder Error, Catalog
+        Error, syntax) raise immediately as
+        :class:`FlightPermanentError`. EMPTY_OK errors (cold-start
+        ``measurements`` view) return ``[]``. See
+        :mod:`litmus.data._flight_errors` for the classification.
         """
-        last_exc: flight.FlightError | OSError | pa.ArrowException | None = None
-        for attempt in range(_retries + 1):
-            try:
-                client = self.get_client()
-                ticket = flight.Ticket(
-                    f"{self._ticket_prefix}\0{sql}".encode(),
-                )
-                reader = client.do_get(ticket)
-                table = reader.read_all()
-                return table.to_pylist()
-            except (flight.FlightError, OSError, pa.ArrowException) as exc:
-                err_msg = str(exc)
-                # Cold start: ``measurements`` view not yet created in
-                # the runs daemon (no measurement parquets on disk).
-                # Treat any reference to a missing ``measurements``
-                # relation — Catalog Error / Binder Error / "Table not
-                # found" — as an empty result rather than 500.
-                if "measurements" in err_msg and (
-                    "does not exist" in err_msg
-                    or "not found" in err_msg
-                    or "Table with name measurements" in err_msg
-                ):
-                    return []
-                last_exc = exc
-                # Drop the pooled client so the next attempt
-                # reconnects — daemon may have restarted.
-                _drop_pooled_client(self._location)
-                if attempt < _retries:
-                    time.sleep(0.2)
-                    if self._reacquire is not None:
-                        try:
-                            self._location = self._reacquire()
-                        except (ValueError, OSError):
-                            pass
-        if last_exc and "Binder Error" in str(last_exc):
-            raise IndexOutOfDate(
-                "Index is out of date. Run `litmus data reindex` to rebuild."
-            ) from last_exc
-        warnings.warn(
-            f"{self._label} Flight query failed after {_retries + 1} attempts: {last_exc}",
-            stacklevel=3,
+
+        def _do_query() -> list[dict[str, Any]]:
+            client = _get_pooled_client(self._location)
+            ticket = flight.Ticket(f"{self._ticket_prefix}\0{sql}".encode())
+            reader = client.do_get(ticket)
+            return reader.read_all().to_pylist()
+
+        def _drop() -> None:
+            _drop_pooled_client(self._location)
+
+        def _reacquire() -> None:
+            if self._reacquire is not None:
+                try:
+                    self._location = self._reacquire()
+                except (ValueError, OSError):
+                    pass
+
+        return with_retry(
+            _do_query,
+            on_drop=_drop,
+            on_reacquire=_reacquire,
+            on_empty=list,
+            label=self._label,
         )
-        return []
 
     def reset(self) -> None:
         """Drop the pooled client for this location so the next query reconnects."""

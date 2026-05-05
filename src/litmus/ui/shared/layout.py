@@ -187,6 +187,14 @@ def create_layout(title: str = "Litmus"):
 
     create_sidebar()
 
-    # Header
+    # Top header — stable branding, NOT the page name. Each page
+    # renders its own ``page_header(title, icon=..., actions=...)``
+    # inside the content area; duplicating the title in the chrome
+    # bar above ate ~15% of the vertical space saying the same word
+    # twice. ``title`` is kept for the document title (browser tab)
+    # only.
+    _ = title  # used by ``ui.run`` / page metadata; not rendered here
     with ui.header().classes("bg-white border-b border-slate-200 shadow-sm"):
-        ui.label(title).classes("text-lg font-semibold text-slate-800")
+        with ui.row().classes("items-center gap-2"):
+            ui.label("⚡").classes("text-lg")  # ⚡ favicon-style branding
+            ui.label("Litmus").classes("text-lg font-semibold text-slate-800")

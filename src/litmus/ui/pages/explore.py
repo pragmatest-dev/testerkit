@@ -222,8 +222,17 @@ def explore_page(request: Request):
         real_names = [o for o in top_names if not o.value.startswith("_")]
         if real_names:
             initial_filters = FilterSet(string_filters={"measurement_name": [real_names[0].value]})
-        if not initial_y and "value" in y_options:
-            initial_y = "value"
+        # Default Y: prefer ``measurement_value`` (the canonical
+        # column for real measurement values) over ``value``. Some
+        # legacy / test parquets project a ``value`` column that
+        # ``union_by_name`` lifts into the schema but leaves NULL
+        # for production rows; landing the user on ``value`` produces
+        # an empty graph for everyone.
+        if not initial_y:
+            for candidate in ("measurement_value", "value"):
+                if candidate in y_options:
+                    initial_y = candidate
+                    break
         if not initial_x:
             for candidate in ("vector_index", "run_started_at"):
                 if candidate in x_options:

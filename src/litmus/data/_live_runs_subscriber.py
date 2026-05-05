@@ -52,50 +52,75 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# DuckDB column lists for the inflight temp tables
+# Inflight Arrow schemas — mirror ``runs_persisted`` / ``steps_persisted``
 # ---------------------------------------------------------------------------
 
-
-_INFLIGHT_RUN_COLS = (
-    "run_id, file_path, steps_file_path, session_id, slot_id, "
-    "dut_serial, dut_part_number, station_id, station_name, "
-    "station_hostname, fixture_id, outcome, started_at, ended_at, "
-    "num_measurements, num_steps, test_phase, product_id, "
-    "operator_id, project_name"
+# These describe the shape of the per-query Arrow snapshots that
+# back the ``inflight_runs`` / ``inflight_steps`` relations the
+# UNION views reference. Registered on the DuckDB connection via
+# ``conn.register()`` (read-only metadata — no WAL write, no lock
+# contention with the ingest thread). A pre-query hook that wrote
+# DELETE+INSERT to TEMP tables previously serialized every read
+# behind any concurrent ingest write, wedging the daemon at ~60 %
+# CPU on lock-wait.
+#
+# Outcome here is plain VARCHAR — the persisted side carries the
+# strict ``outcome_kind`` ENUM but DuckDB's ``UNION ALL`` permits
+# string ↔ enum coercion at read time. Pool snapshots only emit
+# strings already in the canonical Outcome enum (validated when
+# the accumulator builds the row).
+_INFLIGHT_RUNS_SCHEMA = pa.schema(
+    [
+        ("run_id", pa.string()),
+        ("file_path", pa.string()),
+        ("steps_file_path", pa.string()),
+        ("session_id", pa.string()),
+        ("slot_id", pa.string()),
+        ("dut_serial", pa.string()),
+        ("dut_part_number", pa.string()),
+        ("station_id", pa.string()),
+        ("station_name", pa.string()),
+        ("station_hostname", pa.string()),
+        ("fixture_id", pa.string()),
+        ("outcome", pa.string()),
+        ("started_at", pa.timestamp("us", tz="UTC")),
+        ("ended_at", pa.timestamp("us", tz="UTC")),
+        ("num_measurements", pa.int32()),
+        ("num_steps", pa.int32()),
+        ("test_phase", pa.string()),
+        ("product_id", pa.string()),
+        ("operator_id", pa.string()),
+        ("project_name", pa.string()),
+    ]
 )
 
-
-_INFLIGHT_STEP_COLS = (
-    "run_id, step_index, file_path, session_id, slot_id, "
-    "step_name, step_path, outcome, started_at, ended_at, "
-    "duration_s, has_measurements, measurement_count, vector_count, "
-    "markers, dut_serial, station_id"
+_INFLIGHT_STEPS_SCHEMA = pa.schema(
+    [
+        ("run_id", pa.string()),
+        ("step_index", pa.int32()),
+        ("file_path", pa.string()),
+        ("session_id", pa.string()),
+        ("slot_id", pa.string()),
+        ("step_name", pa.string()),
+        ("step_path", pa.string()),
+        ("outcome", pa.string()),
+        ("started_at", pa.timestamp("us", tz="UTC")),
+        ("ended_at", pa.timestamp("us", tz="UTC")),
+        ("duration_s", pa.float64()),
+        ("has_measurements", pa.bool_()),
+        ("measurement_count", pa.int32()),
+        ("vector_count", pa.int32()),
+        ("markers", pa.string()),
+        ("dut_serial", pa.string()),
+        ("station_id", pa.string()),
+    ]
 )
 
-
-# Outcome strings from older / non-canonical events that would fail
-# the daemon's ``outcome_kind`` ENUM cast. ``TRY_CAST`` returns NULL
-# instead of erroring — same effect as not having received an outcome
-# yet, which is the right in-flight semantics anyway.
-_RUN_SELECT_EXPR = (
-    "run_id, file_path, steps_file_path, session_id, slot_id, "
-    "dut_serial, dut_part_number, station_id, station_name, "
-    "station_hostname, fixture_id, "
-    "TRY_CAST(outcome AS outcome_kind) AS outcome, "
-    "started_at, ended_at, "
-    "num_measurements, num_steps, test_phase, product_id, "
-    "operator_id, project_name"
-)
-
-
-_STEP_SELECT_EXPR = (
-    "run_id, step_index, file_path, session_id, slot_id, "
-    "step_name, step_path, "
-    "TRY_CAST(outcome AS outcome_kind) AS outcome, "
-    "started_at, ended_at, "
-    "duration_s, has_measurements, measurement_count, vector_count, "
-    "markers, dut_serial, station_id"
-)
+# Allocated once at module load. ``register()`` with these keeps
+# the UNION views resolvable when the accumulator pool is empty
+# (the common case at idle).
+_EMPTY_INFLIGHT_RUNS = pa.Table.from_pylist([], schema=_INFLIGHT_RUNS_SCHEMA)
+_EMPTY_INFLIGHT_STEPS = pa.Table.from_pylist([], schema=_INFLIGHT_STEPS_SCHEMA)
 
 
 # ---------------------------------------------------------------------------
@@ -128,20 +153,21 @@ def _events_daemon_alive(events_dir: Path) -> bool:
     return isinstance(pid, int) and _pid_alive(pid)
 
 
-def create_inflight_tables(conn: duckdb.DuckDBPyConnection) -> None:
-    """Create empty TEMP tables matching the persistent schemas.
+def register_empty_inflight(conn: duckdb.DuckDBPyConnection) -> None:
+    """Seed the daemon's connection with empty inflight relations.
 
-    The Flight server's pre-query hook (``LiveRunsSubscriber.refresh``)
-    repopulates these from the accumulator pool snapshot before each
-    query. Schema is copied from the on-disk persistent tables via
-    ``WHERE 1=0`` so the UNION views' types align exactly.
+    Called once at daemon startup, **before** the UNION views
+    in :func:`_create_views` are defined. Without this, those
+    views fail to compile because ``inflight_runs`` /
+    ``inflight_steps`` aren't yet bound to anything.
+
+    The Flight server's pre-query hook
+    (:meth:`LiveRunsSubscriber.refresh`) re-registers these names
+    on every query with the current accumulator-pool snapshot —
+    pure metadata, no WAL write.
     """
-    conn.execute(
-        "CREATE OR REPLACE TEMP TABLE inflight_runs AS SELECT * FROM runs_persisted WHERE 1=0"
-    )
-    conn.execute(
-        "CREATE OR REPLACE TEMP TABLE inflight_steps AS SELECT * FROM steps_persisted WHERE 1=0"
-    )
+    conn.register("inflight_runs", _EMPTY_INFLIGHT_RUNS)
+    conn.register("inflight_steps", _EMPTY_INFLIGHT_STEPS)
 
 
 # ---------------------------------------------------------------------------
@@ -212,41 +238,37 @@ class LiveRunsSubscriber:
     # -- Read path — runs daemon's pre-query hook --------------------------
 
     def refresh(self, conn: duckdb.DuckDBPyConnection) -> None:
-        """Reload the inflight TEMP tables from the pool snapshot.
+        """Re-bind ``inflight_runs`` / ``inflight_steps`` to the pool snapshot.
 
         Flight server's pre-query hook calls this on every
-        ``do_get`` so the UNION views see a current snapshot. Cost
-        is O(in-flight rows), typically tiny.
+        ``do_get`` so the UNION views see a current snapshot.
+        ``conn.register("name", arrow_table)`` is **read-only on
+        DuckDB's side** — pure metadata; no WAL write, no commit,
+        no lock contention with the ingest thread. The previous
+        implementation did DELETE+INSERT into TEMP tables on every
+        read, which serialized all queries behind any concurrent
+        ingest write and wedged the daemon at ~60 % CPU.
 
-        ``DELETE`` + ``INSERT`` rather than ``CREATE OR REPLACE``
-        because the temp tables are referenced by the
-        ``runs`` / ``steps`` views — replacing them would
-        invalidate the views.
+        Empty pool → register the schema-only sentinels so the
+        UNION views stay resolvable.
         """
-        conn.execute("DELETE FROM inflight_runs")
-        conn.execute("DELETE FROM inflight_steps")
-
         run_rows = self._pool.snapshot_run_rows()
         if run_rows:
-            conn.register("_pool_run_rows", pa.Table.from_pylist(run_rows))
-            try:
-                conn.execute(
-                    f"INSERT INTO inflight_runs ({_INFLIGHT_RUN_COLS}) "
-                    f"SELECT {_RUN_SELECT_EXPR} FROM _pool_run_rows"
-                )
-            finally:
-                conn.unregister("_pool_run_rows")
+            conn.register(
+                "inflight_runs",
+                pa.Table.from_pylist(run_rows, schema=_INFLIGHT_RUNS_SCHEMA),
+            )
+        else:
+            conn.register("inflight_runs", _EMPTY_INFLIGHT_RUNS)
 
         step_rows = self._pool.snapshot_step_rows()
         if step_rows:
-            conn.register("_pool_step_rows", pa.Table.from_pylist(step_rows))
-            try:
-                conn.execute(
-                    f"INSERT INTO inflight_steps ({_INFLIGHT_STEP_COLS}) "
-                    f"SELECT {_STEP_SELECT_EXPR} FROM _pool_step_rows"
-                )
-            finally:
-                conn.unregister("_pool_step_rows")
+            conn.register(
+                "inflight_steps",
+                pa.Table.from_pylist(step_rows, schema=_INFLIGHT_STEPS_SCHEMA),
+            )
+        else:
+            conn.register("inflight_steps", _EMPTY_INFLIGHT_STEPS)
 
     # -- Internals ----------------------------------------------------------
 

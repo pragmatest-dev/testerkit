@@ -140,9 +140,15 @@ class EventStore:
         self._watcher_thread: threading.Thread | None = None
         self._watcher_stop = threading.Event()
 
-    def _flight_query(self, sql: str, *, _retries: int = 2) -> list[dict[str, Any]]:
-        """Execute a SQL query via Flight and return list of dicts."""
-        return self._flight.query(sql, _retries=_retries)
+    def _flight_query(self, sql: str) -> list[dict[str, Any]]:
+        """Execute a SQL query via Flight and return list of dicts.
+
+        Retry policy lives in :class:`FlightQueryClient` —
+        TRANSIENT errors retry with exponential backoff, PERMANENT
+        errors (Binder, Catalog, syntax) raise immediately as
+        :class:`FlightPermanentError`.
+        """
+        return self._flight.query(sql)
 
     def _flight_put(self, batch: pa.RecordBatch) -> None:
         """Push an Arrow batch to the daemon via persistent do_put stream.

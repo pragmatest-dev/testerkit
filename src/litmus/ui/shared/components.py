@@ -851,6 +851,8 @@ def data_table(
     row_key: str,
     on_row_click: Callable[[dict], None] | None = None,
     time_columns: list[str] | None = None,
+    total_rows: int | None = None,
+    fetch_page: Callable[[int, int], tuple[list[dict], int]] | None = None,
 ) -> ui.table:
     """Canonical Litmus table — every list view goes through this.
 
@@ -880,16 +882,53 @@ def data_table(
     Returns the underlying ``ui.table`` so callers can attach extra
     slots (badge cells, etc.) when needed.
     """
+    # Server-side pagination per the Quasar QTable contract:
+    # https://quasar.dev/vue-components/table/#server-side-pagination
+    # https://nicegui.io/documentation/table
+    #
+    # ``pagination`` carries ``page`` / ``rowsPerPage`` /
+    # ``rowsNumber``. Setting ``rowsNumber`` flips QTable into
+    # server-side mode — the @request event fires on every page /
+    # rows-per-page / sort change, and we re-fetch from the daemon.
+    #
+    # Two modes:
+    #   * ``fetch_page`` provided → true server-side pagination.
+    #     ``rows`` is the first page; later pages come from the
+    #     callback ``(page, rows_per_page) -> (rows, total)``.
+    #   * ``fetch_page`` None → client-side pagination over ``rows``;
+    #     ``total_rows`` (if passed) seeds the footer's "of N".
+    pagination: dict[str, int] = {"page": 1, "rowsPerPage": 50}
+    if total_rows is not None:
+        pagination["rowsNumber"] = int(total_rows)
+    elif fetch_page is not None:
+        pagination["rowsNumber"] = len(rows)  # placeholder until first request
     table = (
         ui.table(
             columns=columns,
             rows=rows,
             row_key=row_key,
-            pagination={"rowsPerPage": 0},
+            pagination=pagination,
         )
         .classes("w-full flex-1 min-h-0 litmus-data-table")
-        .props("flat bordered virtual-scroll")
+        .props("flat bordered :rows-per-page-options='[10, 25, 50, 100, 0]'")
     )
+
+    if fetch_page is not None:
+
+        def _on_request(e: Any) -> None:
+            """Fire on page / rows-per-page / sort change."""
+            new_p = dict(e.args.get("pagination", {}))
+            page = int(new_p.get("page", 1) or 1)
+            rpp = int(new_p.get("rowsPerPage", 50) or 50)
+            try:
+                page_rows, total = fetch_page(page, rpp)
+            except Exception:  # noqa: BLE001 — keep table responsive on transient daemon errors
+                return
+            new_p["rowsNumber"] = int(total)
+            table.pagination.update(new_p)
+            table.update_rows(page_rows)
+
+        table.on("request", _on_request)
 
     for col in time_columns or ():
         table.add_slot(
