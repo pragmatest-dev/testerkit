@@ -51,6 +51,7 @@ class RunRow(BaseModel):
     slot_id: str | None = None
     dut_serial: str | None = None
     dut_part_number: str | None = None
+    dut_lot_number: str | None = None
     station_id: str | None = None
     station_name: str | None = None
     station_hostname: str | None = None

@@ -52,105 +52,76 @@ from litmus.models.enums import Comparator
 
 logger = logging.getLogger(__name__)
 
-# Bump when ``_rebuild_schema``'s table shape changes (column added /
-# dropped, NOT NULL toggled, type changed). Existing ``_index.duckdb``
-# files at any other version are wiped and re-ingested from the
-# parquet files on disk — files are the source of truth.
-_SCHEMA_VERSION = 2  # bumped: runs/steps split into runs_persisted/steps_persisted + UNION views
-
-
-def _create_enum_types(conn: duckdb.DuckDBPyConnection) -> None:
-    """Create DuckDB ENUM types mirroring the Pydantic StrEnums.
-
-    Used by the ``runs`` and ``steps`` tables for the ``outcome``
-    column. Mirrors :class:`litmus.data.models.Outcome` and
-    :class:`litmus.models.enums.Comparator` so the type list updates
-    automatically when those enums change.
-
-    Note: parquet on disk stores these as plain strings (pyarrow
-    doesn't have a portable ENUM type with universal ecosystem
-    support). The Python Pydantic enum is the source of truth;
-    DuckDB validates at INSERT time as a defense-in-depth.
-    """
-    for type_name in ("outcome_kind", "comparator_kind"):
-        conn.execute(f"DROP TYPE IF EXISTS {type_name}")
-    outcome_values = ", ".join(f"'{m.value}'" for m in Outcome)
-    comparator_values = ", ".join(f"'{m.value}'" for m in Comparator)
-    conn.execute(f"CREATE TYPE outcome_kind AS ENUM ({outcome_values})")
-    conn.execute(f"CREATE TYPE comparator_kind AS ENUM ({comparator_values})")
-
-
 # ── Schema management ────────────────────────────────────────────────
 
 
 def _open_index(index_path: Path) -> tuple[duckdb.DuckDBPyConnection, bool]:
-    """Open or create the persistent DuckDB index.
+    """Open the persistent DuckDB index and ensure schema is current.
 
-    Rebuild trigger: the on-disk ``_schema_version`` doesn't match
-    ``_SCHEMA_VERSION``. Any mismatch — newer or older — wipes and
-    rebuilds from the parquet files on disk. Files are the source
-    of truth; the index is derivable.
-
-    Returns (conn, is_fresh) where is_fresh=True means the schema
-    was just rebuilt and a foreground ingest is needed before
-    signaling ready.
+    ``is_fresh`` reflects whether the file already existed; the
+    caller uses it to decide foreground vs background ingest on
+    first launch. The schema itself is always idempotently aligned
+    with the code via :func:`_ensure_schema` — no version checks,
+    no drop-and-recreate.
     """
+    is_fresh = not index_path.exists()
     conn = duckdb.connect(str(index_path))
-    try:
-        row = conn.execute("SELECT v FROM _schema_version LIMIT 1").fetchone()
-        if row is not None and row[0] == _SCHEMA_VERSION:
-            return conn, False
-    except duckdb.Error:
-        pass  # missing or corrupt — rebuild
-    _rebuild_schema(conn)
-    return conn, True
+    _ensure_schema(conn)
+    return conn, is_fresh
 
 
-def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
-    """Drop all managed tables and recreate with current schema.
+def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    """Idempotently align the on-disk schema with the code.
 
     Storage layering:
 
-    - ``runs`` — TABLE, one row per run, populated from
-      ``_steps.parquet`` at ingest. Hot path for ``RunStore.list_runs``.
-    - ``steps`` — TABLE, one row per step, populated from
-      ``_steps.parquet``. Hot path for ``RunStore.get_steps``.
-    - ``measurements`` — VIEW over the parquet glob (created in
-      :func:`_create_views`). Stays a view because dynamic
-      ``in_*`` / ``out_*`` / ``custom_*`` columns vary per test;
-      materializing would require ALTER-on-first-sight or JSON
-      extras. The scaling answer is parquet compaction (fewer
-      larger files), tracked in ROADMAP.
-    - ``measurement_stats`` — per-(file, step, measurement_name)
-      aggregates for cardinality / pareto queries.
+    - ``runs_persisted`` / ``steps_persisted`` — TABLES populated by
+      parquet ingest. ``runs`` / ``steps`` are UNION VIEWS (created
+      in :func:`_create_views`) that splice these tables with the
+      in-memory ``AccumulatorPool`` snapshot.
+    - ``measurements`` — VIEW over the parquet glob. Dynamic
+      ``in_*`` / ``out_*`` / ``custom_*`` columns make table
+      materialization impractical; aggregates for the hot path live
+      in ``measurement_stats``.
+    - ``measurement_stats`` — TABLE of per-(file, step, measurement)
+      aggregates for cardinality / pareto / Cpk queries.
     - ``measurement_io_schema``, ``measurement_refs`` — secondary
       per-file indexes.
-    - ``_ingested`` — ledger of files seen, for incremental sweep.
+    - ``_ingested`` — TABLE ledger of files seen, for incremental
+      sweep. Persistent across launches.
+
+    Idempotent strategy:
+    * ``CREATE TABLE IF NOT EXISTS`` for every table — fresh DBs
+      get the full current schema; existing DBs are untouched.
+    * ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS`` for every
+      column — fresh DBs no-op (column already created), existing
+      DBs gain the missing column with NULL for old rows.
+    * Same for indexes: ``CREATE INDEX IF NOT EXISTS``.
+
+    Adding a new column = add it to the DDL below. Existing
+    ``_index.duckdb`` files migrate automatically on next spawn,
+    no re-ingest, no version bump, no special migration code.
     """
-    for tbl in (
-        "runs",
-        "steps",
-        "measurement_stats",
-        "measurement_io_schema",
-        "measurement_refs",
-        "_ingested",
-        "_schema_version",
+    # ENUM types — DuckDB has no CREATE TYPE IF NOT EXISTS. Try
+    # to create; treat the "already exists" CatalogException as a
+    # no-op. If the enum's value list ever changes, that needs a
+    # dedicated migration (drop columns using the type, drop type,
+    # recreate, re-add columns) — out of scope for the additive
+    # changes this idempotent path supports.
+    for type_name, members in (
+        ("outcome_kind", Outcome),
+        ("comparator_kind", Comparator),
     ):
-        conn.execute(f"DROP TABLE IF EXISTS {tbl}")
+        values = ", ".join(f"'{m.value}'" for m in members)
+        try:
+            conn.execute(f"CREATE TYPE {type_name} AS ENUM ({values})")
+        except duckdb.CatalogException as exc:
+            if "already exists" not in str(exc).lower():
+                raise
 
-    _create_enum_types(conn)
-
-    conn.execute("CREATE TABLE _schema_version (v INTEGER PRIMARY KEY)")
-    conn.execute(f"INSERT INTO _schema_version VALUES ({_SCHEMA_VERSION})")
-
-    # ``runs_persisted`` is the on-disk table populated only by the
-    # parquet-ingest path (``_bulk_insert_runs`` / ``_on_put``).
-    # In-flight rows live in the in-memory ``AccumulatorPool``; the
-    # ``runs`` view UNIONs the two so callers see one logical table.
-    # ``file_path`` is nullable to keep the schema compatible with
-    # the in-flight rows the view UNIONs in.
+    # ── runs_persisted ──────────────────────────────────────────────
     conn.execute("""
-        CREATE TABLE runs_persisted (
+        CREATE TABLE IF NOT EXISTS runs_persisted (
             run_id VARCHAR PRIMARY KEY,
             file_path VARCHAR,
             steps_file_path VARCHAR,
@@ -158,6 +129,7 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
             slot_id VARCHAR,
             dut_serial VARCHAR,
             dut_part_number VARCHAR,
+            dut_lot_number VARCHAR,
             station_id VARCHAR,
             station_name VARCHAR,
             station_hostname VARCHAR,
@@ -173,11 +145,12 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
             project_name VARCHAR
         )
     """)
-    # ``steps_persisted`` mirrors the runs split: parquet-ingest writes
-    # here; in-flight steps come from the accumulator pool via the
-    # ``steps`` UNION view.
+    for col, sql_type in _RUNS_PERSISTED_COLUMNS:
+        conn.execute(f"ALTER TABLE runs_persisted ADD COLUMN IF NOT EXISTS {col} {sql_type}")
+
+    # ── steps_persisted ─────────────────────────────────────────────
     conn.execute("""
-        CREATE TABLE steps_persisted (
+        CREATE TABLE IF NOT EXISTS steps_persisted (
             run_id VARCHAR NOT NULL,
             step_index INTEGER NOT NULL,
             file_path VARCHAR,
@@ -198,14 +171,12 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
             PRIMARY KEY (run_id, step_index)
         )
     """)
-    # ``measurements`` stays a VIEW over the parquet glob (created
-    # in :func:`_create_views`) — promoting it to a table would mean
-    # dynamic-column ALTERs and/or row-level JSON for in_*/out_*
-    # columns that vary per test. Compaction (fewer larger parquet
-    # files) is the right scaling answer; tracked in ROADMAP.
+    for col, sql_type in _STEPS_PERSISTED_COLUMNS:
+        conn.execute(f"ALTER TABLE steps_persisted ADD COLUMN IF NOT EXISTS {col} {sql_type}")
 
+    # ── measurement_stats / io_schema / refs ────────────────────────
     conn.execute("""
-        CREATE TABLE measurement_stats (
+        CREATE TABLE IF NOT EXISTS measurement_stats (
             file_path VARCHAR NOT NULL,
             run_id VARCHAR,
             session_id VARCHAR,
@@ -225,7 +196,7 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
     conn.execute("""
-        CREATE TABLE measurement_io_schema (
+        CREATE TABLE IF NOT EXISTS measurement_io_schema (
             file_path VARCHAR NOT NULL,
             step_index INTEGER,
             column_name VARCHAR NOT NULL,
@@ -233,7 +204,7 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
     conn.execute("""
-        CREATE TABLE measurement_refs (
+        CREATE TABLE IF NOT EXISTS measurement_refs (
             file_path VARCHAR NOT NULL,
             step_index INTEGER,
             measurement_name VARCHAR,
@@ -245,7 +216,7 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
     conn.execute("""
-        CREATE TABLE _ingested (
+        CREATE TABLE IF NOT EXISTS _ingested (
             path VARCHAR PRIMARY KEY,
             mtime DOUBLE NOT NULL,
             size BIGINT NOT NULL,
@@ -256,18 +227,71 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
 
-    conn.execute("CREATE INDEX idx_runs_run_id ON runs_persisted(run_id)")
-    conn.execute("CREATE INDEX idx_runs_session ON runs_persisted(session_id)")
-    conn.execute("CREATE INDEX idx_runs_started ON runs_persisted(started_at)")
-    conn.execute("CREATE INDEX idx_runs_fp ON runs_persisted(file_path)")
-    conn.execute("CREATE INDEX idx_steps_run ON steps_persisted(run_id)")
-    conn.execute("CREATE INDEX idx_steps_fp ON steps_persisted(file_path)")
-    conn.execute("CREATE INDEX idx_meas_name ON measurement_stats(measurement_name)")
-    conn.execute("CREATE INDEX idx_meas_run ON measurement_stats(run_id)")
-    conn.execute("CREATE INDEX idx_meas_fp ON measurement_stats(file_path)")
-    conn.execute("CREATE INDEX idx_mrefs_name ON measurement_refs(measurement_name)")
-    conn.execute("CREATE INDEX idx_mrefs_session ON measurement_refs(session_short)")
-    conn.execute("CREATE INDEX idx_mio_fp ON measurement_io_schema(file_path)")
+    # ── indexes ─────────────────────────────────────────────────────
+    for index_sql in (
+        "CREATE INDEX IF NOT EXISTS idx_runs_run_id ON runs_persisted(run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_runs_session ON runs_persisted(session_id)",
+        "CREATE INDEX IF NOT EXISTS idx_runs_started ON runs_persisted(started_at)",
+        "CREATE INDEX IF NOT EXISTS idx_runs_fp ON runs_persisted(file_path)",
+        "CREATE INDEX IF NOT EXISTS idx_steps_run ON steps_persisted(run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_steps_fp ON steps_persisted(file_path)",
+        "CREATE INDEX IF NOT EXISTS idx_meas_name ON measurement_stats(measurement_name)",
+        "CREATE INDEX IF NOT EXISTS idx_meas_run ON measurement_stats(run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_meas_fp ON measurement_stats(file_path)",
+        "CREATE INDEX IF NOT EXISTS idx_mrefs_name ON measurement_refs(measurement_name)",
+        "CREATE INDEX IF NOT EXISTS idx_mrefs_session ON measurement_refs(session_short)",
+        "CREATE INDEX IF NOT EXISTS idx_mio_fp ON measurement_io_schema(file_path)",
+    ):
+        conn.execute(index_sql)
+
+
+# Columns that should exist on ``runs_persisted`` / ``steps_persisted``
+# regardless of when the on-disk DB was created. ``CREATE TABLE IF NOT
+# EXISTS`` covers the fresh case; ``ALTER TABLE ADD COLUMN IF NOT
+# EXISTS`` (driven from these lists) covers the upgrade case where an
+# older DB is missing a column added since.
+_RUNS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("run_id", "VARCHAR"),
+    ("file_path", "VARCHAR"),
+    ("steps_file_path", "VARCHAR"),
+    ("session_id", "VARCHAR"),
+    ("slot_id", "VARCHAR"),
+    ("dut_serial", "VARCHAR"),
+    ("dut_part_number", "VARCHAR"),
+    ("dut_lot_number", "VARCHAR"),
+    ("station_id", "VARCHAR"),
+    ("station_name", "VARCHAR"),
+    ("station_hostname", "VARCHAR"),
+    ("fixture_id", "VARCHAR"),
+    ("outcome", "outcome_kind"),
+    ("started_at", "TIMESTAMPTZ"),
+    ("ended_at", "TIMESTAMPTZ"),
+    ("num_measurements", "INTEGER"),
+    ("num_steps", "INTEGER"),
+    ("test_phase", "VARCHAR"),
+    ("product_id", "VARCHAR"),
+    ("operator_id", "VARCHAR"),
+    ("project_name", "VARCHAR"),
+)
+_STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("run_id", "VARCHAR"),
+    ("step_index", "INTEGER"),
+    ("file_path", "VARCHAR"),
+    ("session_id", "VARCHAR"),
+    ("slot_id", "VARCHAR"),
+    ("step_name", "VARCHAR"),
+    ("step_path", "VARCHAR"),
+    ("outcome", "outcome_kind"),
+    ("started_at", "TIMESTAMPTZ"),
+    ("ended_at", "TIMESTAMPTZ"),
+    ("duration_s", "DOUBLE"),
+    ("has_measurements", "BOOLEAN"),
+    ("measurement_count", "INTEGER"),
+    ("vector_count", "INTEGER"),
+    ("markers", "VARCHAR"),
+    ("dut_serial", "VARCHAR"),
+    ("station_id", "VARCHAR"),
+)
 
 
 # ── Ingest helpers ──────────────────────────────────────────────────
@@ -561,6 +585,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -
                 ANY_VALUE(s.slot_id) AS slot_id,
                 ANY_VALUE(s.dut_serial) AS dut_serial,
                 ANY_VALUE(s.dut_part_number) AS dut_part_number,
+                ANY_VALUE(s.dut_lot_number) AS dut_lot_number,
                 ANY_VALUE(s.station_id) AS station_id,
                 ANY_VALUE(s.station_name) AS station_name,
                 ANY_VALUE(s.station_hostname) AS station_hostname,
@@ -585,6 +610,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -
                 slot_id = excluded.slot_id,
                 dut_serial = excluded.dut_serial,
                 dut_part_number = excluded.dut_part_number,
+                dut_lot_number = excluded.dut_lot_number,
                 station_id = excluded.station_id,
                 station_name = excluded.station_name,
                 station_hostname = excluded.station_hostname,
@@ -703,6 +729,14 @@ def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
         gone: list[tuple] = []
         conn.register("_disk_snapshot", disk_table)
         try:
+            # Skip files already in ``_ingested`` at this exact (mtime,
+            # size) regardless of status — quarantined files stay
+            # quarantined unless they're re-written (which changes
+            # mtime / size). Without this, every sweep re-attempts
+            # known-bad files in a tight loop, burning CPU and
+            # spamming warnings; in the wild this manifests as a
+            # poisoned daemon when a malformed parquet sits in the
+            # results dir.
             needs_ingest = conn.execute("""
                 SELECT d.path, d.mtime
                 FROM _disk_snapshot d
@@ -710,7 +744,6 @@ def _ingest_parquet_files(index_path: Path, runs_dir: Path) -> None:
                     ON d.path = i.path
                    AND d.mtime = i.mtime
                    AND d.size = i.size
-                   AND i.status = 'ok'
                 WHERE i.path IS NULL
                 ORDER BY d.mtime DESC
             """).fetchall()
@@ -879,7 +912,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:
         UNION ALL
         SELECT
             run_id, file_path, steps_file_path, session_id, slot_id,
-            dut_serial, dut_part_number, station_id, station_name,
+            dut_serial, dut_part_number, dut_lot_number, station_id, station_name,
             station_hostname, fixture_id,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
@@ -911,18 +944,15 @@ def _create_views(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:
 def daemon_run(runs_dir: Path) -> None:
     """Entry point for the runs daemon process. Blocks until idle timeout.
 
-    Ready-ordering: on a fresh / rebuilt index, run a foreground
-    ``_ingest_parquet_files`` BEFORE signalling ready so the first
-    query (typically ``list_runs()``) sees a populated index.
-    Steady-state startup (existing index) signals ready immediately
-    and lets the background thread top up. The events daemon inverts
-    this — its queries are write-heavy and latency-sensitive, so it
-    always signals ready first.
+    Ready-ordering: signal ready immediately, ingest in the
+    background. Queries during ingest see partial data, with newest
+    runs first (``_ingest_parquet_files`` orders by ``mtime DESC``)
+    so the most operationally relevant rows surface fastest.
     """
     mgr = RunsDuckDBManager(runs_dir)
 
     index_path = runs_dir / "_index.duckdb"
-    conn, is_fresh = _open_index(index_path)
+    conn, _ = _open_index(index_path)
 
     # Live-runs subscriber — owns the events-daemon attach loop,
     # the per-run accumulator pool, the inflight-table
@@ -952,11 +982,6 @@ def daemon_run(runs_dir: Path) -> None:
             _ingest_one_file(conn, Path(fpath), stat)
         _create_views(conn, runs_dir)
 
-    def _pre_ready() -> None:
-        if is_fresh:
-            _ingest_parquet_files(index_path, runs_dir)
-            _create_views(conn, runs_dir)
-
     server, port_file, _location = start_flight_server_in_daemon(
         mgr=mgr,
         daemon_dir=runs_dir,
@@ -965,13 +990,22 @@ def daemon_run(runs_dir: Path) -> None:
         put_hook=_on_put,
         port_file_name="_runs_duckdb_flight_port",
         thread_name="runs-duckdb-flight",
-        pre_ready=_pre_ready,
+        pre_ready=None,
         pre_query_hook=live_subscriber.refresh,
     )
 
+    # Always background ingest. The daemon signals ready immediately;
+    # queries during ingest see partial data (newest mtime first, so
+    # the most operationally relevant runs surface first). The
+    # ``_ingested`` ledger makes the sweep idempotent across spawns.
+    def _background_ingest() -> None:
+        _ingest_parquet_files(index_path, runs_dir)
+        # Re-create views so ``measurements`` picks up parquet files
+        # that didn't exist when the views were first created.
+        _create_views(conn, runs_dir)
+
     threading.Thread(
-        target=_ingest_parquet_files,
-        args=(index_path, runs_dir),
+        target=_background_ingest,
         daemon=True,
         name="runs-ingest",
     ).start()

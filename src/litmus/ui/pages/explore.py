@@ -492,7 +492,7 @@ def explore_page(request: Request):
     from litmus.ui.shared.components import subscribe_with_refresh
 
     try:
-        event_store = EventStore(_results_dir=_Path(results_dir))
+        event_store = EventStore.get_shared(_Path(results_dir))
         subscribe_with_refresh(event_store, ["run.ended"], _refresh_all)
     except (OSError, RuntimeError) as exc:
         logger.warning("Live updates unavailable: %s", exc)

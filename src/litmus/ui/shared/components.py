@@ -452,6 +452,22 @@ def subscribe_with_refresh(
             except Exception:  # noqa: BLE001
                 pass
 
+    # Auto-unsubscribe when the browser tab closes so the debounce
+    # timer doesn't keep firing refresh() into a deleted client.
+    # Only registers if called from inside a NiceGUI page handler;
+    # in tests / non-UI contexts the cleanup callable is the
+    # caller's responsibility.
+    try:
+        from nicegui import app as _app
+        from nicegui import context as _ctx
+
+        current_client_id = _ctx.client.id
+        _app.on_disconnect(lambda c: _cleanup() if c.id == current_client_id else None)
+    except RuntimeError:
+        # No client context (test, background thread, etc.). Caller
+        # uses the returned _cleanup directly.
+        pass
+
     return _cleanup
 
 

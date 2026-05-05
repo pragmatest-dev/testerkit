@@ -343,7 +343,7 @@ def metrics_page(
     try:
         from pathlib import Path
 
-        event_store = EventStore(_results_dir=Path(results_dir))
+        event_store = EventStore.get_shared(Path(results_dir))
         subscribe_with_refresh(
             event_store,
             ["run.ended"],

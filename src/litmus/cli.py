@@ -522,12 +522,8 @@ def validate(paths, file_type, as_json):
 def serve(host: str, port: int, reload: bool):
     """Start the operator UI server."""
     if reload:
-        # In reload mode we use uvicorn directly with our ASGI entry point.
-        # On each reload cycle uvicorn re-imports litmus.ui._asgi which
-        # re-registers pages and configures NiceGUI from scratch.
         import uvicorn
 
-        # Watch both litmus package AND current working directory
         litmus_pkg = Path(__file__).parent
         uvicorn.run(
             "litmus.ui._asgi:app",
@@ -544,14 +540,7 @@ def serve(host: str, port: int, reload: bool):
         from litmus.api.app import create_app
 
         create_app()
-
-        ui.run(
-            host=host,
-            port=port,
-            reload=False,
-            title="Litmus",
-            favicon="⚡",
-        )
+        ui.run(host=host, port=port, reload=False, title="Litmus", favicon="⚡")
 
 
 @main.command()

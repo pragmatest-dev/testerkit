@@ -674,6 +674,7 @@ class EventAccumulator:
             "slot_id": s.slot_id,
             "dut_serial": s.dut_serial,
             "dut_part_number": s.dut_part_number,
+            "dut_lot_number": s.dut_lot_number,
             "station_id": s.station_id,
             "station_name": s.station_name,
             "station_hostname": s.station_hostname,

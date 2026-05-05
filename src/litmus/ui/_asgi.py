@@ -138,14 +138,6 @@ def _install_global_exception_handler() -> None:
 _install_global_exception_handler()
 
 
-# Diagnostic thread-count logger — same one ``create_app`` starts
-# in the non-reload path. Both paths converge on the shared helper
-# in ``litmus.api.app`` so one source of truth.
-from litmus.api.app import _start_thread_count_logger  # noqa: E402
-
-_start_thread_count_logger()
-
-
 def _hold_serve_level_daemon_refs() -> None:
     """Eagerly spawn the data daemons and hold persistent refs.
 
@@ -229,5 +221,10 @@ def _hold_serve_level_daemon_refs() -> None:
             pass
 
 
-_hold_serve_level_daemon_refs()
+if __name__ != "__mp_main__":
+    # Only hold daemon refs in the supervisor process, not in every
+    # reload worker. Workers are spawned fresh on each code change;
+    # acquiring daemons in each worker would re-ingest all parquets
+    # on every reload cycle.
+    _hold_serve_level_daemon_refs()
 _log(f"[ASGI] +{(time.perf_counter() - _start) * 1000:.0f}ms - READY")

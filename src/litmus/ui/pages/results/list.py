@@ -1,10 +1,4 @@
-"""Results list page — wide scannable table with all run-level columns.
-
-Live: subscribes to ``run.started`` / ``run.ended`` events so the
-table refreshes in place when a run begins or finishes — no page
-reload, no flash. Operators see in-flight runs immediately because
-``get_recent_runs`` is called with ``include_incomplete=True``.
-"""
+"""Results list page — wide scannable table with all run-level columns."""
 
 import logging
 from typing import Any
@@ -23,19 +17,16 @@ from litmus.ui.shared.components import (
     subscribe_with_refresh,
 )
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import get_recent_runs
+from litmus.ui.shared.services import count_recent_runs, get_recent_runs
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_RPP = 50
+
 
 @ui.page("/results")
-def results_page():
-    """Results listing — every run-level column the detail page shows.
-
-    The detail page's Overview is just a deep-link drill-down into a
-    single row; everything that's there should be scannable from the
-    list. Click any row to see step-level breakdown.
-    """
+def results_page() -> None:
+    """Results listing — every run-level column the detail page shows."""
     create_layout("Test Results")
 
     with page_layout():
@@ -45,43 +36,31 @@ def results_page():
         empty_holder = ui.column().classes("w-full")
         table_holder = ui.column().classes("w-full flex-1 min-h-0 gap-0")
 
-        # ``state[table]`` is built lazily on the first tick that has
-        # rows so the heavy ``data_table`` setup only runs once.
-        # Subsequent refreshes mutate ``table.rows`` in place and
-        # call ``table.update()`` — same no-flash pattern as the
-        # /channels list.
         state: dict[str, Any] = {"table": None}
 
+        def _fetch_page(page: int, rpp: int) -> tuple[list[dict[str, Any]], int]:
+            per_page = rpp if rpp > 0 else _DEFAULT_RPP
+            offset = (page - 1) * per_page
+            rows = get_recent_runs(limit=per_page, offset=offset, include_incomplete=True)
+            total = count_recent_runs(include_incomplete=True)
+            return [_row_for_run(r) for r in rows], total
+
         def refresh() -> None:
-            # The page clears in two distinct ways and both have hit us:
-            #
-            # 1. Exception path — a transient Flight error from the
-            #    daemon respawning. We swallow the exception and keep
-            #    the current view; the next event tick re-fires.
-            #
-            # 2. Empty-result path — the daemon answered, but with zero
-            #    rows. This happens during cold-start ingest (fresh
-            #    schema, parquets being walked one at a time) when the
-            #    table is briefly empty. If we already have rows
-            #    rendered, dropping them mid-ingest is jarring and not
-            #    what the operator wants. So a live refresh that
-            #    returns ``[]`` is treated the same as the exception
-            #    path: keep the current view, wait for the next tick.
-            #
-            # The "real empty" state — first load with no runs at all —
-            # still renders correctly because ``state["table"]`` is
-            # ``None`` on first load and we render the empty card.
+            table = state["table"]
             try:
-                runs = get_recent_runs(limit=50, include_incomplete=True)
+                if table is not None:
+                    page = int(table.pagination.get("page", 1) or 1)
+                    rpp = int(table.pagination.get("rowsPerPage", _DEFAULT_RPP) or _DEFAULT_RPP)
+                else:
+                    page, rpp = 1, _DEFAULT_RPP
+                new_rows, total = _fetch_page(page, rpp)
             except (OSError, ValueError) as exc:
                 logger.warning("Failed to load results (keeping current view): %s", exc)
                 return
 
-            if not runs:
-                if state["table"] is None:
-                    # First load with no runs anywhere — render the
-                    # empty card. (No table to preserve.)
-                    _render_stats(stats_holder, runs)
+            if not new_rows:
+                if table is None:
+                    _render_stats(stats_holder, [], 0)
                     empty_holder.clear()
                     with empty_holder, ui.card().classes("w-full p-6 text-center"):
                         ui.label("No test results found.").classes("text-slate-500")
@@ -90,77 +69,54 @@ def results_page():
                             icon="play_arrow",
                             on_click=lambda: ui.navigate.to("/launch"),
                         ).classes("mt-4")
-                # Live refresh returning empty while a table exists →
-                # daemon is mid-ingest or just respawned. Keep the
-                # current view; the next event tick will re-fire.
                 return
 
-            _render_stats(stats_holder, runs)
-
+            _render_stats(stats_holder, new_rows, total)
             empty_holder.clear()
-            new_rows = [_row_for_run(r) for r in runs]
-            table = state["table"]
+
             if table is None:
                 with table_holder:
-                    state["table"] = _build_table(new_rows)
+                    state["table"] = _build_table(new_rows, total, _fetch_page)
                 return
-            old_by_id = {r["full_run_id"]: r for r in table.rows}
-            preserved: list[dict[str, Any]] = []
-            for new_row in new_rows:
-                existing = old_by_id.get(new_row["full_run_id"])
-                if existing is None:
-                    preserved.append(new_row)
-                else:
-                    existing.update(new_row)
-                    preserved.append(existing)
-            table.rows[:] = preserved
-            table.update()
+
+            table.pagination.update({"rowsNumber": total})
+            table.update_rows(new_rows)
 
         refresh()
 
-        # Subscribe to run lifecycle events so the table refreshes in
-        # place when a run starts or finishes. Debounce coalesces
-        # multi-slot bursts.
         from litmus.data.event_store import EventStore
         from litmus.data.results_dir import resolve_results_dir
 
         try:
-            event_store = EventStore(_results_dir=resolve_results_dir())
-            subscribe_with_refresh(
-                event_store,
-                ["run.started", "run.ended"],
-                refresh,
-            )
+            event_store = EventStore.get_shared(resolve_results_dir())
+            subscribe_with_refresh(event_store, ["run.started", "run.ended"], refresh)
         except (OSError, RuntimeError) as exc:
             logger.warning("Live updates unavailable: %s", exc)
 
 
-def _render_stats(slot: ui.column, runs: list) -> None:
-    """Replace ``slot`` content with the at-a-glance stat strip."""
+def _render_stats(slot: ui.column, runs: list, total: int) -> None:
     slot.clear()
-    if not runs:
+    if not total:
         return
-    total = len(runs)
-    passed = sum(1 for r in runs if r.outcome == "passed")
-    failed = sum(1 for r in runs if r.outcome == "failed")
-    errored = sum(1 for r in runs if r.outcome == "errored")
-    pass_rate = int(passed / total * 100) if total else 0
-    unique_duts = len({r.dut_serial for r in runs if r.dut_serial})
-    last_run = max((r.started_at for r in runs if r.started_at), default=None)
+    passed = sum(1 for r in runs if r.get("outcome") == "Passed")
+    failed = sum(1 for r in runs if r.get("outcome") == "Failed")
+    errored = sum(1 for r in runs if r.get("outcome") == "Errored")
+    page_n = len(runs)
+    pass_rate = int(passed / page_n * 100) if page_n else 0
+    last_started = next((r["started"] for r in runs if r.get("started")), None)
 
     with slot, ui.card().classes("w-full"), ui.card_section().classes("py-2"):
         with ui.row().classes("gap-10 items-center"):
-            stat_card(str(total), "Runs")
-            stat_card(f"{pass_rate}%", "Pass Rate", "text-blue-600")
+            stat_card(str(total), "Total Runs")
+            stat_card(f"{pass_rate}%", "Pass Rate (page)", "text-blue-600")
             stat_card(str(passed), "Passed", "text-emerald-600")
             stat_card(str(failed), "Failed", "text-red-600")
             stat_card(str(errored), "Errored", "text-amber-600")
-            stat_card(str(unique_duts), "DUTs")
-            stat_card(format_datetime(last_run) or "—", "Last Run")
+            if last_started:
+                stat_card(last_started, "Latest")
 
 
 def _row_for_run(r: Any) -> dict[str, Any]:
-    """Build the q-table row dict for a single ``RunSummary``."""
     status = display_status(
         started_at=r.started_at,
         ended_at=r.ended_at,
@@ -182,16 +138,11 @@ def _row_for_run(r: Any) -> dict[str, Any]:
     }
 
 
-def _build_table(rows: list[dict[str, Any]]) -> ui.table:
-    """Construct the runs table once. Later ticks mutate ``.rows``."""
-    # Column order follows the WATS / TestStand convention:
-    # Outcome (colored chip first — eye catches the bad ones),
-    # then UUT identity (Serial, Part Number), then where it ran
-    # (Hostname, Project, Phase), then when (Started), then
-    # volumetrics (Steps, Measurements), with Ended last.
-    # Run ID intentionally not shown — the 8-char prefix is noise
-    # for scanning. The full run id stays in each row's
-    # ``full_run_id`` for the row-click → /results/{id} drill-down.
+def _build_table(
+    rows: list[dict[str, Any]],
+    total: int,
+    fetch_page: Any,
+) -> ui.table:
     sortable = {"sortable": True}
     columns = [
         {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center", **sortable},
@@ -223,6 +174,8 @@ def _build_table(rows: list[dict[str, Any]]) -> ui.table:
         row_key="full_run_id",
         on_row_click=lambda r: ui.navigate.to(f"/results/{r['full_run_id']}"),
         time_columns=["started", "ended"],
+        total_rows=total,
+        fetch_page=fetch_page,
     )
     attach_status_chip(table, "outcome")
     return table

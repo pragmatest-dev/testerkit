@@ -126,14 +126,12 @@ def channels_page() -> None:
         # the legacy ``ui.timer(2.0, refresh)`` polling pattern;
         # the in-place row mutation + fingerprint skip stay
         # exactly as they were.
-        from pathlib import Path as _Path
-
         from litmus.data.event_store import EventStore
         from litmus.data.results_dir import resolve_results_dir
         from litmus.ui.shared.components import subscribe_with_refresh
 
         try:
-            event_store = EventStore(_results_dir=_Path(str(resolve_results_dir())))
+            event_store = EventStore.get_shared(resolve_results_dir())
             subscribe_with_refresh(
                 event_store,
                 ["instrument.read", "instrument.set"],

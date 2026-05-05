@@ -78,6 +78,7 @@ _INFLIGHT_RUNS_SCHEMA = pa.schema(
         ("slot_id", pa.string()),
         ("dut_serial", pa.string()),
         ("dut_part_number", pa.string()),
+        ("dut_lot_number", pa.string()),
         ("station_id", pa.string()),
         ("station_name", pa.string()),
         ("station_hostname", pa.string()),

@@ -38,8 +38,6 @@ _INSERT_SQL = (
     "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING"
 )
 
-_SCHEMA_VERSION = 1
-
 
 def _table_to_rows(table: pa.Table) -> list[tuple]:
     """Convert Arrow table to list of tuples for SQL param insert.
@@ -55,49 +53,42 @@ def _table_to_rows(table: pa.Table) -> list[tuple]:
 
 
 def _open_index(index_path: Path) -> duckdb.DuckDBPyConnection:
-    """Open or create the persistent DuckDB index; rebuild on schema mismatch.
+    """Open the persistent DuckDB index and idempotently align the schema.
 
-    Always calls ``_ensure_events_indexes`` after opening — idempotent
-    so it's a no-op when the indexes already exist. Old DuckDB files
-    that were created before the index helper existed pick up the
-    indexes here without forcing a full schema rebuild.
+    No version checks, no drop-and-recreate. ``_ensure_schema`` uses
+    ``CREATE TABLE IF NOT EXISTS`` and ``ALTER TABLE ADD COLUMN IF NOT
+    EXISTS`` so adding a new column to the code below auto-migrates
+    existing DBs on next spawn — no re-ingest, no version bump.
     """
     conn = duckdb.connect(str(index_path))
-    needs_rebuild = False
-    try:
-        row = conn.execute("SELECT v FROM _schema_version LIMIT 1").fetchone()
-        if row is None or row[0] < _SCHEMA_VERSION:
-            warnings.warn("Schema version mismatch — rebuilding event index", stacklevel=2)
-            needs_rebuild = True
-    except duckdb.Error:
-        needs_rebuild = True  # Fresh DB or corrupt — rebuild silently
-    if needs_rebuild:
-        _rebuild_schema(conn)
-    else:
-        _ensure_events_indexes(conn)
+    _ensure_schema(conn)
     return conn
 
 
-def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
-    """Drop all managed tables and recreate with current schema."""
-    conn.execute("DROP TABLE IF EXISTS events")
-    conn.execute("DROP TABLE IF EXISTS _ingested")
-    conn.execute("DROP TABLE IF EXISTS _schema_version")
-    conn.execute("CREATE TABLE _schema_version (v INTEGER PRIMARY KEY)")
-    conn.execute(f"INSERT INTO _schema_version VALUES ({_SCHEMA_VERSION})")
+def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    """Idempotently align the on-disk schema with the code.
+
+    Critical: ``ORDER BY received_at DESC LIMIT N`` (the latest-N
+    pattern the events page uses) is a full table scan + sort
+    without an index on ``received_at``. With ~millions of rows /
+    ~GB of data, that's ~10s per query — exactly the page-load
+    pain operators hit.
+    """
     conn.execute("""
-        CREATE TABLE events (
+        CREATE TABLE IF NOT EXISTS events (
             id VARCHAR PRIMARY KEY,
             event_type VARCHAR NOT NULL,
             occurred_at TIMESTAMPTZ NOT NULL,
             received_at TIMESTAMPTZ,
             session_id VARCHAR,
             run_id VARCHAR,
-            json VARCHAR,
+            json VARCHAR
         )
     """)
+    for col, sql_type in _EVENTS_COLUMNS:
+        conn.execute(f"ALTER TABLE events ADD COLUMN IF NOT EXISTS {col} {sql_type}")
     conn.execute("""
-        CREATE TABLE _ingested (
+        CREATE TABLE IF NOT EXISTS _ingested (
             path VARCHAR PRIMARY KEY,
             mtime DOUBLE NOT NULL,
             size BIGINT NOT NULL,
@@ -107,27 +98,28 @@ def _rebuild_schema(conn: duckdb.DuckDBPyConnection) -> None:
             last_attempt TIMESTAMPTZ NOT NULL DEFAULT now()
         )
     """)
-    _ensure_events_indexes(conn)
+    for index_sql in (
+        "CREATE INDEX IF NOT EXISTS idx_events_received_at ON events(received_at)",
+        "CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type)",
+        "CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id)",
+        "CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id)",
+    ):
+        conn.execute(index_sql)
 
 
-def _ensure_events_indexes(conn: duckdb.DuckDBPyConnection) -> None:
-    """Create the indexes the events table needs for UI queries.
-
-    Critical: ``ORDER BY received_at DESC LIMIT N`` (the latest-N
-    pattern the events page uses) is a full table scan + sort
-    without an index on ``received_at``. With ~millions of rows /
-    ~GB of data, that's ~10s per query — exactly the page-load
-    pain operators hit.
-
-    Idempotent (``IF NOT EXISTS``) so this runs both on fresh
-    schema rebuilds AND on every spawn against an existing
-    schema, picking up indexes for old DuckDB files that were
-    created before this helper existed.
-    """
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_received_at ON events(received_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id)")
+# Columns that should exist on ``events`` regardless of when the
+# on-disk DB was created. Drives ``ALTER TABLE ADD COLUMN IF NOT
+# EXISTS`` for upgrade migration; ``CREATE TABLE IF NOT EXISTS``
+# above covers the fresh case.
+_EVENTS_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("id", "VARCHAR"),
+    ("event_type", "VARCHAR"),
+    ("occurred_at", "TIMESTAMPTZ"),
+    ("received_at", "TIMESTAMPTZ"),
+    ("session_id", "VARCHAR"),
+    ("run_id", "VARCHAR"),
+    ("json", "VARCHAR"),
+)
 
 
 # ── Background ingest ────────────────────────────────────────────────
@@ -162,6 +154,9 @@ def _ingest_ipc_files(index_path: Path, events_dir: Path) -> None:
         )
         conn.register("_disk_snapshot", disk_table)
 
+        # Skip files already in ``_ingested`` at this exact (mtime,
+        # size) regardless of status — quarantined files stay
+        # quarantined unless re-written.
         needs_ingest = conn.execute("""
             SELECT d.path
             FROM _disk_snapshot d
@@ -169,7 +164,6 @@ def _ingest_ipc_files(index_path: Path, events_dir: Path) -> None:
                 ON d.path = i.path
                AND d.mtime = i.mtime
                AND d.size = i.size
-               AND i.status = 'ok'
             WHERE i.path IS NULL
         """).fetchall()
 
