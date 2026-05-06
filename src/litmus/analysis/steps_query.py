@@ -39,6 +39,11 @@ class StepRow(BaseModel):
     step_index: int | None = None
     step_name: str | None = None
     step_path: str | None = None
+    parent_path: str | None = None
+    # vector_index: 0 for non-swept steps; 0..N-1 for sweep variants of the
+    # same logical step. The composite (run_id, step_path, vector_index) is
+    # the per-vector identity within a run.
+    vector_index: int | None = None
     outcome: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None

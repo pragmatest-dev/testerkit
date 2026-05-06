@@ -299,23 +299,36 @@ async def result_detail_page(run_id: str, tab: str = ""):
 
 
 def _build_step_rows(steps: list, *, parent_ended_at: Any = None) -> list[dict]:
-    return [
-        {
-            "step_index": s.step_index,
-            "step_name": s.step_name or "",
-            "step_path": s.step_path or "",
-            **status_row_fields(
-                started_at=s.started_at,
-                ended_at=s.ended_at,
-                outcome=s.outcome,
-                parent_ended_at=parent_ended_at,
-                column="outcome",
-            ),
-            "duration_s": f"{s.duration_s:.3f}" if s.duration_s is not None else "—",
-            "measurement_count": s.measurement_count if s.measurement_count is not None else 0,
-        }
-        for s in steps
-    ]
+    rows: list[dict] = []
+    for ordinal, s in enumerate(steps):
+        # Display step identity: prefer step_path (sequence-qualified, e.g.
+        # ``TestPowerSequence/test_efficiency``); fall back to step_name for
+        # rows where the path isn't populated.
+        display = s.step_path or s.step_name or ""
+        rows.append(
+            {
+                # Stable per-row key (fix for class-level sweeps where multiple
+                # rows share the same step_index): combine step_path with
+                # vector_index so duplicates don't collapse.
+                "row_key": f"{display}#{s.vector_index or 0}#{ordinal}",
+                # # column shows the row's ordinal in this view; step_index is
+                # sequence-relative position (same for all sweep variants of a
+                # function), shown as the dedicated column.
+                "step_index": s.step_index if s.step_index is not None else ordinal,
+                "step_name": display,
+                "vector_index": s.vector_index if s.vector_index is not None else 0,
+                **status_row_fields(
+                    started_at=s.started_at,
+                    ended_at=s.ended_at,
+                    outcome=s.outcome,
+                    parent_ended_at=parent_ended_at,
+                    column="outcome",
+                ),
+                "duration_s": f"{s.duration_s:.3f}" if s.duration_s is not None else "—",
+                "measurement_count": s.measurement_count if s.measurement_count is not None else 0,
+            }
+        )
+    return rows
 
 
 def _build_meas_rows(measurements: list) -> list[dict]:
@@ -349,9 +362,21 @@ def _format_measurement_value(m: dict) -> str:
 
 
 _STEP_COLUMNS = [
+    # # = sequence position within the parent (TestPowerSequence/test_efficiency
+    # is index 1 within TestPowerSequence regardless of how many sweep variants
+    # ran before it).
     {"name": "step_index", "label": "#", "field": "step_index", "align": "right"},
+    # Step = sequence-qualified path (TestPowerSequence/test_efficiency).
     {"name": "step_name", "label": "Step", "field": "step_name", "align": "left"},
-    {"name": "step_path", "label": "Path", "field": "step_path", "align": "left"},
+    # Vector = which sweep condition. 0 for non-swept; ranges over 0..N-1 when
+    # a step has N sweep variants (the variants share step_index, distinguished
+    # by vector_index).
+    {
+        "name": "vector_index",
+        "label": "Vector",
+        "field": "vector_index",
+        "align": "right",
+    },
     {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
     {"name": "duration_s", "label": "Duration (s)", "field": "duration_s", "align": "right"},
     {
@@ -380,7 +405,9 @@ def _create_steps_table(steps: list, *, parent_ended_at: Any = None) -> ui.table
             ui.label(
                 "Steps in execution order — including skipped, planned, and setup-only steps."
             ).classes("text-sm text-slate-500")
-        table = data_table(columns=_STEP_COLUMNS, rows=rows, row_key="step_index")
+        # row_key = step_path + vector_index + ordinal so sweep variants
+        # sharing the same step_index don't collapse to one row.
+        table = data_table(columns=_STEP_COLUMNS, rows=rows, row_key="row_key")
     table.add_slot(
         "no-data",
         '<div class="text-slate-500 italic p-4 text-sm">No steps recorded yet.</div>',
