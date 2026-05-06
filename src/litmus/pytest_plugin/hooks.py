@@ -401,7 +401,7 @@ def _resolved_fixture_slot_ids(config) -> list[str]:
 def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
     """Apply active-profile markers/filters, then capture the item list.
 
-    Two passes:
+    Three passes:
 
     1. **Profile application** (only when ``--test-profile`` is set):
        inject markers for matching node-ids via ``item.add_marker`` and
@@ -409,21 +409,157 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
        ``-k`` / ``-m`` already present (AND-composed — CLI wins on
        conflict since its expression is appended last).
 
-    2. **Snapshot** every collected item into ``_collected_items`` so the
-       step manifest can report not-started steps.
+    2. **Class-level-sweep reordering**: pytest's natural collection order
+       for a class-level ``litmus_sweeps`` marker is method-first (all
+       conditions of warmup, then all of efficiency...). The intended
+       hardware-test order is condition-first (full sequence per condition).
+       Reorder so the class sequence runs once per condition.
+
+    3. **Snapshot** every collected item into ``_collected_items`` with
+       sequence-relative ``step_index``, ``vector_index``, and
+       ``vector_count_planned`` so the step manifest can report not-started
+       steps and detect unrun sweep variants after execution.
 
     The snapshot captures markers **after** profile injection, so the
     manifest reflects the effective marker set.
     """
     _apply_cascade_to_items(items)
     _translate_retry_markers(items)
+    _reorder_class_sweep_items(items)
 
-    collected = []
+    collected = _build_collected_items(items)
+    set_collected_items(collected)
+
+    _warn_unmatched_profile_keys(items)
+    _warn_method_mocks_in_non_dev_phase(items, config)
+
+
+def _has_class_level_sweep(item: pytest.Item) -> bool:
+    """True iff the item's ``litmus_sweeps`` marker comes from its class.
+
+    Class-level sweeps reorder so the full class sequence runs once per
+    condition; method-level sweeps stay in pytest's natural method-first
+    order. Distinction: marker reached via ``iter_markers`` (walks up the
+    node tree) but NOT in ``own_markers`` (function-level only) → the
+    marker lives on the class.
+    """
+    if getattr(item, "cls", None) is None:
+        return False
+    own = [m for m in getattr(item, "own_markers", []) if m.name == "litmus_sweeps"]
+    if own:
+        return False
+    return any(True for _ in item.iter_markers("litmus_sweeps"))
+
+
+def _reorder_class_sweep_items(items: list[pytest.Item]) -> None:
+    """Reorder class-level-sweep items so the full sequence runs per condition.
+
+    pytest's default for a class-level parametrize / ``litmus_sweeps`` marker:
+    ``warmup[0], warmup[1], efficiency[0], efficiency[1]`` (method-first).
+    Hardware-test intent: ``warmup[0], efficiency[0], warmup[1], efficiency[1]``
+    (condition-first).
+
+    Walks the items list looking for runs of class-level-sweep items sharing
+    the same class object. Within each run, re-sorts by
+    ``(callspec.indices, method_definition_order)``. Items outside such runs
+    (root-level, method-level sweeps, no-sweep) are untouched.
+    """
+    i = 0
+    while i < len(items):
+        if not _has_class_level_sweep(items[i]):
+            i += 1
+            continue
+        # Collect a contiguous run from the same class.
+        cls = items[i].cls  # type: ignore[attr-defined]
+        j = i
+        while (
+            j < len(items)
+            and getattr(items[j], "cls", None) is cls
+            and _has_class_level_sweep(items[j])
+        ):
+            j += 1
+        group = items[i:j]
+        # Method definition order = first appearance of each originalname in
+        # the group (pytest collects methods in definition order, then expands
+        # parametrize per method).
+        method_order: dict[str, int] = {}
+        for item in group:
+            name = getattr(item, "originalname", item.name)
+            if name not in method_order:
+                method_order[name] = len(method_order)
+
+        def _sort_key(item: pytest.Item) -> tuple:
+            callspec = getattr(item, "callspec", None)
+            indices = tuple((callspec.indices or {}).items()) if callspec is not None else ()
+            return (
+                tuple(sorted(indices)),
+                method_order.get(getattr(item, "originalname", item.name), 0),
+            )
+
+        items[i:j] = sorted(group, key=_sort_key)
+        i = j
+
+
+def _build_collected_items(items: list[pytest.Item]) -> list[CollectedItem]:
+    """Build the manifest with sequence-relative indices and planned counts.
+
+    For each unique ``(module, class, function)`` group in the (already
+    reordered) item list:
+
+    * assign one ``step_index`` shared across all variants — position within
+      the parent sequence (root-level methods count among themselves; class
+      methods count within their class);
+    * assign per-variant ``vector_index`` 0..N-1 in collection order;
+    * record ``vector_count_planned = N`` so consumers can detect unrun
+      vectors.
+    """
+    # Group counts by (module, class_name, function) — used for planned counts.
+    from collections import defaultdict
+
+    group_count: dict[tuple[str, str, str], int] = defaultdict(int)
+    for item in items:
+        func = getattr(item, "function", None)
+        cls = getattr(item, "cls", None)
+        mod = getattr(item, "module", None)
+        key = (
+            mod.__name__ if mod else "",
+            cls.__name__ if cls else "",
+            func.__name__ if func is not None else item.name,
+        )
+        group_count[key] += 1
+
+    # Sequence-relative step_index: counter resets per parent (root vs class).
+    # The "parent" key is the class object (None for root). Within each parent,
+    # count unique functions in the order they first appear.
+    parent_step_index: dict[Any, dict[tuple[str, str, str], int]] = defaultdict(dict)
+    seen_in_group: dict[tuple[str, str, str], int] = {}
+
+    collected: list[CollectedItem] = []
     for item in items:
         parts = item.nodeid.rsplit("::", 1)
         func_name = parts[-1] if len(parts) > 1 else item.name
-        mod = getattr(item, "module", None)
+        func = getattr(item, "function", None)
         cls = getattr(item, "cls", None)
+        mod = getattr(item, "module", None)
+        original = getattr(item, "originalname", func_name)
+        key = (
+            mod.__name__ if mod else "",
+            cls.__name__ if cls else "",
+            func.__name__ if func is not None else original,
+        )
+
+        # step_index — first time we see this function within its parent,
+        # allocate the next sequence position; subsequent variants reuse it.
+        parent_key = id(cls) if cls is not None else None
+        parent_funcs: dict[tuple[str, str, str], int] = parent_step_index[parent_key]
+        if key not in parent_funcs:
+            parent_funcs[key] = len(parent_funcs)
+        step_idx = parent_funcs[key]
+
+        # vector_index — per-group running counter (collection order).
+        vec_idx = seen_in_group.get(key, 0)
+        seen_in_group[key] = vec_idx + 1
+
         collected.append(
             CollectedItem(
                 node_id=item.nodeid,
@@ -432,12 +568,12 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
                 class_name=cls.__name__ if cls else None,
                 function=func_name,
                 markers=join_marker_names(item.iter_markers(), sort=True),
+                step_index=step_idx,
+                vector_index=vec_idx,
+                vector_count_planned=group_count[key],
             )
         )
-    set_collected_items(collected)
-
-    _warn_unmatched_profile_keys(items)
-    _warn_method_mocks_in_non_dev_phase(items, config)
+    return collected
 
 
 def _translate_retry_markers(items: list[pytest.Item]) -> None:
@@ -568,8 +704,14 @@ def _apply_cascade_to_items(items: list[pytest.Item]) -> None:
         apply_entry_markers(item, _cascade_for_item(item))
 
 
-def pytest_sessionfinish(session, exitstatus):
+def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
     """Clean up all session-scoped ContextVars and module-level state."""
+    # Close any open class container before the logger is torn down so the
+    # final container's StepEnded reaches the event log.
+    logger_inst = get_current_logger()
+    if logger_inst is not None:
+        _close_open_class_container(logger_inst)
+
     set_active_instruments({})
     set_instrument_records({})
     set_test_node_aliases({})
@@ -812,6 +954,81 @@ def pytest_runtest_setup(item):
             inst.reset_mock_state()
 
 
+# Track the currently-open class container so we know when to close one and
+# open another. Module-level dict keyed by id(logger_inst) keeps it isolated
+# per logger session even when pytest-xdist runs slots in parallel processes.
+_open_class_container: dict[int, Any] = {}
+
+
+def _step_vector_for_item(
+    item: pytest.Item,
+) -> tuple[int | None, int | None, dict[str, Any]]:
+    """Look up pre-assigned ``(step_index, vector_index, inputs)`` for an item.
+
+    Returns ``(None, None, {})`` if the manifest doesn't know about the item
+    (legacy paths, custom items collected outside ``pytest_collection_modifyitems``).
+    The logger coerces the inputs dict to JSON-safe values when storing on the
+    vector and emitting the events.
+    """
+    from litmus.execution._state import get_collected_items
+
+    try:
+        items = get_collected_items()
+    except LookupError:
+        return None, None, {}
+    for ci in items:
+        if ci.node_id == item.nodeid:
+            inputs: dict[str, Any] = {}
+            callspec = getattr(item, "callspec", None)
+            if callspec is not None and callspec.params:
+                inputs = dict(callspec.params)
+            return ci.step_index, ci.vector_index, inputs
+    return None, None, {}
+
+
+def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
+    """Open a class container step on transition; close the previous one.
+
+    A pytest class IS a hardware-test sequence — a named, ordered group of
+    steps. Logging it as a step gives ``step_path`` the hierarchical form
+    ``TestPowerSequence/test_efficiency`` automatically (children push onto
+    ``_step_stack``).
+
+    Detects the boundary by comparing ``item.cls`` against the currently-open
+    container. When entering a new class, close any prior container and open
+    a new one. When leaving a class (next item is classless), just close.
+    Called before ``logger.start_step`` for the test method itself.
+    """
+    cls = getattr(item, "cls", None)
+    open_cls = _open_class_container.get(id(logger_inst))
+    if open_cls is cls:
+        return  # still inside the same class (or both root-level)
+    if open_cls is not None:
+        # Close the previous container — pop it off the step stack.
+        logger_inst.end_step()
+        _open_class_container.pop(id(logger_inst), None)
+    if cls is not None:
+        # Open a new container step for this class. The container has no
+        # sweep parameters — pass explicit empty inputs so the active-vector
+        # snapshot from the previous (parametrized) test doesn't leak in.
+        logger_inst.start_step(
+            cls.__name__,
+            class_name=cls.__name__,
+            module=getattr(cls, "__module__", None),
+            inputs={},
+        )
+        _open_class_container[id(logger_inst)] = cls
+
+
+def _close_open_class_container(logger_inst: Any) -> None:
+    """Force-close any still-open class container at session end."""
+    if id(logger_inst) in _open_class_container:
+        try:
+            logger_inst.end_step()
+        finally:
+            _open_class_container.pop(id(logger_inst), None)
+
+
 @pytest.hookimpl(hookwrapper=True, trylast=True)
 def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     """Open a step for every pytest-native test; reset dedup sets after.
@@ -842,12 +1059,21 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     if logger_inst is not None:
         cls = getattr(item, "cls", None)
         func_name = func.__name__ if func is not None else item.name
+        # Look up pre-assigned (step_index, vector_index, inputs) from the
+        # collection-time manifest so all sweep variants of the same logical
+        # step share one step_index, distinguished by vector_index.
+        step_idx, vec_idx, inputs = _step_vector_for_item(item)
+        # Open the class container if we just transitioned to a new class.
+        _ensure_class_container(logger_inst, item)
         logger_inst.start_step(
             func_name,
             function=func_name,
             module=getattr(func, "__module__", None) if func is not None else None,
             class_name=cls.__name__ if cls is not None else None,
             node_id=item.nodeid,
+            step_index=step_idx,
+            vector_index=vec_idx,
+            inputs=inputs,
         )
         try:
             outcome_obj = yield

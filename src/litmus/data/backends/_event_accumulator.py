@@ -80,7 +80,7 @@ class EventAccumulator:
         self._step_starts: dict[int, Any] = {}  # step_index → StepStarted
         self._step_ends: dict[int, Any] = {}  # step_index → StepEnded
         self._run_ended: Any = None  # RunEnded event (None for in-flight)
-        self._collected_items: list[dict[str, str | None]] = []
+        self._collected_items: list[dict[str, str | int | None]] = []
         # node_id → markers, populated when StepsDiscovered arrives so
         # ``_build_row`` can stamp step_markers on every measurement row
         # without rebuilding the lookup per measurement.
@@ -97,8 +97,9 @@ class EventAccumulator:
             markers: dict[str, str | None] = {}
             for ci in event.items:
                 nid = ci.get("node_id")
-                if nid:
-                    markers[nid] = ci.get("markers")
+                if isinstance(nid, str) and nid:
+                    m = ci.get("markers")
+                    markers[nid] = m if isinstance(m, str) or m is None else str(m)
             self._markers_by_node = markers
         elif isinstance(event, StepStarted):
             self._step_starts[event.step_index] = event

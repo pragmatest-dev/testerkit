@@ -17,6 +17,7 @@ from litmus.ui.shared.components import (
     format_datetime,
     info_field,
     page_layout,
+    push_url_state,
     render_skeleton,
     status_chip_classes,
     status_row_fields,
@@ -39,7 +40,7 @@ _LIVE_EVENT_TYPES = [
 
 
 @ui.page("/results/{run_id}")
-async def result_detail_page(run_id: str):
+async def result_detail_page(run_id: str, tab: str = ""):
     """Single result detail page.
 
     Skeleton-first: chrome appears immediately while data loads off the
@@ -176,9 +177,19 @@ async def result_detail_page(run_id: str):
         timeline_container: Any = None
         history_container: Any = None
 
+        # Initial tab from URL ?tab= param.
+        _tab_lookup: dict[str, Any] = {
+            "Steps": steps_tab,
+            "Measurements": measurements_tab,
+            "DUT History": history_tab,
+        }
+        if timeline_tab is not None:
+            _tab_lookup["Execution Timeline"] = timeline_tab
+        initial_tab = _tab_lookup.get(tab, overview_tab)
+
         # tab_panels / steps_tab / measurements_tab are now in scope for the
         # render_overview closure (late-binding).
-        with ui.tab_panels(tabs, value=overview_tab).classes("w-full flex-1 min-h-0") as tab_panels:
+        with ui.tab_panels(tabs, value=initial_tab).classes("w-full flex-1 min-h-0") as tab_panels:
             with ui.tab_panel(overview_tab):
                 render_overview()
 
@@ -222,6 +233,11 @@ async def result_detail_page(run_id: str):
 
         async def _on_tab_change(_: Any) -> None:
             active = str(tabs.value or "")
+            # Mirror tab into URL so bookmarks / back-nav land on the same view.
+            push_url_state(
+                f"/results/{run_id}",
+                {"tab": active if active != "Overview" else ""},
+            )
             if active == "Execution Timeline":
                 await _load_timeline()
             elif active == "DUT History":

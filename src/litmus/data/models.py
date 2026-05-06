@@ -318,7 +318,18 @@ class TestStep(BaseModel):
 
 
 class CollectedItem(BaseModel):
-    """A pytest item collected for execution (before any run)."""
+    """A pytest item collected for execution (before any run).
+
+    ``step_index`` and ``vector_index`` are computed at collection time,
+    pre-reorder for class-level sweeps:
+
+    * ``step_index`` = position within the parent sequence (root for classless
+      methods, or within the test class). All sweep variants of the same
+      function share one ``step_index``.
+    * ``vector_index`` = 0-based position within the sweep expansion.
+    * ``vector_count_planned`` = number of items collected for this logical
+      step. Lets the manifest detect unrun vectors after the run.
+    """
 
     node_id: str
     file: str | None = None
@@ -326,6 +337,9 @@ class CollectedItem(BaseModel):
     class_name: str | None = None
     function: str | None = None
     markers: str | None = None
+    step_index: int = 0
+    vector_index: int = 0
+    vector_count_planned: int = 1
 
 
 class DUT(BaseModel):
