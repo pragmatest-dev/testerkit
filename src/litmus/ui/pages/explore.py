@@ -361,11 +361,19 @@ async def explore_page(request: Request):
         await _refresh_all()
 
     async def _on_since_change(e: Any) -> None:
-        state["filter_set"].since = _parse_iso_date(e.value)
+        result = _parse_iso_date(e.value)
+        if e.value and result is None:
+            ui.notify("Invalid date format — use YYYY-MM-DD", type="warning")
+            return
+        state["filter_set"].since = result
         await _refresh_all()
 
     async def _on_until_change(e: Any) -> None:
-        state["filter_set"].until = _parse_iso_date(e.value)
+        result = _parse_iso_date(e.value)
+        if e.value and result is None:
+            ui.notify("Invalid date format — use YYYY-MM-DD", type="warning")
+            return
+        state["filter_set"].until = result
         await _refresh_all()
 
     # ── Layout ──────────────────────────────────────────────────────

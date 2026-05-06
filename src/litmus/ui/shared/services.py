@@ -305,7 +305,7 @@ def create_station(
     return store_create_station(station_id, name, location, description)
 
 
-def save_station(station_id: str, station_data: dict, instruments_data: dict) -> None:
+def save_station(_station_id: str, station_data: dict, instruments_data: dict) -> None:
     """Save station configuration to YAML file."""
     normalize_and_check_instrument_types(instruments_data)
     station_dict = {**station_data, "instruments": instruments_data}
@@ -341,7 +341,7 @@ def discover_instrument_types():
     entries = []
     seen_types: set[str] = set()
     for cat_dir in find_catalog_dirs():
-        for entry_id, entry in load_catalog_from_directory(cat_dir).items():
+        for _, entry in load_catalog_from_directory(cat_dir).items():
             if entry.type in seen_types:
                 continue
             seen_types.add(entry.type)
@@ -398,7 +398,6 @@ def create_catalog_entry(
     instrument_type: str,
     name: str,
     description: str = "",
-    icon: str = "device_unknown",
 ):
     """Create a new catalog entry in catalog/."""
     return store_create_catalog_entry(instrument_type, name, description)
@@ -453,7 +452,7 @@ def create_fixture(
     return store_create_fixture(fixture_id, name, product_id, product_revision, description)
 
 
-def save_fixture(fixture_id: str, fixture_data: dict, connections_data: dict) -> None:
+def save_fixture(_fixture_id: str, fixture_data: dict, connections_data: dict) -> None:
     """Save fixture configuration to YAML file."""
     fixture_dict = {**fixture_data, "connections": connections_data}
     fixture = FixtureConfig.model_validate(fixture_dict)
@@ -769,33 +768,29 @@ def usage_stats_by(field: str) -> dict[str, dict[str, Any]]:
     ``{value: {runs, passed, failed, last_run}}`` keyed by the
     grouped field's value (e.g. ``station_id``).
 
-    Skips runs where the grouped field is null.
+    Skips runs where the grouped field is null. Aggregation is pushed
+    into SQL so the daemon returns one row per distinct value — safe
+    regardless of total run count.
     """
-    from collections import defaultdict
-
     from litmus.analysis.runs_query import RunsQuery
 
-    with RunsQuery() as q:
-        rows = q.list_recent(limit=10000)
+    try:
+        with RunsQuery() as q:
+            rows = q.usage_stats(field)
+    except ValueError:
+        return {}
 
-    stats: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"runs": 0, "passed": 0, "failed": 0, "errored": 0, "last_run": None}
-    )
-    for r in rows:
-        key = getattr(r, field, None)
-        if not key:
-            continue
-        s = stats[key]
-        s["runs"] += 1
-        if r.outcome == "passed":
-            s["passed"] += 1
-        elif r.outcome == "failed":
-            s["failed"] += 1
-        elif r.outcome == "errored":
-            s["errored"] += 1
-        if r.started_at and (s["last_run"] is None or r.started_at > s["last_run"]):
-            s["last_run"] = r.started_at
-    return dict(stats)
+    return {
+        r["value"]: {
+            "runs": r.get("runs", 0),
+            "passed": r.get("pass_count", 0),
+            "failed": r.get("fail_count", 0),
+            "errored": r.get("errored_count", 0),
+            "last_run": r.get("last_run"),
+        }
+        for r in rows
+        if r.get("value")
+    }
 
 
 def aggregate_run_stats(steps: list, measurements: list[dict]) -> dict[str, Any]:

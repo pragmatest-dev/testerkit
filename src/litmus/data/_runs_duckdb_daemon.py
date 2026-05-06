@@ -689,6 +689,11 @@ _MEAS_SKIP_COLS: frozenset[str] = frozenset(
 )
 
 
+def _meas_fixed_select(available: set[str]) -> str:
+    """Build the fixed-column SELECT fragment for measurement inserts."""
+    return ", ".join(c if c in available else f"NULL AS {c}" for c in sorted(_MEAS_FIXED_COLS))
+
+
 def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[str]) -> None:
     """Bulk INSERT per-(file, step, measurement_name) aggregates into ``measurement_stats``.
 
@@ -768,9 +773,7 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
 
     # Build SELECT list for fixed columns — NULL-coalesce any absent in
     # this (possibly older) parquet so INSERT BY NAME always has every col.
-    fixed_select = ", ".join(
-        c if c in available else f"NULL AS {c}" for c in sorted(_MEAS_FIXED_COLS)
-    )
+    fixed_select = _meas_fixed_select(available)
 
     if dynamic_present:
         keys_sql = ", ".join(f"'{_sql_escape(c)}'" for c in dynamic_present)
@@ -1123,6 +1126,7 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | Non
             warnings.warn(f"io/refs indexing partial for {fkey}: {io_error}", stacklevel=2)
         return None
     except duckdb.IOException as exc:
+        # File gone during ingest (will retry next run) — transient, not a quarantine.
         logger.debug("File gone during ingest (will retry next run): %s — %s", fkey, exc)
         return f"file unavailable: {exc}"
     except Exception as exc:  # noqa: BLE001 — per-file ingest tolerance: warn + skip
@@ -1133,7 +1137,7 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | Non
 # ── Read-side views over parquet ────────────────────────────────────
 
 
-def _create_views(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:  # noqa: ARG001
+def _create_views(conn: duckdb.DuckDBPyConnection, _runs_dir: Path) -> None:
     """Create or replace the runtime views over the index tables.
 
     All three data views follow the same UNION pattern: persistent rows
@@ -1259,9 +1263,7 @@ def _batch_insert_measurement_rows(
 
     # NULL-coalesce fixed columns absent from every file in the batch so
     # INSERT BY NAME always has every fixed column.
-    fixed_select = ", ".join(
-        c if c in available else f"NULL AS {c}" for c in sorted(_MEAS_FIXED_COLS)
-    )
+    fixed_select = _meas_fixed_select(available)
 
     if dynamic_cols:
         keys_sql = ", ".join(f"'{_sql_escape(c)}'" for c in dynamic_cols)
@@ -1334,7 +1336,7 @@ def daemon_run(runs_dir: Path) -> None:
                     logger.debug("measurement row insert failed for %s: %s", fpath, exc)
         _create_views(conn, runs_dir)
 
-    server, port_file, _location = start_flight_server_in_daemon(
+    server, port_file, *_ = start_flight_server_in_daemon(
         mgr=mgr,
         daemon_dir=runs_dir,
         db_name="runs",

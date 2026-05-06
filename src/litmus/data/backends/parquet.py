@@ -98,6 +98,10 @@ _STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_dut_pin", "_fixt
 # Fields in MeasurementRow that are expanded via to_flat_dict(), not stored directly.
 _DENORMALIZATION_FIELDS = frozenset({"inputs", "outputs", "instruments", "custom"})
 
+# Outcome priority for deterministic worst-case selection from a set.
+# Lower rank = worse outcome. Ties (same rank) pick the same "worst" value.
+OUTCOME_RANK: dict[str, int] = {"failed": 0, "errored": 1, "skipped": 2, "passed": 3}
+
 
 def _is_param_column(col: str) -> bool:
     """True if col is an in_* param value, not signal-path metadata."""
@@ -1138,7 +1142,9 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                     vk,
                     sorted(o for o in vec_outcomes if o is not None),
                 )
-            vec_outcome_str = next(iter(vec_outcomes), None)
+            vec_outcome_str = min(
+                vec_outcomes, key=lambda o: OUTCOME_RANK.get(str(o), 99), default=None
+            )
             vectors.append(
                 TestVector(
                     index=vk[0] or 0,

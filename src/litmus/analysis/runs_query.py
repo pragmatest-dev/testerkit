@@ -102,7 +102,7 @@ class RunsQuery:
     def __enter__(self) -> RunsQuery:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, *_: object) -> None:
         self.close()
 
     def list_recent(
@@ -359,6 +359,49 @@ class RunsQuery:
             GROUP BY outcome
         """)
         return {(r["outcome"] or "unknown"): r["n"] for r in rows}
+
+    def usage_stats(self, by: str) -> list[dict[str, Any]]:
+        """Aggregate run stats grouped by a column, entirely in SQL.
+
+        Returns ``[{value, runs, pass_count, fail_count, errored_count,
+        last_run}, ...]`` sorted by ``runs`` descending. ``by`` must be
+        a column present in the ``runs`` table; an invalid name raises
+        ``ValueError`` before any SQL is sent.
+
+        Using SQL aggregation instead of Python-side grouping means the
+        daemon returns one row per distinct value rather than up to
+        ``limit`` full run rows — safe regardless of total run count.
+        """
+        _VALID_BY_COLUMNS = frozenset(
+            {
+                "dut_part_number",
+                "station_hostname",
+                "station_id",
+                "fixture_id",
+                "test_phase",
+                "operator_id",
+                "project_name",
+            }
+        )
+        if by not in _VALID_BY_COLUMNS:
+            raise ValueError(
+                f"usage_stats: invalid group-by column {by!r}. "
+                f"Must be one of {sorted(_VALID_BY_COLUMNS)}."
+            )
+        sql = f"""
+            SELECT
+                {by} AS value,
+                COUNT(*) AS runs,
+                COUNT(*) FILTER (WHERE outcome = 'passed') AS pass_count,
+                COUNT(*) FILTER (WHERE outcome = 'failed') AS fail_count,
+                COUNT(*) FILTER (WHERE outcome = 'errored') AS errored_count,
+                MAX(started_at) AS last_run
+            FROM runs
+            WHERE {by} IS NOT NULL
+            GROUP BY {by}
+            ORDER BY runs DESC
+        """
+        return self._query_dicts(sql)
 
     def describe_columns(self) -> list[dict[str, str]]:
         """Return the ``runs`` table's columns: ``[{name, type}, ...]``."""

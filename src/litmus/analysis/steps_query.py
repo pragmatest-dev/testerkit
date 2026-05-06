@@ -99,7 +99,7 @@ class StepsQuery:
     def __enter__(self) -> StepsQuery:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, *_: object) -> None:
         self.close()
 
     def list_for_run(

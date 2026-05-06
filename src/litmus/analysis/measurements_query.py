@@ -76,12 +76,7 @@ def _filter_clauses(filters: FilterSet | None) -> list[str]:
     if filters is None:
         return []
     clauses: list[str] = []
-    for col, values in filters.string_filters.items():
-        if not values:
-            continue
-        escaped = ", ".join(f"'{sql_escape(v)}'" for v in values)
-        clauses.append(f"{_safe_ident(col)} IN ({escaped})")
-    for col, values in filters.enum_filters.items():
+    for col, values in {**filters.string_filters, **filters.enum_filters}.items():
         if not values:
             continue
         escaped = ", ".join(f"'{sql_escape(v)}'" for v in values)
@@ -503,7 +498,7 @@ class MeasurementsQuery:
     def __enter__(self) -> MeasurementsQuery:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, *_: object) -> None:
         self.close()
 
     def yield_summary(

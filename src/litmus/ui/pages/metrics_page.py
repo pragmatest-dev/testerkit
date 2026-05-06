@@ -35,7 +35,7 @@ class MetricsDashboardData(TypedDict):
     pareto_data: list[dict]
     cpk_data: list[dict]
     trend_data: list[dict]
-    time_stats: dict
+    time_stats: dict[str, Any]
 
 
 @ui.page("/metrics")
@@ -274,6 +274,8 @@ async def metrics_page(
         pairs = await run.io_bound(_compute_instrument_utilization, results_dir, since_, until_)
         _render_assets_body(assets_container, pairs)
 
+    _TAB_LOADERS: dict[str, Any] = {}
+
     async def _load_active_tab() -> None:
         if any(
             f is None
@@ -297,18 +299,22 @@ async def metrics_page(
         if active in loaded_tabs:
             return
         loaded_tabs.add(active)
-        if active == "Yield":
-            await _load_yield()
-        elif active == "Pareto":
-            await _load_pareto()
-        elif active == "Cpk":
-            await _load_cpk()
-        elif active == "Retest":
-            await _load_retest()
-        elif active == "Time loss":
-            await _load_time_loss()
-        elif active == "Assets":
-            await _load_assets()
+        loader = _TAB_LOADERS.get(active)
+        if loader:
+            await loader()
+
+    # Populated after all loaders are defined so the dict captures the
+    # correct closure references. Tab name strings match ui.tab(name) calls.
+    _TAB_LOADERS.update(
+        {
+            "Yield": _load_yield,
+            "Pareto": _load_pareto,
+            "Cpk": _load_cpk,
+            "Retest": _load_retest,
+            "Time loss": _load_time_loss,
+            "Assets": _load_assets,
+        }
+    )
 
     async def _do_refresh() -> None:
         update_url()
@@ -994,10 +1000,14 @@ def _render_time_stats(container: Any, time_stats: dict[str, Any]) -> None:
         with ui.card().classes("w-full"):
             ui.label("Test Time Statistics").classes("text-lg font-semibold mb-4")
             with ui.row().classes("gap-6 flex-wrap"):
-                _time_stat_card("Average", f"{(time_stats.get('avg_s') or 0):.1f}s")
-                _time_stat_card("Minimum", f"{(time_stats.get('min_s') or 0):.1f}s")
-                _time_stat_card("Maximum", f"{(time_stats.get('max_s') or 0):.1f}s")
-                _time_stat_card("P95", f"{(time_stats.get('p95_s') or 0):.1f}s")
+                avg_s = time_stats.get("avg_s")
+                min_s = time_stats.get("min_s")
+                max_s = time_stats.get("max_s")
+                p95_s = time_stats.get("p95_s")
+                _time_stat_card("Average", f"{avg_s:.1f}s" if avg_s is not None else "N/A")
+                _time_stat_card("Minimum", f"{min_s:.1f}s" if min_s is not None else "N/A")
+                _time_stat_card("Maximum", f"{max_s:.1f}s" if max_s is not None else "N/A")
+                _time_stat_card("P95", f"{p95_s:.1f}s" if p95_s is not None else "N/A")
 
 
 def _time_stat_card(label: str, value: str) -> None:

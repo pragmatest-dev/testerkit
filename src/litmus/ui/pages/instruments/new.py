@@ -162,7 +162,6 @@ def new_instrument_page():
                         instrument_type=form["type"],
                         name=form["name"],
                         description=form["description"],
-                        icon=form["icon"],
                     )
 
                     if result:

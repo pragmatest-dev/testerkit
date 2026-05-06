@@ -298,8 +298,8 @@ class LiveRunsSubscriber:
         if self._unsubscribe is not None:
             try:
                 self._unsubscribe()
-            except Exception:  # noqa: BLE001 — defensive on shutdown
-                pass
+            except Exception as exc:  # noqa: BLE001 — defensive on shutdown
+                logger.debug("cleanup failed (non-fatal): %s", exc)
             self._unsubscribe = None
 
     # -- Read path — runs daemon's pre-query hook --------------------------
@@ -321,6 +321,12 @@ class LiveRunsSubscriber:
         """
         if not self._dirty:
             return
+
+        # Clear before the register calls so any event that arrives
+        # during conn.register() sets _dirty=True and is caught on the
+        # next query — rather than being silently overwritten by a
+        # trailing _dirty=False after the work is already done.
+        self._dirty = False
 
         run_rows = self._pool.snapshot_run_rows()
         if run_rows:
@@ -348,8 +354,6 @@ class LiveRunsSubscriber:
             )
         else:
             conn.register("inflight_measurements", _EMPTY_INFLIGHT_MEASUREMENTS)
-
-        self._dirty = False
 
     # -- Internals ----------------------------------------------------------
 
@@ -386,8 +390,8 @@ class LiveRunsSubscriber:
             logger.debug("EventStore.on_event failed (will retry): %s", exc)
             try:
                 event_store.close()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("cleanup failed (non-fatal): %s", exc)
             return False
         return True
 

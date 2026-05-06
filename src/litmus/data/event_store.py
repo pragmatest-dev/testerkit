@@ -46,6 +46,17 @@ from litmus.data.results_dir import resolve_results_dir
 logger = logging.getLogger(__name__)
 
 
+def _parse_event_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Return the parsed event dict from a DB row, falling back to the raw row."""
+    json_str = row.get("json")
+    if json_str:
+        try:
+            return json_mod.loads(json_str)
+        except (json_mod.JSONDecodeError, TypeError):
+            pass
+    return row
+
+
 def _parse_timestamp(ts: object) -> datetime | None:
     """Parse a timestamp value to datetime. Returns None if unparseable."""
     if isinstance(ts, datetime):
@@ -248,8 +259,8 @@ class EventStore:
             log.flush()
         try:
             self._put_stream.drain()
-        except Exception:  # noqa: BLE001 — drain is best-effort; data is already in IPC
-            pass
+        except Exception as exc:  # noqa: BLE001 — drain is best-effort; data is already in IPC
+            logger.debug("put-stream drain failed (non-fatal): %s", exc)
 
     # -- Read path -----------------------------------------------------------
 
@@ -280,9 +291,8 @@ class EventStore:
             log.flush()
         try:
             self._put_stream.drain()
-        except Exception:
-            # Non-fatal: Flight stream may be closed or have no pending data
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("put-stream drain failed (non-fatal): %s", exc)
         # Build SQL via f-string — safe because inputs are typed:
         # session_id is UUID (validated by caller), event_type is a known
         # enum string, since is a datetime. sql_escape guards against quotes.
@@ -321,16 +331,7 @@ class EventStore:
             """
         rows = self._flight_query(sql)
 
-        db_events: list[dict] = []
-        for row in rows:
-            json_str = row.get("json")
-            if json_str:
-                try:
-                    db_events.append(json_mod.loads(json_str))
-                except (json_mod.JSONDecodeError, TypeError):
-                    db_events.append(row)
-            else:
-                db_events.append(row)
+        db_events: list[dict] = [_parse_event_row(row) for row in rows]
 
         # Apply role filter (can't be done in SQL — needs event field inspection)
         if role:
@@ -358,8 +359,8 @@ class EventStore:
             log.flush()
         try:
             self._put_stream.drain()
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("put-stream drain failed (non-fatal): %s", exc)
         where = f" AND received_at >= '{_sql_escape(since.isoformat())}'" if since else ""
         sql = f"""
             SELECT *
@@ -372,17 +373,7 @@ class EventStore:
             ORDER BY received_at ASC
         """
         rows = self._flight_query(sql)
-        out: list[dict] = []
-        for row in rows:
-            json_str = row.get("json")
-            if json_str:
-                try:
-                    out.append(json_mod.loads(json_str))
-                    continue
-                except (json_mod.JSONDecodeError, TypeError):
-                    pass
-            out.append(row)
-        return out
+        return [_parse_event_row(row) for row in rows]
 
     # -- Watch path ----------------------------------------------------------
 
@@ -527,14 +518,7 @@ class EventStore:
             # delivery, deduped by ``_delivered_ids``.
             for row in rows:
                 # Parse the full event from the json column
-                json_str = row.get("json")
-                if json_str:
-                    try:
-                        evt = json_mod.loads(json_str)
-                    except (json_mod.JSONDecodeError, TypeError):
-                        evt = row
-                else:
-                    evt = row
+                evt = _parse_event_row(row)
 
                 # Skip events already delivered in-process
                 event_id = str(evt.get("id") or row.get("id", ""))
