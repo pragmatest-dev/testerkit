@@ -320,6 +320,15 @@ class StepStarted(EventBase):
     parent_path: str = ""
     description: str | None = None
 
+    # Vector context — which sweep condition this execution is.
+    # vector_index 0 (the default) is the natural value for non-swept steps;
+    # for sweep variants it identifies the specific condition. ``inputs``
+    # carries the commanded sweep parameters (in_*) for this vector — what
+    # subscribers need to disambiguate "test_efficiency starting" from
+    # "test_efficiency starting at vin=2.0V".
+    vector_index: int = 0
+    inputs: dict[str, Any] = Field(default_factory=dict)
+
     # Code identity
     node_id: str | None = None
     file: str | None = None
@@ -388,10 +397,20 @@ class StepEnded(EventBase):
     step_path: str = ""
     # ``None`` is a valid value: a step that opened but never recorded
     # a measurement (and never had an outcome cascaded into it) ends
-    # with no outcome stamped. The _steps.parquet sidecar preserves
-    # that signal — the measurement parquet, by construction, only
-    # contains rows for steps whose execution did record measurements.
+    # with no outcome stamped. The unified parquet preserves that signal —
+    # measurement rows, by construction, only exist for steps that recorded
+    # measurements; step-summary rows fill the gap.
     outcome: str | None = None
+
+    # Vector context for this specific execution.
+    # ``vector_outcome`` is the per-vector verdict (the step-level ``outcome``
+    # is the aggregate across vectors).  ``inputs`` repeat the commanded sweep
+    # parameters for completeness; ``outputs`` carries vector-level
+    # observations not tied to any specific measurement.
+    vector_index: int = 0
+    vector_outcome: str | None = None
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict)
 
     # Code identity
     node_id: str | None = None
@@ -414,7 +433,10 @@ class StepsDiscovered(EventBase):
     """
 
     event_type: Literal["test.steps_discovered"] = "test.steps_discovered"
-    items: list[dict[str, str | None]] = Field(default_factory=list)
+    # Mixed string/int payload — strings for code identity (node_id, file,
+    # module, class_name, function, markers), ints for the
+    # collection-time-assigned step_index, vector_index, vector_count_planned.
+    items: list[dict[str, str | int | None]] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

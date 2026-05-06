@@ -713,7 +713,7 @@ def step_entry_dict(
 
 def _append_not_started(
     manifest: list[dict[str, Any]],
-    collected_items: list[dict[str, str | None]],
+    collected_items: list[dict[str, str | int | None]],
     executed_node_ids: set[str],
 ) -> None:
     """Append ``planned`` entries for collected items that never executed.

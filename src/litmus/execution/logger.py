@@ -196,14 +196,42 @@ def _auto_traceability(name: str) -> dict[str, Any]:
     return result
 
 
+def _json_safe(value: Any) -> Any:
+    """Coerce a vector-param / observation value to a JSON-safe representation.
+
+    Vector params and observations end up in StepStarted / StepEnded events,
+    which serialize via ``model_dump_json``. Most parametrize values are
+    scalars, lists, or dicts — fine as-is. Bytes / class types / arbitrary
+    objects (e.g. parametrize values that happen to be class objects)
+    need stringification or they break Pydantic JSON serialization.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (bytes, bytearray)):
+        return f"<bytes:{len(value)}>"
+    return repr(value)
+
+
+def _coerce_dict(d: dict[str, Any] | None) -> dict[str, Any]:
+    """Apply :func:`_json_safe` to all values in a dict; ``None`` → ``{}``."""
+    if not d:
+        return {}
+    return {k: _json_safe(v) for k, v in d.items()}
+
+
 def _snapshot_active_vector_params() -> dict[str, Any]:
     """Return a copy of the active vector params ContextVar.
 
     Used by ``start_step`` / ``log_measurement`` to stamp ``TestVector.params``
     so parquet rows carry parametrize values. Returns an empty dict when no
-    pytest plugin is active (direct / legacy callers).
+    pytest plugin is active (direct / legacy callers). Values are JSON-coerced
+    so events serialize cleanly even for class-type / bytes parametrize values.
     """
-    return dict(get_active_vector_params())
+    return _coerce_dict(get_active_vector_params())
 
 
 def _resolve_measurement_limit(
@@ -593,6 +621,9 @@ class TestRunLogger:
         name: str,
         description: str | None = None,
         *,
+        step_index: int | None = None,
+        vector_index: int | None = None,
+        inputs: dict[str, Any] | None = None,
         node_id: str | None = None,
         file: str | None = None,
         module: str | None = None,
@@ -600,7 +631,21 @@ class TestRunLogger:
         function: str | None = None,
         markers: str | None = None,
     ):
-        """Begin a new test step. Supports nesting via step_path."""
+        """Begin a new test step. Supports nesting via step_path.
+
+        ``step_index`` / ``vector_index`` / ``inputs`` are pre-assigned by the
+        pytest plugin during collection so that:
+
+        * sweep variants of the same logical step share one ``step_index``
+          (sequence-relative position) and differ only by ``vector_index``;
+        * the commanded sweep parameters (``in_*``) reach the StepStarted event
+          and the step row directly, without subscribers having to wait for a
+          measurement to arrive.
+
+        When the kwargs are omitted (manual nested ``with harness.step(...)``
+        usage, legacy paths), ``step_index`` falls back to the auto-incrementing
+        counter and ``vector_index`` defaults to 0.
+        """
         # Auto-close any prior step that wasn't explicitly ended
         if get_current_step() is not None:
             self.end_step()
@@ -627,10 +672,20 @@ class TestRunLogger:
             function=function,
             markers=markers,
         )
-        self._current_step_index += 1
+        if step_index is not None:
+            self._current_step_index = step_index
+        else:
+            self._current_step_index += 1
         self.test_run.steps.append(step)
-        # Create a default vector for this step (for simple logging without harness)
-        vector = TestVector(params=_snapshot_active_vector_params())
+        # Create a default vector for this step. Plugin-supplied inputs are the
+        # commanded sweep params; fall back to the active-vector snapshot for
+        # manual/in-test vector iteration paths.  Coerce to JSON-safe values so
+        # StepStarted/StepEnded serialize cleanly when parametrize values are
+        # bytes or class types.
+        vec_params = (
+            _coerce_dict(inputs) if inputs is not None else _snapshot_active_vector_params()
+        )
+        vector = TestVector(index=vector_index or 0, params=vec_params)
         step.vectors.append(vector)
         # Token-based set for proper reset in end_step()
         self._step_token = push_current_step(step)
@@ -646,6 +701,8 @@ class TestRunLogger:
                     step_path=step_path,
                     parent_path=parent_path,
                     description=description,
+                    vector_index=vector_index or 0,
+                    inputs=dict(vec_params),
                     node_id=node_id,
                     file=file,
                     module=module,
@@ -677,6 +734,7 @@ class TestRunLogger:
     def emit_step_started(self, step: TestStep, step_index: int) -> None:
         """Emit a StepStarted event if an event log is wired."""
         if self._event_log is not None:
+            vector = step.vectors[0] if step.vectors else None
             self._event_log.emit(
                 StepStarted(
                     session_id=self._session_id,
@@ -684,7 +742,10 @@ class TestRunLogger:
                     step_name=step.name,
                     step_index=step_index,
                     step_path=step.step_path,
+                    parent_path=step.parent_path or "",
                     description=step.description,
+                    vector_index=vector.index if vector is not None else 0,
+                    inputs=_coerce_dict(vector.params) if vector is not None else {},
                     node_id=step.node_id,
                     file=step.file,
                     module=step.module,
@@ -696,6 +757,10 @@ class TestRunLogger:
     def emit_step_ended(self, step: TestStep, step_index: int) -> None:
         """Emit a StepEnded event if an event log is wired."""
         if self._event_log is not None:
+            vector = step.vectors[0] if step.vectors else None
+            vec_outcome = (
+                vector.outcome.value if vector is not None and vector.outcome is not None else None
+            )
             self._event_log.emit(
                 StepEnded(
                     session_id=self._session_id,
@@ -704,6 +769,10 @@ class TestRunLogger:
                     step_index=step_index,
                     step_path=step.step_path,
                     outcome=step.outcome.value if step.outcome else None,
+                    vector_index=vector.index if vector is not None else 0,
+                    vector_outcome=vec_outcome,
+                    inputs=_coerce_dict(vector.params) if vector is not None else {},
+                    outputs=_coerce_dict(vector.observations) if vector is not None else {},
                     node_id=step.node_id,
                     file=step.file,
                     module=step.module,
@@ -822,6 +891,12 @@ class TestRunLogger:
             vector.ended_at = _utcnow()
 
         if self._event_log is not None and step is not None:
+            vec_obj = vector if vector is not None else (step.vectors[0] if step.vectors else None)
+            vec_outcome = (
+                vec_obj.outcome.value
+                if vec_obj is not None and vec_obj.outcome is not None
+                else None
+            )
             self._event_log.emit(
                 StepEnded(
                     session_id=self._session_id,
@@ -830,6 +905,10 @@ class TestRunLogger:
                     step_index=self._current_step_index,
                     step_path=step.step_path,
                     outcome=step.outcome.value if step.outcome else None,
+                    vector_index=vec_obj.index if vec_obj is not None else 0,
+                    vector_outcome=vec_outcome,
+                    inputs=_coerce_dict(vec_obj.params) if vec_obj is not None else {},
+                    outputs=_coerce_dict(vec_obj.observations) if vec_obj is not None else {},
                     node_id=step.node_id,
                     file=step.file,
                     module=step.module,

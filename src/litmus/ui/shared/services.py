@@ -678,7 +678,7 @@ def get_run_detail(run_id: str):
     )
 
     with StepsQuery(_results_dir=backend.results_dir) as q:
-        steps = q.list_for_run(run_id)
+        steps = q.list_for_run(run_id, include_incomplete=True)
 
     return run, steps, measurements
 
