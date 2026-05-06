@@ -51,23 +51,10 @@ if TYPE_CHECKING:
     from litmus.models.instrument import InstrumentRecord
 
 
-# Canonical list of instrument identity array keys.
-# Used by build_instrument_arrays() and _build_empty_row() for schema consistency.
-INSTRUMENT_ARRAY_KEYS = (
-    "step_instruments_name",
-    "step_instruments_id",
-    "step_instruments_driver",
-    "step_instruments_resource",
-    "step_instruments_protocol",
-    "step_instruments_manufacturer",
-    "step_instruments_model",
-    "step_instruments_serial",
-    "step_instruments_firmware",
-    "step_instruments_cal_due",
-    "step_instruments_cal_last",
-    "step_instruments_cal_certificate",
-    "step_instruments_cal_lab",
-    "step_instruments_mocked",
+# Re-exported from the data layer — lives there to avoid importing the
+# execution framework just for a tuple of column name strings.
+from litmus.data.backends._row_helpers import (
+    INSTRUMENT_ARRAY_KEYS as INSTRUMENT_ARRAY_KEYS,  # noqa: F401
 )
 
 

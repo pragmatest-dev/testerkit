@@ -2,9 +2,9 @@
 
 import logging
 
-from nicegui import ui
+from nicegui import run, ui
 
-from litmus.ui.shared.components import data_table, format_datetime
+from litmus.ui.shared.components import data_table, format_datetime, render_skeleton
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import discover_stations, get_recent_runs
 
@@ -12,40 +12,54 @@ logger = logging.getLogger(__name__)
 
 
 @ui.page("/")
-def dashboard_page():
-    """Main dashboard page."""
+async def dashboard_page():
+    """Main dashboard page.
+
+    Page handler returns immediately with skeleton placeholders.
+    Stations and recent runs load off the event loop via run.io_bound.
+    """
     create_layout("Dashboard")
 
-    stations = discover_stations()
-    try:
-        runs = get_recent_runs(limit=10)
-    except (OSError, ValueError) as exc:
-        logger.warning("Failed to load recent runs: %s", exc)
-        runs = []
-
-    if not stations and not runs:
-        _getting_started_card()
-        return
-
     with ui.column().classes("w-full p-6 gap-6"):
-        # Stations section
         with ui.row().classes("items-center gap-2"):
             ui.icon("memory").classes("text-slate-600")
             ui.label("Stations").classes("text-lg font-semibold text-slate-700")
+        stations_container = ui.row().classes("gap-4 flex-wrap w-full")
+        render_skeleton(stations_container, "h-24")
 
-        if stations:
-            with ui.row().classes("gap-4 flex-wrap"):
-                for station in stations:
-                    _station_card(station)
-        else:
-            ui.label("No stations configured.").classes("text-slate-500 italic")
-
-        # Recent runs section
         with ui.row().classes("items-center gap-2 mt-4"):
             ui.icon("history").classes("text-slate-600")
             ui.label("Recent Runs").classes("text-lg font-semibold text-slate-700")
+        runs_container = ui.column().classes("w-full")
+        render_skeleton(runs_container, "h-48")
 
-        _render_recent_runs(runs)
+    async def _load_dashboard() -> None:
+        stations = await run.io_bound(discover_stations)
+        try:
+            recent_runs = await run.io_bound(get_recent_runs, 10)
+        except (OSError, ValueError) as exc:
+            logger.warning("Failed to load recent runs: %s", exc)
+            recent_runs = []
+
+        if not stations and not recent_runs:
+            stations_container.delete()
+            runs_container.delete()
+            _getting_started_card()
+            return
+
+        stations_container.clear()
+        with stations_container:
+            if stations:
+                for station in stations:
+                    _station_card(station)
+            else:
+                ui.label("No stations configured.").classes("text-slate-500 italic")
+
+        runs_container.clear()
+        with runs_container:
+            _render_recent_runs(recent_runs)
+
+    ui.timer(0.0, _load_dashboard, once=True)
 
 
 def _station_card(station):

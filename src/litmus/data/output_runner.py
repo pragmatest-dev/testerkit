@@ -72,7 +72,7 @@ def _run_single_output(
 
     if fmt and is_report_format(fmt):
         # Report formats — delegate to litmus.reports
-        from litmus.reports import generate_report, load_run_data
+        from litmus.reports.core import generate_report, load_run_data
 
         data = load_run_data(run_id, results_dir)
         exported_path = generate_report(

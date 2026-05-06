@@ -712,6 +712,31 @@ Useful for ingest-progress monitoring + per-file diagnostics
 ``<file>``"). Doesn't gate any current functionality; safe to
 defer.
 
+### Daemon ingest — harden quarantine against stale/malformed parquets
+
+Two options, either or both:
+
+**Schema pre-validation** — before attempting the SQL ``INSERT INTO
+runs_persisted BY NAME … SELECT … FROM read_parquet(…)``, sniff the
+parquet's column list via pyarrow. If a required column is missing,
+quarantine immediately (no SQL attempt, no ``BinderException`` in
+the log). Keeps the daemon log clean and avoids burning a write
+transaction on known-bad files.
+
+**Move-aside quarantine** — once a file is quarantined, move it to a
+``_quarantine/`` sibling directory so the disk-glob sweep never
+picks it up again. Eliminates (mtime, size) ledger churn for files
+that keep appearing in the scan even after they're quarantined.
+Currently quarantined files that change on disk (different mtime /
+size) are re-attempted correctly; move-aside trades that
+re-attempt capability for a cleaner sweep. Appropriate if
+quarantined files are expected to be genuinely dead.
+
+Background: the ingest sweep now correctly skips files already in
+``_ingested`` at the same (mtime, size) regardless of status, so
+re-ingest loops are already fixed. These are hardening options, not
+correctness fixes.
+
 ### Exporter access to row-level cascade outcomes
 
 Surfaced by the Phase 6a.4 design review: ``MeasurementRow`` and

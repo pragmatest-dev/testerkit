@@ -13,7 +13,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
+from litmus.data.backends._row_helpers import INSTRUMENT_ARRAY_KEYS
 
 logger = logging.getLogger(__name__)
 

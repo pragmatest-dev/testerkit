@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from nicegui import ui
+from nicegui import run, ui
 
 from litmus.ui.shared.components import (
     attach_status_chip,
@@ -25,7 +25,7 @@ _DEFAULT_RPP = 50
 
 
 @ui.page("/results")
-def results_page() -> None:
+async def results_page() -> None:
     """Results listing — every run-level column the detail page shows."""
     create_layout("Test Results")
 
@@ -45,7 +45,7 @@ def results_page() -> None:
             total = count_recent_runs(include_incomplete=True)
             return [_row_for_run(r) for r in rows], total
 
-        def refresh() -> None:
+        async def refresh() -> None:
             table = state["table"]
             try:
                 if table is not None:
@@ -53,7 +53,10 @@ def results_page() -> None:
                     rpp = int(table.pagination.get("rowsPerPage", _DEFAULT_RPP) or _DEFAULT_RPP)
                 else:
                     page, rpp = 1, _DEFAULT_RPP
-                new_rows, total = _fetch_page(page, rpp)
+                # Run the blocking Flight queries off the event loop so
+                # the page handler stays responsive (otherwise NiceGUI's
+                # WebSocket heartbeat times out at 3s).
+                new_rows, total = await run.io_bound(_fetch_page, page, rpp)
             except (OSError, ValueError) as exc:
                 logger.warning("Failed to load results (keeping current view): %s", exc)
                 return
@@ -82,7 +85,7 @@ def results_page() -> None:
             table.pagination.update({"rowsNumber": total})
             table.update_rows(new_rows)
 
-        refresh()
+        await refresh()
 
         from litmus.data.event_store import EventStore
         from litmus.data.results_dir import resolve_results_dir

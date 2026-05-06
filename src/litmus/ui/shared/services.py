@@ -6,9 +6,6 @@ NO direct yaml.safe_load or Path I/O here — all persistence goes through litmu
 from pathlib import Path
 from typing import Any
 
-import pyarrow as pa
-
-from litmus.analysis import query
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import RunSummary
 from litmus.instruments.loader import resolve_station_instruments
@@ -617,6 +614,22 @@ def get_runs_filter_options() -> dict[str, list[str]]:
         return q.distinct_filter_values()
 
 
+def get_measurement_index_status() -> dict[str, int]:
+    """Return measurement index backfill progress from the daemon.
+
+    Returns ``{"total": N, "completed": M}``. When ``completed == total``
+    (or both are 0), the index is fully built. Callers show a banner
+    while ``completed < total``.
+    """
+    from litmus.analysis.measurements_query import MeasurementsQuery
+
+    try:
+        with MeasurementsQuery() as q:
+            return q.backfill_status()
+    except Exception:  # noqa: BLE001 — daemon unavailable: treat as done
+        return {"total": 0, "completed": 0}
+
+
 def _run_row_to_summary(row: Any) -> RunSummary:
     """Adapt a daemon ``RunRow`` to the legacy ``RunSummary`` UI shape.
 
@@ -943,36 +956,3 @@ def query_channel(
 # -----------------------------------------------------------------------------
 # Yield Services
 # -----------------------------------------------------------------------------
-
-
-def load_yield_runs_table(results_dir: str) -> pa.Table | None:
-    """Load the runs arrow table for the yield dashboard (or None on error)."""
-    try:
-        return query.load_runs(results_dir)
-    except (OSError, pa.ArrowInvalid):
-        return None
-
-
-def get_yield_filter_options(table: pa.Table | None) -> dict[str, list[str]]:
-    """Return dropdown options for the yield page (products + stations).
-
-    Operator-facing identifiers per the project's universal rule
-    (see feedback_operator_facing_identifiers.md):
-
-    * **Product** → ``dut_part_number`` (the SKU). Falls back to
-      ``product_id`` only if the part-number column is empty.
-    * **Station** → ``station_hostname`` (the machine name). Falls
-      back to ``station_id`` only if the hostname column is empty.
-
-    No ``station_name`` fallback — that's an admin label, not what
-    an operator at a physical bench identifies the rig by.
-    """
-    if table is None:
-        return {"products": [], "stations": []}
-    products = query.get_unique_column_values(table, "dut_part_number")
-    if not products:
-        products = query.get_unique_column_values(table, "product_id")
-    stations = query.get_unique_column_values(table, "station_hostname")
-    if not stations:
-        stations = query.get_unique_column_values(table, "station_id")
-    return {"products": products, "stations": stations}

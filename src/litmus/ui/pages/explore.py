@@ -17,7 +17,7 @@ from datetime import date
 from typing import Any
 
 from fastapi import Request
-from nicegui import ui
+from nicegui import run, ui
 
 from litmus.analysis.measurement_facets import (
     MEASUREMENT_FACETS,
@@ -26,13 +26,19 @@ from litmus.analysis.measurement_facets import (
     FilterSet,
 )
 from litmus.analysis.measurements_query import MeasurementsQuery
+from litmus.data._flight_errors import IndexOutOfDate
+from litmus.data.event_store import EventStore
+from litmus.data.results_dir import resolve_results_dir
 from litmus.ui.shared.components import (
     page_header,
     page_layout,
     push_url_state,
     render_empty_card,
+    render_skeleton,
+    subscribe_with_refresh,
 )
 from litmus.ui.shared.layout import create_layout
+from litmus.ui.shared.services import get_measurement_index_status
 
 logger = logging.getLogger(__name__)
 
@@ -133,61 +139,22 @@ def _query_dict_from_request(request: Request) -> dict[str, list[str]]:
 
 
 @ui.page("/explore")
-def explore_page(request: Request):
+async def explore_page(request: Request):
     """Parametric measurement viewer — filter-first, model-driven.
+
+    Page handler returns immediately with chrome + skeletons. Schema and
+    data queries run off the event loop via run.io_bound. The chart renders
+    via ui.timer after the page is connected.
 
     URL state encodes the full view: each filter facet's selected
     values as repeated query keys (``?product=PN-100&product=PN-200``)
     plus ``y`` / ``x`` / ``chart_type`` / ``group_by`` / ``bins`` /
     ``limit`` / ``since`` / ``until``.
     """
-    from litmus.data.results_dir import resolve_results_dir
-
     results_dir = str(resolve_results_dir())
-
     create_layout("Measurements")
 
-    # Schema fetch — drives the Y/X/group_by dropdowns.
-    from litmus.data._flight_query import IndexOutOfDate
-
-    try:
-        with MeasurementsQuery(_results_dir=results_dir) as q:
-            schema = q.describe_columns()
-    except IndexOutOfDate:
-        # No measurement parquets exist yet — daemon's measurements
-        # view was deferred. Render the same empty state we use when
-        # the table is present-but-empty so the user sees one
-        # consistent landing.
-        _render_no_measurements_state()
-        return
-    except (OSError, ValueError, RuntimeError) as exc:
-        with page_layout():
-            page_header("Measurements", icon="scatter_plot")
-            error_container = ui.column().classes("w-full")
-            render_empty_card(
-                error_container,
-                "Schema unavailable",
-                f"Error loading schema: {exc}",
-            )
-        return
-
-    # Schema exists but the table may be empty (the more common case):
-    # no test run has recorded a measurement yet. Render an empty
-    # state with a concrete next step rather than dropping the
-    # operator into a fully-configured filter UI that has no data
-    # to show.
-    try:
-        with MeasurementsQuery(_results_dir=results_dir) as q:
-            initial_counts = q.summary_counts()
-    except (OSError, ValueError, RuntimeError):
-        initial_counts = None
-    if initial_counts is not None and initial_counts.total_rows == 0:
-        _render_no_measurements_state()
-        return
-
-    y_options, x_options, group_options = _classify_columns(schema)
-
-    # Decode URL state.
+    # Decode URL state — pure dict ops, no queries.
     qp = request.query_params
     qd = _query_dict_from_request(request)
     is_bare_url = not qd
@@ -205,52 +172,46 @@ def explore_page(request: Request):
     except ValueError:
         initial_limit = DEFAULT_LIMIT
 
-    # Smart defaults for bare URL — comparing `value` across many
-    # measurement names at once is meaningless (different scales,
-    # different units). Pick the most-populated measurement_name as
-    # the starter scope. Y=value, X=vector_index (per-vector trend
-    # within a run) when present, falling back to run_started_at
-    # (cross-run trend) for older data without vector_index.
-    if is_bare_url:
-        try:
-            with MeasurementsQuery(_results_dir=results_dir) as q:
-                top_names = q.distinct_values("measurement_name", filters=FilterSet(), limit=20)
-        except (OSError, ValueError, RuntimeError, IndexOutOfDate):
-            top_names = []
-        # Skip synthetic step-level rollups (Litmus convention: '_'
-        # prefix marks names that don't carry a measurement value).
-        real_names = [o for o in top_names if not o.value.startswith("_")]
-        if real_names:
-            initial_filters = FilterSet(string_filters={"measurement_name": [real_names[0].value]})
-        # Default Y: prefer ``measurement_value`` (the canonical
-        # column for real measurement values) over ``value``. Some
-        # legacy / test parquets project a ``value`` column that
-        # ``union_by_name`` lifts into the schema but leaves NULL
-        # for production rows; landing the user on ``value`` produces
-        # an empty graph for everyone.
-        if not initial_y:
-            for candidate in ("measurement_value", "value"):
-                if candidate in y_options:
-                    initial_y = candidate
-                    break
-        if not initial_x:
-            for candidate in ("vector_index", "run_started_at"):
-                if candidate in x_options:
-                    initial_x = candidate
-                    break
+    # Fetch schema + counts + smart defaults + index status off the event loop.
+    import asyncio as _asyncio
 
-    # Sanitize URL-supplied selections against schema so a stale URL
-    # gracefully degrades rather than blowing up.
-    if initial_y not in y_options:
-        initial_y = y_options[0] if y_options else ""
-    if initial_x not in x_options:
-        initial_x = x_options[0] if x_options else ""
-    if initial_chart_type not in CHART_TYPES:
-        initial_chart_type = "scatter"
-    if initial_group_by and initial_group_by not in group_options:
-        initial_group_by = ""
+    init_result, index_status = await _asyncio.gather(
+        run.io_bound(
+            _fetch_initial_schema,
+            results_dir,
+            is_bare_url,
+            initial_filters,
+            initial_y,
+            initial_x,
+            initial_chart_type,
+            initial_group_by,
+        ),
+        run.io_bound(get_measurement_index_status),
+    )
+    if init_result is None:
+        # No measurements yet.
+        _render_no_measurements_state()
+        return
+    if isinstance(init_result, str):
+        # Error string
+        with page_layout():
+            page_header("Measurements", icon="scatter_plot")
+            error_container = ui.column().classes("w-full")
+            render_empty_card(error_container, "Schema unavailable", init_result)
+        return
 
-    # Mutable state captured by the closures below.
+    (
+        y_options,
+        x_options,
+        group_options,
+        initial_y,
+        initial_x,
+        initial_chart_type,
+        initial_group_by,
+        initial_filters,
+    ) = init_result
+
+    # Mutable state captured by closures.
     state: dict[str, Any] = {
         "filter_set": initial_filters,
         "y": initial_y,
@@ -269,8 +230,6 @@ def explore_page(request: Request):
         return MeasurementsQuery(_results_dir=results_dir)
 
     def _push_url() -> None:
-        # Group multi-value facets so a single key carries a list —
-        # ``push_url_state`` renders lists as repeated query keys.
         grouped: dict[str, list[str]] = {}
         for key, value in state["filter_set"].to_url_params():
             grouped.setdefault(key, []).append(value)
@@ -289,32 +248,46 @@ def explore_page(request: Request):
             params["limit"] = str(state["limit"])
         push_url_state("/explore", params)
 
-    def _refresh_string_facets() -> None:
+    async def _refresh_string_facets() -> None:
         """Re-populate STRING facet options based on current filter set."""
-        with _new_query() as q:
-            for facet in MEASUREMENT_FACETS:
-                if facet.kind is not FacetKind.STRING:
-                    continue
-                widget = facet_widgets.get(facet.column)
-                if widget is None:
-                    continue
-                opts = q.distinct_values(
-                    facet.column, filters=state["filter_set"], exclude_self=True
-                )
-                # value → "value (count)" so users see frequency without
-                # losing the underlying value used in SQL.
-                widget.options = {o.value: f"{o.value} ({o.count:,})" for o in opts}
-                # Drop any selected values that vanished from the option set.
-                current = state["filter_set"].string_filters.get(facet.column, [])
-                still_valid = [v for v in current if v in widget.options]
-                widget.value = still_valid
-                if still_valid != current:
-                    state["filter_set"].string_filters[facet.column] = still_valid
-                widget.update()
 
-    def _refresh_cardinality() -> None:
-        with _new_query() as q:
-            counts = q.summary_counts(filters=state["filter_set"])
+        def _fetch() -> list[tuple[str, list, list]]:
+            results = []
+            with _new_query() as q:
+                for facet in MEASUREMENT_FACETS:
+                    if facet.kind is not FacetKind.STRING:
+                        continue
+                    if facet_widgets.get(facet.column) is None:
+                        continue
+                    opts = q.distinct_values(
+                        facet.column, filters=state["filter_set"], exclude_self=True
+                    )
+                    current = state["filter_set"].string_filters.get(facet.column, [])
+                    still_valid = [v for v in current if any(o.value == v for o in opts)]
+                    results.append((facet.column, opts, still_valid))
+            return results
+
+        updates = await run.io_bound(_fetch)
+        for column, opts, still_valid in updates:
+            widget = facet_widgets.get(column)
+            if widget is None:
+                continue
+            widget.options = {o.value: f"{o.value} ({o.count:,})" for o in opts}
+            # Only update value if it actually changed — setting widget.value
+            # always fires on_change (even when identical), which would trigger
+            # a recursive _refresh_all and prevent the chart from rendering.
+            current = state["filter_set"].string_filters.get(column, [])
+            if still_valid != current:
+                widget.value = still_valid
+                state["filter_set"].string_filters[column] = still_valid
+            widget.update()
+
+    async def _refresh_cardinality() -> None:
+        def _fetch():
+            with _new_query() as q:
+                return q.summary_counts(filters=state["filter_set"])
+
+        counts = await run.io_bound(_fetch)
         cardinality_label.text = (
             f"{counts.total_rows:,} measurements · "
             f"{counts.distinct_runs:,} runs · "
@@ -322,18 +295,20 @@ def explore_page(request: Request):
             f"{counts.distinct_products:,} products"
         )
 
-    def _refresh_chart() -> None:
-        chart_container.clear()
+    async def _refresh_chart() -> None:
+        render_skeleton(chart_container, "h-[28rem]")
         y_val = state["y"]
         x_val = state["x"]
         ct = state["chart_type"]
         if not y_val or (not x_val and ct != "histogram"):
+            chart_container.clear()
             with chart_container:
                 ui.label("Pick a Y and X column").classes("text-slate-500 italic")
             return
-        try:
+
+        def _fetch():
             with _new_query() as q:
-                rows = q.parametric(
+                return q.parametric(
                     y=y_val,
                     x=x_val,
                     filters=state["filter_set"],
@@ -342,52 +317,92 @@ def explore_page(request: Request):
                     bins=state["bins"],
                     limit=state["limit"],
                 )
+
+        try:
+            rows = await run.io_bound(_fetch)
         except (OSError, ValueError, RuntimeError) as exc:
+            chart_container.clear()
             with chart_container:
                 ui.label(f"Query failed: {exc}").classes("text-red-600")
                 with ui.expansion("Stack trace", icon="bug_report").classes("w-full"):
                     ui.code(traceback.format_exc()).classes("text-xs")
             return
+        chart_container.clear()
         with chart_container:
             _render_chart([r.model_dump() for r in rows], ct, y_val, x_val)
 
-    def _refresh_all() -> None:
-        # Guard against bind_value firing on_change synchronously during
-        # construction — cardinality_label and chart_container are None
-        # until their ui.* assignments execute below the filter card.
+    _refreshing: dict[str, bool] = {"active": False}
+
+    async def _refresh_all() -> None:
         if cardinality_label is None or chart_container is None:
             return
-        _push_url()
-        _refresh_cardinality()
-        _refresh_string_facets()
-        _refresh_chart()
+        # Gate re-entrant calls: if _refresh_string_facets triggers on_change
+        # callbacks that call _refresh_all again, drop them. The in-progress
+        # refresh will complete and render the chart.
+        if _refreshing["active"]:
+            return
+        _refreshing["active"] = True
+        try:
+            _push_url()
+            await _refresh_cardinality()
+            await _refresh_string_facets()
+            await _refresh_chart()
+        finally:
+            _refreshing["active"] = False
 
-    def _on_string_facet_change(facet: FacetSpec, e: Any) -> None:
+    async def _on_string_facet_change(facet: FacetSpec, e: Any) -> None:
         values = list(e.value or [])
         if values:
             state["filter_set"].string_filters[facet.column] = values
         else:
             state["filter_set"].string_filters.pop(facet.column, None)
-        _refresh_all()
+        await _refresh_all()
 
-    def _on_enum_facet_change(facet: FacetSpec, e: Any) -> None:
+    async def _on_enum_facet_change(facet: FacetSpec, e: Any) -> None:
         values = list(e.value or [])
         if values:
             state["filter_set"].enum_filters[facet.column] = values
         else:
             state["filter_set"].enum_filters.pop(facet.column, None)
-        _refresh_all()
+        await _refresh_all()
 
-    def _on_since_change(e: Any) -> None:
+    async def _on_since_change(e: Any) -> None:
         state["filter_set"].since = _parse_iso_date(e.value)
-        _refresh_all()
+        await _refresh_all()
 
-    def _on_until_change(e: Any) -> None:
+    async def _on_until_change(e: Any) -> None:
         state["filter_set"].until = _parse_iso_date(e.value)
-        _refresh_all()
+        await _refresh_all()
 
     # ── Layout ──────────────────────────────────────────────────────
     with ui.column().classes("w-full p-6 gap-4"):
+        # Measurement index banner — same as Metrics page.
+        _exp_total = int(index_status.get("total", 0))
+        _exp_done = int(index_status.get("completed", 0))
+        if _exp_total > 0 and _exp_done < _exp_total:
+            with ui.card().classes("w-full bg-amber-50 border border-amber-200") as _exp_banner:
+                with ui.row().classes("items-center gap-3 px-4 py-2"):
+                    ui.spinner(size="sm").classes("text-amber-600")
+                    _exp_label = ui.label(
+                        f"Building measurement index "
+                        f"({_exp_done:,} / {_exp_total:,} files). "
+                        "Results may be incomplete until indexing finishes."
+                    ).classes("text-amber-800 text-sm flex-1")
+
+            async def _poll_exp_index() -> None:
+                s = await run.io_bound(get_measurement_index_status)
+                t = int(s.get("total", 0))
+                c = int(s.get("completed", 0))
+                if t == 0 or c >= t:
+                    _exp_banner.delete()
+                else:
+                    _exp_label.set_text(
+                        f"Building measurement index ({c:,} / {t:,} files). "
+                        "Results may be incomplete until indexing finishes."
+                    )
+
+            ui.timer(3.0, _poll_exp_index)
+
         with ui.row().classes("items-center gap-2"):
             ui.icon("scatter_plot").classes("text-slate-600")
             ui.label("Measurements").classes("text-2xl font-semibold text-slate-700")
@@ -411,91 +426,162 @@ def explore_page(request: Request):
         with ui.card().classes("w-full"):
             ui.label("PLOT").classes("text-xs font-semibold text-slate-500 tracking-wider")
             with ui.row().classes("items-end gap-3 flex-wrap w-full"):
-                y_select = ui.select(
+
+                async def _on_y_change(e: Any) -> None:
+                    state["y"] = str(e.value or "")
+                    await _refresh_all()
+
+                async def _on_x_change(e: Any) -> None:
+                    state["x"] = str(e.value or "")
+                    await _refresh_all()
+
+                async def _on_chart_type_change(e: Any) -> None:
+                    state["chart_type"] = str(e.value or "scatter")
+                    await _refresh_all()
+
+                async def _on_group_by_change(e: Any) -> None:
+                    state["group_by"] = str(e.value or "")
+                    await _refresh_all()
+
+                async def _on_bins_change(e: Any) -> None:
+                    state["bins"] = int(e.value or DEFAULT_BINS)
+                    await _refresh_chart()
+                    _push_url()
+
+                async def _on_limit_change(e: Any) -> None:
+                    state["limit"] = int(e.value or DEFAULT_LIMIT)
+                    await _refresh_chart()
+                    _push_url()
+
+                ui.select(
                     y_options,
                     value=state["y"],
                     label="Y axis",
                     with_input=True,
-                    on_change=lambda e: (state.update(y=str(e.value or "")), _refresh_all()),
+                    on_change=_on_y_change,
                 ).classes("w-56")
-                x_select = ui.select(
+                ui.select(
                     x_options,
                     value=state["x"],
                     label="X axis",
                     with_input=True,
-                    on_change=lambda e: (state.update(x=str(e.value or "")), _refresh_all()),
+                    on_change=_on_x_change,
                 ).classes("w-56")
-                chart_type_select = ui.select(
+                ui.select(
                     CHART_TYPES,
                     value=state["chart_type"],
                     label="Chart",
-                    on_change=lambda e: (
-                        state.update(chart_type=str(e.value or "scatter")),
-                        _refresh_all(),
-                    ),
+                    on_change=_on_chart_type_change,
                 ).classes("w-32")
-                group_select = ui.select(
+                ui.select(
                     [""] + group_options,
                     value=state["group_by"],
                     label="Group by",
                     with_input=True,
-                    on_change=lambda e: (
-                        state.update(group_by=str(e.value or "")),
-                        _refresh_all(),
-                    ),
+                    on_change=_on_group_by_change,
                 ).classes("w-48")
-                bins_input = ui.number(
+                ui.number(
                     label="Bins",
                     value=state["bins"],
                     format="%d",
                     min=2,
                     max=200,
-                    on_change=lambda e: (
-                        state.update(bins=int(e.value or DEFAULT_BINS)),
-                        _refresh_chart(),
-                        _push_url(),
-                    ),
+                    on_change=_on_bins_change,
                 ).classes("w-24")
-                limit_input = ui.number(
+                ui.number(
                     label="Limit",
                     value=state["limit"],
                     format="%d",
                     min=10,
                     max=100_000,
-                    on_change=lambda e: (
-                        state.update(limit=int(e.value or DEFAULT_LIMIT)),
-                        _refresh_chart(),
-                        _push_url(),
-                    ),
+                    on_change=_on_limit_change,
                 ).classes("w-28")
                 ui.button("Refresh", icon="refresh", on_click=lambda: _refresh_all()).props(
                     "outline"
                 )
 
-        # Chart container
+        # Chart container — skeleton until first refresh fires.
         chart_container = ui.column().classes("w-full")
+        render_skeleton(chart_container, "h-[28rem]")
 
-    # Bind a few widgets to silence unused warnings (they're closure-captured above).
-    _ = (y_select, x_select, chart_type_select, group_select, bins_input, limit_input)
+    # First load fires after page renders.
+    ui.timer(0.0, _refresh_all, once=True)
 
-    _refresh_all()
-
-    # Subscribe to ``run.ended`` so the chart refreshes once a new
-    # run finalizes (and its measurements parquet ingests). We
-    # intentionally don't subscribe to ``test.measurement`` — the
-    # measurements view is parquet-driven and only sees rows after
-    # the canonical aggregate lands; per-event point append is
-    # tracked in ROADMAP.
-    from pathlib import Path as _Path
-
-    from litmus.data.event_store import EventStore
-    from litmus.ui.shared.components import subscribe_with_refresh
-
+    # Live updates on run.ended.
     try:
-        event_store = EventStore.get_shared(_Path(results_dir))
+        event_store = EventStore.get_shared(resolve_results_dir())
         subscribe_with_refresh(event_store, ["run.ended"], _refresh_all)
     except (OSError, RuntimeError) as exc:
         logger.warning("Live updates unavailable: %s", exc)
+
+
+def _fetch_initial_schema(
+    results_dir: str,
+    is_bare_url: bool,
+    initial_filters: FilterSet,
+    initial_y: str,
+    initial_x: str,
+    initial_chart_type: str,
+    initial_group_by: str,
+) -> tuple | None | str:
+    """Pure data fetch for explore page init. Returns None (no data), str (error), or tuple."""
+    try:
+        with MeasurementsQuery(_results_dir=results_dir) as q:
+            schema = q.describe_columns()
+    except IndexOutOfDate:
+        return None
+    except (OSError, ValueError, RuntimeError) as exc:
+        return str(exc)
+
+    try:
+        with MeasurementsQuery(_results_dir=results_dir) as q:
+            initial_counts = q.summary_counts()
+    except (OSError, ValueError, RuntimeError):
+        initial_counts = None
+    if initial_counts is not None and initial_counts.total_rows == 0:
+        return None
+
+    y_options, x_options, group_options = _classify_columns(schema)
+
+    if is_bare_url:
+        try:
+            with MeasurementsQuery(_results_dir=results_dir) as q:
+                top_names = q.distinct_values("measurement_name", filters=FilterSet(), limit=20)
+        except (OSError, ValueError, RuntimeError, IndexOutOfDate):
+            top_names = []
+        real_names = [o for o in top_names if not o.value.startswith("_")]
+        if real_names:
+            initial_filters = FilterSet(string_filters={"measurement_name": [real_names[0].value]})
+        if not initial_y:
+            for candidate in ("measurement_value", "value"):
+                if candidate in y_options:
+                    initial_y = candidate
+                    break
+        if not initial_x:
+            for candidate in ("vector_index", "run_started_at"):
+                if candidate in x_options:
+                    initial_x = candidate
+                    break
+
+    if initial_y not in y_options:
+        initial_y = y_options[0] if y_options else ""
+    if initial_x not in x_options:
+        initial_x = x_options[0] if x_options else ""
+    if initial_chart_type not in CHART_TYPES:
+        initial_chart_type = "scatter"
+    if initial_group_by and initial_group_by not in group_options:
+        initial_group_by = ""
+
+    return (
+        y_options,
+        x_options,
+        group_options,
+        initial_y,
+        initial_x,
+        initial_chart_type,
+        initial_group_by,
+        initial_filters,
+    )
 
 
 def _parse_iso_date(value: Any) -> date | None:

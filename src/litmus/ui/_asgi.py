@@ -159,9 +159,6 @@ def _hold_serve_level_daemon_refs() -> None:
     uniform first-page latency. A first visit to /channels feels
     the same as a first visit to /results.
     """
-    import atexit
-    import signal
-    from collections.abc import Callable
     from pathlib import Path
 
     from litmus.data import duckdb_manager as _events_mgr
@@ -177,48 +174,18 @@ def _hold_serve_level_daemon_refs() -> None:
     events_dir.mkdir(parents=True, exist_ok=True)
     channels_dir.mkdir(parents=True, exist_ok=True)
 
-    releases: list[Callable[[], None]] = []
     try:
         _runs_mgr.acquire(runs_dir)
-        releases.append(lambda: _runs_mgr.release(runs_dir))
     except Exception as exc:  # noqa: BLE001 — best-effort eager acquire
         _log(f"[ASGI] runs daemon eager acquire failed: {exc}")
     try:
         _events_mgr.acquire(events_dir)
-        releases.append(lambda: _events_mgr.release(events_dir))
     except Exception as exc:  # noqa: BLE001
         _log(f"[ASGI] events daemon eager acquire failed: {exc}")
     try:
         _channels_mgr.acquire(channels_dir)
-        releases.append(lambda: _channels_mgr.release(channels_dir))
     except Exception as exc:  # noqa: BLE001
         _log(f"[ASGI] channels daemon eager acquire failed: {exc}")
-
-    def _drain() -> None:
-        # Pop in reverse-acquire order so release matches acquire
-        # ordering (predictable for debugging FileLock contention).
-        while releases:
-            try:
-                releases.pop()()
-            except Exception as exc:  # noqa: BLE001 — shutdown is best-effort
-                _log(f"[ASGI] daemon release failed (continuing): {exc}")
-
-    atexit.register(_drain)
-    # Uvicorn handles SIGINT/SIGTERM itself; this is belt-and-suspenders
-    # for direct invocation paths where signals aren't intercepted.
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            previous = signal.getsignal(sig)
-
-            def _on_signal(signum, frame, _previous=previous):  # noqa: ARG001
-                _drain()
-                if callable(_previous):
-                    _previous(signum, frame)
-
-            signal.signal(sig, _on_signal)
-        except (OSError, ValueError):
-            # Non-main thread or signal already claimed; atexit covers us.
-            pass
 
 
 if __name__ != "__mp_main__":

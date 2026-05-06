@@ -9,8 +9,6 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-from litmus.models.test_config import Limit
-
 
 def _utcnow() -> datetime:
     """Return current UTC datetime (timezone-aware)."""
@@ -208,6 +206,8 @@ class Measurement(BaseModel):
         * ``PASSED`` / ``FAILED`` — value evaluated against the
           reconstructed limit per its comparator.
         """
+        from litmus.models.test_config import Limit  # noqa: PLC0415
+
         if self.value is None:
             self.outcome = Outcome.ERRORED
             return self.outcome

@@ -1,5 +1,6 @@
-"""MCP server for AI-assisted test generation workflows."""
+"""MCP server for AI-assisted test generation workflows.
 
-from litmus.mcp.server import create_mcp_server
+Import directly from the submodule:
 
-__all__ = ["create_mcp_server"]
+    from litmus.mcp.server import create_mcp_server
+"""

@@ -44,6 +44,28 @@ def _safe_ident(name: str) -> str:
     return name
 
 
+_DYNAMIC_COL_PREFIXES: tuple[str, ...] = ("in_", "out_", "custom_")
+
+
+def _col_expr(col: str, cast_as: str = "DOUBLE") -> str:
+    """SQL expression for a column reference in parametric queries.
+
+    Fixed columns (``measurement_value``, ``run_started_at``, etc.) are
+    returned as validated bare identifiers. Dynamic columns
+    (``in_*``/``out_*``/``custom_*``) are MAP key lookups:
+    ``dynamic_attrs['key'][1]`` cast to the requested type.
+
+    ``cast_as='DOUBLE'`` for numeric Y/X axes. ``cast_as='VARCHAR'``
+    for string-typed use such as filtering ``WHERE in_mode = 'X'``
+    or grouping by a string input column.
+    """
+    _safe_ident(col)  # validate name is a bare identifier
+    if any(col.startswith(p) for p in _DYNAMIC_COL_PREFIXES):
+        safe_key = col.replace("'", "''")
+        return f"TRY_CAST(dynamic_attrs['{safe_key}'][1] AS {cast_as})"
+    return col
+
+
 def _filter_clauses(filters: FilterSet | None) -> list[str]:
     """Build SQL WHERE-clause fragments from a ``FilterSet``.
 
@@ -649,12 +671,23 @@ class MeasurementsQuery:
     # ------------------------------------------------------------------
 
     def describe_columns(self) -> list[dict[str, str]]:
-        """Return the measurements view's columns: ``[{name, type}, ...]``.
+        """Return the measurements schema: ``[{column_name, column_type}, ...]``.
 
-        Used by the parametric viewer UI to populate Y/X/group_by
-        dropdowns from real schema rather than a hardcoded list.
+        Returns fixed columns from ``measurements_persisted`` plus dynamic
+        column names discovered during ingest (from ``measurement_io_schema``).
+        Dynamic columns are reported as ``DOUBLE`` so the explore page's
+        classifier includes them as Y/X candidates; values are actually
+        ``VARCHAR`` in the MAP, with ``TRY_CAST`` applied at query time.
         """
-        return self._query_dicts("DESCRIBE measurements")
+        fixed = self._query_dicts(
+            "SELECT column_name, column_type"
+            " FROM (DESCRIBE measurements_persisted)"
+            " WHERE column_name NOT IN ('file_path', 'dynamic_attrs')"
+        )
+        dynamic = self._query_dicts(
+            "SELECT DISTINCT column_name, 'DOUBLE' AS column_type FROM measurement_io_schema"
+        )
+        return [*fixed, *dynamic]
 
     def parametric(
         self,
@@ -689,9 +722,9 @@ class MeasurementsQuery:
         semantic as the other public methods. UI live views pass
         ``True`` to plot in-flight values.
         """
-        y_col = _safe_ident(y)
-        x_col = _safe_ident(x) if chart_type != "histogram" else None
-        group_col = _safe_ident(group_by) if group_by else None
+        y_col = _col_expr(y)
+        x_col = _col_expr(x) if chart_type != "histogram" else None
+        group_col = _col_expr(group_by, "VARCHAR") if group_by else None
 
         clauses = [f"{y_col} IS NOT NULL"]
         if x_col is not None:
@@ -817,3 +850,15 @@ class MeasurementsQuery:
                 distinct_products=0,
             )
         return SummaryCounts(**rows[0])
+
+    def backfill_status(self) -> dict[str, int]:
+        """Return measurement index backfill progress.
+
+        Returns ``{"total": N, "completed": M}``. When ``completed == total``
+        (or both are 0), the index is fully built. When ``completed < total``,
+        the daemon is still building the index in the background.
+        """
+        rows = self._query_dicts("SELECT total, completed FROM _meas_backfill_status LIMIT 1")
+        if not rows:
+            return {"total": 0, "completed": 0}
+        return {"total": rows[0].get("total", 0), "completed": rows[0].get("completed", 0)}

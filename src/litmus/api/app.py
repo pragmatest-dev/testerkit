@@ -433,7 +433,7 @@ def create_api_router() -> APIRouter:
     @router.get("/products")
     def list_products():
         """List all available product specifications."""
-        from litmus.matching import list_products_summary
+        from litmus.matching.service import list_products_summary
 
         products = list_products_summary()
         return {"products": products}

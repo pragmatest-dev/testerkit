@@ -185,22 +185,49 @@ class RunStore:
     def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict[str, Any]]:
         """Get all measurements for a specific test run.
 
-        _file: bypass index lookup and read directly from this path (testing/internal use).
+        Goes through the daemon's ``measurements`` view (a parquet glob
+        with ``union_by_name=true``) instead of reading the parquet file
+        directly — DuckDB does the multi-file scan in C++ with predicate
+        pushdown on ``run_id`` and avoids client-side parquet decoding.
+
+        ``_file`` is no longer honored (was a test-only escape hatch);
+        callers should pass ``run_id`` and trust the daemon to find the
+        rows. Kept in the signature for backwards-compat at the call
+        sites that pass it as keyword.
         """
-        if _file:
-            pq_file = Path(_file)
-        else:
-            pq_file = self.find_run_file(run_id)
-
-        if pq_file is None or not pq_file.exists():
-            return []
-
+        _ = _file  # ignore — daemon resolves run_id directly
+        prefix = self._id_prefix(run_id)
         try:
-            table = pq.read_table(pq_file)
-            return table.to_pylist()
+            rows = self._flight_query(f"""
+                SELECT *
+                FROM measurements
+                WHERE run_id LIKE '{_sql_escape(prefix)}%'
+                ORDER BY step_index, measurement_name
+            """)
         except Exception as exc:
-            logger.debug("Failed to read measurements from %s: %s", pq_file, exc)
+            logger.debug("Failed to query measurements for %s: %s", run_id, exc)
             return []
+        # Expand dynamic_attrs MAP into top-level keys so callers can access
+        # dynamic columns (out_*, in_*, value, units, etc.) as regular dict keys.
+        # DuckDB MAP(VARCHAR,VARCHAR) arrives from Arrow as a list of (key, value)
+        # tuples rather than a Python dict. Numeric strings are coerced to float
+        # for backwards compatibility with callers expecting native types.
+        for row in rows:
+            da = row.pop("dynamic_attrs", None)
+            if not da:
+                continue
+            items = da.items() if isinstance(da, dict) else da
+            for k, v in items:
+                if k is None:
+                    continue
+                if isinstance(v, str):
+                    try:
+                        row[k] = float(v)
+                    except ValueError:
+                        row[k] = v
+                else:
+                    row[k] = v
+        return rows
 
     # --- Ref management (for materialize) ---
 
@@ -312,9 +339,15 @@ class RunStore:
             client = self._flight.get_client()
             descriptor = flight.FlightDescriptor.for_command(b"runs\0runs")
             table = pa.table({"file_path": paths})
-            writer, _ = client.do_put(descriptor, table.schema)
-            for batch in table.to_batches():
+            batches = table.to_batches()
+            writer, reader = client.do_put(descriptor, table.schema)
+            for batch in batches:
                 writer.write_batch(batch)
+            # Drain ACKs — each ACK confirms the server committed one batch,
+            # so by the time the last ACK arrives the daemon has fully ingested
+            # the file into all index tables including measurements_persisted.
+            for _ in batches:
+                reader.read()
             writer.close()
         except Exception:
             logger.debug("Failed to notify runs daemon of new run %s", parquet_path, exc_info=True)

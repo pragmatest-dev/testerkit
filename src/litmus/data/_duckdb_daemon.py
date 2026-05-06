@@ -125,69 +125,46 @@ _EVENTS_COLUMNS: tuple[tuple[str, str], ...] = (
 # ── Background ingest ────────────────────────────────────────────────
 
 
-def _ingest_ipc_files(index_path: Path, events_dir: Path) -> None:
+def _ingest_ipc_files(
+    conn: duckdb.DuckDBPyConnection,
+    events_dir: Path,
+    lock: threading.Lock,
+) -> None:
     """Background thread: ingest new/changed IPC files into the events index.
 
-    Uses a single batched anti-join against _ingested (O(1) round trips
-    regardless of file count). Opens its own connection so the Flight
-    server's connection is never blocked by bulk ingest I/O.
+    Uses the daemon's main DuckDB connection — protected by ``lock`` —
+    for the same reason the runs daemon does: a single connection +
+    single lock eliminates the catalog-lock deadlock that two-connection
+    ingest exposes under GIL contention. Per-file ingest releases the
+    lock between files so Flight queries can interleave.
     """
-    conn = duckdb.connect(str(index_path))
-    try:
-        disk_entries: list[tuple[str, float, int, os.stat_result]] = []
-        for fpath in sorted(events_dir.glob("*/*.arrow")):
-            try:
-                stat = fpath.stat()
-                disk_entries.append((str(fpath), stat.st_mtime, stat.st_size, stat))
-            except OSError:
-                continue
-
-        if not disk_entries:
-            return
-
-        disk_table = pa.table(
-            {
-                "path": [e[0] for e in disk_entries],
-                "mtime": pa.array([e[1] for e in disk_entries], type=pa.float64()),
-                "size": pa.array([e[2] for e in disk_entries], type=pa.int64()),
-            }
-        )
-        conn.register("_disk_snapshot", disk_table)
-
-        # Skip files already in ``_ingested`` at this exact (mtime,
-        # size) regardless of status — quarantined files stay
-        # quarantined unless re-written.
-        needs_ingest = conn.execute("""
-            SELECT d.path
-            FROM _disk_snapshot d
-            LEFT JOIN _ingested i
-                ON d.path = i.path
-               AND d.mtime = i.mtime
-               AND d.size = i.size
-            WHERE i.path IS NULL
-        """).fetchall()
-
-        stat_map = {e[0]: e[3] for e in disk_entries}
-        for (path_str,) in needs_ingest:
-            stat = stat_map.get(path_str)
-            if stat is None:
-                continue
-            try:
-                _ingest_one_file(conn, Path(path_str), stat)
-            except Exception as exc:  # noqa: BLE001
-                # Belt-and-suspenders: ``_ingest_one_file`` already
-                # quarantines known bad-data classes, but anything
-                # unexpected (e.g. transient FS error) must not kill
-                # the ingest thread — that would silently stop ALL
-                # future event indexing for the daemon's lifetime.
-                warnings.warn(f"Ingest skipped {path_str}: {exc}", stacklevel=2)
-
-        conn.unregister("_disk_snapshot")
-    finally:
+    disk_entries: list[tuple[str, float, int, os.stat_result]] = []
+    for fpath in sorted(events_dir.glob("*/*.arrow")):
         try:
-            conn.close()
-        except Exception as exc:  # noqa: BLE001 — cleanup: best-effort conn close
-            warnings.warn(f"Ingest connection close failed: {exc}", stacklevel=2)
+            stat = fpath.stat()
+            disk_entries.append((str(fpath), stat.st_mtime, stat.st_size, stat))
+        except OSError:
+            continue
+
+    if not disk_entries:
+        return
+
+    with lock:
+        ingested_keys: set[tuple[str, float, int]] = {
+            (row[0], row[1], row[2])
+            for row in conn.execute("SELECT path, mtime, size FROM _ingested").fetchall()
+        }
+    stat_map = {e[0]: e[3] for e in disk_entries}
+    needs_ingest = [e[0] for e in disk_entries if (e[0], e[1], e[2]) not in ingested_keys]
+    for path_str in needs_ingest:
+        stat = stat_map.get(path_str)
+        if stat is None:
+            continue
+        try:
+            with lock:
+                _ingest_one_file(conn, Path(path_str), stat)
+        except Exception as exc:  # noqa: BLE001
+            warnings.warn(f"Ingest skipped {path_str}: {exc}", stacklevel=2)
 
 
 def _ingest_one_file(
@@ -256,8 +233,12 @@ def daemon_run(events_dir: Path) -> None:
     index_path = events_dir / "_index.duckdb"
     conn = _open_index(index_path)
 
+    # Single shared lock for all DuckDB ops on this connection.
+    write_lock = threading.Lock()
+
     def _events_put_hook(table: pa.Table) -> None:
         # Tuple-bind path: safe with large strings (register+INSERT segfaults).
+        # Already runs under the Flight server's lock (= write_lock).
         rows = _table_to_rows(table)
         conn.executemany(_INSERT_SQL, rows)
 
@@ -269,12 +250,13 @@ def daemon_run(events_dir: Path) -> None:
         put_hook=_events_put_hook,
         port_file_name="_duckdb_flight_port",
         thread_name="duckdb-flight",
+        lock=write_lock,
     )
 
     # Ingest IPC files that aren't yet in the index via a background thread.
     threading.Thread(
         target=_ingest_ipc_files,
-        args=(index_path, events_dir),
+        args=(conn, events_dir, write_lock),
         daemon=True,
         name="duckdb-ingest",
     ).start()

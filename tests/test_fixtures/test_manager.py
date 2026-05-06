@@ -3,7 +3,7 @@
 import pytest
 
 from litmus.fixtures.manager import FixtureManager, PinAccessor
-from litmus.instruments import Mock
+from litmus.instruments.mocks import Mock
 from litmus.models.test_config import FixtureConfig, FixtureConnection
 
 

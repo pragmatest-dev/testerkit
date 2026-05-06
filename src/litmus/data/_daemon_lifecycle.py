@@ -151,25 +151,10 @@ class DaemonManager:
         self._register_cleanup()
 
     def release(self) -> None:
-        """Release our reference to the daemon."""
-        lock = FileLock(self._dir / self._lock_name, timeout=10)
-        state = self._dir / self._state_name
-
-        with lock:
-            if not state.exists():
-                return
-            try:
-                data = json.loads(state.read_text())
-                refs: list[int] = data.get("refs", [])
-                my_pid = os.getpid()
-                refs = [p for p in refs if p != my_pid]
-                data["refs"] = refs
-                state.write_text(json.dumps(data))
-            except (json.JSONDecodeError, OSError, TypeError) as exc:
-                warnings.warn(
-                    f"Failed to release daemon ref: {exc}",
-                    stacklevel=2,
-                )
+        """No-op. The daemon prunes dead client PIDs itself via
+        monitor_refs() every poll cycle — no blocking lock needed on
+        the caller's exit path. Ctrl+C on ``litmus serve`` is instant."""
+        return
 
     def read_state(self) -> dict:
         """Read the current state file. Returns empty dict if missing."""
@@ -407,28 +392,6 @@ class DaemonManager:
 
         atexit.register(_cleanup)
 
-        def _signal_handler(signum: int, frame: object) -> None:
-            """Release the daemon ref, then raise ``KeyboardInterrupt``.
-
-            The previous shape called ``os.kill(getpid(), signum)`` after
-            resetting the handler to ``SIG_DFL`` — which terminates the
-            process immediately and skips any caller-side teardown
-            (fixture finalizers, ``logger.finalize()``, parquet flush).
-            That left every operator-stop landing as ``aborted`` instead
-            of ``terminated``.
-
-            Raising ``KeyboardInterrupt`` lets pytest's runner catch it
-            via ``pytest_keyboard_interrupt`` and run the full teardown
-            chain (instruments → safe state, RunEnded → parquet). Non-
-            pytest callers see the same ``KeyboardInterrupt`` they'd see
-            from a Ctrl-C; if uncaught, the interpreter exits cleanly.
-            """
-            _ = signum, frame
-            _cleanup()
-            raise KeyboardInterrupt
-
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            try:
-                signal.signal(sig, _signal_handler)
-            except (OSError, ValueError):
-                pass  # can't set signal handlers outside main thread
+        # No signal handlers — release() is a no-op so there is nothing
+        # to do on SIGINT/SIGTERM. pytest and uvicorn both manage their
+        # own signal handling; installing a handler here only interferes.

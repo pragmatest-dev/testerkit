@@ -159,27 +159,26 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
 
 
 def _load_extras_from_parquet(run_id: str, results_dir: str) -> dict[str, str]:
-    """Sniff report-only fields from the first measurement parquet row.
+    """Sniff report-only fields from the first measurement row.
 
     The runs table doesn't denormalize every column STEP_SCHEMA carries
-    (``dut_revision``, ``product_name``, ``git_commit``, …). For runs
-    that wrote a measurements parquet, we read its first row to fill
-    in those report fields. Returns empty dict for measurement-less
-    runs.
+    (``dut_revision``, ``product_name``, ``git_commit``, …). Query the
+    daemon's ``measurements`` view (parquet glob with ``union_by_name``)
+    for one row matching this run; predicate pushdown on ``run_id``
+    finds it without reading other files. Returns empty dict for
+    measurement-less runs.
     """
-    import pyarrow.parquet as pq
+    from pathlib import Path
 
-    from litmus.data.backends.parquet import ParquetBackend
+    from litmus.data.run_store import RunStore
 
-    backend = ParquetBackend(results_dir=results_dir)
-    parquet_path = backend.find_run_file(run_id)
-    if parquet_path is None:
-        return {}
+    store = RunStore(_results_dir=Path(results_dir))
     try:
-        table = pq.read_table(parquet_path)
-        rows = table.to_pylist()
-    except Exception:  # noqa: BLE001 — extras are optional; missing file is fine
+        rows = store.get_measurements(run_id)
+    except Exception:  # noqa: BLE001 — extras are optional; daemon unavailable is fine
         return {}
+    finally:
+        store.close()
     if not rows:
         return {}
     first = rows[0]

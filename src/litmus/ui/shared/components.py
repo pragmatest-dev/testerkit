@@ -5,6 +5,7 @@ This module contains shared UI components used across pages.
 
 from __future__ import annotations
 
+import inspect
 import re
 from collections.abc import Callable
 from datetime import datetime
@@ -374,6 +375,17 @@ def render_empty_card(container: Any, title: str, message: str) -> None:
             ui.label(message).classes("text-slate-500 italic")
 
 
+def render_skeleton(container: Any, height: str = "h-32") -> None:
+    """Drop a Tailwind-pulse skeleton into container.
+
+    Call before issuing any data fetch so the user sees the layout
+    shape immediately. Caller clears + replaces when real data lands.
+    """
+    container.clear()
+    with container, ui.card().classes("w-full"), ui.card_section():
+        ui.element("div").classes(f"animate-pulse bg-slate-200 rounded {height} w-full")
+
+
 # Sentinel values that mean "no filter active" — these never get
 # written to the URL even when the widget holds them.
 _URL_STATE_OMIT_VALUES: tuple[Any, ...] = (None, "", "(any)", "All", 0, "0")
@@ -382,7 +394,7 @@ _URL_STATE_OMIT_VALUES: tuple[Any, ...] = (None, "", "(any)", "All", 0, "0")
 def subscribe_with_refresh(
     event_store: Any,
     event_types: list[str],
-    refresh: Callable[[], None],
+    refresh: Callable[[], Any],
     *,
     debounce_seconds: float = 0.25,
 ) -> Callable[[], None]:
@@ -411,10 +423,22 @@ def subscribe_with_refresh(
         Unsubscribe callable. The page should call it on disconnect
         to release the subscriptions and the pending timer.
     """
-    import asyncio as _asyncio
+    import asyncio as _asyncio  # used by loop.call_later in _on_event
     import time as _time
 
     from litmus.ui.shared.event_binding import ui_subscribe
+
+    # Capture the NiceGUI client at subscription time (inside the page handler).
+    # Used to restore slot context when scheduling async refresh from background
+    # threads (EventStore callbacks). Without this, ui.run_javascript raises
+    # "slot stack is empty" because ensure_future creates a context-free Task.
+    _client: Any = None
+    try:
+        from nicegui import context as _ctx
+
+        _client = _ctx.client
+    except RuntimeError:
+        pass
 
     state: dict[str, Any] = {"last_run": 0.0, "pending": False}
     loop = _asyncio.get_event_loop()
@@ -423,7 +447,22 @@ def subscribe_with_refresh(
         state["pending"] = False
         state["last_run"] = _time.monotonic()
         try:
-            refresh()
+            if inspect.iscoroutinefunction(refresh):
+                if _client is not None:
+                    # Wrap in captured client context so ui.run_javascript works.
+                    # call_soon_threadsafe is safe from both event-loop and
+                    # background-thread callers.
+                    async def _in_ctx() -> None:
+                        with _client:
+                            await refresh()
+
+                    loop.call_soon_threadsafe(lambda: _asyncio.ensure_future(_in_ctx()))
+                else:
+                    # No NiceGUI context (tests, CLI). Best-effort schedule.
+                    loop.call_soon_threadsafe(lambda: _asyncio.ensure_future(refresh()))
+            else:
+                # Sync refresh: call directly.
+                refresh()
         except Exception:  # noqa: BLE001 — never let a broken refresh kill the subscription
             pass
 
@@ -452,17 +491,18 @@ def subscribe_with_refresh(
             except Exception:  # noqa: BLE001
                 pass
 
-    # Auto-unsubscribe when the browser tab closes so the debounce
-    # timer doesn't keep firing refresh() into a deleted client.
+    # Auto-unsubscribe when this client (page) disconnects — fires on
+    # tab close AND on internal navigation away from the page (after
+    # reconnect_timeout). Without this, every page navigation leaks
+    # event subscribers; over a session, each event fires N stale
+    # callbacks pointing at deleted UI elements.
     # Only registers if called from inside a NiceGUI page handler;
     # in tests / non-UI contexts the cleanup callable is the
     # caller's responsibility.
     try:
-        from nicegui import app as _app
         from nicegui import context as _ctx
 
-        current_client_id = _ctx.client.id
-        _app.on_disconnect(lambda c: _cleanup() if c.id == current_client_id else None)
+        _ctx.client.on_disconnect(_cleanup)
     except RuntimeError:
         # No client context (test, background thread, etc.). Caller
         # uses the returned _cleanup directly.
@@ -475,7 +515,7 @@ def multi_select_filter(
     label: str,
     options: list[str] | dict[str, str],
     value: list[str] | str | None,
-    on_change: Callable[[list[str]], None],
+    on_change: Callable[[list[str]], Any],
     *,
     placeholder: str = "All",
     classes: str = "w-56",

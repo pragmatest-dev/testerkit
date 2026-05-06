@@ -130,10 +130,21 @@ class DuckDBFlightServer(flight.FlightServerBase):
     Server sends a metadata ack after each batch is committed.
     """
 
-    def __init__(self, location: str = "grpc://127.0.0.1:0") -> None:
+    def __init__(
+        self,
+        location: str = "grpc://127.0.0.1:0",
+        *,
+        lock: threading.Lock | None = None,
+    ) -> None:
         super().__init__(location)
         self._databases: dict[str, duckdb.DuckDBPyConnection] = {}
-        self._lock = threading.Lock()
+        # Optional shared lock — when provided, the daemon's background
+        # ingest thread can use the same lock to serialize all DuckDB
+        # access on the daemon's main connection. Without this, a
+        # background thread opening its own connection deadlocks
+        # against the Flight server's pre_query_hook on DuckDB's
+        # global catalog lock under GIL contention.
+        self._lock = lock if lock is not None else threading.Lock()
         self._put_hooks: dict[str, Callable[[pa.Table], None]] = {}
         self._pre_query_hooks: dict[str, Callable[[duckdb.DuckDBPyConnection], None]] = {}
 
@@ -262,6 +273,7 @@ def start_flight_server_in_daemon(
     thread_name: str,
     pre_ready: Callable[[], None] | None = None,
     pre_query_hook: Callable[[duckdb.DuckDBPyConnection], None] | None = None,
+    lock: threading.Lock | None = None,
 ) -> tuple[DuckDBFlightServer, Path, str]:
     """Start a DuckDBFlightServer inside a daemon process, signal ready.
 
@@ -283,7 +295,7 @@ def start_flight_server_in_daemon(
     responsible for ``server.shutdown()`` and ``port_file.unlink``
     on teardown — see :func:`shutdown_flight_server_in_daemon`.
     """
-    server = DuckDBFlightServer("grpc://127.0.0.1:0")
+    server = DuckDBFlightServer("grpc://127.0.0.1:0", lock=lock)
     server.register(db_name, conn)
     if put_hook is not None:
         server.register_put_hook(db_name, put_hook)

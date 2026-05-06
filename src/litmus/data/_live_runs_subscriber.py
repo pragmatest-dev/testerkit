@@ -212,6 +212,11 @@ class LiveRunsSubscriber:
         self._unsubscribe: Callable[[], None] | None = None
         self._attach_thread: threading.Thread | None = None
         self._sweep_thread: threading.Thread | None = None
+        # Dirty flag — set when an event lands in the pool. ``refresh``
+        # only re-registers the inflight Arrow tables when the flag is
+        # set, eliminating the per-query ``conn.register()`` cost
+        # (~280ms) when nothing has changed.
+        self._dirty = True  # initial register required so views resolve
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -239,20 +244,29 @@ class LiveRunsSubscriber:
     # -- Read path — runs daemon's pre-query hook --------------------------
 
     def refresh(self, conn: duckdb.DuckDBPyConnection) -> None:
-        """Re-bind ``inflight_runs`` / ``inflight_steps`` to the pool snapshot.
+        """Re-bind ``inflight_runs`` / ``inflight_steps`` IF the pool changed.
 
-        Flight server's pre-query hook calls this on every
-        ``do_get`` so the UNION views see a current snapshot.
-        ``conn.register("name", arrow_table)`` is **read-only on
-        DuckDB's side** — pure metadata; no WAL write, no commit,
-        no lock contention with the ingest thread. The previous
-        implementation did DELETE+INSERT into TEMP tables on every
-        read, which serialized all queries behind any concurrent
-        ingest write and wedged the daemon at ~60 % CPU.
+        Flight server's pre-query hook calls this on every ``do_get``.
+        ``self._dirty`` is set by ``_on_event`` whenever the
+        AccumulatorPool absorbs an event (RunStarted/RunEnded/etc.),
+        and is cleared here after a successful re-register. Steady
+        state with no in-flight runs: ``_dirty`` stays False, zero
+        ``conn.register()`` calls, pre_query_hook ≈ 0ms.
 
-        Empty pool → register the schema-only sentinels so the
-        UNION views stay resolvable.
+        ``self._dirty`` is set by ``_on_event`` whenever the
+        AccumulatorPool absorbs an event (RunStarted/RunEnded/etc.),
+        and is cleared here after a successful re-register. Steady
+        state with no in-flight runs: zero ``conn.register()`` calls,
+        pre_query_hook ≈ 0ms.
+
+        Initial value of ``self._dirty`` is ``True`` so the first
+        query after daemon startup gets a real register (the
+        ``register_empty_inflight`` call at startup creates the
+        sentinels; this hook keeps them current).
         """
+        if not self._dirty:
+            return
+
         run_rows = self._pool.snapshot_run_rows()
         if run_rows:
             conn.register(
@@ -270,6 +284,8 @@ class LiveRunsSubscriber:
             )
         else:
             conn.register("inflight_steps", _EMPTY_INFLIGHT_STEPS)
+
+        self._dirty = False
 
     # -- Internals ----------------------------------------------------------
 
@@ -308,6 +324,10 @@ class LiveRunsSubscriber:
         """Route one event into the pool. Best-effort; never propagate."""
         try:
             self._pool.dispatch(evt)
+            # Mark inflight snapshot dirty so the next pre_query_hook
+            # re-registers the Arrow tables. Steady-state queries with
+            # no in-flight events skip the conn.register() cost entirely.
+            self._dirty = True
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "LiveRunsSubscriber pool dispatch failed for %s: %s",

@@ -30,7 +30,7 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
-from litmus.data.backends.parquet import EventAccumulator
+from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,

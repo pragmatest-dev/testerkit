@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from nicegui import ui
+from nicegui import run, ui
 
 from litmus.data.models import RunSummary
 from litmus.ui.components.artifact_viewer import list_artifacts, render_artifact_buttons
@@ -11,6 +11,7 @@ from litmus.ui.shared.components import (
     format_datetime,
     info_field,
     page_layout,
+    render_skeleton,
 )
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
@@ -22,25 +23,36 @@ from litmus.ui.shared.services import (
 
 
 @ui.page("/results/{run_id}")
-def result_detail_page(run_id: str):
-    """Single result detail page with tabbed interface."""
-    run, steps, measurements = get_run_detail(run_id)
+async def result_detail_page(run_id: str):
+    """Single result detail page with tabbed interface.
 
-    if run:
-        create_layout(f"Run {(run.test_run_id or '')[:8]}")
-    else:
-        create_layout("Run Not Found")
+    Page handler shows a skeleton immediately, fetches core data off
+    the event loop via run.io_bound, then renders the full structure.
+    Timeline and DUT History tabs load lazily on first activation.
+    """
+    create_layout(f"Run {run_id[:8]}")
 
     with page_layout(gap="gap-3"):
-        if run:
-            _render_run_detail(run_id, run, steps, measurements)
+        # Skeleton — visible immediately while core data is fetching.
+        loading_container = ui.column().classes("w-full gap-3")
+        with loading_container:
+            ui.card().classes("w-full h-20 animate-pulse bg-slate-200 rounded")
+            ui.card().classes("w-full h-48 animate-pulse bg-slate-200 rounded")
+
+        # Fetch run + steps + measurements off the event loop.
+        run_obj, steps, measurements = await run.io_bound(get_run_detail, run_id)
+
+        loading_container.delete()
+
+        if run_obj:
+            _render_run_detail(run_id, run_obj, steps, measurements)
         else:
             _render_not_found()
 
 
-def _render_run_detail(run_id: str, run: RunSummary, steps: list, measurements: list):
-    """Render the run detail view."""
-    run_outcome = run.outcome or ""
+def _render_run_detail(run_id: str, run_obj: RunSummary, steps: list, measurements: list) -> None:
+    """Render the run detail view with lazy-loaded Timeline and DUT History tabs."""
+    run_outcome = run_obj.outcome or ""
 
     stats = aggregate_run_stats(steps, measurements)
     total_measurements = stats["total_measurements"]
@@ -49,8 +61,7 @@ def _render_run_detail(run_id: str, run: RunSummary, steps: list, measurements: 
     total_steps = stats["total_steps"]
     failed_steps = stats["failed_steps"]
 
-    # Summary card — sticky so it stays pinned when the active tab's
-    # table scrolls. ``z-10`` keeps it above scrolled rows.
+    # Summary card — sticky header
     with ui.card().classes("w-full sticky top-0 z-10"):
         with ui.card_section().classes("py-2 px-3"):
             with ui.row().classes("items-center justify-between w-full"):
@@ -77,26 +88,17 @@ def _render_run_detail(run_id: str, run: RunSummary, steps: list, measurements: 
 
         with ui.card_section().classes("py-2 px-3"):
             with ui.row().classes("flex-wrap gap-x-10 gap-y-2 w-full"):
-                # Banner = the values that uniquely identify the
-                # artifact under test. Catalog ids (product_id,
-                # station_id) live in the Overview "Run Details"
-                # card so the banner stays scannable.
-                info_field("Part Number", run.dut_part_number or "")
-                info_field("Serial", run.dut_serial or "")
-                info_field("Hostname", run.station_hostname or "")
-                info_field("Project", run.project_name or "")
-                info_field("Started", format_datetime(run.started_at))
-                info_field("Ended", format_datetime(run.ended_at))
+                info_field("Part Number", run_obj.dut_part_number or "")
+                info_field("Serial", run_obj.dut_serial or "")
+                info_field("Hostname", run_obj.station_hostname or "")
+                info_field("Project", run_obj.project_name or "")
+                info_field("Started", format_datetime(run_obj.started_at))
+                info_field("Ended", format_datetime(run_obj.ended_at))
 
-    # Check if this is a multi-slot run (slot_id present in measurements)
     has_slots = any(m.get("slot_id") for m in measurements)
-    session_id = run.session_id
+    session_id = run_obj.session_id
 
-    # Tabbed content
-    # ``inline-label`` puts icon + label on one line (Quasar's default
-    # is stacked, which is bulky); ``no-caps`` keeps the labels in
-    # natural case; the ``q-tab`` size override shrinks the icon.
-    timeline_tab = None
+    timeline_tab: Any = None
     with ui.tabs().props("inline-label no-caps dense").classes("w-full") as tabs:
         overview_tab = ui.tab("Overview", icon="dashboard")
         steps_tab = ui.tab("Steps", icon="list_alt")
@@ -109,9 +111,10 @@ def _render_run_detail(run_id: str, run: RunSummary, steps: list, measurements: 
         ".q-tab { min-height: 32px !important; padding: 0 12px !important; }"
     )
 
-    # ``flex-1 min-h-0`` lets the tab-panels region absorb remaining
-    # vertical space so the inner table can be told ``h-full`` and
-    # actually have a finite height to scroll within.
+    # Per-lazy-tab containers — created in tab panels, filled by loaders below.
+    timeline_container: Any = None
+    history_container: Any = None
+
     with ui.tab_panels(tabs, value=overview_tab).classes("w-full flex-1 min-h-0") as tab_panels:
         with ui.tab_panel(overview_tab):
             _render_overview_tab(
@@ -133,22 +136,14 @@ def _render_run_detail(run_id: str, run: RunSummary, steps: list, measurements: 
         gantt_chart = None
         if has_slots and timeline_tab is not None and session_id:
             with ui.tab_panel(timeline_tab):
-                # Pull every step row across sibling runs in this session
-                # straight from the daemon's typed steps table.
-                session_steps = get_session_steps(session_id)
-                current_slot_id = next(
-                    (m.get("slot_id") for m in measurements if m.get("slot_id")),
-                    None,
-                )
-                gantt_chart = _render_timeline_tab(
-                    session_steps,
-                    current_slot_id=current_slot_id,
-                )
+                timeline_container = ui.column().classes("w-full")
+                render_skeleton(timeline_container, "h-64")
 
         with ui.tab_panel(history_tab):
-            _render_history_tab(run_id, run)
+            history_container = ui.column().classes("w-full")
+            render_skeleton(history_container, "h-32")
 
-    # ECharts in hidden tabs can't compute layout — resize on tab switch
+    # ECharts in hidden tabs need a resize on reveal.
     if gantt_chart is not None:
         chart_id = gantt_chart.id
         tabs.on_value_change(
@@ -157,6 +152,43 @@ def _render_run_detail(run_id: str, run: RunSummary, steps: list, measurements: 
                 f"if (el && el.chart) el.chart.resize(); }}, 100);"
             )
         )
+
+    # Lazy loaders for expensive secondary tabs. Each fires once when
+    # their tab is first activated; subsequent switches are instant.
+    timeline_loaded = {"done": False}
+    history_loaded = {"done": False}
+
+    async def _load_timeline() -> None:
+        if timeline_loaded["done"] or timeline_container is None or not session_id:
+            return
+        timeline_loaded["done"] = True
+        session_steps = await run.io_bound(get_session_steps, session_id)
+        current_slot_id = next((m.get("slot_id") for m in measurements if m.get("slot_id")), None)
+        nonlocal gantt_chart
+        gantt_chart = _render_timeline_tab(
+            timeline_container, session_steps, current_slot_id=current_slot_id
+        )
+
+    async def _load_history() -> None:
+        if history_loaded["done"] or history_container is None:
+            return
+        history_loaded["done"] = True
+        all_runs = await run.io_bound(list_all_runs, 100)
+        _render_history_tab(history_container, run_id, run_obj, all_runs)
+
+    async def _on_tab_change(_: Any) -> None:
+        active = str(tabs.value or "")
+        if active == "Execution Timeline":
+            await _load_timeline()
+        elif active == "DUT History":
+            await _load_history()
+
+    tabs.on_value_change(_on_tab_change)
+
+    # Pre-load History in the background so the first click feels instant.
+    # Timeline only loads if the tab exists and is explicitly activated
+    # (less common; save the round-trip until needed).
+    ui.timer(0.1, _load_history, once=True)
 
     ui.link("← Back to Results", "/results").classes("text-blue-600 hover:underline")
 
@@ -168,17 +200,10 @@ def _render_overview_tab(
     passed_meas: int,
     failed_meas: int,
     *,
-    on_show_steps,
-    on_show_measurements,
-):
-    """Render the overview tab — Test + Measurement stat cards side-by-side.
-
-    Cards are clickable: clicking the Test card jumps to the Steps
-    tab, clicking the Measurements card jumps to the Measurements
-    tab. The hover affordance plus the title link signals it.
-    """
+    on_show_steps: Any,
+    on_show_measurements: Any,
+) -> None:
     clickable = "cursor-pointer hover:shadow-md transition-shadow"
-
     with ui.row().classes("w-full gap-4 items-stretch"):
         with ui.card().classes(f"flex-1 {clickable}").on("click", lambda _: on_show_steps()):
             with ui.card_section():
@@ -209,22 +234,13 @@ def _render_overview_tab(
                         _stat_card(f"{pct}%", "Pass Rate", "text-blue-600")
 
 
-def _stat_card(value: str, label: str, color_class: str):
-    """Render a statistic card (delegates to the design-system primitive)."""
+def _stat_card(value: str, label: str, color_class: str) -> None:
     from litmus.ui.shared.components import stat_card
 
     stat_card(value, label, color_class)
 
 
-def _render_steps_tab(steps: list):
-    """Render the Steps tab — full step inventory in execution order.
-
-    Sources from the typed ``StepRow`` list returned by
-    ``StepsQuery.list_for_run`` so steps without measurements
-    (skipped, planned, setup-only) are still represented. Click a
-    step to expand its details. The Measurements tab next to this
-    one drills into actual measurement values.
-    """
+def _render_steps_tab(steps: list) -> None:
     if not steps:
         ui.label("No steps recorded.").classes("text-slate-500 italic")
         return
@@ -259,15 +275,10 @@ def _render_steps_tab(steps: list):
                 f"{len(steps)} steps in execution order — including skipped, "
                 "planned, and setup-only steps."
             ).classes("text-sm text-slate-500")
-        data_table(
-            columns=columns,
-            rows=rows,
-            row_key="step_index",
-        )
+        data_table(columns=columns, rows=rows, row_key="step_index")
 
 
-def _render_measurements_tab(run_id: str, measurements: list):
-    """Render the measurements tab."""
+def _render_measurements_tab(run_id: str, measurements: list) -> None:
     if not measurements:
         ui.label("No measurements recorded.").classes("text-slate-500 italic")
         return
@@ -296,11 +307,7 @@ def _render_measurements_tab(run_id: str, measurements: list):
             }
             for m in measurements
         ]
-        data_table(
-            columns=columns,
-            rows=rows,
-            row_key="name",
-        )
+        data_table(columns=columns, rows=rows, row_key="name")
 
     artifact_rows = [m for m in measurements if list_artifacts(m)]
     if artifact_rows:
@@ -316,55 +323,59 @@ def _render_measurements_tab(run_id: str, measurements: list):
                     render_artifact_buttons(run_id, m)
 
 
-def _render_history_tab(run_id: str, run: RunSummary):
-    """Render the DUT history tab."""
-    dut_serial = run.dut_serial or ""
-    all_runs = list_all_runs(limit=100)
+def _render_history_tab(
+    container: Any,
+    run_id: str,
+    run_obj: RunSummary,
+    all_runs: list,
+) -> None:
+    """Render DUT history from pre-fetched all_runs list."""
+    container.clear()
+    dut_serial = run_obj.dut_serial or ""
     dut_runs = [r for r in all_runs if r.dut_serial == dut_serial and r.test_run_id != run_id]
 
     if dut_runs:
-        ui.label(f"Other runs for DUT: {dut_serial}").classes("text-sm text-slate-500 mb-2")
-        columns = [
-            {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
-            {"name": "project", "label": "Project", "field": "project", "align": "left"},
-            {"name": "started", "label": "Started", "field": "started", "align": "left"},
-            {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
-        ]
-        rows = [
-            {
-                "run_id": (r.test_run_id or "")[:8],
-                "full_run_id": r.test_run_id or "",
-                "project": r.project_name or "",
-                "started": format_datetime(r.started_at),
-                "outcome": r.outcome or "",
-            }
-            for r in dut_runs[:10]
-        ]
-        data_table(
-            columns=columns,
-            rows=rows,
-            row_key="run_id",
-            on_row_click=lambda r: ui.navigate.to(f"/results/{r['full_run_id']}"),
-            time_columns=["started"],
-        )
+        with container:
+            ui.label(f"Other runs for DUT: {dut_serial}").classes("text-sm text-slate-500 mb-2")
+            columns = [
+                {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
+                {"name": "project", "label": "Project", "field": "project", "align": "left"},
+                {"name": "started", "label": "Started", "field": "started", "align": "left"},
+                {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
+            ]
+            rows = [
+                {
+                    "run_id": (r.test_run_id or "")[:8],
+                    "full_run_id": r.test_run_id or "",
+                    "project": r.project_name or "",
+                    "started": format_datetime(r.started_at),
+                    "outcome": r.outcome or "",
+                }
+                for r in dut_runs[:10]
+            ]
+            data_table(
+                columns=columns,
+                rows=rows,
+                row_key="run_id",
+                on_row_click=lambda r: ui.navigate.to(f"/results/{r['full_run_id']}"),
+                time_columns=["started"],
+            )
     else:
-        ui.label(f"No other runs found for DUT: {dut_serial}").classes("text-slate-500 italic")
+        with container:
+            ui.label(f"No other runs found for DUT: {dut_serial}").classes("text-slate-500 italic")
 
 
 def _render_timeline_tab(
-    steps,
+    container: Any,
+    steps: list,
     *,
     current_slot_id: str | None = None,
 ) -> Any:
-    """Render the execution timeline tab for multi-DUT runs.
-
-    ``steps`` is the typed ``list[StepRow]`` returned by
-    :func:`get_session_steps` — every step across the session's
-    sibling runs.
-    """
+    """Render execution timeline into container from pre-fetched steps."""
     from litmus.ui.components.execution_gantt import render_execution_gantt
 
-    with ui.card().classes("w-full"):
+    container.clear()
+    with container, ui.card().classes("w-full"):
         with ui.card_section():
             ui.label("Execution Timeline").classes("font-semibold")
             ui.label(
@@ -372,14 +383,10 @@ def _render_timeline_tab(
                 "This run's slot is highlighted."
             ).classes("text-sm text-slate-500")
         with ui.card_section().classes("w-full"):
-            return render_execution_gantt(
-                steps,
-                current_slot_id=current_slot_id,
-            )
+            return render_execution_gantt(steps, current_slot_id=current_slot_id)
 
 
-def _render_not_found():
-    """Render run not found message."""
+def _render_not_found() -> None:
     with ui.card().classes("w-full p-6 text-center"):
         ui.label("Run not found.").classes("text-xl text-slate-600")
         ui.link("← Back to Results", "/results").classes("text-blue-600 hover:underline")

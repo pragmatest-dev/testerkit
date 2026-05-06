@@ -22,11 +22,31 @@ from litmus.data.ref import classify_value, is_ref
 from litmus.environment import EnvironmentSnapshot
 
 try:
-    import numpy as np  # type: ignore[import-not-found]
+    import importlib.util as _ilu
 
-    HAS_NUMPY = True
-except ImportError:
+    HAS_NUMPY = _ilu.find_spec("numpy") is not None
+except Exception:
     HAS_NUMPY = False
+
+# Canonical list of instrument identity array column names.
+# Lives here (data layer) so the daemon and parquet backend can import it
+# without pulling in the execution framework.
+INSTRUMENT_ARRAY_KEYS: tuple[str, ...] = (
+    "step_instruments_name",
+    "step_instruments_id",
+    "step_instruments_driver",
+    "step_instruments_resource",
+    "step_instruments_protocol",
+    "step_instruments_manufacturer",
+    "step_instruments_model",
+    "step_instruments_serial",
+    "step_instruments_firmware",
+    "step_instruments_cal_due",
+    "step_instruments_cal_last",
+    "step_instruments_cal_certificate",
+    "step_instruments_cal_lab",
+    "step_instruments_mocked",
+)
 
 # Prefix for path references in output columns (legacy, use file:// URIs)
 REF_PATH_PREFIX = "_ref/"
@@ -457,8 +477,10 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
 
     elif isinstance(value, Waveform):
         if HAS_NUMPY:
+            import numpy as np  # noqa: PLC0415
+
             filename = f"{prefix}.npz"
-            np.savez(  # pyright: ignore[reportPossiblyUnboundVariable]
+            np.savez(
                 ref_dir / filename,
                 Y=value.Y,
                 t0=value.t0,
@@ -479,8 +501,10 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
 
     elif hasattr(value, "tolist"):
         if HAS_NUMPY:
+            import numpy as np  # noqa: PLC0415
+
             filename = f"{prefix}.npy"
-            np.save(ref_dir / filename, value)  # pyright: ignore[reportPossiblyUnboundVariable]
+            np.save(ref_dir / filename, value)
         else:
             filename = f"{prefix}.json"
             (ref_dir / filename).write_text(_json.dumps(value.tolist()))

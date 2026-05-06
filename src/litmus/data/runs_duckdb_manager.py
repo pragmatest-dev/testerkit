@@ -10,6 +10,7 @@ is rebuilt from parquet on every daemon start.
 from __future__ import annotations
 
 import time
+import warnings
 from pathlib import Path
 
 from litmus.data._daemon_lifecycle import DaemonManager
@@ -41,6 +42,11 @@ def acquire(runs_dir: Path) -> str:
     load on slow CI runners we've seen reuse hit a state file the
     daemon hasn't finished filling in yet — poll briefly so transient
     "missing location" cases don't fail the test.
+
+    After getting the location, a lightweight Flight connectivity probe
+    is attempted. If the Flight server isn't responding (e.g. the daemon
+    process is alive but its Flight thread crashed), the daemon is killed
+    and respawned so callers always get a working connection.
     """
     mgr = RunsDuckDBManager(runs_dir)
     mgr.acquire()
@@ -48,12 +54,53 @@ def acquire(runs_dir: Path) -> str:
     while True:
         location = mgr.read_state().get("location")
         if location:
-            return location
+            break
         if time.monotonic() >= deadline:
             raise RuntimeError(
                 f"runs DuckDB daemon started but no location in state after 5s: {runs_dir}"
             )
         time.sleep(0.05)
+
+    # Verify the Flight server is actually responding. The PID may be alive
+    # but the Flight thread may have crashed (e.g. port conflict, OOM).
+    # One cheap probe avoids leaving callers with a silent dead connection.
+    if not _flight_probe(location):
+        warnings.warn(
+            f"Runs daemon at {location} is not responding — killing and respawning.",
+            stacklevel=2,
+        )
+        from litmus.data._flight_query import _drop_pooled_client  # avoid circular at module level
+
+        _drop_pooled_client(location)
+        mgr.force_restart()
+        mgr.acquire()
+        deadline2 = time.monotonic() + 5.0
+        while True:
+            location = mgr.read_state().get("location")
+            if location:
+                break
+            if time.monotonic() >= deadline2:
+                raise RuntimeError(
+                    f"runs DuckDB daemon respawn did not produce a location within 5s: {runs_dir}"
+                )
+            time.sleep(0.05)
+
+    return location
+
+
+def _flight_probe(location: str) -> bool:
+    """Return True if the Flight server at ``location`` responds to a trivial query."""
+    try:
+        import pyarrow.flight as flight  # noqa: PLC0415
+
+        client = flight.connect(location)
+        try:
+            client.do_get(flight.Ticket(b"runs\x00SELECT 1")).read_all()
+            return True
+        finally:
+            client.close()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def release(runs_dir: Path) -> None:

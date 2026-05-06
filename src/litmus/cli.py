@@ -530,9 +530,10 @@ def serve(host: str, port: int, reload: bool):
             host=host,
             port=port,
             reload=True,
-            reload_dirs=[str(litmus_pkg), "."],
+            reload_dirs=[str(litmus_pkg)],
             reload_includes=["*.py", "*.yaml"],
             log_level="warning",
+            timeout_graceful_shutdown=2,
         )
     else:
         from nicegui import ui
@@ -540,7 +541,17 @@ def serve(host: str, port: int, reload: bool):
         from litmus.api.app import create_app
 
         create_app()
-        ui.run(host=host, port=port, reload=False, title="Litmus", favicon="⚡")
+        # ``timeout_graceful_shutdown=2`` makes Ctrl+C exit within ~2s
+        # even when WebSocket clients are still connected. Without it,
+        # uvicorn waits indefinitely for connections to close.
+        ui.run(
+            host=host,
+            port=port,
+            reload=False,
+            title="Litmus",
+            favicon="⚡",
+            timeout_graceful_shutdown=2,
+        )
 
 
 @main.command()
@@ -619,11 +630,11 @@ def show(
     """
     results_dir = _get_results_dir(results_dir)
 
-    from litmus.reports import load_run_data
+    from litmus.reports.core import load_run_data
 
     if fmt:
         # Report generation mode
-        from litmus.reports import generate_report
+        from litmus.reports.core import generate_report
 
         try:
             data = load_run_data(run_id, results_dir)

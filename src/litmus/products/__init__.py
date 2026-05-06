@@ -1,33 +1,8 @@
 """Product specification models.
 
-This module provides models for defining product characteristics and test
-requirements in a way that shares vocabulary with instrument capabilities.
+Import directly from the submodule:
+
+    from litmus.models.product import Product, Pin, PinRole
+    from litmus.products.context import ProductContext
+    from litmus.products.folder import ProductFolder
 """
-
-from litmus.models.product import (
-    Pin,
-    PinRole,
-    Product,
-    ProductCharacteristic,
-)
-from litmus.models.product_manifest import (
-    WORKFLOW_STEP_ORDER,
-    FileReferences,
-    ProductManifest,
-    WorkflowStep,
-)
-from litmus.products.context import ProductContext
-from litmus.products.folder import ProductFolder
-
-__all__ = [
-    "FileReferences",
-    "Pin",
-    "PinRole",
-    "Product",
-    "ProductCharacteristic",
-    "ProductFolder",
-    "ProductManifest",
-    "ProductContext",
-    "WORKFLOW_STEP_ORDER",
-    "WorkflowStep",
-]
