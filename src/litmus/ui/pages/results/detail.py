@@ -146,13 +146,16 @@ async def result_detail_page(run_id: str):
                     info_field("Hostname", run_obj.station_hostname or "")
                     info_field("Project", run_obj.project_name or "")
                     info_field("Started", format_datetime(run_obj.started_at))
-                    # bind_text_from: NiceGUI patches only the text node when
-                    # state["ended_text"] changes — no widget rebuild.
-                    with ui.column().classes("gap-0"):
-                        ui.label("Ended").classes("text-xs text-slate-500")
-                        ui.label().bind_text_from(state, "ended_text").classes(
-                            "text-sm font-medium"
-                        )
+                    # bind_content_from: NiceGUI patches only the HTML content
+                    # when state["ended_text"] changes — no widget rebuild.
+                    # ui.html (not ui.label) because format_datetime returns
+                    # a <span class="litmus-time"> wrapper for browser-local
+                    # time formatting; bind_text_from would escape it as text.
+                    with ui.column().classes("gap-1"):
+                        ui.label("Ended").classes("text-xs text-slate-500 uppercase")
+                        ui.html(content=state["ended_text"], sanitize=False).bind_content_from(
+                            state, "ended_text"
+                        ).classes("font-semibold")
 
         has_slots = any(m.get("slot_id") for m in measurements)
         session_id = run_obj.session_id
