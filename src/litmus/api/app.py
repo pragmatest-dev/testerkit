@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from litmus.api._mime import sniff_mime
 from litmus.api.models import DialogCreate, DialogRespondRequest, LaunchRequest, SaveRequest
-from litmus.api.schemas import CapabilitySummary, RequirementSummary, RunView, build_run_view
+from litmus.api.schemas import CapabilitySummary, RequirementSummary, RunView, load_run_view
 from litmus.data.backends.parquet import ParquetBackend, is_file_reference, load_ref
 from litmus.data.models import Waveform
 
@@ -108,10 +108,15 @@ def create_api_router() -> APIRouter:
     results_dir: Path | None = Path(project.results_dir) if project.results_dir else None
     backend = ParquetBackend(results_dir=results_dir)
 
-    def _metrics_store():
-        from litmus.analysis.metrics_store import MetricsStore
+    def _measurements_query():
+        from litmus.analysis.measurements_query import MeasurementsQuery
 
-        return MetricsStore(_results_dir=results_dir)
+        return MeasurementsQuery(_results_dir=results_dir)
+
+    def _steps_query():
+        from litmus.analysis.steps_query import StepsQuery
+
+        return StepsQuery(_results_dir=results_dir)
 
     # -------------------------------------------------------------------------
     # Runs
@@ -120,20 +125,21 @@ def create_api_router() -> APIRouter:
     @router.get("/runs", response_class=ORJSONResponse)
     def list_runs(limit: int = 50):
         """List recent test runs."""
-        runs = backend.list_runs(limit=limit)
-        return {"runs": [r.model_dump(exclude={"file_path"}) for r in runs]}
+        from litmus.analysis.runs_query import RunsQuery
+
+        q = RunsQuery(_results_dir=results_dir)
+        try:
+            rows = q.list_recent(limit=limit)
+        finally:
+            q.close()
+        return {"runs": [r.model_dump(exclude={"file_path", "steps_file_path"}) for r in rows]}
 
     @router.get("/runs/{run_id}", response_model=RunView, response_class=ORJSONResponse)
     def get_run(run_id: str):
         """Get a specific test run with steps, instruments, and measurements."""
-        run = backend.get_run(run_id)
-        if not run:
+        view = load_run_view(run_id, results_dir=results_dir)
+        if view is None:
             raise HTTPException(status_code=404, detail="Run not found")
-        rows = backend.get_measurements(run_id)
-        view = build_run_view(rows)
-        # Backfill outcome from RunSummary if not present in measurements
-        if view.outcome is None:
-            view.outcome = run.outcome
         return view
 
     @router.get("/runs/{run_id}/measurements", response_class=ORJSONResponse)
@@ -143,6 +149,30 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=404, detail="Run not found")
         measurements = backend.get_measurements(run_id)
         return {"measurements": measurements}
+
+    @router.get("/runs/{run_id}/steps", response_class=ORJSONResponse)
+    def get_steps(run_id: str):
+        """List steps for a run, ordered by step_index."""
+        q = _steps_query()
+        try:
+            rows = q.list_for_run(run_id)
+        finally:
+            q.close()
+        if not rows:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return {"steps": [r.model_dump(mode="json") for r in rows]}
+
+    @router.get("/runs/{run_id}/steps/tree", response_class=ORJSONResponse)
+    def get_steps_tree(run_id: str):
+        """Hierarchical step tree built from ``step_path``."""
+        q = _steps_query()
+        try:
+            tree = q.tree_for_run(run_id)
+        finally:
+            q.close()
+        if not tree:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return {"tree": [n.model_dump(mode="json") for n in tree]}
 
     @router.get("/runs/{run_id}/ref")
     def get_ref(run_id: str, uri: str):
@@ -174,8 +204,8 @@ def create_api_router() -> APIRouter:
 
             from litmus.data.channels.store import ChannelStore
 
-            channels_dir = (results_dir / "channels") if results_dir else Path("results/channels")
-            channel_store = ChannelStore(channels_dir, uuid4())
+            parent = results_dir if results_dir else Path("results")
+            channel_store = ChannelStore(parent, uuid4())
 
         try:
             result = load_ref(uri, parquet_path=parquet_path, channel_store=channel_store)
@@ -362,6 +392,18 @@ def create_api_router() -> APIRouter:
 
         return channels_list_query(results_dir=results_dir)
 
+    @router.get("/channels/_recent", response_class=ORJSONResponse)
+    def list_channels_recent(last_n: int = 50):
+        """Channel registry + recent samples per channel.
+
+        Used by the operator UI to render sparkline cells and live-
+        updated latest values. ``last_n`` caps the per-channel sample
+        count returned (default 50 — enough for a sparkline trace).
+        """
+        from litmus.mcp.tools import channels_recent_query
+
+        return channels_recent_query(last_n=last_n, results_dir=results_dir)
+
     @router.get("/channels/{channel_id}", response_class=ORJSONResponse)
     def get_channel_data(
         channel_id: str,
@@ -391,7 +433,7 @@ def create_api_router() -> APIRouter:
     @router.get("/products")
     def list_products():
         """List all available product specifications."""
-        from litmus.matching import list_products_summary
+        from litmus.matching.service import list_products_summary
 
         products = list_products_summary()
         return {"products": products}
@@ -567,7 +609,7 @@ def create_api_router() -> APIRouter:
     ):
         """Yield summary — DuckDB SQL aggregated from parquet rows at request time."""
         return {
-            "data": _metrics_store().yield_summary(
+            "data": _measurements_query().yield_summary(
                 product=product,
                 station=station,
                 phase=phase,
@@ -588,7 +630,7 @@ def create_api_router() -> APIRouter:
     ):
         """Top failure modes (DuckDB SQL)."""
         return {
-            "data": _metrics_store().pareto(
+            "data": _measurements_query().pareto(
                 product=product, station=station, phase=phase, since=since, until=until, top_n=top_n
             )
         }
@@ -604,7 +646,7 @@ def create_api_router() -> APIRouter:
     ):
         """Process capability (DuckDB SQL)."""
         return {
-            "data": _metrics_store().cpk(
+            "data": _measurements_query().cpk(
                 product=product,
                 station=station,
                 phase=phase,
@@ -625,7 +667,7 @@ def create_api_router() -> APIRouter:
     ):
         """Yield trend (DuckDB SQL)."""
         return {
-            "data": _metrics_store().trend(
+            "data": _measurements_query().trend(
                 product=product,
                 station=station,
                 phase=phase,
@@ -646,7 +688,7 @@ def create_api_router() -> APIRouter:
     ):
         """Retest rates (DuckDB SQL)."""
         return {
-            "data": _metrics_store().retest(
+            "data": _measurements_query().retest(
                 product=product,
                 station=station,
                 phase=phase,
@@ -667,7 +709,7 @@ def create_api_router() -> APIRouter:
     ):
         """Time lost to failures/errors (DuckDB SQL)."""
         return {
-            "data": _metrics_store().time_loss(
+            "data": _measurements_query().time_loss(
                 product=product,
                 station=station,
                 phase=phase,
@@ -790,4 +832,5 @@ def create_app():
     # install their own bridge in HTTP mode (see pytest plugin).
     register_as_prompt_handler(server_url=None)
 
+    # Diagnostic thread count logger — tracks the slow-leak pattern
     return app

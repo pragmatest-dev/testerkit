@@ -68,6 +68,8 @@ _session_inputs_var: ContextVar[dict[str, str]] = ContextVar("_session_inputs")
 _active_vector_params_var: ContextVar[dict[str, Any]] = ContextVar("_active_vector_params")
 _active_vector_index_var: ContextVar[int] = ContextVar("_active_vector_index")
 _active_connection_var: ContextVar[FixtureConnection | None] = ContextVar("_active_connection")
+_slot_id_var: ContextVar[str | None] = ContextVar("_slot_id", default=None)
+_active_slot_runner_var: ContextVar[Any] = ContextVar("_active_slot_runner", default=None)
 
 
 # --- Session-scoped getters (create-and-store on first access) ---
@@ -494,3 +496,35 @@ def get_current_code_identity() -> dict[str, str | None]:
 def set_current_code_identity(value: dict[str, str | None]) -> None:
     """Set code identity for the currently running test item."""
     _current_code_identity_var.set(value)
+
+
+def get_current_slot_id() -> str | None:
+    """Return the active slot id (e.g. ``"slot_1"``) or ``None``.
+
+    In multi-slot worker children, set from the ``_LITMUS_SLOT_ID`` env
+    var at session start. In single-process operator-targeted runs, set
+    from the ``--slot`` CLI flag. ``None`` for non-fixtured single-DUT
+    runs. Read by the plugin to stamp ``slot_id`` on run rows.
+    """
+    return _slot_id_var.get()
+
+
+def set_current_slot_id(value: str | None) -> None:
+    """Set the active slot id. Returns None."""
+    _slot_id_var.set(value)
+
+
+def get_active_slot_runner() -> Any:
+    """Return the orchestrator's :class:`SlotRunner`, or ``None``.
+
+    Set by ``run_multi_slot_session`` for the lifetime of one
+    orchestrator session so ``pytest_keyboard_interrupt`` can forward
+    SIGTERM to live children before its own teardown unwinds. ``None``
+    in single-process / worker-mode invocations.
+    """
+    return _active_slot_runner_var.get()
+
+
+def set_active_slot_runner(value: Any) -> None:
+    """Set the active slot runner. Returns None."""
+    _active_slot_runner_var.set(value)

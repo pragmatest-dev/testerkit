@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from litmus.api.schemas import build_run_view
+from litmus.api.schemas import load_run_view
 
 
 @dataclass
@@ -71,41 +71,26 @@ class ReportData:
     pass_rate: float = 0.0
 
 
-def _str_field(row: dict[str, Any], key: str) -> str:
-    """Extract a string field from a parquet row, defaulting to empty string."""
-    return str(row.get(key) or "")
-
-
 def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
-    """Load a test run from Parquet into ReportData.
+    """Load a test run into ReportData via the typed run-detail composition.
+
+    Structure (run / steps / measurements) comes from
+    :func:`load_run_view`. Extra report-only fields not in
+    ``RunView`` (``dut_revision``, ``product_name``,
+    ``git_commit``, etc.) are sniffed from the first measurement
+    row when available and default to "" otherwise — typical for
+    measurement-less runs.
 
     Args:
         run_id: Full or partial run ID.
         results_dir: Path to results directory.
 
-    Returns:
-        Populated ReportData.
-
     Raises:
-        FileNotFoundError: If no matching Parquet file found.
+        FileNotFoundError: If no run with ``run_id`` exists.
     """
-    import pyarrow.parquet as pq
-
-    from litmus.data.backends.parquet import ParquetBackend
-
-    backend = ParquetBackend(results_dir=results_dir)
-    parquet_path = backend.find_run_file(run_id)
-    if parquet_path is None:
-        raise FileNotFoundError(f"No Parquet file found for run '{run_id}' in {results_dir}/")
-
-    table = pq.read_table(parquet_path)
-    rows = table.to_pylist()
-
-    if not rows:
-        raise FileNotFoundError(f"Parquet file is empty for run '{run_id}'")
-
-    first = rows[0]
-    run_view = build_run_view(rows)
+    run_view = load_run_view(run_id, results_dir=results_dir)
+    if run_view is None:
+        raise FileNotFoundError(f"No run found for '{run_id}' in {results_dir}/")
 
     # Flatten steps → per-measurement dicts, adding step context for template compat.
     measurements: list[dict[str, Any]] = []
@@ -127,7 +112,10 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
                 seen_instr.add(key)
                 instruments.append(instr.model_dump(mode="json"))
 
-    # Compute stats
+    # Extras not on RunView — sniff from the first measurement parquet
+    # row when available. Empty defaults are fine for measurement-less runs.
+    extras = _load_extras_from_parquet(run_id, results_dir)
+
     outcomes = [m.get("outcome") or "" for m in measurements]
     passed = sum(1 for o in outcomes if o == "passed")
     failed = sum(1 for o in outcomes if o == "failed")
@@ -137,27 +125,27 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
     step_names = sorted(s.step_name for s in run_view.steps if s.step_name)
 
     return ReportData(
-        run_id=_str_field(first, "run_id"),
-        started_at=_fmt_dt_raw(first.get("run_started_at")),
-        ended_at=_fmt_dt_raw(first.get("run_ended_at")),
+        run_id=run_view.run_id,
+        started_at=_fmt_dt_raw(run_view.started_at),
+        ended_at=_fmt_dt_raw(run_view.ended_at),
         outcome=run_view.outcome or "",
-        dut_serial=_str_field(first, "dut_serial"),
-        dut_part_number=_str_field(first, "dut_part_number"),
-        dut_revision=_str_field(first, "dut_revision"),
-        dut_lot_number=_str_field(first, "dut_lot_number"),
-        product_id=_str_field(first, "product_id"),
-        product_name=_str_field(first, "product_name"),
-        product_revision=_str_field(first, "product_revision"),
-        station_id=_str_field(first, "station_id"),
-        station_type=_str_field(first, "station_type"),
-        station_location=_str_field(first, "station_location"),
-        fixture_id=_str_field(first, "fixture_id"),
-        operator_id=_str_field(first, "operator_id"),
-        project_name=_str_field(first, "project_name"),
-        test_phase=_str_field(first, "test_phase"),
-        git_commit=_str_field(first, "git_commit"),
-        git_branch=_str_field(first, "git_branch"),
-        git_remote=_str_field(first, "git_remote"),
+        dut_serial=run_view.dut_serial or "",
+        dut_part_number=run_view.dut_part_number or "",
+        dut_revision=extras.get("dut_revision", ""),
+        dut_lot_number=extras.get("dut_lot_number", ""),
+        product_id=run_view.product_id or "",
+        product_name=extras.get("product_name", ""),
+        product_revision=extras.get("product_revision", ""),
+        station_id=run_view.station_id or "",
+        station_type=extras.get("station_type", ""),
+        station_location=extras.get("station_location", ""),
+        fixture_id=extras.get("fixture_id", ""),
+        operator_id=extras.get("operator_id", ""),
+        project_name=extras.get("project_name", ""),
+        test_phase=run_view.test_phase or "",
+        git_commit=extras.get("git_commit", ""),
+        git_branch=extras.get("git_branch", ""),
+        git_remote=extras.get("git_remote", ""),
         measurements=measurements,
         instruments=instruments,
         total_measurements=total,
@@ -168,6 +156,49 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
         step_names=step_names,
         pass_rate=round(passed / total * 100, 1) if total > 0 else 0.0,
     )
+
+
+def _load_extras_from_parquet(run_id: str, results_dir: str) -> dict[str, str]:
+    """Sniff report-only fields from the first measurement row.
+
+    The runs table doesn't denormalize every column STEP_SCHEMA carries
+    (``dut_revision``, ``product_name``, ``git_commit``, …). Query the
+    daemon's ``measurements`` view (parquet glob with ``union_by_name``)
+    for one row matching this run; predicate pushdown on ``run_id``
+    finds it without reading other files. Returns empty dict for
+    measurement-less runs.
+    """
+    from pathlib import Path
+
+    from litmus.data.run_store import RunStore
+
+    store = RunStore(_results_dir=Path(results_dir))
+    try:
+        rows = store.get_measurements(run_id)
+    except Exception:  # noqa: BLE001 — extras are optional; daemon unavailable is fine
+        return {}
+    finally:
+        store.close()
+    if not rows:
+        return {}
+    first = rows[0]
+    return {
+        k: str(first.get(k) or "")
+        for k in (
+            "dut_revision",
+            "dut_lot_number",
+            "product_name",
+            "product_revision",
+            "station_type",
+            "station_location",
+            "fixture_id",
+            "operator_id",
+            "project_name",
+            "git_commit",
+            "git_branch",
+            "git_remote",
+        )
+    }
 
 
 def _fmt_dt_raw(val: Any) -> str:

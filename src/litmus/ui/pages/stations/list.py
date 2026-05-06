@@ -1,19 +1,21 @@
-"""Station list page."""
+"""Station list page — table view with run-usage stats."""
 
 from nicegui import ui
 
+from litmus.ui.shared.components import data_table, format_datetime, page_layout
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_stations
+from litmus.ui.shared.services import discover_stations, usage_stats_by
 
 
 @ui.page("/stations")
 def stations_page():
-    """Stations listing page."""
+    """Stations listing — one row per station + usage stats from runs."""
     create_layout("Stations")
 
     stations = discover_stations()
+    usage = usage_stats_by("station_id")
 
-    with ui.column().classes("w-full p-6 gap-6"):
+    with page_layout():
         with ui.row().classes("items-center justify-between w-full"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("settings_input_hdmi").classes("text-slate-600")
@@ -24,11 +26,7 @@ def stations_page():
                 on_click=lambda: ui.navigate.to("/stations/new"),
             ).props("color=primary")
 
-        if stations:
-            with ui.row().classes("gap-4 flex-wrap"):
-                for station in stations:
-                    _station_card(station)
-        else:
+        if not stations:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("settings_input_hdmi").classes("text-4xl text-slate-300")
                 ui.label("No stations configured.").classes("text-slate-500 mt-2")
@@ -40,47 +38,51 @@ def stations_page():
                     icon="add",
                     on_click=lambda: ui.navigate.to("/stations/new"),
                 ).classes("mt-4")
+            return
 
+        columns = [
+            {"name": "id", "label": "ID", "field": "id", "align": "left", "sortable": True},
+            {"name": "name", "label": "Name", "field": "name", "align": "left", "sortable": True},
+            {"name": "location", "label": "Location", "field": "location", "align": "left"},
+            {
+                "name": "instruments",
+                "label": "Instruments",
+                "field": "instruments",
+                "align": "right",
+            },
+            {"name": "runs", "label": "Runs", "field": "runs", "align": "right", "sortable": True},
+            {"name": "passed", "label": "Passed", "field": "passed", "align": "right"},
+            {"name": "failed", "label": "Failed", "field": "failed", "align": "right"},
+            {
+                "name": "last_run",
+                "label": "Last Run",
+                "field": "last_run",
+                "align": "left",
+                "sortable": True,
+            },
+        ]
+        rows = []
+        for station in stations:
+            stats = usage.get(station.id, {})
+            rows.append(
+                {
+                    "id": station.id,
+                    "name": station.name or "",
+                    "location": station.location or "",
+                    "instruments": len(station.instruments or {}),
+                    "runs": stats.get("runs", 0),
+                    "passed": stats.get("passed", 0),
+                    "failed": stats.get("failed", 0),
+                    "last_run": format_datetime(stats.get("last_run"))
+                    if stats.get("last_run")
+                    else "—",
+                }
+            )
 
-def _station_card(station):
-    """Render a station card for a StationConfig model."""
-    instruments = station.instruments or {}
-
-    with ui.card().classes("w-96"):
-        with ui.card_section():
-            with ui.row().classes("items-start justify-between"):
-                ui.label(station.name or station.id).classes("text-lg font-semibold")
-                ui.badge("Online", color="green").props("outline")
-
-        with ui.card_section():
-            ui.label(station.description or "").classes("text-sm text-slate-600")
-            with ui.row().classes("text-xs text-slate-500 gap-4 mt-3"):
-                with ui.row().classes("items-center gap-1"):
-                    ui.icon("tag", size="xs")
-                    ui.label(station.id)
-                with ui.row().classes("items-center gap-1"):
-                    ui.icon("location_on", size="xs")
-                    ui.label(station.location or "")
-
-            if instruments:
-                ui.label("Instruments").classes("text-xs text-slate-500 uppercase mt-4")
-                for name, inst in instruments.items():
-                    with ui.row().classes("items-center gap-2 mt-1"):
-                        mocked = inst.mock or False
-                        ui.icon("sim_card" if mocked else "cable", size="xs").classes(
-                            "text-slate-400"
-                        )
-                        ui.label(name).classes("text-sm")
-                        ui.label(inst.type or "").classes("text-xs text-slate-500")
-
-        with ui.card_actions():
-            ui.button(
-                "View Details",
-                icon="visibility",
-                on_click=lambda _, s=station: ui.navigate.to(f"/stations/{s.id}"),
-            ).props("flat")
-            ui.button(
-                "Start Test",
-                icon="play_arrow",
-                on_click=lambda _, s=station: ui.navigate.to(f"/launch?station={s.id}"),
-            ).props("flat color=primary")
+        data_table(
+            columns=columns,
+            rows=rows,
+            row_key="id",
+            on_row_click=lambda r: ui.navigate.to(f"/stations/{r['id']}"),
+            time_columns=["last_run"],
+        )

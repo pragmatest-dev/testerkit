@@ -51,23 +51,10 @@ if TYPE_CHECKING:
     from litmus.models.instrument import InstrumentRecord
 
 
-# Canonical list of instrument identity array keys.
-# Used by build_instrument_arrays() and _build_empty_row() for schema consistency.
-INSTRUMENT_ARRAY_KEYS = (
-    "step_instruments_name",
-    "step_instruments_id",
-    "step_instruments_driver",
-    "step_instruments_resource",
-    "step_instruments_protocol",
-    "step_instruments_manufacturer",
-    "step_instruments_model",
-    "step_instruments_serial",
-    "step_instruments_firmware",
-    "step_instruments_cal_due",
-    "step_instruments_cal_last",
-    "step_instruments_cal_certificate",
-    "step_instruments_cal_lab",
-    "step_instruments_mocked",
+# Re-exported from the data layer — lives there to avoid importing the
+# execution framework just for a tuple of column name strings.
+from litmus.data.backends._row_helpers import (
+    INSTRUMENT_ARRAY_KEYS as INSTRUMENT_ARRAY_KEYS,  # noqa: F401
 )
 
 
@@ -716,7 +703,7 @@ class TestRunLogger:
                     step_name=step.name,
                     step_index=step_index,
                     step_path=step.step_path,
-                    outcome=step.outcome.value,
+                    outcome=step.outcome.value if step.outcome else None,
                     node_id=step.node_id,
                     file=step.file,
                     module=step.module,
@@ -767,12 +754,25 @@ class TestRunLogger:
                 "Stamp via logger.measure(outcome=...), check_limit(), or "
                 "set measurement.outcome explicitly before calling."
             )
-        # Cascade outcome up the test run hierarchy via the 7-rank
-        # severity ladder (ABORTED > ERRORED > FAILED > PASSED > DONE >
-        # SKIPPED > PLANNED).
+        # Cascade outcome up the test run hierarchy via the severity
+        # ladder (ABORTED > TERMINATED > ERRORED > FAILED > PASSED >
+        # DONE > SKIPPED). ``None`` ranks below everything.
         vector.outcome = escalate_outcome(vector.outcome, measurement.outcome)
         step.outcome = escalate_outcome(step.outcome, measurement.outcome)
         self.test_run.outcome = escalate_outcome(self.test_run.outcome, measurement.outcome)
+
+        # A measurement carrying limits is structurally equivalent
+        # to a passing assert — the test code declared an intent to
+        # judge. Flag the step so a clean exit lands as PASSED
+        # rather than DONE. (See pytest_plugin.hooks.pytest_assertion_pass
+        # for the assert-side counterpart.)
+        if measurement.limit_low is not None or measurement.limit_high is not None:
+            try:
+                from litmus.pytest_plugin.hooks import mark_step_judgment_intent
+
+                mark_step_judgment_intent(str(step.id))
+            except ImportError:
+                pass  # non-pytest path; flag is unused
 
         # Emit event if event log is wired
         if self._event_log is not None:
@@ -790,7 +790,7 @@ class TestRunLogger:
                 measurement_timestamp=measurement.timestamp,
                 value=measurement.value,
                 units=measurement.units,
-                outcome=measurement.outcome.value,
+                outcome=measurement.outcome.value if measurement.outcome else None,
                 limit_low=measurement.limit_low,
                 limit_high=measurement.limit_high,
                 limit_nominal=measurement.limit_nominal,
@@ -829,7 +829,7 @@ class TestRunLogger:
                     step_name=step.name,
                     step_index=self._current_step_index,
                     step_path=step.step_path,
-                    outcome=step.outcome.value,
+                    outcome=step.outcome.value if step.outcome else None,
                     node_id=step.node_id,
                     file=step.file,
                     module=step.module,
@@ -1064,7 +1064,7 @@ class TestRunLogger:
                 RunEnded(
                     session_id=self._session_id,
                     run_id=self.test_run.id,
-                    outcome=self.test_run.outcome.value,
+                    outcome=self.test_run.outcome.value if self.test_run.outcome else None,
                 )
             )
 

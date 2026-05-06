@@ -359,12 +359,17 @@ def _list_instrument_assets(project: str) -> list[dict[str, Any]]:
 
 
 def _list_runs(project: str) -> list[dict[str, Any]]:
-    """List recent test runs."""
-    from litmus.data.backends.parquet import ParquetBackend
+    """List recent test runs (typed RunRow rows from RunsQuery)."""
+    from litmus.analysis.runs_query import RunsQuery
 
     results_dir = str(get_project_root(project) / "results")
-    backend = ParquetBackend(results_dir=results_dir)
-    return [r.model_dump(exclude={"file_path"}) for r in backend.list_runs(limit=50)]
+    q = RunsQuery(_results_dir=results_dir)
+    try:
+        return [
+            r.model_dump(exclude={"file_path", "steps_file_path"}) for r in q.list_recent(limit=50)
+        ]
+    finally:
+        q.close()
 
 
 # =============================================================================
@@ -462,21 +467,13 @@ def _get_instrument_asset(instrument_id: str, project: str) -> dict[str, Any]:
 
 
 def _get_run(run_id: str, project: str) -> dict[str, Any]:
-    """Get test run details."""
-    from litmus.api.schemas import build_run_view
-    from litmus.data.backends.parquet import ParquetBackend
+    """Get test run details — typed run+steps+measurements composition."""
+    from litmus.api.schemas import load_run_view
 
     results_dir = str(get_project_root(project) / "results")
-    backend = ParquetBackend(results_dir=results_dir)
-    run = backend.get_run(run_id)
-
-    if not run:
+    view = load_run_view(run_id, results_dir=results_dir)
+    if view is None:
         return {"error": f"Run '{run_id}' not found"}
-
-    rows = backend.get_measurements(run_id)
-    view = build_run_view(rows)
-    if view.outcome is None:
-        view.outcome = run.outcome
     return view.model_dump(mode="json")
 
 
@@ -1243,11 +1240,18 @@ def events_query(
     try:
         since_dt = datetime.fromisoformat(since) if since else None
         sid = UUID(session_id) if session_id else None
+        # ``role`` filtering happens client-side (it inspects event
+        # fields not directly indexed in SQL). Over-fetch a bit so
+        # role filters still produce ``limit`` final rows on
+        # average — a 4× headroom is cheap and avoids surprising
+        # under-fills on common role-filter queries.
+        sql_limit = limit * 4 if role else limit
         events = store.events(
             session_id=sid,
             event_type=event_type,
             role=role,
             since=since_dt,
+            limit=sql_limit,
         )
         return {"events": events[:limit], "count": len(events[:limit])}
     finally:
@@ -1312,11 +1316,10 @@ def channels_query(
     from litmus.data.results_dir import resolve_results_dir
 
     base = results_dir if results_dir else resolve_results_dir()
-    channels_dir = base / "channels"
-    if not channels_dir.exists():
+    if not (base / "channels").exists():
         return {"channel_id": channel_id, "data": []}
 
-    store = ChannelStore(channels_dir, uuid4())
+    store = ChannelStore(base, uuid4())
     since_dt = datetime.fromisoformat(since) if since else None
     until_dt = datetime.fromisoformat(until) if until else None
     table = store.query(
@@ -1342,6 +1345,106 @@ def channels_list_query(*, results_dir: Path | None = None) -> dict[str, Any]:
     if not registry_path.exists():
         return {"channels": {}}
     return {"channels": json.loads(registry_path.read_text())}
+
+
+def channels_recent_query(
+    *,
+    last_n: int = 50,
+    results_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Registry + recent samples per channel for live dashboards.
+
+    Returns the same descriptors as :func:`channels_list_query`, plus
+    a ``recent`` block per channel: the most recent ``last_n`` samples
+    as ``{"latest": float | str | None, "samples": [(iso_ts, value), ...]}``.
+    Used by the operator UI to render sparkline cells alongside the
+    descriptor row, and to update them live via short-poll.
+
+    Array channels return ``latest`` as a one-line summary string and
+    ``samples`` as the per-capture-time scalar series (one point per
+    capture; the array contents themselves aren't sparkline-friendly).
+    """
+    from litmus.data.channels.store import ChannelStore
+    from litmus.data.results_dir import resolve_results_dir
+
+    base = results_dir if results_dir else resolve_results_dir()
+    registry_path = base / "channels" / "_registry.json"
+    if not (base / "channels").exists() or not registry_path.exists():
+        return {"channels": {}}
+
+    registry: dict[str, dict[str, Any]] = json.loads(registry_path.read_text())
+    store = ChannelStore(base, uuid4())
+
+    out: dict[str, dict[str, Any]] = {}
+    for channel_id, descriptor in registry.items():
+        try:
+            table = store.query(channel_id, last_n=last_n)
+            rows = table.to_pylist()
+        except (OSError, ValueError, RuntimeError):
+            rows = []
+
+        samples, latest = _build_recent_series(rows)
+        last_updated = str(rows[-1]["timestamp"]) if rows and rows[-1].get("timestamp") else None
+
+        out[channel_id] = {
+            **descriptor,
+            "recent": {
+                "latest": latest,
+                "samples": samples,
+                "last_updated": last_updated,
+            },
+        }
+    return {"channels": out}
+
+
+def _build_recent_series(rows: list[dict[str, Any]]) -> tuple[list[Any], Any]:
+    """Build the sparkline series + latest value from raw channel rows.
+
+    Two cases:
+
+    * **Waveform / array rows** — the most recent row carries a
+      ``samples`` list. The sparkline is that capture's samples
+      directly (the within-capture trace), and ``latest`` is the
+      array's final value. This matches what an operator wants to
+      see for scope traces: the actual waveform shape.
+    * **Scalar rows** — each row's ``value`` (or ``y`` / ``reading``)
+      contributes one point to the sparkline keyed by timestamp.
+      ``latest`` is the most recent point's value.
+
+    The sparkline output is ``[(ts_str, value), ...]`` for scalars
+    and ``[value, ...]`` for waveforms (no timestamp per intra-
+    capture sample). The UI's sparkline renderer accepts either —
+    it pulls the second element of tuples and treats bare numbers
+    as a value sequence.
+    """
+    if not rows:
+        return [], None
+
+    last_row = rows[-1]
+    last_samples = last_row.get("samples")
+    if isinstance(last_samples, list) and last_samples:
+        numeric = [v for v in last_samples if isinstance(v, (int, float))]
+        latest_value = numeric[-1] if numeric else None
+        return list(numeric), latest_value
+
+    samples: list[tuple[str, Any]] = []
+    latest: Any = None
+    for row in rows:
+        ts = row.get("timestamp")
+        value = _channel_row_scalar(row)
+        if ts is not None and value is not None:
+            samples.append((str(ts), value))
+    if samples:
+        latest = samples[-1][1]
+    return samples, latest
+
+
+def _channel_row_scalar(row: dict[str, Any]) -> Any:
+    """Pull a single scalar from a channel row, or ``None`` if none stamped."""
+    for key in ("value", "y", "reading"):
+        if key in row and row[key] is not None:
+            return row[key]
+    return None
 
 
 # Thin wrappers for MCP tools (resolve project → results_dir)
@@ -1386,6 +1489,59 @@ def channels_tool(
         max_points=max_points,
         results_dir=_resolve_results_dir(project),
     )
+
+
+def steps_tool(
+    run_id: str,
+    action: Literal["list", "tree"] = "list",
+    project: str | None = None,
+) -> dict[str, Any]:
+    """Query the steps table for a run.
+
+    Args:
+        run_id: Full UUID or 8-char prefix of the run.
+        action: ``list`` for flat ordered rows; ``tree`` for the
+            ``step_path``-derived hierarchy.
+        project: Project root path.
+    """
+    from litmus.analysis.steps_query import StepsQuery
+
+    q = StepsQuery(_results_dir=_resolve_results_dir(project))
+    try:
+        if action == "tree":
+            return {"tree": [n.model_dump(mode="json") for n in q.tree_for_run(run_id)]}
+        return {"steps": [r.model_dump(mode="json") for r in q.list_for_run(run_id)]}
+    finally:
+        q.close()
+
+
+def runs_tool(
+    action: Literal["list", "get"] = "list",
+    run_id: str | None = None,
+    limit: int = 50,
+    project: str | None = None,
+) -> dict[str, Any]:
+    """Query the runs table.
+
+    Args:
+        action: ``list`` returns the most recent runs; ``get`` returns
+            one run by ``run_id``.
+        run_id: Required when ``action='get'`` — full UUID or 8-char prefix.
+        limit: Cap on rows returned by ``list`` (default 50).
+        project: Project root path.
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    q = RunsQuery(_results_dir=_resolve_results_dir(project))
+    try:
+        if action == "get":
+            if not run_id:
+                return {"error": "run_id is required when action='get'"}
+            run = q.get(run_id)
+            return {"run": run.model_dump(mode="json") if run else None}
+        return {"runs": [r.model_dump(mode="json") for r in q.list_recent(limit=limit)]}
+    finally:
+        q.close()
 
 
 def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
@@ -1466,10 +1622,10 @@ def metrics_tool(
     if action not in _METRICS_ACTIONS:
         return {"error": f"Unknown action '{action}'. Valid: {list(_METRICS_ACTIONS)}"}
 
-    from litmus.analysis.metrics_store import MetricsStore
+    from litmus.analysis.measurements_query import MeasurementsQuery
 
     results_dir = _resolve_results_dir(project)
-    store = MetricsStore(_results_dir=results_dir)
+    store = MeasurementsQuery(_results_dir=results_dir)
 
     kwargs: dict[str, Any] = {
         "product": product,

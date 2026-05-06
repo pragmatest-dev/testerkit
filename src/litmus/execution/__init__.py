@@ -1,34 +1,11 @@
-"""Test execution infrastructure."""
+"""Test execution infrastructure.
 
-from litmus.execution._state import get_current_logger
-from litmus.execution.accessors import InstrumentAccessor
-from litmus.execution.harness import Context, TestHarness
-from litmus.execution.logger import RunContext, TestRunLogger
-from litmus.execution.vectors import (
-    Vector,
-    expand_product,
-    expand_vectors,
-    expand_zip,
-)
-from litmus.execution.verify import LimitFailure, LimitsFn, VerifyFn
+Import directly from the submodule that owns the type:
 
-__all__ = [
-    # Accessors
-    "InstrumentAccessor",
-    # Harness
-    "TestHarness",
-    "Context",
-    # Vectors
-    "Vector",
-    "expand_product",
-    "expand_vectors",
-    "expand_zip",
-    # Logger
-    "get_current_logger",
-    "RunContext",
-    "TestRunLogger",
-    # Verify fixture types
-    "LimitFailure",
-    "LimitsFn",
-    "VerifyFn",
-]
+    from litmus.execution.harness import TestHarness, Context
+    from litmus.execution.logger import TestRunLogger, RunContext
+    from litmus.execution.vectors import Vector, expand_vectors
+    from litmus.execution.verify import LimitFailure, VerifyFn
+    from litmus.execution.accessors import InstrumentAccessor
+    from litmus.execution._state import get_current_logger
+"""

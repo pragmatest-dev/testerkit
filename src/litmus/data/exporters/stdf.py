@@ -40,10 +40,12 @@ def _make_test_flg(outcome: str | None, value: float | None) -> list[str]:
     bits = ["0"] * 8
     if value is None:
         bits[1] = "1"  # result invalid
-    if outcome is None or outcome in ("skipped", "planned"):
+    # outcome=None at finalize means the row was collected but never
+    # ran ("Planned" in legacy parlance / TestStand convention).
+    if outcome is None or outcome == "skipped":
         bits[4] = "1"  # not executed
         bits[6] = "1"  # pass/fail not valid
-    elif outcome in ("errored", "aborted"):
+    elif outcome in ("errored", "aborted", "terminated"):
         bits[1] = "1"  # result invalid
         bits[6] = "1"  # pass/fail not valid
     elif outcome == "failed":

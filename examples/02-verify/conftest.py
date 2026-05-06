@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 from drivers import DMM, PSU
 
-from litmus.instruments import Mock
+from litmus.instruments.mocks import Mock
 
 
 @pytest.fixture(scope="session")

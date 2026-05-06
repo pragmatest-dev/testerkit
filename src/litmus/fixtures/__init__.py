@@ -1,8 +1,6 @@
-"""Fixture management for DUT routing."""
+"""Fixture management for DUT routing.
 
-from litmus.fixtures.manager import FixtureManager, PinAccessor
+Import directly from the submodule:
 
-__all__ = [
-    "FixtureManager",
-    "PinAccessor",
-]
+    from litmus.fixtures.manager import FixtureManager, PinAccessor
+"""

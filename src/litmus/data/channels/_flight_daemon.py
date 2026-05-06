@@ -27,7 +27,7 @@ def daemon_run(channels_dir: Path, host: str, port: int) -> None:
     """Entry point for the daemon process. Blocks until idle timeout."""
     mgr = FlightDaemonManager(channels_dir, host, port)
 
-    store = ChannelStore(channels_dir, UUID(int=0))
+    store = ChannelStore(channels_dir.parent, UUID(int=0))
     store.open()
 
     location = f"grpc://{host}:{port}"

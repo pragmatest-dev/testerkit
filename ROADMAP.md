@@ -6,7 +6,385 @@ through, just move.
 
 ---
 
+## Prioritization
+
+RICE scoring: **R** = reach (runs/users touched), **I** = impact
+(0.5/1/2/3), **C** = confidence the work pays off, **E** = effort
+in person-weeks. Score = R·I·C / E. Sorted within each release
+bucket by score.
+
+### 0.1.0 — required for first real users
+
+Demo-quality coherence, no rough edges. Most of what's needed here
+isn't in the backlog — it's in-flight session work (terminology,
+design system, viewport-bound tables, browser-local time).
+Backlog items that are 0.1.0 gates:
+
+| Item | R | I | C | E | Score |
+|---|---|---|---|---|---|
+| `response_model=` coverage on FastAPI endpoints | high | 1.5 | 0.9 | 1.0 | high |
+| `litmus plan --profile=X` — dry-run profile resolution | medium | 1 | 0.9 | 0.5 | medium |
+
+### 0.2.0 — first adoption push
+
+Things that make Litmus *good* (not just shippable). Sorted by RICE.
+
+| Item | R | I | C | E | Score |
+|---|---|---|---|---|---|
+| Runner-invocation capture (full vs ad-hoc) | high | 2 | 0.9 | 1.0 | high |
+| Parquet compaction | medium | 2 | 0.7 | 3.0 | high |
+| `ReactiveChart` shared chart primitive | high | 2 | 0.8 | 2.0 | high |
+| Limit resolution strategies (expr / lookup / step / callable) | high | 2 | 0.5 | 3.0 | high |
+| Capability-aware runnability inference | high | 2 | 0.6 | 2.0 | high |
+| Live updates on Events/Channels store pages | medium | 1.5 | 0.6 | 2.0 | medium |
+| Consumer-side ref materialization (waveform viewing) | medium | 2 | 0.7 | 2.0 | medium |
+| Operator-UI store browser (Sessions + Artifacts) | medium | 1.5 | 0.7 | 1.5 | medium |
+| Artifact viewer — inline previews + grid | medium | 2 | 0.6 | 2.0 | medium |
+| Facet prompt fallback (TTY interactive) | medium | 2 | 0.7 | 1.0 | medium |
+| Parametric viewer follow-ups | medium | 1.5 | 0.8 | 1.0 | medium |
+| StationType → StationConfig inheritance | medium | 1 | 0.8 | 1.0 | medium |
+| SpecQualifier matching scoring | medium | 1.5 | 0.6 | 1.0 | medium |
+| Exporter row-level cascade outcomes | medium | 1 | 0.7 | 1.0 | medium |
+| Channel EventStore-bridging subscription | medium | 1 | 0.6 | 1.0 | medium |
+| CLI fallback for multi-DUT operator prompts | low-med | 1 | 0.7 | 1.0 | medium |
+| HTTP support for ImageDialog | small | 0.5 | 0.7 | 0.5 | small |
+| Channel attribution (`instrument_role`/`resource`) | small | 0.5 | 0.9 | 0.3 | small |
+| Array channel empty-result schema | small | 0.5 | 0.9 | 0.2 | small |
+| Runs daemon — record actual `row_count` in `_ingested` | small | 0.5 | 0.9 | 0.2 | small |
+
+### Later — strategic but not pre-1.0
+
+Big architectural moves or features that depend on adoption signals
+to confirm direction.
+
+| Item | R | I | C | E | Notes |
+|---|---|---|---|---|---|
+| UI Extensions API — third-party plugins | high | 3 | 0.5 | 8.0 | The OpenHTF-killer pitch; needs early adopters to shape the API |
+| Alternate runner wrappers (OpenHTF / unittest / Robot) | high | 3 | 0.4 | 6.0 | Migration story; build *one* (OpenHTF) once we know which mappings stick |
+| Split into `pytest-litmus` + `litmus-test` | high | 2 | 0.5 | 4.0 | Packaging refactor; only worth it once API surfaces stabilize |
+| Switch-matrix routing | low (specialized) | 2 | 0.5 | 4.0 | Needed by some shops, irrelevant to many |
+| Sequences for fine-grained execution control | low | 1 | 0.4 | 4.0 | Was deleted in v1; revisit if pytest's primitives prove insufficient |
+| Transports — read side (download / fetch / replay) | medium | 1.5 | 0.6 | 2.0 | Wait until storage layer settles |
+| `@litmus.judges` marker | low (escape hatch) | 0.5 | 0.7 | 0.5 | Only if the runtime `pytest_assertion_pass` + measurement-with-limits inference proves insufficient in practice |
+
+---
+
 ## Backlog
+
+### Test audit — find brittle / implementation-coupled tests
+
+Sweep the existing test suite for patterns that test the *shape* of
+an implementation rather than the *behavior* an operator or
+end-user would observe. Each finding is a candidate to either rewrite
+behavior-first or delete.
+
+What "brittle" looks like:
+
+- Tests that import private helpers (``_foo``-prefixed) and assert on
+  their internal return shapes instead of going through the public
+  API the rest of the system uses.
+- Tests that read/write parquet directly, poke ContextVars, or check
+  internal in-memory dicts when an equivalent ``RunsQuery`` /
+  ``StepsQuery`` / HTTP route would exercise the same flow.
+- Tests that recreate the production logic in fixtures (helper
+  functions that mirror what the production code does), making the
+  test pass when the helper agrees with itself rather than when the
+  system behaves correctly.
+- Tests that pin specific exception types, log messages, or column
+  orders without reason — making refactors loud without catching
+  real regressions.
+- Tests asserting on outcomes derived through several layers of
+  knowledge of how outcomes flow internally, rather than just
+  invoking pytest and reading the run row through the same surface
+  the UI uses.
+
+Goal posture: a test should look like *"someone runs this command, then
+inspects the recorded result through the public API and asserts on
+the observable outcome."* Minimal new logic, minimal coupling to
+internals.
+
+Deliverable: a checklist (or follow-up tickets) of specific files /
+test classes that need rewrites, plus the rewrite for the worst
+offenders. Establish a "behavior-first" pattern others can copy when
+adding new tests.
+
+### Runner-invocation capture — distinguish full sweeps from ad-hoc subsets
+
+The runs table records *what* was collected (every step that ran)
+but not *how* the runner was invoked. Two runs with identical
+collected sets but different intent — a production sweep vs a
+debug-by-node-id cherry-pick — look indistinguishable in the
+record. This breaks several real workflows:
+
+- **Yield analytics** double-count ad-hoc reruns of failures alongside
+  production runs, biasing first-pass yield.
+- **Triage** can't filter "show me only the runs that exercised the
+  full suite" from a results page that mixes everything.
+- **Audit** can't tell whether a passing run was a comprehensive
+  qualification or a single-test smoke-check.
+
+Pytest exposes everything we need on ``config`` /
+``config.option`` / ``config.invocation_params``:
+
+| Field | Captures |
+|---|---|
+| ``config.invocation_params.args`` | Literal positional args (paths, node-ids the user typed) |
+| ``config.invocation_params.dir`` | CWD pytest ran from |
+| ``config.option.keyword`` | ``-k expression`` |
+| ``config.option.markexpr`` | ``-m expression`` |
+| ``config.option.exitfirst`` | ``-x`` |
+| ``config.option.maxfail`` | ``--maxfail=N`` |
+| ``config.option.lf`` / ``ff`` | ``--last-failed`` / ``--failed-first`` |
+| ``config.getini("addopts")`` | Sticky options from pytest.ini / pyproject.toml |
+| ``config.pluginmanager.list_plugin_distinfo()`` | Active plugins (audit trail) |
+
+New persistent shape on ``TestRun``:
+
+```python
+class RunnerInvocation(BaseModel):
+    argv: list[str] = []
+    cwd: str | None = None
+    keyword_filter: str | None = None
+    marker_filter: str | None = None
+    exit_first: bool = False
+    maxfail: int | None = None
+    last_failed: bool = False
+    failed_first: bool = False
+    addopts: list[str] = []
+    collected_count: int = 0
+    deselected_count: int = 0
+    pytest_version: str | None = None
+    is_adhoc: bool = False  # derived: argv has node-ids OR -k/-m set
+
+# TestRun
+runner_invocation: RunnerInvocation = Field(default_factory=RunnerInvocation)
+```
+
+Capture site: ``pytest_sessionstart`` — read once, attach to
+``logger.test_run`` before any test runs. Persists with the run via
+the existing parquet schema (the field becomes a JSON column or a
+dedicated set of columns on the steps sidecar — TBD).
+
+Display:
+
+- **/results table** — a small chip column "Scope" with values
+  ``Full`` / ``Filtered`` / ``Selected``, colored. At-a-glance scan
+  separates production sweeps from triage runs.
+- **Run-detail "Invocation" card** — full literal ``argv``, active
+  filters, plugin list, collected/deselected counts.
+- **Filter on /results** — facet by Scope so analytics surfaces can
+  exclude ad-hoc reruns from yield calculations.
+
+Out-of-scope for this entry but likely follow-up: similar capture
+for non-pytest runners (OpenHTF, ``with conn:``) once the runner-
+adapter shape is settled.
+
+### `@litmus.judges` marker — explicit verdict-intent override
+
+The runner's pass-vs-done decision for a step that ends without an
+exception or a measurement-level verdict relies on a static AST
+scan of the test's module: any `assert` or `limit*=` kwarg in any
+function in that module marks the test as "judging", which means a
+clean pass becomes `PASSED`. Otherwise (no judgment signal in the
+module) a clean pass becomes `DONE` — the recorded-but-unjudged
+semantic.
+
+The AST scan handles the common cases:
+- bare asserts in the test body or a same-module helper
+- `logger.measure(..., limit=...)` anywhere in the same module
+- Litmus wrappers that internally record limits — the cascade
+  from the measurement layer surfaces the real verdict regardless
+
+The gap: a test that delegates judgment to a **cross-module**
+helper. AST static analysis can't follow imports cheaply or
+reliably; we'd over-stamp `DONE` for what's actually a judging
+test.
+
+The escape hatch:
+
+```python
+@litmus.judges
+def test_with_imported_helper(measure):
+    _check_thing(measure)  # asserts live in another module
+```
+
+`@litmus.judges` flips the inference to "this test makes a verdict";
+clean exit → `PASSED`, no AST guessing. The complementary
+`@litmus.records_only` would force `DONE` for a setup-style step
+that explicitly opts out of a verdict even when its module has
+asserts elsewhere.
+
+Both markers are tiny: one entry in the marker registry, a check
+in `_stamp_step_from_call_outcome` (`hooks.py:642`-ish) ahead of
+the AST cache lookup, and the corresponding rows in
+`tests/test_pytest_plugin/test_outcome_inference.py`.
+
+This is what makes Litmus's combination of pytest's organic style
+and OpenHTF's typed verdict semantics actually robust — pytest
+gives you fixtures / parametrize / conftest / plugins; OpenHTF's
+declarative-intent story is recovered via these two markers when
+the AST inference can't reach.
+
+### UI Extensions API — third-party Python plugins ship as native UI
+
+The "Litmus is Python-only" pitch has a hidden second beat: a test
+author writing Python should get a **native UI extension surface**
+for free. They `pip install my_power_dashboard` and a new page
+shows up in the operator UI — no JS toolchain, no separate build,
+no bundling, no API to version. Same Pydantic models they already
+use in their tests.
+
+This is the feature that justifies NiceGUI as a strategic choice
+rather than a tactical one: SPAs (React / Next / Vue) cannot do
+this without iframe embedding or bundle federation, and other
+Python UI frameworks (Streamlit, Dash, Reflex) can't do it either
+because their plugin models require JS or compile steps.
+
+What needs to land:
+
+- **Extension contract** — small set of decorators that register
+  contribution points:
+  - `@register_page(path, icon, section, label)` — full page on
+    a new route, picked up by the sidebar
+  - `@register_run_tab(label, icon, predicate)` — adds a tab to
+    `/results/{run_id}`; predicate decides whether to show
+  - `@register_dashboard_card(order)` — card on `/`
+  - `@register_results_column(name, render_fn)` — extra column
+    in run lists
+  - Start narrow (page + run_tab); widen on demand.
+- **Discovery via entry points** — `[project.entry-points."litmus.ui_extensions"]`
+  in the extension's `pyproject.toml`. Litmus walks the group at
+  server startup and imports each module; registration happens via
+  decorator side-effects, same as pytest plugins.
+- **Versioning handshake** — extension declares the Litmus minor
+  version it was built against; mismatch → warning + load anyway,
+  link to migration notes.
+- **Theme helpers** — surface the small set of consistent UI
+  primitives (`info_field`, `metric_card`, `format_datetime`) so
+  most extensions don't reach for raw HTML / CSS and the visual
+  language stays coherent.
+- **Reusable chart primitive** — see "Shared chart primitive"
+  below; extensions need this so they don't re-invent zoom-refetch /
+  decimation / debounce per page.
+- **Process isolation note** — extensions share the uvicorn process.
+  Document the rule: heavy work in `asyncio.to_thread(...)`. Lift to
+  subprocess only if a real misbehaving extension shows up.
+
+Decision points: which contribution points ship in v1 (page +
+tab is enough; resist the urge to ship all five at once); how
+strict to be on extension API stability (semver minor for breaking
+changes feels right); whether to bundle a starter `litmus-extension-template`
+repo so authors get a working example without cargo-culting from
+the main repo.
+
+### Shared chart primitive — `ReactiveChart` for zoom-refetch and decimation
+
+The parametric viewer (`/explore`) and channel detail page
+(`/channels/{id}`) both need:
+
+- Initial render with optional decimation when row count exceeds
+  a threshold (LTTB for ~10k rows; consider Datashader-via-`ui.html`
+  for ~1M+)
+- Debounced `dataZoom` listener that re-queries on the new range
+- Cancel-in-flight via generation counter so a slow query that
+  started before the latest zoom doesn't overwrite the current
+  view with stale data
+- "Don't re-fetch unless the window changed materially" guard
+  (≥95% overlap → keep cached set) to stop wheel-jitter
+
+Today both pages either hard-`LIMIT` (parametric) or apply LTTB
+once at load time (channel detail) — no zoom-refetch anywhere.
+With the UI Extensions API on the horizon, this primitive becomes
+load-bearing: every third-party page that plots engineering data
+needs the same machinery, and we don't want each extension
+reimplementing debounce + cancel + decimation differently.
+
+What needs to land:
+
+- `litmus.ui.shared.reactive_chart.ReactiveChart` taking
+  `query=Callable[[XRange], list[Row]]`, `decimate=...`,
+  `debounce_ms=...`, `chart_type=...`. Wraps `ui.echart` and
+  manages the zoom listener internally.
+- Move `_lttb_indices` from `data/channels/store.py:51` into a
+  shared `data/_lttb.py` so both `ChannelStore` and `ReactiveChart`
+  pull from the same place.
+- Migrate `/explore` and `/channels/{id}` onto it (proves the
+  primitive on real pages before extensions land).
+- Datashader-via-`ui.html` as an optional render mode for the
+  big-data case; selected automatically when row count crosses a
+  threshold.
+
+### Parquet compaction — consolidate per-run files into fewer larger ones
+
+Post-0.1.0. Tables (``runs`` / ``steps``) already solve hot-path
+query cost; compaction is the right answer for the ``measurements``
+view at 10k+ runs but is not gating the 0.1.0 cut.
+
+Today every run writes its own ``{timestamp}_{serial}.parquet`` (and
+companion ``_steps.parquet``). For interactive UI hot paths
+(``runs`` / ``steps`` queries) we precompute tables in the runs
+daemon — bounded query cost regardless of file count. But the
+``measurements`` view and any analytics that read raw rows hit the
+parquet glob directly: every query opens every file's footer
+(~80μs/file), giving a 1k-files = 80ms baseline that scales linearly.
+
+Compaction job (background sweep, daily / weekly):
+- Group "completed" runs (older than some grace window so streaming
+  writes have finished) by some bucket — date, product, station
+- Read all parquets in a bucket, write a single combined parquet,
+  attach provenance metadata
+- Same for ``_steps.parquet`` sidecars
+
+**Strategy: provenance-tracked supersedes (not blind delete).**
+Each compacted parquet embeds the source-file list in its parquet
+file metadata. The daemon's ``_ingested`` ledger records the
+"compacted X supersedes [Y, Z]" relationship. The ``measurements``
+view filters out rows from any source file marked ``superseded`` so
+the result is deduplicated even when both forms are present on
+disk.
+
+Why provenance > blind-delete: re-uploads (S3 resync, restored
+backups, sync-from-archive) are realistic in field deployments.
+Compacting and deleting originals locally doesn't help if a sync
+brings them back; the ledger is the only mechanism that survives.
+
+**Delete rules** (lifecycle tiers, all configurable):
+1. ``ok`` — just-written, original
+2. ``superseded`` — a compacted parent exists; row data filtered
+   from ``measurements`` view, file kept on disk for grace window
+3. ``hard-deleted`` — source files removed after grace window
+   expires; cascade-delete (already implemented for vanished files)
+   removes any stale ledger rows
+
+Grace window default: keep originals for 30 days post-compaction.
+
+**Open design points:**
+- **Dedup race**: if a re-sync re-uploads originals AFTER hard-delete,
+  daemon sees them as "new" again. Ledger must record the
+  superseded-ness durably (separate ``_compaction_log`` table) so
+  re-uploaded originals can be re-marked without re-ingesting their
+  rows.
+- **Bucket granularity**: date is the obvious default (keeps queries
+  bounded by date range). Cross-day buckets defeat date-pruning.
+- **Cross-schema compaction**: different ``in_*`` / ``out_*``
+  columns from different tests would force ``union_by_name`` writes
+  with mostly-null columns — defeats the size win. Likely
+  within-schema only (group by test signature).
+- **The view's ``filename`` column**: some queries probably depend
+  on it for "which file did this row come from". Compaction breaks
+  that — need to either preserve original filename as a per-row
+  column at compaction time, or accept that ``filename`` becomes
+  the compacted filename.
+- **Conflict-free rewrite during ongoing test runs**: only compact
+  files older than the grace window so streaming writes have
+  finished.
+- **Cluster awareness**: in multi-station deployments, who runs
+  compaction? Single coordinator or per-station with leader
+  election?
+
+This is the right scaling answer for the ``measurements`` view at
+10k+ runs. ``runs`` and ``steps`` perf is already solved by the
+precomputed tables.
 
 ### Capability-aware station/test runnability inference
 
@@ -333,6 +711,31 @@ Useful for ingest-progress monitoring + per-file diagnostics
 (``litmus data status`` could surface "indexed N rows from
 ``<file>``"). Doesn't gate any current functionality; safe to
 defer.
+
+### Daemon ingest — harden quarantine against stale/malformed parquets
+
+Two options, either or both:
+
+**Schema pre-validation** — before attempting the SQL ``INSERT INTO
+runs_persisted BY NAME … SELECT … FROM read_parquet(…)``, sniff the
+parquet's column list via pyarrow. If a required column is missing,
+quarantine immediately (no SQL attempt, no ``BinderException`` in
+the log). Keeps the daemon log clean and avoids burning a write
+transaction on known-bad files.
+
+**Move-aside quarantine** — once a file is quarantined, move it to a
+``_quarantine/`` sibling directory so the disk-glob sweep never
+picks it up again. Eliminates (mtime, size) ledger churn for files
+that keep appearing in the scan even after they're quarantined.
+Currently quarantined files that change on disk (different mtime /
+size) are re-attempted correctly; move-aside trades that
+re-attempt capability for a cleaner sweep. Appropriate if
+quarantined files are expected to be genuinely dead.
+
+Background: the ingest sweep now correctly skips files already in
+``_ingested`` at the same (mtime, size) regardless of status, so
+re-ingest loops are already fixed. These are hardening options, not
+correctness fixes.
 
 ### Exporter access to row-level cascade outcomes
 
@@ -707,66 +1110,29 @@ chart's `appendData` call. Subscription lifecycle when the page
 unmounts — do we reuse the existing `event_binding` cleanup pattern
 or extend it for Flight subscriptions?
 
-### Parametric measurement viewer — compare measurements across runs
+### Parametric measurement viewer — follow-ups
 
-Operators and engineers regularly want to ask cross-run questions
-the current UI doesn't answer:
+The thin slice (`/explore` page, `MetricsStore.parametric()`,
+schema-driven dropdowns, URL state, scatter / line / bar /
+histogram) shipped 2026-05-02. Outstanding work:
 
-- "How does ``output_voltage`` track ``input_voltage`` across the
-  last week of runs?"
-- "Group ``rail_3v3_ripple`` by station_type — is bench A
-  systematically worse than bench B?"
-- "Histogram of ``efficiency`` for product X, split by DUT
-  revision."
-- "Scatter ``output_current`` vs ``input_voltage`` filtered to
-  ``temperature=25``, color-coded by outcome."
-
-The data is already there — every measurement parquet has the
-flat `in_*` (parameters) / `out_*` (observations) /
-`measurement_*` columns and full DUT / station / product context.
-What's missing is the UI surface.
-
-What needs to land:
-
-- A new `/explore` page (or rename — "Parametric Viewer", "Cross-run
-  Compare"). Picks:
-  - **Test selector** — which test (or product / step / measurement
-    name) to ground the query.
-  - **Y axis** — any `out_*`, `measurement_value`, derived metric
-    (yield rate, sigma).
-  - **X axis** — any `in_*`, `out_*`, `started_at`, `dut_serial`,
-    or aggregation bucket.
-  - **Filters** — facet pickers for `station_id`, `product_id`,
-    `test_phase`, time range, outcome, plus arbitrary `in_*` /
-    `out_*` filters.
-  - **Group / split** — secondary categorical to split into series
-    or facet panels.
-- **Chart types** — line (X ordered), scatter (X any), bar (categorical
-  X), histogram (Y distribution). Toggle in the chart header.
-- **Backed by DuckDB** over the parquet tree — extend
-  ``MetricsStore`` (`analysis/metrics_store.py`) with a generic
-  `query(y, x, filters, group_by, agg)` returning a long-format
-  table for ECharts.
-- **URL state** — selections / filters serialized so a chart can be
-  shared / bookmarked.
-- **HTTP API** — symmetric MCP / API endpoint so an LLM agent can
-  ask the same questions programmatically.
-
-Decision points: do we ship a full visual query builder or start
-with a code-style param textarea (DuckDB SQL fragment) for power
-users? Where does derived-metric registration live (yield rate per
-group, Cpk, sigma) — `analysis/` or a new `analysis/metrics`
-module? Cap the row count returned to the UI so the chart isn't
-overwhelmed (downsample with LTTB for line/scatter; bin
-server-side for histogram).
-
-Tied into:
-
-- "Operator-UI store browser" — this is a sibling page to Events /
-  Channels rather than a replacement.
-- Existing yield-analytics page (`metrics_page.py`) is a baked-in
-  set of dashboards; the parametric viewer is the freeform
-  counterpart.
+- **Range filters and facet pickers.** Today filters are a JSON
+  textarea — equality only. Add dedicated `since`/`until` inputs and
+  multi-select pickers for `station_id` / `product_id` / `test_phase`
+  / `outcome` so the common filters don't require typing JSON.
+- **Derived metrics for Y.** Pure column queries today — no yield
+  rate, Cpk per group, or sigma. Decide where these live: keep them
+  in `analysis/metrics_store.py` alongside the hardcoded queries, or
+  carve out `analysis/metrics/` with one module per derived metric.
+- **HTTP / MCP symmetry.** No `/api/parametric` endpoint or MCP tool
+  yet. The MetricsStore method is in place; just needs the wrappers.
+- **Row caps and decimation.** Hard `limit=5000` cap on raw
+  scatter / line. LTTB-decimate large series before sending to the
+  chart so 50k-point queries don't lock the browser.
+- **Per-test grounding.** Today the user picks Y/X over all silver
+  rows. For the "test selector" use case (filter to one test or one
+  measurement name) we already have `measurement_name` as a filter
+  column — but a dedicated dropdown would be more discoverable.
 
 ---
 
@@ -777,6 +1143,31 @@ _None._
 ---
 
 ## Completed
+
+### Parametric measurement viewer (thin slice) — 2026-05-02
+
+`/explore` page for cross-run measurement comparison. Pick any
+silver column for Y / X, optionally split by a categorical group,
+toggle between scatter / line / bar / histogram. URL query string
+holds all selections so the view is shareable by copy-paste.
+
+What landed:
+
+- `MetricsStore.parametric(y, x, filters, group_by, chart_type, bins,
+  limit)` returns long-format `{x, y, group}` rows. Histogram bins
+  server-side; bar aggregates AVG; scatter / line return raw rows
+  capped at `limit`.
+- `MetricsStore.describe_silver()` for schema introspection — the
+  Y / X / group_by dropdowns are populated from real columns rather
+  than a hardcoded list.
+- Column identifiers are validated against `^[A-Za-z_][A-Za-z0-9_]*$`
+  before going into SQL; filter values escape via `sql_escape`.
+- Time-axis sniffing: `datetime`-typed X gets ECharts `type: time`,
+  strings get `type: category`, numerics get `type: value`.
+
+Sibling to `/events` / `/channels` (browse) and `/metrics` (canned
+dashboards) — the freeform counterpart that lets an operator ask
+"how does X track Y across runs" without writing SQL.
 
 ### Profiles bind station_type + fixture (test-phase wiring) — 2026-04-27
 

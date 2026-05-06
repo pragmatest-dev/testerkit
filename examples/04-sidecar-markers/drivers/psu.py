@@ -3,7 +3,7 @@
 This defines the interface for a power supply. Use with Mock for testing:
 
     from drivers import PSU
-    from litmus.instruments import Mock
+    from litmus.instruments.mocks import Mock
 
     psu = Mock(PSU, measure_voltage=5.0, measure_current=0.1)
     psu.set_voltage(5.0)

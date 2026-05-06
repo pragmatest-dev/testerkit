@@ -1,15 +1,7 @@
-"""Storage backends for test results."""
+"""Storage backends for test results.
 
-from litmus.data.backends.parquet import (
-    ParquetBackend,
-    ParquetMeasurementWriter,
-    ParquetSubscriber,
-)
-from litmus.data.backends.protocol import MeasurementWriter
+Import directly from the submodule that owns the type:
 
-__all__ = [
-    "MeasurementWriter",
-    "ParquetBackend",
-    "ParquetMeasurementWriter",
-    "ParquetSubscriber",
-]
+    from litmus.data.backends.parquet import ParquetBackend, ParquetSubscriber
+    from litmus.data.backends.protocol import MeasurementWriter
+"""

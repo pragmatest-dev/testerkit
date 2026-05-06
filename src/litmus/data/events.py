@@ -137,7 +137,7 @@ class SessionEnded(EventBase):
     """Emitted at the end of a session. Must NOT carry run_id."""
 
     event_type: Literal["session.ended"] = "session.ended"
-    outcome: str = "passed"
+    outcome: str | None = None
 
     @model_validator(mode="after")
     def _reject_run_id(self) -> SessionEnded:
@@ -210,7 +210,7 @@ class RunEnded(EventBase):
     """Emitted at the end of a test run."""
 
     event_type: Literal["run.ended"] = "run.ended"
-    outcome: str = "passed"
+    outcome: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +386,12 @@ class StepEnded(EventBase):
     step_name: str
     step_index: int
     step_path: str = ""
-    outcome: str = "passed"
+    # ``None`` is a valid value: a step that opened but never recorded
+    # a measurement (and never had an outcome cascaded into it) ends
+    # with no outcome stamped. The _steps.parquet sidecar preserves
+    # that signal — the measurement parquet, by construction, only
+    # contains rows for steps whose execution did record measurements.
+    outcome: str | None = None
 
     # Code identity
     node_id: str | None = None

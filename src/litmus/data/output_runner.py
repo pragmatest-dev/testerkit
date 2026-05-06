@@ -72,7 +72,7 @@ def _run_single_output(
 
     if fmt and is_report_format(fmt):
         # Report formats — delegate to litmus.reports
-        from litmus.reports import generate_report, load_run_data
+        from litmus.reports.core import generate_report, load_run_data
 
         data = load_run_data(run_id, results_dir)
         exported_path = generate_report(
@@ -100,7 +100,7 @@ def _run_single_output(
         # Transport-only: ship the Parquet file directly
         from litmus.data.backends.parquet import ParquetBackend
 
-        backend = ParquetBackend(results_dir=Path(results_dir) / "runs")
+        backend = ParquetBackend(results_dir=Path(results_dir))
         pq_file = backend.find_run_file(run_id)
         if pq_file:
             _enqueue_and_drain(pq_file, transport_name, output_cfg, results_dir)

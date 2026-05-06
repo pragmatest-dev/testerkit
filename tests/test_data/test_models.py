@@ -26,8 +26,8 @@ class TestOutcomeEnum:
     def test_aborted_value(self):
         assert Outcome.ABORTED.value == "aborted"
 
-    def test_planned_value(self):
-        assert Outcome.PLANNED.value == "planned"
+    def test_terminated_value(self):
+        assert Outcome.TERMINATED.value == "terminated"
 
 
 class TestMeasurement:
@@ -152,7 +152,10 @@ class TestTestStep:
         step = TestStep(name="measure_voltage")
         assert step.name == "measure_voltage"
         assert isinstance(step.id, UUID)
-        assert step.outcome == Outcome.PASSED
+        # New steps have no outcome — it's stamped only when the
+        # step actually runs (via measurement cascade or runner-side
+        # stamping). ``None`` is the "never ran" signal at finalize.
+        assert step.outcome is None
         # Steps now contain vectors, which contain measurements
         assert step.vectors == []
 
@@ -177,7 +180,8 @@ class TestTestRun:
         )
         assert run.dut.serial == "SN001"
         assert run.station_id == "station_001"
-        assert run.outcome == Outcome.PASSED
+        # New runs have no outcome — see TestStep.test_basic_step.
+        assert run.outcome is None
         assert run.steps == []
 
     def test_test_run_with_steps(self):

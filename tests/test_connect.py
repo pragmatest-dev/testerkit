@@ -1,4 +1,16 @@
-"""Tests for StationConnection and litmus.connect()."""
+"""Tests for StationConnection and litmus.connect().
+
+Storage is the canonical singleton results_dir — every test writes
+events to the same shared events daemon. Per-test isolation is by
+``session_id`` (the per-process EventStore stamps a unique session
+on each ``StationConnection``), not by directory. Tests read back
+through the IPC file at ``conn.event_log.path``, which is keyed
+by session+pid so tests never see each other's events.
+
+Locks and station/instrument config still use ``tmp_path`` via
+the ``LITMUS_HOME`` redirect in ``_use_tmp_dirs`` — those don't
+spawn daemons.
+"""
 
 import json
 from pathlib import Path
@@ -9,7 +21,17 @@ import pyarrow.ipc as ipc
 import pytest
 
 from litmus.connect import StationConnection
+from litmus.data.results_dir import resolve_results_dir
 from litmus.models.station import StationConfig, StationInstrumentConfig
+
+# Canonical results dir — resolved through the project's
+# ``litmus.yaml`` (at repo root) so storage stays project-local
+# (``<repo>/.tmp/test-results``) instead of polluting the global
+# ``~/.local/share/litmus/results`` store. ``resolve_results_dir``
+# walks CWD ancestors for ``litmus.yaml`` and returns its
+# ``results_dir`` field; here CWD is the repo root because pytest
+# is invoked from there.
+_CANONICAL_RESULTS = resolve_results_dir()
 
 
 def _read_events_from_ipc(path: Path) -> list[dict]:
@@ -36,27 +58,34 @@ def _make_station(**instruments) -> StationConfig:
 
 @pytest.fixture(autouse=True)
 def _use_tmp_dirs(tmp_path, monkeypatch):
+    """autouse — pyright can't see fixture wiring, but pytest does."""
     monkeypatch.setenv("LITMUS_HOME", str(tmp_path / "litmus_home"))
 
 
+# Re-export so pyright sees the autouse fixture as referenced. Pytest
+# resolves fixtures by collection-time discovery, not by name binding,
+# so this is purely a static-analysis appeasement.
+_ = _use_tmp_dirs
+
+
 class TestStationConnection:
-    def test_context_manager(self, tmp_path):
+    def test_context_manager(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        with StationConnection(station, results_dir=tmp_path / "results", mock=True) as conn:
+        with StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True) as conn:
             assert conn.session_id is not None
             assert isinstance(conn.session_id, UUID)
 
-    def test_start_stop(self, tmp_path):
+    def test_start_stop(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        conn = StationConnection(station, results_dir=tmp_path / "results", mock=True)
+        conn = StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True)
         conn.start()
         assert conn.event_log is not None
         conn.stop()
         assert conn.event_log is None
 
-    def test_instrument_connect_release(self, tmp_path):
+    def test_instrument_connect_release(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        conn = StationConnection(station, results_dir=tmp_path / "results", mock=True)
+        conn = StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True)
         conn.start()
 
         dmm = conn.instrument("dmm")
@@ -67,9 +96,9 @@ class TestStationConnection:
         assert "dmm" not in conn.instruments
         conn.stop()
 
-    def test_instrument_not_found(self, tmp_path):
+    def test_instrument_not_found(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        conn = StationConnection(station, results_dir=tmp_path / "results", mock=True)
+        conn = StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True)
         conn.start()
 
         with pytest.raises(KeyError, match="psu"):
@@ -77,9 +106,9 @@ class TestStationConnection:
 
         conn.stop()
 
-    def test_events_emitted(self, tmp_path):
+    def test_events_emitted(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        with StationConnection(station, results_dir=tmp_path / "results", mock=True) as conn:
+        with StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True) as conn:
             conn.instrument("dmm")
             conn.release("dmm")
             assert conn.event_log is not None
@@ -92,9 +121,9 @@ class TestStationConnection:
         assert "fixture.instrument_disconnected" in event_types
         assert "session.ended" in event_types
 
-    def test_stop_releases_all_instruments(self, tmp_path):
+    def test_stop_releases_all_instruments(self):
         station = _make_station(dmm="GPIB::16::INSTR", psu="GPIB::17::INSTR")
-        conn = StationConnection(station, results_dir=tmp_path / "results", mock=True)
+        conn = StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True)
         conn.start()
         conn.instrument("dmm")
         conn.instrument("psu")
@@ -102,22 +131,22 @@ class TestStationConnection:
         conn.stop()
         assert len(conn.instruments) == 0
 
-    def test_auto_start_on_instrument(self, tmp_path):
+    def test_auto_start_on_instrument(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        conn = StationConnection(station, results_dir=tmp_path / "results", mock=True)
+        conn = StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True)
         # Don't call start() explicitly
         dmm = conn.instrument("dmm")
         assert dmm is not None
         assert conn.event_log is not None
         conn.stop()
 
-    def test_context_manager_error_outcome(self, tmp_path):
+    def test_context_manager_error_outcome(self):
         station = _make_station()
         log_path = None
         with pytest.raises(ValueError):
             with StationConnection(
                 station,
-                results_dir=tmp_path / "results",
+                results_dir=_CANONICAL_RESULTS,
                 mock=True,
             ) as conn:
                 assert conn.event_log is not None
@@ -131,13 +160,13 @@ class TestStationConnection:
 
 
 class TestSessionStartedFields:
-    def test_pid_field(self, tmp_path):
+    def test_pid_field(self):
         import os
 
         station = _make_station()
         with StationConnection(
             station,
-            results_dir=tmp_path / "results",
+            results_dir=_CANONICAL_RESULTS,
             mock=True,
         ) as conn:
             assert conn.event_log is not None
@@ -147,11 +176,11 @@ class TestSessionStartedFields:
         started = events[0]
         assert started["pid"] == os.getpid()
 
-    def test_session_type_interactive(self, tmp_path):
+    def test_session_type_interactive(self):
         station = _make_station()
         with StationConnection(
             station,
-            results_dir=tmp_path / "results",
+            results_dir=_CANONICAL_RESULTS,
             mock=True,
         ) as conn:
             assert conn.event_log is not None
@@ -161,11 +190,11 @@ class TestSessionStartedFields:
         started = events[0]
         assert started["session_type"] == "interactive"
 
-    def test_session_started_no_run_id(self, tmp_path):
+    def test_session_started_no_run_id(self):
         station = _make_station()
         with StationConnection(
             station,
-            results_dir=tmp_path / "results",
+            results_dir=_CANONICAL_RESULTS,
             mock=True,
         ) as conn:
             assert conn.event_log is not None
@@ -175,11 +204,11 @@ class TestSessionStartedFields:
         started = events[0]
         assert started.get("run_id") is None
 
-    def test_session_ended_no_run_id(self, tmp_path):
+    def test_session_ended_no_run_id(self):
         station = _make_station()
         with StationConnection(
             station,
-            results_dir=tmp_path / "results",
+            results_dir=_CANONICAL_RESULTS,
             mock=True,
         ) as conn:
             assert conn.event_log is not None
@@ -189,12 +218,12 @@ class TestSessionStartedFields:
         ended = [e for e in events if e["event_type"] == "session.ended"]
         assert ended[0].get("run_id") is None
 
-    def test_interactive_no_run_events(self, tmp_path):
+    def test_interactive_no_run_events(self):
         """Interactive sessions emit session events but no run events."""
         station = _make_station(dmm="GPIB::16::INSTR")
         with StationConnection(
             station,
-            results_dir=tmp_path / "results",
+            results_dir=_CANONICAL_RESULTS,
             mock=True,
         ) as conn:
             conn.instrument("dmm")

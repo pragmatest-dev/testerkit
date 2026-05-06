@@ -2,9 +2,9 @@
 
 import logging
 
-from nicegui import ui
+from nicegui import run, ui
 
-from litmus.ui.shared.components import format_datetime
+from litmus.ui.shared.components import data_table, format_datetime, render_skeleton
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import discover_stations, get_recent_runs
 
@@ -12,40 +12,54 @@ logger = logging.getLogger(__name__)
 
 
 @ui.page("/")
-def dashboard_page():
-    """Main dashboard page."""
+async def dashboard_page():
+    """Main dashboard page.
+
+    Page handler returns immediately with skeleton placeholders.
+    Stations and recent runs load off the event loop via run.io_bound.
+    """
     create_layout("Dashboard")
 
-    stations = discover_stations()
-    try:
-        runs = get_recent_runs(limit=10)
-    except (OSError, ValueError) as exc:
-        logger.warning("Failed to load recent runs: %s", exc)
-        runs = []
-
-    if not stations and not runs:
-        _getting_started_card()
-        return
-
     with ui.column().classes("w-full p-6 gap-6"):
-        # Stations section
         with ui.row().classes("items-center gap-2"):
             ui.icon("memory").classes("text-slate-600")
             ui.label("Stations").classes("text-lg font-semibold text-slate-700")
+        stations_container = ui.row().classes("gap-4 flex-wrap w-full")
+        render_skeleton(stations_container, "h-24")
 
-        if stations:
-            with ui.row().classes("gap-4 flex-wrap"):
-                for station in stations:
-                    _station_card(station)
-        else:
-            ui.label("No stations configured.").classes("text-slate-500 italic")
-
-        # Recent runs section
         with ui.row().classes("items-center gap-2 mt-4"):
             ui.icon("history").classes("text-slate-600")
             ui.label("Recent Runs").classes("text-lg font-semibold text-slate-700")
+        runs_container = ui.column().classes("w-full")
+        render_skeleton(runs_container, "h-48")
 
-        _render_recent_runs(runs)
+    async def _load_dashboard() -> None:
+        stations = await run.io_bound(discover_stations)
+        try:
+            recent_runs = await run.io_bound(get_recent_runs, 10)
+        except (OSError, ValueError) as exc:
+            logger.warning("Failed to load recent runs: %s", exc)
+            recent_runs = []
+
+        if not stations and not recent_runs:
+            stations_container.delete()
+            runs_container.delete()
+            _getting_started_card()
+            return
+
+        stations_container.clear()
+        with stations_container:
+            if stations:
+                for station in stations:
+                    _station_card(station)
+            else:
+                ui.label("No stations configured.").classes("text-slate-500 italic")
+
+        runs_container.clear()
+        with runs_container:
+            _render_recent_runs(recent_runs)
+
+    ui.timer(0.0, _load_dashboard, once=True)
 
 
 def _station_card(station):
@@ -129,26 +143,33 @@ def _getting_started_card():
 def _render_recent_runs(runs: list) -> None:
     """Render recent runs table."""
     if runs:
-        with ui.card().classes("w-full"):
-            columns = [
-                {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
-                {"name": "dut", "label": "DUT", "field": "dut_serial", "align": "left"},
-                {"name": "station", "label": "Station", "field": "station_id", "align": "left"},
-                {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
-                {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
-            ]
-            rows = [
-                {
-                    "run_id": (r.test_run_id or "")[:8],
-                    "full_run_id": r.test_run_id or "",
-                    "dut_serial": r.dut_serial or "",
-                    "station_id": r.station_id or "",
-                    "started_at": format_datetime(r.started_at),
-                    "outcome": r.outcome or "",
-                }
-                for r in runs
-            ]
-            table = ui.table(columns=columns, rows=rows, row_key="run_id").classes("w-full")
-            table.on("row-click", lambda e: ui.navigate.to(f"/results/{e.args[1]['full_run_id']}"))
+        # Station column shows ``station_hostname`` (the machine an
+        # operator recognizes), not the internal slug. Universal
+        # rule — see feedback_operator_facing_identifiers.md.
+        columns = [
+            {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
+            {"name": "dut", "label": "DUT", "field": "dut_serial", "align": "left"},
+            {"name": "station", "label": "Station", "field": "station_hostname", "align": "left"},
+            {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
+            {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
+        ]
+        rows = [
+            {
+                "run_id": (r.test_run_id or "")[:8],
+                "full_run_id": r.test_run_id or "",
+                "dut_serial": r.dut_serial or "",
+                "station_hostname": r.station_hostname or "",
+                "started_at": format_datetime(r.started_at),
+                "outcome": r.outcome or "",
+            }
+            for r in runs
+        ]
+        data_table(
+            columns=columns,
+            rows=rows,
+            row_key="run_id",
+            on_row_click=lambda r: ui.navigate.to(f"/results/{r['full_run_id']}"),
+            time_columns=["started"],
+        )
     else:
         ui.label("No test runs yet.").classes("text-slate-500 italic")

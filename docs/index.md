@@ -11,13 +11,13 @@ Litmus is a Python-native hardware test platform for the AI-assisted era.
 | [Concepts](concepts/overview.md) | Products, stations, capabilities, fixtures, and matching |
 | [How-To Guides](guides/writing-tests.md) | Step-by-step guides for common tasks |
 | [Reference](reference/api.md) | MCP tools, HTTP endpoints, CLI, models |
-| [Examples](examples/power-converter.md) | Complete working examples |
+| [Examples](../examples/README.md) | Seven runnable example projects (01-vanilla → 07-profiles) |
 
 ## Quick Start
 
-**Run the demo:**
+**Run an example:**
 ```bash
-cd demo && python run_demo.py
+cd examples/01-vanilla && uv run pytest -v
 ```
 
 **Start the UI:**

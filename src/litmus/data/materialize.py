@@ -55,8 +55,7 @@ def materialize_channel_refs(results_dir: Path, channel_dirs_to_prune: list[Path
 
     # Read-only ChannelStore for querying (no active session writes).
     # Dummy session_id — we only use store.query() which reads from disk.
-    channels_dir = results_dir / "channels"
-    store = ChannelStore(channels_dir, session_id=UUID(int=0))
+    store = ChannelStore(results_dir, session_id=UUID(int=0))
 
     runs_dir = results_dir / "runs"
     if not runs_dir.is_dir():

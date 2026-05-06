@@ -1,5 +1,6 @@
-"""Litmus API - FastAPI routes + NiceGUI UI."""
+"""Litmus API — FastAPI routes and NiceGUI UI.
 
-from litmus.api.app import create_api_router, create_app
+Import directly from the submodule:
 
-__all__ = ["create_api_router", "create_app"]
+    from litmus.api.app import create_app, create_api_router
+"""

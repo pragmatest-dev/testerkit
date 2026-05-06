@@ -34,6 +34,36 @@ body {
   padding-left: var(--sidebar-width) !important;
 }
 
+/* Litmus design-system page shell. Pages opt in by wrapping content
+   in ``page_layout()`` (litmus.ui.shared.components). The shell
+   constrains the page area to the visible viewport so any
+   ``data_table`` or other fill-the-space component inside has a
+   finite height to scroll within — rows scroll, the page does not.
+   Pages that need natural-flow content (docs, long forms) skip the
+   shell and behave normally.
+
+   ``!important`` because Quasar's ``q-page`` ships
+   ``min-height: 100vh`` inline-equivalent with high specificity,
+   and NiceGUI's ``nicegui-column`` sets sizing on the inner div.
+   We need to win against both reliably. */
+.litmus-page {
+  height: calc(100vh - var(--header-height)) !important;
+  max-height: calc(100vh - var(--header-height)) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+
+/* Sticky table headers — wraps any q-table the data_table helper
+   builds. Keeps column labels visible while rows scroll. */
+.litmus-data-table .q-table thead tr th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+}
+
 .q-header {
   left: var(--sidebar-width) !important;
   width: calc(100% - var(--sidebar-width)) !important;

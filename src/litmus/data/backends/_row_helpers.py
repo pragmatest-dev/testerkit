@@ -8,7 +8,6 @@ added in one place.
 from __future__ import annotations
 
 import json as _json
-import os
 import pickle
 import shutil
 from collections.abc import Callable, Iterator
@@ -18,16 +17,36 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from litmus.data.models import Measurement, Outcome, TestRun, TestVector, Waveform
+from litmus.data.models import Measurement, TestRun, TestVector, Waveform
 from litmus.data.ref import classify_value, is_ref
 from litmus.environment import EnvironmentSnapshot
 
 try:
-    import numpy as np  # type: ignore[import-not-found]
+    import importlib.util as _ilu
 
-    HAS_NUMPY = True
-except ImportError:
+    HAS_NUMPY = _ilu.find_spec("numpy") is not None
+except Exception:
     HAS_NUMPY = False
+
+# Canonical list of instrument identity array column names.
+# Lives here (data layer) so the daemon and parquet backend can import it
+# without pulling in the execution framework.
+INSTRUMENT_ARRAY_KEYS: tuple[str, ...] = (
+    "step_instruments_name",
+    "step_instruments_id",
+    "step_instruments_driver",
+    "step_instruments_resource",
+    "step_instruments_protocol",
+    "step_instruments_manufacturer",
+    "step_instruments_model",
+    "step_instruments_serial",
+    "step_instruments_firmware",
+    "step_instruments_cal_due",
+    "step_instruments_cal_last",
+    "step_instruments_cal_certificate",
+    "step_instruments_cal_lab",
+    "step_instruments_mocked",
+)
 
 # Prefix for path references in output columns (legacy, use file:// URIs)
 REF_PATH_PREFIX = "_ref/"
@@ -196,10 +215,12 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
     Python objects (datetime, str, None) — callers that need JSON
     serialisation should post-process timestamps.
     """
+    from litmus.execution._state import get_current_slot_id
+
     return {
         "session_id": str(test_run.session_id),
         "run_id": str(test_run.id),
-        "slot_id": os.environ.get("_LITMUS_SLOT_ID"),
+        "slot_id": get_current_slot_id(),
         "run_started_at": test_run.started_at,
         "run_ended_at": test_run.ended_at,
         # WHO
@@ -456,8 +477,10 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
 
     elif isinstance(value, Waveform):
         if HAS_NUMPY:
+            import numpy as np  # noqa: PLC0415
+
             filename = f"{prefix}.npz"
-            np.savez(  # pyright: ignore[reportPossiblyUnboundVariable]
+            np.savez(
                 ref_dir / filename,
                 Y=value.Y,
                 t0=value.t0,
@@ -478,8 +501,10 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
 
     elif hasattr(value, "tolist"):
         if HAS_NUMPY:
+            import numpy as np  # noqa: PLC0415
+
             filename = f"{prefix}.npy"
-            np.save(ref_dir / filename, value)  # pyright: ignore[reportPossiblyUnboundVariable]
+            np.save(ref_dir / filename, value)
         else:
             filename = f"{prefix}.json"
             (ref_dir / filename).write_text(_json.dumps(value.tolist()))
@@ -544,8 +569,8 @@ def build_row(
         vector_ended_at=vector.ended_at,
         # Outcomes (cascade: vector → step → run; all non-Optional with default PASSED)
         step_outcome=step_outcome,
-        vector_outcome=vector.outcome.value,
-        run_outcome=test_run.outcome.value,
+        vector_outcome=vector.outcome.value if vector.outcome else None,
+        run_outcome=test_run.outcome.value if test_run.outcome else None,
         # Dynamic columns
         inputs=build_input_columns(vector),
         outputs=build_output_columns(vector, ref_saver=ref_saver),
@@ -585,7 +610,7 @@ def iter_rows(test_run: TestRun) -> Iterator[MeasurementRow]:
                     step_class=step.class_name,
                     step_function=step.function,
                     step_markers=step.markers,
-                    step_outcome=step.outcome.value,
+                    step_outcome=step.outcome.value if step.outcome else None,
                 )
 
 
@@ -617,7 +642,7 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
                 step_path=step.step_path,
                 description=step.description,
                 markers=step.markers,
-                outcome=step.outcome.value,
+                outcome=step.outcome.value if step.outcome else None,
                 started_at=step.started_at,
                 ended_at=step.ended_at,
                 has_measurements=measurement_count > 0,
@@ -712,7 +737,11 @@ def _append_not_started(
                 "module": ci.get("module"),
                 "step_path": "",
                 "description": None,
-                "outcome": Outcome.PLANNED.value,
+                # No outcome stamped — the absence IS the receipt
+                # that this step never ran (the row was collected
+                # but its turn never came). Display layer renders
+                # "Never Ran" for outcome=None at finalize time.
+                "outcome": None,
                 "started_at": None,
                 "ended_at": None,
                 "has_measurements": False,

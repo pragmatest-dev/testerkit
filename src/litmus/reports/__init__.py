@@ -1,5 +1,6 @@
-"""Test report generation for Litmus."""
+"""Test report generation for Litmus.
 
-from litmus.reports.core import ReportData, generate_report, load_run_data
+Import directly from the submodule:
 
-__all__ = ["ReportData", "generate_report", "load_run_data"]
+    from litmus.reports.core import ReportData, generate_report, load_run_data
+"""

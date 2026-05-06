@@ -3,6 +3,7 @@
 from nicegui import ui
 
 from litmus.ui.shared.components import (
+    data_table,
     info_field,
     render_capability_detail,
     setup_hash_sync_for_tabs,
@@ -91,21 +92,20 @@ def _render_product_detail(product_id: str, product: dict):
 def _render_pins_tab(pins: list):
     """Render the pins tab."""
     if pins:
-        with ui.card().classes("w-full"):
-            columns = [
-                {"name": "name", "label": "Name", "field": "name", "align": "left"},
-                {"name": "net", "label": "Net", "field": "net"},
-                {"name": "description", "label": "Description", "field": "description"},
-            ]
-            rows = [
-                {
-                    "name": pin.get("name", ""),
-                    "net": pin.get("net", ""),
-                    "description": pin.get("description", ""),
-                }
-                for pin in pins
-            ]
-            ui.table(columns=columns, rows=rows, row_key="name").classes("w-full")
+        columns = [
+            {"name": "name", "label": "Name", "field": "name", "align": "left"},
+            {"name": "net", "label": "Net", "field": "net"},
+            {"name": "description", "label": "Description", "field": "description"},
+        ]
+        rows = [
+            {
+                "name": pin.get("name", ""),
+                "net": pin.get("net", ""),
+                "description": pin.get("description", ""),
+            }
+            for pin in pins
+        ]
+        data_table(columns=columns, rows=rows, row_key="name")
     else:
         ui.label("No pins defined.").classes("text-slate-500 italic")
 
@@ -168,7 +168,7 @@ def _render_stations_tab(product_id: str):
                     }
                     for cap in required_caps
                 ]
-                ui.table(columns=columns, rows=rows, row_key="char").classes("w-full")
+                data_table(columns=columns, rows=rows, row_key="char")
 
     compatible_stations = get_compatible_stations_for_product(product_id)
     with ui.row().classes("items-center gap-2 mt-4 mb-2"):

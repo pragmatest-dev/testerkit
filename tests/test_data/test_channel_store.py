@@ -15,7 +15,7 @@ from litmus.data.channels.store import ChannelStore
 
 def _make_store(tmp_path: Path, flush_threshold: int = 100) -> ChannelStore:
     session_id = uuid4()
-    store = ChannelStore(tmp_path / "channels", session_id, flush_threshold=flush_threshold)
+    store = ChannelStore(tmp_path, session_id, flush_threshold=flush_threshold)
     store.open()
     return store
 
@@ -193,7 +193,7 @@ class TestQuery:
         store.close()
 
         # Create new store to query from files
-        store2 = ChannelStore(tmp_path / "channels", uuid4())
+        store2 = ChannelStore(tmp_path, uuid4())
         result = store2.query("dmm.dc_voltage")
         assert len(result) == 2
 
@@ -203,15 +203,14 @@ class TestQuery:
             store.write("dmm.dc_voltage", float(i))
         store.close()
 
-        store2 = ChannelStore(tmp_path / "channels", uuid4())
+        store2 = ChannelStore(tmp_path, uuid4())
         result = store2.query("dmm.dc_voltage", last_n=3)
         assert len(result) == 3
         assert result.column("value")[0].as_py() == 7.0
 
     def test_query_empty(self, tmp_path: Path):
-        channels_dir = tmp_path / "channels"
-        channels_dir.mkdir(parents=True)
-        store = ChannelStore(channels_dir, uuid4())
+        (tmp_path / "channels").mkdir(parents=True)
+        store = ChannelStore(tmp_path, uuid4())
         result = store.query("nonexistent")
         assert len(result) == 0
 

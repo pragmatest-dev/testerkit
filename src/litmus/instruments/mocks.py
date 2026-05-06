@@ -8,7 +8,7 @@ Example usage:
     class DMM:
         def measure_voltage(self) -> float: pass
 
-    from litmus.instruments import Mock
+    from litmus.instruments.mocks import Mock
     dmm = Mock(DMM, measure_voltage=3.3)
     dmm.measure_voltage()  # Returns 3.3
 

@@ -30,8 +30,10 @@ from litmus.mcp.tools import (
     metrics_tool,
     open_tool,
     run_tool,
+    runs_tool,
     schema_tool,
     sessions_tool,
+    steps_tool,
 )
 from litmus.schema_export import SCHEMA_MAP
 
@@ -547,6 +549,51 @@ def create_mcp_server() -> FastMCP:
             min_samples=min_samples,
             project=project,
         )
+
+    # -------------------------------------------------------------------------
+    # Tool 11: litmus_runs
+    # -------------------------------------------------------------------------
+
+    @mcp.tool(name="litmus_runs")
+    def query_runs(
+        action: str = "list",
+        run_id: str | None = None,
+        limit: int = 50,
+        project: str | None = None,
+    ) -> dict[str, Any]:
+        """Query the runs table — denormalized run-level summaries.
+
+        Args:
+            action: ``list`` (most recent runs) or ``get`` (one run by id).
+            run_id: Required when ``action='get'``; full UUID or 8-char prefix.
+            limit: Max rows when ``action='list'`` (default 50).
+            project: Project root path.
+        """
+        if action not in ("list", "get"):
+            return {"error": f"Unknown action '{action}'. Valid: ['list', 'get']"}
+        return runs_tool(action=action, run_id=run_id, limit=limit, project=project)  # type: ignore[arg-type]
+
+    # -------------------------------------------------------------------------
+    # Tool 12: litmus_steps
+    # -------------------------------------------------------------------------
+
+    @mcp.tool(name="litmus_steps")
+    def query_steps(
+        run_id: str,
+        action: str = "list",
+        project: str | None = None,
+    ) -> dict[str, Any]:
+        """Query the steps table for one run.
+
+        Args:
+            run_id: Full UUID or 8-char prefix of the run.
+            action: ``list`` for flat ordered rows; ``tree`` for the
+                ``step_path``-derived hierarchy.
+            project: Project root path.
+        """
+        if action not in ("list", "tree"):
+            return {"error": f"Unknown action '{action}'. Valid: ['list', 'tree']"}
+        return steps_tool(run_id=run_id, action=action, project=project)  # type: ignore[arg-type]
 
     # -------------------------------------------------------------------------
     # Prompt: datasheet-to-test workflow

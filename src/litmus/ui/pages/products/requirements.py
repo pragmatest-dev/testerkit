@@ -2,6 +2,7 @@
 
 from nicegui import ui
 
+from litmus.ui.shared.components import data_table
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -80,7 +81,7 @@ def _render_requirements(product_id: str, product: dict):
                         }
                         for cap in capabilities
                     ]
-                    ui.table(columns=columns, rows=rows, row_key="characteristic").classes("w-full")
+                    data_table(columns=columns, rows=rows, row_key="characteristic")
                 else:
                     ui.label(
                         "No characteristics defined - add characteristics to generate requirements."

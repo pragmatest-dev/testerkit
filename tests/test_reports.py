@@ -1,4 +1,12 @@
-"""Tests for report generation."""
+"""Tests for report generation.
+
+Storage: canonical singleton (project-local via repo's
+``litmus.yaml`` → ``<repo>/results/``). Per-test isolation is by
+unique ``run_id`` (each ``sample_run`` mints a uuid4). Tests read
+back through ``load_run_data(run_id)`` with no explicit
+``results_dir`` so resolution falls through to the canonical
+store the daemon already serves.
+"""
 
 import json
 from datetime import UTC, datetime
@@ -9,6 +17,8 @@ import pytest
 
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.results_dir import resolve_results_dir
+from litmus.data.run_store import RunStore
 from litmus.reports.core import (
     generate_report,
     load_run_data,
@@ -82,11 +92,23 @@ def sample_run():
 
 
 @pytest.fixture
-def results_dir(tmp_path, sample_run):
-    """Save sample run to a temp results dir and return the dir path."""
-    rd = tmp_path / "results"
-    backend = ParquetBackend(results_dir=rd / "runs")
-    backend.save_test_run(sample_run)
+def results_dir(sample_run):
+    """Save sample run to the canonical results_dir.
+
+    Per-test isolation is via the ``sample_run.id`` (uuid4) which
+    is the parquet filename's run_id segment. Notifying the
+    canonical daemon directly (bypassing
+    ``LITMUS_SKIP_DAEMON_NOTIFY``) so ``load_run_data`` can find
+    the run via the daemon's index.
+    """
+    rd = resolve_results_dir()
+    backend = ParquetBackend(results_dir=rd)
+    parquet_path = backend.save_test_run(sample_run)
+    notifier = RunStore()
+    try:
+        notifier.notify_new_run(parquet_path)
+    finally:
+        notifier.close()
     return rd
 
 

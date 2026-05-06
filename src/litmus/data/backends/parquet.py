@@ -19,6 +19,8 @@ Schema design:
 - Config snapshots in Parquet file-level metadata
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import pickle
@@ -27,7 +29,7 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import pyarrow as pa
@@ -35,15 +37,16 @@ import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 
 from litmus.data._atomic import atomic_write_table
+from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.backends._row_helpers import (
     CUSTOM_PREFIX,
     HAS_NUMPY,
     INPUT_PREFIX,
+    INSTRUMENT_ARRAY_KEYS,
     OUTPUT_PREFIX,
     REF_PATH_PREFIX,
     VECTOR_ID_LENGTH,
     MeasurementRow,
-    _append_not_started,
     _to_datetime,
     build_row,
     build_run_metadata,
@@ -51,12 +54,7 @@ from litmus.data.backends._row_helpers import (
     extract_prefixed_fields,
     run_context_from_run_started,
     save_ref_to_dir,
-    step_entry_dict,
 )
-from litmus.data.run_store import RunStore
-
-if HAS_NUMPY:
-    import numpy as np  # type: ignore[import-not-found]
 from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
     InstrumentConnected,
@@ -80,14 +78,16 @@ from litmus.data.models import (
 )
 from litmus.data.ref import is_ref, parse_channel_uri, ref_scheme
 from litmus.data.results_dir import resolve_results_dir
+from litmus.data.run_store import RunStore
 from litmus.data.schemas import (
     SCHEMA_VERSION,
     STEP_SCHEMA,
     _build_write_schema,
     table_from_rows,
 )
-from litmus.data.subscribers._output_file import OutputFile
-from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
+
+if TYPE_CHECKING:
+    from litmus.data.subscribers._output_file import OutputFile
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,10 @@ _STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_dut_pin", "_fixt
 
 # Fields in MeasurementRow that are expanded via to_flat_dict(), not stored directly.
 _DENORMALIZATION_FIELDS = frozenset({"inputs", "outputs", "instruments", "custom"})
+
+# Outcome priority for deterministic worst-case selection from a set.
+# Lower rank = worse outcome. Ties (same rank) pick the same "worst" value.
+OUTCOME_RANK: dict[str, int] = {"failed": 0, "errored": 1, "skipped": 2, "passed": 3}
 
 
 def _is_param_column(col: str) -> bool:
@@ -189,8 +193,15 @@ class ParquetBackend:
     """
 
     def __init__(self, results_dir: Path | str | None = None):
+        # ``results_dir`` is the parent (the project's results dir
+        # containing ``runs/``, ``events/``, ``channels/`` subdirs).
+        # Aligns with ``RunStore._results_dir`` and
+        # ``ProjectConfig.results_dir``. Parquets are written under
+        # ``self._runs_dir = results_dir / "runs"``.
         self.results_dir = resolve_results_dir(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
+        self._runs_dir = self.results_dir / "runs"
+        self._runs_dir.mkdir(parents=True, exist_ok=True)
         self._writer = ParquetMeasurementWriter(notify=self._notify_daemon)
 
     def save_test_run(
@@ -217,8 +228,8 @@ class ParquetBackend:
         date_str = test_run.started_at.strftime("%Y-%m-%d")
         dut_serial = test_run.dut.serial.strip() if test_run.dut.serial else ""
 
-        # Create date directory
-        date_dir = self.results_dir / date_str
+        # Create date directory under runs/
+        date_dir = self._runs_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
         # Filename: timestamp first, serial if present
@@ -242,15 +253,74 @@ class ParquetBackend:
         table = table_from_rows(rows, schema)
         batch = table.combine_chunks().to_batches()[0]
 
-        # Write via measurement writer
+        # Steps sidecar first so the daemon's ``_on_put`` glob (fired
+        # by ``write_batch`` below) sees both files when it refreshes
+        # the views — the ``runs`` view is sourced from steps and
+        # doesn't appear until ``_steps.parquet`` is on disk.
+        self._save_steps_parquet(test_run, parquet_path)
+
+        # Then the measurements parquet, which triggers daemon notify.
         metadata = self._build_file_metadata(test_run)
         self._writer.write_batch(batch, parquet_path, file_metadata=metadata)
 
         return parquet_path
 
+    def _save_steps_parquet(self, test_run: TestRun, parquet_path: Path) -> None:
+        """Write the ``{stem}_steps.parquet`` sidecar from a ``TestRun``.
+
+        Mirrors what :meth:`ParquetSubscriber._write_steps_parquet`
+        produces from the streaming path, so both writers (batch and
+        streaming) leave the same on-disk shape.
+        """
+        if not test_run.steps:
+            return
+
+        run_context = build_run_metadata(test_run)
+        run_context["run_outcome"] = test_run.outcome.value if test_run.outcome else None
+        rows: list[dict[str, Any]] = []
+        for idx, step in enumerate(test_run.steps):
+            started_at = step.started_at or test_run.started_at
+            ended_at = step.ended_at or test_run.ended_at or test_run.started_at
+            duration_s = (
+                (ended_at - started_at).total_seconds() if started_at and ended_at else None
+            )
+            measurement_count = (
+                sum(len(v.measurements) for v in step.vectors) if step.vectors else 0
+            )
+            rows.append(
+                {
+                    "index": idx,
+                    "name": step.name,
+                    "node_id": None,
+                    "file": None,
+                    "function": None,
+                    "class_name": None,
+                    "module": None,
+                    "step_path": step.step_path or step.name,
+                    "description": None,
+                    "markers": None,
+                    "outcome": step.outcome.value if step.outcome else None,
+                    "started_at": started_at,
+                    "ended_at": ended_at,
+                    "duration_s": duration_s,
+                    "has_measurements": measurement_count > 0,
+                    "measurement_count": measurement_count,
+                    "vector_count": len(step.vectors) if step.vectors else 0,
+                    **run_context,
+                }
+            )
+        table = pa.Table.from_pylist(rows, schema=STEP_SCHEMA)
+        steps_path = parquet_path.with_name(parquet_path.stem + "_steps.parquet")
+        atomic_write_table(table, steps_path)
+
     @contextmanager
     def _run_store_ctx(self) -> Generator[RunStore, None, None]:
-        """Yield a configured RunStore, closing it on exit."""
+        """Yield a configured RunStore, closing it on exit.
+
+        Both classes use ``results_dir`` to mean *the parent* (the
+        results dir containing ``runs/``, ``events/``, ``channels/``).
+        Each appends its own subdir internally.
+        """
         store = RunStore(_results_dir=self.results_dir)
         try:
             yield store
@@ -263,11 +333,22 @@ class ParquetBackend:
         Catches transport-level failures (network, file I/O, gRPC
         flake) so a daemon outage doesn't block the write. Other
         exceptions — programming errors, schema bugs — propagate.
+
+        Set ``LITMUS_SKIP_DAEMON_NOTIFY=1`` (e.g. in test conftest)
+        to skip notification entirely. Without this, every
+        ``ParquetBackend.save_test_run(results_dir=tmp_path)`` call
+        in unit tests transitively spawns a runs daemon for that
+        tmp_path — accumulating daemons across test files quickly
+        exhausts the OS thread limit.
         """
+        import os as _os
+
+        if _os.environ.get("LITMUS_SKIP_DAEMON_NOTIFY") == "1":
+            return
         try:
             with self._run_store_ctx() as store:
                 store.notify_new_run(parquet_path)
-        except (ConnectionError, OSError, TimeoutError):
+        except (ConnectionError, BrokenPipeError, FileNotFoundError, TimeoutError):
             logger.debug("Failed to notify runs daemon", exc_info=True)
 
     def _build_measurement_rows(
@@ -306,7 +387,7 @@ class ParquetBackend:
                         step_class=step.class_name,
                         step_function=step.function,
                         step_markers=step.markers,
-                        step_outcome=step.outcome.value,
+                        step_outcome=step.outcome.value if step.outcome else None,
                         meta=meta,
                     )
                     rows.append(row_model.to_flat_dict())
@@ -346,7 +427,7 @@ class ParquetBackend:
         }
         # Overlay run-level metadata (populates run_id, dut_serial, etc.)
         row.update(build_run_metadata(test_run))
-        row["run_outcome"] = test_run.outcome.value
+        row["run_outcome"] = test_run.outcome.value if test_run.outcome else None
 
         # Add instrument identity arrays (default to empty lists for schema consistency)
         if instrument_arrays:
@@ -393,16 +474,6 @@ class ParquetBackend:
         """Get rows for a specific measurement name with row-group pushdown."""
         with self._run_store_ctx() as store:
             return store.get_measurement(file_path, measurement_name, step_index=step_index)
-
-    def get_session_measurements(self, session_id: str) -> list[dict[str, Any]]:
-        """Get measurements from all runs sharing a session_id.
-
-        For multi-DUT runs, each worker writes its own parquet file but
-        they share a session_id. This collects measurements across all
-        sibling runs for combined views like the execution timeline.
-        """
-        with self._run_store_ctx() as store:
-            return store.get_session_measurements(session_id)
 
     def get_vectors(self, run_id: str) -> list[dict]:
         """Get unique test vectors for a specific test run."""
@@ -500,7 +571,7 @@ class ParquetBackend:
         date_str = started_at.strftime("%Y-%m-%d")
         dut_serial = dut_serial.strip() if dut_serial else ""
 
-        date_dir = self.results_dir / date_str
+        date_dir = self._runs_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
         if dut_serial:
@@ -523,12 +594,19 @@ class ParquetBackend:
         return parquet_path
 
 
-class ParquetSubscriber(EventSubscriber):
-    """EventSubscriber that accumulates measurements and writes Parquet on close.
+# EventAccumulator is defined in _event_accumulator.py (lightweight,
+# no parquet/subscriber deps) and imported above. ParquetSubscriber
+# subclasses it below.
 
-    Caches ``RunStarted`` for run metadata and ``InstrumentConnected``
-    for instrument arrays. On ``MeasurementRecorded``, builds a denormalized
-    row using cached context. On ``RunEnded`` or ``close()``, writes Parquet.
+
+class ParquetSubscriber(EventAccumulator, EventSubscriber):
+    """EventSubscriber that writes the canonical parquet on RunEnded.
+
+    Inherits the full event projection from :class:`EventAccumulator`.
+    Adds only the parquet write tail: on ``RunEnded`` (or ``close()``
+    fallback) materialize the accumulated state via the inherited
+    ``_build_*`` helpers and persist it to disk via
+    :class:`ParquetBackend`.
     """
 
     format_name = "parquet"
@@ -549,173 +627,64 @@ class ParquetSubscriber(EventSubscriber):
         *,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
+        super().__init__()
         self._output_dir = output_dir
         self._on_output = on_output
-        self._backend = ParquetBackend(results_dir=output_dir / "runs")
-        self._run_started: Any = None  # RunStarted event (run context)
-        self._instruments: list[Any] = []  # InstrumentConnected events
-        self._measurement_events: list[Any] = []  # MeasurementRecorded events
+        self._backend = ParquetBackend(results_dir=output_dir)
         self._written = False
-        self._steps_with_measurements: set[int] = set()
-        self._step_starts: dict[int, Any] = {}  # step_index → StepStarted
-        self._step_ends: dict[int, Any] = {}  # step_index → StepEnded
-        self._collected_items: list[dict[str, str | None]] = []
-        # node_id → markers, populated when StepsDiscovered arrives so
-        # _build_row can stamp step_markers on every measurement row
-        # without rebuilding the lookup per measurement.
-        self._markers_by_node: dict[str, str | None] = {}
 
     def open(self) -> None:
         """No-op — subscriber protocol requires this but Parquet needs no setup."""
 
+    def absorb_from_accumulator(self, acc: Any) -> None:
+        """Copy accumulated event state from another :class:`EventAccumulator`.
+
+        Used by the orphan-finalization path to transfer in-memory state
+        from the runs daemon's pool accumulator into a fresh
+        ``ParquetSubscriber`` so the aborted parquet is written via the
+        same write path as a clean producer-side close. Keeps the private
+        state mutation in one place rather than spread across callers.
+        """
+        self._run_started = acc._run_started
+        self._instruments = list(acc._instruments)
+        self._measurement_events = list(acc._measurement_events)
+        self._step_starts = dict(acc._step_starts)
+        self._step_ends = dict(acc._step_ends)
+        self._collected_items = list(acc._collected_items)
+        self._markers_by_node = dict(acc._markers_by_node)
+
     def on_event(self, event: Any) -> None:
-        if isinstance(event, RunStarted):
-            self._run_started = event
-        elif isinstance(event, InstrumentConnected):
-            self._instruments.append(event)
-        elif isinstance(event, StepsDiscovered):
-            self._collected_items = event.items
-            markers: dict[str, str | None] = {}
-            for ci in event.items:
-                nid = ci.get("node_id")
-                if nid:
-                    markers[nid] = ci.get("markers")
-            self._markers_by_node = markers
-        elif isinstance(event, StepStarted):
-            self._step_starts[event.step_index] = event
-        elif isinstance(event, MeasurementRecorded):
-            self._steps_with_measurements.add(event.step_index)
-            self._measurement_events.append(event)
-        elif isinstance(event, StepEnded):
-            self._step_ends[event.step_index] = event
-        elif isinstance(event, RunEnded):
+        super().on_event(event)
+        if isinstance(event, RunEnded):
             self._write(outcome=event.outcome)
 
     def close(self) -> None:
         if not self._written:
             self._write()
 
-    def _build_instrument_arrays(self) -> dict[str, list]:
-        """Build instrument arrays from cached InstrumentConnected events."""
-        arrays: dict[str, list] = {k: [] for k in INSTRUMENT_ARRAY_KEYS}
-        for inst in self._instruments:
-            arrays["step_instruments_name"].append(inst.role)
-            arrays["step_instruments_id"].append(inst.instrument_id)
-            arrays["step_instruments_driver"].append(inst.driver)
-            arrays["step_instruments_resource"].append(inst.resource)
-            arrays["step_instruments_protocol"].append(inst.protocol)
-            arrays["step_instruments_manufacturer"].append(inst.manufacturer)
-            arrays["step_instruments_model"].append(inst.model)
-            arrays["step_instruments_serial"].append(inst.serial)
-            arrays["step_instruments_firmware"].append(inst.firmware)
-            arrays["step_instruments_cal_due"].append(inst.cal_due)
-            arrays["step_instruments_cal_last"].append(inst.cal_last)
-            arrays["step_instruments_cal_certificate"].append(inst.cal_certificate)
-            arrays["step_instruments_cal_lab"].append(inst.cal_lab)
-            arrays["step_instruments_mocked"].append(inst.mocked)
-        return arrays
-
-    def _step_start_field(self, step_index: int, attr: str) -> Any:
-        """Get a field from the cached StepStarted event, or None."""
-        start = self._step_starts.get(step_index)
-        return getattr(start, attr, None) if start else None
-
-    def _build_row(self, event: Any) -> dict[str, Any]:
-        """Denormalize a MeasurementRecorded event into a flat row dict.
-
-        Joins cached RunStarted metadata + InstrumentConnected arrays
-        with the normalized measurement event to produce a full
-        ``MeasurementRow``-compatible flat dict.
-        """
-        idx = event.step_index
-        end = self._step_ends.get(idx)
-        node_id = self._step_start_field(idx, "node_id")
-        row = MeasurementRow(
-            **run_context_from_run_started(self._run_started, event, include_env=True),
-            # Step/vector (from event + cached StepStarted)
-            step_name=event.step_name,
-            step_index=idx,
-            step_path=event.step_path,
-            step_started_at=self._step_start_field(idx, "occurred_at"),
-            step_ended_at=end.occurred_at if end else None,
-            step_node_id=node_id,
-            step_module=self._step_start_field(idx, "module"),
-            step_file=self._step_start_field(idx, "file"),
-            step_class=self._step_start_field(idx, "class_name"),
-            step_function=self._step_start_field(idx, "function"),
-            step_markers=self._markers_by_node.get(node_id) if node_id else None,
-            step_outcome=end.outcome if end else None,
-            vector_index=event.vector_index,
-            vector_attempt=event.attempt,
-            # Measurement (from event)
-            measurement_name=event.measurement_name,
-            measurement_timestamp=event.measurement_timestamp,
-            measurement_value=event.value,
-            measurement_units=event.units,
-            measurement_outcome=event.outcome,
-            limit_low=event.limit_low,
-            limit_high=event.limit_high,
-            limit_nominal=event.limit_nominal,
-            limit_comparator=event.limit_comparator,
-            characteristic_id=event.characteristic_id,
-            spec_ref=event.spec_ref,
-            dut_pin=event.dut_pin,
-            fixture_connection=event.fixture_connection,
-            instrument_name=event.instrument_name,
-            instrument_resource=event.instrument_resource,
-            instrument_channel=event.instrument_channel,
-            # Run outcome backfilled in _write()
-            run_outcome=None,
-            # Dynamic columns
-            inputs=dict(event.inputs),
-            outputs=dict(event.outputs),
-            instruments=self._build_instrument_arrays(),
-            custom=dict(event.custom),
-        )
-        return row.to_flat_dict()
-
-    def _build_step_summary_row(self, step_ended: Any) -> dict[str, Any]:
-        """Build a summary row for a step that completed with no measurements."""
-        row = MeasurementRow(
-            **run_context_from_run_started(self._run_started, step_ended, include_env=True),
-            step_name=step_ended.step_name,
-            step_index=step_ended.step_index,
-            step_path=step_ended.step_path,
-            step_started_at=(
-                self._step_starts[step_ended.step_index].occurred_at
-                if step_ended.step_index in self._step_starts
-                else None
-            ),
-            step_ended_at=step_ended.occurred_at,
-            step_node_id=step_ended.node_id,
-            step_module=step_ended.module,
-            step_file=step_ended.file,
-            step_class=step_ended.class_name,
-            step_function=step_ended.function,
-            step_markers=(
-                self._markers_by_node.get(step_ended.node_id) if step_ended.node_id else None
-            ),
-            measurement_name="_step_summary",
-            measurement_value=None,
-            measurement_outcome=step_ended.outcome,
-            step_outcome=step_ended.outcome,
-            run_outcome=None,
-            instruments=self._build_instrument_arrays(),
-        )
-        return row.to_flat_dict()
-
     def _write(self, outcome: str | None = None) -> None:
         """Write accumulated rows to Parquet.
 
         Orchestration only: build → write measurements + steps →
         notify. Splits into ``_build_final_rows`` and ``_write_results``
-        so the early-exit paths (no RunStarted, no rows) and the actual
-        I/O are separate. ``_written`` flips only after a successful
-        write so callbacks aren't shadowed by half-finished state.
+        so the early-exit paths and the actual I/O are separate.
+        ``_written`` flips only after a successful write so callbacks
+        aren't shadowed by half-finished state.
+
+        Either the measurements rows or the step events being non-empty
+        is enough to trigger a write — a run that only ran action /
+        setup steps without recording measurements still produces a
+        ``_steps.parquet`` so the run is visible in the index.
 
         Args:
-            outcome: Run outcome from RunEnded. If None (crash/close without
-                RunEnded), defaults to "errored" since the run didn't complete.
+            outcome: Run outcome from RunEnded. If None — close()
+                fired without ever seeing a RunEnded event — the
+                run was killed mid-flight without the cleanup chain
+                running, so falls back to ``aborted`` (no-safe-state
+                signal: rig may not be in a known state). Operator
+                stops that reached the cleanup path get ``terminated``
+                stamped via the SIGTERM handler / pytest hook before
+                we get here.
         """
         if self._written:
             return
@@ -725,50 +694,107 @@ class ParquetSubscriber(EventSubscriber):
             self._written = True  # Nothing to write; treat as completed.
             return
 
-        rows = self._build_final_rows(outcome)
-        if not rows:
+        ended_at = _utcnow()
+        final_outcome = outcome if outcome is not None else "aborted"
+
+        rows = self._build_final_rows(ended_at, final_outcome)
+        # Skip write if the run produced no measurements AND no steps completed.
+        # A run with steps-but-no-measurements still writes: the steps parquet
+        # carries run-level metadata (outcome, duration, instrument context)
+        # that the runs daemon ingests into runs_persisted.
+        if not rows and not self._step_ends:
             self._written = True
             return
 
-        self._write_results(s, rows)
+        self._write_results(s, rows, ended_at=ended_at, run_outcome=final_outcome)
         self._written = True
 
-    def _build_final_rows(self, outcome: str | None) -> list[dict[str, Any]]:
-        """Build the final list of rows to write (measurements + step summaries)."""
-        ended_at = _utcnow()
-        final_outcome = outcome if outcome is not None else "errored"
+    def _build_final_rows(self, run_ended_at: datetime, run_outcome: str) -> list[dict[str, Any]]:
+        """Build the final list of measurement rows to write.
 
+        Steps without measurements are NOT injected here as synthetic
+        rows — they live in the sibling ``_steps.parquet`` file (see
+        :meth:`_write_steps_parquet`), which carries every step
+        regardless of whether it recorded measurements.
+        """
         rows: list[dict[str, Any]] = []
         for event in self._measurement_events:
             row = self._build_row(event)
-            row["run_ended_at"] = ended_at
-            row["run_outcome"] = final_outcome
+            row["run_ended_at"] = run_ended_at
+            row["run_outcome"] = run_outcome
             rows.append(row)
-
-        for step_idx, step_end in self._step_ends.items():
-            if step_idx not in self._steps_with_measurements:
-                row = self._build_step_summary_row(step_end)
-                row["run_ended_at"] = ended_at
-                row["run_outcome"] = final_outcome
-                rows.append(row)
 
         return rows
 
-    def _write_results(self, s: Any, rows: list[dict[str, Any]]) -> None:
-        """Persist rows to parquet, write the steps sidecar, fire ``on_output``."""
-        pq_path = self._backend.save_from_rows(
-            rows,
-            started_at=s.occurred_at,
-            dut_serial=s.dut_serial,
-            file_metadata=self._build_file_metadata(),
-        )
-        self._write_steps_parquet(pq_path)
-        if self._on_output:
+    def _write_results(
+        self,
+        s: Any,
+        rows: list[dict[str, Any]],
+        *,
+        ended_at: datetime,
+        run_outcome: str,
+    ) -> None:
+        """Persist rows to parquet, write the steps sidecar, fire ``on_output``.
+
+        Either the measurements rows or the step events being non-empty
+        triggers a write. The measurements parquet is skipped when
+        there are no measurement rows (typical for runs that only ran
+        action / setup steps without recording any measurements); the
+        steps sidecar is always written when steps occurred.
+        """
+        # Derive the canonical measurements-file path even when we
+        # don't end up writing it — the steps sidecar still wants the
+        # ``{stem}_steps.parquet`` naming convention.
+        pq_path = self._compose_parquet_path(s.occurred_at, s.dut_serial)
+
+        # Steps sidecar first so the daemon's ``_on_put`` notification
+        # (fired by save_from_rows) sees both files on disk.
+        self._write_steps_parquet(pq_path, run_ended_at=ended_at, run_outcome=run_outcome)
+
+        if rows:
+            self._backend.save_from_rows(
+                rows,
+                started_at=s.occurred_at,
+                dut_serial=s.dut_serial,
+                file_metadata=self._build_file_metadata(),
+            )
+
+        if self._on_output and rows:
+            from litmus.data.subscribers._output_file import OutputFile  # lazy
+
             run_id = str(s.run_id) if s.run_id else None
             self._on_output(OutputFile(path=pq_path, format="parquet", run_id=run_id))
 
-    def _write_steps_parquet(self, measurements_path: Path) -> None:
-        """Write sibling _steps.parquet alongside the measurements file."""
+    def _compose_parquet_path(self, started_at: datetime, dut_serial: str) -> Path:
+        """Compose the measurements parquet path from run-start metadata.
+
+        Mirrors the naming inside :meth:`ParquetBackend.save_from_rows`
+        so the steps sidecar can be written even when the main
+        measurements parquet is empty (no measurements recorded).
+        """
+        timestamp = started_at.strftime("%Y%m%dT%H%M%SZ")
+        date_str = started_at.strftime("%Y-%m-%d")
+        dut_serial = dut_serial.strip() if dut_serial else ""
+        date_dir = self._backend._runs_dir / date_str
+        date_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{timestamp}_{dut_serial}.parquet" if dut_serial else f"{timestamp}.parquet"
+        return date_dir / filename
+
+    def _write_steps_parquet(
+        self,
+        measurements_path: Path,
+        *,
+        run_ended_at: datetime,
+        run_outcome: str,
+    ) -> None:
+        """Write sibling _steps.parquet alongside the measurements file.
+
+        Step rows carry the same denormalized run context as measurement
+        rows, *plus* ``run_outcome`` and ``run_ended_at`` and the env
+        columns (``python_version`` / ``litmus_version`` /
+        ``env_fingerprint``) — enough for run-level analytics queries
+        to be answered from steps alone, without scanning measurements.
+        """
         step_results = self._build_step_results_from_events()
         if not step_results:
             return
@@ -777,7 +803,9 @@ class ParquetSubscriber(EventSubscriber):
         if not s:
             return
 
-        run_context = run_context_from_run_started(s, s)
+        run_context = run_context_from_run_started(s, s, include_env=True)
+        run_context["run_ended_at"] = run_ended_at
+        run_context["run_outcome"] = run_outcome
         rows: list[dict[str, Any]] = []
         for entry in step_results:
             started_at = _to_datetime(entry.get("started_at"))
@@ -828,67 +856,6 @@ class ParquetSubscriber(EventSubscriber):
             step_results=results,
         )
 
-    def _build_step_results_from_events(self) -> list[dict[str, Any]]:
-        """Build step manifest from cached StepStarted/StepEnded events.
-
-        Appends ``not_started`` entries for collected items that never
-        executed (e.g. run aborted via Ctrl-C or ``--maxfail``).
-        """
-        manifest: list[dict[str, Any]] = []
-        executed_node_ids: set[str] = set()
-
-        # Pre-compute measurement counts per step index (avoids O(M*N) scan)
-        meas_counts: dict[int, int] = {}
-        for e in self._measurement_events:
-            meas_counts[e.step_index] = meas_counts.get(e.step_index, 0) + 1
-
-        all_indices = sorted(set(self._step_starts) | set(self._step_ends))
-        for idx in all_indices:
-            start = self._step_starts.get(idx)
-            end = self._step_ends.get(idx)
-            node_id = start.node_id if start else None
-            if node_id:
-                executed_node_ids.add(node_id)
-            manifest.append(self._build_step_entry(idx, start, end, meas_counts.get(idx, 0)))
-
-        # Append not-started entries from collected items
-        _append_not_started(manifest, self._collected_items, executed_node_ids)
-
-        return manifest
-
-    def _build_step_entry(
-        self,
-        idx: int,
-        start: Any | None,
-        end: Any | None,
-        meas_count: int,
-    ) -> dict[str, Any]:
-        """Build one step manifest entry from cached StepStarted/StepEnded.
-
-        Either ``start`` or ``end`` (typically both) describes the step.
-        Falls back across them so a partial run (e.g., aborted mid-step)
-        still yields a usable entry.
-        """
-        node_id = start.node_id if start else None
-        return step_entry_dict(
-            index=idx,
-            name=start.step_name if start else (end.step_name if end else ""),
-            node_id=node_id,
-            file=start.file if start else None,
-            function=start.function if start else None,
-            class_name=start.class_name if start else None,
-            module=start.module if start else None,
-            step_path=start.step_path if start else (end.step_path if end else ""),
-            description=start.description if start else None,
-            markers=self._markers_by_node.get(node_id) if node_id else None,
-            outcome=end.outcome if end else None,
-            started_at=start.occurred_at if start else None,
-            ended_at=end.occurred_at if end else None,
-            has_measurements=meas_count > 0,
-            measurement_count=meas_count,
-            vector_count=0,
-        )
-
 
 def load_file(parquet_path: Path, ref: str) -> Any:
     """Load a file reference (``file://`` URI or legacy ``_ref/`` path).
@@ -927,7 +894,9 @@ def load_file(parquet_path: Path, ref: str) -> Any:
         if ext == ".npz":
             if not HAS_NUMPY:
                 return path
-            data = dict(np.load(path, allow_pickle=True))  # pyright: ignore[reportPossiblyUnboundVariable]
+            import numpy as np  # noqa: PLC0415
+
+            data = dict(np.load(path, allow_pickle=True))
             # Check if this looks like a Waveform
             if "Y" in data and "t0" in data and "dt" in data:
                 attrs = {k: v for k, v in data.items() if k not in ("Y", "t0", "dt")}
@@ -942,7 +911,9 @@ def load_file(parquet_path: Path, ref: str) -> Any:
         elif ext == ".npy":
             if not HAS_NUMPY:
                 return path
-            return np.load(path)  # pyright: ignore[reportPossiblyUnboundVariable]
+            import numpy as np  # noqa: PLC0415
+
+            return np.load(path)
 
         elif ext == ".json":
             return json.loads(path.read_text())
@@ -1171,7 +1142,9 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                     vk,
                     sorted(o for o in vec_outcomes if o is not None),
                 )
-            vec_outcome_str = next(iter(vec_outcomes), None)
+            vec_outcome_str = min(
+                vec_outcomes, key=lambda o: OUTCOME_RANK.get(str(o), 99), default=None
+            )
             vectors.append(
                 TestVector(
                     index=vk[0] or 0,

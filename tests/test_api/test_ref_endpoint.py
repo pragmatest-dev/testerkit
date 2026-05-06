@@ -102,8 +102,15 @@ class TestSerializeRef:
 
 
 @pytest.fixture
-def app_with_run(tmp_path, monkeypatch):
-    """Save a TestRun with ref-typed observations and return (client, run_id)."""
+def app_with_run():
+    """Save a TestRun with ref-typed observations to canonical.
+
+    Per-test isolation is by uuid4 ``run_id`` — API endpoints query
+    by id, so other tests' canonical rows don't leak in.
+    """
+    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.run_store import RunStore
+
     run = TestRun(
         id=uuid4(),
         started_at=datetime(2026, 5, 2, 12, 0, 0, tzinfo=UTC),
@@ -130,17 +137,15 @@ def app_with_run(tmp_path, monkeypatch):
         ],
     )
 
-    runs_root = tmp_path / "results" / "runs"
-    backend = ParquetBackend(results_dir=runs_root)
-    backend.save_test_run(run)
+    results_root = resolve_results_dir()
+    backend = ParquetBackend(results_dir=results_root)
+    parquet_path = backend.save_test_run(run)
 
-    # Patch project config so create_api_router uses our tmp tree.
-    from litmus.models.project import ProjectConfig
-
-    monkeypatch.setattr(
-        "litmus.store.load_project_config",
-        lambda *a, **kw: ProjectConfig(name="test", results_dir=str(runs_root)),
-    )
+    notifier = RunStore()
+    try:
+        notifier.notify_new_run(parquet_path)
+    finally:
+        notifier.close()
 
     app = FastAPI()
     app.include_router(create_api_router())

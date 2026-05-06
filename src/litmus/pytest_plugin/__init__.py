@@ -97,6 +97,7 @@ from litmus.pytest_plugin.hooks import (
     VECTORS_MATRIX_KEY,
     _profile_errors_as_usage,
     pytest_addoption,
+    pytest_assertion_pass,
     pytest_collection_modifyitems,
     pytest_configure,
     pytest_generate_tests,
@@ -120,6 +121,7 @@ from litmus.pytest_plugin.hooks import (
 # canonically in ``litmus.execution._state``.
 __all__ = [
     "pytest_addoption",
+    "pytest_assertion_pass",
     "pytest_collection_modifyitems",
     "pytest_configure",
     "pytest_generate_tests",
@@ -252,7 +254,7 @@ def _setup_event_log_and_subscribers(
 
     channels_on_output = find_format_transport_callback("channels", results_path)
     channel_store = ChannelStore(
-        results_path / "channels",
+        results_path,
         session_id,
         serve=True,
         on_output=channels_on_output,
@@ -304,7 +306,9 @@ def _emit_session_start_events(logger: TestRunLogger) -> None:
             )
         )
 
-    env_slot_id = os.environ.get("_LITMUS_SLOT_ID")
+    from litmus.execution._state import get_current_slot_id
+
+    slot_id = get_current_slot_id()
     env_slot_index_str = os.environ.get("_LITMUS_SLOT_INDEX")
     env_slot_index = int(env_slot_index_str) if env_slot_index_str else None
 
@@ -312,7 +316,7 @@ def _emit_session_start_events(logger: TestRunLogger) -> None:
         RunStarted(
             session_id=logger._session_id,
             run_id=logger.test_run.id,
-            slot_id=env_slot_id,
+            slot_id=slot_id,
             slot_index=env_slot_index,
             station_id=logger.test_run.station_id,
             station_name=logger.test_run.station_name,
@@ -372,7 +376,7 @@ def _teardown_logger(logger: TestRunLogger, event_store: Any, results_dir: str) 
             logger.event_log.emit(
                 SessionEnded(
                     session_id=logger._session_id,
-                    outcome=test_run.outcome.value,
+                    outcome=test_run.outcome.value if test_run.outcome else None,
                 )
             )
         logger.event_log.close()

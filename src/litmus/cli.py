@@ -10,11 +10,18 @@ import click
 
 
 def _find_parquet_for_run(run_id: str, results_dir: str) -> Path | None:
-    """Find the parquet file for a given run ID."""
-    from litmus.data.backends.parquet import ParquetBackend
+    """Find the measurement parquet path for a run ID via the daemon's index.
 
-    backend = ParquetBackend(results_dir=results_dir)
-    return backend.find_run_file(run_id)
+    Goes through ``RunsQuery`` rather than ``ParquetBackend.find_run_file``
+    so step-only runs (no measurement parquet on disk) resolve to
+    ``None`` cleanly without a glob walk. Same data path as the UI
+    and API — one canonical lookup for "where does this run live."
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    with RunsQuery(_results_dir=results_dir) as q:
+        row = q.get(run_id)
+    return Path(row.file_path) if row is not None and row.file_path else None
 
 
 @click.group()
@@ -515,21 +522,18 @@ def validate(paths, file_type, as_json):
 def serve(host: str, port: int, reload: bool):
     """Start the operator UI server."""
     if reload:
-        # In reload mode we use uvicorn directly with our ASGI entry point.
-        # On each reload cycle uvicorn re-imports litmus.ui._asgi which
-        # re-registers pages and configures NiceGUI from scratch.
         import uvicorn
 
-        # Watch both litmus package AND current working directory
         litmus_pkg = Path(__file__).parent
         uvicorn.run(
             "litmus.ui._asgi:app",
             host=host,
             port=port,
             reload=True,
-            reload_dirs=[str(litmus_pkg), "."],
+            reload_dirs=[str(litmus_pkg)],
             reload_includes=["*.py", "*.yaml"],
             log_level="warning",
+            timeout_graceful_shutdown=2,
         )
     else:
         from nicegui import ui
@@ -537,13 +541,16 @@ def serve(host: str, port: int, reload: bool):
         from litmus.api.app import create_app
 
         create_app()
-
+        # ``timeout_graceful_shutdown=2`` makes Ctrl+C exit within ~2s
+        # even when WebSocket clients are still connected. Without it,
+        # uvicorn waits indefinitely for connections to close.
         ui.run(
             host=host,
             port=port,
             reload=False,
             title="Litmus",
             favicon="⚡",
+            timeout_graceful_shutdown=2,
         )
 
 
@@ -623,11 +630,11 @@ def show(
     """
     results_dir = _get_results_dir(results_dir)
 
-    from litmus.reports import load_run_data
+    from litmus.reports.core import load_run_data
 
     if fmt:
         # Report generation mode
-        from litmus.reports import generate_report
+        from litmus.reports.core import generate_report
 
         try:
             data = load_run_data(run_id, results_dir)
@@ -668,8 +675,8 @@ def show(
             for entry in manifest:
                 mc = entry.get("measurement_count")
                 meas_info = f" ({mc} measurements)" if mc else ""
-                outcome = entry.get("outcome", "?")
-                if outcome == "planned":
+                outcome = entry.get("outcome") or "never_ran"
+                if outcome == "never_ran":
                     func = entry.get("function", "")
                     loc = f" [{func}]" if func else ""
                 else:
@@ -2069,11 +2076,11 @@ def _get_results_dir(results_dir):
     return str(resolve_results_dir(results_dir))
 
 
-def _metrics_store(results_dir: str | None):
-    """Create a MetricsStore with resolved results directory."""
-    from litmus.analysis.metrics_store import MetricsStore
+def _measurements_query(results_dir: str | None):
+    """Create a MeasurementsQuery with resolved results directory."""
+    from litmus.analysis.measurements_query import MeasurementsQuery
 
-    return MetricsStore(_results_dir=_get_results_dir(results_dir))
+    return MeasurementsQuery(_results_dir=_get_results_dir(results_dir))
 
 
 @main.group("metrics")
@@ -2087,7 +2094,7 @@ def metrics_group():
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_summary(results_dir, phase, since, until_date, product, station, period, as_json):
     """Yield summary: FPY, final yield, run counts, duration stats."""
-    store = _metrics_store(results_dir)
+    store = _measurements_query(results_dir)
     rows = store.yield_summary(
         product=product,
         station=station,
@@ -2130,17 +2137,74 @@ def metrics_summary(results_dir, phase, since, until_date, product, station, per
 @metrics_group.command("pareto")
 @_base_filters
 @click.option("--top", "top_n", default=10, help="Number of top failures")
-def metrics_pareto(results_dir, phase, since, until_date, product, station, top_n, as_json):
-    """Top failure modes (Pareto analysis)."""
-    store = _metrics_store(results_dir)
-    rows = store.pareto(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-        top_n=top_n,
-    )
+@click.option(
+    "--group-by",
+    type=click.Choice(["product", "step", "measurement"]),
+    default="product",
+    help=(
+        "Lens for the pareto: ``product`` groups runs by ``dut_part_number`` "
+        "(most-failing SKUs); ``step`` groups steps by ``step_path`` "
+        "(most-failing tests); ``measurement`` groups limit-bearing "
+        "measurements by name (the historical default)."
+    ),
+)
+def metrics_pareto(
+    results_dir, phase, since, until_date, product, station, top_n, group_by, as_json
+):
+    """Top failures (Pareto). Group by product / step / measurement."""
+    if group_by == "step":
+        from litmus.analysis.steps_query import StepsQuery
+
+        store = StepsQuery(_results_dir=results_dir or None)
+        try:
+            rows = store.failure_pareto(
+                top_n=top_n,
+                phase=phase,
+                product=product,
+                station=station,
+                since=since,
+                until=until_date,
+            )
+        finally:
+            store.close()
+        header = "Step (step_path)"
+    elif group_by == "product":
+        from litmus.analysis.runs_query import RunsQuery
+
+        store = RunsQuery(_results_dir=results_dir or None)
+        try:
+            rows = store.failure_pareto(
+                group_by="dut_part_number",
+                top_n=top_n,
+                phase=phase,
+                product=product,
+                station=station,
+                since=since,
+                until=until_date,
+            )
+        finally:
+            store.close()
+        header = "Product (dut_part_number)"
+    else:  # measurement (historical)
+        store = _measurements_query(results_dir)
+        raw = store.pareto(
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until_date,
+            top_n=top_n,
+        )
+        rows = [
+            {
+                "bucket": f"{r.get('step_name', '')}: {r.get('measurement_name', '')}",
+                "failed_count": r.get("fail_count", 0),
+                "total": r.get("fail_count", 0),
+                "fail_rate_pct": r.get("fail_rate", 0),
+            }
+            for r in raw
+        ]
+        header = "Measurement (step: name)"
 
     if not rows:
         click.echo("[]" if as_json else "No data found.")
@@ -2150,13 +2214,17 @@ def metrics_pareto(results_dir, phase, since, until_date, product, station, top_
         click.echo(json.dumps(rows, indent=2, default=str))
         return
 
-    click.echo(f"{'#':<4} {'Step / Measurement':<40} {'Count':>6} {'Rate':>7}")
-    click.echo("-" * 60)
+    click.echo(f"{'#':<4} {header:<40} {'Failed':>7} {'Total':>7} {'Rate':>7}")
+    click.echo("-" * 70)
     for i, r in enumerate(rows, 1):
-        label = f"{r.get('step_name', '')}: {r.get('measurement_name', '')}"
+        label = str(r.get("bucket") or "(none)")
         if len(label) > 38:
             label = label[:35] + "..."
-        click.echo(f"{i:<4} {label:<40} {r.get('fail_count', 0):>6} {r.get('fail_rate', 0):>6.1f}%")
+        rate = r.get("fail_rate_pct")
+        rate_str = f"{rate:>6.1f}%" if rate is not None else "      —"
+        click.echo(
+            f"{i:<4} {label:<40} {r.get('failed_count', 0):>7} {r.get('total', 0):>7} {rate_str}"
+        )
 
 
 @metrics_group.command("cpk")
@@ -2164,7 +2232,7 @@ def metrics_pareto(results_dir, phase, since, until_date, product, station, top_
 @click.option("--min-samples", default=10, help="Minimum sample count")
 def metrics_cpk(results_dir, phase, since, until_date, product, station, min_samples, as_json):
     """Process capability (Cpk/Cp) per measurement."""
-    store = _metrics_store(results_dir)
+    store = _measurements_query(results_dir)
     rows = store.cpk(
         product=product,
         station=station,
@@ -2201,7 +2269,7 @@ def metrics_cpk(results_dir, phase, since, until_date, product, station, min_sam
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_trend(results_dir, phase, since, until_date, product, station, period, as_json):
     """Yield trend over time."""
-    store = _metrics_store(results_dir)
+    store = _measurements_query(results_dir)
     rows = store.trend(
         product=product,
         station=station,
@@ -2233,7 +2301,7 @@ def metrics_trend(results_dir, phase, since, until_date, product, station, perio
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_retest(results_dir, phase, since, until_date, product, station, period, as_json):
     """Retest rates: how often DUTs require multiple attempts."""
-    store = _metrics_store(results_dir)
+    store = _measurements_query(results_dir)
     rows = store.retest(
         product=product,
         station=station,
@@ -2266,7 +2334,7 @@ def metrics_retest(results_dir, phase, since, until_date, product, station, peri
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_time_loss(results_dir, phase, since, until_date, product, station, period, as_json):
     """Time lost to failures and errors."""
-    store = _metrics_store(results_dir)
+    store = _measurements_query(results_dir)
     rows = store.time_loss(
         product=product,
         station=station,
@@ -2422,6 +2490,159 @@ def uploads_clear(results_dir: str | None) -> None:
 
     count = clear_done(_get_results_dir(results_dir))
     click.echo(f"{count} completed entry/entries removed.")
+
+
+# ---------------------------------------------------------------------------
+# Daemon lifecycle
+# ---------------------------------------------------------------------------
+
+
+def _resolve_daemon_dirs(
+    targets: tuple[str, ...] | None,
+    *,
+    all_flag: bool,
+) -> list[tuple[str, Path]]:
+    """Resolve user-specified targets to ``[(label, dir), ...]``.
+
+    With ``--all`` (or no targets), return all three canonical
+    daemons (events, runs, channels) under the configured
+    ``results_dir``. Targets can be the labels themselves
+    (``events`` / ``runs`` / ``channels``) or absolute directory
+    paths to operate on a non-default project.
+    """
+    from litmus.data.results_dir import resolve_results_dir
+
+    canonical = {
+        "events": Path(resolve_results_dir()) / "events",
+        "runs": Path(resolve_results_dir()) / "runs",
+        "channels": Path(resolve_results_dir()) / "channels",
+    }
+    if not targets or all_flag:
+        return list(canonical.items())
+    out: list[tuple[str, Path]] = []
+    for t in targets:
+        if t in canonical:
+            out.append((t, canonical[t]))
+        else:
+            p = Path(t).resolve()
+            out.append((p.name, p))
+    return out
+
+
+def _manager_for(label: str, daemon_dir: Path):
+    """Return the ``DaemonManager`` instance for a daemon-dir label."""
+    if label == "channels":
+        from litmus.data.channels.flight_manager import FlightDaemonManager
+
+        return FlightDaemonManager(daemon_dir)
+    if label == "events":
+        from litmus.data.duckdb_manager import DuckDBDaemonManager
+
+        return DuckDBDaemonManager(daemon_dir)
+    if label == "runs":
+        from litmus.data.runs_duckdb_manager import RunsDuckDBManager
+
+        return RunsDuckDBManager(daemon_dir)
+    # Fallback: heuristic by directory name.
+    from litmus.data.duckdb_manager import DuckDBDaemonManager
+
+    return DuckDBDaemonManager(daemon_dir)
+
+
+@main.group("daemon")
+def daemon_group():
+    """Manage Litmus background daemons (events / runs / channels)."""
+    pass
+
+
+@daemon_group.command("status")
+def daemon_status() -> None:
+    """Show running daemons, their PIDs, refs, and locations.
+
+    Reads the per-daemon state file directly. No daemon contact
+    required — works even if a daemon is unreachable but its state
+    file is still on disk (in which case the listed PID may be
+    dead; check with ``ps`` if in doubt).
+    """
+    from litmus.data._daemon_lifecycle import _pid_alive
+
+    rows = _resolve_daemon_dirs((), all_flag=True)
+    click.echo(f"{'daemon':<10} {'pid':<8} {'alive':<6} {'refs':<5} location")
+    click.echo("-" * 80)
+    for label, daemon_dir in rows:
+        if not daemon_dir.exists():
+            click.echo(f"{label:<10} {'-':<8} {'-':<6} {'-':<5} (no dir)")
+            continue
+        mgr = _manager_for(label, daemon_dir)
+        state = mgr.read_state()
+        pid = state.get("pid")
+        alive = _pid_alive(pid) if isinstance(pid, int) else False
+        refs = len(state.get("refs", []) or [])
+        loc = state.get("location", "")
+        pid_str = str(pid) if pid is not None else "-"
+        alive_str = "yes" if alive else ("no" if pid is not None else "-")
+        click.echo(f"{label:<10} {pid_str:<8} {alive_str:<6} {refs:<5} {loc}")
+
+
+@daemon_group.command("restart")
+@click.argument("targets", nargs=-1)
+@click.option("--all", "all_flag", is_flag=True, help="Restart every daemon under the project")
+def daemon_restart(targets: tuple[str, ...], all_flag: bool) -> None:
+    """Restart selected daemons (SIGTERM the running process; respawn on next access).
+
+    Use after editing daemon code while ``litmus serve --reload``
+    is running, or after bumping ``_SCHEMA_VERSION`` so the schema
+    rebuild path runs at the next acquire.
+
+    Targets can be ``events`` / ``runs`` / ``channels`` (resolved
+    against the configured ``results_dir``) or absolute directory
+    paths. With ``--all`` or no targets, restarts all three.
+    """
+    rows = _resolve_daemon_dirs(targets, all_flag=all_flag)
+    for label, daemon_dir in rows:
+        if not daemon_dir.exists():
+            click.echo(f"[{label}] no directory at {daemon_dir} — skipped")
+            continue
+        mgr = _manager_for(label, daemon_dir)
+        try:
+            mgr.force_restart()
+        except Exception as exc:  # noqa: BLE001 — operator command, surface and keep going
+            click.echo(f"[{label}] restart failed: {exc}")
+            continue
+        click.echo(f"[{label}] restarted (next acquire spawns fresh)")
+
+
+@daemon_group.command("stop")
+@click.argument("targets", nargs=-1)
+@click.option("--all", "all_flag", is_flag=True, help="Stop every daemon under the project")
+def daemon_stop(targets: tuple[str, ...], all_flag: bool) -> None:
+    """Stop selected daemons without respawning.
+
+    Same kill semantics as ``restart`` (SIGTERM the pid in state,
+    SIGKILL after grace), but doesn't trigger a respawn. The next
+    actual ``acquire()`` from a UI / CLI / test will lazily spawn
+    a fresh daemon when needed.
+    """
+    from litmus.data._daemon_lifecycle import _pid_alive
+
+    rows = _resolve_daemon_dirs(targets, all_flag=all_flag)
+    for label, daemon_dir in rows:
+        if not daemon_dir.exists():
+            click.echo(f"[{label}] no directory at {daemon_dir} — skipped")
+            continue
+        mgr = _manager_for(label, daemon_dir)
+        state = mgr.read_state()
+        pid = state.get("pid")
+        if not isinstance(pid, int) or not _pid_alive(pid):
+            click.echo(f"[{label}] not running")
+            continue
+        try:
+            mgr._kill_daemon(pid)  # noqa: SLF001 — operator-side use of internal helper
+            mgr.cleanup_state_files()
+        except Exception as exc:  # noqa: BLE001
+            click.echo(f"[{label}] stop failed: {exc}")
+            continue
+        click.echo(f"[{label}] stopped (pid {pid})")
 
 
 # ---------------------------------------------------------------------------

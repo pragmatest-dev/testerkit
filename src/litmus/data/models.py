@@ -9,8 +9,6 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-from litmus.models.test_config import Limit
-
 
 def _utcnow() -> datetime:
     """Return current UTC datetime (timezone-aware)."""
@@ -76,43 +74,60 @@ class Outcome(StrEnum):
       measurements that explicitly aren't being judged. Test engineers
       reject ``PASSED`` for un-judged actions ("don't call my setup a
       pass") — this is the answer.
-    * ``ABORTED`` — interrupted mid-execution by user or system.
-      Producer: ``RunBuilder.abort()`` on the catch-all client;
-      ``pytest_keyboard_interrupt`` stamps the in-flight step + the run
-      as ``ABORTED``.
-    * ``PLANNED`` — scheduled, never reached. Producer: the
-      reconciliation in ``_append_not_started`` for collected pytest
-      items whose ``node_id`` never appears in the executed set; the
-      run ended before this step's turn.
+    * ``TERMINATED`` — operator stopped the run and cleanup ran (safe
+      states reached, fixtures torn down, parquet finalized). The
+      "expected, mid-flight, but graceful" stop. TestStand calls this
+      Terminated; we follow that convention so test engineers
+      crossing over from TestStand/WATS recognize the semantics.
+      Producer: ``pytest_keyboard_interrupt`` once we've confirmed
+      teardown ran; ``connect.__exit__`` on KeyboardInterrupt /
+      SystemExit; SIGTERM handler when the cleanup chain completed.
+    * ``ABORTED`` — terminated WITHOUT cleanup. Reserved for the
+      no-safe-state case: the close()-time fallback when no
+      ``RunEnded`` was ever emitted, partial signal-handler exits,
+      etc. When you see Aborted in a report it means the rig may
+      not be in a known state — operator should physically check.
+      Producer: ``ParquetSubscriber.close()`` fallback;
+      ``RunBuilder.abort()`` on the catch-all client.
+
+    Note on the "never ran" case: there is no ``Planned`` value.
+    A step that pytest collected but never executed is signaled by
+    ``outcome is None`` at finalize time — the field-missingness IS
+    the receipt. The display layer derives "Never Ran" from
+    ``outcome is None`` plus the run's finalized state.
     """
 
     PASSED = "passed"
     FAILED = "failed"
     SKIPPED = "skipped"
     ERRORED = "errored"
+    TERMINATED = "terminated"
     ABORTED = "aborted"
     DONE = "done"
-    PLANNED = "planned"
 
     @property
     def severity(self) -> int:
         """Severity rank for cascade ordering. Worst wins.
 
-        ``ABORTED`` (6) > ``ERRORED`` (5) > ``FAILED`` (4) >
-        ``PASSED`` (3) > ``DONE`` (2) > ``SKIPPED`` (1) > ``PLANNED``
-        (0). See :func:`escalate_outcome` for the rationale.
+        ``ABORTED`` (7) > ``TERMINATED`` (6) > ``ERRORED`` (5) >
+        ``FAILED`` (4) > ``PASSED`` (3) > ``DONE`` (2) > ``SKIPPED``
+        (1). See :func:`escalate_outcome` for the rationale.
+
+        ``None`` (no outcome stamped yet) is treated as
+        severity ``-1`` by :func:`escalate_outcome` — anything
+        wins over an unjudged row.
         """
         return _OUTCOME_SEVERITY[self]
 
 
 _OUTCOME_SEVERITY: dict[Outcome, int] = {
-    Outcome.ABORTED: 6,
+    Outcome.ABORTED: 7,
+    Outcome.TERMINATED: 6,
     Outcome.ERRORED: 5,
     Outcome.FAILED: 4,
     Outcome.PASSED: 3,
     Outcome.DONE: 2,
     Outcome.SKIPPED: 1,
-    Outcome.PLANNED: 0,
 }
 
 # Drift guard: every Outcome variant must have a severity rank. Catches
@@ -122,25 +137,34 @@ assert set(Outcome) == set(_OUTCOME_SEVERITY), (
 )
 
 
-def escalate_outcome(current: Outcome, incoming: Outcome) -> Outcome:
+def escalate_outcome(
+    current: Outcome | None,
+    incoming: Outcome | None,
+) -> Outcome | None:
     """Return the worse (higher-severity) of two outcomes.
 
     Severity, worst first:
-    ``ABORTED > ERRORED > FAILED > PASSED > DONE > SKIPPED > PLANNED``.
+    ``ABORTED > TERMINATED > ERRORED > FAILED > PASSED > DONE > SKIPPED``,
+    with ``None`` ranked below everything ("never judged").
 
     Use this everywhere outcome cascading is needed (vector → step → run)
     to keep severity logic in one place. Reading the ladder:
 
-    * ``ABORTED`` preempts everything — a mid-flight kill is the loudest
-      signal we have.
+    * ``ABORTED`` preempts everything — when cleanup didn't run, the
+      operator needs to know the rig isn't in a known state.
+    * ``TERMINATED`` beats ``ERRORED`` — operator-initiated stop with
+      cleanup is "louder" than a test-code blow-up because the run
+      didn't complete normally.
     * ``ERRORED`` beats ``FAILED`` — an unexpected blow-up is worse than
       a judged-bad value.
     * ``PASSED`` beats ``DONE`` — an actual verdict outranks a recorded-
       but-unjudged value.
-    * ``SKIPPED`` beats ``PLANNED`` — declining to run is more committed
-      than never reaching the step at all.
+    * Any concrete outcome beats ``None`` — the row was unjudged and
+      now has a verdict.
     """
-    return current if current.severity >= incoming.severity else incoming
+    cur_sev = current.severity if current is not None else -1
+    inc_sev = incoming.severity if incoming is not None else -1
+    return current if cur_sev >= inc_sev else incoming
 
 
 class Measurement(BaseModel):
@@ -182,6 +206,8 @@ class Measurement(BaseModel):
         * ``PASSED`` / ``FAILED`` — value evaluated against the
           reconstructed limit per its comparator.
         """
+        from litmus.models.test_config import Limit  # noqa: PLC0415
+
         if self.value is None:
             self.outcome = Outcome.ERRORED
             return self.outcome
@@ -233,7 +259,7 @@ class TestVector(BaseModel):
     stimulus: list[StimulusRecord] = Field(default_factory=list)  # Stimulus signal paths
     attempt: int = 1  # Current attempt number (for retries)
     max_attempts: int = 1  # Maximum attempts allowed
-    outcome: Outcome = Outcome.PASSED
+    outcome: Outcome | None = None
     measurements: list[Measurement] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
@@ -270,7 +296,7 @@ class TestStep(BaseModel):
     markers: str | None = None
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
-    outcome: Outcome = Outcome.PASSED
+    outcome: Outcome | None = None
     vectors: list[TestVector] = Field(default_factory=list)
     error_message: str | None = None
     instrument_arrays: dict[str, list] | None = None
@@ -323,11 +349,15 @@ class RunSummary(BaseModel):
     dut_part_number: str | None = None
     product_id: str | None = None
     station_id: str | None = None
+    station_name: str | None = None
     station_type: str | None = None
+    station_hostname: str | None = None
+    fixture_id: str | None = None
     test_phase: str | None = None
     operator: str | None = None
     outcome: str | None = None
     total_measurements: int = 0
+    total_steps: int = 0
     project_name: str | None = None
     file_path: str | None = None  # internal: parquet file location for fast measurement lookup
 
@@ -386,7 +416,7 @@ class TestRun(BaseModel):
     project_name: str | None = None
 
     # Results
-    outcome: Outcome = Outcome.PASSED
+    outcome: Outcome | None = None
     steps: list[TestStep] = Field(default_factory=list)
 
     # Collected items (full list from pytest collection, before execution)

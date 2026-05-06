@@ -39,6 +39,35 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 - **YAML config**: `catalog/`, `instruments/`, `stations/`, `products/`, `fixtures/`, `sequences/`
 - **Python code**: `drivers/`, `tests/`
 
+## Test Storage Convention
+
+Tests in this repo write to the project-local results dir
+(`<repo>/results/`, scoped by the repo's `litmus.yaml`). Per-test
+isolation is by **identifier** (uuid4 `run_id`, `session_id`,
+unique `dut_serial` / `product_id`), NEVER by `tmp_path` for any
+constructor that spawns a daemon.
+
+**Forbidden** (each spawns a per-test daemon, ~100 gRPC threads;
+the suite hits WSL's pids cgroup at ~30 such tests):
+- `RunStore(_results_dir=tmp_path)` / `EventStore(_results_dir=tmp_path)`
+- `ChannelStore(tmp_path, ..., serve=True)`
+- `StationConnection(..., results_dir=tmp_path)`
+- `--results-dir=<tmp_path>` to a pytester subprocess
+- Hardcoded `platformdirs.user_data_dir("litmus")` (bypasses the project's `litmus.yaml`)
+
+**Required:**
+```python
+from litmus.data.results_dir import resolve_results_dir
+canonical = resolve_results_dir()
+store = RunStore()              # no _results_dir → canonical
+backend = ParquetBackend(results_dir=canonical)
+```
+
+The forbidden patterns are enforced by `tests/test_conventions.py`,
+which fails the suite if anyone reintroduces them. `ParquetBackend(results_dir=tmp_path)`
+is fine because `LITMUS_SKIP_DAEMON_NOTIFY=1` (set in conftest)
+suppresses its daemon-notify hop.
+
 ## Development Guidelines
 
 - **Pydantic everywhere** — Use Pydantic models for ALL configuration and data structures. NEVER pass raw dicts when a Pydantic model exists. `model_dump()` ONLY at actual write boundaries (YAML files, JSON API responses). Functions return and accept models, not dicts.
@@ -50,6 +79,15 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 - Operator UI uses NiceGUI with Tailwind CSS classes via `.classes()`
 - **UI inputs:** Use dropdowns/autocomplete for fields with known value sets, even if dynamically populated from data
 - API routes use FastAPI for JSON endpoints
+- **UI consistency is a hard rule** — every page must use the same patterns:
+  - **Layout primitives**: `page_layout()` shell, `page_header()` title, `data_table()` for any tabular list, `format_datetime()` for any timestamp. All from `litmus.ui.shared.components`.
+  - **Data path**: pages read through the public Query API (`RunsQuery`, `StepsQuery`, `MeasurementsQuery`) — never directly from parquet, ContextVars, or in-process dicts.
+  - **No admin leaks in operator pages**: `results_dir` and other infrastructure paths resolve from `ProjectConfig`; never expose them in filter rows or inputs.
+  - **URL state**: pages with filters mirror state into the URL via `history.replaceState` so views are bookmarkable and shareable.
+  - **Filters above content**: filter widgets always render above the data they filter — never below.
+  - **Tabs subordinate to filters**: when a page has multiple analytical lenses (e.g. /metrics: Yield / Pareto / Cpk / Retest / Time loss / Assets), filters live above the tab strip.
+  - **One-word sidebar labels**: "Metrics", "Measurements", "Channels", "Events", "Results" — no multi-word labels.
+  - **Real empty states**: when a query returns 0 rows, render a card naming the cause and a concrete next step. Never "No data".
 - **Top-level imports** — Prefer module-level imports. Only use lazy imports inside functions when needed to break circular imports or defer heavy optional dependencies (e.g., `import numpy`). Never use in-function imports just for convenience.
 
 ## Documentation Updates

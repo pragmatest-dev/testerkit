@@ -22,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import json as json_mod
+import logging
 import threading
 import warnings
 from collections import OrderedDict
@@ -41,6 +42,19 @@ from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.event_log import EventLog
 from litmus.data.events import EventBase
 from litmus.data.results_dir import resolve_results_dir
+
+logger = logging.getLogger(__name__)
+
+
+def _parse_event_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Return the parsed event dict from a DB row, falling back to the raw row."""
+    json_str = row.get("json")
+    if json_str:
+        try:
+            return json_mod.loads(json_str)
+        except (json_mod.JSONDecodeError, TypeError):
+            pass
+    return row
 
 
 def _parse_timestamp(ts: object) -> datetime | None:
@@ -99,6 +113,21 @@ class _Subscription:
 class EventStore:
     """Storage-agnostic event API. Callers never see paths, files, or SQL."""
 
+    _shared: dict[Path, EventStore] = {}
+
+    @classmethod
+    def get_shared(cls, results_dir: Path | None = None) -> EventStore:
+        """Return a process-wide shared instance for ``results_dir``.
+
+        Multiple callers for the same directory share one watcher thread
+        instead of each spawning their own. UI page handlers should use
+        this instead of ``EventStore(...)`` so the thread count stays flat.
+        """
+        key = resolve_results_dir(results_dir)
+        if key not in cls._shared:
+            cls._shared[key] = cls(_results_dir=key)
+        return cls._shared[key]
+
     def __init__(self, *, _results_dir: Path | None = None) -> None:
         self._results_dir = resolve_results_dir(_results_dir)
         self._events_dir = self._results_dir / "events"
@@ -137,9 +166,15 @@ class EventStore:
         self._watcher_thread: threading.Thread | None = None
         self._watcher_stop = threading.Event()
 
-    def _flight_query(self, sql: str, *, _retries: int = 2) -> list[dict[str, Any]]:
-        """Execute a SQL query via Flight and return list of dicts."""
-        return self._flight.query(sql, _retries=_retries)
+    def _flight_query(self, sql: str) -> list[dict[str, Any]]:
+        """Execute a SQL query via Flight and return list of dicts.
+
+        Retry policy lives in :class:`FlightQueryClient` —
+        TRANSIENT errors retry with exponential backoff, PERMANENT
+        errors (Binder, Catalog, syntax) raise immediately as
+        :class:`FlightPermanentError`.
+        """
+        return self._flight.query(sql)
 
     def _flight_put(self, batch: pa.RecordBatch) -> None:
         """Push an Arrow batch to the daemon via persistent do_put stream.
@@ -213,10 +248,19 @@ class EventStore:
         """Flush all buffered events to IPC files and Flight.
 
         Call this after emitting events that must be visible to other
-        processes immediately (e.g., sync events).
+        processes immediately (e.g., sync events). Drains the
+        persistent do_put stream too so the events daemon has acked
+        every batch before flush returns — without that drain, IPC is
+        on disk but the events daemon's table may not yet contain the
+        rows that subsequent cross-process queries / subscribers
+        depend on.
         """
         for log in self._event_logs.values():
             log.flush()
+        try:
+            self._put_stream.drain()
+        except Exception as exc:  # noqa: BLE001 — drain is best-effort; data is already in IPC
+            logger.debug("put-stream drain failed (non-fatal): %s", exc)
 
     # -- Read path -----------------------------------------------------------
 
@@ -227,17 +271,28 @@ class EventStore:
         event_type: str | None = None,
         role: str | None = None,
         since: datetime | None = None,
+        limit: int | None = None,
     ) -> list[dict]:
-        """Query events from the DuckDB index via Flight."""
+        """Query events from the DuckDB index via Flight.
+
+        ``limit`` pushes the row cap into the SQL so the daemon
+        returns at most ``limit`` rows instead of streaming the
+        full event log over Flight. Critical for projects with
+        large IPC histories — without it, even a "show me the
+        latest 100 events" page pulls millions of rows.
+
+        ``limit`` is applied to the **most recent** rows (the SQL
+        sorts ``received_at DESC`` under the limit, then re-sorts
+        ASC for the caller). ``None`` returns all matching rows.
+        """
         # Flush any buffered events to IPC + Flight before querying
         # (on_flush callback pushes batches to Flight automatically)
         for log in self._event_logs.values():
             log.flush()
         try:
             self._put_stream.drain()
-        except Exception:
-            # Non-fatal: Flight stream may be closed or have no pending data
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("put-stream drain failed (non-fatal): %s", exc)
         # Build SQL via f-string — safe because inputs are typed:
         # session_id is UUID (validated by caller), event_type is a known
         # enum string, since is a datetime. sql_escape guards against quotes.
@@ -249,27 +304,34 @@ class EventStore:
             conditions.append(f"event_type = '{_sql_escape(event_type)}'")
         if since:
             conditions.append(f"received_at >= '{_sql_escape(since.isoformat())}'")
-
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        query = f"""
-            SELECT *
-            FROM events
-            {where}
-            ORDER BY received_at ASC
-        """
-        rows = self._flight_query(query)
+        # Latest-N pushdown: SQL sorts received_at DESC under the
+        # LIMIT (cheap with the index on received_at), then re-sorts
+        # ASC in the outer SELECT so the caller still sees
+        # chronological order. Without this, "show me the last 100
+        # events" pulls every event over Flight.
+        if limit is not None and limit > 0:
+            sql = f"""
+                SELECT * FROM (
+                    SELECT *
+                    FROM events
+                    {where}
+                    ORDER BY received_at DESC
+                    LIMIT {int(limit)}
+                )
+                ORDER BY received_at ASC
+            """
+        else:
+            sql = f"""
+                SELECT *
+                FROM events
+                {where}
+                ORDER BY received_at ASC
+            """
+        rows = self._flight_query(sql)
 
-        db_events: list[dict] = []
-        for row in rows:
-            json_str = row.get("json")
-            if json_str:
-                try:
-                    db_events.append(json_mod.loads(json_str))
-                except (json_mod.JSONDecodeError, TypeError):
-                    db_events.append(row)
-            else:
-                db_events.append(row)
+        db_events: list[dict] = [_parse_event_row(row) for row in rows]
 
         # Apply role filter (can't be done in SQL — needs event field inspection)
         if role:
@@ -281,6 +343,38 @@ class EventStore:
         """List known sessions with metadata from SessionStarted events."""
         return self.events(event_type="session.started")
 
+    def events_for_active_runs(self, *, since: datetime | None = None) -> list[dict]:
+        """Return events for runs that have ``RunStarted`` but no ``RunEnded``.
+
+        Live-view subscribers care only about runs still in flight — finalized
+        runs are already in parquet via the regular ingest path, so replaying
+        their events would be wasted work. Bounded by active-run count, not
+        total event-log size.
+
+        ``since`` further bounds the result to events received after that
+        timestamp. Use it to drop accumulated zombies (RunStarted without
+        RunEnded from long-dead pids).
+        """
+        for log in self._event_logs.values():
+            log.flush()
+        try:
+            self._put_stream.drain()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("put-stream drain failed (non-fatal): %s", exc)
+        where = f" AND received_at >= '{_sql_escape(since.isoformat())}'" if since else ""
+        sql = f"""
+            SELECT *
+            FROM events
+            WHERE run_id IN (
+                SELECT DISTINCT run_id FROM events WHERE event_type = 'run.started'
+                EXCEPT
+                SELECT DISTINCT run_id FROM events WHERE event_type = 'run.ended'
+            ){where}
+            ORDER BY received_at ASC
+        """
+        rows = self._flight_query(sql)
+        return [_parse_event_row(row) for row in rows]
+
     # -- Watch path ----------------------------------------------------------
 
     def on_event(
@@ -291,23 +385,37 @@ class EventStore:
         role: str | None = None,
         session_id: UUID | None = None,
         since: datetime | None = None,
+        replay: str = "matching",
     ) -> Callable[[], None]:
         """Catch-up subscription.
 
-        Replays matching events from ``since``, then pushes new ones
-        as they arrive.
+        Replays past events on attach, then pushes new ones as they arrive.
+
+        ``replay`` controls the catch-up strategy:
+
+        * ``"matching"`` (default) — replay every event matching the
+          ``event_type`` / ``role`` / ``session_id`` / ``since`` filters.
+        * ``"active_runs"`` — replay only events for runs without ``RunEnded``,
+          further bounded by ``since`` if provided. Use this for live-view
+          subscribers; cuts replay from O(total event log) to O(active runs).
+        * ``"none"`` — skip replay entirely; deliver only future events.
 
         In-process: instant dispatch on ``emit()``.
         Cross-process: internal polling detects new data via DuckDB index.
 
         Returns an unsubscribe callable.
         """
-        existing = self.events(
-            session_id=session_id,
-            event_type=event_type,
-            role=role,
-            since=since,
-        )
+        if replay == "none":
+            existing: list[dict] = []
+        elif replay == "active_runs":
+            existing = self.events_for_active_runs(since=since)
+        else:
+            existing = self.events(
+                session_id=session_id,
+                event_type=event_type,
+                role=role,
+                since=since,
+            )
         for evt in existing:
             try:
                 callback(evt)
@@ -356,12 +464,37 @@ class EventStore:
 
         Skips events already delivered in-process (via ``_notify_subscribers``).
         Parses the ``json`` column so subscribers get full event dicts.
+
+        Wraps each Flight query *and* each subscriber dispatch in a
+        try/except so a transient failure (events daemon
+        mid-restart, schema not yet created, a single dispatcher
+        UPSERT raising) doesn't kill the watcher thread silently.
+        Without that guard the thread dies on the first bad
+        dispatch, every later cross-process event is dropped, and
+        the live UPSERT path looks broken with no log trace.
         """
-        last_received_at: str | None = None
+        # Initialize the cursor to the latest event already in the DB so the
+        # first poll doesn't pull and dispatch the entire historical event log
+        # (potentially hundreds of thousands of rows after a long-running test
+        # environment). Catch-up of pre-existing events is the responsibility
+        # of ``on_event``'s replay phase, scoped per-subscriber via ``since``.
+        try:
+            rows = self._flight_query("SELECT MAX(received_at) AS m FROM events")
+            last_received_at: str | None = str(rows[0]["m"]) if rows and rows[0].get("m") else None
+        except Exception as exc:  # noqa: BLE001 — fall back to None on probe failure
+            logger.debug("Watcher cursor init failed (will fetch all): %s", exc)
+            last_received_at = None
 
         while not self._watcher_stop.is_set():
+            # ``>=`` not ``>``: two events emitted in the same
+            # microsecond (e.g., back-to-back RunStarted +
+            # RunEnded with no flush between) share a
+            # ``received_at`` timestamp. ``>`` would skip the
+            # second one; ``>=`` re-fetches the boundary event
+            # but ``_delivered_ids`` deduplicates downstream so
+            # subscribers see each event exactly once.
             condition = (
-                f" WHERE received_at > '{_sql_escape(last_received_at)}'"
+                f" WHERE received_at >= '{_sql_escape(last_received_at)}'"
                 if last_received_at
                 else ""
             )
@@ -371,29 +504,42 @@ class EventStore:
                 {condition}
                 ORDER BY received_at ASC
             """
-            rows = self._flight_query(query)
+            try:
+                rows = self._flight_query(query)
+            except Exception as exc:  # noqa: BLE001 — log and retry on next tick
+                logger.debug("Watcher poll failed (will retry): %s", exc)
+                self._watcher_stop.wait(timeout=0.5)
+                continue
 
+            # Advance the cursor only past rows we successfully
+            # dispatched. If a dispatch raises (transient daemon
+            # contention, locked DuckDB conn, etc.) the next poll
+            # re-fetches that row and retries — at-least-once
+            # delivery, deduped by ``_delivered_ids``.
             for row in rows:
-                ts = row.get("received_at")
-                if ts is not None:
-                    last_received_at = str(ts)
-
                 # Parse the full event from the json column
-                json_str = row.get("json")
-                if json_str:
-                    try:
-                        evt = json_mod.loads(json_str)
-                    except (json_mod.JSONDecodeError, TypeError):
-                        evt = row
-                else:
-                    evt = row
+                evt = _parse_event_row(row)
 
                 # Skip events already delivered in-process
                 event_id = str(evt.get("id") or row.get("id", ""))
-                with self._lock:
-                    if event_id in self._delivered_ids:
-                        continue
-                    self._dispatch_to_subscribers(evt)
+                try:
+                    with self._lock:
+                        if event_id not in self._delivered_ids:
+                            self._dispatch_to_subscribers(evt)
+                except Exception as exc:  # noqa: BLE001 — never let one bad dispatch kill the watcher
+                    logger.debug(
+                        "Watcher dispatch failed for event id=%s (will retry): %s",
+                        event_id,
+                        exc,
+                    )
+                    # Don't advance ``last_received_at`` past a row
+                    # we failed to dispatch — leave the cursor where
+                    # it was and re-fetch on the next poll.
+                    break
+
+                ts = row.get("received_at")
+                if ts is not None:
+                    last_received_at = str(ts)
 
             self._watcher_stop.wait(timeout=0.5)
 

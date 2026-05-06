@@ -2,7 +2,7 @@
 
 from nicegui import ui
 
-from litmus.ui.shared.components import info_field, setup_hash_sync_for_tabs
+from litmus.ui.shared.components import data_table, info_field, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -109,42 +109,41 @@ def _render_mappings_tab(connections: dict):
         ui.label("No pin mappings defined.").classes("text-slate-500 italic")
         return
 
-    with ui.card().classes("w-full"):
-        columns = [
-            {"name": "connection", "label": "Connection", "field": "connection", "align": "left"},
-            {"name": "dut_pin", "label": "DUT Pin", "field": "dut_pin", "align": "left"},
-            {"name": "net", "label": "Net", "field": "net", "align": "left"},
-            {
-                "name": "instrument",
-                "label": "Instrument",
-                "field": "instrument",
-                "align": "left",
-            },
-            {
-                "name": "channel",
-                "label": "Channel",
-                "field": "channel",
-                "align": "left",
-            },
-            {
-                "name": "description",
-                "label": "Description",
-                "field": "description",
-                "align": "left",
-            },
-        ]
-        rows = [
-            {
-                "connection": name,
-                "dut_pin": fc.dut_pin or "",
-                "net": fc.net or "",
-                "instrument": fc.instrument or "",
-                "channel": fc.instrument_channel or "",
-                "description": fc.description or "",
-            }
-            for name, fc in connections.items()
-        ]
-        ui.table(columns=columns, rows=rows, row_key="connection").classes("w-full")
+    columns = [
+        {"name": "connection", "label": "Connection", "field": "connection", "align": "left"},
+        {"name": "dut_pin", "label": "DUT Pin", "field": "dut_pin", "align": "left"},
+        {"name": "net", "label": "Net", "field": "net", "align": "left"},
+        {
+            "name": "instrument",
+            "label": "Instrument",
+            "field": "instrument",
+            "align": "left",
+        },
+        {
+            "name": "channel",
+            "label": "Channel",
+            "field": "channel",
+            "align": "left",
+        },
+        {
+            "name": "description",
+            "label": "Description",
+            "field": "description",
+            "align": "left",
+        },
+    ]
+    rows = [
+        {
+            "connection": name,
+            "dut_pin": fc.dut_pin or "",
+            "net": fc.net or "",
+            "instrument": fc.instrument or "",
+            "channel": fc.instrument_channel or "",
+            "description": fc.description or "",
+        }
+        for name, fc in connections.items()
+    ]
+    data_table(columns=columns, rows=rows, row_key="connection")
 
 
 def _render_stations_tab(fixture_id: str, connections: dict):

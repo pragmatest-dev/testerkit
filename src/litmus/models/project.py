@@ -125,6 +125,23 @@ class ProfileConfig(TestEntry):
     fixture: str | None = None
 
 
+class MultiSlotConfig(BaseModel):
+    """Multi-slot orchestration knobs.
+
+    Surfaced as ``multi_slot:`` in ``litmus.yaml``; consumed by the
+    orchestrator path that spawns one pytest child per slot.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    # Per-child grace budget after SIGTERM before the orchestrator
+    # escalates to SIGKILL. Covers each child's full cleanup chain
+    # (``pytest_keyboard_interrupt`` → fixture teardowns →
+    # parquet flush). Bump for shops with slow instrument disconnects
+    # (e.g. PyVISA timeouts on legacy GPIB hardware).
+    child_grace_seconds: float = 5.0
+
+
 class ProjectConfig(BaseModel):
     """Schema for litmus.yaml project config files — all fields at root."""
 
@@ -145,6 +162,7 @@ class ProjectConfig(BaseModel):
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
     runner: dict[str, Any] = Field(default_factory=dict)
     required_inputs: dict[str, PromptConfig] = Field(default_factory=dict)
+    multi_slot: MultiSlotConfig = Field(default_factory=MultiSlotConfig)
 
 
 # Resolve forward references — ProfileConfig inherits from TestEntry,

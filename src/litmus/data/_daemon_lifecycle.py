@@ -25,8 +25,23 @@ from pathlib import Path
 
 from filelock import FileLock
 
-_IDLE_TIMEOUT = int(os.environ.get("LITMUS_DAEMON_IDLE_TIMEOUT", "10"))
+# 300s (5 min) so daemons survive routine UI page switches. The
+# previous 10s was timed to die exactly between operator
+# navigations, causing every page click to wait for a fresh spawn
+# (~1s python startup + parquet rediscovery, observed as ~10s
+# loads with multi-daemon pages). Override via env var if a
+# constrained dev environment needs more aggressive shutdown.
+_IDLE_TIMEOUT = int(os.environ.get("LITMUS_DAEMON_IDLE_TIMEOUT", "300"))
 _POLL_INTERVAL = 2  # seconds between daemon ref-count checks
+
+# Spawn timeout — how long a client waits for a freshly-spawned
+# daemon to write its ready file. The python interpreter startup
+# alone is ~500ms; loading the litmus package + DuckDB + Flight
+# adds another second; on slow CI runners or under contention
+# (multiple tests spawning daemons concurrently), this can stretch
+# past the previous 10s ceiling. 30s is a safer ceiling that still
+# surfaces real spawn failures (corrupt index, unbindable port).
+_SPAWN_TIMEOUT = float(os.environ.get("LITMUS_DAEMON_SPAWN_TIMEOUT", "30"))
 
 # Track acquired managers so atexit/signal can release them all
 _acquired: dict[str, DaemonManager] = {}
@@ -136,25 +151,10 @@ class DaemonManager:
         self._register_cleanup()
 
     def release(self) -> None:
-        """Release our reference to the daemon."""
-        lock = FileLock(self._dir / self._lock_name, timeout=10)
-        state = self._dir / self._state_name
-
-        with lock:
-            if not state.exists():
-                return
-            try:
-                data = json.loads(state.read_text())
-                refs: list[int] = data.get("refs", [])
-                my_pid = os.getpid()
-                refs = [p for p in refs if p != my_pid]
-                data["refs"] = refs
-                state.write_text(json.dumps(data))
-            except (json.JSONDecodeError, OSError, TypeError) as exc:
-                warnings.warn(
-                    f"Failed to release daemon ref: {exc}",
-                    stacklevel=2,
-                )
+        """No-op. The daemon prunes dead client PIDs itself via
+        monitor_refs() every poll cycle — no blocking lock needed on
+        the caller's exit path. Ctrl+C on ``litmus serve`` is instant."""
+        return
 
     def read_state(self) -> dict:
         """Read the current state file. Returns empty dict if missing."""
@@ -316,12 +316,27 @@ class DaemonManager:
     # -- Internal ------------------------------------------------------------
 
     def _spawn(self) -> None:
-        """Spawn daemon as a detached process, wait for ready file."""
+        """Spawn daemon as a detached process, wait for ready file.
+
+        stdout/stderr are appended to ``_daemon.log`` in the daemon's
+        directory. Without a log sink the daemon's warnings (ingest
+        failures, schema-drift rebuilds, exceptions) vanish into
+        ``/dev/null`` and a misbehaving daemon looks identical to a
+        healthy one. With it, ``tail -f`` on the file shows the
+        actual reason a query is empty / slow / wrong.
+        """
         ready_file = self._dir / self._ready_name
         ready_file.unlink(missing_ok=True)
 
         cmd = self._spawn_cmd()
-        kwargs: dict = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+        log_path = self._dir / "_daemon.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_handle = open(log_path, "ab", buffering=0)
+        kwargs: dict = {
+            "stdout": log_handle,
+            "stderr": subprocess.STDOUT,
+            "close_fds": True,
+        }
         if sys.platform == "win32":
             kwargs["creationflags"] = (
                 subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
@@ -329,9 +344,14 @@ class DaemonManager:
         else:
             kwargs["start_new_session"] = True
 
-        proc = subprocess.Popen(cmd, **kwargs)
+        try:
+            proc = subprocess.Popen(cmd, **kwargs)
+        finally:
+            # Daemon inherits the file descriptor; we close ours so
+            # the parent process doesn't keep the log file open.
+            log_handle.close()
 
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + _SPAWN_TIMEOUT
         while time.monotonic() < deadline:
             if ready_file.exists():
                 return
@@ -339,7 +359,9 @@ class DaemonManager:
 
         proc.kill()
         proc.wait(timeout=2)
-        raise RuntimeError(f"Daemon failed to start within 10s. dir={self._dir}, cmd={cmd}")
+        raise RuntimeError(
+            f"Daemon failed to start within {_SPAWN_TIMEOUT}s. dir={self._dir}, cmd={cmd}"
+        )
 
     def _read_pid(self) -> int:
         """Read the daemon PID from its PID file."""
@@ -370,13 +392,6 @@ class DaemonManager:
 
         atexit.register(_cleanup)
 
-        def _signal_handler(signum: int, frame: object) -> None:
-            _cleanup()
-            signal.signal(signum, signal.SIG_DFL)
-            os.kill(os.getpid(), signum)
-
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            try:
-                signal.signal(sig, _signal_handler)
-            except (OSError, ValueError):
-                pass  # can't set signal handlers outside main thread
+        # No signal handlers — release() is a no-op so there is nothing
+        # to do on SIGINT/SIGTERM. pytest and uvicorn both manage their
+        # own signal handling; installing a handler here only interferes.

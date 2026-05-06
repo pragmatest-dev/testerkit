@@ -130,11 +130,23 @@ class DuckDBFlightServer(flight.FlightServerBase):
     Server sends a metadata ack after each batch is committed.
     """
 
-    def __init__(self, location: str = "grpc://127.0.0.1:0") -> None:
+    def __init__(
+        self,
+        location: str = "grpc://127.0.0.1:0",
+        *,
+        lock: threading.Lock | None = None,
+    ) -> None:
         super().__init__(location)
         self._databases: dict[str, duckdb.DuckDBPyConnection] = {}
-        self._lock = threading.Lock()
+        # Optional shared lock — when provided, the daemon's background
+        # ingest thread can use the same lock to serialize all DuckDB
+        # access on the daemon's main connection. Without this, a
+        # background thread opening its own connection deadlocks
+        # against the Flight server's pre_query_hook on DuckDB's
+        # global catalog lock under GIL contention.
+        self._lock = lock if lock is not None else threading.Lock()
         self._put_hooks: dict[str, Callable[[pa.Table], None]] = {}
+        self._pre_query_hooks: dict[str, Callable[[duckdb.DuckDBPyConnection], None]] = {}
 
     def register(self, name: str, conn: duckdb.DuckDBPyConnection) -> None:
         """Register a named DuckDB connection."""
@@ -148,6 +160,21 @@ class DuckDBFlightServer(flight.FlightServerBase):
         from paths sent via do_put.
         """
         self._put_hooks[db_name] = hook
+
+    def register_pre_query_hook(
+        self,
+        db_name: str,
+        hook: Callable[[duckdb.DuckDBPyConnection], None],
+    ) -> None:
+        """Register a hook that runs before each ``do_get`` query.
+
+        The hook receives the database's connection and runs under
+        the same lock as the query itself. Used by the runs daemon
+        to refresh in-memory overlay tables (in-flight runs / steps)
+        from the accumulator pool right before the query executes,
+        so the UNION views see a current snapshot.
+        """
+        self._pre_query_hooks[db_name] = hook
 
     def do_get(
         self,
@@ -167,8 +194,18 @@ class DuckDBFlightServer(flight.FlightServerBase):
         conn = self._databases.get(db_name)
         if conn is None:
             raise flight.FlightServerError(f"Unknown database: {db_name!r}")
+        pre_query = self._pre_query_hooks.get(db_name)
 
         with self._lock:
+            if pre_query is not None:
+                try:
+                    pre_query(conn)
+                except Exception as exc:  # noqa: BLE001 — never break a query because the hook failed
+                    import logging
+
+                    logging.getLogger(__name__).warning(
+                        "pre_query_hook for %s failed: %s", db_name, exc
+                    )
             result = conn.execute(sql).fetch_arrow_table()
 
         return flight.RecordBatchStream(result)
@@ -235,6 +272,8 @@ def start_flight_server_in_daemon(
     port_file_name: str,
     thread_name: str,
     pre_ready: Callable[[], None] | None = None,
+    pre_query_hook: Callable[[duckdb.DuckDBPyConnection], None] | None = None,
+    lock: threading.Lock | None = None,
 ) -> tuple[DuckDBFlightServer, Path, str]:
     """Start a DuckDBFlightServer inside a daemon process, signal ready.
 
@@ -256,10 +295,12 @@ def start_flight_server_in_daemon(
     responsible for ``server.shutdown()`` and ``port_file.unlink``
     on teardown — see :func:`shutdown_flight_server_in_daemon`.
     """
-    server = DuckDBFlightServer("grpc://127.0.0.1:0")
+    server = DuckDBFlightServer("grpc://127.0.0.1:0", lock=lock)
     server.register(db_name, conn)
     if put_hook is not None:
         server.register_put_hook(db_name, put_hook)
+    if pre_query_hook is not None:
+        server.register_pre_query_hook(db_name, pre_query_hook)
 
     location = f"grpc://127.0.0.1:{server.port}"
     port_file = daemon_dir / port_file_name

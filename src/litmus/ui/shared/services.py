@@ -6,9 +6,6 @@ NO direct yaml.safe_load or Path I/O here — all persistence goes through litmu
 from pathlib import Path
 from typing import Any
 
-import pyarrow as pa
-
-from litmus.analysis import query
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import RunSummary
 from litmus.instruments.loader import resolve_station_instruments
@@ -308,7 +305,7 @@ def create_station(
     return store_create_station(station_id, name, location, description)
 
 
-def save_station(station_id: str, station_data: dict, instruments_data: dict) -> None:
+def save_station(_station_id: str, station_data: dict, instruments_data: dict) -> None:
     """Save station configuration to YAML file."""
     normalize_and_check_instrument_types(instruments_data)
     station_dict = {**station_data, "instruments": instruments_data}
@@ -344,7 +341,7 @@ def discover_instrument_types():
     entries = []
     seen_types: set[str] = set()
     for cat_dir in find_catalog_dirs():
-        for entry_id, entry in load_catalog_from_directory(cat_dir).items():
+        for _, entry in load_catalog_from_directory(cat_dir).items():
             if entry.type in seen_types:
                 continue
             seen_types.add(entry.type)
@@ -401,7 +398,6 @@ def create_catalog_entry(
     instrument_type: str,
     name: str,
     description: str = "",
-    icon: str = "device_unknown",
 ):
     """Create a new catalog entry in catalog/."""
     return store_create_catalog_entry(instrument_type, name, description)
@@ -456,7 +452,7 @@ def create_fixture(
     return store_create_fixture(fixture_id, name, product_id, product_revision, description)
 
 
-def save_fixture(fixture_id: str, fixture_data: dict, connections_data: dict) -> None:
+def save_fixture(_fixture_id: str, fixture_data: dict, connections_data: dict) -> None:
     """Save fixture configuration to YAML file."""
     fixture_dict = {**fixture_data, "connections": connections_data}
     fixture = FixtureConfig.model_validate(fixture_dict)
@@ -524,19 +520,167 @@ def _results_backend() -> ParquetBackend:
     return ParquetBackend(results_dir=project.results_dir)
 
 
-def get_recent_runs(limit: int = 10) -> list[RunSummary]:
-    """Return the most recent test runs as list-row dicts."""
-    return _results_backend().list_runs(limit=limit)
+def get_recent_runs(
+    limit: int = 10,
+    *,
+    offset: int = 0,
+    include_incomplete: bool = False,
+    phase: str | list[str] | None = None,
+    product: str | list[str] | None = None,
+    station: str | list[str] | None = None,
+    lot: str | list[str] | None = None,
+    outcome: str | list[str] | None = None,
+    since: str | None = None,
+    until: str | None = None,
+) -> list[RunSummary]:
+    """Return one page of recent runs as RunSummary rows.
+
+    Same RunsQuery → RunSummary adapter as :func:`list_all_runs`.
+    ``offset`` paginates per the Quasar server-side contract:
+    ``offset = (page - 1) * rows_per_page``. Filter args narrow
+    by phase / product / station / lot / outcome / since / until.
+
+    ``include_incomplete=True`` surfaces in-flight runs (no
+    ``ended_at``) — UI list pages opt in so operators see what's
+    running. Default ``False`` keeps the legacy "completed only"
+    behavior for callers that expect aggregates.
+    """
+    return list_all_runs(
+        limit=limit,
+        offset=offset,
+        include_incomplete=include_incomplete,
+        phase=phase,
+        product=product,
+        station=station,
+        lot=lot,
+        outcome=outcome,
+        since=since,
+        until=until,
+    )
 
 
-def get_run_detail(run_id: str) -> tuple[RunSummary | None, list[dict]]:
-    """Return (run, measurements) for a given run id."""
+def count_recent_runs(
+    *,
+    include_incomplete: bool = False,
+    phase: str | list[str] | None = None,
+    product: str | list[str] | None = None,
+    station: str | list[str] | None = None,
+    lot: str | list[str] | None = None,
+    outcome: str | list[str] | None = None,
+    since: str | None = None,
+    until: str | None = None,
+) -> int:
+    """Total run count under the same filters as ``get_recent_runs``.
+
+    Used by ``/results/list`` to render the absolute "of N" in the
+    Quasar pagination footer and the Total Runs stats card. Filter
+    args mirror ``get_recent_runs`` so the count stays consistent
+    with the paginated rows.
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    with RunsQuery() as q:
+        return q.count(
+            include_incomplete=include_incomplete,
+            phase=phase,
+            product=product,
+            station=station,
+            lot=lot,
+            outcome=outcome,
+            since=since,
+            until=until,
+        )
+
+
+def get_runs_filter_options() -> dict[str, list[str]]:
+    """Return distinct filter values for the /results filter strip.
+
+    Keys: ``test_phase``, ``dut_part_number``, ``station_hostname``,
+    ``dut_lot_number``. Each maps to the sorted distinct values
+    present in the runs table — so the dropdowns only show options
+    that have at least one matching run.
+
+    Per-column failure isolation lives in
+    :meth:`RunsQuery.distinct_filter_values` (a missing column
+    yields ``[]`` for that one filter without affecting the
+    others). Wholesale daemon failure (transient connection
+    error after retries) raises here; the page handler catches
+    and renders a blank-options state.
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    with RunsQuery() as q:
+        return q.distinct_filter_values()
+
+
+def _run_row_to_summary(row: Any) -> RunSummary:
+    """Adapt a daemon ``RunRow`` to the legacy ``RunSummary`` UI shape.
+
+    Centralizes the field-by-field copy so every callsite that swaps
+    ``backend.get_run`` for ``RunsQuery.get`` doesn't reinvent it. The
+    UI consumes ``RunSummary``; the daemon emits ``RunRow``; this is
+    the only place that names every field.
+    """
+    return RunSummary(
+        test_run_id=row.run_id or "",
+        session_id=row.session_id,
+        slot_id=row.slot_id,
+        started_at=row.started_at,
+        ended_at=row.ended_at,
+        dut_serial=row.dut_serial,
+        dut_part_number=row.dut_part_number,
+        product_id=row.product_id,
+        station_id=row.station_id,
+        station_name=row.station_name,
+        station_hostname=row.station_hostname,
+        fixture_id=row.fixture_id,
+        test_phase=row.test_phase,
+        project_name=row.project_name,
+        operator=row.operator_id,
+        outcome=row.outcome,
+        total_measurements=row.num_measurements or 0,
+        total_steps=row.num_steps or 0,
+        file_path=row.file_path,
+    )
+
+
+def get_run_detail(run_id: str):
+    """Return ``(run, steps, measurements)`` for a run.
+
+    Resolves the run through the daemon's typed ``RunsQuery`` rather
+    than the parquet backend. The backend's ``get_run`` walks the
+    measurement parquet glob, which silently misses any run that
+    didn't record measurements (step-only runs land a
+    ``_steps.parquet`` and no measurement parquet, so the backend
+    returns ``None`` and the page renders "Run not found"). The
+    daemon's index includes both shapes, so any run reachable from
+    ``/results`` resolves here.
+
+    ``run`` is adapted to ``RunSummary`` (the legacy UI shape the
+    detail page expects). ``steps`` is the typed ``list[StepRow]``
+    from the daemon's ``steps`` table. ``measurements`` is the flat
+    measurement parquet rows when the run has a measurement parquet,
+    or ``[]`` when it's a step-only run.
+    """
+    from litmus.analysis.runs_query import RunsQuery
+    from litmus.analysis.steps_query import StepsQuery
+
     backend = _results_backend()
-    run = backend.get_run(run_id)
-    if run is None:
-        return None, []
-    measurements = backend.get_measurements(run_id, _file=run.file_path)
-    return run, measurements
+    with RunsQuery(_results_dir=backend.results_dir) as rq:
+        run_row = rq.get(run_id)
+    if run_row is None:
+        return None, [], []
+
+    run = _run_row_to_summary(run_row)
+
+    measurements: list[dict] = (
+        backend.get_measurements(run_id, _file=run.file_path) if run.file_path else []
+    )
+
+    with StepsQuery(_results_dir=backend.results_dir) as q:
+        steps = q.list_for_run(run_id)
+
+    return run, steps, measurements
 
 
 def load_artifact_ref(run_id: str, uri: str):
@@ -560,45 +704,112 @@ def load_artifact_ref(run_id: str, uri: str):
     if uri.startswith("channel://"):
         from litmus.data.channels.store import ChannelStore
 
-        channels_dir = backend.results_dir.parent / "channels"
-        channel_store = ChannelStore(channels_dir, uuid4())
+        channel_store = ChannelStore(backend.results_dir, uuid4())
 
     return load_ref(uri, parquet_path=Path(run.file_path), channel_store=channel_store)
 
 
-def get_session_measurements(session_id: str) -> list[dict]:
-    """Return measurements for all runs in a session (parallel execution timeline)."""
-    return _results_backend().get_session_measurements(session_id)
+def get_session_steps(session_id: str):
+    """Return every step row across the session's sibling runs (typed)."""
+    from litmus.analysis.steps_query import StepsQuery
+
+    with StepsQuery() as q:
+        return q.list_for_session(session_id)
 
 
-def list_all_runs(limit: int = 100) -> list[RunSummary]:
-    """List more runs for cross-run views (DUT history etc.)."""
-    return _results_backend().list_runs(limit=limit)
+def list_all_runs(
+    limit: int = 100,
+    *,
+    offset: int = 0,
+    include_incomplete: bool = False,
+    phase: str | list[str] | None = None,
+    product: str | list[str] | None = None,
+    station: str | list[str] | None = None,
+    lot: str | list[str] | None = None,
+    outcome: str | list[str] | None = None,
+    since: str | None = None,
+    until: str | None = None,
+) -> list[RunSummary]:
+    """List a page of runs for cross-run views (DUT history etc.).
+
+    Sources from ``RunsQuery`` (typed) and adapts each ``RunRow``
+    to the legacy ``RunSummary`` shape the UI's run-list page
+    consumes. Same data, no parquet read.
+
+    ``offset`` skips that many rows before returning ``limit``;
+    used by Quasar's server-side pagination. Filter args
+    (``phase`` / ``product`` / ``station`` / ``lot`` / ``outcome`` /
+    ``since`` / ``until``) pass through to :meth:`RunsQuery.list_recent`.
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    with RunsQuery() as q:
+        rows = q.list_recent(
+            limit=limit,
+            offset=offset,
+            include_incomplete=include_incomplete,
+            phase=phase,
+            product=product,
+            station=station,
+            lot=lot,
+            outcome=outcome,
+            since=since,
+            until=until,
+        )
+    return [_run_row_to_summary(r) for r in rows]
 
 
-def aggregate_run_stats(measurements: list[dict]) -> dict[str, Any]:
-    """Compute run-level stats (steps + measurements) from a measurements list.
+def usage_stats_by(field: str) -> dict[str, dict[str, Any]]:
+    """Aggregate run stats grouped by a ``RunRow`` field.
 
-    Returned keys: total_measurements, passed_measurements, failed_measurements,
-    total_steps, failed_steps.
+    Used by the configuration list pages (Stations, Products,
+    Fixtures, Instruments, Tests) to show "how busy is this entity"
+    columns next to each row. Returns
+    ``{value: {runs, passed, failed, last_run}}`` keyed by the
+    grouped field's value (e.g. ``station_id``).
+
+    Skips runs where the grouped field is null. Aggregation is pushed
+    into SQL so the daemon returns one row per distinct value — safe
+    regardless of total run count.
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    try:
+        with RunsQuery() as q:
+            rows = q.usage_stats(field)
+    except ValueError:
+        return {}
+
+    return {
+        r["value"]: {
+            "runs": r.get("runs", 0),
+            "passed": r.get("pass_count", 0),
+            "failed": r.get("fail_count", 0),
+            "errored": r.get("errored_count", 0),
+            "last_run": r.get("last_run"),
+        }
+        for r in rows
+        if r.get("value")
+    }
+
+
+def aggregate_run_stats(steps: list, measurements: list[dict]) -> dict[str, Any]:
+    """Compute run-level stats from typed steps + flat measurement rows.
+
+    ``steps`` is the typed ``list[StepRow]`` from the daemon's
+    ``steps`` table — total_steps and failed_steps come straight
+    from there so measurement-less runs render correct counts.
+    Measurement counts come from the flat measurement parquet rows.
+
+    Returned keys: total_measurements, passed_measurements,
+    failed_measurements, total_steps, failed_steps.
     """
     total_measurements = len(measurements)
     failed_measurements = sum(1 for m in measurements if m.get("outcome") == "failed")
     passed_measurements = sum(1 for m in measurements if m.get("outcome") == "passed")
 
-    # A step fails if any of its measurements fail
-    steps: dict[str, str] = {}
-    for m in measurements:
-        step = m.get("step_name", "")
-        meas_outcome = m.get("outcome") or ""
-        if step not in steps:
-            steps[step] = meas_outcome
-        elif meas_outcome == "failed":
-            steps[step] = "failed"
-        elif meas_outcome == "errored" and steps[step] != "failed":
-            steps[step] = "errored"
     total_steps = len(steps)
-    failed_steps = sum(1 for o in steps.values() if o == "failed")
+    failed_steps = sum(1 for s in steps if s.outcome == "failed")
 
     return {
         "total_measurements": total_measurements,
@@ -656,6 +867,18 @@ def list_channels() -> dict[str, Any]:
     return channels_list_query(results_dir=_resolve_results_dir())
 
 
+def list_channels_recent(*, last_n: int = 50) -> dict[str, Any]:
+    """Return the channel registry plus recent samples per channel.
+
+    Used by the operator UI to render sparkline cells and a live-
+    updating "Latest" column. ``last_n`` caps the per-channel sample
+    count returned (default 50 — enough for a sparkline trace).
+    """
+    from litmus.mcp.tools import channels_recent_query
+
+    return channels_recent_query(last_n=last_n, results_dir=_resolve_results_dir())
+
+
 def query_channel(
     channel_id: str,
     *,
@@ -687,27 +910,3 @@ def query_channel(
 # -----------------------------------------------------------------------------
 # Yield Services
 # -----------------------------------------------------------------------------
-
-
-def load_yield_runs_table(results_dir: str) -> pa.Table | None:
-    """Load the runs arrow table for the yield dashboard (or None on error)."""
-    try:
-        return query.load_runs(results_dir)
-    except (OSError, pa.ArrowInvalid):
-        return None
-
-
-def get_yield_filter_options(table: pa.Table | None) -> dict[str, list[str]]:
-    """Return dropdown options for the yield page (products + stations).
-
-    Falls back to id-columns if the ``*_name`` columns have no values.
-    """
-    if table is None:
-        return {"products": [], "stations": []}
-    products = query.get_unique_column_values(table, "dut_part_number")
-    if not products:
-        products = query.get_unique_column_values(table, "product_id")
-    stations = query.get_unique_column_values(table, "station_name")
-    if not stations:
-        stations = query.get_unique_column_values(table, "station_id")
-    return {"products": products, "stations": stations}

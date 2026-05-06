@@ -34,8 +34,10 @@ _OUTCOME_MAP: dict[str, str] = {
     "errored": "Error",
     "skipped": "Skipped",
     "aborted": "Aborted",
+    "terminated": "Terminated",
     "done": "Passed",
-    "planned": "NotTested",
+    # outcome=None at finalize maps to ATML NotTested (collected but
+    # never ran) — handled at the call site since it's a None check.
 }
 
 # Comparator → ATML comparator attribute (1:1, our enum is ATML-sourced)
@@ -217,7 +219,7 @@ class AtmlSubscriber(EventSubscriber):
         result_set = ET.SubElement(root, _tr("ResultSet"))
         result_set.set("name", s.project_name or "")
         result_set.set("startDateTime", s.occurred_at.isoformat())
-        final_outcome = outcome or "errored"
+        final_outcome = outcome or "aborted"
         result_set.set(
             "status",
             _OUTCOME_MAP.get(final_outcome, "Unknown"),
@@ -294,7 +296,7 @@ class AtmlSubscriber(EventSubscriber):
                 step_grp.set("endDateTime", end.occurred_at.isoformat())
                 step_grp.set(
                     "status",
-                    _OUTCOME_MAP.get(end.outcome, "Unknown"),
+                    _OUTCOME_MAP.get(end.outcome or "", "NotTested"),
                 )
 
             step_groups[idx] = step_grp
