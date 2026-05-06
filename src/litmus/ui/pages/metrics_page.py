@@ -1,6 +1,5 @@
 """Yield & manufacturing metrics page."""
 
-import asyncio
 import logging
 import traceback
 from datetime import UTC
@@ -23,7 +22,7 @@ from litmus.ui.shared.components import (
     subscribe_with_refresh,
 )
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import get_measurement_index_status, get_runs_filter_options
+from litmus.ui.shared.services import get_runs_filter_options
 
 logger = logging.getLogger(__name__)
 
@@ -72,10 +71,7 @@ async def metrics_page(
     create_layout("Metrics")
 
     # Indexed distincts — ~50ms, fast enough to do before chrome.
-    filter_options, index_status = await asyncio.gather(
-        run.io_bound(get_runs_filter_options),
-        run.io_bound(get_measurement_index_status),
-    )
+    filter_options = await run.io_bound(get_runs_filter_options)
     products = filter_options.get("dut_part_number", [])
     stations = filter_options.get("station_hostname", [])
 
@@ -336,33 +332,6 @@ async def metrics_page(
     # ---------------------------------------------------------------------------
 
     with ui.column().classes("w-full p-6 gap-6"):
-        # Measurement index banner — visible while the background backfill runs.
-        # Disappears automatically once indexing is complete.
-        _total = int(index_status.get("total", 0))
-        _done = int(index_status.get("completed", 0))
-        if _total > 0 and _done < _total:
-            with ui.card().classes("w-full bg-amber-50 border border-amber-200") as _index_banner:
-                with ui.row().classes("items-center gap-3 px-4 py-2"):
-                    ui.spinner(size="sm").classes("text-amber-600")
-                    _index_label = ui.label(
-                        f"Building measurement index ({_done:,} / {_total:,} files processed)."
-                        "  Metrics may be incomplete until indexing finishes."
-                    ).classes("text-amber-800 text-sm flex-1")
-
-            async def _poll_index() -> None:
-                status = await run.io_bound(get_measurement_index_status)
-                t = int(status.get("total", 0))
-                c = int(status.get("completed", 0))
-                if t == 0 or c >= t:
-                    _index_banner.delete()
-                else:
-                    _index_label.set_text(
-                        f"Building measurement index ({c:,} / {t:,} files processed)."
-                        "  Metrics may be incomplete until indexing finishes."
-                    )
-
-            ui.timer(3.0, _poll_index)
-
         with ui.row().classes("items-center justify-between w-full"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("analytics").classes("text-slate-600")

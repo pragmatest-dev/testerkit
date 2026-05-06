@@ -344,7 +344,7 @@ class ParquetBackend:
         try:
             with self._run_store_ctx() as store:
                 store.notify_new_run(parquet_path)
-        except (ConnectionError, OSError, TimeoutError):
+        except (ConnectionError, BrokenPipeError, FileNotFoundError, TimeoutError):
             logger.debug("Failed to notify runs daemon", exc_info=True)
 
     def _build_measurement_rows(
@@ -632,6 +632,23 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
     def open(self) -> None:
         """No-op — subscriber protocol requires this but Parquet needs no setup."""
 
+    def absorb_from_accumulator(self, acc: Any) -> None:
+        """Copy accumulated event state from another :class:`EventAccumulator`.
+
+        Used by the orphan-finalization path to transfer in-memory state
+        from the runs daemon's pool accumulator into a fresh
+        ``ParquetSubscriber`` so the aborted parquet is written via the
+        same write path as a clean producer-side close. Keeps the private
+        state mutation in one place rather than spread across callers.
+        """
+        self._run_started = acc._run_started
+        self._instruments = list(acc._instruments)
+        self._measurement_events = list(acc._measurement_events)
+        self._step_starts = dict(acc._step_starts)
+        self._step_ends = dict(acc._step_ends)
+        self._collected_items = list(acc._collected_items)
+        self._markers_by_node = dict(acc._markers_by_node)
+
     def on_event(self, event: Any) -> None:
         super().on_event(event)
         if isinstance(event, RunEnded):
@@ -677,6 +694,10 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
         final_outcome = outcome if outcome is not None else "aborted"
 
         rows = self._build_final_rows(ended_at, final_outcome)
+        # Skip write if the run produced no measurements AND no steps completed.
+        # A run with steps-but-no-measurements still writes: the steps parquet
+        # carries run-level metadata (outcome, duration, instrument context)
+        # that the runs daemon ingests into runs_persisted.
         if not rows and not self._step_ends:
             self._written = True
             return

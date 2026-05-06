@@ -38,7 +38,6 @@ from litmus.ui.shared.components import (
     subscribe_with_refresh,
 )
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import get_measurement_index_status
 
 logger = logging.getLogger(__name__)
 
@@ -172,21 +171,16 @@ async def explore_page(request: Request):
     except ValueError:
         initial_limit = DEFAULT_LIMIT
 
-    # Fetch schema + counts + smart defaults + index status off the event loop.
-    import asyncio as _asyncio
-
-    init_result, index_status = await _asyncio.gather(
-        run.io_bound(
-            _fetch_initial_schema,
-            results_dir,
-            is_bare_url,
-            initial_filters,
-            initial_y,
-            initial_x,
-            initial_chart_type,
-            initial_group_by,
-        ),
-        run.io_bound(get_measurement_index_status),
+    # Fetch schema + counts + smart defaults off the event loop.
+    init_result = await run.io_bound(
+        _fetch_initial_schema,
+        results_dir,
+        is_bare_url,
+        initial_filters,
+        initial_y,
+        initial_x,
+        initial_chart_type,
+        initial_group_by,
     )
     if init_result is None:
         # No measurements yet.
@@ -376,33 +370,6 @@ async def explore_page(request: Request):
 
     # ── Layout ──────────────────────────────────────────────────────
     with ui.column().classes("w-full p-6 gap-4"):
-        # Measurement index banner — same as Metrics page.
-        _exp_total = int(index_status.get("total", 0))
-        _exp_done = int(index_status.get("completed", 0))
-        if _exp_total > 0 and _exp_done < _exp_total:
-            with ui.card().classes("w-full bg-amber-50 border border-amber-200") as _exp_banner:
-                with ui.row().classes("items-center gap-3 px-4 py-2"):
-                    ui.spinner(size="sm").classes("text-amber-600")
-                    _exp_label = ui.label(
-                        f"Building measurement index "
-                        f"({_exp_done:,} / {_exp_total:,} files). "
-                        "Results may be incomplete until indexing finishes."
-                    ).classes("text-amber-800 text-sm flex-1")
-
-            async def _poll_exp_index() -> None:
-                s = await run.io_bound(get_measurement_index_status)
-                t = int(s.get("total", 0))
-                c = int(s.get("completed", 0))
-                if t == 0 or c >= t:
-                    _exp_banner.delete()
-                else:
-                    _exp_label.set_text(
-                        f"Building measurement index ({c:,} / {t:,} files). "
-                        "Results may be incomplete until indexing finishes."
-                    )
-
-            ui.timer(3.0, _poll_exp_index)
-
         with ui.row().classes("items-center gap-2"):
             ui.icon("scatter_plot").classes("text-slate-600")
             ui.label("Measurements").classes("text-2xl font-semibold text-slate-700")

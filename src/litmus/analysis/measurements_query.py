@@ -850,15 +850,3 @@ class MeasurementsQuery:
                 distinct_products=0,
             )
         return SummaryCounts(**rows[0])
-
-    def backfill_status(self) -> dict[str, int]:
-        """Return measurement index backfill progress.
-
-        Returns ``{"total": N, "completed": M}``. When ``completed == total``
-        (or both are 0), the index is fully built. When ``completed < total``,
-        the daemon is still building the index in the background.
-        """
-        rows = self._query_dicts("SELECT total, completed FROM _meas_backfill_status LIMIT 1")
-        if not rows:
-            return {"total": 0, "completed": 0}
-        return {"total": rows[0].get("total", 0), "completed": rows[0].get("completed", 0)}

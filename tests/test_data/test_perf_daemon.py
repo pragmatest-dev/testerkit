@@ -65,22 +65,17 @@ def _kill_daemon() -> None:
 def _ensure_daemon_live() -> str:
     """Return a verified-live daemon location, spawning fresh if needed.
 
-    Drops stale pool entries and verifies the daemon responds before
-    returning. Used by both benchmarks and regression guards.
+    Uses the production probe function to avoid duplicating logic.
     """
-    import pyarrow.flight as flight
+    from litmus.data.runs_duckdb_manager import _flight_probe
 
     runs_dir = resolve_results_dir() / "runs"
     for _attempt in range(2):
         location = runs_duckdb_manager.acquire(runs_dir)
         _drop_pooled_client(location)
-        try:
-            client = flight.connect(location)
-            client.do_get(flight.Ticket(b"runs\x00SELECT 1")).read_all()
-            client.close()
+        if _flight_probe(location):
             return location
-        except Exception:  # noqa: BLE001 — probe failed; kill and respawn
-            _kill_daemon()
+        _kill_daemon()
     raise RuntimeError("Could not establish a live daemon connection after 2 attempts")
 
 
@@ -229,25 +224,8 @@ def test_warm_measurements_query_under_200ms():
 
     Catches a regression where measurements_persisted is reverted to
     read_parquet(glob, union_by_name=true). Pre-fix: 150-479ms. Post-fix: ~5ms.
-
-    Skipped while the daemon's background backfill is active — during
-    backfill, the write_lock is held per file (~50-100ms each), which
-    adds lock-wait latency unrelated to query performance. The backfill
-    completes within ~30s of a fresh daemon start; steady-state queries
-    are ~5ms.
     """
     _ensure_daemon_live()
-
-    # Skip if measurements backfill is still running
-    with MeasurementsQuery() as q:
-        status = q.backfill_status()
-    total = status.get("total", 0)
-    completed = status.get("completed", 0)
-    if total > 0 and completed < total:
-        pytest.skip(
-            f"Skipping: daemon backfill in progress ({completed}/{total} files). "
-            "Re-run once backfill completes."
-        )
 
     with MeasurementsQuery() as q:
         q.summary_counts()  # warm

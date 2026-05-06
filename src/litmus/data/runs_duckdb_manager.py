@@ -13,6 +13,8 @@ import time
 import warnings
 from pathlib import Path
 
+import pyarrow.flight as flight
+
 from litmus.data._daemon_lifecycle import DaemonManager
 
 
@@ -50,16 +52,7 @@ def acquire(runs_dir: Path) -> str:
     """
     mgr = RunsDuckDBManager(runs_dir)
     mgr.acquire()
-    deadline = time.monotonic() + 5.0
-    while True:
-        location = mgr.read_state().get("location")
-        if location:
-            break
-        if time.monotonic() >= deadline:
-            raise RuntimeError(
-                f"runs DuckDB daemon started but no location in state after 5s: {runs_dir}"
-            )
-        time.sleep(0.05)
+    location = _wait_for_location(mgr, runs_dir)
 
     # Verify the Flight server is actually responding. The PID may be alive
     # but the Flight thread may have crashed (e.g. port conflict, OOM).
@@ -74,25 +67,28 @@ def acquire(runs_dir: Path) -> str:
         _drop_pooled_client(location)
         mgr.force_restart()
         mgr.acquire()
-        deadline2 = time.monotonic() + 5.0
-        while True:
-            location = mgr.read_state().get("location")
-            if location:
-                break
-            if time.monotonic() >= deadline2:
-                raise RuntimeError(
-                    f"runs DuckDB daemon respawn did not produce a location within 5s: {runs_dir}"
-                )
-            time.sleep(0.05)
+        location = _wait_for_location(mgr, runs_dir)
 
     return location
+
+
+def _wait_for_location(mgr: RunsDuckDBManager, runs_dir: Path) -> str:
+    """Poll the state file until the daemon writes its Flight location (up to 5s)."""
+    deadline = time.monotonic() + 5.0
+    while True:
+        location = mgr.read_state().get("location")
+        if location:
+            return location
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"runs DuckDB daemon started but no location in state after 5s: {runs_dir}"
+            )
+        time.sleep(0.05)
 
 
 def _flight_probe(location: str) -> bool:
     """Return True if the Flight server at ``location`` responds to a trivial query."""
     try:
-        import pyarrow.flight as flight  # noqa: PLC0415
-
         client = flight.connect(location)
         try:
             client.do_get(flight.Ticket(b"runs\x00SELECT 1")).read_all()

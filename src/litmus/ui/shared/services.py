@@ -614,22 +614,6 @@ def get_runs_filter_options() -> dict[str, list[str]]:
         return q.distinct_filter_values()
 
 
-def get_measurement_index_status() -> dict[str, int]:
-    """Return measurement index backfill progress from the daemon.
-
-    Returns ``{"total": N, "completed": M}``. When ``completed == total``
-    (or both are 0), the index is fully built. Callers show a banner
-    while ``completed < total``.
-    """
-    from litmus.analysis.measurements_query import MeasurementsQuery
-
-    try:
-        with MeasurementsQuery() as q:
-            return q.backfill_status()
-    except Exception:  # noqa: BLE001 — daemon unavailable: treat as done
-        return {"total": 0, "completed": 0}
-
-
 def _run_row_to_summary(row: Any) -> RunSummary:
     """Adapt a daemon ``RunRow`` to the legacy ``RunSummary`` UI shape.
 
@@ -730,8 +714,7 @@ def get_session_steps(session_id: str):
     """Return every step row across the session's sibling runs (typed)."""
     from litmus.analysis.steps_query import StepsQuery
 
-    backend = _results_backend()
-    with StepsQuery(_results_dir=backend.results_dir) as q:
+    with StepsQuery() as q:
         return q.list_for_session(session_id)
 
 
@@ -761,8 +744,7 @@ def list_all_runs(
     """
     from litmus.analysis.runs_query import RunsQuery
 
-    backend = _results_backend()
-    with RunsQuery(_results_dir=backend.results_dir) as q:
+    with RunsQuery() as q:
         rows = q.list_recent(
             limit=limit,
             offset=offset,
@@ -775,29 +757,7 @@ def list_all_runs(
             since=since,
             until=until,
         )
-    return [
-        RunSummary(
-            test_run_id=r.run_id or "",
-            session_id=r.session_id,
-            started_at=r.started_at,
-            ended_at=r.ended_at,
-            dut_serial=r.dut_serial,
-            dut_part_number=r.dut_part_number,
-            product_id=r.product_id,
-            station_id=r.station_id,
-            station_name=r.station_name,
-            station_hostname=r.station_hostname,
-            fixture_id=r.fixture_id,
-            test_phase=r.test_phase,
-            project_name=r.project_name,
-            operator=r.operator_id,
-            outcome=r.outcome,
-            total_measurements=r.num_measurements or 0,
-            total_steps=r.num_steps or 0,
-            file_path=r.file_path,
-        )
-        for r in rows
-    ]
+    return [_run_row_to_summary(r) for r in rows]
 
 
 def usage_stats_by(field: str) -> dict[str, dict[str, Any]]:
@@ -815,8 +775,7 @@ def usage_stats_by(field: str) -> dict[str, dict[str, Any]]:
 
     from litmus.analysis.runs_query import RunsQuery
 
-    backend = _results_backend()
-    with RunsQuery(_results_dir=backend.results_dir) as q:
+    with RunsQuery() as q:
         rows = q.list_recent(limit=10000)
 
     stats: dict[str, dict[str, Any]] = defaultdict(

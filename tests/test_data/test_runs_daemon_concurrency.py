@@ -162,10 +162,12 @@ def test_query_during_ingest_does_not_hang():
         )
 
     canonical_runs = resolve_results_dir() / "runs"
-    _wipe_index(canonical_runs)
 
-    # Spawn the daemon (signals ready immediately; ingest runs in
-    # background sweep).
+    # Acquire the daemon without wiping — new parquets will be picked up by
+    # the background ingest sweep on the running daemon. Wiping would kill
+    # the daemon and force a fresh spawn, which disrupts the LiveRunsSubscriber
+    # attachment (5s poll cycle) and breaks subsequent tests that depend on
+    # in-flight event delivery.
     runs_duckdb_manager.acquire(canonical_runs)
     try:
         results: list[float] = []

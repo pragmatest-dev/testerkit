@@ -123,6 +123,66 @@ _INFLIGHT_STEPS_SCHEMA = pa.schema(
 _EMPTY_INFLIGHT_RUNS = pa.Table.from_pylist([], schema=_INFLIGHT_RUNS_SCHEMA)
 _EMPTY_INFLIGHT_STEPS = pa.Table.from_pylist([], schema=_INFLIGHT_STEPS_SCHEMA)
 
+_INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
+    [
+        ("run_id", pa.string()),
+        ("session_id", pa.string()),
+        ("slot_id", pa.string()),
+        ("run_started_at", pa.timestamp("us", tz="UTC")),
+        ("run_ended_at", pa.timestamp("us", tz="UTC")),
+        ("run_outcome", pa.string()),
+        ("dut_serial", pa.string()),
+        ("dut_part_number", pa.string()),
+        ("dut_revision", pa.string()),
+        ("dut_lot_number", pa.string()),
+        ("product_id", pa.string()),
+        ("product_name", pa.string()),
+        ("product_revision", pa.string()),
+        ("station_id", pa.string()),
+        ("station_name", pa.string()),
+        ("station_hostname", pa.string()),
+        ("station_type", pa.string()),
+        ("station_location", pa.string()),
+        ("fixture_id", pa.string()),
+        ("test_phase", pa.string()),
+        ("project_name", pa.string()),
+        ("operator_id", pa.string()),
+        ("operator_name", pa.string()),
+        ("git_commit", pa.string()),
+        ("git_branch", pa.string()),
+        ("git_remote", pa.string()),
+        ("python_version", pa.string()),
+        ("litmus_version", pa.string()),
+        ("env_fingerprint", pa.string()),
+        ("step_name", pa.string()),
+        ("step_index", pa.int32()),
+        ("step_path", pa.string()),
+        ("step_outcome", pa.string()),
+        ("step_started_at", pa.timestamp("us", tz="UTC")),
+        ("step_ended_at", pa.timestamp("us", tz="UTC")),
+        ("vector_index", pa.int64()),
+        ("vector_attempt", pa.int64()),
+        ("vector_outcome", pa.string()),
+        ("measurement_name", pa.string()),
+        ("measurement_value", pa.float64()),
+        ("measurement_outcome", pa.string()),
+        ("measurement_units", pa.string()),
+        ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
+        ("limit_low", pa.float64()),
+        ("limit_high", pa.float64()),
+        ("limit_nominal", pa.float64()),
+        ("limit_comparator", pa.string()),
+        ("characteristic_id", pa.string()),
+        ("spec_ref", pa.string()),
+        ("dut_pin", pa.string()),
+        ("fixture_connection", pa.string()),
+        ("instrument_name", pa.string()),
+        ("instrument_resource", pa.string()),
+        ("instrument_channel", pa.string()),
+    ]
+)
+_EMPTY_INFLIGHT_MEASUREMENTS = pa.Table.from_pylist([], schema=_INFLIGHT_MEASUREMENTS_SCHEMA)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -169,6 +229,7 @@ def register_empty_inflight(conn: duckdb.DuckDBPyConnection) -> None:
     """
     conn.register("inflight_runs", _EMPTY_INFLIGHT_RUNS)
     conn.register("inflight_steps", _EMPTY_INFLIGHT_STEPS)
+    conn.register("inflight_measurements", _EMPTY_INFLIGHT_MEASUREMENTS)
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +260,7 @@ class LiveRunsSubscriber:
         self,
         results_dir: Path,
         *,
-        poll_interval_seconds: float = 5.0,
+        poll_interval_seconds: float = 0.5,
         orphan_interval_seconds: float = 30.0,
         orphan_timeout_seconds: float = 3600.0,
     ) -> None:
@@ -253,12 +314,6 @@ class LiveRunsSubscriber:
         state with no in-flight runs: ``_dirty`` stays False, zero
         ``conn.register()`` calls, pre_query_hook ≈ 0ms.
 
-        ``self._dirty`` is set by ``_on_event`` whenever the
-        AccumulatorPool absorbs an event (RunStarted/RunEnded/etc.),
-        and is cleared here after a successful re-register. Steady
-        state with no in-flight runs: zero ``conn.register()`` calls,
-        pre_query_hook ≈ 0ms.
-
         Initial value of ``self._dirty`` is ``True`` so the first
         query after daemon startup gets a real register (the
         ``register_empty_inflight`` call at startup creates the
@@ -285,6 +340,15 @@ class LiveRunsSubscriber:
         else:
             conn.register("inflight_steps", _EMPTY_INFLIGHT_STEPS)
 
+        meas_rows = self._pool.snapshot_measurement_rows()
+        if meas_rows:
+            conn.register(
+                "inflight_measurements",
+                pa.Table.from_pylist(meas_rows, schema=_INFLIGHT_MEASUREMENTS_SCHEMA),
+            )
+        else:
+            conn.register("inflight_measurements", _EMPTY_INFLIGHT_MEASUREMENTS)
+
         self._dirty = False
 
     # -- Internals ----------------------------------------------------------
@@ -310,7 +374,14 @@ class LiveRunsSubscriber:
             return False
 
         try:
-            self._unsubscribe = event_store.on_event(self._on_event)
+            # Live view only needs in-flight runs reconstructed; finalized
+            # runs already live in parquet. ``replay="active_runs"`` bounds
+            # the catch-up by active-run count rather than total event-log
+            # size, so attach time stays flat as the event log grows.
+            self._unsubscribe = event_store.on_event(
+                self._on_event,
+                replay="active_runs",
+            )
         except Exception as exc:  # noqa: BLE001
             logger.debug("EventStore.on_event failed (will retry): %s", exc)
             try:
@@ -374,7 +445,7 @@ class LiveRunsSubscriber:
             is_orphan = False
             reason = ""
             if pid is not None:
-                alive = _pid_liveness(pid)
+                alive = _check_pid_liveness(pid)
                 if alive is False:
                     is_orphan = True
                     reason = f"producer pid {pid} no longer exists"
@@ -397,7 +468,7 @@ class LiveRunsSubscriber:
 # ---------------------------------------------------------------------------
 
 
-def _pid_liveness(pid: int) -> bool | None:
+def _check_pid_liveness(pid: int) -> bool | None:
     """``True`` if pid exists, ``False`` if not, ``None`` if we can't tell."""
     try:
         os.kill(pid, 0)
@@ -422,11 +493,5 @@ def _write_orphan_parquet(acc: Any, output_dir: Path) -> None:
     from litmus.data.backends.parquet import ParquetSubscriber
 
     sub = ParquetSubscriber(output_dir)
-    sub._run_started = acc._run_started
-    sub._instruments = list(acc._instruments)
-    sub._measurement_events = list(acc._measurement_events)
-    sub._step_starts = dict(acc._step_starts)
-    sub._step_ends = dict(acc._step_ends)
-    sub._collected_items = list(acc._collected_items)
-    sub._markers_by_node = dict(acc._markers_by_node)
+    sub.absorb_from_accumulator(acc)
     sub._write(outcome="aborted")

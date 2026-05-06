@@ -33,6 +33,11 @@ from litmus.data.events import (
 )
 
 
+def _safe_str(value: Any) -> str | None:
+    """Return ``str(value)`` or ``None`` if *value* is falsy."""
+    return str(value) if value else None
+
+
 class EventAccumulator:
     """Pure projection of run events into row state — no I/O.
 
@@ -57,6 +62,15 @@ class EventAccumulator:
     test runner's parquet writer (``ParquetSubscriber``) and the
     runs daemon's live overlay use this same projection so the
     finalized parquet and the in-flight overlay can never drift.
+
+    Snapshot return conventions:
+
+    * ``snapshot_run_row()`` returns ``None`` when no ``RunStarted``
+      has been seen (there is no run to project). This is intentionally
+      ``Optional[dict]`` — a singular row either exists or it doesn't.
+    * ``snapshot_step_rows()`` and ``snapshot_measurement_rows()``
+      return ``[]`` for the same condition (plural methods follow
+      the empty-sequence convention rather than returning ``None``).
     """
 
     def __init__(self) -> None:
@@ -112,8 +126,8 @@ class EventAccumulator:
         ended_at = self._run_ended.occurred_at if self._run_ended else None
         outcome = self._run_ended.outcome if self._run_ended else None
         return {
-            "run_id": str(s.run_id) if s.run_id else None,
-            "session_id": str(s.session_id) if s.session_id else None,
+            "run_id": _safe_str(s.run_id),
+            "session_id": _safe_str(s.session_id),
             "slot_id": s.slot_id,
             "dut_serial": s.dut_serial,
             "dut_part_number": s.dut_part_number,
@@ -153,9 +167,9 @@ class EventAccumulator:
             )
             rows.append(
                 {
-                    "run_id": str(s.run_id) if s.run_id else None,
+                    "run_id": _safe_str(s.run_id),
                     "step_index": entry.get("index"),
-                    "session_id": str(s.session_id) if s.session_id else None,
+                    "session_id": _safe_str(s.session_id),
                     "slot_id": s.slot_id,
                     "step_name": entry.get("name"),
                     "step_path": entry.get("step_path"),

@@ -286,20 +286,10 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             dynamic_attrs         MAP(VARCHAR, VARCHAR)
         )
     """)
-    # Progress tracker for the one-time measurements backfill. A single row
-    # (total, completed) that the background thread updates. UI reads it to
-    # show a "Indexing measurements…" banner while backfill is in progress.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS _meas_backfill_status (
-            total     INTEGER NOT NULL DEFAULT 0,
-            completed INTEGER NOT NULL DEFAULT 0
+    for col, sql_type in _MEASUREMENTS_PERSISTED_COLUMNS:
+        conn.execute(
+            f"ALTER TABLE measurements_persisted ADD COLUMN IF NOT EXISTS {col} {sql_type}"
         )
-    """)
-    # Seed with one row if the table is empty (fresh DB or upgrade).
-    conn.execute(
-        "INSERT INTO _meas_backfill_status SELECT 0, 0"
-        " WHERE (SELECT COUNT(*) FROM _meas_backfill_status) = 0"
-    )
 
     # ── indexes ─────────────────────────────────────────────────────
     for index_sql in (
@@ -368,6 +358,65 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("markers", "VARCHAR"),
     ("dut_serial", "VARCHAR"),
     ("station_id", "VARCHAR"),
+)
+
+_MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("file_path", "VARCHAR"),
+    ("run_id", "VARCHAR"),
+    ("session_id", "VARCHAR"),
+    ("slot_id", "VARCHAR"),
+    ("run_started_at", "TIMESTAMPTZ"),
+    ("run_ended_at", "TIMESTAMPTZ"),
+    ("run_outcome", "VARCHAR"),
+    ("dut_serial", "VARCHAR"),
+    ("dut_part_number", "VARCHAR"),
+    ("dut_revision", "VARCHAR"),
+    ("dut_lot_number", "VARCHAR"),
+    ("product_id", "VARCHAR"),
+    ("product_name", "VARCHAR"),
+    ("product_revision", "VARCHAR"),
+    ("station_id", "VARCHAR"),
+    ("station_name", "VARCHAR"),
+    ("station_hostname", "VARCHAR"),
+    ("station_type", "VARCHAR"),
+    ("station_location", "VARCHAR"),
+    ("fixture_id", "VARCHAR"),
+    ("test_phase", "VARCHAR"),
+    ("project_name", "VARCHAR"),
+    ("operator_id", "VARCHAR"),
+    ("operator_name", "VARCHAR"),
+    ("git_commit", "VARCHAR"),
+    ("git_branch", "VARCHAR"),
+    ("git_remote", "VARCHAR"),
+    ("python_version", "VARCHAR"),
+    ("litmus_version", "VARCHAR"),
+    ("env_fingerprint", "VARCHAR"),
+    ("step_name", "VARCHAR"),
+    ("step_index", "INTEGER"),
+    ("step_path", "VARCHAR"),
+    ("step_outcome", "VARCHAR"),
+    ("step_started_at", "TIMESTAMPTZ"),
+    ("step_ended_at", "TIMESTAMPTZ"),
+    ("vector_index", "BIGINT"),
+    ("vector_attempt", "BIGINT"),
+    ("vector_outcome", "VARCHAR"),
+    ("measurement_name", "VARCHAR"),
+    ("measurement_value", "DOUBLE"),
+    ("measurement_outcome", "VARCHAR"),
+    ("measurement_units", "VARCHAR"),
+    ("measurement_timestamp", "TIMESTAMPTZ"),
+    ("limit_low", "DOUBLE"),
+    ("limit_high", "DOUBLE"),
+    ("limit_nominal", "DOUBLE"),
+    ("limit_comparator", "VARCHAR"),
+    ("characteristic_id", "VARCHAR"),
+    ("spec_ref", "VARCHAR"),
+    ("dut_pin", "VARCHAR"),
+    ("fixture_connection", "VARCHAR"),
+    ("instrument_name", "VARCHAR"),
+    ("instrument_resource", "VARCHAR"),
+    ("instrument_channel", "VARCHAR"),
+    ("dynamic_attrs", "MAP(VARCHAR, VARCHAR)"),
 )
 
 
@@ -731,6 +780,10 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
         map_expr = "MAP(ARRAY[]::VARCHAR[], ARRAY[]::VARCHAR[])"
 
     escaped = _sql_escape(fkey)
+    # DELETE first so re-ingest is idempotent (mirrors ON CONFLICT DO UPDATE
+    # for runs/steps but at file granularity since measurement rows have no
+    # single-column unique key across files).
+    conn.execute("DELETE FROM measurements_persisted WHERE file_path = ?", [fkey])
     conn.execute(f"""
         INSERT INTO measurements_persisted BY NAME
         SELECT
@@ -942,10 +995,27 @@ def _ingest_parquet_files(
     )
 
     # Per-file ingest — release the lock between files so Flight
-    # queries can interleave.
+    # queries can interleave (~30ms slots per file).
+    # Collect newly-indexed measurement files for the batch insert below.
+    # Steps/runs are already inserted per-file via _index_steps_file (fast,
+    # ~30ms each); measurement rows are batched to keep lock holds short.
+    new_meas_files: list[str] = []
     for path_str, _, _, stat in needs_ingest:
         with lock:
             _ingest_one_file(conn, Path(path_str), stat)
+        if not _is_steps_file(Path(path_str).name):
+            new_meas_files.append(path_str)
+
+    # Batch insert measurement rows — one lock hold per 100 files instead of
+    # N × (read parquet + insert) per file. Empty in steady state → no-op.
+    _MEAS_BATCH = 100
+    for i in range(0, len(new_meas_files), _MEAS_BATCH):
+        batch = new_meas_files[i : i + _MEAS_BATCH]
+        try:
+            with lock:
+                _batch_insert_measurement_rows(conn, batch)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Batch measurement insert failed (%d files): %s", len(batch), exc)
 
     # Cascade-delete rows whose source parquet is gone from disk.
     disk_paths = {e[0] for e in disk_entries}
@@ -993,20 +1063,6 @@ def _ingest_one_file(
         [path_str, stat.st_mtime, stat.st_size],
     ).fetchone()
     if already:
-        # Already in _ingested. measurements_persisted might still be missing
-        # this file's rows if the daemon was upgraded after initial ingest.
-        # Check and back-fill just this file synchronously so the caller
-        # (e.g. notify_new_run) gets a consistent view immediately.
-        if not _is_steps_file(fpath.name):
-            meas_present = conn.execute(
-                "SELECT 1 FROM measurements_persisted WHERE file_path = ? LIMIT 1",
-                [path_str],
-            ).fetchone()
-            if not meas_present:
-                try:
-                    _bulk_insert_measurement_rows(conn, path_str)
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("measurements_persisted backfill failed %s: %s", path_str, exc)
         return
 
     if _is_steps_file(fpath.name):
@@ -1065,7 +1121,6 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | Non
         io_error = _index_io_and_refs(conn, fkey)
         if io_error:
             warnings.warn(f"io/refs indexing partial for {fkey}: {io_error}", stacklevel=2)
-        _bulk_insert_measurement_rows(conn, fkey)
         return None
     except duckdb.IOException as exc:
         logger.debug("File gone during ingest (will retry next run): %s — %s", fkey, exc)
@@ -1081,21 +1136,49 @@ def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | Non
 def _create_views(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:  # noqa: ARG001
     """Create or replace the runtime views over the index tables.
 
-    ``measurements`` is a VIEW over ``measurements_persisted`` TABLE.
-    Dynamic ``in_*``/``out_*``/``custom_*`` columns are stored in the
-    ``dynamic_attrs MAP(VARCHAR, VARCHAR)`` column; fixed schema columns
-    are top-level. All queries resolve in O(1) instead of O(n_files) —
-    the previous ``read_parquet(glob, union_by_name=true)`` approach
-    re-read every parquet footer on every query (150–500ms per call).
+    All three data views follow the same UNION pattern: persistent rows
+    from the on-disk tables UNION ALL in-flight rows from the AccumulatorPool.
 
-    ``runs`` and ``steps`` are UNION views: persistent rows from the
-    on-disk tables UNION ALL in-flight rows from the AccumulatorPool.
-    ``measurements`` is completed-run only (no in-flight rows needed —
-    measurements are only written at run end).
+    * ``runs`` / ``steps`` / ``measurements``: persisted TABLE rows UNION ALL
+      inflight Arrow snapshots, with finalized rows suppressed from the
+      inflight side so the parquet always wins once ingested.
+    * ``measurements_persisted`` stores raw measurement rows materialized from
+      parquet during ingest (O(1) query instead of O(n_files) parquet glob).
+    * ``inflight_measurements`` carries the current live measurement snapshot
+      so a running test's measurements are visible immediately, completing the
+      Run → Step → Measurements live hierarchy.
     """
+    # measurements: persistent TABLE + inflight live snapshot.
+    # UNION BY NAME matches columns by name rather than position, so the
+    # inflight schema doesn't need to list columns in exactly the same order
+    # as measurements_persisted. Columns absent from the inflight side
+    # (file_path, dynamic_attrs) are automatically NULL.
     conn.execute("""
         CREATE OR REPLACE VIEW measurements AS
         SELECT * FROM measurements_persisted
+        UNION BY NAME
+        SELECT
+            run_id, session_id, slot_id,
+            run_started_at, run_ended_at, run_outcome,
+            dut_serial, dut_part_number, dut_revision, dut_lot_number,
+            product_id, product_name, product_revision,
+            station_id, station_name, station_hostname, station_type, station_location,
+            fixture_id, test_phase, project_name, operator_id, operator_name,
+            git_commit, git_branch, git_remote,
+            python_version, litmus_version, env_fingerprint,
+            step_name, step_index, step_path, step_outcome,
+            step_started_at, step_ended_at,
+            vector_index, vector_attempt, vector_outcome,
+            measurement_name, measurement_value, measurement_outcome,
+            measurement_units, measurement_timestamp,
+            limit_low, limit_high, limit_nominal, limit_comparator,
+            characteristic_id, spec_ref, dut_pin, fixture_connection,
+            instrument_name, instrument_resource, instrument_channel
+        FROM inflight_measurements
+        WHERE run_id NOT IN (
+            SELECT DISTINCT run_id FROM measurements_persisted
+            WHERE run_id IS NOT NULL
+        )
     """)
 
     # ``runs`` and ``steps`` are UNION views: persistent rows from
@@ -1140,49 +1223,62 @@ def _create_views(conn: duckdb.DuckDBPyConnection, runs_dir: Path) -> None:  # n
 # :class:`~litmus.data._live_runs_subscriber.LiveRunsSubscriber`.
 
 
-def _backfill_measurements_persisted(
+def _batch_insert_measurement_rows(
     conn: duckdb.DuckDBPyConnection,
-    lock: threading.Lock,
+    paths: list[str],
 ) -> None:
-    """Backfill ``measurements_persisted`` for files indexed before the table existed.
+    """Insert measurement rows for all *paths* in a single SQL statement.
 
-    Runs in a background thread after the Flight server starts. Releases
-    ``lock`` between every file so Flight queries can interleave. Updates
-    ``_meas_backfill_status`` with progress so the UI can show a banner.
-    No-ops when ``completed == total`` (steady-state: one fast SELECT).
+    Used by the background ingest sweep to insert measurement rows for a
+    batch of newly-discovered files. One lock hold per batch instead of
+    N × (parquet-read + insert). Idempotent: DELETEs existing rows for
+    each file before inserting so re-ingest is safe (mirrors ON CONFLICT
+    DO UPDATE semantics for runs/steps, at file granularity).
+
+    Dynamic column names come from a DESCRIBE on the actual unioned batch
+    relation — using ``measurement_io_schema`` directly would reference columns
+    that exist in *some* file in the project but not in any file in *this* batch,
+    yielding a Binder error.
     """
-    with lock:
-        missing_paths = [
-            row[0]
-            for row in conn.execute("""
-                SELECT i.path FROM _ingested i
-                WHERE i.status = 'ok'
-                  AND i.path NOT LIKE '%\\_steps.parquet' ESCAPE '\\'
-                  AND NOT EXISTS (
-                      SELECT 1 FROM measurements_persisted m
-                      WHERE m.file_path = i.path
-                      LIMIT 1
-                  )
-            """).fetchall()
-        ]
-        if not missing_paths:
-            return
-        total = len(missing_paths)
-        conn.execute("UPDATE _meas_backfill_status SET total = ?, completed = 0", [total])
+    flist = "[" + ", ".join(f"'{_sql_escape(p)}'" for p in paths) + "]"
 
-    logger.info("measurements_persisted backfill: %d files to index", total)
-    for i, path_str in enumerate(missing_paths):
-        try:
-            with lock:
-                _bulk_insert_measurement_rows(conn, path_str)
-                conn.execute("UPDATE _meas_backfill_status SET completed = ?", [i + 1])
-        except Exception as exc:  # noqa: BLE001
-            warnings.warn(
-                f"measurements_persisted backfill failed for {path_str}: {exc}",
-                stacklevel=2,
-            )
+    # Remove any existing rows for these files (idempotent re-ingest)
+    placeholders = ", ".join("?" for _ in paths)
+    conn.execute(f"DELETE FROM measurements_persisted WHERE file_path IN ({placeholders})", paths)
 
-    logger.info("measurements_persisted backfill: complete (%d files)", total)
+    # Columns actually present across this batch's parquets (union by name).
+    available = {
+        r[0]
+        for r in conn.execute(
+            f"DESCRIBE (SELECT * FROM read_parquet({flist}, union_by_name=true) LIMIT 0)"
+        ).fetchall()
+    }
+    dynamic_cols = sorted(
+        c for c in available if c not in _MEAS_FIXED_COLS and c not in _MEAS_SKIP_COLS
+    )
+
+    # NULL-coalesce fixed columns absent from every file in the batch so
+    # INSERT BY NAME always has every fixed column.
+    fixed_select = ", ".join(
+        c if c in available else f"NULL AS {c}" for c in sorted(_MEAS_FIXED_COLS)
+    )
+
+    if dynamic_cols:
+        keys_sql = ", ".join(f"'{_sql_escape(c)}'" for c in dynamic_cols)
+        vals_sql = ", ".join(f"TRY_CAST({c} AS VARCHAR)" for c in dynamic_cols)
+        map_expr = f"MAP([{keys_sql}], [{vals_sql}])"
+    else:
+        map_expr = "MAP(ARRAY[]::VARCHAR[], ARRAY[]::VARCHAR[])"
+
+    conn.execute(f"""
+        INSERT INTO measurements_persisted BY NAME
+        SELECT
+            filename AS file_path,
+            {fixed_select},
+            {map_expr} AS dynamic_attrs
+        FROM read_parquet({flist}, union_by_name=true, filename=true)
+        WHERE measurement_name IS NOT NULL
+    """)
 
 
 def daemon_run(runs_dir: Path) -> None:
@@ -1220,6 +1316,8 @@ def daemon_run(runs_dir: Path) -> None:
     def _on_put(table: pa.Table) -> None:
         # Already runs under the Flight server's lock (which IS our
         # ``write_lock``), so direct conn access is safe here.
+        # Real-time delivery path: insert measurement rows immediately so
+        # clients see them as soon as the ACK is drained.
         for row in table.to_pylist():
             fpath = row.get("file_path", "")
             if not fpath:
@@ -1229,6 +1327,11 @@ def daemon_run(runs_dir: Path) -> None:
             except OSError:
                 continue
             _ingest_one_file(conn, Path(fpath), stat)
+            if not _is_steps_file(Path(fpath).name):
+                try:
+                    _bulk_insert_measurement_rows(conn, fpath)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("measurement row insert failed for %s: %s", fpath, exc)
         _create_views(conn, runs_dir)
 
     server, port_file, _location = start_flight_server_in_daemon(
@@ -1253,16 +1356,6 @@ def daemon_run(runs_dir: Path) -> None:
         args=(conn, runs_dir, write_lock),
         daemon=True,
         name="runs-ingest",
-    ).start()
-
-    # One-time backfill for measurements_persisted. Runs per-file with
-    # lock releases between files so Flight queries interleave.
-    # Updates _meas_backfill_status so the UI can show a progress banner.
-    threading.Thread(
-        target=_backfill_measurements_persisted,
-        args=(conn, write_lock),
-        daemon=True,
-        name="runs-meas-backfill",
     ).start()
 
     live_subscriber.start()

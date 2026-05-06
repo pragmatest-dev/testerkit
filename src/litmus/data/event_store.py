@@ -342,6 +342,48 @@ class EventStore:
         """List known sessions with metadata from SessionStarted events."""
         return self.events(event_type="session.started")
 
+    def events_for_active_runs(self, *, since: datetime | None = None) -> list[dict]:
+        """Return events for runs that have ``RunStarted`` but no ``RunEnded``.
+
+        Live-view subscribers care only about runs still in flight — finalized
+        runs are already in parquet via the regular ingest path, so replaying
+        their events would be wasted work. Bounded by active-run count, not
+        total event-log size.
+
+        ``since`` further bounds the result to events received after that
+        timestamp. Use it to drop accumulated zombies (RunStarted without
+        RunEnded from long-dead pids).
+        """
+        for log in self._event_logs.values():
+            log.flush()
+        try:
+            self._put_stream.drain()
+        except Exception:
+            pass
+        where = f" AND received_at >= '{_sql_escape(since.isoformat())}'" if since else ""
+        sql = f"""
+            SELECT *
+            FROM events
+            WHERE run_id IN (
+                SELECT DISTINCT run_id FROM events WHERE event_type = 'run.started'
+                EXCEPT
+                SELECT DISTINCT run_id FROM events WHERE event_type = 'run.ended'
+            ){where}
+            ORDER BY received_at ASC
+        """
+        rows = self._flight_query(sql)
+        out: list[dict] = []
+        for row in rows:
+            json_str = row.get("json")
+            if json_str:
+                try:
+                    out.append(json_mod.loads(json_str))
+                    continue
+                except (json_mod.JSONDecodeError, TypeError):
+                    pass
+            out.append(row)
+        return out
+
     # -- Watch path ----------------------------------------------------------
 
     def on_event(
@@ -352,23 +394,37 @@ class EventStore:
         role: str | None = None,
         session_id: UUID | None = None,
         since: datetime | None = None,
+        replay: str = "matching",
     ) -> Callable[[], None]:
         """Catch-up subscription.
 
-        Replays matching events from ``since``, then pushes new ones
-        as they arrive.
+        Replays past events on attach, then pushes new ones as they arrive.
+
+        ``replay`` controls the catch-up strategy:
+
+        * ``"matching"`` (default) — replay every event matching the
+          ``event_type`` / ``role`` / ``session_id`` / ``since`` filters.
+        * ``"active_runs"`` — replay only events for runs without ``RunEnded``,
+          further bounded by ``since`` if provided. Use this for live-view
+          subscribers; cuts replay from O(total event log) to O(active runs).
+        * ``"none"`` — skip replay entirely; deliver only future events.
 
         In-process: instant dispatch on ``emit()``.
         Cross-process: internal polling detects new data via DuckDB index.
 
         Returns an unsubscribe callable.
         """
-        existing = self.events(
-            session_id=session_id,
-            event_type=event_type,
-            role=role,
-            since=since,
-        )
+        if replay == "none":
+            existing: list[dict] = []
+        elif replay == "active_runs":
+            existing = self.events_for_active_runs(since=since)
+        else:
+            existing = self.events(
+                session_id=session_id,
+                event_type=event_type,
+                role=role,
+                since=since,
+            )
         for evt in existing:
             try:
                 callback(evt)
@@ -426,7 +482,17 @@ class EventStore:
         dispatch, every later cross-process event is dropped, and
         the live UPSERT path looks broken with no log trace.
         """
-        last_received_at: str | None = None
+        # Initialize the cursor to the latest event already in the DB so the
+        # first poll doesn't pull and dispatch the entire historical event log
+        # (potentially hundreds of thousands of rows after a long-running test
+        # environment). Catch-up of pre-existing events is the responsibility
+        # of ``on_event``'s replay phase, scoped per-subscriber via ``since``.
+        try:
+            rows = self._flight_query("SELECT MAX(received_at) AS m FROM events")
+            last_received_at: str | None = str(rows[0]["m"]) if rows and rows[0].get("m") else None
+        except Exception as exc:  # noqa: BLE001 — fall back to None on probe failure
+            logger.debug("Watcher cursor init failed (will fetch all): %s", exc)
+            last_received_at = None
 
         while not self._watcher_stop.is_set():
             # ``>=`` not ``>``: two events emitted in the same
