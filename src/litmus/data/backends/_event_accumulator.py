@@ -162,7 +162,6 @@ class EventAccumulator:
             "operator_id": s.operator_id,
             "project_name": s.project_name,
             "file_path": None,
-            "steps_file_path": None,
         }
 
     def snapshot_step_rows(self) -> list[dict[str, Any]]:

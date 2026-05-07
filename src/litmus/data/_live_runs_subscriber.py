@@ -73,7 +73,6 @@ _INFLIGHT_RUNS_SCHEMA = pa.schema(
     [
         ("run_id", pa.string()),
         ("file_path", pa.string()),
-        ("steps_file_path", pa.string()),
         ("session_id", pa.string()),
         ("slot_id", pa.string()),
         ("dut_serial", pa.string()),

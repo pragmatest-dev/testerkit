@@ -132,7 +132,7 @@ def create_api_router() -> APIRouter:
             rows = q.list_recent(limit=limit)
         finally:
             q.close()
-        return {"runs": [r.model_dump(exclude={"file_path", "steps_file_path"}) for r in rows]}
+        return {"runs": [r.model_dump(exclude={"file_path"}) for r in rows]}
 
     @router.get("/runs/{run_id}", response_model=RunView, response_class=ORJSONResponse)
     def get_run(run_id: str):

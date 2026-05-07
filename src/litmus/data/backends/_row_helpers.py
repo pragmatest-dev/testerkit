@@ -622,48 +622,133 @@ def iter_rows(test_run: TestRun) -> Iterator[MeasurementRow]:
                 )
 
 
-def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
-    """Build step results from all steps in a TestRun.
+def build_step_summary_row(
+    *,
+    run_context: dict[str, Any],
+    entry: dict[str, Any],
+    run_outcome: str | None,
+    run_ended_at: datetime | None,
+    instruments: dict[str, list],
+) -> dict[str, Any]:
+    """Build one ``measurement_name IS NULL`` row from a step manifest entry.
 
-    Returns a JSON-serializable list of step results.  Executed steps
-    come first (with real outcomes), followed by ``not_started`` entries
-    for any collected items that were never executed — e.g. because the
-    run was aborted or hit ``--maxfail``.
+    Single source of truth for step-summary row construction. Used by
+    BOTH the streaming subscriber path
+    (``ParquetSubscriber._build_unified_rows``) and the batch path
+    (``ParquetBackend._append_step_summary_rows``) so the on-disk
+    shape is identical regardless of which writer produced it.
+
+    Step-summary rows cover containers, action steps without
+    measurements, measurement-free sweep vectors, and planned-but-unrun
+    vectors from the manifest.
+
+    ``run_context`` is the dict returned by ``build_run_metadata`` or
+    ``run_context_from_run_started`` (with ``run_ended_at`` overridden
+    by the caller for the streaming case). ``entry`` is one step
+    manifest entry as produced by ``step_entry_dict`` /
+    ``_append_not_started``.
+    """
+    ctx = dict(run_context)
+    ctx["run_ended_at"] = run_ended_at
+    raw_vi = entry.get("vector_index")
+    raw_vc = entry.get("vector_count")
+    raw_idx = entry.get("index")
+    row = MeasurementRow(
+        **ctx,
+        step_name=entry.get("name") or "",
+        step_index=int(raw_idx) if raw_idx is not None else 0,
+        step_path=entry.get("step_path") or "",
+        parent_path=entry.get("parent_path") or "",
+        step_started_at=_to_datetime(entry.get("started_at")),
+        step_ended_at=_to_datetime(entry.get("ended_at")),
+        step_node_id=entry.get("node_id"),
+        step_module=entry.get("module"),
+        step_file=entry.get("file"),
+        step_class=entry.get("class_name"),
+        step_function=entry.get("function"),
+        step_markers=entry.get("markers"),
+        step_outcome=entry.get("outcome"),
+        step_vector_count=raw_vc if raw_vc is not None else 1,
+        vector_index=raw_vi if raw_vi is not None else 0,
+        vector_attempt=None,
+        measurement_name=None,
+        run_outcome=run_outcome,
+        inputs=dict(entry.get("inputs") or {}),
+        outputs=dict(entry.get("outputs") or {}),
+        instruments=instruments,
+        custom={},
+    )
+    return row.to_flat_dict()
+
+
+def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
+    """Build step manifest entries from all (step, vector) pairs in a TestRun.
+
+    Returns one entry per ``(step_index, vector_index)`` execution so
+    each sweep variant gets its own entry — matches the streaming path
+    (``EventAccumulator._build_step_results_from_events``). Executed
+    entries come first; ``_append_not_started`` follows with entries
+    for collected items / planned vectors that never ran.
     """
     manifest: list[dict[str, Any]] = []
     executed_node_ids: set[str] = set()
+    executed_vectors: set[tuple[str, int]] = set()
 
     for index, step in enumerate(test_run.steps):
-        measurement_count = sum(len(v.measurements) for v in step.vectors)
-        vector_count = len(step.vectors)
         if step.node_id:
             executed_node_ids.add(step.node_id)
-        manifest.append(
-            step_entry_dict(
-                index=index,
-                name=step.name,
-                node_id=step.node_id,
-                file=step.file,
-                function=step.function,
-                class_name=step.class_name,
-                module=step.module,
-                step_path=step.step_path or step.name,
-                description=step.description,
-                markers=step.markers,
-                outcome=step.outcome.value if step.outcome else None,
-                started_at=step.started_at,
-                ended_at=step.ended_at,
-                has_measurements=measurement_count > 0,
-                measurement_count=measurement_count,
-                vector_count=vector_count,
+        # Iterate vectors so each (step, vector) pair becomes its own
+        # manifest entry — non-swept steps still produce one entry
+        # because ``step.vectors`` always contains at least one
+        # ``TestVector`` once the step ran.
+        vectors = step.vectors or [None]
+        # Fall back to the run's timing so step-summary rows always
+        # carry ``step_ended_at IS NOT NULL`` — the daemon's runs view
+        # filters on that to drop in-flight rows, and in-process batch
+        # callers that build a TestRun without populating per-step
+        # timing would otherwise be invisible to queries.
+        step_started = step.started_at or test_run.started_at
+        step_ended = step.ended_at or test_run.ended_at or test_run.started_at
+        for vec_offset, vector in enumerate(vectors):
+            measurement_count = len(vector.measurements) if vector is not None else 0
+            vec_idx = (
+                vector.index if vector is not None and vector.index is not None else vec_offset
             )
-        )
+            inputs = dict(vector.params) if vector is not None else {}
+            if step.node_id:
+                executed_vectors.add((step.node_id, vec_idx))
+            manifest.append(
+                step_entry_dict(
+                    index=index,
+                    name=step.name,
+                    node_id=step.node_id,
+                    file=step.file,
+                    function=step.function,
+                    class_name=step.class_name,
+                    module=step.module,
+                    step_path=step.step_path or step.name,
+                    parent_path=step.parent_path or "",
+                    description=step.description,
+                    markers=step.markers,
+                    outcome=step.outcome.value if step.outcome else None,
+                    started_at=step_started,
+                    ended_at=step_ended,
+                    vector_index=vec_idx,
+                    inputs=inputs,
+                    outputs={},
+                    has_measurements=measurement_count > 0,
+                    measurement_count=measurement_count,
+                    vector_count=len(step.vectors) if step.vectors else 1,
+                )
+            )
 
-    # Append not-started entries for collected items that never executed
+    # Append not-started entries for collected items that never executed,
+    # plus unrun-vector entries for partially-run sweeps.
     _append_not_started(
         manifest,
         [ci.model_dump() for ci in test_run.collected_items],
         executed_node_ids,
+        executed_vectors=executed_vectors,
     )
 
     return manifest

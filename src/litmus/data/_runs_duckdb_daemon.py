@@ -123,7 +123,6 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         CREATE TABLE IF NOT EXISTS runs_persisted (
             run_id VARCHAR PRIMARY KEY,
             file_path VARCHAR,
-            steps_file_path VARCHAR,
             session_id VARCHAR,
             slot_id VARCHAR,
             dut_serial VARCHAR,
@@ -324,7 +323,6 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
 _RUNS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("run_id", "VARCHAR"),
     ("file_path", "VARCHAR"),
-    ("steps_file_path", "VARCHAR"),
     ("session_id", "VARCHAR"),
     ("slot_id", "VARCHAR"),
     ("dut_serial", "VARCHAR"),
@@ -682,11 +680,6 @@ _MEAS_SKIP_COLS: frozenset[str] = frozenset(
 )
 
 
-def _meas_fixed_select(available: set[str]) -> str:
-    """Build the fixed-column SELECT fragment for measurement inserts."""
-    return ", ".join(c if c in available else f"NULL AS {c}" for c in sorted(_MEAS_FIXED_COLS))
-
-
 def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[str]) -> None:
     """Bulk INSERT per-(file, step, measurement_name) aggregates into ``measurement_stats``.
 
@@ -750,11 +743,13 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
 def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) -> None:
     """Insert raw measurement rows from one parquet into ``measurements_persisted``.
 
-    Fixed columns go to named columns. Dynamic (in_/out_/custom_) columns
-    are packed into ``dynamic_attrs MAP(VARCHAR, VARCHAR)``. One-time cost
-    at ingest; all subsequent queries hit the native table at ~1ms instead
-    of re-scanning all parquet footers (which cost 150–500ms per query due
-    to DuckDB's ``union_by_name`` footer-read during planning).
+    Fixed columns go to named columns (``INSERT BY NAME`` aligns them
+    with ``RUN_ROW_SCHEMA``). Dynamic (in_/out_/custom_) columns are
+    packed into ``dynamic_attrs MAP(VARCHAR, VARCHAR)``. One-time cost
+    at ingest; all subsequent queries hit the native table at ~1ms
+    instead of re-scanning all parquet footers (which cost 150–500ms
+    per query due to DuckDB's ``union_by_name`` footer-read during
+    planning).
     """
     available = _parquet_columns(conn, fkey)
     # Any column not in the fixed schema and not in the skip set goes
@@ -764,16 +759,19 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
         c for c in available if c not in _MEAS_FIXED_COLS and c not in _MEAS_SKIP_COLS
     )
 
-    # Build SELECT list for fixed columns — NULL-coalesce any absent in
-    # this (possibly older) parquet so INSERT BY NAME always has every col.
-    fixed_select = _meas_fixed_select(available)
-
     if dynamic_present:
         keys_sql = ", ".join(f"'{_sql_escape(c)}'" for c in dynamic_present)
         vals_sql = ", ".join(f"TRY_CAST({c} AS VARCHAR)" for c in dynamic_present)
         map_expr = f"MAP([{keys_sql}], [{vals_sql}])"
     else:
         map_expr = "MAP(ARRAY[]::VARCHAR[], ARRAY[]::VARCHAR[])"
+
+    # Fixed columns listed explicitly so INSERT BY NAME has a stable
+    # ordering. ``union_by_name=true`` on read_parquet pads any
+    # column missing from the file with NULL so we can trust the
+    # RUN_ROW_SCHEMA contract here — same pattern as ``_bulk_insert_runs``
+    # / ``_bulk_insert_steps``.
+    fixed_select = ", ".join(sorted(_MEAS_FIXED_COLS))
 
     escaped = _sql_escape(fkey)
     # DELETE first so re-ingest is idempotent (mirrors ON CONFLICT DO UPDATE
@@ -806,7 +804,6 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
         SELECT
             run_id,
             filename AS file_path,
-            NULL::VARCHAR AS steps_file_path,
             session_id,
             slot_id,
             dut_serial, dut_part_number, dut_lot_number,
@@ -832,7 +829,6 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             test_phase, product_id, operator_id, project_name
         ON CONFLICT (run_id) DO UPDATE SET
             file_path = excluded.file_path,
-            steps_file_path = excluded.steps_file_path,
             session_id = excluded.session_id,
             slot_id = excluded.slot_id,
             dut_serial = excluded.dut_serial,
@@ -1028,11 +1024,12 @@ def _ingest_one_file(
     fpath: Path,
     stat: os.stat_result,
 ) -> None:
-    """Ingest a single parquet file. Used by ``_on_put`` for real-time notifications.
+    """Ingest a single unified per-run parquet file.
 
-    Measurement parquets populate ``measurement_stats`` and the IO/ref
-    indexes. Step sidecars (``*_steps.parquet``) populate ``runs`` and
-    ``steps``.
+    Used by ``_on_put`` for real-time notifications. Each parquet
+    populates every persistent index in one pass via
+    ``_index_unified_parquet`` — runs, steps, measurement_stats, and
+    the IO/ref indexes.
 
     Idempotent: if ``_ingested`` already records this file with a
     matching (mtime, size) and ``ok`` status, skip re-insert. Without
@@ -1155,9 +1152,9 @@ def _create_views(conn: duckdb.DuckDBPyConnection, _runs_dir: Path) -> None:
     conn.execute("""
         CREATE OR REPLACE VIEW runs AS
         SELECT * FROM runs_persisted
-        UNION ALL
+        UNION ALL BY NAME
         SELECT
-            run_id, file_path, steps_file_path, session_id, slot_id,
+            run_id, file_path, session_id, slot_id,
             dut_serial, dut_part_number, dut_lot_number, station_id, station_name,
             station_hostname, fixture_id,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
@@ -1225,9 +1222,12 @@ def _batch_insert_measurement_rows(
         c for c in available if c not in _MEAS_FIXED_COLS and c not in _MEAS_SKIP_COLS
     )
 
-    # NULL-coalesce fixed columns absent from every file in the batch so
-    # INSERT BY NAME always has every fixed column.
-    fixed_select = _meas_fixed_select(available)
+    # Fixed columns listed explicitly so INSERT BY NAME has a stable
+    # ordering. ``union_by_name=true`` on read_parquet pads any column
+    # missing from the batch with NULL, so we trust RUN_ROW_SCHEMA
+    # rather than null-coalescing per-column. Same pattern as
+    # ``_bulk_insert_runs`` / ``_bulk_insert_steps``.
+    fixed_select = ", ".join(sorted(_MEAS_FIXED_COLS))
 
     if dynamic_cols:
         keys_sql = ", ".join(f"'{_sql_escape(c)}'" for c in dynamic_cols)

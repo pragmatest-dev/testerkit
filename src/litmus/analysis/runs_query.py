@@ -1,6 +1,6 @@
 """Read-only query client over the runs DuckDB daemon's ``runs`` table.
 
-Runs are populated incrementally from ``_steps.parquet`` sidecars at
+Runs are populated by aggregating the unified per-run parquet on
 ingest (the same source ``StepsQuery`` reads). Queries hit the
 precomputed table for constant-cost lookups regardless of file count.
 
@@ -45,7 +45,6 @@ class RunRow(BaseModel):
     """
 
     file_path: str | None = None
-    steps_file_path: str | None = None
     run_id: str | None = None
     session_id: str | None = None
     slot_id: str | None = None

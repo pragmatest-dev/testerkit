@@ -365,9 +365,7 @@ def _list_runs(project: str) -> list[dict[str, Any]]:
     results_dir = str(get_project_root(project) / "results")
     q = RunsQuery(_results_dir=results_dir)
     try:
-        return [
-            r.model_dump(exclude={"file_path", "steps_file_path"}) for r in q.list_recent(limit=50)
-        ]
+        return [r.model_dump(exclude={"file_path"}) for r in q.list_recent(limit=50)]
     finally:
         q.close()
 

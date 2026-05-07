@@ -11,16 +11,21 @@ client, different storage shape.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import duckdb
+import pyarrow as pa
 from pydantic import BaseModel, Field
 
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import multi_filter_clauses, sql_escape
 from litmus.data.results_dir import resolve_results_dir
+
+logger = logging.getLogger(__name__)
 
 
 class StepRow(BaseModel):
@@ -168,15 +173,39 @@ class StepsQuery:
                     FROM read_parquet('{sql_escape(fpath)}', union_by_name=true)
                     WHERE run_id LIKE '{sql_escape(rows[0].run_id or "")[:8]}%'
                 """)
-            except Exception:  # noqa: BLE001 — best-effort enrichment
+            except (OSError, duckdb.Error, pa.ArrowInvalid) as exc:
+                # File missing, parquet corrupt, daemon transient error —
+                # leave inputs/outputs empty and move on. Real bugs
+                # (TypeError, KeyError, etc.) propagate.
+                logger.debug("Could not enrich IO for %s: %s", fpath, exc)
                 continue
-            # First-seen row per (step_path, vector_index) wins.
+            # First-seen row per (step_path, vector_index) wins. The
+            # unified parquet PK guarantees uniqueness within a file
+            # by construction; duplicates would indicate a producer
+            # bug or upstream corruption — surface them via a warning
+            # rather than silently dedup.
             by_key: dict[tuple[str, int], dict[str, Any]] = {}
             for r in raw:
-                key = (r.get("step_path") or "", int(r.get("vector_index") or 0))
-                by_key.setdefault(key, r)
+                raw_vi = r.get("vector_index")
+                key = (
+                    r.get("step_path") or "",
+                    int(raw_vi) if raw_vi is not None else 0,
+                )
+                if key in by_key:
+                    logger.warning(
+                        "Duplicate (step_path=%r, vector_index=%r) in unified parquet %s "
+                        "— violates the (run_id, step_path, vector_index) PK invariant",
+                        key[0],
+                        key[1],
+                        fpath,
+                    )
+                    continue
+                by_key[key] = r
             for sr in rows:
-                key = (sr.step_path or "", sr.vector_index or 0)
+                key = (
+                    sr.step_path or "",
+                    sr.vector_index if sr.vector_index is not None else 0,
+                )
                 r = by_key.get(key)
                 if r is None:
                     continue

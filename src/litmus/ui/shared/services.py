@@ -649,18 +649,16 @@ def get_run_detail(run_id: str):
 
     Resolves the run through the daemon's typed ``RunsQuery`` rather
     than the parquet backend. The backend's ``get_run`` walks the
-    measurement parquet glob, which silently misses any run that
-    didn't record measurements (step-only runs land a
-    ``_steps.parquet`` and no measurement parquet, so the backend
-    returns ``None`` and the page renders "Run not found"). The
-    daemon's index includes both shapes, so any run reachable from
-    ``/results`` resolves here.
+    parquet glob directly, which can silently miss runs whose unified
+    parquet only has step-summary rows (no measurement rows). The
+    daemon's index aggregates the unified parquet by ``run_id``, so
+    any run reachable from ``/results`` resolves here.
 
     ``run`` is adapted to ``RunSummary`` (the legacy UI shape the
     detail page expects). ``steps`` is the typed ``list[StepRow]``
     from the daemon's ``steps`` table. ``measurements`` is the flat
-    measurement parquet rows when the run has a measurement parquet,
-    or ``[]`` when it's a step-only run.
+    measurement rows when the run recorded any, or ``[]`` for runs
+    that produced only step-summary rows.
     """
     from litmus.analysis.runs_query import RunsQuery
     from litmus.analysis.steps_query import StepsQuery

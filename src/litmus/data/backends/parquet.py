@@ -47,10 +47,10 @@ from litmus.data.backends._row_helpers import (
     REF_PATH_PREFIX,
     VECTOR_ID_LENGTH,
     MeasurementRow,
-    _to_datetime,
     build_row,
     build_run_metadata,
     build_step_manifest,
+    build_step_summary_row,
     extract_prefixed_fields,
     run_context_from_run_started,
     save_ref_to_dir,
@@ -274,64 +274,50 @@ class ParquetBackend:
         Used by the batch writer (``save_test_run``) to round out the
         unified per-run parquet. Each step / vector that produced no
         measurement gets one step-summary row keyed by
-        ``(step_path, vector_index)``. Planned-but-unrun vectors from
-        the manifest are NOT injected here — that path is the
-        streaming subscriber's responsibility.
+        ``(step_path, vector_index)``. Delegates to the shared
+        ``build_step_summary_row`` helper so the streaming and batch
+        paths produce identical rows for the same logical step.
         """
         if not test_run.steps:
             return
 
-        # Set of (step_path, vector_index) tuples already represented by
-        # measurement rows — skip those, the measurements carry the
-        # context.
+        # Set of (step_path, vector_index) tuples already represented
+        # by measurement rows — skip those, the measurements carry the
+        # context. Explicit None-checks (rather than ``or 0`` falsy
+        # semantics) guard against future schema changes that might
+        # introduce other accidental falsy vector_index values.
         with_measurements: set[tuple[str, int]] = set()
         for row in rows:
             sp = row.get("step_path") or ""
-            vi = row.get("vector_index") or 0
+            raw_vi = row.get("vector_index")
+            vi = 0 if raw_vi is None else raw_vi
             with_measurements.add((sp, vi))
 
         run_context = build_run_metadata(test_run)
-        run_context["run_outcome"] = test_run.outcome.value if test_run.outcome else None
-        run_context["run_ended_at"] = test_run.ended_at
+        run_outcome = test_run.outcome.value if test_run.outcome else None
+        run_ended_at = test_run.ended_at
+        instruments = _ensure_instrument_arrays({})
 
-        for idx, step in enumerate(test_run.steps):
-            # step_path must match the measurement-row computation in
-            # ``_build_measurement_rows`` so the dedup set can resolve
-            # the same (step_path, vector_index) pair across both row
-            # kinds. Both fall back to step.name when step.step_path
-            # isn't explicitly set so each logical step gets a distinct
-            # GROUP BY key in the daemon.
-            step_path = step.step_path or step.name or ""
-            vectors = step.vectors or [None]  # treat non-swept as one "vector 0"
-            for vec_offset, vec in enumerate(vectors):
-                vec_idx = vec.index if vec is not None and vec.index is not None else vec_offset
-                if (step_path, vec_idx) in with_measurements:
-                    continue
-                started_at = step.started_at or test_run.started_at
-                ended_at = step.ended_at or test_run.ended_at or test_run.started_at
-                rows.append(
-                    {
-                        **run_context,
-                        "step_name": step.name,
-                        "step_index": idx,
-                        "step_path": step_path,
-                        "parent_path": step.parent_path or "",
-                        "step_started_at": started_at,
-                        "step_ended_at": ended_at,
-                        "step_node_id": None,
-                        "step_module": None,
-                        "step_file": None,
-                        "step_class": None,
-                        "step_function": None,
-                        "step_markers": step.markers,
-                        "step_outcome": step.outcome.value if step.outcome else None,
-                        "step_vector_count": len(step.vectors) if step.vectors else 1,
-                        "vector_index": vec_idx,
-                        "vector_attempt": None,
-                        # measurement_name=None marks this as a step-summary row
-                        "measurement_name": None,
-                    }
+        # ``build_step_manifest`` produces one entry per (step, vector)
+        # pair — same shape ``ParquetSubscriber._build_step_summary_row``
+        # consumes from ``StepManifest`` events. Routing both writers
+        # through the shared ``build_step_summary_row`` helper keeps
+        # them in lock-step.
+        for entry in build_step_manifest(test_run):
+            sp = entry.get("step_path") or ""
+            raw_vi = entry.get("vector_index")
+            vi = 0 if raw_vi is None else raw_vi
+            if (sp, vi) in with_measurements:
+                continue
+            rows.append(
+                build_step_summary_row(
+                    run_context=run_context,
+                    entry=entry,
+                    run_outcome=run_outcome,
+                    run_ended_at=run_ended_at,
+                    instruments=instruments,
                 )
+            )
 
     @contextmanager
     def _run_store_ctx(self) -> Generator[RunStore, None, None]:
@@ -532,7 +518,7 @@ class ParquetBackend:
         return list(vectors_seen.values())
 
     def get_steps(self, run_id: str) -> list[dict[str, Any]]:
-        """Get step results for a run from _steps.parquet or metadata."""
+        """Get step results for a run from the unified parquet's file-level metadata."""
         with self._run_store_ctx() as store:
             pq_file = store.find_run_file(run_id)
         if pq_file is None:
@@ -725,7 +711,7 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
             self._written = True
             return
 
-        self._write_results(s, rows, ended_at=ended_at, run_outcome=final_outcome)
+        self._write_results(s, rows)
         self._written = True
 
     def _build_unified_rows(self, run_ended_at: datetime, run_outcome: str) -> list[dict[str, Any]]:
@@ -769,7 +755,8 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
 
         for entry in self._build_step_results_from_events():
             sp = entry.get("step_path") or ""
-            vi = entry.get("vector_index") or 0
+            raw_vi = entry.get("vector_index")
+            vi = 0 if raw_vi is None else raw_vi
             if (sp, vi) in with_measurements:
                 continue
             summary = self._build_step_summary_row(
@@ -787,58 +774,26 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
         run_ended_at: datetime,
         run_outcome: str,
     ) -> dict[str, Any] | None:
-        """Build one ``measurement_name IS NULL`` row for a step entry.
+        """Build one step-summary row from a manifest entry.
 
-        Used for step-summary rows in the unified parquet: containers,
-        action steps without measurements, measurement-free sweep
-        vectors, and planned-but-unrun vectors from the manifest.
-        Returns ``None`` when ``RunStarted`` hasn't been seen (no
-        run context to denormalize).
+        Thin wrapper around the shared ``build_step_summary_row``
+        helper — adds the streaming-path-specific run-context source
+        (``run_context_from_run_started`` keyed off the cached
+        ``RunStarted`` event). Returns ``None`` when ``RunStarted``
+        hasn't been seen.
         """
         s = self._run_started
         if not s:
             return None
-        # ``run_context_from_run_started`` returns run_ended_at=None
-        # (it's a streaming helper that doesn't know when the run will
-        # end); override after spreading so this row reflects the
-        # post-RunEnded state.
-        ctx = run_context_from_run_started(s, s, include_env=True)
-        ctx["run_ended_at"] = run_ended_at
-        row = MeasurementRow(
-            **ctx,
-            step_name=entry.get("name") or "",
-            step_index=int(entry.get("index") or 0),
-            step_path=entry.get("step_path") or "",
-            parent_path=entry.get("parent_path") or "",
-            step_started_at=_to_datetime(entry.get("started_at")),
-            step_ended_at=_to_datetime(entry.get("ended_at")),
-            step_node_id=entry.get("node_id"),
-            step_module=entry.get("module"),
-            step_file=entry.get("file"),
-            step_class=entry.get("class_name"),
-            step_function=entry.get("function"),
-            step_markers=entry.get("markers"),
-            step_outcome=entry.get("outcome"),
-            step_vector_count=entry.get("vector_count") or 1,
-            vector_index=entry.get("vector_index") or 0,
-            vector_attempt=None,
-            measurement_name=None,
+        return build_step_summary_row(
+            run_context=run_context_from_run_started(s, s, include_env=True),
+            entry=entry,
             run_outcome=run_outcome,
-            inputs=dict(entry.get("inputs") or {}),
-            outputs=dict(entry.get("outputs") or {}),
+            run_ended_at=run_ended_at,
             instruments=self._build_instrument_arrays(),
-            custom={},
         )
-        return row.to_flat_dict()
 
-    def _write_results(
-        self,
-        s: Any,
-        rows: list[dict[str, Any]],
-        *,
-        ended_at: datetime,  # noqa: ARG002 — kept for symmetry with batch path
-        run_outcome: str,  # noqa: ARG002 — kept for symmetry with batch path
-    ) -> None:
+    def _write_results(self, s: Any, rows: list[dict[str, Any]]) -> None:
         """Persist the unified rows to one parquet file; fire ``on_output``."""
         pq_path = self._backend.save_from_rows(
             rows,
