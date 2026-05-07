@@ -21,49 +21,101 @@ import pytest
 from litmus.analysis.runs_query import RunRow, RunsQuery
 from litmus.data.results_dir import resolve_results_dir
 from litmus.data.run_store import RunStore
-from litmus.data.schemas import STEP_SCHEMA
+from litmus.data.schemas import RUN_ROW_SCHEMA
 
 _INGEST_TIMEOUT_S = 10.0
 
 
-def _step_row(
+def _step_summary_row(
     *,
     run_id: str,
     session_id: str,
-    started: datetime,
-    outcome: str,
+    run_started_at: datetime,
+    run_ended_at: datetime | None,
+    run_outcome: str | None,
+    step_started_at: datetime,
+    step_ended_at: datetime | None,
     step_index: int = 0,
     step_name: str = "test_step",
-    measurement_count: int = 1,
     dut_serial: str = "SN001",
     station_id: str = "STA-01",
     test_phase: str = "production",
     product_id: str = "PN-100",
 ) -> dict:
-    """Build one step row matching STEP_SCHEMA — runs table aggregates these."""
-    ended = started + timedelta(minutes=2)
-    populated: dict = {f.name: None for f in STEP_SCHEMA}
+    """Build one step-summary row in unified RUN_ROW_SCHEMA shape.
+
+    Step-summary rows have ``measurement_name=None``. ``run_started_at``
+    / ``run_ended_at`` / ``run_outcome`` are run-level (same for every
+    row of a given run); ``step_started_at`` / ``step_ended_at`` are
+    per-step.
+    """
+    populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
-            "index": step_index,
-            "name": step_name,
-            "step_path": step_name,
-            "outcome": outcome,
-            "started_at": started,
-            "ended_at": ended,
-            "duration_s": (ended - started).total_seconds(),
-            "has_measurements": measurement_count > 0,
-            "measurement_count": measurement_count,
-            "vector_count": 1,
             "run_id": run_id,
             "session_id": session_id,
-            "run_started_at": started,
-            "run_ended_at": ended,
-            "run_outcome": outcome,
+            "run_started_at": run_started_at,
+            "run_ended_at": run_ended_at,
+            "run_outcome": run_outcome,
+            "step_index": step_index,
+            "step_name": step_name,
+            "step_path": step_name,
+            "parent_path": "",
+            "step_started_at": step_started_at,
+            "step_ended_at": step_ended_at,
+            "step_outcome": run_outcome,
+            "step_vector_count": 1,
+            "vector_index": 0,
+            "measurement_name": None,
             "dut_serial": dut_serial,
             "station_id": station_id,
             "test_phase": test_phase,
             "product_id": product_id,
+        }
+    )
+    return populated
+
+
+def _measurement_row(
+    *,
+    run_id: str,
+    session_id: str,
+    run_started_at: datetime,
+    run_ended_at: datetime,
+    run_outcome: str,
+    step_started_at: datetime,
+    step_ended_at: datetime,
+    step_index: int,
+    step_name: str,
+    measurement_name: str,
+    dut_serial: str,
+) -> dict:
+    """Build one measurement row in unified RUN_ROW_SCHEMA shape."""
+    populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
+    populated.update(
+        {
+            "run_id": run_id,
+            "session_id": session_id,
+            "run_started_at": run_started_at,
+            "run_ended_at": run_ended_at,
+            "run_outcome": run_outcome,
+            "step_index": step_index,
+            "step_name": step_name,
+            "step_path": step_name,
+            "parent_path": "",
+            "step_started_at": step_started_at,
+            "step_ended_at": step_ended_at,
+            "step_outcome": run_outcome,
+            "step_vector_count": 1,
+            "vector_index": 0,
+            "vector_attempt": 0,
+            "measurement_name": measurement_name,
+            "measurement_value": 1.0,
+            "measurement_outcome": run_outcome,
+            "dut_serial": dut_serial,
+            "station_id": "STA-01",
+            "test_phase": "production",
+            "product_id": "PN-100",
         }
     )
     return populated
@@ -78,30 +130,37 @@ def _write_run(
     started: datetime,
     outcome: str,
     n_steps: int = 2,
+    measurements_per_step: int = 10,
     dut_serial: str = "SN001",
 ) -> None:
-    """Write a ``_steps.parquet`` and notify the canonical daemon to ingest it."""
+    """Write a unified per-run parquet (n_steps × measurements_per_step rows)
+    and notify the daemon to ingest it."""
     runs_dir.mkdir(parents=True, exist_ok=True)
-    rows = [
-        _step_row(
-            run_id=run_id,
-            session_id=session_id,
-            started=started + timedelta(seconds=i),
-            outcome=outcome,
-            step_index=i,
-            step_name=f"step_{i}",
-            measurement_count=10,
-            dut_serial=dut_serial,
-        )
-        for i in range(n_steps)
-    ]
-    cols = {f.name: [r[f.name] for r in rows] for f in STEP_SCHEMA}
-    parquet_path = runs_dir / f"{run_id}_steps.parquet"
-    pq.write_table(pa.table(cols, schema=STEP_SCHEMA), parquet_path)
-    # ``notify_new_run`` keys on the regular parquet path; it
-    # auto-includes the sibling ``_steps.parquet``. Passing the
-    # steps path directly tells the daemon to do_put-ingest it.
-    notifier.notify_new_run(parquet_path.with_name(f"{run_id}.parquet"))
+    run_ended = started + timedelta(seconds=n_steps) + timedelta(minutes=2)
+    rows = []
+    for step_i in range(n_steps):
+        step_start = started + timedelta(seconds=step_i)
+        step_end = step_start + timedelta(minutes=2)
+        for meas_i in range(measurements_per_step):
+            rows.append(
+                _measurement_row(
+                    run_id=run_id,
+                    session_id=session_id,
+                    run_started_at=started,
+                    run_ended_at=run_ended,
+                    run_outcome=outcome,
+                    step_started_at=step_start,
+                    step_ended_at=step_end,
+                    step_index=step_i,
+                    step_name=f"step_{step_i}",
+                    measurement_name=f"meas_{step_i}_{meas_i}",
+                    dut_serial=dut_serial,
+                )
+            )
+    cols = {f.name: [r[f.name] for r in rows] for f in RUN_ROW_SCHEMA}
+    parquet_path = runs_dir / f"{run_id}.parquet"
+    pq.write_table(pa.table(cols, schema=RUN_ROW_SCHEMA), parquet_path)
+    notifier.notify_new_run(parquet_path)
 
 
 def _write_in_flight_run(
@@ -111,40 +170,29 @@ def _write_in_flight_run(
     session_id: str,
     started: datetime,
 ) -> None:
-    """Write a steps parquet for an in-flight run (no ended_at, no outcome).
+    """Write a unified parquet for an in-flight run (no ended_at, no outcome).
 
-    Mirrors what the daemon's ``runs`` table looks like after a
-    ``RunStarted`` event: ``ended_at IS NULL``, ``outcome IS NULL``.
+    Mirrors what the daemon's ``runs_persisted`` table looks like after
+    a ``RunStarted`` event lands but before ``RunEnded`` — ``ended_at``
+    and ``outcome`` are NULL.
     """
     runs_dir.mkdir(parents=True, exist_ok=True)
-    populated: dict = {f.name: None for f in STEP_SCHEMA}
-    populated.update(
-        {
-            "index": 0,
-            "name": "in_flight_step",
-            "step_path": "in_flight_step",
-            "outcome": None,
-            "started_at": started,
-            "ended_at": None,
-            "duration_s": None,
-            "has_measurements": False,
-            "measurement_count": 0,
-            "vector_count": 1,
-            "run_id": run_id,
-            "session_id": session_id,
-            "run_started_at": started,
-            "run_ended_at": None,
-            "run_outcome": None,
-            "dut_serial": "SN-LIVE",
-            "station_id": "STA-01",
-            "test_phase": "production",
-            "product_id": "PN-100",
-        }
+    populated = _step_summary_row(
+        run_id=run_id,
+        session_id=session_id,
+        run_started_at=started,
+        run_ended_at=None,
+        run_outcome=None,
+        step_started_at=started,
+        step_ended_at=None,
+        step_index=0,
+        step_name="in_flight_step",
+        dut_serial="SN-LIVE",
     )
-    cols = {f.name: [populated[f.name]] for f in STEP_SCHEMA}
+    cols = {f.name: [populated[f.name]] for f in RUN_ROW_SCHEMA}
     pq.write_table(
-        pa.table(cols, schema=STEP_SCHEMA),
-        runs_dir / f"{run_id}_steps.parquet",
+        pa.table(cols, schema=RUN_ROW_SCHEMA),
+        runs_dir / f"{run_id}.parquet",
     )
 
 

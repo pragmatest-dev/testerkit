@@ -21,11 +21,79 @@ import pytest
 from litmus.data.ref import make_channel_uri
 from litmus.data.results_dir import resolve_results_dir
 from litmus.data.run_store import RunStore
-from tests._step_sidecar import write_steps_sidecar
+from litmus.data.schemas import RUN_ROW_SCHEMA
 
 
 def _dt(iso: str) -> datetime:
     return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
+
+def _measurement_row(
+    *,
+    run_id: str,
+    session_id: str,
+    run_started_at: datetime,
+    run_ended_at: datetime,
+    run_outcome: str,
+    dut_serial: str,
+    station_id: str,
+    step_name: str,
+    step_index: int,
+    measurement_name: str,
+    measurement_value: float,
+    measurement_outcome: str,
+) -> dict:
+    """One measurement row in unified RUN_ROW_SCHEMA shape."""
+    populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
+    populated.update(
+        {
+            "run_id": run_id,
+            "session_id": session_id,
+            "run_started_at": run_started_at,
+            "run_ended_at": run_ended_at,
+            "run_outcome": run_outcome,
+            "dut_serial": dut_serial,
+            "station_id": station_id,
+            "step_name": step_name,
+            "step_index": step_index,
+            "step_path": step_name,
+            "parent_path": "",
+            "step_started_at": run_started_at,
+            "step_ended_at": run_ended_at,
+            "step_outcome": run_outcome,
+            "step_vector_count": 1,
+            "vector_index": 0,
+            "vector_attempt": 0,
+            "measurement_name": measurement_name,
+            "measurement_value": measurement_value,
+            "measurement_outcome": measurement_outcome,
+            "measurement_units": "V",
+            "limit_low": 3.1,
+            "limit_high": 3.5,
+            "limit_nominal": 3.3,
+        }
+    )
+    return populated
+
+
+def _write_unified(path: Path, row: dict, *, extra_cols: dict | None = None) -> None:
+    """Write a single-row unified parquet, with optional dynamic columns
+    (e.g. ``out_waveform``) added alongside the schema fields."""
+    cols = {f.name: [row[f.name]] for f in RUN_ROW_SCHEMA}
+    schema_fields = list(RUN_ROW_SCHEMA)
+    extra_fields: list = []
+    if extra_cols:
+        for name, value in extra_cols.items():
+            cols[name] = [value]
+            # Dynamic columns infer string for None, otherwise from value type.
+            extra_fields.append(
+                pa.field(
+                    name,
+                    pa.string() if value is None or isinstance(value, str) else pa.float64(),
+                )
+            )
+    schema = pa.schema(schema_fields + extra_fields)
+    pq.write_table(pa.table(cols, schema=schema), path)
 
 
 @pytest.fixture(scope="module")
@@ -43,75 +111,43 @@ def fixture_data() -> dict[str, str]:
     uri = make_channel_uri("scope.ch1.waveform", session_id)
 
     pq1 = runs_dir / f"{run_001}_SN001.parquet"
-    pq.write_table(
-        pa.table(
-            {
-                "run_id": [run_001],
-                "session_id": [session_id],
-                "run_started_at": [_dt("2026-03-01T10:00:00Z")],
-                "run_ended_at": [_dt("2026-03-01T10:05:00Z")],
-                "run_outcome": ["passed"],
-                "dut_serial": ["SN001"],
-                "station_id": ["station-1"],
-                "step_index": [0],
-                "step_name": ["test_voltage"],
-                "measurement_name": ["voltage"],
-                "value": [3.3],
-                "outcome": ["passed"],
-                "units": ["V"],
-                "limit_low": [3.1],
-                "limit_high": [3.5],
-                "nominal": [3.3],
-                "out_waveform": [uri],
-            }
+    _write_unified(
+        pq1,
+        _measurement_row(
+            run_id=run_001,
+            session_id=session_id,
+            run_started_at=_dt("2026-03-01T10:00:00Z"),
+            run_ended_at=_dt("2026-03-01T10:05:00Z"),
+            run_outcome="passed",
+            dut_serial="SN001",
+            station_id="station-1",
+            step_name="test_voltage",
+            step_index=0,
+            measurement_name="voltage",
+            measurement_value=3.3,
+            measurement_outcome="passed",
         ),
-        pq1,
-    )
-    write_steps_sidecar(
-        pq1,
-        run_id=run_001,
-        session_id=session_id,
-        started_at=_dt("2026-03-01T10:00:00Z"),
-        ended_at=_dt("2026-03-01T10:05:00Z"),
-        outcome="passed",
-        dut_serial="SN001",
-        station_id="station-1",
+        extra_cols={"out_waveform": uri},
     )
 
     pq2 = runs_dir / f"{run_002}_SN002.parquet"
-    pq.write_table(
-        pa.table(
-            {
-                "run_id": [run_002],
-                "session_id": [session_id],
-                "run_started_at": [_dt("2026-03-01T11:00:00Z")],
-                "run_ended_at": [_dt("2026-03-01T11:05:00Z")],
-                "run_outcome": ["failed"],
-                "dut_serial": ["SN002"],
-                "station_id": ["station-1"],
-                "step_index": [0],
-                "step_name": ["test_voltage"],
-                "measurement_name": ["voltage"],
-                "value": [2.8],
-                "outcome": ["failed"],
-                "units": ["V"],
-                "limit_low": [3.1],
-                "limit_high": [3.5],
-                "nominal": [3.3],
-                "out_waveform": pa.array([None], type=pa.string()),
-            }
+    _write_unified(
+        pq2,
+        _measurement_row(
+            run_id=run_002,
+            session_id=session_id,
+            run_started_at=_dt("2026-03-01T11:00:00Z"),
+            run_ended_at=_dt("2026-03-01T11:05:00Z"),
+            run_outcome="failed",
+            dut_serial="SN002",
+            station_id="station-1",
+            step_name="test_voltage",
+            step_index=0,
+            measurement_name="voltage",
+            measurement_value=2.8,
+            measurement_outcome="failed",
         ),
-        pq2,
-    )
-    write_steps_sidecar(
-        pq2,
-        run_id=run_002,
-        session_id=session_id,
-        started_at=_dt("2026-03-01T11:00:00Z"),
-        ended_at=_dt("2026-03-01T11:05:00Z"),
-        outcome="failed",
-        dut_serial="SN002",
-        station_id="station-1",
+        extra_cols={"out_waveform": None},
     )
 
     return {
@@ -162,7 +198,7 @@ def test_get_measurements(runs_store: RunStore, fixture_data: dict[str, str]) ->
     measurements = runs_store.get_measurements(fixture_data["run_001"][:8])
     assert len(measurements) == 1
     assert measurements[0]["measurement_name"] == "voltage"
-    assert measurements[0]["value"] == 3.3
+    assert measurements[0]["measurement_value"] == 3.3
 
 
 def test_find_channel_refs(runs_store: RunStore, fixture_data: dict[str, str]) -> None:
@@ -197,32 +233,22 @@ def test_notify_new_run(runs_store: RunStore) -> None:
     run_id = str(uuid4())
     session_id = str(uuid4())
     pq_file = runs_dir / f"{run_id}_SN099.parquet"
-    pq.write_table(
-        pa.table(
-            {
-                "run_id": [run_id],
-                "session_id": [session_id],
-                "run_started_at": [_dt("2026-03-08T12:00:00Z")],
-                "run_ended_at": [_dt("2026-03-08T12:01:00Z")],
-                "run_outcome": ["passed"],
-                "dut_serial": ["SN099"],
-                "station_id": ["station-2"],
-                "measurement_name": ["current"],
-                "value": [1.5],
-                "outcome": ["passed"],
-            }
+    _write_unified(
+        pq_file,
+        _measurement_row(
+            run_id=run_id,
+            session_id=session_id,
+            run_started_at=_dt("2026-03-08T12:00:00Z"),
+            run_ended_at=_dt("2026-03-08T12:01:00Z"),
+            run_outcome="passed",
+            dut_serial="SN099",
+            station_id="station-2",
+            step_name="test_current",
+            step_index=0,
+            measurement_name="current",
+            measurement_value=1.5,
+            measurement_outcome="passed",
         ),
-        pq_file,
-    )
-    write_steps_sidecar(
-        pq_file,
-        run_id=run_id,
-        session_id=session_id,
-        started_at=_dt("2026-03-08T12:00:00Z"),
-        ended_at=_dt("2026-03-08T12:01:00Z"),
-        outcome="passed",
-        dut_serial="SN099",
-        station_id="station-2",
     )
 
     runs_store.notify_new_run(pq_file)

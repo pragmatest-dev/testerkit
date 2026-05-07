@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import sys
 import threading
 import warnings
@@ -149,15 +148,20 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         conn.execute(f"ALTER TABLE runs_persisted ADD COLUMN IF NOT EXISTS {col} {sql_type}")
 
     # ── steps_persisted ─────────────────────────────────────────────
+    # PK is (run_id, step_path, vector_index) so each (step, vector)
+    # execution is its own row. step_index is kept as a sort hint but
+    # is no longer part of PK — sweep variants share step_index.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS steps_persisted (
             run_id VARCHAR NOT NULL,
-            step_index INTEGER NOT NULL,
+            step_path VARCHAR NOT NULL,
+            vector_index BIGINT NOT NULL DEFAULT 0,
+            step_index INTEGER,
             file_path VARCHAR,
             session_id VARCHAR,
             slot_id VARCHAR,
             step_name VARCHAR,
-            step_path VARCHAR,
+            parent_path VARCHAR,
             outcome outcome_kind,
             started_at TIMESTAMPTZ,
             ended_at TIMESTAMPTZ,
@@ -168,7 +172,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             markers VARCHAR,
             dut_serial VARCHAR,
             station_id VARCHAR,
-            PRIMARY KEY (run_id, step_index)
+            PRIMARY KEY (run_id, step_path, vector_index)
         )
     """)
     for col, sql_type in _STEPS_PERSISTED_COLUMNS:
@@ -423,11 +427,6 @@ _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
 # ── Ingest helpers ──────────────────────────────────────────────────
 
 
-def _is_steps_file(filename: str) -> bool:
-    """Return True if *filename* is a steps parquet sidecar."""
-    return filename.endswith("_steps.parquet")
-
-
 def _file_list_sql(paths: list[str]) -> str:
     """Build a DuckDB list literal from file paths."""
     return "[" + ", ".join(f"'{_sql_escape(p)}'" for p in paths) + "]"
@@ -583,21 +582,15 @@ _INDEX_TABLES_BY_FILE_PATH = (
 def _delete_file_rows(conn: duckdb.DuckDBPyConnection, path_str: str) -> None:
     """Delete rows associated with a vanished parquet file from all tables.
 
-    Measurement parquets land in the per-file index tables keyed by
-    ``file_path`` (including ``measurements_persisted``); the matching
-    ``_steps.parquet`` lands in ``runs`` / ``steps`` keyed by
-    ``steps_file_path`` / ``file_path`` respectively.
+    The unified per-run parquet is referenced as ``file_path`` in
+    every persistent index table (runs / steps / measurements /
+    measurement_stats / measurement_io_schema / measurement_refs).
+    One DELETE per table is enough; no separate sidecar to clean up.
     """
-    is_steps = _is_steps_file(Path(path_str).name)
-    if is_steps:
-        # `runs_persisted` rows reference the steps file path under
-        # `steps_file_path`; `steps_persisted` rows reference it as
-        # `file_path`.
-        conn.execute("DELETE FROM runs_persisted WHERE steps_file_path = ?", [path_str])
-        conn.execute("DELETE FROM steps_persisted WHERE file_path = ?", [path_str])
-    else:
-        for table in _INDEX_TABLES_BY_FILE_PATH:
-            conn.execute(f"DELETE FROM {table} WHERE file_path = ?", [path_str])
+    conn.execute("DELETE FROM runs_persisted WHERE file_path = ?", [path_str])
+    conn.execute("DELETE FROM steps_persisted WHERE file_path = ?", [path_str])
+    for table in _INDEX_TABLES_BY_FILE_PATH:
+        conn.execute(f"DELETE FROM {table} WHERE file_path = ?", [path_str])
     conn.execute("DELETE FROM _ingested WHERE path = ?", [path_str])
 
 
@@ -798,140 +791,124 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
     """)
 
 
-def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -> None:
-    """Populate the ``runs`` TABLE from ``_steps.parquet`` files.
+def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]) -> None:
+    """Populate ``runs_persisted`` from the unified per-run parquet files.
 
-    Steps carries every run-level field we need (``run_outcome``,
-    ``run_started_at``, ``run_ended_at``, denormalized run context),
-    plus per-step ``measurement_count`` we sum into ``num_measurements``.
-    Cheaper than scanning the (large) measurements parquet for the
-    same aggregation.
-
-    ``file_path`` is NULL'd out for runs whose derived measurements
-    parquet doesn't exist on disk. That happens for runs that emitted
-    only setup / action steps (or had everything skipped) — the
-    streaming subscriber writes ``_steps.parquet`` unconditionally
-    but only writes the measurements parquet when there are
-    measurement rows. The runs row should still appear (with its
-    step rollup); the UI shouldn't try to load a phantom file.
+    Every parquet conforms to ``RUN_ROW_SCHEMA``. Run-level context is
+    denormalized onto every row, so the GROUP BY just lists those
+    columns — they're constant within a (filename, run_id) group by
+    construction. Aggregates are only the actual rollups
+    (``num_measurements``, ``num_steps``).
     """
-    # Resolve which derived measurements paths actually exist on disk
-    # so the runs row carries an honest ``file_path`` (or NULL).
-    # Explicit string schema — pyarrow infers null-type columns when
-    # every value is None, which DuckDB then can't join cleanly.
-    filenames: list[str] = []
-    meas_paths: list[str | None] = []
-    for sp in steps_paths:
-        derived = re.sub(r"_steps\.parquet$", ".parquet", sp)
-        filenames.append(sp)
-        meas_paths.append(derived if Path(derived).exists() else None)
-    existence_table = pa.table(
-        {"filename": filenames, "measurements_path": meas_paths},
-        schema=pa.schema(
-            [
-                ("filename", pa.string()),
-                ("measurements_path", pa.string()),
-            ]
-        ),
-    )
-    conn.register("_meas_existence", existence_table)
-
-    flist = _file_list_sql(steps_paths)
-    try:
-        # ``INSERT BY NAME`` matches SELECT aliases to destination
-        # column names — a misnamed alias is a SQL error rather than
-        # a silent miscolumned row. ``ON CONFLICT (run_id)`` covers
-        # re-ingest of the same parquet path; in-flight rows live
-        # in the in-memory accumulator pool, not in this table.
-        conn.execute(f"""
-            INSERT INTO runs_persisted BY NAME
-            SELECT
-                s.run_id AS run_id,
-                ANY_VALUE(e.measurements_path) AS file_path,
-                s.filename AS steps_file_path,
-                s.session_id AS session_id,
-                ANY_VALUE(s.slot_id) AS slot_id,
-                ANY_VALUE(s.dut_serial) AS dut_serial,
-                ANY_VALUE(s.dut_part_number) AS dut_part_number,
-                ANY_VALUE(s.dut_lot_number) AS dut_lot_number,
-                ANY_VALUE(s.station_id) AS station_id,
-                ANY_VALUE(s.station_name) AS station_name,
-                ANY_VALUE(s.station_hostname) AS station_hostname,
-                ANY_VALUE(s.fixture_id) AS fixture_id,
-                ANY_VALUE(s.run_outcome) AS outcome,
-                ANY_VALUE(s.run_started_at) AS started_at,
-                ANY_VALUE(s.run_ended_at) AS ended_at,
-                CAST(SUM(s.measurement_count) AS INTEGER) AS num_measurements,
-                CAST(COUNT(*) AS INTEGER) AS num_steps,
-                ANY_VALUE(s.test_phase) AS test_phase,
-                ANY_VALUE(s.product_id) AS product_id,
-                ANY_VALUE(s.operator_id) AS operator_id,
-                ANY_VALUE(s.project_name) AS project_name
-            FROM read_parquet({flist}, filename=true, union_by_name=true) s
-            LEFT JOIN _meas_existence e ON s.filename = e.filename
-            WHERE s.run_id IS NOT NULL
-            GROUP BY s.filename, s.run_id, s.session_id
-            ON CONFLICT (run_id) DO UPDATE SET
-                file_path = excluded.file_path,
-                steps_file_path = excluded.steps_file_path,
-                session_id = excluded.session_id,
-                slot_id = excluded.slot_id,
-                dut_serial = excluded.dut_serial,
-                dut_part_number = excluded.dut_part_number,
-                dut_lot_number = excluded.dut_lot_number,
-                station_id = excluded.station_id,
-                station_name = excluded.station_name,
-                station_hostname = excluded.station_hostname,
-                fixture_id = excluded.fixture_id,
-                outcome = excluded.outcome,
-                started_at = excluded.started_at,
-                ended_at = excluded.ended_at,
-                num_measurements = excluded.num_measurements,
-                num_steps = excluded.num_steps,
-                test_phase = excluded.test_phase,
-                product_id = excluded.product_id,
-                operator_id = excluded.operator_id,
-                project_name = excluded.project_name
-        """)
-    finally:
-        conn.unregister("_meas_existence")
+    flist = _file_list_sql(parquet_paths)
+    conn.execute(f"""
+        INSERT INTO runs_persisted BY NAME
+        SELECT
+            run_id,
+            filename AS file_path,
+            NULL::VARCHAR AS steps_file_path,
+            session_id,
+            slot_id,
+            dut_serial, dut_part_number, dut_lot_number,
+            station_id, station_name, station_hostname,
+            fixture_id,
+            run_outcome AS outcome,
+            run_started_at AS started_at,
+            run_ended_at AS ended_at,
+            CAST(SUM(CASE WHEN measurement_name IS NOT NULL THEN 1 ELSE 0 END) AS INTEGER)
+                AS num_measurements,
+            CAST(COUNT(DISTINCT (
+                step_path || '|' || CAST(vector_index AS VARCHAR)
+            )) AS INTEGER) AS num_steps,
+            test_phase, product_id, operator_id, project_name
+        FROM read_parquet({flist}, filename=true, union_by_name=true)
+        WHERE run_id IS NOT NULL
+        GROUP BY
+            filename, run_id, session_id, slot_id,
+            dut_serial, dut_part_number, dut_lot_number,
+            station_id, station_name, station_hostname,
+            fixture_id,
+            run_outcome, run_started_at, run_ended_at,
+            test_phase, product_id, operator_id, project_name
+        ON CONFLICT (run_id) DO UPDATE SET
+            file_path = excluded.file_path,
+            steps_file_path = excluded.steps_file_path,
+            session_id = excluded.session_id,
+            slot_id = excluded.slot_id,
+            dut_serial = excluded.dut_serial,
+            dut_part_number = excluded.dut_part_number,
+            dut_lot_number = excluded.dut_lot_number,
+            station_id = excluded.station_id,
+            station_name = excluded.station_name,
+            station_hostname = excluded.station_hostname,
+            fixture_id = excluded.fixture_id,
+            outcome = excluded.outcome,
+            started_at = excluded.started_at,
+            ended_at = excluded.ended_at,
+            num_measurements = excluded.num_measurements,
+            num_steps = excluded.num_steps,
+            test_phase = excluded.test_phase,
+            product_id = excluded.product_id,
+            operator_id = excluded.operator_id,
+            project_name = excluded.project_name
+    """)
 
 
-def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, steps_paths: list[str]) -> None:
-    """Populate the ``steps_persisted`` TABLE from ``_steps.parquet`` files.
+def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]) -> None:
+    """Populate ``steps_persisted`` from the unified per-run parquets.
 
-    The ``ON CONFLICT`` is for re-ingest of the same parquet path
-    (e.g. on schema rebuild); in-flight rows live in the in-memory
-    accumulator pool, not in this table.
+    GROUP BY ``(run_id, step_path, vector_index)`` plus all the
+    step-level columns that are denormalized onto every row of a
+    given step (step_name, step_outcome, step_started_at, step_ended_at,
+    parent_path, step_vector_count, step_markers, …). Aggregates are
+    only the actual rollups (``measurement_count``, ``has_measurements``,
+    ``duration_s``).
     """
-    flist = _file_list_sql(steps_paths)
+    flist = _file_list_sql(parquet_paths)
     conn.execute(f"""
         INSERT INTO steps_persisted BY NAME
         SELECT
-            run_id AS run_id,
-            "index" AS step_index,
+            run_id,
+            step_path,
+            vector_index,
+            step_index,
             filename AS file_path,
-            session_id AS session_id,
-            slot_id AS slot_id,
-            name AS step_name,
-            step_path AS step_path,
-            outcome AS outcome,
-            started_at AS started_at,
-            ended_at AS ended_at,
-            duration_s AS duration_s,
-            has_measurements AS has_measurements,
-            measurement_count AS measurement_count,
-            vector_count AS vector_count,
-            markers AS markers,
-            dut_serial AS dut_serial,
-            station_id AS station_id
+            session_id,
+            slot_id,
+            step_name,
+            parent_path,
+            step_outcome AS outcome,
+            step_started_at AS started_at,
+            step_ended_at AS ended_at,
+            CASE
+                WHEN step_ended_at IS NOT NULL AND step_started_at IS NOT NULL
+                THEN EPOCH(step_ended_at) - EPOCH(step_started_at)
+                ELSE NULL
+            END AS duration_s,
+            CAST(SUM(CASE WHEN measurement_name IS NOT NULL THEN 1 ELSE 0 END) AS INTEGER)
+                AS measurement_count,
+            (SUM(CASE WHEN measurement_name IS NOT NULL THEN 1 ELSE 0 END) > 0)
+                AS has_measurements,
+            CAST(step_vector_count AS INTEGER) AS vector_count,
+            step_markers AS markers,
+            dut_serial,
+            station_id
         FROM read_parquet({flist}, filename=true, union_by_name=true)
-        ON CONFLICT (run_id, step_index) DO UPDATE SET
+        WHERE run_id IS NOT NULL
+        GROUP BY
+            filename, run_id,
+            step_path, vector_index, step_index,
+            session_id, slot_id, step_name, parent_path,
+            step_outcome, step_started_at, step_ended_at,
+            step_vector_count, step_markers,
+            dut_serial, station_id
+        ON CONFLICT (run_id, step_path, vector_index) DO UPDATE SET
+            step_index = excluded.step_index,
             file_path = excluded.file_path,
             session_id = excluded.session_id,
             slot_id = excluded.slot_id,
             step_name = excluded.step_name,
-            step_path = excluded.step_path,
+            parent_path = excluded.parent_path,
             outcome = excluded.outcome,
             started_at = excluded.started_at,
             ended_at = excluded.ended_at,
@@ -999,21 +976,24 @@ def _ingest_parquet_files(
 
     # Per-file ingest — release the lock between files so Flight
     # queries can interleave (~30ms slots per file).
-    # Collect newly-indexed measurement files for the batch insert below.
-    # Steps/runs are already inserted per-file via _index_steps_file (fast,
-    # ~30ms each); measurement rows are batched to keep lock holds short.
-    new_meas_files: list[str] = []
+    # _ingest_one_file populates runs / steps / measurement_stats /
+    # measurement_io_schema / measurement_refs from the unified
+    # parquet; raw measurement rows go into measurements_persisted
+    # via the batch insert below to keep per-file lock holds short.
+    new_files: list[str] = []
     for path_str, _, _, stat in needs_ingest:
         with lock:
             _ingest_one_file(conn, Path(path_str), stat)
-        if not _is_steps_file(Path(path_str).name):
-            new_meas_files.append(path_str)
+        new_files.append(path_str)
 
-    # Batch insert measurement rows — one lock hold per 100 files instead of
-    # N × (read parquet + insert) per file. Empty in steady state → no-op.
+    # Batch insert raw measurement rows — one lock hold per 100 files
+    # instead of N × (read parquet + insert) per file. Empty in steady
+    # state → no-op. Each file's WHERE measurement_name IS NOT NULL
+    # filter inside _bulk_insert_measurement_rows skips step-summary
+    # rows (which have measurement_name NULL).
     _MEAS_BATCH = 100
-    for i in range(0, len(new_meas_files), _MEAS_BATCH):
-        batch = new_meas_files[i : i + _MEAS_BATCH]
+    for i in range(0, len(new_files), _MEAS_BATCH):
+        batch = new_files[i : i + _MEAS_BATCH]
         try:
             with lock:
                 _batch_insert_measurement_rows(conn, batch)
@@ -1068,58 +1048,38 @@ def _ingest_one_file(
     if already:
         return
 
-    if _is_steps_file(fpath.name):
-        error = _index_steps_file(conn, path_str)
-    else:
-        error = _index_parquet_file(conn, path_str)
+    error = _index_unified_parquet(conn, path_str)
     _mark_ingested(conn, path_str, stat, "ok" if error is None else "quarantined", error)
 
 
-_LEGACY_OUTCOME_HINT = (
-    "Outcome value is not in the canonical Outcome enum "
-    "(passed/failed/skipped/errored/terminated/aborted/done). "
-    "This parquet was written by an older Litmus version. "
-    "Either delete the file or re-run the test."
-)
-
-
 def _quarantine_message(fkey: str, exc: Exception) -> str:
-    """Format a single human-readable quarantine reason for the daemon log.
+    """One-line quarantine reason; an operator can grep ``_daemon.log``
+    for ``Quarantined parquet`` and immediately see which file failed
+    and why."""
+    return f"Quarantined parquet {fkey}: {type(exc).__name__}: {exc}"
 
-    Pulls the error class + message into one line so an operator can grep
-    `_daemon.log` for ``Quarantined parquet`` and immediately see which
-    file failed and why. Calls out legacy-outcome hints specifically since
-    that's the most-common cause across the upgrade boundary.
+
+def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
+    """Index one unified per-run parquet into runs / steps / measurements tables.
+
+    Runs through every persistent index in one pass:
+      * ``runs_persisted`` — one row per ``run_id``, aggregated.
+      * ``steps_persisted`` — one row per ``(run_id, step_path,
+        vector_index)``, aggregated; sweep variants get distinct rows.
+      * ``measurement_stats`` — per-(file, step, name) rollup over
+        rows where ``measurement_name IS NOT NULL``.
+      * ``measurements_persisted`` — raw measurement rows packed
+        with dynamic in_*/out_*/custom_* columns into a MAP.
+      * ``measurement_io_schema`` / ``measurement_refs`` — IO schema
+        cache + ref-path index for the measurement rows in this file.
+
+    Returns ``None`` on success or an error string when the file
+    can't be parsed (the caller marks it quarantined; the operator
+    sees the warning and decides what to do).
     """
-    msg = str(exc)
-    body = f"Quarantined parquet {fkey}: {type(exc).__name__}: {msg}"
-    if "Could not convert string" in msg and "outcome" in msg.lower():
-        body += f"\n  → {_LEGACY_OUTCOME_HINT}"
-    return body
-
-
-def _index_steps_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
-    """Index a single ``_steps.parquet`` into the ``runs`` and ``steps`` tables."""
     try:
         _bulk_insert_runs(conn, [fkey])
         _bulk_insert_steps(conn, [fkey])
-        return None
-    except duckdb.IOException as exc:
-        logger.debug("Steps file gone during ingest (will retry next run): %s — %s", fkey, exc)
-        return f"file unavailable: {exc}"
-    except Exception as exc:  # noqa: BLE001 — per-file ingest tolerance: warn + skip
-        warnings.warn(_quarantine_message(fkey, exc), stacklevel=2)
-        return str(exc)
-
-
-def _index_parquet_file(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None:
-    """Index a single measurement parquet file into all index tables.
-
-    Delegates to the bulk insert functions with a single-element list so
-    column lists are defined in exactly one place.
-    Returns None on success or an error string.
-    """
-    try:
         _bulk_insert_measurements(conn, [fkey])
         io_error = _index_io_and_refs(conn, fkey)
         if io_error:
@@ -1210,10 +1170,14 @@ def _create_views(conn: duckdb.DuckDBPyConnection, _runs_dir: Path) -> None:
     conn.execute("""
         CREATE OR REPLACE VIEW steps AS
         SELECT * FROM steps_persisted
-        UNION ALL
+        UNION ALL BY NAME
         SELECT
-            run_id, step_index, file_path, session_id, slot_id,
-            step_name, step_path,
+            run_id,
+            COALESCE(step_path, '') AS step_path,
+            CAST(0 AS BIGINT) AS vector_index,
+            step_index, file_path, session_id, slot_id,
+            step_name,
+            CAST(NULL AS VARCHAR) AS parent_path,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
             duration_s, has_measurements, measurement_count, vector_count,
@@ -1329,11 +1293,10 @@ def daemon_run(runs_dir: Path) -> None:
             except OSError:
                 continue
             _ingest_one_file(conn, Path(fpath), stat)
-            if not _is_steps_file(Path(fpath).name):
-                try:
-                    _bulk_insert_measurement_rows(conn, fpath)
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("measurement row insert failed for %s: %s", fpath, exc)
+            try:
+                _bulk_insert_measurement_rows(conn, fpath)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("measurement row insert failed for %s: %s", fpath, exc)
         _create_views(conn, runs_dir)
 
     server, port_file, *_ = start_flight_server_in_daemon(

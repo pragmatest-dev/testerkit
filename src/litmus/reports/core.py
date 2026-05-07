@@ -161,7 +161,7 @@ def load_run_data(run_id: str, results_dir: str = "results") -> ReportData:
 def _load_extras_from_parquet(run_id: str, results_dir: str) -> dict[str, str]:
     """Sniff report-only fields from the first measurement row.
 
-    The runs table doesn't denormalize every column STEP_SCHEMA carries
+    The runs table doesn't denormalize every column the unified row schema carries
     (``dut_revision``, ``product_name``, ``git_commit``, …). Query the
     daemon's ``measurements`` view (parquet glob with ``union_by_name``)
     for one row matching this run; predicate pushdown on ``run_id``

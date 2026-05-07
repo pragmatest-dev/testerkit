@@ -330,11 +330,8 @@ class RunStore:
         return file_path.parent / (file_path.stem + "_ref")
 
     def notify_new_run(self, parquet_path: Path) -> None:
-        """Notify the daemon of a new parquet file (and sibling steps file) via do_put."""
+        """Notify the daemon of a new unified per-run parquet via do_put."""
         paths = [str(parquet_path)]
-        steps_path = parquet_path.with_name(parquet_path.stem + "_steps.parquet")
-        if steps_path.exists():
-            paths.append(str(steps_path))
         try:
             client = self._flight.get_client()
             descriptor = flight.FlightDescriptor.for_command(b"runs\0runs")

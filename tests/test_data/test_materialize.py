@@ -26,6 +26,7 @@ from litmus.data.materialize import materialize_channel_refs
 from litmus.data.ref import make_channel_uri
 from litmus.data.results_dir import resolve_results_dir
 from litmus.data.run_store import RunStore
+from litmus.data.schemas import RUN_ROW_SCHEMA
 
 # Resolved via repo's ``litmus.yaml`` → project-local store.
 _CANONICAL_RESULTS = resolve_results_dir()
@@ -80,21 +81,35 @@ def results_tree() -> Generator[_ResultsTree, None, None]:
     def _dt(iso: str) -> datetime:
         return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
-    pq_table = pa.table(
+    populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
+    populated.update(
         {
-            "run_id": [f"run-{suffix}"],
-            "session_id": [session_id],
-            "run_started_at": [_dt("2026-03-01T10:00:00Z")],
-            "run_ended_at": [_dt("2026-03-01T10:05:00Z")],
-            "run_outcome": ["passed"],
-            "dut_serial": ["SN001"],
-            "station_id": ["station-1"],
-            "step_index": [0],
-            "measurement_name": ["voltage"],
-            "out_waveform": [uri],
+            "run_id": f"run-{suffix}",
+            "session_id": session_id,
+            "run_started_at": _dt("2026-03-01T10:00:00Z"),
+            "run_ended_at": _dt("2026-03-01T10:05:00Z"),
+            "run_outcome": "passed",
+            "dut_serial": "SN001",
+            "station_id": "station-1",
+            "step_index": 0,
+            "step_name": "test_voltage",
+            "step_path": "test_voltage",
+            "parent_path": "",
+            "step_started_at": _dt("2026-03-01T10:00:00Z"),
+            "step_ended_at": _dt("2026-03-01T10:05:00Z"),
+            "step_outcome": "passed",
+            "step_vector_count": 1,
+            "vector_index": 0,
+            "vector_attempt": 0,
+            "measurement_name": "voltage",
+            "measurement_value": 3.3,
+            "measurement_outcome": "passed",
         }
     )
-    pq.write_table(pq_table, tree.parquet)
+    cols = {f.name: [populated[f.name]] for f in RUN_ROW_SCHEMA}
+    cols["out_waveform"] = [uri]
+    schema = pa.schema(list(RUN_ROW_SCHEMA) + [pa.field("out_waveform", pa.string())])
+    pq.write_table(pa.table(cols, schema=schema), tree.parquet)
 
     # Index the test parquet into the canonical runs daemon so
     # ``materialize_channel_refs`` (which queries the index) can

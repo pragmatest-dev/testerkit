@@ -15,7 +15,6 @@ from collections.abc import Generator
 from pathlib import Path
 from uuid import uuid4
 
-import pyarrow as pa
 import pytest
 
 from litmus.data.channels.store import ChannelStore
@@ -204,34 +203,3 @@ class TestChannelStorePerf:
 
         benchmark(write_arrays)
         store.close()
-
-
-# ---------------------------------------------------------------------------
-# Parquet _enforce_schema benchmark
-# ---------------------------------------------------------------------------
-
-
-class TestEnforceSchemaPerf:
-    """Benchmark Arrow-native type coercion."""
-
-    @pytest.mark.benchmark(group="parquet-schema")
-    @pytest.mark.parametrize("n_rows", [100, 1_000, 10_000])
-    def test_enforce_schema(self, benchmark, n_rows: int):
-        from litmus.data.schemas import _enforce_schema
-
-        # Build a table with string timestamps (the hard coercion case)
-        data = {
-            "run_id": [f"run-{i}" for i in range(n_rows)],
-            "run_started_at": ["2026-03-08T12:00:00+00:00"] * n_rows,
-            "run_ended_at": ["2026-03-08T12:01:00+00:00"] * n_rows,
-            "step_name": [f"step_{i % 5}" for i in range(n_rows)],
-            "step_index": list(range(n_rows)),
-            "measurement_name": [f"meas_{i}" for i in range(n_rows)],
-            "value": [3.3 + i * 0.001 for i in range(n_rows)],
-            "dut_serial": ["SN001"] * n_rows,
-            "station_id": ["station-1"] * n_rows,
-        }
-        table = pa.table(data)
-
-        result = benchmark(_enforce_schema, table)
-        assert len(result) == n_rows

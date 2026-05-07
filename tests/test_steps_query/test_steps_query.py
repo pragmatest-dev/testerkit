@@ -18,7 +18,7 @@ import pytest
 from litmus.analysis.steps_query import StepNode, StepRow, StepsQuery
 from litmus.data.results_dir import resolve_results_dir
 from litmus.data.run_store import RunStore
-from litmus.data.schemas import STEP_SCHEMA
+from litmus.data.schemas import RUN_ROW_SCHEMA
 
 
 def _step(
@@ -35,21 +35,23 @@ def _step(
     station_id: str = "STA-01",
     slot_id: str | None = None,
 ) -> dict:
-    """Build one step row in STEP_SCHEMA shape."""
+    """Build one step-summary row in unified RUN_ROW_SCHEMA shape."""
     ended = started.replace(microsecond=0)
-    populated: dict = {f.name: None for f in STEP_SCHEMA}
+    populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
-            "index": step_index,
-            "name": step_name,
+            "step_index": step_index,
+            "step_name": step_name,
             "step_path": step_path or step_name,
-            "outcome": outcome,
-            "started_at": started,
-            "ended_at": ended,
-            "duration_s": 0.0,
-            "has_measurements": measurement_count > 0,
-            "measurement_count": measurement_count,
-            "vector_count": 1,
+            "parent_path": "",
+            "step_started_at": started,
+            "step_ended_at": ended,
+            "step_outcome": outcome,
+            "step_vector_count": 1,
+            "vector_index": 0,
+            # measurement_name None → step-summary row (no measurement);
+            # measurement_count is computed from row count downstream.
+            "measurement_name": None,
             "run_id": run_id,
             "session_id": session_id,
             "slot_id": slot_id,
@@ -64,11 +66,11 @@ def _step(
 
 
 def _write_steps_file(runs_dir: Path, run_id: str, rows: list[dict]) -> Path:
-    """Write a ``_steps.parquet`` and notify the canonical daemon to ingest it."""
+    """Write the unified per-run parquet and return its path."""
     runs_dir.mkdir(parents=True, exist_ok=True)
-    cols = {f.name: [r[f.name] for r in rows] for f in STEP_SCHEMA}
-    path = runs_dir / f"{run_id}_steps.parquet"
-    pq.write_table(pa.table(cols, schema=STEP_SCHEMA), path)
+    cols = {f.name: [r[f.name] for r in rows] for f in RUN_ROW_SCHEMA}
+    path = runs_dir / f"{run_id}.parquet"
+    pq.write_table(pa.table(cols, schema=RUN_ROW_SCHEMA), path)
     return path
 
 

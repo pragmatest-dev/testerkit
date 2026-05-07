@@ -6,26 +6,19 @@ and helpers for constructing validated Arrow tables. Any backend
 schema.
 """
 
-import logging
 from datetime import datetime
 from typing import Any
 
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from litmus.data.backends._row_helpers import INSTRUMENT_ARRAY_KEYS
 
-logger = logging.getLogger(__name__)
-
 __all__ = [
-    "MEASUREMENT_SCHEMA",
     "RUN_ROW_SCHEMA",
     "SCHEMA_VERSION",
-    "STEP_SCHEMA",
     "_INSTR_ARRAY_TYPES",
     "_SCHEMA_DICT",
     "_build_write_schema",
-    "_enforce_schema",
     "table_from_rows",
 ]
 
@@ -131,80 +124,6 @@ RUN_ROW_SCHEMA = pa.schema(
     ]
 )
 
-# Backward-compatible alias. New code should reference RUN_ROW_SCHEMA;
-# MEASUREMENT_SCHEMA stays exported during the transition because legacy
-# helpers (notably ``_enforce_schema`` for read-back) reference it.
-MEASUREMENT_SCHEMA = RUN_ROW_SCHEMA
-
-
-# Deprecated. Step-summary rows now live in the unified per-run parquet
-# under RUN_ROW_SCHEMA (rows where ``measurement_name IS NULL``). This
-# definition is retained only for legacy test fixtures during the
-# transition; production writers no longer emit ``_steps.parquet``
-# sidecars and the runs daemon's ingest path treats every parquet as
-# unified.
-STEP_SCHEMA = pa.schema(
-    [
-        # Step identity
-        ("index", pa.int32()),
-        ("name", pa.string()),
-        ("node_id", pa.string()),
-        ("file", pa.string()),
-        ("function", pa.string()),
-        ("class_name", pa.string()),
-        ("module", pa.string()),
-        ("step_path", pa.string()),
-        ("description", pa.string()),
-        ("markers", pa.string()),
-        # Execution
-        ("outcome", pa.string()),
-        ("started_at", pa.timestamp("us", tz="UTC")),
-        ("ended_at", pa.timestamp("us", tz="UTC")),
-        ("duration_s", pa.float64()),
-        # Counts
-        ("has_measurements", pa.bool_()),
-        ("measurement_count", pa.int32()),
-        ("vector_count", pa.int32()),
-        # Run context (denormalized — matches measurement schema)
-        ("run_id", pa.string()),
-        ("session_id", pa.string()),
-        ("slot_id", pa.string()),
-        ("run_started_at", pa.timestamp("us", tz="UTC")),
-        ("run_ended_at", pa.timestamp("us", tz="UTC")),
-        ("run_outcome", pa.string()),
-        # Who
-        ("operator_id", pa.string()),
-        ("operator_name", pa.string()),
-        # DUT
-        ("dut_serial", pa.string()),
-        ("dut_part_number", pa.string()),
-        ("dut_revision", pa.string()),
-        ("dut_lot_number", pa.string()),
-        # Product
-        ("product_id", pa.string()),
-        ("product_name", pa.string()),
-        ("product_revision", pa.string()),
-        # Station
-        ("station_id", pa.string()),
-        ("station_name", pa.string()),
-        ("station_type", pa.string()),
-        ("station_location", pa.string()),
-        ("station_hostname", pa.string()),
-        # Fixture
-        ("fixture_id", pa.string()),
-        # Test context
-        ("test_phase", pa.string()),
-        ("project_name", pa.string()),
-        ("git_commit", pa.string()),
-        ("git_branch", pa.string()),
-        ("git_remote", pa.string()),
-        # Environment (matches measurement schema)
-        ("python_version", pa.string()),
-        ("litmus_version", pa.string()),
-        ("env_fingerprint", pa.string()),
-    ]
-)
-
 _SCHEMA_DICT = {f.name: f.type for f in RUN_ROW_SCHEMA}
 
 # Instrument array columns have known list types
@@ -295,82 +214,3 @@ def table_from_rows(rows: list[dict[str, Any]], schema: pa.Schema) -> pa.Table:
             f"across all measurements.\n"
             f"Original error: {exc}"
         ) from exc
-
-
-def _enforce_schema(table: pa.Table) -> pa.Table:
-    """Normalize column types to match RUN_ROW_SCHEMA.
-
-    Read-path shim for files written before explicit schemas were enforced
-    on write. New writes use ``_build_write_schema()`` to set types at
-    construction time.
-
-    For each column in the table that appears in the canonical schema:
-    - If the type already matches, no-op.
-    - If the column is null-typed, cast to the target type.
-    - If the column is an extension type (uuid, json) or string where timestamp
-      expected, rebuild via to_pylist() round-trip.
-
-    Dynamic columns not in the schema pass through unchanged.
-    """
-    columns = []
-    names = []
-
-    for i, field in enumerate(table.schema):
-        col = table.column(i)
-        target_type = _SCHEMA_DICT.get(field.name)
-
-        if target_type is None or field.type == target_type:
-            # Dynamic column or already correct
-            columns.append(col)
-            names.append(field.name)
-            continue
-
-        if pa.types.is_null(field.type):
-            # All nulls — cast to target
-            columns.append(col.cast(target_type))
-            names.append(field.name)
-            continue
-
-        # Try Arrow-native cast first (handles most numeric/string conversions)
-        try:
-            if pa.types.is_timestamp(target_type) and pa.types.is_string(field.type):
-                # String → timestamp: use strptime then cast to target tz
-                parsed = pc.strptime(col, format="%Y-%m-%dT%H:%M:%S%z", unit="us")  # type: ignore[attr-defined]
-                columns.append(parsed.cast(target_type))
-            else:
-                columns.append(col.cast(target_type, safe=False))
-            names.append(field.name)
-            continue
-        except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
-            pass
-
-        # Fallback for extension types: pylist round-trip
-        values = col.to_pylist()
-
-        if pa.types.is_timestamp(target_type):
-            parsed_ts = []
-            for v in values:
-                if isinstance(v, str):
-                    parsed_ts.append(datetime.fromisoformat(v.replace("Z", "+00:00")))
-                else:
-                    parsed_ts.append(v)
-            columns.append(pa.array(parsed_ts, type=target_type))
-        elif target_type == pa.string():
-            columns.append(
-                pa.array(
-                    [str(v) if v is not None else None for v in values],
-                    type=target_type,
-                )
-            )
-        else:
-            logger.warning(
-                "Cannot enforce schema for %s: %s → %s, keeping original",
-                field.name,
-                field.type,
-                target_type,
-            )
-            columns.append(col)
-
-        names.append(field.name)
-
-    return pa.table(columns, names=names)

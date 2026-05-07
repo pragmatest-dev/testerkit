@@ -8,14 +8,14 @@ from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
 from litmus.data.schemas import (
     _INSTR_ARRAY_TYPES,
-    MEASUREMENT_SCHEMA,
+    RUN_ROW_SCHEMA,
     _build_write_schema,
     table_from_rows,
 )
 
 
 class TestBuildWriteSchemaFixed:
-    """Fixed canonical columns get types from MEASUREMENT_SCHEMA."""
+    """Fixed canonical columns get types from RUN_ROW_SCHEMA."""
 
     def test_canonical_columns_match_schema(self):
         row = {
@@ -28,8 +28,8 @@ class TestBuildWriteSchemaFixed:
         }
         schema = _build_write_schema([row])
         for field in schema:
-            if field.name in {f.name for f in MEASUREMENT_SCHEMA}:
-                expected = MEASUREMENT_SCHEMA.field(field.name).type
+            if field.name in {f.name for f in RUN_ROW_SCHEMA}:
+                expected = RUN_ROW_SCHEMA.field(field.name).type
                 assert field.type == expected, (
                     f"{field.name}: got {field.type}, expected {expected}"
                 )

@@ -151,7 +151,7 @@ class MeasurementRow(BaseModel):
     step_function: str | None = None
     step_markers: str | None = None
     step_vector_count: int | None = None
-    vector_index: int | None = None
+    vector_index: int = 0
     vector_attempt: int | None = None
     vector_started_at: datetime | None = None
     vector_ended_at: datetime | None = None
@@ -605,7 +605,11 @@ def iter_rows(test_run: TestRun) -> Iterator[MeasurementRow]:
                     step_index,
                     vector,
                     step.instrument_arrays or {},
-                    step_path=step.step_path,
+                    # step_path falls back to step.name so the daemon's
+                    # GROUP BY (step_path, vector_index) gives each
+                    # logical step its own row even when the producer
+                    # didn't set an explicit path.
+                    step_path=step.step_path or step.name,
                     step_started_at=step.started_at,
                     step_ended_at=step.ended_at,
                     step_node_id=step.node_id,
@@ -643,7 +647,7 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
                 function=step.function,
                 class_name=step.class_name,
                 module=step.module,
-                step_path=step.step_path,
+                step_path=step.step_path or step.name,
                 description=step.description,
                 markers=step.markers,
                 outcome=step.outcome.value if step.outcome else None,

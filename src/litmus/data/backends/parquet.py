@@ -81,7 +81,6 @@ from litmus.data.results_dir import resolve_results_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import (
     SCHEMA_VERSION,
-    STEP_SCHEMA,
     _build_write_schema,
     table_from_rows,
 )
@@ -244,8 +243,18 @@ class ParquetBackend:
         # Build measurement rows (may create _ref/ directory for large data)
         rows = self._build_measurement_rows(test_run, parquet_path, instrument_arrays)
 
+        # Append step-summary rows for any (step, vector) that had no
+        # measurements — containers, action steps, measurement-free
+        # vectors, and planned-but-unrun vectors all live in the same
+        # parquet under the unified RUN_ROW_SCHEMA (rows where
+        # ``measurement_name IS NULL``).
+        self._append_step_summary_rows(test_run, rows)
+
         if not rows:
-            # No measurements - create empty file with minimal schema
+            # No measurements AND no steps — write a placeholder so the
+            # parquet still exists and the runs daemon can record the
+            # run. Should be rare; tests for such runs typically still
+            # have at least one step.
             rows = [self._build_empty_row(test_run, instrument_arrays)]
 
         # Convert to RecordBatch with explicit schema
@@ -253,65 +262,76 @@ class ParquetBackend:
         table = table_from_rows(rows, schema)
         batch = table.combine_chunks().to_batches()[0]
 
-        # Steps sidecar first so the daemon's ``_on_put`` glob (fired
-        # by ``write_batch`` below) sees both files when it refreshes
-        # the views — the ``runs`` view is sourced from steps and
-        # doesn't appear until ``_steps.parquet`` is on disk.
-        self._save_steps_parquet(test_run, parquet_path)
-
-        # Then the measurements parquet, which triggers daemon notify.
+        # Single unified parquet — write triggers daemon notify.
         metadata = self._build_file_metadata(test_run)
         self._writer.write_batch(batch, parquet_path, file_metadata=metadata)
 
         return parquet_path
 
-    def _save_steps_parquet(self, test_run: TestRun, parquet_path: Path) -> None:
-        """Write the ``{stem}_steps.parquet`` sidecar from a ``TestRun``.
+    def _append_step_summary_rows(self, test_run: TestRun, rows: list[dict[str, Any]]) -> None:
+        """Append ``measurement_name IS NULL`` rows for measurement-free steps.
 
-        Mirrors what :meth:`ParquetSubscriber._write_steps_parquet`
-        produces from the streaming path, so both writers (batch and
-        streaming) leave the same on-disk shape.
+        Used by the batch writer (``save_test_run``) to round out the
+        unified per-run parquet. Each step / vector that produced no
+        measurement gets one step-summary row keyed by
+        ``(step_path, vector_index)``. Planned-but-unrun vectors from
+        the manifest are NOT injected here — that path is the
+        streaming subscriber's responsibility.
         """
         if not test_run.steps:
             return
 
+        # Set of (step_path, vector_index) tuples already represented by
+        # measurement rows — skip those, the measurements carry the
+        # context.
+        with_measurements: set[tuple[str, int]] = set()
+        for row in rows:
+            sp = row.get("step_path") or ""
+            vi = row.get("vector_index") or 0
+            with_measurements.add((sp, vi))
+
         run_context = build_run_metadata(test_run)
         run_context["run_outcome"] = test_run.outcome.value if test_run.outcome else None
-        rows: list[dict[str, Any]] = []
+        run_context["run_ended_at"] = test_run.ended_at
+
         for idx, step in enumerate(test_run.steps):
-            started_at = step.started_at or test_run.started_at
-            ended_at = step.ended_at or test_run.ended_at or test_run.started_at
-            duration_s = (
-                (ended_at - started_at).total_seconds() if started_at and ended_at else None
-            )
-            measurement_count = (
-                sum(len(v.measurements) for v in step.vectors) if step.vectors else 0
-            )
-            rows.append(
-                {
-                    "index": idx,
-                    "name": step.name,
-                    "node_id": None,
-                    "file": None,
-                    "function": None,
-                    "class_name": None,
-                    "module": None,
-                    "step_path": step.step_path or step.name,
-                    "description": None,
-                    "markers": None,
-                    "outcome": step.outcome.value if step.outcome else None,
-                    "started_at": started_at,
-                    "ended_at": ended_at,
-                    "duration_s": duration_s,
-                    "has_measurements": measurement_count > 0,
-                    "measurement_count": measurement_count,
-                    "vector_count": len(step.vectors) if step.vectors else 0,
-                    **run_context,
-                }
-            )
-        table = pa.Table.from_pylist(rows, schema=STEP_SCHEMA)
-        steps_path = parquet_path.with_name(parquet_path.stem + "_steps.parquet")
-        atomic_write_table(table, steps_path)
+            # step_path must match the measurement-row computation in
+            # ``_build_measurement_rows`` so the dedup set can resolve
+            # the same (step_path, vector_index) pair across both row
+            # kinds. Both fall back to step.name when step.step_path
+            # isn't explicitly set so each logical step gets a distinct
+            # GROUP BY key in the daemon.
+            step_path = step.step_path or step.name or ""
+            vectors = step.vectors or [None]  # treat non-swept as one "vector 0"
+            for vec_offset, vec in enumerate(vectors):
+                vec_idx = vec.index if vec is not None and vec.index is not None else vec_offset
+                if (step_path, vec_idx) in with_measurements:
+                    continue
+                started_at = step.started_at or test_run.started_at
+                ended_at = step.ended_at or test_run.ended_at or test_run.started_at
+                rows.append(
+                    {
+                        **run_context,
+                        "step_name": step.name,
+                        "step_index": idx,
+                        "step_path": step_path,
+                        "parent_path": step.parent_path or "",
+                        "step_started_at": started_at,
+                        "step_ended_at": ended_at,
+                        "step_node_id": None,
+                        "step_module": None,
+                        "step_file": None,
+                        "step_class": None,
+                        "step_function": None,
+                        "step_markers": step.markers,
+                        "step_outcome": step.outcome.value if step.outcome else None,
+                        "step_vector_count": len(step.vectors) if step.vectors else 1,
+                        "vector_index": vec_idx,
+                        "vector_attempt": None,
+                        # measurement_name=None marks this as a step-summary row
+                        "measurement_name": None,
+                    }
+                )
 
     @contextmanager
     def _run_store_ctx(self) -> Generator[RunStore, None, None]:
@@ -378,9 +398,16 @@ class ParquetBackend:
                         vector,
                         step_arrays,
                         ref_saver=ref_saver,
-                        step_path=step.step_path,
-                        step_started_at=step.started_at,
-                        step_ended_at=step.ended_at,
+                        # Fall back step_path → step.name so the daemon's
+                        # GROUP BY (step_path, vector_index) gives each
+                        # logical step its own row. Same fallback for
+                        # step_started_at / step_ended_at — the daemon
+                        # filters on ``ended_at IS NOT NULL`` by default,
+                        # and a step row with no timing information is
+                        # invisible to operator queries.
+                        step_path=step.step_path or step.name,
+                        step_started_at=step.started_at or test_run.started_at,
+                        step_ended_at=step.ended_at or test_run.ended_at or test_run.started_at,
                         step_node_id=step.node_id,
                         step_module=step.module,
                         step_file=step.file,
@@ -663,18 +690,14 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
             self._write()
 
     def _write(self, outcome: str | None = None) -> None:
-        """Write accumulated rows to Parquet.
+        """Write the unified per-run parquet.
 
-        Orchestration only: build → write measurements + steps →
-        notify. Splits into ``_build_final_rows`` and ``_write_results``
-        so the early-exit paths and the actual I/O are separate.
+        Orchestration only: build unified rows → write once → notify.
         ``_written`` flips only after a successful write so callbacks
         aren't shadowed by half-finished state.
 
-        Either the measurements rows or the step events being non-empty
-        is enough to trigger a write — a run that only ran action /
-        setup steps without recording measurements still produces a
-        ``_steps.parquet`` so the run is visible in the index.
+        Empty runs (no measurements AND no executed steps) skip the
+        write — there's nothing to record.
 
         Args:
             outcome: Run outcome from RunEnded. If None — close()
@@ -697,152 +720,138 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
         ended_at = _utcnow()
         final_outcome = outcome if outcome is not None else "aborted"
 
-        rows = self._build_final_rows(ended_at, final_outcome)
-        # Skip write if the run produced no measurements AND no steps completed.
-        # A run with steps-but-no-measurements still writes: the steps parquet
-        # carries run-level metadata (outcome, duration, instrument context)
-        # that the runs daemon ingests into runs_persisted.
-        if not rows and not self._step_ends:
+        rows = self._build_unified_rows(ended_at, final_outcome)
+        if not rows:
             self._written = True
             return
 
         self._write_results(s, rows, ended_at=ended_at, run_outcome=final_outcome)
         self._written = True
 
-    def _build_final_rows(self, run_ended_at: datetime, run_outcome: str) -> list[dict[str, Any]]:
-        """Build the final list of measurement rows to write.
+    def _build_unified_rows(self, run_ended_at: datetime, run_outcome: str) -> list[dict[str, Any]]:
+        """Build the unified row list for the per-run parquet.
 
-        Steps without measurements are NOT injected here as synthetic
-        rows — they live in the sibling ``_steps.parquet`` file (see
-        :meth:`_write_steps_parquet`), which carries every step
-        regardless of whether it recorded measurements.
+        Two row kinds, both conforming to ``RUN_ROW_SCHEMA``:
+
+        * **Measurement rows** — one per ``MeasurementRecorded`` event.
+          ``measurement_name IS NOT NULL`` and full step + vector
+          context is denormalized onto the row.
+        * **Step-summary rows** — one per ``(step_path, vector_index)``
+          execution that produced no measurements (containers, action
+          steps, measurement-free vectors), plus planned-but-unrun
+          vectors from the manifest. ``measurement_name IS NULL`` and
+          measurement-specific fields stay NULL; step / vector / run
+          context populates as for measurement rows.
+
+        Step entries that *did* produce measurements are covered by the
+        measurement rows themselves — no duplicate step-summary row is
+        emitted, since the measurement rows already carry full step
+        context. Step rollups (counts, has_measurements) are computed
+        downstream by the runs daemon at ingest time via GROUP BY.
         """
         rows: list[dict[str, Any]] = []
+
         for event in self._measurement_events:
             row = self._build_row(event)
             row["run_ended_at"] = run_ended_at
             row["run_outcome"] = run_outcome
             rows.append(row)
 
+        # Track which (step_path, vector_index) tuples already have at
+        # least one measurement row — we only emit step-summary rows for
+        # the rest. step_path is the canonical identity; vector_index
+        # is None→0-coerced to match _build_row.
+        with_measurements: set[tuple[str, int]] = set()
+        for event in self._measurement_events:
+            sp = event.step_path or ""
+            vi = event.vector_index if event.vector_index is not None else 0
+            with_measurements.add((sp, vi))
+
+        for entry in self._build_step_results_from_events():
+            sp = entry.get("step_path") or ""
+            vi = entry.get("vector_index") or 0
+            if (sp, vi) in with_measurements:
+                continue
+            summary = self._build_step_summary_row(
+                entry, run_ended_at=run_ended_at, run_outcome=run_outcome
+            )
+            if summary is not None:
+                rows.append(summary)
+
         return rows
+
+    def _build_step_summary_row(
+        self,
+        entry: dict[str, Any],
+        *,
+        run_ended_at: datetime,
+        run_outcome: str,
+    ) -> dict[str, Any] | None:
+        """Build one ``measurement_name IS NULL`` row for a step entry.
+
+        Used for step-summary rows in the unified parquet: containers,
+        action steps without measurements, measurement-free sweep
+        vectors, and planned-but-unrun vectors from the manifest.
+        Returns ``None`` when ``RunStarted`` hasn't been seen (no
+        run context to denormalize).
+        """
+        s = self._run_started
+        if not s:
+            return None
+        # ``run_context_from_run_started`` returns run_ended_at=None
+        # (it's a streaming helper that doesn't know when the run will
+        # end); override after spreading so this row reflects the
+        # post-RunEnded state.
+        ctx = run_context_from_run_started(s, s, include_env=True)
+        ctx["run_ended_at"] = run_ended_at
+        row = MeasurementRow(
+            **ctx,
+            step_name=entry.get("name") or "",
+            step_index=int(entry.get("index") or 0),
+            step_path=entry.get("step_path") or "",
+            parent_path=entry.get("parent_path") or "",
+            step_started_at=_to_datetime(entry.get("started_at")),
+            step_ended_at=_to_datetime(entry.get("ended_at")),
+            step_node_id=entry.get("node_id"),
+            step_module=entry.get("module"),
+            step_file=entry.get("file"),
+            step_class=entry.get("class_name"),
+            step_function=entry.get("function"),
+            step_markers=entry.get("markers"),
+            step_outcome=entry.get("outcome"),
+            step_vector_count=entry.get("vector_count") or 1,
+            vector_index=entry.get("vector_index") or 0,
+            vector_attempt=None,
+            measurement_name=None,
+            run_outcome=run_outcome,
+            inputs=dict(entry.get("inputs") or {}),
+            outputs=dict(entry.get("outputs") or {}),
+            instruments=self._build_instrument_arrays(),
+            custom={},
+        )
+        return row.to_flat_dict()
 
     def _write_results(
         self,
         s: Any,
         rows: list[dict[str, Any]],
         *,
-        ended_at: datetime,
-        run_outcome: str,
+        ended_at: datetime,  # noqa: ARG002 — kept for symmetry with batch path
+        run_outcome: str,  # noqa: ARG002 — kept for symmetry with batch path
     ) -> None:
-        """Persist rows to parquet, write the steps sidecar, fire ``on_output``.
+        """Persist the unified rows to one parquet file; fire ``on_output``."""
+        pq_path = self._backend.save_from_rows(
+            rows,
+            started_at=s.occurred_at,
+            dut_serial=s.dut_serial,
+            file_metadata=self._build_file_metadata(),
+        )
 
-        Either the measurements rows or the step events being non-empty
-        triggers a write. The measurements parquet is skipped when
-        there are no measurement rows (typical for runs that only ran
-        action / setup steps without recording any measurements); the
-        steps sidecar is always written when steps occurred.
-        """
-        # Derive the canonical measurements-file path even when we
-        # don't end up writing it — the steps sidecar still wants the
-        # ``{stem}_steps.parquet`` naming convention.
-        pq_path = self._compose_parquet_path(s.occurred_at, s.dut_serial)
-
-        # Steps sidecar first so the daemon's ``_on_put`` notification
-        # (fired by save_from_rows) sees both files on disk.
-        self._write_steps_parquet(pq_path, run_ended_at=ended_at, run_outcome=run_outcome)
-
-        if rows:
-            self._backend.save_from_rows(
-                rows,
-                started_at=s.occurred_at,
-                dut_serial=s.dut_serial,
-                file_metadata=self._build_file_metadata(),
-            )
-
-        if self._on_output and rows:
+        if self._on_output:
             from litmus.data.subscribers._output_file import OutputFile  # lazy
 
             run_id = str(s.run_id) if s.run_id else None
             self._on_output(OutputFile(path=pq_path, format="parquet", run_id=run_id))
-
-    def _compose_parquet_path(self, started_at: datetime, dut_serial: str) -> Path:
-        """Compose the measurements parquet path from run-start metadata.
-
-        Mirrors the naming inside :meth:`ParquetBackend.save_from_rows`
-        so the steps sidecar can be written even when the main
-        measurements parquet is empty (no measurements recorded).
-        """
-        timestamp = started_at.strftime("%Y%m%dT%H%M%SZ")
-        date_str = started_at.strftime("%Y-%m-%d")
-        dut_serial = dut_serial.strip() if dut_serial else ""
-        date_dir = self._backend._runs_dir / date_str
-        date_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{timestamp}_{dut_serial}.parquet" if dut_serial else f"{timestamp}.parquet"
-        return date_dir / filename
-
-    def _write_steps_parquet(
-        self,
-        measurements_path: Path,
-        *,
-        run_ended_at: datetime,
-        run_outcome: str,
-    ) -> None:
-        """Write sibling _steps.parquet alongside the measurements file.
-
-        Step rows carry the same denormalized run context as measurement
-        rows, *plus* ``run_outcome`` and ``run_ended_at`` and the env
-        columns (``python_version`` / ``litmus_version`` /
-        ``env_fingerprint``) — enough for run-level analytics queries
-        to be answered from steps alone, without scanning measurements.
-        """
-        step_results = self._build_step_results_from_events()
-        if not step_results:
-            return
-
-        s = self._run_started
-        if not s:
-            return
-
-        run_context = run_context_from_run_started(s, s, include_env=True)
-        run_context["run_ended_at"] = run_ended_at
-        run_context["run_outcome"] = run_outcome
-        rows: list[dict[str, Any]] = []
-        for entry in step_results:
-            started_at = _to_datetime(entry.get("started_at"))
-            ended_at = _to_datetime(entry.get("ended_at"))
-            duration_s = (
-                (ended_at - started_at).total_seconds() if started_at and ended_at else None
-            )
-            rows.append(
-                {
-                    # Step identity
-                    "index": entry.get("index"),
-                    "name": entry.get("name"),
-                    "node_id": entry.get("node_id"),
-                    "file": entry.get("file"),
-                    "function": entry.get("function"),
-                    "class_name": entry.get("class_name"),
-                    "module": entry.get("module"),
-                    "step_path": entry.get("step_path"),
-                    "description": entry.get("description"),
-                    "markers": entry.get("markers"),
-                    # Execution
-                    "outcome": entry.get("outcome"),
-                    "started_at": started_at,
-                    "ended_at": ended_at,
-                    "duration_s": duration_s,
-                    # Counts
-                    "has_measurements": entry.get("has_measurements", False),
-                    "measurement_count": entry.get("measurement_count", 0),
-                    "vector_count": entry.get("vector_count", 0),
-                    # Run context (shared with measurement schema)
-                    **run_context,
-                }
-            )
-
-        table = pa.Table.from_pylist(rows, schema=STEP_SCHEMA)
-        steps_path = measurements_path.with_name(measurements_path.stem + "_steps.parquet")
-        atomic_write_table(table, steps_path)
 
     def _build_file_metadata(self) -> dict[bytes, bytes]:
         """Build Parquet file-level metadata from cached session."""

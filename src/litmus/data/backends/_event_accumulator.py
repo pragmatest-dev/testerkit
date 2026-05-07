@@ -252,10 +252,7 @@ class EventAccumulator:
     def _build_row(self, event: Any) -> dict[str, Any]:
         """Denormalize a MeasurementRecorded event into a flat row dict."""
         idx = event.step_index
-        # MeasurementRecorded.vector_index defaults to None (meaning
-        # "non-swept measurement"); StepStarted/StepEnded default to 0.
-        # Coerce here so non-swept measurements match their step events.
-        vec = event.vector_index if event.vector_index is not None else 0
+        vec = event.vector_index
         start = self._step_starts.get((idx, vec))
         end = self._step_ends.get((idx, vec))
         node_id = start.node_id if start else None
@@ -314,9 +311,7 @@ class EventAccumulator:
 
         meas_counts: dict[tuple[int, int], int] = {}
         for e in self._measurement_events:
-            # Same vector_index None→0 coercion as _build_row.
-            vec = e.vector_index if e.vector_index is not None else 0
-            key = (e.step_index, vec)
+            key = (e.step_index, e.vector_index)
             meas_counts[key] = meas_counts.get(key, 0) + 1
 
         all_keys = sorted(set(self._step_starts) | set(self._step_ends))
