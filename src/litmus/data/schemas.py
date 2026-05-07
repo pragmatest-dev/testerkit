@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "MEASUREMENT_SCHEMA",
+    "RUN_ROW_SCHEMA",
     "SCHEMA_VERSION",
     "STEP_SCHEMA",
     "_INSTR_ARRAY_TYPES",
@@ -28,11 +29,21 @@ __all__ = [
     "table_from_rows",
 ]
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "3.0"
 
-# Canonical schema for fixed columns. Dynamic columns (in_*, out_*, step_instruments_*, custom_*)
-# are NOT listed here — they pass through with inferred types.
-MEASUREMENT_SCHEMA = pa.schema(
+# Canonical row schema for the unified per-run parquet. Each row is either:
+#   * A measurement row — ``measurement_name IS NOT NULL``. Carries one
+#     measurement plus full step + run context.
+#   * A step-summary row — ``measurement_name IS NULL``. Records that a
+#     ``(step_path, vector_index)`` ran (or was planned-and-skipped) but
+#     produced no measurement; preserves outcome/timing/identity. Also
+#     used for class container rows (``parent_path = ""``) and unrun-vector
+#     rows from the manifest.
+#
+# Dynamic columns (in_*, out_*, step_instruments_*, custom_*) are NOT
+# listed here — they pass through with inferred types via
+# ``_build_write_schema``.
+RUN_ROW_SCHEMA = pa.schema(
     [
         # Identity & timing
         ("session_id", pa.string()),
@@ -43,6 +54,10 @@ MEASUREMENT_SCHEMA = pa.schema(
         ("step_name", pa.string()),
         ("step_index", pa.int64()),
         ("step_path", pa.string()),
+        # parent_path: container's path (empty string for root steps).
+        # Enables hierarchical reconstruction (e.g. TestPowerSequence →
+        # test_efficiency) without joining other event types.
+        ("parent_path", pa.string()),
         ("step_started_at", pa.timestamp("us", tz="UTC")),
         ("step_ended_at", pa.timestamp("us", tz="UTC")),
         ("step_node_id", pa.string()),
@@ -51,6 +66,10 @@ MEASUREMENT_SCHEMA = pa.schema(
         ("step_class", pa.string()),
         ("step_function", pa.string()),
         ("step_markers", pa.string()),
+        # step_vector_count: total planned vectors for this step (1 for
+        # non-swept; N for sweep with N variants). Stored as a hint so
+        # consumers can detect partial-runs without joining the manifest.
+        ("step_vector_count", pa.int32()),
         ("vector_index", pa.int64()),
         ("vector_attempt", pa.int64()),
         ("vector_started_at", pa.timestamp("us", tz="UTC")),
@@ -112,6 +131,18 @@ MEASUREMENT_SCHEMA = pa.schema(
     ]
 )
 
+# Backward-compatible alias. New code should reference RUN_ROW_SCHEMA;
+# MEASUREMENT_SCHEMA stays exported during the transition because legacy
+# helpers (notably ``_enforce_schema`` for read-back) reference it.
+MEASUREMENT_SCHEMA = RUN_ROW_SCHEMA
+
+
+# Deprecated. Step-summary rows now live in the unified per-run parquet
+# under RUN_ROW_SCHEMA (rows where ``measurement_name IS NULL``). This
+# definition is retained only for legacy test fixtures during the
+# transition; production writers no longer emit ``_steps.parquet``
+# sidecars and the runs daemon's ingest path treats every parquet as
+# unified.
 STEP_SCHEMA = pa.schema(
     [
         # Step identity
@@ -174,7 +205,7 @@ STEP_SCHEMA = pa.schema(
     ]
 )
 
-_SCHEMA_DICT = {f.name: f.type for f in MEASUREMENT_SCHEMA}
+_SCHEMA_DICT = {f.name: f.type for f in RUN_ROW_SCHEMA}
 
 # Instrument array columns have known list types
 _INSTR_ARRAY_TYPES: dict[str, pa.DataType] = {
@@ -201,7 +232,7 @@ def _infer_type_from_value(value: Any) -> pa.DataType:
 def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
     """Build complete Arrow schema: fixed canonical + dynamic columns.
 
-    Fixed columns use MEASUREMENT_SCHEMA types. Instrument arrays use
+    Fixed columns use RUN_ROW_SCHEMA types. Instrument arrays use
     known list types. Dynamic columns (in_*, out_*, custom_*) are inferred
     from the first non-None value. Passed to ``pa.Table.from_pylist()``
     so Arrow validates at construction time.
@@ -220,7 +251,7 @@ def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
     used: set[str] = set()
 
     # Fixed columns first, in canonical order
-    for field in MEASUREMENT_SCHEMA:
+    for field in RUN_ROW_SCHEMA:
         if field.name in all_keys:
             fields.append(field)
             used.add(field.name)
@@ -267,7 +298,7 @@ def table_from_rows(rows: list[dict[str, Any]], schema: pa.Schema) -> pa.Table:
 
 
 def _enforce_schema(table: pa.Table) -> pa.Table:
-    """Normalize column types to match MEASUREMENT_SCHEMA.
+    """Normalize column types to match RUN_ROW_SCHEMA.
 
     Read-path shim for files written before explicit schemas were enforced
     on write. New writes use ``_build_write_schema()`` to set types at
