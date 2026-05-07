@@ -66,6 +66,7 @@ to confirm direction.
 | Sequences for fine-grained execution control | low | 1 | 0.4 | 4.0 | Was deleted in v1; revisit if pytest's primitives prove insufficient |
 | Transports — read side (download / fetch / replay) | medium | 1.5 | 0.6 | 2.0 | Wait until storage layer settles |
 | `@litmus.judges` marker | low (escape hatch) | 0.5 | 0.7 | 0.5 | Only if the runtime `pytest_assertion_pass` + measurement-with-limits inference proves insufficient in practice |
+| `execution_index` global pre-order counter on step rows | medium | 1 | 0.7 | 0.5 | Today `step_started_at` is enough for total ordering; revisit if hierarchical-sequence reports need a stable pre-order key independent of timing. |
 
 ---
 
