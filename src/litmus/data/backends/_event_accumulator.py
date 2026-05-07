@@ -305,9 +305,15 @@ class EventAccumulator:
         Each entry corresponds to one ``(step_index, vector_index)``
         execution. A swept step running 4 vectors produces 4 manifest
         entries with the same ``step_path`` but ``vector_index`` 0..3.
+
+        Partially-run sweeps (some but not all planned vectors ran)
+        also produce manifest entries for the unrun vectors with
+        ``outcome=None`` — surfaced via ``_append_not_started`` using
+        ``vector_count_planned`` from ``StepsDiscovered``.
         """
         manifest: list[dict[str, Any]] = []
         executed_node_ids: set[str] = set()
+        executed_vectors: set[tuple[str, int]] = set()
 
         meas_counts: dict[tuple[int, int], int] = {}
         for e in self._measurement_events:
@@ -321,9 +327,15 @@ class EventAccumulator:
             node_id = start.node_id if start else None
             if node_id:
                 executed_node_ids.add(node_id)
+                executed_vectors.add((node_id, key[1]))
             manifest.append(self._build_step_entry(key, start, end, meas_counts.get(key, 0)))
 
-        _append_not_started(manifest, self._collected_items, executed_node_ids)
+        _append_not_started(
+            manifest,
+            self._collected_items,
+            executed_node_ids,
+            executed_vectors=executed_vectors,
+        )
         return manifest
 
     def _build_step_entry(

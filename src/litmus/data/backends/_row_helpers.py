@@ -738,16 +738,55 @@ def _append_not_started(
     manifest: list[dict[str, Any]],
     collected_items: list[dict[str, str | int | None]],
     executed_node_ids: set[str],
+    *,
+    executed_vectors: set[tuple[str, int]] | None = None,
 ) -> None:
     """Append ``planned`` entries for collected items that never executed.
 
     Shared by both the batch path (``build_step_manifest``) and the
     streaming path (``ParquetSubscriber._build_step_results_from_events``).
+
+    When ``executed_vectors`` is provided (set of ``(node_id, vector_index)``
+    pairs that actually ran), this also fills in unrun-vector entries for
+    partially-run sweeps: a step with ``vector_count_planned=4`` that only
+    executed vectors 0 and 1 produces unrun entries for vectors 2 and 3.
     """
     next_index = len(manifest)
     for ci in collected_items:
         node_id = ci.get("node_id") or ""
         if node_id in executed_node_ids:
+            # Step ran at least one vector — fill in unrun-vector entries
+            # for the rest of the planned sweep, if any.
+            if executed_vectors is not None:
+                planned_raw = ci.get("vector_count_planned") or 1
+                planned = planned_raw if isinstance(planned_raw, int) else 1
+                for vi in range(planned):
+                    if (node_id, vi) in executed_vectors:
+                        continue
+                    manifest.append(
+                        {
+                            "index": next_index,
+                            "name": ci.get("function") or node_id,
+                            "node_id": node_id,
+                            "file": ci.get("file"),
+                            "function": ci.get("function"),
+                            "class_name": ci.get("class_name"),
+                            "module": ci.get("module"),
+                            "step_path": ci.get("step_path") or "",
+                            "parent_path": ci.get("parent_path") or "",
+                            "description": None,
+                            "outcome": None,
+                            "started_at": None,
+                            "ended_at": None,
+                            "vector_index": vi,
+                            "inputs": {},
+                            "outputs": {},
+                            "has_measurements": False,
+                            "measurement_count": 0,
+                            "vector_count": planned,
+                        }
+                    )
+                    next_index += 1
             continue
         manifest.append(
             {
@@ -758,8 +797,8 @@ def _append_not_started(
                 "function": ci.get("function"),
                 "class_name": ci.get("class_name"),
                 "module": ci.get("module"),
-                "step_path": "",
-                "parent_path": "",
+                "step_path": ci.get("step_path") or "",
+                "parent_path": ci.get("parent_path") or "",
                 "description": None,
                 # No outcome stamped — the absence IS the receipt
                 # that this step never ran (the row was collected

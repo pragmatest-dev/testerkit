@@ -550,6 +550,17 @@ def _build_collected_items(items: list[pytest.Item]) -> list[CollectedItem]:
         cls = getattr(item, "cls", None)
         mod = getattr(item, "module", None)
 
+        # step_path mirrors what _ensure_class_container builds for the
+        # executed StepStarted: ``ClassName/function_name`` for class-
+        # nested methods, plain ``function_name`` for module-level.
+        # parent_path is the class container's path (or "" for root).
+        if cls is not None:
+            step_path = f"{cls.__name__}/{func_name}"
+            parent_path = cls.__name__
+        else:
+            step_path = func_name
+            parent_path = ""
+
         collected.append(
             CollectedItem(
                 node_id=item.nodeid,
@@ -558,6 +569,8 @@ def _build_collected_items(items: list[pytest.Item]) -> list[CollectedItem]:
                 class_name=cls.__name__ if cls else None,
                 function=func_name,
                 markers=join_marker_names(item.iter_markers(), sort=True),
+                step_path=step_path,
+                parent_path=parent_path,
                 step_index=step_idx,
                 vector_index=vec_idx,
                 vector_count_planned=planned,

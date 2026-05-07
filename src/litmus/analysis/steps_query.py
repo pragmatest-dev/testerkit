@@ -1,6 +1,6 @@
 """Read-only query client over the runs DuckDB daemon's ``steps`` table.
 
-Steps are populated incrementally from ``_steps.parquet`` sidecars at
+Steps are populated by aggregating the unified per-run parquet on
 ingest (see :mod:`litmus.data._runs_duckdb_daemon`). Queries hit the
 precomputed table for constant-cost lookups regardless of file count.
 
@@ -54,6 +54,12 @@ class StepRow(BaseModel):
     markers: str | None = None
     dut_serial: str | None = None
     station_id: str | None = None
+    # Per-vector commanded inputs (in_*) and recorded outputs (out_*) —
+    # populated by the daemon by aggregating the unified parquet's
+    # in_*/out_* dynamic columns into a single dict per (step, vector).
+    # Empty for steps without any in_*/out_* dynamic columns.
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict)
 
 
 class StepNode(BaseModel):
@@ -116,7 +122,10 @@ class StepsQuery:
         """Return every step row for a run, ordered by ``step_index``.
 
         Matches the run by id-prefix (8-char) so callers can pass
-        either the full UUID or its short form.
+        either the full UUID or its short form. Each step row is
+        enriched with per-vector ``inputs`` (in_*) and ``outputs``
+        (out_*) collected from the unified parquet — for swept steps
+        each vector has its own commanded inputs and recorded outputs.
 
         Args:
             run_id: UUID or 8-char prefix.
@@ -133,7 +142,50 @@ class StepsQuery:
             {ended_clause}
             ORDER BY step_index
         """)
-        return [StepRow(**r) for r in rows]
+        step_rows = [StepRow(**r) for r in rows]
+        self._enrich_io(step_rows)
+        return step_rows
+
+    def _enrich_io(self, step_rows: list[StepRow]) -> None:
+        """Populate ``inputs`` / ``outputs`` on each step row.
+
+        Reads in_*/out_* dynamic columns from the unified parquet
+        keyed by (step_path, vector_index). Same value across every
+        row in a (step, vector) group by construction (commanded
+        sweep params and recorded outputs are denormalized onto
+        every measurement row + the step-summary row), so taking the
+        first row's values is sufficient.
+        """
+        # Group rows by file_path so we read each parquet once.
+        by_file: dict[str, list[StepRow]] = {}
+        for sr in step_rows:
+            if sr.file_path:
+                by_file.setdefault(sr.file_path, []).append(sr)
+        for fpath, rows in by_file.items():
+            try:
+                raw = self._query_dicts(f"""
+                    SELECT *
+                    FROM read_parquet('{sql_escape(fpath)}', union_by_name=true)
+                    WHERE run_id LIKE '{sql_escape(rows[0].run_id or "")[:8]}%'
+                """)
+            except Exception:  # noqa: BLE001 — best-effort enrichment
+                continue
+            # First-seen row per (step_path, vector_index) wins.
+            by_key: dict[tuple[str, int], dict[str, Any]] = {}
+            for r in raw:
+                key = (r.get("step_path") or "", int(r.get("vector_index") or 0))
+                by_key.setdefault(key, r)
+            for sr in rows:
+                key = (sr.step_path or "", sr.vector_index or 0)
+                r = by_key.get(key)
+                if r is None:
+                    continue
+                sr.inputs = {
+                    k[3:]: v for k, v in r.items() if k.startswith("in_") and v is not None
+                }
+                sr.outputs = {
+                    k[4:]: v for k, v in r.items() if k.startswith("out_") and v is not None
+                }
 
     def failure_pareto(
         self,

@@ -342,9 +342,27 @@ def _build_step_rows(steps: list, *, parent_ended_at: Any = None) -> list[dict]:
                 ),
                 "duration_s": f"{s.duration_s:.3f}" if s.duration_s is not None else "—",
                 "measurement_count": s.measurement_count if s.measurement_count is not None else 0,
+                # Per-vector inputs / outputs — surfaced as compact "k=v"
+                # strings so the table cell stays one line. Empty dict
+                # renders as empty string.
+                "inputs": _format_kv(getattr(s, "inputs", None)),
+                "outputs": _format_kv(getattr(s, "outputs", None)),
             }
         )
     return rows
+
+
+def _format_kv(d: dict | None) -> str:
+    """Render an ``inputs``/``outputs`` dict as compact ``k=v`` pairs."""
+    if not d:
+        return ""
+    return ", ".join(f"{k}={_format_val(v)}" for k, v in sorted(d.items()))
+
+
+def _format_val(v: Any) -> str:
+    if isinstance(v, float):
+        return f"{v:g}"
+    return str(v)
 
 
 def _build_meas_rows(measurements: list) -> list[dict]:
@@ -401,6 +419,11 @@ _STEP_COLUMNS = [
         "field": "measurement_count",
         "align": "right",
     },
+    # Inputs = commanded sweep params for this (step, vector) — populated
+    # by StepsQuery from in_* dynamic columns; empty for non-swept rows.
+    {"name": "inputs", "label": "Inputs", "field": "inputs", "align": "left"},
+    # Outputs = recorded vector-level observations from out_* columns.
+    {"name": "outputs", "label": "Outputs", "field": "outputs", "align": "left"},
 ]
 
 _MEAS_COLUMNS = [

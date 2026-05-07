@@ -337,6 +337,12 @@ class CollectedItem(BaseModel):
     class_name: str | None = None
     function: str | None = None
     markers: str | None = None
+    # step_path / parent_path: computed at collection time so that
+    # unrun items (filtered out, errored before reach, or unrun
+    # vectors of a partial sweep) carry the same hierarchical
+    # identifier as executed step events would.
+    step_path: str = ""
+    parent_path: str = ""
     step_index: int = 0
     vector_index: int = 0
     vector_count_planned: int = 1
