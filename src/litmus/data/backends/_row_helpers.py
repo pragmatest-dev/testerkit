@@ -671,11 +671,15 @@ def step_entry_dict(
     class_name: str | None,
     module: str | None,
     step_path: str,
+    parent_path: str = "",
     description: str | None,
     markers: str | None,
     outcome: str | None,
     started_at: datetime | None,
     ended_at: datetime | None,
+    vector_index: int = 0,
+    inputs: dict[str, Any] | None = None,
+    outputs: dict[str, Any] | None = None,
     has_measurements: bool,
     measurement_count: int,
     vector_count: int,
@@ -686,6 +690,13 @@ def step_entry_dict(
     streaming path (``ParquetSubscriber._build_step_entry``); both
     pre-compute their values and pass them as kwargs. Timestamps are
     serialised here, ``duration_s`` derived from start/end.
+
+    ``parent_path`` mirrors the same field on ``StepStarted`` /
+    ``StepEnded`` so step-summary rows in the unified parquet preserve
+    the hierarchy. ``vector_index`` / ``inputs`` / ``outputs`` carry the
+    per-vector identity so each (step_path, vector_index) is its own
+    entry — a sweep of N variants produces N entries with the same
+    step_path and vector_index 0..N-1.
     """
     duration_s: float | None = None
     if started_at and ended_at:
@@ -699,12 +710,16 @@ def step_entry_dict(
         "class_name": class_name,
         "module": module,
         "step_path": step_path,
+        "parent_path": parent_path,
         "description": description,
         "markers": markers,
         "outcome": outcome,
         "started_at": started_at.isoformat() if started_at else None,
         "ended_at": ended_at.isoformat() if ended_at else None,
         "duration_s": duration_s,
+        "vector_index": vector_index,
+        "inputs": inputs or {},
+        "outputs": outputs or {},
         "has_measurements": has_measurements,
         "measurement_count": measurement_count,
         "vector_count": vector_count,
@@ -736,6 +751,7 @@ def _append_not_started(
                 "class_name": ci.get("class_name"),
                 "module": ci.get("module"),
                 "step_path": "",
+                "parent_path": "",
                 "description": None,
                 # No outcome stamped — the absence IS the receipt
                 # that this step never ran (the row was collected
@@ -744,6 +760,9 @@ def _append_not_started(
                 "outcome": None,
                 "started_at": None,
                 "ended_at": None,
+                "vector_index": 0,
+                "inputs": {},
+                "outputs": {},
                 "has_measurements": False,
                 "measurement_count": 0,
                 "vector_count": 0,
