@@ -141,6 +141,7 @@ class MeasurementRow(BaseModel):
     step_name: str
     step_index: int
     step_path: str = ""
+    parent_path: str = ""
     step_started_at: datetime | None = None
     step_ended_at: datetime | None = None
     step_node_id: str | None = None
@@ -149,13 +150,16 @@ class MeasurementRow(BaseModel):
     step_class: str | None = None
     step_function: str | None = None
     step_markers: str | None = None
+    step_vector_count: int | None = None
     vector_index: int | None = None
     vector_attempt: int | None = None
     vector_started_at: datetime | None = None
     vector_ended_at: datetime | None = None
 
     # Measurement
-    measurement_name: str
+    # Optional in unified row model: NULL → step-summary row (no
+    # measurement recorded for this (step_path, vector_index) pair).
+    measurement_name: str | None = None
     measurement_timestamp: datetime | None = None
     measurement_value: float | None = None
     measurement_units: str | None = None

@@ -77,8 +77,13 @@ class EventAccumulator:
         self._run_started: Any = None  # RunStarted event (run context)
         self._instruments: list[Any] = []  # InstrumentConnected events
         self._measurement_events: list[Any] = []  # MeasurementRecorded events
-        self._step_starts: dict[int, Any] = {}  # step_index → StepStarted
-        self._step_ends: dict[int, Any] = {}  # step_index → StepEnded
+        # Step events keyed by (step_index, vector_index) so each sweep
+        # variant gets its own entry. A step running 4 sweep vectors
+        # produces 4 StepStarted + 4 StepEnded events that share
+        # step_index but have vector_index 0..3 — keying by step_index
+        # alone would clobber 3 of them and lose per-vector identity.
+        self._step_starts: dict[tuple[int, int], Any] = {}
+        self._step_ends: dict[tuple[int, int], Any] = {}
         self._run_ended: Any = None  # RunEnded event (None for in-flight)
         self._collected_items: list[dict[str, str | int | None]] = []
         # node_id → markers, populated when StepsDiscovered arrives so
@@ -112,11 +117,11 @@ class EventAccumulator:
             self._markers_by_node = markers
             self._planned_vector_count = planned
         elif isinstance(event, StepStarted):
-            self._step_starts[event.step_index] = event
+            self._step_starts[(event.step_index, event.vector_index)] = event
         elif isinstance(event, MeasurementRecorded):
             self._measurement_events.append(event)
         elif isinstance(event, StepEnded):
-            self._step_ends[event.step_index] = event
+            self._step_ends[(event.step_index, event.vector_index)] = event
         elif isinstance(event, RunEnded):
             self._run_ended = event
 
@@ -239,31 +244,39 @@ class EventAccumulator:
             arrays["step_instruments_mocked"].append(inst.mocked)
         return arrays
 
-    def _step_start_field(self, step_index: int, attr: str) -> Any:
+    def _step_start_field(self, step_index: int, vector_index: int, attr: str) -> Any:
         """Get a field from the cached StepStarted event, or None."""
-        start = self._step_starts.get(step_index)
+        start = self._step_starts.get((step_index, vector_index))
         return getattr(start, attr, None) if start else None
 
     def _build_row(self, event: Any) -> dict[str, Any]:
         """Denormalize a MeasurementRecorded event into a flat row dict."""
         idx = event.step_index
-        end = self._step_ends.get(idx)
-        node_id = self._step_start_field(idx, "node_id")
+        # MeasurementRecorded.vector_index defaults to None (meaning
+        # "non-swept measurement"); StepStarted/StepEnded default to 0.
+        # Coerce here so non-swept measurements match their step events.
+        vec = event.vector_index if event.vector_index is not None else 0
+        start = self._step_starts.get((idx, vec))
+        end = self._step_ends.get((idx, vec))
+        node_id = start.node_id if start else None
+        parent_path = (start.parent_path if start else (end.parent_path if end else "")) or ""
         row = MeasurementRow(
             **run_context_from_run_started(self._run_started, event, include_env=True),
             step_name=event.step_name,
             step_index=idx,
             step_path=event.step_path,
-            step_started_at=self._step_start_field(idx, "occurred_at"),
+            parent_path=parent_path,
+            step_started_at=start.occurred_at if start else None,
             step_ended_at=end.occurred_at if end else None,
             step_node_id=node_id,
-            step_module=self._step_start_field(idx, "module"),
-            step_file=self._step_start_field(idx, "file"),
-            step_class=self._step_start_field(idx, "class_name"),
-            step_function=self._step_start_field(idx, "function"),
+            step_module=self._step_start_field(idx, vec, "module"),
+            step_file=self._step_start_field(idx, vec, "file"),
+            step_class=self._step_start_field(idx, vec, "class_name"),
+            step_function=self._step_start_field(idx, vec, "function"),
             step_markers=self._markers_by_node.get(node_id) if node_id else None,
             step_outcome=end.outcome if end else None,
-            vector_index=event.vector_index,
+            step_vector_count=(self._planned_vector_count.get(node_id or "", 1) if node_id else 1),
+            vector_index=vec,
             vector_attempt=event.attempt,
             measurement_name=event.measurement_name,
             measurement_timestamp=event.measurement_timestamp,
@@ -290,40 +303,55 @@ class EventAccumulator:
         return row.to_flat_dict()
 
     def _build_step_results_from_events(self) -> list[dict[str, Any]]:
-        """Build step manifest from cached StepStarted/StepEnded events."""
+        """Build step manifest from cached StepStarted/StepEnded events.
+
+        Each entry corresponds to one ``(step_index, vector_index)``
+        execution. A swept step running 4 vectors produces 4 manifest
+        entries with the same ``step_path`` but ``vector_index`` 0..3.
+        """
         manifest: list[dict[str, Any]] = []
         executed_node_ids: set[str] = set()
 
-        meas_counts: dict[int, int] = {}
+        meas_counts: dict[tuple[int, int], int] = {}
         for e in self._measurement_events:
-            meas_counts[e.step_index] = meas_counts.get(e.step_index, 0) + 1
+            # Same vector_index None→0 coercion as _build_row.
+            vec = e.vector_index if e.vector_index is not None else 0
+            key = (e.step_index, vec)
+            meas_counts[key] = meas_counts.get(key, 0) + 1
 
-        all_indices = sorted(set(self._step_starts) | set(self._step_ends))
-        for idx in all_indices:
-            start = self._step_starts.get(idx)
-            end = self._step_ends.get(idx)
+        all_keys = sorted(set(self._step_starts) | set(self._step_ends))
+        for key in all_keys:
+            start = self._step_starts.get(key)
+            end = self._step_ends.get(key)
             node_id = start.node_id if start else None
             if node_id:
                 executed_node_ids.add(node_id)
-            manifest.append(self._build_step_entry(idx, start, end, meas_counts.get(idx, 0)))
+            manifest.append(self._build_step_entry(key, start, end, meas_counts.get(key, 0)))
 
         _append_not_started(manifest, self._collected_items, executed_node_ids)
         return manifest
 
     def _build_step_entry(
         self,
-        idx: int,
+        key: tuple[int, int],
         start: Any | None,
         end: Any | None,
         meas_count: int,
     ) -> dict[str, Any]:
         """Build one step manifest entry from cached StepStarted/StepEnded."""
+        idx, vec = key
         node_id = start.node_id if start else None
         # vector_count: prefer the planned count from StepsDiscovered (matches
         # what the finalized parquet records). Falls back to ``1`` for steps
         # that did execute but weren't in the manifest (defensive — keeps the
         # in-flight overlay close to the finalized shape).
         vector_count = self._planned_vector_count.get(node_id or "", 1) if node_id else 1
+        # Per-vector parent_path / inputs / outputs come straight off the
+        # StepStarted / StepEnded events. parent_path defaults to "" so
+        # root steps look identical to today.
+        parent_path = (start.parent_path if start else (end.parent_path if end else "")) or ""
+        inputs = dict(start.inputs) if start and getattr(start, "inputs", None) else {}
+        outputs = dict(end.outputs) if end and getattr(end, "outputs", None) else {}
         return step_entry_dict(
             index=idx,
             name=start.step_name if start else (end.step_name if end else ""),
@@ -333,11 +361,15 @@ class EventAccumulator:
             class_name=start.class_name if start else None,
             module=start.module if start else None,
             step_path=start.step_path if start else (end.step_path if end else ""),
+            parent_path=parent_path,
             description=start.description if start else None,
             markers=self._markers_by_node.get(node_id) if node_id else None,
             outcome=end.outcome if end else None,
             started_at=start.occurred_at if start else None,
             ended_at=end.occurred_at if end else None,
+            vector_index=vec,
+            inputs=inputs,
+            outputs=outputs,
             has_measurements=meas_count > 0,
             measurement_count=meas_count,
             vector_count=vector_count,
