@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from nicegui import run, ui
@@ -30,6 +31,8 @@ from litmus.ui.shared.services import (
     get_session_steps,
     list_all_runs,
 )
+
+logger = logging.getLogger(__name__)
 
 _LIVE_EVENT_TYPES = [
     "run.ended",
@@ -285,8 +288,11 @@ async def result_detail_page(run_id: str, tab: str = ""):
                     debounce_seconds=0.5,
                 )
                 unsubscribe_ref.append(unsub)
-            except Exception:  # noqa: BLE001 — no events daemon; page stays static
-                pass
+            except (OSError, RuntimeError) as exc:
+                # Events daemon not running / Flight server unreachable —
+                # page stays static (no live refresh) but otherwise renders
+                # normally. Same narrow scope as channels/list.py:131-144.
+                logger.debug("Live updates unavailable: %s", exc)
 
             # One immediate refresh catches anything emitted between page
             # load and subscription attachment.
@@ -305,16 +311,26 @@ def _build_step_rows(steps: list, *, parent_ended_at: Any = None) -> list[dict]:
         # ``TestPowerSequence/test_efficiency``); fall back to step_name for
         # rows where the path isn't populated.
         display = s.step_path or s.step_name or ""
+        if s.step_index is None:
+            # Surfaced as a warning so broken data is visible — historically
+            # this fallback masked an indexing bug silently.
+            logger.warning(
+                "Step row missing step_index (step_path=%r); using ordinal %d",
+                display,
+                ordinal,
+            )
+            step_idx = ordinal
+        else:
+            step_idx = s.step_index
         rows.append(
             {
                 # Stable per-row key (fix for class-level sweeps where multiple
                 # rows share the same step_index): combine step_path with
                 # vector_index so duplicates don't collapse.
                 "row_key": f"{display}#{s.vector_index or 0}#{ordinal}",
-                # # column shows the row's ordinal in this view; step_index is
-                # sequence-relative position (same for all sweep variants of a
-                # function), shown as the dedicated column.
-                "step_index": s.step_index if s.step_index is not None else ordinal,
+                # # column = sequence-relative position (same for all sweep
+                # variants of a function); Vector column distinguishes them.
+                "step_index": step_idx,
                 "step_name": display,
                 "vector_index": s.vector_index if s.vector_index is not None else 0,
                 **status_row_fields(

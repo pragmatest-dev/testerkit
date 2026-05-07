@@ -21,6 +21,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+from litmus.data._collection_indices import StepKey, assign_indices
 from litmus.data.models import CollectedItem, Outcome, escalate_outcome
 from litmus.execution._state import (
     get_active_instruments,
@@ -435,20 +436,34 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
 
 
 def _has_class_level_sweep(item: pytest.Item) -> bool:
-    """True iff the item's ``litmus_sweeps`` marker comes from its class.
+    """True iff the item's ``litmus_sweeps`` marker comes from its enclosing class.
 
-    Class-level sweeps reorder so the full class sequence runs once per
-    condition; method-level sweeps stay in pytest's natural method-first
-    order. Distinction: marker reached via ``iter_markers`` (walks up the
-    node tree) but NOT in ``own_markers`` (function-level only) → the
-    marker lives on the class.
+    Reorder applies only to class-level sweeps so the full class sequence
+    runs once per condition.  Method-level sweeps stay in pytest's natural
+    method-first order; module-level sweeps (``pytestmark = [...]``) cross
+    multiple classes / root methods and reordering them would mix unrelated
+    items together.
+
+    Distinguishes the three cases by checking *which node* owns the marker:
+
+    * ``own_markers`` — function level; reorder doesn't apply.
+    * Parent class node's ``own_markers`` — class level; reorder applies.
+    * Module / session level — reorder doesn't apply (out of scope).
     """
-    if getattr(item, "cls", None) is None:
+    cls = getattr(item, "cls", None)
+    if cls is None:
         return False
-    own = [m for m in getattr(item, "own_markers", []) if m.name == "litmus_sweeps"]
-    if own:
+    # Function-level marker — not class-level.
+    if any(m.name == "litmus_sweeps" for m in getattr(item, "own_markers", [])):
         return False
-    return any(True for _ in item.iter_markers("litmus_sweeps"))
+    # Walk up to find the class node (pytest.Class).  Its ``obj`` attribute
+    # is the test class itself.  Reorder only when the marker lives there.
+    parent = getattr(item, "parent", None)
+    while parent is not None:
+        if getattr(parent, "obj", None) is cls:
+            return any(m.name == "litmus_sweeps" for m in getattr(parent, "own_markers", []))
+        parent = getattr(parent, "parent", None)
+    return False
 
 
 def _reorder_class_sweep_items(items: list[pytest.Item]) -> None:
@@ -503,62 +518,37 @@ def _reorder_class_sweep_items(items: list[pytest.Item]) -> None:
 def _build_collected_items(items: list[pytest.Item]) -> list[CollectedItem]:
     """Build the manifest with sequence-relative indices and planned counts.
 
-    For each unique ``(module, class, function)`` group in the (already
-    reordered) item list:
-
-    * assign one ``step_index`` shared across all variants — position within
-      the parent sequence (root-level methods count among themselves; class
-      methods count within their class);
-    * assign per-variant ``vector_index`` 0..N-1 in collection order;
-    * record ``vector_count_planned = N`` so consumers can detect unrun
-      vectors.
+    Identity-tuple extraction is pytest-specific (lives here); the
+    sequence-relative ``step_index`` / ``vector_index`` / planned-count
+    algorithm is runner-neutral (in :mod:`litmus.data._collection_indices`)
+    so the OpenHTF / unittest adapters can reuse it.
     """
-    # Group counts by (module, class_name, function) — used for planned counts.
-    from collections import defaultdict
-
-    group_count: dict[tuple[str, str, str], int] = defaultdict(int)
-    for item in items:
-        func = getattr(item, "function", None)
-        cls = getattr(item, "cls", None)
-        mod = getattr(item, "module", None)
-        key = (
-            mod.__name__ if mod else "",
-            cls.__name__ if cls else "",
-            func.__name__ if func is not None else item.name,
-        )
-        group_count[key] += 1
-
-    # Sequence-relative step_index: counter resets per parent (root vs class).
-    # The "parent" key is the class object (None for root). Within each parent,
-    # count unique functions in the order they first appear.
-    parent_step_index: dict[Any, dict[tuple[str, str, str], int]] = defaultdict(dict)
-    seen_in_group: dict[tuple[str, str, str], int] = {}
-
-    collected: list[CollectedItem] = []
+    keys: list[StepKey] = []
+    func_names: list[str] = []
     for item in items:
         parts = item.nodeid.rsplit("::", 1)
         func_name = parts[-1] if len(parts) > 1 else item.name
+        func_names.append(func_name)
         func = getattr(item, "function", None)
         cls = getattr(item, "cls", None)
         mod = getattr(item, "module", None)
         original = getattr(item, "originalname", func_name)
-        key = (
-            mod.__name__ if mod else "",
-            cls.__name__ if cls else "",
-            func.__name__ if func is not None else original,
+        keys.append(
+            (
+                mod.__name__ if mod else "",
+                cls.__name__ if cls else "",
+                func.__name__ if func is not None else original,
+            )
         )
 
-        # step_index — first time we see this function within its parent,
-        # allocate the next sequence position; subsequent variants reuse it.
-        parent_key = id(cls) if cls is not None else None
-        parent_funcs: dict[tuple[str, str, str], int] = parent_step_index[parent_key]
-        if key not in parent_funcs:
-            parent_funcs[key] = len(parent_funcs)
-        step_idx = parent_funcs[key]
+    indices = assign_indices(keys)
 
-        # vector_index — per-group running counter (collection order).
-        vec_idx = seen_in_group.get(key, 0)
-        seen_in_group[key] = vec_idx + 1
+    collected: list[CollectedItem] = []
+    for item, func_name, (step_idx, vec_idx, planned) in zip(
+        items, func_names, indices, strict=True
+    ):
+        cls = getattr(item, "cls", None)
+        mod = getattr(item, "module", None)
 
         collected.append(
             CollectedItem(
@@ -570,7 +560,7 @@ def _build_collected_items(items: list[pytest.Item]) -> list[CollectedItem]:
                 markers=join_marker_names(item.iter_markers(), sort=True),
                 step_index=step_idx,
                 vector_index=vec_idx,
-                vector_count_planned=group_count[key],
+                vector_count_planned=planned,
             )
         )
     return collected
@@ -954,12 +944,6 @@ def pytest_runtest_setup(item):
             inst.reset_mock_state()
 
 
-# Track the currently-open class container so we know when to close one and
-# open another. Module-level dict keyed by id(logger_inst) keeps it isolated
-# per logger session even when pytest-xdist runs slots in parallel processes.
-_open_class_container: dict[int, Any] = {}
-
-
 def _step_vector_for_item(
     item: pytest.Item,
 ) -> tuple[int | None, int | None, dict[str, Any]]:
@@ -986,6 +970,13 @@ def _step_vector_for_item(
     return None, None, {}
 
 
+# Attribute name used on the logger instance to track the currently-open
+# class container.  Stored on the logger (not in a module-level dict) so
+# id-reuse after garbage collection can't shadow a fresh logger's state,
+# and so the lifecycle is naturally tied to logger lifetime.
+_OPEN_CLASS_ATTR = "_litmus_open_class_container"
+
+
 def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
     """Open a class container step on transition; close the previous one.
 
@@ -997,16 +988,20 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
     Detects the boundary by comparing ``item.cls`` against the currently-open
     container. When entering a new class, close any prior container and open
     a new one. When leaving a class (next item is classless), just close.
-    Called before ``logger.start_step`` for the test method itself.
+    Called before ``logger.start_step`` for the test method itself, and from
+    ``pytest_runtest_makereport`` so a setup-phase failure also closes the
+    container instead of leaving it dangling until session end.
     """
     cls = getattr(item, "cls", None)
-    open_cls = _open_class_container.get(id(logger_inst))
+    open_cls = getattr(logger_inst, _OPEN_CLASS_ATTR, None)
     if open_cls is cls:
         return  # still inside the same class (or both root-level)
     if open_cls is not None:
-        # Close the previous container — pop it off the step stack.
+        # Cascade child step outcomes into the container before we close it
+        # so the container row reflects "did anything in the sequence fail".
+        _stamp_container_outcome(logger_inst, open_cls)
         logger_inst.end_step()
-        _open_class_container.pop(id(logger_inst), None)
+        setattr(logger_inst, _OPEN_CLASS_ATTR, None)
     if cls is not None:
         # Open a new container step for this class. The container has no
         # sweep parameters — pass explicit empty inputs so the active-vector
@@ -1017,16 +1012,47 @@ def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
             module=getattr(cls, "__module__", None),
             inputs={},
         )
-        _open_class_container[id(logger_inst)] = cls
+        setattr(logger_inst, _OPEN_CLASS_ATTR, cls)
 
 
 def _close_open_class_container(logger_inst: Any) -> None:
     """Force-close any still-open class container at session end."""
-    if id(logger_inst) in _open_class_container:
-        try:
-            logger_inst.end_step()
-        finally:
-            _open_class_container.pop(id(logger_inst), None)
+    open_cls = getattr(logger_inst, _OPEN_CLASS_ATTR, None)
+    if open_cls is None:
+        return
+    try:
+        _stamp_container_outcome(logger_inst, open_cls)
+        logger_inst.end_step()
+    finally:
+        setattr(logger_inst, _OPEN_CLASS_ATTR, None)
+
+
+def _stamp_container_outcome(logger_inst: Any, cls: type) -> None:
+    """Cascade child step outcomes into the open container's outcome.
+
+    A container step (a class / sequence) doesn't run measurements itself —
+    its outcome is the worst outcome among its child steps.  Walks
+    ``test_run.steps`` for entries whose ``class_name`` matches and whose
+    ``parent_path`` is the container's ``step_path`` (direct children
+    only), folding their outcomes into the container via the same
+    severity ladder used elsewhere (``escalate_outcome``).
+
+    No-op when no event log is wired or the container step can't be
+    located on the run (defensive — the rest of cleanup proceeds).
+    """
+    from litmus.execution._state import get_current_step
+
+    container = get_current_step()
+    if container is None or container.class_name != cls.__name__:
+        return
+    container_path = container.step_path
+    for child in logger_inst.test_run.steps:
+        if child is container:
+            continue
+        if child.parent_path != container_path:
+            continue
+        if child.outcome is not None:
+            container.outcome = escalate_outcome(container.outcome, child.outcome)
 
 
 @pytest.hookimpl(hookwrapper=True, trylast=True)

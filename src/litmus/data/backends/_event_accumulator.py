@@ -85,6 +85,11 @@ class EventAccumulator:
         # ``_build_row`` can stamp step_markers on every measurement row
         # without rebuilding the lookup per measurement.
         self._markers_by_node: dict[str, str | None] = {}
+        # node_id → vector_count_planned from StepsDiscovered.  Lets the
+        # in-flight step manifest report correct sweep sizes even before
+        # all vector executions have arrived (matches the finalized
+        # parquet rather than always reading 0).
+        self._planned_vector_count: dict[str, int] = {}
 
     def on_event(self, event: Any) -> None:
         """Accumulate one event into in-memory state. No I/O."""
@@ -95,12 +100,17 @@ class EventAccumulator:
         elif isinstance(event, StepsDiscovered):
             self._collected_items = event.items
             markers: dict[str, str | None] = {}
+            planned: dict[str, int] = {}
             for ci in event.items:
                 nid = ci.get("node_id")
                 if isinstance(nid, str) and nid:
                     m = ci.get("markers")
                     markers[nid] = m if isinstance(m, str) or m is None else str(m)
+                    vc = ci.get("vector_count_planned")
+                    if isinstance(vc, int):
+                        planned[nid] = vc
             self._markers_by_node = markers
+            self._planned_vector_count = planned
         elif isinstance(event, StepStarted):
             self._step_starts[event.step_index] = event
         elif isinstance(event, MeasurementRecorded):
@@ -309,6 +319,11 @@ class EventAccumulator:
     ) -> dict[str, Any]:
         """Build one step manifest entry from cached StepStarted/StepEnded."""
         node_id = start.node_id if start else None
+        # vector_count: prefer the planned count from StepsDiscovered (matches
+        # what the finalized parquet records). Falls back to ``1`` for steps
+        # that did execute but weren't in the manifest (defensive — keeps the
+        # in-flight overlay close to the finalized shape).
+        vector_count = self._planned_vector_count.get(node_id or "", 1) if node_id else 1
         return step_entry_dict(
             index=idx,
             name=start.step_name if start else (end.step_name if end else ""),
@@ -325,5 +340,5 @@ class EventAccumulator:
             ended_at=end.occurred_at if end else None,
             has_measurements=meas_count > 0,
             measurement_count=meas_count,
-            vector_count=0,
+            vector_count=vector_count,
         )
