@@ -271,6 +271,12 @@ class LiveRunsSubscriber:
         self._pool = AccumulatorPool()
         self._stop_event = threading.Event()
         self._unsubscribe: Callable[[], None] | None = None
+        # Held EventStore reference — captured in _try_attach so the sweep
+        # can emit synthesized RunEnded events back to the bus when an
+        # orphan is finalized. Without this, the parquet side gets the
+        # closure but the events DB never sees RunEnded, so the run stays
+        # "active" forever in events_for_active_runs.
+        self._event_store: Any = None
         self._attach_thread: threading.Thread | None = None
         self._sweep_thread: threading.Thread | None = None
         # Dirty flag — set when an event lands in the pool. ``refresh``
@@ -301,6 +307,12 @@ class LiveRunsSubscriber:
             except Exception as exc:  # noqa: BLE001 — defensive on shutdown
                 logger.debug("cleanup failed (non-fatal): %s", exc)
             self._unsubscribe = None
+        if self._event_store is not None:
+            try:
+                self._event_store.close()
+            except Exception as exc:  # noqa: BLE001 — defensive on shutdown
+                logger.debug("event_store close failed (non-fatal): %s", exc)
+            self._event_store = None
 
     # -- Read path — runs daemon's pre-query hook --------------------------
 
@@ -382,6 +394,11 @@ class LiveRunsSubscriber:
             # runs already live in parquet. ``replay="active_runs"`` bounds
             # the catch-up by active-run count rather than total event-log
             # size, so attach time stays flat as the event log grows.
+            #
+            # No ``since`` window: abandoned runs (RunStarted with no
+            # RunEnded) are operator-visible signals, not noise to filter.
+            # Test code that creates such runs as fixtures owns its own
+            # teardown to emit a closing RunEnded.
             self._unsubscribe = event_store.on_event(
                 self._on_event,
                 replay="active_runs",
@@ -393,6 +410,9 @@ class LiveRunsSubscriber:
             except Exception as exc:  # noqa: BLE001
                 logger.debug("cleanup failed (non-fatal): %s", exc)
             return False
+        # Hold the store so the sweep can emit synthesized RunEnded events
+        # back to the bus when an orphan is finalized.
+        self._event_store = event_store
         return True
 
     def _on_event(self, evt: dict[str, Any]) -> None:
@@ -435,12 +455,14 @@ class LiveRunsSubscriber:
           for cases where pid liveness can't be checked
           (containerized, namespaced, etc.).
 
-        On finalize: synthesize a ``RunEnded(outcome="aborted")``,
-        write the canonical parquet via :class:`ParquetSubscriber`'s
-        write path (so the file on disk is indistinguishable from a
-        clean producer-side abort), and evict the accumulator. The
-        daemon's existing parquet-ingest path picks the file up and
-        moves the row to ``runs_persisted``.
+        On finalize: emit a synthesized ``RunEnded(outcome="aborted")``
+        back to the EventStore so the events DB records the closure
+        (otherwise ``events_for_active_runs`` would treat the run as
+        live forever). Then write the canonical parquet via
+        :class:`ParquetSubscriber`'s write path (so the file on disk
+        is indistinguishable from a clean producer-side abort) and
+        evict the accumulator. The daemon's existing parquet-ingest
+        path picks the file up and moves the row to ``runs_persisted``.
         """
         output_dir = self._results_dir
         now = datetime.now(UTC)
@@ -461,10 +483,47 @@ class LiveRunsSubscriber:
                 continue
             try:
                 logger.info("Finalizing orphan run %s as aborted (%s)", run_id, reason)
+                self._emit_synthetic_run_ended(acc, now)
                 _write_orphan_parquet(acc, output_dir)
                 self._pool.evict(run_id)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Failed to finalize orphan run %s: %s", run_id, exc)
+
+    def _emit_synthetic_run_ended(self, acc: Any, occurred_at: datetime) -> None:
+        """Emit a ``RunEnded(outcome="aborted")`` for an orphan run.
+
+        Pulls ``session_id`` and ``run_id`` from the accumulator's cached
+        ``RunStarted`` event so the closure event matches the original
+        run identity. Best-effort: if the EventStore reference isn't
+        held (attach hadn't completed) or the emit fails, we log and
+        continue with the parquet write — the events-DB closure is
+        important for query consistency, but not so important that it
+        should block the parquet-side cleanup.
+        """
+        if self._event_store is None:
+            logger.debug("No EventStore reference; skipping synthesized RunEnded emit")
+            return
+        run_started = getattr(acc, "_run_started", None)
+        if run_started is None:
+            logger.debug("Accumulator has no RunStarted; skipping synthesized RunEnded")
+            return
+        try:
+            from litmus.data.events import RunEnded
+
+            self._event_store.emit(
+                RunEnded(
+                    session_id=run_started.session_id,
+                    run_id=run_started.run_id,
+                    occurred_at=occurred_at,
+                    outcome="aborted",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort sweep emit
+            logger.warning(
+                "Failed to emit synthesized RunEnded for orphan run %s: %s",
+                run_started.run_id,
+                exc,
+            )
 
 
 # ---------------------------------------------------------------------------

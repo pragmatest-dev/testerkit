@@ -10,6 +10,7 @@ Skip in CI: tests are marked @pytest.mark.benchmark
 
 from __future__ import annotations
 
+import os
 from collections.abc import Generator
 from pathlib import Path
 from uuid import uuid4
@@ -105,7 +106,7 @@ class TestEventStorePerf:
                 session_id=sid,
                 station_id="bench",
                 session_type="test",
-                pid=1,
+                pid=os.getpid(),
             )
         )
         for i in range(10_000):

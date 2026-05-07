@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Generator
 from uuid import uuid4
 
@@ -24,7 +25,7 @@ def _make_session_started(session_id, station_id="test-station"):
         station_id=station_id,
         station_name="Test",
         session_type="test",
-        pid=1234,
+        pid=os.getpid(),
     )
 
 
