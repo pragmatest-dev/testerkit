@@ -177,21 +177,21 @@ class TestSetStepInstruments:
 
 
 class TestEmptyRowSchemaMatches:
-    """Verify _build_empty_row fallback keys match build_instrument_arrays keys."""
+    """Verify _build_run_row fallback keys match build_instrument_arrays keys."""
 
-    def test_empty_row_schema_matches(self):
-        """_build_empty_row should have same step_instruments_* keys as build_instrument_arrays."""
+    def test_run_row_schema_matches(self):
+        """_build_run_row should have same step_instruments_* keys as build_instrument_arrays."""
         from litmus.data.backends.parquet import ParquetBackend
 
-        backend = ParquetBackend(results_dir="/tmp/litmus_test_empty_row")
+        backend = ParquetBackend(results_dir="/tmp/litmus_test_run_row")
 
         test_run = TestRun(
             dut=DUT(serial="SN001"),
             station_id="station_001",
         )
 
-        # Get empty row without instrument_arrays (triggers fallback)
-        row = backend._build_empty_row(test_run, instrument_arrays=None)
+        # Get run row without instrument_arrays (triggers fallback)
+        row = backend._build_run_row(test_run, instrument_arrays=None)
 
         # Extract step_instruments_* keys
         row_instr_keys = sorted(k for k in row if k.startswith("step_instruments_"))
@@ -248,10 +248,9 @@ class TestParquetRoundTrip:
         table = pq.read_table(parquet_path)
         rows = table.to_pylist()
 
-        # Unified schema: one ``record_type='measurement'`` row + one
-        # ``record_type='step'`` row per (step, vector). Inspect the
-        # measurement row for instrument-array round-trip.
-        assert len(rows) == 2
+        # Unified schema: 1 run row + 1 measurement row + 1 step row.
+        # Inspect the measurement row for instrument-array round-trip.
+        assert len(rows) == 3
         meas_rows = [r for r in rows if r["record_type"] == "measurement"]
         assert len(meas_rows) == 1
         row = meas_rows[0]

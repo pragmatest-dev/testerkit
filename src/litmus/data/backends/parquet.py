@@ -46,9 +46,9 @@ from litmus.data.backends._row_helpers import (
     OUTPUT_PREFIX,
     REF_PATH_PREFIX,
     VECTOR_ID_LENGTH,
-    MeasurementRow,
     build_row,
     build_run_metadata,
+    build_run_row,
     build_step_manifest,
     build_step_row,
     extract_prefixed_fields,
@@ -93,9 +93,6 @@ logger = logging.getLogger(__name__)
 # Suffix patterns for stimulus signal-path columns (in_{param}_{suffix}).
 # A column like "in_vin_instrument" is metadata, not a param value.
 _STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_dut_pin", "_fixture_connection")
-
-# Fields in MeasurementRow that are expanded via to_flat_dict(), not stored directly.
-_DENORMALIZATION_FIELDS = frozenset({"inputs", "outputs", "instruments", "custom"})
 
 # Outcome priority for deterministic worst-case selection from a set.
 # Lower rank = worse outcome. Ties (same rank) pick the same "worst" value.
@@ -240,8 +237,16 @@ class ParquetBackend:
         # Determine parquet path for _ref/ directory creation
         parquet_path = date_dir / filename
 
+        # Run row first — written at the start of the parquet so row-
+        # group min/max stats prune ``WHERE record_type = 'run'`` to the
+        # first row group, and so ``parquet-tools head`` surfaces run
+        # identity immediately. Always present, including for runs with
+        # no steps or measurements (in which case the run row alone is
+        # the entire parquet — naturally handles the placeholder case).
+        rows: list[dict[str, Any]] = [self._build_run_row(test_run, instrument_arrays)]
+
         # Build measurement rows (may create _ref/ directory for large data)
-        rows = self._build_measurement_rows(test_run, parquet_path, instrument_arrays)
+        rows.extend(self._build_measurement_rows(test_run, parquet_path, instrument_arrays))
 
         # Append a ``record_type='step'`` row for every (step, vector)
         # — containers, action steps, swept variants, and
@@ -250,13 +255,6 @@ class ParquetBackend:
         # of whether measurements exist for the same pair; queries
         # discriminate via ``record_type`` rather than via row absence.
         self._append_step_rows(test_run, rows)
-
-        if not rows:
-            # No measurements AND no steps — write a placeholder so the
-            # parquet still exists and the runs daemon can record the
-            # run. Should be rare; tests for such runs typically still
-            # have at least one step.
-            rows = [self._build_empty_row(test_run, instrument_arrays)]
 
         # Convert to RecordBatch with explicit schema
         schema = _build_write_schema(rows)
@@ -406,35 +404,26 @@ class ParquetBackend:
         ref_dir = self._get_ref_dir(parquet_path)
         return save_ref_to_dir(ref_dir, vector_id[:VECTOR_ID_LENGTH], key, value)
 
-    def _build_empty_row(
+    def _build_run_row(
         self,
         test_run: TestRun,
         instrument_arrays: dict[str, list] | None = None,
     ) -> dict[str, Any]:
-        """Build a placeholder row when no measurements exist.
+        """Build the single ``record_type='run'`` row for the parquet.
 
-        Uses MeasurementRow.model_fields to stay in sync with the schema —
-        all fields default to None except run-level metadata and run_outcome.
+        Carries run-level identity / DUT / station / fixture / environment
+        columns plus ``custom_metadata`` (flattened to ``custom_*``).
+        Step and measurement columns are NULL. Always present (one per
+        parquet); for empty runs it is the entire parquet.
         """
-        # Start with all MeasurementRow fields set to None
-        row: dict[str, Any] = {
-            name: None
-            for name in MeasurementRow.model_fields
-            if name not in _DENORMALIZATION_FIELDS
-        }
-        # Placeholder represents "run existed but produced no rows" — tag
-        # as step so it counts toward num_steps rather than num_measurements.
-        row["record_type"] = "step"
-        # Overlay run-level metadata (populates run_id, dut_serial, etc.)
-        row.update(build_run_metadata(test_run))
-        row["run_outcome"] = test_run.outcome.value if test_run.outcome else None
-
-        # Add instrument identity arrays (default to empty lists for schema consistency)
-        if instrument_arrays:
-            row.update(instrument_arrays)
-        _ensure_instrument_arrays(row)
-
-        return row
+        instruments = _ensure_instrument_arrays(dict(instrument_arrays or {}))
+        return build_run_row(
+            run_context=build_run_metadata(test_run),
+            run_outcome=test_run.outcome.value if test_run.outcome else None,
+            run_ended_at=test_run.ended_at,
+            instruments=instruments,
+            custom=dict(test_run.custom_metadata),
+        )
 
     def _build_file_metadata(self, test_run: TestRun) -> dict[bytes, bytes]:
         """Build Parquet file-level metadata."""
@@ -704,21 +693,29 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
     def _build_unified_rows(self, run_ended_at: datetime, run_outcome: str) -> list[dict[str, Any]]:
         """Build the unified row list for the per-run parquet.
 
-        Two row kinds, both conforming to ``RUN_ROW_SCHEMA`` and
+        Three row kinds, all conforming to ``RUN_ROW_SCHEMA`` and
         discriminated by an explicit ``record_type`` column:
 
+        * **``record_type='run'``** — exactly one per parquet, written
+          first. Carries run-level identity / DUT / station / fixture /
+          environment columns. Step + measurement columns are NULL.
+        * **``record_type='step'``** — one per ``(step_path,
+          vector_index)`` execution (or planned-but-unrun vector
+          from the manifest). Independent of measurements.
         * **``record_type='measurement'``** — one per
           ``MeasurementRecorded`` event. Carries the measurement
           payload plus denormalized step + vector + run context.
-        * **``record_type='step'``** — one per ``(step_path,
-          vector_index)`` execution (or planned-but-unrun vector
-          from the manifest). Independent of measurements: a step
-          that recorded N measurements emits 1 step row + N
-          measurement rows. Step rollups (counts, has_measurements)
-          are computed downstream via filtered counts on
-          ``record_type``.
+
+        Step rollups (counts, has_measurements) are computed downstream
+        via ``COUNT(*) FILTER (WHERE record_type = ...)`` on the unified
+        rows. The runs daemon ingests the run row directly via
+        ``WHERE record_type = 'run'``; no GROUP BY-of-everything needed.
         """
         rows: list[dict[str, Any]] = []
+
+        run_row = self._build_run_row(run_ended_at=run_ended_at, run_outcome=run_outcome)
+        if run_row is not None:
+            rows.append(run_row)
 
         for event in self._measurement_events:
             row = self._build_row(event)
@@ -734,6 +731,32 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
                 rows.append(step_row)
 
         return rows
+
+    def _build_run_row(
+        self,
+        *,
+        run_ended_at: datetime,
+        run_outcome: str,
+    ) -> dict[str, Any] | None:
+        """Build the single ``record_type='run'`` row.
+
+        Thin wrapper around the shared ``build_run_row`` helper using the
+        streaming-path-specific run-context source
+        (``run_context_from_run_started`` keyed off the cached
+        ``RunStarted`` event). Carries the cached event's
+        ``custom_metadata`` flattened into ``custom_*`` columns.
+        Returns ``None`` when ``RunStarted`` hasn't been seen yet.
+        """
+        s = self._run_started
+        if not s:
+            return None
+        return build_run_row(
+            run_context=run_context_from_run_started(s, s, include_env=True),
+            run_outcome=run_outcome,
+            run_ended_at=run_ended_at,
+            instruments=self._build_instrument_arrays(),
+            custom=dict(getattr(s, "custom_metadata", None) or {}),
+        )
 
     def _build_step_row(
         self,
@@ -1010,13 +1033,19 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
     )
 
     for row in rows:
+        rt = row.get("record_type")
+        if rt == "run":
+            # Run row carries run-level identity only; doesn't participate
+            # in step/vector grouping. Run-level fields are denormalized
+            # onto every other row, so reconstruction picks them up there.
+            continue
         sk = (row.get("step_name"), row.get("step_index"))
         if sk not in step_timing:
             step_timing[sk] = {
                 "started_at": row.get("step_started_at"),
                 "ended_at": row.get("step_ended_at"),
             }
-        if row.get("record_type") == "measurement":
+        if rt == "measurement":
             vk = (row.get("vector_index"), row.get("vector_attempt"))
             step_groups[sk][vk].append(row)
         else:

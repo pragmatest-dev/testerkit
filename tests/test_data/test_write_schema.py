@@ -179,11 +179,15 @@ class TestRoundTripExplicitSchema:
         assert "in_mode" in table.column_names
         assert table.schema.field("in_voltage").type == pa.float64()
         assert table.schema.field("in_mode").type == pa.string()
-        # Unified schema: one ``record_type='measurement'`` row + one
-        # ``record_type='step'`` row per (step, vector). Both carry the
-        # denormalized ``in_*`` columns.
-        in_voltage = table.column("in_voltage").to_pylist()
-        in_mode = table.column("in_mode").to_pylist()
-        assert all(v == 5.0 for v in in_voltage)
-        assert all(v == "fast" for v in in_mode)
-        assert len(in_voltage) == 2  # 1 step + 1 measurement
+        # Unified schema: 1 run row + 1 measurement row + 1 step row.
+        # The measurement and step rows carry the denormalized ``in_*``
+        # columns; the run row carries NULL there (no vector context).
+        rows = table.to_pylist()
+        assert len(rows) == 3
+        non_run = [r for r in rows if r["record_type"] != "run"]
+        assert all(r["in_voltage"] == 5.0 for r in non_run)
+        assert all(r["in_mode"] == "fast" for r in non_run)
+        run_rows = [r for r in rows if r["record_type"] == "run"]
+        assert len(run_rows) == 1
+        assert run_rows[0].get("in_voltage") is None
+        assert run_rows[0].get("in_mode") is None

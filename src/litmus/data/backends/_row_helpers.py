@@ -91,23 +91,30 @@ def _to_datetime(value: Any) -> datetime | None:
 class MeasurementRow(BaseModel):
     """A single denormalized row for streaming and storage.
 
-    Two row kinds, distinguished by the explicit ``record_type``
+    Three row kinds, distinguished by the explicit ``record_type``
     discriminator:
 
+    * ``record_type = 'run'`` — one row per run; carries run-level
+      identity / DUT / station / fixture / environment context. Step
+      and measurement columns are NULL. Provides an addressable
+      "runs table" within the unified per-run parquet (lakehouse
+      adopters can ``WHERE record_type = 'run'`` for clean ingest).
     * ``record_type = 'step'`` — one per ``(step_path, vector_index)``
-      execution; ``measurement_*`` columns are NULL.
+      execution; ``measurement_*`` columns are NULL. Carries denormalized
+      run-level columns alongside step context.
     * ``record_type = 'measurement'`` — one per recorded measurement;
-      carries the measurement payload plus the same denormalized step
-      context as the step row.
+      carries the measurement payload plus the same denormalized run +
+      step context.
 
-    Both kinds share grain ``(run_id, step_path, vector_index)``;
-    measurement rows further key on ``measurement_name``.
+    Steps and measurements share grain ``(run_id, step_path,
+    vector_index)``; measurement rows further key on
+    ``measurement_name``. Run rows are keyed by ``run_id`` alone.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     # Discriminator
-    record_type: Literal["step", "measurement"]
+    record_type: Literal["run", "step", "measurement"]
 
     # Session / run identity
     session_id: str
@@ -635,6 +642,62 @@ def iter_rows(test_run: TestRun) -> Iterator[MeasurementRow]:
                     step_markers=step.markers,
                     step_outcome=step.outcome.value if step.outcome else None,
                 )
+
+
+def build_run_row(
+    *,
+    run_context: dict[str, Any],
+    run_outcome: str | None,
+    run_ended_at: datetime | None,
+    instruments: dict[str, list],
+    custom: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the single ``record_type = 'run'`` row for a parquet.
+
+    Carries run-level identity / DUT / station / fixture / environment
+    columns plus run-level ``custom_metadata`` (flattened to
+    ``custom_*``). Step and measurement columns stay NULL. Provides an
+    addressable run-row inside the unified per-run parquet so lakehouse
+    adopters can ``WHERE record_type = 'run'`` for clean ingest into a
+    ``runs`` table without ``SELECT DISTINCT`` over the denormalized
+    step + measurement rows.
+
+    Conventionally written first in the parquet so readers / row-group
+    pruners reach the run identity at the start of the file.
+    """
+    ctx = dict(run_context)
+    ctx["run_ended_at"] = run_ended_at
+    row = MeasurementRow(
+        record_type="run",
+        **ctx,
+        # Step / vector context: NULL on run rows. ``step_name`` and
+        # ``step_index`` are required-non-None on the model so they
+        # carry sentinel "" / 0 values.
+        step_name="",
+        step_index=0,
+        step_path="",
+        parent_path="",
+        step_started_at=None,
+        step_ended_at=None,
+        step_node_id=None,
+        step_module=None,
+        step_file=None,
+        step_class=None,
+        step_function=None,
+        step_markers=None,
+        step_outcome=None,
+        step_vector_count=None,
+        vector_index=0,
+        vector_attempt=None,
+        # Measurement payload: NULL on run rows.
+        measurement_name=None,
+        run_outcome=run_outcome,
+        inputs={},
+        outputs={},
+        instruments=instruments,
+        custom=dict(custom or {}),
+    )
+    return row.to_flat_dict()
 
 
 def build_step_row(

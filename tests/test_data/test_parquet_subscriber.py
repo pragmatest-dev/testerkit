@@ -62,13 +62,18 @@ class TestParquetSubscriber:
         assert len(pq_files) == 1
 
         table = pq.read_table(pq_files[0])
-        assert table.num_rows == 1
-        row = table.to_pylist()[0]
-        assert row["measurement_name"] == "vout"
-        assert row["measurement_value"] == 3.3
-        assert row["station_id"] == "st1"
-        assert row["dut_serial"] == "SN001"
-        assert row["run_outcome"] == "passed"
+        # Run row + measurement row + step row (auto-emitted for the
+        # measurement-bearing step). No StepStarted/StepEnded events
+        # were emitted, so only one (step, vector_index=0) pair exists.
+        rows_by_kind = {r["record_type"]: r for r in table.to_pylist()}
+        assert "run" in rows_by_kind
+        assert "measurement" in rows_by_kind
+        meas_row = rows_by_kind["measurement"]
+        assert meas_row["measurement_name"] == "vout"
+        assert meas_row["measurement_value"] == 3.3
+        assert meas_row["station_id"] == "st1"
+        assert meas_row["dut_serial"] == "SN001"
+        assert meas_row["run_outcome"] == "passed"
 
     def test_instruments_cached(self, tmp_path):
         sub = ParquetSubscriber(tmp_path / "results")
@@ -149,8 +154,14 @@ class TestParquetSubscriber:
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         assert len(pq_files) == 1
 
-    def test_no_measurements_no_file(self, tmp_path):
-        """No Parquet written when no measurements accumulated."""
+    def test_no_measurements_writes_run_row_only(self, tmp_path):
+        """Run with no measurements still writes a parquet — the run row alone.
+
+        With ``record_type='run'`` always emitted, even an empty run produces
+        a single-row parquet that records the run identity. Lakehouse adopters
+        can ``WHERE record_type = 'run'`` and find every run, regardless of
+        whether it produced any measurements.
+        """
         sub = ParquetSubscriber(tmp_path / "results")
         sub.open()
 
@@ -167,7 +178,13 @@ class TestParquetSubscriber:
 
         runs_dir = tmp_path / "results" / "runs"
         pq_files = list(runs_dir.rglob("*.parquet")) if runs_dir.exists() else []
-        assert len(pq_files) == 0
+        assert len(pq_files) == 1
+        table = pq.read_table(pq_files[0])
+        rows = table.to_pylist()
+        assert len(rows) == 1
+        assert rows[0]["record_type"] == "run"
+        assert rows[0]["station_id"] == "st1"
+        assert rows[0]["dut_serial"] == "SN001"
 
     def test_step_identity_columns(self, tmp_path):
         """Step code identity fields appear in Parquet rows."""
@@ -229,7 +246,11 @@ class TestParquetSubscriber:
 
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         table = pq.read_table(pq_files[0])
-        row = table.to_pylist()[0]
+        # Pick the measurement row — step identity columns are denormalized
+        # onto it. The run row carries no step identity (NULL columns).
+        rows = [r for r in table.to_pylist() if r["record_type"] == "measurement"]
+        assert len(rows) == 1
+        row = rows[0]
         assert row["step_node_id"] == "tests/test_power.py::TestPower::test_5v_rail"
         assert row["step_file"] == "tests/test_power.py"
         assert row["step_module"] == "tests.test_power"
