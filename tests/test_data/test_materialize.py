@@ -84,6 +84,7 @@ def results_tree() -> Generator[_ResultsTree, None, None]:
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
+            "record_type": "measurement",
             "run_id": f"run-{suffix}",
             "session_id": session_id,
             "run_started_at": _dt("2026-03-01T10:00:00Z"),

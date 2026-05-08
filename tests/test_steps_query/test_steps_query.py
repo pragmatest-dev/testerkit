@@ -35,11 +35,12 @@ def _step(
     station_id: str = "STA-01",
     slot_id: str | None = None,
 ) -> dict:
-    """Build one step-summary row in unified RUN_ROW_SCHEMA shape."""
+    """Build one ``record_type='step'`` row in unified RUN_ROW_SCHEMA shape."""
     ended = started.replace(microsecond=0)
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
+            "record_type": "step",
             "step_index": step_index,
             "step_name": step_name,
             "step_path": step_path or step_name,

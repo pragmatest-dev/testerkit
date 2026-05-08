@@ -124,6 +124,7 @@ _EMPTY_INFLIGHT_STEPS = pa.Table.from_pylist([], schema=_INFLIGHT_STEPS_SCHEMA)
 
 _INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
     [
+        ("record_type", pa.string()),
         ("run_id", pa.string()),
         ("session_id", pa.string()),
         ("slot_id", pa.string()),

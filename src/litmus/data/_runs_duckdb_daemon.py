@@ -232,6 +232,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS measurements_persisted (
             file_path             VARCHAR NOT NULL,
+            record_type           VARCHAR NOT NULL DEFAULT 'measurement',
             run_id                VARCHAR,
             session_id            VARCHAR,
             slot_id               VARCHAR,
@@ -602,6 +603,7 @@ _OPTIONAL_MEAS_LIMITS = ("measurement_units", "limit_low", "limit_high", "limit_
 # _MEAS_SKIP_COLS gets packed into the dynamic_attrs MAP(VARCHAR,VARCHAR).
 _MEAS_FIXED_COLS: frozenset[str] = frozenset(
     {
+        "record_type",
         "run_id",
         "session_id",
         "slot_id",
@@ -733,7 +735,7 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
             {max_expr} AS max_value,
             {avg_expr} AS mean_value
         FROM read_parquet({flist}, filename=true, union_by_name=true)
-        WHERE measurement_name IS NOT NULL
+        WHERE record_type = 'measurement'
         GROUP BY
             filename, run_id, session_id, step_index,
             measurement_name{opt_group}
@@ -785,7 +787,7 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
             {fixed_select},
             {map_expr} AS dynamic_attrs
         FROM read_parquet('{escaped}', union_by_name=true)
-        WHERE measurement_name IS NOT NULL
+        WHERE record_type = 'measurement'
     """)
 
 
@@ -812,11 +814,10 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             run_outcome AS outcome,
             run_started_at AS started_at,
             run_ended_at AS ended_at,
-            CAST(SUM(CASE WHEN measurement_name IS NOT NULL THEN 1 ELSE 0 END) AS INTEGER)
+            CAST(COUNT(*) FILTER (WHERE record_type = 'measurement') AS INTEGER)
                 AS num_measurements,
-            CAST(COUNT(DISTINCT (
-                step_path || '|' || CAST(vector_index AS VARCHAR)
-            )) AS INTEGER) AS num_steps,
+            CAST(COUNT(*) FILTER (WHERE record_type = 'step') AS INTEGER)
+                AS num_steps,
             test_phase, product_id, operator_id, project_name
         FROM read_parquet({flist}, filename=true, union_by_name=true)
         WHERE run_id IS NOT NULL
@@ -881,9 +882,9 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 THEN EPOCH(step_ended_at) - EPOCH(step_started_at)
                 ELSE NULL
             END AS duration_s,
-            CAST(SUM(CASE WHEN measurement_name IS NOT NULL THEN 1 ELSE 0 END) AS INTEGER)
+            CAST(COUNT(*) FILTER (WHERE record_type = 'measurement') AS INTEGER)
                 AS measurement_count,
-            (SUM(CASE WHEN measurement_name IS NOT NULL THEN 1 ELSE 0 END) > 0)
+            (COUNT(*) FILTER (WHERE record_type = 'measurement') > 0)
                 AS has_measurements,
             CAST(step_vector_count AS INTEGER) AS vector_count,
             step_markers AS markers,
@@ -984,7 +985,7 @@ def _ingest_parquet_files(
 
     # Batch insert raw measurement rows — one lock hold per 100 files
     # instead of N × (read parquet + insert) per file. Empty in steady
-    # state → no-op. Each file's WHERE measurement_name IS NOT NULL
+    # state → no-op. Each file's WHERE record_type = 'measurement'
     # filter inside _bulk_insert_measurement_rows skips step-summary
     # rows (which have measurement_name NULL).
     _MEAS_BATCH = 100
@@ -1064,7 +1065,7 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
       * ``steps_persisted`` — one row per ``(run_id, step_path,
         vector_index)``, aggregated; sweep variants get distinct rows.
       * ``measurement_stats`` — per-(file, step, name) rollup over
-        rows where ``measurement_name IS NOT NULL``.
+        rows where ``record_type = 'measurement'``.
       * ``measurements_persisted`` — raw measurement rows packed
         with dynamic in_*/out_*/custom_* columns into a MAP.
       * ``measurement_io_schema`` / ``measurement_refs`` — IO schema
@@ -1243,7 +1244,7 @@ def _batch_insert_measurement_rows(
             {fixed_select},
             {map_expr} AS dynamic_attrs
         FROM read_parquet({flist}, union_by_name=true, filename=true)
-        WHERE measurement_name IS NOT NULL
+        WHERE record_type = 'measurement'
     """)
 
 

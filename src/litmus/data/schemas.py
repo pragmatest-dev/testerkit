@@ -22,22 +22,30 @@ __all__ = [
     "table_from_rows",
 ]
 
-SCHEMA_VERSION = "3.0"
+SCHEMA_VERSION = "4.0"
 
-# Canonical row schema for the unified per-run parquet. Each row is either:
-#   * A measurement row — ``measurement_name IS NOT NULL``. Carries one
-#     measurement plus full step + run context.
-#   * A step-summary row — ``measurement_name IS NULL``. Records that a
-#     ``(step_path, vector_index)`` ran (or was planned-and-skipped) but
-#     produced no measurement; preserves outcome/timing/identity. Also
-#     used for class container rows (``parent_path = ""``) and unrun-vector
-#     rows from the manifest.
+# Canonical row schema for the unified per-run parquet. Every row carries
+# an explicit ``record_type`` discriminator with one of two values:
+#   * ``record_type = 'step'`` — one row per ``(step_path, vector_index)``
+#     execution (or planned-but-unrun vector). Carries step identity,
+#     timing, outcome, and dynamic ``in_*``/``out_*`` columns.
+#     ``measurement_*`` columns are NULL.
+#   * ``record_type = 'measurement'`` — one row per recorded measurement.
+#     Carries the measurement payload plus the same denormalized step +
+#     run + DUT + station + fixture context as the corresponding step
+#     row, so cross-run measurement queries don't need self-joins.
+#
+# Both kinds share grain ``(run_id, step_path, vector_index)``; measurement
+# rows are further keyed by ``measurement_name``. A step that records N
+# measurements emits 1 step row + N measurement rows.
 #
 # Dynamic columns (in_*, out_*, step_instruments_*, custom_*) are NOT
 # listed here — they pass through with inferred types via
 # ``_build_write_schema``.
 RUN_ROW_SCHEMA = pa.schema(
     [
+        # Discriminator — 'step' or 'measurement'
+        ("record_type", pa.string()),
         # Identity & timing
         ("session_id", pa.string()),
         ("run_id", pa.string()),

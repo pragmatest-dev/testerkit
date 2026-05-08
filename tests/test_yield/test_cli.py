@@ -39,6 +39,7 @@ def _row(
     test_phase: str = "production",
 ) -> MeasurementRow:
     return MeasurementRow(
+        record_type="measurement",
         session_id="sess-1",
         run_id=run_id,
         run_started_at=run_started_at,

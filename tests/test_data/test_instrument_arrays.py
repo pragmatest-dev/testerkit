@@ -248,8 +248,13 @@ class TestParquetRoundTrip:
         table = pq.read_table(parquet_path)
         rows = table.to_pylist()
 
-        assert len(rows) == 1
-        row = rows[0]
+        # Unified schema: one ``record_type='measurement'`` row + one
+        # ``record_type='step'`` row per (step, vector). Inspect the
+        # measurement row for instrument-array round-trip.
+        assert len(rows) == 2
+        meas_rows = [r for r in rows if r["record_type"] == "measurement"]
+        assert len(meas_rows) == 1
+        row = meas_rows[0]
 
         # Verify instrument columns
         assert row["step_instruments_name"] == ["dmm"]

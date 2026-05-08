@@ -50,7 +50,7 @@ from litmus.data.backends._row_helpers import (
     build_row,
     build_run_metadata,
     build_step_manifest,
-    build_step_summary_row,
+    build_step_row,
     extract_prefixed_fields,
     run_context_from_run_started,
     save_ref_to_dir,
@@ -243,12 +243,13 @@ class ParquetBackend:
         # Build measurement rows (may create _ref/ directory for large data)
         rows = self._build_measurement_rows(test_run, parquet_path, instrument_arrays)
 
-        # Append step-summary rows for any (step, vector) that had no
-        # measurements — containers, action steps, measurement-free
-        # vectors, and planned-but-unrun vectors all live in the same
-        # parquet under the unified RUN_ROW_SCHEMA (rows where
-        # ``measurement_name IS NULL``).
-        self._append_step_summary_rows(test_run, rows)
+        # Append a ``record_type='step'`` row for every (step, vector)
+        # — containers, action steps, swept variants, and
+        # planned-but-unrun vectors all live in the same parquet under
+        # the unified RUN_ROW_SCHEMA. Step rows are emitted regardless
+        # of whether measurements exist for the same pair; queries
+        # discriminate via ``record_type`` rather than via row absence.
+        self._append_step_rows(test_run, rows)
 
         if not rows:
             # No measurements AND no steps — write a placeholder so the
@@ -268,30 +269,18 @@ class ParquetBackend:
 
         return parquet_path
 
-    def _append_step_summary_rows(self, test_run: TestRun, rows: list[dict[str, Any]]) -> None:
-        """Append ``measurement_name IS NULL`` rows for measurement-free steps.
+    def _append_step_rows(self, test_run: TestRun, rows: list[dict[str, Any]]) -> None:
+        """Append a ``record_type='step'`` row for every (step, vector).
 
-        Used by the batch writer (``save_test_run``) to round out the
-        unified per-run parquet. Each step / vector that produced no
-        measurement gets one step-summary row keyed by
-        ``(step_path, vector_index)``. Delegates to the shared
-        ``build_step_summary_row`` helper so the streaming and batch
-        paths produce identical rows for the same logical step.
+        Used by the batch writer (``save_test_run``). Emits a step row
+        for each manifest entry unconditionally — measurements get
+        their own ``record_type='measurement'`` rows, and queries
+        discriminate via the explicit kind column. Delegates to the
+        shared ``build_step_row`` helper so streaming and batch paths
+        produce identical step rows for the same logical step.
         """
         if not test_run.steps:
             return
-
-        # Set of (step_path, vector_index) tuples already represented
-        # by measurement rows — skip those, the measurements carry the
-        # context. Explicit None-checks (rather than ``or 0`` falsy
-        # semantics) guard against future schema changes that might
-        # introduce other accidental falsy vector_index values.
-        with_measurements: set[tuple[str, int]] = set()
-        for row in rows:
-            sp = row.get("step_path") or ""
-            raw_vi = row.get("vector_index")
-            vi = 0 if raw_vi is None else raw_vi
-            with_measurements.add((sp, vi))
 
         run_context = build_run_metadata(test_run)
         run_outcome = test_run.outcome.value if test_run.outcome else None
@@ -299,18 +288,13 @@ class ParquetBackend:
         instruments = _ensure_instrument_arrays({})
 
         # ``build_step_manifest`` produces one entry per (step, vector)
-        # pair — same shape ``ParquetSubscriber._build_step_summary_row``
+        # pair — same shape ``ParquetSubscriber._build_step_row``
         # consumes from ``StepManifest`` events. Routing both writers
-        # through the shared ``build_step_summary_row`` helper keeps
-        # them in lock-step.
+        # through the shared ``build_step_row`` helper keeps them in
+        # lock-step.
         for entry in build_step_manifest(test_run):
-            sp = entry.get("step_path") or ""
-            raw_vi = entry.get("vector_index")
-            vi = 0 if raw_vi is None else raw_vi
-            if (sp, vi) in with_measurements:
-                continue
             rows.append(
-                build_step_summary_row(
+                build_step_row(
                     run_context=run_context,
                     entry=entry,
                     run_outcome=run_outcome,
@@ -438,6 +422,9 @@ class ParquetBackend:
             for name in MeasurementRow.model_fields
             if name not in _DENORMALIZATION_FIELDS
         }
+        # Placeholder represents "run existed but produced no rows" — tag
+        # as step so it counts toward num_steps rather than num_measurements.
+        row["record_type"] = "step"
         # Overlay run-level metadata (populates run_id, dut_serial, etc.)
         row.update(build_run_metadata(test_run))
         row["run_outcome"] = test_run.outcome.value if test_run.outcome else None
@@ -717,23 +704,19 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
     def _build_unified_rows(self, run_ended_at: datetime, run_outcome: str) -> list[dict[str, Any]]:
         """Build the unified row list for the per-run parquet.
 
-        Two row kinds, both conforming to ``RUN_ROW_SCHEMA``:
+        Two row kinds, both conforming to ``RUN_ROW_SCHEMA`` and
+        discriminated by an explicit ``record_type`` column:
 
-        * **Measurement rows** — one per ``MeasurementRecorded`` event.
-          ``measurement_name IS NOT NULL`` and full step + vector
-          context is denormalized onto the row.
-        * **Step-summary rows** — one per ``(step_path, vector_index)``
-          execution that produced no measurements (containers, action
-          steps, measurement-free vectors), plus planned-but-unrun
-          vectors from the manifest. ``measurement_name IS NULL`` and
-          measurement-specific fields stay NULL; step / vector / run
-          context populates as for measurement rows.
-
-        Step entries that *did* produce measurements are covered by the
-        measurement rows themselves — no duplicate step-summary row is
-        emitted, since the measurement rows already carry full step
-        context. Step rollups (counts, has_measurements) are computed
-        downstream by the runs daemon at ingest time via GROUP BY.
+        * **``record_type='measurement'``** — one per
+          ``MeasurementRecorded`` event. Carries the measurement
+          payload plus denormalized step + vector + run context.
+        * **``record_type='step'``** — one per ``(step_path,
+          vector_index)`` execution (or planned-but-unrun vector
+          from the manifest). Independent of measurements: a step
+          that recorded N measurements emits 1 step row + N
+          measurement rows. Step rollups (counts, has_measurements)
+          are computed downstream via filtered counts on
+          ``record_type``.
         """
         rows: list[dict[str, Any]] = []
 
@@ -743,41 +726,26 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
             row["run_outcome"] = run_outcome
             rows.append(row)
 
-        # Track which (step_path, vector_index) tuples already have at
-        # least one measurement row — we only emit step-summary rows for
-        # the rest. step_path is the canonical identity; vector_index
-        # is None→0-coerced to match _build_row.
-        with_measurements: set[tuple[str, int]] = set()
-        for event in self._measurement_events:
-            sp = event.step_path or ""
-            vi = event.vector_index if event.vector_index is not None else 0
-            with_measurements.add((sp, vi))
-
         for entry in self._build_step_results_from_events():
-            sp = entry.get("step_path") or ""
-            raw_vi = entry.get("vector_index")
-            vi = 0 if raw_vi is None else raw_vi
-            if (sp, vi) in with_measurements:
-                continue
-            summary = self._build_step_summary_row(
+            step_row = self._build_step_row(
                 entry, run_ended_at=run_ended_at, run_outcome=run_outcome
             )
-            if summary is not None:
-                rows.append(summary)
+            if step_row is not None:
+                rows.append(step_row)
 
         return rows
 
-    def _build_step_summary_row(
+    def _build_step_row(
         self,
         entry: dict[str, Any],
         *,
         run_ended_at: datetime,
         run_outcome: str,
     ) -> dict[str, Any] | None:
-        """Build one step-summary row from a manifest entry.
+        """Build one ``record_type='step'`` row from a manifest entry.
 
-        Thin wrapper around the shared ``build_step_summary_row``
-        helper — adds the streaming-path-specific run-context source
+        Thin wrapper around the shared ``build_step_row`` helper —
+        adds the streaming-path-specific run-context source
         (``run_context_from_run_started`` keyed off the cached
         ``RunStarted`` event). Returns ``None`` when ``RunStarted``
         hasn't been seen.
@@ -785,7 +753,7 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
         s = self._run_started
         if not s:
             return None
-        return build_step_summary_row(
+        return build_step_row(
             run_context=run_context_from_run_started(s, s, include_env=True),
             entry=entry,
             run_outcome=run_outcome,
@@ -1026,23 +994,42 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
     raw_meta = pf.schema_arrow.metadata or {}
     file_meta = {k.decode(): v.decode() for k, v in raw_meta.items()}
 
-    # Group rows by (step_name, step_index) → (vector_index, attempt) → measurements
+    # Group rows for reconstruction. Measurement rows group by
+    # (step_name, step_index) → (vector_index, attempt) — that's the
+    # measurement payload grain. Step rows are tracked separately by
+    # vector_index alone so they can backfill TestVectors that recorded
+    # no measurements (vector_attempt is per-measurement; step rows
+    # carry None there and would otherwise create phantom vectors).
     step_groups: dict[
         tuple[str | None, int | None],
         dict[tuple[int | None, int | None], list[dict]],
     ] = defaultdict(lambda: defaultdict(list))
     step_timing: dict[tuple[str | None, int | None], dict[str, Any]] = {}
+    step_rows_by_vector: dict[tuple[str | None, int | None], dict[int | None, dict]] = defaultdict(
+        dict
+    )
 
     for row in rows:
         sk = (row.get("step_name"), row.get("step_index"))
-        vk = (row.get("vector_index"), row.get("vector_attempt"))
-        step_groups[sk][vk].append(row)
-
         if sk not in step_timing:
             step_timing[sk] = {
                 "started_at": row.get("step_started_at"),
                 "ended_at": row.get("step_ended_at"),
             }
+        if row.get("record_type") == "measurement":
+            vk = (row.get("vector_index"), row.get("vector_attempt"))
+            step_groups[sk][vk].append(row)
+        else:
+            step_rows_by_vector[sk][row.get("vector_index")] = row
+
+    # Ensure measurement-free vectors still surface — for any step row
+    # whose (step, vector_index) has no measurement-group entry, seed
+    # an empty group keyed by ``(vector_index, None)``.
+    for sk, by_vec in step_rows_by_vector.items():
+        existing_vec_indices = {vk[0] for vk in step_groups[sk]}
+        for vec_idx, step_row in by_vec.items():
+            if vec_idx not in existing_vec_indices:
+                step_groups[sk][(vec_idx, None)].append(step_row)
 
     # Build steps
     steps: list[TestStep] = []
@@ -1059,12 +1046,18 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                     step_instr[col] = val if isinstance(val, list) else [val]
 
         for vk in sorted(vector_groups, key=lambda x: (x[0] or 0, x[1] or 0)):
-            meas_rows = vector_groups[vk]
+            group_rows = vector_groups[vk]
+            # Filter to measurement-kind rows for the payload loop.
+            # Step rows establish the (vector) presence even for
+            # measurement-free vectors but carry no measurement payload.
+            meas_rows = [r for r in group_rows if r.get("record_type") == "measurement"]
             measurements: list[Measurement] = []
 
             # Extract params from in_* columns (skipping signal-path metadata
-            # like in_vin_instrument) and observations from out_*.
-            sample_row = meas_rows[0]
+            # like in_vin_instrument) and observations from out_*. Use any
+            # row in the group — both kinds carry the denormalized in_*/
+            # out_* columns identically.
+            sample_row = group_rows[0]
             params: dict[str, Any] = {
                 k[len(INPUT_PREFIX) :]: v for k, v in sample_row.items() if _is_param_column(k)
             }

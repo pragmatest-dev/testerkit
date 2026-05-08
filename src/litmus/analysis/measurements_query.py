@@ -322,7 +322,7 @@ SELECT
     ROUND(COUNT(*) FILTER (WHERE measurement_outcome = 'failed') * 100.0
           / NULLIF(COUNT(*), 0), 2) AS fail_rate
 FROM measurements
-WHERE measurement_name IS NOT NULL
+WHERE record_type = 'measurement'
     {and_clauses}
 GROUP BY product, station, step_name, measurement_name
 HAVING COUNT(*) FILTER (WHERE measurement_outcome = 'failed') > 0
@@ -355,7 +355,7 @@ SELECT
         ), 3)
     END AS cpk
 FROM measurements
-WHERE measurement_value IS NOT NULL AND measurement_name IS NOT NULL
+WHERE record_type = 'measurement' AND measurement_value IS NOT NULL
     {and_clauses}
 GROUP BY product, station, measurement_name
 HAVING COUNT(*) >= {min_samples}

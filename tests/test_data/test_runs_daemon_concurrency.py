@@ -40,11 +40,12 @@ from litmus.data.schemas import RUN_ROW_SCHEMA
 def _step_row(
     *, run_id: str, session_id: str, started: datetime, dut_serial: str = "SN001"
 ) -> dict:
-    """Minimal step-summary row in unified RUN_ROW_SCHEMA shape."""
+    """Minimal ``record_type='step'`` row in unified RUN_ROW_SCHEMA shape."""
     ended = started + timedelta(seconds=1)
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
+            "record_type": "step",
             "step_index": 0,
             "step_name": "step_a",
             "step_path": "step_a",

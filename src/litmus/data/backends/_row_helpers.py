@@ -13,7 +13,7 @@ import shutil
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -89,9 +89,25 @@ def _to_datetime(value: Any) -> datetime | None:
 
 
 class MeasurementRow(BaseModel):
-    """A single denormalized measurement row for streaming and storage."""
+    """A single denormalized row for streaming and storage.
+
+    Two row kinds, distinguished by the explicit ``record_type``
+    discriminator:
+
+    * ``record_type = 'step'`` — one per ``(step_path, vector_index)``
+      execution; ``measurement_*`` columns are NULL.
+    * ``record_type = 'measurement'`` — one per recorded measurement;
+      carries the measurement payload plus the same denormalized step
+      context as the step row.
+
+    Both kinds share grain ``(run_id, step_path, vector_index)``;
+    measurement rows further key on ``measurement_name``.
+    """
 
     model_config = ConfigDict(extra="forbid")
+
+    # Discriminator
+    record_type: Literal["step", "measurement"]
 
     # Session / run identity
     session_id: str
@@ -156,9 +172,7 @@ class MeasurementRow(BaseModel):
     vector_started_at: datetime | None = None
     vector_ended_at: datetime | None = None
 
-    # Measurement
-    # Optional in unified row model: NULL → step-summary row (no
-    # measurement recorded for this (step_path, vector_index) pair).
+    # Measurement payload — populated only when record_type == 'measurement'.
     measurement_name: str | None = None
     measurement_timestamp: datetime | None = None
     measurement_value: float | None = None
@@ -553,6 +567,7 @@ def build_row(
     meas = build_measurement_fields(measurement)
 
     return MeasurementRow(
+        record_type="measurement",
         **meta,
         **meas,
         # Step/vector context
@@ -622,7 +637,7 @@ def iter_rows(test_run: TestRun) -> Iterator[MeasurementRow]:
                 )
 
 
-def build_step_summary_row(
+def build_step_row(
     *,
     run_context: dict[str, Any],
     entry: dict[str, Any],
@@ -630,17 +645,19 @@ def build_step_summary_row(
     run_ended_at: datetime | None,
     instruments: dict[str, list],
 ) -> dict[str, Any]:
-    """Build one ``measurement_name IS NULL`` row from a step manifest entry.
+    """Build one ``record_type = 'step'`` row from a step manifest entry.
 
-    Single source of truth for step-summary row construction. Used by
-    BOTH the streaming subscriber path
+    Single source of truth for step-row construction. Used by BOTH the
+    streaming subscriber path
     (``ParquetSubscriber._build_unified_rows``) and the batch path
-    (``ParquetBackend._append_step_summary_rows``) so the on-disk
-    shape is identical regardless of which writer produced it.
+    (``ParquetBackend._append_step_rows``) so the on-disk shape is
+    identical regardless of which writer produced it.
 
-    Step-summary rows cover containers, action steps without
-    measurements, measurement-free sweep vectors, and planned-but-unrun
-    vectors from the manifest.
+    Every ``(step_path, vector_index)`` pair gets a step row — including
+    pairs that also have measurement rows. Step rows are independent of
+    measurements; queries count steps via
+    ``COUNT(*) FILTER (WHERE record_type = 'step')`` instead of
+    deduping over measurement rows.
 
     ``run_context`` is the dict returned by ``build_run_metadata`` or
     ``run_context_from_run_started`` (with ``run_ended_at`` overridden
@@ -654,6 +671,7 @@ def build_step_summary_row(
     raw_vc = entry.get("vector_count")
     raw_idx = entry.get("index")
     row = MeasurementRow(
+        record_type="step",
         **ctx,
         step_name=entry.get("name") or "",
         step_index=int(raw_idx) if raw_idx is not None else 0,

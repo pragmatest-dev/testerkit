@@ -26,7 +26,7 @@ from litmus.data.schemas import RUN_ROW_SCHEMA
 _INGEST_TIMEOUT_S = 10.0
 
 
-def _step_summary_row(
+def _step_row(
     *,
     run_id: str,
     session_id: str,
@@ -42,16 +42,16 @@ def _step_summary_row(
     test_phase: str = "production",
     product_id: str = "PN-100",
 ) -> dict:
-    """Build one step-summary row in unified RUN_ROW_SCHEMA shape.
+    """Build one ``record_type='step'`` row in unified RUN_ROW_SCHEMA shape.
 
-    Step-summary rows have ``measurement_name=None``. ``run_started_at``
-    / ``run_ended_at`` / ``run_outcome`` are run-level (same for every
-    row of a given run); ``step_started_at`` / ``step_ended_at`` are
-    per-step.
+    ``run_started_at`` / ``run_ended_at`` / ``run_outcome`` are run-level
+    (same for every row of a given run); ``step_started_at`` /
+    ``step_ended_at`` are per-step.
     """
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
+            "record_type": "step",
             "run_id": run_id,
             "session_id": session_id,
             "run_started_at": run_started_at,
@@ -90,10 +90,11 @@ def _measurement_row(
     measurement_name: str,
     dut_serial: str,
 ) -> dict:
-    """Build one measurement row in unified RUN_ROW_SCHEMA shape."""
+    """Build one ``record_type='measurement'`` row in unified RUN_ROW_SCHEMA shape."""
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
+            "record_type": "measurement",
             "run_id": run_id,
             "session_id": session_id,
             "run_started_at": run_started_at,
@@ -141,6 +142,22 @@ def _write_run(
     for step_i in range(n_steps):
         step_start = started + timedelta(seconds=step_i)
         step_end = step_start + timedelta(minutes=2)
+        # One step row per (step, vector) — kind='step' carries step
+        # context; measurement rows then accumulate under it.
+        rows.append(
+            _step_row(
+                run_id=run_id,
+                session_id=session_id,
+                run_started_at=started,
+                run_ended_at=run_ended,
+                run_outcome=outcome,
+                step_started_at=step_start,
+                step_ended_at=step_end,
+                step_index=step_i,
+                step_name=f"step_{step_i}",
+                dut_serial=dut_serial,
+            )
+        )
         for meas_i in range(measurements_per_step):
             rows.append(
                 _measurement_row(
@@ -177,7 +194,7 @@ def _write_in_flight_run(
     and ``outcome`` are NULL.
     """
     runs_dir.mkdir(parents=True, exist_ok=True)
-    populated = _step_summary_row(
+    populated = _step_row(
         run_id=run_id,
         session_id=session_id,
         run_started_at=started,

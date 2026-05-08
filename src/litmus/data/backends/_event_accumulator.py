@@ -257,6 +257,7 @@ class EventAccumulator:
         node_id = start.node_id if start else None
         parent_path = (start.parent_path if start else (end.parent_path if end else "")) or ""
         row = MeasurementRow(
+            record_type="measurement",
             **run_context_from_run_started(self._run_started, event, include_env=True),
             step_name=event.step_name,
             step_index=idx,

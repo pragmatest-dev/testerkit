@@ -43,10 +43,11 @@ def _measurement_row(
     measurement_value: float,
     measurement_outcome: str,
 ) -> dict:
-    """One measurement row in unified RUN_ROW_SCHEMA shape."""
+    """One ``record_type='measurement'`` row in unified RUN_ROW_SCHEMA shape."""
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
+            "record_type": "measurement",
             "run_id": run_id,
             "session_id": session_id,
             "run_started_at": run_started_at,

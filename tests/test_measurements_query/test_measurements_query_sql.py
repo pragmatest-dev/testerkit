@@ -45,6 +45,7 @@ def _row(
 ) -> MeasurementRow:
     """Build a MeasurementRow with sensible defaults."""
     return MeasurementRow(
+        record_type="measurement",
         session_id="sess-1",
         run_id=run_id,
         run_started_at=datetime.fromisoformat(run_started_at).replace(tzinfo=UTC),
