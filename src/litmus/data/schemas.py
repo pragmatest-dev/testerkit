@@ -22,7 +22,7 @@ __all__ = [
     "table_from_rows",
 ]
 
-SCHEMA_VERSION = "4.0"
+SCHEMA_VERSION = "1.0"
 
 # Canonical row schema for the unified per-run parquet. Every row carries
 # an explicit ``record_type`` discriminator with one of two values:
