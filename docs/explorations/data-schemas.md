@@ -148,23 +148,24 @@ Events drive parquet row construction:
 
 ## 2. Run parquets — `RUN_ROW_SCHEMA`
 
-`SCHEMA_VERSION = "1.0"`. One parquet per run, sealed at end-of-run. Two row kinds in one schema, discriminated by an explicit `record_type` column.
+`SCHEMA_VERSION = "1.0"`. One parquet per run, sealed at end-of-run. Three row kinds in one schema, discriminated by an explicit `record_type` column.
 
 ### 2.1 Row kinds
 
 | `record_type` | Emitted when | Populated columns |
 |---|---|---|
-| `'measurement'` | One per `MeasurementRecorded` event | All run / step / vector / measurement columns |
-| `'step'` | One per `(step_path, vector_index)` execution (always — including planned-but-unrun vectors) | All run / step / vector columns; measurement_* columns are NULL |
+| `'run'` | Exactly one per parquet, written first | Run-level identity / DUT / station / fixture / environment / `custom_*`. Step + vector + measurement columns are NULL. |
+| `'step'` | One per `(step_path, vector_index)` execution (always — including planned-but-unrun vectors) | Run-level + step + vector columns; measurement_* columns are NULL |
+| `'measurement'` | One per `MeasurementRecorded` event | All run + step + vector + measurement columns |
 
-A step that records N measurements emits **1 step row + N measurement rows**. Both kinds share the denormalized run / DUT / station / fixture / step context. Measurement payload columns are NULL on step rows.
+A run with N steps and M measurements writes **1 run row + N step rows + M measurement rows**. All three kinds share the denormalized run / DUT / station / fixture context (so cross-run measurement queries don't need joins). The run row gives lakehouse adopters a clean `WHERE record_type = 'run'` filter for ingest into a `runs` table without `SELECT DISTINCT` over the denormalized rows.
 
 ### 2.2 Schema (PyArrow)
 
 ```python
 # from src/litmus/data/schemas.py
 RUN_ROW_SCHEMA = pa.schema([
-    # Discriminator — 'step' or 'measurement'
+    # Discriminator — 'run', 'step', or 'measurement'
     ("record_type",         pa.string()),
 
     # Identity & timing

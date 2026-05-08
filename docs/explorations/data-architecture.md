@@ -7,7 +7,7 @@ Snapshot for review on 2026-05-08. Reflects the post-`record_type` schema unific
 Litmus separates **the durable record of what happened** (events) from **the queryable analytical surface** (parquet runs + DuckDB indexes) from **the time-series channel data** (channel store).
 
 - **Events** are the source of truth during a run. Append-only WAL. Per-process Arrow IPC files + a DuckDB events daemon that owns the index.
-- **Run parquets** are sealed archival artifacts produced at end-of-run. One file per run. Write-once. Portable, native, downstream-readable.
+- **Run parquets** are sealed archival artifacts produced at end-of-run. One file per run, three row kinds (`record_type` of `'run'`, `'step'`, `'measurement'`) in one unified schema. Write-once. Portable, native, downstream-readable.
 - **DuckDB indexes** are derived materialized views over parquet files. Auto-rebuilt on daemon spawn, auto-migrate via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
 - **Channel store** is a parallel data plane for time-series instrument data (waveforms, scalar streams) — separate Flight daemon, Arrow IPC files on disk.
 
@@ -277,7 +277,7 @@ flowchart TB
 
 1. **Events are the WAL.** Every event is durable on disk (IPC file) before the producer claims success on its emit call. The Flight `do_put` is best-effort — if it fails, the event is still in the IPC file and will be ingested by the daemon on its next scan / restart replay.
 2. **Parquet is sealed write-once.** A run produces exactly one parquet, written atomically (`tmp.parquet → mv`) once at end-of-run (or by orphan sweep). The parquet is the archival record; everything in `_persisted` is derived.
-3. **Per-run identity:** `(run_id, step_path, vector_index)` is the canonical identity for step rows. Measurements add `measurement_name` to that key. `record_type` is the explicit row-kind discriminator: `'step'` or `'measurement'`.
+3. **Per-run identity:** `(run_id, step_path, vector_index)` is the canonical identity for step rows. Measurements add `measurement_name` to that key. The run row is keyed by `run_id` alone. `record_type` is the explicit row-kind discriminator: `'run'`, `'step'`, or `'measurement'`.
 4. **The events DB and the runs DB are independently versioned.** Each uses `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` so adding a column requires no migration script — existing on-disk DBs auto-upgrade on next daemon spawn.
 5. **No cross-daemon writes.** Each daemon is the sole writer to its own DuckDB index. Cross-daemon coordination is via events (events daemon → runs daemon's `LiveRunsSubscriber`) and parquet drops (producer → runs daemon's ingest sweep).
 6. **Recovery is via replay.** If any daemon restarts, it rebuilds in-memory state by replaying from durable storage (events IPC files + DuckDB events table for events daemon; parquet + events DB for runs daemon's accumulator).
@@ -285,6 +285,6 @@ flowchart TB
 ## Open architectural questions
 
 - **Recovery completeness.** When `daemon offline + producer dies + nobody starts daemon`, events stay in DB but no parquet is produced. A `litmus data materialize` recovery pass on daemon startup (replay events DB → parquets for any run with no parquet) would close this gap. Currently relies on the orphan sweep firing eventually.
-- **`record_type` ingestion friction.** Lakehouse table formats (DuckLake, Delta, Iceberg) assume one parquet → one logical table. Our unified parquet uses `record_type` as a discriminator for three logical tables. Downstream lakehouse adoption requires either (a) view layer with `WHERE record_type = …` predicates, or (b) splitting into per-record-type parquet files.
+- **`record_type` ingestion friction.** Lakehouse table formats (DuckLake, Delta, Iceberg) assume one parquet → one logical table. Our unified parquet uses `record_type` as a discriminator for three logical tables. Downstream lakehouse adoption uses a 3-line filtered `INSERT INTO runs / steps / measurements ... WHERE record_type = ...` transform — recipes for DuckDB / Snowflake / BigQuery / Delta / Iceberg / Pandas at `docs/integration/lakehouse-import.md`.
 - **DuckLake as catalog replacement.** Could replace ~3K lines of hand-rolled `_runs_duckdb_daemon.py` ingest sweep + `_persisted` table management. Path A (one DuckLake table + views) is the smaller migration. 0.2.0 evaluation.
 - **Channel store integration.** Currently a parallel data plane (separate daemon, separate format, separate catalog). Could be unified into the events / runs catalog if a future migration absorbs both. Out of scope for 0.1.0.

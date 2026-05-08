@@ -13,9 +13,11 @@ are duplicated here for a single source of truth.
 ## Done
 
 - [x] **Parquet schema discriminator.** Explicit `record_type` column shipped
-  (`'measurement'` / `'step'`); every (step, vector) emits a step row;
+  (`'run'` / `'step'` / `'measurement'`); every (step, vector) emits a step row;
   measurement-row vs step-row partition is a real column, not implicit
-  `measurement_name IS NULL`. Commit `a6df009`.
+  `measurement_name IS NULL`. Commits `a6df009` (run+step+measurement
+  introduction) and `6a9f363` (added `record_type='run'` row for clean
+  lakehouse ingest).
 - [x] **Schema version reset.** `SCHEMA_VERSION = "1.0"` for the public
   release (was internal 4.0). Commit `dff33e6`.
 - [x] **Schema migration story documented in code.** Daemon
@@ -31,6 +33,17 @@ are duplicated here for a single source of truth.
   accumulating. Commit `31cf8db`.
 - [x] **Unified per-run parquet.** `_steps.parquet` sidecar dropped;
   `RUN_ROW_SCHEMA` is the single canonical shape.
+- [x] **Results directory layout: date-partitioned, flat per day.**
+  `results/runs/{YYYY-MM-DD}/{timestamp}_{dut_serial}.parquet`. Already
+  shipped (`parquet.py:228, 563`). Date-partitioning is the contract;
+  flat-within-day is fine for typical deployment volumes (~thousands of
+  runs per day). Per-hour partitioning if anyone hits a wall is additive.
+- [x] **Lakehouse interop pattern documented.** The unified parquet
+  doesn't drop into Snowflake/Delta/Iceberg as three tables natively,
+  but the `record_type` filter makes the transform a 3-line query.
+  See `docs/integration/lakehouse-import.md` for canonical recipes
+  (DuckDB, Snowflake, BigQuery, Databricks/Delta, Trino/Iceberg,
+  Pandas/Polars).
 
 ## Open — Tier 1 (locks once data or test code exists)
 
@@ -52,14 +65,6 @@ are duplicated here for a single source of truth.
   `/catalog-from-datasheet` skill. Pin the shape; stop iterating it.
   Field renames after 0.1.0 break every catalog YAML in user repos.
   Effort: medium.
-
-- [ ] **Results directory layout decision.** Currently flat
-  `{timestamp}_{dut_serial}.parquet`. With retention defaulting to
-  unlimited, flat directories will hit OS-level walls in production.
-  Decision options: stay flat as the contract; date-partitioned
-  (`YYYY/MM/DD/...`) opt-in via config; date-partitioned by default.
-  Just need the *decision*, not the implementation, before 0.1.0.
-  Effort: small (decision + doc note).
 
 - [ ] **Public Python API explicit-contract pass.** `litmus/__init__.py`
   is intentionally empty; deep paths (`from litmus.data.run_store import

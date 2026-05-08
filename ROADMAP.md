@@ -67,6 +67,8 @@ to confirm direction.
 | Transports — read side (download / fetch / replay) | medium | 1.5 | 0.6 | 2.0 | Wait until storage layer settles |
 | `@litmus.judges` marker | low (escape hatch) | 0.5 | 0.7 | 0.5 | Only if the runtime `pytest_assertion_pass` + measurement-with-limits inference proves insufficient in practice |
 | `execution_index` global pre-order counter on step rows | medium | 1 | 0.7 | 0.5 | Today `step_started_at` is enough for total ordering; revisit if hierarchical-sequence reports need a stable pre-order key independent of timing. |
+| `litmus export --to delta/iceberg/snowflake` | medium | 1.5 | 0.5 | 2.0 | Built-in transform from Litmus parquets to lakehouse table formats. The 3-line SQL pattern is documented at `docs/integration/lakehouse-import.md`; turn it into a first-class command once a real adopter asks. Don't pre-build. |
+| Table-format catalog evaluation (DuckLake / Delta / Iceberg) | medium | 2 | 0.5 | 3.0 | Replace ~3K lines of `_runs_duckdb_daemon.py` ingest sweep + `_persisted` table management with a managed catalog. DuckLake the closest fit (DuckDB-as-catalog, parquet-as-data); Delta/Iceberg as interop options. See `docs/explorations/data-architecture.md` open questions. |
 
 ---
 
@@ -1144,6 +1146,49 @@ _None._
 ---
 
 ## Completed
+
+### Unified per-run parquet — 2026-05-07
+
+One parquet per run replaces the prior `{run}.parquet` +
+`{run}_steps.parquet` sidecar pair. A single denormalized
+`RUN_ROW_SCHEMA` carries both row kinds:
+
+- **Measurement rows** — `measurement_name IS NOT NULL`, full step
+  + vector context denormalized.
+- **Step-summary rows** — `measurement_name IS NULL`, one per
+  `(step_path, vector_index)` for steps that recorded no
+  measurements (containers, action steps, planned-but-unrun sweep
+  vectors).
+
+Per-vector identity becomes load-bearing: PK is
+`(run_id, step_path, vector_index)` across the unified file. The
+streaming subscriber and the batch `save_test_run` writer now share
+the `build_step_summary_row` helper so a step row has identical
+shape regardless of which path produced it.
+
+Companion fixes:
+
+- Events DB closes orphan runs — the 30s sweep emits
+  `RunEnded(outcome=aborted)` to the events DB alongside the
+  `_write_orphan_parquet` call, so abandoned runs drop out of
+  `events_for_active_runs()` and don't accumulate as zombies.
+  Test helpers stop hardcoding `pid=1` so the sweep can
+  pid-liveness-check real test processes.
+- Inflight measurements wired into the `measurements` view —
+  `LiveRunsSubscriber` registers an `inflight_measurements` Arrow
+  table from the `AccumulatorPool` snapshot; the `measurements`
+  view is now `measurements_persisted UNION ALL inflight ...`,
+  matching the `runs` / `steps` pattern. Live run detail pages
+  see measurements appear as events arrive, not at run end.
+- StepRow surfaces `inputs` / `outputs` in the run detail UI;
+  unrun-vector entries from `build_step_manifest` make it into
+  the parquet so partially-run sweeps account for every planned
+  vector.
+
+What this unblocks: parquet compaction (one file per run is the
+right granularity for compaction), warehouse-style reads (single
+file = single SELECT * FROM read_parquet), and per-run identity
+in tooling (no more "which file holds the steps?" ambiguity).
 
 ### Parametric measurement viewer (thin slice) — 2026-05-02
 
