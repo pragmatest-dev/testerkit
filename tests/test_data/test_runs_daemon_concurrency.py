@@ -81,43 +81,25 @@ def _write_steps_parquet(runs_dir: Path, *, run_id: str, started: datetime) -> P
     return path
 
 
-def _wipe_index(runs_dir: Path) -> None:
-    """Delete _index.duckdb + WAL + lock + state files so the next
-    ``acquire()`` spawns a daemon with a fresh DB."""
-    # Clear the in-process registry of acquired managers so a fresh
-    # daemon spawn is forced even if a prior test held a ref.
-    from litmus.data import _daemon_lifecycle
-
-    _daemon_lifecycle._acquired.clear()  # noqa: SLF001
-    for name in (
-        "_index.duckdb",
-        "_index.duckdb.wal",
-        "_index.duckdb.tmp",
-        "_runs_duckdb.lock",
-        "_runs_duckdb.json",
-        "_runs_duckdb_pid",
-        "_runs_duckdb_ready",
-        "_runs_duckdb_flight_port",
-        "_daemon.log",
-    ):
-        p = runs_dir / name
-        try:
-            if p.is_file():
-                p.unlink()
-            elif p.is_dir():
-                shutil.rmtree(p)
-        except OSError:
-            pass
-
-
-def test_fresh_daemon_spawns_within_timeout():
+def test_fresh_daemon_spawns_within_timeout(tmp_path: Path) -> None:
     """A daemon with an empty index and 50 parquets on disk must come up
     within 5 seconds — well under the 30s spawn timeout. Guards against
     re-introducing foreground ingest on the spawn path.
+
+    Uses an isolated, per-test ``runs_dir`` (NOT the canonical) so the
+    fresh-spawn doesn't trash the in-process state and background-ingest
+    queue of the canonical daemon other tests share. The companion test
+    ``test_query_during_ingest_does_not_hang`` documents (line 167-171)
+    why wiping the canonical mid-suite is unsafe — this test honored
+    that constraint by sandboxing instead.
+
+    The forbidden ``RunStore(_results_dir=tmp_path)`` rule (per-test
+    daemons → pids cgroup exhaustion at ~30 such tests) is about
+    *accidental* per-test daemons. This test inherently spawns a daemon
+    to time the spawn path; it's the one legitimate per-test daemon and
+    is bounded by file (single test), not multiplied across the suite.
     """
-    runs_dir = resolve_results_dir() / "runs" / "test-fresh-spawn"
-    if runs_dir.exists():
-        shutil.rmtree(runs_dir)
+    runs_dir = tmp_path / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
 
     base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
@@ -128,19 +110,14 @@ def test_fresh_daemon_spawns_within_timeout():
             started=base + timedelta(seconds=i),
         )
 
-    # Force a fresh daemon: wipe the canonical index too so the new
-    # daemon has to ingest. (Tests share one canonical results_dir.)
-    canonical_runs = resolve_results_dir() / "runs"
-    _wipe_index(canonical_runs)
-
     t0 = time.perf_counter()
-    location = runs_duckdb_manager.acquire(canonical_runs)
+    location = runs_duckdb_manager.acquire(runs_dir)
     elapsed = time.perf_counter() - t0
     try:
         assert location.startswith("grpc://"), location
         assert elapsed < 5.0, f"daemon spawn took {elapsed:.1f}s (expected < 5s)"
     finally:
-        runs_duckdb_manager.release(canonical_runs)
+        runs_duckdb_manager.release(runs_dir)
 
 
 def test_query_during_ingest_does_not_hang():
