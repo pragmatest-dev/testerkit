@@ -72,7 +72,7 @@ RUN_ROW_SCHEMA = pa.schema(
         # consumers can detect partial-runs without joining the manifest.
         ("step_vector_count", pa.int32()),
         ("vector_index", pa.int64()),
-        ("vector_attempt", pa.int64()),
+        ("vector_retry", pa.int64()),
         ("vector_started_at", pa.timestamp("us", tz="UTC")),
         ("vector_ended_at", pa.timestamp("us", tz="UTC")),
         # Who

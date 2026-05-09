@@ -175,7 +175,10 @@ class MeasurementRow(BaseModel):
     step_markers: str | None = None
     step_vector_count: int | None = None
     vector_index: int = 0
-    vector_attempt: int | None = None
+    # 0-based retry counter — 0 for the first execution, N for the Nth retry.
+    # Per-measurement (NULL on step / run rows). Companion to ``RetryConfig.max_retries``
+    # which bounds the count (max_retries=0 → no retries; max_retries=N → up to N retries).
+    vector_retry: int | None = None
     vector_started_at: datetime | None = None
     vector_ended_at: datetime | None = None
 
@@ -590,7 +593,7 @@ def build_row(
         step_function=step_function,
         step_markers=step_markers,
         vector_index=vector.index,
-        vector_attempt=vector.attempt,
+        vector_retry=vector.retry,
         vector_started_at=vector.started_at,
         vector_ended_at=vector.ended_at,
         # Outcomes (cascade: vector → step → run; all non-Optional with default PASSED)
@@ -688,7 +691,7 @@ def build_run_row(
         step_outcome=None,
         step_vector_count=None,
         vector_index=0,
-        vector_attempt=None,
+        vector_retry=None,
         # Measurement payload: NULL on run rows.
         measurement_name=None,
         run_outcome=run_outcome,
@@ -751,7 +754,7 @@ def build_step_row(
         step_outcome=entry.get("outcome"),
         step_vector_count=raw_vc if raw_vc is not None else 1,
         vector_index=raw_vi if raw_vi is not None else 0,
-        vector_attempt=None,
+        vector_retry=None,
         measurement_name=None,
         run_outcome=run_outcome,
         inputs=dict(entry.get("inputs") or {}),

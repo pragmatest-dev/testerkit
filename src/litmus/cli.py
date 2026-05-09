@@ -2300,7 +2300,7 @@ def metrics_trend(results_dir, phase, since, until_date, product, station, perio
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_retest(results_dir, phase, since, until_date, product, station, period, as_json):
-    """Retest rates: how often DUTs require multiple attempts."""
+    """Retest rates: how often DUTs are retried."""
     store = _measurements_query(results_dir)
     rows = store.retest(
         product=product,
@@ -2319,13 +2319,13 @@ def metrics_retest(results_dir, phase, since, until_date, product, station, peri
         click.echo(json.dumps(rows, indent=2, default=str))
         return
 
-    click.echo(f"{'Period':<14} {'Serials':>8} {'Retested':>9} {'Rate':>7} {'Avg Att':>8}")
+    click.echo(f"{'Period':<14} {'Serials':>8} {'Retested':>9} {'Rate':>7} {'Avg Ret':>8}")
     click.echo("-" * 50)
     for r in rows:
         click.echo(
             f"{str(r.get('period', '')):<14} {r.get('total_serials', 0):>8} "
             f"{r.get('retested_count', 0):>9} {r.get('retest_rate', 0):>6.1f}% "
-            f"{r.get('avg_attempts', 0):>7.1f}"
+            f"{r.get('avg_retries', 0):>7.1f}"
         )
 
 

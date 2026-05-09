@@ -843,7 +843,7 @@ class TestRunLogger:
                 step_index=self._current_step_index,
                 step_path=step.step_path,
                 vector_index=vector.index,
-                attempt=vector.attempt,
+                retry=vector.retry,
                 # Measurement fields
                 measurement_name=measurement.name,
                 measurement_timestamp=measurement.timestamp,
@@ -1008,7 +1008,7 @@ class TestRunLogger:
         """Raise :class:`DuplicateMeasurementError` on same-name double-write.
 
         Each step tracks
-        ``(name, active_connection, vector_index, vector_attempt)``
+        ``(name, active_connection, vector_index, vector_retry)``
         tuples that have been written. A second write with the same
         tuple is an error unless both calls opt in via
         ``allow_repeat=True``.
@@ -1028,11 +1028,11 @@ class TestRunLogger:
           opens its own step — but the ``vectors`` fixture runs
           inside one step and would otherwise trip on the second
           iteration.
-        * **Vector attempt.** :class:`~litmus.execution.harness.TestHarness`
+        * **Vector retry.** :class:`~litmus.execution.harness.TestHarness`
           retries (``litmus_retry`` markers running through the
           harness path) re-run the same vector with the same index
-          but an incremented ``attempt``. The retry re-emits the same
-          measurement name; including ``attempt`` in the key keeps
+          but an incremented ``retry``. The retry re-emits the same
+          measurement name; including ``retry`` in the key keeps
           each retry distinct. (Pytest-side retries via
           pytest-rerunfailures open a fresh step per attempt and
           don't need this dimension.)
@@ -1053,7 +1053,7 @@ class TestRunLogger:
             name,
             conn.name if conn is not None else None,
             vector.index if vector is not None else None,
-            vector.attempt if vector is not None else None,
+            vector.retry if vector is not None else None,
         )
         if key in self._step_seen_names:
             first_was_repeatable = key in self._step_seen_repeatable

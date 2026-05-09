@@ -574,7 +574,10 @@ class TestHarness:
         # Current execution state
         self._current_vector: Vector | None = None
         self._current_step_index: int = -1
-        self._attempt: int = 1
+        # 0-based retry counter. Set to 0 for the original execution and
+        # incremented per retry inside the harness retry loop. Stamped onto
+        # the per-vector TestVector + each MeasurementRecorded event.
+        self._retry_index: int = 0
 
         # Hierarchical context: run → step → vector
         self._run_context: Context = Context(harness=self, channel_store=self._channel_store)
@@ -1082,7 +1085,7 @@ class TestHarness:
                     harness.measure("voltage", dmm.measure())
         """
         self._current_vector = vector
-        self._attempt = 1
+        self._retry_index = 0
 
         # Configure mocks for this vector if using mocks
         if self._mock_instruments and self._instruments:
@@ -1111,8 +1114,8 @@ class TestHarness:
         test_vector = TestVector(
             index=vector.get("_index", 0),
             params=self._vector_context.params,  # merged with parent chain
-            attempt=self._attempt,
-            max_attempts=self._retry.max_attempts,
+            retry=self._retry_index,
+            max_retries=self._retry.max_retries,
             started_at=_utcnow(),
         )
         # Add to current step if logging
@@ -1165,12 +1168,14 @@ class TestHarness:
         """
         last_vector: TestVector | None = None
 
-        for attempt in range(1, self._retry.max_attempts + 1):
-            self._attempt = attempt
+        # 0-based: retry=0 is the original attempt; retry=N is the Nth retry.
+        # Loop runs ``max_retries + 1`` times total (1 original + max_retries retries).
+        for retry in range(self._retry.max_retries + 1):
+            self._retry_index = retry
 
             try:
                 with self.run_vector(vector) as test_vector:
-                    test_vector.attempt = attempt
+                    test_vector.retry = retry
                     last_vector = test_vector
 
                     result = test_fn(vector)
@@ -1189,8 +1194,8 @@ class TestHarness:
             if last_vector.outcome == Outcome.PASSED:
                 break
 
-            # Retry delay
-            if attempt < self._retry.max_attempts and self._retry.delay > 0:
+            # Retry delay — only sleep if there's another retry left
+            if retry < self._retry.max_retries and self._retry.delay > 0:
                 time.sleep(self._retry.delay)
 
         assert last_vector is not None

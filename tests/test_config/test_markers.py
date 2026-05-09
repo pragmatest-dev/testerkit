@@ -63,9 +63,9 @@ class TestTestEntryShape:
         assert entry.connections.connections == ["vout"]
 
     def test_retry_coerced_to_policy(self) -> None:
-        entry = TestEntry.model_validate({"retry": {"max_attempts": 3}})
+        entry = TestEntry.model_validate({"retry": {"max_retries": 2}})
         assert isinstance(entry.retry, RetryConfig)
-        assert entry.retry.max_attempts == 3
+        assert entry.retry.max_retries == 2
 
     def test_prompts_coerced_to_prompt_config(self) -> None:
         entry = TestEntry.model_validate({"prompts": {"setup": {"message": "Insert DUT"}}})

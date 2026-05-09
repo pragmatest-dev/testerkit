@@ -161,7 +161,7 @@ _INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
         ("step_started_at", pa.timestamp("us", tz="UTC")),
         ("step_ended_at", pa.timestamp("us", tz="UTC")),
         ("vector_index", pa.int64()),
-        ("vector_attempt", pa.int64()),
+        ("vector_retry", pa.int64()),
         ("vector_outcome", pa.string()),
         ("measurement_name", pa.string()),
         ("measurement_value", pa.float64()),

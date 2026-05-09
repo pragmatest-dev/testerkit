@@ -108,11 +108,17 @@ class ConnectionsBinding(BaseModel):
 
 
 class RetryConfig(BaseModel):
-    """Runner-neutral retry config — translates to ``flaky`` under pytest."""
+    """Runner-neutral retry config — translates to ``flaky`` under pytest.
+
+    ``max_retries`` is 0-based: ``max_retries=0`` means no retries (a single
+    execution); ``max_retries=2`` means up to 2 retries beyond the original
+    (3 total executions). Mirrors pytest-rerunfailures' ``--reruns N`` and
+    STDF's ``MIR.RTST_COD`` retest counter.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    max_attempts: int = Field(default=1, ge=1)
+    max_retries: int = Field(default=0, ge=0)
     delay: float = Field(default=0.0, ge=0.0)
     on: list[str] | None = None  # exception class names; None = retry on any
 

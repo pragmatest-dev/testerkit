@@ -470,17 +470,17 @@ class ParquetBackend:
         if not measurements:
             return []
 
-        # Group by (step_name, vector_index, attempt)
+        # Group by (step_name, vector_index, retry)
         vectors_seen: dict[tuple, dict] = {}
         for m in measurements:
-            key = (m.get("step_name"), m.get("vector_index"), m.get("vector_attempt"))
+            key = (m.get("step_name"), m.get("vector_index"), m.get("vector_retry"))
             if key not in vectors_seen:
                 # Extract vector-level info
                 vector_info = {
                     "test_run_id": m.get("run_id"),
                     "step_name": m.get("step_name"),
                     "index": m.get("vector_index"),
-                    "attempt": m.get("vector_attempt"),
+                    "retry": m.get("vector_retry"),
                     "outcome": m.get("vector_outcome"),
                     "started_at": m.get("vector_started_at"),
                     "ended_at": m.get("vector_ended_at"),
@@ -1018,10 +1018,10 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
     file_meta = {k.decode(): v.decode() for k, v in raw_meta.items()}
 
     # Group rows for reconstruction. Measurement rows group by
-    # (step_name, step_index) → (vector_index, attempt) — that's the
+    # (step_name, step_index) → (vector_index, vector_retry) — that's the
     # measurement payload grain. Step rows are tracked separately by
     # vector_index alone so they can backfill TestVectors that recorded
-    # no measurements (vector_attempt is per-measurement; step rows
+    # no measurements (vector_retry is per-measurement; step rows
     # carry None there and would otherwise create phantom vectors).
     step_groups: dict[
         tuple[str | None, int | None],
@@ -1046,7 +1046,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                 "ended_at": row.get("step_ended_at"),
             }
         if rt == "measurement":
-            vk = (row.get("vector_index"), row.get("vector_attempt"))
+            vk = (row.get("vector_index"), row.get("vector_retry"))
             step_groups[sk][vk].append(row)
         else:
             step_rows_by_vector[sk][row.get("vector_index")] = row
@@ -1134,7 +1134,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
             vectors.append(
                 TestVector(
                     index=vk[0] or 0,
-                    attempt=vk[1] or 1,
+                    retry=vk[1] if vk[1] is not None else 0,
                     params=params,
                     observations=observations,
                     outcome=Outcome(vec_outcome_str) if vec_outcome_str else Outcome.PASSED,

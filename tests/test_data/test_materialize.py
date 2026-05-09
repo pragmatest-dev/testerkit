@@ -101,7 +101,7 @@ def results_tree() -> Generator[_ResultsTree, None, None]:
             "step_outcome": "passed",
             "step_vector_count": 1,
             "vector_index": 0,
-            "vector_attempt": 0,
+            "vector_retry": 0,
             "measurement_name": "voltage",
             "measurement_value": 3.3,
             "measurement_outcome": "passed",

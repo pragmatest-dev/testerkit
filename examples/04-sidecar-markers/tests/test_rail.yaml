@@ -22,4 +22,4 @@ tests:
       - {vin: [3.3, 5.0, 5.5]}
 
   test_intermittent_glitch:
-    retry: {max_attempts: 3, delay: 0.05}
+    retry: {max_retries: 2, delay: 0.05}

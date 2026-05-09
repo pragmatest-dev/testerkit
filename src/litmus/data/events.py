@@ -352,7 +352,7 @@ class MeasurementRecorded(EventBase):
     step_index: int
     step_path: str = ""
     vector_index: int = 0
-    attempt: int = 0
+    retry: int = 0  # 0 for first execution, N for Nth retry
 
     # Measurement fields
     measurement_name: str

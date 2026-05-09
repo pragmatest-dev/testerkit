@@ -403,7 +403,7 @@ WITH runs AS (
 ),
 serial_counts AS (
     SELECT product, station, phase, period_day,
-           dut_serial, COUNT(*) AS attempts
+           dut_serial, COUNT(*) AS executions
     FROM runs
     WHERE dut_serial IS NOT NULL
     GROUP BY product, station, phase, period_day, dut_serial
@@ -414,10 +414,10 @@ SELECT
     phase,
     period_day AS period,
     COUNT(*) AS total_serials,
-    COUNT(*) FILTER (WHERE attempts > 1) AS retested_count,
-    ROUND(COUNT(*) FILTER (WHERE attempts > 1) * 100.0
+    COUNT(*) FILTER (WHERE executions > 1) AS retested_count,
+    ROUND(COUNT(*) FILTER (WHERE executions > 1) * 100.0
           / NULLIF(COUNT(*), 0), 2) AS retest_rate,
-    ROUND(AVG(attempts), 2) AS avg_attempts
+    ROUND(AVG(executions - 1), 2) AS avg_retries
 FROM serial_counts
 {where}
 GROUP BY product, station, phase, period_day

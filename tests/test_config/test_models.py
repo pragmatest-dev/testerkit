@@ -96,17 +96,17 @@ class TestFixtureConfig:
 class TestRetryConfig:
     def test_retry_defaults(self):
         config = RetryConfig()
-        assert config.max_attempts == 1
+        assert config.max_retries == 0
         assert config.delay == 0
         assert config.on is None
 
     def test_retry_custom(self):
         config = RetryConfig(
-            max_attempts=3,
+            max_retries=2,
             delay=0.5,
             on=["TimeoutError", "ConnectionError"],
         )
-        assert config.max_attempts == 3
+        assert config.max_retries == 2
         assert config.delay == 0.5
         assert config.on == ["TimeoutError", "ConnectionError"]
 

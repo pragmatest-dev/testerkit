@@ -47,7 +47,7 @@ def test_rail_holds_across_input(verify, psu, dmm, vin: float) -> None:
 _attempts = [0]
 
 
-@pytest.mark.litmus_retry(max_attempts=3, delay=0.05)
+@pytest.mark.litmus_retry(max_retries=2, delay=0.05)
 def test_intermittent_glitch(verify, psu, dmm) -> None:
     """First attempt raises; retry catches it; second attempt passes.
 

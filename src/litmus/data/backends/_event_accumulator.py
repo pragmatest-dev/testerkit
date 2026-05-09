@@ -274,7 +274,7 @@ class EventAccumulator:
             step_outcome=end.outcome if end else None,
             step_vector_count=(self._planned_vector_count.get(node_id or "", 1) if node_id else 1),
             vector_index=vec,
-            vector_attempt=event.attempt,
+            vector_retry=event.retry,
             measurement_name=event.measurement_name,
             measurement_timestamp=event.measurement_timestamp,
             measurement_value=event.value,

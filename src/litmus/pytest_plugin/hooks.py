@@ -195,13 +195,13 @@ def pytest_configure(config):
         "level (top = outer, slowest loop). Single-key dict = one axis; "
         "multi-key dict = zipped axes (paired argvalues). Stacking "
         "multiple markers concatenates their lists.",
-        "litmus_retry(max_attempts=N, delay=S, on=[...]): Declare retry "
+        "litmus_retry(max_retries=N, delay=S, on=[...]): Declare retry "
         "policy — runner-neutral alias for retry markers. Translates to "
         "pytest-rerunfailures' @pytest.mark.flaky in pytest; OpenHTF / "
         "unittest wrappers map to their own retry primitives. "
-        "max_attempts is total attempts (1 = no retry); delay is seconds "
-        "between attempts; on is an optional list of exception class "
-        "names to retry on (default: any exception).",
+        "max_retries is retries beyond the original (0 = no retry); delay "
+        "is seconds between retries; on is an optional list of exception "
+        "class names to retry on (default: any exception).",
         "litmus_limits(**kwargs): Inject limits by measurement name (merges with sidecar limits:)",
         "litmus_characteristics([<characteristic_id>, ...]): Bind the test to one "
         "or more product characteristics; provides spec-relative limit "

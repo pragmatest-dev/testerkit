@@ -64,7 +64,7 @@ def _measurement_row(
             "step_outcome": run_outcome,
             "step_vector_count": 1,
             "vector_index": 0,
-            "vector_attempt": 0,
+            "vector_retry": 0,
             "measurement_name": measurement_name,
             "measurement_value": measurement_value,
             "measurement_outcome": measurement_outcome,

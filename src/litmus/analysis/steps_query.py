@@ -56,6 +56,12 @@ class StepRow(BaseModel):
     has_measurements: bool | None = None
     measurement_count: int | None = None
     vector_count: int | None = None
+    # 0-based retry rollup. ``0`` when the step recorded a non-NULL
+    # outcome on its first attempt (or didn't go through the retry loop
+    # at all — container steps, action steps with no measurements).
+    # ``N`` when the step retried N times. ``WHERE retry_count > 0``
+    # finds anything that retried.
+    retry_count: int | None = None
     markers: str | None = None
     dut_serial: str | None = None
     station_id: str | None = None

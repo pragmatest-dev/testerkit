@@ -49,7 +49,7 @@ def sample_test_run() -> TestRun:
                 vectors=[
                     TestVector(
                         index=0,
-                        attempt=1,
+                        retry=0,
                         params={"vin": 5.0},
                         outcome=Outcome.PASSED,
                         measurements=[

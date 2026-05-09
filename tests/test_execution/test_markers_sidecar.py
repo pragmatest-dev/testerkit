@@ -320,8 +320,8 @@ def test_litmus_retry_translates_to_flaky(pytester: pytest.Pytester) -> None:
 
             def test_eventually_passes():
                 COUNTER["n"] += 1
-                # Fails first two attempts, passes on the third (max_attempts=3).
-                assert COUNTER["n"] >= 3, f"attempt {COUNTER['n']}"
+                # Fails first two attempts, passes on the third (max_retries=2 → 3 total).
+                assert COUNTER["n"] >= 3, f"execution {COUNTER['n']}"
             """
         )
     )
@@ -330,7 +330,7 @@ def test_litmus_retry_translates_to_flaky(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_eventually_passes:
-                retry: {max_attempts: 3}
+                retry: {max_retries: 2}
             """
         )
     )
@@ -350,7 +350,7 @@ def test_litmus_retry_inline_decorator(pytester: pytest.Pytester) -> None:
 
             COUNTER = {"n": 0}
 
-            @pytest.mark.litmus_retry(max_attempts=2)
+            @pytest.mark.litmus_retry(max_retries=1)
             def test_passes_on_second():
                 COUNTER["n"] += 1
                 assert COUNTER["n"] >= 2
@@ -383,7 +383,7 @@ def test_litmus_retry_rejects_unknown_kwargs(pytester: pytest.Pytester) -> None:
             """
             tests:
               test_x:
-                retry: {max_attempts: 3, mystery_kwarg: 1}
+                retry: {max_retries: 2, mystery_kwarg: 1}
             """
         )
     )

@@ -65,7 +65,7 @@ def realistic_test_run() -> TestRun:
                 vectors=[
                     TestVector(
                         index=0,
-                        attempt=1,
+                        retry=0,
                         params={"vin": 5.0, "load": 100.0},
                         observations={"temp_ambient": 24.8},
                         outcome=Outcome.PASSED,
@@ -116,7 +116,7 @@ def realistic_test_run() -> TestRun:
                     ),
                     TestVector(
                         index=1,
-                        attempt=1,
+                        retry=0,
                         params={"vin": 12.0, "load": 200.0},
                         observations={"temp_ambient": 25.1},
                         outcome=Outcome.PASSED,
@@ -155,7 +155,7 @@ def realistic_test_run() -> TestRun:
                 vectors=[
                     TestVector(
                         index=0,
-                        attempt=1,
+                        retry=0,
                         params={"vin": 5.0},
                         outcome=Outcome.FAILED,
                         started_at=datetime(2026, 3, 4, 10, 1, 0, tzinfo=UTC),
@@ -305,7 +305,7 @@ def _replay_events(
                         step_index=step_idx,
                         step_path=step.step_path,
                         vector_index=vector.index,
-                        attempt=vector.attempt,
+                        retry=vector.retry,
                         measurement_name=meas.name,
                         value=meas.value,
                         units=meas.units,

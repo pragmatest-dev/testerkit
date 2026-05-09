@@ -142,7 +142,7 @@ class JsonSubscriber(EventSubscriber):
                 if meas_list:
                     # By the Litmus data model, every measurement in
                     # a vector shares the same params / observations /
-                    # attempt — they're per-vector fields stamped onto
+                    # retry — they're per-vector fields stamped onto
                     # each MeasurementRecorded event. Reading from the
                     # first measurement is canonical, not a heuristic.
                     first = meas_list[0]
@@ -150,8 +150,8 @@ class JsonSubscriber(EventSubscriber):
                         vec_dict["params"] = dict(first.inputs)
                     if first.outputs:
                         vec_dict["observations"] = dict(first.outputs)
-                    if first.attempt is not None:
-                        vec_dict["attempt"] = first.attempt
+                    if first.retry is not None:
+                        vec_dict["retry"] = first.retry
                 vectors.append(vec_dict)
 
             step_dict: dict[str, Any] = {

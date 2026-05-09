@@ -8,7 +8,7 @@ is a thin call site; the Pydantic model itself owns validation.
 
 Inline decorators pass raw kwargs to ``@pytest.mark.litmus_retry(...)``
 — the runner's plugin runs them through ``RetryConfig.model_validate``
-to apply the same constraints (``max_attempts >= 1``, ``delay >= 0``,
+to apply the same constraints (``max_retries >= 0``, ``delay >= 0``,
 no extra fields) that sidecar / profile YAML gets at load.
 """
 
@@ -24,13 +24,12 @@ def retry_config_to_flaky_kwargs(config: RetryConfig) -> dict[str, Any]:
 
     Mapping:
 
-    * ``max_attempts=N`` → ``reruns=N-1`` — rerunfailures counts
-      *additional* attempts after the first; Litmus counts *total*
-      attempts.
+    * ``max_retries=N`` → ``reruns=N`` — both count *additional*
+      executions beyond the original; the bases line up directly.
     * ``delay=S`` → ``reruns_delay=S``.
     * ``on=[...]`` → ``only_rerun=[...]``.
     """
-    flaky_kwargs: dict[str, Any] = {"reruns": max(0, config.max_attempts - 1)}
+    flaky_kwargs: dict[str, Any] = {"reruns": config.max_retries}
     if config.delay:
         flaky_kwargs["reruns_delay"] = config.delay
     if config.on is not None:

@@ -257,8 +257,8 @@ class TestVector(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)  # Input parameter values (→ in_*)
     observations: dict[str, Any] = Field(default_factory=dict)  # Observed context (→ out_*)
     stimulus: list[StimulusRecord] = Field(default_factory=list)  # Stimulus signal paths
-    attempt: int = 1  # Current attempt number (for retries)
-    max_attempts: int = 1  # Maximum attempts allowed
+    retry: int = 0  # Retry counter — 0 for the first execution, N for the Nth retry
+    max_retries: int = 0  # Maximum retries allowed (0 = no retries, single execution)
     outcome: Outcome | None = None
     measurements: list[Measurement] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=_utcnow)

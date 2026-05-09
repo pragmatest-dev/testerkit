@@ -257,7 +257,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             step_started_at       TIMESTAMPTZ,
             step_ended_at         TIMESTAMPTZ,
             vector_index          BIGINT,
-            vector_attempt        BIGINT,
+            vector_retry        BIGINT,
             vector_outcome        VARCHAR,
             measurement_name      VARCHAR,
             measurement_value     DOUBLE,
@@ -358,6 +358,14 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("has_measurements", "BOOLEAN"),
     ("measurement_count", "INTEGER"),
     ("vector_count", "INTEGER"),
+    # 0-based retry rollup: max(vector_retry) over the step's measurement
+    # rows, with COALESCE(..., 0). Reads as the count of retries that
+    # actually happened: 0 when the step recorded a non-NULL outcome on
+    # its first attempt (or didn't go through the retry loop at all —
+    # container steps, action steps with no measurements); N when the
+    # step retried N times (i.e. produced measurements at vector_retry
+    # values 0..N).
+    ("retry_count", "INTEGER"),
     ("markers", "VARCHAR"),
     ("dut_serial", "VARCHAR"),
     ("station_id", "VARCHAR"),
@@ -401,7 +409,7 @@ _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("step_started_at", "TIMESTAMPTZ"),
     ("step_ended_at", "TIMESTAMPTZ"),
     ("vector_index", "BIGINT"),
-    ("vector_attempt", "BIGINT"),
+    ("vector_retry", "BIGINT"),
     ("vector_outcome", "VARCHAR"),
     ("measurement_name", "VARCHAR"),
     ("measurement_value", "DOUBLE"),
@@ -640,7 +648,7 @@ _MEAS_FIXED_COLS: frozenset[str] = frozenset(
         "step_started_at",
         "step_ended_at",
         "vector_index",
-        "vector_attempt",
+        "vector_retry",
         "vector_outcome",
         "measurement_name",
         "measurement_value",
@@ -887,6 +895,10 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             (COUNT(*) FILTER (WHERE record_type = 'measurement') > 0)
                 AS has_measurements,
             CAST(step_vector_count AS INTEGER) AS vector_count,
+            CAST(
+                COALESCE(MAX(vector_retry) FILTER (WHERE record_type = 'measurement'), 0)
+                AS INTEGER
+            ) AS retry_count,
             step_markers AS markers,
             dut_serial,
             station_id
@@ -913,6 +925,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             has_measurements = excluded.has_measurements,
             measurement_count = excluded.measurement_count,
             vector_count = excluded.vector_count,
+            retry_count = excluded.retry_count,
             markers = excluded.markers,
             dut_serial = excluded.dut_serial,
             station_id = excluded.station_id
@@ -1130,7 +1143,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection, _runs_dir: Path) -> None:
             python_version, litmus_version, env_fingerprint,
             step_name, step_index, step_path, step_outcome,
             step_started_at, step_ended_at,
-            vector_index, vector_attempt, vector_outcome,
+            vector_index, vector_retry, vector_outcome,
             measurement_name, measurement_value, measurement_outcome,
             measurement_units, measurement_timestamp,
             limit_low, limit_high, limit_nominal, limit_comparator,

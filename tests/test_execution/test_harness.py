@@ -70,16 +70,16 @@ class TestHarnessInit:
         assert len(harness.vectors) == 4
 
     def test_init_with_retry_config(self):
-        config = {"retry": {"max_attempts": 3, "delay": 0.5}}
+        config = {"retry": {"max_retries": 2, "delay": 0.5}}
         harness = TestHarness(config=config)
-        assert harness.retry_config.max_attempts == 3
+        assert harness.retry_config.max_retries == 2
         assert harness.retry_config.delay == 0.5
 
     def test_init_with_retry_override(self):
-        config = {"retry": {"max_attempts": 3}}
-        override = RetryConfig(max_attempts=5, delay=1.0)
+        config = {"retry": {"max_retries": 2}}
+        override = RetryConfig(max_retries=4, delay=1.0)
         harness = TestHarness(config=config, retry=override)
-        assert harness.retry_config.max_attempts == 5
+        assert harness.retry_config.max_retries == 4
 
     def test_init_with_limits(self):
         config = {"limits": {"voltage": {"low": 3.0, "high": 3.6, "units": "V"}}}
@@ -223,7 +223,7 @@ class TestHarnessRunWithRetry:
 
     def test_retry_on_failure(self):
         config = {
-            "retry": {"max_attempts": 3, "delay": 0},
+            "retry": {"max_retries": 2, "delay": 0},
             "limits": {"voltage": {"low": 3.0, "high": 4.0}},
         }
         harness = TestHarness(config=config)
@@ -241,12 +241,12 @@ class TestHarnessRunWithRetry:
             tv = harness.run_with_retry(Vector(_index=0), test_fn)
 
         assert call_count == 3
-        assert tv.attempt == 3
+        assert tv.retry == 2  # 0-based: third execution = retry 2
         assert tv.outcome == Outcome.PASSED
 
     def test_no_retry_on_pass(self):
         config = {
-            "retry": {"max_attempts": 3, "delay": 0},
+            "retry": {"max_retries": 2, "delay": 0},
             "limits": {"voltage": {"low": 3.0, "high": 4.0}},
         }
         harness = TestHarness(config=config)
@@ -262,11 +262,11 @@ class TestHarnessRunWithRetry:
             tv = harness.run_with_retry(Vector(_index=0), test_fn)
 
         assert call_count == 1
-        assert tv.attempt == 1
+        assert tv.retry == 0  # 0-based: first (and only) execution = retry 0
         assert tv.outcome == Outcome.PASSED
 
     def test_retry_exhausted_returns_fail(self):
-        config = {"retry": {"max_attempts": 2, "delay": 0}}
+        config = {"retry": {"max_retries": 1, "delay": 0}}
         harness = TestHarness(config=config)
 
         def test_fn(vector):
@@ -275,12 +275,12 @@ class TestHarnessRunWithRetry:
         with harness.step():
             tv = harness.run_with_retry(Vector(_index=0), test_fn)
 
-        assert tv.attempt == 2
+        assert tv.retry == 1  # 0-based: second execution exhausted = retry 1
         assert tv.outcome == Outcome.ERRORED
 
     def test_retry_with_generator(self):
         """Test that yield pattern works with retry."""
-        config = {"retry": {"max_attempts": 2, "delay": 0}}
+        config = {"retry": {"max_retries": 1, "delay": 0}}
         harness = TestHarness(config=config)
 
         def test_fn(vector):
