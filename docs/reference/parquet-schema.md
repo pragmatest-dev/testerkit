@@ -48,8 +48,8 @@ One row per measurement. Every column queryable. All metadata automatic.
 | `run_ended_at` | timestamp | When run ended |
 | `step_name` | string | Test function name |
 | `step_index` | int32 | 0-based step index |
-| `vector_index` | int32 | Vector index within step |
-| `attempt` | int32 | Retry attempt number |
+| `vector_index` | int64 | Vector index within step (flat across all expansion levels) |
+| `vector_retry` | int64 | 0-based retry counter (0 = first execution, N = Nth retry) |
 | `vector_started_at` | timestamp | When vector execution started |
 | `vector_ended_at` | timestamp | When vector execution ended |
 
@@ -467,16 +467,16 @@ WHERE in_vin IS NOT NULL  -- filter to tests that used vin
 
 ## Retry Handling
 
-All retry attempts are stored. Each retry is a separate row with same `vector_index`, different `attempt`:
+All retries are stored. Each retry produces measurement rows with the same `vector_index` and different `vector_retry`:
 
 ```
-vector_index | attempt | measurement_name | value | outcome
-0            | 1       | vout             | 3.50  | fail
-0            | 2       | vout             | 3.48  | fail
-0            | 3       | vout             | 3.30  | pass
+vector_index | vector_retry | measurement_name | value | outcome
+0            | 0            | vout             | 3.50  | fail   ← first execution
+0            | 1            | vout             | 3.48  | fail   ← first retry
+0            | 2            | vout             | 3.30  | pass   ← second retry
 ```
 
-Filter to final attempt with window functions or `WHERE attempt = (SELECT MAX(attempt) ...)`.
+`vector_retry` is **0-based**: `0` is the first execution; `N` is the Nth retry. Filter to the final attempt with `WHERE vector_retry = (SELECT MAX(vector_retry) ...)` or, more idiomatically, query the daemon's `retry_count` rollup on the `steps` view: `WHERE retry_count > 0` finds anything that retried.
 
 ## ATML/IEEE 1671 Alignment
 

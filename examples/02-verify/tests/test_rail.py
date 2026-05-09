@@ -49,10 +49,10 @@ _attempts = [0]
 
 @pytest.mark.litmus_retry(max_retries=2, delay=0.05)
 def test_intermittent_glitch(verify, psu, dmm) -> None:
-    """First attempt raises; retry catches it; second attempt passes.
+    """First execution raises; retry catches it; the retry passes.
 
     ``pytest -v`` shows ``RERUN`` followed by ``PASSED``. Drop the
-    marker and the same test errors out on attempt 1.
+    marker and the same test errors out on the original execution.
     """
     _attempts[0] += 1
     if _attempts[0] == 1:

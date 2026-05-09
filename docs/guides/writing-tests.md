@@ -142,7 +142,7 @@ def test_rails(context, verify, logger, dmm):
 | `litmus_connections(...)`         | Bind to explicit fixture connections or instrument-channel ranges |
 | `litmus_mocks([{target: ..., ...}, ...])` | Patch one or more methods for the test (uses `unittest.mock.patch.object`) |
 | `litmus_prompts(message=...)`      | Manual operator setup at a lifecycle point                    |
-| `litmus_retry(max_attempts=N)`    | Retry on transient failure (translates to `flaky` for pytest) |
+| `litmus_retry(max_retries=N)`     | Retry on transient failure (N retries beyond original; translates to `flaky` for pytest) |
 
 Markers can be authored three ways and all merge into the same cascade:
 

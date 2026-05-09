@@ -113,7 +113,7 @@ Each `verify` / `logger.measure` call produces one measurement row containing:
 | Signal path      | DUT pin, fixture point, instrument name, channel, resource     |
 | DUT              | serial, product, revision, lot                                 |
 | Station          | id, name, type, location                                       |
-| Context          | operator, phase, sequence id, git commit, param values, attempt, timestamp |
+| Context          | operator, phase, sequence id, git commit, param values, retry, timestamp |
 
 All traceability fields are injected by the plugin — the test body only calls `verify(name, v)` or `logger.measure(name, v, ...)`.
 

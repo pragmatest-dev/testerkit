@@ -272,7 +272,7 @@ steps:
     dmm: fast_dmm              # swap in a different DMM for this step
   skip_on: [basic_power]       # skip if power-up failed
   retry:
-    max_attempts: 3
+    max_retries: 2
     delay_seconds: 0.5
 ```
 
@@ -349,7 +349,7 @@ steps:
 - id: load_test
   test: tests/test_power_board.py::test_output_voltage_full_load
   retry:
-    max_attempts: 3
+    max_retries: 2
     delay_seconds: 0.5
 ```
 

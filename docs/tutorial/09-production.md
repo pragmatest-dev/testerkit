@@ -140,7 +140,7 @@ steps:
         high: 3.465
         units: V
     retry:
-      max_attempts: 2
+      max_retries: 1
 ```
 
 ## Sequence Features
@@ -164,7 +164,7 @@ steps:
   - name: flaky_test
     test: test_power_board.test_margin
     retry:
-      max_attempts: 3
+      max_retries: 2
       delay_seconds: 0.5
 ```
 

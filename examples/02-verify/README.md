@@ -12,7 +12,7 @@ unchanged.
 - Added `from litmus.models.test_config import Limit` and one inline
   `Limit(...)` at module level
 - Added `test_intermittent_glitch` decorated with
-  `@pytest.mark.litmus_retry(max_attempts=3, delay=0.05)` — retry
+  `@pytest.mark.litmus_retry(max_retries=2, delay=0.05)` — retry
   on transient failures (VISA timeouts, instrument-not-ready blips)
 
 The `drivers/` folder, the conditional-mock fixture (`mock_instruments`
@@ -61,18 +61,19 @@ Real benches misbehave. VISA timeouts, instrument-not-ready blips,
 thermal-soak races. `litmus_retry` declares a retry budget per test:
 
 ```python
-@pytest.mark.litmus_retry(max_attempts=3, delay=0.05)
+@pytest.mark.litmus_retry(max_retries=2, delay=0.05)
 def test_intermittent_glitch(verify, psu, dmm): ...
 ```
 
 The demo's `test_intermittent_glitch` raises `OSError` on the first
-attempt (a module-level counter forces it). `pytest -v` shows
+execution (a module-level counter forces it). `pytest -v` shows
 `RERUN` then `PASSED` — the marker actually fires.
 
-`max_attempts` is total attempts (1 = no retry); `delay` is seconds
-between attempts; optional `on=[ExceptionName, ...]` narrows which
-exceptions trigger a retry. Translates to
-`@pytest.mark.flaky(reruns=N-1, reruns_delay=...)` so
+`max_retries` counts retries beyond the original execution
+(0 = no retry, 2 = up to 2 retries → 3 total executions). `delay` is
+seconds between retries; optional `on=[ExceptionName, ...]` narrows
+which exceptions trigger a retry. Translates to
+`@pytest.mark.flaky(reruns=max_retries, reruns_delay=...)` so
 pytest-rerunfailures owns the rerun loop. OpenHTF / unittest
 wrappers map to their native retry primitives.
 

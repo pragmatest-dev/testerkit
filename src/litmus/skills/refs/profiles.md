@@ -205,7 +205,7 @@ file, profile, class branch, per-test entry):
 | `mocks`         | list of patch-object dicts         | `@pytest.mark.litmus_mocks([{target: ...}])`      |
 | `specs`         | list of characteristic IDs         | `@pytest.mark.litmus_characteristics(["rail_3v3"])`         |
 | `connections`   | singleton dict                     | `@pytest.mark.litmus_connections(...)`            |
-| `retry`         | singleton dict                     | `@pytest.mark.litmus_retry(max_attempts=3)`       |
+| `retry`         | singleton dict                     | `@pytest.mark.litmus_retry(max_retries=2)`        |
 | `prompts`       | dict by prompt name                | `@pytest.mark.litmus_prompts(setup={...})`        |
 
 Ecosystem markers (`flaky`, `skipif`, `parametrize`, `dependency`, …)

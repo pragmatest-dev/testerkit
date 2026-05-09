@@ -94,7 +94,7 @@ Grouped by category (the same groupings used in `events.py`):
 |---|---|---|
 | `StepsDiscovered` | `test.steps_discovered` | items: list of `{node_id, step_index, vector_index, vector_count_planned, file, module, class_name, function, markers}` — full pytest collection at run start |
 | `StepStarted` | `test.step_started` | step_name, step_index, step_path, parent_path, description, vector_index, inputs (in_*), node_id, file, module, class_name, function |
-| `MeasurementRecorded` | `test.measurement` | step_name, step_index, step_path, vector_index, attempt, measurement_name, measurement_timestamp, value, units, outcome, limit_low/high/nominal/comparator, characteristic_id, spec_ref, dut_pin, fixture_connection, instrument_name/resource/channel, inputs, outputs, custom |
+| `MeasurementRecorded` | `test.measurement` | step_name, step_index, step_path, vector_index, retry, measurement_name, measurement_timestamp, value, units, outcome, limit_low/high/nominal/comparator, characteristic_id, spec_ref, dut_pin, fixture_connection, instrument_name/resource/channel, inputs, outputs, custom |
 | `StepEnded` | `test.step_ended` | step_name, step_index, step_path, parent_path, outcome, vector_index, vector_outcome, inputs, outputs, node_id, file, module, class_name, function |
 | `RecordEvent` | _custom_ | freeform user record |
 
@@ -190,7 +190,7 @@ RUN_ROW_SCHEMA = pa.schema([
     ("step_markers",        pa.string()),
     ("step_vector_count",   pa.int32()),                # 1 for non-swept; N for sweep
     ("vector_index",        pa.int64()),
-    ("vector_attempt",      pa.int64()),                # 1-based; per measurement
+    ("vector_retry",        pa.int64()),                # 0-based; per measurement
     ("vector_started_at",   pa.timestamp("us", tz="UTC")),
     ("vector_ended_at",     pa.timestamp("us", tz="UTC")),
 
@@ -275,7 +275,7 @@ Plus dynamic columns inferred per file:
 
 - Step rows: unique by `(run_id, step_path, vector_index)`
 - Measurement rows: unique by `(run_id, step_path, vector_index, measurement_name)`
-- `vector_attempt` is a **column on measurement rows only**, 1-based, marking retry attempts. The PK does *not* include vector_attempt — retries overwrite the prior attempt's `step_outcome` (final state wins).
+- `vector_retry` is a **column on measurement rows**, **0-based** (0 = first execution, N = Nth retry). The step-row PK does *not* include `vector_retry` today — retried iterations of the same `(step_path, vector_index)` collapse to one row in `steps_persisted` (final state wins). Per-retry step rows are part of the parked redesign in `per-execution-step-records.md`.
 
 ### 2.4 File-level Parquet metadata
 

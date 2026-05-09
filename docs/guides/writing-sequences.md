@@ -112,7 +112,7 @@ steps:
     mocks:
       dmm.measure_dc_voltage: 3.31
     retry:
-      max_attempts: 2
+      max_retries: 1
       delay_seconds: 0.5
 ```
 
@@ -172,7 +172,7 @@ steps:
   - id: flaky_measurement
     test: tests/test_power.py::test_noise_floor
     retry:
-      max_attempts: 3
+      max_retries: 2
       delay_seconds: 0.5
       strategy: on_fail    # always | on_fail | dialog | custom
 ```
@@ -321,7 +321,7 @@ steps:
       test: tests/test_power_board.py::test_power_up
       pre_dialog: confirm_no_shorts
       retry:
-        max_attempts: 2
+        max_retries: 1
         strategy: on_fail
 
     # Voltage rails

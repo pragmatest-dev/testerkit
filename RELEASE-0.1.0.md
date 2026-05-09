@@ -44,16 +44,19 @@ are duplicated here for a single source of truth.
   See `docs/integration/lakehouse-import.md` for canonical recipes
   (DuckDB, Snowflake, BigQuery, Databricks/Delta, Trino/Iceberg,
   Pandas/Polars).
+- [x] **Retry counter naming + base.** Picked 0-based `retry` /
+  `vector_retry` / `max_retries` throughout (commit `f995cd5`). Aligns
+  with STDF `MIR.RTST_COD`, pytest `--reruns N`, software test runner
+  conventions, and the other 0-based multi-execution counters
+  (`vector_index`, planned `loop_index`). Marker semantic shifts:
+  `litmus_retry(max_retries=N)` allows N retries beyond the original
+  (so `max_retries=2` ≡ the old `max_attempts=3`). New `retry_count`
+  rollup column on `steps_persisted` derived from
+  `MAX(vector_retry) FILTER (WHERE record_type = 'measurement')` and
+  surfaced via `StepRow.retry_count` for `WHERE retry_count > 0`
+  filtering.
 
 ## Open — Tier 1 (locks once data or test code exists)
-
-- [ ] **`attempt_count` / `retry_count` decision.** 1-based vs 0-based naming
-  open. Daemon-derived rollup column on `steps_persisted`; flows through
-  to `StepRow` Pydantic model and `/api/runs/{id}/steps` JSON. Format
-  precedent (STDF `RTST_COD`, pytest `--reruns`) leans 0-based; internal
-  precedent (`TestVector.attempt`, `vector_attempt`) is 1-based. Pick
-  one before the StepRow contract goes public. Effort: small (one
-  aggregation column + name decision).
 
 - [ ] **Operator-facing vocabulary sweep.** `@litmus.test`,
   `litmus_characteristics`, `litmus_connections`, `@pytest.mark.litmus_*`,
@@ -111,8 +114,12 @@ These are real concerns but explicitly deferred:
   when the schema commitment becomes load-bearing.
 - **Date-partitioned results directory implementation** (if the layout
   decision lands as "stay flat for 0.1.0, partition opt-in later").
-- **Retry forensics at the events layer** (per-attempt
-  `VectorStarted`/`VectorEnded` events). 0.2.0+ if attempt-level
-  timing becomes load-bearing.
+- **Retry forensics at the events layer** (per-execution
+  `StepStarted`/`StepEnded` events with `retry` field, plus
+  `request.node.execution_count` threading for pytest-rerunfailures
+  visibility). Full design parked at
+  `docs/explorations/per-execution-step-records.md` with implementation
+  plan in `~/.claude/plans/golden-booping-treasure.md`. 0.2.0+ if
+  per-retry timing becomes load-bearing.
 - **Upgrade testing fixture infrastructure.** Starts at 0.2.0 (need a
   v0.1.0 frozen starter project to upgrade *from*).

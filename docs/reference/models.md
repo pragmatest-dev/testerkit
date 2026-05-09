@@ -248,7 +248,7 @@ erDiagram
     }
 
     RetryConfig {
-        int max_attempts
+        int max_retries
         float delay_seconds
         string strategy
         string dialog_ref FK
@@ -315,7 +315,8 @@ erDiagram
         string test_step_id FK
         int index
         dict params
-        int attempt
+        int retry
+        int max_retries
         Outcome outcome
         list stimulus
     }
@@ -641,8 +642,8 @@ A single execution of a test function with specific input parameters.
 | `test_step_id` | `UUID | None` | Parent TestStep ID |
 | `index` | `int` | 0-based index in parameter expansion |
 | `params` | `dict[str, Any]` | Input parameter values (e.g., `{"vin": 5.0, "load": 0.5}`) |
-| `attempt` | `int` | Current attempt number (for retries) |
-| `max_attempts` | `int` | Maximum attempts allowed |
+| `retry` | `int` | 0-based retry counter (0 = first execution, N = Nth retry) |
+| `max_retries` | `int` | Maximum retries allowed (0 = no retries; N = up to N retries beyond original) |
 | `outcome` | `Outcome` | Vector result |
 | `stimulus` | `list[StimulusRecord]` | Input signal paths for traceability |
 | `measurements` | `list[Measurement]` | Values captured in this vector |

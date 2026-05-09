@@ -34,7 +34,7 @@ _attempts = [0]
 
 
 def test_intermittent_glitch(verify, psu, dmm) -> None:
-    """First attempt raises; sidecar's litmus_retry catches it."""
+    """First execution raises; sidecar's litmus_retry catches it."""
     _attempts[0] += 1
     if _attempts[0] == 1:
         raise OSError("simulated VISA timeout")

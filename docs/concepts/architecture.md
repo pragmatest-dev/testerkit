@@ -18,7 +18,7 @@
   │ - limits  │          │ limits     │           │ verify │       │       │
   └───────────┘          │ - per-test │           │ or measure │       └───────┘
                          │ retry      │           └────────────┘
-  stations/*.yaml        │ - attempts │
+  stations/*.yaml        │ - retries  │
   ┌───────────┐          │ dialogs    │
   │ Station   │          │ - prompts  │
   │ - instrs  │          └────────────┘

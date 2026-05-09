@@ -171,7 +171,7 @@ Each item dict contains: `node_id`, `name`, `file`, `module`, `class_name`, `fun
 | `step_index` | int | *required* |
 | `step_path` | str | `""` |
 | `vector_index` | int \| None | |
-| `attempt` | int \| None | |
+| `retry` | int | `0` (0-based: 0 = first execution, N = Nth retry) |
 | `measurement_name` | str | *required* |
 | `measurement_timestamp` | datetime \| None | |
 | `value` | float \| None | |

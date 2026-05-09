@@ -79,7 +79,7 @@ Every `verify()` / `logger.measure()` call creates a record with:
 | **Signal path** | DUT pin, fixture point, instrument name, instrument channel, VISA resource |
 | **DUT** | Serial number, part number, revision, lot number |
 | **Station** | Station ID, name, type, location |
-| **Context** | Operator, test phase, sequence ID, git commit, vector parameters, attempt number, timestamp |
+| **Context** | Operator, test phase, sequence ID, git commit, vector parameters, retry count, timestamp |
 | **Config snapshots** | Station config, product spec, fixture config — frozen at run time for reconstruction |
 
 All stored as Parquet with one row per measurement. Query across runs, instruments, and time periods. Reports export as HTML, PDF, JSON, or CSV.
