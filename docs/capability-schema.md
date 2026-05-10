@@ -1,6 +1,10 @@
 # Capability Schema Reference
 
-Source of truth: `litmus/config/capability.py` (re-exported via `litmus/config/models.py`)
+**Status:** Frozen at `CATALOG_SCHEMA_VERSION = "1.0"` for the 0.1.0 release.
+
+Source of truth: `litmus/models/capability.py` (Pydantic models).
+
+Schema evolution within `1.0` is **additive only**: new optional fields and new enum values are allowed; renames, removals, and type narrowing are not. A real reshape requires bumping `CATALOG_SCHEMA_VERSION` and shipping a migration tool — likely a 1.0+ event. This keeps every catalog YAML in user repos readable across future patch / minor 0.x releases.
 
 ## Capability Structure
 

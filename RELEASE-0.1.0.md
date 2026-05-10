@@ -78,28 +78,27 @@ locked yet.
   `litmus/_docs/` for the in-app `/docs/...` browser. `audits/`,
   `explorations/`, and contributor-only material correctly excluded.
   Commit `092e2ba`.
+- [x] **Cut transports + public `EventSubscriber` protocol +
+  non-parquet exporters** (the "three stores only" decision).
+  Removed ~2200 LoC of public surface; kept `litmus export` as
+  internal CLI machinery (private subscribers + replay). Cloud
+  destinations defer to consumer-side recipes in
+  `docs/integration/lakehouse-import.md`. Commit `145c89e`.
+- [x] **MCP tool-surface review + naming convention.** Reviewed
+  the 12 MCP tools, written naming convention into
+  `mcp/server.py` module docstring, renamed bare `litmus` →
+  `litmus_project` for explicit scope. Other 11 names already
+  follow the convention (snake_case `litmus_<verb>` for actions,
+  `litmus_<noun>` for domain-scoped read tools). Commit `27cfbe4`.
+- [x] **Catalog schema freeze.** Pinned at `CATALOG_SCHEMA_VERSION
+  = "1.0"` in `src/litmus/models/capability.py`. Additive-only
+  evolution within 1.0; rename / removal / type narrowing
+  forbidden. `docs/capability-schema.md` declares the freeze
+  status. `tests/test_catalog/test_loader.py::TestSchemaVersion`
+  enforces the pin — bumping requires a deliberate migration plan.
 
 ## Open — Tier 1 (must land before 0.1.0 tag)
 
-- [ ] **Cut transports + public `EventSubscriber` protocol + non-
-  parquet exporters** (the "three stores only" decision). Removes
-  ~800 LoC of public surface that locks in if shipped. Specifically:
-  delete `data/transports/`, `data/exporters/{stdf,hdf5,tdms,mdf4,
-  atml,csv_exporter,json_exporter}.py`; remove `litmus.subscribers`
-  entry-point; remove `litmus.yaml outputs:` config; remove `[stdf]`
-  / `[hdf5]` / `[tdms]` / `[mdf4]` / `[s3]` / `[gcs]` / `[azure]` /
-  `[sftp]` / `all-exporters` extras. Keeps `reports/core.py` for
-  post-hoc `litmus show -f X` rendering.
-- [ ] **MCP tool-surface review + naming convention.** Tool names +
-  schemas + descriptions are part of the LLM prompt; renames break
-  deployed agents disproportionately even pre-1.0. Pick names
-  deliberately *now* before early adopters wire agents around them.
-  Pair with a written naming convention (snake_case verbs, domain-
-  scoped prefixes like `runs.list`). Effort: small.
-- [ ] **Catalog schema freeze.** Catalog YAML still being shaped via
-  `/catalog-from-datasheet`. Pin the shape; stop iterating. Field
-  renames after 0.1.0 break every catalog YAML in user repos.
-  Effort: medium.
 - [ ] **Operator-facing vocabulary sweep — continuation.** `@litmus.test`,
   `litmus_characteristics`, `litmus_connections`, `@pytest.mark.
   litmus_*`. `data_dir` rename was the first slice; one fresh-eyes

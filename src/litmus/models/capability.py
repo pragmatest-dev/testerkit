@@ -3,6 +3,20 @@
 Signal/Capability hierarchy: describes what an instrument or product
 can measure/source, with typed parameter dictionaries for signals,
 conditions, controls, and attributes.
+
+Schema versioning
+-----------------
+
+``CATALOG_SCHEMA_VERSION`` pins the on-disk shape that catalog YAML
+files must conform to. The schema is **frozen at "1.0"** for the
+0.1.0 release: field renames, removals, and type narrowing in the
+models below would break every catalog YAML in user repos and are
+not allowed in additive 0.x evolution. New optional fields are fine
+(consumers ignore unknown values via Pydantic's ``extra="ignore"``
+default for additive cases). A real reshape requires bumping
+``CATALOG_SCHEMA_VERSION`` and shipping a migration tool — likely a
+1.0+ event. Mirrors ``litmus.data.schemas.SCHEMA_VERSION`` for the
+parquet artifact.
 """
 
 from __future__ import annotations
@@ -20,6 +34,8 @@ from litmus.models.enums import (
     TerminalRole,
 )
 from litmus.utils.ranges import expand_range
+
+CATALOG_SCHEMA_VERSION = "1.0"
 
 # =============================================================================
 # Spec-level models

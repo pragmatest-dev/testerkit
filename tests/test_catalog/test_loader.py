@@ -5,10 +5,26 @@ from textwrap import dedent
 
 import pytest
 
+from litmus.models.capability import CATALOG_SCHEMA_VERSION
 from litmus.models.enums import Direction, MeasurementFunction
 from litmus.store import load_catalog_entry, load_catalog_from_directory
 
 CATALOG_DIR = Path(__file__).parent.parent.parent / "src" / "litmus" / "catalog" / "generic"
+
+
+class TestSchemaVersion:
+    """Pin the catalog schema version. Bumping requires a deliberate migration plan."""
+
+    def test_schema_version_pinned(self):
+        """``CATALOG_SCHEMA_VERSION`` is the public freeze marker for catalog YAML.
+
+        Bumping this constant means a real schema reshape that breaks
+        every existing catalog YAML in user repos. Pre-1.0, additive
+        evolution within ``"1.0"`` is the contract. If this test fails,
+        you intend to do a breaking schema reshape — pair it with a
+        migration tool and a release-note callout.
+        """
+        assert CATALOG_SCHEMA_VERSION == "1.0"
 
 
 class TestLoadCatalogEntry:
