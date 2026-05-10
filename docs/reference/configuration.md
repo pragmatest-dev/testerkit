@@ -378,7 +378,7 @@ Chains are supported (A → B → C) up to depth 5. Circular references raise `V
 
 ```yaml
 name: string                  # Required — project identifier
-results_dir: string           # Optional — override default results directory
+data_dir: string           # Optional — override default results directory
 default_station: string       # Default station for sessions (default: "station")
 default_fixture: string       # Optional default fixture
 mock_instruments: bool        # Force mock mode for all instruments (default: false)

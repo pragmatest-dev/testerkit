@@ -2,7 +2,7 @@
 
 Inner pytest invocations inherit our ``LITMUS_HOME`` (set in
 ``conftest.py``) so they write to the canonical singleton
-results_dir — no per-test ``--results-dir`` override. Per-test
+data_dir — no per-test ``--data-dir`` override. Per-test
 isolation is by unique ``--dut-serial``; we read back the
 parquet by filtering on that.
 """
@@ -13,13 +13,13 @@ from uuid import uuid4
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 
 pytest_plugins = ["pytester"]
 
 
 # Resolved via the repo's ``litmus.yaml`` → project-local store.
-_CANONICAL_RESULTS = resolve_results_dir()
+_CANONICAL_RESULTS = resolve_data_dir()
 
 
 def _find_parquet_by_serial(dut_serial: str) -> Path | None:

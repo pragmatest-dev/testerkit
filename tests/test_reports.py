@@ -4,7 +4,7 @@ Storage: canonical singleton (project-local via repo's
 ``litmus.yaml`` → ``<repo>/results/``). Per-test isolation is by
 unique ``run_id`` (each ``sample_run`` mints a uuid4). Tests read
 back through ``load_run_data(run_id)`` with no explicit
-``results_dir`` so resolution falls through to the canonical
+``data_dir`` so resolution falls through to the canonical
 store the daemon already serves.
 """
 
@@ -16,8 +16,8 @@ from uuid import uuid4
 import pytest
 
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
-from litmus.data.results_dir import resolve_results_dir
 from litmus.data.run_store import RunStore
 from litmus.reports.core import (
     generate_report,
@@ -92,8 +92,8 @@ def sample_run():
 
 
 @pytest.fixture
-def results_dir(sample_run):
-    """Save sample run to the canonical results_dir.
+def data_dir(sample_run):
+    """Save sample run to the canonical data_dir.
 
     Per-test isolation is via the ``sample_run.id`` (uuid4) which
     is the parquet filename's run_id segment. Notifying the
@@ -101,8 +101,8 @@ def results_dir(sample_run):
     ``LITMUS_SKIP_DAEMON_NOTIFY``) so ``load_run_data`` can find
     the run via the daemon's index.
     """
-    rd = resolve_results_dir()
-    backend = ParquetBackend(results_dir=rd)
+    rd = resolve_data_dir()
+    backend = ParquetBackend(data_dir=rd)
     parquet_path = backend.save_test_run(sample_run)
     notifier = RunStore()
     try:
@@ -118,8 +118,8 @@ def run_id(sample_run):
 
 
 class TestLoadRunData:
-    def test_basic_fields(self, results_dir, run_id):
-        data = load_run_data(run_id, str(results_dir))
+    def test_basic_fields(self, data_dir, run_id):
+        data = load_run_data(run_id, str(data_dir))
         assert data.run_id == run_id
         assert data.dut_serial == "SN-001"
         assert data.station_id == "bench_01"
@@ -127,26 +127,26 @@ class TestLoadRunData:
         assert data.operator_id == "test_op"
         assert data.git_commit == "abc123"
 
-    def test_measurement_stats(self, results_dir, run_id):
-        data = load_run_data(run_id, str(results_dir))
+    def test_measurement_stats(self, data_dir, run_id):
+        data = load_run_data(run_id, str(data_dir))
         assert data.total_measurements == 3
         assert data.passed_measurements == 2
         assert data.failed_measurements == 1
         assert data.pass_rate == 66.7
 
-    def test_step_names(self, results_dir, run_id):
-        data = load_run_data(run_id, str(results_dir))
+    def test_step_names(self, data_dir, run_id):
+        data = load_run_data(run_id, str(data_dir))
         assert "test_voltage" in data.step_names
         assert "test_current" in data.step_names
 
-    def test_not_found(self, results_dir):
+    def test_not_found(self, data_dir):
         with pytest.raises(FileNotFoundError):
-            load_run_data("nonexistent", str(results_dir))
+            load_run_data("nonexistent", str(data_dir))
 
 
 class TestGenerateReport:
-    def test_json(self, results_dir, run_id, tmp_path):
-        data = load_run_data(run_id, str(results_dir))
+    def test_json(self, data_dir, run_id, tmp_path):
+        data = load_run_data(run_id, str(data_dir))
         out = generate_report(data, tmp_path / "report.json", fmt="json")
         assert out.exists()
         obj = json.loads(out.read_text())
@@ -156,16 +156,16 @@ class TestGenerateReport:
         assert obj["dut"]["serial"] == "SN-001"
         assert len(obj["measurements"]) == 3
 
-    def test_csv(self, results_dir, run_id, tmp_path):
-        data = load_run_data(run_id, str(results_dir))
+    def test_csv(self, data_dir, run_id, tmp_path):
+        data = load_run_data(run_id, str(data_dir))
         out = generate_report(data, tmp_path / "report.csv", fmt="csv")
         assert out.exists()
         lines = out.read_text().strip().split("\n")
         assert len(lines) == 4  # header + 3 measurements
         assert "measurement_name" in lines[0]
 
-    def test_html(self, results_dir, run_id, tmp_path):
-        data = load_run_data(run_id, str(results_dir))
+    def test_html(self, data_dir, run_id, tmp_path):
+        data = load_run_data(run_id, str(data_dir))
         out = generate_report(data, tmp_path / "report.html", fmt="html")
         assert out.exists()
         html = out.read_text()
@@ -173,16 +173,16 @@ class TestGenerateReport:
         assert "SN-001" in html
         assert "vout" in html
 
-    def test_directory_output(self, results_dir, run_id, tmp_path):
-        data = load_run_data(run_id, str(results_dir))
+    def test_directory_output(self, data_dir, run_id, tmp_path):
+        data = load_run_data(run_id, str(data_dir))
         out_dir = tmp_path / "reports"
         out = generate_report(data, out_dir, fmt="json")
         assert out.parent == out_dir
         assert out.suffix == ".json"
 
-    def test_pdf_requires_weasyprint(self, results_dir, run_id, tmp_path):
+    def test_pdf_requires_weasyprint(self, data_dir, run_id, tmp_path):
         """PDF generation requires weasyprint — test import error handling."""
-        data = load_run_data(run_id, str(results_dir))
+        data = load_run_data(run_id, str(data_dir))
         try:
             import weasyprint  # noqa: F401
 
@@ -194,8 +194,8 @@ class TestGenerateReport:
 
 
 class TestTemplateResolution:
-    def test_project_template_overrides(self, results_dir, run_id, tmp_path):
-        data = load_run_data(run_id, str(results_dir))
+    def test_project_template_overrides(self, data_dir, run_id, tmp_path):
+        data = load_run_data(run_id, str(data_dir))
 
         # Create a project template
         tmpl_dir = tmp_path / "templates"
@@ -213,8 +213,8 @@ class TestTemplateResolution:
         assert "Custom:" in html
         assert run_id in html
 
-    def test_missing_template_raises(self, results_dir, run_id, tmp_path):
-        data = load_run_data(run_id, str(results_dir))
+    def test_missing_template_raises(self, data_dir, run_id, tmp_path):
+        data = load_run_data(run_id, str(data_dir))
         with pytest.raises(FileNotFoundError, match="nonexistent"):
             generate_report(data, tmp_path / "report.html", fmt="html", template="nonexistent")
 
@@ -224,23 +224,23 @@ class TestProjectConfig:
         from litmus.store import load_project_config
 
         config = load_project_config(tmp_path)
-        assert config.results_dir is None
+        assert config.data_dir is None
         assert config.outputs == []
 
     def test_load_valid(self, tmp_path):
         from litmus.store import load_project_config
 
         (tmp_path / "litmus.yaml").write_text(
-            "name: test\nresults_dir: my_results\noutputs:\n  - format: html\n"
+            "name: test\ndata_dir: my_results\noutputs:\n  - format: html\n"
         )
         config = load_project_config(tmp_path)
-        assert config.results_dir == "my_results"
+        assert config.data_dir == "my_results"
         assert len(config.outputs) == 1
         assert config.outputs[0].format == "html"
 
 
 class TestCLI:
-    def test_show_with_format(self, results_dir, run_id, tmp_path):
+    def test_show_with_format(self, data_dir, run_id, tmp_path):
         from click.testing import CliRunner
 
         from litmus.cli import main
@@ -252,8 +252,8 @@ class TestCLI:
             [
                 "show",
                 run_id,
-                "--results-dir",
-                str(results_dir),
+                "--data-dir",
+                str(data_dir),
                 "-f",
                 "json",
                 "-o",
@@ -264,7 +264,7 @@ class TestCLI:
         assert "Report generated" in result.output
         assert Path(out_file).exists()
 
-    def test_show_terminal(self, results_dir, run_id):
+    def test_show_terminal(self, data_dir, run_id):
         from click.testing import CliRunner
 
         from litmus.cli import main
@@ -275,8 +275,8 @@ class TestCLI:
             [
                 "show",
                 run_id,
-                "--results-dir",
-                str(results_dir),
+                "--data-dir",
+                str(data_dir),
             ],
         )
         assert result.exit_code == 0

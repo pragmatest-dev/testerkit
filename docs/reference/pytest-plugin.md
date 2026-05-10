@@ -282,7 +282,7 @@ pytest tests/ \
   --dut-serial=SN12345 \         # DUT serial number (default: DUT001)
   --station=bench_1 \            # Station ID (default: station)
   --operator="Jane Doe" \        # Operator name
-  --results-dir=./results \      # Results directory (default: results)
+  --data-dir=./results \      # Results directory (default: results)
   --mock-instruments \           # Use mock instruments instead of real hardware
   --product=products/x.yaml \  # Path to product spec YAML
   --guardband=10 \               # Default guardband percentage (default: 0)
@@ -297,7 +297,7 @@ pytest tests/ \
 | `--dut-serial` | `DUT001` | DUT serial number |
 | `--station` | `station` | Station ID |
 | `--operator` | `None` | Operator name |
-| `--results-dir` | `results` | Directory for Parquet results |
+| `--data-dir` | `results` | Directory for Parquet results |
 | `--mock-instruments` | `False` | Use mock instruments instead of real hardware |
 | `--product` | `None` | Path to product spec YAML file |
 | `--guardband` | `0` | Default guardband percentage |

@@ -87,11 +87,11 @@ async def results_page() -> None:
 
         await refresh()
 
+        from litmus.data.data_dir import resolve_data_dir
         from litmus.data.event_store import EventStore
-        from litmus.data.results_dir import resolve_results_dir
 
         try:
-            event_store = EventStore.get_shared(resolve_results_dir())
+            event_store = EventStore.get_shared(resolve_data_dir())
             subscribe_with_refresh(event_store, ["run.started", "run.ended"], refresh)
         except (OSError, RuntimeError) as exc:
             logger.warning("Live updates unavailable: %s", exc)

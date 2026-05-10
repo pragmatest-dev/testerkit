@@ -1,5 +1,5 @@
 name: station-catalog-example
-results_dir: results   # keep example results local — don't pollute global
+data_dir: data   # keep example data local — don't pollute global
 default_station: bench_01
 default_fixture: buck_3v3_bench
 mock_instruments: true

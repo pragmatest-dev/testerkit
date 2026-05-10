@@ -313,7 +313,7 @@ def build_run_view(
 def load_run_view(
     run_id: str,
     *,
-    results_dir: Path | str | None = None,
+    data_dir: Path | str | None = None,
 ) -> RunView | None:
     """Compose a RunView for ``run_id`` from typed queries + measurements.
 
@@ -331,8 +331,8 @@ def load_run_view(
     from litmus.analysis.steps_query import StepsQuery
     from litmus.data.backends.parquet import ParquetBackend
 
-    runs_q = RunsQuery(_results_dir=results_dir)
-    steps_q = StepsQuery(_results_dir=results_dir)
+    runs_q = RunsQuery(_data_dir=data_dir)
+    steps_q = StepsQuery(_data_dir=data_dir)
     try:
         run = runs_q.get(run_id)
         if run is None:
@@ -342,6 +342,6 @@ def load_run_view(
         runs_q.close()
         steps_q.close()
 
-    backend = ParquetBackend(results_dir=results_dir)
+    backend = ParquetBackend(data_dir=data_dir)
     measurement_rows = backend.get_measurements(run_id)
     return build_run_view(run, steps, measurement_rows)

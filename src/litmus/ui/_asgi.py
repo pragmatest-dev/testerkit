@@ -164,9 +164,9 @@ def _hold_serve_level_daemon_refs() -> None:
     from litmus.data import duckdb_manager as _events_mgr
     from litmus.data import runs_duckdb_manager as _runs_mgr
     from litmus.data.channels import flight_manager as _channels_mgr
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
 
-    results = Path(resolve_results_dir())
+    results = Path(resolve_data_dir())
     runs_dir = results / "runs"
     events_dir = results / "events"
     channels_dir = results / "channels"

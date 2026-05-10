@@ -210,7 +210,7 @@ def instruments(station, request):
 # litmus.yaml
 project:
   name: "My Existing Project"
-  results_dir: "results"
+  data_dir: "results"
 
 defaults:
   station: "bench_1"

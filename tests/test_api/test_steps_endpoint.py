@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from litmus.api.app import create_api_router
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import (
     DUT,
     Measurement,
@@ -26,7 +27,6 @@ from litmus.data.models import (
     TestStep,
     TestVector,
 )
-from litmus.data.results_dir import resolve_results_dir
 from litmus.data.run_store import RunStore
 
 
@@ -69,8 +69,8 @@ def client_with_nested_run():
             ("current", "power/current"),
         ],
     )
-    results_root = resolve_results_dir()
-    backend = ParquetBackend(results_dir=results_root)
+    results_root = resolve_data_dir()
+    backend = ParquetBackend(data_dir=results_root)
     parquet_path = backend.save_test_run(run)
 
     # Notify the canonical daemon directly so the typed queries

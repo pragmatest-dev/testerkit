@@ -1,6 +1,6 @@
 """Tests for StationConnection and litmus.connect().
 
-Storage is the canonical singleton results_dir — every test writes
+Storage is the canonical singleton data_dir — every test writes
 events to the same shared events daemon. Per-test isolation is by
 ``session_id`` (the per-process EventStore stamps a unique session
 on each ``StationConnection``), not by directory. Tests read back
@@ -21,17 +21,17 @@ import pyarrow.ipc as ipc
 import pytest
 
 from litmus.connect import StationConnection
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 from litmus.models.station import StationConfig, StationInstrumentConfig
 
-# Canonical results dir — resolved through the project's
+# Canonical data dir — resolved through the project's
 # ``litmus.yaml`` (at repo root) so storage stays project-local
-# (``<repo>/.tmp/test-results``) instead of polluting the global
-# ``~/.local/share/litmus/results`` store. ``resolve_results_dir``
+# (``<repo>/data``) instead of polluting the global
+# ``~/.local/share/litmus/data`` store. ``resolve_data_dir``
 # walks CWD ancestors for ``litmus.yaml`` and returns its
-# ``results_dir`` field; here CWD is the repo root because pytest
+# ``data_dir`` field; here CWD is the repo root because pytest
 # is invoked from there.
-_CANONICAL_RESULTS = resolve_results_dir()
+_CANONICAL_DATA = resolve_data_dir()
 
 
 def _read_events_from_ipc(path: Path) -> list[dict]:
@@ -71,13 +71,13 @@ _ = _use_tmp_dirs
 class TestStationConnection:
     def test_context_manager(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        with StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True) as conn:
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=True) as conn:
             assert conn.session_id is not None
             assert isinstance(conn.session_id, UUID)
 
     def test_start_stop(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        conn = StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True)
+        conn = StationConnection(station, data_dir=_CANONICAL_DATA, mock=True)
         conn.start()
         assert conn.event_log is not None
         conn.stop()
@@ -85,7 +85,7 @@ class TestStationConnection:
 
     def test_instrument_connect_release(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        conn = StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True)
+        conn = StationConnection(station, data_dir=_CANONICAL_DATA, mock=True)
         conn.start()
 
         dmm = conn.instrument("dmm")
@@ -98,7 +98,7 @@ class TestStationConnection:
 
     def test_instrument_not_found(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        conn = StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True)
+        conn = StationConnection(station, data_dir=_CANONICAL_DATA, mock=True)
         conn.start()
 
         with pytest.raises(KeyError, match="psu"):
@@ -108,7 +108,7 @@ class TestStationConnection:
 
     def test_events_emitted(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        with StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True) as conn:
+        with StationConnection(station, data_dir=_CANONICAL_DATA, mock=True) as conn:
             conn.instrument("dmm")
             conn.release("dmm")
             assert conn.event_log is not None
@@ -123,7 +123,7 @@ class TestStationConnection:
 
     def test_stop_releases_all_instruments(self):
         station = _make_station(dmm="GPIB::16::INSTR", psu="GPIB::17::INSTR")
-        conn = StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True)
+        conn = StationConnection(station, data_dir=_CANONICAL_DATA, mock=True)
         conn.start()
         conn.instrument("dmm")
         conn.instrument("psu")
@@ -133,7 +133,7 @@ class TestStationConnection:
 
     def test_auto_start_on_instrument(self):
         station = _make_station(dmm="GPIB::16::INSTR")
-        conn = StationConnection(station, results_dir=_CANONICAL_RESULTS, mock=True)
+        conn = StationConnection(station, data_dir=_CANONICAL_DATA, mock=True)
         # Don't call start() explicitly
         dmm = conn.instrument("dmm")
         assert dmm is not None
@@ -146,7 +146,7 @@ class TestStationConnection:
         with pytest.raises(ValueError):
             with StationConnection(
                 station,
-                results_dir=_CANONICAL_RESULTS,
+                data_dir=_CANONICAL_DATA,
                 mock=True,
             ) as conn:
                 assert conn.event_log is not None
@@ -166,7 +166,7 @@ class TestSessionStartedFields:
         station = _make_station()
         with StationConnection(
             station,
-            results_dir=_CANONICAL_RESULTS,
+            data_dir=_CANONICAL_DATA,
             mock=True,
         ) as conn:
             assert conn.event_log is not None
@@ -180,7 +180,7 @@ class TestSessionStartedFields:
         station = _make_station()
         with StationConnection(
             station,
-            results_dir=_CANONICAL_RESULTS,
+            data_dir=_CANONICAL_DATA,
             mock=True,
         ) as conn:
             assert conn.event_log is not None
@@ -194,7 +194,7 @@ class TestSessionStartedFields:
         station = _make_station()
         with StationConnection(
             station,
-            results_dir=_CANONICAL_RESULTS,
+            data_dir=_CANONICAL_DATA,
             mock=True,
         ) as conn:
             assert conn.event_log is not None
@@ -208,7 +208,7 @@ class TestSessionStartedFields:
         station = _make_station()
         with StationConnection(
             station,
-            results_dir=_CANONICAL_RESULTS,
+            data_dir=_CANONICAL_DATA,
             mock=True,
         ) as conn:
             assert conn.event_log is not None
@@ -223,7 +223,7 @@ class TestSessionStartedFields:
         station = _make_station(dmm="GPIB::16::INSTR")
         with StationConnection(
             station,
-            results_dir=_CANONICAL_RESULTS,
+            data_dir=_CANONICAL_DATA,
             mock=True,
         ) as conn:
             conn.instrument("dmm")

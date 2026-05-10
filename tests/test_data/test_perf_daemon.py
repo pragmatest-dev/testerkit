@@ -30,7 +30,7 @@ from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.analysis.runs_query import RunsQuery
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import _drop_pooled_client
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,7 +39,7 @@ from litmus.data.results_dir import resolve_results_dir
 
 def _kill_daemon() -> None:
     """Terminate the runs daemon so the next acquire() spawns a fresh one."""
-    state = resolve_results_dir() / "runs" / "_runs_duckdb.json"
+    state = resolve_data_dir() / "runs" / "_runs_duckdb.json"
     if not state.exists():
         return
     try:
@@ -69,7 +69,7 @@ def _ensure_daemon_live() -> str:
     """
     from litmus.data.runs_duckdb_manager import _flight_probe
 
-    runs_dir = resolve_results_dir() / "runs"
+    runs_dir = resolve_data_dir() / "runs"
     for _attempt in range(2):
         location = runs_duckdb_manager.acquire(runs_dir)
         _drop_pooled_client(location)
@@ -94,7 +94,7 @@ def test_daemon_spawn_time(benchmark):
 
     def _spawn():
         _kill_daemon()
-        runs_dir = resolve_results_dir() / "runs"
+        runs_dir = resolve_data_dir() / "runs"
         t0 = time.perf_counter()
         location = runs_duckdb_manager.acquire(runs_dir)
         ms = (time.perf_counter() - t0) * 1000

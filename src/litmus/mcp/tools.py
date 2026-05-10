@@ -362,8 +362,8 @@ def _list_runs(project: str) -> list[dict[str, Any]]:
     """List recent test runs (typed RunRow rows from RunsQuery)."""
     from litmus.analysis.runs_query import RunsQuery
 
-    results_dir = str(get_project_root(project) / "results")
-    q = RunsQuery(_results_dir=results_dir)
+    data_dir = str(get_project_root(project) / "results")
+    q = RunsQuery(_data_dir=data_dir)
     try:
         return [r.model_dump(exclude={"file_path"}) for r in q.list_recent(limit=50)]
     finally:
@@ -468,8 +468,8 @@ def _get_run(run_id: str, project: str) -> dict[str, Any]:
     """Get test run details — typed run+steps+measurements composition."""
     from litmus.api.schemas import load_run_view
 
-    results_dir = str(get_project_root(project) / "results")
-    view = load_run_view(run_id, results_dir=results_dir)
+    data_dir = str(get_project_root(project) / "results")
+    view = load_run_view(run_id, data_dir=data_dir)
     if view is None:
         return {"error": f"Run '{run_id}' not found"}
     return view.model_dump(mode="json")
@@ -1123,7 +1123,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
         *test_targets,
         f"--dut-serial={serial}",
         f"--station={station}",
-        "--results-dir=results",
+        "--data-dir=results",
         "-v",
         "--tb=short",
         "--mock-instruments",
@@ -1157,7 +1157,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
         # Get run_id from results
         from litmus.data.backends.parquet import ParquetBackend
 
-        backend = ParquetBackend(results_dir=str(root / "results"))
+        backend = ParquetBackend(data_dir=str(root / "results"))
         recent_runs = backend.list_runs(limit=1)
         run_id = recent_runs[0].test_run_id or "unknown" if recent_runs else "unknown"
 
@@ -1204,7 +1204,7 @@ def open_tool(entity_type: str, id: str, base_url: str = "http://localhost:8000"
     }
 
 
-def _resolve_results_dir(project: str | None) -> Path | None:
+def _resolve_data_dir(project: str | None) -> Path | None:
     """Resolve results dir from a project path."""
     if project:
         return get_project_root(project) / "results"
@@ -1218,7 +1218,7 @@ def events_query(
     since: str | None = None,
     limit: int = 100,
     *,
-    results_dir: Path | None = None,
+    data_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Query events from the event store.
 
@@ -1230,11 +1230,11 @@ def events_query(
         role: Filter by instrument role.
         since: ISO timestamp — only events after this time.
         limit: Max events to return (default 100).
-        results_dir: Explicit results directory (takes precedence).
+        data_dir: Explicit results directory (takes precedence).
     """
     from litmus.data.event_store import EventStore
 
-    store = EventStore(_results_dir=results_dir)
+    store = EventStore(_data_dir=data_dir)
     try:
         since_dt = datetime.fromisoformat(since) if since else None
         sid = UUID(session_id) if session_id else None
@@ -1256,14 +1256,14 @@ def events_query(
         store.close()
 
 
-def sessions_query(*, results_dir: Path | None = None) -> dict[str, Any]:
+def sessions_query(*, data_dir: Path | None = None) -> dict[str, Any]:
     """List known sessions with metadata from SessionStarted events.
 
     Shared implementation for HTTP API and MCP tool.
     """
     from litmus.data.event_store import EventStore
 
-    store = EventStore(_results_dir=results_dir)
+    store = EventStore(_data_dir=data_dir)
     try:
         sessions = store.sessions()
         return {"sessions": sessions, "count": len(sessions)}
@@ -1274,7 +1274,7 @@ def sessions_query(*, results_dir: Path | None = None) -> dict[str, Any]:
 def session_detail_query(
     session_id: str,
     *,
-    results_dir: Path | None = None,
+    data_dir: Path | None = None,
 ) -> dict[str, Any] | None:
     """Get events for a specific session.
 
@@ -1285,7 +1285,7 @@ def session_detail_query(
 
     from litmus.data.event_store import EventStore
 
-    store = EventStore(_results_dir=results_dir)
+    store = EventStore(_data_dir=data_dir)
     try:
         sid = UUID(session_id)
         events = store.events(session_id=sid)
@@ -1304,16 +1304,16 @@ def channels_query(
     last_n: int | None = None,
     max_points: int | None = None,
     *,
-    results_dir: Path | None = None,
+    data_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Query channel data from the channel store.
 
     Shared implementation for HTTP API and MCP tool.
     """
     from litmus.data.channels.store import ChannelStore
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
 
-    base = results_dir if results_dir else resolve_results_dir()
+    base = data_dir if data_dir else resolve_data_dir()
     if not (base / "channels").exists():
         return {"channel_id": channel_id, "data": []}
 
@@ -1331,14 +1331,14 @@ def channels_query(
     return {"channel_id": channel_id, "data": table.to_pylist()}
 
 
-def channels_list_query(*, results_dir: Path | None = None) -> dict[str, Any]:
+def channels_list_query(*, data_dir: Path | None = None) -> dict[str, Any]:
     """List known channels from the channel registry.
 
     Shared implementation for HTTP API and MCP tool.
     """
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
 
-    base = results_dir if results_dir else resolve_results_dir()
+    base = data_dir if data_dir else resolve_data_dir()
     registry_path = base / "channels" / "_registry.json"
     if not registry_path.exists():
         return {"channels": {}}
@@ -1348,7 +1348,7 @@ def channels_list_query(*, results_dir: Path | None = None) -> dict[str, Any]:
 def channels_recent_query(
     *,
     last_n: int = 50,
-    results_dir: Path | None = None,
+    data_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Registry + recent samples per channel for live dashboards.
 
@@ -1363,9 +1363,9 @@ def channels_recent_query(
     capture; the array contents themselves aren't sparkline-friendly).
     """
     from litmus.data.channels.store import ChannelStore
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
 
-    base = results_dir if results_dir else resolve_results_dir()
+    base = data_dir if data_dir else resolve_data_dir()
     registry_path = base / "channels" / "_registry.json"
     if not (base / "channels").exists() or not registry_path.exists():
         return {"channels": {}}
@@ -1445,7 +1445,7 @@ def _channel_row_scalar(row: dict[str, Any]) -> Any:
     return None
 
 
-# Thin wrappers for MCP tools (resolve project → results_dir)
+# Thin wrappers for MCP tools (resolve project → data_dir)
 
 
 def events_tool(
@@ -1463,13 +1463,13 @@ def events_tool(
         role,
         since,
         limit,
-        results_dir=_resolve_results_dir(project),
+        data_dir=_resolve_data_dir(project),
     )
 
 
 def sessions_tool(project: str | None = None) -> dict[str, Any]:
     """List known sessions (MCP tool wrapper)."""
-    return sessions_query(results_dir=_resolve_results_dir(project))
+    return sessions_query(data_dir=_resolve_data_dir(project))
 
 
 def channels_tool(
@@ -1485,7 +1485,7 @@ def channels_tool(
         session_id=session_id,
         last_n=last_n,
         max_points=max_points,
-        results_dir=_resolve_results_dir(project),
+        data_dir=_resolve_data_dir(project),
     )
 
 
@@ -1504,7 +1504,7 @@ def steps_tool(
     """
     from litmus.analysis.steps_query import StepsQuery
 
-    q = StepsQuery(_results_dir=_resolve_results_dir(project))
+    q = StepsQuery(_data_dir=_resolve_data_dir(project))
     try:
         if action == "tree":
             return {"tree": [n.model_dump(mode="json") for n in q.tree_for_run(run_id)]}
@@ -1530,7 +1530,7 @@ def runs_tool(
     """
     from litmus.analysis.runs_query import RunsQuery
 
-    q = RunsQuery(_results_dir=_resolve_results_dir(project))
+    q = RunsQuery(_data_dir=_resolve_data_dir(project))
     try:
         if action == "get":
             if not run_id:
@@ -1622,8 +1622,8 @@ def metrics_tool(
 
     from litmus.analysis.measurements_query import MeasurementsQuery
 
-    results_dir = _resolve_results_dir(project)
-    store = MeasurementsQuery(_results_dir=results_dir)
+    data_dir = _resolve_data_dir(project)
+    store = MeasurementsQuery(_data_dir=data_dir)
 
     kwargs: dict[str, Any] = {
         "product": product,

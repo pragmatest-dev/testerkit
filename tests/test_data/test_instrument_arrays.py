@@ -183,7 +183,7 @@ class TestEmptyRowSchemaMatches:
         """_build_run_row should have same step_instruments_* keys as build_instrument_arrays."""
         from litmus.data.backends.parquet import ParquetBackend
 
-        backend = ParquetBackend(results_dir="/tmp/litmus_test_run_row")
+        backend = ParquetBackend(data_dir="/tmp/litmus_test_run_row")
 
         test_run = TestRun(
             dut=DUT(serial="SN001"),
@@ -206,7 +206,7 @@ class TestParquetRoundTrip:
         """Save TestRun with instrument_arrays, read back, verify columns."""
         from litmus.data.backends.parquet import ParquetBackend
 
-        backend = ParquetBackend(results_dir=tmp_path)
+        backend = ParquetBackend(data_dir=tmp_path)
 
         # Build a test run with a step that has instrument arrays
         test_run = TestRun(

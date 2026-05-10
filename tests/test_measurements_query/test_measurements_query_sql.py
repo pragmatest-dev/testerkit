@@ -21,7 +21,7 @@ from litmus.analysis.measurement_facets import FilterSet, HistogramRow, Parametr
 from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.analysis.metrics import calculate_cpk, calculate_fpy
 from litmus.data.backends._row_helpers import MeasurementRow
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import _build_write_schema, table_from_rows
 
@@ -98,7 +98,7 @@ def fixture_data() -> dict[str, str]:
     SN002: run-2 fail, run-4 pass (first pass = fail, final = pass)
     """
     product = f"TEST-MQS-{uuid4().hex[:8]}"  # unique to this fixture
-    canonical_runs = resolve_results_dir() / "runs" / "test-mqs" / "2026-01-01"
+    canonical_runs = resolve_data_dir() / "runs" / "test-mqs" / "2026-01-01"
     rows = [
         _row(
             run_id=f"mqs-{uuid4()}",
@@ -207,7 +207,7 @@ class TestPareto:
 
     def test_no_failures(self):
         product = f"TEST-MQS-NF-{uuid4().hex[:8]}"
-        canonical_runs = resolve_results_dir() / "runs" / "test-mqs-no-failures" / "2026-01-01"
+        canonical_runs = resolve_data_dir() / "runs" / "test-mqs-no-failures" / "2026-01-01"
         _write_measurements(
             canonical_runs,
             [_row(run_id=f"mqs-{uuid4()}", dut_part_number=product, value=3.3, outcome="passed")],
@@ -221,7 +221,7 @@ class TestCpk:
     def test_cpk_matches_python(self):
         """Gold Cpk must match metrics.calculate_cpk on same data."""
         product = f"TEST-MQS-CPK-{uuid4().hex[:8]}"
-        canonical_runs = resolve_results_dir() / "runs" / "test-mqs-cpk" / "2026-01-01"
+        canonical_runs = resolve_data_dir() / "runs" / "test-mqs-cpk" / "2026-01-01"
         values = [3.3, 3.31, 3.29, 3.32, 3.28, 3.30, 3.33, 3.27, 3.31, 3.29]
         rows = [
             _row(
@@ -245,7 +245,7 @@ class TestCpk:
 
     def test_min_samples_filter(self):
         product = f"TEST-MQS-MIN-{uuid4().hex[:8]}"
-        canonical_runs = resolve_results_dir() / "runs" / "test-mqs-min" / "2026-01-01"
+        canonical_runs = resolve_data_dir() / "runs" / "test-mqs-min" / "2026-01-01"
         _write_measurements(
             canonical_runs,
             [

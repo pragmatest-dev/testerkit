@@ -165,13 +165,13 @@ def test_gcs_transport_send(tmp_path: Path) -> None:
 def test_upload_queue_enqueue_and_status(tmp_path: Path) -> None:
     from litmus.data.transports.upload_queue import enqueue, status
 
-    results_dir = str(tmp_path)
+    data_dir = str(tmp_path)
     config = OutputConfig(transport="file")
     local_file = tmp_path / "test.parquet"
     local_file.write_text("data")
 
-    enqueue(local_file, "file", config, results_dir)
-    rows = status(results_dir)
+    enqueue(local_file, "file", config, data_dir)
+    rows = status(data_dir)
     assert len(rows) == 1
     assert rows[0].status == "pending"
     assert rows[0].transport == "file"
@@ -180,16 +180,16 @@ def test_upload_queue_enqueue_and_status(tmp_path: Path) -> None:
 def test_upload_queue_drain_success(tmp_path: Path) -> None:
     from litmus.data.transports.upload_queue import drain, enqueue, status
 
-    results_dir = str(tmp_path)
+    data_dir = str(tmp_path)
     local_file = tmp_path / "test.parquet"
     local_file.write_text("data")
     config = OutputConfig(transport="file", output_dir=str(tmp_path / "out"))
 
-    enqueue(local_file, "file", config, results_dir)
-    count = drain(results_dir)
+    enqueue(local_file, "file", config, data_dir)
+    count = drain(data_dir)
     assert count == 1
 
-    rows = status(results_dir)
+    rows = status(data_dir)
     assert rows[0].status == "done"
 
 
@@ -197,12 +197,12 @@ def test_upload_queue_drain_failure(tmp_path: Path) -> None:
     from litmus.data.transports._base import Transport
     from litmus.data.transports.upload_queue import drain, enqueue, status
 
-    results_dir = str(tmp_path)
+    data_dir = str(tmp_path)
     local_file = tmp_path / "test.parquet"
     local_file.write_text("data")
     config = OutputConfig(transport="s3", extras={"bucket": "nonexistent"})
 
-    enqueue(local_file, "s3", config, results_dir)
+    enqueue(local_file, "s3", config, data_dir)
 
     class FailingS3Transport(Transport):
         transport_name = "s3"
@@ -212,10 +212,10 @@ def test_upload_queue_drain_failure(tmp_path: Path) -> None:
 
     # __init_subclass__ already registered it by overwriting "s3"
     with pytest.warns(UserWarning, match="Upload failed"):
-        count = drain(results_dir)
+        count = drain(data_dir)
     assert count == 0
 
-    rows = status(results_dir)
+    rows = status(data_dir)
     assert rows[0].status == "failed"
     assert rows[0].attempts == 1
 
@@ -223,17 +223,17 @@ def test_upload_queue_drain_failure(tmp_path: Path) -> None:
 def test_upload_queue_clear_done(tmp_path: Path) -> None:
     from litmus.data.transports.upload_queue import clear_done, drain, enqueue, status
 
-    results_dir = str(tmp_path)
+    data_dir = str(tmp_path)
     local_file = tmp_path / "test.parquet"
     local_file.write_text("data")
     config = OutputConfig(transport="file", output_dir=str(tmp_path / "out"))
 
-    enqueue(local_file, "file", config, results_dir)
-    drain(results_dir)
+    enqueue(local_file, "file", config, data_dir)
+    drain(data_dir)
 
-    removed = clear_done(results_dir)
+    removed = clear_done(data_dir)
     assert removed == 1
-    assert len(status(results_dir)) == 0
+    assert len(status(data_dir)) == 0
 
 
 # ---------------------------------------------------------------------------

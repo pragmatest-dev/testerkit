@@ -7,7 +7,7 @@ can query directly.  No plugins, no file mounts, no data duplication.
 Uses Buena Vista for the pgwire layer and PyArrow for zero-copy IPC reads.
 
 Usage (standalone):
-    python -m litmus.grafana.server [--results-dir PATH] [--port 5433]
+    python -m litmus.grafana.server [--data-dir PATH] [--port 5433]
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def _read_ipc_files(directory: Path) -> pa.Table | None:
     return pa.concat_tables(tables, promote_options="default")
 
 
-def create_connection(results_dir: Path) -> duckdb.DuckDBPyConnection:
+def create_connection(data_dir: Path) -> duckdb.DuckDBPyConnection:
     """Create an in-memory DuckDB connection with VIEWs over Litmus data.
 
     - ``measurements`` / ``runs``: VIEWs over Parquet files (lazy, live)
@@ -59,7 +59,7 @@ def create_connection(results_dir: Path) -> duckdb.DuckDBPyConnection:
     - ``channels``: registered Arrow table from IPC files (zero-copy)
     """
     conn = duckdb.connect()
-    results_str = _sql_path(results_dir)
+    results_str = _sql_path(data_dir)
 
     # Parquet-based views (lazy — DuckDB reads on query)
     conn.execute(
@@ -91,7 +91,7 @@ def create_connection(results_dir: Path) -> duckdb.DuckDBPyConnection:
     # Arrow IPC data — load into DuckDB tables via PyArrow.
     # We use CREATE TABLE AS (arrow_scan) for cursor visibility across
     # BuenaVista sessions (conn.register is not visible from cursors).
-    _load_all_ipc_tables(conn, results_dir)
+    _load_all_ipc_tables(conn, data_dir)
 
     return conn
 
@@ -107,10 +107,10 @@ _IPC_TABLES: list[tuple[str, str, str]] = [
 ]
 
 
-def _load_all_ipc_tables(conn: duckdb.DuckDBPyConnection, results_dir: Path) -> None:
+def _load_all_ipc_tables(conn: duckdb.DuckDBPyConnection, data_dir: Path) -> None:
     """Load all IPC-backed tables from the results directory."""
     for subdir, table_name, replace_expr in _IPC_TABLES:
-        _load_ipc_table(conn, results_dir / subdir, table_name, replace_expr)
+        _load_ipc_table(conn, data_dir / subdir, table_name, replace_expr)
 
 
 def _replace_expr_columns(replace_expr: str) -> list[str]:
@@ -180,7 +180,7 @@ def _create_server(
 
 
 def serve(
-    results_dir: Path,
+    data_dir: Path,
     host: str = "127.0.0.1",
     port: int = 5433,
     *,
@@ -191,7 +191,7 @@ def serve(
     A background thread re-reads Arrow IPC files every *refresh_seconds*
     so Grafana sees new events/channels without a server restart.
     """
-    conn = create_connection(results_dir)
+    conn = create_connection(data_dir)
     server = _create_server(conn, host, port)
 
     # Background refresh for IPC-backed tables
@@ -201,7 +201,7 @@ def serve(
         consecutive_failures = 0
         while not stop_event.wait(refresh_seconds):
             try:
-                _refresh_ipc_tables(conn, results_dir)
+                _refresh_ipc_tables(conn, data_dir)
                 consecutive_failures = 0
             except (OSError, pa.ArrowInvalid, duckdb.Error) as exc:
                 consecutive_failures += 1
@@ -228,15 +228,15 @@ def serve(
         conn.close()
 
 
-def _refresh_ipc_tables(conn: duckdb.DuckDBPyConnection, results_dir: Path) -> None:
+def _refresh_ipc_tables(conn: duckdb.DuckDBPyConnection, data_dir: Path) -> None:
     """Re-read Arrow IPC files and replace in-memory tables."""
-    _load_all_ipc_tables(conn, results_dir)
+    _load_all_ipc_tables(conn, data_dir)
 
 
 if __name__ == "__main__":
     import sys
 
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
 
     port = 5433
     rd = None
@@ -245,10 +245,10 @@ if __name__ == "__main__":
         if args[0] == "--port" and len(args) > 1:
             port = int(args[1])
             args = args[2:]
-        elif args[0] == "--results-dir" and len(args) > 1:
+        elif args[0] == "--data-dir" and len(args) > 1:
             rd = Path(args[1])
             args = args[2:]
         else:
             args = args[1:]
 
-    serve(resolve_results_dir(rd), port=port)
+    serve(resolve_data_dir(rd), port=port)

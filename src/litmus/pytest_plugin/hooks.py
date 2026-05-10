@@ -272,14 +272,14 @@ def pytest_configure(config):
 
 def pytest_report_header(config):
     """Show litmus results location (and active profile's composed addopts) in the header."""
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
 
-    results_dir = config.getoption("--results-dir", default=None)
-    resolved = resolve_results_dir(results_dir)
-    if results_dir:
+    data_dir = config.getoption("--data-dir", default=None)
+    resolved = resolve_data_dir(data_dir)
+    if data_dir:
         lines = [
             f"litmus: results → {resolved}"
-            " (local — remove results_dir from litmus.yaml for global storage)"
+            " (local — remove data_dir from litmus.yaml for global storage)"
         ]
     else:
         lines = [f"litmus: results → {resolved}"]
@@ -830,8 +830,8 @@ def pytest_addoption(parser):
     )
     group.addoption("--operator", default=None, help="Operator name")
     group.addoption(
-        "--results-dir",
-        default=project.results_dir,
+        "--data-dir",
+        default=project.data_dir,
         help="Directory for Parquet results (default: platform data dir)",
     )
     group.addoption(

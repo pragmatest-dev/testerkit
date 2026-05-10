@@ -2,7 +2,7 @@
 
 Uses an isolated tree under ``tmp_path`` because
 ``materialize_channel_refs`` opens a ``RunStore`` on the
-results_dir — spawning a fresh runs daemon there. To keep this
+data_dir — spawning a fresh runs daemon there. To keep this
 on the canonical singleton instead (~100 gRPC threads saved per
 test), we create the fake results tree under the canonical
 ``runs/`` and ``channels/`` paths but namespaced by a per-test
@@ -22,14 +22,14 @@ import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 import pytest
 
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.materialize import materialize_channel_refs
 from litmus.data.ref import make_channel_uri
-from litmus.data.results_dir import resolve_results_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import RUN_ROW_SCHEMA
 
 # Resolved via repo's ``litmus.yaml`` → project-local store.
-_CANONICAL_RESULTS = resolve_results_dir()
+_CANONICAL_RESULTS = resolve_data_dir()
 
 
 class _ResultsTree:

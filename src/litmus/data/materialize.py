@@ -29,7 +29,7 @@ def _save_arrow_ref(ref_dir: Path, channel_id: str, session_short: str, table: p
     return f"file://{REF_PATH_PREFIX}{filename}"
 
 
-def materialize_channel_refs(results_dir: Path, channel_dirs_to_prune: list[Path]) -> int:
+def materialize_channel_refs(data_dir: Path, channel_dirs_to_prune: list[Path]) -> int:
     """Materialize channel:// refs in parquet files before channel pruning.
 
     Queries RunStore (DuckDB index) to find channel refs, reads channel
@@ -37,7 +37,7 @@ def materialize_channel_refs(results_dir: Path, channel_dirs_to_prune: list[Path
     then rewrites parquet files with ``file://`` URIs via RunStore.
 
     Args:
-        results_dir: Root results directory (contains ``runs/`` and
+        data_dir: Root results directory (contains ``runs/`` and
             ``channels/`` subdirs).
         channel_dirs_to_prune: Channel date directories about to be deleted.
 
@@ -55,13 +55,13 @@ def materialize_channel_refs(results_dir: Path, channel_dirs_to_prune: list[Path
 
     # Read-only ChannelStore for querying (no active session writes).
     # Dummy session_id — we only use store.query() which reads from disk.
-    store = ChannelStore(results_dir, session_id=UUID(int=0))
+    store = ChannelStore(data_dir, session_id=UUID(int=0))
 
-    runs_dir = results_dir / "runs"
+    runs_dir = data_dir / "runs"
     if not runs_dir.is_dir():
         return 0
 
-    run_store = RunStore(_results_dir=results_dir)
+    run_store = RunStore(_data_dir=data_dir)
 
     try:
         # DuckDB query — no file scanning

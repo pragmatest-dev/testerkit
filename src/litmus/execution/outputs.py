@@ -98,7 +98,7 @@ def create_subscriber(
     return cls(output_dir, on_output=on_output)
 
 
-def run_configured_outputs(test_run: Any, run_id: str, results_dir: str) -> None:
+def run_configured_outputs(test_run: Any, run_id: str, data_dir: str) -> None:
     """Run configured outputs (exports, reports, transports) from ``litmus.yaml``.
 
     Errors are caught and surfaced as warnings — output processing
@@ -107,7 +107,7 @@ def run_configured_outputs(test_run: Any, run_id: str, results_dir: str) -> None
     try:
         from litmus.data.output_runner import run_outputs
 
-        run_outputs(test_run, run_id, results_dir)
+        run_outputs(test_run, run_id, data_dir)
     except Exception as exc:
         warnings.warn(
             f"Output processing failed: {exc}",

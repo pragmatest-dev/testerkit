@@ -51,11 +51,11 @@ def client_with_run_factory():
     via ``RunsQuery.get`` / ``StepsQuery.get`` so other tests' rows
     in the canonical store don't leak in.
     """
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
     from litmus.data.run_store import RunStore
 
-    results_root = resolve_results_dir()
-    backend = ParquetBackend(results_dir=results_root)
+    results_root = resolve_data_dir()
+    backend = ParquetBackend(data_dir=results_root)
 
     def make(test_run: TestRun):
         parquet_path = backend.save_test_run(test_run)

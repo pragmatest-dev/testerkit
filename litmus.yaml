@@ -1,18 +1,13 @@
 name: litmus-dev
 # Project-local data dir for dev work:
 # - ``pytest`` runs from this repo write here, NOT the global
-#   ``~/.local/share/litmus/results`` store. Keeps test fixtures
+#   ``~/.local/share/litmus/data`` store. Keeps test fixtures
 #   from polluting the global store an operator may also use for
 #   real hardware data on the same machine.
 # - ``litmus serve`` from this repo root surfaces those test
 #   results in the UI, so devs see what their tests just produced
 #   without flipping between dirs.
 #
-# ``/results/`` is in ``.gitignore``. Easy to ``rm -rf results``
+# ``/data/`` is in ``.gitignore``. Easy to ``rm -rf data``
 # when something gets wedged.
-#
-# Naming TODO: ``results_dir`` is a misnomer — this directory
-# holds ``runs/`` (results), ``events/`` (event log), and
-# ``channels/`` (streaming data). Rename to ``data_dir`` is a
-# breaking rename across CLI / models / docs; tracked separately.
-results_dir: results
+data_dir: data

@@ -143,7 +143,7 @@ All timestamps are UTC for consistent cross-timezone analysis.
 ### Custom Location
 
 ```bash
-pytest tests/ --results-dir=/path/to/results
+pytest tests/ --data-dir=/path/to/results
 ```
 
 ### Environment Variable

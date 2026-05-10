@@ -6,7 +6,7 @@
 --   duckdb -c "SELECT ..."
 
 -- The data path (global Litmus results directory)
--- SET VARIABLE results = '~/.local/share/litmus/results/runs/**/*.parquet';
+-- SET VARIABLE results = '~/.local/share/litmus/data/runs/**/*.parquet';
 
 -- 1. Recent test runs: what ran, what passed?
 SELECT
@@ -15,7 +15,7 @@ SELECT
     run_outcome,
     COUNT(DISTINCT measurement_name) AS measurements,
     run_started_at::DATE AS date
-FROM '~/.local/share/litmus/results/runs/**/*.parquet'
+FROM '~/.local/share/litmus/data/runs/**/*.parquet'
 GROUP BY run_id, dut_serial, station_id, run_outcome, run_started_at
 ORDER BY run_started_at DESC
 LIMIT 10;
@@ -29,7 +29,7 @@ SELECT
     outcome,
     low_limit,
     high_limit
-FROM '~/.local/share/litmus/results/runs/**/*.parquet'
+FROM '~/.local/share/litmus/data/runs/**/*.parquet'
 WHERE dut_serial = 'DEMO-PWR-001'
 ORDER BY step_started_at, measurement_name;
 
@@ -39,7 +39,7 @@ SELECT
     COUNT(*) AS total,
     COUNT(*) FILTER (WHERE outcome = 'pass') AS passed,
     ROUND(100.0 * COUNT(*) FILTER (WHERE outcome = 'pass') / COUNT(*), 1) AS pass_pct
-FROM '~/.local/share/litmus/results/runs/**/*.parquet'
+FROM '~/.local/share/litmus/data/runs/**/*.parquet'
 GROUP BY step_name
 ORDER BY pass_pct ASC;
 
@@ -52,7 +52,7 @@ SELECT
     ROUND(STDDEV(value), 4) AS stddev,
     ROUND(MIN(value), 4) AS min_val,
     ROUND(MAX(value), 4) AS max_val
-FROM '~/.local/share/litmus/results/runs/**/*.parquet'
+FROM '~/.local/share/litmus/data/runs/**/*.parquet'
 WHERE value IS NOT NULL
 GROUP BY measurement_name, units
 ORDER BY measurement_name;
@@ -69,7 +69,7 @@ SELECT
             ROUND((MIN(high_limit) - MAX(low_limit)) / (6 * STDDEV(value)), 2)
         ELSE NULL
     END AS cpk
-FROM '~/.local/share/litmus/results/runs/**/*.parquet'
+FROM '~/.local/share/litmus/data/runs/**/*.parquet'
 WHERE value IS NOT NULL
   AND high_limit IS NOT NULL
   AND low_limit IS NOT NULL

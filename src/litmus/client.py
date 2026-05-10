@@ -357,13 +357,13 @@ class LitmusClient:
         run.finish()
     """
 
-    def __init__(self, results_dir: str | Path = "results"):
+    def __init__(self, data_dir: str | Path = "results"):
         """Initialize the client.
 
         Args:
-            results_dir: Directory for Parquet result files.
+            data_dir: Directory for Parquet result files.
         """
-        self._backend = ParquetBackend(results_dir=Path(results_dir))
+        self._backend = ParquetBackend(data_dir=Path(data_dir))
 
     def start_run(
         self,

@@ -10,7 +10,7 @@
 litmus.connect(
     station: str | None = None,
     *,
-    results_dir: Path | str | None = None,
+    data_dir: Path | str | None = None,
     mock: bool = False,
 ) -> StationConnection
 ```
@@ -20,7 +20,7 @@ litmus.connect(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `station` | str \| None | `None` | Station ID. If `None`, reads `default_station` from `litmus.yaml` |
-| `results_dir` | Path \| None | `None` | Where to write events. Falls back to `litmus.yaml` then `~/.local/share/litmus/results/` |
+| `data_dir` | Path \| None | `None` | Where to write events. Falls back to `litmus.yaml` then `~/.local/share/litmus/data/` |
 | `mock` | bool | `False` | Use mock instruments (skips resource locking) |
 
 ### Returns
@@ -34,9 +34,9 @@ litmus.connect(
 
 ### Events Dir Resolution
 
-1. Explicit `results_dir` parameter
-2. `results_dir` from `litmus.yaml` in CWD ancestors
-3. `~/.local/share/litmus/results/` (fallback)
+1. Explicit `data_dir` parameter
+2. `data_dir` from `litmus.yaml` in CWD ancestors
+3. `~/.local/share/litmus/data/` (fallback)
 
 ## StationConnection
 

@@ -1,16 +1,22 @@
-"""Global results directory resolution.
+"""Global data directory resolution.
 
-Single source of truth for where Litmus stores results (events, runs,
-channels, uploads).  The default is the platform data directory
+Single source of truth for where Litmus stores its data (events, runs,
+channels, uploads). The default is the platform data directory
 (``~/.local/share/litmus`` on Linux, ``AppData/Local/litmus`` on
-Windows).  A project ``litmus.yaml`` can override this, but the
+Windows). A project ``litmus.yaml`` can override this, but the
 global default ensures all processes on a machine share the same
 event bus without coordination.
+
+The dir holds three subsystems — `events/` (durable WAL), `runs/`
+(per-run parquet test results), `channels/` (time-series instrument
+signals) — plus per-subsystem index DBs and lock/state files. Same
+shape as PostgreSQL's ``data_directory`` (PGDATA): one dir, mixed
+content (tables + WAL + indexes + state), all "data."
 
 Resolution chain:
 
 1. Explicit ``path`` argument (rare — tests, migration scripts)
-2. ``litmus.yaml`` in CWD ancestors → ``results_dir`` field (if set)
+2. ``litmus.yaml`` in CWD ancestors → ``data_dir`` field (if set)
 3. ``LITMUS_HOME`` environment variable
 4. ``platformdirs.user_data_dir("litmus")``
 """
@@ -23,8 +29,8 @@ from pathlib import Path
 import platformdirs
 
 
-def resolve_results_dir(path: Path | str | None = None) -> Path:
-    """Resolve the results directory.
+def resolve_data_dir(path: Path | str | None = None) -> Path:
+    """Resolve the data directory.
 
     Most callers should pass no arguments — the global default is the
     right choice for nearly all cases.
@@ -41,8 +47,8 @@ def resolve_results_dir(path: Path | str | None = None) -> Path:
         found = _find_project_config()
         if found:
             root, project = found
-            if project.results_dir:
-                d = root / project.results_dir
+            if project.data_dir:
+                d = root / project.data_dir
                 d.mkdir(parents=True, exist_ok=True)
                 return d
     except (ImportError, AttributeError, FileNotFoundError):
@@ -50,6 +56,6 @@ def resolve_results_dir(path: Path | str | None = None) -> Path:
 
     # Global default
     home = Path(os.environ.get("LITMUS_HOME", platformdirs.user_data_dir("litmus")))
-    d = home / "results"
+    d = home / "data"
     d.mkdir(parents=True, exist_ok=True)
     return d

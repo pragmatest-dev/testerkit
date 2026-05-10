@@ -555,7 +555,7 @@ class TestReconstructTestRun:
     def test_roundtrip(self, sample_test_run: TestRun, tmp_path: Path):
         from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
-        backend = ParquetBackend(results_dir=tmp_path)
+        backend = ParquetBackend(data_dir=tmp_path)
         pq_file = backend.save_test_run(sample_test_run)
 
         rebuilt = reconstruct_test_run_from_file(pq_file)
@@ -588,7 +588,7 @@ class TestReconstructTestRun:
         """custom_metadata survives Parquet save → reconstruct."""
         from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
-        backend = ParquetBackend(results_dir=tmp_path)
+        backend = ParquetBackend(data_dir=tmp_path)
         pq_file = backend.save_test_run(sample_test_run)
         rebuilt = reconstruct_test_run_from_file(pq_file)
 
@@ -598,7 +598,7 @@ class TestReconstructTestRun:
         """instrument_arrays survives Parquet save → reconstruct."""
         from litmus.data.backends.parquet import ParquetBackend, reconstruct_test_run_from_file
 
-        backend = ParquetBackend(results_dir=tmp_path)
+        backend = ParquetBackend(data_dir=tmp_path)
         pq_file = backend.save_test_run(sample_test_run)
         rebuilt = reconstruct_test_run_from_file(pq_file)
 

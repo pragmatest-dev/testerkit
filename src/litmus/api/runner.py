@@ -32,8 +32,8 @@ class TestRunner:
 
     __test__ = False  # Prevent pytest collection
 
-    def __init__(self, results_dir: Path | str = "results"):
-        self.results_dir = Path(results_dir)
+    def __init__(self, data_dir: Path | str = "results"):
+        self.data_dir = Path(data_dir)
         self.runs: dict[str, RunInfo] = {}
 
     async def start(self, request: LaunchRequest) -> str:
@@ -67,7 +67,7 @@ class TestRunner:
             *test_targets,
             f"--dut-serial={req.dut_serial}",
             f"--station={req.station_id}",
-            f"--results-dir={self.results_dir}",
+            f"--data-dir={self.data_dir}",
             "-v",
             "--tb=short",
         ]
@@ -204,11 +204,11 @@ _runner: TestRunner | None = None
 def get_runner() -> TestRunner:
     """Get or create the global test runner.
 
-    On first access we resolve ``ProjectConfig.results_dir`` so the
+    On first access we resolve ``ProjectConfig.data_dir`` so the
     subprocess writes to the same parquet tree that ``ParquetBackend``
     reads from. Without this, runs launched via the API would land in
     ``./results`` while the read side looks under
-    ``project.results_dir`` (or the platformdirs default), and the new
+    ``project.data_dir`` (or the platformdirs default), and the new
     run would be invisible in run listings.
     """
     global _runner
@@ -216,5 +216,5 @@ def get_runner() -> TestRunner:
         from litmus.store import load_project_config
 
         project = load_project_config()
-        _runner = TestRunner(results_dir=project.results_dir or "results")
+        _runner = TestRunner(data_dir=project.data_dir or "results")
     return _runner

@@ -211,7 +211,7 @@ def _render_sequences_tab(station_id: str, config):
 
 def _render_runs_tab(station_id: str):
     """Render the recent runs tab."""
-    backend = ParquetBackend(results_dir=load_project_config().results_dir)
+    backend = ParquetBackend(data_dir=load_project_config().data_dir)
     all_runs = backend.list_runs(limit=100)
     station_runs = [r for r in all_runs if r.station_id == station_id]
 

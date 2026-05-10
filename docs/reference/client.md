@@ -37,7 +37,7 @@ run.finish()
 ### LitmusClient
 
 ```python
-client = LitmusClient(results_dir="results")
+client = LitmusClient(data_dir="results")
 ```
 
 **Methods:**
@@ -144,7 +144,7 @@ with run.step("voltage_sweep") as step:
 from litmus import LitmusClient
 
 def run_production_test(serial_number: str):
-    client = LitmusClient(results_dir="./test_results")
+    client = LitmusClient(data_dir="./test_results")
 
     run = client.start_run(
         dut_serial=serial_number,

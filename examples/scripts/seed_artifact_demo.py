@@ -117,15 +117,15 @@ def _sine_waveform(freq_hz: float = 100.0, sample_rate_hz: float = 100_000.0) ->
 
 
 def main() -> None:
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
 
     # Writer convention: ``runs/`` lives under the project / platformdirs
     # results dir; the read side (``ParquetBackend`` used by ``litmus
     # serve``) constructs ``RunStore`` which itself appends ``runs/``.
     # Match the existing writer call sites in
     # ``output_runner.py`` and ``client.py``.
-    runs_dir = resolve_results_dir(None) / "runs"
-    backend = ParquetBackend(results_dir=runs_dir)
+    runs_dir = resolve_data_dir(None) / "runs"
+    backend = ParquetBackend(data_dir=runs_dir)
 
     started = datetime.now(UTC)
     run = TestRun(

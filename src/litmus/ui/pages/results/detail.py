@@ -7,9 +7,9 @@ from typing import Any
 
 from nicegui import run, ui
 
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_store import EventStore
 from litmus.data.models import RunSummary
-from litmus.data.results_dir import resolve_results_dir
 from litmus.ui.components.artifact_viewer import list_artifacts, render_artifact_buttons
 from litmus.ui.shared.components import (
     attach_status_chip,
@@ -280,7 +280,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
                         unsubscribe_ref[0]()  # stop receiving events
 
             try:
-                es = EventStore.get_shared(resolve_results_dir())
+                es = EventStore.get_shared(resolve_data_dir())
                 unsub = subscribe_with_refresh(
                     es,
                     _LIVE_EVENT_TYPES,

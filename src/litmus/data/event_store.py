@@ -39,9 +39,9 @@ from litmus.data._duckdb_flight_server import FlightPutStream
 from litmus.data._event_filters import event_matches_role
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import sql_escape as _sql_escape
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_log import EventLog
 from litmus.data.events import EventBase
-from litmus.data.results_dir import resolve_results_dir
 
 logger = logging.getLogger(__name__)
 
@@ -116,21 +116,21 @@ class EventStore:
     _shared: dict[Path, EventStore] = {}
 
     @classmethod
-    def get_shared(cls, results_dir: Path | None = None) -> EventStore:
-        """Return a process-wide shared instance for ``results_dir``.
+    def get_shared(cls, data_dir: Path | None = None) -> EventStore:
+        """Return a process-wide shared instance for ``data_dir``.
 
         Multiple callers for the same directory share one watcher thread
         instead of each spawning their own. UI page handlers should use
         this instead of ``EventStore(...)`` so the thread count stays flat.
         """
-        key = resolve_results_dir(results_dir)
+        key = resolve_data_dir(data_dir)
         if key not in cls._shared:
-            cls._shared[key] = cls(_results_dir=key)
+            cls._shared[key] = cls(_data_dir=key)
         return cls._shared[key]
 
-    def __init__(self, *, _results_dir: Path | None = None) -> None:
-        self._results_dir = resolve_results_dir(_results_dir)
-        self._events_dir = self._results_dir / "events"
+    def __init__(self, *, _data_dir: Path | None = None) -> None:
+        self._data_dir = resolve_data_dir(_data_dir)
+        self._events_dir = self._data_dir / "events"
         self._events_dir.mkdir(parents=True, exist_ok=True)
 
         # Start daemon and get gRPC location for Flight queries

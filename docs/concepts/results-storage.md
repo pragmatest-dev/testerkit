@@ -5,7 +5,7 @@
 By default, all litmus results write to a shared directory:
 
 ```
-~/.local/share/litmus/results/
+~/.local/share/litmus/data/
 ├── events/      # Event log (Arrow IPC)
 ├── channels/    # Time-series data (Arrow IPC)
 ├── runs/        # Test results (Parquet)
@@ -16,16 +16,16 @@ This means every project on the machine shares one results pool. `litmus runs`, 
 
 **Resolution order** (first match wins):
 
-1. Explicit `--results-dir` argument or `results_dir=` parameter
-2. `results_dir` in project `litmus.yaml`
+1. Explicit `--data-dir` argument or `data_dir=` parameter
+2. `data_dir` in project `litmus.yaml`
 3. `LITMUS_RESULTS_DIR` environment variable
-4. `~/.local/share/litmus/results/` (platform default)
+4. `~/.local/share/litmus/data/` (platform default)
 
 To isolate a project's results, add to `litmus.yaml`:
 
 ```yaml
 name: my-project
-results_dir: results    # writes to ./results/ instead of global
+data_dir: results    # writes to ./results/ instead of global
 ```
 
 ## Parquet files and schema evolution
@@ -37,7 +37,7 @@ When querying across files with different schemas, missing columns appear as NUL
 ```sql
 -- DuckDB handles mixed schemas automatically
 SELECT station_id, project_name, outcome
-FROM read_parquet('~/.local/share/litmus/results/runs/**/*.parquet',
+FROM read_parquet('~/.local/share/litmus/data/runs/**/*.parquet',
                   union_by_name=true)
 ```
 
@@ -52,7 +52,7 @@ When a newer litmus version starts, it checks the index schema version. If the i
 The index lives at `results/runs/_index.duckdb`. To force a rebuild:
 
 ```bash
-rm ~/.local/share/litmus/results/runs/_index.duckdb*
+rm ~/.local/share/litmus/data/runs/_index.duckdb*
 ```
 
 ## Mixed versions on one machine

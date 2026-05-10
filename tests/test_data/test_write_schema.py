@@ -141,7 +141,7 @@ class TestRoundTripExplicitSchema:
             outcome=Outcome.PASSED,
         )
 
-        backend = ParquetBackend(results_dir=tmp_path)
+        backend = ParquetBackend(data_dir=tmp_path)
         path = backend.save_test_run(run)
 
         table = pq.read_table(path)
@@ -171,7 +171,7 @@ class TestRoundTripExplicitSchema:
             outcome=Outcome.PASSED,
         )
 
-        backend = ParquetBackend(results_dir=tmp_path)
+        backend = ParquetBackend(data_dir=tmp_path)
         path = backend.save_test_run(run)
 
         table = pq.read_table(path)

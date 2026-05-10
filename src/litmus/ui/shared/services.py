@@ -515,9 +515,9 @@ def get_compatible_stations_for_fixture(fixture_id: str):
 
 
 def _results_backend() -> ParquetBackend:
-    """Build a ParquetBackend using the configured project results_dir."""
+    """Build a ParquetBackend using the configured project data_dir."""
     project = load_project_config()
-    return ParquetBackend(results_dir=project.results_dir)
+    return ParquetBackend(data_dir=project.data_dir)
 
 
 def get_recent_runs(
@@ -664,7 +664,7 @@ def get_run_detail(run_id: str):
     from litmus.analysis.steps_query import StepsQuery
 
     backend = _results_backend()
-    with RunsQuery(_results_dir=backend.results_dir) as rq:
+    with RunsQuery(_data_dir=backend.data_dir) as rq:
         run_row = rq.get(run_id)
     if run_row is None:
         return None, [], []
@@ -675,7 +675,7 @@ def get_run_detail(run_id: str):
         backend.get_measurements(run_id, _file=run.file_path) if run.file_path else []
     )
 
-    with StepsQuery(_results_dir=backend.results_dir) as q:
+    with StepsQuery(_data_dir=backend.data_dir) as q:
         steps = q.list_for_run(run_id, include_incomplete=True)
 
     return run, steps, measurements
@@ -702,7 +702,7 @@ def load_artifact_ref(run_id: str, uri: str):
     if uri.startswith("channel://"):
         from litmus.data.channels.store import ChannelStore
 
-        channel_store = ChannelStore(backend.results_dir, uuid4())
+        channel_store = ChannelStore(backend.data_dir, uuid4())
 
     return load_ref(uri, parquet_path=Path(run.file_path), channel_store=channel_store)
 
@@ -827,10 +827,10 @@ def aggregate_run_stats(steps: list, measurements: list[dict]) -> dict[str, Any]
 # operator UI and external clients see the same shapes.
 
 
-def _resolve_results_dir() -> Path | None:
+def _resolve_data_dir() -> Path | None:
     """Project-configured results dir (or None for the platformdirs default)."""
     project = load_project_config()
-    return Path(project.results_dir) if project.results_dir else None
+    return Path(project.data_dir) if project.data_dir else None
 
 
 def query_events(
@@ -854,7 +854,7 @@ def query_events(
         role,
         since,
         limit,
-        results_dir=_resolve_results_dir(),
+        data_dir=_resolve_data_dir(),
     )
 
 
@@ -862,7 +862,7 @@ def list_channels() -> dict[str, Any]:
     """Return the channel registry as ``{"channels": {channel_id: {...}}}``."""
     from litmus.mcp.tools import channels_list_query
 
-    return channels_list_query(results_dir=_resolve_results_dir())
+    return channels_list_query(data_dir=_resolve_data_dir())
 
 
 def list_channels_recent(*, last_n: int = 50) -> dict[str, Any]:
@@ -874,7 +874,7 @@ def list_channels_recent(*, last_n: int = 50) -> dict[str, Any]:
     """
     from litmus.mcp.tools import channels_recent_query
 
-    return channels_recent_query(last_n=last_n, results_dir=_resolve_results_dir())
+    return channels_recent_query(last_n=last_n, data_dir=_resolve_data_dir())
 
 
 def query_channel(
@@ -901,7 +901,7 @@ def query_channel(
         until=until,
         last_n=last_n,
         max_points=max_points,
-        results_dir=_resolve_results_dir(),
+        data_dir=_resolve_data_dir(),
     )
 
 

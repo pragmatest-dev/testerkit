@@ -37,16 +37,16 @@ class UploadRow(BaseModel):
     updated_at: str
 
 
-def _db_path(results_dir: str = "results") -> Path:
-    return Path(results_dir) / "_uploads.duckdb"
+def _db_path(data_dir: str = "results") -> Path:
+    return Path(data_dir) / "_uploads.duckdb"
 
 
 @contextmanager
-def _db_connection(results_dir: str = "results") -> Generator[Any, None, None]:
+def _db_connection(data_dir: str = "results") -> Generator[Any, None, None]:
     """Context manager for a DuckDB connection with schema setup."""
     import duckdb
 
-    db = _db_path(results_dir)
+    db = _db_path(data_dir)
     db.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(db))
     try:
@@ -90,10 +90,10 @@ def enqueue(
     local_path: Path,
     transport_name: str,
     config: OutputConfig,
-    results_dir: str = "results",
+    data_dir: str = "results",
 ) -> int:
     """Insert a pending upload row. Returns the row id."""
-    with _db_connection(results_dir) as con:
+    with _db_connection(data_dir) as con:
         now = datetime.now(UTC).isoformat()
         config_json = config.model_dump_json()
         row = con.execute(
@@ -108,9 +108,9 @@ def enqueue(
         return row[0] if row else 0
 
 
-def drain(results_dir: str = "results", max_attempts: int = 3) -> int:
+def drain(data_dir: str = "results", max_attempts: int = 3) -> int:
     """Process all pending/failed rows. Returns count of successfully uploaded items."""
-    with _db_connection(results_dir) as con:
+    with _db_connection(data_dir) as con:
         rows = con.execute(
             "SELECT id, local_path, transport, config_json FROM uploads "
             "WHERE status IN (?, ?) AND attempts < ? ORDER BY id",
@@ -140,9 +140,9 @@ def drain(results_dir: str = "results", max_attempts: int = 3) -> int:
         return success_count
 
 
-def status(results_dir: str = "results") -> list[UploadRow]:
+def status(data_dir: str = "results") -> list[UploadRow]:
     """Return all upload rows."""
-    with _db_connection(results_dir) as con:
+    with _db_connection(data_dir) as con:
         rows = con.execute(
             "SELECT id, local_path, transport, status, attempts, last_error, "
             "created_at, updated_at FROM uploads ORDER BY id"
@@ -162,9 +162,9 @@ def status(results_dir: str = "results") -> list[UploadRow]:
         ]
 
 
-def clear_done(results_dir: str = "results") -> int:
+def clear_done(data_dir: str = "results") -> int:
     """Remove completed entries. Returns count removed."""
-    with _db_connection(results_dir) as con:
+    with _db_connection(data_dir) as con:
         count_row = con.execute(
             "SELECT count(*) FROM uploads WHERE status = ?", [STATUS_DONE]
         ).fetchone()

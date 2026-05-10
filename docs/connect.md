@@ -51,13 +51,13 @@ Lock files live in `~/.local/share/litmus/locks/` (Linux) and auto-release when 
 
 Event logs are written to:
 
-1. Explicit `results_dir` parameter
-2. `results_dir` from `litmus.yaml` in CWD ancestors
-3. `~/.local/share/litmus/results/events/` (fallback)
+1. Explicit `data_dir` parameter
+2. `data_dir` from `litmus.yaml` in CWD ancestors
+3. `~/.local/share/litmus/data/events/` (fallback)
 
 ## API Reference
 
-### `litmus.connect(station, *, results_dir=None, mock=False)`
+### `litmus.connect(station, *, data_dir=None, mock=False)`
 
 Returns a `StationConnection`. If `station` is `None`, reads `default_station` from `litmus.yaml`.
 

@@ -211,7 +211,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         product_context=_safe_get_session_fixture(request, "product_context"),
         operator_id=request.config.getoption("--operator"),
         project_dir=request.config.rootpath,
-        results_dir=request.config.getoption("--results-dir"),
+        data_dir=request.config.getoption("--data-dir"),
         test_phase=resolve_test_phase(requested_phase, mocks_active=_mocks_active(request.config)),
         profile_name=request.config.getoption("--test-profile", default=None),
         profile_facets=dict(get_active_facets()),
@@ -243,7 +243,7 @@ def _setup_event_log_and_subscribers(
 
     event_store = get_event_store()
     if event_store is None:
-        event_store = EventStore(_results_dir=results_path)
+        event_store = EventStore(_data_dir=results_path)
         set_event_store(event_store)
 
     event_log = event_store.get_event_log(session_id)
@@ -357,7 +357,7 @@ def _emit_session_start_events(logger: TestRunLogger) -> None:
         )
 
 
-def _teardown_logger(logger: TestRunLogger, event_store: Any, results_dir: str) -> None:
+def _teardown_logger(logger: TestRunLogger, event_store: Any, data_dir: str) -> None:
     """Close subscribers, finalize the run, emit SessionEnded, run configured outputs."""
     from litmus.data.events import SessionEnded
 
@@ -385,7 +385,7 @@ def _teardown_logger(logger: TestRunLogger, event_store: Any, results_dir: str) 
         event_store.close()
         set_event_store(None)
 
-    run_configured_outputs(test_run, str(test_run.id), results_dir)
+    run_configured_outputs(test_run, str(test_run.id), data_dir)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -403,13 +403,13 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
     Session/Run/StepsDiscovered triplet, :func:`_teardown_logger` closes
     everything in the right order at session end.
     """
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
 
     meta = _build_run_metadata(request)
-    results_dir = meta["results_dir"]
-    if not results_dir:
-        results_dir = str(resolve_results_dir())
-        meta["results_dir"] = results_dir
+    data_dir = meta["data_dir"]
+    if not data_dir:
+        data_dir = str(resolve_data_dir())
+        meta["data_dir"] = data_dir
 
     env_session_id = os.environ.get("_LITMUS_SESSION_ID")
     session_id = UUID(env_session_id) if env_session_id else uuid4()
@@ -422,8 +422,8 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
     logger = TestRunLogger(**meta)
 
     event_store: Any = None
-    if results_dir:
-        event_store = _setup_event_log_and_subscribers(logger, Path(results_dir), session_id)
+    if data_dir:
+        event_store = _setup_event_log_and_subscribers(logger, Path(data_dir), session_id)
         _emit_session_start_events(logger)
 
     set_current_logger(logger)
@@ -432,7 +432,7 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
     finally:
         # Capture not-started steps onto the run manifest before finalize.
         logger.test_run.collected_items = get_collected_items()
-        _teardown_logger(logger, event_store, results_dir)
+        _teardown_logger(logger, event_store, data_dir)
         set_current_logger(None)
 
 

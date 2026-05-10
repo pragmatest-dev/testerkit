@@ -11,8 +11,8 @@ from nicegui import run, ui
 from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.analysis.runs_query import RunsQuery
 from litmus.analysis.steps_query import StepsQuery
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_store import EventStore
-from litmus.data.results_dir import resolve_results_dir
 from litmus.ui.shared.components import (
     data_table,
     multi_select_filter,
@@ -66,7 +66,7 @@ async def metrics_page(
     product = request.query_params.getlist("product")
     station = request.query_params.getlist("station")
 
-    results_dir = str(resolve_results_dir())
+    data_dir = str(resolve_data_dir())
 
     create_layout("Metrics")
 
@@ -168,7 +168,7 @@ async def metrics_page(
         phase_, product_, station_, since_, until_ = _filter_args()
         try:
             data = await run.io_bound(
-                _fetch_yield_data, results_dir, phase_, product_, station_, since_, until_
+                _fetch_yield_data, data_dir, phase_, product_, station_, since_, until_
             )
         except (OSError, ValueError, RuntimeError) as exc:
             summary_container.clear()
@@ -179,7 +179,7 @@ async def metrics_page(
             return
 
         if data is None:
-            outcomes = await run.io_bound(_fetch_run_level_counts, results_dir)
+            outcomes = await run.io_bound(_fetch_run_level_counts, data_dir)
             summary_container.clear()
             _render_run_level_fallback_body(summary_container, outcomes)
             render_empty_card(
@@ -210,7 +210,7 @@ async def metrics_page(
         render_skeleton(cpk_table_container, "h-48")
         phase_, product_, station_, since_, until_ = _filter_args()
         data = await run.io_bound(
-            _fetch_yield_data, results_dir, phase_, product_, station_, since_, until_
+            _fetch_yield_data, data_dir, phase_, product_, station_, since_, until_
         )
         if data is None:
             render_empty_card(
@@ -229,7 +229,7 @@ async def metrics_page(
         phase_, product_, station_, since_, until_ = _filter_args()
         group_by = pareto_group_select.value or "product"
         rows, title, subtitle, bucket_label = await run.io_bound(
-            _fetch_pareto_data, results_dir, group_by, phase_, product_, station_, since_, until_
+            _fetch_pareto_data, data_dir, group_by, phase_, product_, station_, since_, until_
         )
         _render_failure_pareto_chart(
             pareto_chart_container,
@@ -245,7 +245,7 @@ async def metrics_page(
         render_skeleton(retest_container, "h-48")
         phase_, product_, station_, since_, until_ = _filter_args()
         rows = await run.io_bound(
-            _safe_metric_query, results_dir, phase_, product_, station_, since_, until_, "retest"
+            _safe_metric_query, data_dir, phase_, product_, station_, since_, until_, "retest"
         )
         _render_retest_body(retest_container, rows)
 
@@ -256,7 +256,7 @@ async def metrics_page(
         phase_, product_, station_, since_, until_ = _filter_args()
         rows = await run.io_bound(
             _safe_metric_query,
-            results_dir,
+            data_dir,
             phase_,
             product_,
             station_,
@@ -271,7 +271,7 @@ async def metrics_page(
             return
         render_skeleton(assets_container, "h-32")
         _, _, _, since_, until_ = _filter_args()
-        pairs = await run.io_bound(_compute_instrument_utilization, results_dir, since_, until_)
+        pairs = await run.io_bound(_compute_instrument_utilization, data_dir, since_, until_)
         _render_assets_body(assets_container, pairs)
 
     _TAB_LOADERS: dict[str, Any] = {}
@@ -466,7 +466,7 @@ async def metrics_page(
 
     # Live updates: only run.ended matters — aggregations are over completed runs.
     try:
-        event_store = EventStore.get_shared(resolve_results_dir())
+        event_store = EventStore.get_shared(resolve_data_dir())
         subscribe_with_refresh(event_store, ["run.ended"], _do_refresh)
     except (OSError, RuntimeError) as exc:
         logger.warning("Live updates unavailable: %s", exc)
@@ -478,7 +478,7 @@ async def metrics_page(
 
 
 def _fetch_yield_data(
-    results_dir: str,
+    data_dir: str,
     phase: str | list[str] | None,
     product: str | list[str] | None,
     station: str | list[str] | None,
@@ -486,7 +486,7 @@ def _fetch_yield_data(
     until: str | None,
 ) -> MetricsDashboardData | None:
     """Compute all yield dashboard data. Returns None when filters match no data."""
-    with MeasurementsQuery(_results_dir=results_dir) as store:
+    with MeasurementsQuery(_data_dir=data_dir) as store:
         summary_rows = store.yield_summary(
             product=product,
             station=station,
@@ -571,17 +571,17 @@ def _fetch_yield_data(
     }
 
 
-def _fetch_run_level_counts(results_dir: str) -> dict[str, int]:
+def _fetch_run_level_counts(data_dir: str) -> dict[str, int]:
     """Return outcome → count dict from RunsQuery. Empty dict on error."""
     try:
-        with RunsQuery(_results_dir=results_dir) as q:
+        with RunsQuery(_data_dir=data_dir) as q:
             return q.count_by_outcome()
     except (OSError, ValueError, RuntimeError):
         return {}
 
 
 def _fetch_pareto_data(
-    results_dir: str,
+    data_dir: str,
     group_by: str,
     phase: str | list[str] | None,
     product: str | list[str] | None,
@@ -597,7 +597,7 @@ def _fetch_pareto_data(
     """
     if group_by == "step":
         try:
-            with StepsQuery(_results_dir=results_dir) as q:
+            with StepsQuery(_data_dir=data_dir) as q:
                 rows = q.failure_pareto(
                     top_n=15,
                     phase=phase,
@@ -616,7 +616,7 @@ def _fetch_pareto_data(
         )
     elif group_by == "measurement":
         try:
-            with MeasurementsQuery(_results_dir=results_dir) as q:
+            with MeasurementsQuery(_data_dir=data_dir) as q:
                 raw = q.pareto(
                     product=product,
                     station=station,
@@ -635,7 +635,7 @@ def _fetch_pareto_data(
         )
     else:  # product (default)
         try:
-            with RunsQuery(_results_dir=results_dir) as q:
+            with RunsQuery(_data_dir=data_dir) as q:
                 rows = q.failure_pareto(
                     group_by="dut_part_number",
                     top_n=15,
@@ -656,7 +656,7 @@ def _fetch_pareto_data(
 
 
 def _safe_metric_query(
-    results_dir: str,
+    data_dir: str,
     phase: str | list[str] | None,
     product: str | list[str] | None,
     station: str | list[str] | None,
@@ -666,7 +666,7 @@ def _safe_metric_query(
 ) -> list[dict]:
     """Run a MeasurementsQuery method, returning [] on any failure."""
     try:
-        with MeasurementsQuery(_results_dir=results_dir) as store:
+        with MeasurementsQuery(_data_dir=data_dir) as store:
             fn = getattr(store, method)
             return fn(
                 product=product,
@@ -681,18 +681,18 @@ def _safe_metric_query(
 
 
 def _compute_instrument_utilization(
-    results_dir: str,
+    data_dir: str,
     since: str | None,
     until: str | None,
 ) -> list[dict]:
     """Pair connect/disconnect events into per-instrument utilization rows."""
     from datetime import datetime as _dt
 
-    base = resolve_results_dir(results_dir)
+    base = resolve_data_dir(data_dir)
     if not (base / "events").exists():
         return []
     since_dt = _dt.fromisoformat(since).replace(tzinfo=UTC) if since else None
-    store = EventStore(_results_dir=base)
+    store = EventStore(_data_dir=base)
     try:
         connects = store.events(event_type="instrument.connected", since=since_dt)
         disconnects = store.events(event_type="instrument.disconnected", since=since_dt)

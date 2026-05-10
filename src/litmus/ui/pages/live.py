@@ -42,7 +42,7 @@ async def live_page(run_id: str):
                 step_label = ui.label("").classes("text-sm text-slate-600 mt-2")
 
         # Tabbed content — EventStore provides push-based subscriptions
-        event_store = EventStore(_results_dir=runner.results_dir)
+        event_store = EventStore(_data_dir=runner.data_dir)
 
         with ui.tabs().classes("w-full") as tabs:
             events_tab = ui.tab("Events")

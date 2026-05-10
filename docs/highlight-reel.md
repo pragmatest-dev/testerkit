@@ -389,7 +389,7 @@ Parquet files on disk. DuckDB queries them directly. No database server.
 import duckdb
 
 db = duckdb.connect()
-parquet = "~/.local/share/litmus/results/runs/**/*.parquet"
+parquet = "~/.local/share/litmus/data/runs/**/*.parquet"
 
 # Measurement statistics
 db.sql(f"""

@@ -29,22 +29,22 @@ def _is_project_owned(path: Path) -> bool:
     """Return True if *path* is owned by the current project.
 
     A directory is project-owned if:
-    1. It was explicitly set via ``results_dir`` in ``litmus.yaml``, OR
+    1. It was explicitly set via ``data_dir`` in ``litmus.yaml``, OR
     2. It is located under the project repo folder (CWD ancestors)
 
     Anything else (global default, arbitrary paths) is not owned.
     """
     resolved = path.resolve()
 
-    # Check if project explicitly defines results_dir
+    # Check if project explicitly defines data_dir
     try:
         from litmus.connect import _find_project_config
 
         found = _find_project_config()
         if found:
             root, project = found
-            if project.results_dir:
-                explicit = (root / project.results_dir).resolve()
+            if project.data_dir:
+                explicit = (root / project.data_dir).resolve()
                 try:
                     resolved.relative_to(explicit)
                     return True
@@ -77,7 +77,7 @@ def prune_date_dirs(base_dir: Path, cutoff: date, *, dry_run: bool = False) -> l
     if not _is_project_owned(base_dir):
         raise PermissionError(
             f"Refusing to prune: {base_dir}\n"
-            "Only project-owned directories can be pruned (results_dir in litmus.yaml "
+            "Only project-owned directories can be pruned (data_dir in litmus.yaml "
             "or under the project repo folder)."
         )
     removed: list[Path] = []
@@ -98,17 +98,17 @@ def prune_date_dirs(base_dir: Path, cutoff: date, *, dry_run: bool = False) -> l
 
 
 def prune_all(
-    results_dir: Path,
+    data_dir: Path,
     older_than: str,
     *,
     data_types: tuple[str, ...] = ("channels", "events"),
     dry_run: bool = False,
     materialize: bool = True,
 ) -> dict[str, list[Path]]:
-    """Prune date-partitioned subdirectories under *results_dir*.
+    """Prune date-partitioned subdirectories under *data_dir*.
 
     Args:
-        results_dir: Root results directory.
+        data_dir: Root results directory.
         older_than: Duration string (e.g. '30d').
         data_types: Which subdirectories to prune.
         dry_run: If True, report but don't delete.
@@ -116,16 +116,16 @@ def prune_all(
             parquet files into ``_ref/`` sidecar dirs before pruning channels.
 
     Raises:
-        PermissionError: If *results_dir* is the shared global results
+        PermissionError: If *data_dir* is the shared global results
             directory. Projects cannot prune shared data.
 
     Returns:
         Dict mapping subdirectory name to list of pruned date dirs.
     """
-    if not _is_project_owned(results_dir):
+    if not _is_project_owned(data_dir):
         raise PermissionError(
-            f"Refusing to prune: {results_dir}\n"
-            "Only project-owned directories can be pruned (results_dir in litmus.yaml "
+            f"Refusing to prune: {data_dir}\n"
+            "Only project-owned directories can be pruned (data_dir in litmus.yaml "
             "or under the project repo folder)."
         )
     delta = parse_duration(older_than)
@@ -134,12 +134,12 @@ def prune_all(
 
     # Materialize channel refs before pruning channel data
     if materialize and "channels" in data_types:
-        dirs_to_prune = prune_date_dirs(results_dir / "channels", cutoff, dry_run=True)
+        dirs_to_prune = prune_date_dirs(data_dir / "channels", cutoff, dry_run=True)
         if dirs_to_prune:
             from litmus.data.materialize import materialize_channel_refs
 
-            materialize_channel_refs(results_dir, dirs_to_prune)
+            materialize_channel_refs(data_dir, dirs_to_prune)
 
     for subdir in data_types:
-        result[subdir] = prune_date_dirs(results_dir / subdir, cutoff, dry_run=dry_run)
+        result[subdir] = prune_date_dirs(data_dir / subdir, cutoff, dry_run=dry_run)
     return result

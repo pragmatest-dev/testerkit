@@ -49,14 +49,14 @@ def grafana():
 @grafana.command()
 @click.option("--host", default="0.0.0.0", help="Bind address")
 @click.option("--port", default=5433, type=int, help="PostgreSQL wire protocol port")
-@click.option("--results-dir", type=click.Path(path_type=Path), default=None)
+@click.option("--data-dir", type=click.Path(path_type=Path), default=None)
 @click.option(
     "--refresh-seconds",
     default=30,
     type=int,
     help="Seconds between IPC table refreshes (events, channels)",
 )
-def serve(host: str, port: int, results_dir: Path | None, refresh_seconds: int) -> None:
+def serve(host: str, port: int, data_dir: Path | None, refresh_seconds: int) -> None:
     """Start the pgwire server for Grafana.
 
     Exposes all Litmus data (runs, events, channels) over the PostgreSQL
@@ -70,9 +70,9 @@ def serve(host: str, port: int, results_dir: Path | None, refresh_seconds: int) 
             "Missing dependency: buenavista\nInstall with: pip install litmus-test[grafana]"
         )
 
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
 
-    resolved = resolve_results_dir(results_dir)
+    resolved = resolve_data_dir(data_dir)
     click.echo(f"Results dir: {resolved}")
     _serve(resolved, host=host, port=port, refresh_seconds=refresh_seconds)
 

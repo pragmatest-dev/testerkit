@@ -7,7 +7,7 @@ when offending patterns reappear, with a pointer to the canonical
 replacement.
 
 If you're hitting one of these on a new test you wrote: read the
-explanation in the failure message, switch to ``resolve_results_dir()``,
+explanation in the failure message, switch to ``resolve_data_dir()``,
 and add the new test file to the allowlist below ONLY if you have a
 genuinely good reason (rare).
 """
@@ -22,19 +22,19 @@ import pytest
 _TESTS_DIR = Path(__file__).parent
 _REPO_ROOT = _TESTS_DIR.parent
 
-# Files that legitimately need their own results_dir-shaped path
+# Files that legitimately need their own data_dir-shaped path
 # (writing parquets to disk, testing the writer itself, etc.) but
-# DO NOT spawn daemons. ``ParquetBackend(results_dir=tmp_path)`` is
+# DO NOT spawn daemons. ``ParquetBackend(data_dir=tmp_path)`` is
 # fine in conftest because ``LITMUS_SKIP_DAEMON_NOTIFY=1`` blocks
 # the daemon-notify hop. Tests that LEGITIMATELY need a daemon
-# should use the canonical singleton via ``resolve_results_dir()``.
+# should use the canonical singleton via ``resolve_data_dir()``.
 _DAEMON_SPAWNERS = (
-    re.compile(r"\bRunStore\(_results_dir\s*=\s*tmp_path"),
-    re.compile(r"\bEventStore\(_results_dir\s*=\s*tmp_path"),
+    re.compile(r"\bRunStore\(_data_dir\s*=\s*tmp_path"),
+    re.compile(r"\bEventStore\(_data_dir\s*=\s*tmp_path"),
     re.compile(r"\bChannelStore\(\s*tmp_path[^,]*,.*serve\s*=\s*True"),
-    re.compile(r"\bStationConnection\([^)]*results_dir\s*=\s*tmp_path"),
-    re.compile(r"--results-dir\s*=\s*\{?[^}]*tmp_path"),
-    re.compile(r"--results-dir\s*=\s*\{?[^}]*pytester\.path"),
+    re.compile(r"\bStationConnection\([^)]*data_dir\s*=\s*tmp_path"),
+    re.compile(r"--data-dir\s*=\s*\{?[^}]*tmp_path"),
+    re.compile(r"--data-dir\s*=\s*\{?[^}]*pytester\.path"),
 )
 
 _PLATFORMDIRS_HARDCODE = re.compile(r"platformdirs\.user_data_dir\(\s*['\"]litmus['\"]\s*\)")
@@ -65,16 +65,16 @@ def _iter_test_files() -> list[Path]:
 def test_no_tmp_path_daemon_spawners():
     """No test passes ``tmp_path`` to a constructor that spawns a daemon.
 
-    Daemons are keyed on ``results_dir``. A fresh ``tmp_path`` per test
+    Daemons are keyed on ``data_dir``. A fresh ``tmp_path`` per test
     means a fresh daemon per test — each one ~100 gRPC threads. The
     full suite hits WSL's pids cgroup at ~30 such tests.
 
     Use the canonical singleton instead:
 
-        from litmus.data.results_dir import resolve_results_dir
-        canonical = resolve_results_dir()
-        store = RunStore()                  # no _results_dir → canonical
-        backend = ParquetBackend(results_dir=canonical)
+        from litmus.data.data_dir import resolve_data_dir
+        canonical = resolve_data_dir()
+        store = RunStore()                  # no _data_dir → canonical
+        backend = ParquetBackend(data_dir=canonical)
 
     Per-test isolation by ``run_id`` (uuid4), ``session_id``, or a
     unique ``dut_serial`` / ``product_id`` filter — not by directory.
@@ -92,10 +92,10 @@ def test_no_tmp_path_daemon_spawners():
         msg = "\n".join(f"  {p}:{n}  {line}" for p, n, line in offenders)
         pytest.fail(
             "Tests must not pass ``tmp_path`` to daemon-spawning "
-            "constructors. Use ``resolve_results_dir()`` and isolate "
+            "constructors. Use ``resolve_data_dir()`` and isolate "
             "by ``run_id`` / ``session_id`` / unique filter values:\n"
             f"{msg}\n\n"
-            "Why: every unique ``results_dir`` spawns its own daemon "
+            "Why: every unique ``data_dir`` spawns its own daemon "
             "(~100 gRPC threads). The full suite hits WSL's pids cgroup "
             "and starts SIGKILL'ing daemons mid-write."
         )
@@ -104,8 +104,8 @@ def test_no_tmp_path_daemon_spawners():
 def test_no_hardcoded_platformdirs_paths():
     """Test code must not bypass project ``litmus.yaml`` via hardcoded platformdirs.
 
-    Resolution should ALWAYS go through ``resolve_results_dir()`` so
-    the repo's project-local ``litmus.yaml`` (``results_dir: results``)
+    Resolution should ALWAYS go through ``resolve_data_dir()`` so
+    the repo's project-local ``litmus.yaml`` (``data_dir: data``)
     takes effect. Hardcoding ``platformdirs.user_data_dir("litmus")``
     forces tests onto the operator's global hardware-data store.
     """
@@ -119,7 +119,7 @@ def test_no_hardcoded_platformdirs_paths():
     if offenders:
         msg = "\n".join(f"  {p}:{n}  {line}" for p, n, line in offenders)
         pytest.fail(
-            "Tests must use ``resolve_results_dir()`` instead of "
+            "Tests must use ``resolve_data_dir()`` instead of "
             'hardcoded ``platformdirs.user_data_dir("litmus")``:\n'
             f"{msg}"
         )

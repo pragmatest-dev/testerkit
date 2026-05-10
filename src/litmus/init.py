@@ -233,7 +233,7 @@ Run with --mock-instruments for hardware-free testing:
 
         proj_data: dict[str, Any] = {"name": project_name}
         if starter:
-            # No ``results_dir:`` — starter uses the global default
+            # No ``data_dir:`` — starter uses the global default
             # under platformdirs.user_data_dir("litmus")/results so a
             # fresh user immediately benefits from cross-project
             # analytics in the operator UI / litmus runs / litmus show.

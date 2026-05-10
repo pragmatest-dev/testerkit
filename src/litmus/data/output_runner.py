@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 def run_outputs(
     test_run: TestRun,
     run_id: str,
-    results_dir: str,
+    data_dir: str,
 ) -> None:
     """Execute configured outputs for a completed test run.
 
@@ -46,7 +46,7 @@ def run_outputs(
 
     for output_cfg in config.outputs:
         try:
-            _run_single_output(output_cfg, test_run, run_id, results_dir)
+            _run_single_output(output_cfg, test_run, run_id, data_dir)
         except Exception as exc:
             warnings.warn(
                 f"Output '{output_cfg.format or output_cfg.transport}' failed: {exc}",
@@ -58,7 +58,7 @@ def _run_single_output(
     output_cfg: OutputConfig,
     test_run: TestRun,
     run_id: str,
-    results_dir: str,
+    data_dir: str,
 ) -> None:
     """Execute a single output entry."""
     from litmus.data.exporters import is_report_format
@@ -74,7 +74,7 @@ def _run_single_output(
         # Report formats — delegate to litmus.reports
         from litmus.reports.core import generate_report, load_run_data
 
-        data = load_run_data(run_id, results_dir)
+        data = load_run_data(run_id, data_dir)
         exported_path = generate_report(
             data,
             output_dir,
@@ -95,25 +95,25 @@ def _run_single_output(
                 stacklevel=2,
             )
         else:
-            _enqueue_and_drain(exported_path, transport_name, output_cfg, results_dir)
+            _enqueue_and_drain(exported_path, transport_name, output_cfg, data_dir)
     elif transport_name and not fmt:
         # Transport-only: ship the Parquet file directly
         from litmus.data.backends.parquet import ParquetBackend
 
-        backend = ParquetBackend(results_dir=Path(results_dir))
+        backend = ParquetBackend(data_dir=Path(data_dir))
         pq_file = backend.find_run_file(run_id)
         if pq_file:
-            _enqueue_and_drain(pq_file, transport_name, output_cfg, results_dir)
+            _enqueue_and_drain(pq_file, transport_name, output_cfg, data_dir)
 
 
 def _enqueue_and_drain(
     local_path: Path,
     transport_name: str,
     output_cfg: OutputConfig,
-    results_dir: str,
+    data_dir: str,
 ) -> None:
     """Enqueue an upload and immediately attempt to drain the queue."""
     from litmus.data.transports.upload_queue import drain, enqueue
 
-    enqueue(local_path, transport_name, output_cfg, results_dir)
-    drain(results_dir)
+    enqueue(local_path, transport_name, output_cfg, data_dir)
+    drain(data_dir)

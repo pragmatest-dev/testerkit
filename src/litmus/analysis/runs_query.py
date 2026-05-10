@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import multi_filter_clauses, sql_escape
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 
 # Operator-facing group-by dimensions only — internal IDs like
 # ``station_id`` / ``product_id`` are not exposed.
@@ -77,9 +77,9 @@ class RunsQuery:
         q.close()
     """
 
-    def __init__(self, *, _results_dir: Path | str | None = None) -> None:
-        results_dir = resolve_results_dir(_results_dir)
-        self._runs_dir = results_dir / "runs"
+    def __init__(self, *, _data_dir: Path | str | None = None) -> None:
+        data_dir = resolve_data_dir(_data_dir)
+        self._runs_dir = data_dir / "runs"
         self._runs_dir.mkdir(parents=True, exist_ok=True)
 
         location = runs_duckdb_manager.acquire(self._runs_dir)

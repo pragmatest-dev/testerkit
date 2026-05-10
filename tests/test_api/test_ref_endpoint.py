@@ -108,7 +108,7 @@ def app_with_run():
     Per-test isolation is by uuid4 ``run_id`` — API endpoints query
     by id, so other tests' canonical rows don't leak in.
     """
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
     from litmus.data.run_store import RunStore
 
     run = TestRun(
@@ -137,8 +137,8 @@ def app_with_run():
         ],
     )
 
-    results_root = resolve_results_dir()
-    backend = ParquetBackend(results_dir=results_root)
+    results_root = resolve_data_dir()
+    backend = ParquetBackend(data_dir=results_root)
     parquet_path = backend.save_test_run(run)
 
     notifier = RunStore()

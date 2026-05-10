@@ -16,7 +16,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from litmus.analysis.steps_query import StepNode, StepRow, StepsQuery
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import RUN_ROW_SCHEMA
 
@@ -86,7 +86,7 @@ def fixture_data() -> dict[str, str]:
     run_flat = str(uuid4())
     run_nested = str(uuid4())
 
-    canonical_runs = resolve_results_dir() / "runs" / "test-steps-query"
+    canonical_runs = resolve_data_dir() / "runs" / "test-steps-query"
     runs_dir = canonical_runs
     base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
 
@@ -208,7 +208,7 @@ class TestListForSession:
         run_a = str(uuid4())
         run_b = str(uuid4())
 
-        canonical_runs = resolve_results_dir() / "runs" / "test-steps-query-multi"
+        canonical_runs = resolve_data_dir() / "runs" / "test-steps-query-multi"
         base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
 
         slot_a_steps = [

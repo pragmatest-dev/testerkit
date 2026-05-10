@@ -47,7 +47,7 @@ equivalents (`SELECT col1, col2, …` or column lists at COPY time).
 ```sql
 -- Stage the run directory (or a glob over many days)
 CREATE OR REPLACE STAGE litmus_runs
-  URL='s3://my-bucket/results/runs/'
+  URL='s3://my-bucket/data/runs/'
   FILE_FORMAT = (TYPE = PARQUET);
 
 -- Three filtered COPY INTOs per file (or use Snowflake tasks for batch)
@@ -72,7 +72,7 @@ orchestrator (Airflow, Dagster, dbt) that iterates over new parquet files.
 CREATE OR REPLACE EXTERNAL TABLE litmus.run_rows
 OPTIONS (
   format = 'PARQUET',
-  uris = ['gs://my-bucket/results/runs/*.parquet']
+  uris = ['gs://my-bucket/data/runs/*.parquet']
 );
 
 -- Materialize three logical tables via filtered INSERTs
@@ -91,7 +91,7 @@ INSERT INTO litmus.measurements SELECT … WHERE record_type = 'measurement';
 ```python
 import pyspark.sql.functions as F
 
-df = spark.read.parquet("s3://my-bucket/results/runs/")
+df = spark.read.parquet("s3://my-bucket/data/runs/")
 
 (df.where(F.col("record_type") == "run")
    .drop("measurement_name", "measurement_value", /* ... */)
@@ -114,7 +114,7 @@ CREATE TABLE litmus.run_rows (
   record_type VARCHAR, run_id VARCHAR, dut_serial VARCHAR, /* full schema … */
 )
 WITH (
-  external_location = 's3://my-bucket/results/runs/',
+  external_location = 's3://my-bucket/data/runs/',
   format = 'PARQUET'
 );
 

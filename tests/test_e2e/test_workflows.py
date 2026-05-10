@@ -26,7 +26,7 @@ _PYTEST_BIN = shutil.which("pytest") or "pytest"
 def _litmus_env(home: Path) -> dict[str, str]:
     """Return env with LITMUS_HOME pointed at a per-test global results dir.
 
-    The starter no longer sets ``results_dir:`` (it relies on the
+    The starter no longer sets ``data_dir:`` (it relies on the
     global default under ``platformdirs.user_data_dir("litmus")``).
     Tests redirect that root via ``LITMUS_HOME`` so each test gets
     its own isolated ``<home>/results/`` tree.
@@ -116,8 +116,8 @@ class TestQuickstart:
 
         cfg = yaml.safe_load((project / "litmus.yaml").read_text())
         assert cfg["name"] == "my_project"
-        # Starter relies on the global default — no ``results_dir`` key.
-        assert cfg.get("results_dir") is None
+        # Starter relies on the global default — no ``data_dir`` key.
+        assert cfg.get("data_dir") is None
 
     def test_starter_tests_pass_with_mocks(self, tmp_path: Path):
         home = tmp_path / "home"
@@ -253,7 +253,7 @@ class TestInitVariants:
 
         cfg = yaml.safe_load((project / "litmus.yaml").read_text())
         assert cfg["name"] == "bare_proj"
-        assert cfg.get("results_dir") is None
+        assert cfg.get("data_dir") is None
 
     def test_init_idempotent(self, tmp_path: Path):
         _litmus("init", "idem", "--no-git", "--name", "first", cwd=tmp_path)

@@ -19,7 +19,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from litmus.analysis.runs_query import RunRow, RunsQuery
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import RUN_ROW_SCHEMA
 
@@ -245,7 +245,7 @@ def fixture_data():
     run_b = str(uuid4())
     run_c = str(uuid4())
 
-    runs_dir = resolve_results_dir() / "runs" / "test-runs-query"
+    runs_dir = resolve_data_dir() / "runs" / "test-runs-query"
     base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
     notifier = RunStore()
     try:
@@ -346,7 +346,7 @@ def fixture_data_with_in_flight():
     run_c = str(uuid4())
     run_live = str(uuid4())
 
-    runs_dir = resolve_results_dir() / "runs" / "test-runs-query-inflight"
+    runs_dir = resolve_data_dir() / "runs" / "test-runs-query-inflight"
     base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
     notifier = RunStore()
     try:

@@ -98,7 +98,7 @@ litmus runs [OPTIONS]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--results-dir` | `results` | Path to results directory |
+| `--data-dir` | `results` | Path to results directory |
 | `--limit` | `20` | Number of runs to display |
 
 **Example output:**
@@ -130,7 +130,7 @@ litmus show <RUN_ID> [OPTIONS]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--results-dir` | from `litmus.yaml` or `results` | Path to results directory |
+| `--data-dir` | from `litmus.yaml` or `results` | Path to results directory |
 | `-f`, `--format` | *(none)* | Generate report: `html`, `pdf`, `json`, `csv` |
 | `-o`, `--output` | `.` (current dir) | Output file or directory |
 | `-t`, `--template` | `default` | Jinja2 template name |
@@ -188,7 +188,7 @@ litmus yield summary [OPTIONS]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--results-dir` | from `litmus.yaml` or `results` | Results directory |
+| `--data-dir` | from `litmus.yaml` or `results` | Results directory |
 | `--phase` | exclude `development` | Test phase filter (or `all`) |
 | `--since` | *(none)* | Start date (ISO format) |
 | `--until` | *(none)* | End date (ISO format) |
@@ -200,7 +200,7 @@ litmus yield summary [OPTIONS]
 **Example:**
 
 ```
-$ litmus yield summary --results-dir results
+$ litmus yield summary --data-dir results
 Runs: 150  |  Unique serials: 120
 First-pass yield:  85.0%
 Final yield:       95.8%
@@ -254,7 +254,7 @@ litmus journals [OPTIONS]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--results-dir` | `results` | Path to results directory |
+| `--data-dir` | `results` | Path to results directory |
 
 **Example output:**
 
@@ -291,7 +291,7 @@ litmus recover [JOURNAL_DIR] [OPTIONS]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--results-dir` | `results` | Path to results directory |
+| `--data-dir` | `results` | Path to results directory |
 | `--all` | `false` | Recover all orphaned journals |
 
 **Examples:**
@@ -316,7 +316,7 @@ litmus cleanup-journals [OPTIONS]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--results-dir` | `results` | Path to results directory |
+| `--data-dir` | `results` | Path to results directory |
 | `--dry-run` | `false` | Show what would be deleted without deleting |
 
 **Examples:**
@@ -612,7 +612,7 @@ litmus runs --limit 5
 pytest tests/
 
 # Check results
-litmus runs --results-dir results
+litmus runs --data-dir results
 litmus show <run_id>
 ```
 

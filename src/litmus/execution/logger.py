@@ -418,7 +418,7 @@ class TestRunLogger:
         # Project directory — used for auto-detection (git, etc.)
         project_dir: str | Path | None = None,
         # Results storage
-        results_dir: str | Path | None = None,
+        data_dir: str | Path | None = None,
         # Instrument records for identity + calibration traceability
         instruments: dict[str, InstrumentRecord] | None = None,
         # Environment snapshot for software traceability
@@ -502,7 +502,7 @@ class TestRunLogger:
         # Event log for typed event streaming
         self._event_log: EventLog | None = None
         self._session_id: UUID = self.test_run.session_id
-        self._results_dir = Path(results_dir) if results_dir is not None else None
+        self._data_dir = Path(data_dir) if data_dir is not None else None
 
     @property
     def event_log(self) -> EventLog | None:

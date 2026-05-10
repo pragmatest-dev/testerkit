@@ -8,9 +8,9 @@ Shows SQL analytics on Parquet test results — no database server needed.
 
 import duckdb
 
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 
-results = resolve_results_dir()
+results = resolve_data_dir()
 parquet = f"{results}/runs/**/*.parquet"
 db = duckdb.connect()
 

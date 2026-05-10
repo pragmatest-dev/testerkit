@@ -27,17 +27,17 @@ from litmus.data.channels.client import ChannelClient
 from litmus.data.channels.models import ChannelSample
 from litmus.data.channels.server import start_server_background
 from litmus.data.channels.store import ChannelStore
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 
 # Project-local results via repo ``litmus.yaml`` — daemon-spawning
 # tests share this so we get exactly one channels daemon for the
 # whole TestDaemonLifecycle class.
-_CANONICAL_RESULTS = resolve_results_dir()
+_CANONICAL_RESULTS = resolve_data_dir()
 
 
-def _make_store(results_dir: Path, *, serve: bool = False) -> ChannelStore:
+def _make_store(data_dir: Path, *, serve: bool = False) -> ChannelStore:
     store = ChannelStore(
-        results_dir,
+        data_dir,
         uuid4(),
         flush_threshold=10,
         serve=serve,

@@ -105,18 +105,18 @@ def create_api_router() -> APIRouter:
     from litmus.store import load_project_config
 
     project = load_project_config()
-    results_dir: Path | None = Path(project.results_dir) if project.results_dir else None
-    backend = ParquetBackend(results_dir=results_dir)
+    data_dir: Path | None = Path(project.data_dir) if project.data_dir else None
+    backend = ParquetBackend(data_dir=data_dir)
 
     def _measurements_query():
         from litmus.analysis.measurements_query import MeasurementsQuery
 
-        return MeasurementsQuery(_results_dir=results_dir)
+        return MeasurementsQuery(_data_dir=data_dir)
 
     def _steps_query():
         from litmus.analysis.steps_query import StepsQuery
 
-        return StepsQuery(_results_dir=results_dir)
+        return StepsQuery(_data_dir=data_dir)
 
     # -------------------------------------------------------------------------
     # Runs
@@ -127,7 +127,7 @@ def create_api_router() -> APIRouter:
         """List recent test runs."""
         from litmus.analysis.runs_query import RunsQuery
 
-        q = RunsQuery(_results_dir=results_dir)
+        q = RunsQuery(_data_dir=data_dir)
         try:
             rows = q.list_recent(limit=limit)
         finally:
@@ -137,7 +137,7 @@ def create_api_router() -> APIRouter:
     @router.get("/runs/{run_id}", response_model=RunView, response_class=ORJSONResponse)
     def get_run(run_id: str):
         """Get a specific test run with steps, instruments, and measurements."""
-        view = load_run_view(run_id, results_dir=results_dir)
+        view = load_run_view(run_id, data_dir=data_dir)
         if view is None:
             raise HTTPException(status_code=404, detail="Run not found")
         return view
@@ -204,7 +204,7 @@ def create_api_router() -> APIRouter:
 
             from litmus.data.channels.store import ChannelStore
 
-            parent = results_dir if results_dir else Path("results")
+            parent = data_dir if data_dir else Path("results")
             channel_store = ChannelStore(parent, uuid4())
 
         try:
@@ -361,7 +361,7 @@ def create_api_router() -> APIRouter:
             role,
             since,
             limit,
-            results_dir=results_dir,
+            data_dir=data_dir,
         )
 
     @router.get("/sessions", response_class=ORJSONResponse)
@@ -369,14 +369,14 @@ def create_api_router() -> APIRouter:
         """List known sessions."""
         from litmus.mcp.tools import sessions_query
 
-        return sessions_query(results_dir=results_dir)
+        return sessions_query(data_dir=data_dir)
 
     @router.get("/sessions/{session_id}", response_class=ORJSONResponse)
     def get_session(session_id: str):
         """Get events for a specific session."""
         from litmus.mcp.tools import session_detail_query
 
-        result = session_detail_query(session_id, results_dir=results_dir)
+        result = session_detail_query(session_id, data_dir=data_dir)
         if result is None:
             raise HTTPException(status_code=404, detail="Session not found")
         return result
@@ -390,7 +390,7 @@ def create_api_router() -> APIRouter:
         """List known channels from the channel registry."""
         from litmus.mcp.tools import channels_list_query
 
-        return channels_list_query(results_dir=results_dir)
+        return channels_list_query(data_dir=data_dir)
 
     @router.get("/channels/_recent", response_class=ORJSONResponse)
     def list_channels_recent(last_n: int = 50):
@@ -402,7 +402,7 @@ def create_api_router() -> APIRouter:
         """
         from litmus.mcp.tools import channels_recent_query
 
-        return channels_recent_query(last_n=last_n, results_dir=results_dir)
+        return channels_recent_query(last_n=last_n, data_dir=data_dir)
 
     @router.get("/channels/{channel_id}", response_class=ORJSONResponse)
     def get_channel_data(
@@ -423,7 +423,7 @@ def create_api_router() -> APIRouter:
             until=until,
             last_n=last_n,
             max_points=max_points,
-            results_dir=results_dir,
+            data_dir=data_dir,
         )
 
     # -------------------------------------------------------------------------

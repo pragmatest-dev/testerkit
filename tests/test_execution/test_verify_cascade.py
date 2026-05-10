@@ -27,7 +27,7 @@ from uuid import uuid4
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 
 pytest_plugins = ["pytester"]
 
@@ -42,7 +42,7 @@ _INI = textwrap.dedent(
 
 
 # Project-local results via repo ``litmus.yaml``.
-_CANONICAL_RESULTS = resolve_results_dir()
+_CANONICAL_RESULTS = resolve_data_dir()
 
 
 def _read_measurement_row(serial: str, measurement_name: str) -> dict:

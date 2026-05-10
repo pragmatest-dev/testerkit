@@ -18,8 +18,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.ref import make_channel_uri
-from litmus.data.results_dir import resolve_results_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import RUN_ROW_SCHEMA
 
@@ -105,7 +105,7 @@ def fixture_data() -> dict[str, str]:
     run_001 = str(uuid4())
     run_002 = str(uuid4())
 
-    canonical_runs = resolve_results_dir() / "runs" / "test-run-store"
+    canonical_runs = resolve_data_dir() / "runs" / "test-run-store"
     runs_dir = canonical_runs / "2026-03-01"
     runs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -221,13 +221,13 @@ def test_find_channel_refs_no_match(runs_store: RunStore) -> None:
 
 def test_ref_dir_for() -> None:
     """ref_dir_for returns the _ref sidecar path."""
-    p = Path("/results/runs/2026-03-01/test_run.parquet")
-    assert RunStore.ref_dir_for(p) == Path("/results/runs/2026-03-01/test_run_ref")
+    p = Path("/data/runs/2026-03-01/test_run.parquet")
+    assert RunStore.ref_dir_for(p) == Path("/data/runs/2026-03-01/test_run_ref")
 
 
 def test_notify_new_run(runs_store: RunStore) -> None:
     """notify_new_run pushes a file path to the daemon for immediate indexing."""
-    canonical_runs = resolve_results_dir() / "runs" / "test-run-store"
+    canonical_runs = resolve_data_dir() / "runs" / "test-run-store"
     runs_dir = canonical_runs / "2026-03-08"
     runs_dir.mkdir(parents=True, exist_ok=True)
 

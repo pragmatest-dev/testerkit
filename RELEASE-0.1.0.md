@@ -33,11 +33,16 @@ are duplicated here for a single source of truth.
   accumulating. Commit `31cf8db`.
 - [x] **Unified per-run parquet.** `_steps.parquet` sidecar dropped;
   `RUN_ROW_SCHEMA` is the single canonical shape.
-- [x] **Results directory layout: date-partitioned, flat per day.**
-  `results/runs/{YYYY-MM-DD}/{timestamp}_{dut_serial}.parquet`. Already
+- [x] **Data directory layout: date-partitioned, flat per day.**
+  `data/runs/{YYYY-MM-DD}/{timestamp}_{dut_serial}.parquet`. Already
   shipped (`parquet.py:228, 563`). Date-partitioning is the contract;
   flat-within-day is fine for typical deployment volumes (~thousands of
   runs per day). Per-hour partitioning if anyone hits a wall is additive.
+- [x] **`results_dir` → `data_dir` rename.** Field, function,
+  CLI flag, YAML key, on-disk default all renamed (PostgreSQL `PGDATA`
+  precedent — events/runs/channels are mixed-content "data," not just
+  "results"). Tier 1 vocabulary sweep below is the umbrella; this is
+  the first slice landed.
 - [x] **Lakehouse interop pattern documented.** The unified parquet
   doesn't drop into Snowflake/Delta/Iceberg as three tables natively,
   but the `record_type` filter makes the transform a 3-line query.
@@ -112,8 +117,9 @@ These are real concerns but explicitly deferred:
 - **Schema migration tooling for breaking changes.** Pre-1.0 with no
   users, breaking changes wipe data. Migration story rebuilds at 1.0
   when the schema commitment becomes load-bearing.
-- **Date-partitioned results directory implementation** (if the layout
-  decision lands as "stay flat for 0.1.0, partition opt-in later").
+- **Per-hour data-directory partitioning.** Date-partitioning shipped
+  (see Done above). Per-hour subdivision opt-in if anyone hits the
+  flat-within-day wall; not a 0.1.0 commitment.
 - **Retry forensics at the events layer** (per-execution
   `StepStarted`/`StepEnded` events with `retry` field, plus
   `request.node.execution_count` threading for pytest-rerunfailures

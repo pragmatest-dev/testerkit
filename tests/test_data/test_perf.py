@@ -28,7 +28,7 @@ from litmus.data.events import MeasurementRecorded, SessionStarted
 
 @pytest.fixture(scope="module")
 def event_store() -> Generator[EventStore]:
-    """Module-scoped EventStore on the canonical singleton results_dir.
+    """Module-scoped EventStore on the canonical singleton data_dir.
 
     Per-process isolation isn't needed for perf benchmarks — they
     measure throughput, not state. Per-test isolation is via unique

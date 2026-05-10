@@ -55,6 +55,7 @@ from litmus.data.backends._row_helpers import (
     run_context_from_run_started,
     save_ref_to_dir,
 )
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
     InstrumentConnected,
@@ -77,7 +78,6 @@ from litmus.data.models import (
     _utcnow,
 )
 from litmus.data.ref import is_ref, parse_channel_uri, ref_scheme
-from litmus.data.results_dir import resolve_results_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import (
     SCHEMA_VERSION,
@@ -188,15 +188,15 @@ class ParquetBackend:
     4. Config snapshots in file metadata - full reconstruction possible
     """
 
-    def __init__(self, results_dir: Path | str | None = None):
-        # ``results_dir`` is the parent (the project's results dir
+    def __init__(self, data_dir: Path | str | None = None):
+        # ``data_dir`` is the parent (the project's results dir
         # containing ``runs/``, ``events/``, ``channels/`` subdirs).
-        # Aligns with ``RunStore._results_dir`` and
-        # ``ProjectConfig.results_dir``. Parquets are written under
-        # ``self._runs_dir = results_dir / "runs"``.
-        self.results_dir = resolve_results_dir(results_dir)
-        self.results_dir.mkdir(parents=True, exist_ok=True)
-        self._runs_dir = self.results_dir / "runs"
+        # Aligns with ``RunStore._data_dir`` and
+        # ``ProjectConfig.data_dir``. Parquets are written under
+        # ``self._runs_dir = data_dir / "runs"``.
+        self.data_dir = resolve_data_dir(data_dir)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self._runs_dir = self.data_dir / "runs"
         self._runs_dir.mkdir(parents=True, exist_ok=True)
         self._writer = ParquetMeasurementWriter(notify=self._notify_daemon)
 
@@ -305,11 +305,11 @@ class ParquetBackend:
     def _run_store_ctx(self) -> Generator[RunStore, None, None]:
         """Yield a configured RunStore, closing it on exit.
 
-        Both classes use ``results_dir`` to mean *the parent* (the
+        Both classes use ``data_dir`` to mean *the parent* (the
         results dir containing ``runs/``, ``events/``, ``channels/``).
         Each appends its own subdir internally.
         """
-        store = RunStore(_results_dir=self.results_dir)
+        store = RunStore(_data_dir=self.data_dir)
         try:
             yield store
         finally:
@@ -324,7 +324,7 @@ class ParquetBackend:
 
         Set ``LITMUS_SKIP_DAEMON_NOTIFY=1`` (e.g. in test conftest)
         to skip notification entirely. Without this, every
-        ``ParquetBackend.save_test_run(results_dir=tmp_path)`` call
+        ``ParquetBackend.save_test_run(data_dir=tmp_path)`` call
         in unit tests transitively spawns a runs daemon for that
         tmp_path — accumulating daemons across test files quickly
         exhausts the OS thread limit.
@@ -536,9 +536,7 @@ class ParquetBackend:
         """
         pq_file = self.find_run_file(run_id)
         if pq_file is None:
-            raise FileNotFoundError(
-                f"No Parquet file found for run '{run_id}' in {self.results_dir}/"
-            )
+            raise FileNotFoundError(f"No Parquet file found for run '{run_id}' in {self.data_dir}/")
         return reconstruct_test_run_from_file(pq_file)
 
     def save_from_rows(
@@ -619,7 +617,7 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
         super().__init__()
         self._output_dir = output_dir
         self._on_output = on_output
-        self._backend = ParquetBackend(results_dir=output_dir)
+        self._backend = ParquetBackend(data_dir=output_dir)
         self._written = False
 
     def open(self) -> None:

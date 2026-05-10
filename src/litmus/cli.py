@@ -9,7 +9,7 @@ from pathlib import Path
 import click
 
 
-def _find_parquet_for_run(run_id: str, results_dir: str) -> Path | None:
+def _find_parquet_for_run(run_id: str, data_dir: str) -> Path | None:
     """Find the measurement parquet path for a run ID via the daemon's index.
 
     Goes through ``RunsQuery`` rather than ``ParquetBackend.find_run_file``
@@ -19,7 +19,7 @@ def _find_parquet_for_run(run_id: str, results_dir: str) -> Path | None:
     """
     from litmus.analysis.runs_query import RunsQuery
 
-    with RunsQuery(_results_dir=results_dir) as q:
+    with RunsQuery(_data_dir=data_dir) as q:
         row = q.get(run_id)
     return Path(row.file_path) if row is not None and row.file_path else None
 
@@ -555,17 +555,17 @@ def serve(host: str, port: int, reload: bool):
 
 
 @main.command()
-@click.option("--results-dir", default=None, help="Results directory")
+@click.option("--data-dir", default=None, help="Results directory")
 @click.option("--limit", default=20, help="Number of runs to show")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def runs(results_dir: str | None, limit: int, as_json: bool):
+def runs(data_dir: str | None, limit: int, as_json: bool):
     """List recent test runs."""
     from litmus.data._flight_query import IndexOutOfDate
     from litmus.data.backends.parquet import ParquetBackend
 
-    results_dir = _get_results_dir(results_dir)
+    data_dir = _get_data_dir(data_dir)
 
-    backend = ParquetBackend(results_dir=results_dir)
+    backend = ParquetBackend(data_dir=data_dir)
     try:
         test_runs = backend.list_runs(limit=limit)
     except IndexOutOfDate as exc:
@@ -597,7 +597,7 @@ def runs(results_dir: str | None, limit: int, as_json: bool):
 
 @main.command()
 @click.argument("run_id")
-@click.option("--results-dir", default=None, help="Results directory")
+@click.option("--data-dir", default=None, help="Results directory")
 @click.option(
     "-f",
     "--format",
@@ -611,7 +611,7 @@ def runs(results_dir: str | None, limit: int, as_json: bool):
 @click.option("--env", is_flag=True, default=False, help="Show environment snapshot")
 def show(
     run_id: str,
-    results_dir: str | None,
+    data_dir: str | None,
     fmt: str | None,
     output: str | None,
     template: str,
@@ -628,7 +628,7 @@ def show(
         litmus show abc123 -f pdf -o reports/
         litmus show abc123 -f json -o result.json
     """
-    results_dir = _get_results_dir(results_dir)
+    data_dir = _get_data_dir(data_dir)
 
     from litmus.reports.core import load_run_data
 
@@ -637,7 +637,7 @@ def show(
         from litmus.reports.core import generate_report
 
         try:
-            data = load_run_data(run_id, results_dir)
+            data = load_run_data(run_id, data_dir)
         except FileNotFoundError as e:
             click.echo(str(e), err=True)
             raise SystemExit(1)
@@ -650,7 +650,7 @@ def show(
     # Terminal display mode
 
     try:
-        data = load_run_data(run_id, results_dir)
+        data = load_run_data(run_id, data_dir)
     except FileNotFoundError:
         click.echo(f"Run {run_id} not found.")
         return
@@ -665,7 +665,7 @@ def show(
     click.echo(f"  Measurements: {data.total_measurements} ({data.failed_measurements} failed)")
 
     # Show step results if available
-    pq_path = _find_parquet_for_run(run_id, results_dir)
+    pq_path = _find_parquet_for_run(run_id, data_dir)
     if pq_path and not env:
         from litmus.data.backends.parquet import read_step_results
 
@@ -701,7 +701,7 @@ def show(
     if env:
         from litmus.sbom import environment_from_parquet, format_environment_table
 
-        pq_path = _find_parquet_for_run(run_id, results_dir)
+        pq_path = _find_parquet_for_run(run_id, data_dir)
         if pq_path:
             snapshot = environment_from_parquet(pq_path)
             if snapshot:
@@ -719,7 +719,7 @@ def show(
 
 def _read_events_by_id(
     id_prefix: str,
-    results_dir: str,
+    data_dir: str,
 ) -> tuple[list[dict], str]:
     """Read events matching an ID prefix from Arrow IPC files.
 
@@ -733,7 +733,7 @@ def _read_events_by_id(
 
     from litmus.data._ipc_writer import read_ipc_batches
 
-    events_dir = Path(results_dir) / "events"
+    events_dir = Path(data_dir) / "events"
     if not events_dir.exists():
         return [], ""
 
@@ -787,7 +787,7 @@ def _read_events_by_id(
     help="Target format (csv, json, stdf, hdf5, tdms, mdf4, atml)",
 )
 @click.option("-o", "--output-dir", default=None, help="Output directory")
-@click.option("--results-dir", default=None, help="Results directory")
+@click.option("--data-dir", default=None, help="Results directory")
 @click.option(
     "--transport",
     default=None,
@@ -797,7 +797,7 @@ def export(
     id: str,
     fmt: str,
     output_dir: str | None,
-    results_dir: str | None,
+    data_dir: str | None,
     transport: str | None,
 ):
     """Export a test run or session to a different format via event replay.
@@ -815,8 +815,8 @@ def export(
     """
     from litmus.data.subscribers import get_subscriber_class, replay_to_subscriber
 
-    if results_dir is None:
-        results_dir = _get_results_dir(None)
+    if data_dir is None:
+        data_dir = _get_data_dir(None)
 
     # Look up subscriber class for the format
     cls = get_subscriber_class(fmt)
@@ -832,7 +832,7 @@ def export(
         output_dir = f"results/exports/{fmt}"
 
     # Find events by run_id or session_id
-    events, matched_col = _read_events_by_id(id, results_dir)
+    events, matched_col = _read_events_by_id(id, data_dir)
     if not events:
         click.echo(f"No events found for '{id}'.", err=True)
         raise SystemExit(1)
@@ -880,9 +880,9 @@ def _list_export_formats() -> list[str]:
 
 @main.command()
 @click.argument("run_id")
-@click.option("--results-dir", default=None, help="Results directory")
+@click.option("--data-dir", default=None, help="Results directory")
 @click.option("-o", "--output", default=None, help="Output file (default: stdout)")
-def sbom(run_id: str, results_dir: str | None, output: str | None):
+def sbom(run_id: str, data_dir: str | None, output: str | None):
     """Export CycloneDX SBOM for a test run's software environment.
 
     Reads the environment snapshot captured during the test run and
@@ -894,9 +894,9 @@ def sbom(run_id: str, results_dir: str | None, output: str | None):
     """
     from litmus.sbom import environment_from_parquet, generate_cyclonedx
 
-    results_dir = _get_results_dir(results_dir)
+    data_dir = _get_data_dir(data_dir)
 
-    pq_path = _find_parquet_for_run(run_id, results_dir)
+    pq_path = _find_parquet_for_run(run_id, data_dir)
     if not pq_path:
         click.echo(f"Run {run_id} not found.", err=True)
         raise SystemExit(1)
@@ -2059,7 +2059,7 @@ def instrument_cal(
 
 def _base_filters(func):
     """Shared filter options for yield and gold commands."""
-    func = click.option("--results-dir", default=None, help="Results directory")(func)
+    func = click.option("--data-dir", default=None, help="Results directory")(func)
     func = click.option("--phase", default=None, help="Test phase (or 'all')")(func)
     func = click.option("--since", default=None, help="Start date (ISO format)")(func)
     func = click.option("--until", "until_date", default=None, help="End date (ISO format)")(func)
@@ -2069,18 +2069,18 @@ def _base_filters(func):
     return func
 
 
-def _get_results_dir(results_dir):
+def _get_data_dir(data_dir):
     """Resolve results directory from option or project config."""
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
 
-    return str(resolve_results_dir(results_dir))
+    return str(resolve_data_dir(data_dir))
 
 
-def _measurements_query(results_dir: str | None):
+def _measurements_query(data_dir: str | None):
     """Create a MeasurementsQuery with resolved results directory."""
     from litmus.analysis.measurements_query import MeasurementsQuery
 
-    return MeasurementsQuery(_results_dir=_get_results_dir(results_dir))
+    return MeasurementsQuery(_data_dir=_get_data_dir(data_dir))
 
 
 @main.group("metrics")
@@ -2092,9 +2092,9 @@ def metrics_group():
 @metrics_group.command("summary")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_summary(results_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_summary(data_dir, phase, since, until_date, product, station, period, as_json):
     """Yield summary: FPY, final yield, run counts, duration stats."""
-    store = _measurements_query(results_dir)
+    store = _measurements_query(data_dir)
     rows = store.yield_summary(
         product=product,
         station=station,
@@ -2148,14 +2148,12 @@ def metrics_summary(results_dir, phase, since, until_date, product, station, per
         "measurements by name (the historical default)."
     ),
 )
-def metrics_pareto(
-    results_dir, phase, since, until_date, product, station, top_n, group_by, as_json
-):
+def metrics_pareto(data_dir, phase, since, until_date, product, station, top_n, group_by, as_json):
     """Top failures (Pareto). Group by product / step / measurement."""
     if group_by == "step":
         from litmus.analysis.steps_query import StepsQuery
 
-        store = StepsQuery(_results_dir=results_dir or None)
+        store = StepsQuery(_data_dir=data_dir or None)
         try:
             rows = store.failure_pareto(
                 top_n=top_n,
@@ -2171,7 +2169,7 @@ def metrics_pareto(
     elif group_by == "product":
         from litmus.analysis.runs_query import RunsQuery
 
-        store = RunsQuery(_results_dir=results_dir or None)
+        store = RunsQuery(_data_dir=data_dir or None)
         try:
             rows = store.failure_pareto(
                 group_by="dut_part_number",
@@ -2186,7 +2184,7 @@ def metrics_pareto(
             store.close()
         header = "Product (dut_part_number)"
     else:  # measurement (historical)
-        store = _measurements_query(results_dir)
+        store = _measurements_query(data_dir)
         raw = store.pareto(
             product=product,
             station=station,
@@ -2230,9 +2228,9 @@ def metrics_pareto(
 @metrics_group.command("cpk")
 @_base_filters
 @click.option("--min-samples", default=10, help="Minimum sample count")
-def metrics_cpk(results_dir, phase, since, until_date, product, station, min_samples, as_json):
+def metrics_cpk(data_dir, phase, since, until_date, product, station, min_samples, as_json):
     """Process capability (Cpk/Cp) per measurement."""
-    store = _measurements_query(results_dir)
+    store = _measurements_query(data_dir)
     rows = store.cpk(
         product=product,
         station=station,
@@ -2267,9 +2265,9 @@ def metrics_cpk(results_dir, phase, since, until_date, product, station, min_sam
 @metrics_group.command("trend")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_trend(results_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_trend(data_dir, phase, since, until_date, product, station, period, as_json):
     """Yield trend over time."""
-    store = _measurements_query(results_dir)
+    store = _measurements_query(data_dir)
     rows = store.trend(
         product=product,
         station=station,
@@ -2299,9 +2297,9 @@ def metrics_trend(results_dir, phase, since, until_date, product, station, perio
 @metrics_group.command("retest")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_retest(results_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_retest(data_dir, phase, since, until_date, product, station, period, as_json):
     """Retest rates: how often DUTs are retried."""
-    store = _measurements_query(results_dir)
+    store = _measurements_query(data_dir)
     rows = store.retest(
         product=product,
         station=station,
@@ -2332,9 +2330,9 @@ def metrics_retest(results_dir, phase, since, until_date, product, station, peri
 @metrics_group.command("time-loss")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_time_loss(results_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_time_loss(data_dir, phase, since, until_date, product, station, period, as_json):
     """Time lost to failures and errors."""
-    store = _measurements_query(results_dir)
+    store = _measurements_query(data_dir)
     rows = store.time_loss(
         product=product,
         station=station,
@@ -2383,22 +2381,22 @@ def data():
     multiple=True,
     help="Data types to prune (e.g. channels, events)",
 )
-@click.option("--results-dir", default=None, help="Results directory")
+@click.option("--data-dir", default=None, help="Results directory")
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted")
 def data_prune(
     older_than: str,
     data_types: tuple[str, ...],
-    results_dir: str | None,
+    data_dir: str | None,
     dry_run: bool,
 ) -> None:
     """Delete date-partitioned data older than the specified period."""
     from litmus.data.retention import prune_all
 
-    results_dir_path = Path(_get_results_dir(results_dir))
+    data_dir_path = Path(_get_data_dir(data_dir))
 
     types = data_types or ("channels", "events")
     try:
-        result = prune_all(results_dir_path, older_than, data_types=types, dry_run=dry_run)
+        result = prune_all(data_dir_path, older_than, data_types=types, dry_run=dry_run)
     except ValueError as e:
         raise click.BadParameter(str(e), param_hint="'--older-than'") from e
 
@@ -2417,8 +2415,8 @@ def data_prune(
 
 
 @data.command("reindex")
-@click.option("--results-dir", default=None, help="Results directory")
-def data_reindex(results_dir: str | None) -> None:
+@click.option("--data-dir", default=None, help="Results directory")
+def data_reindex(data_dir: str | None) -> None:
     """Kill index daemons and rebuild on next access.
 
     Use this when the index is out of date (e.g. after upgrading litmus).
@@ -2426,7 +2424,7 @@ def data_reindex(results_dir: str | None) -> None:
     from litmus.data.duckdb_manager import DuckDBDaemonManager
     from litmus.data.runs_duckdb_manager import RunsDuckDBManager
 
-    results = Path(_get_results_dir(results_dir))
+    results = Path(_get_data_dir(data_dir))
 
     for subdir, mgr_cls in [
         ("events", DuckDBDaemonManager),
@@ -2454,12 +2452,12 @@ def uploads():
 
 
 @uploads.command("status")
-@click.option("--results-dir", default=None, help="Results directory")
-def uploads_status(results_dir: str | None) -> None:
+@click.option("--data-dir", default=None, help="Results directory")
+def uploads_status(data_dir: str | None) -> None:
     """Show pending/failed uploads."""
     from litmus.data.transports.upload_queue import status
 
-    rows = status(_get_results_dir(results_dir))
+    rows = status(_get_data_dir(data_dir))
     if not rows:
         click.echo("Upload queue is empty.")
         return
@@ -2472,23 +2470,23 @@ def uploads_status(results_dir: str | None) -> None:
 
 
 @uploads.command("retry")
-@click.option("--results-dir", default=None, help="Results directory")
+@click.option("--data-dir", default=None, help="Results directory")
 @click.option("--max-attempts", default=3, help="Max retry attempts per upload")
-def uploads_retry(results_dir: str | None, max_attempts: int) -> None:
+def uploads_retry(data_dir: str | None, max_attempts: int) -> None:
     """Retry all pending/failed uploads."""
     from litmus.data.transports.upload_queue import drain
 
-    count = drain(_get_results_dir(results_dir), max_attempts=max_attempts)
+    count = drain(_get_data_dir(data_dir), max_attempts=max_attempts)
     click.echo(f"{count} upload(s) completed.")
 
 
 @uploads.command("clear")
-@click.option("--results-dir", default=None, help="Results directory")
-def uploads_clear(results_dir: str | None) -> None:
+@click.option("--data-dir", default=None, help="Results directory")
+def uploads_clear(data_dir: str | None) -> None:
     """Remove completed entries from the upload queue."""
     from litmus.data.transports.upload_queue import clear_done
 
-    count = clear_done(_get_results_dir(results_dir))
+    count = clear_done(_get_data_dir(data_dir))
     click.echo(f"{count} completed entry/entries removed.")
 
 
@@ -2506,16 +2504,16 @@ def _resolve_daemon_dirs(
 
     With ``--all`` (or no targets), return all three canonical
     daemons (events, runs, channels) under the configured
-    ``results_dir``. Targets can be the labels themselves
+    ``data_dir``. Targets can be the labels themselves
     (``events`` / ``runs`` / ``channels``) or absolute directory
     paths to operate on a non-default project.
     """
-    from litmus.data.results_dir import resolve_results_dir
+    from litmus.data.data_dir import resolve_data_dir
 
     canonical = {
-        "events": Path(resolve_results_dir()) / "events",
-        "runs": Path(resolve_results_dir()) / "runs",
-        "channels": Path(resolve_results_dir()) / "channels",
+        "events": Path(resolve_data_dir()) / "events",
+        "runs": Path(resolve_data_dir()) / "runs",
+        "channels": Path(resolve_data_dir()) / "channels",
     }
     if not targets or all_flag:
         return list(canonical.items())
@@ -2595,7 +2593,7 @@ def daemon_restart(targets: tuple[str, ...], all_flag: bool) -> None:
     rebuild path runs at the next acquire.
 
     Targets can be ``events`` / ``runs`` / ``channels`` (resolved
-    against the configured ``results_dir``) or absolute directory
+    against the configured ``data_dir``) or absolute directory
     paths. With ``--all`` or no targets, restarts all three.
     """
     rows = _resolve_daemon_dirs(targets, all_flag=all_flag)

@@ -148,7 +148,7 @@ class ProjectConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
     name: str
-    results_dir: str | None = None
+    data_dir: str | None = None
     # Optional fallback station id when no ``--station`` is passed
     # and hostname auto-match doesn't fire.
     # Set this to a real station id in your project; leaving it

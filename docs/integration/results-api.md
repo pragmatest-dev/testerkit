@@ -34,7 +34,7 @@ run.finish()
 ### LitmusClient
 
 ```python
-client = LitmusClient(results_dir="results")
+client = LitmusClient(data_dir="results")
 ```
 
 | Method | Description |

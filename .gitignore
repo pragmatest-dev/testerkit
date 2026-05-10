@@ -3,8 +3,8 @@ __pycache__/
 *.pyc
 *.egg-info/
 dist/
-/results/
-/examples/*/results/
+/data/
+/examples/*/data/
 .ruff_cache/
 .pytest_cache/
 .coverage

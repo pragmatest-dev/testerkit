@@ -119,7 +119,7 @@ The data server auto-refreshes Arrow IPC tables every 30 seconds (configurable w
 litmus grafana serve [OPTIONS]
     --host TEXT       Bind address (default: 0.0.0.0)
     --port INTEGER    pgwire port (default: 5433)
-    --results-dir PATH
+    --data-dir PATH
     --refresh-seconds INTEGER  Seconds between IPC refreshes (default: 30)
 
 litmus grafana setup [OPTIONS]

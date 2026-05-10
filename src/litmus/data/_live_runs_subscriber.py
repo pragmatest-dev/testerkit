@@ -258,13 +258,13 @@ class LiveRunsSubscriber:
 
     def __init__(
         self,
-        results_dir: Path,
+        data_dir: Path,
         *,
         poll_interval_seconds: float = 0.5,
         orphan_interval_seconds: float = 30.0,
         orphan_timeout_seconds: float = 3600.0,
     ) -> None:
-        self._results_dir = results_dir
+        self._data_dir = data_dir
         self._poll_interval = poll_interval_seconds
         self._orphan_interval = orphan_interval_seconds
         self._orphan_timeout = orphan_timeout_seconds
@@ -371,7 +371,7 @@ class LiveRunsSubscriber:
 
     def _attach_loop(self) -> None:
         """Poll for a live events daemon; attach the subscription on first sight."""
-        events_dir = self._results_dir / "events"
+        events_dir = self._data_dir / "events"
         while not self._stop_event.is_set():
             if _events_daemon_alive(events_dir):
                 if self._try_attach():
@@ -384,7 +384,7 @@ class LiveRunsSubscriber:
         try:
             from litmus.data.event_store import EventStore
 
-            event_store = EventStore(_results_dir=self._results_dir)
+            event_store = EventStore(_data_dir=self._data_dir)
         except Exception as exc:  # noqa: BLE001
             logger.debug("LiveRunsSubscriber attach failed (will retry): %s", exc)
             return False
@@ -464,7 +464,7 @@ class LiveRunsSubscriber:
         evict the accumulator. The daemon's existing parquet-ingest
         path picks the file up and moves the row to ``runs_persisted``.
         """
-        output_dir = self._results_dir
+        output_dir = self._data_dir
         now = datetime.now(UTC)
 
         for run_id, acc, pid, last_event_at in self._pool.open_runs():

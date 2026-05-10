@@ -33,7 +33,7 @@ import pyarrow.parquet as pq
 
 from litmus.analysis.runs_query import RunsQuery
 from litmus.data import runs_duckdb_manager
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.schemas import RUN_ROW_SCHEMA
 
 
@@ -93,7 +93,7 @@ def test_fresh_daemon_spawns_within_timeout(tmp_path: Path) -> None:
     why wiping the canonical mid-suite is unsafe — this test honored
     that constraint by sandboxing instead.
 
-    The forbidden ``RunStore(_results_dir=tmp_path)`` rule (per-test
+    The forbidden ``RunStore(_data_dir=tmp_path)`` rule (per-test
     daemons → pids cgroup exhaustion at ~30 such tests) is about
     *accidental* per-test daemons. This test inherently spawns a daemon
     to time the spawn path; it's the one legitimate per-test daemon and
@@ -126,7 +126,7 @@ def test_query_during_ingest_does_not_hang():
     within 2 seconds. Guards against the catalog deadlock that occurred
     when the background ingest opened its own DuckDB connection.
     """
-    runs_dir = resolve_results_dir() / "runs" / "test-concurrent-ingest"
+    runs_dir = resolve_data_dir() / "runs" / "test-concurrent-ingest"
     if runs_dir.exists():
         shutil.rmtree(runs_dir)
     runs_dir.mkdir(parents=True, exist_ok=True)
@@ -139,7 +139,7 @@ def test_query_during_ingest_does_not_hang():
             started=base + timedelta(seconds=i),
         )
 
-    canonical_runs = resolve_results_dir() / "runs"
+    canonical_runs = resolve_data_dir() / "runs"
 
     # Acquire the daemon without wiping — new parquets will be picked up by
     # the background ingest sweep on the running daemon. Wiping would kill

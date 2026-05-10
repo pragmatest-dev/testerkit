@@ -27,8 +27,8 @@ from litmus.analysis.measurement_facets import (
 )
 from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.data._flight_errors import IndexOutOfDate
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_store import EventStore
-from litmus.data.results_dir import resolve_results_dir
 from litmus.ui.shared.components import (
     page_header,
     page_layout,
@@ -150,7 +150,7 @@ async def explore_page(request: Request):
     plus ``y`` / ``x`` / ``chart_type`` / ``group_by`` / ``bins`` /
     ``limit`` / ``since`` / ``until``.
     """
-    results_dir = str(resolve_results_dir())
+    data_dir = str(resolve_data_dir())
     create_layout("Measurements")
 
     # Decode URL state — pure dict ops, no queries.
@@ -174,7 +174,7 @@ async def explore_page(request: Request):
     # Fetch schema + counts + smart defaults off the event loop.
     init_result = await run.io_bound(
         _fetch_initial_schema,
-        results_dir,
+        data_dir,
         is_bare_url,
         initial_filters,
         initial_y,
@@ -221,7 +221,7 @@ async def explore_page(request: Request):
     chart_container: Any = None
 
     def _new_query() -> MeasurementsQuery:
-        return MeasurementsQuery(_results_dir=results_dir)
+        return MeasurementsQuery(_data_dir=data_dir)
 
     def _push_url() -> None:
         grouped: dict[str, list[str]] = {}
@@ -484,14 +484,14 @@ async def explore_page(request: Request):
 
     # Live updates on run.ended.
     try:
-        event_store = EventStore.get_shared(resolve_results_dir())
+        event_store = EventStore.get_shared(resolve_data_dir())
         subscribe_with_refresh(event_store, ["run.ended"], _refresh_all)
     except (OSError, RuntimeError) as exc:
         logger.warning("Live updates unavailable: %s", exc)
 
 
 def _fetch_initial_schema(
-    results_dir: str,
+    data_dir: str,
     is_bare_url: bool,
     initial_filters: FilterSet,
     initial_y: str,
@@ -501,7 +501,7 @@ def _fetch_initial_schema(
 ) -> tuple | None | str:
     """Pure data fetch for explore page init. Returns None (no data), str (error), or tuple."""
     try:
-        with MeasurementsQuery(_results_dir=results_dir) as q:
+        with MeasurementsQuery(_data_dir=data_dir) as q:
             schema = q.describe_columns()
     except IndexOutOfDate:
         return None
@@ -509,7 +509,7 @@ def _fetch_initial_schema(
         return str(exc)
 
     try:
-        with MeasurementsQuery(_results_dir=results_dir) as q:
+        with MeasurementsQuery(_data_dir=data_dir) as q:
             initial_counts = q.summary_counts()
     except (OSError, ValueError, RuntimeError):
         initial_counts = None
@@ -520,7 +520,7 @@ def _fetch_initial_schema(
 
     if is_bare_url:
         try:
-            with MeasurementsQuery(_results_dir=results_dir) as q:
+            with MeasurementsQuery(_data_dir=data_dir) as q:
                 top_names = q.distinct_values("measurement_name", filters=FilterSet(), limit=20)
         except (OSError, ValueError, RuntimeError, IndexOutOfDate):
             top_names = []

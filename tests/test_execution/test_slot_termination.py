@@ -49,7 +49,7 @@ class TestSingleProcessTermination:
     """SIGTERM → run lands ``terminated`` (full handler chain)."""
 
     def test_sigterm_during_test_lands_terminated(self, tmp_path):
-        # Subprocess writes to the canonical results_dir (the singleton
+        # Subprocess writes to the canonical data_dir (the singleton
         # daemon every Litmus client shares). Test isolation is by the
         # unique ``session_id`` we hand the subprocess via env.
         session_id = str(uuid4())

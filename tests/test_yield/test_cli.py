@@ -16,7 +16,7 @@ from click.testing import CliRunner
 
 from litmus.cli import main
 from litmus.data.backends._row_helpers import MeasurementRow
-from litmus.data.results_dir import resolve_results_dir
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.run_store import RunStore
 from litmus.data.schemas import _build_write_schema, table_from_rows
 
@@ -76,7 +76,7 @@ def _write(runs_dir: Path, rows: list[MeasurementRow], filename: str) -> Path:
 def fixture_data() -> dict[str, str]:
     """Sample measurement data under a unique product, in canonical."""
     product = f"prod-yield-{uuid4().hex[:8]}"
-    canonical_runs = resolve_results_dir() / "runs" / "test-yield-cli" / "2026-01-01"
+    canonical_runs = resolve_data_dir() / "runs" / "test-yield-cli" / "2026-01-01"
     canonical_runs.mkdir(parents=True, exist_ok=True)
 
     rows = [

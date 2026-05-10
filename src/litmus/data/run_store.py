@@ -20,8 +20,8 @@ import pyarrow.parquet as pq
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import sql_escape as _sql_escape
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import RunSummary
-from litmus.data.results_dir import resolve_results_dir
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +46,10 @@ class RunStore:
     lifecycle pattern as EventStore. Queries go via Arrow Flight (gRPC).
     """
 
-    def __init__(self, *, _results_dir: Path | None = None) -> None:
-        results_dir = resolve_results_dir(_results_dir)
+    def __init__(self, *, _data_dir: Path | None = None) -> None:
+        data_dir = resolve_data_dir(_data_dir)
 
-        self._runs_dir = results_dir / "runs"
+        self._runs_dir = data_dir / "runs"
         self._runs_dir.mkdir(parents=True, exist_ok=True)
 
         # Start daemon and get gRPC location

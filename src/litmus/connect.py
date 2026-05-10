@@ -53,11 +53,11 @@ class StationConnection:
         self,
         station_config: StationConfig,
         *,
-        results_dir: Path | None = None,
+        data_dir: Path | None = None,
         mock: bool = False,
     ) -> None:
         self._config = station_config
-        self._results_dir = results_dir
+        self._data_dir = data_dir
         self._mock = mock
         self._session_id = uuid4()
         self._event_store: EventStore | None = None
@@ -73,12 +73,12 @@ class StationConnection:
         if self._started:
             return
 
-        self._event_store = EventStore(_results_dir=self._results_dir)
+        self._event_store = EventStore(_data_dir=self._data_dir)
         self._event_log = self._event_store.get_event_log(self._session_id)
 
         # Create ChannelStore directly (not as EventLog subscriber)
         self._channel_store = ChannelStore(
-            self._event_store._results_dir,
+            self._event_store._data_dir,
             self._session_id,
             serve=True,
         )
@@ -471,14 +471,14 @@ def _find_project_config() -> tuple[Path, Any] | None:
 def connect(
     station: str | None = None,
     *,
-    results_dir: Path | None = None,
+    data_dir: Path | None = None,
     mock: bool = False,
 ) -> StationConnection:
     """Connect to a test station. The main entry point for non-pytest usage.
 
     Args:
         station: Station ID. If None, uses ``default_station`` from ``litmus.yaml``.
-        results_dir: Where to write events. Falls back to litmus.yaml → LITMUS_HOME.
+        data_dir: Where to write events. Falls back to litmus.yaml → LITMUS_HOME.
         mock: Use mock instruments.
 
     Returns:
@@ -495,7 +495,7 @@ def connect(
             )
 
     config = find_station_config(station)
-    return StationConnection(config, results_dir=results_dir, mock=mock)
+    return StationConnection(config, data_dir=data_dir, mock=mock)
 
 
 def _default_station_id() -> str | None:
