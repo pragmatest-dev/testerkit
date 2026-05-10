@@ -10,103 +10,125 @@ are duplicated here for a single source of truth.
 
 ---
 
+## Framing
+
+Pre-1.0 stability splits along two lines (full survey + per-surface
+analysis in `docs/explorations/api-stability-and-versioning.md`):
+
+- **HARD contracts** — additive-only even pre-1.0. Breaking changes
+  affect data on disk; early adopters can't roll back. *Parquet
+  artifact + Event WAL.*
+- **SOFT contracts** — release-noted breakage acceptable in 0.x.
+  Consumers update scripts/agents/clients with notice. *HTTP API +
+  CLI + MCP tools.*
+- **Internal** — refactor freely. *Python `analysis.*`.*
+
+The 1.0 cut adds the formal versioning infrastructure (path prefixes,
+deprecation runways, written stability promises). Pre-1.0, the
+absence of that infrastructure is itself the signal that we haven't
+locked yet.
+
 ## Done
 
-- [x] **Parquet schema discriminator.** Explicit `record_type` column shipped
-  (`'run'` / `'step'` / `'measurement'`); every (step, vector) emits a step row;
-  measurement-row vs step-row partition is a real column, not implicit
-  `measurement_name IS NULL`. Commits `a6df009` (run+step+measurement
-  introduction) and `6a9f363` (added `record_type='run'` row for clean
-  lakehouse ingest).
-- [x] **Schema version reset.** `SCHEMA_VERSION = "1.0"` for the public
-  release (was internal 4.0). Commit `dff33e6`.
+- [x] **Parquet schema discriminator.** Explicit `record_type` column
+  (`'run'` / `'step'` / `'measurement'`). Commits `a6df009` + `6a9f363`.
+- [x] **Schema version reset.** `SCHEMA_VERSION = "1.0"` (was internal
+  4.0). Commit `dff33e6`.
 - [x] **Schema migration story documented in code.** Daemon
-  `_index.duckdb` tables auto-migrate via `ALTER TABLE ADD COLUMN IF NOT
-  EXISTS`; parquet additive evolution flows through `union_by_name=true`
-  on read. (`_runs_duckdb_daemon.py:101-102`.) No separate migration tool
-  needed for additive changes.
-- [x] **Inflight measurements** wired into the `measurements` view via
-  `LiveRunsSubscriber`. Live run detail pages see measurements as
-  events arrive.
-- [x] **Events DB orphan close.** Sweep emits `RunEnded(aborted)` so
-  abandoned runs drop out of `events_for_active_runs()` instead of
-  accumulating. Commit `31cf8db`.
+  `_index.duckdb` tables auto-migrate via `ALTER TABLE ADD COLUMN IF
+  NOT EXISTS`; parquet additive evolution via `union_by_name=true`.
+- [x] **Inflight measurements** via `LiveRunsSubscriber`.
+- [x] **Events DB orphan close.** Sweep emits `RunEnded(aborted)` for
+  abandoned runs. Commit `31cf8db`.
 - [x] **Unified per-run parquet.** `_steps.parquet` sidecar dropped;
   `RUN_ROW_SCHEMA` is the single canonical shape.
 - [x] **Data directory layout: date-partitioned, flat per day.**
-  `data/runs/{YYYY-MM-DD}/{timestamp}_{dut_serial}.parquet`. Already
-  shipped (`parquet.py:228, 563`). Date-partitioning is the contract;
-  flat-within-day is fine for typical deployment volumes (~thousands of
-  runs per day). Per-hour partitioning if anyone hits a wall is additive.
-- [x] **`results_dir` → `data_dir` rename.** Field, function,
-  CLI flag, YAML key, on-disk default all renamed (PostgreSQL `PGDATA`
-  precedent — events/runs/channels are mixed-content "data," not just
-  "results"). Tier 1 vocabulary sweep below is the umbrella; this is
-  the first slice landed.
-- [x] **Lakehouse interop pattern documented.** The unified parquet
-  doesn't drop into Snowflake/Delta/Iceberg as three tables natively,
-  but the `record_type` filter makes the transform a 3-line query.
-  See `docs/integration/lakehouse-import.md` for canonical recipes
-  (DuckDB, Snowflake, BigQuery, Databricks/Delta, Trino/Iceberg,
-  Pandas/Polars).
-- [x] **Retry counter naming + base.** Picked 0-based `retry` /
-  `vector_retry` / `max_retries` throughout (commit `f995cd5`). Aligns
-  with STDF `MIR.RTST_COD`, pytest `--reruns N`, software test runner
-  conventions, and the other 0-based multi-execution counters
-  (`vector_index`, planned `loop_index`). Marker semantic shifts:
-  `litmus_retry(max_retries=N)` allows N retries beyond the original
-  (so `max_retries=2` ≡ the old `max_attempts=3`). New `retry_count`
-  rollup column on `steps_persisted` derived from
-  `MAX(vector_retry) FILTER (WHERE record_type = 'measurement')` and
-  surfaced via `StepRow.retry_count` for `WHERE retry_count > 0`
-  filtering.
+  `data/runs/{YYYY-MM-DD}/{timestamp}_{dut_serial}.parquet`.
+- [x] **`results_dir` → `data_dir` rename.** Field, function, CLI
+  flag, YAML key, on-disk default all renamed (PostgreSQL `PGDATA`
+  precedent). First slice of the operator-facing vocabulary sweep.
+  Commit `1da7ce2`.
+- [x] **Lakehouse interop pattern documented.** Canonical recipes for
+  DuckDB, Snowflake, BigQuery, Databricks/Delta, Trino/Iceberg, Pandas/
+  Polars in `docs/integration/lakehouse-import.md`.
+- [x] **Retry counter naming + base.** 0-based `retry` /
+  `vector_retry` / `max_retries`. `retry_count` rollup column on
+  `steps_persisted`. Commit `f995cd5`.
+- [x] **Event-sourcing rationale documented.** `docs/concepts/why-event-
+  sourcing.md` — why Litmus inverts the usual data model (events
+  primary, runs/steps/measurements as projections); the CRUD trap
+  it dodges; properties that fall out (replay, time-travel,
+  cross-correlation, composable consumers); the principled split
+  (config = CRUD, execution = events, channels = streams).
+  Commit `ebf77f4`.
+- [x] **API stability + versioning framing.** `docs/explorations/api-
+  stability-and-versioning.md` — survey of industry patterns
+  (Stripe, GitHub, Kubernetes, Iceberg, Delta, Avro, kubectl, Axon,
+  Greg Young, semver) applied to Litmus's six contract surfaces.
+  HARD vs SOFT split; 0.1.0 vs 1.0 work bucketing. Commit `ebf77f4`.
+- [x] **Public Python API explicit-contract pass — RESOLVED.**
+  Decision documented in the API stability doc: `litmus.analysis.*`
+  stays internal for 0.1.0 (already classified internal in
+  `docs/audits/public-api.md:66-67`); HTTP/CLI/UI/MCP wrappers are
+  the external contract. The Python classes are implementation;
+  refactor freely behind the wrappers. No work to ship.
+- [x] **Curated docs bundled into the wheel.** `pip install
+  litmus-test` users now get the user-facing Diátaxis tiers
+  (`tutorial`, `integration`, `concepts`, `guides`, `reference`) at
+  `litmus/_docs/` for the in-app `/docs/...` browser. `audits/`,
+  `explorations/`, and contributor-only material correctly excluded.
+  Commit `092e2ba`.
 
-## Open — Tier 1 (locks once data or test code exists)
+## Open — Tier 1 (must land before 0.1.0 tag)
 
-- [ ] **Operator-facing vocabulary sweep.** `@litmus.test`,
-  `litmus_characteristics`, `litmus_connections`, `@pytest.mark.litmus_*`,
-  CLI flags, YAML field names. One fresh-eyes pass: would a junior test
-  engineer read these as natural? Renames after 0.1.0 break every user's
-  test files. Effort: medium.
-
-- [ ] **Catalog schema freeze.** Catalog YAML is still being shaped via
-  `/catalog-from-datasheet` skill. Pin the shape; stop iterating it.
-  Field renames after 0.1.0 break every catalog YAML in user repos.
+- [ ] **Cut transports + public `EventSubscriber` protocol + non-
+  parquet exporters** (the "three stores only" decision). Removes
+  ~800 LoC of public surface that locks in if shipped. Specifically:
+  delete `data/transports/`, `data/exporters/{stdf,hdf5,tdms,mdf4,
+  atml,csv_exporter,json_exporter}.py`; remove `litmus.subscribers`
+  entry-point; remove `litmus.yaml outputs:` config; remove `[stdf]`
+  / `[hdf5]` / `[tdms]` / `[mdf4]` / `[s3]` / `[gcs]` / `[azure]` /
+  `[sftp]` / `all-exporters` extras. Keeps `reports/core.py` for
+  post-hoc `litmus show -f X` rendering.
+- [ ] **MCP tool-surface review + naming convention.** Tool names +
+  schemas + descriptions are part of the LLM prompt; renames break
+  deployed agents disproportionately even pre-1.0. Pick names
+  deliberately *now* before early adopters wire agents around them.
+  Pair with a written naming convention (snake_case verbs, domain-
+  scoped prefixes like `runs.list`). Effort: small.
+- [ ] **Catalog schema freeze.** Catalog YAML still being shaped via
+  `/catalog-from-datasheet`. Pin the shape; stop iterating. Field
+  renames after 0.1.0 break every catalog YAML in user repos.
   Effort: medium.
+- [ ] **Operator-facing vocabulary sweep — continuation.** `@litmus.test`,
+  `litmus_characteristics`, `litmus_connections`, `@pytest.mark.
+  litmus_*`. `data_dir` rename was the first slice; one fresh-eyes
+  pass on the rest. Effort: medium.
 
-- [ ] **Public Python API explicit-contract pass.** `litmus/__init__.py`
-  is intentionally empty; deep paths (`from litmus.data.run_store import
-  RunStore`) are the contract. Decide if that's the explicit policy and
-  document it once. `RunsQuery` / `StepsQuery` / `MeasurementsQuery`
-  method names lock the same way. Effort: small.
+## Open — Tier 2 (good-to-have for 0.1.0; reframed as 1.0-prep work)
 
-## Open — Tier 2 (locks once integrations or scripts exist)
-
-- [ ] **`response_model=` coverage on FastAPI endpoints.** Already on
-  `ROADMAP.md` 0.1.0 backlog. Without typed responses we either commit
-  to JSON shapes by accident or break adopters fixing them later.
-  Effort: medium.
-
-- [ ] **MCP dry-run + tool-surface review.** Already on
-  `project_zero_one_zero_remaining.md`. `litmus mcp serve`, connect from
-  an MCP client, list tools, invoke one end-to-end. Pair with a
-  deliberate "is this the tool surface I want forever?" pass — agent
-  system prompts will key off these names. Effort: small (verification
-  + naming review).
-
-- [ ] **Optional extras smoke test.** Already on
-  `project_zero_one_zero_remaining.md`. In a clean venv, install
-  `litmus-test[stdf]` / `[hdf5]` / `[grafana]`. Exercise each gated
-  feature end-to-end. Reinstall without extras and confirm
-  missing-dep error messages point users to the right
-  `pip install litmus-test[<extra>]` command. Effort: medium.
-
-- [ ] **Docs alignment pass.** Already on
-  `project_zero_one_zero_remaining.md`. Walk `docs/` page-by-page; diff
-  each page against current CLI / YAML shape / plugin behavior. Produce
-  a list of mismatches (stale flag names, removed concepts, renamed
-  fields). No rewrite in this pass — the mismatch list goes to a
-  follow-up commit. Effort: medium.
+- [ ] **`response_model=` coverage on FastAPI endpoints.** Reframed
+  per the API stability doc: this is **OpenAPI quality work + 1.0
+  prep**, not a stability lock. Doing it now produces a high-quality
+  auto-generated `/openapi.json` (consumers can codegen against it)
+  and pre-positions us for the 1.0 path-versioning lock without
+  committing to it today. Effort: medium.
+- [ ] **Mount Swagger UI at `/api/docs`.** `/docs` is taken by the
+  NiceGUI Diátaxis browser; FastAPI's auto-doc is currently
+  unreachable. Configure FastAPI's `docs_url`, `redoc_url`,
+  `openapi_url` to live under `/api/...` instead. Pair with a link
+  from `/docs/reference/api` (narrative reference) → `/api/docs`
+  (live Swagger UI). Effort: small.
+- [ ] **Document the HARD-contract additive promises.** Half a
+  paragraph in `docs/concepts/results-storage.md` (parquet) and
+  `docs/concepts/event-log.md` (event WAL). Runtime already
+  enforces additive-only; this is just writing it down. Effort:
+  small.
+- [ ] **Docs alignment pass.** Walk `docs/` page-by-page; diff
+  each page against current CLI / YAML shape / plugin behavior.
+  Mismatch list, no rewrite. Effort: medium.
+- [ ] **MCP dry-run.** Connect from an MCP client end-to-end after
+  the tool-surface review lands. Effort: small.
 
 ---
 
@@ -114,18 +136,30 @@ are duplicated here for a single source of truth.
 
 These are real concerns but explicitly deferred:
 
-- **Schema migration tooling for breaking changes.** Pre-1.0 with no
-  users, breaking changes wipe data. Migration story rebuilds at 1.0
-  when the schema commitment becomes load-bearing.
-- **Per-hour data-directory partitioning.** Date-partitioning shipped
-  (see Done above). Per-hour subdivision opt-in if anyone hits the
-  flat-within-day wall; not a 0.1.0 commitment.
+- **`/api/v1/...` path prefix.** The prefix appearing IS the locking
+  ceremony at 1.0; adding it pre-1.0 would imply a stability
+  commitment we're explicitly not making. Pre-1.0 routes ship
+  unprefixed; consumers see release-note breaks.
+- **Formal CLI deprecation policy.** Pre-1.0 the contract is
+  release notes. kubectl-style policy ships at the 1.0 cut.
+- **Date-based HTTP versioning (Stripe model).** Too much
+  infrastructure investment for our scale. Reconsider post-1.0.
+- **Per-tool MCP versioning.** Industry hasn't converged. Adopt
+  when consensus forms.
+- **Upcasting middleware for event evolution.** Build when first
+  reshape forces it; likely never within 0.x.
+- **Iceberg / Delta as primary storage format.** Big architectural
+  lift. Parquet + `union_by_name=true` covers the additive case.
+- **Schema migration tooling for breaking changes.** Pre-1.0 with
+  no users, breaking changes wipe data. Migration story rebuilds
+  at 1.0 when the schema commitment becomes load-bearing.
+- **Per-hour data-directory partitioning.** Date-partitioning
+  shipped. Per-hour subdivision opt-in if anyone hits the
+  flat-within-day wall.
 - **Retry forensics at the events layer** (per-execution
-  `StepStarted`/`StepEnded` events with `retry` field, plus
-  `request.node.execution_count` threading for pytest-rerunfailures
-  visibility). Full design parked at
-  `docs/explorations/per-execution-step-records.md` with implementation
-  plan in `~/.claude/plans/golden-booping-treasure.md`. 0.2.0+ if
-  per-retry timing becomes load-bearing.
-- **Upgrade testing fixture infrastructure.** Starts at 0.2.0 (need a
-  v0.1.0 frozen starter project to upgrade *from*).
+  `StepStarted`/`StepEnded` events). Full design parked at
+  `docs/explorations/per-execution-step-records.md`. 0.2.0+.
+- **Upgrade testing fixture infrastructure.** Starts at 0.2.0
+  (need a 0.1.0 frozen starter project to upgrade *from*).
+- **Optional extras smoke test for [stdf]/[hdf5]/etc.** Moot once
+  the transports + exporters cut lands — those extras evaporate.
