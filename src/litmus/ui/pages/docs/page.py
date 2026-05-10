@@ -1,11 +1,29 @@
 """Generic documentation page renderer."""
 
+import importlib.resources
 from pathlib import Path
 
 from nicegui import ui
 
-# Path to docs directory (relative to this file)
-DOCS_DIR = Path(__file__).parent.parent.parent.parent.parent / "docs"
+
+def _resolve_docs_dir() -> Path:
+    """Locate the docs directory across wheel and editable installs.
+
+    Wheel installs bundle the curated user-facing tiers at
+    ``litmus/_docs/`` via the ``[tool.hatch.build.targets.wheel.force-include]``
+    rules in ``pyproject.toml``. Editable / source installs don't get
+    the bundle, so we fall back to the repo's ``docs/`` directory above
+    ``src/litmus/``. If neither exists the downstream ``.exists()``
+    checks in the route handlers 404 naturally.
+    """
+    pkg_root = Path(str(importlib.resources.files("litmus")))
+    bundled = pkg_root / "_docs"
+    if bundled.exists():
+        return bundled
+    return pkg_root.parent.parent / "docs"
+
+
+DOCS_DIR = _resolve_docs_dir()
 
 # Known documentation sections
 KNOWN_SECTIONS = {"tutorial", "integration", "concepts", "guides", "reference", "examples"}
