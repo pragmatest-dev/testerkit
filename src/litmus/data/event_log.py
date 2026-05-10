@@ -104,21 +104,19 @@ class _EventIPCWriter(BufferedIPCWriter):
 
 
 class EventSubscriber:
-    """Base class for event log subscribers.
+    """Internal base class for event log materializers.
 
-    Subclass and set ``format_name`` to auto-register::
+    Used by :class:`~litmus.data.backends.parquet.ParquetSubscriber`
+    (writes the canonical run parquet at ``RunEnded``),
+    :class:`~litmus.data.\\_live_runs_subscriber.LiveRunsSubscriber`
+    (in-daemon ingest into the runs DuckDB index), and the
+    ``litmus export`` CLI replay path (per-format converters in
+    :mod:`litmus.data.exporters`).
 
-        class MySubscriber(EventSubscriber):
-            format_name = "myformat"
-            event_types = {MeasurementEvent, StepEvent}
-            def open(self) -> None: ...
-            def on_event(self, event: EventBase) -> None: ...
-            def close(self) -> None: ...
-
-    Extend via entry points in pyproject.toml::
-
-        [project.entry-points."litmus.subscribers"]
-        myformat = "my_package.exporters:MySubscriber"
+    **Not a public extension protocol.** The set of supported formats
+    is fixed by the package. Third-party packages should not subclass
+    this; adding a new format requires editing
+    :mod:`litmus.data.exporters`.
     """
 
     format_name: str

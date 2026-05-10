@@ -787,18 +787,12 @@ def _read_events_by_id(
     help="Target format (csv, json, stdf, hdf5, tdms, mdf4, atml)",
 )
 @click.option("-o", "--output-dir", default=None, help="Output directory")
-@click.option("--data-dir", default=None, help="Results directory")
-@click.option(
-    "--transport",
-    default=None,
-    help="Ship exported file via transport (s3, sftp, file, etc.)",
-)
+@click.option("--data-dir", default=None, help="Data directory")
 def export(
     id: str,
     fmt: str,
     output_dir: str | None,
     data_dir: str | None,
-    transport: str | None,
 ):
     """Export a test run or session to a different format via event replay.
 
@@ -809,9 +803,7 @@ def export(
 
         litmus export abc123 -f csv
 
-        litmus export abc123 -f stdf -o results/stdf/
-
-        litmus export abc123 -f csv --transport s3
+        litmus export abc123 -f stdf -o exports/stdf/
     """
     from litmus.data.subscribers import get_subscriber_class, replay_to_subscriber
 
@@ -829,7 +821,7 @@ def export(
         raise SystemExit(1)
 
     if output_dir is None:
-        output_dir = f"results/exports/{fmt}"
+        output_dir = f"exports/{fmt}"
 
     # Find events by run_id or session_id
     events, matched_col = _read_events_by_id(id, data_dir)
@@ -852,16 +844,6 @@ def export(
     if candidates:
         for result_path in candidates:
             click.echo(f"Exported: {result_path}")
-
-        if transport:
-            from litmus.data.transports import get_transport
-            from litmus.models.project import OutputConfig
-
-            t = get_transport(transport)
-            cfg = OutputConfig(format=fmt, transport=transport, output_dir=output_dir)
-            for result_path in candidates:
-                dest = t.send(result_path, cfg)
-                click.echo(f"Shipped: {dest}")
     else:
         click.echo(f"Export completed but no output file found in {output_dir}.", err=True)
 
@@ -2438,56 +2420,6 @@ def data_reindex(data_dir: str | None) -> None:
                 idx.unlink()
 
     click.echo("Index daemons stopped. Index will rebuild on next query.")
-
-
-# ---------------------------------------------------------------------------
-# Upload queue
-# ---------------------------------------------------------------------------
-
-
-@main.group()
-def uploads():
-    """Manage the upload queue for cloud transports."""
-    pass
-
-
-@uploads.command("status")
-@click.option("--data-dir", default=None, help="Results directory")
-def uploads_status(data_dir: str | None) -> None:
-    """Show pending/failed uploads."""
-    from litmus.data.transports.upload_queue import status
-
-    rows = status(_get_data_dir(data_dir))
-    if not rows:
-        click.echo("Upload queue is empty.")
-        return
-    for row in rows:
-        error_str = f", error: {row.last_error}" if row.last_error else ""
-        click.echo(
-            f"[{row.status}] {row.local_path} → {row.transport} "
-            f"(attempts: {row.attempts}{error_str})"
-        )
-
-
-@uploads.command("retry")
-@click.option("--data-dir", default=None, help="Results directory")
-@click.option("--max-attempts", default=3, help="Max retry attempts per upload")
-def uploads_retry(data_dir: str | None, max_attempts: int) -> None:
-    """Retry all pending/failed uploads."""
-    from litmus.data.transports.upload_queue import drain
-
-    count = drain(_get_data_dir(data_dir), max_attempts=max_attempts)
-    click.echo(f"{count} upload(s) completed.")
-
-
-@uploads.command("clear")
-@click.option("--data-dir", default=None, help="Results directory")
-def uploads_clear(data_dir: str | None) -> None:
-    """Remove completed entries from the upload queue."""
-    from litmus.data.transports.upload_queue import clear_done
-
-    count = clear_done(_get_data_dir(data_dir))
-    click.echo(f"{count} completed entry/entries removed.")
 
 
 # ---------------------------------------------------------------------------

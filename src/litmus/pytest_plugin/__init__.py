@@ -10,7 +10,6 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from pydantic import ValidationError
 
 from litmus.data.models import TestVector
 from litmus.execution._state import (
@@ -40,11 +39,6 @@ from litmus.execution.harness import Context
 from litmus.execution.instrument_events import emit_instrument_events
 from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.execution.metadata import build_run_metadata
-from litmus.execution.outputs import (
-    create_subscriber,
-    find_format_transport_callback,
-    run_configured_outputs,
-)
 from litmus.execution.profiles import resolve_test_phase
 from litmus.execution.verify import (
     LimitsFn,
@@ -239,7 +233,6 @@ def _setup_event_log_and_subscribers(
     from litmus.data.backends.parquet import ParquetSubscriber
     from litmus.data.channels.store import ChannelStore
     from litmus.data.event_store import EventStore
-    from litmus.data.subscribers import get_subscriber_class
 
     event_store = get_event_store()
     if event_store is None:
@@ -249,36 +242,11 @@ def _setup_event_log_and_subscribers(
     event_log = event_store.get_event_log(session_id)
     logger.event_log = event_log
 
-    parquet_on_output = find_format_transport_callback("parquet", results_path)
-    event_log.add_subscriber(ParquetSubscriber(results_path, on_output=parquet_on_output))
+    event_log.add_subscriber(ParquetSubscriber(results_path))
 
-    channels_on_output = find_format_transport_callback("channels", results_path)
-    channel_store = ChannelStore(
-        results_path,
-        session_id,
-        serve=True,
-        on_output=channels_on_output,
-    )
+    channel_store = ChannelStore(results_path, session_id, serve=True)
     channel_store.open()
     set_channel_store(channel_store)
-
-    # User-configured subscriber formats from litmus.yaml outputs:
-    try:
-        from litmus.store import load_project_config
-
-        config = load_project_config()
-        for output_cfg in config.outputs:
-            fmt = output_cfg.format
-            if fmt and fmt not in {"parquet", "channels"}:
-                cls = get_subscriber_class(fmt)
-                if cls is not None:
-                    sub = create_subscriber(cls, fmt, output_cfg, results_path, session_id)
-                    event_log.add_subscriber(sub)
-    except (ValidationError, OSError, KeyError) as exc:
-        warnings.warn(
-            f"Failed to register configured output subscribers: {exc}",
-            stacklevel=2,
-        )
 
     return event_store
 
@@ -357,8 +325,8 @@ def _emit_session_start_events(logger: TestRunLogger) -> None:
         )
 
 
-def _teardown_logger(logger: TestRunLogger, event_store: Any, data_dir: str) -> None:
-    """Close subscribers, finalize the run, emit SessionEnded, run configured outputs."""
+def _teardown_logger(logger: TestRunLogger, event_store: Any) -> None:
+    """Close subscribers, finalize the run, emit SessionEnded."""
     from litmus.data.events import SessionEnded
 
     # ChannelStore closes before the event log so its subscribers see the
@@ -385,8 +353,6 @@ def _teardown_logger(logger: TestRunLogger, event_store: Any, data_dir: str) -> 
         event_store.close()
         set_event_store(None)
 
-    run_configured_outputs(test_run, str(test_run.id), data_dir)
-
 
 @pytest.fixture(scope="session", autouse=True)
 def logger(request) -> Generator[TestRunLogger, None, None]:
@@ -394,9 +360,9 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
 
     Autouse so every test (and the ``verify`` / ``context`` fixtures
     that route through ``set_current_logger``) sees an active logger.
-    Snapshots config at run start; streams events to subscribers
-    declared by ``litmus.yaml: outputs:`` plus the always-on parquet
-    + channels defaults.
+    Snapshots config at run start; emits to the always-on parquet +
+    channels stores. Post-hoc rendering / format conversion happens
+    via ``litmus show -f X`` and ``litmus export <run> -f X``.
 
     The body delegates to focused helpers — :func:`_setup_event_log_and_subscribers`
     wires the event log, :func:`_emit_session_start_events` fires the
@@ -432,7 +398,7 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
     finally:
         # Capture not-started steps onto the run manifest before finalize.
         logger.test_run.collected_items = get_collected_items()
-        _teardown_logger(logger, event_store, data_dir)
+        _teardown_logger(logger, event_store)
         set_current_logger(None)
 
 

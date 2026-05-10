@@ -1,15 +1,6 @@
-"""Output format subscribers and utilities.
+"""Internal format-conversion modules used by ``litmus export``.
 
-Import directly from the submodule:
-
-    from litmus.data.exporters.csv_exporter import CsvSubscriber
-    from litmus.data.subscribers._base import get_subscriber_class, list_subscribers
-    from litmus.data.subscribers.replay import replay_to_subscriber
+Not a public extension protocol — adding a new format requires a code
+change in this package, not a third-party plugin. Format imports are
+triggered through :mod:`litmus.data.subscribers`.
 """
-
-_REPORT_FORMATS = {"html", "pdf"}
-
-
-def is_report_format(format_name: str) -> bool:
-    """Check if a format is handled by litmus.reports (not a subscriber)."""
-    return format_name in _REPORT_FORMATS

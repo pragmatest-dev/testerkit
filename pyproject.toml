@@ -75,11 +75,6 @@ stdf = ["Semi-ATE-STDF>=0.1"]
 hdf5 = ["h5py>=3.0"]
 tdms = ["npTDMS>=1.0"]
 mdf4 = ["asammdf>=8.0"]
-# Transports
-s3 = ["boto3>=1.26"]
-gcs = ["google-cloud-storage>=2.0"]
-azure = ["azure-storage-blob>=12.0"]
-sftp = ["paramiko>=3.0"]
 grafana = [
     "buenavista>=0.5.0",
     "duckdb>=1.0",

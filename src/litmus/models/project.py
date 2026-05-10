@@ -1,91 +1,15 @@
 """Project-level configuration types.
 
 Schema for ``litmus.yaml`` project config files — flat, all fields at root.
-Also includes ``OutputConfig``, which describes a single entry in the
-``outputs`` list of the project config.
 """
 
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from litmus.models.test_config import PromptConfig, TestEntry
-
-
-class OutputConfig(BaseModel):
-    """A single output entry in the ``outputs`` list.
-
-    Each entry specifies a format (exporter), a transport, or both:
-
-    .. code-block:: yaml
-
-        outputs:
-          - format: html                    # report only
-          - format: csv                     # export only
-          - format: stdf
-            transport: s3                   # export + ship
-            bucket: my-results
-          - transport: snowflake            # ship Parquet directly
-
-    Extra keys (bucket, server, dsn_env, template, etc.) are passed
-    through as format- or transport-specific configuration.
-
-    Note: ``format`` and ``transport`` names are not validated against the
-    registries at config time (registries are lazy-loaded). Invalid names
-    will raise ``KeyError`` at runtime when the output is executed.
-
-    **Extras policy:** uses ``extra="allow"`` (an exception to the package's
-    ``extra="forbid"`` default) because format-specific keys like ``bucket``
-    / ``server`` / ``dsn_env`` are open-ended — the format/transport plugin
-    consumes whatever the user wrote. The validator below collects unknowns
-    into ``extras`` so callers see a structured payload.
-    """
-
-    model_config = {"extra": "allow"}
-
-    format: str | None = None
-    transport: str | None = None
-    output_dir: str | None = None
-    template: str | None = None
-    extras: dict[str, Any] = Field(default_factory=dict)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _collect_extras(cls, data: Any) -> Any:
-        """Collect unknown keys into extras, merging with any explicit extras dict."""
-        if not isinstance(data, dict):
-            return data
-        known = {"format", "transport", "output_dir", "template", "extras"}
-        extras = {k: v for k, v in data.items() if k not in known}
-        cleaned = {k: v for k, v in data.items() if k in known}
-        # Merge any explicitly provided extras
-        existing = cleaned.get("extras", {})
-        if isinstance(existing, dict):
-            extras.update(existing)
-        cleaned["extras"] = extras
-        return cleaned
-
-    @model_validator(mode="after")
-    def _require_format_or_transport(self) -> Self:
-        """At least one of format or transport must be set."""
-        if self.format is None and self.transport is None:
-            raise ValueError("OutputConfig requires at least one of 'format' or 'transport'")
-        return self
-
-    def default_output_dir(self) -> str:
-        """Resolve output directory with sensible defaults.
-
-        Subscribers own their own subfolder within the results root,
-        so this just returns the root (``"results"``) for subscriber
-        formats.  Report formats get ``"reports"``.
-        """
-        if self.output_dir:
-            return self.output_dir
-        if self.format in ("html", "pdf"):
-            return "reports"
-        return "results"
 
 
 class ProfileConfig(TestEntry):
@@ -158,7 +82,6 @@ class ProjectConfig(BaseModel):
     default_fixture: str | None = None
     default_profile: str | None = None
     mock_instruments: bool = False
-    outputs: list[OutputConfig] = Field(default_factory=list)
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
     runner: dict[str, Any] = Field(default_factory=dict)
     required_inputs: dict[str, PromptConfig] = Field(default_factory=dict)

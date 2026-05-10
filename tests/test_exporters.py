@@ -16,10 +16,6 @@ from litmus.data.exporters.csv_exporter import CsvSubscriber
 from litmus.data.exporters.json_exporter import JsonSubscriber
 from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
 from litmus.data.subscribers._base import get_subscriber_class, list_subscribers
-from litmus.data.transports import get_transport
-from litmus.data.transports._base import Transport
-from litmus.data.transports.file_transport import FileTransport
-from litmus.models.project import OutputConfig, ProjectConfig
 from tests.test_data.conftest import _replay_events
 
 
@@ -205,106 +201,7 @@ class TestJsonSubscriber:
         assert len(data["steps"][0]["vectors"][0]["measurements"]) == 2
 
 
-class TestTransportRegistry:
-    def test_file_transport_registered(self):
-        transport = get_transport("file")
-        assert transport.transport_name == "file"
-
-    def test_unknown_transport_raises(self):
-        with pytest.raises(KeyError, match="No transport registered"):
-            get_transport("nonexistent_transport_xyz")
-
-    def test_register_custom_transport(self):
-        class FakeTransport(Transport):
-            transport_name = "fake_t"
-
-            def send(self, local_path: object, config: object) -> str:
-                return "sent"
-
-        assert "fake_t" in Transport._registry
-        Transport._registry.pop("fake_t")  # cleanup
-
-
-class TestFileTransport:
-    def test_send_copies_file(self, tmp_path: Path):
-        # Create source file
-        src = tmp_path / "source.csv"
-        src.write_text("data")
-
-        dest_dir = tmp_path / "dest"
-        transport = FileTransport()
-        cfg = OutputConfig(format="csv", output_dir=str(dest_dir))
-        result = transport.send(src, cfg)
-
-        assert Path(result).exists()
-        assert Path(result).read_text() == "data"
-
-
-class TestOutputConfig:
-    def test_default_output_dir_html(self):
-        cfg = OutputConfig(format="html")
-        assert cfg.default_output_dir() == "reports"
-
-    def test_default_output_dir_csv(self):
-        cfg = OutputConfig(format="csv")
-        assert cfg.default_output_dir() == "results"
-
-    def test_default_output_dir_override(self):
-        cfg = OutputConfig(format="csv", output_dir="/custom")
-        assert cfg.default_output_dir() == "/custom"
-
-    def test_extras_collection(self):
-        cfg = OutputConfig.model_validate(
-            {
-                "format": "stdf",
-                "transport": "s3",
-                "bucket": "my-bucket",
-                "prefix": "stdf/",
-            }
-        )
-        assert cfg.extras["bucket"] == "my-bucket"
-        assert cfg.extras["prefix"] == "stdf/"
-
-    def test_requires_format_or_transport(self):
-        with pytest.raises(ValueError, match="at least one of"):
-            OutputConfig.model_validate({})
-
-    def test_project_config_empty_outputs(self):
-        config = ProjectConfig(name="test")
-        assert config.outputs == []
-
-    def test_project_config_with_outputs(self):
-        config = ProjectConfig(
-            name="test",
-            outputs=[OutputConfig(format="csv")],
-        )
-        assert len(config.outputs) == 1
-        assert config.outputs[0].format == "csv"
-
-
 class TestPluginWarnings:
-    def test_run_configured_outputs_warns_on_error(self):
-        """run_configured_outputs emits a warning instead of silently swallowing."""
-        from unittest.mock import patch
-
-        from litmus.pytest_plugin import run_configured_outputs
-
-        with patch(
-            "litmus.pytest_plugin.run_outputs",
-            side_effect=RuntimeError("boom"),
-            create=True,
-        ):
-            # Patch the import inside the function
-            with patch(
-                "litmus.data.output_runner.run_outputs",
-                side_effect=RuntimeError("boom"),
-            ):
-                with w.catch_warnings(record=True) as caught:
-                    w.simplefilter("always")
-                    run_configured_outputs(None, "run123", "results")  # type: ignore[arg-type]
-
-                assert any("Output processing failed" in str(c.message) for c in caught)
-
     def test_event_subscriber_warns_on_error(self, tmp_path):
         """Event subscriber failure emits a warning and disables the subscriber."""
         from litmus.data.event_log import EventLog, EventSubscriber

@@ -225,18 +225,13 @@ class TestProjectConfig:
 
         config = load_project_config(tmp_path)
         assert config.data_dir is None
-        assert config.outputs == []
 
     def test_load_valid(self, tmp_path):
         from litmus.store import load_project_config
 
-        (tmp_path / "litmus.yaml").write_text(
-            "name: test\ndata_dir: my_results\noutputs:\n  - format: html\n"
-        )
+        (tmp_path / "litmus.yaml").write_text("name: test\ndata_dir: my_results\n")
         config = load_project_config(tmp_path)
         assert config.data_dir == "my_results"
-        assert len(config.outputs) == 1
-        assert config.outputs[0].format == "html"
 
 
 class TestCLI:

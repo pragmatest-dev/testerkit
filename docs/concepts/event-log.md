@@ -105,26 +105,15 @@ SessionStarted          # Session-wide metadata (station, operator)
 └── SessionEnded        # Cleanup complete
 ```
 
-## Push Model: emit() → Subscribers
+## Push Model: emit() → internal materializers
 
 The `EventLog` class manages the write path:
 
 1. **`emit(event)`** stamps `received_at`, buffers the event for batched Arrow IPC writes
-2. **Subscribers** are notified immediately — each subscriber declares which `event_types` it handles
+2. **Internal materializers** are notified immediately — `ParquetSubscriber` for the canonical run parquet, `LiveRunsSubscriber` for the in-daemon ingest path. The `litmus export` CLI replay path drives these same materializers post-hoc against stored events.
 3. **IPC flush** happens every 50 events (configurable), writing a batch to the Arrow IPC file
 
-```python
-# Subscriber protocol
-class EventSubscriber(Protocol):
-    format_name: str
-    event_types: set[type]
-
-    def open(self) -> None: ...
-    def on_event(self, event: EventBase) -> None: ...
-    def close(self) -> None: ...
-```
-
-Built-in subscribers include `ParquetSubscriber` (materializes Parquet result files) and `SessionSubscriber` (tracks session metadata).
+The `EventSubscriber` base class is internal scaffolding for these materializers — not a public extension protocol. Adding a new format requires editing `litmus.data.exporters`, not a third-party plugin.
 
 ## Storage
 

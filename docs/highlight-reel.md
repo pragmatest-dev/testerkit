@@ -465,15 +465,20 @@ srs = "srs_instruments.litmus_ext:SrsDiscovery"
 
 User does `uv add srs-instruments`. Litmus finds the plugin automatically.
 
-Same pattern for observers, subscribers (output formats), and transports
-(file shipping). Four entry point groups:
+Same pattern for observers (driver event interpretation). Two entry
+point groups:
 
 | Group | What it extends |
 |-------|----------------|
 | `litmus.discovery` | Instrument scanning protocols |
 | `litmus.observers` | Driver event interpretation |
-| `litmus.subscribers` | Output formats (CSV, STDF, HDF5...) |
-| `litmus.transports` | File shipping (S3, Azure, SFTP...) |
+
+Output formats (CSV, JSON, STDF, HDF5, TDMS, MDF4, ATML) ship as
+internal modules surfaced through `litmus export`. They are not a
+public extension protocol — adding a new format requires a package
+change, not a third-party plugin. Cloud destinations (S3, Snowflake,
+Iceberg, Delta) are handled consumer-side via the [Lakehouse Import
+recipes](integration/lakehouse-import.md).
 
 ---
 

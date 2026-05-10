@@ -56,9 +56,12 @@ entry and a deprecation cycle where practical).
 ### Internal (subject to change)
 
 - `litmus.data.backends.*` — Parquet / IPC writer internals.
-- `litmus.data.subscribers.*` — built-in exporters; add new ones via the
-  `litmus.subscribers` entry point.
-- `litmus.data.transports.*` — ship-to-bucket transports.
+- `litmus.data.subscribers.*` — internal scaffolding used by
+  `ParquetSubscriber`, `LiveRunsSubscriber`, and the `litmus export`
+  CLI replay path. Not a public extension protocol; add new formats
+  by editing the package, not via entry points.
+- `litmus.data.exporters.*` — internal format-conversion modules
+  surfaced through `litmus export`.
 - `litmus.instruments.observers.*` — per-driver observers.
 - `litmus.ui.*` — NiceGUI app internals; use `litmus serve`.
 - `litmus.api.*` — FastAPI app internals; users call via HTTP, not Python.
@@ -82,7 +85,7 @@ Least-invasive first. Each change keeps the old import path working.
 2. **Explicit `__all__` on `litmus/models/__init__.py`.** The package is
    intentionally empty today; add an `__all__` that re-exports the types
    most commonly imported (Product, ProductCharacteristic, StationConfig,
-   StationInstrumentConfig, ProjectConfig, OutputConfig, FixtureConfig,
+   StationInstrumentConfig, ProjectConfig, FixtureConfig,
    TestSequenceConfig, InstrumentCatalogEntry, Limit, RetryConfig, plus
    the shared enums). Submodule imports continue to work.
 
@@ -94,8 +97,8 @@ Least-invasive first. Each change keeps the old import path working.
 
 4. **Schema namespace.** `litmus.schema_export` is the only path. Any
    stale `litmus.schemas` references in docs or examples get updated to
-   `litmus.schema_export` (or to `litmus.models.project` for `OutputConfig`
-   et al.). No compat shim — pre-release, no external users.
+   `litmus.schema_export` (or to `litmus.models.project` for project
+   config types). No compat shim — pre-release, no external users.
 
 5. **Docstring pass on `litmus.execution`.** Clarify which helpers are
    public (`litmus_test`, `litmus_step`, `measure`, `TestHarness`,

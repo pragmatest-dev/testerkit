@@ -1,13 +1,10 @@
-"""Event subscriber registry for live data materialization.
+"""Internal event-subscriber registry — used by ParquetSubscriber,
+LiveRunsSubscriber, and the ``litmus export`` CLI replay path.
 
-Extend via entry points in pyproject.toml::
-
-    [project.entry-points."litmus.subscribers"]
-    myformat = "my_package.exporters:MyFormatSubscriber"
+Not a public extension protocol: third-party packages should not register
+formats via entry points or any other mechanism. The set of supported
+formats is fixed by the package and ships through ``litmus export``.
 """
-
-import logging
-from importlib.metadata import entry_points as _entry_points
 
 # Import built-in subscribers (triggers __init_subclass__ registration)
 import litmus.data.backends.parquet  # noqa: F401
@@ -18,9 +15,12 @@ from litmus.data.subscribers._base import get_subscriber_class, list_subscribers
 from litmus.data.subscribers._output_file import OutputFile
 from litmus.data.subscribers.replay import replay_to_subscriber
 
-logger = logging.getLogger(__name__)
-
-# Optional subscribers (may not have deps installed)
+# Optional industry-format subscribers — registered via ``__init_subclass__``
+# at import time when their respective extras are installed
+# (``litmus-test[stdf]``, ``[hdf5]``, ``[tdms]``, ``[mdf4]``). When the
+# extra isn't installed the import fails; swallow so the rest of the
+# package still loads. The CLI surfaces a "format not registered" error
+# pointing at the right extra.
 try:
     import litmus.data.exporters.atml  # noqa: F401
 except ImportError:
@@ -41,16 +41,6 @@ try:
     import litmus.data.exporters.mdf4  # noqa: F401
 except ImportError:
     pass
-
-# Load third-party subscriber plugins via entry points. Only swallow
-# import-time errors (missing optional deps, packaging issues); a real
-# bug in a plugin should propagate so it surfaces during ``litmus serve``
-# startup instead of silently disabling the format.
-for _ep in _entry_points(group="litmus.subscribers"):
-    try:
-        _ep.load()
-    except (ImportError, ModuleNotFoundError, AttributeError) as _exc:
-        logger.debug("Subscriber plugin %s failed to load: %s", _ep.name, _exc)
 
 __all__ = [
     "EventSubscriber",

@@ -378,15 +378,10 @@ Chains are supported (A → B → C) up to depth 5. Circular references raise `V
 
 ```yaml
 name: string                  # Required — project identifier
-data_dir: string           # Optional — override default results directory
+data_dir: string           # Optional — override default data directory
 default_station: string       # Default station for sessions (default: "station")
 default_fixture: string       # Optional default fixture
 mock_instruments: bool        # Force mock mode for all instruments (default: false)
-
-outputs:                      # Optional list of format + transport targets
-  - format: html              # Exporter (html, pdf, csv, stdf, ...)
-    transport: s3             # Shipper (s3, snowflake, ...)
-    bucket: my-results        # Format/transport-specific extras pass through
 
 profiles:                     # Named config sets — see docs/guides/profiles.md
   <profile_name>:

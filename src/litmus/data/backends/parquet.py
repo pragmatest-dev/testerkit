@@ -29,7 +29,7 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
 import pyarrow as pa
@@ -84,9 +84,6 @@ from litmus.data.schemas import (
     _build_write_schema,
     table_from_rows,
 )
-
-if TYPE_CHECKING:
-    from litmus.data.subscribers._output_file import OutputFile
 
 logger = logging.getLogger(__name__)
 
@@ -608,15 +605,9 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
         RunEnded,
     }
 
-    def __init__(
-        self,
-        output_dir: Path,
-        *,
-        on_output: Callable[[OutputFile], None] | None = None,
-    ) -> None:
+    def __init__(self, output_dir: Path) -> None:
         super().__init__()
         self._output_dir = output_dir
-        self._on_output = on_output
         self._backend = ParquetBackend(data_dir=output_dir)
         self._written = False
 
@@ -783,19 +774,13 @@ class ParquetSubscriber(EventAccumulator, EventSubscriber):
         )
 
     def _write_results(self, s: Any, rows: list[dict[str, Any]]) -> None:
-        """Persist the unified rows to one parquet file; fire ``on_output``."""
-        pq_path = self._backend.save_from_rows(
+        """Persist the unified rows to one parquet file."""
+        self._backend.save_from_rows(
             rows,
             started_at=s.occurred_at,
             dut_serial=s.dut_serial,
             file_metadata=self._build_file_metadata(),
         )
-
-        if self._on_output:
-            from litmus.data.subscribers._output_file import OutputFile  # lazy
-
-            run_id = str(s.run_id) if s.run_id else None
-            self._on_output(OutputFile(path=pq_path, format="parquet", run_id=run_id))
 
     def _build_file_metadata(self) -> dict[bytes, bytes]:
         """Build Parquet file-level metadata from cached session."""

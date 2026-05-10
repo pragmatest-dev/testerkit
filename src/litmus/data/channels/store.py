@@ -30,7 +30,6 @@ from litmus.data.channels.models import (
     sample_to_batch,
 )
 from litmus.data.ref import classify_value, make_channel_uri
-from litmus.data.subscribers._output_file import OutputFile
 
 _WRITE_ERRORS = (OSError, pa.ArrowException)  # type: ignore[attr-defined]
 
@@ -191,7 +190,6 @@ class ChannelStore:
         serve: bool = False,
         host: str = "127.0.0.1",
         port: int = 0,
-        on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
         # Parent-only convention — caller passes the results parent
         # (containing ``runs/``, ``channels/``, ``events/`` …); the
@@ -209,7 +207,6 @@ class ChannelStore:
         self._flight_port = port
         self._flight_location: str | None = None
         self._flight_client: flight.FlightClient | None = None
-        self._on_output = on_output
 
     def open(self) -> None:
         self._channels_dir.mkdir(parents=True, exist_ok=True)
@@ -692,22 +689,6 @@ class ChannelStore:
                         f"ChannelStore failed to write registry: {exc}",
                         stacklevel=2,
                     )
-            # Notify transport for each written channel file
-            if self._on_output:
-                for writer in self._writers.values():
-                    for ipc_path in writer.all_paths:
-                        try:
-                            self._on_output(
-                                OutputFile(
-                                    path=ipc_path,
-                                    format="channels",
-                                )
-                            )
-                        except Exception as exc:  # noqa: BLE001 — callback isolation
-                            warnings.warn(
-                                f"Channel on_output callback failed for {ipc_path}: {exc}",
-                                stacklevel=2,
-                            )
         finally:
             self._writers.clear()
             self._subscribers.clear()
