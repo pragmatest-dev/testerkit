@@ -52,7 +52,7 @@ def _lookup_enum(term: str) -> dict[str, Any]:
     if not term:
         return {
             "error": "Provide a term via 'id' parameter, "
-            "e.g. litmus(action='lookup_enum', id='FRES')"
+            "e.g. litmus_project(action='lookup_enum', id='FRES')"
         }
 
     results = _lookup_enum_fn(term)
@@ -112,7 +112,7 @@ def litmus_tool(
     if not project:
         return {
             "error": f"action='{action}' requires 'project' parameter"
-            " - use the path from litmus(action='init')"
+            " - use the path from litmus_project(action='init')"
         }
 
     if action == "list":
@@ -211,8 +211,8 @@ def _init_project(
         "message": f"Project initialized at {project_path}",
         "next_steps": [
             "Run 'uv sync' to install dependencies",
-            "Use litmus(action='read', path='template:test') to see test pattern",
-            "Create a product with litmus(action='save', type='product', ...)",
+            "Use litmus_project(action='read', path='template:test') to see test pattern",
+            "Create a product with litmus_project(action='save', type='product', ...)",
         ],
     }
 
@@ -1088,7 +1088,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
     if not project:
         return {
             "error": "project parameter is required"
-            " - pass the path returned from litmus(action='init')"
+            " - pass the path returned from litmus_project(action='init')"
         }
 
     # Determine test target

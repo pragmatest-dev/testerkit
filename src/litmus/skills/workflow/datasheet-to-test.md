@@ -27,14 +27,14 @@ This is a COLLABORATIVE workflow — the user approves at every gate.
 <tools>
 | Tool | Purpose |
 |------|---------|
-| litmus(action="init", path="...") | Initialize project, returns project_root |
-| litmus(action="save", type="...", id="...", content={...}, project=...) | Save product/station/test |
-| litmus(action="read", path="...", project=...) | Read files or templates |
+| litmus_project(action="init", path="...") | Initialize project, returns project_root |
+| litmus_project(action="save", type="...", id="...", content={...}, project=...) | Save product/station/test |
+| litmus_project(action="read", path="...", project=...) | Read files or templates |
 | litmus_match(product_id, station_id, project) | Check compatibility |
 | litmus_run(test="...", station="...", serial="...", project=...) | Execute tests |
 | litmus_open(type="...", id="...") | Get browser URL for viewing/editing |
-| litmus(action="lookup_enum", id="FRES") | Resolve datasheet abbreviation to enum value |
-| litmus(action="enum_reference") | Full enum abbreviation table (markdown) |
+| litmus_project(action="lookup_enum", id="FRES") | Resolve datasheet abbreviation to enum value |
+| litmus_project(action="enum_reference") | Full enum abbreviation table (markdown) |
 | litmus_discover() | Scan for VISA instruments |
 </tools>
 
@@ -49,7 +49,7 @@ Ask the user where to create the project — suggest ~/litmus-<part_number> but 
 </step>
 
 <step id="1.2">
-Initialize project: litmus(action="init", path="<user's chosen path>")
+Initialize project: litmus_project(action="init", path="<user's chosen path>")
 </step>
 
 <step id="1.3">
@@ -57,7 +57,7 @@ Read the datasheet file the user provides.
 </step>
 
 <step id="1.4">
-Use litmus(action="lookup_enum", id="...") to resolve datasheet abbreviations
+Use litmus_project(action="lookup_enum", id="...") to resolve datasheet abbreviations
 (e.g. "FRES" → resistance_4w, "DCV" → dc_voltage) to correct MeasurementFunction enum values.
 </step>
 
@@ -99,14 +99,14 @@ Goal: Save the extracted spec and let user refine it.
 <step id="2.1">
 Show the draft spec structure (YAML preview).
 Highlight any uncertainties or missing fields.
-Use ``litmus(action="schema", type="product")`` to fetch the live
+Use ``litmus_project(action="schema", type="product")`` to fetch the live
 product schema (server-side Pydantic). Characteristics use the
 Capability schema — same four dicts (signals, conditions, controls,
 attributes) and SpecBand matching as catalog entries.
 </step>
 
 <step id="2.2">
-Save with litmus(action="save", type="product", ...) — schema is validated server-side.
+Save with litmus_project(action="save", type="product", ...) — schema is validated server-side.
 </step>
 
 <step id="2.3">
@@ -191,7 +191,7 @@ Use the instruments selected in Phase 2b, or use litmus_discover().
 
 <step id="3.2">
 Build station config with realistic mock values — schema is
-validated server-side. Use ``litmus(action="schema", type="station")``
+validated server-side. Use ``litmus_project(action="schema", type="station")``
 for the live shape.
 </step>
 
@@ -304,6 +304,6 @@ Emit: <phase-complete id="5" />
 <reference name="Key Rules">
 - mock_config keys are method names (e.g., measure_voltage, measure_current)
 - Standard Python math: Instruments return float. Use standard arithmetic.
-- Characteristics: use ``litmus(action="schema", type="capability")`` to discover valid MeasurementFunction values. Set `function:` + `direction:` (input/output).
+- Characteristics: use ``litmus_project(action="schema", type="capability")`` to discover valid MeasurementFunction values. Set `function:` + `direction:` (input/output).
 - Instrument fixtures are auto-registered from the active station's `instruments:` dict — no conftest.py boilerplate. Tests use role names (e.g. `dmm`, `psu`) as fixture parameters directly.
 </reference>

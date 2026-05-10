@@ -1,19 +1,50 @@
 """MCP server for AI-assisted test generation workflows.
 
-This server exposes 10 tools:
-- litmus: Unified CRUD operations (init, list, get, save, read)
-- litmus_discover: Scan for VISA instruments
-- litmus_match: Check compatibility between products/stations/fixtures
-- litmus_run: Execute tests and return results
-- litmus_open: Get URL to view/edit in browser
-- litmus_schema: Get JSON Schema for YAML validation/generation
-- litmus_events: Query events from the event store
-- litmus_sessions: List known sessions
-- litmus_channels: Query channel data
-- litmus_metrics: Query manufacturing-test analytics
+The platform does NOT call LLMs — it exposes these tools so that AI
+agents (Claude Code, etc.) can orchestrate the full datasheet-to-test
+workflow.
 
-The platform does NOT call LLMs - it exposes these tools so that AI agents
-(Claude Code, etc.) can orchestrate the full datasheet-to-test workflow.
+## Tool naming convention
+
+All tools are prefixed ``litmus_`` to namespace against other MCP
+servers in a multi-server agent setup. Within the prefix:
+
+- **Single-purpose actions** use ``litmus_<verb>``:
+  ``litmus_discover`` (scan instruments), ``litmus_match`` (check
+  compatibility), ``litmus_run`` (execute tests), ``litmus_open``
+  (browser URL), ``litmus_schema`` (JSON Schema lookup).
+- **Domain-scoped read tools** use ``litmus_<noun>`` where the noun
+  is the table or store being queried. Sub-actions ride on an
+  ``action=`` parameter so the tool count stays manageable:
+  ``litmus_runs(action="list"|"get")``, ``litmus_steps(action=
+  "list"|"tree")``, ``litmus_metrics(action="summary"|"pareto"|
+  "cpk"|"trend"|"retest"|"time_loss")``. Single-action queries
+  drop the ``action`` parameter: ``litmus_events``, ``litmus_
+  sessions``, ``litmus_channels``.
+- **Project-scoped CRUD** is ``litmus_project`` — the unified
+  entity multiplexer (init, list, get, save, read, lookup_enum,
+  enum_reference) operating on a project root.
+
+Tools shipped (12 + 1 prompt):
+- ``litmus_project`` — Unified project CRUD (init, list, get,
+  save, read, lookup_enum, enum_reference)
+- ``litmus_discover`` — Scan for VISA instruments
+- ``litmus_match`` — Check compatibility between products /
+  stations / fixtures
+- ``litmus_run`` — Execute tests and return results
+- ``litmus_open`` — Get URL to view/edit in browser
+- ``litmus_schema`` — Get JSON Schema for YAML validation
+- ``litmus_events`` — Query events from the event store
+- ``litmus_sessions`` — List known sessions
+- ``litmus_channels`` — Query channel data
+- ``litmus_metrics`` — Query manufacturing-test analytics
+- ``litmus_runs`` — Query the runs summary table
+- ``litmus_steps`` — Query the steps table for one run
+- Prompt ``datasheet-to-test`` — Full workflow guide
+
+Tool names are part of agent prompts and therefore part of the
+public contract. Renames after 0.1.0 require a deprecated-alias
+window. Pick names deliberately the first time.
 """
 
 from pathlib import Path
@@ -112,7 +143,7 @@ Approval gates (stop at each):
 ## Workflow (All Steps Required)
 
 ```
-1. Ask user where to create the project → litmus(action="init", path="...")
+1. Ask user where to create the project → litmus_project(action="init", path="...")
 2. litmus_schema(yaml_type="product") → Get exact product schema
 3. Extract specs from datasheet → Show to user → Ask approval → Save product
 4. litmus_schema(yaml_type="station") → Get exact station schema
@@ -151,15 +182,16 @@ Do NOT guess field names — if the schema doesn't have it, don't use it.
 
 ## Tools
 
-- `litmus(action="init", path="~/project")` — Initialize, returns project_root
-- `litmus(action="save", type="product|station|test", id="...", content={{...}}, project=...)`
-- `litmus(action="read", path="template:test", project=...)` — Get templates
+- `litmus_project(action="init", path="~/project")` — Initialize, returns project_root
+- `litmus_project(action="save", type="product|station|test", id="...",
+   content={{...}}, project=...)`
+- `litmus_project(action="read", path="template:test", project=...)` — Get templates
 - `litmus_schema(yaml_type="product|station|catalog|sequence|fixture")` — **Call FIRST**
 - `litmus_discover()` — Scan for connected instruments
 - `litmus_match(requirements=[...], project=...)` — Recommend catalog instruments
 - `litmus_run(test="tests/test_x.py", station="...", serial="...", project=...)`
-- `litmus(action="lookup_enum", id="FRES")` — Resolve datasheet abbreviation
-- `litmus(action="enum_reference")` — Full enum abbreviation table
+- `litmus_project(action="lookup_enum", id="FRES")` — Resolve datasheet abbreviation
+- `litmus_project(action="enum_reference")` — Full enum abbreviation table
 - `litmus_open(type="product|station|run", id="...")` — Get UI URL
 
 ## Key Rules
@@ -188,7 +220,7 @@ This is COLLABORATIVE — propose and wait for approval at each step.
 ## Workflow Steps
 
 1. **Ask where to create the project** — suggest `~/litmus-<part_number>` but let the user choose.
-   Then: `litmus(action="init", path="<user's chosen path>")`
+   Then: `litmus_project(action="init", path="<user's chosen path>")`
    - Returns `project_root` — USE THIS in all subsequent calls
 
 2. **Get Product Schema**: `litmus_schema(yaml_type="product")`
@@ -199,7 +231,7 @@ This is COLLABORATIVE — propose and wait for approval at each step.
    - SpecBand has: `value`, `accuracy` (pct_reading/pct_range/absolute), `when` (dict of RangeSpec)
 
 3. **Extract & Save Product Spec**: Parse datasheet, propose characteristics,
-   ask approval, save with `litmus(action="save", type="product", ...)`
+   ask approval, save with `litmus_project(action="save", type="product", ...)`
 
 4. **Get Station Schema**: `litmus_schema(yaml_type="station")`
    - Run `litmus_discover()` first. Use real addresses if instruments found,
@@ -213,7 +245,7 @@ This is COLLABORATIVE — propose and wait for approval at each step.
    - `tests/test_<part>.yaml` — sidecar: ``vectors``, ``limits``, and
      ``mocks`` keyed by test function name
    ```python
-   litmus(action="save", type="test", id="tests/test_part.py", content={
+   litmus_project(action="save", type="test", id="tests/test_part.py", content={
        "code": "def test_foo(context, verify): ..."
    }, project=project_root)
    ```
@@ -244,11 +276,11 @@ def create_mcp_server() -> FastMCP:
     )
 
     # -------------------------------------------------------------------------
-    # Tool 1: litmus (unified CRUD)
+    # Tool 1: litmus_project (unified CRUD over project entities)
     # -------------------------------------------------------------------------
 
-    @mcp.tool(name="litmus")
-    def litmus(
+    @mcp.tool(name="litmus_project")
+    def litmus_project(
         action: str,
         type: str | None = None,
         id: str | None = None,
@@ -262,28 +294,28 @@ def create_mcp_server() -> FastMCP:
 
         Actions:
         - init: Initialize project directory (returns project_root to use in subsequent calls)
-          litmus(action="init", path="~/my-project")
+          litmus_project(action="init", path="~/my-project")
 
         - list: List entities of a type
-          litmus(action="list", type="product", project="/path/to/project")
+          litmus_project(action="list", type="product", project="/path/to/project")
 
         - get: Get entity details
-          litmus(action="get", type="product", id="tps54302", project="/path/to/project")
+          litmus_project(action="get", type="product", id="tps54302", project="/path/to/project")
 
         - save: Create/update entity
-          litmus(action="save", type="product", id="tps54302",
+          litmus_project(action="save", type="product", id="tps54302",
                  content={...}, project="/path/to/project")
 
         - read: Read project file or template
-          litmus(action="read", path="products/x.yaml", project="/path/to/project")
-          litmus(action="read", path="template:test", project="/path/to/project")
+          litmus_project(action="read", path="products/x.yaml", project="/path/to/project")
+          litmus_project(action="read", path="template:test", project="/path/to/project")
 
         - lookup_enum: Resolve datasheet abbreviations to enum values
-          litmus(action="lookup_enum", id="FRES") → resistance_4w
-          litmus(action="lookup_enum", id="Q") → [quality_factor, charge]
+          litmus_project(action="lookup_enum", id="FRES") → resistance_4w
+          litmus_project(action="lookup_enum", id="Q") → [quality_factor, charge]
 
         - enum_reference: Get full abbreviation table as markdown
-          litmus(action="enum_reference")
+          litmus_project(action="enum_reference")
 
         Args:
             action: One of: init, list, get, save, read

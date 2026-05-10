@@ -757,7 +757,7 @@ def create_api_router() -> APIRouter:
     def save_entity(entity_type: str, entity_id: str, request: SaveRequest):
         """Create or update an entity (station, product, sequence, fixture, etc.).
 
-        HTTP equivalent of litmus(action='save', ...) MCP tool action.
+        HTTP equivalent of litmus_project(action='save', ...) MCP tool action.
         Returns validation errors if content does not match the schema.
         """
         from litmus.mcp.tools import litmus_tool
@@ -780,7 +780,7 @@ def create_api_router() -> APIRouter:
     def read_file(path: str, project: str | None = None):
         """Read a project file or template.
 
-        HTTP equivalent of litmus(action='read', ...) MCP tool action.
+        HTTP equivalent of litmus_project(action='read', ...) MCP tool action.
         Use path='template:test' to get the test file template.
         """
         from litmus.mcp.tools import litmus_tool
@@ -794,7 +794,7 @@ def create_api_router() -> APIRouter:
     def lookup_enum(abbrev: str):
         """Resolve a datasheet abbreviation to its MeasurementFunction enum value(s).
 
-        HTTP equivalent of litmus(action='lookup_enum', id=abbrev) MCP tool action.
+        HTTP equivalent of litmus_project(action='lookup_enum', id=abbrev) MCP tool action.
         Example: GET /enum/FRES → resistance_4w
         """
         from litmus.mcp.tools import litmus_tool
@@ -805,7 +805,7 @@ def create_api_router() -> APIRouter:
     def enum_reference():
         """Get the full abbreviation-to-enum reference table as markdown.
 
-        HTTP equivalent of litmus(action='enum_reference') MCP tool action.
+        HTTP equivalent of litmus_project(action='enum_reference') MCP tool action.
         """
         from litmus.mcp.tools import litmus_tool
 

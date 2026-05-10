@@ -40,7 +40,7 @@ litmus mcp serve
 
 | Tool | Purpose |
 |------|---------|
-| `litmus(action=...)` | Unified CRUD: init, list, get, save, read |
+| `litmus_project(action=...)` | Unified CRUD: init, list, get, save, read |
 | `litmus_discover()` | Scan for connected VISA instruments |
 | `litmus_match()` | Find compatible instruments and stations |
 | `litmus_run()` | Execute tests and return results |
@@ -51,22 +51,22 @@ litmus mcp serve
 
 ```python
 # Initialize project (CALL FIRST!)
-result = litmus(action="init", path="~/my-project")
+result = litmus_project(action="init", path="~/my-project")
 project = result["project_root"]  # Use in all subsequent calls
 
 # List entities
-litmus(action="list", type="product", project=project)
-litmus(action="list", type="station", project=project)
+litmus_project(action="list", type="product", project=project)
+litmus_project(action="list", type="station", project=project)
 
 # Get entity details
-litmus(action="get", type="product", id="tps54302", project=project)
+litmus_project(action="get", type="product", id="tps54302", project=project)
 
 # Save entity (content validated against schema)
-litmus(action="save", type="product", id="tps54302", content={...}, project=project)
+litmus_project(action="save", type="product", id="tps54302", content={...}, project=project)
 
 # Read file or template
-litmus(action="read", path="products/tps54302.yaml", project=project)
-litmus(action="read", path="template:test", project=project)  # Get test template
+litmus_project(action="read", path="products/tps54302.yaml", project=project)
+litmus_project(action="read", path="template:test", project=project)  # Get test template
 ```
 
 **Entity types:** product, station, fixture, sequence, test
@@ -124,7 +124,7 @@ schema = litmus_schema(yaml_type="product")
 ### Step 0: Initialize Project
 
 ```python
-result = litmus(action="init", path="~/my-hardware-tests")
+result = litmus_project(action="init", path="~/my-hardware-tests")
 project = result["project_root"]
 ```
 
@@ -140,7 +140,7 @@ Creates `pyproject.toml`, `conftest.py`, directories. Run `uv sync` after.
 - **When clause:** Operating-point parameters (temperature, load, frequency, etc.) that determine which SpecBand applies
 
 ```python
-litmus(action="save", type="product", id="tps54302", content={
+litmus_project(action="save", type="product", id="tps54302", content={
     "product": {
         "id": "tps54302",
         "name": "TPS54302 3A Synchronous Buck Converter",
@@ -208,7 +208,7 @@ matches = litmus_match(
 )
 
 # Save station configuration
-litmus(action="save", type="station", id="bench_1", content={
+litmus_project(action="save", type="station", id="bench_1", content={
     "station": {
         "id": "bench_1",
         "name": "Development Bench"
@@ -246,13 +246,13 @@ litmus(action="save", type="station", id="bench_1", content={
 Always read the template first:
 
 ```python
-template = litmus(action="read", path="template:test", project=project)
+template = litmus_project(action="read", path="template:test", project=project)
 ```
 
 **Test code** (`tests/test_tps54302.py`):
 
 ```python
-litmus(action="save", type="test", id="tests/test_tps54302.py", content={
+litmus_project(action="save", type="test", id="tests/test_tps54302.py", content={
     "code": '''
 def test_output_voltage(context, psu, dmm, verify):
     """Verify output voltage across temperature and load conditions."""
@@ -281,7 +281,7 @@ def test_quiescent_current(context, psu, dmm, verify):
 **Test configuration** (`tests/config.yaml`):
 
 ```python
-litmus(action="save", type="test", id="tests/config.yaml", content={
+litmus_project(action="save", type="test", id="tests/config.yaml", content={
     "code": '''
 test_output_voltage:
   vectors:
@@ -450,27 +450,27 @@ def test_output():
 
 **Step 0: Init**
 ```python
-result = litmus(action="init", path="~/tps54302-test")
+result = litmus_project(action="init", path="~/tps54302-test")
 project = result["project_root"]
 ```
 
 **Step 1: Create spec**
 ```python
 # (Use example from Step 1 above)
-litmus(action="save", type="product", id="tps54302", content={...}, project=project)
+litmus_project(action="save", type="product", id="tps54302", content={...}, project=project)
 ```
 
 **Step 2: Setup station**
 ```python
 # (Use example from Step 2 above)
-litmus(action="save", type="station", id="bench_1", content={...}, project=project)
+litmus_project(action="save", type="station", id="bench_1", content={...}, project=project)
 ```
 
 **Step 3: Generate tests**
 ```python
 # (Use examples from Step 3 above)
-litmus(action="save", type="test", id="tests/test_tps54302.py", content={...}, project=project)
-litmus(action="save", type="test", id="tests/config.yaml", content={...}, project=project)
+litmus_project(action="save", type="test", id="tests/test_tps54302.py", content={...}, project=project)
+litmus_project(action="save", type="test", id="tests/config.yaml", content={...}, project=project)
 ```
 
 **Step 4: Run tests**
@@ -484,7 +484,7 @@ print(result["status"])  # "PASS" or "FAIL"
 - [ ] Product spec created with `specs` (not `test_requirements`)
 - [ ] Characteristics have proper `specs` list with `conditions`, `value`, `accuracy`
 - [ ] Station configured with real or mock instruments
-- [ ] Called `litmus(action="read", path="template:test")` to see current pattern
+- [ ] Called `litmus_project(action="read", path="template:test")` to see current pattern
 - [ ] Test is a plain `def test_*` function (or class method) — no `@litmus_test`
 - [ ] Test accepts `context`, `verify`, `logger`, and instrument fixtures (as needed)
 - [ ] Test gets parameters via `context.get_param("key", default)`
