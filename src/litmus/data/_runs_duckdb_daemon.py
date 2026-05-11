@@ -27,6 +27,7 @@ import os
 import sys
 import threading
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
@@ -939,6 +940,7 @@ def _ingest_parquet_files(
     conn: duckdb.DuckDBPyConnection,
     runs_dir: Path,
     lock: threading.Lock,
+    on_ingested: Callable[[list[str]], None] | None = None,
 ) -> None:
     """Ingest new/changed parquet files into the runs index, newest first.
 
@@ -991,10 +993,24 @@ def _ingest_parquet_files(
     # parquet; raw measurement rows go into measurements_persisted
     # via the batch insert below to keep per-file lock holds short.
     new_files: list[str] = []
+    new_run_ids: list[str] = []
     for path_str, _, _, stat in needs_ingest:
         with lock:
             _ingest_one_file(conn, Path(path_str), stat)
+            try:
+                rows = conn.execute(
+                    "SELECT run_id FROM runs_persisted WHERE file_path = ?",
+                    [path_str],
+                ).fetchall()
+                new_run_ids.extend(str(r[0]) for r in rows if r[0])
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("run_id lookup after ingest failed: %s", exc)
         new_files.append(path_str)
+    if on_ingested is not None and new_run_ids:
+        try:
+            on_ingested(new_run_ids)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("on_ingested callback failed: %s", exc)
 
     # Batch insert raw measurement rows — one lock hold per 100 files
     # instead of N × (read parquet + insert) per file. Empty in steady
@@ -1108,7 +1124,7 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
 # ── Read-side views over parquet ────────────────────────────────────
 
 
-def _create_views(conn: duckdb.DuckDBPyConnection, _runs_dir: Path) -> None:
+def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     """Create or replace the runtime views over the index tables.
 
     All three data views follow the same UNION pattern: persistent rows
@@ -1291,13 +1307,27 @@ def daemon_run(runs_dir: Path) -> None:
     # Bind ``inflight_runs`` / ``inflight_steps`` to empty Arrow
     # tables so the UNION views in ``_create_views`` can compile.
     register_empty_inflight(conn)
-    _create_views(conn, runs_dir)
+    _create_views(conn)
+
+    def _evict_persisted_from_pool(run_ids: list[str]) -> None:
+        """Drop newly-persisted runs from the live subscriber's pool.
+
+        Pool's semantic is "runs in the WAL but NOT in ``runs_persisted``."
+        Once a parquet lands in ``runs_persisted`` (via ``_on_put`` or
+        the background sweep), the matching pool entry is now duplicate
+        state — evict it so the pool stays bounded by unpersisted-run
+        count.
+        """
+        for run_id in run_ids:
+            if run_id:
+                live_subscriber._pool.evict(run_id)  # noqa: SLF001
 
     def _on_put(table: pa.Table) -> None:
         # Already runs under the Flight server's lock (which IS our
         # ``write_lock``), so direct conn access is safe here.
         # Real-time delivery path: insert measurement rows immediately so
         # clients see them as soon as the ACK is drained.
+        ingested_run_ids: list[str] = []
         for row in table.to_pylist():
             fpath = row.get("file_path", "")
             if not fpath:
@@ -1311,7 +1341,29 @@ def daemon_run(runs_dir: Path) -> None:
                 _bulk_insert_measurement_rows(conn, fpath)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("measurement row insert failed for %s: %s", fpath, exc)
-        _create_views(conn, runs_dir)
+            # Look up the run_id this file just landed under so the
+            # live subscriber can drop it from the pool (now duplicate).
+            try:
+                run_id_rows = conn.execute(
+                    "SELECT run_id FROM runs_persisted WHERE file_path = ?",
+                    [fpath],
+                ).fetchall()
+                ingested_run_ids.extend(str(r[0]) for r in run_id_rows if r[0])
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("run_id lookup after ingest failed: %s", exc)
+        _create_views(conn)
+        _evict_persisted_from_pool(ingested_run_ids)
+
+    def _get_persisted_run_ids() -> set[str]:
+        """Snapshot of ``run_id``s currently in ``runs_persisted``.
+
+        Passed to :meth:`LiveRunsSubscriber.start` so the subscriber's
+        replay set is exactly the dual: runs whose events are in the
+        WAL but whose parquet has not yet reached ``runs_persisted``.
+        """
+        with write_lock:
+            rows = conn.execute("SELECT DISTINCT run_id FROM runs_persisted").fetchall()
+        return {str(r[0]) for r in rows if r[0]}
 
     server, port_file, *_ = start_flight_server_in_daemon(
         mgr=mgr,
@@ -1332,12 +1384,12 @@ def daemon_run(runs_dir: Path) -> None:
     # alternates with Flight queries, no deadlock.
     threading.Thread(
         target=_ingest_parquet_files,
-        args=(conn, runs_dir, write_lock),
+        args=(conn, runs_dir, write_lock, _evict_persisted_from_pool),
         daemon=True,
         name="runs-ingest",
     ).start()
 
-    live_subscriber.start()
+    live_subscriber.start(get_persisted_run_ids=_get_persisted_run_ids)
 
     mgr.monitor_refs()
 

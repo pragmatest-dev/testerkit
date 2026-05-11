@@ -375,6 +375,51 @@ class EventStore:
         rows = self._flight_query(sql)
         return [_parse_event_row(row) for row in rows]
 
+    def events_for_unpersisted_runs(
+        self,
+        persisted_run_ids: set[str] | frozenset[str],
+        *,
+        since: datetime | None = None,
+    ) -> list[dict]:
+        """Return events for runs whose ``run_id`` is NOT in ``persisted_run_ids``.
+
+        Mirrors the ``runs`` view's split: a run is either parquet-
+        persisted (``runs_persisted``) or not-yet-persisted (event-
+        backed, awaiting parquet ingest). Never both. ``LiveRunsSubscriber``
+        passes the runs daemon's current ``runs_persisted`` ids in so
+        replay covers exactly the complementary set — runs whose
+        events are durable in the WAL but whose parquet has yet to
+        reach ``runs_persisted`` (live in-flight + parquet-not-yet-
+        ingested + test scenarios where ``notify_new_run`` was
+        skipped). This is the right dual; the older
+        ``events_for_active_runs`` ("RunStarted without RunEnded")
+        misses runs that finished before subscriber attach.
+        """
+        for log in self._event_logs.values():
+            log.flush()
+        try:
+            self._put_stream.drain()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("put-stream drain failed (non-fatal): %s", exc)
+        where_clauses: list[str] = ["run_id IS NOT NULL"]
+        if since is not None:
+            where_clauses.append(f"received_at >= '{_sql_escape(since.isoformat())}'")
+        if persisted_run_ids:
+            # IN-clause literal — each id is a 36-char UUID, so even
+            # ~5k persisted ids comfortably fit DuckDB's statement
+            # size limits.
+            ids_sql = ", ".join(f"'{_sql_escape(rid)}'" for rid in persisted_run_ids)
+            where_clauses.append(f"run_id NOT IN ({ids_sql})")
+        where = " AND ".join(where_clauses)
+        sql = f"""
+            SELECT *
+            FROM events
+            WHERE {where}
+            ORDER BY received_at ASC
+        """
+        rows = self._flight_query(sql)
+        return [_parse_event_row(row) for row in rows]
+
     # -- Watch path ----------------------------------------------------------
 
     def on_event(
@@ -386,6 +431,7 @@ class EventStore:
         session_id: UUID | None = None,
         since: datetime | None = None,
         replay: str = "matching",
+        persisted_run_ids: set[str] | frozenset[str] | None = None,
     ) -> Callable[[], None]:
         """Catch-up subscription.
 
@@ -395,9 +441,15 @@ class EventStore:
 
         * ``"matching"`` (default) — replay every event matching the
           ``event_type`` / ``role`` / ``session_id`` / ``since`` filters.
-        * ``"active_runs"`` — replay only events for runs without ``RunEnded``,
-          further bounded by ``since`` if provided. Use this for live-view
-          subscribers; cuts replay from O(total event log) to O(active runs).
+        * ``"unpersisted_runs"`` — replay events for runs whose ``run_id``
+          is NOT in ``persisted_run_ids``. Live-view subscribers should
+          pass the runs daemon's ``runs_persisted`` ids in so the
+          replay set is "runs awaiting parquet ingest" — the exact
+          complement of ``runs_persisted``. This is the right dual.
+        * ``"active_runs"`` — replay only events for runs without
+          ``RunEnded``. Legacy mode kept for callers that don't have
+          access to ``runs_persisted``; misses runs that completed
+          before attach.
         * ``"none"`` — skip replay entirely; deliver only future events.
 
         In-process: instant dispatch on ``emit()``.
@@ -405,8 +457,33 @@ class EventStore:
 
         Returns an unsubscribe callable.
         """
+        # Capture the watcher's cursor BEFORE running replay. This snapshot
+        # bounds replay (events with ``received_at <= snapshot`` are caught
+        # by replay; events with ``received_at > snapshot`` are caught by
+        # the watcher with ``>= snapshot`` filter). Without this, events
+        # arriving in the narrow window between replay's SQL execution and
+        # ``_ensure_watcher`` are missed: replay returned empty, watcher
+        # cursor inits to the new ``MAX(received_at)`` which is past those
+        # events, and the ``>=`` filter then only catches the latest one.
+        # Reproducer: emit RunStarted + RunEnded back-to-back with ≤ 1ms
+        # between them — without this fix, ~3-5% of attaches lose the
+        # RunStarted half of the pair.
+        try:
+            cursor_rows = self._flight_query("SELECT MAX(received_at) AS m FROM events")
+            cursor: str | None = (
+                str(cursor_rows[0]["m"]) if cursor_rows and cursor_rows[0].get("m") else None
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Cursor snapshot before replay failed: %s", exc)
+            cursor = None
+
         if replay == "none":
             existing: list[dict] = []
+        elif replay == "unpersisted_runs":
+            existing = self.events_for_unpersisted_runs(
+                persisted_run_ids or frozenset(),
+                since=since,
+            )
         elif replay == "active_runs":
             existing = self.events_for_active_runs(since=since)
         else:
@@ -416,9 +493,18 @@ class EventStore:
                 role=role,
                 since=since,
             )
+        # Dispatch replay events and stamp their ids in ``_delivered_ids``
+        # so the watcher dedups against them when it re-fetches the cursor
+        # boundary on its first poll.
         for evt in existing:
             try:
                 callback(evt)
+                evt_id = str(evt.get("id") or "")
+                if evt_id:
+                    with self._lock:
+                        self._delivered_ids[evt_id] = None
+                        while len(self._delivered_ids) > self._delivered_ids_max:
+                            self._delivered_ids.popitem(last=False)
             except Exception as exc:
                 warnings.warn(
                     f"Event subscriber failed during replay: {exc}",
@@ -435,7 +521,7 @@ class EventStore:
         with self._lock:
             self._subscriptions.append(sub)
 
-        self._ensure_watcher()
+        self._ensure_watcher(initial_cursor=cursor)
 
         def unsubscribe() -> None:
             with self._lock:
@@ -446,20 +532,35 @@ class EventStore:
 
         return unsubscribe
 
-    def _ensure_watcher(self) -> None:
-        """Start the cross-process file watcher thread if not already running."""
+    def _ensure_watcher(self, *, initial_cursor: str | None = None) -> None:
+        """Start the cross-process file watcher thread if not already running.
+
+        ``initial_cursor`` seeds ``_watch_loop`` to a known received_at
+        from the caller — typically the last event dispatched by replay.
+        Without it, the watcher initializes its cursor to
+        ``MAX(received_at)`` from a fresh DB probe, which races against
+        events arriving in the narrow window between replay query and
+        watcher start: replay returns rows up to time T, then events
+        with ts > T arrive, then the watcher's cursor inits to that
+        new MAX, skipping the events with ts == T (and earlier in the
+        same flush batch). Reproducer: emit RunStarted + RunEnded
+        back-to-back with ≤ 1ms between them, then attach the
+        subscriber — without this seed, the watcher's ``>=`` cursor
+        catches only the latest of the pair.
+        """
         if self._watcher_thread is not None and self._watcher_thread.is_alive():
             return
 
         self._watcher_stop.clear()
         self._watcher_thread = threading.Thread(
             target=self._watch_loop,
+            args=(initial_cursor,),
             daemon=True,
             name="litmus-event-watcher",
         )
         self._watcher_thread.start()
 
-    def _watch_loop(self) -> None:
+    def _watch_loop(self, initial_cursor: str | None = None) -> None:
         """Poll for new events from other processes using Flight queries.
 
         Skips events already delivered in-process (via ``_notify_subscribers``).
@@ -473,17 +574,25 @@ class EventStore:
         dispatch, every later cross-process event is dropped, and
         the live UPSERT path looks broken with no log trace.
         """
-        # Initialize the cursor to the latest event already in the DB so the
+        # If the caller seeded a cursor via ``on_event``, use it — that's
+        # the timestamp of the last event dispatched during replay. Anything
+        # received_at >= that timestamp is fetched (with ``_delivered_ids``
+        # dedup against replay-dispatched ids). This closes the race between
+        # replay and watcher start.
+        #
+        # No seed (cold-start watcher attach without a preceding replay):
+        # initialize the cursor to the latest event already in the DB so the
         # first poll doesn't pull and dispatch the entire historical event log
         # (potentially hundreds of thousands of rows after a long-running test
-        # environment). Catch-up of pre-existing events is the responsibility
-        # of ``on_event``'s replay phase, scoped per-subscriber via ``since``.
-        try:
-            rows = self._flight_query("SELECT MAX(received_at) AS m FROM events")
-            last_received_at: str | None = str(rows[0]["m"]) if rows and rows[0].get("m") else None
-        except Exception as exc:  # noqa: BLE001 — fall back to None on probe failure
-            logger.debug("Watcher cursor init failed (will fetch all): %s", exc)
-            last_received_at = None
+        # environment).
+        last_received_at: str | None = initial_cursor
+        if last_received_at is None:
+            try:
+                rows = self._flight_query("SELECT MAX(received_at) AS m FROM events")
+                last_received_at = str(rows[0]["m"]) if rows and rows[0].get("m") else None
+            except Exception as exc:  # noqa: BLE001 — fall back to None on probe failure
+                logger.debug("Watcher cursor init failed (will fetch all): %s", exc)
+                last_received_at = None
 
         while not self._watcher_stop.is_set():
             # ``>=`` not ``>``: two events emitted in the same

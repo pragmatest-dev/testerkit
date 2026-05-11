@@ -275,7 +275,7 @@ class LiveRunsSubscriber:
         # can emit synthesized RunEnded events back to the bus when an
         # orphan is finalized. Without this, the parquet side gets the
         # closure but the events DB never sees RunEnded, so the run stays
-        # "active" forever in events_for_active_runs.
+        # "live" forever in the events DB and pool.
         self._event_store: Any = None
         self._attach_thread: threading.Thread | None = None
         self._sweep_thread: threading.Thread | None = None
@@ -284,11 +284,31 @@ class LiveRunsSubscriber:
         # set, eliminating the per-query ``conn.register()`` cost
         # (~280ms) when nothing has changed.
         self._dirty = True  # initial register required so views resolve
+        # Callable injected by the runs daemon at ``start()`` time.
+        # Returns the set of ``run_id``s currently in ``runs_persisted``
+        # — the dual of "what this subscriber should replay/track."
+        # ``None`` means "don't know" → fall back to ``active_runs``
+        # replay (legacy callers without runs-daemon-local query).
+        self._get_persisted_run_ids: Callable[[], set[str]] | None = None
 
     # -- Lifecycle ----------------------------------------------------------
 
-    def start(self) -> None:
-        """Begin the attach-retry and orphan-sweep background threads."""
+    def start(
+        self,
+        *,
+        get_persisted_run_ids: Callable[[], set[str]] | None = None,
+    ) -> None:
+        """Begin the attach-retry and orphan-sweep background threads.
+
+        ``get_persisted_run_ids`` is a callable the runs daemon
+        supplies that returns the current set of ``run_id``s in
+        ``runs_persisted``. Used at attach time to compute the
+        "not-yet-persisted" replay set (the dual of ``runs_persisted``).
+        When ``None``, the subscriber falls back to the legacy
+        ``active_runs`` replay (RunStarted without RunEnded), which
+        misses runs that completed before attach.
+        """
+        self._get_persisted_run_ids = get_persisted_run_ids
         self._attach_thread = threading.Thread(
             target=self._attach_loop, daemon=True, name="live-runs-attach"
         )
@@ -390,19 +410,38 @@ class LiveRunsSubscriber:
             return False
 
         try:
-            # Live view only needs in-flight runs reconstructed; finalized
-            # runs already live in parquet. ``replay="active_runs"`` bounds
-            # the catch-up by active-run count rather than total event-log
-            # size, so attach time stays flat as the event log grows.
+            # Replay the dual of ``runs_persisted`` — every run whose
+            # events are in the WAL but whose parquet has not yet
+            # reached ``runs_persisted``. Covers in-flight runs,
+            # completed-but-not-yet-ingested runs, and the test case
+            # where ``notify_new_run`` is skipped. Without the
+            # ``runs_persisted`` query (legacy callers), fall back to
+            # ``active_runs`` (the older "RunStarted without RunEnded"
+            # SQL) which misses runs that completed before attach.
             #
-            # No ``since`` window: abandoned runs (RunStarted with no
-            # RunEnded) are operator-visible signals, not noise to filter.
-            # Test code that creates such runs as fixtures owns its own
-            # teardown to emit a closing RunEnded.
-            self._unsubscribe = event_store.on_event(
-                self._on_event,
-                replay="active_runs",
-            )
+            # No ``since`` window: abandoned runs are operator-visible
+            # signals, not noise to filter. Test code that creates such
+            # runs as fixtures owns its own teardown to emit a closing
+            # RunEnded.
+            if self._get_persisted_run_ids is not None:
+                try:
+                    persisted = self._get_persisted_run_ids()
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug(
+                        "Failed to fetch persisted run ids (replaying all unfiltered): %s",
+                        exc,
+                    )
+                    persisted = set()
+                self._unsubscribe = event_store.on_event(
+                    self._on_event,
+                    replay="unpersisted_runs",
+                    persisted_run_ids=persisted,
+                )
+            else:
+                self._unsubscribe = event_store.on_event(
+                    self._on_event,
+                    replay="active_runs",
+                )
         except Exception as exc:  # noqa: BLE001
             logger.debug("EventStore.on_event failed (will retry): %s", exc)
             try:
