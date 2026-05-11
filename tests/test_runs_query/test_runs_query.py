@@ -189,7 +189,7 @@ def _write_in_flight_run(
 ) -> None:
     """Write a unified parquet for an in-flight run (no ended_at, no outcome).
 
-    Mirrors what the daemon's ``runs_persisted`` table looks like after
+    Mirrors what the daemon's ``runs_materialized`` table looks like after
     a ``RunStarted`` event lands but before ``RunEnded`` — ``ended_at``
     and ``outcome`` are NULL.
     """

@@ -379,7 +379,7 @@ class TestRunLogger:
     Optionally streams typed events to an event log (JSONL) for live
     observability and crash recovery. When an ``EventLog`` is wired,
     events are emitted as they happen and dispatched to subscribers
-    (e.g. ``ParquetSubscriber``).
+    (the runs daemon's materializer is the canonical consumer).
     """
 
     __test__ = False  # Prevent pytest collection

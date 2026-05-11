@@ -87,7 +87,7 @@ class Outcome(StrEnum):
       ``RunEnded`` was ever emitted, partial signal-handler exits,
       etc. When you see Aborted in a report it means the rig may
       not be in a known state — operator should physically check.
-      Producer: ``ParquetSubscriber.close()`` fallback;
+      Producer: ``the materializer`` fallback;
       ``RunBuilder.abort()`` on the catch-all client.
 
     Note on the "never ran" case: there is no ``Planned`` value.

@@ -166,7 +166,7 @@ def runs_store(fixture_data: dict[str, str]) -> Generator[RunStore]:
     """Canonical singleton RunStore — connects to the same daemon every other client uses."""
     store = RunStore()
     # Notify the canonical daemon of the synthetic parquets so it
-    # ingests them into ``runs_persisted`` for the read-side tests.
+    # ingests them into ``runs_materialized`` for the read-side tests.
     store.notify_new_run(Path(fixture_data["pq1"]))
     store.notify_new_run(Path(fixture_data["pq2"]))
     yield store

@@ -304,7 +304,7 @@ def run_context_from_run_started(
     """Run-level context kwargs derived from a cached ``RunStarted`` event.
 
     Streaming-path counterpart to :func:`build_run_metadata` (which
-    operates on a ``TestRun`` model). Both ``ParquetSubscriber._build_row``
+    operates on a ``TestRun`` model). Both ``the accumulator-to-parquet path``
     and ``_write_steps_parquet`` use this — they previously had drifting
     copies of the same dict, missing different fields.
 
@@ -715,7 +715,7 @@ def build_step_row(
 
     Single source of truth for step-row construction. Used by BOTH the
     streaming subscriber path
-    (``ParquetSubscriber._build_unified_rows``) and the batch path
+    (``materialize_run_to_parquet``) and the batch path
     (``ParquetBackend._append_step_rows``) so the on-disk shape is
     identical regardless of which writer produced it.
 
@@ -864,7 +864,7 @@ def step_entry_dict(
     """Single source of truth for one step manifest entry's shape.
 
     Shared by the batch path (:func:`build_step_manifest`) and the
-    streaming path (``ParquetSubscriber._build_step_entry``); both
+    streaming path (``the accumulator-to-parquet path``); both
     pre-compute their values and pass them as kwargs. Timestamps are
     serialised here, ``duration_s`` derived from start/end.
 
@@ -913,7 +913,7 @@ def _append_not_started(
     """Append ``planned`` entries for collected items that never executed.
 
     Shared by both the batch path (``build_step_manifest``) and the
-    streaming path (``ParquetSubscriber._build_step_results_from_events``).
+    streaming path (``the accumulator-to-parquet path``).
 
     When ``executed_vectors`` is provided (set of ``(node_id, vector_index)``
     pairs that actually ran), this also fills in unrun-vector entries for

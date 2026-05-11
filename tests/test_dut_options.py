@@ -22,21 +22,43 @@ pytest_plugins = ["pytester"]
 _CANONICAL_RESULTS = resolve_data_dir()
 
 
-def _find_parquet_by_serial(dut_serial: str) -> Path | None:
-    """Find the most recent run parquet under canonical for ``dut_serial``."""
-    matches = list(_CANONICAL_RESULTS.glob(f"runs/**/*_{dut_serial}.parquet"))
-    matches = [m for m in matches if not m.stem.endswith("_steps")]
-    return max(matches, key=lambda p: p.stat().st_mtime) if matches else None
+def _find_parquet_by_serial(dut_serial: str, *, timeout: float = 15.0) -> Path | None:
+    """Find the most recent run parquet under canonical for ``dut_serial``.
+
+    Polls because the runs daemon writes parquets asynchronously after
+    receiving ``RunEnded`` from the test process. The subprocess exits
+    before the daemon finishes materializing.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        matches = list(_CANONICAL_RESULTS.glob(f"runs/**/*_{dut_serial}.parquet"))
+        matches = [m for m in matches if not m.stem.endswith("_steps")]
+        if matches:
+            return max(matches, key=lambda p: p.stat().st_mtime)
+        time.sleep(0.2)
+    return None
 
 
-def _find_parquet_since(start_mtime: float) -> Path | None:
-    """Find the most recent run parquet under canonical written after ``start_mtime``."""
-    matches = [
-        p
-        for p in _CANONICAL_RESULTS.glob("runs/**/*.parquet")
-        if not p.stem.endswith("_steps") and p.stat().st_mtime > start_mtime
-    ]
-    return max(matches, key=lambda p: p.stat().st_mtime) if matches else None
+def _find_parquet_since(start_mtime: float, *, timeout: float = 15.0) -> Path | None:
+    """Find the most recent run parquet under canonical written after ``start_mtime``.
+
+    Polls — see :func:`_find_parquet_by_serial`.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        matches = [
+            p
+            for p in _CANONICAL_RESULTS.glob("runs/**/*.parquet")
+            if not p.stem.endswith("_steps") and p.stat().st_mtime > start_mtime
+        ]
+        if matches:
+            return max(matches, key=lambda p: p.stat().st_mtime)
+        time.sleep(0.2)
+    return None
 
 
 @pytest.fixture

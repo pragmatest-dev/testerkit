@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Generator
 from uuid import uuid4
 
@@ -69,8 +70,16 @@ class TestSubscriptions:
     def test_on_event_replays_existing(self, store: EventStore):
         sid = uuid4()
         store.emit(_make_session_started(sid))
+        # Verify the event landed before subscribing
+        sanity = store.events(session_id=sid)
+        assert len(sanity) == 1, f"sanity check failed: {sanity}"
         received = []
         unsub = store.on_event(lambda e: received.append(e), session_id=sid)
+        # Replay runs in a background thread; poll briefly for the
+        # callback to fire.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and len(received) == 0:
+            time.sleep(0.05)
         assert len(received) == 1
         unsub()
 

@@ -213,6 +213,38 @@ class RunEnded(EventBase):
     outcome: str | None = None
 
 
+class RunMaterialized(EventBase):
+    """Emitted by a materializer after a run's state has been written to a
+    durable, query-optimized backend.
+
+    Today the only materializer is the runs daemon writing parquet +
+    ingesting into ``runs_materialized`` / ``steps_materialized`` /
+    ``measurements_materialized``. Future materializers (Postgres,
+    Snowflake, Delta Lake, etc.) emit the same event with their own
+    ``materializer`` name and ``destination`` URI/path.
+
+    Lifecycle handshake:
+
+    * Tells the live materializer pool (in the runs daemon) to evict
+      the run — its in-memory accumulator is no longer the source of
+      truth for it; the materialized view is.
+    * Tells retention the run's event cohort is safe to retire from
+      the EventStore. Events remain persisted in the EventStore until
+      retention prunes them; the run is *materialized* when this
+      event lands.
+
+    Distinct from ``RunEnded``: a run can be RunEnded (the test
+    finished) without yet being RunMaterialized (no durable read
+    model exists). The bigger refactor closes this window to ~ms.
+    """
+
+    event_type: Literal["run.materialized"] = "run.materialized"
+    materializer: str
+    destination: str
+    materialized_at: datetime = Field(default_factory=_utcnow)
+    row_counts: dict[str, int] | None = None
+
+
 # ---------------------------------------------------------------------------
 # Slot events (multi-DUT)
 # ---------------------------------------------------------------------------

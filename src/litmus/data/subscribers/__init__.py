@@ -1,13 +1,14 @@
-"""Internal event-subscriber registry — used by ParquetSubscriber,
-LiveRunsSubscriber, and the ``litmus export`` CLI replay path.
+"""Internal event-subscriber registry — used by the ``litmus export``
+CLI replay path (csv/json/stdf/hdf5/tdms/mdf4/atml converters in
+:mod:`litmus.data.exporters`). The canonical run materializer
+(parquet + DuckDB index) is owned by the runs daemon and does NOT
+go through this registry.
 
 Not a public extension protocol: third-party packages should not register
 formats via entry points or any other mechanism. The set of supported
 formats is fixed by the package and ships through ``litmus export``.
 """
 
-# Import built-in subscribers (triggers __init_subclass__ registration)
-import litmus.data.backends.parquet  # noqa: F401
 import litmus.data.exporters.csv_exporter  # noqa: F401
 import litmus.data.exporters.json_exporter  # noqa: F401
 from litmus.data.event_log import EventSubscriber

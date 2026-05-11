@@ -29,23 +29,68 @@ from litmus.data._duckdb_flight_server import (
 from litmus.data._ipc_writer import read_ipc_batches
 from litmus.data.duckdb_manager import DuckDBDaemonManager
 
-_EVENT_COLUMNS = ["id", "event_type", "occurred_at", "received_at", "session_id", "run_id", "json"]
+# Columns the daemon binds from each row when inserting into ``events``.
+# ``received_at`` is deliberately EXCLUDED — server-stamped via ``now()``
+# in ``_INSERT_SQL`` (see comment there).
+_PUT_HOOK_COLUMNS = ["id", "event_type", "occurred_at", "session_id", "run_id", "json"]
+
+# Columns to narrow an IPC-loaded Arrow table to before binding. The IPC
+# file's schema may be wider than what we INSERT — this narrows it to
+# only the columns the daemon's events table cares about, then
+# ``_table_to_rows`` extracts ``_PUT_HOOK_COLUMNS`` for the bind. The
+# extra ``received_at`` column in the loaded table is read but
+# discarded (the daemon's ``now()`` overrides on insert).
+_EVENT_COLUMNS_FROM_IPC = [
+    "id",
+    "event_type",
+    "occurred_at",
+    "received_at",
+    "session_id",
+    "run_id",
+    "json",
+]
 
 # ON CONFLICT DO NOTHING deduplicates events that arrived via do_put during
 # the previous session and are now also present in the IPC files.
+#
+# CRITICAL: both ``received_at`` insertion paths server-stamp via
+# ``now()`` (daemon's clock), not client-provided values. The watcher's
+# cursor-based ``WHERE received_at >= ?`` poll relies on monotonic
+# ordering from a single clock — using client-stamped values lets
+# small clock skews (across emitter processes, across daemon sessions)
+# push later-arriving events to earlier ``received_at`` than events
+# already inserted, causing the cursor to advance past them and
+# silently lose them.
+#
+# IPC replay also uses ``now()`` even though IPC files contain
+# original client ``received_at``: replay inserts populate the
+# in-memory DuckDB index at daemon startup, and the resulting
+# ``MAX(received_at)`` becomes the watcher's initial cursor. If those
+# values were client-stamped from past sessions whose clocks ran
+# slightly ahead of the current daemon's clock, live inserts (with
+# fresh ``now()``) would be ``received_at < cursor`` and excluded
+# from every poll. Server-stamping replay ensures the cursor never
+# sits in the future relative to subsequent inserts.
+#
+# (Original ``occurred_at`` and ``json``-embedded fields preserve the
+# event's emission-time for analysis; ``received_at`` is purely the
+# daemon's queue/dispatch ordering signal.)
 _INSERT_SQL = (
     "INSERT INTO events (id, event_type, occurred_at, received_at, session_id, run_id, json) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING"
+    "VALUES (?, ?, ?, now(), ?, ?, ?) ON CONFLICT (id) DO NOTHING"
 )
 
 
 def _table_to_rows(table: pa.Table) -> list[tuple]:
-    """Convert Arrow table to list of tuples for SQL param insert.
+    """Convert Arrow table to tuples for SQL bind on both live and IPC paths.
 
     DuckDB segfaults when inserting Arrow tables with large strings via
-    the register/INSERT path.  SQL parameter binding works fine.
+    the register/INSERT path. SQL parameter binding works fine.
+
+    Skips ``received_at`` — server-stamped via ``now()`` in
+    ``_INSERT_SQL``. The 6 columns bind to the 6 ``?`` placeholders.
     """
-    cols = [table.column(c).to_pylist() for c in _EVENT_COLUMNS]
+    cols = [table.column(c).to_pylist() for c in _PUT_HOOK_COLUMNS]
     return list(zip(*cols))
 
 
@@ -192,7 +237,7 @@ def _ingest_one_file(
         return
 
     try:
-        table = table.select(_EVENT_COLUMNS)
+        table = table.select(_EVENT_COLUMNS_FROM_IPC)
     except (KeyError, pa.ArrowInvalid) as exc:
         warnings.warn(f"Skipping bad schema in {fpath.name}: {exc}", stacklevel=2)
         _mark("quarantined", str(exc))

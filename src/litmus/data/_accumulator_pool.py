@@ -1,21 +1,24 @@
-"""Per-run event projection pool for the runs daemon's live overlay.
+"""Per-run event projection pool for the runs daemon's materializer.
 
 Owns the in-memory, in-flight projection of run events that the
-runs daemon serves alongside its parquet-finalized rows.
+runs daemon serves alongside its parquet-finalized rows AND uses to
+write parquets at ``RunEnded`` time.
 
-One :class:`~litmus.data.backends.parquet.EventAccumulator`
+One :class:`~litmus.data.backends._event_accumulator.EventAccumulator`
 per active ``run_id`` accumulates events until either:
 
-* The producer's parquet lands and the parquet-ingest path
-  inserts the canonical row into ``runs_persisted`` (overlay
-  is suppressed for that run_id by the UNION view; eviction
-  happens lazily).
+* The daemon's dispatch handler sees ``RunEnded`` (real, or
+  synthesized by the orphan sweep). It writes the canonical
+  parquet via :func:`~litmus.data.backends.parquet.materialize_run_to_parquet`,
+  ingests into ``runs_materialized`` / ``steps_materialized`` /
+  ``measurements_materialized``, then emits ``RunMaterialized``
+  to the events bus. Receipt of ``RunMaterialized`` evicts the
+  pool entry.
 * The orphan sweep detects a dead producer (pid no longer
   exists) or wall-clock timeout, synthesizes a
-  ``RunEnded(outcome="aborted")`` event into the
-  accumulator, and calls ``finalize_to_parquet()`` on it —
-  which writes the canonical aborted parquet just as the
-  test runner's ``ParquetSubscriber`` would.
+  ``RunEnded(outcome="aborted")`` event into the events bus.
+  The synthetic event flows through the same dispatch path
+  above — same materialize → emit → evict sequence.
 
 The pool is the runs daemon's "head block" in the
 Prometheus / LSM-tree / materialized-view pattern: in-memory
@@ -30,11 +33,15 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
+import duckdb
+import pyarrow as pa
+
 from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
     RunEnded,
+    RunMaterialized,
     RunStarted,
     SessionStarted,
     StepEnded,
@@ -52,6 +59,7 @@ _EVENT_CLASSES: dict[str, type] = {
     "session.started": SessionStarted,
     "run.started": RunStarted,
     "run.ended": RunEnded,
+    "run.materialized": RunMaterialized,
     "test.steps_discovered": StepsDiscovered,
     "test.step_started": StepStarted,
     "test.step_ended": StepEnded,
@@ -80,6 +88,16 @@ class AccumulatorPool:
         # session_id per run_id, so the orphan sweep can resolve a
         # run_id back to its producer pid.
         self._run_session: dict[str, str] = {}
+        # Monotonic generation counter — incremented under ``_lock`` on
+        # every state change (dispatch / evict). Readers (the runs
+        # daemon's pre-query hook) compare against their last-observed
+        # generation to decide whether to re-snapshot the pool. Using a
+        # counter, not a boolean, closes the dirty-flag race where a
+        # query lands in the microsecond window between
+        # ``pool.dispatch`` releasing its lock and a separate dirty
+        # flag being set — that window dropped one refresh per dispatch
+        # under bursty load and caused live runs to surface late.
+        self._generation = 0
 
     # ------------------------------------------------------------------
     # Write path — fed by the events-daemon subscription
@@ -110,6 +128,14 @@ class AccumulatorPool:
                     self._session_pid[session_id] = typed.pid
             return
 
+        if isinstance(typed, RunMaterialized):
+            # Materialization signal — handled by the daemon's _on_event
+            # wrapper (it evicts the pool entry). Don't route into an
+            # accumulator: there's nothing for the accumulator to absorb,
+            # and creating one on first sight would leak state for a run
+            # that just finished.
+            return
+
         run_id = str(getattr(typed, "run_id", None) or "")
         if not run_id:
             return
@@ -120,6 +146,12 @@ class AccumulatorPool:
             self._last_event_at[run_id] = datetime.now(UTC)
             if session_id:
                 self._run_session[run_id] = session_id
+            # Bump generation under the same lock as the state change so
+            # any reader that subsequently observes a generation > its
+            # last-seen value is guaranteed to see this event in the
+            # pool. Atomic with the dispatch — closes the race where a
+            # separate dirty flag could be set after the lock released.
+            self._generation += 1
 
     # ------------------------------------------------------------------
     # Read path — snapshot for the runs daemon's UNION views
@@ -167,9 +199,189 @@ class AccumulatorPool:
         with self._lock:
             self._last_event_at.pop(run_id, None)
             self._run_session.pop(run_id, None)
-            return self._accs.pop(run_id, None)
+            acc = self._accs.pop(run_id, None)
+            if acc is not None:
+                self._generation += 1
+            return acc
+
+    def snapshot_if_changed(
+        self, last_seen_generation: int
+    ) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None:
+        """Atomic snapshot-if-pool-changed-since-last-seen.
+
+        Returns ``(new_generation, run_rows, step_rows, meas_rows)``
+        when the pool's generation has advanced past
+        ``last_seen_generation``, else ``None``. The check, generation
+        read, and snapshot all happen under the pool's lock so the
+        caller observes a consistent view: anything that was in the
+        pool when the new generation was assigned is included in the
+        returned rows.
+
+        Used by the runs daemon's pre-query hook to gate the
+        ``conn.register("inflight_*", ...)`` calls — refresh only
+        when the pool has changed since last refresh, atomically
+        with the dispatch that changed it.
+        """
+        with self._lock:
+            if self._generation == last_seen_generation:
+                return None
+            gen = self._generation
+            run_rows = [r for a in self._accs.values() if (r := a.snapshot_run_row())]
+            step_rows = [r for a in self._accs.values() for r in a.snapshot_step_rows()]
+            meas_rows = [r for a in self._accs.values() for r in a.snapshot_measurement_rows()]
+            return gen, run_rows, step_rows, meas_rows
 
     def has(self, run_id: str) -> bool:
         """Whether the pool currently holds an accumulator for ``run_id``."""
         with self._lock:
             return run_id in self._accs
+
+    def get(self, run_id: str) -> EventAccumulator | None:
+        """Return the accumulator for ``run_id`` without removing it."""
+        with self._lock:
+            return self._accs.get(run_id)
+
+
+# ---------------------------------------------------------------------------
+# Inflight Arrow schemas — mirror ``runs_materialized`` / ``steps_materialized``
+# ---------------------------------------------------------------------------
+#
+# Describe the shape of the per-query Arrow snapshots that back the
+# ``inflight_runs`` / ``inflight_steps`` relations the UNION views
+# reference. Registered on the DuckDB connection via ``conn.register()``
+# (read-only metadata — no WAL write, no lock contention with the
+# ingest thread). A pre-query hook that wrote DELETE+INSERT to TEMP
+# tables previously serialized every read behind any concurrent
+# ingest write, wedging the daemon at ~60 % CPU on lock-wait.
+#
+# Outcome here is plain VARCHAR — the materialized side carries the
+# strict ``outcome_kind`` ENUM but DuckDB's ``UNION ALL`` permits
+# string ↔ enum coercion at read time. Pool snapshots only emit
+# strings already in the canonical Outcome enum (validated when
+# the accumulator builds the row).
+INFLIGHT_RUNS_SCHEMA = pa.schema(
+    [
+        ("run_id", pa.string()),
+        ("file_path", pa.string()),
+        ("session_id", pa.string()),
+        ("slot_id", pa.string()),
+        ("dut_serial", pa.string()),
+        ("dut_part_number", pa.string()),
+        ("dut_lot_number", pa.string()),
+        ("station_id", pa.string()),
+        ("station_name", pa.string()),
+        ("station_hostname", pa.string()),
+        ("fixture_id", pa.string()),
+        ("outcome", pa.string()),
+        ("started_at", pa.timestamp("us", tz="UTC")),
+        ("ended_at", pa.timestamp("us", tz="UTC")),
+        ("num_measurements", pa.int32()),
+        ("num_steps", pa.int32()),
+        ("test_phase", pa.string()),
+        ("product_id", pa.string()),
+        ("operator_id", pa.string()),
+        ("project_name", pa.string()),
+    ]
+)
+
+INFLIGHT_STEPS_SCHEMA = pa.schema(
+    [
+        ("run_id", pa.string()),
+        ("step_index", pa.int32()),
+        ("file_path", pa.string()),
+        ("session_id", pa.string()),
+        ("slot_id", pa.string()),
+        ("step_name", pa.string()),
+        ("step_path", pa.string()),
+        ("outcome", pa.string()),
+        ("started_at", pa.timestamp("us", tz="UTC")),
+        ("ended_at", pa.timestamp("us", tz="UTC")),
+        ("duration_s", pa.float64()),
+        ("has_measurements", pa.bool_()),
+        ("measurement_count", pa.int32()),
+        ("vector_count", pa.int32()),
+        ("markers", pa.string()),
+        ("dut_serial", pa.string()),
+        ("station_id", pa.string()),
+    ]
+)
+
+INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
+    [
+        ("record_type", pa.string()),
+        ("run_id", pa.string()),
+        ("session_id", pa.string()),
+        ("slot_id", pa.string()),
+        ("run_started_at", pa.timestamp("us", tz="UTC")),
+        ("run_ended_at", pa.timestamp("us", tz="UTC")),
+        ("run_outcome", pa.string()),
+        ("dut_serial", pa.string()),
+        ("dut_part_number", pa.string()),
+        ("dut_revision", pa.string()),
+        ("dut_lot_number", pa.string()),
+        ("product_id", pa.string()),
+        ("product_name", pa.string()),
+        ("product_revision", pa.string()),
+        ("station_id", pa.string()),
+        ("station_name", pa.string()),
+        ("station_hostname", pa.string()),
+        ("station_type", pa.string()),
+        ("station_location", pa.string()),
+        ("fixture_id", pa.string()),
+        ("test_phase", pa.string()),
+        ("project_name", pa.string()),
+        ("operator_id", pa.string()),
+        ("operator_name", pa.string()),
+        ("git_commit", pa.string()),
+        ("git_branch", pa.string()),
+        ("git_remote", pa.string()),
+        ("python_version", pa.string()),
+        ("litmus_version", pa.string()),
+        ("env_fingerprint", pa.string()),
+        ("step_name", pa.string()),
+        ("step_index", pa.int32()),
+        ("step_path", pa.string()),
+        ("step_outcome", pa.string()),
+        ("step_started_at", pa.timestamp("us", tz="UTC")),
+        ("step_ended_at", pa.timestamp("us", tz="UTC")),
+        ("vector_index", pa.int64()),
+        ("vector_retry", pa.int64()),
+        ("vector_outcome", pa.string()),
+        ("measurement_name", pa.string()),
+        ("measurement_value", pa.float64()),
+        ("measurement_outcome", pa.string()),
+        ("measurement_units", pa.string()),
+        ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
+        ("limit_low", pa.float64()),
+        ("limit_high", pa.float64()),
+        ("limit_nominal", pa.float64()),
+        ("limit_comparator", pa.string()),
+        ("characteristic_id", pa.string()),
+        ("spec_ref", pa.string()),
+        ("dut_pin", pa.string()),
+        ("fixture_connection", pa.string()),
+        ("instrument_name", pa.string()),
+        ("instrument_resource", pa.string()),
+        ("instrument_channel", pa.string()),
+    ]
+)
+
+# Allocated once at module load. ``conn.register()`` with these keeps
+# the UNION views resolvable when the pool is empty (the common case
+# at idle).
+EMPTY_INFLIGHT_RUNS = pa.Table.from_pylist([], schema=INFLIGHT_RUNS_SCHEMA)
+EMPTY_INFLIGHT_STEPS = pa.Table.from_pylist([], schema=INFLIGHT_STEPS_SCHEMA)
+EMPTY_INFLIGHT_MEASUREMENTS = pa.Table.from_pylist([], schema=INFLIGHT_MEASUREMENTS_SCHEMA)
+
+
+def register_empty_inflight(conn: duckdb.DuckDBPyConnection) -> None:
+    """Seed the daemon's connection with empty inflight relations.
+
+    Called once at daemon startup, **before** the UNION views in
+    ``_create_views`` are defined. Without this, those views fail
+    to compile because ``inflight_runs`` / ``inflight_steps`` /
+    ``inflight_measurements`` aren't yet bound to anything.
+    """
+    conn.register("inflight_runs", EMPTY_INFLIGHT_RUNS)
+    conn.register("inflight_steps", EMPTY_INFLIGHT_STEPS)
+    conn.register("inflight_measurements", EMPTY_INFLIGHT_MEASUREMENTS)

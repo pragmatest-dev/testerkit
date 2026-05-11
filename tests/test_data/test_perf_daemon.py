@@ -9,7 +9,7 @@ Catches regressions in:
    A regression to 400ms+ flags the parquet-glob regression.
 
 3. Measurement query latency — TABLE scan, no parquet glob.
-   Hard cap: 200ms. Baseline after measurements_persisted TABLE: ~5ms.
+   Hard cap: 200ms. Baseline after measurements_materialized TABLE: ~5ms.
    Pre-TABLE baseline: 150-479ms.
 
 Run benchmarks with: pytest tests/test_data/test_perf_daemon.py -v --benchmark-only
@@ -150,7 +150,7 @@ def test_runs_filter_options(benchmark, warm_daemon):
 def test_measurements_summary_counts(benchmark, warm_daemon):
     """Warm MeasurementsQuery.summary_counts — TABLE scan, no parquet glob.
 
-    Hard cap: 200ms. Baseline after measurements_persisted: ~5ms.
+    Hard cap: 200ms. Baseline after measurements_materialized: ~5ms.
     Pre-fix baseline: 150-479ms per query.
     """
 
@@ -181,7 +181,7 @@ def test_measurements_describe_columns(benchmark, warm_daemon):
 def test_measurements_yield_summary(benchmark, warm_daemon):
     """Warm MeasurementsQuery.yield_summary — aggregation over TABLE rows.
 
-    Hard cap: 200ms. Baseline after measurements_persisted: ~5ms.
+    Hard cap: 200ms. Baseline after measurements_materialized: ~5ms.
     Pre-fix baseline: 150-400ms.
     """
 
@@ -201,7 +201,7 @@ def test_measurements_yield_summary(benchmark, warm_daemon):
 def test_warm_runs_query_under_100ms():
     """Warm RunsQuery must respond in < 100ms.
 
-    Catches a regression where runs_persisted is reverted to a
+    Catches a regression where runs_materialized is reverted to a
     parquet-glob view. Pre-fix: 400ms+. Post-fix: ~3ms.
     """
     _ensure_daemon_live()
@@ -222,7 +222,7 @@ def test_warm_runs_query_under_100ms():
 def test_warm_measurements_query_under_200ms():
     """Warm MeasurementsQuery must respond in < 200ms.
 
-    Catches a regression where measurements_persisted is reverted to
+    Catches a regression where measurements_materialized is reverted to
     read_parquet(glob, union_by_name=true). Pre-fix: 150-479ms. Post-fix: ~5ms.
     """
     _ensure_daemon_live()

@@ -106,12 +106,11 @@ class _EventIPCWriter(BufferedIPCWriter):
 class EventSubscriber:
     """Internal base class for event log materializers.
 
-    Used by :class:`~litmus.data.backends.parquet.ParquetSubscriber`
-    (writes the canonical run parquet at ``RunEnded``),
-    :class:`~litmus.data.\\_live_runs_subscriber.LiveRunsSubscriber`
-    (in-daemon ingest into the runs DuckDB index), and the
-    ``litmus export`` CLI replay path (per-format converters in
-    :mod:`litmus.data.exporters`).
+    Used by the ``litmus export`` CLI replay path (per-format
+    converters in :mod:`litmus.data.exporters` — csv/json/stdf/hdf5/
+    tdms/mdf4/atml). The canonical run materializer (parquet + DuckDB
+    index) is now owned by the runs daemon and doesn't go through this
+    base class.
 
     **Not a public extension protocol.** The set of supported formats
     is fixed by the package. Third-party packages should not subclass

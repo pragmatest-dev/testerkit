@@ -25,7 +25,7 @@ import json
 import logging
 import pickle
 from collections import defaultdict
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -56,16 +56,6 @@ from litmus.data.backends._row_helpers import (
     save_ref_to_dir,
 )
 from litmus.data.data_dir import resolve_data_dir
-from litmus.data.event_log import EventSubscriber
-from litmus.data.events import (
-    InstrumentConnected,
-    MeasurementRecorded,
-    RunEnded,
-    RunStarted,
-    StepEnded,
-    StepsDiscovered,
-    StepStarted,
-)
 from litmus.data.models import (
     DUT,
     Measurement,
@@ -122,8 +112,8 @@ def _build_parquet_metadata(
 ) -> dict[bytes, bytes]:
     """Build Parquet file-level metadata.
 
-    Shared by ParquetBackend (from TestRun) and ParquetSubscriber
-    (from cached RunStarted event).
+    Shared by ParquetBackend (from TestRun) and
+    :func:`materialize_run_to_parquet` (from cached RunStarted event).
     """
     metadata: dict[bytes, bytes] = {}
 
@@ -151,9 +141,6 @@ def _build_parquet_metadata(
 class ParquetMeasurementWriter:
     """Writes measurement RecordBatches as Parquet files."""
 
-    def __init__(self, *, notify: Callable[[Path], None] | None = None) -> None:
-        self._notify = notify
-
     def write_batch(
         self,
         batch: pa.RecordBatch,
@@ -170,8 +157,6 @@ class ParquetMeasurementWriter:
         if file_metadata:
             table = table.replace_schema_metadata(file_metadata)
         atomic_write_table(table, path)
-        if self._notify:
-            self._notify(path)
         return path
 
 
@@ -195,7 +180,7 @@ class ParquetBackend:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._runs_dir = self.data_dir / "runs"
         self._runs_dir.mkdir(parents=True, exist_ok=True)
-        self._writer = ParquetMeasurementWriter(notify=self._notify_daemon)
+        self._writer = ParquetMeasurementWriter()
 
     def save_test_run(
         self,
@@ -302,6 +287,10 @@ class ParquetBackend:
     def _run_store_ctx(self) -> Generator[RunStore, None, None]:
         """Yield a configured RunStore, closing it on exit.
 
+        ParquetBackend's read methods (``list_runs``, ``find_run_file``,
+        ``get_run``, etc.) delegate to RunStore — this helper centralises
+        the lifecycle.
+
         Both classes use ``data_dir`` to mean *the parent* (the
         results dir containing ``runs/``, ``events/``, ``channels/``).
         Each appends its own subdir internally.
@@ -311,30 +300,6 @@ class ParquetBackend:
             yield store
         finally:
             store.close()
-
-    def _notify_daemon(self, parquet_path: Path) -> None:
-        """Best-effort notification to the runs DuckDB daemon.
-
-        Catches transport-level failures (network, file I/O, gRPC
-        flake) so a daemon outage doesn't block the write. Other
-        exceptions — programming errors, schema bugs — propagate.
-
-        Set ``LITMUS_SKIP_DAEMON_NOTIFY=1`` (e.g. in test conftest)
-        to skip notification entirely. Without this, every
-        ``ParquetBackend.save_test_run(data_dir=tmp_path)`` call
-        in unit tests transitively spawns a runs daemon for that
-        tmp_path — accumulating daemons across test files quickly
-        exhausts the OS thread limit.
-        """
-        import os as _os
-
-        if _os.environ.get("LITMUS_SKIP_DAEMON_NOTIFY") == "1":
-            return
-        try:
-            with self._run_store_ctx() as store:
-                store.notify_new_run(parquet_path)
-        except (ConnectionError, BrokenPipeError, FileNotFoundError, TimeoutError):
-            logger.debug("Failed to notify runs daemon", exc_info=True)
 
     def _build_measurement_rows(
         self,
@@ -545,8 +510,8 @@ class ParquetBackend:
     ) -> Path:
         """Save pre-built flat row dicts to Parquet.
 
-        Used by ParquetSubscriber to write accumulated rows without
-        needing a TestRun object.
+        Used by :func:`materialize_run_to_parquet` to write
+        accumulated rows without needing a TestRun object.
         """
         if not rows:
             raise ValueError("save_from_rows() requires at least one row")
@@ -579,220 +544,134 @@ class ParquetBackend:
 
 
 # EventAccumulator is defined in _event_accumulator.py (lightweight,
-# no parquet/subscriber deps) and imported above. ParquetSubscriber
-# subclasses it below.
+# no parquet/subscriber deps) and imported above. The runs daemon
+# holds one EventAccumulator per in-flight run in its AccumulatorPool;
+# materialize_run_to_parquet (below) takes one of those and writes the
+# canonical parquet.
 
 
-class ParquetSubscriber(EventAccumulator, EventSubscriber):
-    """EventSubscriber that writes the canonical parquet on RunEnded.
+# ---------------------------------------------------------------------------
+# Free-standing materializer — accumulator state → parquet file
+# ---------------------------------------------------------------------------
+#
+# Called by the runs daemon's event-dispatch loop when ``RunEnded`` lands
+# (real or synthetic-from-orphan-sweep). The daemon's
+# :class:`~litmus.data.accumulator_pool.AccumulatorPool` already holds
+# the run's :class:`EventAccumulator`; the materializer writes its
+# state to disk via :class:`ParquetBackend`. No subscriber class
+# needed — projection lives on the accumulator, writing lives here.
 
-    Inherits the full event projection from :class:`EventAccumulator`.
-    Adds only the parquet write tail: on ``RunEnded`` (or ``close()``
-    fallback) materialize the accumulated state via the inherited
-    ``_build_*`` helpers and persist it to disk via
-    :class:`ParquetBackend`.
+
+def _build_unified_rows_from_acc(
+    acc: EventAccumulator, run_ended_at: datetime, run_outcome: str
+) -> list[dict[str, Any]]:
+    """Build the per-run unified-rows list from an accumulator's state.
+
+    Free-standing because the daemon calls it with accumulator instances
+    drawn from its pool; not method-on-class because EventAccumulator is
+    the pure projection and shouldn't know about output formats.
     """
-
-    format_name = "parquet"
-
-    event_types: set[type] = {
-        RunStarted,
-        InstrumentConnected,
-        StepsDiscovered,
-        StepStarted,
-        MeasurementRecorded,
-        StepEnded,
-        RunEnded,
-    }
-
-    def __init__(self, output_dir: Path) -> None:
-        super().__init__()
-        self._output_dir = output_dir
-        self._backend = ParquetBackend(data_dir=output_dir)
-        self._written = False
-
-    def open(self) -> None:
-        """No-op — subscriber protocol requires this but Parquet needs no setup."""
-
-    def absorb_from_accumulator(self, acc: Any) -> None:
-        """Copy accumulated event state from another :class:`EventAccumulator`.
-
-        Used by the orphan-finalization path to transfer in-memory state
-        from the runs daemon's pool accumulator into a fresh
-        ``ParquetSubscriber`` so the aborted parquet is written via the
-        same write path as a clean producer-side close. Keeps the private
-        state mutation in one place rather than spread across callers.
-        """
-        self._run_started = acc._run_started
-        self._instruments = list(acc._instruments)
-        self._measurement_events = list(acc._measurement_events)
-        self._step_starts = dict(acc._step_starts)
-        self._step_ends = dict(acc._step_ends)
-        self._collected_items = list(acc._collected_items)
-        self._markers_by_node = dict(acc._markers_by_node)
-
-    def on_event(self, event: Any) -> None:
-        super().on_event(event)
-        if isinstance(event, RunEnded):
-            self._write(outcome=event.outcome)
-
-    def close(self) -> None:
-        if not self._written:
-            self._write()
-
-    def _write(self, outcome: str | None = None) -> None:
-        """Write the unified per-run parquet.
-
-        Orchestration only: build unified rows → write once → notify.
-        ``_written`` flips only after a successful write so callbacks
-        aren't shadowed by half-finished state.
-
-        Empty runs (no measurements AND no executed steps) skip the
-        write — there's nothing to record.
-
-        Args:
-            outcome: Run outcome from RunEnded. If None — close()
-                fired without ever seeing a RunEnded event — the
-                run was killed mid-flight without the cleanup chain
-                running, so falls back to ``aborted`` (no-safe-state
-                signal: rig may not be in a known state). Operator
-                stops that reached the cleanup path get ``terminated``
-                stamped via the SIGTERM handler / pytest hook before
-                we get here.
-        """
-        if self._written:
-            return
-
-        s = self._run_started
-        if not s:
-            self._written = True  # Nothing to write; treat as completed.
-            return
-
-        ended_at = _utcnow()
-        final_outcome = outcome if outcome is not None else "aborted"
-
-        rows = self._build_unified_rows(ended_at, final_outcome)
-        if not rows:
-            self._written = True
-            return
-
-        self._write_results(s, rows)
-        self._written = True
-
-    def _build_unified_rows(self, run_ended_at: datetime, run_outcome: str) -> list[dict[str, Any]]:
-        """Build the unified row list for the per-run parquet.
-
-        Three row kinds, all conforming to ``RUN_ROW_SCHEMA`` and
-        discriminated by an explicit ``record_type`` column:
-
-        * **``record_type='run'``** — exactly one per parquet, written
-          first. Carries run-level identity / DUT / station / fixture /
-          environment columns. Step + measurement columns are NULL.
-        * **``record_type='step'``** — one per ``(step_path,
-          vector_index)`` execution (or planned-but-unrun vector
-          from the manifest). Independent of measurements.
-        * **``record_type='measurement'``** — one per
-          ``MeasurementRecorded`` event. Carries the measurement
-          payload plus denormalized step + vector + run context.
-
-        Step rollups (counts, has_measurements) are computed downstream
-        via ``COUNT(*) FILTER (WHERE record_type = ...)`` on the unified
-        rows. The runs daemon ingests the run row directly via
-        ``WHERE record_type = 'run'``; no GROUP BY-of-everything needed.
-        """
-        rows: list[dict[str, Any]] = []
-
-        run_row = self._build_run_row(run_ended_at=run_ended_at, run_outcome=run_outcome)
-        if run_row is not None:
-            rows.append(run_row)
-
-        for event in self._measurement_events:
-            row = self._build_row(event)
-            row["run_ended_at"] = run_ended_at
-            row["run_outcome"] = run_outcome
-            rows.append(row)
-
-        for entry in self._build_step_results_from_events():
-            step_row = self._build_step_row(
-                entry, run_ended_at=run_ended_at, run_outcome=run_outcome
-            )
-            if step_row is not None:
-                rows.append(step_row)
-
-        return rows
-
-    def _build_run_row(
-        self,
-        *,
-        run_ended_at: datetime,
-        run_outcome: str,
-    ) -> dict[str, Any] | None:
-        """Build the single ``record_type='run'`` row.
-
-        Thin wrapper around the shared ``build_run_row`` helper using the
-        streaming-path-specific run-context source
-        (``run_context_from_run_started`` keyed off the cached
-        ``RunStarted`` event). Carries the cached event's
-        ``custom_metadata`` flattened into ``custom_*`` columns.
-        Returns ``None`` when ``RunStarted`` hasn't been seen yet.
-        """
-        s = self._run_started
-        if not s:
-            return None
-        return build_run_row(
-            run_context=run_context_from_run_started(s, s, include_env=True),
-            run_outcome=run_outcome,
-            run_ended_at=run_ended_at,
-            instruments=self._build_instrument_arrays(),
-            custom=dict(getattr(s, "custom_metadata", None) or {}),
+    rows: list[dict[str, Any]] = []
+    run_row = _build_run_row_from_acc(acc, run_ended_at=run_ended_at, run_outcome=run_outcome)
+    if run_row is not None:
+        rows.append(run_row)
+    for event in acc._measurement_events:
+        row = acc._build_row(event)
+        row["run_ended_at"] = run_ended_at
+        row["run_outcome"] = run_outcome
+        rows.append(row)
+    for entry in acc._build_step_results_from_events():
+        step_row = _build_step_row_from_acc(
+            acc, entry, run_ended_at=run_ended_at, run_outcome=run_outcome
         )
+        if step_row is not None:
+            rows.append(step_row)
+    return rows
 
-    def _build_step_row(
-        self,
-        entry: dict[str, Any],
-        *,
-        run_ended_at: datetime,
-        run_outcome: str,
-    ) -> dict[str, Any] | None:
-        """Build one ``record_type='step'`` row from a manifest entry.
 
-        Thin wrapper around the shared ``build_step_row`` helper —
-        adds the streaming-path-specific run-context source
-        (``run_context_from_run_started`` keyed off the cached
-        ``RunStarted`` event). Returns ``None`` when ``RunStarted``
-        hasn't been seen.
-        """
-        s = self._run_started
-        if not s:
-            return None
-        return build_step_row(
-            run_context=run_context_from_run_started(s, s, include_env=True),
-            entry=entry,
-            run_outcome=run_outcome,
-            run_ended_at=run_ended_at,
-            instruments=self._build_instrument_arrays(),
-        )
+def _build_run_row_from_acc(
+    acc: EventAccumulator, *, run_ended_at: datetime, run_outcome: str
+) -> dict[str, Any] | None:
+    s = acc._run_started
+    if not s:
+        return None
+    return build_run_row(
+        run_context=run_context_from_run_started(s, s, include_env=True),
+        run_outcome=run_outcome,
+        run_ended_at=run_ended_at,
+        instruments=acc._build_instrument_arrays(),
+        custom=dict(getattr(s, "custom_metadata", None) or {}),
+    )
 
-    def _write_results(self, s: Any, rows: list[dict[str, Any]]) -> None:
-        """Persist the unified rows to one parquet file."""
-        self._backend.save_from_rows(
-            rows,
-            started_at=s.occurred_at,
-            dut_serial=s.dut_serial,
-            file_metadata=self._build_file_metadata(),
-        )
 
-    def _build_file_metadata(self) -> dict[bytes, bytes]:
-        """Build Parquet file-level metadata from cached session."""
-        s = self._run_started
-        if not s:
-            return _build_parquet_metadata()
+def _build_step_row_from_acc(
+    acc: EventAccumulator,
+    entry: dict[str, Any],
+    *,
+    run_ended_at: datetime,
+    run_outcome: str,
+) -> dict[str, Any] | None:
+    s = acc._run_started
+    if not s:
+        return None
+    return build_step_row(
+        run_context=run_context_from_run_started(s, s, include_env=True),
+        entry=entry,
+        run_outcome=run_outcome,
+        run_ended_at=run_ended_at,
+        instruments=acc._build_instrument_arrays(),
+    )
 
-        results = self._build_step_results_from_events() or None
-        return _build_parquet_metadata(
-            environment_json=s.environment_json,
-            step_results=results,
-        )
+
+def _build_file_metadata_from_acc(acc: EventAccumulator) -> dict[bytes, bytes]:
+    s = acc._run_started
+    if not s:
+        return _build_parquet_metadata()
+    results = acc._build_step_results_from_events() or None
+    return _build_parquet_metadata(
+        environment_json=s.environment_json,
+        step_results=results,
+    )
+
+
+def materialize_run_to_parquet(
+    acc: EventAccumulator,
+    output_dir: Path,
+    *,
+    outcome: str | None = None,
+    run_ended_at: datetime | None = None,
+) -> Path | None:
+    """Materialize an accumulator's state to a per-run parquet file.
+
+    Returns the parquet path on success, ``None`` when nothing was
+    written (no ``RunStarted`` seen, or empty run with no
+    measurements / executed steps).
+
+    Args:
+        acc: The :class:`EventAccumulator` holding the run's events.
+        output_dir: Where to write — the runs daemon's data dir.
+        outcome: Final run outcome. ``None`` falls back to ``"aborted"``
+            (matches the orphan-sweep semantic).
+        run_ended_at: Wall-clock time the run ended. Defaults to ``now()``.
+    """
+    s = acc._run_started
+    if not s:
+        return None
+
+    ended_at = run_ended_at if run_ended_at is not None else _utcnow()
+    final_outcome = outcome if outcome is not None else "aborted"
+
+    rows = _build_unified_rows_from_acc(acc, ended_at, final_outcome)
+    if not rows:
+        return None
+
+    backend = ParquetBackend(data_dir=output_dir)
+    return backend.save_from_rows(
+        rows,
+        started_at=s.occurred_at,
+        dut_serial=s.dut_serial,
+        file_metadata=_build_file_metadata_from_acc(acc),
+    )
 
 
 def load_file(parquet_path: Path, ref: str) -> Any:

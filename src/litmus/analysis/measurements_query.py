@@ -668,7 +668,7 @@ class MeasurementsQuery:
     def describe_columns(self) -> list[dict[str, str]]:
         """Return the measurements schema: ``[{column_name, column_type}, ...]``.
 
-        Returns fixed columns from ``measurements_persisted`` plus dynamic
+        Returns fixed columns from ``measurements_materialized`` plus dynamic
         column names discovered during ingest (from ``measurement_io_schema``).
         Dynamic columns are reported as ``DOUBLE`` so the explore page's
         classifier includes them as Y/X candidates; values are actually
@@ -676,7 +676,7 @@ class MeasurementsQuery:
         """
         fixed = self._query_dicts(
             "SELECT column_name, column_type"
-            " FROM (DESCRIBE measurements_persisted)"
+            " FROM (DESCRIBE measurements_materialized)"
             " WHERE column_name NOT IN ('file_path', 'dynamic_attrs')"
         )
         dynamic = self._query_dicts(

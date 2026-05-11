@@ -225,12 +225,18 @@ def _is_multi_slot_worker() -> bool:
 def _setup_event_log_and_subscribers(
     logger: TestRunLogger, results_path: Path, session_id: UUID
 ) -> Any:
-    """Wire EventStore + EventLog + default and configured subscribers.
+    """Wire EventStore + EventLog + default subscribers.
+
+    The events bus is the source of truth for the test run. The runs
+    daemon subscribes to it and materializes parquets in its own process
+    (see :mod:`litmus.data._runs_duckdb_daemon`). The pytest process
+    just emits events; ``event_store.close()`` at teardown flushes them
+    durably to the events daemon. Materialization happens async after
+    pytest exits.
 
     Returns the EventStore (existing or newly created) so the teardown
     helper can close it after the run.
     """
-    from litmus.data.backends.parquet import ParquetSubscriber
     from litmus.data.channels.store import ChannelStore
     from litmus.data.event_store import EventStore
 
@@ -241,8 +247,6 @@ def _setup_event_log_and_subscribers(
 
     event_log = event_store.get_event_log(session_id)
     logger.event_log = event_log
-
-    event_log.add_subscriber(ParquetSubscriber(results_path))
 
     channel_store = ChannelStore(results_path, session_id, serve=True)
     channel_store.open()

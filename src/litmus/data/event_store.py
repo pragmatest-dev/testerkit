@@ -255,7 +255,7 @@ class EventStore:
         rows that subsequent cross-process queries / subscribers
         depend on.
         """
-        for log in self._event_logs.values():
+        for log in list(self._event_logs.values()):
             log.flush()
         try:
             self._put_stream.drain()
@@ -271,6 +271,7 @@ class EventStore:
         event_type: str | None = None,
         role: str | None = None,
         since: datetime | None = None,
+        until: str | None = None,
         limit: int | None = None,
     ) -> list[dict]:
         """Query events from the DuckDB index via Flight.
@@ -287,7 +288,7 @@ class EventStore:
         """
         # Flush any buffered events to IPC + Flight before querying
         # (on_flush callback pushes batches to Flight automatically)
-        for log in self._event_logs.values():
+        for log in list(self._event_logs.values()):
             log.flush()
         try:
             self._put_stream.drain()
@@ -304,6 +305,8 @@ class EventStore:
             conditions.append(f"event_type = '{_sql_escape(event_type)}'")
         if since:
             conditions.append(f"received_at >= '{_sql_escape(since.isoformat())}'")
+        if until:
+            conditions.append(f"received_at <= '{_sql_escape(until)}'")
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
 
         # Latest-N pushdown: SQL sorts received_at DESC under the
@@ -343,78 +346,55 @@ class EventStore:
         """List known sessions with metadata from SessionStarted events."""
         return self.events(event_type="session.started")
 
-    def events_for_active_runs(self, *, since: datetime | None = None) -> list[dict]:
-        """Return events for runs that have ``RunStarted`` but no ``RunEnded``.
-
-        Live-view subscribers care only about runs still in flight — finalized
-        runs are already in parquet via the regular ingest path, so replaying
-        their events would be wasted work. Bounded by active-run count, not
-        total event-log size.
-
-        ``since`` further bounds the result to events received after that
-        timestamp. Use it to drop accumulated zombies (RunStarted without
-        RunEnded from long-dead pids).
-        """
-        for log in self._event_logs.values():
-            log.flush()
-        try:
-            self._put_stream.drain()
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("put-stream drain failed (non-fatal): %s", exc)
-        where = f" AND received_at >= '{_sql_escape(since.isoformat())}'" if since else ""
-        sql = f"""
-            SELECT *
-            FROM events
-            WHERE run_id IN (
-                SELECT DISTINCT run_id FROM events WHERE event_type = 'run.started'
-                EXCEPT
-                SELECT DISTINCT run_id FROM events WHERE event_type = 'run.ended'
-            ){where}
-            ORDER BY received_at ASC
-        """
-        rows = self._flight_query(sql)
-        return [_parse_event_row(row) for row in rows]
-
-    def events_for_unpersisted_runs(
+    def events_for_unmaterialized_runs(
         self,
-        persisted_run_ids: set[str] | frozenset[str],
         *,
         since: datetime | None = None,
+        until: str | None = None,
     ) -> list[dict]:
-        """Return events for runs whose ``run_id`` is NOT in ``persisted_run_ids``.
+        """Return events for runs that have ``RunStarted`` but no ``RunMaterialized``.
 
-        Mirrors the ``runs`` view's split: a run is either parquet-
-        persisted (``runs_persisted``) or not-yet-persisted (event-
-        backed, awaiting parquet ingest). Never both. ``LiveRunsSubscriber``
-        passes the runs daemon's current ``runs_persisted`` ids in so
-        replay covers exactly the complementary set — runs whose
-        events are durable in the WAL but whose parquet has yet to
-        reach ``runs_persisted`` (live in-flight + parquet-not-yet-
-        ingested + test scenarios where ``notify_new_run`` was
-        skipped). This is the right dual; the older
-        ``events_for_active_runs`` ("RunStarted without RunEnded")
-        misses runs that finished before subscriber attach.
+        The dual of "runs whose derived view is durable in a query-optimized
+        backend." A run is either:
+
+        * **Materialized** — a ``RunMaterialized`` event exists. The run is
+          durably stored somewhere (today: parquet ingested into the runs
+          daemon's ``runs_materialized`` table; future: Postgres, Snowflake,
+          etc.). The materializer pool no longer needs to track it.
+        * **Unmaterialized** — no ``RunMaterialized`` yet. The run's events
+          are persisted in the EventStore but no derived view exists. The
+          materializer pool tracks it via per-run accumulator state.
+
+        Called by the runs daemon on attach to replay the unmaterialized set
+        into its in-memory accumulator pool. The replay set is naturally
+        bounded by the rate at which runs are materialized; in production
+        steady state, it's the count of currently-in-flight runs plus a
+        small tail of just-finished runs awaiting materialization.
+
+        ``since`` further bounds the result to events received after that
+        timestamp.
         """
-        for log in self._event_logs.values():
+        for log in list(self._event_logs.values()):
             log.flush()
         try:
             self._put_stream.drain()
         except Exception as exc:  # noqa: BLE001
             logger.debug("put-stream drain failed (non-fatal): %s", exc)
-        where_clauses: list[str] = ["run_id IS NOT NULL"]
-        if since is not None:
-            where_clauses.append(f"received_at >= '{_sql_escape(since.isoformat())}'")
-        if persisted_run_ids:
-            # IN-clause literal — each id is a 36-char UUID, so even
-            # ~5k persisted ids comfortably fit DuckDB's statement
-            # size limits.
-            ids_sql = ", ".join(f"'{_sql_escape(rid)}'" for rid in persisted_run_ids)
-            where_clauses.append(f"run_id NOT IN ({ids_sql})")
-        where = " AND ".join(where_clauses)
+        clauses: list[str] = []
+        if since:
+            clauses.append(f"received_at >= '{_sql_escape(since.isoformat())}'")
+        if until:
+            clauses.append(f"received_at <= '{_sql_escape(until)}'")
+        where_extra = (" AND " + " AND ".join(clauses)) if clauses else ""
         sql = f"""
             SELECT *
             FROM events
-            WHERE {where}
+            WHERE run_id IS NOT NULL
+              AND run_id IN (
+                SELECT DISTINCT run_id FROM events WHERE event_type = 'run.started'
+                EXCEPT
+                SELECT DISTINCT run_id FROM events WHERE event_type = 'run.materialized'
+              ){where_extra}
             ORDER BY received_at ASC
         """
         rows = self._flight_query(sql)
@@ -431,7 +411,6 @@ class EventStore:
         session_id: UUID | None = None,
         since: datetime | None = None,
         replay: str = "matching",
-        persisted_run_ids: set[str] | frozenset[str] | None = None,
     ) -> Callable[[], None]:
         """Catch-up subscription.
 
@@ -441,15 +420,11 @@ class EventStore:
 
         * ``"matching"`` (default) — replay every event matching the
           ``event_type`` / ``role`` / ``session_id`` / ``since`` filters.
-        * ``"unpersisted_runs"`` — replay events for runs whose ``run_id``
-          is NOT in ``persisted_run_ids``. Live-view subscribers should
-          pass the runs daemon's ``runs_persisted`` ids in so the
-          replay set is "runs awaiting parquet ingest" — the exact
-          complement of ``runs_persisted``. This is the right dual.
-        * ``"active_runs"`` — replay only events for runs without
-          ``RunEnded``. Legacy mode kept for callers that don't have
-          access to ``runs_persisted``; misses runs that completed
-          before attach.
+        * ``"unmaterialized_runs"`` — replay events for runs with
+          ``RunStarted`` but no ``RunMaterialized``. The materializer's
+          replay set: every run still tracked in-memory because its
+          derived view hasn't been written yet. See
+          :meth:`events_for_unmaterialized_runs`.
         * ``"none"`` — skip replay entirely; deliver only future events.
 
         In-process: instant dispatch on ``emit()``.
@@ -477,40 +452,25 @@ class EventStore:
             logger.debug("Cursor snapshot before replay failed: %s", exc)
             cursor = None
 
-        if replay == "none":
-            existing: list[dict] = []
-        elif replay == "unpersisted_runs":
-            existing = self.events_for_unpersisted_runs(
-                persisted_run_ids or frozenset(),
-                since=since,
-            )
-        elif replay == "active_runs":
-            existing = self.events_for_active_runs(since=since)
-        else:
-            existing = self.events(
-                session_id=session_id,
-                event_type=event_type,
-                role=role,
-                since=since,
-            )
-        # Dispatch replay events and stamp their ids in ``_delivered_ids``
-        # so the watcher dedups against them when it re-fetches the cursor
-        # boundary on its first poll.
-        for evt in existing:
-            try:
-                callback(evt)
-                evt_id = str(evt.get("id") or "")
-                if evt_id:
-                    with self._lock:
-                        self._delivered_ids[evt_id] = None
-                        while len(self._delivered_ids) > self._delivered_ids_max:
-                            self._delivered_ids.popitem(last=False)
-            except Exception as exc:
-                warnings.warn(
-                    f"Event subscriber failed during replay: {exc}",
-                    stacklevel=2,
-                )
-
+        # Register the subscription and start the watcher BEFORE running
+        # replay. New events arriving from the cursor onwards flow through
+        # the watcher into the callback immediately. Historical (pre-cursor)
+        # events flow through replay in a background thread.
+        #
+        # Why async replay: when the events DB has accumulated many
+        # unmaterialized runs (e.g., a long-running dev environment with
+        # historical test cruft), synchronous replay can take seconds-to-
+        # minutes before the watcher gets started. New events emitted
+        # during that window aren't visible to the subscriber until
+        # replay completes — which can cause test timeouts and operator
+        # UI staleness on cold daemon start. Decoupling lets the live
+        # path keep up with real-time events while the materializer
+        # catches up on backlog in the background.
+        #
+        # ``_delivered_ids`` deduplicates between the two paths: each
+        # dispatched event id is stamped, and both paths check before
+        # delivering, so each event reaches the callback exactly once
+        # regardless of which path saw it first.
         sub = _Subscription(
             callback,
             event_type=event_type,
@@ -522,6 +482,50 @@ class EventStore:
             self._subscriptions.append(sub)
 
         self._ensure_watcher(initial_cursor=cursor)
+
+        if replay != "none":
+            # Replay covers received_at <= cursor (inclusive); watcher
+            # covers >= cursor. Boundary events (== cursor) are dispatched
+            # by replay and stamped in ``_delivered_ids`` so the watcher
+            # skips them. New events (> cursor) are watcher-only.
+            replay_until = cursor
+
+            def _replay_in_background() -> None:
+                if replay == "unmaterialized_runs":
+                    existing = self.events_for_unmaterialized_runs(since=since, until=replay_until)
+                else:
+                    existing = self.events(
+                        session_id=session_id,
+                        event_type=event_type,
+                        role=role,
+                        since=since,
+                        until=replay_until,
+                    )
+                # Dispatch each event to the new subscriber's callback,
+                # then stamp ``_delivered_ids`` so the watcher dedups
+                # against the boundary on its first poll. Mirrors the
+                # sync-replay behaviour, just in a background thread so
+                # the watcher can serve real-time events concurrently.
+                for evt in existing:
+                    try:
+                        callback(evt)
+                        evt_id = str(evt.get("id") or "")
+                        if evt_id:
+                            with self._lock:
+                                self._delivered_ids[evt_id] = None
+                                while len(self._delivered_ids) > self._delivered_ids_max:
+                                    self._delivered_ids.popitem(last=False)
+                    except Exception as exc:  # noqa: BLE001
+                        warnings.warn(
+                            f"Event subscriber failed during replay: {exc}",
+                            stacklevel=2,
+                        )
+
+            threading.Thread(
+                target=_replay_in_background,
+                daemon=True,
+                name=f"event-replay-{replay}",
+            ).start()
 
         def unsubscribe() -> None:
             with self._lock:
@@ -634,17 +638,16 @@ class EventStore:
                 try:
                     with self._lock:
                         if event_id not in self._delivered_ids:
+                            self._delivered_ids[event_id] = None
+                            while len(self._delivered_ids) > self._delivered_ids_max:
+                                self._delivered_ids.popitem(last=False)
                             self._dispatch_to_subscribers(evt)
                 except Exception as exc:  # noqa: BLE001 — never let one bad dispatch kill the watcher
                     logger.debug(
-                        "Watcher dispatch failed for event id=%s (will retry): %s",
+                        "Watcher dispatch failed for event id=%s: %s",
                         event_id,
                         exc,
                     )
-                    # Don't advance ``last_received_at`` past a row
-                    # we failed to dispatch — leave the cursor where
-                    # it was and re-fetch on the next poll.
-                    break
 
                 ts = row.get("received_at")
                 if ts is not None:
@@ -667,7 +670,7 @@ class EventStore:
             self._watcher_thread = None
 
         # Close event logs — their on_flush callback pushes final batches to Flight
-        for log in self._event_logs.values():
+        for log in list(self._event_logs.values()):
             try:
                 log.close()
             except Exception as exc:

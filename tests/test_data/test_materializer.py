@@ -1,30 +1,36 @@
-"""Tests for ParquetSubscriber."""
+"""Tests for the parquet materializer (events → parquet on disk).
+
+The materializer is :func:`materialize_run_to_parquet` — feed events
+into an :class:`EventAccumulator`, then materialize. Mirrors what the
+runs daemon does internally on ``RunEnded``.
+"""
 
 from datetime import UTC, datetime
 from uuid import uuid4
 
 import pyarrow.parquet as pq
 
-from litmus.data.backends.parquet import ParquetSubscriber, read_step_results
+from litmus.data.backends._event_accumulator import EventAccumulator
+from litmus.data.backends.parquet import (
+    materialize_run_to_parquet,
+    read_step_results,
+)
 from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
-    RunEnded,
     RunStarted,
     StepEnded,
     StepStarted,
 )
 
 
-class TestParquetSubscriber:
+class TestMaterializer:
     def test_accumulates_and_writes(self, tmp_path):
-        sub = ParquetSubscriber(tmp_path / "results")
-        sub.open()
-
+        acc = EventAccumulator()
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(
+        acc.on_event(
             RunStarted(
                 session_id=session_id,
                 run_id=run_id,
@@ -34,7 +40,7 @@ class TestParquetSubscriber:
             )
         )
 
-        sub.on_event(
+        acc.on_event(
             MeasurementRecorded(
                 session_id=session_id,
                 run_id=run_id,
@@ -49,15 +55,9 @@ class TestParquetSubscriber:
             )
         )
 
-        sub.on_event(
-            RunEnded(
-                session_id=session_id,
-                run_id=run_id,
-                outcome="passed",
-            )
-        )
+        parquet_path = materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
 
-        # Parquet file should be written
+        assert parquet_path is not None
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         assert len(pq_files) == 1
 
@@ -76,13 +76,11 @@ class TestParquetSubscriber:
         assert meas_row["run_outcome"] == "passed"
 
     def test_instruments_cached(self, tmp_path):
-        sub = ParquetSubscriber(tmp_path / "results")
-        sub.open()
-
+        acc = EventAccumulator()
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(
+        acc.on_event(
             RunStarted(
                 session_id=session_id,
                 run_id=run_id,
@@ -92,7 +90,7 @@ class TestParquetSubscriber:
             )
         )
 
-        sub.on_event(
+        acc.on_event(
             InstrumentConnected(
                 session_id=session_id,
                 run_id=run_id,
@@ -104,7 +102,7 @@ class TestParquetSubscriber:
             )
         )
 
-        sub.on_event(
+        acc.on_event(
             MeasurementRecorded(
                 session_id=session_id,
                 run_id=run_id,
@@ -116,7 +114,7 @@ class TestParquetSubscriber:
             )
         )
 
-        sub.close()
+        materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
 
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         table = pq.read_table(pq_files[0])
@@ -124,13 +122,11 @@ class TestParquetSubscriber:
         assert row["step_instruments_name"] == ["dmm"]
         assert row["step_instruments_manufacturer"] == ["Keithley"]
 
-    def test_close_without_run_ended(self, tmp_path):
-        """close() writes even if RunEnded was not received (crash recovery)."""
-        sub = ParquetSubscriber(tmp_path / "results")
-        sub.open()
-
+    def test_materialize_without_outcome_falls_back_to_aborted(self, tmp_path):
+        """``outcome=None`` falls back to ``"aborted"`` — the orphan-sweep semantic."""
+        acc = EventAccumulator()
         run_id = uuid4()
-        sub.on_event(
+        acc.on_event(
             RunStarted(
                 run_id=run_id,
                 station_id="st1",
@@ -138,7 +134,7 @@ class TestParquetSubscriber:
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
-        sub.on_event(
+        acc.on_event(
             MeasurementRecorded(
                 run_id=run_id,
                 step_name="s",
@@ -149,10 +145,14 @@ class TestParquetSubscriber:
             )
         )
 
-        sub.close()
+        parquet_path = materialize_run_to_parquet(acc, tmp_path / "results")
 
+        assert parquet_path is not None
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         assert len(pq_files) == 1
+        table = pq.read_table(pq_files[0])
+        run_row = next(r for r in table.to_pylist() if r["record_type"] == "run")
+        assert run_row["run_outcome"] == "aborted"
 
     def test_no_measurements_writes_run_row_only(self, tmp_path):
         """Run with no measurements still writes a parquet — the run row alone.
@@ -162,10 +162,8 @@ class TestParquetSubscriber:
         can ``WHERE record_type = 'run'`` and find every run, regardless of
         whether it produced any measurements.
         """
-        sub = ParquetSubscriber(tmp_path / "results")
-        sub.open()
-
-        sub.on_event(
+        acc = EventAccumulator()
+        acc.on_event(
             RunStarted(
                 run_id=uuid4(),
                 station_id="st1",
@@ -174,7 +172,7 @@ class TestParquetSubscriber:
             )
         )
 
-        sub.close()
+        materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
 
         runs_dir = tmp_path / "results" / "runs"
         pq_files = list(runs_dir.rglob("*.parquet")) if runs_dir.exists() else []
@@ -188,13 +186,11 @@ class TestParquetSubscriber:
 
     def test_step_identity_columns(self, tmp_path):
         """Step code identity fields appear in Parquet rows."""
-        sub = ParquetSubscriber(tmp_path / "results")
-        sub.open()
-
+        acc = EventAccumulator()
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(
+        acc.on_event(
             RunStarted(
                 session_id=session_id,
                 run_id=run_id,
@@ -203,7 +199,7 @@ class TestParquetSubscriber:
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
-        sub.on_event(
+        acc.on_event(
             StepStarted(
                 session_id=session_id,
                 run_id=run_id,
@@ -216,7 +212,7 @@ class TestParquetSubscriber:
                 function="test_5v_rail",
             )
         )
-        sub.on_event(
+        acc.on_event(
             MeasurementRecorded(
                 session_id=session_id,
                 run_id=run_id,
@@ -227,7 +223,7 @@ class TestParquetSubscriber:
                 outcome="passed",
             )
         )
-        sub.on_event(
+        acc.on_event(
             StepEnded(
                 session_id=session_id,
                 run_id=run_id,
@@ -236,13 +232,8 @@ class TestParquetSubscriber:
                 outcome="passed",
             )
         )
-        sub.on_event(
-            RunEnded(
-                session_id=session_id,
-                run_id=run_id,
-                outcome="passed",
-            )
-        )
+
+        materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
 
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         table = pq.read_table(pq_files[0])
@@ -259,13 +250,11 @@ class TestParquetSubscriber:
 
     def test_step_results_metadata(self, tmp_path):
         """Step results are written to Parquet file-level metadata."""
-        sub = ParquetSubscriber(tmp_path / "results")
-        sub.open()
-
+        acc = EventAccumulator()
         run_id = uuid4()
         session_id = uuid4()
 
-        sub.on_event(
+        acc.on_event(
             RunStarted(
                 session_id=session_id,
                 run_id=run_id,
@@ -275,7 +264,7 @@ class TestParquetSubscriber:
             )
         )
         # Step 0: has measurement
-        sub.on_event(
+        acc.on_event(
             StepStarted(
                 session_id=session_id,
                 run_id=run_id,
@@ -286,7 +275,7 @@ class TestParquetSubscriber:
                 function="test_voltage",
             )
         )
-        sub.on_event(
+        acc.on_event(
             MeasurementRecorded(
                 session_id=session_id,
                 run_id=run_id,
@@ -297,7 +286,7 @@ class TestParquetSubscriber:
                 outcome="passed",
             )
         )
-        sub.on_event(
+        acc.on_event(
             StepEnded(
                 session_id=session_id,
                 run_id=run_id,
@@ -307,7 +296,7 @@ class TestParquetSubscriber:
             )
         )
         # Step 1: no measurements (action step)
-        sub.on_event(
+        acc.on_event(
             StepStarted(
                 session_id=session_id,
                 run_id=run_id,
@@ -318,7 +307,7 @@ class TestParquetSubscriber:
                 function="configure_dut",
             )
         )
-        sub.on_event(
+        acc.on_event(
             StepEnded(
                 session_id=session_id,
                 run_id=run_id,
@@ -327,13 +316,8 @@ class TestParquetSubscriber:
                 outcome="passed",
             )
         )
-        sub.on_event(
-            RunEnded(
-                session_id=session_id,
-                run_id=run_id,
-                outcome="passed",
-            )
-        )
+
+        materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
 
         pq_files = [
             f
@@ -351,12 +335,13 @@ class TestParquetSubscriber:
         assert manifest[1]["node_id"] == "tests/test_hw.py::configure_dut"
 
     def test_measurement_before_run_started(self, tmp_path):
-        """Graceful fallback when RunStarted never arrives (crash recovery)."""
-        sub = ParquetSubscriber(tmp_path / "results")
-        sub.open()
+        """Graceful fallback when RunStarted never arrives.
 
-        # Measurement arrives without a preceding RunStarted
-        sub.on_event(
+        Materializer returns ``None`` and writes nothing — accumulator
+        has no cached RunStarted, so there's no run identity to record.
+        """
+        acc = EventAccumulator()
+        acc.on_event(
             MeasurementRecorded(
                 run_id=uuid4(),
                 step_name="s",
@@ -367,9 +352,9 @@ class TestParquetSubscriber:
             )
         )
 
-        # close() should not crash — no RunStarted means no parquet written
-        sub.close()
+        result = materialize_run_to_parquet(acc, tmp_path / "results")
 
+        assert result is None
         runs_dir = tmp_path / "results" / "runs"
         pq_files = list(runs_dir.rglob("*.parquet")) if runs_dir.exists() else []
         assert len(pq_files) == 0

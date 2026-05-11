@@ -68,7 +68,8 @@ to confirm direction.
 | `@litmus.judges` marker | low (escape hatch) | 0.5 | 0.7 | 0.5 | Only if the runtime `pytest_assertion_pass` + measurement-with-limits inference proves insufficient in practice |
 | `execution_index` global pre-order counter on step rows | medium | 1 | 0.7 | 0.5 | Today `step_started_at` is enough for total ordering; revisit if hierarchical-sequence reports need a stable pre-order key independent of timing. |
 | `litmus export --to delta/iceberg/snowflake` | medium | 1.5 | 0.5 | 2.0 | Built-in transform from Litmus parquets to lakehouse table formats. The 3-line SQL pattern is documented at `docs/integration/lakehouse-import.md`; turn it into a first-class command once a real adopter asks. Don't pre-build. |
-| Table-format catalog evaluation (DuckLake / Delta / Iceberg) | medium | 2 | 0.5 | 3.0 | Replace ~3K lines of `_runs_duckdb_daemon.py` ingest sweep + `_persisted` table management with a managed catalog. DuckLake the closest fit (DuckDB-as-catalog, parquet-as-data); Delta/Iceberg as interop options. See `docs/explorations/data-architecture.md` open questions. |
+| Table-format catalog evaluation (DuckLake / Delta / Iceberg) | medium | 2 | 0.5 | 3.0 | Replace ~3K lines of `_runs_duckdb_daemon.py` ingest sweep + `_materialized` table management with a managed catalog. DuckLake the closest fit (DuckDB-as-catalog, parquet-as-data); Delta/Iceberg as interop options. See `docs/explorations/data-architecture.md` open questions. |
+| Pluggable `Materializer` interface (parquet / postgres / snowflake / etc.) | medium | 2 | 0.6 | 4.0 | The runs daemon currently materializes runs to parquet only. Event payload already carries `materializer` + `destination`, so adding a `Materializer` plugin contract is forward-compatible. Wait until a real consumer asks. |
 
 ---
 

@@ -112,7 +112,6 @@ class TestSubscriberRegistry:
         names = list_subscribers()
         assert "csv" in names
         assert "json" in names
-        assert "parquet" in names
 
 
 class TestCsvSubscriber:

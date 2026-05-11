@@ -45,15 +45,27 @@ _INI = textwrap.dedent(
 _CANONICAL_RESULTS = resolve_data_dir()
 
 
-def _read_measurement_row(serial: str, measurement_name: str) -> dict:
-    """Find the parquet row for ``serial`` + ``measurement_name`` under canonical."""
-    matches = [
-        p
-        for p in _CANONICAL_RESULTS.glob(f"runs/**/*_{serial}.parquet")
-        if not p.stem.endswith("_steps")
-    ]
-    assert matches, f"no measurement parquet for serial={serial!r}"
-    parquet = max(matches, key=lambda p: p.stat().st_mtime)
+def _read_measurement_row(serial: str, measurement_name: str, *, timeout: float = 15.0) -> dict:
+    """Find the parquet row for ``serial`` + ``measurement_name`` under canonical.
+
+    Polls because the runs daemon materializes parquets asynchronously
+    after the subprocess exits.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout
+    parquet = None
+    while time.monotonic() < deadline:
+        matches = [
+            p
+            for p in _CANONICAL_RESULTS.glob(f"runs/**/*_{serial}.parquet")
+            if not p.stem.endswith("_steps")
+        ]
+        if matches:
+            parquet = max(matches, key=lambda p: p.stat().st_mtime)
+            break
+        time.sleep(0.2)
+    assert parquet is not None, f"no measurement parquet for serial={serial!r}"
     table = pq.read_table(parquet)
     rows = [r for r in table.to_pylist() if r.get("measurement_name") == measurement_name]
     assert rows, f"no row for {measurement_name!r} in {parquet}"
@@ -180,13 +192,23 @@ def test_in_test_vector_iteration_allows_repeat_name(pytester: pytest.Pytester) 
     result.assert_outcomes(passed=1)
 
     # Three vector rows, all with the same measurement name and outcome.
-    matches = [
-        p
-        for p in _CANONICAL_RESULTS.glob(f"runs/**/*_{serial}.parquet")
-        if not p.stem.endswith("_steps")
-    ]
-    assert matches, f"no parquet for {serial}"
-    parquet = max(matches, key=lambda p: p.stat().st_mtime)
+    # Poll because the runs daemon materializes parquets asynchronously
+    # after the subprocess exits.
+    import time
+
+    deadline = time.monotonic() + 15.0
+    parquet = None
+    while time.monotonic() < deadline:
+        matches = [
+            p
+            for p in _CANONICAL_RESULTS.glob(f"runs/**/*_{serial}.parquet")
+            if not p.stem.endswith("_steps")
+        ]
+        if matches:
+            parquet = max(matches, key=lambda p: p.stat().st_mtime)
+            break
+        time.sleep(0.2)
+    assert parquet is not None, f"no parquet for {serial}"
     table = pq.read_table(parquet)
     rows = [r for r in table.to_pylist() if r.get("measurement_name") == "v_rail"]
     assert len(rows) == 3, f"expected 3 rows (one per vector), got {len(rows)}"

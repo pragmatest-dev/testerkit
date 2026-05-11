@@ -25,15 +25,6 @@ from pathlib import Path
 # Auto-confirm any interactive dialogs so tests don't block.
 os.environ.setdefault("LITMUS_AUTO_CONFIRM", "confirm")
 
-# Skip ``ParquetBackend.notify_new_run`` in tests. Storage-layer
-# tests use ``ParquetBackend(data_dir=tmp_path)`` to verify
-# file-write behaviour. In production the notify hop spawns the
-# canonical runs daemon (already alive); in tests it spawns a
-# fresh daemon for that tmp_path. Skipping the notify keeps tests
-# pure-filesystem; the subscriber tests that genuinely exercise
-# the daemon connect via the canonical singleton instead.
-os.environ.setdefault("LITMUS_SKIP_DAEMON_NOTIFY", "1")
-
 
 def _project_data_dir() -> Path:
     """Resolve the project-local data dir from this conftest's location.

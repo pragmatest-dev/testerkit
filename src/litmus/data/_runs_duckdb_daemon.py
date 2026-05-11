@@ -22,26 +22,37 @@ Usage: python -m litmus.data._runs_duckdb_daemon <runs_dir>
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
 import threading
 import warnings
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pyarrow as pa
 
+from litmus.data._accumulator_pool import (
+    EMPTY_INFLIGHT_MEASUREMENTS,
+    EMPTY_INFLIGHT_RUNS,
+    EMPTY_INFLIGHT_STEPS,
+    INFLIGHT_MEASUREMENTS_SCHEMA,
+    INFLIGHT_RUNS_SCHEMA,
+    INFLIGHT_STEPS_SCHEMA,
+    AccumulatorPool,
+    register_empty_inflight,
+)
+from litmus.data._daemon_lifecycle import _pid_alive
 from litmus.data._duckdb_flight_server import (
     shutdown_flight_server_in_daemon,
     start_flight_server_in_daemon,
 )
-from litmus.data._live_runs_subscriber import (
-    LiveRunsSubscriber,
-    register_empty_inflight,
-)
 from litmus.data._sql_helpers import sql_escape as _sql_escape
+from litmus.data.backends.parquet import materialize_run_to_parquet
 from litmus.data.models import Outcome
 from litmus.data.runs_duckdb_manager import RunsDuckDBManager
 from litmus.models.enums import Comparator
@@ -75,7 +86,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
 
     Storage layering:
 
-    - ``runs_persisted`` / ``steps_persisted`` — TABLES populated by
+    - ``runs_materialized`` / ``steps_materialized`` — TABLES populated by
       parquet ingest. ``runs`` / ``steps`` are UNION VIEWS (created
       in :func:`_create_views`) that splice these tables with the
       in-memory ``AccumulatorPool`` snapshot.
@@ -119,9 +130,9 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             if "already exists" not in str(exc).lower():
                 raise
 
-    # ── runs_persisted ──────────────────────────────────────────────
+    # ── runs_materialized ──────────────────────────────────────────────
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS runs_persisted (
+        CREATE TABLE IF NOT EXISTS runs_materialized (
             run_id VARCHAR PRIMARY KEY,
             file_path VARCHAR,
             session_id VARCHAR,
@@ -145,14 +156,14 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
     for col, sql_type in _RUNS_PERSISTED_COLUMNS:
-        conn.execute(f"ALTER TABLE runs_persisted ADD COLUMN IF NOT EXISTS {col} {sql_type}")
+        conn.execute(f"ALTER TABLE runs_materialized ADD COLUMN IF NOT EXISTS {col} {sql_type}")
 
-    # ── steps_persisted ─────────────────────────────────────────────
+    # ── steps_materialized ─────────────────────────────────────────────
     # PK is (run_id, step_path, vector_index) so each (step, vector)
     # execution is its own row. step_index is kept as a sort hint but
     # is no longer part of PK — sweep variants share step_index.
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS steps_persisted (
+        CREATE TABLE IF NOT EXISTS steps_materialized (
             run_id VARCHAR NOT NULL,
             step_path VARCHAR NOT NULL,
             vector_index BIGINT NOT NULL DEFAULT 0,
@@ -176,7 +187,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
     for col, sql_type in _STEPS_PERSISTED_COLUMNS:
-        conn.execute(f"ALTER TABLE steps_persisted ADD COLUMN IF NOT EXISTS {col} {sql_type}")
+        conn.execute(f"ALTER TABLE steps_materialized ADD COLUMN IF NOT EXISTS {col} {sql_type}")
 
     # ── measurement_stats / io_schema / refs ────────────────────────
     conn.execute("""
@@ -231,7 +242,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS measurements_persisted (
+        CREATE TABLE IF NOT EXISTS measurements_materialized (
             file_path             VARCHAR NOT NULL,
             record_type           VARCHAR NOT NULL DEFAULT 'measurement',
             run_id                VARCHAR,
@@ -293,31 +304,31 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """)
     for col, sql_type in _MEASUREMENTS_PERSISTED_COLUMNS:
         conn.execute(
-            f"ALTER TABLE measurements_persisted ADD COLUMN IF NOT EXISTS {col} {sql_type}"
+            f"ALTER TABLE measurements_materialized ADD COLUMN IF NOT EXISTS {col} {sql_type}"
         )
 
     # ── indexes ─────────────────────────────────────────────────────
     for index_sql in (
-        "CREATE INDEX IF NOT EXISTS idx_runs_run_id ON runs_persisted(run_id)",
-        "CREATE INDEX IF NOT EXISTS idx_runs_session ON runs_persisted(session_id)",
-        "CREATE INDEX IF NOT EXISTS idx_runs_started ON runs_persisted(started_at)",
-        "CREATE INDEX IF NOT EXISTS idx_runs_fp ON runs_persisted(file_path)",
-        "CREATE INDEX IF NOT EXISTS idx_steps_run ON steps_persisted(run_id)",
-        "CREATE INDEX IF NOT EXISTS idx_steps_fp ON steps_persisted(file_path)",
+        "CREATE INDEX IF NOT EXISTS idx_runs_run_id ON runs_materialized(run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_runs_session ON runs_materialized(session_id)",
+        "CREATE INDEX IF NOT EXISTS idx_runs_started ON runs_materialized(started_at)",
+        "CREATE INDEX IF NOT EXISTS idx_runs_fp ON runs_materialized(file_path)",
+        "CREATE INDEX IF NOT EXISTS idx_steps_run ON steps_materialized(run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_steps_fp ON steps_materialized(file_path)",
         "CREATE INDEX IF NOT EXISTS idx_meas_name ON measurement_stats(measurement_name)",
         "CREATE INDEX IF NOT EXISTS idx_meas_run ON measurement_stats(run_id)",
         "CREATE INDEX IF NOT EXISTS idx_meas_fp ON measurement_stats(file_path)",
         "CREATE INDEX IF NOT EXISTS idx_mrefs_name ON measurement_refs(measurement_name)",
         "CREATE INDEX IF NOT EXISTS idx_mrefs_session ON measurement_refs(session_short)",
         "CREATE INDEX IF NOT EXISTS idx_mio_fp ON measurement_io_schema(file_path)",
-        "CREATE INDEX IF NOT EXISTS idx_mp_fp   ON measurements_persisted(file_path)",
-        "CREATE INDEX IF NOT EXISTS idx_mp_run  ON measurements_persisted(run_id)",
-        "CREATE INDEX IF NOT EXISTS idx_mp_name ON measurements_persisted(measurement_name)",
+        "CREATE INDEX IF NOT EXISTS idx_mp_fp   ON measurements_materialized(file_path)",
+        "CREATE INDEX IF NOT EXISTS idx_mp_run  ON measurements_materialized(run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_mp_name ON measurements_materialized(measurement_name)",
     ):
         conn.execute(index_sql)
 
 
-# Columns that should exist on ``runs_persisted`` / ``steps_persisted``
+# Columns that should exist on ``runs_materialized`` / ``steps_materialized``
 # regardless of when the on-disk DB was created. ``CREATE TABLE IF NOT
 # EXISTS`` covers the fresh case; ``ALTER TABLE ADD COLUMN IF NOT
 # EXISTS`` (driven from these lists) covers the upgrade case where an
@@ -583,7 +594,7 @@ _INDEX_TABLES_BY_FILE_PATH = (
     "measurement_stats",
     "measurement_io_schema",
     "measurement_refs",
-    "measurements_persisted",
+    "measurements_materialized",
 )
 
 
@@ -595,8 +606,8 @@ def _delete_file_rows(conn: duckdb.DuckDBPyConnection, path_str: str) -> None:
     measurement_stats / measurement_io_schema / measurement_refs).
     One DELETE per table is enough; no separate sidecar to clean up.
     """
-    conn.execute("DELETE FROM runs_persisted WHERE file_path = ?", [path_str])
-    conn.execute("DELETE FROM steps_persisted WHERE file_path = ?", [path_str])
+    conn.execute("DELETE FROM runs_materialized WHERE file_path = ?", [path_str])
+    conn.execute("DELETE FROM steps_materialized WHERE file_path = ?", [path_str])
     for table in _INDEX_TABLES_BY_FILE_PATH:
         conn.execute(f"DELETE FROM {table} WHERE file_path = ?", [path_str])
     conn.execute("DELETE FROM _ingested WHERE path = ?", [path_str])
@@ -607,7 +618,7 @@ def _delete_file_rows(conn: duckdb.DuckDBPyConnection, path_str: str) -> None:
 
 _OPTIONAL_MEAS_LIMITS = ("measurement_units", "limit_low", "limit_high", "limit_nominal")
 
-# Fixed column names that go directly into measurements_persisted as
+# Fixed column names that go directly into measurements_materialized as
 # named columns. Any parquet column NOT in this set and not in
 # _MEAS_SKIP_COLS gets packed into the dynamic_attrs MAP(VARCHAR,VARCHAR).
 _MEAS_FIXED_COLS: frozenset[str] = frozenset(
@@ -752,7 +763,7 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
 
 
 def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) -> None:
-    """Insert raw measurement rows from one parquet into ``measurements_persisted``.
+    """Insert raw measurement rows from one parquet into ``measurements_materialized``.
 
     Fixed columns go to named columns (``INSERT BY NAME`` aligns them
     with ``RUN_ROW_SCHEMA``). Dynamic (in_/out_/custom_) columns are
@@ -788,9 +799,9 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
     # DELETE first so re-ingest is idempotent (mirrors ON CONFLICT DO UPDATE
     # for runs/steps but at file granularity since measurement rows have no
     # single-column unique key across files).
-    conn.execute("DELETE FROM measurements_persisted WHERE file_path = ?", [fkey])
+    conn.execute("DELETE FROM measurements_materialized WHERE file_path = ?", [fkey])
     conn.execute(f"""
-        INSERT INTO measurements_persisted BY NAME
+        INSERT INTO measurements_materialized BY NAME
         SELECT
             '{escaped}' AS file_path,
             {fixed_select},
@@ -801,7 +812,7 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
 
 
 def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]) -> None:
-    """Populate ``runs_persisted`` from the unified per-run parquet files.
+    """Populate ``runs_materialized`` from the unified per-run parquet files.
 
     Every parquet conforms to ``RUN_ROW_SCHEMA``. Run-level context is
     denormalized onto every row, so the GROUP BY just lists those
@@ -811,7 +822,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
     """
     flist = _file_list_sql(parquet_paths)
     conn.execute(f"""
-        INSERT INTO runs_persisted BY NAME
+        INSERT INTO runs_materialized BY NAME
         SELECT
             run_id,
             filename AS file_path,
@@ -861,7 +872,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
 
 
 def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]) -> None:
-    """Populate ``steps_persisted`` from the unified per-run parquets.
+    """Populate ``steps_materialized`` from the unified per-run parquets.
 
     GROUP BY ``(run_id, step_path, vector_index)`` plus all the
     step-level columns that are denormalized onto every row of a
@@ -872,7 +883,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
     """
     flist = _file_list_sql(parquet_paths)
     conn.execute(f"""
-        INSERT INTO steps_persisted BY NAME
+        INSERT INTO steps_materialized BY NAME
         SELECT
             run_id,
             step_path,
@@ -990,7 +1001,7 @@ def _ingest_parquet_files(
     # queries can interleave (~30ms slots per file).
     # _ingest_one_file populates runs / steps / measurement_stats /
     # measurement_io_schema / measurement_refs from the unified
-    # parquet; raw measurement rows go into measurements_persisted
+    # parquet; raw measurement rows go into measurements_materialized
     # via the batch insert below to keep per-file lock holds short.
     new_files: list[str] = []
     new_run_ids: list[str] = []
@@ -999,7 +1010,7 @@ def _ingest_parquet_files(
             _ingest_one_file(conn, Path(path_str), stat)
             try:
                 rows = conn.execute(
-                    "SELECT run_id FROM runs_persisted WHERE file_path = ?",
+                    "SELECT run_id FROM runs_materialized WHERE file_path = ?",
                     [path_str],
                 ).fetchall()
                 new_run_ids.extend(str(r[0]) for r in rows if r[0])
@@ -1090,12 +1101,12 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
     """Index one unified per-run parquet into runs / steps / measurements tables.
 
     Runs through every persistent index in one pass:
-      * ``runs_persisted`` — one row per ``run_id``, aggregated.
-      * ``steps_persisted`` — one row per ``(run_id, step_path,
+      * ``runs_materialized`` — one row per ``run_id``, aggregated.
+      * ``steps_materialized`` — one row per ``(run_id, step_path,
         vector_index)``, aggregated; sweep variants get distinct rows.
       * ``measurement_stats`` — per-(file, step, name) rollup over
         rows where ``record_type = 'measurement'``.
-      * ``measurements_persisted`` — raw measurement rows packed
+      * ``measurements_materialized`` — raw measurement rows packed
         with dynamic in_*/out_*/custom_* columns into a MAP.
       * ``measurement_io_schema`` / ``measurement_refs`` — IO schema
         cache + ref-path index for the measurement rows in this file.
@@ -1133,7 +1144,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     * ``runs`` / ``steps`` / ``measurements``: persisted TABLE rows UNION ALL
       inflight Arrow snapshots, with finalized rows suppressed from the
       inflight side so the parquet always wins once ingested.
-    * ``measurements_persisted`` stores raw measurement rows materialized from
+    * ``measurements_materialized`` stores raw measurement rows materialized from
       parquet during ingest (O(1) query instead of O(n_files) parquet glob).
     * ``inflight_measurements`` carries the current live measurement snapshot
       so a running test's measurements are visible immediately, completing the
@@ -1142,11 +1153,11 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     # measurements: persistent TABLE + inflight live snapshot.
     # UNION BY NAME matches columns by name rather than position, so the
     # inflight schema doesn't need to list columns in exactly the same order
-    # as measurements_persisted. Columns absent from the inflight side
+    # as measurements_materialized. Columns absent from the inflight side
     # (file_path, dynamic_attrs) are automatically NULL.
     conn.execute("""
         CREATE OR REPLACE VIEW measurements AS
-        SELECT * FROM measurements_persisted
+        SELECT * FROM measurements_materialized
         UNION BY NAME
         SELECT
             run_id, session_id, slot_id,
@@ -1167,7 +1178,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             instrument_name, instrument_resource, instrument_channel
         FROM inflight_measurements
         WHERE run_id NOT IN (
-            SELECT DISTINCT run_id FROM measurements_persisted
+            SELECT DISTINCT run_id FROM measurements_materialized
             WHERE run_id IS NOT NULL
         )
     """)
@@ -1181,7 +1192,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     # projection is stale.
     conn.execute("""
         CREATE OR REPLACE VIEW runs AS
-        SELECT * FROM runs_persisted
+        SELECT * FROM runs_materialized
         UNION ALL BY NAME
         SELECT
             run_id, file_path, session_id, slot_id,
@@ -1192,11 +1203,11 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             num_measurements, num_steps, test_phase, product_id,
             operator_id, project_name
         FROM inflight_runs
-        WHERE run_id NOT IN (SELECT run_id FROM runs_persisted)
+        WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
     """)
     conn.execute("""
         CREATE OR REPLACE VIEW steps AS
-        SELECT * FROM steps_persisted
+        SELECT * FROM steps_materialized
         UNION ALL BY NAME
         SELECT
             run_id,
@@ -1210,12 +1221,12 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             duration_s, has_measurements, measurement_count, vector_count,
             markers, dut_serial, station_id
         FROM inflight_steps
-        WHERE run_id NOT IN (SELECT run_id FROM runs_persisted)
+        WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
     """)
 
 
 # Inflight TEMP-table setup + materialization moved into
-# :class:`~litmus.data._live_runs_subscriber.LiveRunsSubscriber`.
+# the daemon's in-memory accumulator pool.
 
 
 def _batch_insert_measurement_rows(
@@ -1239,7 +1250,10 @@ def _batch_insert_measurement_rows(
 
     # Remove any existing rows for these files (idempotent re-ingest)
     placeholders = ", ".join("?" for _ in paths)
-    conn.execute(f"DELETE FROM measurements_persisted WHERE file_path IN ({placeholders})", paths)
+    conn.execute(
+        f"DELETE FROM measurements_materialized WHERE file_path IN ({placeholders})",
+        paths,
+    )
 
     # Columns actually present across this batch's parquets (union by name).
     available = {
@@ -1267,7 +1281,7 @@ def _batch_insert_measurement_rows(
         map_expr = "MAP(ARRAY[]::VARCHAR[], ARRAY[]::VARCHAR[])"
 
     conn.execute(f"""
-        INSERT INTO measurements_persisted BY NAME
+        INSERT INTO measurements_materialized BY NAME
         SELECT
             filename AS file_path,
             {fixed_select},
@@ -1280,10 +1294,29 @@ def _batch_insert_measurement_rows(
 def daemon_run(runs_dir: Path) -> None:
     """Entry point for the runs daemon process. Blocks until idle timeout.
 
-    Ready-ordering: signal ready immediately, ingest in the
-    background. Queries during ingest see partial data, with newest
-    runs first (``_ingest_parquet_files`` orders by ``mtime DESC``)
-    so the most operationally relevant rows surface fastest.
+    Architecture (Kafka-Streams shape): the daemon subscribes to the
+    EventStore, accumulates per-run state in an in-memory
+    :class:`AccumulatorPool`, and on ``RunEnded`` materializes the
+    accumulated state to a per-run parquet file, ingests it into the
+    local DuckDB index, then emits ``RunMaterialized`` to the events
+    bus so any other consumers (the daemon itself, retention, audit)
+    learn the run is durable.
+
+    Threads owned by this daemon:
+
+    * Flight server threads — serve ``do_get`` queries against the
+      DuckDB index + inflight Arrow snapshots. Pre-query hook
+      re-registers the inflight tables when the pool is dirty.
+    * Background ingest sweep — picks up parquets on disk that
+      pre-date this daemon's lifetime (cold-start recovery; not
+      the live write path).
+    * Events-attach loop — polls for the events daemon, subscribes
+      with ``replay="unmaterialized_runs"`` on first sight.
+    * Orphan sweep — every 30s, finalizes runs whose producer pid
+      is dead by synthesizing ``RunEnded(outcome="aborted")``. The
+      synthetic event flows through the same dispatch path; the
+      daemon materializes the run from its in-memory accumulator
+      state. No external write path needed for orphan recovery.
     """
     mgr = RunsDuckDBManager(runs_dir)
 
@@ -1291,43 +1324,353 @@ def daemon_run(runs_dir: Path) -> None:
     conn, _ = _open_index(index_path)
 
     # Single shared lock — serializes all DuckDB operations on the
-    # daemon's main connection (Flight queries, _on_put writes,
-    # background ingest, pre_query_hook conn.register). Eliminates
+    # daemon's main connection (Flight queries, materialize ingest,
+    # background recovery, pre_query_hook conn.register). Eliminates
     # the catalog-lock deadlock that occurred when the background
     # ingest opened its own connection and competed with the Flight
     # server's pre_query_hook on DuckDB's global catalog under GIL
     # contention.
     write_lock = threading.Lock()
 
-    # Live-runs subscriber — owns the events-daemon attach loop,
-    # the per-run accumulator pool, the inflight-table
-    # materialization, and the orphan sweep.
-    live_subscriber = LiveRunsSubscriber(runs_dir.parent)
+    # ── Materializer state ──────────────────────────────────────────
+    pool = AccumulatorPool()
+    # Generation of the pool that the pre-query hook last registered as
+    # Arrow tables. Starts at -1 so the first refresh runs even if the
+    # pool is empty (registers the empty Arrow tables; UNION views need
+    # the registration to compile).
+    last_refreshed_generation = [-1]
+    stop_event = threading.Event()
+    event_store_box: list[Any] = [None]  # set when the attach loop succeeds
+    unsubscribe_box: list[Callable[[], None] | None] = [None]
+    # Materialization queue — RunEnded events route ``run_id`` strings
+    # here so a worker thread handles the slow parquet-write + ingest +
+    # emit sequence off the events-dispatch hot path. Without this, the
+    # watcher's per-event dispatch holds ``event_store._lock`` while
+    # the daemon materializes (~tens of ms per run), starving the
+    # watcher loop and letting the events backlog grow under bursty
+    # load. Live-runs UI would lag by seconds when many runs finish
+    # in close succession.
+    import queue as _queue
 
-    # Bind ``inflight_runs`` / ``inflight_steps`` to empty Arrow
-    # tables so the UNION views in ``_create_views`` can compile.
+    materialize_queue: _queue.Queue[tuple[str, str | None]] = _queue.Queue()
+
+    # Bind ``inflight_runs`` / ``inflight_steps`` / ``inflight_measurements``
+    # to empty Arrow tables so the UNION views in ``_create_views`` can compile.
     register_empty_inflight(conn)
     _create_views(conn)
 
-    def _evict_persisted_from_pool(run_ids: list[str]) -> None:
-        """Drop newly-persisted runs from the live subscriber's pool.
+    # ── Pre-query hook: refresh inflight Arrow tables from pool ─────
+    def _pre_query_refresh(c: duckdb.DuckDBPyConnection) -> None:
+        """Re-bind inflight Arrow tables when pool state has changed.
 
-        Pool's semantic is "runs in the WAL but NOT in ``runs_persisted``."
-        Once a parquet lands in ``runs_persisted`` (via ``_on_put`` or
-        the background sweep), the matching pool entry is now duplicate
-        state — evict it so the pool stays bounded by unpersisted-run
-        count.
+        Flight server's pre-query hook calls this on every ``do_get``.
+        Uses :meth:`AccumulatorPool.snapshot_if_changed` which compares
+        the pool's monotonic generation against the last-refreshed
+        value, under the pool's lock. The atomic check-and-snapshot
+        closes the race where a separate dirty-flag could be set
+        AFTER the dispatch released its lock — a query that landed
+        in that window would skip refresh and serve stale inflight
+        tables. Now: generation advances under the same lock as the
+        state change, so any reader that sees a newer generation is
+        guaranteed to see the corresponding pool state.
         """
-        for run_id in run_ids:
-            if run_id:
-                live_subscriber._pool.evict(run_id)  # noqa: SLF001
+        snapshot = pool.snapshot_if_changed(last_refreshed_generation[0])
+        if snapshot is None:
+            return
+        gen, run_rows, step_rows, meas_rows = snapshot
+        last_refreshed_generation[0] = gen
+
+        c.register(
+            "inflight_runs",
+            pa.Table.from_pylist(run_rows, schema=INFLIGHT_RUNS_SCHEMA)
+            if run_rows
+            else EMPTY_INFLIGHT_RUNS,
+        )
+        c.register(
+            "inflight_steps",
+            pa.Table.from_pylist(step_rows, schema=INFLIGHT_STEPS_SCHEMA)
+            if step_rows
+            else EMPTY_INFLIGHT_STEPS,
+        )
+        c.register(
+            "inflight_measurements",
+            pa.Table.from_pylist(meas_rows, schema=INFLIGHT_MEASUREMENTS_SCHEMA)
+            if meas_rows
+            else EMPTY_INFLIGHT_MEASUREMENTS,
+        )
+
+    # ── Materialize one run from the pool ───────────────────────────
+    def _materialize_and_emit(run_id: str, outcome: str | None) -> None:
+        """Write the run's parquet, ingest it, emit ``RunMaterialized``.
+
+        Called from the materialize worker thread (NOT the event-
+        dispatch path). The worker takes ``write_lock`` for the
+        ingest section and then acquires ``event_store._lock`` to
+        emit ``RunMaterialized``. This ordering is fine because the
+        worker only holds ONE lock at a time during the
+        ``event_store.emit`` call — write_lock is released before
+        the emit happens. (An earlier version of this function
+        ran inline in the watcher's dispatch path, holding
+        event_store._lock the entire time and inverting the lock
+        order against the worker; the deadlock was real and
+        observable as the watcher silently stopping under load.)
+
+        Idempotent: if the pool no longer holds an accumulator for
+        ``run_id`` (already materialized and evicted), this is a
+        no-op.
+        """
+        acc = pool.get(run_id)
+        if acc is None:
+            return
+        try:
+            parquet_path = materialize_run_to_parquet(acc, runs_dir, outcome=outcome)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("materialize_run_to_parquet failed for %s: %s", run_id, exc)
+            return
+        if parquet_path is None:
+            # Nothing to write (no RunStarted seen, or empty run). Still
+            # evict so the pool doesn't keep the entry around. Eviction
+            # bumps the pool's generation; the next pre-query refresh
+            # will pick it up.
+            pool.evict(run_id)
+            return
+
+        # Ingest the freshly-written parquet into the runs daemon's
+        # DuckDB index under write_lock (serialized with Flight queries).
+        # Belt-and-suspenders: check ``runs_materialized`` under the
+        # same lock; skip if already materialized (daemon-crash-mid-
+        # materialize recovery case where replay re-dispatched events
+        # for a run whose parquet+index already exists). The replay
+        # filter excludes such runs in normal cases.
+        try:
+            stat = parquet_path.stat()
+        except OSError as exc:
+            logger.warning("Ingest stat failed for %s: %s", parquet_path, exc)
+            return
+        with write_lock:
+            try:
+                already = conn.execute(
+                    "SELECT 1 FROM runs_materialized WHERE run_id = ? LIMIT 1",
+                    [run_id],
+                ).fetchone()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Materialized-guard query failed (non-fatal): %s", exc)
+                already = None
+            if already is not None:
+                pool.evict(run_id)
+                return
+            try:
+                _ingest_one_file(conn, parquet_path, stat)
+                _bulk_insert_measurement_rows(conn, str(parquet_path))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Ingest failed for %s: %s", parquet_path, exc)
+                return
+            _create_views(conn)
+
+        # Emit RunMaterialized. The in-process subscriber (this daemon)
+        # will receive it via ``_on_event`` and evict the pool entry.
+        # Cross-process subscribers (retention, future audit) see it via
+        # the events-daemon watcher.
+        es = event_store_box[0]
+        if es is not None and acc._run_started is not None:
+            try:
+                from litmus.data.events import RunMaterialized
+
+                es.emit(
+                    RunMaterialized(
+                        session_id=acc._run_started.session_id,
+                        run_id=acc._run_started.run_id,
+                        materializer="parquet",
+                        destination=str(parquet_path),
+                        materialized_at=datetime.now(UTC),
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 — best-effort emit
+                logger.warning("RunMaterialized emit failed for %s: %s", run_id, exc)
+                # Fall back to direct eviction so the pool doesn't leak.
+                pool.evict(run_id)
+        else:
+            # No events daemon attached (shouldn't happen mid-dispatch,
+            # but defensive). Evict directly.
+            pool.evict(run_id)
+
+    # ── Event dispatch ──────────────────────────────────────────────
+    def _on_event(evt: dict[str, Any]) -> None:
+        """Dispatch one event from the EventStore subscription.
+
+        Fast path only — pool dispatch and queue handoff. Materialization
+        runs on a separate worker thread (see ``_materialize_worker``)
+        so the dispatch loop doesn't serialize on the slow
+        parquet-write + DuckDB ingest sequence. Without this split, the
+        watcher's per-event ``_dispatch_to_subscribers`` call holds
+        ``event_store._lock`` for the duration of materialize (~tens
+        of ms), and the events backlog grows faster than it drains
+        under burst load — operator UI live-runs would lag by seconds.
+        """
+        et = evt.get("event_type")
+        if et == "run.materialized":
+            rid = evt.get("run_id")
+            if rid:
+                pool.evict(str(rid))
+            return
+
+        try:
+            pool.dispatch(evt)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Pool dispatch failed for %s: %s", et, exc)
+            return
+
+        # Order-independent materialize trigger: any event for a run
+        # whose accumulator now has both ``_run_started`` and
+        # ``_run_ended`` set is ready to materialize. Queue it for the
+        # worker thread; return immediately so the dispatch loop can
+        # process the next event without waiting for the parquet write.
+        rid = evt.get("run_id")
+        if rid:
+            run_id_str = str(rid)
+            acc = pool.get(run_id_str)
+            if acc is not None and acc._run_started is not None and acc._run_ended is not None:
+                materialize_queue.put((run_id_str, acc._run_ended.outcome))
+
+    # ── Materialize worker thread ────────────────────────────────────
+    def _materialize_worker() -> None:
+        """Drain the materialize queue, materializing one run at a time.
+
+        Decoupled from the events-dispatch path so slow parquet writes
+        + DuckDB ingest don't block the watcher loop. Multiple workers
+        could be spawned for parallel materialization under high
+        concurrency; one is enough for typical workloads (tens of
+        finished runs per second is far above hardware-test cadence).
+        """
+        while not stop_event.is_set():
+            try:
+                item = materialize_queue.get(timeout=0.5)
+            except _queue.Empty:
+                continue
+            try:
+                run_id, outcome = item
+                _materialize_and_emit(run_id, outcome)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("materialize worker error: %s", exc)
+            finally:
+                materialize_queue.task_done()
+
+    # ── Events-daemon attach loop ────────────────────────────────────
+    def _attach_loop() -> None:
+        """Poll for a live events daemon; subscribe on first sight."""
+        events_dir = runs_dir.parent / "events"
+        while not stop_event.is_set():
+            if _events_daemon_alive(events_dir):
+                if _try_attach():
+                    logger.info("Runs daemon attached to events daemon")
+                    return
+            stop_event.wait(timeout=0.5)
+
+    def _try_attach() -> bool:
+        from litmus.data.event_store import EventStore
+
+        try:
+            es = EventStore(_data_dir=runs_dir.parent)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("EventStore open failed (will retry): %s", exc)
+            return False
+        try:
+            unsub = es.on_event(_on_event, replay="unmaterialized_runs")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("EventStore.on_event failed (will retry): %s", exc)
+            try:
+                es.close()
+            except Exception:  # noqa: BLE001
+                pass
+            return False
+        event_store_box[0] = es
+        unsubscribe_box[0] = unsub
+        return True
+
+    # ── Orphan sweep ────────────────────────────────────────────────
+    def _sweep_loop() -> None:
+        """Periodic orphan finalization.
+
+        For each open accumulator whose producer pid is dead (or has
+        had no events for ``orphan_timeout`` seconds), emit a
+        synthetic ``RunEnded(outcome="aborted")`` into the events bus.
+        The synthetic event flows through the dispatch loop → pool
+        absorbs it → ``_materialize_and_emit`` writes the parquet,
+        ingests, emits ``RunMaterialized``. Same code path as a clean
+        producer-side close.
+        """
+        orphan_timeout = 3600.0
+        while not stop_event.is_set():
+            stop_event.wait(timeout=30.0)
+            if stop_event.is_set():
+                return
+            try:
+                _sweep_once(orphan_timeout)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Orphan sweep failed: %s", exc)
+
+    def _sweep_once(orphan_timeout: float) -> None:
+        es = event_store_box[0]
+        if es is None:
+            return  # not yet attached; nothing to emit through
+        now = datetime.now(UTC)
+        for run_id, _acc, pid, last_event_at in pool.open_runs():
+            is_orphan = False
+            reason = ""
+            if pid is not None:
+                alive = _check_pid_liveness(pid)
+                if alive is False:
+                    is_orphan = True
+                    reason = f"producer pid {pid} no longer exists"
+            if not is_orphan and last_event_at is not None:
+                if (now - last_event_at).total_seconds() > orphan_timeout:
+                    is_orphan = True
+                    reason = f"no events for {orphan_timeout:.0f}s"
+            if not is_orphan:
+                continue
+            try:
+                _emit_synthetic_run_ended(es, run_id, now)
+                logger.info("Finalizing orphan run %s as aborted (%s)", run_id, reason)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to emit synthetic RunEnded for %s: %s", run_id, exc)
+
+    def _emit_synthetic_run_ended(es: Any, run_id: str, occurred_at: datetime) -> None:
+        """Emit ``RunEnded(outcome="aborted")`` for an orphan.
+
+        Reuses the accumulator's cached RunStarted for session/run_id
+        identity. The synthetic event flows through ``_on_event``,
+        which dispatches into the pool (setting ``_run_ended``) and
+        then calls ``_materialize_and_emit`` — same path as a real
+        clean close.
+        """
+        acc = pool.get(run_id)
+        if acc is None or acc._run_started is None:
+            return
+        from litmus.data.events import RunEnded
+
+        es.emit(
+            RunEnded(
+                session_id=acc._run_started.session_id,
+                run_id=acc._run_started.run_id,
+                occurred_at=occurred_at,
+                outcome="aborted",
+            )
+        )
 
     def _on_put(table: pa.Table) -> None:
-        # Already runs under the Flight server's lock (which IS our
-        # ``write_lock``), so direct conn access is safe here.
-        # Real-time delivery path: insert measurement rows immediately so
-        # clients see them as soon as the ACK is drained.
-        ingested_run_ids: list[str] = []
+        """Receive externally-built parquets and ingest them.
+
+        Live path doesn't use this — the daemon materializes its own
+        parquets from the events bus. Kept as an entry point for:
+
+        * **Tests** that construct parquets via ``ParquetBackend`` and
+          push them in for end-to-end query coverage.
+        * **External tooling** that may want to inject a parquet into
+          the daemon's index (no current consumer).
+
+        Already runs under the Flight server's lock (which IS our
+        ``write_lock``), so direct conn access is safe.
+        """
         for row in table.to_pylist():
             fpath = row.get("file_path", "")
             if not fpath:
@@ -1341,29 +1684,7 @@ def daemon_run(runs_dir: Path) -> None:
                 _bulk_insert_measurement_rows(conn, fpath)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("measurement row insert failed for %s: %s", fpath, exc)
-            # Look up the run_id this file just landed under so the
-            # live subscriber can drop it from the pool (now duplicate).
-            try:
-                run_id_rows = conn.execute(
-                    "SELECT run_id FROM runs_persisted WHERE file_path = ?",
-                    [fpath],
-                ).fetchall()
-                ingested_run_ids.extend(str(r[0]) for r in run_id_rows if r[0])
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("run_id lookup after ingest failed: %s", exc)
         _create_views(conn)
-        _evict_persisted_from_pool(ingested_run_ids)
-
-    def _get_persisted_run_ids() -> set[str]:
-        """Snapshot of ``run_id``s currently in ``runs_persisted``.
-
-        Passed to :meth:`LiveRunsSubscriber.start` so the subscriber's
-        replay set is exactly the dual: runs whose events are in the
-        WAL but whose parquet has not yet reached ``runs_persisted``.
-        """
-        with write_lock:
-            rows = conn.execute("SELECT DISTINCT run_id FROM runs_persisted").fetchall()
-        return {str(r[0]) for r in rows if r[0]}
 
     server, port_file, *_ = start_flight_server_in_daemon(
         mgr=mgr,
@@ -1374,29 +1695,83 @@ def daemon_run(runs_dir: Path) -> None:
         port_file_name="_runs_duckdb_flight_port",
         thread_name="runs-duckdb-flight",
         pre_ready=None,
-        pre_query_hook=live_subscriber.refresh,
+        pre_query_hook=_pre_query_refresh,
         lock=write_lock,
     )
 
     # Background sweep — picks up parquets that exist on disk but
-    # weren't delivered via Flight ``do_put`` (fresh installs,
-    # daemon-was-down recovery). Per-file ingest under ``write_lock``
-    # alternates with Flight queries, no deadlock.
+    # pre-date this daemon's lifetime (fresh install with pre-existing
+    # parquets, daemon-was-down recovery). Per-file ingest under
+    # ``write_lock`` alternates with Flight queries, no deadlock.
     threading.Thread(
         target=_ingest_parquet_files,
-        args=(conn, runs_dir, write_lock, _evict_persisted_from_pool),
+        args=(conn, runs_dir, write_lock, None),
         daemon=True,
         name="runs-ingest",
     ).start()
 
-    live_subscriber.start(get_persisted_run_ids=_get_persisted_run_ids)
+    # Start the events-attach and orphan-sweep threads.
+    threading.Thread(target=_attach_loop, daemon=True, name="runs-events-attach").start()
+    threading.Thread(target=_sweep_loop, daemon=True, name="runs-orphan-sweep").start()
+    threading.Thread(target=_materialize_worker, daemon=True, name="runs-materialize").start()
 
     mgr.monitor_refs()
 
-    live_subscriber.stop()
+    # Shutdown
+    stop_event.set()
+    if unsubscribe_box[0] is not None:
+        try:
+            unsubscribe_box[0]()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("unsubscribe cleanup failed: %s", exc)
+    if event_store_box[0] is not None:
+        try:
+            event_store_box[0].close()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("event_store close failed: %s", exc)
 
     shutdown_flight_server_in_daemon(server, port_file, conn)
     mgr.cleanup_state_files()
+
+
+# ── Helpers used by daemon_run ──────────────────────────────────────
+
+
+def _events_daemon_alive(events_dir: Path) -> bool:
+    """Return ``True`` iff a live events daemon is running for ``events_dir``.
+
+    Reads the events daemon's state file (``_duckdb.json``) and
+    checks the recorded pid. **Inspection only, no spawn.** The runs
+    daemon attaches to an existing events daemon; it never spawns one.
+
+    Why no spawn: the events daemon should be spawned by the actual
+    emitter (pytest plugin, ``StationConnection``, ``SlotRunner``, the
+    UI's serve-level acquire) — those processes need to write events
+    anyway. The runs daemon emits ``RunMaterialized`` after attach
+    (post-spawn), so it has no need to bring the events daemon up itself.
+    """
+    state = events_dir / "_duckdb.json"
+    if not state.exists():
+        return False
+    try:
+        data = json.loads(state.read_text())
+        pid = data.get("pid")
+    except (json.JSONDecodeError, OSError):
+        return False
+    return isinstance(pid, int) and _pid_alive(pid)
+
+
+def _check_pid_liveness(pid: int) -> bool | None:
+    """``True`` if pid exists, ``False`` if not, ``None`` if we can't tell."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return None
 
 
 if __name__ == "__main__":

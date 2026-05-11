@@ -58,22 +58,3 @@ class TestParquetMeasurementWriter:
         table = pq.read_table(path)
         assert table.schema.metadata[b"schema_version"] == b"2.0"
         assert table.schema.metadata[b"custom_key"] == b"custom_val"
-
-    def test_notify_callback_called(self, tmp_path):
-        path = tmp_path / "test.parquet"
-        notified: list = []
-        writer = ParquetMeasurementWriter(notify=notified.append)
-        batch = _make_batch()
-
-        writer.write_batch(batch, path)
-
-        assert notified == [path]
-
-    def test_no_notify_when_none(self, tmp_path):
-        path = tmp_path / "test.parquet"
-        writer = ParquetMeasurementWriter(notify=None)
-        batch = _make_batch()
-
-        # Should not raise
-        writer.write_batch(batch, path)
-        assert path.exists()

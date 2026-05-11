@@ -342,7 +342,7 @@ class RunStore:
                 writer.write_batch(batch)
             # Drain ACKs — each ACK confirms the server committed one batch,
             # so by the time the last ACK arrives the daemon has fully ingested
-            # the file into all index tables including measurements_persisted.
+            # the file into all index tables including measurements_materialized.
             for _ in batches:
                 reader.read()
             writer.close()
