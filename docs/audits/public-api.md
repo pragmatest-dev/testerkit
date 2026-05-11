@@ -22,19 +22,16 @@ entry and a deprecation cycle where practical).
 - `litmus.__version__`
 - `litmus.LitmusClient` — programmatic access for scripting/interactive use
 - `litmus.connect` — session-scoped context manager for ad-hoc work
-- `litmus.litmus_test` — primary decorator (added to top level in this audit)
 - `litmus.TestHarness` — direct harness construction for advanced cases
-  (added to top level in this audit)
 
 ### Sub-namespaces (stable as a group)
 
 - `litmus.models.*` — YAML schema types authored by users and loaded
   through `litmus.store` (Product, StationConfig, Limit, Capability,
   enums, …). Pure Pydantic, no I/O.
-- `litmus.execution.*` — `litmus_test`, `litmus_step`, `measure`,
-  `TestHarness`, `Context`, `Vector`, `expand_vectors`, plus contextvar
-  setters used by the pytest plugin. Runner-neutral: no module-level
-  pytest imports.
+- `litmus.execution.*` — `TestHarness`, `Context`, `Vector`,
+  `expand_vectors`, plus contextvar setters used by the pytest plugin.
+  Runner-neutral: no module-level pytest imports.
 - `litmus.pytest_plugin` — pytest delivery (hooks, fixtures, marker
   translation). Auto-loaded via the `pytest11` entry point.
 - `litmus.store` — central YAML I/O: `load_*`, `list_*`, `get_*`,
@@ -77,10 +74,10 @@ entry and a deprecation cycle where practical).
 Least-invasive first. Each change keeps the old import path working.
 
 1. **Top-level re-exports.**
-   `litmus/__init__.py` adds `litmus_test` and `TestHarness` from
-   `litmus.execution`. Update `__all__`. README already uses
-   `from litmus.execution import litmus_test`; the top-level path becomes
-   the recommended form in new docs.
+   `litmus/__init__.py` adds `LitmusClient`, `connect`, and `TestHarness`
+   for ergonomic ad-hoc imports. Update `__all__`. Deep-path imports
+   continue to work; the top-level path becomes the recommended form
+   in new docs.
 
 2. **Explicit `__all__` on `litmus/models/__init__.py`.** The package is
    intentionally empty today; add an `__all__` that re-exports the types
@@ -101,8 +98,7 @@ Least-invasive first. Each change keeps the old import path working.
    config types). No compat shim — pre-release, no external users.
 
 5. **Docstring pass on `litmus.execution`.** Clarify which helpers are
-   public (`litmus_test`, `litmus_step`, `measure`, `TestHarness`,
-   `Context`, `Vector`) vs. test/pytest plugin plumbing
+   public (`TestHarness`, `Context`, `Vector`) vs. pytest plugin plumbing
    (`set_current_harness`, `set_current_logger`,
    `get_current_step_config`). Leave names alone for 0.1.0 — renaming
    would break tests.

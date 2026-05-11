@@ -80,8 +80,8 @@ def _stringify_comparator(cmp_raw: Any) -> str | None:
 
     Accepts a :class:`Comparator` enum, a raw string, or ``None``. Enums
     return their ``.value`` attribute; other non-``None`` values are
-    coerced via ``str(...)``. Shared by :meth:`TestRunLogger.measure` and
-    the ``@measure`` decorator so both paths produce the same row shape.
+    coerced via ``str(...)``. Used by :meth:`TestRunLogger.measure` to
+    produce the canonical row shape.
     """
     if cmp_raw is None:
         return None

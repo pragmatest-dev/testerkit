@@ -485,7 +485,7 @@ print(result["status"])  # "PASS" or "FAIL"
 - [ ] Characteristics have proper `specs` list with `conditions`, `value`, `accuracy`
 - [ ] Station configured with real or mock instruments
 - [ ] Called `litmus_project(action="read", path="template:test")` to see current pattern
-- [ ] Test is a plain `def test_*` function (or class method) — no `@litmus_test`
+- [ ] Test is a plain `def test_*` function or class method
 - [ ] Test accepts `context`, `verify`, `logger`, and instrument fixtures (as needed)
 - [ ] Test gets parameters via `context.get_param("key", default)`
 - [ ] Test uses `verify(name, value)` or `logger.measure(name, value)` to record measurements

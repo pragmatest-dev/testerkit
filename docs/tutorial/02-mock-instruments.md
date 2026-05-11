@@ -164,4 +164,4 @@ When running with `--mock-instruments`, values are resolved in order:
 
 Now let's write pytest-native tests and check limits automatically.
 
-[Step 3: pytest-native tests →](03-decorator.md)
+[Step 3: pytest-native tests →](03-fixtures.md)

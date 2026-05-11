@@ -191,10 +191,9 @@ harness.finish()
 
 ## Non-measurement steps
 
-Litmus no longer ships a `@litmus_step` decorator. Every pytest-native
-test already opens a logger step around its body, so setup helpers and
-dialog functions don't need a decorator to be tracked. Write them as
-plain Python and call them from the test:
+Every pytest-native test already opens a logger step around its body, so
+setup helpers and dialog functions don't need a decorator to be tracked.
+Write them as plain Python and call them from the test:
 
 ```python
 def verify_dut_connection(psu):

@@ -1,6 +1,6 @@
 # Writing Tests
 
-Litmus tests are **plain pytest**. There is no Litmus base class, no `@litmus_test` decorator — just pytest classes or loose module-level functions that consume a few Litmus-provided fixtures. For everything that isn't Litmus-specific (fixtures, conftest, CLI, markers, the basics of parametrize for vanilla projects), refer to the official pytest docs at <https://docs.pytest.org/>.
+Litmus tests are **plain pytest** — pytest classes or loose module-level functions that consume a few Litmus-provided fixtures. For everything that isn't Litmus-specific (fixtures, conftest, CLI, markers, the basics of parametrize for vanilla projects), refer to the official pytest docs at <https://docs.pytest.org/>.
 
 ## `verify` vs `logger.measure` — pick one
 

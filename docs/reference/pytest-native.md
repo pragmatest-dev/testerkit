@@ -1,11 +1,9 @@
 # pytest-native: The Three-Object Split
 
-Litmus's pytest-native mode is the default test-authoring path going forward.
-Tests are plain pytest classes (or loose module-level functions) that consume
-up to three fixtures — `context`, `verify`, `logger` — each with a single,
-distinct responsibility. There is no base class to inherit and no
-`@litmus_test` wrapper; the plugin enforces Litmus conventions from the
-outside via pytest hooks.
+Litmus tests are plain pytest classes (or loose module-level functions)
+that consume up to three fixtures — `context`, `verify`, `logger` —
+each with a single, distinct responsibility. The plugin enforces Litmus
+conventions from the outside via pytest hooks; tests stay native pytest.
 
 ## The three fixtures
 

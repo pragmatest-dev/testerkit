@@ -8,9 +8,9 @@ A test that automatically logs measurements to Litmus results storage, with pass
 
 ## The Three Fixtures
 
-Litmus tests are plain pytest tests. There is no base class to inherit and no
-`@litmus_test` wrapper. Up to three Litmus-provided fixtures show up as
-parameters, each with a single responsibility:
+Litmus tests are plain pytest functions or classes. Up to three
+Litmus-provided fixtures show up as parameters, each with a single
+responsibility:
 
 | Fixture  | What it holds                                  | Verbs                                            |
 |----------|------------------------------------------------|--------------------------------------------------|
@@ -179,7 +179,7 @@ pytest tests/test_power.py --station=stations/my_station.yaml --mock-instruments
 
 ## What You Learned
 
-- Tests are plain pytest functions or classes — no `@litmus_test` wrapper
+- Tests are plain pytest functions or classes
 - Up to three Litmus fixtures: `context`, `verify`, `logger`
 - `verify(name, value)` to check against product spec limits
 - `logger.measure(name, value, ...)` when you need explicit limits
