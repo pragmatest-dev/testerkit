@@ -50,7 +50,7 @@ class TestReplayToSubscriber:
         received: list[Any] = []
 
         class Receiver(EventSubscriber):
-            format_name = "receiver"
+            format_name = "receiver-roundtrip"
             event_types = {RunStarted, MeasurementRecorded, RunEnded}
 
             def open(self):
@@ -132,7 +132,7 @@ class TestReplayToSubscriber:
         received: list[Any] = []
 
         class Receiver(EventSubscriber):
-            format_name = "receiver"
+            format_name = "receiver-skip-invalid"
             event_types = {RunStarted}
 
             def open(self):

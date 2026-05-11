@@ -212,7 +212,7 @@ class TestPluginWarnings:
         call_count = 0
 
         class BadSubscriber(EventSubscriber):
-            format_name = "bad"
+            format_name = "bad-warns"
             event_types = {MeasurementRecorded}
 
             def open(self):
@@ -241,7 +241,7 @@ class TestPluginWarnings:
             w.simplefilter("always")
             event_log.emit(event)
 
-        assert any("EventSubscriber 'bad' failed" in str(c.message) for c in caught)
+        assert any("EventSubscriber 'bad-warns' failed" in str(c.message) for c in caught)
 
         # Second emit should not call the subscriber (disabled after failure)
         event_log.emit(event)
@@ -321,7 +321,7 @@ class TestEventSubscriberLifecycle:
         received = []
 
         class RecordingSub(EventSubscriber):
-            format_name = "recording"
+            format_name = "recording-lifecycle"
             event_types = {MeasurementRecorded}
 
             def open(self):
@@ -540,7 +540,7 @@ class TestHarnessLoggerIntegration:
         received = []
 
         class RecordingSub(EventSubscriber):
-            format_name = "recording"
+            format_name = "recording-harness"
             event_types = {MeasurementRecorded}
 
             def open(self):

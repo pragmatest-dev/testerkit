@@ -82,7 +82,7 @@ class TestEventLog:
         call_count = 0
 
         class BadSub(EventSubscriber):
-            format_name = "bad"
+            format_name = "bad-disabled"
             event_types = {MeasurementRecorded}
 
             def open(self):
