@@ -240,7 +240,7 @@ class TestLiveRunVisibility:
             str(run_id),
             predicate=lambda r: r.ended_at is None,
         )
-        assert partial is not None, "RunStarted never landed"
+        assert partial is not None, f"RunStarted never landed for run_id={run_id}"
 
         ended = datetime.now(UTC)
         _emit_run_ended(

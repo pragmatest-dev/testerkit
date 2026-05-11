@@ -272,6 +272,7 @@ class EventStore:
         role: str | None = None,
         since: datetime | None = None,
         until: str | None = None,
+        until_seq: int | None = None,
         limit: int | None = None,
     ) -> list[dict]:
         """Query events from the DuckDB index via Flight.
@@ -307,6 +308,8 @@ class EventStore:
             conditions.append(f"received_at >= '{_sql_escape(since.isoformat())}'")
         if until:
             conditions.append(f"received_at <= '{_sql_escape(until)}'")
+        if until_seq is not None:
+            conditions.append(f"seq <= {int(until_seq)}")
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
 
         # Latest-N pushdown: SQL sorts received_at DESC under the
@@ -351,6 +354,7 @@ class EventStore:
         *,
         since: datetime | None = None,
         until: str | None = None,
+        until_seq: int | None = None,
     ) -> list[dict]:
         """Return events for runs that have ``RunStarted`` but no ``RunMaterialized``.
 
@@ -385,6 +389,8 @@ class EventStore:
             clauses.append(f"received_at >= '{_sql_escape(since.isoformat())}'")
         if until:
             clauses.append(f"received_at <= '{_sql_escape(until)}'")
+        if until_seq is not None:
+            clauses.append(f"seq <= {int(until_seq)}")
         where_extra = (" AND " + " AND ".join(clauses)) if clauses else ""
         sql = f"""
             SELECT *
@@ -395,7 +401,7 @@ class EventStore:
                 EXCEPT
                 SELECT DISTINCT run_id FROM events WHERE event_type = 'run.materialized'
               ){where_extra}
-            ORDER BY received_at ASC
+            ORDER BY seq ASC
         """
         rows = self._flight_query(sql)
         return [_parse_event_row(row) for row in rows]
@@ -432,25 +438,21 @@ class EventStore:
 
         Returns an unsubscribe callable.
         """
-        # Capture the watcher's cursor BEFORE running replay. This snapshot
-        # bounds replay (events with ``received_at <= snapshot`` are caught
-        # by replay; events with ``received_at > snapshot`` are caught by
-        # the watcher with ``>= snapshot`` filter). Without this, events
-        # arriving in the narrow window between replay's SQL execution and
-        # ``_ensure_watcher`` are missed: replay returned empty, watcher
-        # cursor inits to the new ``MAX(received_at)`` which is past those
-        # events, and the ``>=`` filter then only catches the latest one.
-        # Reproducer: emit RunStarted + RunEnded back-to-back with ≤ 1ms
-        # between them — without this fix, ~3-5% of attaches lose the
-        # RunStarted half of the pair.
+        # Capture the watcher's cursor BEFORE running replay. The cursor
+        # is a monotonic ``seq`` (insert-order sequence stamped by the
+        # events daemon's ``nextval('event_seq')`` under the same lock
+        # as the INSERT). Replay covers ``seq <= snapshot``; watcher
+        # polls ``seq > snapshot``. ``seq`` is bulletproof against the
+        # wall-clock race ``received_at`` had — two put-hook batches
+        # under the same lock can finish out of order vs. their
+        # transaction-start timestamps, but ``nextval()`` advances
+        # under the lock and is strictly monotonic with commit order.
         try:
-            cursor_rows = self._flight_query("SELECT MAX(received_at) AS m FROM events")
-            cursor: str | None = (
-                str(cursor_rows[0]["m"]) if cursor_rows and cursor_rows[0].get("m") else None
-            )
+            cursor_rows = self._flight_query("SELECT MAX(seq) AS m FROM events")
+            cursor_int = int(cursor_rows[0]["m"]) if cursor_rows and cursor_rows[0].get("m") else 0
         except Exception as exc:  # noqa: BLE001
             logger.debug("Cursor snapshot before replay failed: %s", exc)
-            cursor = None
+            cursor_int = 0
 
         # Register the subscription and start the watcher BEFORE running
         # replay. New events arriving from the cursor onwards flow through
@@ -481,25 +483,25 @@ class EventStore:
         with self._lock:
             self._subscriptions.append(sub)
 
-        self._ensure_watcher(initial_cursor=cursor)
+        self._ensure_watcher(initial_cursor=cursor_int)
 
         if replay != "none":
-            # Replay covers received_at <= cursor (inclusive); watcher
-            # covers >= cursor. Boundary events (== cursor) are dispatched
-            # by replay and stamped in ``_delivered_ids`` so the watcher
-            # skips them. New events (> cursor) are watcher-only.
-            replay_until = cursor
+            # Replay covers seq <= cursor (inclusive); watcher covers
+            # seq > cursor. No boundary overlap (replay is ``<=``,
+            # watcher is ``>``) — ``_delivered_ids`` still dedups any
+            # in-process emit that raced replay.
+            replay_until_seq = cursor_int
 
             def _replay_in_background() -> None:
                 if replay == "unmaterialized_runs":
-                    existing = self.events_for_unmaterialized_runs(since=since, until=replay_until)
+                    existing = self.events_for_unmaterialized_runs(until_seq=replay_until_seq)
                 else:
                     existing = self.events(
                         session_id=session_id,
                         event_type=event_type,
                         role=role,
                         since=since,
-                        until=replay_until,
+                        until_seq=replay_until_seq,
                     )
                 # Dispatch each event to the new subscriber's callback,
                 # then stamp ``_delivered_ids`` so the watcher dedups
@@ -536,21 +538,16 @@ class EventStore:
 
         return unsubscribe
 
-    def _ensure_watcher(self, *, initial_cursor: str | None = None) -> None:
+    def _ensure_watcher(self, *, initial_cursor: int = 0) -> None:
         """Start the cross-process file watcher thread if not already running.
 
-        ``initial_cursor`` seeds ``_watch_loop`` to a known received_at
-        from the caller — typically the last event dispatched by replay.
-        Without it, the watcher initializes its cursor to
-        ``MAX(received_at)`` from a fresh DB probe, which races against
-        events arriving in the narrow window between replay query and
-        watcher start: replay returns rows up to time T, then events
-        with ts > T arrive, then the watcher's cursor inits to that
-        new MAX, skipping the events with ts == T (and earlier in the
-        same flush batch). Reproducer: emit RunStarted + RunEnded
-        back-to-back with ≤ 1ms between them, then attach the
-        subscriber — without this seed, the watcher's ``>=`` cursor
-        catches only the latest of the pair.
+        ``initial_cursor`` seeds ``_watch_loop`` to a known ``seq``
+        from the caller — the monotonic insert-order sequence stamped
+        by the events daemon under the put-hook lock. The watcher
+        polls ``WHERE seq > initial_cursor`` so any event with a higher
+        ``seq`` is picked up. Sequence values are strictly monotonic
+        with commit order, so there's no boundary race against
+        wall-clock ordering.
         """
         if self._watcher_thread is not None and self._watcher_thread.is_alive():
             return
@@ -564,7 +561,7 @@ class EventStore:
         )
         self._watcher_thread.start()
 
-    def _watch_loop(self, initial_cursor: str | None = None) -> None:
+    def _watch_loop(self, initial_cursor: int = 0) -> None:
         """Poll for new events from other processes using Flight queries.
 
         Skips events already delivered in-process (via ``_notify_subscribers``).
@@ -579,43 +576,29 @@ class EventStore:
         the live UPSERT path looks broken with no log trace.
         """
         # If the caller seeded a cursor via ``on_event``, use it — that's
-        # the timestamp of the last event dispatched during replay. Anything
-        # received_at >= that timestamp is fetched (with ``_delivered_ids``
-        # dedup against replay-dispatched ids). This closes the race between
-        # replay and watcher start.
+        # the seq of the boundary between replay and live. Anything
+        # ``seq > cursor`` is fetched.
         #
         # No seed (cold-start watcher attach without a preceding replay):
         # initialize the cursor to the latest event already in the DB so the
         # first poll doesn't pull and dispatch the entire historical event log
         # (potentially hundreds of thousands of rows after a long-running test
         # environment).
-        last_received_at: str | None = initial_cursor
-        if last_received_at is None:
+        last_seq: int = initial_cursor
+        if last_seq == 0:
             try:
-                rows = self._flight_query("SELECT MAX(received_at) AS m FROM events")
-                last_received_at = str(rows[0]["m"]) if rows and rows[0].get("m") else None
-            except Exception as exc:  # noqa: BLE001 — fall back to None on probe failure
+                rows = self._flight_query("SELECT MAX(seq) AS m FROM events")
+                last_seq = int(rows[0]["m"]) if rows and rows[0].get("m") else 0
+            except Exception as exc:  # noqa: BLE001 — fall back to 0 on probe failure
                 logger.debug("Watcher cursor init failed (will fetch all): %s", exc)
-                last_received_at = None
+                last_seq = 0
 
         while not self._watcher_stop.is_set():
-            # ``>=`` not ``>``: two events emitted in the same
-            # microsecond (e.g., back-to-back RunStarted +
-            # RunEnded with no flush between) share a
-            # ``received_at`` timestamp. ``>`` would skip the
-            # second one; ``>=`` re-fetches the boundary event
-            # but ``_delivered_ids`` deduplicates downstream so
-            # subscribers see each event exactly once.
-            condition = (
-                f" WHERE received_at >= '{_sql_escape(last_received_at)}'"
-                if last_received_at
-                else ""
-            )
             query = f"""
                 SELECT *
                 FROM events
-                {condition}
-                ORDER BY received_at ASC
+                WHERE seq > {int(last_seq)}
+                ORDER BY seq ASC
             """
             try:
                 rows = self._flight_query(query)
@@ -623,7 +606,6 @@ class EventStore:
                 logger.debug("Watcher poll failed (will retry): %s", exc)
                 self._watcher_stop.wait(timeout=0.5)
                 continue
-
             # Advance the cursor only past rows we successfully
             # dispatched. If a dispatch raises (transient daemon
             # contention, locked DuckDB conn, etc.) the next poll
@@ -649,9 +631,9 @@ class EventStore:
                         exc,
                     )
 
-                ts = row.get("received_at")
-                if ts is not None:
-                    last_received_at = str(ts)
+                row_seq = row.get("seq")
+                if row_seq is not None:
+                    last_seq = int(row_seq)
 
             self._watcher_stop.wait(timeout=0.5)
 

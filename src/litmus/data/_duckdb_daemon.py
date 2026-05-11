@@ -53,31 +53,24 @@ _EVENT_COLUMNS_FROM_IPC = [
 # ON CONFLICT DO NOTHING deduplicates events that arrived via do_put during
 # the previous session and are now also present in the IPC files.
 #
-# CRITICAL: both ``received_at`` insertion paths server-stamp via
-# ``now()`` (daemon's clock), not client-provided values. The watcher's
-# cursor-based ``WHERE received_at >= ?`` poll relies on monotonic
-# ordering from a single clock — using client-stamped values lets
-# small clock skews (across emitter processes, across daemon sessions)
-# push later-arriving events to earlier ``received_at`` than events
-# already inserted, causing the cursor to advance past them and
-# silently lose them.
+# ``received_at`` is server-stamped via ``now()`` (daemon's clock) for
+# user-facing time-window queries. ``seq`` is server-stamped via
+# ``nextval('event_seq')`` and is what the watcher's cursor uses —
+# strictly monotonic with INSERT order under the put-hook lock, so
+# the watcher's ``seq > last_seq`` poll never advances past a row
+# that hasn't yet been inserted. ``received_at`` was previously the
+# cursor too, but ``now()`` (transaction-start timestamp) has subtle
+# wall-clock ordering issues across concurrent put-hook batches
+# even with the server lock, while ``nextval`` advances under the
+# same lock as the INSERT and is bulletproof.
 #
-# IPC replay also uses ``now()`` even though IPC files contain
-# original client ``received_at``: replay inserts populate the
-# in-memory DuckDB index at daemon startup, and the resulting
-# ``MAX(received_at)`` becomes the watcher's initial cursor. If those
-# values were client-stamped from past sessions whose clocks ran
-# slightly ahead of the current daemon's clock, live inserts (with
-# fresh ``now()``) would be ``received_at < cursor`` and excluded
-# from every poll. Server-stamping replay ensures the cursor never
-# sits in the future relative to subsequent inserts.
-#
-# (Original ``occurred_at`` and ``json``-embedded fields preserve the
-# event's emission-time for analysis; ``received_at`` is purely the
-# daemon's queue/dispatch ordering signal.)
+# Original ``occurred_at`` (and the ``json``-embedded fields)
+# preserve the event's emission-time for analysis.
 _INSERT_SQL = (
-    "INSERT INTO events (id, event_type, occurred_at, received_at, session_id, run_id, json) "
-    "VALUES (?, ?, ?, now(), ?, ?, ?) ON CONFLICT (id) DO NOTHING"
+    "INSERT INTO events "
+    "(id, event_type, occurred_at, received_at, seq, session_id, run_id, json) "
+    "VALUES (?, ?, ?, now(), nextval('event_seq'), ?, ?, ?) "
+    "ON CONFLICT (id) DO NOTHING"
 )
 
 
@@ -125,6 +118,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             event_type VARCHAR NOT NULL,
             occurred_at TIMESTAMPTZ NOT NULL,
             received_at TIMESTAMPTZ,
+            seq BIGINT,
             session_id VARCHAR,
             run_id VARCHAR,
             json VARCHAR
@@ -132,6 +126,23 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """)
     for col, sql_type in _EVENTS_COLUMNS:
         conn.execute(f"ALTER TABLE events ADD COLUMN IF NOT EXISTS {col} {sql_type}")
+    # Monotonic insert-order sequence. The watcher polls by ``seq >
+    # last_seq`` which is bulletproof against the wall-clock races that
+    # ``received_at >=`` had: ``received_at`` is stamped via ``now()``
+    # at transaction start, but multiple concurrent put-hook batches
+    # could (in observed traces) finish out of order vs. their stamped
+    # time. ``nextval()`` advances under the same lock as the INSERT,
+    # so seq is strictly monotonic with commit order. See
+    # https://github.com/duckdb/duckdb/discussions on autocommit
+    # ordering for context.
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS event_seq START 1")
+    # Backfill seq for any rows that pre-date this column (no-op on
+    # fresh DBs). ``nextval`` assigns unique monotonic values; the
+    # exact ordering of pre-existing rows doesn't matter because they
+    # are pre-cursor (the watcher's initial cursor is MAX(seq) at
+    # attach, so backfilled rows are by definition replay candidates,
+    # not live).
+    conn.execute("UPDATE events SET seq = nextval('event_seq') WHERE seq IS NULL")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS _ingested (
             path VARCHAR PRIMARY KEY,
@@ -145,6 +156,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """)
     for index_sql in (
         "CREATE INDEX IF NOT EXISTS idx_events_received_at ON events(received_at)",
+        "CREATE INDEX IF NOT EXISTS idx_events_seq ON events(seq)",
         "CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type)",
         "CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id)",
         "CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id)",
@@ -161,6 +173,7 @@ _EVENTS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("event_type", "VARCHAR"),
     ("occurred_at", "TIMESTAMPTZ"),
     ("received_at", "TIMESTAMPTZ"),
+    ("seq", "BIGINT"),
     ("session_id", "VARCHAR"),
     ("run_id", "VARCHAR"),
     ("json", "VARCHAR"),
