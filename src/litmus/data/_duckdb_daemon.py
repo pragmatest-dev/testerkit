@@ -53,22 +53,27 @@ _EVENT_COLUMNS_FROM_IPC = [
 # ON CONFLICT DO NOTHING deduplicates events that arrived via do_put during
 # the previous session and are now also present in the IPC files.
 #
-# ``received_at`` is server-stamped via ``now()`` (daemon's clock) for
-# user-facing time-window queries. ``seq`` is server-stamped via
-# ``nextval('event_seq')`` and is what the watcher's cursor uses —
-# strictly monotonic with INSERT order under the put-hook lock, so
-# the watcher's ``seq > last_seq`` poll never advances past a row
-# that hasn't yet been inserted. ``received_at`` was previously the
-# cursor too, but ``now()`` (transaction-start timestamp) has subtle
-# wall-clock ordering issues across concurrent put-hook batches
-# even with the server lock, while ``nextval`` advances under the
-# same lock as the INSERT and is bulletproof.
+# Three columns answer three different questions:
 #
-# Original ``occurred_at`` (and the ``json``-embedded fields)
-# preserve the event's emission-time for analysis.
+# * ``occurred_at`` (in the JSON payload + top-level column) — client
+#   wall-clock at event construction. The "when did this happen in the
+#   source" answer for displays, analytics, time-bucket queries.
+# * ``received_at`` — server-stamped via ``now()`` here. The trustworthy
+#   "when did the daemon see it" answer for retention, staleness
+#   detection, and any time-window operator query that can't trust
+#   client clocks.
+# * ``event_number`` — server-stamped via ``nextval('event_seq')`` here.
+#   The "what commit-order did this land in" answer for the watcher's
+#   cursor and replay ordering. Strictly monotonic with INSERT order
+#   under the put-hook lock, so ``event_number > last`` poll never
+#   advances past a row that hasn't yet been inserted. ``received_at``
+#   was previously the cursor too, but ``now()`` (transaction-start
+#   timestamp) has subtle wall-clock ordering issues across concurrent
+#   put-hook batches even with the server lock, while ``nextval``
+#   advances under the same lock as the INSERT and is bulletproof.
 _INSERT_SQL = (
     "INSERT INTO events "
-    "(id, event_type, occurred_at, received_at, seq, session_id, run_id, json) "
+    "(id, event_type, occurred_at, received_at, event_number, session_id, run_id, json) "
     "VALUES (?, ?, ?, now(), nextval('event_seq'), ?, ?, ?) "
     "ON CONFLICT (id) DO NOTHING"
 )
@@ -116,9 +121,9 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         CREATE TABLE IF NOT EXISTS events (
             id VARCHAR PRIMARY KEY,
             event_type VARCHAR NOT NULL,
+            event_number BIGINT,
             occurred_at TIMESTAMPTZ NOT NULL,
             received_at TIMESTAMPTZ,
-            seq BIGINT,
             session_id VARCHAR,
             run_id VARCHAR,
             json VARCHAR
@@ -126,23 +131,15 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """)
     for col, sql_type in _EVENTS_COLUMNS:
         conn.execute(f"ALTER TABLE events ADD COLUMN IF NOT EXISTS {col} {sql_type}")
-    # Monotonic insert-order sequence. The watcher polls by ``seq >
-    # last_seq`` which is bulletproof against the wall-clock races that
-    # ``received_at >=`` had: ``received_at`` is stamped via ``now()``
-    # at transaction start, but multiple concurrent put-hook batches
-    # could (in observed traces) finish out of order vs. their stamped
-    # time. ``nextval()`` advances under the same lock as the INSERT,
-    # so seq is strictly monotonic with commit order. See
-    # https://github.com/duckdb/duckdb/discussions on autocommit
-    # ordering for context.
+    # Monotonic insert-order sequence. The watcher polls by
+    # ``event_number > last`` which is bulletproof against the
+    # wall-clock races that ``received_at >=`` had: ``received_at`` is
+    # stamped via ``now()`` at transaction start, but multiple
+    # concurrent put-hook batches could (in observed traces) finish
+    # out of order vs. their stamped time. ``nextval()`` advances
+    # under the same lock as the INSERT, so event_number is strictly
+    # monotonic with commit order.
     conn.execute("CREATE SEQUENCE IF NOT EXISTS event_seq START 1")
-    # Backfill seq for any rows that pre-date this column (no-op on
-    # fresh DBs). ``nextval`` assigns unique monotonic values; the
-    # exact ordering of pre-existing rows doesn't matter because they
-    # are pre-cursor (the watcher's initial cursor is MAX(seq) at
-    # attach, so backfilled rows are by definition replay candidates,
-    # not live).
-    conn.execute("UPDATE events SET seq = nextval('event_seq') WHERE seq IS NULL")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS _ingested (
             path VARCHAR PRIMARY KEY,
@@ -156,7 +153,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """)
     for index_sql in (
         "CREATE INDEX IF NOT EXISTS idx_events_received_at ON events(received_at)",
-        "CREATE INDEX IF NOT EXISTS idx_events_seq ON events(seq)",
+        "CREATE INDEX IF NOT EXISTS idx_events_number ON events(event_number)",
         "CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type)",
         "CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id)",
         "CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id)",
@@ -173,7 +170,7 @@ _EVENTS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("event_type", "VARCHAR"),
     ("occurred_at", "TIMESTAMPTZ"),
     ("received_at", "TIMESTAMPTZ"),
-    ("seq", "BIGINT"),
+    ("event_number", "BIGINT"),
     ("session_id", "VARCHAR"),
     ("run_id", "VARCHAR"),
     ("json", "VARCHAR"),
