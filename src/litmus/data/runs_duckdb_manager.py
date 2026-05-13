@@ -87,15 +87,21 @@ def _wait_for_location(mgr: RunsDuckDBManager, runs_dir: Path) -> str:
 
 
 def _flight_probe(location: str) -> bool:
-    """Return True if the Flight server at ``location`` responds to a trivial query."""
+    """Return True if the Flight server at ``location`` responds to a trivial query.
+
+    Uses the process-wide pooled Flight client so the probe doesn't pay
+    the gRPC channel-setup cost (~50ms) on every ``acquire``. A dead
+    Flight thread still fails the do_get; the dropped client is removed
+    from the pool so the next caller reconnects.
+    """
+    from litmus.data._flight_query import _drop_pooled_client, _get_pooled_client
+
     try:
-        client = flight.connect(location)
-        try:
-            client.do_get(flight.Ticket(b"runs\x00SELECT 1")).read_all()
-            return True
-        finally:
-            client.close()
+        client = _get_pooled_client(location)
+        client.do_get(flight.Ticket(b"runs\x00SELECT 1")).read_all()
+        return True
     except Exception:  # noqa: BLE001
+        _drop_pooled_client(location)
         return False
 
 
