@@ -488,10 +488,12 @@ class TestRunLogger:
         # double-logs within a step.
         self._step_seen_names: set[tuple[str, str | None, int | None, int | None]] = set()
         self._step_seen_repeatable: set[tuple[str, str | None, int | None, int | None]] = set()
-        self._step_token: Token[TestStep | None] | None = None
-        # _vector_token tracks current vector context for this step.
-        # Both start_step() and log_measurement() may set it; reset in end_step().
-        self._vector_token: Token[TestVector | None] | None = None
+        # Stacks of contextvar tokens — one entry per nested step / vector.
+        # Single-token tracking would collapse parent state once a child
+        # ended (resetting via the child's token leaves the parent's
+        # contextvar pointing at the wrong step), so we keep a full stack.
+        self._step_tokens: list[Token[TestStep | None]] = []
+        self._vector_tokens: list[Token[TestVector | None]] = []
         # Clear contextvars — each logger owns its execution context
         push_current_step(None)
         push_current_vector(None)
@@ -620,9 +622,23 @@ class TestRunLogger:
         usage, legacy paths), ``step_index`` falls back to the auto-incrementing
         counter and ``vector_index`` defaults to 0.
         """
-        # Auto-close any prior step that wasn't explicitly ended
-        if get_current_step() is not None:
-            self.end_step()
+        # Auto-close any prior step that wasn't explicitly ended.
+        # Exception: when the new step is a class method nesting under its
+        # class container (top of step_stack matches ``class_name``), keep
+        # the container open so subsequent ``parent_path`` derivation lands
+        # on the container's step_path. Pytest's plugin emits explicit
+        # ``end_step`` for the method on test teardown, so the container is
+        # the only step that legitimately stays open across multiple
+        # ``start_step`` calls.
+        current = get_current_step()
+        if current is not None:
+            nests_under_container = (
+                class_name is not None
+                and bool(self._step_stack)
+                and self._step_stack[-1] == class_name
+            )
+            if not nests_under_container:
+                self.end_step()
         # Clear per-step instrument arrays so they don't leak between steps
         self._step_instrument_arrays = None
         # Reset per-step dedup sets — each step starts with a clean slate.
@@ -656,9 +672,10 @@ class TestRunLogger:
         vec_params = coerce_dict(inputs) if inputs is not None else _snapshot_active_vector_params()
         vector = TestVector(index=vector_index or 0, params=vec_params)
         step.vectors.append(vector)
-        # Token-based set for proper reset in end_step()
-        self._step_token = push_current_step(step)
-        self._vector_token = push_current_vector(vector)
+        # Push onto token stacks so end_step() can pop the parent back into
+        # current_step / current_vector instead of collapsing to None.
+        self._step_tokens.append(push_current_step(step))
+        self._vector_tokens.append(push_current_vector(vector))
 
         self._emit_step_event(step, is_start=True)
 
@@ -722,14 +739,23 @@ class TestRunLogger:
         """Emit a StepStarted or StepEnded event for ``step``.
 
         Single helper used by :meth:`start_step` and :meth:`end_step` so the
-        payload shape stays in sync.  Reads the active vector from the step
-        (assumed to be the last one appended for this iteration) and applies
-        :func:`coerce_dict` on params/observations so non-JSON-safe parametrize
-        values don't break ``model_dump_json``.
+        payload shape stays in sync.
+
+        The step's identity (``vector_index``, ``inputs``) comes from the
+        FIRST vector appended at ``start_step`` — the outer/sweep position
+        that pytest's parametrize fanned out into this step. Subsequent
+        vectors (from a self-loop ``vectors`` fixture iteration) contribute
+        measurements but don't change the step's identity, so
+        ``StepStarted`` and ``StepEnded`` carry matching ``(step_path,
+        vector_index)``.
+
+        ``vector_outcome`` on ``StepEnded`` aggregates across all vectors
+        via :func:`escalate_outcome` so self-loop iterations roll into a
+        single per-step verdict.
         """
         if self._event_log is None:
             return
-        vec = step.vectors[-1] if step.vectors else None
+        vec = step.vectors[0] if step.vectors else None
         vec_index = vec.index if vec is not None else 0
         inputs = coerce_dict(vec.params) if vec is not None else {}
         if is_start:
@@ -750,7 +776,14 @@ class TestRunLogger:
                 function=step.function,
             )
         else:
-            vec_outcome = vec.outcome.value if vec is not None and vec.outcome is not None else None
+            # Aggregate per-vector outcomes via the severity ladder so a
+            # self-loop step with multiple inner vectors rolls up to one
+            # verdict instead of reflecting only the last iteration.
+            agg: Outcome | None = None
+            for v in step.vectors:
+                if v.outcome is not None:
+                    agg = escalate_outcome(agg, v.outcome)
+            vec_outcome = agg.value if agg is not None else None
             event = StepEnded(
                 session_id=self._session_id,
                 run_id=self.test_run.id,
@@ -789,7 +822,7 @@ class TestRunLogger:
         if vector is None:
             vector = TestVector(params=_snapshot_active_vector_params())
             step.vectors.append(vector)
-            self._vector_token = push_current_vector(vector)
+            self._vector_tokens.append(push_current_vector(vector))
 
         # Stamp step_path from the resolved step so downstream consumers
         # (traceability audit, parquet projection) don't see empty strings.
@@ -835,6 +868,15 @@ class TestRunLogger:
 
         # Emit event if event log is wired
         if self._event_log is not None:
+            # Merge outer (step-level) params into the measurement's
+            # ``inputs`` so each row carries the full effective sweep
+            # context — outer voltage at the step level plus inner
+            # current from the active vector. Inner wins on key conflict
+            # (matches how the user would think about overrides).
+            outer_params: dict[str, Any] = {}
+            if step.vectors:
+                outer_params = dict(step.vectors[0].params)
+            inputs = {**outer_params, **build_input_columns(vector)}
             event = MeasurementRecorded(
                 session_id=self._session_id,
                 run_id=self.test_run.id,
@@ -861,8 +903,8 @@ class TestRunLogger:
                 instrument_name=measurement.instrument_name,
                 instrument_resource=measurement.instrument_resource,
                 instrument_channel=measurement.instrument_channel,
-                # Dynamic columns (vector-specific)
-                inputs=build_input_columns(vector),
+                # Dynamic columns (outer step params + per-iteration vector params)
+                inputs=inputs,
                 outputs=build_output_columns(
                     vector,
                     ref_saver=self._event_log.save_ref,
@@ -887,13 +929,14 @@ class TestRunLogger:
         if self._step_stack:
             self._step_stack.pop()
 
-        # Reset via tokens for proper contextvar hygiene
-        if self._step_token is not None:
-            reset_current_step(self._step_token)
-            self._step_token = None
-        if self._vector_token is not None:
-            reset_current_vector(self._vector_token)
-            self._vector_token = None
+        # Pop the latest token off each stack so the parent step / vector
+        # snaps back into ``get_current_step()`` / ``get_current_vector()``.
+        # Both lists may be empty under recovery paths (auto-close called
+        # multiple times) — guard accordingly.
+        if self._step_tokens:
+            reset_current_step(self._step_tokens.pop())
+        if self._vector_tokens:
+            reset_current_vector(self._vector_tokens.pop())
 
     def measure(
         self,

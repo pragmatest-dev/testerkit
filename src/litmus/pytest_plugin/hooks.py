@@ -426,6 +426,7 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
     """
     _apply_cascade_to_items(items)
     _translate_retry_markers(items)
+    _stash_sweep_dimensions(items)
     _reorder_class_sweep_items(items)
 
     collected = _build_collected_items(items)
@@ -435,35 +436,109 @@ def pytest_collection_modifyitems(config, items: list[pytest.Item]) -> None:
     _warn_method_mocks_in_non_dev_phase(items, config)
 
 
-def _has_class_level_sweep(item: pytest.Item) -> bool:
-    """True iff the item's ``litmus_sweeps`` marker comes from its enclosing class.
+def _extract_sweep_param_names(marker: pytest.Mark) -> set[str]:
+    """Return the parameter names declared by one ``litmus_sweeps`` marker.
 
-    Reorder applies only to class-level sweeps so the full class sequence
-    runs once per condition.  Method-level sweeps stay in pytest's natural
-    method-first order; module-level sweeps (``pytestmark = [...]``) cross
-    multiple classes / root methods and reordering them would mix unrelated
-    items together.
-
-    Distinguishes the three cases by checking *which node* owns the marker:
-
-    * ``own_markers`` — function level; reorder doesn't apply.
-    * Parent class node's ``own_markers`` — class level; reorder applies.
-    * Module / session level — reorder doesn't apply (out of scope).
+    The inline form is ``litmus_sweeps([{argname: argvalues, ...}, ...])``
+    — args[0] is a list of axis-group dicts, each dict's keys are the
+    parametrize argnames. The keyword form is ``litmus_sweeps(argname=values)``
+    — kwargs supply the names directly. We accept both shapes.
     """
+    names: set[str] = set()
+    if marker.args:
+        payload = marker.args[0]
+        if isinstance(payload, list):
+            for entry in payload:
+                if isinstance(entry, dict):
+                    names.update(k for k in entry.keys() if not k.startswith("_"))
+                elif isinstance(entry, SweepEntry):
+                    names.update(entry.root.keys())
+    names.update(k for k in marker.kwargs.keys() if not k.startswith("_"))
+    return names
+
+
+# Stash key for per-item sweep-dimension resolution. Populated during
+# ``pytest_collection_modifyitems`` and read by both ``_reorder_class_sweep_items``
+# (sort key) and ``_ensure_class_container`` (boundary detection).
+_SWEEP_DIMS_KEY: pytest.StashKey[tuple[frozenset[str], frozenset[str]]] = pytest.StashKey()
+
+
+def _resolve_sweep_dimensions(
+    item: pytest.Item,
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Return ``(outer_param_names, inner_param_names)`` for an item.
+
+    Outer params come from ``litmus_sweeps`` markers attached to the
+    enclosing class node — they define the sequence iterations a class
+    container should split into. Inner params are everything else in
+    ``callspec.params`` (method-level ``litmus_sweeps``, any
+    ``pytest.mark.parametrize`` at either level, ``vectors``-fixture
+    expansions).
+
+    ``inner`` is computed by subtraction: ``inner = all_callspec_params - outer``.
+    That makes the helper resilient to unknown marker sources — anything
+    not explicitly recognized as outer falls through to inner.
+    """
+    callspec = getattr(item, "callspec", None)
+    callspec_params: dict[str, Any] = (callspec.params or {}) if callspec is not None else {}
+    all_params = frozenset(callspec_params.keys())
+
+    outer: set[str] = set()
     cls = getattr(item, "cls", None)
-    if cls is None:
-        return False
-    # Function-level marker — not class-level.
-    if any(m.name == "litmus_sweeps" for m in getattr(item, "own_markers", [])):
-        return False
-    # Walk up to find the class node (pytest.Class).  Its ``obj`` attribute
-    # is the test class itself.  Reorder only when the marker lives there.
-    parent = getattr(item, "parent", None)
-    while parent is not None:
-        if getattr(parent, "obj", None) is cls:
-            return any(m.name == "litmus_sweeps" for m in getattr(parent, "own_markers", []))
-        parent = getattr(parent, "parent", None)
-    return False
+    if cls is not None:
+        parent = getattr(item, "parent", None)
+        while parent is not None:
+            if getattr(parent, "obj", None) is cls:
+                for m in getattr(parent, "own_markers", []):
+                    if m.name == "litmus_sweeps":
+                        outer.update(_extract_sweep_param_names(m))
+                break
+            parent = getattr(parent, "parent", None)
+
+    outer_frozen = frozenset(outer) & all_params
+    inner_frozen = all_params - outer_frozen
+    return outer_frozen, inner_frozen
+
+
+def _stash_sweep_dimensions(items: list[pytest.Item]) -> None:
+    """Populate ``_SWEEP_DIMS_KEY`` on every item.
+
+    Called once during ``pytest_collection_modifyitems`` so downstream
+    readers (sort key, container boundary detection) hit a cached value
+    instead of re-walking the parent tree.
+    """
+    for item in items:
+        item.stash[_SWEEP_DIMS_KEY] = _resolve_sweep_dimensions(item)
+
+
+def _outer_values_for(item: pytest.Item) -> tuple[tuple[str, Any], ...]:
+    """Return the sorted ``(name, value)`` tuple of outer-dim params for an item.
+
+    Reads from the stashed ``_SWEEP_DIMS_KEY`` if present; otherwise
+    falls back to fresh resolution (e.g., for items synthesized after
+    ``pytest_collection_modifyitems``).
+    """
+    if _SWEEP_DIMS_KEY in item.stash:
+        outer_names = item.stash[_SWEEP_DIMS_KEY][0]
+    else:
+        outer_names = _resolve_sweep_dimensions(item)[0]
+    callspec = getattr(item, "callspec", None)
+    params: dict[str, Any] = (callspec.params or {}) if callspec is not None else {}
+    return tuple(sorted((name, params[name]) for name in outer_names if name in params))
+
+
+def _has_class_level_sweep(item: pytest.Item) -> bool:
+    """True iff the item has any class-level ``litmus_sweeps`` parameter.
+
+    Thin wrapper around :func:`_resolve_sweep_dimensions` — reorder
+    applies whenever there is at least one outer-dim parameter, so the
+    full class sequence runs once per condition.
+    """
+    if _SWEEP_DIMS_KEY in item.stash:
+        outer = item.stash[_SWEEP_DIMS_KEY][0]
+    else:
+        outer = _resolve_sweep_dimensions(item)[0]
+    return bool(outer)
 
 
 def _reorder_class_sweep_items(items: list[pytest.Item]) -> None:
@@ -504,12 +579,27 @@ def _reorder_class_sweep_items(items: list[pytest.Item]) -> None:
                 method_order[name] = len(method_order)
 
         def _sort_key(item: pytest.Item) -> tuple:
+            # Two-level sort: outer-dim VALUES (class-level litmus_sweeps
+            # params) establish the iteration buckets; method-definition-order
+            # keeps the sequence shape A/B/C within each bucket; inner-dim
+            # values unroll method-level sweeps within each method, preserving
+            # pytest's natural parametrize order.
+            #
+            # ``callspec.indices`` cannot be trusted here — when litmus_sweeps
+            # lowers via multiple ``metafunc.parametrize`` calls, pytest
+            # accumulates indices across axes (every axis sees the same
+            # 0..N-1 counter), so two different parameters with the same
+            # callspec.indices value can actually have different argvalues.
+            # Sort on the actual ``params`` values instead; they are the
+            # ground truth and the values that ``inputs`` will carry in
+            # the emitted StepStarted events.
+            outer_names = item.stash[_SWEEP_DIMS_KEY][0]
             callspec = getattr(item, "callspec", None)
-            indices = tuple((callspec.indices or {}).items()) if callspec is not None else ()
-            return (
-                tuple(sorted(indices)),
-                method_order.get(getattr(item, "originalname", item.name), 0),
-            )
+            params: dict[str, Any] = dict((callspec.params or {}) if callspec is not None else {})
+            outer_vals = tuple(sorted((n, params[n]) for n in outer_names if n in params))
+            inner_vals = tuple(sorted((n, v) for n, v in params.items() if n not in outer_names))
+            method_pos = method_order.get(getattr(item, "originalname", item.name), 0)
+            return (outer_vals, method_pos, inner_vals)
 
         items[i:j] = sorted(group, key=_sort_key)
         i = j
@@ -550,15 +640,22 @@ def _build_collected_items(items: list[pytest.Item]) -> list[CollectedItem]:
         cls = getattr(item, "cls", None)
         mod = getattr(item, "module", None)
 
-        # step_path mirrors what _ensure_class_container builds for the
-        # executed StepStarted: ``ClassName/function_name`` for class-
+        # step_path mirrors what ``logger.start_step`` records for the
+        # executed StepStarted — ``ClassName/function_name`` for class-
         # nested methods, plain ``function_name`` for module-level.
-        # parent_path is the class container's path (or "" for root).
+        # ``func_name`` here is parsed from the nodeid and INCLUDES the
+        # parametrize ``[N]`` suffix, which the logger does NOT use
+        # (the logger reads ``func.__name__``).  Strip the suffix so the
+        # manifest and event streams share one step_path per logical
+        # step and the materializer's GROUP BY ``(step_path, vector_index)``
+        # folds the parametrize variants onto a single step row.
+        func = getattr(item, "function", None)
+        logical_name = func.__name__ if func is not None else func_name
         if cls is not None:
-            step_path = f"{cls.__name__}/{func_name}"
+            step_path = f"{cls.__name__}/{logical_name}"
             parent_path = cls.__name__
         else:
-            step_path = func_name
+            step_path = logical_name
             parent_path = ""
 
         collected.append(
@@ -987,81 +1084,137 @@ def _step_vector_for_item(
 # class container.  Stored on the logger (not in a module-level dict) so
 # id-reuse after garbage collection can't shadow a fresh logger's state,
 # and so the lifecycle is naturally tied to logger lifetime.
+#
+# The payload is a dict snapshot of the currently-open iteration:
+#   {
+#       "cls":               the test class object (used for identity check),
+#       "outer_values":      tuple[(name, value), ...] of the outer-dim sweep
+#                            params for this iteration. Determines boundary
+#                            transitions — when the next item's outer values
+#                            differ, close+reopen.
+#       "vector_index":      0-based iteration counter for THIS class. A class
+#                            run with three voltage values produces vector_index
+#                            0/1/2 across its three container events.
+#       "first_step_index":  Position in ``logger.test_run.steps`` of THIS
+#                            container's TestStep. Children appended after this
+#                            index are the iteration's children for rollup.
+#   }
 _OPEN_CLASS_ATTR = "_litmus_open_class_container"
+# Per-class iteration counter, scoped to one logger lifetime.  Stores
+# ``{cls_name: next_vector_index}``.  Independent of the open-container
+# state because counters must survive close+reopen cycles.
+_CLASS_ITERATION_COUNTERS_ATTR = "_litmus_class_iteration_counters"
 
 
 def _ensure_class_container(logger_inst: Any, item: pytest.Item) -> None:
-    """Open a class container step on transition; close the previous one.
+    """Open a class container step on transition or iteration boundary.
 
     A pytest class IS a hardware-test sequence — a named, ordered group of
     steps. Logging it as a step gives ``step_path`` the hierarchical form
     ``TestPowerSequence/test_efficiency`` automatically (children push onto
     ``_step_stack``).
 
-    Detects the boundary by comparing ``item.cls`` against the currently-open
-    container. When entering a new class, close any prior container and open
-    a new one. When leaving a class (next item is classless), just close.
+    Detects two kinds of boundary:
+
+    * **Class transition** — ``item.cls`` differs from the currently-open
+      container's class. Close the old container, open a new one (fresh
+      iteration counter).
+    * **Iteration boundary** — same class, but the outer-dim sweep
+      values (from a class-level ``litmus_sweeps`` marker) differ from
+      the open container's values. Close+reopen so iteration N's
+      events sit under a fresh container row with the iteration's
+      ``vector_index`` and outer-dim ``inputs``.
+
     Called before ``logger.start_step`` for the test method itself, and from
     ``pytest_runtest_makereport`` so a setup-phase failure also closes the
     container instead of leaving it dangling until session end.
     """
     cls = getattr(item, "cls", None)
-    open_cls = getattr(logger_inst, _OPEN_CLASS_ATTR, None)
-    if open_cls is cls:
-        return  # still inside the same class (or both root-level)
-    if open_cls is not None:
+    outer_values = _outer_values_for(item) if cls is not None else ()
+    open_state: dict[str, Any] | None = getattr(logger_inst, _OPEN_CLASS_ATTR, None)
+
+    if (
+        open_state is not None
+        and open_state["cls"] is cls
+        and open_state["outer_values"] == outer_values
+    ):
+        return  # same class iteration — still inside; nothing to do
+
+    if open_state is not None:
         # Cascade child step outcomes into the container before we close it
-        # so the container row reflects "did anything in the sequence fail".
-        _stamp_container_outcome(logger_inst, open_cls)
+        # so the container row reflects "did anything in this iteration fail".
+        _stamp_container_outcome(logger_inst, open_state)
         logger_inst.end_step()
         setattr(logger_inst, _OPEN_CLASS_ATTR, None)
+
     if cls is not None:
-        # Open a new container step for this class. The container has no
-        # sweep parameters — pass explicit empty inputs so the active-vector
-        # snapshot from the previous (parametrized) test doesn't leak in.
+        counters: dict[str, int] | None = getattr(logger_inst, _CLASS_ITERATION_COUNTERS_ATTR, None)
+        if counters is None:
+            counters = {}
+            setattr(logger_inst, _CLASS_ITERATION_COUNTERS_ATTR, counters)
+        vi = counters.get(cls.__name__, 0)
+        counters[cls.__name__] = vi + 1
+
+        # ``first_step_index`` is the position where the container's TestStep
+        # is about to be appended (``len(steps)`` before append).  Children
+        # appended afterwards are this iteration's children for rollup.
+        first_step_index = len(logger_inst.test_run.steps)
         logger_inst.start_step(
             cls.__name__,
             class_name=cls.__name__,
             module=getattr(cls, "__module__", None),
-            inputs={},
+            inputs=dict(outer_values),
+            vector_index=vi,
         )
-        setattr(logger_inst, _OPEN_CLASS_ATTR, cls)
+        setattr(
+            logger_inst,
+            _OPEN_CLASS_ATTR,
+            {
+                "cls": cls,
+                "outer_values": outer_values,
+                "vector_index": vi,
+                "first_step_index": first_step_index,
+            },
+        )
 
 
 def _close_open_class_container(logger_inst: Any) -> None:
     """Force-close any still-open class container at session end."""
-    open_cls = getattr(logger_inst, _OPEN_CLASS_ATTR, None)
-    if open_cls is None:
+    open_state: dict[str, Any] | None = getattr(logger_inst, _OPEN_CLASS_ATTR, None)
+    if open_state is None:
         return
     try:
-        _stamp_container_outcome(logger_inst, open_cls)
+        _stamp_container_outcome(logger_inst, open_state)
         logger_inst.end_step()
     finally:
         setattr(logger_inst, _OPEN_CLASS_ATTR, None)
 
 
-def _stamp_container_outcome(logger_inst: Any, cls: type) -> None:
-    """Cascade child step outcomes into the open container's outcome.
+def _stamp_container_outcome(logger_inst: Any, open_state: dict[str, Any]) -> None:
+    """Cascade THIS iteration's child step outcomes into the container's outcome.
 
     A container step (a class / sequence) doesn't run measurements itself —
-    its outcome is the worst outcome among its child steps.  Walks
-    ``test_run.steps`` for entries whose ``class_name`` matches and whose
-    ``parent_path`` is the container's ``step_path`` (direct children
-    only), folding their outcomes into the container via the same
-    severity ladder used elsewhere (``escalate_outcome``).
+    its outcome is the worst outcome among ITS OWN ITERATION's children.
+    Walks ``test_run.steps`` from ``first_step_index + 1`` to the end of the
+    list (i.e., everything appended since the container opened), filtering
+    by ``parent_path == container.step_path`` to skip nested-deeper
+    descendants. Severity ladder via ``escalate_outcome``.
 
-    No-op when no event log is wired or the container step can't be
-    located on the run (defensive — the rest of cleanup proceeds).
+    Critical isolation property: when class TestSeq runs three iterations,
+    iteration 1's children at indices [3..5] must NOT leak into iteration
+    0's rollup walking [1..2]. The ``first_step_index`` watermark is what
+    keeps these disjoint.
+
+    No-op when the container step can't be located (defensive — the rest of
+    cleanup proceeds).
     """
-    from litmus.execution._state import get_current_step
-
-    container = get_current_step()
-    if container is None or container.class_name != cls.__name__:
+    first_idx = open_state["first_step_index"]
+    steps = logger_inst.test_run.steps
+    if first_idx >= len(steps):
         return
+    container = steps[first_idx]
     container_path = container.step_path
-    for child in logger_inst.test_run.steps:
-        if child is container:
-            continue
+    for child in steps[first_idx + 1 :]:
         if child.parent_path != container_path:
             continue
         if child.outcome is not None:
@@ -1322,6 +1475,25 @@ def _cascade_parametrize_for_metafunc(
     return parametrize_calls_for_entry(merged)
 
 
+def _entries_from_marks(marks: list[pytest.Mark]) -> list[SweepEntry]:
+    """Translate a list of ``litmus_sweeps`` marks into ``SweepEntry`` objects.
+
+    Caller controls ordering — pass marks in the order they should
+    cross-product (top decorator = outer = slowest-changing).
+    """
+    out: list[SweepEntry] = []
+    for mark in marks:
+        try:
+            normalized = normalize_inline_list_payload(
+                "litmus_sweeps", mark.args, dict(mark.kwargs)
+            )
+        except ValueError as exc:
+            raise pytest.UsageError(str(exc)) from exc
+        for raw in normalized:
+            out.append(raw if isinstance(raw, SweepEntry) else SweepEntry.model_validate(raw))
+    return out
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Expand parametrize entries from inline + sidecar + profile scopes.
@@ -1337,41 +1509,58 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     required by pytest — overlap raises a collection-time
     :class:`pytest.UsageError`.
 
-    Self-loop mode (``vectors`` fixture in signature): parametrize
-    calls from inline + sidecar + profile are consumed instead of
-    expanded, and the cross-product is stashed on the parent node for
-    the :func:`vectors` fixture to iterate.
+    Self-loop mode (``vectors`` fixture in signature): only INNER
+    (function-level) parametrize calls get consumed into the matrix;
+    OUTER (class-level, module-level) sweeps still pass through
+    :meth:`metafunc.parametrize` so pytest fans out one item per outer
+    iteration. That preserves the class-container per-iteration shape
+    even when the method body uses ``vectors`` for its inner sweeps.
     """
-    # Inline @pytest.mark.litmus_sweeps decorators. Reverse iter_markers
-    # so the TOP decorator's list registers first → top = outer
-    # (slowest-changing). Stacked decorators read top-to-bottom as
-    # outer-to-inner, matching nested ``for`` loops and the within-list
-    # ordering convention. Pydantic validates each entry (zip-coherence,
-    # list-of-list values) when we coerce the raw dicts to SweepEntry.
-    iter_top_first = reversed(list(metafunc.definition.iter_markers("litmus_sweeps")))
-    inline_sweeps: list[SweepEntry] = []
-    for mark in iter_top_first:
-        try:
-            normalized = normalize_inline_list_payload(
-                "litmus_sweeps", mark.args, dict(mark.kwargs)
-            )
-        except ValueError as exc:
-            raise pytest.UsageError(str(exc)) from exc
-        for raw in normalized:
-            inline_sweeps.append(
-                raw if isinstance(raw, SweepEntry) else SweepEntry.model_validate(raw)
-            )
+    # Classify litmus_sweeps markers by owning node level. Function-level
+    # markers (``own_markers`` on the test function) are INNER — they
+    # parametrize within one logical step. Class-level + higher markers
+    # are OUTER — they fan out across separate pytest items so the
+    # class container can iterate per-condition.
+    own_marks = [
+        m for m in getattr(metafunc.definition, "own_markers", []) if m.name == "litmus_sweeps"
+    ]
+    parent_marks: list[pytest.Mark] = []
+    parent = metafunc.definition.parent
+    while parent is not None:
+        for m in getattr(parent, "own_markers", []):
+            if m.name == "litmus_sweeps":
+                parent_marks.append(m)
+        parent = getattr(parent, "parent", None)
 
-    parametrize_calls: list[tuple[Any, list[Any], dict[str, Any]]] = []
-    for inline_entry in inline_sweeps:
-        argnames, argvalues = sweep_to_parametrize_args(inline_entry)
-        parametrize_calls.append((argnames, argvalues, {}))
-    parametrize_calls.extend(_cascade_parametrize_for_metafunc(metafunc))
+    # Within a level, the TOP decorator is the outermost. ``own_markers``
+    # lists decorators bottom-up, so reverse to put top first.
+    own_marks.reverse()
+    # Across levels, the highest ancestor (module > class) is outermost.
+    # The walk above goes class-first then module; reverse so module-level
+    # sweeps come first when present.
+    parent_marks.reverse()
+
+    outer_sweeps = _entries_from_marks(parent_marks)
+    inner_sweeps = _entries_from_marks(own_marks)
+
+    outer_calls: list[tuple[Any, list[Any], dict[str, Any]]] = []
+    for entry in outer_sweeps:
+        argnames, argvalues = sweep_to_parametrize_args(entry)
+        outer_calls.append((argnames, argvalues, {}))
+
+    inner_calls: list[tuple[Any, list[Any], dict[str, Any]]] = []
+    for entry in inner_sweeps:
+        argnames, argvalues = sweep_to_parametrize_args(entry)
+        inner_calls.append((argnames, argvalues, {}))
+    # Sidecar/profile parametrize is keyed by class.method, so all entries
+    # are method-level → inner.
+    inner_calls.extend(_cascade_parametrize_for_metafunc(metafunc))
 
     if "vectors" in metafunc.fixturenames:
+        # Inner sweeps + function-level @parametrize feed the matrix.
         inline_rows = _consume_parametrize_markers(metafunc)
         sidecar_rows: list[dict[str, Any]] = [{}]
-        for argnames, argvalues, _extra in parametrize_calls:
+        for argnames, argvalues, _extra in inner_calls:
             rows = parametrize_call_rows(argnames, argvalues)
             sidecar_rows = [{**base, **row} for base in sidecar_rows for row in rows]
         if sidecar_rows == [{}]:
@@ -1381,13 +1570,18 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         else:
             full_rows = [{**i, **s} for i in inline_rows for s in sidecar_rows]
         full_matrix = [Vector(**row, _index=i) for i, row in enumerate(full_rows)]
-        parent = metafunc.definition.parent
-        if parent is not None:
-            matrix_map = parent.stash.setdefault(VECTORS_MATRIX_KEY, {})
+        node_parent = metafunc.definition.parent
+        if node_parent is not None:
+            matrix_map = node_parent.stash.setdefault(VECTORS_MATRIX_KEY, {})
             matrix_map[metafunc.definition.originalname] = full_matrix
+        # Outer sweeps STILL parametrize at the pytest level so the
+        # class container fans out one iteration per outer condition.
+        for argnames, argvalues, extra in outer_calls:
+            normalized_values = _normalize_parametrize_argvalues(argvalues)
+            metafunc.parametrize(argnames, normalized_values, **extra)
         return
 
-    for argnames, argvalues, extra in parametrize_calls:
+    for argnames, argvalues, extra in outer_calls + inner_calls:
         normalized_values = _normalize_parametrize_argvalues(argvalues)
         metafunc.parametrize(argnames, normalized_values, **extra)
 

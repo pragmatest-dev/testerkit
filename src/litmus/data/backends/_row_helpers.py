@@ -800,7 +800,11 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
             )
             inputs = dict(vector.params) if vector is not None else {}
             if step.node_id:
-                executed_vectors.add((step.node_id, vec_idx))
+                executed_node_ids.add(step.node_id)
+            # ``executed_vectors`` is keyed by (step_path, vector_index) so
+            # _append_not_started can match across parametrize variants that
+            # share one logical step_path but have distinct node_ids.
+            executed_vectors.add((step.step_path or step.name, vec_idx))
             manifest.append(
                 step_entry_dict(
                     index=index,
@@ -915,47 +919,26 @@ def _append_not_started(
     Shared by both the batch path (``build_step_manifest``) and the
     streaming path (``the accumulator-to-parquet path``).
 
-    When ``executed_vectors`` is provided (set of ``(node_id, vector_index)``
-    pairs that actually ran), this also fills in unrun-vector entries for
-    partially-run sweeps: a step with ``vector_count_planned=4`` that only
-    executed vectors 0 and 1 produces unrun entries for vectors 2 and 3.
+    Each collected item maps to ONE execution at its own
+    ``(step_path, vector_index)``.  We add a "not-started" entry iff
+    that specific pair did not appear in the executed events.
+
+    ``executed_vectors`` is keyed by ``(step_path, vector_index)`` —
+    matching the accumulator's keying — so the check is unambiguous
+    even when multiple pytest items (parametrize variants) share one
+    logical step.
     """
     next_index = len(manifest)
     for ci in collected_items:
         node_id = ci.get("node_id") or ""
-        if node_id in executed_node_ids:
-            # Step ran at least one vector — fill in unrun-vector entries
-            # for the rest of the planned sweep, if any.
-            if executed_vectors is not None:
-                planned_raw = ci.get("vector_count_planned") or 1
-                planned = planned_raw if isinstance(planned_raw, int) else 1
-                for vi in range(planned):
-                    if (node_id, vi) in executed_vectors:
-                        continue
-                    manifest.append(
-                        {
-                            "index": next_index,
-                            "name": ci.get("function") or node_id,
-                            "node_id": node_id,
-                            "file": ci.get("file"),
-                            "function": ci.get("function"),
-                            "class_name": ci.get("class_name"),
-                            "module": ci.get("module"),
-                            "step_path": ci.get("step_path") or "",
-                            "parent_path": ci.get("parent_path") or "",
-                            "description": None,
-                            "outcome": None,
-                            "started_at": None,
-                            "ended_at": None,
-                            "vector_index": vi,
-                            "inputs": {},
-                            "outputs": {},
-                            "has_measurements": False,
-                            "measurement_count": 0,
-                            "vector_count": planned,
-                        }
-                    )
-                    next_index += 1
+        step_path = ci.get("step_path") or ""
+        raw_vi = ci.get("vector_index") or 0
+        vi = raw_vi if isinstance(raw_vi, int) else 0
+        if executed_vectors is not None and (step_path, vi) in executed_vectors:
+            # This exact (step_path, vector_index) ran; nothing to fill in.
+            continue
+        if node_id in executed_node_ids and executed_vectors is None:
+            # Legacy path (no per-vector info): node_id ran, so nothing to do.
             continue
         manifest.append(
             {
@@ -966,7 +949,7 @@ def _append_not_started(
                 "function": ci.get("function"),
                 "class_name": ci.get("class_name"),
                 "module": ci.get("module"),
-                "step_path": ci.get("step_path") or "",
+                "step_path": step_path,
                 "parent_path": ci.get("parent_path") or "",
                 "description": None,
                 # No outcome stamped — the absence IS the receipt
@@ -976,7 +959,7 @@ def _append_not_started(
                 "outcome": None,
                 "started_at": None,
                 "ended_at": None,
-                "vector_index": 0,
+                "vector_index": vi,
                 "inputs": {},
                 "outputs": {},
                 "has_measurements": False,

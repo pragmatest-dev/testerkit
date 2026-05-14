@@ -38,6 +38,19 @@ def _safe_str(value: Any) -> str | None:
     return str(value) if value else None
 
 
+def _step_key(event: Any) -> tuple[str, int]:
+    """Stable accumulator key for a StepStarted / StepEnded event.
+
+    Uses ``step_path`` (the canonical hierarchical id) when set;
+    falls back to ``step_name`` otherwise so direct-API callers
+    (and tests) that emit events without populating step_path
+    still get distinct keys per step. Vector index distinguishes
+    sweep variants and class-container iterations.
+    """
+    path = event.step_path or event.step_name or ""
+    return (path, event.vector_index)
+
+
 class EventAccumulator:
     """Pure projection of run events into row state — no I/O.
 
@@ -77,13 +90,15 @@ class EventAccumulator:
         self._run_started: Any = None  # RunStarted event (run context)
         self._instruments: list[Any] = []  # InstrumentConnected events
         self._measurement_events: list[Any] = []  # MeasurementRecorded events
-        # Step events keyed by (step_index, vector_index) so each sweep
-        # variant gets its own entry. A step running 4 sweep vectors
-        # produces 4 StepStarted + 4 StepEnded events that share
-        # step_index but have vector_index 0..3 — keying by step_index
-        # alone would clobber 3 of them and lose per-vector identity.
-        self._step_starts: dict[tuple[int, int], Any] = {}
-        self._step_ends: dict[tuple[int, int], Any] = {}
+        # Step events keyed by (step_path, vector_index) so each sweep
+        # variant — and each class-container iteration — gets its own
+        # entry. ``step_index`` is unique per logical-step within its
+        # parent bucket but COLLIDES across parents (a class container
+        # at root step_index=0 and its first method at class-bucket
+        # step_index=0 would clobber each other under a (step_index,
+        # vector_index) key). step_path is unique end-to-end per step.
+        self._step_starts: dict[tuple[str, int], Any] = {}
+        self._step_ends: dict[tuple[str, int], Any] = {}
         self._run_ended: Any = None  # RunEnded event (None for in-flight)
         self._collected_items: list[dict[str, str | int | None]] = []
         # node_id → markers, populated when StepsDiscovered arrives so
@@ -117,11 +132,11 @@ class EventAccumulator:
             self._markers_by_node = markers
             self._planned_vector_count = planned
         elif isinstance(event, StepStarted):
-            self._step_starts[(event.step_index, event.vector_index)] = event
+            self._step_starts[_step_key(event)] = event
         elif isinstance(event, MeasurementRecorded):
             self._measurement_events.append(event)
         elif isinstance(event, StepEnded):
-            self._step_ends[(event.step_index, event.vector_index)] = event
+            self._step_ends[_step_key(event)] = event
         elif isinstance(event, RunEnded):
             self._run_ended = event
 
@@ -243,17 +258,18 @@ class EventAccumulator:
             arrays["step_instruments_mocked"].append(inst.mocked)
         return arrays
 
-    def _step_start_field(self, step_index: int, vector_index: int, attr: str) -> Any:
+    def _step_start_field(self, step_path: str, vector_index: int, attr: str) -> Any:
         """Get a field from the cached StepStarted event, or None."""
-        start = self._step_starts.get((step_index, vector_index))
+        start = self._step_starts.get((step_path, vector_index))
         return getattr(start, attr, None) if start else None
 
     def _build_row(self, event: Any) -> dict[str, Any]:
         """Denormalize a MeasurementRecorded event into a flat row dict."""
         idx = event.step_index
         vec = event.vector_index
-        start = self._step_starts.get((idx, vec))
-        end = self._step_ends.get((idx, vec))
+        path = event.step_path or event.step_name or ""
+        start = self._step_starts.get((path, vec))
+        end = self._step_ends.get((path, vec))
         node_id = start.node_id if start else None
         parent_path = (start.parent_path if start else (end.parent_path if end else "")) or ""
         row = MeasurementRow(
@@ -266,10 +282,10 @@ class EventAccumulator:
             step_started_at=start.occurred_at if start else None,
             step_ended_at=end.occurred_at if end else None,
             step_node_id=node_id,
-            step_module=self._step_start_field(idx, vec, "module"),
-            step_file=self._step_start_field(idx, vec, "file"),
-            step_class=self._step_start_field(idx, vec, "class_name"),
-            step_function=self._step_start_field(idx, vec, "function"),
+            step_module=self._step_start_field(path, vec, "module"),
+            step_file=self._step_start_field(path, vec, "file"),
+            step_class=self._step_start_field(path, vec, "class_name"),
+            step_function=self._step_start_field(path, vec, "function"),
             step_markers=self._markers_by_node.get(node_id) if node_id else None,
             step_outcome=end.outcome if end else None,
             step_vector_count=(self._planned_vector_count.get(node_id or "", 1) if node_id else 1),
@@ -315,19 +331,33 @@ class EventAccumulator:
         executed_node_ids: set[str] = set()
         executed_vectors: set[tuple[str, int]] = set()
 
-        meas_counts: dict[tuple[int, int], int] = {}
+        meas_counts: dict[tuple[str, int], int] = {}
         for e in self._measurement_events:
-            key = (e.step_index, e.vector_index)
+            key = (e.step_path or e.step_name or "", e.vector_index)
             meas_counts[key] = meas_counts.get(key, 0) + 1
 
-        all_keys = sorted(set(self._step_starts) | set(self._step_ends))
+        # Sort keys by the producer-assigned (step_index, vector_index) so
+        # the resulting manifest preserves execution order regardless of the
+        # alphabetical position of step_path. Falls back to the key itself
+        # for events that didn't set step_index (zero-default).
+        def _sort_key(k: tuple[str, int]) -> tuple[int, int, str, int]:
+            ev = self._step_starts.get(k) or self._step_ends.get(k)
+            step_index = getattr(ev, "step_index", 0) if ev else 0
+            return (step_index, k[1], k[0], k[1])
+
+        all_keys = sorted(set(self._step_starts) | set(self._step_ends), key=_sort_key)
         for key in all_keys:
             start = self._step_starts.get(key)
             end = self._step_ends.get(key)
             node_id = start.node_id if start else None
             if node_id:
                 executed_node_ids.add(node_id)
-                executed_vectors.add((node_id, key[1]))
+            # ``executed_vectors`` is keyed by (step_path, vector_index) so
+            # _append_not_started can correctly identify which CIs already ran
+            # — pytest parametrize variants share one logical step_path but
+            # have distinct node_ids, so keying by node_id misses cross-CI
+            # matches.
+            executed_vectors.add((key[0], key[1]))
             manifest.append(self._build_step_entry(key, start, end, meas_counts.get(key, 0)))
 
         _append_not_started(
@@ -340,13 +370,19 @@ class EventAccumulator:
 
     def _build_step_entry(
         self,
-        key: tuple[int, int],
+        key: tuple[str, int],
         start: Any | None,
         end: Any | None,
         meas_count: int,
     ) -> dict[str, Any]:
         """Build one step manifest entry from cached StepStarted/StepEnded."""
-        idx, vec = key
+        _, vec = key
+        # ``step_index`` for the manifest entry comes from the StepStarted
+        # event itself — ``step_path`` is the dict key (unique per logical
+        # step) and ``step_index`` is the per-bucket index the producer
+        # assigned. The two are distinct concepts now that containers and
+        # methods can share ``step_index`` across their respective buckets.
+        idx = start.step_index if start else (end.step_index if end else 0)
         node_id = start.node_id if start else None
         # vector_count: prefer the planned count from StepsDiscovered (matches
         # what the finalized parquet records). Falls back to ``1`` for steps

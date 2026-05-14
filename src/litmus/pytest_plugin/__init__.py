@@ -89,6 +89,7 @@ from litmus.pytest_plugin.helpers import (
 )
 from litmus.pytest_plugin.hooks import (
     VECTORS_MATRIX_KEY,
+    _close_open_class_container,
     _profile_errors_as_usage,
     pytest_addoption,
     pytest_assertion_pass,
@@ -339,6 +340,13 @@ def _teardown_logger(logger: TestRunLogger, event_store: Any) -> None:
     if cs is not None:
         cs.close()
         set_channel_store(None)
+
+    # Close any still-open class container BEFORE finalize() so the
+    # container's StepEnded carries its rolled-up outcome (the rollup
+    # walks the run's steps and folds children via the severity ladder).
+    # pytest_sessionfinish fires AFTER session-fixture teardown, so it's
+    # too late to consult the logger there.
+    _close_open_class_container(logger)
 
     # finalize() emits RunEnded; it does not close the event log itself.
     test_run = logger.finalize()
