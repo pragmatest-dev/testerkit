@@ -109,7 +109,7 @@ jobs:
         run: |
           cd /tmp/smoke_project
           uv run --project ${{ github.workspace }} pytest tests/ -q \
-            --station=starter_station --sequence=example_sequence \
+            --station=starter_station \
             --mock-instruments --dut-serial=SMOKE001
       - name: "Smoke: litmus runs"
         run: cd /tmp/smoke_project && uv run litmus runs 2>&1 | head -20
@@ -141,7 +141,7 @@ jobs:
           if [ -f /tmp/upgrade_project/tests/test_example.py ]; then
             cd /tmp/upgrade_project
             uv run --project ${{ github.workspace }} pytest tests/ -q \
-              --station=starter_station --sequence=example_sequence \
+              --station=starter_station \
               --mock-instruments --dut-serial=UPGRADE001 || true
           fi
           git checkout "${GITHUB_REF_NAME}"
