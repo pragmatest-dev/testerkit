@@ -476,7 +476,7 @@ vector_index | vector_retry | measurement_name | value | outcome
 0            | 2            | vout             | 3.30  | pass   ← second retry
 ```
 
-`vector_retry` is **0-based**: `0` is the first execution; `N` is the Nth retry. Filter to the final attempt with `WHERE vector_retry = (SELECT MAX(vector_retry) ...)` or, more idiomatically, query the daemon's `retry_count` rollup on the `steps` view: `WHERE retry_count > 0` finds anything that retried.
+`vector_retry` is **0-based**: `0` is the first execution; `N` is the Nth retry. Filter to the final execution with `WHERE vector_retry = (SELECT MAX(vector_retry) ...)` or, more idiomatically, query the daemon's `retry_count` rollup on the `steps` view: `WHERE retry_count > 0` finds anything that retried.
 
 ## ATML/IEEE 1671 Alignment
 
