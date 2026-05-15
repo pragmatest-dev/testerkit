@@ -33,6 +33,34 @@ class TestPowerUp:
 
 `verify` resolves the limit from the product YAML, writes a measurement via `logger`, and raises `AssertionError` on fail. Instrument fixtures (`psu`, `dmm`) are auto-registered from the station config — define a same-named `conftest.py` fixture only if you need custom setup/teardown.
 
+## Test classes are sequences
+
+A pytest test class is a hardware-test **sequence** — a named, ordered group of methods that run together. Litmus treats it as a first-class step container: each class iteration emits its own `StepStarted` / `StepEnded` events in the run log, and the methods nest underneath it. Outcomes roll up via the severity-max ladder (worst child wins), so a failed measurement inside `test_output_voltage` propagates to `TestPowerUp`'s container outcome to the run outcome.
+
+This matches the way TestStand, OpenTAP, and Spintop OpenHTF model test sequences — and how a hardware engineer would naturally write the equivalent pseudocode (`for each voltage: run the warmup → load test → cooldown sequence`).
+
+```python
+@pytest.mark.litmus_sweeps(voltage=[1, 2, 3])      # class becomes the outer loop
+class TestPowerSequence:
+    def test_warmup(self, voltage, psu, dut):
+        psu.set_voltage(voltage)
+        ...
+    def test_load_regulation(self, voltage, eload, dmm, verify):
+        ...
+    def test_cooldown(self, voltage, psu):
+        psu.disable_output()
+```
+
+Result: 9 step executions in **condition-first** order — full sequence per voltage:
+
+```
+voltage=1: warmup → load_regulation → cooldown
+voltage=2: warmup → load_regulation → cooldown
+voltage=3: warmup → load_regulation → cooldown
+```
+
+See the [step hierarchy concepts page](../concepts/step-hierarchy.md) for the data model — how container/method/measurement events compose and how `step_path` / `parent_path` identify each level.
+
 ## Sweeping inputs (test vectors)
 
 `@pytest.mark.litmus_sweeps(...)` declares one or more nested loops

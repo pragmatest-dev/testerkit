@@ -91,6 +91,63 @@ sweeps:
   - {vin: [3.3, 5.0, 5.5]}     # inner
 ```
 
+### Class-level sweeps (the outermost loop)
+
+When a test class is decorated with `@pytest.mark.litmus_sweeps`,
+the marker applies to **every method in the class**. The class
+becomes the outer loop — pytest runs the entire class sequence
+once per outer iteration, in source order:
+
+```python
+@pytest.mark.litmus_sweeps(voltage=[1, 2, 3])      # class-level → outermost
+class TestPowerSequence:
+    def test_warmup(self, voltage):
+        ...                                          # runs 3 times
+    @pytest.mark.litmus_sweeps(current=[4, 5, 6])  # method-level → inner
+    def test_load_regulation(self, voltage, current):
+        ...                                          # runs 9 times
+    def test_cooldown(self, voltage):
+        ...                                          # runs 3 times
+```
+
+Execution order is **condition-first** — full class sequence per
+voltage condition:
+
+```
+warmup[1] → load_regulation[1,4] → load_regulation[1,5] → load_regulation[1,6] → cooldown[1]
+warmup[2] → load_regulation[2,4] → load_regulation[2,5] → load_regulation[2,6] → cooldown[2]
+warmup[3] → load_regulation[3,4] → load_regulation[3,5] → load_regulation[3,6] → cooldown[3]
+```
+
+That matches the way T&M frameworks (TestStand, OpenTAP, Spintop
+OpenHTF) treat sequences and how a hardware engineer would write
+the equivalent nested `for` loops: outer dimension changes least
+often, so expensive setup (chamber soak, fixture swap) only fires
+when the slow parameter rolls over.
+
+Pytest's own collection order for class-level `@parametrize` is
+method-first (all warmup variants, then all load_regulation
+variants, then all cooldown variants); `litmus_sweeps` reorders to
+condition-first because that's what hardware test sequences want.
+
+Each class iteration emits its own **container step** in the event
+log — see [Step Hierarchy](../concepts/step-hierarchy.md) for what
+the event stream looks like and how it composes with measurements.
+
+### Where you put the decorator matters
+
+| Decorator site | Effect |
+|---|---|
+| Module level (`pytestmark = [...]`) | Applies to every test in the file. Outer-most. |
+| Class level | Applies to every method in the class. One full class sequence per outer value. |
+| Method level | One pytest item per variant of that method only. |
+| Inside the method, via `vectors` fixture | Test owns the loop; one pytest item with N internal iterations (see Self-loop mode below). |
+
+When you stack class-level + method-level decorators, the class
+markers are the outer dimension and the method markers are the
+inner dimension — pytest fans out one item per outer iteration
+of each method.
+
 ### Outer simple, inner paired
 
 Combine the patterns: outer loop is a single variable, inner loop
@@ -245,6 +302,50 @@ def test_sweep(vectors, psu, dmm, verify):
 
 `context.changed`, `verify`, and the run record all behave the same
 as in normal parametrized mode.
+
+### `vectors` fixture inside a swept class
+
+When the method using `vectors` lives inside a class that's also
+swept, the two dimensions split:
+
+- **Outer (class-level) sweeps** still fan out at pytest's
+  parametrize layer — one pytest item per outer condition, one
+  class-container iteration each.
+- **Inner (method-level) sweeps** get consumed into the matrix
+  that the `vectors` fixture iterates internally.
+
+The outer parameter must appear in the method signature so pytest
+can pass it as an argument:
+
+```python
+@pytest.mark.litmus_sweeps(voltage=[1, 2, 3])              # outer
+class TestLoadRegulation:
+    @pytest.mark.litmus_sweeps(current=[4, 5, 6])          # inner
+    def test_response(self, voltage, vectors, psu, eload, dmm, verify):
+        #                  ^^^^^^^  ^^^^^^^
+        #         outer param        inner matrix
+        psu.set_voltage(voltage)
+        for v in vectors:                                   # 3 inner iterations
+            eload.set_current(v["current"])
+            verify("vout", dmm.measure_dc_voltage())
+```
+
+Result: **3 pytest items** (one per voltage). Each item runs the
+test body once and the inner loop spins through 3 currents. **9
+measurements** total, each carrying the full `inputs={voltage,
+current}` so analytics queries can filter on either dimension.
+
+If you forget to declare the outer param in the signature, pytest
+will refuse to collect the test:
+
+```
+In test_response: function uses no argument 'voltage'
+```
+
+Why split outer from inner? It keeps the **class container** as
+the unit of "one full sequence" — perfect for chamber soaks,
+fixture swaps, or any setup that should happen once per outer
+condition before the inner loop fires off measurements.
 
 ---
 
