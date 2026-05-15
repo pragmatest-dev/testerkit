@@ -43,6 +43,33 @@ FROM read_parquet('~/.local/share/litmus/data/runs/**/*.parquet',
 
 Parquet files are never rewritten by version upgrades. The schema at write time is permanent.
 
+### HARD contract — additive evolution only
+
+The parquet artifact is a **HARD contract**: changes must be additive
+because written files can't be retroactively rewritten when a new
+litmus version ships. Until the 1.0 cut, the following invariants
+hold and the project must not break them:
+
+- **New columns only.** Every release may add columns. Existing column
+  names, types, and semantics are stable across 0.x releases.
+- **No removals or type changes** in 0.x. If a column would otherwise
+  be removed or repurposed, it stays in the schema and reads as NULL
+  for newly-written rows; the old meaning is documented as deprecated.
+- **PK stability.** `(run_id, step_path, vector_index)` is the per-step
+  identity in the materialized table; `(run_id, step_path,
+  vector_index, measurement_name, vector_retry)` discriminates
+  measurement rows. These tuples do not change shape in 0.x.
+- **`record_type` discriminator stable.** The `'run'` / `'step'` /
+  `'measurement'` values are part of the wire format and do not change.
+- **Read with `union_by_name=true`.** Consumer queries that follow the
+  recommended `read_parquet(..., union_by_name=true)` pattern survive
+  every additive evolution automatically.
+
+Schema rewrites and column removals are deferred to the 1.0 cut, when
+a migration story for old files lands. See
+[API stability framing](../explorations/api-stability-and-versioning.md)
+for the broader HARD vs SOFT contract picture.
+
 ## The query index
 
 Litmus maintains a DuckDB index alongside the parquet files to speed up queries like `litmus runs` and the web UI. This index is a **disposable cache** — it can be deleted and rebuilt at any time without data loss.

@@ -139,6 +139,34 @@ The `EventStore` layer adds queryability on top of `EventLog`:
 
 On each flush, batches are pushed to the DuckDB daemon via Arrow Flight `do_put`. Queries go through Flight `do_get` with SQL, so you get read-after-write consistency.
 
+## HARD contract — additive evolution only
+
+The event WAL is a **HARD contract** alongside the parquet artifact —
+events are written append-only and consumers can replay arbitrary
+history, so the wire format has to evolve additively. Until the 1.0
+cut, the following invariants hold and the project must not break them:
+
+- **New event types only.** Every release may add event types. The
+  existing event-type discriminator strings (e.g.
+  `"test.step_started"`, `"test.measurement"`, `"run.started"`) and
+  their `Literal` tags are stable across 0.x.
+- **New optional fields only.** Existing event types may grow new
+  fields; they must be optional (have a default) so older events
+  (replayed from disk or read from older daemons) still validate
+  against the current schema. Required fields are frozen for 0.x.
+- **No type changes** on existing fields.
+- **`event_number` monotonicity** is part of the contract: insert-order
+  monotonic per-daemon, used as the watcher cursor for live subscribers.
+- **JSON column preserves the full serialized event** for lossless
+  replay, regardless of which index columns the daemon's DuckDB
+  schema happens to project. Consumers that need the full payload
+  read from JSON and don't depend on the index column set.
+
+Breaking event-shape changes (renaming, removing, type-narrowing
+required fields) defer to the 1.0 cut. See
+[API stability framing](../explorations/api-stability-and-versioning.md)
+for the broader HARD vs SOFT picture.
+
 ## See Also
 
 - [Three Stores Architecture](three-stores.md) — How EventStore fits with ChannelStore and ParquetBackend
