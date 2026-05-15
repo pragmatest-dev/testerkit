@@ -80,7 +80,12 @@ def _merge_marker_fields_into(target: TestEntry, src: TestEntry) -> None:
     if src.characteristics:
         target.characteristics = list(src.characteristics)
     if src.connections is not None:
-        target.connections = src.connections.model_copy(deep=True)
+        # ``connections`` is a list[str] or dict[str, Any] discriminated
+        # one-of. The merge is read-then-replace per source; nothing
+        # downstream mutates ``target.connections`` (apply_entry_markers
+        # passes it to ``pytest.mark.X(...)`` which doesn't mutate marker
+        # args), so aliasing the source is safe — no copy needed.
+        target.connections = src.connections
     if src.retry is not None:
         target.retry = src.retry.model_copy(deep=True)
     target.prompts.update(src.prompts)

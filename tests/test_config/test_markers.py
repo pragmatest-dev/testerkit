@@ -12,7 +12,6 @@ from __future__ import annotations
 import pytest
 
 from litmus.models.test_config import (
-    ConnectionsBinding,
     MeasurementLimitConfig,
     MockEntry,
     PromptConfig,
@@ -57,10 +56,23 @@ class TestTestEntryShape:
         entry = TestEntry.model_validate({"characteristics": ["rail_3v3"]})
         assert entry.characteristics == ["rail_3v3"]
 
-    def test_connections_coerced_to_binding(self) -> None:
-        entry = TestEntry.model_validate({"connections": {"connections": ["vout"]}})
-        assert isinstance(entry.connections, ConnectionsBinding)
-        assert entry.connections.connections == ["vout"]
+    def test_connections_list_form_binds_by_name(self) -> None:
+        """List shape → bind to fixture-connection names (matches
+        ``litmus_characteristics`` positional list shape)."""
+        entry = TestEntry.model_validate({"connections": ["vout", "vin_3v3"]})
+        assert entry.connections == ["vout", "vin_3v3"]
+
+    def test_connections_dict_form_binds_by_channel(self) -> None:
+        """Dict shape → bind to instrument → channel selectors (matches
+        ``litmus_limits`` kwargs-by-name shape)."""
+        entry = TestEntry.model_validate({"connections": {"dmm": ["ch1", "ch2"], "psu": "ch1"}})
+        assert entry.connections == {"dmm": ["ch1", "ch2"], "psu": "ch1"}
+
+    def test_connections_dict_with_all_sentinel(self) -> None:
+        """``'all'`` string is the supported sentinel for every channel
+        on an instrument."""
+        entry = TestEntry.model_validate({"connections": {"dmm": "all"}})
+        assert entry.connections == {"dmm": "all"}
 
     def test_retry_coerced_to_policy(self) -> None:
         entry = TestEntry.model_validate({"retry": {"max_retries": 2}})

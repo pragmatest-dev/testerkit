@@ -208,8 +208,12 @@ def pytest_configure(config):
         "context and auto-derives fixture connections from the "
         "characteristic's pins. v1 supports one binding per test (single "
         "iteration scope); multi-binding semantics may relax in future.",
-        "litmus_connections(connections=[...] | instrument_channels={...}): "
-        "Bind the test to explicit named connections or instrument-channel ranges.",
+        "litmus_connections([<name>, ...] | **{instrument: channels}): "
+        "Bind the test to fixture-connection names (positional list, matches "
+        "`litmus_characteristics`) OR to raw instrument channels (kwargs by "
+        "instrument name, matches `litmus_limits` shape). The two forms are "
+        "alternatives — list shape requires a fixture YAML; dict shape works "
+        "pre-fixture-config for early bringup.",
         "litmus_prompts(**kwargs): Declare named operator prompts; "
         "each kwarg is `name=PromptConfig-shaped dict`. The `prompt` "
         "fixture resolves them by name (or implicitly when only one is "

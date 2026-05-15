@@ -31,7 +31,10 @@ from litmus.models.enums import Comparator, MeasurementFunction
 #   * ``sweeps``      → ``list[SweepEntry]``
 #   * ``mocks``       → ``list[MockEntry]``
 #   * ``characteristics`` → ``list[str]``
-#   * ``connections`` → ``ConnectionsBinding | None``
+#   * ``connections`` → ``list[str] | dict[str, list[Any] | str] | None``
+#     (list shape = bind by fixture-connection name; dict shape =
+#     bind by instrument → channel selectors. Pydantic discriminates
+#     by literal shape — one-of enforced at YAML load.)
 #   * ``retry``       → ``RetryConfig | None``
 #   * ``prompts``     → ``dict[str, PromptConfig]``
 #
@@ -98,15 +101,6 @@ class MockEntry(BaseModel):
         return self.model_dump(exclude={"target"})
 
 
-class ConnectionsBinding(BaseModel):
-    """Per-test fixture-connection binding — narrow to named connections or instrument channels."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    connections: list[str] | None = None
-    instrument_channels: dict[str, Any] | None = None
-
-
 class RetryConfig(BaseModel):
     """Runner-neutral retry config — translates to ``flaky`` under pytest.
 
@@ -166,7 +160,20 @@ class TestEntry(BaseModel):
     sweeps: list[SweepEntry] = Field(default_factory=list)
     mocks: list[MockEntry] = Field(default_factory=list)
     characteristics: list[str] = Field(default_factory=list)
-    connections: ConnectionsBinding | None = None
+    # ``connections`` is a typed one-of, discriminated by shape:
+    #
+    #   * ``list[str]``  → bind by fixture-connection names (requires a
+    #     fixture YAML to resolve the names against).
+    #   * ``dict[str, Any]`` → bind by instrument → channel selectors
+    #     (works pre-fixture-config for early bringup; synthesizes
+    #     ``FixtureConnection`` stubs from the (instrument, channel)
+    #     tuples). Values may be ``list[str | int]`` or the sentinel
+    #     ``"all"`` meaning every channel on that instrument.
+    #
+    # Pydantic discriminates at YAML load — a string-keyed dict can't
+    # be mistaken for a list, so the one-of is structurally enforced
+    # without a model_validator.
+    connections: list[str] | dict[str, Any] | None = None
     retry: RetryConfig | None = None
     prompts: dict[str, PromptConfig] = Field(default_factory=dict)
     runner: dict[str, Any] = Field(default_factory=dict)

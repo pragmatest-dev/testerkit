@@ -140,7 +140,7 @@ def test_connections_marker_iterates_and_stamps_pin(pytester: pytest.Pytester) -
             """
             tests:
               test_rail:
-                connections: {connections: [vout_measure]}
+                connections: [vout_measure]
                 limits:
                   v_rail: {low: 3.2, high: 3.4, units: V}
             """
@@ -236,7 +236,7 @@ def test_unconsumed_connections_iterator_fails_loudly(pytester: pytest.Pytester)
             """
             tests:
               test_rail:
-                connections: {connections: [vout_measure]}
+                connections: [vout_measure]
                 limits:
                   v_rail: {low: 3.2, high: 3.4, units: V}
             """

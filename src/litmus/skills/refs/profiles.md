@@ -204,7 +204,7 @@ file, profile, class branch, per-test entry):
 | `sweeps`        | list of axis-group dicts           | `@pytest.mark.litmus_sweeps([{vin: [...]}])`      |
 | `mocks`         | list of patch-object dicts         | `@pytest.mark.litmus_mocks([{target: ...}])`      |
 | `specs`         | list of characteristic IDs         | `@pytest.mark.litmus_characteristics(["rail_3v3"])`         |
-| `connections`   | singleton dict                     | `@pytest.mark.litmus_connections(...)`            |
+| `connections`   | list of names OR dict by instrument | `@pytest.mark.litmus_connections(["vout"])` or `@pytest.mark.litmus_connections(dmm=["ch1"])` |
 | `retry`         | singleton dict                     | `@pytest.mark.litmus_retry(max_retries=2)`        |
 | `prompts`       | dict by prompt name                | `@pytest.mark.litmus_prompts(setup={...})`        |
 

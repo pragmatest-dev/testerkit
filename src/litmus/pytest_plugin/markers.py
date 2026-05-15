@@ -70,9 +70,15 @@ def apply_entry_markers(item: pytest.Item, entry: TestEntry) -> None:
     if entry.characteristics:
         item.add_marker(pytest.mark.litmus_characteristics(list(entry.characteristics)))
     if entry.connections is not None:
-        item.add_marker(
-            pytest.mark.litmus_connections(**entry.connections.model_dump(exclude_none=True))
-        )
+        # ``entry.connections`` is the discriminated one-of: list[str]
+        # binds by fixture-connection name (passed positionally to the
+        # marker, matching ``litmus_characteristics([...])`` shape);
+        # dict[str, Any] binds by instrument → channel (passed as
+        # kwargs, matching ``litmus_limits(**by_name)`` shape).
+        if isinstance(entry.connections, list):
+            item.add_marker(pytest.mark.litmus_connections(entry.connections))
+        else:
+            item.add_marker(pytest.mark.litmus_connections(**entry.connections))
     if entry.retry is not None:
         item.add_marker(pytest.mark.litmus_retry(**entry.retry.model_dump(exclude_none=True)))
     if entry.prompts:

@@ -42,7 +42,7 @@ def test_rail_holds_across_input(verify, psu, dmm, context, vin: float) -> None:
 
 
 @pytest.mark.litmus_characteristics("rail_3v3")
-@pytest.mark.litmus_connections(connections=["vout_measure"])
+@pytest.mark.litmus_connections(["vout_measure"])
 @pytest.mark.litmus_limits(v_rail={"characteristic": "rail_3v3", "tolerance_pct": 2})
 def test_rail_inline_markers(verify, psu, dmm, connections) -> None:
     """All three markers inline. ``connections`` fixture (sibling to

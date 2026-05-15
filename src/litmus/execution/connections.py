@@ -240,25 +240,50 @@ def _resolve_chars_to_connections(
     return matched, conn_to_char
 
 
-def _validate_connections_kwargs(
-    kwargs: dict[str, Any],
+def _resolve_connections_payload(
+    mark: Any,
 ) -> tuple[list[str] | None, dict[str, Any] | None]:
-    """Validate the ``litmus_connections`` payload and return its branch.
+    """Return ``(names, instrument_channels)`` from a ``litmus_connections`` mark.
 
-    Exactly one of ``connections`` (named lookup) / ``instrument_channels``
-    (raw ``inst:channel`` selector) must be set.
+    The marker is a shape-discriminated one-of:
+
+    * Positional list of strings → bind by fixture-connection name
+      (``@pytest.mark.litmus_connections(["vout_measure"])``).
+    * Kwargs by instrument name → bind by instrument → channel selectors
+      (``@pytest.mark.litmus_connections(dmm=["ch1"])``).
+
+    Exactly one shape may appear per marker invocation. Pydantic already
+    enforces the one-of at the YAML layer (``TestEntry.connections`` is a
+    ``list[str] | dict[str, Any]`` discriminated union); this function
+    is the parallel guard for the inline-marker call site.
     """
-    connections = kwargs.get("connections")
-    instrument_channels = kwargs.get("instrument_channels")
-    if connections is not None and instrument_channels is not None:
+    args = list(getattr(mark, "args", ()) or ())
+    kwargs = dict(getattr(mark, "kwargs", {}) or {})
+    if args and kwargs:
         raise ConnectionResolutionError(
-            "litmus_connections must set exactly one of connections or instrument_channels."
+            "litmus_connections takes EITHER a positional list of "
+            "connection names OR instrument kwargs, not both. Got "
+            f"args={args!r} kwargs={kwargs!r}."
         )
-    if connections is None and instrument_channels is None:
-        raise ConnectionResolutionError(
-            "litmus_connections requires either connections=[...] or instrument_channels={...}."
-        )
-    return connections, instrument_channels
+    if args:
+        positional: Any = args[0] if len(args) == 1 else None
+        if not isinstance(positional, list):
+            raise ConnectionResolutionError(
+                "litmus_connections positional form takes one list of "
+                f"connection names. Got {args!r}."
+            )
+        names: list[Any] = positional
+        if not all(isinstance(n, str) for n in names):
+            raise ConnectionResolutionError(
+                f"litmus_connections names must be strings; got {names!r}."
+            )
+        return [str(n) for n in names], None
+    if kwargs:
+        return None, kwargs
+    raise ConnectionResolutionError(
+        "litmus_connections requires either a positional list of "
+        "connection names or instrument kwargs."
+    )
 
 
 def _named_connections(
@@ -412,7 +437,7 @@ def resolve_test_connections(
     if per_char_pins:
         union_pins = {pin for pins in per_char_pins.values() for pin in pins}
 
-    names, instrument_channels = _validate_connections_kwargs(dict(conn_marker.kwargs))
+    names, instrument_channels = _resolve_connections_payload(conn_marker)
     if names is not None:
         connections = _named_connections(names, fixture_cfg, union_pins)
     else:
