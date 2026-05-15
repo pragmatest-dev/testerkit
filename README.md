@@ -7,60 +7,19 @@
 
 **Python hardware test platform for electronics production and validation.**
 
-Litmus handles the parts of hardware testing that aren't your test: instrument management, result storage, limit checking, traceability, operator UI. You write pytest functions for your specific hardware. Everything else is config files and convention.
+Litmus is a pytest plugin and command-line tool for hardware test engineers. You write tests as plain pytest functions; Litmus handles the parts that aren't your test — instrument setup, limit checking, results storage, operator UI. Tests run against mock instruments out of the box, so you can start on your laptop and move to a real bench later.
 
-New products start fast. Results are consistent across product lines. Every measurement records which instrument took it.
-
-```python
-def test_rail_3v3(context, psu, dmm, verify):
-    """Verify 3.3V output under load."""
-    psu.set_voltage(context.get_param("vin"))
-    psu.enable_output()
-    verify("rail_3v3", float(dmm.measure_dc_voltage()))
-```
-
-```yaml
-# config.yaml — limits and vectors easily modified without changing code
-test_rail_3v3:
-  vectors:
-    expand: product
-    vin: [3.3, 5.0, 12.0]
-    load: [0.1, 0.5, 1.0]
-  limits:
-    test_rail_3v3:
-      ref: products.power_board.rail_3v3
-      guardband_pct: 10
-```
-
-Nine test vectors. Limits from your product spec with 10% guardband. Every measurement logged with instrument serial number, cal due date, and firmware version. If a unit fails in the field, you can trace back to the exact instrument and cal state that tested it.
-
-## What you get
-
-- **Instrument fixtures from station config** — Define roles once (`dmm`, `psu`, `eload`). They become pytest fixtures. No conftest.py boilerplate. Swap benches with `--station=bench_2`.
-- **Develop without hardware** — `pytest --mock-instruments` returns configurable values per vector. Write and debug at your desk, plug in real instruments at the bench.
-- **Limits from product specs** — Define specs once (nominal + tolerance), derive limits with optional guardbanding. Spec changes propagate everywhere.
-- **Per-step instrument traceability** — Every result row records which instrument (serial, cal date, firmware) took that measurement. Not per-run — per-step.
-- **Operator UI** — `litmus serve` gives operators a browser UI to pick sequences, enter serial numbers, and watch results. No CLI knowledge needed.
-- **Capability matching** — Describe what signals your product needs. Litmus tells you which instruments in your catalog cover them.
-
-## Quick start
+## Get started in under a minute
 
 ```bash
 pip install litmus-test            # or: uv add litmus-test
-litmus init quick_start --starter && cd quick_start
-pytest                             # runs with mock instruments out of the box
+litmus init my_project --starter && cd my_project
+pytest
 ```
 
-Prefer working from source:
+Four tests pass against mock instruments. The [tutorial](./docs/tutorial/index.md) walks you from this starter project to a production-ready suite, one concept at a time.
 
-```bash
-git clone https://github.com/pragmatest-dev/litmus.git
-cd litmus && uv sync
-```
-
-That's it. You have a working project with example tests, a station config, and mock instruments.
-
-### What `--starter` generated
+## What `--starter` generated
 
 ```yaml
 # stations/starter_station.yaml — mock instruments for getting started
@@ -96,9 +55,15 @@ def test_output_voltage(context, psu, dmm, verify):
 `psu` and `dmm` come from your station config. `context` and `verify`
 come from the Litmus pytest plugin. No conftest.py needed.
 
-### Next steps
+## Learning path
 
-Ready for real hardware? See [From Mocks to Hardware](docs/tutorial/from-mocks-to-hardware.md).
+After the starter project runs, the recommended progression:
+
+1. **[Tutorial](./docs/tutorial/index.md)** — Ten short chapters from a first test through live production monitoring. Read in order; each builds on the last.
+2. **[Examples](./examples/README.md)** — Seven self-contained projects (`01-vanilla` → `07-profiles`) that isolate one concept each. Clone, run, modify.
+3. **[Concepts](./docs/concepts.md)** — Reference for the vocabulary: station, fixture, product, sequence, capability, vector.
+
+When you're ready to leave mocks behind, [From Mocks to Hardware](./docs/tutorial/from-mocks-to-hardware.md) covers the transition.
 
 ```bash
 litmus discover                 # scan for real instruments
@@ -109,23 +74,13 @@ pytest --station=my_bench       # run against real instruments
 litmus runs                     # see results
 ```
 
-### What results look like
+## Design principles
 
-Every measurement row in Parquet:
-
-| Column | Example |
-|---|---|
-| `step_name` | `test_output_voltage` |
-| `value` | `5.017` |
-| `units` | `V` |
-| `limit_low` / `limit_high` | `4.5` / `5.5` |
-| `pass_fail` | `PASS` |
-| `vin` | `12.0` |
-| `instr_serial` | `["MY12345678"]` |
-| `instr_cal_due` | `["2026-08-15"]` |
-| `dut_serial` | `UNIT042` |
-
-Open in pandas, DuckDB, or anything that reads Parquet.
+1. **Built for hardware test, end to end** — Every measurement carries its limits, signal path, and the instrument that took it (with serial, cal date, firmware) — a field failure traces back to the exact bench state. Yield, Cpk, Pareto, retest, and time-loss analytics ship built in. Industry exporters (STDF, ATML, HDF5, TDMS, MDF4) bridge your reporting pipeline.
+2. **Everything is a file you can version** — Limits, stations, products, fixtures, sequences, results — all files. Edit them in your text editor, diff them in git, review changes like code. A project moves between machines as a folder.
+3. **Open and extensible, no lock-in** — Pytest tests (plus its plugin ecosystem), PyVISA for any VISA-compatible instrument, YAML config, Parquet results that any data tool can read. All open source. If you change your mind about Litmus, your tests, configs, and results travel with you.
+4. **AI-ready, never AI-dependent** — Built on technology AI assistants know deeply (pytest, YAML, Python, markdown). MCP tools expose every Litmus operation; JSON Schemas act as guardrails for any config the AI writes. The platform itself never calls out to an AI model.
+5. **Start simple, grow with the project** — Adopt one piece at a time: measurement logging first, then station config, then product specs, then capability matching. Bring your own instrument drivers (PyMeasure, vendor SDKs, hand-rolled). Custom fields on every measurement and event extend the model where you need to.
 
 ## Project layout
 
@@ -158,13 +113,12 @@ def test_rail_3v3(context, psu, dmm, verify):
     psu.set_voltage(context.get_param("vin"))
     psu.enable_output()
     verify("rail_3v3", float(dmm.measure_dc_voltage()))
-    # → limit-checked against sidecar / product spec
-    # → logged to Parquet with instrument identity
+    # → limit-checked against the YAML next to the test or your product spec
+    # → logged to your results file with the instrument that took it
 ```
 
-Vectors (`@pytest.mark.parametrize` or sidecar `vectors:`), limits,
-mocks, and retries are all driven by the pytest plugin and the sidecar
-YAML next to the test — no decorator needed.
+Sweeps, limits, mocks, and retries are all controlled from a YAML
+file alongside the test — no extra wrapper code in your test function.
 
 ## Capability matching
 
@@ -179,35 +133,18 @@ litmus_match(requirements=[
 # → Keysight E36312A covers dc_current output
 ```
 
-Works from the CLI, MCP tools, or HTTP API.
+Run it from the command line, from an AI tool, or from a web request.
 
 ## AI integration
 
-Litmus exposes your test system as MCP tools. Optional, not a dependency.
+Connect Claude Code or any AI assistant to your test system. Optional, not required.
 
 ```bash
 litmus setup claude-code    # Add to Claude Code
-litmus mcp serve            # Any MCP client
+litmus mcp serve            # Any MCP-compatible AI tool
 ```
 
-An agent can read a datasheet, extract specs, recommend instruments, generate configs, write tests, and run them — all through tool calls.
-
-Convention-driven frameworks also produce better LLM output. When the pattern is always "return a measurement, limits come from config, instruments are fixtures," there's less room for the model to improvise poorly.
-
-## Compared to alternatives
-
-| | **TestStand** | **OpenHTF** | **In-house scripts** | **Litmus** |
-|---|---|---|---|---|
-| Language | LabVIEW/C# | Python | Varies | Python (pytest) |
-| Config | Proprietary | Code | Scattered | Declarative files |
-| License | $$$ | Free | — | Free |
-| Instrument mgmt | Built-in | None | Manual | Config + catalog |
-| Mock mode | Limited | Manual | Manual | `--mock-instruments` |
-| Results | Proprietary | Protobuf | CSV/Excel | Parquet |
-| AI tooling | No | No | No | MCP |
-| Learning curve | Steep | Moderate | None (you wrote it) | pytest |
-
-Closest to OpenHTF in spirit. pytest instead of a custom executor, config files instead of Python objects, Parquet instead of Protobuf.
+An AI assistant can read a datasheet, extract specs, recommend instruments, generate configs, and scaffold tests for you to review.
 
 ## CLI
 
