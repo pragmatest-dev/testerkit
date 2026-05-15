@@ -7,6 +7,13 @@ Litmus exposes two APIs for AI agents and external tools:
 
 Both APIs provide identical functionality.
 
+> **Live API explorer.** When `litmus serve` is running, the OpenAPI
+> schema is at <http://localhost:8000/api/openapi.json>, with Swagger
+> UI at <http://localhost:8000/api/docs> and ReDoc at
+> <http://localhost:8000/api/redoc>. Use either for interactive
+> request building, response previews, and codegen against the
+> typed response models.
+
 ## Setup
 
 ### MCP Server

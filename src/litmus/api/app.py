@@ -4,17 +4,53 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import ORJSONResponse, Response
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import HTMLResponse, ORJSONResponse, Response
 from pydantic import BaseModel
 
+from litmus import __version__ as _litmus_version_str
 from litmus.api._mime import sniff_mime
-from litmus.api.models import DialogCreate, DialogRespondRequest, LaunchRequest, SaveRequest
+from litmus.api.dialogs.models import Dialog, DialogResponse
+from litmus.api.models import (
+    DialogCreate,
+    DialogRespondRequest,
+    LaunchRequest,
+    RunStatus,
+    SaveRequest,
+)
+from litmus.api.responses import (
+    ActiveRunsResponse,
+    DialogCreateResponse,
+    DialogRespondAck,
+    DialogsListResponse,
+    GenericObjectResponse,
+    InstrumentAssetsResponse,
+    InstrumentTypesResponse,
+    MatchAllResponse,
+    MatchSingleResponse,
+    MeasurementsListResponse,
+    MetricsResponse,
+    ProductRequirementsResponse,
+    ProductsListResponse,
+    RunLaunchResponse,
+    RunsListResponse,
+    StationCapabilitiesResponse,
+    StationsListResponse,
+    StepsListResponse,
+    StepsTreeResponse,
+)
 from litmus.api.schemas import CapabilitySummary, RequirementSummary, RunView, load_run_view
 from litmus.data.backends.parquet import ParquetBackend, is_file_reference, load_ref
 from litmus.data.models import Waveform
+from litmus.models.catalog import InstrumentCatalogEntry
+from litmus.models.instrument_asset import InstrumentAssetFile
+from litmus.models.product import Product
+from litmus.models.station import StationConfig
 
 
 def _serialize_ref(result: object) -> Response | dict:
@@ -108,6 +144,47 @@ def create_api_router() -> APIRouter:
     data_dir: Path | None = Path(project.data_dir) if project.data_dir else None
     backend = ParquetBackend(data_dir=data_dir)
 
+    # -------------------------------------------------------------------------
+    # API docs — Swagger UI / ReDoc / OpenAPI JSON
+    #
+    # FastAPI's default `/docs`, `/redoc`, `/openapi.json` routes collide
+    # with NiceGUI's `@ui.page("/docs")` Diátaxis browser. Mount Swagger
+    # UI and ReDoc under the `/api/` prefix so the live API explorer is
+    # reachable without shadowing the in-app docs browser.
+    # -------------------------------------------------------------------------
+
+    @router.get("/openapi.json", include_in_schema=False)
+    def openapi_json(request: Request) -> dict[str, Any]:
+        """OpenAPI 3.0 schema for the Litmus HTTP API."""
+        return get_openapi(
+            title="Litmus HTTP API",
+            version=_litmus_version_str,
+            description=(
+                "JSON API for runs, steps, measurements, sessions, dialogs, "
+                "channels, products, stations, instruments, metrics, and the "
+                "MCP-parity tool surface."
+            ),
+            routes=request.app.routes,
+        )
+
+    @router.get("/docs", include_in_schema=False, response_class=HTMLResponse)
+    def swagger_ui() -> HTMLResponse:
+        """Swagger UI live API explorer (mounted under `/api/` to avoid
+        colliding with NiceGUI's `/docs` Diátaxis browser).
+        """
+        return get_swagger_ui_html(
+            openapi_url="/api/openapi.json",
+            title="Litmus HTTP API — Swagger UI",
+        )
+
+    @router.get("/redoc", include_in_schema=False, response_class=HTMLResponse)
+    def redoc_ui() -> HTMLResponse:
+        """ReDoc rendering of the OpenAPI schema."""
+        return get_redoc_html(
+            openapi_url="/api/openapi.json",
+            title="Litmus HTTP API — ReDoc",
+        )
+
     def _measurements_query():
         from litmus.analysis.measurements_query import MeasurementsQuery
 
@@ -122,7 +199,7 @@ def create_api_router() -> APIRouter:
     # Runs
     # -------------------------------------------------------------------------
 
-    @router.get("/runs", response_class=ORJSONResponse)
+    @router.get("/runs", response_model=RunsListResponse, response_class=ORJSONResponse)
     def list_runs(limit: int = 50):
         """List recent test runs."""
         from litmus.analysis.runs_query import RunsQuery
@@ -142,7 +219,11 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=404, detail="Run not found")
         return view
 
-    @router.get("/runs/{run_id}/measurements", response_class=ORJSONResponse)
+    @router.get(
+        "/runs/{run_id}/measurements",
+        response_model=MeasurementsListResponse,
+        response_class=ORJSONResponse,
+    )
     def get_measurements(run_id: str):
         """Get measurements for a test run."""
         if backend.get_run(run_id) is None:
@@ -150,7 +231,11 @@ def create_api_router() -> APIRouter:
         measurements = backend.get_measurements(run_id)
         return {"measurements": measurements}
 
-    @router.get("/runs/{run_id}/steps", response_class=ORJSONResponse)
+    @router.get(
+        "/runs/{run_id}/steps",
+        response_model=StepsListResponse,
+        response_class=ORJSONResponse,
+    )
     def get_steps(run_id: str):
         """List steps for a run, ordered by step_index."""
         q = _steps_query()
@@ -162,7 +247,11 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=404, detail="Run not found")
         return {"steps": [r.model_dump(mode="json") for r in rows]}
 
-    @router.get("/runs/{run_id}/steps/tree", response_class=ORJSONResponse)
+    @router.get(
+        "/runs/{run_id}/steps/tree",
+        response_model=StepsTreeResponse,
+        response_class=ORJSONResponse,
+    )
     def get_steps_tree(run_id: str):
         """Hierarchical step tree built from ``step_path``."""
         q = _steps_query()
@@ -219,7 +308,7 @@ def create_api_router() -> APIRouter:
 
         return _serialize_ref(result)
 
-    @router.post("/runs")
+    @router.post("/runs", response_model=RunLaunchResponse)
     async def start_run(request: LaunchRequest):
         """Start a new test run."""
         from litmus.api.runner import get_runner
@@ -228,7 +317,7 @@ def create_api_router() -> APIRouter:
         run_id = await runner.start(request)
         return {"run_id": run_id, "status": "running"}
 
-    @router.get("/runs/{run_id}/status")
+    @router.get("/runs/{run_id}/status", response_model=RunStatus)
     def get_run_status(run_id: str):
         """Get status of a running test."""
         from litmus.api.runner import get_runner
@@ -237,9 +326,9 @@ def create_api_router() -> APIRouter:
         status = runner.get_status(run_id)
         if not status:
             raise HTTPException(status_code=404, detail="Run not found")
-        return status.model_dump()
+        return status
 
-    @router.get("/active")
+    @router.get("/active", response_model=ActiveRunsResponse)
     def list_active_runs():
         """List currently running tests."""
         from litmus.api.runner import get_runner
@@ -254,7 +343,7 @@ def create_api_router() -> APIRouter:
     # Dialogs
     # -------------------------------------------------------------------------
 
-    @router.get("/dialogs")
+    @router.get("/dialogs", response_model=DialogsListResponse)
     def list_dialogs(run_id: str | None = None):
         """List pending dialogs."""
         from litmus.api.dialogs import get_dialog_manager
@@ -263,7 +352,7 @@ def create_api_router() -> APIRouter:
         dialogs = manager.get_pending_dialogs(run_id)
         return {"dialogs": [d.model_dump(mode="json") for d in dialogs]}
 
-    @router.post("/dialogs")
+    @router.post("/dialogs", response_model=DialogCreateResponse)
     def create_dialog(request: DialogCreate):
         """Create a pending dialog (from test subprocess)."""
         from litmus.api.dialogs import get_dialog_manager
@@ -273,7 +362,7 @@ def create_api_router() -> APIRouter:
         manager.register_dialog(dialog)
         return {"dialog_id": str(dialog.id), "status": "pending"}
 
-    @router.get("/dialogs/{dialog_id}")
+    @router.get("/dialogs/{dialog_id}", response_model=Dialog)
     def get_dialog(dialog_id: str):
         """Get a specific pending dialog."""
         from litmus.api.dialogs import get_dialog_manager
@@ -285,7 +374,7 @@ def create_api_router() -> APIRouter:
                 return dialog.model_dump(mode="json")
         raise HTTPException(status_code=404, detail="Dialog not found")
 
-    @router.get("/dialogs/{dialog_id}/wait")
+    @router.get("/dialogs/{dialog_id}/wait", response_model=DialogResponse)
     async def wait_for_response(dialog_id: str, timeout: float = 300):
         """Long-poll waiting for dialog response.
 
@@ -319,7 +408,7 @@ def create_api_router() -> APIRouter:
 
         return DialogResponse(dialog_id=uuid, timed_out=True).model_dump(mode="json")
 
-    @router.post("/dialogs/{dialog_id}/respond")
+    @router.post("/dialogs/{dialog_id}/respond", response_model=DialogRespondAck)
     def respond_to_dialog(dialog_id: str, request: DialogRespondRequest):
         """Respond to a pending dialog."""
         from litmus.api.dialogs import DialogResponse, get_dialog_manager
@@ -344,7 +433,7 @@ def create_api_router() -> APIRouter:
     # Events & Sessions
     # -------------------------------------------------------------------------
 
-    @router.get("/events", response_class=ORJSONResponse)
+    @router.get("/events", response_model=GenericObjectResponse, response_class=ORJSONResponse)
     def list_events(
         session_id: str | None = None,
         type: str | None = None,
@@ -364,14 +453,18 @@ def create_api_router() -> APIRouter:
             data_dir=data_dir,
         )
 
-    @router.get("/sessions", response_class=ORJSONResponse)
+    @router.get("/sessions", response_model=GenericObjectResponse, response_class=ORJSONResponse)
     def list_sessions():
         """List known sessions."""
         from litmus.mcp.tools import sessions_query
 
         return sessions_query(data_dir=data_dir)
 
-    @router.get("/sessions/{session_id}", response_class=ORJSONResponse)
+    @router.get(
+        "/sessions/{session_id}",
+        response_model=GenericObjectResponse,
+        response_class=ORJSONResponse,
+    )
     def get_session(session_id: str):
         """Get events for a specific session."""
         from litmus.mcp.tools import session_detail_query
@@ -385,14 +478,18 @@ def create_api_router() -> APIRouter:
     # Channels
     # -------------------------------------------------------------------------
 
-    @router.get("/channels", response_class=ORJSONResponse)
+    @router.get("/channels", response_model=GenericObjectResponse, response_class=ORJSONResponse)
     def list_channels():
         """List known channels from the channel registry."""
         from litmus.mcp.tools import channels_list_query
 
         return channels_list_query(data_dir=data_dir)
 
-    @router.get("/channels/_recent", response_class=ORJSONResponse)
+    @router.get(
+        "/channels/_recent",
+        response_model=GenericObjectResponse,
+        response_class=ORJSONResponse,
+    )
     def list_channels_recent(last_n: int = 50):
         """Channel registry + recent samples per channel.
 
@@ -404,7 +501,11 @@ def create_api_router() -> APIRouter:
 
         return channels_recent_query(last_n=last_n, data_dir=data_dir)
 
-    @router.get("/channels/{channel_id}", response_class=ORJSONResponse)
+    @router.get(
+        "/channels/{channel_id}",
+        response_model=GenericObjectResponse,
+        response_class=ORJSONResponse,
+    )
     def get_channel_data(
         channel_id: str,
         session_id: str | None = None,
@@ -430,7 +531,7 @@ def create_api_router() -> APIRouter:
     # Products & Stations
     # -------------------------------------------------------------------------
 
-    @router.get("/products")
+    @router.get("/products", response_model=ProductsListResponse)
     def list_products():
         """List all available product specifications."""
         from litmus.matching.service import list_products_summary
@@ -438,7 +539,7 @@ def create_api_router() -> APIRouter:
         products = list_products_summary()
         return {"products": products}
 
-    @router.get("/products/{product_id}")
+    @router.get("/products/{product_id}", response_model=Product)
     def get_product(product_id: str):
         """Get a product specification by ID."""
         from litmus.store import get_product as store_get_product
@@ -448,7 +549,10 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found")
         return product.model_dump()
 
-    @router.get("/products/{product_id}/requirements")
+    @router.get(
+        "/products/{product_id}/requirements",
+        response_model=ProductRequirementsResponse,
+    )
     def get_product_requirements(product_id: str):
         """Get required capabilities for a product."""
         from litmus.matching.service import get_required_capabilities
@@ -470,7 +574,7 @@ def create_api_router() -> APIRouter:
             ],
         }
 
-    @router.get("/stations")
+    @router.get("/stations", response_model=StationsListResponse)
     def list_all_stations():
         """List all available test stations."""
         from litmus.store import list_stations
@@ -478,7 +582,7 @@ def create_api_router() -> APIRouter:
         stations = list_stations()
         return {"stations": [s.model_dump() for s in stations]}
 
-    @router.get("/stations/{station_id}")
+    @router.get("/stations/{station_id}", response_model=StationConfig)
     def get_station(station_id: str):
         """Get a station configuration by ID."""
         from litmus.store import get_station as store_get_station
@@ -488,7 +592,10 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=404, detail=f"Station '{station_id}' not found")
         return config.model_dump()
 
-    @router.get("/stations/{station_id}/capabilities")
+    @router.get(
+        "/stations/{station_id}/capabilities",
+        response_model=StationCapabilitiesResponse,
+    )
     def get_station_capabilities(station_id: str):
         """Get capabilities provided by a station."""
         from litmus.matching.service import (
@@ -515,7 +622,7 @@ def create_api_router() -> APIRouter:
             ],
         }
 
-    @router.get("/match")
+    @router.get("/match", response_model=MatchSingleResponse | MatchAllResponse)
     def match_capabilities(product_id: str, station_id: str | None = None):
         """Match product requirements to station capabilities.
 
@@ -553,7 +660,7 @@ def create_api_router() -> APIRouter:
     # Instruments & Catalog
     # -------------------------------------------------------------------------
 
-    @router.get("/instruments/types")
+    @router.get("/instruments/types", response_model=InstrumentTypesResponse)
     def list_instrument_types():
         """List distinct instrument ``type`` values present in the catalog."""
         from litmus.store import find_catalog_dirs, load_catalog_from_directory
@@ -566,7 +673,7 @@ def create_api_router() -> APIRouter:
         }
         return {"instrument_types": sorted(types)}
 
-    @router.get("/instruments/catalog/{entry_id}")
+    @router.get("/instruments/catalog/{entry_id}", response_model=InstrumentCatalogEntry)
     def get_catalog_entry(entry_id: str):
         """Get a catalog entry by type or ID."""
         from litmus.store import get_catalog_entry as store_get_catalog_entry
@@ -576,7 +683,7 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=404, detail=f"Catalog entry '{entry_id}' not found")
         return result.model_dump()
 
-    @router.get("/instruments/assets")
+    @router.get("/instruments/assets", response_model=InstrumentAssetsResponse)
     def list_instrument_assets():
         """List instrument asset files (physical devices you own)."""
         from litmus.store import list_instrument_assets
@@ -584,7 +691,7 @@ def create_api_router() -> APIRouter:
         assets = list_instrument_assets()
         return {"assets": [a.model_dump() for a in assets], "count": len(assets)}
 
-    @router.get("/instruments/assets/{asset_id}")
+    @router.get("/instruments/assets/{asset_id}", response_model=InstrumentAssetFile)
     def get_instrument_asset(asset_id: str):
         """Get an instrument asset by ID."""
         from litmus.store import get_instrument_asset
@@ -598,7 +705,7 @@ def create_api_router() -> APIRouter:
     # Manufacturing-test analytics
     # -------------------------------------------------------------------------
 
-    @router.get("/metrics/summary", response_class=ORJSONResponse)
+    @router.get("/metrics/summary", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_summary(
         product: str | None = None,
         station: str | None = None,
@@ -619,7 +726,7 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/metrics/pareto", response_class=ORJSONResponse)
+    @router.get("/metrics/pareto", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_pareto(
         product: str | None = None,
         station: str | None = None,
@@ -635,7 +742,7 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/metrics/cpk", response_class=ORJSONResponse)
+    @router.get("/metrics/cpk", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_cpk(
         product: str | None = None,
         station: str | None = None,
@@ -656,7 +763,7 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/metrics/trend", response_class=ORJSONResponse)
+    @router.get("/metrics/trend", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_trend(
         product: str | None = None,
         station: str | None = None,
@@ -677,7 +784,7 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/metrics/retest", response_class=ORJSONResponse)
+    @router.get("/metrics/retest", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_retest(
         product: str | None = None,
         station: str | None = None,
@@ -698,7 +805,7 @@ def create_api_router() -> APIRouter:
             )
         }
 
-    @router.get("/metrics/time-loss", response_class=ORJSONResponse)
+    @router.get("/metrics/time-loss", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_time_loss(
         product: str | None = None,
         station: str | None = None,
@@ -723,7 +830,7 @@ def create_api_router() -> APIRouter:
     # MCP parity endpoints (litmus_discover, litmus_open, litmus_schema, save)
     # -------------------------------------------------------------------------
 
-    @router.get("/discover")
+    @router.get("/discover", response_model=GenericObjectResponse)
     def discover_instruments(protocols: list[str] | None = None):
         """Scan for connected instruments across all protocols.
 
@@ -733,7 +840,7 @@ def create_api_router() -> APIRouter:
 
         return discover_tool(protocols)
 
-    @router.get("/open")
+    @router.get("/open", response_model=GenericObjectResponse)
     def open_entity(type: str, id: str, base_url: str = "http://localhost:8000"):
         """Get URL to view/edit an entity in the browser UI.
 
@@ -743,7 +850,7 @@ def create_api_router() -> APIRouter:
 
         return open_tool(type, id, base_url)
 
-    @router.get("/schema/{yaml_type}")
+    @router.get("/schema/{yaml_type}", response_model=GenericObjectResponse)
     def get_yaml_schema(yaml_type: str):
         """Get JSON Schema for a Litmus YAML file type.
 
@@ -753,7 +860,7 @@ def create_api_router() -> APIRouter:
 
         return schema_tool(yaml_type)
 
-    @router.post("/save/{entity_type}/{entity_id}")
+    @router.post("/save/{entity_type}/{entity_id}", response_model=GenericObjectResponse)
     def save_entity(entity_type: str, entity_id: str, request: SaveRequest):
         """Create or update an entity (station, product, sequence, fixture, etc.).
 
@@ -776,7 +883,7 @@ def create_api_router() -> APIRouter:
             )
         return result
 
-    @router.get("/read")
+    @router.get("/read", response_model=GenericObjectResponse)
     def read_file(path: str, project: str | None = None):
         """Read a project file or template.
 
@@ -790,7 +897,7 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=400, detail=result["error"])
         return result
 
-    @router.get("/enum/{abbrev}")
+    @router.get("/enum/{abbrev}", response_model=GenericObjectResponse)
     def lookup_enum(abbrev: str):
         """Resolve a datasheet abbreviation to its MeasurementFunction enum value(s).
 
@@ -801,7 +908,7 @@ def create_api_router() -> APIRouter:
 
         return litmus_tool(action="lookup_enum", id=abbrev)
 
-    @router.get("/enum-reference")
+    @router.get("/enum-reference", response_model=GenericObjectResponse)
     def enum_reference():
         """Get the full abbreviation-to-enum reference table as markdown.
 
