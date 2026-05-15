@@ -112,9 +112,13 @@ jobs:
             --station=starter_station \
             --mock-instruments --dut-serial=SMOKE001
       - name: "Smoke: litmus runs"
-        run: cd /tmp/smoke_project && uv run litmus runs 2>&1 | head -20
+        run: |
+          cd /tmp/smoke_project
+          uv run --project ${{ github.workspace }} litmus runs 2>&1 | head -20
       - name: "Smoke: litmus data reindex"
-        run: cd /tmp/smoke_project && uv run litmus data reindex
+        run: |
+          cd /tmp/smoke_project
+          uv run --project ${{ github.workspace }} litmus data reindex
 
   upgrade-test:
     runs-on: ubuntu-latest
@@ -152,8 +156,8 @@ jobs:
             exit 0
           fi
           uv sync --all-extras --dev
-          uv run litmus data reindex --results-dir /tmp/upgrade_project/results || true
-          uv run litmus runs --results-dir /tmp/upgrade_project/results 2>&1 | head -20
+          uv run litmus data reindex --data-dir /tmp/upgrade_project/results || true
+          uv run litmus runs --data-dir /tmp/upgrade_project/results 2>&1 | head -20
 
   publish-pypi:
     needs: [build, correctness, benchmarks, smoke-test, upgrade-test]
