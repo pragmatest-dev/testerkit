@@ -7,7 +7,7 @@
 
 **Python hardware test platform for electronics production and validation.**
 
-Litmus is a pytest plugin and command-line tool for hardware test engineers. You write tests as plain pytest functions; Litmus handles the parts that aren't your test — instrument setup, limit checking, results storage, operator UI. Tests run against mock instruments out of the box, so you can start on your laptop and move to a real bench later.
+Litmus is a pytest plugin and command-line tool for hardware test engineers. You write tests as plain pytest functions; Litmus handles the parts that aren't your test — instrument setup, limit checking, results storage, operator UI. Tests run against mock instruments out of the box, so you can start without hardware and move to a real bench later.
 
 ## Get started in under a minute
 
@@ -80,7 +80,7 @@ litmus runs                     # see results
 2. **Everything is a file you can version** — Limits, stations, products, fixtures, sequences, results — all files. Edit them in your text editor, diff them in git, review changes like code. A project moves between machines as a folder.
 3. **Open and extensible, no lock-in** — Pytest tests (plus its plugin ecosystem), PyVISA for any VISA-compatible instrument, YAML config, Parquet results that any data tool can read. All open source. If you change your mind about Litmus, your tests, configs, and results travel with you.
 4. **AI-ready, never AI-dependent** — Built on technology AI assistants know deeply (pytest, YAML, Python, markdown). MCP tools expose every Litmus operation; JSON Schemas act as guardrails for any config the AI writes. The platform itself never calls out to an AI model.
-5. **Start simple, grow with the project** — Adopt one piece at a time: measurement logging first, then station config, then product specs, then capability matching. Bring your own instrument drivers (PyMeasure, vendor SDKs, hand-rolled). Custom fields on every measurement and event extend the model where you need to.
+5. **Starts simple, grows with you** — After install, `pytest` passes on any machine — no server, no account, no hardware needed to begin. Add what you need as you need it: measurement logging, station config, product specs, capability matching — in whatever order fits your project.
 
 ## Project layout
 

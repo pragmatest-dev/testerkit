@@ -14,7 +14,7 @@ Litmus is a Python-native hardware test **platform** for the AI-assisted era. It
 2. **Integrate, don't reinvent** — Use popular libraries (pytest, Pydantic, FastAPI, PyVISA) that LLMs know deeply
 3. **Configuration as source of truth** — Non-developers can modify test behavior without touching code
 4. **AI-ready, not AI-dependent** — Expose MCP tools and HTTP APIs for external agents; platform does NOT call LLMs
-5. **Incremental adoption** — Start with results API, add config system, add instruments, add AI tools
+5. **Starts simple, grows with you** — After install, `pytest` passes on any machine — no server, no account, no hardware needed to begin. Add what you need as you need it: measurement logging, station config, product specs, capability matching — in whatever order fits your project.
 
 ## Common Commands
 
@@ -100,7 +100,7 @@ Do NOT bloat CLAUDE.md with implementation details — the AI can discover those
 
 ## Catalog YAML
 
-Use `/catalog-from-datasheet` skill for all catalog work. Schema reference: `docs/capability-schema.md`. Models: `litmus/config/models.py`.
+Use `/catalog-from-datasheet` skill for all catalog work. Schema reference: `docs/reference/capability-schema.md`. Models: `src/litmus/models/capability.py`.
 
 ## Tool Usage Rules
 
