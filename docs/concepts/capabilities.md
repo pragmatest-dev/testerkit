@@ -2,6 +2,12 @@
 
 **Capabilities** describe what instruments can do and what products need. The capability system enables automatic matching between products and stations using an ATML (Automatic Test Markup Language) / IEEE 1641-inspired signal-parameter model — ATML / IEEE 1671 is the industry test-data interchange standard Litmus aligns with.
 
+## The problem
+
+A Keysight 34461A datasheet says it can measure "DC Voltage: 100 mV to 1000 V, 0.0035% + 0.0006% accuracy, 6.5-digit resolution." A product spec says "3.3 V output, ±5% tolerance." How do we connect these two worlds in a machine-readable way so the system can automatically determine whether a given instrument can test a given product?
+
+We need a shared language that works for both sides. That language is `Capability`.
+
 ## What Is a Capability?
 
 A capability has three core dimensions:
@@ -240,6 +246,17 @@ Each capability organizes parameters into four semantic categories:
 | `controls` | User knobs that can be configured | attenuation, filter_type, range_select — range or options |
 | `attributes` | Fixed facts about the capability | bandwidth, max_frequency — fixed value, no comparison needed |
 
+### Why four separate collections?
+
+The four-collection approach is clearer than tagging a single `parameters` dict with roles, because each collection has a well-defined purpose:
+
+- **Signals** participate in matching and have accuracy/range specs.
+- **Conditions** appear in SpecBand `when:` constraints but don't participate directly in matching logic.
+- **Controls** are user-configurable but don't affect the fundamental capability.
+- **Attributes** are hardware facts that may participate in matching (e.g. scope bandwidth must exceed signal frequency), but are never measured — they're just limits.
+
+Dimension names must be disjoint across `signals` / `conditions` / `controls` (the validator rejects overlap). A name appearing in `attributes` does not collide with the others.
+
 ### Condition-Dependent Specs (SpecBand)
 
 Instrument accuracy often varies with operating conditions. A DMM's AC voltage accuracy depends on the input frequency. A `SpecBand` captures this:
@@ -264,7 +281,20 @@ conditions:
     range: {min: 3, max: 300000, units: Hz}
 ```
 
-The `conditions` keys in SpecBand reference sibling condition names. Multiple keys are ANDed — all must match. When no band matches, the top-level accuracy/resolution applies as a default.
+The `when:` keys reference the flat union of `signals`, `conditions`, and `controls` on the parent capability — any sibling dimension name is valid. Multiple keys are ANDed (all must match). When no band matches, the top-level accuracy/resolution applies as a default.
+
+### Canonical condition keys
+
+`ConditionKey` is a shared vocabulary for the `conditions` dict (27 canonical keys derived from auditing 150+ instrument datasheets). It's not enforced at the model level — you can use any string — but matching across catalog entries is more reliable when authors converge on these names:
+
+| Category | Keys |
+|---|---|
+| Universal | `frequency`, `temperature`, `humidity`, `calibration_interval` |
+| Measurement config | `nplc`, `auto_zero`, `coupling`, `impedance`, `sense_mode`, `sample_rate`, `bandwidth`, `filter`, `gate_time`, `acquisition_mode`, `time_constant` |
+| Signal | `signal_level`, `crest_factor` |
+| Source / load | `load`, `input_voltage`, `voltage`, `current`, `duty_cycle`, `slew_rate`, `settling_time` |
+| Sensor | `sensor`, `wavelength` |
+| RF | `offset` |
 
 ## Channel Specification
 
@@ -331,6 +361,23 @@ curl "http://localhost:8000/api/match?product_id=power_board"
 curl "http://localhost:8000/api/match?product_id=power_board&station_id=bench_1"
 ```
 
+## Lineage: where this model came from
+
+The model draws from three industry standards, taking the parts that fit Litmus's hardware-test scope:
+
+| Standard | What we took | What we didn't take |
+|---|---|---|
+| **IEEE 1641** (Signal & Test Definition) | Signal-oriented thinking: capabilities describe signals, not instruments. Waveform shapes are parameters, not types. | The full signal grammar / composition model (too complex for our scope today). |
+| **ATML / IEEE 1671** (Test Description) | Comparator types (`GELE`, `EQ`, etc.), UUT characteristics with conditions, the direction-pairing concept. | XML schema, the verbose specification structure. |
+| **IVI Foundation** (Instrument Classes) | Function names from instrument class specs (DMM, Scope, FGen, DCPwr, RFSigGen). | Driver API patterns — we use PyVISA / PyMeasure instead. |
+
+Key design decisions:
+
+- **Flat function enum** instead of IEEE 1641's signal grammar — simpler; covers 95% of real use cases.
+- **Same model for products and instruments** instead of ATML's separate UUT / instrument schemas — enables direct matching without translation.
+- **Structured conditions** instead of freeform text — machine-parseable, which is what unlocks automated matching.
+- **Typed parameter collections** instead of role tags — four focused dicts (`signals` / `conditions` / `controls` / `attributes`) are clearer than one dict with role metadata.
+
 ## Custom Instruments
 
 When adding custom instruments, define their capabilities using the function-parameter model:
@@ -358,6 +405,52 @@ capabilities:
       temperature:
         range: {min: -200, max: 850, units: "°C"}
     channels: ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]
+```
+
+## The full picture
+
+```
+Instrument catalog — what an instrument CAN do
+──────────────────────────────────────────────
+catalog_entry:
+  id: keysight_34461a
+  type: dmm
+  channels:
+    "1": {terminals: [hi, lo], connector: binding_post, ground: shared}
+
+  capabilities:
+    - function: dc_voltage        ─┐
+      direction: input             │  Capability
+      signals:                     │  (shared base class)
+        voltage:                   │
+          range: {min: 0, max: 1000, units: V}
+          accuracy: {pct_reading: 0.0035}
+          resolution: {digits: 6.5}
+
+Product spec — what the DUT NEEDS tested
+────────────────────────────────────────
+id: power_board_v1
+pins:
+  VOUT: {name: "J1.3", net: "VOUT_3V3", role: signal}
+
+characteristics:
+  rail_3v3:
+    function: dc_voltage          ─┐
+    direction: output              │  ProductCharacteristic
+    pin: VOUT                      │  (extends Capability)
+    signals:                       │
+      voltage:                     │
+        value: 3.3                 │
+        units: V                   │
+    bands:                         │
+      - when:                      │
+          load: {min: 0, max: 1}   │
+        accuracy: {pct_reading: 5.0}
+
+Matching: dc_voltage OUTPUT ↔ dc_voltage INPUT
+          3.3 V within 0–1000 V range
+          0.0035% << 5% (instrument is more accurate)
+          MATCH
 ```
 
 ## Next Steps

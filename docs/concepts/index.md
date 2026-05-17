@@ -12,8 +12,7 @@ Why Litmus is built the way it is. Read top-to-bottom for the framework's mental
 
 - [Products](products.md) — what you're testing
 - [Stations](stations.md) — where you test
-- [Capabilities](capabilities.md) — what an instrument can do
-- [Capability model](capability-model.md) — how capabilities, signals, and conditions compose
+- [Capabilities](capabilities.md) — what an instrument can do, how capabilities/signals/conditions compose, and how matching pairs them with product characteristics
 - [Fixtures](fixtures.md) — pin-to-instrument mapping
 
 ## Execution & outcomes

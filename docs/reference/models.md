@@ -1,6 +1,6 @@
 # Litmus Pydantic Models - Entity Relationship Diagram
 
-This document shows the relationships between all Pydantic models in the Litmus codebase. For conceptual framing of the capability-side models (`InstrumentCapability`, `ProductCharacteristic`, `SpecBand`, `Signal`, `Condition`, `Control`, `Attribute`, `ChannelTopology`), see [concepts/capability-model](../concepts/capability-model.md).
+This document shows the relationships between all Pydantic models in the Litmus codebase. For conceptual framing of the capability-side models (`InstrumentCapability`, `ProductCharacteristic`, `SpecBand`, `Signal`, `Condition`, `Control`, `Attribute`, `ChannelTopology`), see [concepts/capabilities](../concepts/capabilities.md).
 
 ## Complete Models ERD
 
