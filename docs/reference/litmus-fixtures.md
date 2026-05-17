@@ -14,7 +14,7 @@ Grouped by what you reach for the fixture **for**:
 | Talking to instruments | Get a driver instance, route a signal, hit a DUT pin | `instruments`, `instrument`, `instrument_records`, `dut`, `pins`, `routes`, `fixture_manager` |
 | Reading per-test state | Active sweep params, observations, the connection currently being iterated | `context`, `connections` |
 | Reading loaded configuration | The typed YAML / CLI that shaped this run | `product_context`, `station_config`, `fixture_config`, `run_context`, `mock_instruments` |
-| Special modes | Self-loop sweep iteration, multi-DUT sync | `vectors`, `sync` |
+| Flow control | Drive the test body's iteration / synchronization | `vectors`, `sync` |
 
 Plus **one role-named fixture per instrument the station YAML declares** (e.g. `dmm`, `psu`, `scope`). See [Per-role auto-fixtures](#per-role-auto-fixtures).
 
@@ -243,9 +243,9 @@ Returns `bool`. True when `--mock-instruments` was passed or `LITMUS_MOCK_INSTRU
 
 ---
 
-## Special modes
+## Flow control
 
-Two fixtures that switch the execution shape itself, not just expose data.
+Two fixtures that drive the test body's iteration shape, not just expose data. `vectors` collapses pytest's per-row case multiplication into one in-body loop; `sync` blocks the body until peer workers reach the same named point.
 
 ### `vectors` — function
 
