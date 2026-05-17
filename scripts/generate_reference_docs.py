@@ -30,11 +30,14 @@ runs that form so source / docs drift fails the commit.
 from __future__ import annotations
 
 import argparse
+import importlib
+import inspect
 import re
 import sys
 import types
 import typing
 from collections.abc import Iterable
+from enum import Enum
 from inspect import cleandoc
 from pathlib import Path
 from typing import Any, Literal, Union, get_args, get_origin
@@ -112,6 +115,8 @@ def _render_default(field: FieldInfo) -> str:
         v = field.default
         if v is None:
             return "`None`"
+        if isinstance(v, Enum):
+            return f"`{type(v).__name__}.{v.name}`"
         if isinstance(v, str):
             return f"`{v!r}`"
         if isinstance(v, bool):
@@ -314,12 +319,139 @@ def _generate_event_types(*, check: bool) -> bool:
 
 
 # =============================================================================
+# models.md
+# =============================================================================
+
+
+# Display order for source files. Each entry is (heading, dotted-module).
+# Order matters — readers walk top-to-bottom.
+_MODELS_MODULES: list[tuple[str, str]] = [
+    ("Project & station YAML", "litmus.models.project"),
+    ("Station", "litmus.models.station"),
+    ("Product", "litmus.models.product"),
+    ("Product manifest", "litmus.models.product_manifest"),
+    ("Test config (sidecar, markers, limits, fixtures)", "litmus.models.test_config"),
+    ("Capabilities (catalog signal/condition/control/attribute)", "litmus.models.capability"),
+    ("Catalog entry", "litmus.models.catalog"),
+    ("Instrument record", "litmus.models.instrument"),
+    ("Instrument asset", "litmus.models.instrument_asset"),
+    ("Runtime data (events, runs, steps, measurements)", "litmus.data.models"),
+]
+
+
+def _classes_defined_in(module: types.ModuleType, base: type) -> list[type]:
+    """Subclasses of ``base`` declared in ``module`` (not imported), in source order."""
+    out: list[type] = []
+    for obj in module.__dict__.values():
+        if not isinstance(obj, type):
+            continue
+        if obj is base:
+            continue
+        if not issubclass(obj, base):
+            continue
+        if getattr(obj, "__module__", None) != module.__name__:
+            continue
+        out.append(obj)
+    out.sort(key=lambda c: inspect.getsourcelines(c)[1])
+    return out
+
+
+def _render_enum_table(enum_cls: type[Enum]) -> str:
+    """Render an enum as a markdown table of value + (optional) description.
+
+    Description is mined from a per-member docstring of the form
+    ``MEMBER = "value"  # description``. Without comments, the column
+    is left blank.
+    """
+    src_lines, _ = inspect.getsourcelines(enum_cls)
+    descriptions: dict[str, str] = {}
+    for raw in src_lines:
+        # Match: `IDENT = "value"  # description` or with single quotes
+        m = re.match(r"\s*([A-Z][A-Z0-9_]*)\s*=\s*['\"][^'\"]*['\"]\s*#\s*(.*)", raw)
+        if m:
+            descriptions[m.group(1)] = m.group(2).strip()
+    rows = ["| Value | Description |", "|---|---|"]
+    for member in enum_cls:
+        desc = descriptions.get(member.name, "")
+        value_repr = f"`{member.value!r}`" if isinstance(member.value, str) else f"`{member.value}`"
+        rows.append(f"| {value_repr} | {desc} |")
+    return "\n".join(rows)
+
+
+def _render_model_class(cls: type[BaseModel], *, level: int = 4) -> list[str]:
+    """Render one BaseModel as anchor + heading + blurb + field table."""
+    hashes = "#" * level
+    out = [f"{hashes} `{cls.__name__}` {{#model-{cls.__name__.lower()}}}"]
+    blurb = _first_paragraph(cls.__doc__)
+    if blurb:
+        out.append("")
+        out.append(blurb)
+    out.append("")
+    if cls.model_fields:
+        out.append(_render_field_table(cls))
+    else:
+        out.append("*(no fields)*")
+    out.append("")
+    return out
+
+
+def _render_enum_class(cls: type[Enum], *, level: int = 4) -> list[str]:
+    """Render one Enum as anchor + heading + blurb + value table."""
+    hashes = "#" * level
+    out = [f"{hashes} `{cls.__name__}` {{#enum-{cls.__name__.lower()}}}"]
+    blurb = _first_paragraph(cls.__doc__)
+    if blurb:
+        out.append("")
+        out.append(blurb)
+    out.append("")
+    out.append(_render_enum_table(cls))
+    out.append("")
+    return out
+
+
+def _generate_models(*, check: bool) -> bool:
+    target = DOCS_DIR / "models.md"
+
+    # Per-module sections — emitted into the GENERATED:models-by-module block.
+    parts: list[str] = []
+    for label, dotted in _MODELS_MODULES:
+        module = importlib.import_module(dotted)
+        parts.append(f"### {label} — `{dotted}`\n")
+
+        # BaseModel classes first (the heavyweight tables)
+        for model in _classes_defined_in(module, BaseModel):
+            parts.extend(_render_model_class(model, level=4))
+
+        # Then any enums declared alongside (StrEnum / Enum)
+        for enum_cls in _classes_defined_in(module, Enum):
+            parts.extend(_render_enum_class(enum_cls, level=4))
+
+    models_body = "\n".join(parts).rstrip() + "\n"
+
+    # The shared enums module (litmus.models.enums) is rendered as one
+    # standalone block so it isn't duplicated under every module that
+    # imports from it.
+    import litmus.models.enums as enums_mod
+
+    enum_parts: list[str] = []
+    for enum_cls in _classes_defined_in(enums_mod, Enum):
+        enum_parts.extend(_render_enum_class(enum_cls, level=3))
+    enums_body = "\n".join(enum_parts).rstrip() + "\n"
+
+    existing = target.read_text()
+    new = _replace_section(existing, "models-by-module", models_body)
+    new = _replace_section(new, "models-shared-enums", enums_body)
+    return _write_or_check(target, new, check=check)
+
+
+# =============================================================================
 # Dispatcher
 # =============================================================================
 
 
 GENERATORS: dict[str, Any] = {
     "event-types": _generate_event_types,
+    "models": _generate_models,
 }
 
 
