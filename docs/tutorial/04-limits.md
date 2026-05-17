@@ -2,16 +2,16 @@
 
 **Goal:** Decide pass/fail for a measurement.
 
-In step 3 your tests called `verify(..., limit={...})` or `logger.measure(..., low=..., high=...)` to record a measurement. The pass/fail decision happens because a **[limit](../reference/models.md)** is present. This step is about the `Limit` shape and the two ways to attach a limit to a test from code: inline on the call, or via a Litmus marker on the test function. Both pass the limit through the same resolution chain.
+In step 3 your tests called `verify(..., limit=Limit(...))` or `logger.measure(..., limit=Limit(...))` to record a measurement. The pass/fail decision happens because a **[limit](../reference/models.md)** is present. This step is about the `Limit` shape and the two ways to attach a limit to a test from code: inline on the call, or via a Litmus marker on the test function. Both pass the limit through the same resolution chain.
 
 Step 5 will move limits out of code and into a YAML file next to the test — keep that destination in mind, but don't reach for YAML yet.
 
 ## The `Limit` shape
 
-`Limit` lives in `litmus.models.test_config` (`src/litmus/models/test_config.py`):
+`Limit` is re-exported from the top-level `litmus` package (defined in `src/litmus/models/test_config.py`):
 
 ```python
-from litmus.models.test_config import Limit
+from litmus import Limit
 
 limit = Limit(
     low=3.135,      # Minimum acceptable value
@@ -120,8 +120,10 @@ During development you may want to record a value without deciding pass/fail. Dr
 
 ```python
 def test_voltage(dmm, logger):
-    logger.measure("output_voltage", dmm.measure_dc_voltage(), units="V")
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
+
+(Units are derived from the active limit when one is present; in characterization mode the row is recorded without limit fields.)
 
 `verify` requires a limit (it's the whole point of `verify`); use `logger.measure` for characterization.
 
@@ -134,7 +136,7 @@ For [condition-indexed bands](../how-to/limits.md#condition-indexed-bands) (diff
 ## What you learned
 
 - The `Limit` model — `low`, `high`, `nominal`, `units`, `comparator`
-- Inline limits via `verify(..., limit=...)` or `logger.measure(..., low=..., high=...)`
+- Inline limits via `verify(..., limit=...)` or `logger.measure(..., limit=Limit(...))`
 - The `litmus_limits` marker for class/function-level limit binding
 - The `Outcome` ladder and what each value means
 - The `Comparator` enum for non-`GELE` checks

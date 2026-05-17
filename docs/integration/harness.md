@@ -90,7 +90,7 @@ Limit resolution order (when `limit=` is not passed):
 3. `product_context.get_limit(name)` from the active product spec
 4. None — measurement recorded as unchecked
 
-Pass a `Limit` object (`from litmus.models.test_config import Limit`) for explicit limits. The sidecar-style dict shape (`{"low": 3.0, "high": 3.6, "units": "V"}`) goes in `config["limits"]`, not as the `limit=` kwarg.
+Pass a `Limit` object (`from litmus import Limit`) for explicit limits. The sidecar-style dict shape (`{"low": 3.0, "high": 3.6, "units": "V"}`) goes in `config["limits"]`, not as the `limit=` kwarg.
 
 ## Steps
 

@@ -16,7 +16,7 @@ The event log captures every significant action as a typed event. It is the cano
 
 - **Write path:** `EventLog.emit()` → buffered Arrow IPC → Flight `do_put` to DuckDB (see [flight-streaming](flight-streaming.md) for `do_put`/`do_get` / DuckDB daemon details; Arrow IPC is Apache Arrow's on-disk record-batch format)
 - **Read path:** SQL via Flight `do_get`, or direct IPC file reads
-- **Storage:** `results/events/{date}/{session_id}.arrow`
+- **Storage:** `<data_dir>/events/{date}/{session_id}.arrow`
 
 Events are normalized — `SessionStarted` carries session/station/operator metadata once (and must NOT carry `run_id`); `RunStarted` carries the run/DUT context per test run; `MeasurementRecorded` carries only measurement fields. Subscribers denormalize at write time.
 
@@ -26,7 +26,7 @@ Instrument reads that produce arrays, waveforms, or high-frequency scalar stream
 
 - **Write path:** `ChannelStore.write()` → buffered Arrow IPC with segment rotation
 - **Read path:** `ChannelStore.query()` with LTTB decimation for visualization
-- **Storage:** `results/channels/{date}/{channel_id}_{session_short}.arrow`
+- **Storage:** `<data_dir>/channels/{date}/{channel_id}_{session_short}.arrow`
 
 Each channel gets its own IPC file with a schema inferred from the first write. Segment rotation ensures files are always readable (closed after each flush).
 
@@ -34,9 +34,9 @@ Each channel gets its own IPC file with a schema inferred from the first write. 
 
 The Parquet backend produces analysis-ready files with one row per measurement, all metadata denormalized. This is what users query with DuckDB, Polars, or Spark for yield analysis and SPC.
 
-- **Write path:** `ParquetSubscriber` listens to events, builds rows, writes on `RunEnded`
+- **Write path:** The runs daemon accumulates events via `AccumulatorPool` and calls `materialize_run_to_parquet()` on `RunEnded`
 - **Read path:** Standard Parquet readers (DuckDB, Polars, pandas)
-- **Storage:** `results/runs/{date}/{timestamp}_{serial}.parquet`
+- **Storage:** `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`
 
 The Parquet files are a **materialized view** of the event stream. They can be regenerated from events if the schema changes.
 
@@ -49,19 +49,19 @@ During execution, the materializer holds row state in-process and flushes to a s
 ```
 Events (source of truth)
   ├── EventStore (Arrow IPC + DuckDB)
-  │     └── ParquetSubscriber → ParquetBackend (materialized view)
+  │     └── runs daemon (AccumulatorPool + materialize_run_to_parquet on RunEnded)
   └── ChannelStore (time-series, claim-check URIs in events)
 ```
 
 1. All activity flows through `EventStore.emit()`
-2. `ParquetSubscriber` watches events and builds Parquet rows
+2. The runs daemon accumulates events via `AccumulatorPool` and materializes a per-run parquet on `RunEnded` via `materialize_run_to_parquet()`
 3. `InstrumentRead` events with array data write to `ChannelStore`, storing a URI in the event
 4. Queries can join across stores using `session_id`
 
 ## Storage Layout
 
 ```
-results/
+<data_dir>/
 ├── events/                    # EventStore
 │   ├── 2026-03-10/
 │   │   ├── {session_id}.arrow
@@ -72,13 +72,13 @@ results/
 │   │   ├── dmm.voltage_{session_short}.arrow
 │   │   └── scope.ch1_{session_short}.arrow
 │   └── _registry.json         # Channel metadata
-├── runs/                      # ParquetBackend
-│   └── 2026-03-10/
-│       ├── 20260310T143022_SN001.parquet
-│       └── 20260310T143022_SN001_ref/
-└── sessions/                  # Session index
-    └── sessions.json
+└── runs/                      # ParquetBackend
+    └── 2026-03-10/
+        ├── 20260310T143022Z_SN001.parquet
+        └── 20260310T143022Z_SN001_ref/
 ```
+
+Sessions are not a stored entity — they're derived from events at query time.
 
 ## See Also
 

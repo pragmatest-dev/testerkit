@@ -329,10 +329,9 @@ flowchart LR
 | Test sidecars | `tests/test_*.yaml` |
 | Fixtures | `fixtures/*.yaml` |
 | Instrument catalog | `catalog/**/*.yaml` |
-| Test results (Parquet) | `results/runs/{date}/*.parquet` |
-| Event logs (Arrow IPC) | `results/events/{date}/{session_id}.arrow` |
-| Channel data (Arrow IPC) | `results/channels/{date}/{channel}_{session}.arrow` |
-| Session index | `results/sessions/sessions.json` |
+| Test results (Parquet) | `<data_dir>/runs/{date}/*.parquet` |
+| Event logs (Arrow IPC) | `<data_dir>/events/{date}/{session_id}.arrow` |
+| Channel data (Arrow IPC) | `<data_dir>/channels/{date}/{channel}_{session}.arrow` |
 
 ## Data Architecture
 
@@ -344,4 +343,4 @@ The storage layer uses three complementary stores:
 | **ChannelStore** | Time-series instrument data | Arrow IPC segments |
 | **ParquetBackend** | Denormalized test results | Parquet files |
 
-Events are the source of truth. Parquet files are a materialized view produced by `ParquetSubscriber`. See [Three Stores Architecture](three-stores.md) and [Event Log Architecture](event-log.md) for details.
+Events are the source of truth. Parquet files are a materialized view produced by `materialize_run_to_parquet()`, called from the runs daemon on `RunEnded`. See [Three Stores Architecture](three-stores.md) and [Event Log Architecture](event-log.md) for details.

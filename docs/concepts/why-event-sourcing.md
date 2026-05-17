@@ -48,12 +48,11 @@ Annotations, retroactive flags, and RMA links don't break this — they're "new 
 
 In a CRUD world, "the database" is a single shared mutable structure every consumer reads and writes against. In an event-sourced world, the *events* are the shared contract — and each consumer can run *its own* materializer in *its own* process, on whatever cadence makes sense for that consumer. Different processes can care about different projections without coordinating.
 
-That's why Litmus's materializers (subscribers in the code) take the shape they do:
+That's why Litmus's materializers take the shape they do:
 
-- The runner cares about producing the canonical parquet for its run, so `ParquetSubscriber` runs in-process and finalizes synchronously at `RunEnded`. The synchronous tail is a property of *this* materializer in *this* process — not a general rule about subscribers. It's defensible because the runner's job isn't done until its run's artifact is durable.
-- The runs daemon cares about an always-on, queryable view of recent runs, so `LiveRunsSubscriber` runs in-daemon as a long-lived consumer indexing events as they arrive. That's a long-running, process-spanning materializer; it's not synchronous with any one run.
-- The runs daemon also takes over materialization for runs whose runner crashed (the orphan-finalization path). Different trigger, different timing, same materializer pattern, same process boundary.
-- Any future consumer — a Grafana exporter, a Snowflake pipeline, an analytics view — runs its own materializer in its own process at whatever cadence it likes (per-event, per-run, batched hourly). Sync or async, in-process or out, ephemeral or long-running — those are local choices, not architectural commitments.
+- The runs daemon cares about an always-on, queryable view of recent runs, so it runs as a long-lived consumer. It accumulates events per in-flight run via `AccumulatorPool` and, on `RunEnded`, calls `materialize_run_to_parquet()` to write the canonical per-run parquet. It also takes over materialization for runs whose runner crashed (the orphan-finalization path). Same materializer, same process boundary, different trigger.
+- The exporter subscribers (`CsvSubscriber`, `JsonSubscriber`, `Hdf5Subscriber`, `StdfSubscriber`, etc.) replay events post-hoc via `litmus export`, each in its own process at whatever cadence the operator invokes.
+- Any future consumer — a Grafana exporter, a Snowflake pipeline, an analytics view — would run its own materializer in its own process at whatever cadence it likes (per-event, per-run, batched hourly). Sync or async, in-process or out, ephemeral or long-running — those are local choices, not architectural commitments.
 
 There's no "the materialization service" everyone has to wait on, no central writer that becomes a bottleneck. Each consumer's timing is local to its process; from the system's perspective they're all running independently, all deriving their own views from the same shared event log. That's the property that makes log-based architectures composable without coordination.
 

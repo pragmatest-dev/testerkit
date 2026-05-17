@@ -39,15 +39,15 @@ Same record-side effect as `logger.measure`; the only difference is `verify` rai
 
 ### `logger` — session, autouse
 
-Yields a `TestRunLogger`. Autouse, so every test gets logging behind `verify` even when it doesn't take `logger` itself. Opens the event log and Parquet subscriber at session start, flushes them at session end.
+Yields a `TestRunLogger`. Autouse, so every test gets logging behind `verify` even when it doesn't take `logger` itself. Opens the event log at session start, flushes it at session end; the runs daemon materializes the per-run parquet on `RunEnded`.
 
 ```python
 def test_voltage(dmm, logger):
     v = dmm.measure_dc_voltage()
-    logger.measure("output_voltage", v, units="V")
+    logger.measure("output_voltage", v, limit=Limit(low=3.2, high=3.4, units="V"))
 ```
 
-`logger.measure(name, value, *, units=None, limit=None)` records a measurement row without raising. Same recording path as `verify`, just no FAIL-side effect — use it when a failing measurement shouldn't abort the test (characterization mode, sweeps you want to plot post-hoc, etc.).
+`logger.measure(name, value, *, limit=None, outcome=Outcome.DONE, allow_repeat=False)` records a measurement row without raising. Same recording path as `verify`, just no FAIL-side effect — use it when a failing measurement shouldn't abort the test (characterization mode, sweeps you want to plot post-hoc, etc.).
 
 ### `limits` — function
 

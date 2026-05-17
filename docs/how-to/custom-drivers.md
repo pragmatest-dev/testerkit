@@ -133,11 +133,9 @@ class SerialDMM(Instrument):
         return "0"
 
     def measure_voltage(self, signal_type=None) -> float:
-        self._ensure_connected()
         return float(self._query("MEAS:VOLT?"))
 
     def configure_voltage_range(self, range_val: float | str) -> None:
-        self._ensure_connected()
         self._write(f"VOLT:RANG {range_val}")
 ```
 
@@ -195,7 +193,6 @@ class DaqmxAnalogInput(Instrument):
         self._connected = False
 
     def measure_voltage(self, signal_type=None) -> float:
-        self._ensure_connected()
         if self.simulate:
             return self._sim_voltage
         return float(self._task.read())
@@ -278,7 +275,6 @@ class USBPowerSupply(Instrument):
         return b"\xFF"  # Error
 
     def set_voltage(self, voltage: float) -> None:
-        self._ensure_connected()
         data = struct.pack("<f", voltage)
         self._send_command(0x10, data)
 
@@ -287,21 +283,18 @@ class USBPowerSupply(Instrument):
         pass
 
     def enable_output(self, channel: str | None = None) -> None:
-        self._ensure_connected()
         if self.simulate:
             self._sim_enabled = True
             return
         self._send_command(0x30, b"\x01")
 
     def disable_output(self, channel: str | None = None) -> None:
-        self._ensure_connected()
         if self.simulate:
             self._sim_enabled = False
             return
         self._send_command(0x30, b"\x00")
 
     def measure_output_voltage(self) -> float:
-        self._ensure_connected()
         if self.simulate:
             return self._sim_voltage if self._sim_enabled else 0.0
         response = self._send_command(0x20, b"")

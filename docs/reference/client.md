@@ -174,14 +174,24 @@ def run_production_test(serial_number: str):
 
 ### From LabVIEW
 
-Call Python via LabVIEW's Python Node:
+Call Python via LabVIEW's Python Node. Wrap `LitmusClient`'s chained-builder
+API in a small helper:
 
+```python
+# litmus_labview.py
+from litmus.client import LitmusClient
+
+def submit_labview_run(serial, station, measurements):
+    """measurements: list of dicts with name, value, low, high, units."""
+    client = LitmusClient()
+    run = client.start_run(dut_serial=serial, station_id=station, test_phase="production")
+    with run.step("labview_results") as step:
+        for m in measurements:
+            step.measure(**m)
+    return run.finish()
 ```
-Python Node
-├── Module: litmus
-├── Function: submit_result
-└── Inputs: serial, station, measurements[]
-```
+
+Then call `litmus_labview.submit_labview_run` from LabVIEW's Python Node.
 
 ### From TestStand
 

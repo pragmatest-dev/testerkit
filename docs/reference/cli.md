@@ -628,13 +628,13 @@ Non-development phases require a clean git repository. Uncommitted changes (or n
 import duckdb
 
 duckdb.sql("""
-    SELECT * FROM read_parquet('results/runs/**/*.parquet')
+    SELECT * FROM read_parquet('data/runs/**/*.parquet')
     WHERE test_phase = 'production'
 """)
 
 # Exclude dev work
 duckdb.sql("""
-    SELECT * FROM read_parquet('results/runs/**/*.parquet')
+    SELECT * FROM read_parquet('data/runs/**/*.parquet')
     WHERE test_phase != 'development'
 """)
 ```

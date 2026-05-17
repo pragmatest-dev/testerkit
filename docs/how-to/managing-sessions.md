@@ -80,7 +80,7 @@ for r in runs:
 
 ## Data Retention
 
-Session data is stored in date-partitioned directories under `results/events/`. Manage retention with:
+Session data is stored in date-partitioned directories under `<data_dir>/events/`. Manage retention with:
 
 ```bash
 # Prune old data (planned CLI command)

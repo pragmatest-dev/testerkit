@@ -33,7 +33,7 @@ Limits flow through Litmus's marker cascade. When
 `logger.measure(name, value)` is called without `limit=`, resolution
 walks the full merge cascade (least → most specific):
 
-1. **Explicit kwargs** — `logger.measure("v", val, low=..., high=..., units=...)`
+1. **Explicit `limit=`** — `logger.measure("v", val, limit=Limit(low=..., high=..., units="V"))`
 2. **Sidecar file-level field** — `limits: {...}` at the YAML root
 3. **Sidecar class branch field** — `tests.<Cls>.limits: {...}`
 4. **Sidecar per-test field** — `tests.<name>.limits: {...}` (or nested `tests.<Cls>.tests.<method>.limits: {...}`)

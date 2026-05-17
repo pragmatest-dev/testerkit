@@ -1,20 +1,19 @@
 # Importing Litmus run parquets into a lakehouse
 
 Each Litmus run produces **one sealed parquet** at
-`results/runs/{date}/{timestamp}_{serial}.parquet`. The parquet's unified
-`RUN_ROW_SCHEMA` carries two row kinds, distinguished by an explicit
+`<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. The parquet's unified
+`RUN_ROW_SCHEMA` carries three row kinds, distinguished by an explicit
 `record_type` column:
 
 | `record_type` | Cardinality | Carries |
 |---|---|---|
+| `'run'` | Exactly one per file | Run-level identity, timing, outcome — start/end timestamps, DUT, station, project, git, environment |
 | `'step'` | One per `(step_path, vector_index)` | Step identity + outcome + timing + denormalized run / DUT / station context; measurement columns NULL |
 | `'measurement'` | One per recorded measurement | Full measurement payload + the same denormalized step + run context |
 
-Run-level identity (`run_id`, `dut_serial`, `station_*`, environment,
-git) is denormalized onto **every** row — there is no separate `'run'`
-record type to filter for. Reconstruct a runs-table either by taking
-the `DISTINCT` run-level columns from any row kind, or by reading the
-first row of each parquet file.
+Run-level identity is also denormalized onto step and measurement rows,
+so you can reconstruct a runs-table either by filtering `record_type = 'run'`
+or by taking `DISTINCT` run-level columns from any row kind.
 
 This file is everything you need for a single run — sealed, atomic,
 write-once, portable. Drop the directory into S3, GCS, or your local lake;
@@ -31,16 +30,16 @@ INSERT INTO runs
 SELECT DISTINCT run_id, session_id, run_started_at, run_ended_at,
        dut_serial, dut_part_number, station_id, station_hostname,
        run_outcome, project_name, git_commit
-FROM read_parquet('results/runs/2026-05-08/12-00_SN001.parquet');
+FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_SN001.parquet');
 
 INSERT INTO steps
 SELECT * EXCLUDE (record_type, measurement_name, measurement_value, /* … */)
-FROM read_parquet('results/runs/2026-05-08/12-00_SN001.parquet')
+FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_SN001.parquet')
 WHERE record_type = 'step';
 
 INSERT INTO measurements
 SELECT * EXCLUDE (record_type)
-FROM read_parquet('results/runs/2026-05-08/12-00_SN001.parquet')
+FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_SN001.parquet')
 WHERE record_type = 'measurement';
 ```
 
@@ -59,7 +58,7 @@ CREATE OR REPLACE STAGE litmus_runs
 -- runs is derived via DISTINCT — run identity is denormalized onto every row
 COPY INTO runs FROM (
   SELECT DISTINCT $1:run_id::STRING, $1:dut_serial::STRING, /* ... */
-  FROM @litmus_runs/2026-05-08/12-00_SN001.parquet
+  FROM @litmus_runs/2026-05-08/20260508T120000Z_SN001.parquet
   (FILE_FORMAT => 'PARQUET')
 );
 
@@ -137,9 +136,9 @@ import duckdb
 # Three logical views over the parquet glob.
 # runs is DISTINCT over the denormalized run-identity columns; the other
 # two filter by record_type.
-runs   = duckdb.sql("SELECT DISTINCT run_id, dut_serial, station_hostname, run_started_at, run_ended_at, run_outcome FROM read_parquet('results/runs/*/*.parquet')").df()
-steps  = duckdb.sql("SELECT * FROM read_parquet('results/runs/*/*.parquet') WHERE record_type = 'step'").df()
-meas   = duckdb.sql("SELECT * FROM read_parquet('results/runs/*/*.parquet') WHERE record_type = 'measurement'").df()
+runs   = duckdb.sql("SELECT DISTINCT run_id, dut_serial, station_hostname, run_started_at, run_ended_at, run_outcome FROM read_parquet('data/runs/*/*.parquet')").df()
+steps  = duckdb.sql("SELECT * FROM read_parquet('data/runs/*/*.parquet') WHERE record_type = 'step'").df()
+meas   = duckdb.sql("SELECT * FROM read_parquet('data/runs/*/*.parquet') WHERE record_type = 'measurement'").df()
 ```
 
 ## Why a single parquet (not three)
@@ -172,6 +171,6 @@ short enough to live in any of them.
   file-level KV metadata if you need to gate behavior.
 - **Reference data**: large outputs (waveforms, images) live in
   `_ref/` directories alongside each parquet. The parquet's `out_*`
-  columns carry URI strings (`_ref/{vector_id}/{key}.npy`) referencing
+  columns carry URI strings (`file://_ref/{vector_id}_{key}.npy`) referencing
   these files. Consumers either dereference at query time or copy the
   `_ref/` directory alongside.

@@ -1,19 +1,20 @@
 # Parquet Storage Schema
 
-Each Litmus run produces **one Parquet file**. Every row carries an explicit `record_type` discriminator with one of two values:
+Each Litmus run produces **one Parquet file**. Every row carries an explicit `record_type` discriminator with one of three values:
 
+- `record_type = 'run'` — exactly one row per file. Carries run-level identity, timing, outcome, plus DUT / station / project / git / environment context.
 - `record_type = 'step'` — one row per `(step_path, vector_index)` execution. Step identity, timing, outcome, dynamic `in_*` / `out_*` columns. Measurement columns are NULL.
 - `record_type = 'measurement'` — one row per recorded measurement. Carries the measurement payload plus the same denormalized step + run + DUT + station + fixture context as the corresponding step row.
 
-Both kinds share grain `(run_id, step_path, vector_index)`; measurement rows are further keyed by `measurement_name`. A step that records N measurements emits 1 step row + N measurement rows.
+Step and measurement rows share grain `(run_id, step_path, vector_index)`; measurement rows are further keyed by `measurement_name`. A step that records N measurements emits 1 step row + N measurement rows.
 
 The canonical schema lives at `src/litmus/data/schemas.py` (`RUN_ROW_SCHEMA`); this page is a human-readable mirror of it.
 
 ## File layout
 
 ```
-results/runs/{date}/
-├── {timestamp}_{serial}.parquet           # All step + measurement rows for one run
+<data_dir>/runs/{date}/
+├── {timestamp}_{serial}.parquet           # Run row + all step + measurement rows for one run
 ├── {timestamp}.parquet                    # Same shape, no DUT serial (dev runs)
 └── {timestamp}_{serial}_ref/              # Reference data (waveforms, images, files)
     ├── {vector_id}_scope_waveform.npz
@@ -27,9 +28,14 @@ Timestamps are UTC and sort naturally. DuckDB / Spark / Polars / Pandas all read
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `record_type` | string | `'step'` or `'measurement'` |
+| `record_type` | string | `'run'`, `'step'`, or `'measurement'` |
 
-Every query starts here. To list steps: `WHERE record_type = 'step'`. To list measurements: `WHERE record_type = 'measurement'`. Both kinds: omit the filter.
+Every query starts here. Three values:
+- `run` — one row per run carrying run-level metadata (start/end timestamps, DUT serial, station, outcome).
+- `step` — one row per (step, vector) combination.
+- `measurement` — one row per measurement name within a (step, vector).
+
+To list steps: `WHERE record_type = 'step'`. To list measurements: `WHERE record_type = 'measurement'`. All kinds: omit the filter.
 
 ## Identity & timing
 
@@ -128,7 +134,7 @@ SELECT
     unnest(step_instruments_name) AS instrument,
     unnest(step_instruments_serial) AS serial,
     unnest(step_instruments_cal_due) AS cal_due
-FROM read_parquet('results/runs/**/*.parquet')
+FROM read_parquet('data/runs/**/*.parquet')
 WHERE record_type = 'step';
 ```
 
@@ -174,16 +180,16 @@ Observations are *measured* context — readings captured during the test, not c
 
 Examples: `out_temp_probe.temperature`, `out_temp_probe.humidity`, `out_scope.waveform`.
 
-For non-scalar payloads, the value is a string starting with `_ref/`:
+For non-scalar payloads, the value is a `file://_ref/...` URI:
 
 | Data Type | Storage format | Example column value |
 |-----------|----------------|----------------------|
 | Scalar (float / int / str / bool) | inline | `3.31` |
-| `Waveform` | `.npz` with t0, dt, Y, attrs | `_ref/{id}_scope_waveform.npz` |
-| `numpy.ndarray` | `.npy` compressed | `_ref/{id}_raw_samples.npy` |
-| `Path` | copied, extension preserved | `_ref/{id}_debug_log.txt` |
-| Pydantic model | `.json` | `_ref/{id}_protocol_trace.json` |
-| `bytes` | `.bin` | `_ref/{id}_raw_data.bin` |
+| `Waveform` | `.npz` with t0, dt, Y, attrs | `file://_ref/{id}_scope_waveform.npz` |
+| `numpy.ndarray` | `.npy` compressed | `file://_ref/{id}_raw_samples.npy` |
+| `Path` | copied, extension preserved | `file://_ref/{id}_debug_log.txt` |
+| Pydantic model | `.json` | `file://_ref/{id}_protocol_trace.json` |
+| `bytes` | `.bin` | `file://_ref/{id}_raw_data.bin` |
 
 ```python
 from litmus.data.backends.parquet import load_file, is_file_reference
@@ -222,7 +228,7 @@ if is_file_reference(column_value):
 -- Yield by characteristic across all products
 SELECT characteristic_id, product_id,
        AVG(CASE WHEN measurement_outcome='passed' THEN 1.0 ELSE 0.0 END) AS yield
-FROM read_parquet('results/runs/**/*.parquet')
+FROM read_parquet('data/runs/**/*.parquet')
 WHERE record_type = 'measurement'
 GROUP BY characteristic_id, product_id;
 ```
@@ -323,7 +329,7 @@ Beyond columns, each Parquet file carries metadata:
 import pyarrow.parquet as pq
 from litmus.environment import EnvironmentSnapshot
 
-pf = pq.ParquetFile("results/runs/2026-05-16/T143025Z_SN001.parquet")
+pf = pq.ParquetFile("data/runs/2026-05-16/20260516T143025Z_SN001.parquet")
 metadata = pf.schema_arrow.metadata
 env = EnvironmentSnapshot.model_validate_json(metadata[b"environment_json"])
 print(f"Python {env.python_version}, Litmus {env.litmus_version}")
@@ -336,7 +342,7 @@ print(f"Python {env.python_version}, Litmus {env.litmus_version}")
 ```python
 import pandas as pd
 
-df = pd.read_parquet("results/runs/2026-05-16/T143025Z_SN001.parquet")
+df = pd.read_parquet("data/runs/2026-05-16/20260516T143025Z_SN001.parquet")
 
 # Step rows
 steps = df[df["record_type"] == "step"]
@@ -359,7 +365,7 @@ SELECT
     COUNT(*) AS total,
     SUM(CASE WHEN measurement_outcome = 'passed' THEN 1 ELSE 0 END) AS passed,
     ROUND(100.0 * SUM(CASE WHEN measurement_outcome = 'passed' THEN 1 ELSE 0 END) / COUNT(*), 2) AS yield_pct
-FROM read_parquet('results/runs/**/*.parquet')
+FROM read_parquet('data/runs/**/*.parquet')
 WHERE record_type = 'measurement'
 GROUP BY 1, 2, 3
 ORDER BY yield_pct ASC;
@@ -372,7 +378,7 @@ SELECT
     instrument_name,
     instrument_resource,
     COUNT(*) AS failures
-FROM read_parquet('results/runs/**/*.parquet')
+FROM read_parquet('data/runs/**/*.parquet')
 WHERE record_type = 'measurement'
   AND measurement_outcome = 'failed'
 GROUP BY 1, 2
@@ -386,7 +392,7 @@ SELECT
     step_name,
     AVG(EPOCH(step_ended_at) - EPOCH(step_started_at)) AS avg_seconds,
     COUNT(*) AS runs
-FROM read_parquet('results/runs/**/*.parquet')
+FROM read_parquet('data/runs/**/*.parquet')
 WHERE record_type = 'step'
   AND step_started_at IS NOT NULL
 GROUP BY step_name

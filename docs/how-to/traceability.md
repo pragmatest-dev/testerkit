@@ -224,14 +224,14 @@ test_exact_value:
 
 ## Querying Traceable Results
 
-Results are stored in Parquet files at `results/runs/{date}/{timestamp}_{serial}.parquet` (UTC timestamps).
+Results are stored in Parquet files at `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet` (UTC timestamps).
 
 ### By DUT Pin
 
 ```python
 import pandas as pd
 
-df = pd.read_parquet("results/runs/2026-01-15/20260115T143025Z_SN001.parquet")
+df = pd.read_parquet("data/runs/2026-01-15/20260115T143025Z_SN001.parquet")
 
 # Find all measurements on pin J1.3
 j1_3_measurements = df[df["dut_pin"] == "J1.3"]
@@ -279,7 +279,7 @@ SELECT
     dut_pin,
     in_vin,
     in_load
-FROM read_parquet('results/runs/**/*.parquet')
+FROM read_parquet('data/runs/**/*.parquet')
 WHERE measurement_outcome = 'failed';
 ```
 
@@ -340,7 +340,7 @@ Requirement: output_voltage
 
 5. **Query with DuckDB for big data** — Use glob patterns to analyze across all runs:
    ```sql
-   SELECT * FROM read_parquet('results/runs/**/*.parquet')
+   SELECT * FROM read_parquet('data/runs/**/*.parquet')
    ```
 
 ## See Also

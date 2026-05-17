@@ -288,8 +288,8 @@ litmus serve
 ```python
 import pyarrow.parquet as pq
 
-# Read all run parquets under the date-partitioned results directory
-table = pq.read_table("results/runs")             # recurses into date subdirs
+# Read all run parquets under the date-partitioned runs directory
+table = pq.read_table("data/runs")                # recurses into date subdirs
 rows = table.to_pylist()
 # Filter to measurement rows (vs. step rows)
 for row in (r for r in rows if r["record_type"] == "measurement"):

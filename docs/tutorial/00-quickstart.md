@@ -149,7 +149,7 @@ class TestMyProduct:
         verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-For measurements that don't come from the product spec, use `logger.measure(name, value, low=..., high=...)` with inline limits or a sidecar `test_<module>.yaml`.
+For measurements that don't come from the product spec, use `logger.measure(name, value, limit=Limit(low=..., high=..., units="V"))` with inline limits or a sidecar `test_<module>.yaml`.
 
 ### Sidecar (`tests/test_my_product.yaml`)
 
@@ -231,8 +231,8 @@ litmus serve
 ```python
 import pyarrow.parquet as pq
 
-# Each run writes one parquet at results/runs/{date}/*.parquet
-table = pq.read_table("results/runs")           # recurses into date subdirs
+# Each run writes one parquet at <data_dir>/runs/{date}/*.parquet
+table = pq.read_table("data/runs")              # recurses into date subdirs
 df = table.to_pandas()
 print(df[df["record_type"] == "measurement"])   # measurement rows only
 ```
@@ -246,7 +246,7 @@ print(df[df["record_type"] == "measurement"])   # measurement rows only
 | `fixtures/` | Pin-to-instrument mappings | /fixtures |
 | `instruments/` | Custom instrument drivers | /instruments |
 | `tests/` | Test code + sidecar config | - |
-| `results/` | Parquet output (gitignored) | /runs |
+| `data/` | Parquet + event log output (gitignored) | /runs |
 
 ## Optional: Set Up AI Assistance
 

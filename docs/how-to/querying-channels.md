@@ -31,7 +31,7 @@ curl http://localhost:8000/api/channels/dmm.voltage
 curl "http://localhost:8000/api/channels/scope.ch1?session_id=abc123&max_points=500"
 
 # Time range
-curl "http://localhost:8000/api/channels/dmm.voltage?start=2026-03-10T14:00:00&end=2026-03-10T15:00:00"
+curl "http://localhost:8000/api/channels/dmm.voltage?since=2026-03-10T14:00:00&until=2026-03-10T15:00:00"
 ```
 
 ## Python: [`ChannelStore`](../concepts/three-stores.md)
@@ -41,7 +41,7 @@ from uuid import uuid4
 from pathlib import Path
 from litmus.data.channels.store import ChannelStore
 
-channels_dir = Path("results/channels")
+channels_dir = Path("<data_dir>/channels")
 store = ChannelStore(channels_dir, uuid4())
 
 # Query with all filters
@@ -82,8 +82,8 @@ Use `max_points` when displaying data in charts. For analysis, query without dec
 |-----------|-------------|--------|------|
 | `channel_id` | Channel name | *required* | URL path |
 | `session_id` | Filter to session (8-char prefix match) | `session_id=` | `?session_id=` |
-| `start` | Time range start | `start=datetime` | `?start=ISO` |
-| `end` | Time range end | `end=datetime` | `?end=ISO` |
+| Time range start | Filter rows after this time | `start=datetime` | `?since=ISO` |
+| Time range end | Filter rows before this time | `end=datetime` | `?until=ISO` |
 | `last_n` | Last N rows only | `last_n=int` | `?last_n=int` |
 | `max_points` | LTTB decimation target | `max_points=int` | `?max_points=int` |
 

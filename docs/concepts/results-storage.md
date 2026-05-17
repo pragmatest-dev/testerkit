@@ -78,7 +78,7 @@ Litmus maintains a DuckDB index alongside the parquet files to speed up queries 
 
 When a newer litmus version starts, it checks the index schema version. If the index is older than the running code, litmus deletes it and rebuilds from parquet files automatically. This may cause a brief delay on the first query after a version change.
 
-The index lives at `results/runs/_index.duckdb`. To force a rebuild:
+The index lives at `<data_dir>/runs/_index.duckdb`. To force a rebuild:
 
 ```bash
 rm ~/.local/share/litmus/data/runs/_index.duckdb*

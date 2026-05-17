@@ -129,7 +129,7 @@ SessionStarted          # Session-wide metadata (station, operator)
 The `EventLog` class manages the write path:
 
 1. **`emit(event)`** stamps `received_at`, buffers the event for batched Arrow IPC writes
-2. **Internal materializers** are notified immediately — `ParquetSubscriber` for the canonical run parquet, `LiveRunsSubscriber` for the in-daemon ingest path. The `litmus export` CLI replay path drives these same materializers post-hoc against stored events.
+2. **Internal materializers** are notified immediately — the runs daemon ingests events into an `AccumulatorPool`, and `materialize_run_to_parquet()` writes the canonical per-run parquet on `RunEnded`. The `litmus export` CLI replay path drives the same materializer post-hoc against stored events.
 3. **IPC flush** happens every 50 events (configurable), writing a batch to the Arrow IPC file
 
 The `EventSubscriber` base class is internal scaffolding for these materializers — not a public extension protocol. Adding a new format requires editing `litmus.data.exporters`, not a third-party plugin.
@@ -139,7 +139,7 @@ The `EventSubscriber` base class is internal scaffolding for these materializers
 Events are stored as Arrow IPC files, date-partitioned:
 
 ```
-results/events/
+<data_dir>/events/
 ├── 2026-03-10/
 │   ├── {session_id}.arrow
 │   └── {session_id}_ref/     # Large data (waveforms, images)

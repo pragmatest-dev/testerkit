@@ -95,9 +95,9 @@ Grafana (PostgreSQL datasource)
     v
 litmus grafana serve (Buena Vista + DuckDB)
     |
-    |-- read_parquet('results/runs/**/*.parquet')  --> measurements, runs
-    |-- Arrow IPC (results/events/**/*.arrow)      --> events
-    |-- Arrow IPC (results/channels/**/*.arrow)    --> channels
+    |-- read_parquet('<data_dir>/runs/**/*.parquet')  --> measurements, runs
+    |-- Arrow IPC (<data_dir>/events/**/*.arrow)      --> events
+    |-- Arrow IPC (<data_dir>/channels/**/*.arrow)    --> channels
 ```
 
 All timestamps are stored as UTC and converted to naive UTC timestamps at the pgwire layer for Grafana compatibility.

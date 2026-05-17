@@ -40,19 +40,21 @@ flowchart LR
     P[pytest collection] --> E[StepsDiscovered event]
     E --> EL[EventLog]
     EL --> AR[Arrow IPC]
-    EL --> PS[ParquetSubscriber]
-    PS --> PQ["{run}.parquet (record_type='step' + 'measurement' rows)"]
+    EL --> RD[runs daemon: AccumulatorPool]
+    RD --> M[materialize_run_to_parquet on RunEnded]
+    M --> PQ["{run}.parquet (record_type='run' + 'step' + 'measurement' rows)"]
 ```
 
-`ParquetSubscriber` caches the discovered items in memory. When the run ends, it emits one row per planned step into the unified parquet — executed steps with real outcomes and timing, plus synthetic rows with `step_outcome IS NULL` for items that never produced a `StepStarted` event.
+The runs daemon caches the discovered items in memory via its accumulator. When the run ends, `materialize_run_to_parquet()` emits one row per planned step into the unified parquet — executed steps with real outcomes and timing, plus synthetic rows with `step_outcome IS NULL` for items that never produced a `StepStarted` event.
 
 ## Storage
 
 There is **one parquet file per run**. Step records and measurement records share the same file, discriminated by the [`record_type`](../reference/parquet-schema.md) column:
 
 ```
-results/runs/{date}/
+<data_dir>/runs/{date}/
 └── {timestamp}_{serial}.parquet          # All rows for one run
+   ├── record_type='run'                  # exactly one row, run-level metadata
    ├── record_type='step'                 # one row per (step_path, vector_index)
    └── record_type='measurement'          # one row per recorded measurement
 ```
@@ -66,7 +68,7 @@ Key step-row columns (full list in [Parquet schema](../reference/parquet-schema.
 
 ## "Never ran" rows (`step_outcome IS NULL`)
 
-After `RunEnded`, the subscriber compares the discovered items against actually-executed steps. Missing steps get synthetic rows where:
+After `RunEnded`, `materialize_run_to_parquet()` compares the discovered items against actually-executed steps. Missing steps get synthetic rows where:
 
 - `step_outcome`: **NULL** (field-missingness is the "never ran" receipt — there is no `"not_started"` literal; see `concepts/outcomes.md`)
 - Timing fields: NULL
@@ -81,7 +83,7 @@ With DuckDB:
 ```sql
 -- Step summary for one run
 SELECT step_name, step_outcome, step_started_at, step_ended_at
-FROM read_parquet('results/runs/**/*.parquet')
+FROM read_parquet('data/runs/**/*.parquet')
 WHERE record_type = 'step'
   AND run_id = 'abc123'
 ORDER BY step_index;
@@ -90,7 +92,7 @@ ORDER BY step_index;
 SELECT step_name,
        COUNT(*) AS total,
        SUM(CASE WHEN step_outcome IS NULL THEN 1 ELSE 0 END) AS never_ran
-FROM read_parquet('results/runs/**/*.parquet')
+FROM read_parquet('data/runs/**/*.parquet')
 WHERE record_type = 'step'
 GROUP BY step_name
 HAVING never_ran > 0;

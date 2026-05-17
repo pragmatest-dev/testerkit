@@ -98,14 +98,24 @@ step.measure(
 
 ### From LabVIEW
 
-Use LabVIEW's Python Node to call the Results API:
+Use LabVIEW's Python Node to call the Results API. Wrap `LitmusClient`'s
+chained-builder API in a small helper:
 
+```python
+# litmus_labview.py
+from litmus.client import LitmusClient
+
+def submit_labview_run(serial, station, measurements):
+    """measurements: list of dicts with name, value, low, high, units."""
+    client = LitmusClient()
+    run = client.start_run(dut_serial=serial, station_id=station, test_phase="production")
+    with run.step("labview_results") as step:
+        for m in measurements:
+            step.measure(**m)
+    return run.finish()
 ```
-Python Node
-├── Module: litmus
-├── Function: submit_result
-└── Inputs: serial, station, measurements[]
-```
+
+Then call `litmus_labview.submit_labview_run` from LabVIEW's Python Node.
 
 Or call via subprocess:
 
@@ -258,8 +268,8 @@ curl http://localhost:8000/api/runs/abc12345/measurements
 import pyarrow.parquet as pq
 import pandas as pd
 
-# Read measurements — runs are partitioned by date under results/runs/
-table = pq.read_table("results/runs")            # recursively reads all runs
+# Read measurements — runs are partitioned by date under <data_dir>/runs/
+table = pq.read_table("data/runs")               # recursively reads all runs
 df = table.to_pandas()
 # Filter to measurement rows (the schema multiplexes step + measurement rows)
 df = df[df["record_type"] == "measurement"]
@@ -270,9 +280,9 @@ board_data = df[df['dut_serial'] == 'SN12345']
 
 ## Data Schema
 
-Results are stored in Parquet under `results/runs/{date}/*.parquet`. Each
+Results are stored in Parquet under `<data_dir>/runs/{date}/*.parquet`. Each
 file holds one run's rows; every row carries a `record_type` discriminator
-(`step` or `measurement`) plus the denormalized run/DUT/station context.
+(`run`, `step`, or `measurement`) plus the denormalized run/DUT/station context.
 See `src/litmus/data/schemas.py` for the canonical column list. The columns
 most consumers reach for:
 

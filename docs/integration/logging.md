@@ -134,7 +134,7 @@ def test_voltage(dut_serial: str, run):
 Results are stored in Parquet files with self-describing filenames:
 
 ```
-results/runs/{date}/
+<data_dir>/runs/{date}/
 ├── {timestamp}_{serial}.parquet     # With serial (production)
 ├── {timestamp}_{serial}_ref/        # External data for above (waveforms, images)
 ├── {timestamp}.parquet              # Without serial (dev/debug)
@@ -163,14 +163,14 @@ export LITMUS_HOME=/shared/test_results
 import pandas as pd
 
 # Load a specific run
-df = pd.read_parquet("results/runs/2026-01-30/20260130T143025Z_SN001.parquet")
+df = pd.read_parquet("data/runs/2026-01-30/20260130T143025Z_SN001.parquet")
 
 # Filter by test
 vout = df[df["step_name"] == "test_output_voltage"]
 print(vout[["measurement_value", "measurement_outcome", "in_vin"]])
 
 # Load all runs
-df_all = pd.read_parquet("results/runs/**/*.parquet")
+df_all = pd.read_parquet("data/runs/**/*.parquet")
 print(df_all.groupby("step_name")["measurement_outcome"].value_counts())
 ```
 
@@ -182,7 +182,7 @@ import duckdb
 # Query across all runs
 duckdb.sql("""
     SELECT dut_serial, step_name, measurement_outcome, COUNT(*)
-    FROM 'results/runs/**/*.parquet'
+    FROM 'data/runs/**/*.parquet'
     GROUP BY dut_serial, step_name, measurement_outcome
 """).show()
 ```
@@ -292,7 +292,7 @@ def upload_results(run_id: str, bucket: str):
     """Upload a sealed run parquet to S3.
 
     Litmus writes one parquet per run at
-    ``results/runs/{date}/{timestamp}_{serial}.parquet`` — there is no
+    ``<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`` — there is no
     split into separate `test_runs/`, `measurements/`, or `vectors/`
     directories. The file_path is on the run summary.
     """
