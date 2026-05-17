@@ -1,4 +1,4 @@
-# API Reference
+# API reference
 
 Litmus exposes two equivalent surfaces over the same Python code:
 
@@ -9,303 +9,188 @@ The MCP tools are thin wrappers around the same Python functions that back the H
 
 > **Live OpenAPI explorer.** When `litmus serve` is running, the OpenAPI schema lives at <http://localhost:8000/api/openapi.json>, with Swagger UI at <http://localhost:8000/api/docs> and ReDoc at <http://localhost:8000/api/redoc>. Use either for interactive request building, response previews, and codegen against the typed response models.
 
+The tables below are generated from source — `src/litmus/api/app.py` for the HTTP routes and `src/litmus/mcp/server.py` for the MCP tools. To regenerate after touching either, run:
+
+```bash
+uv run python scripts/generate_reference_docs.py api
+```
+
+The pre-commit hook runs the same generator in `--check` mode, so source / docs drift fails the commit.
+
 ## Setup
 
 ### MCP server
 
 ```bash
-litmus setup claude-code    # Claude Code
-litmus setup cursor         # Cursor
-litmus setup cline          # Cline (VS Code)
-litmus mcp serve            # Manual stdio server
+litmus setup claude-code     # Claude Code
+litmus setup claude-desktop  # Claude Desktop
+litmus setup copilot         # GitHub Copilot
+litmus setup cursor          # Cursor
+litmus setup cline           # Cline (VS Code)
+litmus mcp serve             # Manual stdio server (auto-launched by the setup commands)
 ```
 
 ### HTTP server
 
 ```bash
-litmus serve                # API at http://localhost:8000/api/
-litmus serve --reload       # Dev mode with auto-reload
+litmus serve                 # API at http://localhost:8000/api/
+litmus serve --reload        # Dev mode with auto-reload
 ```
-
----
 
 ## MCP tools
 
-Source of truth: `src/litmus/mcp/server.py`. Twelve tools, all prefixed `litmus_`:
+Twelve tools, all prefixed `litmus_`. Each tool's parameter shape and full docstring is also available via the MCP `tools/list` protocol method; the table below summarizes.
 
-### `litmus_project`
+<!-- GENERATED:api-mcp-tools:start -->
+| Tool | Parameters | Summary |
+|---|---|---|
+| `litmus_channels` | `channel_id`, `session_id`, `last_n`, `max_points`, `project` | Query channel data from the streaming channel store. |
+| `litmus_discover` | `protocols` | Scan for connected instruments across all protocols. |
+| `litmus_events` | `session_id`, `event_type`, `role`, `since`, `limit`, `project` | Query events from the event store. |
+| `litmus_match` | `product_id`, `station_id`, `fixture_id`, `requirements`, `project` | Check compatibility between products, stations, and fixtures. |
+| `litmus_metrics` | `action`, `product`, `station`, `phase`, `since`, `until`, `period`, `top_n`, `min_samples`, `project` | Query manufacturing-test analytics (DuckDB SQL aggregated from parquet rows). |
+| `litmus_open` | `type`, `id`, `base_url` | Get URL to view/edit an entity in the browser UI. |
+| `litmus_project` | `action`, `type`, `id`, `path`, `content`, `create`, `scaffold`, `project` | Unified Litmus operations: init, list, get, save, read. |
+| `litmus_run` | `test`, `station`, `serial`, `project` | Execute tests and return results. |
+| `litmus_runs` | `action`, `run_id`, `limit`, `project` | Query the runs table — denormalized run-level summaries. |
+| `litmus_schema` | `yaml_type` | Get JSON Schema for a Litmus YAML file type. |
+| `litmus_sessions` | `project` | List known sessions with metadata. |
+| `litmus_steps` | `run_id`, `action`, `project` | Query the steps table for one run. |
+<!-- GENERATED:api-mcp-tools:end -->
 
-Read project files (`product`, `station`, `fixture`, `test`, `catalog`, etc.).
-
-```
-action: "read" | "list" | "save"
-path:   relative path inside the project (for read/save)
-type:   entity type (for list)
-project: project root path
-```
-
-### `litmus_discover`
-
-Discover instruments connected to the bench across all protocols.
-
-```
-protocols: list[str] | None — protocol names to scan
-           (e.g. ["visa", "ni", "serial"]); omit to scan all
-```
-
-### `litmus_match`
-
-Match a product against one or all stations for [capability](../concepts/capabilities.md) compatibility.
-
-```
-product_id: required
-station_id: optional — single-station check if set, all-stations search if omitted
-project:    project root path
-```
-
-### `litmus_run`
-
-Execute tests and return results.
-
-```
-test:    str — test file or directory (e.g. "tests/test_x.py")
-station: str — station id to run on
-serial:  str — DUT serial number
-project: str — project root path (from litmus action='init' response)
-```
-
-### `litmus_open`
-
-Open a project resource (product, station, fixture, test) in the operator UI.
-
-```
-type:    entity type
-id:      entity id
-project: project root path
-```
-
-### `litmus_schema`
-
-Return the JSON schema for a YAML entity type.
-
-```
-yaml_type: "product" | "station" | "fixture" | "catalog" | "instrument_asset" | "project"
-```
-
-### `litmus_events`
-
-Query the event store.
-
-```
-session_id: filter by session UUID
-event_type: filter by event type
-role:       filter by instrument role
-since:      ISO timestamp, only events after
-limit:      max events (default 100)
-project:    project root path
-```
-
-### `litmus_sessions`
-
-List known sessions with metadata from `SessionStarted` events.
-
-```
-project: project root path
-```
-
-### `litmus_channels`
-
-Query channel data from the streaming channel store.
-
-```
-channel_id: channel to query (e.g. "scope.ch1_waveform")
-session_id: filter to a specific session
-last_n:     return only the last N rows
-max_points: downsample to at most N rows (LTTB)
-project:    project root path
-```
-
-### `litmus_metrics`
-
-Query manufacturing-test analytics (DuckDB SQL aggregated from parquet rows).
-
-```
-action:      str — one of: summary, pareto, cpk, trend, retest, time_loss
-product:     filter by product / part number
-station:     filter by station name
-phase:       test phase (default excludes development; 'all' = no filter)
-since:       ISO start date (inclusive)
-until:       ISO end date (inclusive)
-period:      time bucket — "day" (default), "week", "month"
-top_n:       number of top failures for pareto (default 10)
-min_samples: minimum sample count for cpk (default 10)
-project:     project root path
-```
-
-### `litmus_runs`
-
-Query the runs table — denormalized run-level summaries.
-
-```
-action:  "list" (most recent runs) or "get" (one run by id); default "list"
-run_id:  required when action="get"; full UUID or 8-char prefix
-limit:   max rows when action="list" (default 50)
-project: project root path
-```
-
-### `litmus_steps`
-
-Query the steps table for one run.
-
-```
-run_id:  required — full UUID or 8-char prefix of the run
-action:  "list" (flat ordered rows) or "tree" (step_path hierarchy); default "list"
-project: project root path
-```
-
----
+For per-tool parameter detail and worked examples, see [how-to/mcp-integration.md](../how-to/mcp-integration.md).
 
 ## HTTP endpoints
 
-Base URL: `http://localhost:8000/api`. Source of truth: `src/litmus/api/app.py`. Response models are typed Pydantic — the OpenAPI explorer documents every shape.
+Every route is mounted under the `/api/` prefix. Field shapes for request / response models live in [models.md](models.md); query parameter detail is in the per-handler source.
 
+<!-- GENERATED:api-http-routes:start -->
 ### Runs
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/runs` | List recent runs (paginated) |
-| GET | `/runs/{run_id}` | Get a run by id (`RunView`) |
-| POST | `/runs` | Start a new run (`RunLaunchResponse`) |
-| GET | `/runs/{run_id}/status` | Live status of a running test |
-| GET | `/runs/{run_id}/ref` | Binary reference data attached to a vector (waveform, image, file) |
-| GET | `/active` | Currently running tests |
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/runs` | `RunsListResponse` | List recent test runs. |
+| `GET` | `/api/runs/{run_id}` | `RunView` | Get a specific test run with steps, instruments, and measurements. |
+| `GET` | `/api/runs/{run_id}/measurements` | `MeasurementsListResponse` | Get measurements for a test run. |
+| `GET` | `/api/runs/{run_id}/steps` | `StepsListResponse` | List steps for a run, ordered by step_index. |
+| `GET` | `/api/runs/{run_id}/steps/tree` | `StepsTreeResponse` | Hierarchical step tree built from ``step_path``. |
+| `GET` | `/api/runs/{run_id}/ref` | — | Materialize a measurement-output ref URI to its underlying data. |
+| `POST` | `/api/runs` | `RunLaunchResponse` | Start a new test run. |
+| `GET` | `/api/runs/{run_id}/status` | `RunStatus` | Get status of a running test. |
 
-```bash
-curl http://localhost:8000/api/runs
-curl http://localhost:8000/api/runs/abc12345
-curl -X POST http://localhost:8000/api/runs \
-  -H "Content-Type: application/json" \
-  -d '{"product_id": "power_board", "dut_serial": "SN001", "station_id": "bench_1", "test_path": "tests/"}'
-```
+### Active runs
 
-### Products
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/active` | `ActiveRunsResponse` | List currently running tests. |
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/products` | List all products |
-| GET | `/products/{product_id}` | Get product by id |
+### Dialogs
 
-### Stations
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/dialogs` | `DialogsListResponse` | List pending dialogs. |
+| `POST` | `/api/dialogs` | `DialogCreateResponse` | Create a pending dialog (from test subprocess). |
+| `GET` | `/api/dialogs/{dialog_id}` | `Dialog` | Get a specific pending dialog. |
+| `GET` | `/api/dialogs/{dialog_id}/wait` | `DialogResponse` | Long-poll waiting for dialog response. |
+| `POST` | `/api/dialogs/{dialog_id}/respond` | `DialogRespondAck` | Respond to a pending dialog. |
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/stations` | List all stations |
-| GET | `/stations/{station_id}` | Get station config by id |
+### Events & sessions
 
-### Matching
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/match?product_id=X` | Find compatible stations |
-| GET | `/match?product_id=X&station_id=Y` | Check specific station compatibility |
-
-```bash
-curl "http://localhost:8000/api/match?product_id=power_board"
-curl "http://localhost:8000/api/match?product_id=power_board&station_id=bench_1"
-```
-
-### Instruments
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/instruments/types` | List the instrument types defined in the catalog |
-| GET | `/instruments/catalog/{entry_id}` | Get a catalog entry by id |
-| GET | `/instruments/assets` | List instrument assets (per-instrument calibration / inventory records) |
-| GET | `/instruments/assets/{asset_id}` | Get one asset |
-
-### Dialogs (operator)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/dialogs` | List pending dialogs |
-| POST | `/dialogs` | Create a dialog |
-| GET | `/dialogs/{dialog_id}` | Get dialog by id |
-| GET | `/dialogs/{dialog_id}/wait` | Long-poll for the operator response |
-| POST | `/dialogs/{dialog_id}/respond` | Submit a response |
-
-### Events
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/events` | Query the event store (filterable by `session_id`, `type`, `role`, `since`, `limit`) |
-
-```bash
-curl http://localhost:8000/api/events
-curl "http://localhost:8000/api/events?session_id=abc12345&type=instrument.read"
-```
-
-### Sessions
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/sessions` | List sessions |
-| GET | `/sessions/{session_id}` | Events for one session |
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/events` | `GenericObjectResponse` | Query events from the event store. |
+| `GET` | `/api/sessions` | `GenericObjectResponse` | List known sessions. |
+| `GET` | `/api/sessions/{session_id}` | `GenericObjectResponse` | Get events for a specific session. |
 
 ### Channels
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/channels` | List known channels |
-| GET | `/channels/{channel_id}` | Query channel data (supports `session_id`, `last_n`, `max_points`, `start`, `end`) |
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/channels` | `GenericObjectResponse` | List known channels from the channel registry. |
+| `GET` | `/api/channels/_recent` | `GenericObjectResponse` | Channel registry + recent samples per channel. |
+| `GET` | `/api/channels/{channel_id}` | `GenericObjectResponse` | Query channel data. |
 
-```bash
-curl http://localhost:8000/api/channels
-curl "http://localhost:8000/api/channels/dmm.voltage?max_points=500"
-```
+### Products
+
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/products` | `ProductsListResponse` | List all available product specifications. |
+| `GET` | `/api/products/{product_id}` | `Product` | Get a product specification by ID. |
+| `GET` | `/api/products/{product_id}/requirements` | `ProductRequirementsResponse` | Get required capabilities for a product. |
+
+### Stations
+
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/stations` | `StationsListResponse` | List all available test stations. |
+| `GET` | `/api/stations/{station_id}` | `StationConfig` | Get a station configuration by ID. |
+| `GET` | `/api/stations/{station_id}/capabilities` | `StationCapabilitiesResponse` | Get capabilities provided by a station. |
+
+### Capability matching
+
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/match` | `MatchSingleResponse` \| `MatchAllResponse` | Match product requirements to station capabilities. |
+
+### Instruments
+
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/instruments/types` | `InstrumentTypesResponse` | List distinct instrument ``type`` values present in the catalog. |
+| `GET` | `/api/instruments/catalog/{entry_id}` | `InstrumentCatalogEntry` | Get a catalog entry by type or ID. |
+| `GET` | `/api/instruments/assets` | `InstrumentAssetsResponse` | List instrument asset files (physical devices you own). |
+| `GET` | `/api/instruments/assets/{asset_id}` | `InstrumentAssetFile` | Get an instrument asset by ID. |
 
 ### Metrics
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/metrics/summary` | Pass/fail/yield summary |
-| GET | `/metrics/pareto` | Failure Pareto |
-| GET | `/metrics/cpk` | Process capability index per characteristic |
-| GET | `/metrics/trend` | Yield/value trend over time |
-| GET | `/metrics/retest` | Retest analysis |
-| GET | `/metrics/time-loss` | Time spent in failed / retested vectors |
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/metrics/summary` | `MetricsResponse` | Yield summary — DuckDB SQL aggregated from parquet rows at request time. |
+| `GET` | `/api/metrics/pareto` | `MetricsResponse` | Top failure modes (DuckDB SQL). |
+| `GET` | `/api/metrics/cpk` | `MetricsResponse` | Process capability (DuckDB SQL). |
+| `GET` | `/api/metrics/trend` | `MetricsResponse` | Yield trend (DuckDB SQL). |
+| `GET` | `/api/metrics/retest` | `MetricsResponse` | Retest rates (DuckDB SQL). |
+| `GET` | `/api/metrics/time-loss` | `MetricsResponse` | Time lost to failures/errors (DuckDB SQL). |
 
-All metrics endpoints return `MetricsResponse` and accept the same filter parameters; consult the OpenAPI explorer for the exact filter shape.
+### MCP-parity tools
 
-### Discovery / catalog management
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/discover` | `GenericObjectResponse` | Scan for connected instruments across all protocols. |
+| `GET` | `/api/open` | `GenericObjectResponse` | Get URL to view/edit an entity in the browser UI. |
+| `GET` | `/api/schema/{yaml_type}` | `GenericObjectResponse` | Get JSON Schema for a Litmus YAML file type. |
+| `POST` | `/api/save/{entity_type}/{entity_id}` | `GenericObjectResponse` | Create or update an entity (station, product, sequence, fixture, etc.). |
+| `GET` | `/api/read` | `GenericObjectResponse` | Read a project file or template. |
+| `GET` | `/api/enum/{abbrev}` | `GenericObjectResponse` | Resolve a datasheet abbreviation to its MeasurementFunction enum value(s). |
+| `GET` | `/api/enum-reference` | `GenericObjectResponse` | Get the full abbreviation-to-enum reference table as markdown. |
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/discover` | VISA discovery scan |
-| GET | `/open` | Open a project resource in the operator UI |
-| GET | `/schema/{yaml_type}` | JSON schema for an entity YAML type |
-| POST | `/save/{entity_type}/{entity_id}` | Save a YAML entity |
-| GET | `/read` | Read a YAML entity |
-| GET | `/enum/{abbrev}` | Resolve a measurement-function abbreviation to the enum value |
-| GET | `/enum-reference` | Full enum reference for AI tools |
+### API discovery
 
----
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/openapi.json` | `dict` | OpenAPI 3.0 schema for the Litmus HTTP API. |
+| `GET` | `/api/docs` | — | Swagger UI live API explorer (mounted under `/api/` to avoid colliding with NiceGUI's `/docs` Diátaxis browser). |
+| `GET` | `/api/redoc` | — | ReDoc rendering of the OpenAPI schema. |
+<!-- GENERATED:api-http-routes:end -->
 
 ## Response format
 
-All endpoints return JSON. The exact shape per route is in the response model classes (`RunsListResponse`, `RunView`, `MetricsResponse`, etc.) — see [Models](models.md) and the OpenAPI schema.
-
-Error responses follow FastAPI's convention:
+All JSON responses use camelCase for envelope fields (`runs`, `events`, `metrics`) and snake_case for record fields (which match the Pydantic model field names — see [models.md](models.md)). Errors follow the FastAPI convention:
 
 ```json
-{ "detail": "Run 'abc12345' not found" }
+{"detail": "Run not found"}
 ```
+
+with the HTTP status code carrying the category (`404` not found, `422` validation, `500` server error).
 
 ## Authentication
 
-No authentication is required by default; the server binds to localhost. For production deployments, place behind a reverse proxy.
+No authentication for the local-only `litmus serve` deployment. If you expose the API beyond localhost, put it behind a reverse proxy that handles auth.
 
 ## See also
 
-- [CLI reference](cli.md) — `litmus serve`, `litmus mcp serve`, `litmus setup`
-- [Python client](client.md) — `LitmusClient` for programmatic result submission
-- [`litmus.connect()`](connect.md) — single-call instrument-access helper
+- [how-to/mcp-integration.md](../how-to/mcp-integration.md) — agent setup walkthrough + per-tool examples
+- [reference/event-types.md](event-types.md) — event payload shapes consumed by `/api/events` and `litmus_events`
+- [reference/models.md](models.md) — full Pydantic model surface (response_model targets)
+- [reference/cli.md](cli.md) — `litmus serve`, `litmus setup`, `litmus mcp serve` CLI flags
+- [concepts/three-stores.md](../concepts/three-stores.md) — what `/api/events`, `/api/runs`, `/api/channels` each read from

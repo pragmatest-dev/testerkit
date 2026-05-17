@@ -29,6 +29,14 @@ runs that form so source / docs drift fails the commit.
 
 from __future__ import annotations
 
+# Keep the daemon-notify hop from firing when this script imports
+# litmus.api.app (ParquetBackend) or litmus.mcp.server — the script
+# just walks routes / tools, it does not run a session. Must run
+# BEFORE any litmus import.
+import os as _os
+
+_os.environ.setdefault("LITMUS_SKIP_DAEMON_NOTIFY", "1")
+
 import argparse
 import importlib
 import inspect
@@ -511,6 +519,118 @@ def _generate_configuration(*, check: bool) -> bool:
 
 
 # =============================================================================
+# api.md
+# =============================================================================
+
+
+def _http_response_model_name(rm: Any) -> str:
+    """Render a FastAPI route's response_model as a human-readable cell."""
+    if rm is None:
+        return "—"
+    # `Union` / `X | Y` types (e.g. MatchSingleResponse | MatchAllResponse)
+    origin = get_origin(rm)
+    if origin is Union or origin is types.UnionType:
+        return " \\| ".join(_http_response_model_name(a) for a in get_args(rm))
+    name = getattr(rm, "__name__", None)
+    if name:
+        return f"`{name}`"
+    return f"`{rm!r}`"
+
+
+# Group HTTP routes by section heading. Match by path prefix; routes
+# that don't match any prefix go under "Other". Order matters — first
+# matching prefix wins. The prefix-stripping is the doc heading; full
+# path stays in the table.
+_HTTP_SECTIONS: list[tuple[str, str]] = [
+    ("Runs", "/api/runs"),
+    ("Active runs", "/api/active"),
+    ("Dialogs", "/api/dialogs"),
+    ("Events & sessions", "/api/events"),
+    ("Events & sessions", "/api/sessions"),
+    ("Channels", "/api/channels"),
+    ("Products", "/api/products"),
+    ("Stations", "/api/stations"),
+    ("Capability matching", "/api/match"),
+    ("Instruments", "/api/instruments"),
+    ("Metrics", "/api/metrics"),
+    ("MCP-parity tools", "/api/discover"),
+    ("MCP-parity tools", "/api/open"),
+    ("MCP-parity tools", "/api/schema"),
+    ("MCP-parity tools", "/api/save"),
+    ("MCP-parity tools", "/api/read"),
+    ("MCP-parity tools", "/api/enum"),
+    ("MCP-parity tools", "/api/enum-reference"),
+    ("API discovery", "/api/openapi.json"),
+    ("API discovery", "/api/docs"),
+    ("API discovery", "/api/redoc"),
+]
+
+
+def _classify_http_route(path: str) -> str:
+    for label, prefix in _HTTP_SECTIONS:
+        if path == prefix or path.startswith(prefix + "/") or path.startswith(prefix + "?"):
+            return label
+    return "Other"
+
+
+def _generate_api(*, check: bool) -> bool:
+    # Late import — pulls in FastAPI + Pydantic-validated config; daemon
+    # notify is suppressed by the env var set at module load.
+    from fastapi.routing import APIRoute
+
+    from litmus.api.app import create_api_router
+
+    router = create_api_router()
+
+    # Group routes by section, preserving discovery order within each.
+    by_section: dict[str, list[tuple[str, str, str, str]]] = {}
+    for route in router.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        methods = ", ".join(sorted(route.methods - {"HEAD"}))
+        section = _classify_http_route(route.path)
+        summary = _first_paragraph(route.endpoint.__doc__) or ""
+        response = _http_response_model_name(getattr(route, "response_model", None))
+        by_section.setdefault(section, []).append((methods, route.path, response, summary))
+
+    section_order = list({label: None for label, _ in _HTTP_SECTIONS}) + ["Other"]
+    parts: list[str] = []
+    for label in section_order:
+        rows = by_section.get(label)
+        if not rows:
+            continue
+        parts.append(f"### {label}\n")
+        parts.append("| Method | Path | Response model | Summary |")
+        parts.append("|---|---|---|---|")
+        for methods, path, response, summary in rows:
+            parts.append(f"| `{methods}` | `{path}` | {response} | {summary} |")
+        parts.append("")
+    http_body = "\n".join(parts).rstrip() + "\n"
+
+    # ---- MCP tools ------------------------------------------------------
+    from litmus.mcp.server import create_mcp_server
+
+    mcp = create_mcp_server()
+    import asyncio
+
+    tools_dict = asyncio.run(mcp.get_tools())
+
+    mcp_parts: list[str] = ["| Tool | Parameters | Summary |", "|---|---|---|"]
+    for name, tool in sorted(tools_dict.items()):
+        props = tool.parameters.get("properties", {}) if tool.parameters else {}
+        params = ", ".join(f"`{p}`" for p in props) or "—"
+        summary = _first_paragraph(tool.description)
+        mcp_parts.append(f"| `{name}` | {params} | {summary} |")
+    mcp_body = "\n".join(mcp_parts)
+
+    target = DOCS_DIR / "api.md"
+    existing = target.read_text()
+    new = _replace_section(existing, "api-http-routes", http_body)
+    new = _replace_section(new, "api-mcp-tools", mcp_body)
+    return _write_or_check(target, new, check=check)
+
+
+# =============================================================================
 # Dispatcher
 # =============================================================================
 
@@ -519,6 +639,7 @@ GENERATORS: dict[str, Any] = {
     "event-types": _generate_event_types,
     "models": _generate_models,
     "configuration": _generate_configuration,
+    "api": _generate_api,
 }
 
 
