@@ -1,0 +1,1852 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "project_config",
+      "label": "ProjectConfig",
+      "category": "definition",
+      "model": "litmus.models.project.ProjectConfig",
+      "authored_at": "litmus.yaml",
+      "event_type": null,
+      "summary": "Project root config. Names the default station/fixture/profile, data dir, multi-slot knobs, profiles, and required operator inputs.",
+      "docs": "docs/reference/configuration.md"
+    },
+    {
+      "id": "profile_config",
+      "label": "ProfileConfig",
+      "category": "definition",
+      "model": "litmus.models.project.ProfileConfig",
+      "authored_at": "litmus.yaml (under profiles:)",
+      "event_type": null,
+      "summary": "Named config set applied to a pytest session. Same flat shape as a TestEntry plus profile-only description/facets/extends and an optional station_type / fixture binding. Selected via CLI facets.",
+      "docs": "docs/concepts/sessions.md"
+    },
+    {
+      "id": "multi_slot_config",
+      "label": "MultiSlotConfig",
+      "category": "primitive",
+      "model": "litmus.models.project.MultiSlotConfig",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Multi-slot orchestration knobs (per-child grace seconds, etc.).",
+      "docs": null
+    },
+    {
+      "id": "product",
+      "label": "Product",
+      "category": "definition",
+      "model": "litmus.models.product.Product",
+      "authored_at": "products/*.yaml | products/{id}/spec.yaml",
+      "event_type": null,
+      "summary": "Spec for a thing-under-test: identity, pins, signal groups, and characteristics. ATML \"UUT Description\".",
+      "docs": "docs/concepts/products.md"
+    },
+    {
+      "id": "product_manifest",
+      "label": "ProductManifest",
+      "category": "definition",
+      "model": "litmus.models.product_manifest.ProductManifest",
+      "authored_at": "products/{id}/manifest.yaml",
+      "event_type": null,
+      "summary": "Per-product folder manifest tracking workflow position (parse → review → derive → select station → generate tests → execute).",
+      "docs": null
+    },
+    {
+      "id": "pin",
+      "label": "Pin",
+      "category": "primitive",
+      "model": "litmus.models.product.Pin",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Physical DUT pin with role classification (signal / ground / power / reference) for fixture routing.",
+      "docs": null
+    },
+    {
+      "id": "signal_group",
+      "label": "SignalGroup",
+      "category": "primitive",
+      "model": "litmus.models.product.SignalGroup",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Grouped signals forming a bus interface (I2C, SPI, UART).",
+      "docs": null
+    },
+    {
+      "id": "bus_signal",
+      "label": "BusSignal",
+      "category": "primitive",
+      "model": "litmus.models.product.BusSignal",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "One signal within a bus group; references a Pin by name.",
+      "docs": null
+    },
+    {
+      "id": "product_characteristic",
+      "label": "ProductCharacteristic",
+      "category": "definition",
+      "model": "litmus.models.product.ProductCharacteristic",
+      "authored_at": "products/*.yaml (under characteristics:)",
+      "event_type": null,
+      "summary": "A DUT capability tied to a physical interface (pin/pins/net/ signal_group) with optional datasheet ref. Extends Capability — the matching service pairs DUT OUTPUT characteristics with instrument INPUT capabilities by direction flip.",
+      "docs": "docs/concepts/capability-model.md"
+    },
+    {
+      "id": "station_config",
+      "label": "StationConfig",
+      "category": "definition",
+      "model": "litmus.models.station.StationConfig",
+      "authored_at": "stations/*.yaml",
+      "event_type": null,
+      "summary": "Concrete bench deployment. Names a station_type for contract validation; hostname enables session-start auto-match against socket.gethostname().",
+      "docs": "docs/concepts/stations.md"
+    },
+    {
+      "id": "station_instrument_config",
+      "label": "StationInstrumentConfig",
+      "category": "primitive",
+      "model": "litmus.models.station.StationInstrumentConfig",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Single instrument entry in a station file — type, driver, resource, optional catalog_ref, mock flag, channel mapping.",
+      "docs": null
+    },
+    {
+      "id": "station_type",
+      "label": "StationType",
+      "category": "definition",
+      "model": "litmus.models.station.StationType",
+      "authored_at": "stations/types/*.yaml",
+      "event_type": null,
+      "summary": "Abstract station-type template. Declares required instrument roles + types that concrete StationConfig deployments must cover.",
+      "docs": null
+    },
+    {
+      "id": "instrument_config",
+      "label": "InstrumentConfig",
+      "category": "primitive",
+      "model": "litmus.models.station.InstrumentConfig",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Instrument-role declaration inside a StationType (type + driver + settings, no resource). The contract a deployment must satisfy.",
+      "docs": null
+    },
+    {
+      "id": "instrument_catalog_entry",
+      "label": "InstrumentCatalogEntry",
+      "category": "definition",
+      "model": "litmus.models.catalog.InstrumentCatalogEntry",
+      "authored_at": "catalog/**/*.yaml",
+      "event_type": null,
+      "summary": "Universal tier of the 3-tier instrument model — what a make/model can do. Channels, attributes, and a list of InstrumentCapability entries. Tier 1 of (catalog → asset → record).",
+      "docs": "docs/reference/capability-schema.md"
+    },
+    {
+      "id": "instrument_asset_file",
+      "label": "InstrumentAssetFile",
+      "category": "definition",
+      "model": "litmus.models.instrument_asset.InstrumentAssetFile",
+      "authored_at": "instruments/*.yaml",
+      "event_type": null,
+      "summary": "Unit-specific tier of the 3-tier instrument model — a specific physical device (serial, calibration) referencing a catalog entry. Tier 2 of (catalog → asset → record).",
+      "docs": null
+    },
+    {
+      "id": "fixture_config",
+      "label": "FixtureConfig",
+      "category": "definition",
+      "model": "litmus.models.test_config.FixtureConfig",
+      "authored_at": "fixtures/*.yaml",
+      "event_type": null,
+      "summary": "Bench-to-DUT wiring. Either single-DUT connections or multi-slot slots; never both. station_types[] declares which abstract station layouts this fixture can wire against.",
+      "docs": "docs/concepts/fixtures.md"
+    },
+    {
+      "id": "fixture_connection",
+      "label": "FixtureConnection",
+      "category": "primitive",
+      "model": "litmus.models.test_config.FixtureConnection",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Named DUT-pin ↔ instrument-channel pairing — the addressable unit of fixture routing. Optionally carries a measurement function (DMM for DC, scope for AC) and a SwitchRoute for switched fixtures.",
+      "docs": null
+    },
+    {
+      "id": "fixture_slot",
+      "label": "FixtureSlot",
+      "category": "primitive",
+      "model": "litmus.models.test_config.FixtureSlot",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "One DUT slot inside a multi-DUT fixture; has its own connection map.",
+      "docs": null
+    },
+    {
+      "id": "switch_route",
+      "label": "SwitchRoute",
+      "category": "primitive",
+      "model": "litmus.models.test_config.SwitchRoute",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Switch channels to close before this connection's instrument can be used; carries settling time.",
+      "docs": null
+    },
+    {
+      "id": "capability",
+      "label": "Capability",
+      "category": "primitive",
+      "model": "litmus.models.capability.Capability",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "What a signal endpoint can do — base of both ProductCharacteristic (DUT side) and InstrumentCapability (bench side). Function + direction + signals/conditions/controls/attributes. ATML/IVI/ IEEE 1641 lineage.",
+      "docs": "docs/concepts/capabilities.md"
+    },
+    {
+      "id": "instrument_capability",
+      "label": "InstrumentCapability",
+      "category": "primitive",
+      "model": "litmus.models.capability.InstrumentCapability",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Capability + channel list + operational metadata. The instrument- side dialect of the shared Capability shape.",
+      "docs": null
+    },
+    {
+      "id": "spec_band",
+      "label": "SpecBand",
+      "category": "primitive",
+      "model": "litmus.models.capability.SpecBand",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Condition-dependent spec override — \"at this operating point, here are the specs.\" Empty `when:` always matches. Anchors the shared \"top-level default + optional when:-keyed override\" pattern.",
+      "docs": null
+    },
+    {
+      "id": "signal",
+      "label": "Signal",
+      "category": "primitive",
+      "model": "litmus.models.capability.Signal",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "A measurable/sourceable parameter (range + accuracy + resolution).",
+      "docs": null
+    },
+    {
+      "id": "condition",
+      "label": "Condition",
+      "category": "primitive",
+      "model": "litmus.models.capability.Condition",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Operating condition that affects accuracy (frequency, temperature, NPLC, …). NOT user-adjustable — describes the envelope under which specs were characterized.",
+      "docs": null
+    },
+    {
+      "id": "control",
+      "label": "Control",
+      "category": "primitive",
+      "model": "litmus.models.capability.Control",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "A user-configurable knob (coupling, autorange, setpoint, …).",
+      "docs": null
+    },
+    {
+      "id": "attribute",
+      "label": "Attribute",
+      "category": "primitive",
+      "model": "litmus.models.capability.Attribute",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Fixed hardware fact (bandwidth, sample rate, scpi_version) — value or range or options, optionally banded.",
+      "docs": null
+    },
+    {
+      "id": "channel_topology",
+      "label": "ChannelTopology",
+      "category": "primitive",
+      "model": "litmus.models.capability.ChannelTopology",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Physical topology of a single instrument channel — terminals, connector type, ground topology, optional flag.",
+      "docs": null
+    },
+    {
+      "id": "instrument_info",
+      "label": "InstrumentInfo",
+      "category": "primitive",
+      "model": "litmus.models.instrument.InstrumentInfo",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Identity queried from device (manufacturer/model/serial/firmware). For VISA, parsed from *IDN?.",
+      "docs": null
+    },
+    {
+      "id": "calibration_info",
+      "label": "CalibrationInfo",
+      "category": "primitive",
+      "model": "litmus.models.instrument.CalibrationInfo",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Calibration status from configuration (due/last/cert/lab). NOT queryable from device — comes from the asset file.",
+      "docs": null
+    },
+    {
+      "id": "test_entry",
+      "label": "TestEntry",
+      "category": "config-overlay",
+      "model": "litmus.models.test_config.TestEntry",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Recursive node in a sidecar/profile tests: tree. Mirrors pytest's node-id structure: class = branch with own marker fields + nested tests:; function = leaf. Reserved keys at every level: runner, tests. Every other key is a typed Litmus-marker sub-model.",
+      "docs": "docs/concepts/step-manifest.md"
+    },
+    {
+      "id": "sidecar_config",
+      "label": "SidecarConfig",
+      "category": "config-overlay",
+      "model": "litmus.models.test_config.SidecarConfig",
+      "authored_at": "tests/test_*.yaml",
+      "event_type": null,
+      "summary": "Top-level shape of a per-test-module sidecar YAML. Same flat TestEntry shape; the file root carries file-level marker fields and a nested tests: tree.",
+      "docs": "docs/concepts/step-manifest.md"
+    },
+    {
+      "id": "litmus_marker",
+      "label": "LitmusMarker",
+      "category": "config-overlay",
+      "model": null,
+      "authored_at": null,
+      "event_type": null,
+      "summary": "A @pytest.mark.litmus_* decorator on a test. Anything authorable in a sidecar's marker fields can also be written as a marker. Same vocabulary; the marker form is closer to the code.",
+      "docs": null
+    },
+    {
+      "id": "sweep_entry",
+      "label": "SweepEntry",
+      "category": "primitive",
+      "model": "litmus.models.test_config.SweepEntry",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "One sweep level — {argname: argvalues, …}. Multiple keys = a zipped axis; all lengths must match (validated at YAML load).",
+      "docs": null
+    },
+    {
+      "id": "mock_entry",
+      "label": "MockEntry",
+      "category": "primitive",
+      "model": "litmus.models.test_config.MockEntry",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Per-test mock — target (\"<fixture>.<attr>\") plus arbitrary patch.object kwargs (return_value, side_effect, …).",
+      "docs": null
+    },
+    {
+      "id": "retry_config",
+      "label": "RetryConfig",
+      "category": "primitive",
+      "model": "litmus.models.test_config.RetryConfig",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Runner-neutral retry config — translates to flaky under pytest. max_retries=0 means single execution (no retry).",
+      "docs": null
+    },
+    {
+      "id": "prompt_config",
+      "label": "PromptConfig",
+      "category": "primitive",
+      "model": "litmus.models.test_config.PromptConfig",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Operator prompt — message + type (confirm/choice/input) + optional timeout. Used for required_inputs and per-step dialogs.",
+      "docs": null
+    },
+    {
+      "id": "measurement_limit_config",
+      "label": "MeasurementLimitConfig",
+      "category": "primitive",
+      "model": "litmus.models.test_config.MeasurementLimitConfig",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Per-measurement limit policy — direct, characteristic-derived, banded, expression, lookup, step, or callable. The first matching band (or the parent fallback) wins at vector resolve time.",
+      "docs": null
+    },
+    {
+      "id": "limit_lookup_config",
+      "label": "LimitLookupConfig",
+      "category": "primitive",
+      "model": "litmus.models.test_config.LimitLookupConfig",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Lookup-table limit — value of `key` indexes a table of Limits.",
+      "docs": null
+    },
+    {
+      "id": "limit_step_config",
+      "label": "LimitStepConfig",
+      "category": "primitive",
+      "model": "litmus.models.test_config.LimitStepConfig",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Step-function limit — ranges with `below:` thresholds and a `default:` catch-all.",
+      "docs": null
+    },
+    {
+      "id": "limit",
+      "label": "Limit",
+      "category": "primitive",
+      "model": "litmus.models.test_config.Limit",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "A resolved test limit — low/high/nominal + units + comparator (GELE, EQ, LE, …) + optional traceability (characteristic_id, spec_ref). Per-comparator membership check via Limit.__contains__.",
+      "docs": null
+    },
+    {
+      "id": "session",
+      "label": "Session",
+      "category": "lifecycle",
+      "model": null,
+      "authored_at": null,
+      "event_type": null,
+      "summary": "A pytest session or interactive Connect context, identified by a session_id (UUID). Every event carries session_id; cross-store joins use it as the parent key. No single Pydantic model — the lifecycle is bracketed by SessionStarted/SessionEnded events.",
+      "docs": "docs/concepts/sessions.md"
+    },
+    {
+      "id": "test_run",
+      "label": "TestRun",
+      "category": "runtime",
+      "model": "litmus.data.models.TestRun",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "One complete test execution against one DUT on one Station. Carries DUT/product/station/fixture traceability, profile/facets, git context, operator, collected items, executed steps, custom metadata, and the final outcome.",
+      "docs": "docs/concepts/three-stores.md"
+    },
+    {
+      "id": "test_step",
+      "label": "TestStep",
+      "category": "runtime",
+      "model": "litmus.data.models.TestStep",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "One pytest test function invocation. Contains TestVectors expanded from sweep/parametrize. Carries code identity (node_id, file, module, class, function, markers) and a stamped outcome.",
+      "docs": null
+    },
+    {
+      "id": "test_vector",
+      "label": "TestVector",
+      "category": "runtime",
+      "model": "litmus.data.models.TestVector",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "One parameter-set execution of a step. Carries params (in_*), observations (out_*), stimulus signal paths, measurements, retry counter, and a per-vector outcome.",
+      "docs": null
+    },
+    {
+      "id": "measurement",
+      "label": "Measurement",
+      "category": "runtime",
+      "model": "litmus.data.models.Measurement",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Single measurement — name, value, units, limit fields, outcome. Carries full signal path (dut_pin, instrument_name, resource, channel, fixture_connection) for traceability. check_limit() is the single comparator-aware judgment path.",
+      "docs": null
+    },
+    {
+      "id": "stimulus_record",
+      "label": "StimulusRecord",
+      "category": "runtime",
+      "model": "litmus.data.models.StimulusRecord",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Captured stimulus (commanded inputs) — param/value/units + instrument/resource/channel + dut_pin + fixture_connection.",
+      "docs": null
+    },
+    {
+      "id": "dut",
+      "label": "DUT",
+      "category": "runtime",
+      "model": "litmus.data.models.DUT",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Physical instance of a Product — serial, part_number, revision, lot_number. Created at run start from operator scan or CLI.",
+      "docs": "docs/concepts/architecture-erd.md"
+    },
+    {
+      "id": "collected_item",
+      "label": "CollectedItem",
+      "category": "runtime",
+      "model": "litmus.data.models.CollectedItem",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Pytest-collected item with collection-time-assigned indices (step_index, vector_index, vector_count_planned). Enables manifest reconciliation against executed steps to detect unrun vectors.",
+      "docs": null
+    },
+    {
+      "id": "run_summary",
+      "label": "RunSummary",
+      "category": "runtime",
+      "model": "litmus.data.models.RunSummary",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Lightweight run header read from the parquet index (no steps or measurements). Powers the runs list view.",
+      "docs": null
+    },
+    {
+      "id": "waveform",
+      "label": "Waveform",
+      "category": "runtime",
+      "model": "litmus.data.models.Waveform",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Time-series data shape — t0 + dt + Y[]. Time axis is reconstructed from t0 + i*dt; no paired timestamps stored. The shape carried by array-type channels and array-valued instrument reads. Not a field on any other Pydantic model — flows through as data, not a typed reference.",
+      "docs": null
+    },
+    {
+      "id": "instrument_record",
+      "label": "InstrumentRecord",
+      "category": "runtime",
+      "model": "litmus.models.instrument.InstrumentRecord",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Tier 3 of the 3-tier instrument model — runtime view combining role + asset + identity + calibration + driver + catalog_ref + mock flag. What the fixture/logger tracks during a session.",
+      "docs": null
+    },
+    {
+      "id": "channel_descriptor",
+      "label": "ChannelDescriptor",
+      "category": "runtime",
+      "model": "litmus.data.channels.models.ChannelDescriptor",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Metadata for a live channel — data_type (scalar/array), instrument_role, resource, units. Written once when first seen.",
+      "docs": null
+    },
+    {
+      "id": "channel_sample",
+      "label": "ChannelSample",
+      "category": "runtime",
+      "model": "litmus.data.channels.models.ChannelSample",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Single channel data point delivered to subscribers — channel_id, timestamp, value, units, sample_interval, source_method.",
+      "docs": null
+    },
+    {
+      "id": "run_store",
+      "label": "RunStore",
+      "category": "store",
+      "model": "litmus.data.run_store.RunStore",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Materialized parquet read model for runs, steps, vectors, measurements. Backed by a long-lived daemon ingesting RunEnded cohorts into DuckDB-queryable parquet.",
+      "docs": "docs/concepts/three-stores.md"
+    },
+    {
+      "id": "event_store",
+      "label": "EventStore",
+      "category": "store",
+      "model": "litmus.data.event_store.EventStore",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Append-only parquet log of every emitted Event. The source of truth before materialization; subscribers tail it for live UI.",
+      "docs": "docs/concepts/event-log.md"
+    },
+    {
+      "id": "channel_store",
+      "label": "ChannelStore",
+      "category": "store",
+      "model": "litmus.data.channels.store.ChannelStore",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Live waveform / streaming-data store served over Arrow Flight. Subscribers receive ChannelSample batches in real time.",
+      "docs": "docs/concepts/flight-streaming.md"
+    },
+    {
+      "id": "event_base",
+      "label": "EventBase",
+      "category": "event",
+      "model": "litmus.data.events.EventBase",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Base for all event log events. Carries id, occurred_at, received_at, session_id, run_id (None for session-scope events).",
+      "docs": null
+    },
+    {
+      "id": "session_started",
+      "label": "SessionStarted",
+      "category": "event",
+      "model": "litmus.data.events.SessionStarted",
+      "authored_at": null,
+      "event_type": "session.started",
+      "summary": "Emitted once at session start (interactive or test orchestrator). Session-wide metadata only — must NOT carry run_id.",
+      "docs": null
+    },
+    {
+      "id": "session_ended",
+      "label": "SessionEnded",
+      "category": "event",
+      "model": "litmus.data.events.SessionEnded",
+      "authored_at": null,
+      "event_type": "session.ended",
+      "summary": "Emitted at session end. Must NOT carry run_id.",
+      "docs": null
+    },
+    {
+      "id": "run_started",
+      "label": "RunStarted",
+      "category": "event",
+      "model": "litmus.data.events.RunStarted",
+      "authored_at": null,
+      "event_type": "run.started",
+      "summary": "Emitted once per test run. Full run context — station/DUT/product/ operator/test phase/git/environment.",
+      "docs": null
+    },
+    {
+      "id": "run_ended",
+      "label": "RunEnded",
+      "category": "event",
+      "model": "litmus.data.events.RunEnded",
+      "authored_at": null,
+      "event_type": "run.ended",
+      "summary": "Emitted at the end of a test run with its final outcome.",
+      "docs": null
+    },
+    {
+      "id": "run_materialized",
+      "label": "RunMaterialized",
+      "category": "event",
+      "model": "litmus.data.events.RunMaterialized",
+      "authored_at": null,
+      "event_type": "run.materialized",
+      "summary": "Emitted by a materializer after a run's state lands in a durable, query-optimized backend. Distinct from run.ended — run can be ended without yet being materialized.",
+      "docs": null
+    },
+    {
+      "id": "slot_started",
+      "label": "SlotStarted",
+      "category": "event",
+      "model": "litmus.data.events.SlotStarted",
+      "authored_at": null,
+      "event_type": "slot.started",
+      "summary": "A DUT slot begins execution. Carries slot_id and dut_serial.",
+      "docs": null
+    },
+    {
+      "id": "slot_completed",
+      "label": "SlotCompleted",
+      "category": "event",
+      "model": "litmus.data.events.SlotCompleted",
+      "authored_at": null,
+      "event_type": "slot.completed",
+      "summary": "A DUT slot finishes execution.",
+      "docs": null
+    },
+    {
+      "id": "sync_arrived",
+      "label": "SyncArrived",
+      "category": "event",
+      "model": "litmus.data.events.SyncArrived",
+      "authored_at": null,
+      "event_type": "sync.arrived",
+      "summary": "Child process has reached a named sync point.",
+      "docs": null
+    },
+    {
+      "id": "sync_release",
+      "label": "SyncRelease",
+      "category": "event",
+      "model": "litmus.data.events.SyncRelease",
+      "authored_at": null,
+      "event_type": "sync.release",
+      "summary": "Orchestrator unblocks all slots at a sync point.",
+      "docs": null
+    },
+    {
+      "id": "instrument_connected",
+      "label": "InstrumentConnected",
+      "category": "event",
+      "model": "litmus.data.events.InstrumentConnected",
+      "authored_at": null,
+      "event_type": "fixture.instrument_connected",
+      "summary": "Instrument connected and identified — role + identity + calibration.",
+      "docs": null
+    },
+    {
+      "id": "identity_verified",
+      "label": "IdentityVerified",
+      "category": "event",
+      "model": "litmus.data.events.IdentityVerified",
+      "authored_at": null,
+      "event_type": "fixture.identity_verified",
+      "summary": "Identity check — expected vs actual IDN per role.",
+      "docs": null
+    },
+    {
+      "id": "calibration_warning",
+      "label": "CalibrationWarning",
+      "category": "event",
+      "model": "litmus.data.events.CalibrationWarning",
+      "authored_at": null,
+      "event_type": "fixture.calibration_warning",
+      "summary": "Calibration is near or past due for a role's instrument.",
+      "docs": null
+    },
+    {
+      "id": "dut_scanned",
+      "label": "DutScanned",
+      "category": "event",
+      "model": "litmus.data.events.DutScanned",
+      "authored_at": null,
+      "event_type": "fixture.dut_scanned",
+      "summary": "DUT serial scanned at run start (operator or barcode).",
+      "docs": null
+    },
+    {
+      "id": "instrument_disconnected",
+      "label": "InstrumentDisconnected",
+      "category": "event",
+      "model": "litmus.data.events.InstrumentDisconnected",
+      "authored_at": null,
+      "event_type": "fixture.instrument_disconnected",
+      "summary": "Instrument disconnected during teardown.",
+      "docs": null
+    },
+    {
+      "id": "step_started",
+      "label": "StepStarted",
+      "category": "event",
+      "model": "litmus.data.events.StepStarted",
+      "authored_at": null,
+      "event_type": "test.step_started",
+      "summary": "A step (or step+vector) is about to execute. Carries code identity and the commanded sweep inputs.",
+      "docs": null
+    },
+    {
+      "id": "measurement_recorded",
+      "label": "MeasurementRecorded",
+      "category": "event",
+      "model": "litmus.data.events.MeasurementRecorded",
+      "authored_at": null,
+      "event_type": "test.measurement",
+      "summary": "One measurement landed — name, value, units, outcome, limits, full signal path, plus dynamic vector columns (inputs/outputs/custom).",
+      "docs": null
+    },
+    {
+      "id": "record_event",
+      "label": "RecordEvent",
+      "category": "event",
+      "model": "litmus.data.events.RecordEvent",
+      "authored_at": null,
+      "event_type": "test.record",
+      "summary": "A key/value record from harness.record() — out-of-band data.",
+      "docs": null
+    },
+    {
+      "id": "step_ended",
+      "label": "StepEnded",
+      "category": "event",
+      "model": "litmus.data.events.StepEnded",
+      "authored_at": null,
+      "event_type": "test.step_ended",
+      "summary": "Step (or step+vector) finished. Carries per-vector outcome and the step-level aggregate.",
+      "docs": null
+    },
+    {
+      "id": "steps_discovered",
+      "label": "StepsDiscovered",
+      "category": "event",
+      "model": "litmus.data.events.StepsDiscovered",
+      "authored_at": null,
+      "event_type": "test.steps_discovered",
+      "summary": "Full pytest-collected item list, emitted after instruments connect and before steps execute. One per run.",
+      "docs": null
+    },
+    {
+      "id": "diagnostic_warning",
+      "label": "DiagnosticWarning",
+      "category": "event",
+      "model": "litmus.data.events.DiagnosticWarning",
+      "authored_at": null,
+      "event_type": "diagnostic.warning",
+      "summary": "Free-form warning with source/message/details.",
+      "docs": null
+    },
+    {
+      "id": "diagnostic_error",
+      "label": "DiagnosticError",
+      "category": "event",
+      "model": "litmus.data.events.DiagnosticError",
+      "authored_at": null,
+      "event_type": "diagnostic.error",
+      "summary": "Free-form error with source/message/details.",
+      "docs": null
+    },
+    {
+      "id": "route_closed",
+      "label": "RouteClosed",
+      "category": "event",
+      "model": "litmus.data.events.RouteClosed",
+      "authored_at": null,
+      "event_type": "route.closed",
+      "summary": "Switch channels closed to activate a fixture route.",
+      "docs": null
+    },
+    {
+      "id": "route_opened",
+      "label": "RouteOpened",
+      "category": "event",
+      "model": "litmus.data.events.RouteOpened",
+      "authored_at": null,
+      "event_type": "route.opened",
+      "summary": "Switch channels opened to deactivate a fixture route.",
+      "docs": null
+    },
+    {
+      "id": "instrument_read",
+      "label": "InstrumentRead",
+      "category": "event",
+      "model": "litmus.data.events.InstrumentRead",
+      "authored_at": null,
+      "event_type": "instrument.read",
+      "summary": "A driver read method was called via proxy. Array/waveform values are replaced with a channel:// URI claim-check at JSON-serialize time to keep the column compact.",
+      "docs": null
+    },
+    {
+      "id": "instrument_set",
+      "label": "InstrumentSet",
+      "category": "event",
+      "model": "litmus.data.events.InstrumentSet",
+      "authored_at": null,
+      "event_type": "instrument.set",
+      "summary": "A driver set method was called via proxy.",
+      "docs": null
+    },
+    {
+      "id": "instrument_configure",
+      "label": "InstrumentConfigure",
+      "category": "event",
+      "model": "litmus.data.events.InstrumentConfigure",
+      "authored_at": null,
+      "event_type": "instrument.configure",
+      "summary": "A driver configure method was called via proxy.",
+      "docs": null
+    },
+    {
+      "id": "stream_started",
+      "label": "StreamStarted",
+      "category": "event",
+      "model": "litmus.data.events.StreamStarted",
+      "authored_at": null,
+      "event_type": "stream.started",
+      "summary": "A stream began — stream_id, format, optional file path.",
+      "docs": null
+    },
+    {
+      "id": "stream_ended",
+      "label": "StreamEnded",
+      "category": "event",
+      "model": "litmus.data.events.StreamEnded",
+      "authored_at": null,
+      "event_type": "stream.ended",
+      "summary": "A stream ended.",
+      "docs": null
+    },
+    {
+      "id": "stream_frame_index",
+      "label": "StreamFrameIndex",
+      "category": "event",
+      "model": "litmus.data.events.StreamFrameIndex",
+      "authored_at": null,
+      "event_type": "stream.frame_index",
+      "summary": "Periodic stream-progress beacon (frame_count).",
+      "docs": null
+    },
+    {
+      "id": "dialog_opened",
+      "label": "DialogOpened",
+      "category": "event",
+      "model": "litmus.data.events.DialogOpened",
+      "authored_at": null,
+      "event_type": "dialog.opened",
+      "summary": "An operator dialog opened, pausing test execution.",
+      "docs": null
+    },
+    {
+      "id": "dialog_responded",
+      "label": "DialogResponded",
+      "category": "event",
+      "model": "litmus.data.events.DialogResponded",
+      "authored_at": null,
+      "event_type": "dialog.responded",
+      "summary": "Operator responded — answered / cancelled / timed_out — with duration_seconds.",
+      "docs": null
+    },
+    {
+      "id": "outcome",
+      "label": "Outcome",
+      "category": "enum",
+      "model": "litmus.data.models.Outcome",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Canonical terminal outcome of a measurement / step / run — past participles. Severity ladder (worst first): ABORTED > TERMINATED > ERRORED > FAILED > PASSED > DONE > SKIPPED. Use escalate_outcome() everywhere cascading is needed.",
+      "docs": null
+    },
+    {
+      "id": "direction",
+      "label": "Direction",
+      "category": "enum",
+      "model": "litmus.models.enums.Direction",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Signal direction (INPUT / OUTPUT). Capability matching pairs DUT OUTPUT with instrument INPUT.",
+      "docs": null
+    },
+    {
+      "id": "measurement_function",
+      "label": "MeasurementFunction",
+      "category": "enum",
+      "model": "litmus.models.enums.MeasurementFunction",
+      "authored_at": null,
+      "event_type": null,
+      "summary": "Canonical measurement-function vocabulary — dc_voltage, ac_current, resistance, frequency, waveform, etc. ATML/IVI-derived.",
+      "docs": null
+    },
+    {
+      "id": "pytest_test_function",
+      "label": "PytestTestFunction",
+      "category": "external",
+      "model": null,
+      "authored_at": null,
+      "event_type": null,
+      "summary": "A pytest test function (`def test_...`) or test method. Owned by pytest; Litmus markers and sidecar config overlay on top of it.",
+      "docs": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "project_config",
+      "target": "profile_config",
+      "kind": "declares"
+    },
+    {
+      "source": "project_config",
+      "target": "multi_slot_config",
+      "kind": "declares"
+    },
+    {
+      "source": "project_config",
+      "target": "prompt_config",
+      "kind": "declares"
+    },
+    {
+      "source": "project_config",
+      "target": "station_config",
+      "kind": "references"
+    },
+    {
+      "source": "project_config",
+      "target": "fixture_config",
+      "kind": "references"
+    },
+    {
+      "source": "project_config",
+      "target": "profile_config",
+      "kind": "references"
+    },
+    {
+      "source": "profile_config",
+      "target": "test_entry",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "profile_config",
+      "target": "profile_config",
+      "kind": "extends"
+    },
+    {
+      "source": "profile_config",
+      "target": "station_type",
+      "kind": "references"
+    },
+    {
+      "source": "profile_config",
+      "target": "fixture_config",
+      "kind": "references"
+    },
+    {
+      "source": "product",
+      "target": "pin",
+      "kind": "exposes"
+    },
+    {
+      "source": "product",
+      "target": "signal_group",
+      "kind": "exposes"
+    },
+    {
+      "source": "product",
+      "target": "product_characteristic",
+      "kind": "specifies"
+    },
+    {
+      "source": "product",
+      "target": "dut",
+      "kind": "instantiated_as"
+    },
+    {
+      "source": "product_manifest",
+      "target": "product",
+      "kind": "references"
+    },
+    {
+      "source": "signal_group",
+      "target": "bus_signal",
+      "kind": "bundles"
+    },
+    {
+      "source": "bus_signal",
+      "target": "pin",
+      "kind": "references"
+    },
+    {
+      "source": "product_characteristic",
+      "target": "capability",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "product_characteristic",
+      "target": "pin",
+      "kind": "references"
+    },
+    {
+      "source": "station_config",
+      "target": "station_instrument_config",
+      "kind": "equips"
+    },
+    {
+      "source": "station_config",
+      "target": "station_type",
+      "kind": "references"
+    },
+    {
+      "source": "station_config",
+      "target": "station_type",
+      "kind": "validates_against"
+    },
+    {
+      "source": "station_instrument_config",
+      "target": "instrument_catalog_entry",
+      "kind": "references"
+    },
+    {
+      "source": "station_type",
+      "target": "instrument_config",
+      "kind": "equips"
+    },
+    {
+      "source": "instrument_catalog_entry",
+      "target": "channel_topology",
+      "kind": "offers"
+    },
+    {
+      "source": "instrument_catalog_entry",
+      "target": "attribute",
+      "kind": "offers"
+    },
+    {
+      "source": "instrument_catalog_entry",
+      "target": "instrument_capability",
+      "kind": "offers"
+    },
+    {
+      "source": "instrument_asset_file",
+      "target": "instrument_catalog_entry",
+      "kind": "references"
+    },
+    {
+      "source": "instrument_asset_file",
+      "target": "instrument_info",
+      "kind": "identifies"
+    },
+    {
+      "source": "instrument_asset_file",
+      "target": "calibration_info",
+      "kind": "calibrated_per"
+    },
+    {
+      "source": "fixture_config",
+      "target": "fixture_connection",
+      "kind": "wires"
+    },
+    {
+      "source": "fixture_config",
+      "target": "fixture_slot",
+      "kind": "partitions_into"
+    },
+    {
+      "source": "fixture_config",
+      "target": "product",
+      "kind": "references"
+    },
+    {
+      "source": "fixture_config",
+      "target": "station_type",
+      "kind": "references"
+    },
+    {
+      "source": "fixture_connection",
+      "target": "pin",
+      "kind": "references"
+    },
+    {
+      "source": "fixture_connection",
+      "target": "measurement_function",
+      "kind": "references"
+    },
+    {
+      "source": "fixture_connection",
+      "target": "switch_route",
+      "kind": "routed_through"
+    },
+    {
+      "source": "fixture_slot",
+      "target": "fixture_connection",
+      "kind": "wires"
+    },
+    {
+      "source": "capability",
+      "target": "measurement_function",
+      "kind": "references"
+    },
+    {
+      "source": "capability",
+      "target": "direction",
+      "kind": "references"
+    },
+    {
+      "source": "capability",
+      "target": "signal",
+      "kind": "parameterized_by"
+    },
+    {
+      "source": "capability",
+      "target": "condition",
+      "kind": "parameterized_by"
+    },
+    {
+      "source": "capability",
+      "target": "control",
+      "kind": "parameterized_by"
+    },
+    {
+      "source": "capability",
+      "target": "attribute",
+      "kind": "parameterized_by"
+    },
+    {
+      "source": "capability",
+      "target": "spec_band",
+      "kind": "parameterized_by"
+    },
+    {
+      "source": "instrument_capability",
+      "target": "capability",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "test_entry",
+      "target": "test_entry",
+      "kind": "nests"
+    },
+    {
+      "source": "test_entry",
+      "target": "measurement_limit_config",
+      "kind": "configures"
+    },
+    {
+      "source": "test_entry",
+      "target": "sweep_entry",
+      "kind": "configures"
+    },
+    {
+      "source": "test_entry",
+      "target": "mock_entry",
+      "kind": "configures"
+    },
+    {
+      "source": "test_entry",
+      "target": "retry_config",
+      "kind": "configures"
+    },
+    {
+      "source": "test_entry",
+      "target": "prompt_config",
+      "kind": "configures"
+    },
+    {
+      "source": "sidecar_config",
+      "target": "test_entry",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "sidecar_config",
+      "target": "pytest_test_function",
+      "kind": "overlays"
+    },
+    {
+      "source": "litmus_marker",
+      "target": "pytest_test_function",
+      "kind": "overlays"
+    },
+    {
+      "source": "measurement_limit_config",
+      "target": "measurement_limit_config",
+      "kind": "resolves_via"
+    },
+    {
+      "source": "measurement_limit_config",
+      "target": "limit_lookup_config",
+      "kind": "resolves_via"
+    },
+    {
+      "source": "measurement_limit_config",
+      "target": "limit_step_config",
+      "kind": "resolves_via"
+    },
+    {
+      "source": "measurement_limit_config",
+      "target": "limit",
+      "kind": "resolves_to"
+    },
+    {
+      "source": "measurement_limit_config",
+      "target": "product_characteristic",
+      "kind": "derives_from"
+    },
+    {
+      "source": "session",
+      "target": "test_run",
+      "kind": "contains"
+    },
+    {
+      "source": "session",
+      "target": "session_started",
+      "kind": "emits"
+    },
+    {
+      "source": "session",
+      "target": "session_ended",
+      "kind": "emits"
+    },
+    {
+      "source": "test_run",
+      "target": "run_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "test_run",
+      "target": "test_step",
+      "kind": "contains"
+    },
+    {
+      "source": "test_run",
+      "target": "collected_item",
+      "kind": "contains"
+    },
+    {
+      "source": "test_run",
+      "target": "dut",
+      "kind": "tests"
+    },
+    {
+      "source": "test_run",
+      "target": "station_config",
+      "kind": "runs_on"
+    },
+    {
+      "source": "test_run",
+      "target": "product",
+      "kind": "references"
+    },
+    {
+      "source": "test_run",
+      "target": "fixture_config",
+      "kind": "references"
+    },
+    {
+      "source": "test_run",
+      "target": "profile_config",
+      "kind": "references"
+    },
+    {
+      "source": "test_run",
+      "target": "outcome",
+      "kind": "references"
+    },
+    {
+      "source": "test_run",
+      "target": "run_started",
+      "kind": "emits"
+    },
+    {
+      "source": "test_run",
+      "target": "run_ended",
+      "kind": "emits"
+    },
+    {
+      "source": "test_step",
+      "target": "run_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "test_step",
+      "target": "test_vector",
+      "kind": "contains"
+    },
+    {
+      "source": "test_step",
+      "target": "outcome",
+      "kind": "references"
+    },
+    {
+      "source": "test_step",
+      "target": "step_started",
+      "kind": "emits"
+    },
+    {
+      "source": "test_step",
+      "target": "step_ended",
+      "kind": "emits"
+    },
+    {
+      "source": "test_vector",
+      "target": "run_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "test_vector",
+      "target": "measurement",
+      "kind": "contains"
+    },
+    {
+      "source": "test_vector",
+      "target": "stimulus_record",
+      "kind": "applies_stimulus"
+    },
+    {
+      "source": "test_vector",
+      "target": "outcome",
+      "kind": "references"
+    },
+    {
+      "source": "measurement",
+      "target": "run_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "measurement",
+      "target": "outcome",
+      "kind": "references"
+    },
+    {
+      "source": "measurement",
+      "target": "limit",
+      "kind": "references"
+    },
+    {
+      "source": "measurement",
+      "target": "measurement_recorded",
+      "kind": "emits"
+    },
+    {
+      "source": "dut",
+      "target": "product",
+      "kind": "instance_of"
+    },
+    {
+      "source": "run_summary",
+      "target": "run_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "run_summary",
+      "target": "test_run",
+      "kind": "references"
+    },
+    {
+      "source": "instrument_record",
+      "target": "instrument_info",
+      "kind": "identifies"
+    },
+    {
+      "source": "instrument_record",
+      "target": "calibration_info",
+      "kind": "calibrated_per"
+    },
+    {
+      "source": "instrument_record",
+      "target": "instrument_catalog_entry",
+      "kind": "references"
+    },
+    {
+      "source": "instrument_record",
+      "target": "instrument_connected",
+      "kind": "emits"
+    },
+    {
+      "source": "instrument_record",
+      "target": "instrument_disconnected",
+      "kind": "emits"
+    },
+    {
+      "source": "channel_descriptor",
+      "target": "channel_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "channel_descriptor",
+      "target": "waveform",
+      "kind": "references"
+    },
+    {
+      "source": "channel_sample",
+      "target": "channel_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "channel_sample",
+      "target": "channel_descriptor",
+      "kind": "references"
+    },
+    {
+      "source": "event_base",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "session_started",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "session_started",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "session_started",
+      "target": "session_ended",
+      "kind": "paired_with"
+    },
+    {
+      "source": "session_started",
+      "target": "session",
+      "kind": "records"
+    },
+    {
+      "source": "session_ended",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "session_ended",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "session_ended",
+      "target": "session",
+      "kind": "records"
+    },
+    {
+      "source": "run_started",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "run_started",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "run_started",
+      "target": "run_ended",
+      "kind": "paired_with"
+    },
+    {
+      "source": "run_started",
+      "target": "test_run",
+      "kind": "records"
+    },
+    {
+      "source": "run_ended",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "run_ended",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "run_ended",
+      "target": "test_run",
+      "kind": "records"
+    },
+    {
+      "source": "run_materialized",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "run_materialized",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "run_materialized",
+      "target": "test_run",
+      "kind": "records"
+    },
+    {
+      "source": "slot_started",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "slot_started",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "slot_started",
+      "target": "slot_completed",
+      "kind": "paired_with"
+    },
+    {
+      "source": "slot_completed",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "slot_completed",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "sync_arrived",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "sync_arrived",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "sync_arrived",
+      "target": "sync_release",
+      "kind": "paired_with"
+    },
+    {
+      "source": "sync_release",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "sync_release",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "instrument_connected",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "instrument_connected",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "instrument_connected",
+      "target": "instrument_disconnected",
+      "kind": "paired_with"
+    },
+    {
+      "source": "instrument_connected",
+      "target": "instrument_record",
+      "kind": "records"
+    },
+    {
+      "source": "identity_verified",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "identity_verified",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "calibration_warning",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "calibration_warning",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "dut_scanned",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "dut_scanned",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "dut_scanned",
+      "target": "dut",
+      "kind": "records"
+    },
+    {
+      "source": "instrument_disconnected",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "instrument_disconnected",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "step_started",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "step_started",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "step_started",
+      "target": "step_ended",
+      "kind": "paired_with"
+    },
+    {
+      "source": "step_started",
+      "target": "test_step",
+      "kind": "records"
+    },
+    {
+      "source": "measurement_recorded",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "measurement_recorded",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "measurement_recorded",
+      "target": "measurement",
+      "kind": "records"
+    },
+    {
+      "source": "record_event",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "record_event",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "step_ended",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "step_ended",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "step_ended",
+      "target": "test_step",
+      "kind": "records"
+    },
+    {
+      "source": "steps_discovered",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "steps_discovered",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "diagnostic_warning",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "diagnostic_warning",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "diagnostic_error",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "diagnostic_error",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "route_closed",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "route_closed",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "route_closed",
+      "target": "route_opened",
+      "kind": "paired_with"
+    },
+    {
+      "source": "route_closed",
+      "target": "fixture_connection",
+      "kind": "records"
+    },
+    {
+      "source": "route_opened",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "route_opened",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "route_opened",
+      "target": "fixture_connection",
+      "kind": "records"
+    },
+    {
+      "source": "instrument_read",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "instrument_read",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "instrument_read",
+      "target": "channel_descriptor",
+      "kind": "references"
+    },
+    {
+      "source": "instrument_read",
+      "target": "waveform",
+      "kind": "references"
+    },
+    {
+      "source": "instrument_set",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "instrument_set",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "instrument_configure",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "instrument_configure",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "stream_started",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "stream_started",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "stream_started",
+      "target": "stream_ended",
+      "kind": "paired_with"
+    },
+    {
+      "source": "stream_ended",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "stream_ended",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "stream_frame_index",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "stream_frame_index",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "dialog_opened",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "dialog_opened",
+      "target": "event_base",
+      "kind": "inherits_from"
+    },
+    {
+      "source": "dialog_opened",
+      "target": "dialog_responded",
+      "kind": "paired_with"
+    },
+    {
+      "source": "dialog_responded",
+      "target": "event_store",
+      "kind": "stored_in"
+    },
+    {
+      "source": "dialog_responded",
+      "target": "event_base",
+      "kind": "inherits_from"
+    }
+  ]
+}

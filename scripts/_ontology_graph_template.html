@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Litmus Ontology — Graph</title>
+  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8f9fa;
+      --panel: #ffffff;
+      --border: #d0d7de;
+      --muted: #57606a;
+      --text: #1f2328;
+    }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      color: var(--text); background: var(--bg);
+    }
+    #app {
+      display: grid; grid-template-columns: 280px 1fr 320px; height: 100vh;
+    }
+    aside {
+      background: var(--panel); border-right: 1px solid var(--border);
+      padding: 14px 16px; overflow-y: auto; font-size: 13px;
+    }
+    aside.right { border-right: none; border-left: 1px solid var(--border); }
+    aside h2 {
+      font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--muted); margin: 18px 0 6px;
+    }
+    aside h2:first-child { margin-top: 0; }
+    aside label {
+      display: flex; align-items: center; gap: 6px;
+      padding: 2px 0; cursor: pointer; user-select: none;
+    }
+    aside label .swatch {
+      display: inline-block; width: 12px; height: 12px;
+      border-radius: 2px; border: 1px solid rgba(0,0,0,0.15);
+    }
+    aside .preset {
+      display: inline-block; margin: 2px 4px 2px 0; padding: 3px 8px;
+      background: #eef1f4; border: 1px solid var(--border);
+      border-radius: 4px; cursor: pointer; font-size: 12px;
+    }
+    aside .preset:hover { background: #e2e6ea; }
+    aside input[type="search"] {
+      width: 100%; padding: 5px 8px;
+      border: 1px solid var(--border); border-radius: 4px;
+      box-sizing: border-box; font-size: 13px;
+    }
+    main { position: relative; }
+    #graph { position: absolute; inset: 0; }
+    .panel-body { font-size: 13px; }
+    .panel-body .meta { color: var(--muted); }
+    .panel-body code {
+      background: #eef1f4; padding: 1px 4px;
+      border-radius: 3px; font-size: 12px;
+    }
+    .panel-body ul { padding-left: 16px; margin: 6px 0; }
+    .panel-body .empty { color: var(--muted); font-style: italic; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <aside class="left">
+    <h2>Search</h2>
+    <input type="search" id="search" placeholder="id, model, or summary…" autocomplete="off">
+
+    <h2>Concept categories</h2>
+    <div id="cat-filters"></div>
+
+    <h2>Verbs</h2>
+    <div id="verb-filters"></div>
+
+    <h2>Presets</h2>
+    <div>
+      <span class="preset" data-preset="semantic">Semantic only</span>
+      <span class="preset" data-preset="structural">Structural only</span>
+      <span class="preset" data-preset="events">Events only</span>
+      <span class="preset" data-preset="all">Show all</span>
+    </div>
+  </aside>
+
+  <main>
+    <div id="graph"></div>
+    <div id="counter"
+         style="position: absolute; bottom: 10px; left: 12px; background: rgba(255,255,255,0.85);
+                border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px;
+                font-size: 12px; color: var(--muted); pointer-events: none;"></div>
+  </main>
+
+  <aside class="right">
+    <h2>Selected concept</h2>
+    <div id="panel" class="panel-body">
+      <div class="empty">Click a node to inspect.</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+const ONTOLOGY = __ONTOLOGY_JSON__;
+
+const CATEGORY_STYLES = {
+  "definition":     { color: "#dde9f5", border: "#345e8f", shape: "box" },
+  "primitive":      { color: "#ebeef2", border: "#6b7682", shape: "dot" },
+  "config-overlay": { color: "#f1dcec", border: "#824073", shape: "box" },
+  "runtime":        { color: "#dcecdc", border: "#3f7e3f", shape: "box" },
+  "event":          { color: "#f5dcc1", border: "#8a5a26", shape: "ellipse" },
+  "store":          { color: "#f5e7b8", border: "#8a7026", shape: "diamond" },
+  "enum":           { color: "#e8e8c4", border: "#75752a", shape: "dot" },
+  "lifecycle":      { color: "#fff2c4", border: "#7a6620", shape: "hexagon" },
+  "external":       { color: "#dddddd", border: "#666666", shape: "box" },
+};
+
+const VERB_STYLES = {
+  "composition": { color: "#9e9e9e", dashes: false,  width: 1 },
+  "temporal":    { color: "#5d8aa8", dashes: false,  width: 1.5 },
+  "naming":      { color: "#9e9e9e", dashes: [4, 4], width: 1 },
+  "type":        { color: "#7b1fa2", dashes: false,  width: 2 },
+  "semantic":    { color: "#1976d2", dashes: false,  width: 2 },
+  "event":       { color: "#e64a19", dashes: false,  width: 1.5 },
+  "overlay":     { color: "#388e3c", dashes: false,  width: 2 },
+  "storage":     { color: "#fbc02d", dashes: false,  width: 1.5 },
+};
+
+const visNodes = new vis.DataSet(ONTOLOGY.nodes.map(n => {
+  const style = CATEGORY_STYLES[n.category] || CATEGORY_STYLES.primitive;
+  return {
+    id: n.id,
+    label: n.label,
+    title: `${n.label}\n${n.category}\n${n.summary}`,
+    shape: style.shape,
+    color: {
+      background: style.color,
+      border: style.border,
+      highlight: { background: "#fff8b3", border: style.border },
+    },
+    borderWidth: 1.5,
+    font: { size: 13 },
+  };
+}));
+
+const visEdges = new vis.DataSet(ONTOLOGY.edges.map((e, i) => {
+  const cat = ONTOLOGY.verb_categories[e.kind] || "composition";
+  const style = VERB_STYLES[cat];
+  return {
+    id: i,
+    from: e.source,
+    to: e.target,
+    label: e.kind,
+    arrows: { to: { enabled: true, scaleFactor: 0.6 } },
+    color: { color: style.color, highlight: "#1f1f1f", hover: "#1f1f1f" },
+    dashes: style.dashes,
+    width: style.width,
+    font: {
+      size: 10, color: "#444",
+      background: "rgba(255,255,255,0.7)",
+      strokeWidth: 0, align: "middle",
+    },
+    smooth: { enabled: true, type: "curvedCW", roundness: 0.12 + (i % 5) * 0.04 },
+    _kind: e.kind,
+    _verbCat: cat,
+  };
+}));
+
+const network = new vis.Network(
+  document.getElementById("graph"),
+  { nodes: visNodes, edges: visEdges },
+  {
+    physics: {
+      stabilization: { iterations: 200 },
+      barnesHut: { gravitationalConstant: -8000, springLength: 130 },
+    },
+    interaction: {
+      hover: true, tooltipDelay: 150,
+      navigationButtons: true, keyboard: true,
+    },
+    edges: { selectionWidth: 2 },
+  },
+);
+
+// -------- Filters --------
+const ALL_CATS = Array.from(new Set(ONTOLOGY.nodes.map(n => n.category))).sort();
+const ALL_VERBS = Array.from(new Set(ONTOLOGY.edges.map(e => e.kind))).sort();
+
+const catEnabled = Object.fromEntries(ALL_CATS.map(c => [c, true]));
+const verbEnabled = Object.fromEntries(ALL_VERBS.map(v => [v, true]));
+
+// Precompute per-node edge degree so we can distinguish "structurally
+// disconnected node" (no edges at all in the ontology — should respect
+// only the category filter) from "filtered-orphan" (had edges, all hidden
+// by current filters — should also hide so the canvas stays clean).
+const NODE_BY_ID = new Map(ONTOLOGY.nodes.map(n => [n.id, n]));
+const TOTAL_DEGREE = new Map();
+ONTOLOGY.edges.forEach(e => {
+  TOTAL_DEGREE.set(e.source, (TOTAL_DEGREE.get(e.source) || 0) + 1);
+  TOTAL_DEGREE.set(e.target, (TOTAL_DEGREE.get(e.target) || 0) + 1);
+});
+
+function applyFilters() {
+  // 1) Decide which edges pass — both endpoints' categories enabled AND verb enabled.
+  const visibleEdges = new Set();
+  ONTOLOGY.edges.forEach((e, i) => {
+    const fromCat = NODE_BY_ID.get(e.source)?.category;
+    const toCat   = NODE_BY_ID.get(e.target)?.category;
+    if (!verbEnabled[e.kind]) return;
+    if (!catEnabled[fromCat] || !catEnabled[toCat]) return;
+    visibleEdges.add(i);
+  });
+
+  // 2) Tally which nodes still have at least one visible incident edge.
+  const nodesWithEdge = new Set();
+  ONTOLOGY.edges.forEach((e, i) => {
+    if (visibleEdges.has(i)) {
+      nodesWithEdge.add(e.source);
+      nodesWithEdge.add(e.target);
+    }
+  });
+
+  // 3) A node is visible iff:
+  //      its category is enabled, AND
+  //      (it has no edges in the ontology OR at least one edge survives filtering).
+  let nodeShown = 0;
+  ONTOLOGY.nodes.forEach(n => {
+    const catOn = catEnabled[n.category];
+    const isStructuralIsolate = (TOTAL_DEGREE.get(n.id) || 0) === 0;
+    const show = catOn && (isStructuralIsolate || nodesWithEdge.has(n.id));
+    visNodes.update({ id: n.id, hidden: !show });
+    if (show) nodeShown++;
+  });
+
+  let edgeShown = 0;
+  visEdges.forEach(e => {
+    const show = visibleEdges.has(e.id);
+    visEdges.update({ id: e.id, hidden: !show });
+    if (show) edgeShown++;
+  });
+
+  document.getElementById("counter").textContent =
+    `${nodeShown}/${ONTOLOGY.nodes.length} concepts  ·  ${edgeShown}/${ONTOLOGY.edges.length} relationships`;
+}
+
+function makeCheckbox(parent, label, swatchColor, initial, onChange) {
+  const wrap = document.createElement("label");
+  const cb = document.createElement("input");
+  cb.type = "checkbox"; cb.checked = initial;
+  cb.addEventListener("change", () => onChange(cb.checked));
+  const sw = document.createElement("span");
+  sw.className = "swatch";
+  sw.style.background = swatchColor;
+  const txt = document.createElement("span");
+  txt.textContent = label;
+  wrap.append(cb, sw, txt);
+  parent.appendChild(wrap);
+  return cb;
+}
+
+const catFiltersEl = document.getElementById("cat-filters");
+const catCheckboxes = {};
+ALL_CATS.forEach(c => {
+  const color = CATEGORY_STYLES[c]?.color || "#ccc";
+  catCheckboxes[c] = makeCheckbox(catFiltersEl, c, color, true, on => {
+    catEnabled[c] = on; applyFilters();
+  });
+});
+
+const verbFiltersEl = document.getElementById("verb-filters");
+const verbCheckboxes = {};
+ALL_VERBS.forEach(v => {
+  const cat = ONTOLOGY.verb_categories[v] || "composition";
+  verbCheckboxes[v] = makeCheckbox(verbFiltersEl, v, VERB_STYLES[cat].color, true, on => {
+    verbEnabled[v] = on; applyFilters();
+  });
+});
+
+document.querySelectorAll(".preset").forEach(el => {
+  el.addEventListener("click", () => {
+    const preset = el.dataset.preset;
+    const enabledCats = preset === "events" ? ["event", "runtime", "lifecycle"] : ALL_CATS;
+    ALL_CATS.forEach(c => {
+      catEnabled[c] = enabledCats.includes(c);
+      catCheckboxes[c].checked = catEnabled[c];
+    });
+    ALL_VERBS.forEach(v => {
+      const cat = ONTOLOGY.verb_categories[v];
+      let on = true;
+      if (preset === "semantic")   on = ["semantic", "type", "overlay"].includes(cat);
+      if (preset === "structural") on = ["composition", "temporal", "naming", "storage"].includes(cat);
+      if (preset === "events")     on = cat === "event";
+      verbEnabled[v] = on;
+      verbCheckboxes[v].checked = on;
+    });
+    applyFilters();
+  });
+});
+
+// -------- Search --------
+document.getElementById("search").addEventListener("input", ev => {
+  const q = ev.target.value.trim().toLowerCase();
+  if (!q) return;
+  const hit = ONTOLOGY.nodes.find(n =>
+    n.id.toLowerCase().includes(q)
+    || n.label.toLowerCase().includes(q)
+    || (n.model || "").toLowerCase().includes(q)
+    || n.summary.toLowerCase().includes(q));
+  if (hit) {
+    network.selectNodes([hit.id]);
+    network.focus(hit.id, {
+      scale: 1.2,
+      animation: { duration: 400, easingFunction: "easeInOutQuad" },
+    });
+    renderPanel(hit.id);
+  }
+});
+
+// -------- Detail panel --------
+function renderPanel(id) {
+  const n = ONTOLOGY.nodes.find(x => x.id === id);
+  if (!n) return;
+  const outgoing = ONTOLOGY.edges.filter(e => e.source === id);
+  const incoming = ONTOLOGY.edges.filter(e => e.target === id);
+  const fmt = (es, dir) => {
+    if (!es.length) return `<div class="empty">none</div>`;
+    return "<ul>" + es.map(e => {
+      const other = dir === "out" ? e.target : e.source;
+      return `<li><code>${e.kind}</code> → <a href="#" data-jump="${other}">${other}</a></li>`;
+    }).join("") + "</ul>";
+  };
+
+  const panel = document.getElementById("panel");
+  panel.innerHTML = `
+    <div><strong>${n.label}</strong></div>
+    <div class="meta">${n.category}${n.event_type ? ` · ${n.event_type}` : ""}</div>
+    ${n.model ? `<div class="meta">Model: <code>${n.model}</code></div>` : ""}
+    ${n.authored_at ? `<div class="meta">Authored at: <code>${n.authored_at}</code></div>` : ""}
+    <p>${n.summary}</p>
+    <h2 style="margin-top:14px">Out</h2>${fmt(outgoing, "out")}
+    <h2>In</h2>${fmt(incoming, "in")}
+    ${n.docs ? `<div class="meta" style="margin-top:8px">Doc: <code>${n.docs}</code></div>` : ""}
+  `;
+  panel.querySelectorAll("a[data-jump]").forEach(a => {
+    a.addEventListener("click", ev => {
+      ev.preventDefault();
+      const target = a.dataset.jump;
+      network.selectNodes([target]);
+      network.focus(target, { scale: 1.2, animation: { duration: 400 } });
+      renderPanel(target);
+    });
+  });
+}
+
+network.on("selectNode", ev => renderPanel(ev.nodes[0]));
+
+// Initial pass so the counter reflects the as-loaded state.
+applyFilters();
+</script>
+</body>
+</html>
