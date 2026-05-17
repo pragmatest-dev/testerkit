@@ -1,74 +1,86 @@
 # Step 3: pytest-native tests
 
-**Goal:** Write hardware tests as plain pytest functions (or classes) that log measurements automatically.
+**Goal:** Adopt Litmus's per-test fixtures so measurements get recorded with full [traceability](../how-to/traceability.md).
 
-## What You'll Build
+In step 2, your tests called driver methods and used `assert` for pass/fail. Litmus's `logger` and `verify` fixtures slot in alongside that, recording each measurement to the run record (the row Litmus writes per test in parquet — see [results storage](../concepts/results-storage.md)) without changing how your test reads.
 
-A test that automatically logs measurements to Litmus results storage, with pass/fail against a spec.
+You don't need any new YAML for this step. Keep the `conftest.py` from step 2 — the `psu` / `dmm` fixtures still work.
 
-## The Three Fixtures
+## The fixtures you add
 
-Litmus tests are plain pytest functions or classes. Up to three
-Litmus-provided fixtures show up as parameters, each with a single
-responsibility:
+All three are available on every test run — no station, no sidecar, no sweep required. `logger` and `verify` write measurement rows; `context` exposes the active run / DUT / station / vector state.
 
-| Fixture  | What it holds                                  | Verbs                                            |
-|----------|------------------------------------------------|--------------------------------------------------|
-| `context`| Vector inputs + observations                   | `get_param`, `changed`, `observe`                |
-| `verify` | Limit check + record + raise on FAIL           | `verify(name, value, limit=..., characteristic=...)` |
-| `logger` | Event persistence                              | `measure(name, value, limit=...)`, `record`      |
+| Fixture  | What it gives the test                                 | Verbs                                            |
+|----------|--------------------------------------------------------|--------------------------------------------------|
+| `logger` | Per-measurement event-log writer                       | `measure(name, value, ...)`, `record`            |
+| `verify` | Records the row, resolves a limit, raises on FAIL      | `verify(name, value, limit=..., characteristic=...)` (`characteristic` = a named measurable property on the product spec — covered in step 6 / [concepts/capabilities](../concepts/capabilities.md)) |
+| `context`| Ambient run / DUT / station / vector state             | `get_param`, `changed`, `last`, `observe`, `.product`, `.station`, `.run` |
 
-Data-flow rule: **test → spec → logger**. The three objects never call each
-other; `logger` reads ambient ContextVars at write time.
+These are the common per-test entry points. The plugin exposes 17 others (hardware accessors like `pins` / `instruments` / `dut`, configuration accessors like `product_context` / `station_config`, special modes like `vectors` / `sync`) — see the [Litmus fixtures reference](../reference/litmus-fixtures.md) for the full set.
 
-See the [pytest-native reference](../reference/pytest-native.md) for the
-complete contract.
+## From assert to logger.measure
 
-## The Simplest Test
+Take the test from step 2:
 
 ```python
-# tests/test_voltage.py
-def test_output_voltage(dmm, logger):
-    """Measure output voltage and log it."""
-    logger.measure("output_voltage", dmm.measure_voltage())
+def test_output_voltage(psu, dmm):
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    v = dmm.measure_dc_voltage()
+    assert 3.2 <= v <= 3.4
 ```
 
-No decorator. No base class. `dmm` is an auto-registered fixture from the
-station config; `logger` is always present; the measurement is recorded with
-full traceability.
-
-If you also have a product spec configured, prefer `verify` — it resolves
-the limit from the spec and raises `AssertionError` on failure:
+Add `logger` and record the measurement explicitly:
 
 ```python
-def test_output_voltage(dmm, verify):
-    verify("output_voltage", dmm.measure_voltage())
+def test_output_voltage(psu, dmm, logger):
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    v = dmm.measure_dc_voltage()
+    logger.measure("output_voltage", v, units="V", low=3.2, high=3.4)
+    assert 3.2 <= v <= 3.4
 ```
 
-## Classes Group Related Tests
+Same control flow, but now there's a row in the run record with the value, units, limits, and outcome — visible to `litmus runs`, the operator UI, and any downstream analysis.
 
-Group related tests with a plain pytest class. Methods run in source order
-and are independent by default:
+## Skip the assert with `verify`
+
+`verify` is `logger.measure` + `assert` in one call. Pass / fail is decided by the limit; an out-of-range value raises `AssertionError`:
+
+```python
+def test_output_voltage(psu, dmm, verify):
+    psu.set_voltage(5.0)
+    psu.enable_output()
+    verify("output_voltage", dmm.measure_dc_voltage(),
+           limit={"low": 3.2, "high": 3.4, "units": "V"})
+```
+
+For one-off tests, passing `limit=` inline is fine. The cleaner home for limits is the product spec or the sidecar YAML — both arrive in later steps.
+
+## Classes group related tests
+
+A plain pytest class with hardware-test-shaped methods is the canonical Litmus shape:
 
 ```python
 class TestPowerUp:
     def test_input_voltage(self, psu, verify):
         psu.set_voltage(5.0)
         psu.enable_output()
-        verify("input_voltage", psu.measure_voltage())
+        verify("input_voltage", psu.measure_voltage(),
+               limit={"low": 4.5, "high": 5.5, "units": "V"})
 
     def test_output_voltage(self, dmm, verify):
-        verify("output_voltage", dmm.measure_voltage())
+        verify("output_voltage", dmm.measure_dc_voltage(),
+               limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
-If a downstream test should skip when an upstream test fails, use
-`@pytest.mark.dependency(depends=["test_input_voltage"])` from the
-`pytest-dependency` plugin.
+Methods run in source order. Each emits its own [step](../concepts/step-hierarchy.md) events; the class container's [outcome](../reference/models.md#outcome) rolls up from the worst child outcome.
 
-## Accessing Vector Inputs
+If a downstream test should skip when an upstream one fails, use `@pytest.mark.dependency(depends=["test_input_voltage"])` from the [`pytest-dependency`](https://pytest-dependency.readthedocs.io/) plugin — pytest's ecosystem, not a Litmus addition.
 
-`@pytest.mark.parametrize` is first-class. Sidecar YAML `vectors:` is the
-Litmus-native alternative; both land in `context.get_param(...)`:
+## Parametrize is first-class
+
+`@pytest.mark.parametrize` works the way it always does. Add the `context` fixture if you want the test to read its current parametrize values through Litmus's traceability path:
 
 ```python
 import pytest
@@ -77,28 +89,41 @@ import pytest
 def test_output_voltage(vin, psu, dmm, verify):
     psu.set_voltage(vin)
     psu.enable_output()
-    verify("output_voltage", dmm.measure_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage(),
+           limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
-Or via sidecar YAML (see Step 5).
+The `vin` value lands in each measurement row's `in_vin` column (an example of the `in_*` [traceability](../how-to/traceability.md) columns — every parametrized input lands in its own `in_<name>` column), so you can later query "how did output_voltage track vin?" without re-instrumenting the test. Sweeping from YAML instead of inline arrives in step 5.
 
-## Multiple Measurements
+Litmus also adds a native sweep marker, `@pytest.mark.litmus_sweeps`, that feeds the same `in_*` columns and supports range expanders (`linspace`, `arange`, `logspace`):
 
-Just call `verify` or `logger.measure` as many times as you need:
+```python
+import pytest
+
+@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
+def test_output_voltage(vin, psu, dmm, verify):
+    ...
+```
+
+Use `@pytest.mark.parametrize` when you want pytest's per-row `pytest.param(..., id="...")` metadata; use `@pytest.mark.litmus_sweeps` when you want range expanders or sidecar parity. See [`litmus_sweeps`](../reference/litmus-markers.md#litmus_sweeps) and the [Litmus markers reference](../reference/litmus-markers.md) for all seven `litmus_*` markers.
+
+## Multiple measurements per test
+
+Each `verify` or `logger.measure` call records one measurement. Call them as many times as you need:
 
 ```python
 def test_power_analysis(psu, dmm, verify):
-    verify("input_voltage", psu.measure_voltage())
-    verify("input_current", psu.measure_current())
-    verify("output_voltage", dmm.measure_voltage())
+    verify("input_voltage",  psu.measure_voltage(),
+           limit={"low": 4.5, "high": 5.5, "units": "V"})
+    verify("input_current",  psu.measure_current(),
+           limit={"high": 0.5, "units": "A"})
+    verify("output_voltage", dmm.measure_dc_voltage(),
+           limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
-Each call records one measurement with pass/fail.
+## Streaming samples under one name
 
-## Streaming / Repeated Samples
-
-`logger.measure` enforces unique names within a step. To record many samples
-under one name, pass `allow_repeat=True`:
+`logger.measure` enforces unique names within a step. To record many samples under one name (e.g. a stability sweep), pass `allow_repeat=True`:
 
 ```python
 import time
@@ -107,87 +132,53 @@ def test_stability(dmm, logger):
     for _ in range(10):
         logger.measure(
             "voltage_sample",
-            dmm.measure_voltage(),
+            dmm.measure_dc_voltage(),
+            units="V", low=3.2, high=3.4,
             allow_repeat=True,
         )
         time.sleep(1)
 ```
 
-## Running the Test
+## Running the tests
+
+Nothing new on the command line — same `pytest` invocation from step 2:
 
 ```bash
-# With mock instruments (no hardware)
-pytest tests/test_voltage.py --station=stations/my_station.yaml --mock-instruments -v
-
-# With real hardware
-pytest tests/test_voltage.py --station=stations/my_station.yaml --dut-serial=SN001 -v
+pytest tests/ --mock-instruments -v
 ```
 
-## What Gets Stored
+If you want to see the recorded measurements, list runs from the CLI:
 
-Each measurement includes:
-
-| Field | Description |
-|-------|-------------|
-| `name` | Measurement name passed to `verify` / `logger.measure` |
-| `value` | The measured value |
-| `units` | Unit of measure (from limits, when configured) |
-| `outcome` | PASS, FAIL, or unchecked |
-| `timestamp` | When it was recorded |
-| `vector_index` | Which test vector (for parametrized tests) |
-
-## Complete Example
-
-**stations/my_station.yaml:**
-```yaml
-id: my_station
-name: "My Test Bench"
-
-instruments:
-  dmm:
-    type: dmm
-    driver: pymeasure.instruments.keysight.Keysight34461A
-    resource: "TCPIP::192.168.1.100::INSTR"
-    mock_config:
-      voltage: 3.31
-  psu:
-    type: psu
-    driver: pymeasure.instruments.keysight.KeysightE36312A
-    resource: "GPIB0::5::INSTR"
-    mock_config:
-      voltage: 5.0
-```
-
-**tests/test_power.py:**
-```python
-def test_input_voltage(psu, verify):
-    """Measure input voltage."""
-    psu.set_voltage(5.0)
-    psu.enable_output()
-    verify("input_voltage", psu.measure_voltage())
-
-
-def test_output_voltage(dmm, verify):
-    """Measure output voltage."""
-    verify("output_voltage", dmm.measure_voltage())
-```
-
-**Run:**
 ```bash
-pytest tests/test_power.py --station=stations/my_station.yaml --mock-instruments -v
+litmus runs
+litmus show <run_id>
 ```
 
-## What You Learned
+## What gets stored
 
-- Tests are plain pytest functions or classes
-- Up to three Litmus fixtures: `context`, `verify`, `logger`
-- `verify(name, value)` to check against product spec limits
-- `logger.measure(name, value, ...)` when you need explicit limits
-- Instrument role fixtures from station config (e.g. `dmm`, `psu`)
+Each measurement row carries:
+
+| Column | Description |
+|--------|-------------|
+| `measurement_name` | name passed to `verify` / `logger.measure` |
+| `measurement_value` | the measured value |
+| `measurement_units` | units (from `limit.units` or the explicit `units=` kwarg) |
+| `measurement_outcome` | `passed` / `failed` / `skipped` / `errored` |
+| `limit_low`, `limit_high`, `limit_nominal`, `limit_comparator` | the active limit |
+| `measurement_timestamp` | when it was recorded |
+| `vector_index` | which sweep variant (NULL for non-parametrized tests) |
+
+Full schema in [Parquet storage schema](../reference/parquet-schema.md).
+
+## What you learned
+
+- `logger.measure(name, value, low=..., high=..., units=...)` records a measurement explicitly
+- `verify(name, value, limit=...)` does the same plus pass/fail + raise on FAIL
+- Pytest classes group related tests; methods run in source order
+- Parametrize works as it always does; values land in `in_*` columns
 
 ## Next Step
 
-Right now, limits come from a product spec. Let's look at the `Limit` model
-and how limits are wired in.
+So far you've been passing `limit=` inline on every `verify` call. Step 4 separates the limit shape from the test code.
 
 [Step 4: Add Limits →](04-limits.md)

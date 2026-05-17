@@ -39,7 +39,7 @@ Emitted once at session start. Contains session-wide metadata only. Run-level fi
 
 | Field | Type | Default |
 |-------|------|---------|
-| `outcome` | str | `"pass"` |
+| `outcome` | str | `"passed"` |
 
 ## Run Events
 
@@ -67,7 +67,6 @@ Emitted once per test run. Contains full run context (DUT, product, config snaps
 | `operator_id` | str \| None | |
 | `operator_name` | str \| None | |
 | `fixture_id` | str \| None | |
-| `sequence_id` | str \| None | |
 | `test_phase` | str | `"production"` |
 | `git_commit` | str \| None | |
 | `environment_json` | str \| None | |
@@ -80,7 +79,7 @@ Emitted at the end of a test run.
 
 | Field | Type | Default |
 |-------|------|---------|
-| `outcome` | str | `"pass"` |
+| `outcome` | str | `"passed"` |
 
 ## Fixture Events
 
@@ -157,6 +156,8 @@ Each item dict contains: `node_id`, `name`, `file`, `module`, `class_name`, `fun
 | `step_path` | str | `""` |
 | `parent_path` | str | `""` |
 | `description` | str \| None | |
+| `vector_index` | int | `0` |
+| `inputs` | dict | `{}` |
 | `node_id` | str \| None | |
 | `file` | str \| None | |
 | `module` | str \| None | |
@@ -170,24 +171,24 @@ Each item dict contains: `node_id`, `name`, `file`, `module`, `class_name`, `fun
 | `step_name` | str | *required* |
 | `step_index` | int | *required* |
 | `step_path` | str | `""` |
-| `vector_index` | int \| None | |
+| `vector_index` | int | `0` |
 | `retry` | int | `0` (0-based: 0 = first execution, N = Nth retry) |
 | `measurement_name` | str | *required* |
 | `measurement_timestamp` | datetime \| None | |
 | `value` | float \| None | |
 | `units` | str \| None | |
 | `outcome` | str \| None | |
-| `low_limit` | float \| None | |
-| `high_limit` | float \| None | |
-| `nominal` | float \| None | |
-| `comparator` | str \| None | |
+| `limit_low` | float \| None | |
+| `limit_high` | float \| None | |
+| `limit_nominal` | float \| None | |
+| `limit_comparator` | str \| None | |
 | `characteristic_id` | str \| None | |
 | `spec_ref` | str \| None | |
-| `meas_dut_pin` | str \| None | |
-| `meas_fixture_connection` | str \| None | |
-| `meas_instrument` | str \| None | |
-| `meas_instrument_resource` | str \| None | |
-| `meas_instrument_channel` | str \| None | |
+| `dut_pin` | str \| None | |
+| `fixture_connection` | str \| None | |
+| `instrument_name` | str \| None | |
+| `instrument_resource` | str \| None | |
+| `instrument_channel` | str \| None | |
 | `inputs` | dict | `{}` |
 | `outputs` | dict | `{}` |
 | `custom` | dict | `{}` |
@@ -208,7 +209,12 @@ Each item dict contains: `node_id`, `name`, `file`, `module`, `class_name`, `fun
 | `step_name` | str | *required* |
 | `step_index` | int | *required* |
 | `step_path` | str | `""` |
-| `outcome` | str | `"pass"` |
+| `parent_path` | str | `""` |
+| `outcome` | str \| None | `None` (a step that opened but never recorded a measurement ends with no outcome stamped) |
+| `vector_index` | int | `0` |
+| `vector_outcome` | str \| None | (per-vector verdict; the step-level `outcome` is the aggregate) |
+| `inputs` | dict | `{}` |
+| `outputs` | dict | `{}` |
 | `node_id` | str \| None | |
 | `file` | str \| None | |
 | `module` | str \| None | |

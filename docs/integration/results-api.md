@@ -13,14 +13,14 @@ The Results API lets you:
 ## Quick Start
 
 ```python
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 client = LitmusClient()
 
 run = client.start_run(
     dut_serial="SN12345",
     station_id="any_station",
-    test_sequence_id="my_test",
+    test_phase="production",
 )
 
 with run.step("voltage_check") as step:
@@ -50,9 +50,10 @@ client = LitmusClient(data_dir="results")
 run = client.start_run(
     dut_serial="SN12345",          # Required
     station_id="bench_1",          # Required
-    test_sequence_id="power_test", # Required
     dut_part_number="PCB-001",     # Optional
     dut_revision="A",              # Optional
+    dut_lot_number="LOT-2026-05",  # Optional
+    station_type="bench",          # Optional
     operator="Jane Doe",           # Optional
     test_phase="production",       # Optional
 )
@@ -112,7 +113,7 @@ Or call via subprocess:
 # labview_wrapper.py
 import sys
 import json
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 def submit_from_labview(serial, station, results_json):
     results = json.loads(results_json)
@@ -121,7 +122,7 @@ def submit_from_labview(serial, station, results_json):
     run = client.start_run(
         dut_serial=serial,
         station_id=station,
-        test_sequence_id="labview_test",
+        test_phase="production",
     )
 
     for step_name, measurements in results.items():
@@ -141,16 +142,16 @@ Use TestStand's Python adapter:
 
 ```python
 # teststand_adapter.py
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 def on_sequence_complete(context):
-    """Called by TestStand when sequence completes."""
+    """Called by TestStand when the sequence completes."""
     client = LitmusClient()
 
     run = client.start_run(
         dut_serial=context.dut_serial,
         station_id=context.station_name,
-        test_sequence_id=context.sequence_name,
+        test_phase="production",
     )
 
     for step in context.steps:
@@ -160,8 +161,8 @@ def on_sequence_complete(context):
                     name=m.name,
                     value=m.value,
                     units=m.units,
-                    low=m.low_limit,
-                    high=m.high_limit,
+                    low=m.limit_low,
+                    high=m.limit_high,
                 )
 
     run.finish()
@@ -173,7 +174,7 @@ def on_sequence_complete(context):
 #!/usr/bin/env python3
 import sys
 import json
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 serial = sys.argv[1]
 results_file = sys.argv[2]
@@ -185,7 +186,7 @@ client = LitmusClient()
 run = client.start_run(
     dut_serial=serial,
     station_id="cli_test",
-    test_sequence_id="imported",
+    test_phase="characterization",
 )
 
 for step_name, measurements in results["steps"].items():
@@ -195,7 +196,7 @@ for step_name, measurements in results["steps"].items():
 
 result = run.finish()
 print(f"Run ID: {result.id}")
-sys.exit(0 if result.outcome == "pass" else 1)
+sys.exit(0 if result.outcome == "passed" else 1)
 ```
 
 ### Via HTTP API
@@ -203,13 +204,15 @@ sys.exit(0 if result.outcome == "pass" else 1)
 For non-Python environments:
 
 ```bash
-# Start a run
+# Start a run — LaunchRequest body accepts product_id, dut_serial,
+# station_id, test_path, operator, mock_instruments.
 curl -X POST http://localhost:8000/api/runs \
   -H "Content-Type: application/json" \
   -d '{
     "dut_serial": "SN12345",
     "station_id": "bench_1",
-    "test_sequence_id": "imported"
+    "test_path": "tests/test_power.py",
+    "operator": "Jane Doe"
   }'
 
 # Returns: {"run_id": "abc123..."}
@@ -222,16 +225,16 @@ curl -X POST http://localhost:8000/api/runs \
 ```python
 client = LitmusClient()
 
-# List recent runs
+# List recent runs — returns list[RunSummary] (Pydantic, attribute access)
 for run in client.list_runs(limit=10):
-    print(f"{run['test_run_id'][:8]}: {run['outcome']}")
+    print(f"{str(run.test_run_id)[:8]}: {run.outcome}")
 
-# Get specific run
+# Get specific run — returns RunSummary | None
 run = client.get_run("abc12345")
 
-# Get measurements
+# Get measurements — returns list[dict] keyed by parquet column names
 for m in client.get_measurements("abc12345"):
-    print(f"{m['measurement_name']}: {m['value']} {m['units']}")
+    print(f"{m['measurement_name']}: {m['measurement_value']} {m['measurement_units']}")
 ```
 
 ### CLI
@@ -255,9 +258,11 @@ curl http://localhost:8000/api/runs/abc12345/measurements
 import pyarrow.parquet as pq
 import pandas as pd
 
-# Read measurements
-table = pq.read_table("results/measurements")
+# Read measurements — runs are partitioned by date under results/runs/
+table = pq.read_table("results/runs")            # recursively reads all runs
 df = table.to_pandas()
+# Filter to measurement rows (the schema multiplexes step + measurement rows)
+df = df[df["record_type"] == "measurement"]
 
 # Filter by serial
 board_data = df[df['dut_serial'] == 'SN12345']
@@ -265,31 +270,35 @@ board_data = df[df['dut_serial'] == 'SN12345']
 
 ## Data Schema
 
-Results are stored in Parquet format:
+Results are stored in Parquet under `results/runs/{date}/*.parquet`. Each
+file holds one run's rows; every row carries a `record_type` discriminator
+(`step` or `measurement`) plus the denormalized run/DUT/station context.
+See `src/litmus/data/schemas.py` for the canonical column list. The columns
+most consumers reach for:
 
-### test_runs table
+### Run-level columns (present on every row)
 
 | Column | Type | Description |
 |--------|------|-------------|
-| test_run_id | string | Unique run ID |
-| started_at | timestamp | Run start time |
-| ended_at | timestamp | Run end time |
+| run_id | string | Unique run ID |
+| run_started_at | timestamp | Run start time |
+| run_ended_at | timestamp | Run end time |
 | dut_serial | string | DUT serial number |
 | station_id | string | Station identifier |
-| outcome | string | PASS, FAIL, ERROR, ABORTED |
+| run_outcome | string | passed / failed / errored / skipped / done / terminated / aborted |
 
-### measurements table
+### Measurement-row columns (`record_type = 'measurement'`)
 
 | Column | Type | Description |
 |--------|------|-------------|
-| test_run_id | string | Parent run ID |
+| run_id | string | Parent run ID |
 | step_name | string | Test step name |
 | measurement_name | string | Measurement name |
-| value | float | Measured value |
-| units | string | Unit of measure |
-| low_limit | float | Low limit (if any) |
-| high_limit | float | High limit (if any) |
-| outcome | string | PASS, FAIL |
+| measurement_value | float | Measured value |
+| measurement_units | string | Unit of measure |
+| limit_low | float | Low limit (if any) |
+| limit_high | float | High limit (if any) |
+| measurement_outcome | string | passed / failed / errored / skipped / done |
 
 ## Benefits
 

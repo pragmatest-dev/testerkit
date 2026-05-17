@@ -59,7 +59,7 @@ The same word lands at different levels for different reasons — and they're no
 
 A SIGTERM (or Ctrl-C) reached pytest, the SIGTERM-to-`KeyboardInterrupt` handler converted it, `pytest_keyboard_interrupt` fired, fixture teardowns ran, instruments went to safe state, the parquet was flushed.
 
-The rig **is** in a known state. The run was stopped on purpose, with cleanup. TestStand convention.
+The rig **is** in a known state. The run was stopped on purpose, with cleanup. TestStand (National Instruments' commercial test executive) convention.
 
 ### `ABORTED` — process died before cleanup
 

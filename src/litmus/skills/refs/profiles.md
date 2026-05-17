@@ -276,4 +276,4 @@ a CLI flag or env var.
   (`_apply_cascade_to_items`, `_apply_entry_markers`)
 - `litmus/execution/profiles.py` — `flatten_profile_chain`,
   `resolve_active_profile`, `PytestRunner`, `ProfileError`
-- `docs/guides/profiles.md` — user-facing guide
+- `docs/how-to/profiles.md` — user-facing guide

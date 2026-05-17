@@ -1,6 +1,6 @@
 # Litmus Pydantic Models - Entity Relationship Diagram
 
-This document shows the relationships between all Pydantic models in the Litmus codebase.
+This document shows the relationships between all Pydantic models in the Litmus codebase. For conceptual framing of the capability-side models (`InstrumentCapability`, `ProductCharacteristic`, `SpecBand`, `Signal`, `Condition`, `Control`, `Attribute`, `ChannelTopology`), see [concepts/capability-model](../concepts/capability-model.md).
 
 ## Complete Models ERD
 
@@ -11,104 +11,107 @@ erDiagram
     %% ============================================
 
     Direction {
-        string INPUT
-        string OUTPUT
-        string BIDIR
-        string TRANSFORM
+        INPUT string
+        OUTPUT string
+        BIDIR string
+        TRANSFORM string
     }
 
     MeasurementFunction {
-        string dc_voltage
-        string ac_voltage
-        string dc_current
-        string ac_current
-        string resistance
-        string resistance_4w
-        string frequency
-        string waveform
-        string dc_power
-        string temperature
-        string rf_power
-        string rf_cw
-        string digital_io
-        string optical_power
-        string etc
+        dc_voltage string
+        ac_voltage string
+        dc_current string
+        ac_current string
+        resistance string
+        resistance_4w string
+        frequency string
+        waveform string
+        dc_power string
+        temperature string
+        rf_power string
+        rf_cw string
+        digital_io string
+        optical_power string
+        etc string
     }
 
     Comparator {
-        string EQ
-        string NE
-        string LT_LE_GT_GE
-        string GELE_etc
+        EQ string
+        NE string
+        LT_LE_GT_GE string
+        GELE_etc string
     }
 
     MatchDepth {
-        string function
-        string direction
-        string range
-        string accuracy
-        string resolution
+        function string
+        direction string
+        range string
+        accuracy string
+        resolution string
     }
 
     SpecBand {
-        dict conditions
-        float value
-        AccuracySpec accuracy
-        ResolutionSpec resolution
+        when dict
+        range RangeSpec
+        value float_or_str
+        units string
+        accuracy AccuracySpec
+        resolution ResolutionSpec
+        qualifier SpecQualifier
     }
 
     Signal {
-        RangeSpec range
-        AccuracySpec accuracy
-        ResolutionSpec resolution
-        float value
-        string units
-        list specs
+        range RangeSpec
+        accuracy AccuracySpec
+        resolution ResolutionSpec
+        value float
+        units string
+        bands list
+        qualifier SpecQualifier
     }
 
     Condition {
-        RangeSpec range
+        range RangeSpec
     }
 
     Control {
-        RangeSpec range
-        list options
-        string units
-        string default
+        range RangeSpec
+        options list
+        units string
+        default string
     }
 
     Attribute {
-        string value
-        string units
+        value string
+        units string
     }
 
     InstrumentCapability {
-        MeasurementFunction function
-        Direction direction
-        dict signals
-        dict conditions
-        dict controls
-        dict attributes
-        list channels
-        list modes
-        bool readback
+        function MeasurementFunction
+        direction Direction
+        signals dict
+        conditions dict
+        controls dict
+        attributes dict
+        channels list
+        readback bool
     }
 
     InstrumentCatalogEntry {
-        string id
-        string manufacturer
-        string model
-        string name
-        string type
-        dict channels
-        list capabilities
+        id string
+        manufacturer string
+        model string
+        name string
+        type string
+        channels dict
+        capabilities list
     }
 
     ChannelTopology {
-        string label
-        list terminals
-        string connector
-        string ground
+        label string
+        terminals list
+        connector string
+        ground string
     }
 
     %% ============================================
@@ -116,78 +119,80 @@ erDiagram
     %% ============================================
 
     Product {
-        string id PK
-        string name
-        string part_number
-        string base
-        string description
-        string revision
-        string datasheet
+        id string PK
+        name string
+        part_number string
+        base string
+        description string
+        revision string
+        datasheet string
     }
 
     Pin {
-        string name PK
-        string net
-        PinRole role
-        string description
+        name string PK
+        net string
+        role PinRole
+        description string
     }
 
     PinRole {
-        string signal
-        string ground
-        string power
-        string reference
+        signal string
+        ground string
+        power string
+        reference string
     }
 
     SignalGroup {
-        string protocol
-        list signals
-        dict parameters
+        protocol string
+        signals list
+        parameters dict
     }
 
     ProductCharacteristic {
-        MeasurementFunction function
-        Direction direction
-        dict parameters
-        string units
-        string pin
-        string net
-        string signal_group
-        string datasheet_ref
-        list specs FK
+        function MeasurementFunction
+        direction Direction
+        units string
+        pin string
+        net string
+        signal_group string
+        datasheet_ref string
+        signals dict
+        conditions dict
+        controls dict
+        attributes dict
+        bands list FK
     }
 
     %% ============================================
     %% CONFIG MODULE - Station & Instruments
     %% ============================================
 
+    StationConfig {
+        id string PK
+        name string
+        station_type string FK
+        location string
+        station_hostname string
+        instruments dict
+        supported_phases list
+    }
+
     StationType {
-        string id PK
-        string description
-        dict instruments
-        list capabilities
+        id string PK
+        description string
+        instruments dict
+        capabilities list
     }
 
-    InstrumentConfig {
-        string type
-        string driver
-        string resource
-        dict settings
-    }
-
-    StationInstance {
-        string id PK
-        string station_type FK
-        string location
-        string active_fixture FK
-    }
-
-    InstrumentInstance {
-        string type
-        string resource
-        string model
-        list capabilities
-        int channels
+    StationInstrumentConfig {
+        type string
+        driver string
+        resource string
+        catalog_ref string
+        mock bool
+        channels dict
+        description string
+        mock_config dict
     }
 
     %% ============================================
@@ -195,80 +200,83 @@ erDiagram
     %% ============================================
 
     FixtureConfig {
-        string id PK
-        string name
-        string product_id FK
-        string product_family
-        string product_revision
+        id string PK
+        name string
+        product_id string FK
+        product_family string
+        product_revision string
     }
 
     FixtureConnection {
-        string name PK
-        string dut_pin FK
-        string net
-        string instrument FK
-        string instrument_channel
-        string instrument_terminal
+        name string PK
+        dut_pin string FK
+        net string
+        instrument string FK
+        instrument_channel string
+        instrument_terminal string
     }
 
     %% ============================================
-    %% CONFIG MODULE - Test Configuration
+    %% TEST CONFIGURATION - sidecar YAML next to test files
     %% ============================================
+    %% Tests are code-driven (pytest classes/functions in tests/test_*.py).
+    %% A sidecar YAML co-located with each test file carries vectors,
+    %% limits, mocks, retry, prompts as a recursive tests: tree.
 
-    TestSequenceConfig {
-        string id PK
-        string name
-        string product_family FK
-        string test_phase
-        string required_fixture FK
-        string required_station_type FK
-        int timeout_seconds
+    SidecarConfig {
+        limits dict
+        sweeps list
+        mocks list
+        characteristics list
+        connections any
+        retry RetryConfig
+        prompts dict
+        runner opaque
+        tests dict
     }
 
-    TestStepConfig {
-        string id PK
-        string test
-        string sequence
-        string measurement_name
-        Limit limit
-        string limit_ref FK
-        RetryConfig retry
+    TestEntry {
+        limits dict
+        sweeps list
+        mocks list
+        characteristics list
+        connections any
+        retry RetryConfig
+        prompts dict
+        runner opaque
+        tests dict
     }
 
-    TestConfig {
-        string description
-        VectorConfig vectors
-        RetryConfig retry
-        dict limits
+    SweepEntry {
+        params dict
     }
 
-    VectorConfig {
-        string expand
-        list loops
+    MockEntry {
+        target string
+        return_value any
     }
 
     RetryConfig {
-        int max_retries
-        float delay_seconds
-        string strategy
-        string dialog_ref FK
+        max_retries int
+        delay float
+        on list
     }
 
-    DialogConfig {
-        string id PK
-        string message
-        string dialog_type
-        list choices
-        int timeout_seconds
+    PromptConfig {
+        id string PK
+        message string
+        prompt_type string
+        choices list
+        timeout_seconds int
     }
 
     Limit {
-        float low
-        float high
-        float nominal
-        string units
-        string spec_ref FK
-        Comparator comparator
+        low float
+        high float
+        nominal float
+        units string
+        spec_ref string FK
+        comparator Comparator
     }
 
     %% ============================================
@@ -276,82 +284,115 @@ erDiagram
     %% ============================================
 
     TestRun {
-        uuid id PK
-        datetime started_at
-        datetime ended_at
-        DUT dut
-        string station_id FK
-        string station_type
-        string station_location
-        string product_id
-        string product_name
-        string product_revision
-        string fixture_id
-        string operator_id
-        string operator_name
-        string test_sequence_id FK
-        string git_commit
-        dict custom_metadata
-        Outcome outcome
+        id uuid PK
+        session_id uuid
+        started_at datetime
+        ended_at datetime
+        dut DUT
+        product_id string
+        product_name string
+        product_revision string
+        station_id string FK
+        station_name string
+        station_type string
+        station_location string
+        station_hostname string
+        fixture_id string
+        test_phase string
+        profile string
+        profile_facets dict
+        session_inputs dict
+        operator_id string
+        operator_name string
+        git_commit string
+        git_branch string
+        git_remote string
+        project_name string
+        outcome Outcome
+        steps list
+        collected_items list
+        custom_metadata dict
+        environment_json dict
     }
 
     DUT {
-        string serial PK
-        string part_number
-        string revision
-        string lot_number
+        serial string PK
+        part_number string
+        revision string
+        lot_number string
     }
 
     TestStep {
-        uuid id PK
-        string name
-        datetime started_at
-        Outcome outcome
-        string error_message
+        id uuid PK
+        name string
+        step_path string
+        parent_path string
+        description string
+        node_id string
+        file string
+        module string
+        class_name string
+        function string
+        markers list
+        started_at datetime
+        ended_at datetime
+        outcome Outcome
+        vectors list
+        error_message string
+        instrument_arrays dict
     }
 
     TestVector {
-        uuid id PK
-        string test_step_id FK
-        int index
-        dict params
-        int retry
-        int max_retries
-        Outcome outcome
-        list stimulus
+        id uuid PK
+        test_step_id uuid FK
+        index int
+        params dict
+        observations dict
+        stimulus list
+        retry int
+        max_retries int
+        outcome Outcome
+        measurements list
+        started_at datetime
+        ended_at datetime
+        error_message string
     }
 
     StimulusRecord {
-        string param
-        float value
-        string units
-        string instrument
-        string resource
-        string channel
-        string dut_pin
-        string fixture_connection
+        param string
+        value float
+        units string
+        instrument string
+        resource string
+        channel string
+        dut_pin string
+        fixture_connection string
     }
 
     Measurement {
-        string name
-        float value
-        string units
-        float low_limit
-        float high_limit
-        Outcome outcome
-        string dut_pin
-        string instrument_name
-        string instrument_resource
-        string instrument_channel
-        string fixture_connection
+        name string
+        value float
+        units string
+        limit_low float
+        limit_high float
+        limit_nominal float
+        limit_comparator string
+        outcome Outcome
+        dut_pin string
+        instrument_name string
+        instrument_resource string
+        instrument_channel string
+        fixture_connection string
     }
 
     Outcome {
-        string PASS
-        string FAIL
-        string SKIP
-        string ERROR
-        string ABORTED
+        passed string
+        failed string
+        skipped string
+        errored string
+        aborted string
+        terminated string
+        done string
     }
 
     %% ============================================
@@ -359,21 +400,21 @@ erDiagram
     %% ============================================
 
     Dialog {
-        uuid id PK
-        DialogType type
-        string title
-        string message
-        string run_id FK
-        int timeout_seconds
+        id uuid PK
+        type DialogType
+        title string
+        message string
+        run_id string FK
+        timeout_seconds int
     }
 
     DialogResponse {
-        uuid dialog_id FK
-        bool confirmed
-        int choice
-        string value
-        bool timed_out
-        bool cancelled
+        dialog_id uuid FK
+        confirmed bool
+        choice int
+        value string
+        timed_out bool
+        cancelled bool
     }
 
     %% ============================================
@@ -390,7 +431,7 @@ erDiagram
     %% Capability relationships
     InstrumentCapability }o--|| Direction : "has"
     InstrumentCapability }o--|| MeasurementFunction : "has"
-    Signal ||--o{ SpecBand : "has specs"
+    Signal ||--o{ SpecBand : "bands"
     InstrumentCapability ||--o{ Signal : "has"
     InstrumentCapability ||--o{ Condition : "has"
     InstrumentCapability ||--o{ Control : "has"
@@ -401,38 +442,36 @@ erDiagram
     ProductCharacteristic }o--|| MeasurementFunction : "has"
 
     %% Station structure
-    StationType ||--o{ InstrumentConfig : "requires"
-    StationInstance }o--|| StationType : "based on"
-    StationInstance ||--o{ InstrumentInstance : "has"
-    InstrumentInstance ||--o{ InstrumentCapability : "provides"
+    StationType ||--o{ StationInstrumentConfig : "requires"
+    StationConfig }o--|| StationType : "based on"
+    StationConfig ||--o{ StationInstrumentConfig : "has"
+    StationInstrumentConfig ||--o{ InstrumentCapability : "provides"
 
     %% Fixture structure
     FixtureConfig }o--o| Product : "for"
     FixtureConfig ||--o{ FixtureConnection : "has"
     FixtureConnection }o--o| Pin : "connects"
-    FixtureConnection }o--|| InstrumentInstance : "routes to"
-    StationInstance }o--o| FixtureConfig : "uses"
+    FixtureConnection }o--|| StationInstrumentConfig : "routes to"
 
-    %% Test configuration
-    TestSequenceConfig ||--o{ TestStepConfig : "contains"
-    TestSequenceConfig ||--o{ DialogConfig : "defines"
-    TestSequenceConfig }o--o| FixtureConfig : "requires"
-    TestSequenceConfig }o--o| StationType : "requires"
-    TestStepConfig ||--o| TestConfig : "has"
-    TestStepConfig }o--o| Limit : "has"
-    TestStepConfig }o--o| RetryConfig : "has"
-    TestConfig ||--o| VectorConfig : "has"
-    TestConfig ||--o{ Limit : "has limits"
+    %% Test configuration (sidecar YAML)
+    %% TestEntry.tests is dict[str, TestEntry] (recursive per-class /
+    %% per-method scope tree). Not drawn as a Mermaid self-edge because
+    %% the routing reads as a phantom cross-relationship.
+    SidecarConfig ||--o{ TestEntry : "tests:"
+    SidecarConfig ||--o{ SweepEntry : "sweeps:"
+    SidecarConfig ||--o{ MockEntry : "mocks:"
+    SidecarConfig ||--o{ Limit : "limits:"
+    SidecarConfig ||--o{ PromptConfig : "prompts:"
+    SidecarConfig }o--o| RetryConfig : "retry:"
     Limit }o--o| ProductCharacteristic : "from"
 
     %% Test execution results
     TestRun ||--|| DUT : "tests"
-    TestRun }o--|| StationInstance : "on"
-    TestRun }o--|| TestSequenceConfig : "runs"
+    TestRun }o--|| StationConfig : "on"
     TestRun ||--o{ TestStep : "contains"
     TestStep ||--o{ TestVector : "contains"
     TestVector ||--o{ StimulusRecord : "has inputs"
-    TestVector ||--o{ Measurement : "produces"
+    TestVector ||--o{ Measurement : "measurements"
     Measurement }o--|| Outcome : "has"
     TestVector }o--|| Outcome : "has"
     TestStep }o--|| Outcome : "has"
@@ -447,12 +486,18 @@ erDiagram
 
 | Module | Purpose | Key Models |
 |--------|---------|------------|
-| `litmus/config/models.py` | Shared enums & capability specs | Direction, MeasurementFunction, InstrumentCapability, Signal, Condition, Control, Attribute, SpecBand, MatchDepth, ChannelTopology, TerminalRole |
-| `litmus/catalog/models.py` | Instrument catalog | InstrumentCatalogEntry |
-| `litmus/products/models.py` | Product specifications | Product, Pin, ProductCharacteristic, SignalGroup |
-| `litmus/config/models.py` | Configuration definitions | StationType, FixtureConfig, TestSequenceConfig, Limit |
-| `litmus/data/models.py` | Test execution results | TestRun, TestStep, TestVector, Measurement |
-| `litmus/dialogs/models.py` | Operator dialogs | Dialog, DialogResponse |
+| `src/litmus/models/enums.py` | Shared enum vocabulary | Direction, MeasurementFunction, Comparator, MatchDepth, TerminalRole |
+| `src/litmus/models/capability.py` | Instrument capabilities + spec bands | InstrumentCapability, Signal, Condition, Control, Attribute, SpecBand, ChannelTopology |
+| `src/litmus/models/catalog.py` | Instrument catalog entries | InstrumentCatalogEntry |
+| `src/litmus/models/product.py` | Product specifications | Product, Pin, ProductCharacteristic, SignalGroup |
+| `src/litmus/models/product_manifest.py` | Product release manifest | ProductManifest |
+| `src/litmus/models/station.py` | Station configs + types | StationConfig, StationType, StationInstrumentConfig |
+| `src/litmus/models/instrument.py` | Instrument runtime config | InstrumentConfig |
+| `src/litmus/models/instrument_asset.py` | Calibration / asset records | InstrumentAsset |
+| `src/litmus/models/project.py` | Project-level config | ProjectConfig, ProfileConfig |
+| `src/litmus/models/test_config.py` | Sidecar test config (per test file) | SidecarConfig, TestEntry, SweepEntry, MockEntry, RetryConfig, Limit, FixtureConfig, FixtureSlot, FixtureConnection, SwitchRoute, PromptConfig |
+| `src/litmus/data/models.py` | Test execution results | TestRun, TestStep, TestVector, Measurement |
+| `src/litmus/api/dialogs/models.py` | Operator dialogs | Dialog, DialogResponse |
 
 ## Type vs Instance Models
 
@@ -463,12 +508,12 @@ erDiagram
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │   Product   │  │ StationType │  │ FixtureConf │  │TestSequence │        │
-│  │   ───────   │  │   ───────   │  │   ───────   │  │   Config    │        │
-│  │ id: str     │  │ id: str     │  │ id: str     │  │ id: str     │        │
-│  │ revision    │  │ instruments │  │ product_id  │  │ steps       │        │
-│  │ pins        │  │ capabilities│  │ points      │  │ required_*  │        │
-│  │ charact.    │  │             │  │             │  │             │        │
+│  │   Product   │  │ StationType │  │ FixtureConf │  │SidecarConfig│        │
+│  │   ───────   │  │   ───────   │  │   ───────   │  │   ───────   │        │
+│  │ id: str     │  │ id: str     │  │ id: str     │  │ tests: tree │        │
+│  │ revision    │  │ instruments │  │ product_id  │  │ sweeps      │        │
+│  │ pins        │  │ capabilities│  │ slots       │  │ limits      │        │
+│  │ charact.    │  │             │  │             │  │ mocks       │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
 │        │                │                │                │                 │
 │        │                │                │                │                 │
@@ -505,7 +550,7 @@ erDiagram
     Product.yaml                    Station.yaml              Fixture.yaml
     ────────────                    ────────────              ────────────
     ┌──────────┐                   ┌──────────────┐          ┌──────────────┐
-    │ Product  │                   │StationInstance│          │ FixtureConfig│
+    │ Product  │                   │StationConfig │          │ FixtureConfig│
     │ ─ pins   │◄──────────────────│ ─ instruments │◄─────────│ ─ connections│
     │ ─ chars  │      maps to      │ ─ location   │  routes   │ ─ product_id │
     └──────────┘                   └──────────────┘          └──────────────┘
@@ -513,7 +558,7 @@ erDiagram
          │ defines                       │ has                      │ connects
          ▼                               ▼                          ▼
     ┌──────────┐                   ┌──────────────┐          ┌──────────────┐
-    │Product   │                   │InstrumentInst│          │FixtureConnct.│
+    │Product   │                   │StationInstr  │          │FixtureConnct.│
     │Charact-  │───────────────────│ ─ type       │◄─────────│ ─ dut_pin    │
     │ istics   │  requires caps    │ ─ resource   │  maps to │ ─ instrument │
     └──────────┘                   └──────────────┘          └──────────────┘
@@ -527,21 +572,21 @@ erDiagram
     │ ─ direction  │                               │ ─ id: uuid   │
     └──────────────┘                               │ ─ dut        │
                                                    │ ─ outcome    │
-    TestSequence.yaml                              └──────┬───────┘
-    ─────────────────                                     │
+    tests/test_*.py +                              └──────┬───────┘
+    tests/test_*.yaml (sidecar)                           │
     ┌──────────────────┐                                  │ contains
-    │TestSequenceConfig│                                  ▼
-    │ ─ steps          │────────────────────────►   ┌──────────────┐
-    │ ─ required_*     │     executes as            │  TestStep    │
-    └──────────────────┘                            │ ─ vectors    │
-         │                                          │ ─ outcome    │
-         │ contains                                 └──────┬───────┘
-         ▼                                                 │
-    ┌──────────────────┐                                   │ contains
-    │  TestStepConfig  │                                   ▼
-    │ ─ test           │                            ┌──────────────┐
-    │ ─ limit          │                            │  TestVector  │
-    └──────────────────┘                            │ ─ params     │
+    │  SidecarConfig   │                                  ▼
+    │ ─ tests: tree    │────────────────────────►   ┌──────────────┐
+    │ ─ sweeps         │     executes as            │  TestStep    │
+    │ ─ limits, mocks  │     a pytest run           │ ─ vectors    │
+    └──────────────────┘                            │ ─ outcome    │
+         │                                          └──────┬───────┘
+         │ recursive tests: → TestEntry                    │
+         ▼                                                 │ contains
+    ┌──────────────────┐                                   ▼
+    │    TestEntry     │                            ┌──────────────┐
+    │ ─ limits, sweeps │                            │  TestVector  │
+    │ ─ mocks, retry   │                            │ ─ params     │
          │                                          │ ─ measurements│
          │ has                                      └──────┬───────┘
          ▼                                                 │
@@ -587,13 +632,16 @@ Test outcome per ATML/IEEE 1671 terminology.
 
 ```python
 class Outcome(StrEnum):
-    PASS = "pass"          # Test passed all limits
-    FAIL = "fail"          # Test failed one or more limits
-    SKIP = "skip"          # Test was skipped
-    ERROR = "error"        # Test encountered an error
-    ABORTED = "aborted"    # Test was aborted
-    NOT_TESTED = "not_tested"  # Test was not executed
+    PASSED = "passed"          # All measurements within limits
+    FAILED = "failed"          # One or more measurements out of limits
+    SKIPPED = "skipped"        # Test was skipped (pytest.skip or marker)
+    ERRORED = "errored"        # Test errored before pass/fail could be decided
+    TERMINATED = "terminated"  # Run was terminated (e.g. keyboard interrupt)
+    ABORTED = "aborted"        # Run was aborted by operator
+    DONE = "done"              # Container outcome — work finished, no measurements
 ```
+
+From `src/litmus/data/models.py`. The container ladder rolls the worst child up: `skipped < done < passed < failed < errored < terminated < aborted` (`skipped` and `done` rank below `passed` so a parent with one skipped child and one passing child still resolves to `passed`).
 
 ### Measurement
 
@@ -602,20 +650,20 @@ A single measurement with optional limit checking and full traceability.
 | Field | Type | Parquet Column | Description |
 |-------|------|----------------|-------------|
 | `name` | `str` | `measurement_name` | Measurement name (e.g., "output_voltage") |
-| `value` | `float | None` | `value` | Measured value |
-| `units` | `str | None` | `units` | Units (e.g., "V", "mA", "%") |
-| `low_limit` | `float | None` | `low_limit` | Lower limit for pass/fail |
-| `high_limit` | `float | None` | `high_limit` | Upper limit for pass/fail |
-| `nominal` | `float | None` | `nominal` | Expected nominal value |
-| `outcome` | `Outcome | None` | `outcome` | Pass/fail result |
+| `value` | `float | None` | `measurement_value` | Measured value |
+| `units` | `str | None` | `measurement_units` | Units (e.g., "V", "mA", "%") |
+| `limit_low` | `float | None` | `limit_low` | Lower limit for pass/fail |
+| `limit_high` | `float | None` | `limit_high` | Upper limit for pass/fail |
+| `limit_nominal` | `float | None` | `limit_nominal` | Expected nominal value |
+| `outcome` | `Outcome | None` | `measurement_outcome` | Pass/fail result |
 | `spec_ref` | `str | None` | `spec_ref` | Reference to specification |
-| `comparator` | `str | None` | `comparator` | ATML comparator type (default: "GELE") |
+| `limit_comparator` | `str | None` | `limit_comparator` | ATML comparator type (default: "GELE") |
 | `timestamp` | `datetime` | `measurement_timestamp` | When measurement was taken |
-| `dut_pin` | `str | None` | `meas_dut_pin` | Which DUT pin was measured |
-| `instrument_name` | `str | None` | `meas_instrument` | Station config name |
-| `instrument_resource` | `str | None` | `meas_instrument_resource` | VISA address |
-| `instrument_channel` | `str | None` | `meas_instrument_channel` | Channel on instrument |
-| `fixture_connection` | `str | None` | `meas_fixture_connection` | Fixture connection name |
+| `dut_pin` | `str | None` | `dut_pin` | Which DUT pin was measured |
+| `instrument_name` | `str | None` | `instrument_name` | Station config name |
+| `instrument_resource` | `str | None` | `instrument_resource` | VISA address |
+| `instrument_channel` | `str | None` | `instrument_channel` | Channel on instrument |
+| `fixture_connection` | `str | None` | `fixture_connection` | Fixture connection name |
 
 **Comparators** (per ATML/IEEE 1671):
 
@@ -677,12 +725,21 @@ A test step corresponding to a pytest test function.
 |-------|------|-------------|
 | `id` | `UUID` | Unique step identifier |
 | `name` | `str` | Test function name (e.g., "test_output_voltage") |
+| `step_path` | `str` | Hierarchical step identifier (parametrize / class / module path) |
+| `parent_path` | `str` | Step path of the parent node (empty for root) |
 | `description` | `str | None` | Human-readable description |
+| `node_id` | `str | None` | pytest node id (e.g., `tests/test_x.py::TestRails::test_rail[5V]`) |
+| `file` | `str | None` | Source file path |
+| `module` | `str | None` | Python module name |
+| `class_name` | `str | None` | Test class name (if the test is a method) |
+| `function` | `str | None` | Test function name |
+| `markers` | `str | None` | Serialized pytest markers applied to this step |
 | `started_at` | `datetime` | When step started |
 | `ended_at` | `datetime | None` | When step ended |
-| `outcome` | `Outcome` | Step result (worst of all vectors) |
+| `outcome` | `Outcome | None` | Step result (worst of all vectors) |
 | `vectors` | `list[TestVector]` | Test vectors executed |
 | `error_message` | `str | None` | Error details if failed |
+| `instrument_arrays` | `dict[str, list] | None` | Per-step instrument-array snapshots (driver, resource, role, etc.) |
 
 **Properties:**
 - `total_vectors` - Number of vectors in this step
@@ -705,27 +762,34 @@ A complete test run with all steps and measurements.
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | `UUID` | Unique run identifier |
+| `session_id` | `UUID | None` | Session this run belongs to |
 | `started_at` | `datetime` | When run started |
 | `ended_at` | `datetime | None` | When run ended |
 | `dut` | `DUT` | Device under test info |
-| `station_id` | `str` | Station that ran the test |
-| `station_type` | `str | None` | Station type/template |
-| `station_location` | `str | None` | Physical location |
 | `product_id` | `str | None` | Product ID from spec |
 | `product_name` | `str | None` | Human-readable product name |
 | `product_revision` | `str | None` | Spec revision |
+| `station_id` | `str` | Station that ran the test |
+| `station_name` | `str | None` | Human-readable station name |
+| `station_type` | `str | None` | Station type/template |
+| `station_location` | `str | None` | Physical location |
+| `station_hostname` | `str | None` | Hostname of the station machine |
 | `fixture_id` | `str | None` | Fixture identifier |
+| `test_phase` | `str` | Test phase (e.g. `production` / `characterization` / `development`) |
+| `profile` | `str | None` | Active profile name |
+| `profile_facets` | `dict[str, str]` | Facet keys resolved for the active profile |
+| `session_inputs` | `dict[str, Any]` | Required-input values captured at session start |
 | `operator_id` | `str | None` | Operator ID |
 | `operator_name` | `str | None` | Human-readable operator name |
-| `test_sequence_id` | `str` | Test sequence executed |
-| `test_phase` | `str` | Test phase (default: "production") |
 | `git_commit` | `str | None` | Git commit hash at test time |
-| `custom_metadata` | `dict[str, Any]` | Custom fields from run_context |
+| `git_branch` | `str | None` | Git branch at test time |
+| `git_remote` | `str | None` | Git remote URL at test time |
+| `project_name` | `str | None` | Project name from `litmus.yaml` |
 | `outcome` | `Outcome` | Overall run result |
 | `steps` | `list[TestStep]` | Test steps executed |
-
-**Environment** (stored in Parquet file-level metadata, not columns):
-- `environment_json` — Python version, OS, litmus version, top-level dependencies, lockfile hash
+| `collected_items` | `list[CollectedItem]` | Items pytest collected for this run |
+| `custom_metadata` | `dict[str, Any]` | Custom fields from run_context |
+| `environment_json` | `dict[str, Any]` | Python/OS/litmus version + lockfile fingerprint |
 
 Config files (station, fixture, product spec) are tracked via git — the `git_commit` column identifies the exact state.
 
@@ -750,13 +814,12 @@ Config files (station, fixture, product spec) are tracked via git — the `git_c
     "operator_badge": "EMP-12345",
     "fixture_serial": "FIX-001"
   },
-  "test_sequence_id": "full_validation",
-  "outcome": "pass",
+  "outcome": "passed",
   "steps": [
     {
       "id": "550e8400-...",
       "name": "test_output_voltage",
-      "outcome": "pass",
+      "outcome": "passed",
       "vectors": [
         {
           "index": 0,
@@ -772,15 +835,17 @@ Config files (station, fixture, product spec) are tracked via git — the `git_c
               "dut_pin": "VIN"
             }
           ],
-          "outcome": "pass",
+          "outcome": "passed",
           "measurements": [
             {
               "name": "output_voltage",
-              "value": "3.31",
+              "value": 3.31,
               "units": "V",
-              "low_limit": "3.135",
-              "high_limit": "3.465",
-              "outcome": "pass",
+              "limit_low": 3.135,
+              "limit_high": 3.465,
+              "limit_nominal": 3.3,
+              "limit_comparator": "GELE",
+              "outcome": "passed",
               "spec_ref": "output_voltage",
               "dut_pin": "J1.3",
               "instrument_name": "dmm_main",
@@ -805,8 +870,7 @@ The `Context` class provides hierarchical context with scoped inheritance:
 Data set at parent level is inherited by children. Children can override parent values locally.
 
 ```python
-from litmus.execution import Context
-from litmus.execution.harness import TestHarness
+from litmus.execution.harness import Context, TestHarness
 
 harness = TestHarness(step_name="my_test")
 
@@ -830,11 +894,9 @@ with harness.step():
 ```python
 # Configuration (→ in_* columns)
 context.configure("psu.voltage", 5.0)
-context.set_in("psu.voltage", 5.0)  # Alias
 
 # Observations (→ out_* columns)
 context.observe("temp_probe.temp", 24.8)
-context.set_out("temp_probe.temp", 24.8)  # Alias
 
 # Bulk operations
 context.configure_all({"psu.voltage": 5.0, "eload.current": 0.8})
@@ -844,18 +906,19 @@ context.observe_all({"temp_probe.temp": 24.8, "humidity": 45.2})
 voltage = context.get_param("psu.voltage")
 temp = context.get_observation("temp_probe.temp")
 
+# Last + change detection across the prev-context chain
+prev_v = context.last("psu.voltage")
+changed = context.changed("psu.voltage")
+
 # Merged properties
-all_inputs = context.params   # All inputs, merged with parent chain
-all_outputs = context.observations  # All outputs, merged with parent chain
+all_inputs = context.params              # All inputs, merged with parent chain
+all_outputs = context.observations       # All outputs, merged with parent chain
 
 # Create child context
 child = context.child()
-
-# RunContext compatibility
-context.set("key", value)
-context.get("key", default)
-context.update(key1=val1, key2=val2)
 ```
+
+Defined in `src/litmus/execution/harness.py`. There is no `context.set` / `context.get` / `context.update` / `context.set_in` / `context.set_out` — use the methods above.
 
 ### RunContext (Legacy)
 

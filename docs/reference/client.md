@@ -5,13 +5,13 @@ The `LitmusClient` provides a simple API for submitting test results from extern
 ## Installation
 
 ```python
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 ```
 
 ## Basic Usage
 
 ```python
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 # Create client (results saved to ./results by default)
 client = LitmusClient()
@@ -20,7 +20,7 @@ client = LitmusClient()
 run = client.start_run(
     dut_serial="SN12345",
     station_id="bench_1",
-    test_sequence_id="power_test",
+    test_phase="production",
 )
 
 # Add measurements
@@ -57,13 +57,12 @@ Returned by `client.start_run()`.
 run = client.start_run(
     dut_serial="SN12345",          # Required
     station_id="bench_1",          # Required
-    test_sequence_id="power_test", # Required
     dut_part_number="PCB-001",     # Optional
     dut_revision="A",              # Optional
     dut_lot_number="LOT2026",      # Optional
     station_type="production",     # Optional
     operator="Jane Doe",           # Optional
-    test_phase="production",       # Optional (default: "production")
+    test_phase="production",       # Optional
 )
 ```
 
@@ -141,7 +140,7 @@ with run.step("voltage_sweep") as step:
 ## Complete Example
 
 ```python
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 def run_production_test(serial_number: str):
     client = LitmusClient(data_dir="./test_results")
@@ -149,7 +148,6 @@ def run_production_test(serial_number: str):
     run = client.start_run(
         dut_serial=serial_number,
         station_id="production_line_1",
-        test_sequence_id="final_test",
         operator="AutoTester",
         test_phase="production",
     )
@@ -169,7 +167,7 @@ def run_production_test(serial_number: str):
     # Finish and save
     result = run.finish()
     print(f"Test complete: {result.outcome}")
-    return result.outcome == "pass"
+    return result.outcome == "passed"
 ```
 
 ## Integration Patterns
@@ -192,7 +190,7 @@ Use TestStand's Python adapter or call via subprocess:
 ```python
 # wrapper.py - called from TestStand
 import sys
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 def submit_teststand_results(serial, station, results_json):
     import json
@@ -202,7 +200,7 @@ def submit_teststand_results(serial, station, results_json):
     run = client.start_run(
         dut_serial=serial,
         station_id=station,
-        test_sequence_id="teststand_import",
+        test_phase="production",
     )
 
     for step_name, measurements in results.items():
@@ -218,7 +216,7 @@ def submit_teststand_results(serial, station, results_json):
 ```python
 #!/usr/bin/env python3
 import sys
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 serial = sys.argv[1]
 voltage = float(sys.argv[2])
@@ -227,14 +225,14 @@ client = LitmusClient()
 run = client.start_run(
     dut_serial=serial,
     station_id="cli_test",
-    test_sequence_id="quick_check",
+    test_phase="characterization",
 )
 
 with run.step("voltage") as step:
     step.measure("vcc", voltage, units="V", low=4.5, high=5.5)
 
 result = run.finish()
-sys.exit(0 if result.outcome == "pass" else 1)
+sys.exit(0 if result.outcome == "passed" else 1)
 ```
 
 ## Querying Results
@@ -242,21 +240,21 @@ sys.exit(0 if result.outcome == "pass" else 1)
 ```python
 client = LitmusClient()
 
-# List recent runs
+# List recent runs — returns list[RunSummary] (Pydantic models, use attribute access)
 for run in client.list_runs(limit=10):
-    print(f"{run['test_run_id'][:8]}: {run['outcome']}")
+    print(f"{str(run.test_run_id)[:8]}: {run.outcome}")
 
-# Get specific run
+# Get specific run — returns RunSummary | None
 run = client.get_run("abc12345")
 print(run)
 
-# Get measurements
+# Get measurements — returns list[dict] using parquet column names
 measurements = client.get_measurements("abc12345")
 for m in measurements:
-    print(f"{m['measurement_name']}: {m['value']} {m['units']}")
+    print(f"{m['measurement_name']}: {m['measurement_value']} {m['measurement_units']}")
 ```
 
 ## Next Steps
 
 - [API Reference](api.md) — HTTP and MCP endpoints
-- [Quick Start](quickstart.md) — Getting started guide
+- [Quick Start](../tutorial/00-quickstart.md) — Getting started guide

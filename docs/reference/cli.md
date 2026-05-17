@@ -28,6 +28,10 @@ litmus init [NAME] [OPTIONS]
 |--------|---------|-------------|
 | `--no-git` | `False` | Skip git initialization |
 | `--discover` | `False` | Auto-discover instruments and create station file |
+| `--starter / --no-starter` | _prompts_ | Generate starter example files |
+| `--tier` | _prompts_ | Scaffold tier: `bringup` (Tier 0/1 — MagicMock fixtures, one test, no station/product YAML), `bench` (Tier 2 starter), `factory` (Tier 3/4 — bench + profiles) |
+| `--ai` | _none_ | Set up AI tool integration: `claude-code`, `claude-desktop`, or `copilot` |
+| `--name` | _auto-detect_ | Project name (overrides auto-detect) |
 
 **Examples:**
 
@@ -82,7 +86,7 @@ litmus serve --reload
 
 **What it starts:**
 
-- **NiceGUI pages** at `/`, `/stations`, `/products`, `/fixtures`, `/instruments`, `/sequences`, `/tests`, `/runs`
+- **NiceGUI pages** at `/`, `/stations`, `/products`, `/fixtures`, `/instruments`, `/tests`, `/runs`
 - **FastAPI routes** at `/api/*` for programmatic access
 - **WebSocket** for live UI updates
 
@@ -176,12 +180,12 @@ litmus show a1b2c3d4 -f csv
 
 ## Yield / Manufacturing Metrics
 
-### litmus yield summary
+### litmus metrics summary
 
-Show yield summary (FPY, final yield, RTY).
+Show yield summary (FPY = First-Pass Yield, RTY = Rolled Throughput Yield — manufacturing acronyms for the fraction of units that pass first try / pass every step).
 
 ```bash
-litmus yield summary [OPTIONS]
+litmus metrics summary [OPTIONS]
 ```
 
 **Options:**
@@ -194,139 +198,96 @@ litmus yield summary [OPTIONS]
 | `--until` | *(none)* | End date (ISO format) |
 | `--product` | *(none)* | Product ID filter |
 | `--station` | *(none)* | Station ID filter |
-| `--lot` | *(none)* | Lot number filter |
-| `--group-by` | *(none)* | Group by `product`, `station`, or `lot` |
+| `--period` | *(none)* | Period bucket: `day`, `week`, or `month` |
+| `--json` | *(off)* | Emit JSON instead of a table |
 
 **Example:**
 
 ```
-$ litmus yield summary --data-dir results
+$ litmus metrics summary --data-dir results
 Runs: 150  |  Unique serials: 120
 First-pass yield:  85.0%
 Final yield:       95.8%
 ```
 
-### litmus yield pareto
+### litmus metrics pareto
 
 Top failure modes (Pareto analysis).
 
 ```bash
-litmus yield pareto [--top N] [filter options...]
+litmus metrics pareto [--top N] [filter options...]
 ```
 
-### litmus yield cpk STEP_NAME
+### litmus metrics cpk
 
-Process capability (Cpk/Cp) for a measurement step.
+Process capability (Cpk/Cp) across measurements.
 
 ```bash
-litmus yield cpk STEP_NAME [--measurement NAME] [--min-samples N] [filter options...]
+litmus metrics cpk [--min-samples N] [filter options...]
 ```
 
-### litmus yield trend
+### litmus metrics trend
 
 Yield trend over time.
 
 ```bash
-litmus yield trend [--period day|week|month] [filter options...]
+litmus metrics trend [--period day|week|month] [filter options...]
 ```
 
-### litmus yield time
+### litmus metrics time-loss
 
-Test time analysis (run or step durations).
+Time lost to failures and errors.
 
 ```bash
-litmus yield time [--by run|step] [filter options...]
+litmus metrics time-loss [--period day|week|month] [filter options...]
 ```
 
-## Journal Commands
+## Data management commands
 
-During test execution, measurements are streamed to JSONL journal files. On successful completion, journals are converted to Parquet and deleted. These commands help manage orphaned journals from crashed or interrupted runs.
+Run-data lifecycle commands. Source: `src/litmus/cli.py` (`@main.group("data")`).
 
-### litmus journals
+### litmus data prune
 
-List orphaned journals (from crashed or interrupted runs).
+Delete run records older than a cutoff.
 
 ```bash
-litmus journals [OPTIONS]
+litmus data prune --older-than 30d [--dry-run]
 ```
 
-**Options:**
+### litmus data reindex
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--data-dir` | `results` | Path to results directory |
-
-**Example output:**
-
-```
-$ litmus journals
-Orphaned journals (from crashed/interrupted runs):
-
-  results/.journals/2026-02-03/20260203T143025Z_SN001/
-    Run ID: a1b2c3d4-5678-9abc-def0-1234567890ab
-    DUT: SN001
-    Station: bench_1
-    Started: 2026-02-03T14:30:25
-    Measurements: 47
-
-To recover: litmus recover <journal_dir>
-To recover all: litmus recover --all
-```
-
-### litmus recover
-
-Convert orphaned journal(s) to Parquet.
+Rebuild the DuckDB index from parquet files (use after manually copying parquets between machines).
 
 ```bash
-litmus recover [JOURNAL_DIR] [OPTIONS]
+litmus data reindex
 ```
 
-**Arguments:**
+## Daemon commands
 
-| Argument | Description |
-|----------|-------------|
-| `JOURNAL_DIR` | Path to journal directory (optional if using --all) |
+`litmus serve` and `pytest` both rely on background daemons (events, runs, channels). Manage them with `litmus daemon`.
 
-**Options:**
+### litmus daemon status
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--data-dir` | `results` | Path to results directory |
-| `--all` | `false` | Recover all orphaned journals |
-
-**Examples:**
+Show the state of every daemon Litmus owns on this machine.
 
 ```bash
-# Recover specific journal
-litmus recover results/.journals/2026-02-03/20260203T143025Z_SN001/
-
-# Recover all orphaned journals
-litmus recover --all
+litmus daemon status
 ```
 
-### litmus cleanup-journals
+### litmus daemon restart
 
-Delete journals that have corresponding Parquet files (already converted).
+Stop and restart all daemons (clears their in-memory state; on-disk parquet remains).
 
 ```bash
-litmus cleanup-journals [OPTIONS]
+litmus daemon restart
 ```
 
-**Options:**
+### litmus daemon stop
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--data-dir` | `results` | Path to results directory |
-| `--dry-run` | `false` | Show what would be deleted without deleting |
-
-**Examples:**
+Stop the daemons. They restart on next use.
 
 ```bash
-# Preview what would be deleted
-litmus cleanup-journals --dry-run
-
-# Actually delete
-litmus cleanup-journals
+litmus daemon stop
 ```
 
 ## MCP Commands
@@ -347,15 +308,22 @@ litmus mcp serve [OPTIONS]
 
 **What it exposes:**
 
-The MCP server provides tools for AI agents:
+Twelve tools, all prefixed `litmus_`. Full reference in [HTTP & MCP API](api.md#mcp-tools).
 
-| Tool | Description |
-|------|-------------|
-| `litmus` | CRUD operations on products, stations, fixtures, instruments, sequences |
-| `litmus_discover` | Discover instruments on VISA bus |
-| `litmus_match` | Check if a station can test a product |
-| `litmus_run` | Execute tests and get results |
-| `litmus_open` | Open URLs in browser (UI pages) |
+| Tool | Purpose |
+|------|---------|
+| `litmus_project` | Read / list / save project files |
+| `litmus_discover` | VISA discovery |
+| `litmus_match` | Match a product against stations |
+| `litmus_run` | Start a test run |
+| `litmus_open` | Open a resource in the operator UI |
+| `litmus_schema` | JSON schema for a YAML entity type |
+| `litmus_events` | Query the event store |
+| `litmus_sessions` | List sessions |
+| `litmus_channels` | Query channel data |
+| `litmus_metrics` | Compute yield / Pareto / Cpk / retest / time-loss |
+| `litmus_runs` | Query the runs view |
+| `litmus_steps` | Query the steps view |
 
 **Example:**
 
@@ -532,18 +500,19 @@ Litmus MCP Server
 Command: /path/to/litmus mcp serve
 Transport: stdio
 
-Available tools:
-  - list_products: List all product specifications
-  - get_product_spec: Get a product specification by ID
-  - list_stations: List all test stations
-  - get_station_config: Get a station configuration by ID
-  - find_compatible_stations: Find stations for a product
-  - check_station_compatibility: Check if station can test product
-  - derive_required_capabilities: Get capability requirements
-  - get_instrument_library: Get instrument definitions
-  - list_sequences: List test sequences
-  - save_product_spec: Save a new product specification
-  - save_test_sequence: Save a new test sequence
+Available tools (all prefixed ``litmus_``):
+  - litmus_project   : Read / list / save project files
+  - litmus_discover  : VISA discovery
+  - litmus_match     : Match a product against stations
+  - litmus_run       : Start a test run
+  - litmus_open      : Open a resource in the operator UI
+  - litmus_schema    : JSON schema for a YAML entity type
+  - litmus_events    : Query the event store
+  - litmus_sessions  : List sessions
+  - litmus_channels  : Query channel data
+  - litmus_metrics   : Compute yield / Pareto / Cpk / retest / time-loss
+  - litmus_runs      : Query the runs view
+  - litmus_steps     : Query the steps view
 ```
 
 ## Getting Started (recommended order)
@@ -589,7 +558,7 @@ litmus serve                        # full UI at localhost:8000
 ```
 
 **Common next steps:**
-- Add a **sequence** to define test order, vectors, and limits → `litmus serve` → Sequences → New
+- Add a **sidecar** next to a test file to define vectors, limits, and mocks → see [Writing Tests](../how-to/writing-tests.md)
 - Add a **fixture** to map DUT pins to instruments → `litmus serve` → Fixtures → New
 - Set up **AI assistance** → `litmus setup claude-code`
 
@@ -626,11 +595,59 @@ litmus setup claude-code
 # Claude can now read specs, match stations, run tests
 ```
 
+## Test phase
+
+`test_phase` tags every run with the maturity tier it was produced for (`development`, `validation`, `characterization`, `production`). It lands on every parquet row so dashboards and queries can filter by phase.
+
+### Setting the phase
+
+Resolution order (first match wins):
+
+1. **`pytest --test-phase=<phase>`** — explicit per-run.
+2. **`LITMUS_TEST_PHASE` env var.**
+3. **Profile YAML** — a profile can set `test_phase: <phase>` for every test it runs.
+4. **Auto-detect** — `production` if the git tree is clean, `development` if dirty.
+
+### Git-status enforcement
+
+Non-development phases require a clean git repository. Uncommitted changes (or no git at all) force the phase down to `development` regardless of what was requested. This guarantees a production-tagged row is reproducible from a commit hash.
+
+| Git status | Requested | Actual |
+|---|---|---|
+| Clean | `validation` | `validation` |
+| Clean | `production` | `production` |
+| Clean | (none) | `production` |
+| Dirty | `validation` | `development` |
+| Dirty | `production` | `development` |
+| Dirty | (none) | `development` |
+| No git | (any) | `development` |
+
+### Query by phase
+
+```python
+import duckdb
+
+duckdb.sql("""
+    SELECT * FROM read_parquet('results/runs/**/*.parquet')
+    WHERE test_phase = 'production'
+""")
+
+# Exclude dev work
+duckdb.sql("""
+    SELECT * FROM read_parquet('results/runs/**/*.parquet')
+    WHERE test_phase != 'development'
+""")
+```
+
+See [Profiles](../how-to/profiles.md) for the profile YAML shape.
+
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `LITMUS_RESULTS_DIR` | Default results directory (fallback: `results/`) |
+| `LITMUS_HOME` | Default data directory (resolution: `--data-dir` arg → project `litmus.yaml` `data_dir:` → `LITMUS_HOME` → `platformdirs.user_data_dir("litmus")`) |
+| `LITMUS_TEST_PHASE` | Default `test_phase` for runs (see *Test phase* above). |
+| `LITMUS_MOCK_INSTRUMENTS` | Set to `1` to enable mock mode without `--mock-instruments`. |
 
 ## Exit Codes
 
@@ -643,5 +660,4 @@ litmus setup claude-code
 ## See Also
 
 - [Platform Architecture](../concepts/platform-architecture.md) — Multiple entry points
-- [MCP Tools](../reference/mcp-tools.md) — Full tool reference
-- [Operator UI](../guides/operator-ui.md) — UI pages and features
+- [MCP Tools](../how-to/mcp-integration.md) — Full tool reference

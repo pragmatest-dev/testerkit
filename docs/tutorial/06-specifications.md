@@ -11,11 +11,10 @@ A product specification that documents your device and provides traceability for
 ```
 my_project/
 ├── products/
-│   └── power_board.yaml    # Product specification
-├── sequences/
-│   └── power_board.yaml    # Test steps with limits derived from spec
+│   └── power_board.yaml         # Product specification
 ├── tests/
-│   └── test_power.py       # Test code
+│   ├── test_power.py            # Test code (pytest functions or classes)
+│   └── test_power.yaml          # Sidecar — limits, sweeps, mocks for test_power.py
 └── pyproject.toml
 ```
 
@@ -84,12 +83,12 @@ pins:
   VIN:
     name: "J1.1"           # Physical marking
     net: "VIN_5V"          # Schematic net name
-    role: power            # power, signal, ground, control
+    role: power            # signal, ground, power, reference
 ```
 
-### Characteristics
+### [Characteristics](../concepts/capabilities.md)
 
-Measurable properties with expected values:
+Measurable properties with expected values (each entry in `bands:` is a [`SpecBand`](../reference/models.md) — a value-plus-condition record):
 
 ```yaml
 characteristics:
@@ -112,23 +111,20 @@ Calculate limits:
 - Low: 3.3 × (1 - 0.05) = 3.135V
 - High: 3.3 × (1 + 0.05) = 3.465V
 
-Put these in your sequence step:
+Put these in the sidecar YAML next to the test file:
 
 ```yaml
-# sequences/power_board.yaml
-steps:
-  - id: output_voltage
-    test: tests/test_power.py::test_output_voltage
-    limits:
-      test_output_voltage:
-        low: 3.135
-        high: 3.465
-        nominal: 3.3
-        units: V
-        spec_ref: "output_voltage @ tolerance_pct=5"  # Traceability!
+# tests/test_power.yaml
+limits:
+  output_voltage:
+    low: 3.135
+    high: 3.465
+    nominal: 3.3
+    units: V
+    spec_ref: "output_voltage @ tolerance_pct=5"  # Traceability!
 ```
 
-The `spec_ref` field provides traceability back to the specification.
+The `spec_ref` field provides [traceability](../how-to/traceability.md) back to the specification.
 
 ## Guardbanding
 
@@ -140,29 +136,18 @@ Guardband:  10% tighter
 Production: 3.152V to 3.449V
 ```
 
-Document this in the spec:
+Calculate guardbanded limits in the sidecar — the product spec stays
+the source-of-truth for the characteristic value/accuracy, and the
+sidecar narrows it via `tolerance_pct` (or hard `low`/`high`) for
+the production run:
 
 ```yaml
-# products/power_board.yaml
-bands:
-  verify_output:
-    characteristic_ref: output_voltage
-    guardband_pct: 10
-    priority: 1
-```
-
-Then calculate guardbanded limits for your sequence step:
-
-```yaml
-# sequences/power_board.yaml
-steps:
-  - id: output_voltage
-    test: tests/test_power.py::test_output_voltage
-    limits:
-      test_output_voltage:
-        low: 3.152      # With 10% guardband
-        high: 3.449
-        spec_ref: "output_voltage @ guardband=10%"
+# tests/test_power.yaml
+limits:
+  output_voltage:
+    low: 3.152      # With 10% guardband
+    high: 3.449
+    spec_ref: "output_voltage @ guardband=10%"
 ```
 
 ## Conditions
@@ -178,40 +163,36 @@ characteristics:
     bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
-        conditions:
+        when:
           temperature: 25    # At room temperature
           load: 0.5
 
       - value: 3.3
         accuracy: {pct_reading: 7}   # Wider tolerance at high temp
-        conditions:
+        when:
           temperature: 85
           load: 0.5
 ```
 
-Your sequence step vectors should sweep these conditions:
+Sweep these conditions from the sidecar:
 
 ```yaml
-# sequences/power_board_char.yaml
-steps:
-  - id: output_voltage_sweep
-    test: tests/test_power.py::test_output_voltage
-    vectors:
-      expand: product
-      temperature: [25, 85]
-      load: [0.5]
-    limits:
-      # Different limits for each condition...
+# tests/test_power.yaml
+sweeps:
+  - temperature: [25, 85]
+  - load: [0.5]
+limits:
+  # Different limits per condition resolve from the spec at runtime
 ```
 
-## Why Separate Spec from Sequence?
+## Why Separate Spec from Sidecar?
 
-| Spec (products/*.yaml) | Sequence (sequences/*.yaml) |
+| Spec (products/*.yaml) | Sidecar (tests/test_*.yaml) |
 |-------|--------|
-| What the product SHOULD do | How we TEST it |
+| What the product SHOULD do | How this test file exercises it |
 | From datasheet/requirements | Test-specific parameters |
 | Rarely changes | May change per environment |
-| Shared across test suites | Specific to test phase |
+| Shared across test files | Co-located with one test file |
 
 ## Complete Example
 
@@ -244,31 +225,20 @@ characteristics:
     bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
-
-bands:
-  verify_output:
-    characteristic_ref: output_voltage
-    guardband_pct: 10
 ```
 
-**sequences/power_board.yaml:**
+**tests/test_power.yaml** (sidecar):
 ```yaml
-id: power_board
-product_family: power_board
-test_phase: production
-
-steps:
-  - id: output_voltage
-    test: tests/test_power.py::test_output_voltage
-    limits:
-      test_output_voltage:
-        low: 3.152
-        high: 3.449
-        nominal: 3.3
-        units: V
-        spec_ref: "output_voltage @ guardband=10%"
-    mocks:
-      dmm.measure_voltage: 3.31
+limits:
+  output_voltage:
+    low: 3.152
+    high: 3.449
+    nominal: 3.3
+    units: V
+    spec_ref: "output_voltage @ guardband=10%"
+mocks:
+  - target: dmm.measure_voltage
+    return_value: 3.31
 ```
 
 **tests/test_power.py:**
@@ -281,9 +251,9 @@ def test_output_voltage(dmm, verify):
 ## Traceability Chain
 
 ```
-Datasheet → Spec → Test Requirement → Test Config → Test Code → Measurement
-     ↓          ↓           ↓               ↓            ↓           ↓
-  3.3V±5%   conditions   guardband      low/high   verify   3.31V PASS
+Datasheet → Spec → Test Requirement → Sidecar Limits → Test Code → Measurement
+     ↓          ↓           ↓                ↓             ↓           ↓
+  3.3V±5%   conditions   guardband      low/high      verify     3.31V PASS
 ```
 
 Every measurement can be traced back to the original specification.

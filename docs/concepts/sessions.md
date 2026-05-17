@@ -4,26 +4,35 @@ A session represents a connect-to-disconnect lifecycle — the window during whi
 
 ## What is a Session?
 
-A session begins when a process calls `litmus.connect()` and ends when the connection is released. During a session, all events share the same `session_id`, making it easy to group and query related activity.
+A session begins when a process calls `connect()` and ends when the connection is released. During a session, all events share the same `session_id`, making it easy to group and query related activity.
 
 Sessions are broader than test runs. A single session might contain multiple test runs (e.g., retesting the same DUT), or no test runs at all (e.g., a calibration script or manual instrument exploration).
 
 ## Session Metadata
 
-`SessionStarted` captures the full context at session start:
+`SessionStarted` (see [event-log](event-log.md) for the event-type taxonomy) captures session-wide context — the *who/where/how* of the process holding the connection. Per-run context (DUT, product, test phase, git, environment) lives on `RunStarted`, emitted once per test run within the session.
 
 | Category | Fields |
 |----------|--------|
-| **Station** | `station_id`, `station_name`, `station_type`, `station_location`, `station_hostname`, `slot_id` |
+| **Session** | `session_type` |
+| **Station** | `station_id`, `station_name`, `station_type`, `station_location`, `station_hostname` |
 | **Process** | `pid`, `client` (pytest, jupyter, script name) |
+| **Operator** | `operator_id`, `operator_name` |
+| **Fixture / slot** | `fixture_id`, `slot_count` |
+
+`RunStarted` (emitted once per test run within a session) carries the per-run context:
+
+| Category | Fields |
+|----------|--------|
 | **DUT** | `dut_serial`, `dut_part_number`, `dut_revision`, `dut_lot_number` |
 | **Product** | `product_id`, `product_name`, `product_revision` |
-| **Operator** | `operator_id`, `operator_name` |
-| **Test Context** | `fixture_id`, `sequence_id`, `test_phase`, `git_commit` |
+| **Slot** | `slot_id`, `slot_index` |
+| **Test context** | `fixture_id`, `test_phase`, `project_name` |
+| **Git** | `git_commit`, `git_branch`, `git_remote` |
 | **Environment** | `environment_json` (Python version, litmus version, top-level deps, lockfile hash) |
 | **Custom** | `custom_metadata` dict, `channel_refs` list |
 
-Config files (station, fixture, product spec) are tracked via git — the `git_commit` field on each run identifies the exact code and config state.
+Config files (station, fixture, product spec) are tracked via git — the `git_commit` field on each `RunStarted` identifies the exact code and config state.
 
 ## Why Sessions Exist
 
@@ -35,26 +44,26 @@ Sessions solve three problems:
 
 3. **Resource coordination** — Sessions track which instruments are in use, enabling per-resource locking. Two scripts can use different instruments on the same station simultaneously.
 
-## The `litmus.connect()` API
+## The `connect()` API
 
 ```python
-import litmus
+from litmus.connect import connect
 
 # Context manager (scripts, notebooks)
-with litmus.connect("cell-7", mock=True) as station:
+with connect("cell-7", mock=True) as station:
     dmm = station.instrument("dmm")
     v = dmm.measure_voltage()
     # All interactions logged with this session's ID
 
 # Explicit lifecycle (UI, long-running processes)
-station = litmus.connect("cell-7")
+station = connect("cell-7")
 station.start()
 dmm = station.instrument("dmm")
 # ... work ...
 station.stop()
 ```
 
-`litmus.connect()` creates a `StationConnection` that:
+`connect()` creates a `StationConnection` that:
 - Generates a new `session_id`
 - Creates an `EventLog` for this session
 - Emits `SessionStarted` with full context
@@ -65,5 +74,5 @@ station.stop()
 
 - [Event Log Architecture](event-log.md) — How events are stored and queried
 - [Three Stores Architecture](three-stores.md) — Where session data lives
-- [litmus.connect() Reference](../reference/connect-api.md) — Full API reference
-- [Managing Sessions Guide](../guides/managing-sessions.md) — Practical session management
+- [connect() reference](../reference/connect.md) — full API surface
+- [Managing Sessions Guide](../how-to/managing-sessions.md) — Practical session management

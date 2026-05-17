@@ -71,16 +71,13 @@ Once this works, we'll add actual measurements.
 
 ## About conftest.py
 
-You may not need a `conftest.py` at all. The Litmus plugin auto-registers instrument role fixtures from your station config (e.g., `dmm`, `psu`, `eload`) — no boilerplate needed.
+This step uses a `conftest.py` to define the `dmm` (and later `psu`) fixtures. That's the same pattern you'd use in any pytest project — Litmus does not require its own configuration to get started.
 
-You only need `conftest.py` when you want to:
-- Override an auto-registered fixture with custom setup/teardown
-- Add pin-based fixtures for DUT traceability
-- Define project-specific test utilities
+Later steps will introduce a **[station YAML](../concepts/stations.md)** — a single file that declares the bench's instruments. When that exists, Litmus auto-registers an instrument-role fixture (for each instrument declared in the station YAML, a pytest fixture by that name is provided to your tests automatically) such as `dmm`, `psu`, etc., and you can drop the corresponding `conftest.py` fixtures. For step 1, ignore station YAML entirely.
 
-## Bench-bringup escape hatch (no station YAML)
+## Bench-bringup pattern
 
-For a brand-new board where you don't yet have a station / product / fixture YAML, skip all of that and define instrument fixtures directly in `conftest.py`. `litmus init --tier=bringup` scaffolds this for you; the pattern is:
+For a brand-new board, the smallest scaffold is just a `conftest.py` fixture and one test. `litmus init --tier=bringup` creates this layout. (Forward references: [`Limit`](../reference/models.md) is Litmus's pass/fail-bound model, [`verify`](../reference/litmus-fixtures.md#verify--function) is the fixture that records a measurement and checks it against a limit — both introduced fully in step 3 / step 4. [PyVISA](https://pyvisa.readthedocs.io/) and [PyMeasure](https://pymeasure.readthedocs.io/) are the external instrument-driver libraries you'd swap into the fixture for real hardware.)
 
 ```python
 # tests/conftest.py
@@ -108,9 +105,9 @@ def test_rail(dmm, verify):
     )
 ```
 
-Rows land in parquet with `meas_value`, `meas_limit_low/high`, and `outcome` populated. Traceability columns (`meas_dut_pin`, `meas_instrument_channel`, `meas_net`, `meas_spec_ref`) stay null until you graduate to a station + product + fixture — at which point the test bodies don't change.
+Rows land in parquet with `measurement_value`, `limit_low` / `limit_high`, and `measurement_outcome` populated. [Traceability](../how-to/traceability.md) columns (`dut_pin`, `instrument_channel`, `fixture_connection`, `spec_ref`) stay NULL until you graduate to a [station](../concepts/stations.md) + [product](../concepts/products.md) + [fixture](../concepts/fixtures.md) — at which point the test bodies don't change.
 
-See `examples/01-bringup/` for a runnable example.
+See [`examples/01-vanilla`](https://github.com/pragmatest-dev/litmus/tree/main/examples/01-vanilla) for a runnable example.
 
 ## Verify the Setup
 
@@ -137,11 +134,7 @@ source .venv/bin/activate  # Linux/Mac
 - Check that function starts with `test_`
 
 **"fixture 'dmm' not found" (or any instrument role)**
-- You don't have a station YAML yet. Either scaffold one
-  (`litmus init --tier=bench`) or use the bench-bringup escape hatch
-  above — define the fixture directly in `tests/conftest.py` with
-  `MagicMock` (or a real driver). `litmus init --tier=bringup`
-  does this for you.
+- Define the fixture in `tests/conftest.py` — see the bench-bringup pattern above. `litmus init --tier=bringup` creates this scaffold for you. Later tutorial steps will lift the fixture definition into a station YAML, at which point the role fixture is auto-registered.
 
 ## What You Learned
 

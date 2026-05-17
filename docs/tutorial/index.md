@@ -6,16 +6,17 @@ Welcome to Litmus! This tutorial takes you from your first test to a production-
 
 | Step | Goal | What You'll Learn |
 |------|------|-------------------|
+| [0. Quick Start](00-quickstart.md) | Smallest end-to-end loop | install, run, see results |
 | [1. First Test](01-first-test.md) | Run something | pytest, project structure |
-| [2. Running Without Hardware](02-mock-instruments.md) | Use mock mode | `--mock-instruments`, `mock_config` |
-| [3. pytest-native tests](03-fixtures.md) | Log measurements | context/verify/logger fixtures |
-| [4. Add Limits](04-limits.md) | Pass/fail criteria | Limit, Measurement, Outcome |
-| [5. Test Configuration](05-configuration.md) | Configure in YAML | sequences, vectors, limits |
-| [6. Product Specifications](06-specifications.md) | Define products | products/*.yaml, characteristics |
-| [7. Real Instruments](07-real-instruments.md) | Talk to hardware | stations/*.yaml, VISA, simulation |
-| [8. Capability Matching](08-capabilities.md) | Find compatible stations | direction flip, matching API |
-| [9. Production Ready](09-production.md) | Full traceability | fixtures, sequences, pins |
-| [10. Live Monitoring](10-live-monitoring.md) | Monitor in real time | sessions, events, channels |
+| [2. Running Without Hardware](02-mock-instruments.md) | Use mock mode | `--mock-instruments`, `mock_config` (station-config block of canned return values used when `--mock-instruments` is on) |
+| [3. pytest-native tests](03-fixtures.md) | Log measurements | the core per-test [Litmus fixtures](../reference/pytest-native.md) — `context` is the ambient run/DUT/station/vector state (always available; carries sweep params when present, observations always), `verify` records the measurement row AND raises on FAIL, `logger.measure` records the row without raising (plus ~17 other public fixtures the plugin exposes — see [litmus-fixtures](../reference/litmus-fixtures.md)) |
+| [4. Add Limits](04-limits.md) | Pass/fail criteria | [Limit](../reference/models.md), Measurement, [Outcome](../reference/models.md#outcome) |
+| [5. Test Configuration](05-configuration.md) | Configure in YAML | [sidecar](05-configuration.md) (YAML next to a test file carrying vectors and limits) |
+| [6. Product Specifications](06-specifications.md) | Define [products](../concepts/products.md) | products/*.yaml, [characteristics](../concepts/capabilities.md) |
+| [7. Real Instruments](07-real-instruments.md) | Talk to hardware | [stations/*.yaml](../concepts/stations.md), VISA, simulation |
+| [8. Capability Matching](08-capabilities.md) | Find compatible [stations](../concepts/stations.md) | [direction flip, matching API](../concepts/capabilities.md) |
+| [9. Production Ready](09-production.md) | Full [traceability](../how-to/traceability.md) | [fixtures](../concepts/fixtures.md), test classes, sidecar |
+| [10. Live Monitoring](10-live-monitoring.md) | Monitor in real time | [sessions](../concepts/sessions.md), [events](../concepts/event-log.md), [channels](../concepts/three-stores.md) |
 
 ## Prerequisites
 

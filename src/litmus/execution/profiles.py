@@ -241,7 +241,7 @@ def resolve_active_profile(
 ) -> tuple[str | None, ProfileConfig | None, dict[str, str]]:
     """Select a profile by name, by facet query, or by cross-checked both.
 
-    Resolution rules (see ``docs/guides/profiles.md``):
+    Resolution rules (see ``docs/how-to/profiles.md``):
 
     * **Name + facets** — name wins, but every flag must match the
       profile's declared facet value. Mismatches raise ``UsageError``.

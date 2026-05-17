@@ -56,7 +56,7 @@ characteristics:
     units: V
 ```
 
-**Station provides capabilities:**
+**Station provides capabilities:** (`catalog_ref` points at an entry in the instrument catalog — `catalog/*.yaml` — that declares this instrument model's full capability shape. See [reference/catalog-schema](../reference/catalog-schema.md).)
 ```yaml
 # stations/bench_1.yaml
 instruments:
@@ -72,12 +72,12 @@ instruments:
 
 ## Tiered Matching
 
-The matcher checks up to five tiers, controlled by `MatchDepth`:
+The matcher checks up to five tiers, controlled by `MatchDepth` (an enum naming how deep the match check should go):
 
 1. **Function match** — Same `MeasurementFunction` (e.g., `dc_voltage`)
 2. **Direction match** — Directions pair (OUTPUT↔INPUT, BIDIR satisfies both)
 3. **Parameter range** — Instrument's range contains the required value (default depth)
-4. **Accuracy** — Instrument accuracy ≤ required (condition-aware via `SpecBand`)
+4. **Accuracy** — Instrument accuracy ≤ required (condition-aware via [`SpecBand`](../reference/models.md), the value-plus-condition record)
 5. **Resolution** — Instrument resolution ≥ required
 
 Most use cases stop at range (tier 3). Use `MatchDepth.ACCURACY` or `MatchDepth.RESOLUTION` when you need tighter validation — for example, checking that a DMM's accuracy at a specific frequency band meets your product's requirements.
@@ -90,20 +90,20 @@ Most use cases stop at range (tier 3). Use `MatchDepth.ACCURACY` or `MatchDepth.
 from litmus.matching.service import (
     find_compatible_stations,
     check_station_compatibility,
-    load_product_by_id,
 )
+from litmus.store import get_product
 
-# Load product
-product = load_product_by_id("power_board")
+# Load product by id (looks up products/<id>.yaml from the project root)
+product = get_product("power_board")
 
-# Find all compatible stations
+# Find all compatible stations (takes the loaded Product object)
 matches = find_compatible_stations(product)
 
 for match in matches:
     if match.compatible:
         print(f"✓ {match.station_id} can test {product.id}")
     else:
-        print(f"✗ {match.station_id} missing: {match.missing_capabilities}")
+        print(f"✗ {match.station_id} missing: {match.missing}")
 ```
 
 ### HTTP API
@@ -202,10 +202,12 @@ When matching fails, you get actionable information:
 ```python
 result = check_station_compatibility("my_product", "station_a")
 
-if not result.compatible:
-    for cap in result.missing_capabilities:
-        print(f"Need: {cap.direction} {cap.function}")
+if result and not result["compatible"]:
+    for cap in result["missing"]:
+        print(f"Need: {cap['direction']} {cap['function']}")
 ```
+
+`check_station_compatibility(product_id, station_id)` takes ID strings (not loaded objects) and returns a `dict | None`. The `missing` value is a list of dicts shaped `{characteristic, function, direction}`.
 
 Output:
 ```

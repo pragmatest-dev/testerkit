@@ -67,7 +67,7 @@ Add result tracking without changing test logic:
 ```python
 # tests/conftest.py
 import pytest
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 @pytest.fixture(scope="session")
 def litmus_client():
@@ -79,7 +79,7 @@ def litmus_run(litmus_client, request):
     run = litmus_client.start_run(
         dut_serial=request.config.getoption("--dut-serial") or "UNKNOWN",
         station_id=request.config.getoption("--station") or "default",
-        test_sequence_id="pytest_suite",
+        test_phase="production",
     )
     yield run
     run.finish()
@@ -100,23 +100,24 @@ def test_voltage(litmus_run):
 
 ### Level 2: Add TestHarness
 
-For more detailed tracking:
+For more detailed tracking, wrap the measurement block in a harness step (`harness.step(name)` is a context manager; there is no `harness.finish()` method):
 
 ```python
 from litmus.execution.harness import TestHarness
+from litmus.execution.logger import TestRunLogger
+
+logger = TestRunLogger(dut_serial="SN001", station_id="bench_1")
 
 def test_power_rails():
-    """Existing test with Litmus harness."""
-    harness = TestHarness("test_power_rails")
+    """Existing test with a Litmus harness step."""
+    harness = TestHarness(logger=logger)
 
-    # Your existing measurement code
-    vcc = measure_vcc()
-    vdd = measure_vdd()
+    with harness.step("test_power_rails"):
+        vcc = measure_vcc()
+        vdd = measure_vdd()
 
-    harness.measure("vcc", vcc, units="V", low=3.2, high=3.4)
-    harness.measure("vdd", vdd, units="V", low=1.7, high=1.9)
-
-    harness.finish()
+        harness.measure("vcc", vcc, units="V", low=3.2, high=3.4)
+        harness.measure("vdd", vdd, units="V", low=1.7, high=1.9)
 
     # Keep existing asserts if desired
     assert vcc > 3.2
@@ -137,17 +138,21 @@ def measure_voltage():
     dmm.close()
     return voltage
 
-# After
-from litmus.instruments import DMM
+# After — bring your own driver class; Litmus provides the VISA base
+from litmus.instruments.visa import VisaInstrument
+
+class MyDMM(VisaInstrument):
+    def measure_voltage(self) -> float:
+        return float(self.query("MEAS:VOLT:DC?"))
 
 def measure_voltage(simulate=False):
-    with DMM("TCPIP::192.168.1.100::INSTR", simulate=simulate) as dmm:
-        return float(dmm.measure_voltage())
+    with MyDMM("TCPIP::192.168.1.100::INSTR", simulate=simulate) as dmm:
+        return dmm.measure_voltage()
 ```
 
 ### Level 4: Full pytest-native
 
-Convert tests to use the three-fixture split:
+Convert tests to use Litmus's per-test fixtures (`context`, `verify`, `logger` are the common entry points — see [Litmus fixtures](../reference/litmus-fixtures.md) for the full 20-fixture surface):
 
 ```python
 def test_voltage(dmm, logger):
@@ -184,43 +189,40 @@ pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SI
 
 ### Station-Based Fixtures
 
+The Litmus pytest plugin already exposes a session-scoped `station` and
+per-test `instruments` fixture once `--station=<id>` is passed. If you
+need to load the YAML directly (e.g. in non-pytest code), use the store:
+
 ```python
-# tests/conftest.py
-import pytest
 from litmus.store import load_station
 
-@pytest.fixture(scope="session")
-def station(request):
-    """Load station from config."""
-    station_id = request.config.getoption("--station")
-    return load_station(f"stations/{station_id}.yaml")
-
-@pytest.fixture
-def instruments(station, request):
-    """Get instruments from station."""
-    simulate = request.config.getoption("--mock-instruments")
-    return station.get_instruments(simulate=simulate)
+# Returns a validated StationConfig
+station = load_station("bench_1")
+for name, cfg in station.instruments.items():
+    print(name, cfg.driver, cfg.resource, cfg.mock)
 ```
+
+Each `StationInstrumentConfig` carries `driver`, `resource`, and a
+`mock: bool` flag. Instantiating the drivers is the runner's job —
+the bundled pytest plugin's `instruments` fixture handles it for you;
+custom runners construct the driver class with `simulate=cfg.mock`.
 
 ## Configuration Files
 
 ### Project Config
 
 ```yaml
-# litmus.yaml
-project:
-  name: "My Existing Project"
-  data_dir: "results"
-
-defaults:
-  station: "bench_1"
-  test_phase: "development"
+# litmus.yaml — flat ProjectConfig (no project: / defaults: wrappers)
+name: "My Existing Project"
+data_dir: "results"
+default_station: "bench_1"
+mock_instruments: false
 ```
 
 ### Test Config
 
 ```yaml
-# tests/config.yaml
+# tests/test_<module>.yaml
 test_voltage:
   limits:
     voltage:
@@ -334,4 +336,6 @@ tests/
 
 - [Test Harness](harness.md) — Add tracking to existing tests
 - [Instrument Drivers](instruments.md) — Replace custom instrument code
-- [pytest-native Reference](../reference/pytest-native.md) — Fixtures, markers, sidecar YAML
+- [Litmus fixtures](../reference/litmus-fixtures.md) — all 20 plugin fixtures
+- [Litmus markers](../reference/litmus-markers.md) — the seven `litmus_*` markers
+- [pytest-native Reference](../reference/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers

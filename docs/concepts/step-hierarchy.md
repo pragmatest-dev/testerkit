@@ -30,7 +30,7 @@ A step is a named, ordered unit. Two kinds, but they share one event type and on
 
 2. **Method step.** One per pytest-collected item. The test function's body is the step's work.
 
-Container vs method is **structural** — not flagged. A step is a container iff at least one other step in the run references it as `parent_path`. This matches OpenTAP's recursive TestStep model.
+Container vs method is **structural** — not flagged. A step is a container iff at least one other step in the run references it as `parent_path`. This matches OpenTAP's (Keysight's open-source test sequencer) recursive TestStep model.
 
 Events: `StepStarted` when the step opens, `StepEnded` when it closes. `parent_path` on both events names the enclosing step (empty string for root-level).
 

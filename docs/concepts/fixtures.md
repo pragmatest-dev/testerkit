@@ -22,11 +22,13 @@ product_id: power_board
 
 connections:
   VIN:
+    name: VIN
     dut_pin: VIN
     net: VIN_5V
     instrument: psu
     instrument_channel: "1"
   VOUT:
+    name: VOUT
     dut_pin: VOUT
     net: VOUT_3V3
     instrument: dmm
@@ -96,25 +98,6 @@ def test_voltage(instrument, logger):
     logger.measure("output_voltage", dmm.measure_voltage())
 ```
 
-### Instrument Aliases
-
-When a sequence defines per-step aliases, fixture names can resolve to different station instruments depending on which step is running:
-
-```yaml
-# sequences/full_test.yaml
-steps:
-  - id: precision_cal
-    test: tests/test_cal.py::test_voltage
-    aliases:
-      dmm: precision_dmm
-  - id: quick_screen
-    test: tests/test_screen.py::test_voltage
-    aliases:
-      dmm: fast_dmm
-```
-
-Both tests use `dmm` as a fixture parameter, but each step gets a different physical instrument. Multiple aliases pointing to the same station role return the same instance (N:1 deduplication).
-
 ## Multi-Channel Routing
 
 For complex fixtures with switching or routing:
@@ -127,20 +110,24 @@ product_family: power_converters
 connections:
   # First product position
   DUT1_VIN:
+    name: DUT1_VIN
     dut_pin: VIN
     instrument: psu
     instrument_channel: "1"
   DUT1_VOUT:
+    name: DUT1_VOUT
     dut_pin: VOUT
     instrument: dmm
     instrument_channel: "CH1"
 
   # Second product position
   DUT2_VIN:
+    name: DUT2_VIN
     dut_pin: VIN
     instrument: psu
     instrument_channel: "2"
   DUT2_VOUT:
+    name: DUT2_VOUT
     dut_pin: VOUT
     instrument: dmm
     instrument_channel: "CH2"
@@ -174,20 +161,18 @@ flowchart LR
     F_VOUT --- DMM
 ```
 
-## Active Fixture
+## Selecting a fixture at run time
 
-Stations track which fixture is currently installed:
+Stations do not pin a fixture themselves. The active fixture is selected at run time via the `--fixture` CLI flag (or through a profile that sets it):
 
-```yaml
-# stations/bench_1.yaml
-id: bench_1
-active_fixture: power_board_fixture
-
-instruments:
-  # ...
+```bash
+pytest tests/ \
+  --station=bench_1 \
+  --fixture=fixtures/power_board_fixture.yaml \
+  --dut-serial=SN001
 ```
 
-This enables runtime validation that the correct fixture is in place.
+The plugin validates that the fixture's `product_id` (or `product_family`) matches the active product spec before any test runs.
 
 ## Loading Fixtures
 
@@ -242,7 +227,7 @@ A fixture uses either `connections` (single-DUT) or `slots` (multi-DUT), never b
 
 ## Shared Instruments
 
-When multiple slots reference the same instrument role, that instrument is automatically detected as **shared**. The orchestrator connects shared instruments once and hosts them via an InstrumentServer (TCP RPC). Worker subprocesses access them through transparent proxy objects — tests never know the difference. Locking is per-resource (keyed on the instrument's connection string), so roles sharing a physical session serialize while roles on independent sessions run in parallel.
+When multiple slots reference the same instrument role, that instrument is automatically detected as **shared**. The orchestrator connects shared instruments once and hosts them via an `InstrumentServer` (an internal RPC server that lets multiple test workers share one physical instrument, using TCP). Worker subprocesses access them through transparent proxy objects — tests never know the difference. Locking is per-resource (keyed on the instrument's connection string), so roles sharing a physical session serialize while roles on independent sessions run in parallel.
 
 For instruments that need active signal switching (e.g., a single DMM routed to different DUT slots via a relay matrix), fixture connections include a `route` field:
 
@@ -257,7 +242,7 @@ vout_measure:
     settling_ms: 10
 ```
 
-See the `examples/02-station/fixtures/` directory for complete working fixture examples.
+See the `examples/06-station-catalog/fixtures/` directory for complete working fixture examples.
 
 ## Best Practices
 
@@ -277,13 +262,13 @@ id: power_board
 pins:
   VIN:
     name: "J1.1"
-    type: power
+    role: power
   VOUT:
     name: "J1.3"
-    type: signal
+    role: signal
   GND:
     name: "J1.2"
-    type: ground
+    role: ground
 ```
 
 **Station config:**
@@ -310,13 +295,16 @@ product_id: power_board
 
 connections:
   VIN:
+    name: VIN
     dut_pin: VIN
     instrument: psu
     instrument_channel: "1"
   VOUT:
+    name: VOUT
     dut_pin: VOUT
     instrument: dmm
   GND:
+    name: GND
     dut_pin: GND
     instrument: psu
     instrument_channel: "GND"
@@ -335,4 +323,4 @@ def test_output_voltage(pins):
 
 - [Architecture](architecture.md) — System data flow
 - [Configuration Reference](../reference/configuration.md) — YAML schemas
-- [Writing Tests](../guides/writing-tests.md) — pytest patterns
+- [Writing Tests](../how-to/writing-tests.md) — pytest patterns

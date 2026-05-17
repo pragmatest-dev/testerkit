@@ -28,7 +28,7 @@ Found 3 instruments:
     Type: smu (from catalog)
 ```
 
-Each line shows the VISA resource string (what you put in station config) and the instrument identity. Common address formats:
+Each line shows the VISA resource string (VISA / Virtual Instrument Software Architecture — the cross-vendor address format every PyVISA-backed driver uses — what you put in station config) and the instrument identity. Common address formats:
 
 | Bus | Format | Example |
 |-----|--------|---------|
@@ -38,7 +38,7 @@ Each line shows the VISA resource string (what you put in station config) and th
 
 ## B. Create Your Real Station Config
 
-The interactive command walks you through role assignment:
+The interactive command (`litmus station init`) walks you through role assignment:
 
 ```bash
 litmus station init
@@ -132,7 +132,7 @@ Your test code doesn't change at all. The `instruments` fixture handles mock vs.
 | Instrument not responding / timeout | PyVISA can't reach the instrument | Verify resource string with `litmus discover`. Check network/GPIB cables. |
 | "instrument identity mismatch" warning | Instrument serial or model doesn't match the YAML | Update `instruments/{role}.yaml` with the correct serial/model, or ignore during development. |
 | "CALIBRATION EXPIRED" warning | Cal due date has passed in instrument YAML | Update the cal due date, or accept for development. |
-| "Mock instruments not allowed for test_phase='validation'" | Phase enforcement blocks mocks in validation/production | Remove `--mock-instruments`, or set `test_phase: development` in your sequence. |
+| "Mock instruments not allowed for test_phase='validation'" | Phase enforcement (`test_phase` is a station-level setting that gates mocks — see [how-to/profiles](../how-to/profiles.md)) blocks mocks in validation/production | Remove `--mock-instruments`, or pass `--test-phase=development`. |
 | Fixture `psu` not found (or any role) | Station not loaded or role not defined | Check `--station` flag points to the right file. Verify the role exists in your station YAML. |
 
 ## What to Do Next

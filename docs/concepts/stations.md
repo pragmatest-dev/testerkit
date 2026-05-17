@@ -33,7 +33,7 @@ Each instrument has:
 | `type` | Instrument type (dmm, scope, psu, eload, etc.) |
 | `resource` | VISA address or connection string |
 | `mock_config` | Values for `--mock-instruments` mode |
-Instruments can be shared across multiple DUT slots in a multi-DUT fixture. When shared, the orchestrator connects them once and serves them to worker subprocesses via an InstrumentServer (TCP RPC with per-resource locking). No special flags needed — sharing is detected automatically from the fixture topology. See [Configuring Stations](../guides/configuring-stations.md#shared-instruments-multi-dut) for details.
+Instruments can be shared across multiple DUT slots in a multi-DUT fixture. When shared, the orchestrator connects them once and serves them to worker subprocesses via an `InstrumentServer` (an internal RPC server that lets multiple test workers share one physical instrument — TCP with per-resource locking). No special flags needed — sharing is detected automatically from the fixture topology. See [Configuring Stations](../how-to/configuring-stations.md#shared-instruments-multi-dut) for details.
 
 ### Common Instrument Types
 
@@ -82,23 +82,18 @@ Litmus supports a two-level station architecture:
 Define abstract station requirements:
 
 ```yaml
-# stations/_base.yaml
-station_types:
-  voltage_tester:
-    description: "Station for voltage testing"
-    instruments:
-      dmm:
-        type: dmm
-        required: true
-      psu:
-        type: psu
-        required: true
-    capabilities:
-      - direction: input
-        function: dc_voltage
-      - direction: output
-        function: dc_voltage
+# stations/types/voltage_tester.yaml
+id: voltage_tester
+description: "Station for voltage testing"
+instruments:
+  dmm: {type: dmm}
+  psu: {type: psu}
+capabilities:                                # catalog capability ids
+  - keysight.34461a.dc_voltage
+  - keysight.e36312a.dc_source
 ```
+
+One file per station type under `stations/types/`. Every role listed under `instruments:` is required (there is no `required:` field). `capabilities:` is a list of catalog capability id strings — not inline `Capability` dicts.
 
 ### Station Instances (Deployments)
 
@@ -121,9 +116,9 @@ instruments:
     resource: "GPIB0::5::INSTR"
 ```
 
-### Aliases and Sequences
+### Instrument aliases per test
 
-Station configs define the physical instrument inventory. Sequence steps can optionally remap fixture names to different station instruments using `aliases`. See [Writing Sequences](../guides/writing-sequences.md#step-with-instrument-aliases) for details.
+Station configs define the physical instrument inventory. A sidecar YAML can optionally remap fixture names to different station instruments on a per-test or per-class basis via marker fields. See [Writing Tests](../how-to/writing-tests.md) for details.
 
 ## Using Stations in Tests
 
@@ -151,7 +146,7 @@ litmus show <run_id>            # Show run details
 
 ## Supported Test Phases
 
-Stations can optionally declare which test phases they support:
+Stations can optionally declare which test phases (`test_phase` is a station-level setting selecting the workflow phase — development, validation, production — and gating mocks; see [how-to/profiles](../how-to/profiles.md)) they support:
 
 ```yaml
 id: bench_1
@@ -166,18 +161,7 @@ instruments:
   # ...
 ```
 
-This enables filtering when selecting stations for test sequences.
-
-## Environment Variables
-
-Station configs can reference environment variables:
-
-```yaml
-instruments:
-  dmm:
-    type: dmm
-    resource: "${DMM_VISA_ADDRESS}"
-```
+This enables filtering when selecting stations for a given test run or profile.
 
 ## Multiple Stations
 

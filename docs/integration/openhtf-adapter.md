@@ -4,7 +4,7 @@ Migrate existing OpenHTF test suites to Litmus while preserving your test logic.
 
 ## Overview
 
-OpenHTF and Litmus share similar concepts:
+[OpenHTF](https://github.com/google/openhtf) (Google's open-source hardware-test framework) and Litmus share similar concepts:
 - Test phases ↔ Test steps
 - Measurements ↔ Measurements
 - Plugs ↔ User's driver classes
@@ -21,7 +21,7 @@ This guide shows how to migrate incrementally.
 | `@measures` decorator | `verify()` fixture | Each `verify(name, value)` call records a measurement |
 | `Measurement` | `Measurement` | Similar API |
 | `Plug` | User's driver class | Any Python class — PyMeasure, custom, or refactored plug |
-| `PhaseResult` | `Outcome` | PASS, FAIL, SKIP, ERROR |
+| `PhaseResult` | `Outcome` | passed / failed / skipped / errored / done / terminated / aborted |
 | `test_record` | `TestRun` | Results storage |
 | `Test` class | pytest test file | Litmus uses pytest natively |
 
@@ -33,33 +33,37 @@ Keep OpenHTF tests, send results to Litmus via HTTP API:
 
 ```python
 # openhtf_bridge.py
-import requests
+from litmus.client import LitmusClient
 
-LITMUS_API = "http://localhost:8000/api"
+client = LitmusClient()
 
 def on_test_complete(test_record):
-    """OpenHTF output callback to send results to Litmus."""
-    run_data = {
-        "dut_serial": test_record.dut_id,
-        "station_id": test_record.station_id,
-        "test_sequence_id": "openhtf_import",
-        "steps": [],
-    }
+    """OpenHTF output callback that streams the record into Litmus."""
+    run = client.start_run(
+        dut_serial=test_record.dut_id,
+        station_id=test_record.station_id,
+        test_phase="production",
+    )
 
     for phase in test_record.phases:
-        step = {"name": phase.name, "measurements": []}
-        for m in phase.measurements.values():
-            step["measurements"].append({
-                "name": m.name,
-                "value": m.measured_value,
-                "units": m.units,
-                "low": m.validators[0].minimum if m.validators else None,
-                "high": m.validators[0].maximum if m.validators else None,
-            })
-        run_data["steps"].append(step)
+        with run.step(phase.name) as step:
+            for m in phase.measurements.values():
+                step.measure(
+                    name=m.name,
+                    value=m.measured_value,
+                    units=m.units,
+                    low=m.validators[0].minimum if m.validators else None,
+                    high=m.validators[0].maximum if m.validators else None,
+                )
 
-    requests.post(f"{LITMUS_API}/runs", json=run_data)
+    run.finish()
 ```
+
+> The HTTP `POST /api/runs` endpoint accepts a flat `LaunchRequest`
+> (`dut_serial`, `station_id`, `test_path`, `operator`, …) — it does
+> NOT accept nested `steps[]` / `measurements[]`. Use the client
+> (above) or the MCP/REST step + measurement endpoints to record
+> per-step rows.
 
 ### Strategy 2: Parallel Tests
 
@@ -120,7 +124,7 @@ def test_power(context, psu, dmm, verify):
     psu.disable_output()
 ```
 
-**Config (tests/config.yaml):**
+**Config (tests/test_<module>.yaml):**
 ```yaml
 test_power:
   limits:
@@ -227,7 +231,7 @@ instruments:
 Litmus provides a generic Mock factory that works with any driver class — no simulation code required in your driver:
 
 ```python
-from litmus.instruments import Mock
+from litmus.instruments.mocks import Mock
 from drivers.dmm import MyDMM
 
 # Mock wraps any class — all methods become no-ops unless configured
@@ -312,14 +316,14 @@ htf.Measurement('voltage')
 ### Litmus Measurement (inline)
 
 ```python
-from litmus.data import Measurement
+from litmus.data.models import Measurement
 
 m = Measurement(
     name="voltage",
     value=dmm.measure_voltage(),
     units="V",
-    low_limit=3.0,
-    high_limit=3.6,
+    limit_low=3.0,
+    limit_high=3.6,
 )
 m.check_limit()
 ```
@@ -327,7 +331,7 @@ m.check_limit()
 ### Litmus Measurement (config)
 
 ```yaml
-# tests/config.yaml
+# tests/test_<module>.yaml
 test_voltage:
   limits:
     voltage:

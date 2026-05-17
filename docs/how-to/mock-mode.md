@@ -1,0 +1,296 @@
+# Mock Mode
+
+Run tests without hardware using Litmus mock instruments.
+
+## Quick Start
+
+Add `--mock-instruments` to run without hardware:
+
+```bash
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+```
+
+The same test code works with real hardware or mocks.
+
+## Configuring Mock Values
+
+### Station-Level (Default Values)
+
+Define default mock values in your station config:
+
+```yaml
+# stations/bench_1.yaml
+id: bench_1
+name: "Production Bench 1"
+
+instruments:
+  dmm:
+    type: dmm
+    driver: pymeasure.instruments.keysight.Keysight34461A
+    resource: "TCPIP::192.168.1.100::INSTR"
+    mock_config:
+      voltage: 3.31
+      current: 0.1
+      resistance: 1000
+
+  psu:
+    type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
+    resource: "GPIB0::5::INSTR"
+    mock_config:
+      voltage: 5.0
+      current: 0.5
+```
+
+### Test-Level (Override for Specific Tests)
+
+Override mock values for a specific test in the sidecar YAML next to the test file:
+
+```yaml
+# tests/test_power.yaml
+limits:
+  output_voltage:
+    low: 3.2
+    high: 3.4
+    nominal: 3.3
+    units: V
+
+tests:
+  test_output_voltage:
+    mocks:
+      - target: dmm.measure_voltage
+        return_value: 3.31
+      - target: psu.measure_current
+        return_value: 0.5
+```
+
+Or from a test using [`pytest-mock`](https://pytest-mock.readthedocs.io/)'s `mocker` fixture when a specific
+case needs its own patch:
+
+```python
+import pytest
+
+@pytest.mark.litmus_limits(output_voltage={"low": 3.2, "high": 3.4, "units": "V"})
+def test_output_voltage(mocker, context, dmm, logger):
+    mocker.patch.object(dmm, "measure_dc_voltage", return_value=3.31)
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
+```
+
+To suppress sidecar `mocks:` entries session-wide, declare a profile
+with `mocks: []` — the cascade applies that override on top of all
+sidecars (instrument-layer `--mock-instruments` is independent).
+
+Or in a sidecar YAML:
+
+```yaml
+# tests/test_power.yaml
+mocks:
+  - target: dmm.measure_dc_voltage
+    return_value: 3.31
+limits:
+  output_voltage: {low: 3.2, high: 3.4, units: V}
+```
+
+All forms map `instrument.method` to return values. Patches install on test entry and unwind on teardown.
+
+### Vector-Level (Different Values per Condition)
+
+For parametrized tests with different outputs per condition, drive the mock from the test body using the swept parameter — vector-scoped mocks in the sidecar are not currently supported. Example:
+
+```python
+def test_load_regulation(load, dmm, verify, mocker):
+    expected = {0.1: 3.32, 0.5: 3.30, 0.8: 3.28}[load]
+    mocker.patch.object(dmm, "measure_voltage", return_value=expected)
+    verify("output_voltage", dmm.measure_voltage())
+```
+
+Pair with a sidecar sweep declaration so pytest parametrizes the test:
+
+```yaml
+# tests/test_power.yaml
+tests:
+  test_load_regulation:
+    sweeps:
+      - load: [0.1, 0.5, 0.8]
+```
+
+## Mock Value Priority
+
+When running with `--mock-instruments`, values are resolved in order:
+
+1. **Per-test `mocker.patch.object(...)`** — set from the test body for the active vector (see "Vector-Level" pattern above)
+2. **Test-level `mocks:`** in the sidecar — constant for all vectors of this test
+3. **Limit `nominal`** — From the measurement's limit config
+4. **Station `mock_config`** — Default for this instrument
+5. **Zero** — Default if nothing else configured
+
+This allows realistic tests where:
+- Simple tests use limit nominal values automatically
+- Complex tests configure per-vector outputs for realistic sweeps
+
+## CI/CD Configuration
+
+```yaml
+# .github/workflows/test.yml
+- name: Run tests
+  run: |
+    pytest tests/ \
+      --station=stations/bench_1.yaml \
+      --mock-instruments \
+      --dut-serial=CI-TEST \
+      -v
+```
+
+## Per-Instrument Mock Control
+
+Mock individual instruments while using real hardware for others:
+
+```yaml
+# stations/mixed_bench.yaml
+id: mixed_bench
+name: "Mixed Mode Bench"
+
+instruments:
+  psu:
+    type: psu
+    driver: pymeasure.instruments.keysight.KeysightE36312A
+    resource: "GPIB0::5::INSTR"
+    # No mock flag - uses real hardware
+
+  dmm:
+    type: dmm
+    mock: true              # Always mock this instrument, no driver needed
+    catalog_ref: generic_dmm
+    mock_config:
+      voltage: 3.3
+
+  eload:
+    type: eload
+    driver: drivers.eload.MyELoad
+    resource: "TCPIP::192.168.1.101::INSTR"
+    # No mock flag - uses real hardware
+```
+
+Run without `--mock-instruments`:
+
+```bash
+pytest tests/ --station=stations/mixed_bench.yaml --dut-serial=SN001
+```
+
+- `psu` and `eload` connect to real hardware
+- `dmm` uses mock (returns 3.3V)
+
+This is useful when:
+- One instrument is unavailable or broken
+- Testing instrument-specific edge cases
+- Simulating hard-to-reproduce conditions
+
+## Environment Variable
+
+Set `LITMUS_MOCK_INSTRUMENTS=1` to enable mock mode without the CLI flag:
+
+```bash
+export LITMUS_MOCK_INSTRUMENTS=1
+pytest tests/ --station=stations/bench_1.yaml --dut-serial=CI-TEST
+```
+
+## The mock_instruments Fixture
+
+Access the mock flag in custom fixtures:
+
+```python
+@pytest.fixture
+def my_custom_setup(mock_instruments):
+    """Setup that behaves differently in mock mode."""
+    if mock_instruments:
+        # Skip hardware initialization
+        yield {"mode": "mock"}
+    else:
+        # Real hardware setup
+        yield {"mode": "hardware"}
+```
+
+## Best Practices
+
+### 1. Use Realistic Values
+
+Configure mock values close to real measurements:
+
+```yaml
+# Good: realistic values
+mock_config:
+  voltage: 3.31
+  current: 0.102
+
+# Bad: obviously fake
+mock_config:
+  voltage: 1234
+  current: 5678
+```
+
+### 2. Test Edge Cases
+
+There is no per-vector `_mocks` key in the sidecar. Drive edge-case
+return values from the test body by reading the swept parameter and
+patching the instrument with `mocker.patch.object(...)`:
+
+```python
+# tests/test_edge.py
+def test_edge_case(condition, dmm, verify, mocker):
+    value = {"normal": 3.3, "high": 99.99}[condition]
+    mocker.patch.object(dmm, "measure_voltage", return_value=value)
+    verify("output_voltage", dmm.measure_voltage())
+```
+
+```yaml
+# tests/test_edge.yaml
+tests:
+  test_edge_case:
+    sweeps:
+      - condition: ["normal", "high"]
+```
+
+### 3. Match Limit Nominals
+
+For simple tests, configure mock values to match limit nominals:
+
+```yaml
+mocks:
+  - target: dmm.measure_voltage
+    return_value: 3.3              # matches nominal
+limits:
+  test_voltage:
+    low: 3.135
+    high: 3.465
+    nominal: 3.3
+    units: V
+```
+
+`mocks:` is a list of `MockEntry` dicts (`target:` + `unittest.mock.patch.object` kwargs like `return_value`, `side_effect`, `wraps`, `spec`), never a `name: value` dict.
+
+## Hardware Tests
+
+For tests that require real hardware:
+
+```python
+import pytest
+
+@pytest.mark.hardware
+def test_real_measurement(dmm):
+    """Test requiring real hardware."""
+    v = dmm.measure_voltage()
+    assert isinstance(v, float)
+```
+
+Run hardware tests separately:
+
+```bash
+pytest -m hardware           # Only hardware tests
+pytest -m "not hardware"     # Skip hardware tests
+```
+
+## Next Steps
+
+- [Writing Tests](writing-tests.md) — Test patterns
+- [Configuring Stations](configuring-stations.md) — Station configuration
+- [Custom drivers](custom-drivers.md) — Build a non-VISA driver

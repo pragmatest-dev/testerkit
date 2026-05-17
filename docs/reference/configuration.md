@@ -59,20 +59,16 @@ characteristics:
           pct_reading: float    # Percentage of reading
           pct_range: float      # Percentage of range
           absolute: float       # Absolute accuracy
-        conditions:             # Operating conditions (optional)
+        when:                   # Operating conditions this band applies to (optional)
           temperature: {min: float, max: float}
           load: {min: float, max: float}
           <param>: value
-        comparator: GELE | EQ | NE | LT | LE | GT | GE | GELT | GTLE | GTLT
-
-bands:
-  <name>:
-    characteristic_ref: string   # Reference to characteristic
-    conditions: dict            # Which conditions to test
-    guardband_pct: float      # Tighten limits by this percentage (default 0)
-    priority: integer           # Test order priority
-    description: string
+        resolution:             # Measurement-resolution spec (optional)
+          value: float
+          units: string
 ```
+
+`bands:` lives inside each characteristic. There is no top-level `bands:` on Product — see `src/litmus/models/product.py`. `SpecBand` has no `comparator` field; the comparator lives on `Limit` (the test-config schema), not on the product spec.
 
 ### Pin Types
 
@@ -246,23 +242,29 @@ tests:
 The shape mirrors pytest's `file::Class::method` node IDs: a class is a
 branch with its own marker fields plus a nested `tests:` dict; a function
 is a leaf with marker fields only. See the
-[pytest-native reference](pytest-native.md) for the full marker
-catalog (`sweeps`, `limits`, `mocks`, `spec`, `connections`,
-`prompts`, `retry`).
+[Litmus markers reference](litmus-markers.md) for the seven
+marker names (`limits`, `sweeps`, `mocks`, `characteristics`,
+`connections`, `retry`, `prompts`).
 
 ### Retries
 
-Use ecosystem markers — `retry` translates to
-`pytest-rerunfailures`' `flaky` at session start:
+Sidecar `retry:` (or `@pytest.mark.litmus_retry(...)`) takes the real `RetryConfig` shape (`src/litmus/models/test_config.py`):
 
 ```yaml
-retry: {reruns: 3, reruns_delay: 0.5}
+retry: {max_retries: 3, delay: 0.5, on: ["AssertionError"]}
 ```
 
-Or inline:
+Or via the marker:
 
 ```python
-@pytest.mark.flaky(reruns=3, reruns_delay=0.5)  # pytest-rerunfailures direct
+@pytest.mark.litmus_retry(max_retries=3, delay=0.5)
+def test_flaky(dmm, logger): ...
+```
+
+For pytest-ecosystem retries instead of the Litmus marker, `pytest-rerunfailures` still works:
+
+```python
+@pytest.mark.flaky(reruns=3, reruns_delay=0.5)
 def test_flaky(dmm, logger): ...
 ```
 
@@ -288,20 +290,21 @@ sweeps:
   - {voltage: {linspace: [3.0, 5.0, 5]}}   # 3.0, 3.5, 4.0, 4.5, 5.0
 ```
 
-See the [Test Vectors guide](../guides/vector-expansion.md) for full
+See the [Test Vectors guide](../how-to/vector-expansion.md) for full
 semantics — loop ordering, list-length checks, generators.
 
-## Instrument Library
+## Instrument Catalog
 
-**Location:** `litmus/instruments/library/<type>.yaml`
+The catalog is a per-project collection of YAML descriptors for instruments — what each instrument is, what it can do, what shape its channels and capabilities take. The matcher reads this to decide which station can run which test.
+
+**Location:** `catalog/**/*.yaml` (or override via `catalog_dir` in `litmus.yaml`).
 
 ```yaml
-name: string              # Display name
-type: string              # Type identifier
-manufacturer: string
-models:                   # Supported models
-  - pattern: string       # Regex pattern for *IDN? response
-    name: string
+id: keysight_34461a
+name: "Keysight 34461A 6½-Digit DMM"
+type: dmm
+manufacturer: Keysight
+model: "34461A"
 
 channels:                   # Structured channel topology
   "1":
@@ -313,13 +316,15 @@ capabilities:
   - function: dc_voltage    # MeasurementFunction enum
     direction: input        # input (measure) or output (source)
     readback: false         # true for built-in meters
-    channels: ["1"]         # Which channels support this capability
-    parameters:
+    channels: ["1"]
+    signals:
       voltage:
         range: {min: 0, max: 1000, units: V}
         accuracy: {pct_reading: 0.005, pct_range: 0.001}
         resolution: {digits: 6.5}
 ```
+
+Schema source of truth: `src/litmus/models/catalog.py` (`InstrumentCatalogEntry`) + `src/litmus/models/capability.py` (`Capability`, `Signal`, `Condition`, `Control`, `Attribute`).
 
 ### Channel Topology
 
@@ -344,16 +349,15 @@ Catalog entries can inherit from a base entry using the `base` field to avoid YA
 
 ```yaml
 # catalog/keysight_34465a.yaml — inherits from 34461A, overrides capabilities
-catalog_entry:
-  id: keysight_34465a
-  model: "34465A"
-  name: "Keysight 34465A Digital Multimeter"
-  base: keysight_34461a    # Inherits manufacturer, type, channels
+id: keysight_34465a
+model: "34465A"
+name: "Keysight 34465A Digital Multimeter"
+base: keysight_34461a    # Inherits manufacturer, type, channels
 
 capabilities:              # Replaces base capabilities entirely
   - function: dc_voltage
     direction: input
-    parameters:
+    signals:
       voltage:
         range: {min: 0.0001, max: 1000, units: V}
         accuracy: {pct_reading: 0.0015, pct_range: 0.0003}
@@ -378,12 +382,16 @@ Chains are supported (A → B → C) up to depth 5. Circular references raise `V
 
 ```yaml
 name: string                  # Required — project identifier
-data_dir: string           # Optional — override default data directory
-default_station: string       # Default station for sessions (default: "station")
+data_dir: string              # Optional — override default data directory
+default_station: string       # Optional default station for sessions
 default_fixture: string       # Optional default fixture
+default_profile: string       # Optional default profile name
 mock_instruments: bool        # Force mock mode for all instruments (default: false)
+runner: string                # Optional default runner (e.g. "pytest")
+required_inputs: list         # Optional list of session-required inputs
+multi_slot: MultiSlotConfig   # Optional multi-DUT slot configuration
 
-profiles:                     # Named config sets — see docs/guides/profiles.md
+profiles:                     # Named config sets — see docs/how-to/profiles.md
   <profile_name>:
     description: string       # Optional human-readable description
     facets: {key: value, ...} # Exact-match keys for CLI selection
@@ -419,32 +427,33 @@ from the union of `facets:` keys declared across profiles. Exactly one
 profile must match the full facet query — zero or many → `UsageError`.
 `--test-profile=<name>` is a name-based escape hatch.
 
-## Environment Variables
-
-Configuration values can reference environment variables:
-
-```yaml
-instruments:
-  dmm:
-    resource: "${DMM_VISA_ADDRESS}"
-```
-
 ## Pydantic Models
 
-All configuration is validated by Pydantic models in `litmus/config/models.py` and `litmus/products/models.py`:
+Every YAML entity is validated by a Pydantic model in `src/litmus/models/`. Load through `litmus.store` so the same validation and search-path rules apply across CLI, MCP, and HTTP:
 
 ```python
-from litmus.products.models import Product
-from litmus.products.loader import load_product
+from litmus.store import load_product, load_station
 
-# Load and validate
 product = load_product("products/my_product.yaml")
 print(product.id)
-print(product.characteristics["output_voltage"].nominal)
+print(product.characteristics["output_voltage"].bands[0].value)
+
+station = load_station("stations/bench_1.yaml")
+print(station.instruments["dmm"].resource)
+```
+
+Direct model paths if you need them:
+
+```python
+from litmus.models.product import Product
+from litmus.models.station import StationConfig
+from litmus.models.test_config import SidecarConfig
+from litmus.models.capability import Capability, SpecBand
 ```
 
 ## Next Steps
 
-- [pytest-native Reference](pytest-native.md) — Fixtures, markers, sidecar YAML
-- [pytest Plugin Guide](pytest-plugin.md) — Plugin CLI flags and fixture reference
-- [Core Concepts](concepts.md) — Understanding the data model
+- [Litmus fixtures](litmus-fixtures.md) — all 20 plugin fixtures
+- [Litmus markers](litmus-markers.md) — the seven `litmus_*` markers
+- [pytest-native reference](pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
+- [Core Concepts](../concepts/index.md) — Understanding the data model

@@ -119,14 +119,13 @@ packages = ["src/litmus"]
 # package data at ``litmus/_docs/...``. This is what powers the in-app
 # ``/docs/...`` operator UI for ``pip install``ed copies — without these
 # rules, the docs path resolution ends up outside the package and
-# returns 404. ``explorations/``, ``audits/``, ``instruments/``, and
-# stand-alone top-level ``.md`` files are intentionally omitted: they're
-# in-tree contributor material, not user-facing.
+# returns 404. ``_internal/`` (audits, explorations) is intentionally
+# omitted: contributor material, not user-facing.
 [tool.hatch.build.targets.wheel.force-include]
 "docs/tutorial" = "litmus/_docs/tutorial"
 "docs/integration" = "litmus/_docs/integration"
 "docs/concepts" = "litmus/_docs/concepts"
-"docs/guides" = "litmus/_docs/guides"
+"docs/how-to" = "litmus/_docs/how-to"
 "docs/reference" = "litmus/_docs/reference"
 
 [tool.hatch.build.targets.sdist]

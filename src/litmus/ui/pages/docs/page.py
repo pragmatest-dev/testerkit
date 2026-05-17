@@ -1,6 +1,7 @@
 """Generic documentation page renderer."""
 
 import importlib.resources
+import re
 from pathlib import Path
 
 from nicegui import ui
@@ -26,7 +27,7 @@ def _resolve_docs_dir() -> Path:
 DOCS_DIR = _resolve_docs_dir()
 
 # Known documentation sections
-KNOWN_SECTIONS = {"tutorial", "integration", "concepts", "guides", "reference", "examples"}
+KNOWN_SECTIONS = {"tutorial", "integration", "concepts", "how-to", "reference"}
 
 
 def _get_section_title(section: str) -> str:
@@ -35,9 +36,8 @@ def _get_section_title(section: str) -> str:
         "tutorial": "Tutorial",
         "integration": "Integration",
         "concepts": "Concepts",
-        "guides": "How-To Guides",
+        "how-to": "How-To Guides",
         "reference": "Reference",
-        "examples": "Examples",
     }
     return titles.get(section, section.replace("-", " ").title())
 
@@ -48,9 +48,8 @@ def _get_section_icon(section: str) -> str:
         "tutorial": "school",
         "integration": "sync_alt",
         "concepts": "lightbulb",
-        "guides": "integration_instructions",
+        "how-to": "integration_instructions",
         "reference": "api",
-        "examples": "code",
     }
     return icons.get(section, "article")
 
@@ -80,27 +79,144 @@ def _create_docs_layout(section: str | None = None, page: str | None = None):
     from litmus.ui.shared.layout import create_sidebar
 
     ui.add_head_html('<link rel="stylesheet" href="/static/global.css">')
-    # Add Mermaid.js for diagram rendering
+    # Mermaid diagram rendering. NiceGUI strips the ``class="language-X"``
+    # attribute on ``<code>`` elements, so we can't select by language hint.
+    # Instead we sniff fenced code blocks by their content: the first non-
+    # whitespace line of a mermaid block starts with one of the diagram-
+    # type keywords (``flowchart``, ``erDiagram``, ``sequenceDiagram``,
+    # ``stateDiagram``, ``classDiagram``, ``gantt``, ``pie``, ``journey``,
+    # ``gitGraph``, ``mindmap``, ``timeline``).
+    #
+    # NiceGUI also injects content over WebSocket after ``DOMContentLoaded``,
+    # so use a ``MutationObserver`` to catch blocks whenever they appear.
+    # A ``WeakSet`` of processed blocks makes the operation idempotent.
     ui.add_head_html("""
+        <style>
+            div.mermaid {
+                cursor: zoom-in; position: relative;
+                padding: 12px; margin: 16px 0;
+                background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;
+                text-align: center;
+            }
+            div.mermaid > svg {
+                max-width: 100% !important;
+                height: auto !important;
+                display: inline-block;
+            }
+            div.mermaid:hover::after {
+                content: "click to expand";
+                position: absolute; top: 6px; right: 10px;
+                font-size: 11px; color: #475569;
+                background: rgba(255, 255, 255, 0.9);
+                border: 1px solid #cbd5e1;
+                padding: 2px 8px; border-radius: 4px;
+                pointer-events: none;
+            }
+            .mermaid-overlay {
+                position: fixed; inset: 0;
+                background: rgba(15, 23, 42, 0.88);
+                z-index: 9999; cursor: zoom-out;
+                display: flex; align-items: center; justify-content: center;
+                padding: 24px;
+                overflow: auto;
+            }
+            .mermaid-overlay > svg {
+                background: white; border-radius: 8px; padding: 24px;
+                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            }
+            .mermaid-overlay-hint {
+                position: fixed; bottom: 16px; left: 50%;
+                transform: translateX(-50%);
+                color: #cbd5e1; font-size: 12px;
+                background: rgba(0,0,0,0.4); padding: 4px 10px; border-radius: 4px;
+            }
+        </style>
         <script type="module">
             import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
             mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
+            window.mermaid = mermaid;
 
-            // Render mermaid diagrams after page load
-            document.addEventListener('DOMContentLoaded', () => {
-                setTimeout(() => {
-                    // Find code blocks with language-mermaid class
-                    document.querySelectorAll('pre code.language-mermaid')
-                        .forEach((block, index) => {
-                        const pre = block.parentElement;
-                        const container = document.createElement('div');
-                        container.className = 'mermaid';
-                        container.textContent = block.textContent;
-                        pre.replaceWith(container);
-                    });
-                    mermaid.run();
-                }, 100);
+            const MERMAID_KEYWORDS = new RegExp(
+                '^\\\\s*(flowchart|graph|erDiagram|sequenceDiagram|stateDiagram(-v2)?|' +
+                'classDiagram|gantt|pie|journey|gitGraph|mindmap|timeline|' +
+                'requirementDiagram|C4Context|C4Container|quadrantChart|' +
+                'xychart-beta|sankey-beta|block-beta)\\\\b'
+            );
+            const seen = new WeakSet();
+
+            function attachZoom(container) {
+                container.addEventListener('click', () => {
+                    const svg = container.querySelector('svg');
+                    if (!svg) return;
+                    const overlay = document.createElement('div');
+                    overlay.className = 'mermaid-overlay';
+                    const clone = svg.cloneNode(true);
+                    // Strip mermaid's intrinsic width/height + its inline
+                    // max-width cap so CSS can fully upscale via viewBox.
+                    // preserveAspectRatio defaults to "xMidYMid meet" so
+                    // contents fit without distortion.
+                    clone.removeAttribute('width');
+                    clone.removeAttribute('height');
+                    clone.style.maxWidth = 'none';
+                    clone.style.maxHeight = 'none';
+                    clone.style.width = '92vw';
+                    clone.style.height = '88vh';
+                    overlay.appendChild(clone);
+                    const hint = document.createElement('div');
+                    hint.className = 'mermaid-overlay-hint';
+                    hint.textContent = 'click anywhere to close • Esc';
+                    overlay.appendChild(hint);
+                    const close = () => {
+                        overlay.remove();
+                        document.removeEventListener('keydown', onKey);
+                    };
+                    const onKey = (e) => { if (e.key === 'Escape') close(); };
+                    overlay.addEventListener('click', close);
+                    document.addEventListener('keydown', onKey);
+                    document.body.appendChild(overlay);
+                });
+            }
+
+            function processMermaidBlocks(root) {
+                const blocks = (root || document).querySelectorAll('pre > code');
+                const newContainers = [];
+                blocks.forEach((block) => {
+                    if (seen.has(block)) return;
+                    const text = block.textContent || '';
+                    if (!MERMAID_KEYWORDS.test(text)) return;
+                    seen.add(block);
+                    const pre = block.parentElement;
+                    const container = document.createElement('div');
+                    container.className = 'mermaid';
+                    container.textContent = text;
+                    pre.replaceWith(container);
+                    newContainers.push(container);
+                });
+                if (newContainers.length > 0) {
+                    mermaid.run({ querySelector: 'div.mermaid:not([data-processed="true"])' })
+                        .then(() => newContainers.forEach(attachZoom))
+                        .catch((err) => console.warn('mermaid render failed', err));
+                }
+            }
+
+            const observer = new MutationObserver((mutations) => {
+                for (const m of mutations) {
+                    for (const node of m.addedNodes) {
+                        if (node.nodeType === 1) processMermaidBlocks(node);
+                    }
+                }
             });
+
+            const start = () => {
+                processMermaidBlocks(document);
+                observer.observe(document.body, { childList: true, subtree: true });
+            };
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', start);
+            } else {
+                start();
+            }
         </script>
     """)
     ui.query("body").classes("bg-slate-50")
@@ -123,41 +239,98 @@ def _create_docs_layout(section: str | None = None, page: str | None = None):
                     ui.label(_get_section_title(section)).classes("text-slate-800 font-medium")
 
 
-def _render_sidebar_nav(section: str, current_page: str | None = None):
-    """Render sidebar navigation for the section."""
-    section_dir = DOCS_DIR / section
-    if not section_dir.exists():
-        return
+def _parse_section_outline(section: str) -> list[tuple[str | None, list[tuple[str, str]]]]:
+    """Parse ``<section>/index.md`` into an ordered tree of groups.
 
-    # Get all markdown files in the section
-    pages = sorted(section_dir.glob("*.md"))
-    if not pages:
+    Each group is ``(group_label, [(page_title, page_slug), ...])``. Group
+    label is the H2 heading text under which the page links appear; ``None``
+    means "links appear before any H2 in index.md."
+
+    Pages that exist in the section but aren't referenced by index.md are
+    appended at the end under an ``"Other"`` group so nothing is hidden.
+
+    With no ``index.md`` present, returns a single unnamed group containing
+    every page in alphabetical order (legacy behavior).
+    """
+    section_dir = DOCS_DIR / section
+    all_pages = sorted(p.stem for p in section_dir.glob("*.md") if p.stem != "index")
+    if not all_pages:
+        return []
+
+    index_path = section_dir / "index.md"
+    if not index_path.exists():
+        items = [(_page_title(section_dir / f"{slug}.md", slug), slug) for slug in all_pages]
+        return [(None, items)]
+
+    text = index_path.read_text()
+    groups: list[tuple[str | None, list[tuple[str, str]]]] = []
+    current_label: str | None = None
+    current_items: list[tuple[str, str]] = []
+    referenced: set[str] = set()
+
+    link_re = re.compile(r"\[([^\]]+)\]\(([^)#?\s]+?)\.md\)")
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            if current_items or current_label is not None:
+                groups.append((current_label, current_items))
+            current_label = stripped[3:].strip()
+            current_items = []
+            continue
+        for match in link_re.finditer(line):
+            title, target = match.group(1), match.group(2)
+            slug = target.split("/")[-1]
+            if slug in all_pages and slug not in referenced:
+                current_items.append((title, slug))
+                referenced.add(slug)
+
+    if current_items or current_label is not None:
+        groups.append((current_label, current_items))
+
+    leftovers = [slug for slug in all_pages if slug not in referenced]
+    if leftovers:
+        items = [(_page_title(section_dir / f"{slug}.md", slug), slug) for slug in leftovers]
+        groups.append(("Other", items))
+
+    return [g for g in groups if g[1]]
+
+
+def _page_title(path: Path, fallback_slug: str) -> str:
+    try:
+        return _extract_title_from_markdown(path.read_text())
+    except OSError:
+        return fallback_slug.replace("-", " ").title()
+
+
+def _flatten_outline(outline: list[tuple[str | None, list[tuple[str, str]]]]) -> list[str]:
+    """Return the slug order from a parsed outline — drives prev/next nav."""
+    return [slug for _, items in outline for _, slug in items]
+
+
+def _render_sidebar_nav(section: str, current_page: str | None = None):
+    """Render the section sidebar as a tree driven by ``index.md``."""
+    outline = _parse_section_outline(section)
+    if not outline:
         return
 
     with ui.column().classes("w-56 p-4 border-r border-slate-200 docs-sidebar bg-white"):
         ui.label(_get_section_title(section).upper()).classes(
             "text-xs text-slate-500 font-medium mb-2"
         )
-        for page_path in pages:
-            page_name = page_path.stem
-            if page_name == "index":
-                continue  # Skip index in nav
-
-            # Read first line as title
-            try:
-                content = page_path.read_text()
-                title = _extract_title_from_markdown(content)
-            except OSError:
-                title = page_name.replace("-", " ").title()
-
-            is_current = page_name == current_page
-            link_classes = "text-sm py-1 block "
-            if is_current:
-                link_classes += "text-blue-600 font-medium"
-            else:
-                link_classes += "text-slate-600 hover:text-blue-600"
-
-            ui.link(title, f"/docs/{section}/{page_name}").classes(link_classes)
+        for group_label, items in outline:
+            if group_label is not None:
+                ui.label(group_label).classes(
+                    "text-xs uppercase tracking-wide text-slate-400 font-semibold mt-3 mb-1"
+                )
+            for title, slug in items:
+                is_current = slug == current_page
+                link_classes = "text-sm py-1 block "
+                link_classes += "pl-2" if group_label is not None else ""
+                if is_current:
+                    link_classes += " text-blue-600 font-medium"
+                else:
+                    link_classes += " text-slate-600 hover:text-blue-600"
+                ui.link(title, f"/docs/{section}/{slug}").classes(link_classes)
 
 
 def _render_doc_page_content(section: str, page: str):
@@ -172,29 +345,51 @@ def _render_doc_page_content(section: str, page: str):
         with ui.column().classes("docs-content p-6 max-w-4xl"):
             if md_path.exists():
                 content = md_path.read_text()
-                ui.markdown(content, extras=["fenced-code-blocks"]).classes(
-                    "prose prose-slate max-w-none"
-                )
+                ui.markdown(
+                    content,
+                    extras=["fenced-code-blocks", "tables", "strike", "task_list"],
+                ).classes("prose prose-slate max-w-none")
 
-                # Next/prev navigation
-                section_dir = DOCS_DIR / section
-                pages = sorted([p.stem for p in section_dir.glob("*.md") if p.stem != "index"])
-                if page in pages:
-                    idx = pages.index(page)
-                    with ui.row().classes("mt-8 pt-6 border-t border-slate-200 gap-4"):
-                        if idx > 0:
-                            prev_page = pages[idx - 1]
-                            ui.link(
-                                f"← {prev_page.replace('-', ' ').title()}",
-                                f"/docs/{section}/{prev_page}",
-                            ).classes("text-blue-600 hover:underline")
-                        ui.element("div").classes("flex-1")
-                        if idx < len(pages) - 1:
-                            next_page = pages[idx + 1]
-                            ui.link(
-                                f"{next_page.replace('-', ' ').title()} →",
-                                f"/docs/{section}/{next_page}",
-                            ).classes("text-blue-600 hover:underline")
+                # Next/prev navigation — prominent button cards so the next step is
+                # the obvious continuation, not a footnote.
+                outline = _parse_section_outline(section)
+                ordered = _flatten_outline(outline)
+                if page in ordered:
+                    idx = ordered.index(page)
+                    title_for = {slug: title for _, items in outline for title, slug in items}
+                    prev_slug = ordered[idx - 1] if idx > 0 else None
+                    next_slug = ordered[idx + 1] if idx < len(ordered) - 1 else None
+
+                    btn_base = (
+                        "block flex-1 p-4 border rounded-lg "
+                        "bg-white border-slate-200 hover:border-blue-500 hover:shadow-md "
+                        "transition no-underline"
+                    )
+                    with ui.row().classes("mt-12 pt-8 border-t border-slate-200 gap-4 w-full"):
+                        if prev_slug:
+                            with ui.link(target=f"/docs/{section}/{prev_slug}").classes(
+                                btn_base + " text-left"
+                            ):
+                                ui.label("← Previous").classes(
+                                    "text-xs uppercase tracking-wide text-slate-500"
+                                )
+                                ui.label(title_for[prev_slug]).classes(
+                                    "text-lg font-semibold text-blue-700"
+                                )
+                        else:
+                            ui.element("div").classes("flex-1")
+                        if next_slug:
+                            with ui.link(target=f"/docs/{section}/{next_slug}").classes(
+                                btn_base + " text-right"
+                            ):
+                                ui.label("Next →").classes(
+                                    "text-xs uppercase tracking-wide text-slate-500"
+                                )
+                                ui.label(title_for[next_slug]).classes(
+                                    "text-lg font-semibold text-blue-700"
+                                )
+                        else:
+                            ui.element("div").classes("flex-1")
             else:
                 with ui.column().classes("gap-4"):
                     ui.icon("warning").classes("text-amber-500 text-4xl")
@@ -205,18 +400,23 @@ def _render_doc_page_content(section: str, page: str):
 
 
 def _render_section_index_content(section: str):
-    """Render the content of a section index page (without layout)."""
+    """Render the content of a section index page with the same sidebar as inner pages."""
     section_dir = DOCS_DIR / section
 
-    with ui.column().classes("w-full max-w-4xl mx-auto p-6"):
-        # Check for index.md first
-        index_path = section_dir / "index.md"
-        if index_path.exists():
-            content = index_path.read_text()
-            ui.markdown(content, extras=["fenced-code-blocks"]).classes(
-                "prose prose-slate max-w-none"
-            )
-        else:
+    with ui.element("div").classes("docs-layout"):
+        # Same tree sidebar that inner pages get — keeps the section's nav chrome
+        # consistent regardless of whether the reader is on the landing or a child page.
+        _render_sidebar_nav(section, current_page=None)
+
+        with ui.column().classes("docs-content p-6 max-w-4xl"):
+            index_path = section_dir / "index.md"
+            if index_path.exists():
+                content = index_path.read_text()
+                ui.markdown(
+                    content,
+                    extras=["fenced-code-blocks", "tables", "strike", "task_list"],
+                ).classes("prose prose-slate max-w-none")
+                return
             # Generate a section listing
             with ui.row().classes("items-center gap-3 mb-6"):
                 ui.icon(_get_section_icon(section)).classes("text-blue-500 text-3xl")

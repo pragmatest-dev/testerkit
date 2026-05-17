@@ -1,167 +1,88 @@
 # Step 2: Running Without Hardware
 
-**Goal:** Run tests without real instruments using mock mode.
+**Goal:** Run your tests without real instruments by wrapping your driver classes with Litmus's `Mock` factory.
 
-## The Problem
+In step 1 you wrote vanilla pytest tests against `psu` and `dmm` fixtures defined in `conftest.py`. This step shows the smallest change that lets the same tests run on a laptop with no hardware attached.
 
-Real hardware testing requires real instruments. But during development:
+## The conftest pattern
 
-- Instruments may not be available
-- CI/CD runs on servers without hardware
-- Iteration should be fast
-
-Litmus solves this with the `--mock-instruments` flag.
-
-## Station Configuration
-
-Define your instruments in a station config:
-
-```yaml
-# stations/my_station.yaml
-id: my_station
-name: "My Test Bench"
-
-instruments:
-  dmm:
-    type: dmm
-    driver: pymeasure.instruments.keysight.Keysight34461A
-    resource: "TCPIP::192.168.1.100::INSTR"
-    mock_config:
-      voltage: 3.31      # Value returned in mock mode
-      current: 0.1
-
-  psu:
-    type: psu
-    driver: pymeasure.instruments.keysight.KeysightE36312A
-    resource: "GPIB0::5::INSTR"
-    mock_config:
-      voltage: 5.0
-```
-
-The `mock_config` section defines what values mock instruments return.
-
-## Running in Mock Mode
-
-Add `--mock-instruments` to run without hardware:
-
-```bash
-pytest tests/ --station=stations/my_station.yaml --mock-instruments -v
-```
-
-The **same test code** works with real hardware or mocks.
-
-## A Simple Test
-
-Instrument roles from the station config are auto-registered as pytest fixtures. Use them directly -- no conftest boilerplate:
+Your `conftest.py` already returns driver instances. Wrap them in `litmus.instruments.mocks.Mock` when the `--mock-instruments` flag is set:
 
 ```python
-# tests/test_voltage.py
-def test_output_voltage(dmm, psu, logger):
-    """Measure output voltage. dmm and psu are auto-registered from station config."""
-    psu.set_voltage(5.0)
-    psu.enable_output()
+# tests/conftest.py
+import pytest
+from drivers import DMM, PSU
+from litmus.instruments.mocks import Mock
 
-    logger.measure("output_voltage", dmm.measure_voltage())  # Returns 3.31 in mock mode
+
+@pytest.fixture(scope="session")
+def psu(mock_instruments) -> PSU:
+    if mock_instruments:
+        return Mock(PSU, measure_voltage=5.0, measure_current=0.042)
+    return PSU(resource="TCPIP::192.168.1.101::INSTR")
+
+
+@pytest.fixture(scope="session")
+def dmm(mock_instruments) -> DMM:
+    if mock_instruments:
+        return Mock(DMM, measure_dc_voltage=3.31)
+    return DMM(resource="TCPIP::192.168.1.102::INSTR")
 ```
 
-Run it:
+`mock_instruments` is a fixture Litmus provides — it returns `True` whenever `--mock-instruments` is on the command line or `LITMUS_MOCK_INSTRUMENTS=1` is set.
+
+`Mock(DMM, measure_dc_voltage=3.31)` returns an object that quacks like a `DMM` — every method call is a no-op unless you configure a return value. Pass a literal for a constant return, a `dict` to map argument values, or a callable for dynamic behavior.
+
+This is exactly what [`examples/01-vanilla`](https://github.com/pragmatest-dev/litmus/tree/main/examples/01-vanilla) and [`examples/02-verify`](https://github.com/pragmatest-dev/litmus/tree/main/examples/02-verify) ship.
+
+## Running with mocks
 
 ```bash
-# With mock instruments
-pytest tests/test_voltage.py --station=stations/my_station.yaml --mock-instruments -v
-
-# With real hardware (when available)
-pytest tests/test_voltage.py --station=stations/my_station.yaml -v
+pytest tests/ --mock-instruments -v
 ```
 
-## Per-Test Mock Values
+Same test code as step 1, no hardware required.
 
-For tests that need specific mock values, define `mocks` on the sequence step:
-
-```yaml
-# sequences/my_sequence.yaml
-steps:
-  - id: output_voltage
-    test: tests/test_voltage.py::test_output_voltage
-    mocks:
-      dmm.measure_voltage: 3.31
-      psu.measure_current: 0.5
-    limits:
-      test_output_voltage:
-        low: 3.2
-        high: 3.4
-        units: V
+```bash
+# Or via env var
+LITMUS_MOCK_INSTRUMENTS=1 pytest tests/ -v
 ```
 
-The `mocks` key maps `instrument.method` to return values. We'll cover sequences fully in [Step 5](05-configuration.md).
+## Mock factory cheat sheet
 
-## Per-Vector Mock Values
+```python
+# Constant return
+dmm = Mock(DMM, measure_dc_voltage=3.31)
 
-For sweeps with different outputs per condition:
+# Map by argument — different return per query string
+dmm = Mock(DMM, query={"MEAS:VOLT:DC?": "3.300", "*IDN?": "Keysight,34461A,..."})
 
-```yaml
-# sequences/my_sequence.yaml
-steps:
-  - id: load_sweep
-    test: tests/test_voltage.py::test_load_sweep
-    vectors:
-      - load: 0.1
-        _mocks:
-          dmm.measure_voltage: 3.32
-      - load: 0.5
-        _mocks:
-          dmm.measure_voltage: 3.30
-      - load: 0.8
-        _mocks:
-          dmm.measure_voltage: 3.28
-    limits:
-      test_load_sweep:
-        low: 3.2
-        high: 3.4
-        units: V
+# Callable — for noise or sweeps
+import random
+dmm = Mock(DMM, measure_dc_voltage=lambda: 3.3 + random.gauss(0, 0.005))
 ```
 
-Each vector gets its own mock values, simulating realistic output changes. Note the `_mocks` key (underscore prefix) inside vector dicts.
+Every method not configured is a silent no-op. Reading an unconfigured *attribute* (not a method call) raises `AttributeError` — that's the seam where a missing mock spec shows up.
 
-## Mock Value Priority
+## Mocks vs real hardware
 
-When running with `--mock-instruments`, values are resolved in order:
+| You run | `mock_instruments` is | Test code |
+|---|---|---|
+| `pytest tests/` | `False` | identical |
+| `pytest tests/ --mock-instruments` | `True` | identical |
 
-1. **Vector-level `_mocks`** — Specific to this test vector
-2. **Step-level `mocks`** — Constant for all vectors in this step
-3. **Station `mock_config`** — Default for this instrument
-4. **Zero** — If nothing else configured
+The point of the wrap-in-conftest pattern: **the test code is the same on a laptop and on the bench**. Tests don't know which mode they're in.
 
-## CI/CD Configuration
+## What you learned
 
-```yaml
-# .github/workflows/test.yml
-- name: Run tests
-  run: |
-    pytest tests/ \
-      --station=stations/ci_station.yaml \
-      --mock-instruments \
-      --dut-serial=CI-TEST \
-      -v
-```
+- `--mock-instruments` flag + the `mock_instruments` fixture
+- `Mock(DriverClass, method=return_value, ...)` wraps any driver class
+- The conftest fixture decides real vs mock — tests don't change
 
-> **No real serial yet?** Use anything memorable — `bob`, `proto-1`,
-> `dev`. The `--dut-serial` value is just the identifier the run record
-> is filed under. Once you have real units, switch to whatever uniquely
-> identifies what is being tested and measured (printed serial, scanned
-> barcode, lot+sequence).
-
-## What You Learned
-
-- `--mock-instruments` flag for hardware-free testing
-- Station `mock_config` for default mock values
-- Sequence step `mocks` for per-test/per-vector values
-- Same test code works with real hardware or mocks
-
-**Ready for real hardware?** See [From Mocks to Hardware](from-mocks-to-hardware.md) for a focused guide on connecting real instruments.
+In later steps you'll lift this conftest conditional into station YAML (step 7) so the same setup serves a whole bench of tests. For now, conftest is enough.
 
 ## Next Step
 
-Now let's write pytest-native tests and check limits automatically.
+Now let's adopt three of [Litmus's per-test fixtures](../reference/litmus-fixtures.md) — `context`, `verify`, `logger` — to start recording measurements with limits.
 
 [Step 3: pytest-native tests →](03-fixtures.md)

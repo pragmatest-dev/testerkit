@@ -2,255 +2,247 @@
 
 ## How the Framework Works
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           TEST EXECUTION FLOW                                │
-└─────────────────────────────────────────────────────────────────────────────┘
+> **Vocabulary primer.** This page drops a lot of names into one diagram. If you haven't seen them yet: **[product](products.md)** and **[station](stations.md)** are YAML definitions; **[sidecar](../reference/configuration.md)** is the per-test YAML carrying limits / sweeps / mocks; **`verify` / `context` / `logger`** are three of the 20 pytest fixtures Litmus adds — the common per-test entry points (see [reference/litmus-fixtures](../reference/litmus-fixtures.md)); **[characteristic](capabilities.md)** is a measurable property on a product; **[capability](capabilities.md)** is what an instrument can do.
 
-  1. SPEC                 2. CONFIG                3. CODE               4. RUN
-  ───────                 ────────                 ──────                ──────
+```mermaid
+flowchart LR
+    subgraph Inputs
+        P[Product spec<br/>products/*.yaml<br/>pins, chars, bands]
+        S[Station YAML<br/>stations/*.yaml<br/>instruments, resources]
+        SC[Sidecar YAML<br/>tests/test_*.yaml<br/>limits, sweeps, mocks, retry, prompts]
+        T[Test code<br/>tests/test_*.py<br/>verify / context / logger]
+    end
 
-  products/*.yaml            tests/config.yaml        tests/test_*.py       pytest
-  ┌───────────┐          ┌────────────┐           ┌────────────┐       ┌───────┐
-  │ Product   │          │ vectors    │           │ def test_  │       │ CLI   │
-  │ - pins    │          │ - sweep    │           │ (ctx, verify,│       │  or   │
-  │ - chars   │          │ - params   │           │  logger):  │       │  UI   │
-  │ - limits  │          │ limits     │           │ verify │       │       │
-  └───────────┘          │ - per-test │           │ or measure │       └───────┘
-                         │ retry      │           └────────────┘
-  stations/*.yaml        │ - retries  │
-  ┌───────────┐          │ dialogs    │
-  │ Station   │          │ - prompts  │
-  │ - instrs  │          └────────────┘
-  │ - resource│
-  └───────────┘
+    subgraph Plugin[Litmus pytest plugin]
+        L[Load specs] --> EX[Expand vectors]
+        EX --> RUN[Run test code]
+        RUN --> CHK[Check limits]
+    end
 
-        │                      │                        │                  │
-        ▼                      ▼                        ▼                  ▼
-  ┌───────────────────────────────────────────────────────────────────────────┐
-  │                      LITMUS PYTEST PLUGIN                                  │
-  │                                                                           │
-  │   Loads specs ──► Expands vectors ──► Runs test code ──► Checks limits   │
-  │                                                                           │
-  └───────────────────────────────────────────────────────────────────────────┘
-                                         │
-                                         ▼
-                               5. STORE & ANALYZE
-                               ─────────────────
-                               ┌─────────────────┐
-                               │ results/*.parq  │
-                               │ litmus CLI      │
-                               │ Python API      │
-                               │ MCP tools       │
-                               └─────────────────┘
+    P --> Plugin
+    S --> Plugin
+    SC --> Plugin
+    T --> Plugin
+
+    Plugin --> O[results/*.parquet<br/>+ event log]
+    O --> A[CLI / UI / Python API / MCP tools]
 ```
 
 ## Key Concepts
 
 | Concept | What It Is | Example |
 |---------|-----------|---------|
-| **Product** | Spec defining what you're testing | TPS54302 DC-DC converter |
-| **Characteristic** | Measurable property of product | output_voltage: 3.3V ±5% |
-| **Station** | Physical test bench with instruments | Bench 1 with DMM, PSU, ELoad |
-| **Capability** | What an instrument can do | DMM: measure DC voltage |
-| **TestSequence** | Ordered list of test steps | production_test.yaml |
-| **TestRun** | One execution of a sequence | Run abc123 on SN001 |
+| **[Product](products.md)** | Spec defining what you're testing | TPS54302 DC-DC converter |
+| **[Characteristic](capabilities.md)** | Measurable property of product | output_voltage: 3.3V ±5% |
+| **[Station](stations.md)** | Physical test bench with instruments | Bench 1 with DMM, PSU, ELoad |
+| **[Capability](capabilities.md)** | What an instrument can do | DMM: measure DC voltage |
+| **[Sidecar](../reference/configuration.md)** | YAML alongside a test file declaring limits, sweeps, mocks, retry, prompts | `tests/test_power.yaml` |
+| **[TestRun](../reference/models.md)** | One execution of a test file | Run abc123 on SN001 |
 | **Measurement** | Single data point with pass/fail | VOUT = 3.31V PASS |
 
 ## System Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              LITMUS PLATFORM                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   DEFINITIONS (YAML)              RUNTIME                    STORAGE        │
-│   ──────────────────              ───────                    ───────        │
-│                                                                             │
-│   ┌──────────┐                   ┌──────────┐              ┌──────────┐    │
-│   │ Product  │──────────────────►│   DUT    │──────────────►│ TestRun  │    │
-│   │  Spec    │  instantiated as  │ (serial) │   tested in  │ Results  │    │
-│   └──────────┘                   └──────────┘              └──────────┘    │
-│                                                                             │
-│   ┌──────────┐                   ┌──────────┐              ┌──────────┐    │
-│   │ Station  │──────────────────►│ Station  │──────────────►│Measuremt │    │
-│   │  Type    │  deployed as      │ Instance │   produces   │  Data    │    │
-│   └──────────┘                   └──────────┘              └──────────┘    │
-│                                                                             │
-│   ┌──────────┐                   ┌──────────┐                              │
-│   │ Test     │──────────────────►│ Test     │                              │
-│   │ Sequence │  executed as      │  Run     │                              │
-│   └──────────┘                   └──────────┘                              │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph Definitions["DEFINITIONS (YAML)"]
+        PS["Product spec<br/>products/*.yaml"]
+        ST["Station type<br/>stations/*.yaml"]
+        TC["Test code + sidecar<br/>tests/test_*.py + .yaml"]
+    end
+
+    subgraph Runtime["RUNTIME"]
+        DUT["DUT<br/>(serial)"]
+        SI["Station instance"]
+        TR["Test run"]
+    end
+
+    subgraph Storage["STORAGE"]
+        TRR["TestRun results"]
+        MD["Measurement data"]
+    end
+
+    PS -- "instantiated as" --> DUT
+    DUT -- "tested in" --> TRR
+    ST -- "deployed as" --> SI
+    SI -- "produces" --> MD
+    TC -- "executed as" --> TR
+    TR --> TRR
+    TR --> MD
 ```
 
-## ERD Diagram
+## Entity Relationships
+
+The platform's data model splits cleanly into three concerns: **what you're testing** (products and their specs), **how you test it** (stations, fixtures, capabilities), and **what gets executed and recorded** (sidecar configuration and runs). Each diagram below covers one concern. For the full per-model schema with every field, see [reference/models](../reference/models.md) and [reference/catalog-schema](../reference/catalog-schema.md). Click any diagram to expand.
+
+### 1. Products & Specs
+
+What the DUT is, what its measurable characteristics are, and how spec bands attach.
 
 ```mermaid
 erDiagram
-    %% ============================================
-    %% PRODUCT DEFINITIONS
-    %% ============================================
-
     Product {
-        string id PK
-        string name
-        string revision
-        string description
+        id string PK
+        name string
+        revision string
+        description string
     }
-
     Pin {
-        string name PK
-        string net
-        string type
+        name string PK
+        net string
+        role string
+        description string
     }
-
     Characteristic {
-        string name PK
-        enum direction
-        enum function
-        string units
-        list specs FK
+        name string PK
+        direction enum
+        function enum
+        units string
+        signals dict
+        conditions dict
+        controls dict
+        attributes dict
     }
-
     SpecBand {
-        dict conditions
-        float value
-        AccuracySpec accuracy
+        when dict
+        value float
+        accuracy AccuracySpec
+        resolution ResolutionSpec
     }
 
-    %% ============================================
-    %% STATION & INSTRUMENTS
-    %% ============================================
+    Product ||--o{ Pin : "pins[]"
+    Product ||--o{ Characteristic : "characteristics[]"
+    Characteristic ||--o{ SpecBand : "bands[]"
+```
 
+### 2. Stations, Fixtures & Capability Matching
+
+The bench side: physical stations, the instruments they hold, the capabilities those instruments expose, and the optional fixture layer that routes instrument channels to DUT pins.
+
+```mermaid
+erDiagram
     StationType {
-        string id PK
-        string description
+        id string PK
+        description string
     }
-
     Station {
-        string id PK
-        string station_type FK
-        string location
+        id string PK
+        station_type string FK
+        location string
     }
-
-    Instrument {
-        string name PK
-        string type
-        string resource
-        bool mock
+    StationInstrumentConfig {
+        type string
+        driver string
+        resource string
+        catalog_ref string
+        mock bool
+        channels dict
+        mock_config dict
     }
-
     Capability {
-        enum direction
-        enum domain
-        list signal_types
+        function enum
+        direction enum
+        signals dict
+        conditions dict
+        controls dict
+        attributes dict
     }
-
-    %% ============================================
-    %% TEST CONFIGURATION
-    %% ============================================
-
-    TestSequence {
-        string id PK
-        string name
-        string product_family FK
-    }
-
-    TestStep {
-        string name PK
-        string test_file
-        Limit limit
-    }
-
-    Limit {
-        float low
-        float high
-        string units
-    }
-
-    %% ============================================
-    %% FIXTURES (Optional Bridge)
-    %% ============================================
-
     Fixture {
-        string id PK
-        string product_id FK
+        id string PK
+        product_id string FK
     }
-
     FixtureConnection {
-        string name PK
-        string dut_pin FK
-        string instrument FK
+        name string PK
+        instrument string FK
+        instrument_channel string
+        instrument_terminal string
+        dut_pin string FK
+        net string
+        function string
+        route SwitchRoute
+    }
+    Characteristic {
+        name string PK
+        direction enum
+        function enum
+    }
+    Pin {
+        name string PK
+        net string
+        role string
     }
 
-    %% ============================================
-    %% TEST EXECUTION (Runtime)
-    %% ============================================
-
-    DUT {
-        string serial PK
-        string part_number
-    }
-
-    TestRun {
-        uuid id PK
-        datetime started_at
-        string dut_serial FK
-        string station_id FK
-        enum outcome
-    }
-
-    TestVector {
-        uuid id PK
-        int index
-        dict params
-        enum outcome
-    }
-
-    Measurement {
-        string name
-        float value
-        string units
-        enum outcome
-    }
-
-    %% ============================================
-    %% RELATIONSHIPS
-    %% ============================================
-
-    %% Product structure
-    Product ||--o{ Pin : has
-    Product ||--o{ Characteristic : has
-    Characteristic ||--o{ SpecBand : "has specs"
-
-    %% Station structure
     StationType ||--o{ Station : "deployed as"
-    Station ||--o{ Instrument : has
-    Instrument ||--o{ Capability : provides
+    Station ||--o{ StationInstrumentConfig : "instruments{}"
+    StationInstrumentConfig ||--o{ Capability : "capabilities[]"
+    Fixture ||--o{ FixtureConnection : "connections[]"
+    FixtureConnection }o--|| Pin : "dut_pin →"
+    FixtureConnection }o--|| StationInstrumentConfig : "instrument →"
+    Characteristic ||--|| Capability : "matches (direction-flipped)"
+```
 
-    %% Test configuration
-    TestSequence ||--o{ TestStep : contains
-    TestSequence }o--|| Product : "for"
-    TestStep ||--o| Limit : has
+### 3. Test Configuration & Execution
 
-    %% Fixture (optional)
-    Fixture }o--|| Product : "for"
-    Fixture ||--o{ FixtureConnection : has
-    FixtureConnection }o--|| Pin : connects
-    FixtureConnection }o--|| Instrument : "routes to"
+The sidecar YAML tree on the left, the runtime objects it produces on the right. `TestEntry` is a recursive node — file-scope, class-scope, method-scope all share the same shape; the recursion is described in the field list rather than drawn as a self-edge (Mermaid routes self-edges through neighbouring entities and the line reads as a phantom relationship).
 
-    %% Capability matching
-    Characteristic ||--|| Capability : "requires (direction flipped)"
+```mermaid
+erDiagram
+    SidecarConfig {
+        limits dict
+        sweeps list
+        mocks list
+        characteristics list
+        connections any
+        retry RetryConfig
+        prompts dict
+        tests dict
+    }
+    TestEntry {
+        limits dict
+        sweeps list
+        mocks list
+        characteristics list
+        connections any
+        retry RetryConfig
+        prompts dict
+        runner string
+        tests dict
+    }
+    DUT {
+        serial string PK
+        part_number string
+    }
+    TestRun {
+        id uuid PK
+        started_at datetime
+        dut_serial string FK
+        station_id string FK
+        outcome enum
+    }
+    TestVector {
+        id uuid PK
+        index int
+        params dict
+        outcome enum
+    }
+    Measurement {
+        name string
+        value float
+        units string
+        outcome enum
+    }
+    Product {
+        id string PK
+    }
+    Station {
+        id string PK
+    }
 
-    %% Test execution
+    SidecarConfig ||--o{ TestEntry : "tests{}"
     DUT }o--|| Product : "instance of"
-    TestRun }o--|| DUT : tests
-    TestRun }o--|| Station : "on"
-    TestRun }o--|| TestSequence : runs
-    TestRun ||--o{ TestVector : contains
-    TestVector ||--o{ Measurement : produces
+    TestRun }o--|| DUT : "for DUT"
+    TestRun }o--|| Station : "on station"
+    TestRun ||--o{ TestVector : "vectors[]"
+    TestVector ||--o{ Measurement : "measurements[]"
 ```
 
 ## Type vs Instance
@@ -258,115 +250,73 @@ erDiagram
 | Concept | Type (YAML Definition) | Instance (Runtime) |
 |---------|------------------------|-------------------|
 | What to test | `Product` | `DUT` |
-| Where to test | `StationType` | `Station` |
-| What to run | `TestSequence` | `TestRun` |
-| Single iteration | `TestStep` | `TestVector` |
-| Expected value | `Limit` / `Condition` | `Measurement` |
+| Where to test | `StationType` | `StationConfig` |
+| What to run | `SidecarConfig` (file scope) + pytest collection | `TestRun` |
+| Single iteration | `TestEntry` (per-method scope) | `TestVector` |
+| Expected value | `Limit` / `SpecBand` | `Measurement` |
 
 ## Core Flows
 
 ### 1. Spec → Config → Test Flow
 
-**Limits can come from three places:**
+**Limits can come from three places** — product spec, sidecar override, or inline in the test:
 
+```mermaid
+flowchart LR
+    A["Product spec<br/>products/*.yaml<br/>characteristic.bands"]
+    B["Sidecar override<br/>tests/test_*.yaml<br/>limits: {name: {...}}"]
+    C["Inline limit<br/>logger.measure(name, v, limit=Limit(...))"]
+    R["Limit resolution<br/>(per measurement)"]
+    A --> R
+    B --> R
+    C --> R
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        WHERE DO LIMITS COME FROM?                            │
-└─────────────────────────────────────────────────────────────────────────────┘
 
-  OPTION A: Product Spec                OPTION B: Test Config        OPTION C: Inline
-  (Derived from datasheet)              (Per-test overrides)         (In test code)
-
-  products/product.yaml                    tests/config.yaml            test_*.py
-  ┌─────────────────────┐              ┌─────────────────────┐      ┌─────────────┐
-  │ characteristics:    │              │ test_output:        │      │ logger.     │
-  │   output_voltage:   │              │   limits:           │      │   measure(  │
-  │     conditions:     │              │     output_voltage: │      │     "vout", │
-  │       - nominal: 3.3│              │       low: 3.2      │      │     value,  │
-  │         tolerance: 5%              │       high: 3.4     │      │     limit=  │
-  │         temp: 25    │              │       units: V      │      │       Limit(│
-  │         load: 1.0   │              └─────────────────────┘      │       ...)) │
-  │                     │                                           └─────────────┘
-  │ specs
-  │   verify_output:    │
-  │     characteristic: │
-  │       output_voltage│
-  │     guardband: 10%  │◄─── Tightens limits for manufacturing margin
-  └─────────────────────┘
-
-        │
-        │  Spec + guardband = production limit
-        ▼
-  ┌─────────────────────┐
-  │ 3.3V ± 5% = 3.135   │
-  │ With 10% guardband: │
-  │   3.135 + 0.0165    │
-  │   3.465 - 0.0165    │
-  │ = 3.152 to 3.449    │
-  └─────────────────────┘
-```
+Product-spec bands derive a production limit by applying any configured guardband (tightening the spec for manufacturing margin). For example: `3.3V ± 5%` (3.135–3.465) with a 10% guardband becomes `3.152–3.449`.
 
 **Full flow with conditions:**
 
-```
-Product Spec (YAML)              Test Config (YAML)           Test Code (Python)
-────────────────────             ──────────────────           ──────────────────
+```mermaid
+flowchart LR
+    PS["Product spec<br/>products/tps54302.yaml<br/>characteristics.output_voltage.bands<br/>(N bands keyed by when:)"]
+    SC["Sidecar<br/>tests/test_*.yaml<br/>sweeps: [{temp:[25,85], load:[.5,3]}]<br/>characteristics: [output_voltage]"]
+    TC["Test code<br/>tests/test_*.py<br/>verify('output_voltage', dmm.measure())"]
 
-products/tps54302.yaml              tests/config.yaml            tests/test_*.py
-┌────────────────────┐           ┌────────────────────┐       ┌────────────────┐
-│ characteristics:   │           │ test_output:       │       │ def test_output│
-│   output_voltage:  │           │   vectors:         │       │  (dmm, verify):  │
-│     conditions:    │           │     expand: product│       │                │
-│       - temp: 25   │──────────►│     temp: [25, 85] │──────►│  # ctx has     │
-│         load: 0.5  │  lookup   │     load: [0.5,3.0]│ sweep │  # temp & load │
-│         nominal:3.3│  limit    │                    │       │                │
-│         tol: 1%    │  for      │   limits:          │       │  verify(   │
-│       - temp: 25   │  condition│     ref: specs.    │       │  "output_volt",│
-│         load: 3.0  │           │       output_volt  │       │  dmm.measure())│
-│         nominal:3.3│           │     guardband: 10% │       └────────────────┘
-│         tol: 1%    │           └────────────────────┘
-│       - temp: 85   │
-│         load: 1.0  │
-│         nominal:3.3│
-│         tol: 2%    │◄─── Different tolerance at high temp
-└────────────────────┘
+    subgraph Runtime["Runtime (per vector)"]
+        V["Vector params<br/>{temp:25, load:0.5} ..."]
+        CR["Resolve limit<br/>spec.get_limit(name, when={temp, load})"]
+        VR["verify / logger.measure<br/>checks + records measurement row"]
+    end
 
-        │                              │                             │
-        │ conditions define            │ vectors sweep               │ code runs
-        │ valid operating points       │ across conditions           │ per vector
-        ▼                              ▼                             ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         RUNTIME (TestHarness)                                │
-│                                                                             │
-│   for vector in vectors:  # {temp:25, load:0.5}, {temp:25, load:3.0}, ...  │
-│       # Create vector context and populate with vector params               │
-│       context = Context(parent=step_context, prev=prev_vector_context)      │
-│       context.set_params(vector.params())  # temp, load → context.params    │
-│                                                                             │
-│       # Resolve limit (may be callable using context)                       │
-│       limit = spec.get_limit("output_voltage", ctx=context)                 │
-│                                                                             │
-│       # Call test with fixtures (context has vector params)                 │
-│       test_func(dmm, verify)  # ctx.get_param("temp"), ("load")               │
-│                                                                             │
-│       result = check(value, limit)  # PASS/FAIL                            │
-│       store(Measurement(value, limit, result, params=context.params))       │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+    PS -- "matched per vector" --> CR
+    SC -- "drives sweep" --> V
+    TC -- "calls verify" --> VR
+    V --> CR
+    CR --> VR
+    VR --> M["Measurement row<br/>(parquet)"]
 ```
 
 ### 2. Capability Matching
-```
-Product.characteristic      →  Required Capability  →  Station.instrument
-direction: OUTPUT              direction: INPUT        provides: INPUT
-domain: VOLTAGE                domain: VOLTAGE         domain: VOLTAGE
-(DUT outputs voltage)          (need to measure)       (DMM can measure)
+
+```mermaid
+flowchart LR
+    PC["Product characteristic<br/>direction: OUTPUT<br/>function: dc_voltage<br/>(DUT outputs voltage)"]
+    REQ["Required capability<br/>direction: INPUT<br/>function: dc_voltage<br/>(need to measure)"]
+    SI["Station instrument<br/>provides: INPUT<br/>function: dc_voltage<br/>(DMM can measure)"]
+    PC -- "direction-flip" --> REQ
+    REQ -- "matches" --> SI
 ```
 
 ### 3. Test Execution
-```
-TestSequence  →  TestRun   →  TestVector  →  Measurement  →  Parquet
-(definition)     (instance)    (iteration)    (data point)    (storage)
+
+```mermaid
+flowchart LR
+    SC["SidecarConfig + test code<br/>(definition)"]
+    TR["TestRun<br/>(instance)"]
+    TV["TestVector<br/>(iteration)"]
+    M["Measurement<br/>(data point)"]
+    PQ["Parquet<br/>(storage)"]
+    SC --> TR --> TV --> M --> PQ
 ```
 
 ## File Locations
@@ -375,9 +325,10 @@ TestSequence  →  TestRun   →  TestVector  →  Measurement  →  Parquet
 |--------|----------|
 | Product specs | `products/*.yaml` |
 | Station configs | `stations/*.yaml` |
-| Test sequences | `sequences/*.yaml` |
+| Test code | `tests/test_*.py` |
+| Test sidecars | `tests/test_*.yaml` |
 | Fixtures | `fixtures/*.yaml` |
-| Instrument library | `litmus/instruments/library/*.yaml` |
+| Instrument catalog | `catalog/**/*.yaml` |
 | Test results (Parquet) | `results/runs/{date}/*.parquet` |
 | Event logs (Arrow IPC) | `results/events/{date}/{session_id}.arrow` |
 | Channel data (Arrow IPC) | `results/channels/{date}/{channel}_{session}.arrow` |

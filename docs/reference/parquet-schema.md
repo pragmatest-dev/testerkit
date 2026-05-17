@@ -1,510 +1,289 @@
 # Parquet Storage Schema
 
-Litmus stores test results in analysis-ready Parquet files with **one row per measurement** and all metadata denormalized for easy querying with DuckDB, Spark, Polars, Pandas, etc.
+Each Litmus run produces **one Parquet file**. Every row carries an explicit `record_type` discriminator with one of two values:
 
-## Design Philosophy
+- `record_type = 'step'` — one row per `(step_path, vector_index)` execution. Step identity, timing, outcome, dynamic `in_*` / `out_*` columns. Measurement columns are NULL.
+- `record_type = 'measurement'` — one row per recorded measurement. Carries the measurement payload plus the same denormalized step + run + DUT + station + fixture context as the corresponding step row.
 
-**The framework automatically captures ALL metadata when a measurement is produced.**
+Both kinds share grain `(run_id, step_path, vector_index)`; measurement rows are further keyed by `measurement_name`. A step that records N measurements emits 1 step row + N measurement rows.
 
-When `measure()` is called, Litmus knows:
-- Station, instruments, channels, VISA addresses
-- Fixture routing, DUT pins
-- Product spec, characteristics, limits
-- Input conditions and which instruments provided them
-- Operator, timestamps, sequence
+The canonical schema lives at `src/litmus/data/schemas.py` (`RUN_ROW_SCHEMA`); this page is a human-readable mirror of it.
 
-This is captured automatically—no user effort required.
-
-## File Structure
+## File layout
 
 ```
 results/runs/{date}/
-├── {timestamp}_{serial}.parquet           # Measurements (one row per measurement)
-├── {timestamp}_{serial}_steps.parquet     # Steps (one row per step)
-├── {timestamp}.parquet                    # Without serial (dev/debug)
-├── {timestamp}_steps.parquet              # Steps without serial
+├── {timestamp}_{serial}.parquet           # All step + measurement rows for one run
+├── {timestamp}.parquet                    # Same shape, no DUT serial (dev runs)
 └── {timestamp}_{serial}_ref/              # Reference data (waveforms, images, files)
     ├── {vector_id}_scope_waveform.npz
     ├── {vector_id}_camera_image.png
     └── ...
 ```
 
-**Key principles:**
-- **UTC timestamps** — Consistent cross-timezone analysis
-- **Chronological sorting** — Files sort naturally by time
-- **Self-describing** — Timestamp + serial tells you exactly what's in the file
-- **Portable** — Copy the file anywhere and you know what it is
+Timestamps are UTC and sort naturally. DuckDB / Spark / Polars / Pandas all read the file directly with `read_parquet`.
 
-## Schema Overview
-
-One row per measurement. Every column queryable. All metadata automatic.
-
-### Identity & Timing
+## Discriminator
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `run_id` | string | UUID of the test run |
-| `run_started_at` | timestamp | When run started |
-| `run_ended_at` | timestamp | When run ended |
-| `step_name` | string | Test function name |
-| `step_index` | int32 | 0-based step index |
-| `vector_index` | int64 | Vector index within step (flat across all expansion levels) |
-| `vector_retry` | int64 | 0-based retry counter (0 = first execution, N = Nth retry) |
-| `vector_started_at` | timestamp | When vector execution started |
-| `vector_ended_at` | timestamp | When vector execution ended |
+| `record_type` | string | `'step'` or `'measurement'` |
 
-### Who — Operator
+Every query starts here. To list steps: `WHERE record_type = 'step'`. To list measurements: `WHERE record_type = 'measurement'`. Both kinds: omit the filter.
+
+## Identity & timing
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `operator_id` | string | Operator ID (from `--operator`) |
+| `session_id` | string | Session UUID — groups runs that ran together in one `litmus serve` / `pytest` invocation |
+| `run_id` | string | Run UUID — primary key for the run |
+| `slot_id` | string | Multi-DUT slot ID (NULL for single-DUT runs) |
+| `run_started_at` | timestamp[us, UTC] | When the run started |
+| `run_ended_at` | timestamp[us, UTC] | When the run ended |
+| `step_name` | string | Test function or class name |
+| `step_index` | int64 | 0-based step order within the run |
+| `step_path` | string | Hierarchical path, e.g. `TestPower/test_efficiency` |
+| `parent_path` | string | Container path; empty for root steps. Enables tree reconstruction without joins. |
+| `step_started_at` | timestamp[us, UTC] | Step start (NULL for unrun planned steps) |
+| `step_ended_at` | timestamp[us, UTC] | Step end |
+| `step_node_id` | string | pytest node id (`tests/test_power.py::TestPower::test_efficiency`) |
+| `step_module` | string | Module name |
+| `step_file` | string | Source file path |
+| `step_class` | string | Class name (NULL for module-level functions) |
+| `step_function` | string | Function name |
+| `step_markers` | string | Marker payload summary |
+| `step_vector_count` | int32 | Total planned vectors for this step (1 for non-swept) |
+| `vector_index` | int64 | 0-based index within the step's sweep matrix |
+| `vector_retry` | int64 | 0-based retry counter (0 = first execution) |
+| `vector_started_at` | timestamp[us, UTC] | Vector start |
+| `vector_ended_at` | timestamp[us, UTC] | Vector end |
+
+## Who — operator
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `operator_id` | string | From `--operator` or env var |
 | `operator_name` | string | Human-readable name |
 
-### What — DUT
+## What — DUT
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `dut_serial` | string | Device serial number (from `--dut-serial`) |
-| `dut_part_number` | string | Part number |
+| `dut_serial` | string | From `--dut-serial` |
+| `dut_part_number` | string | Operator-facing product identifier (NOT `product_id`) |
 | `dut_revision` | string | Hardware revision |
 | `dut_lot_number` | string | Manufacturing lot |
 
-### What — Product
+## What — product spec
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `product_id` | string | Product ID from spec |
-| `product_name` | string | Human-readable name |
+| `product_id` | string | Internal product identifier from the product YAML |
+| `product_name` | string | Human-readable product name |
 | `product_revision` | string | Spec revision |
 
-### Where — Station
+## Where — station
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `station_id` | string | Station ID (from `--station`) |
-| `station_name` | string | Human-readable station name (from station config) |
-| `station_type` | string | Station type/template |
+| `station_id` | string | Station config id |
+| `station_name` | string | Human-readable station name |
+| `station_type` | string | Station type (template) |
 | `station_location` | string | Physical location |
+| `station_hostname` | string | Operator-facing identifier for the physical bench |
 
-### Where — Fixture
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `fixture_id` | string | Fixture identifier |
-
-### Where — Instruments
-
-Per-step instrument identity. Only the instruments actually used by a test step are included (auto-detected from pytest fixtures). All columns are `list[string]` — parallel arrays in the same order.
+## Where — fixture
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `instr_name` | list[string] | Role names (e.g., `["dmm", "psu"]`) |
-| `instr_id` | list[string] | Instrument file IDs (e.g., `["keithley_dmm_001"]`) |
-| `instr_driver` | list[string] | Driver class paths (e.g., `["drivers.Keithley2000"]`) |
-| `instr_resource` | list[string] | VISA addresses (e.g., `["GPIB::16::INSTR"]`) |
-| `instr_protocol` | list[string] | Protocols (e.g., `["visa"]`) |
-| `instr_manufacturer` | list[string] | Manufacturers from `*IDN?` or config |
-| `instr_model` | list[string] | Model numbers |
-| `instr_serial` | list[string] | Serial numbers |
-| `instr_firmware` | list[string] | Firmware versions |
-| `instr_cal_due` | list[string] | Calibration due dates (ISO 8601) |
-| `instr_cal_last` | list[string] | Last calibration dates (ISO 8601) |
-| `instr_cal_certificate` | list[string] | Calibration certificate numbers |
-| `instr_cal_lab` | list[string] | Calibration lab names |
+| `fixture_id` | string | Fixture YAML id |
 
-**Per-step tracking:** Each test step records only the instruments it uses. A test that calls `test_voltage(dmm, psu)` will have `instr_name = ["dmm", "psu"]`, not the full station inventory. This is auto-detected from the fixture parameters declared on the test function.
+## Where — instruments (dynamic `step_instruments_*`)
 
-**Identity source:** For real hardware, identity comes from `*IDN?` query at session start. For mock instruments, identity comes from the instrument YAML config files.
+Per-step instrument identity, captured from the pytest fixtures the test actually used. All columns are `list[string]` (one entry per instrument) and arrays stay in parallel order.
 
-**Querying instrument data:**
+| Column | Type | Description |
+|--------|------|-------------|
+| `step_instruments_name` | list[string] | Role names (e.g. `["dmm", "psu"]`) |
+| `step_instruments_id` | list[string] | Instrument file IDs |
+| `step_instruments_driver` | list[string] | Driver class paths |
+| `step_instruments_resource` | list[string] | VISA addresses |
+| `step_instruments_protocol` | list[string] | Protocols (`"visa"`, `"daqmx"`, …) |
+| `step_instruments_manufacturer` | list[string] | From `*IDN?` or YAML config |
+| `step_instruments_model` | list[string] | Model number |
+| `step_instruments_serial` | list[string] | Serial number |
+| `step_instruments_firmware` | list[string] | Firmware version |
+| `step_instruments_cal_due` | list[string] | Calibration due date (ISO 8601) |
+| `step_instruments_cal_last` | list[string] | Last cal date (ISO 8601) |
+| `step_instruments_cal_certificate` | list[string] | Cal certificate number |
+| `step_instruments_cal_lab` | list[string] | Cal lab name |
+| `step_instruments_mocked` | list[bool] | True if the instrument ran in mock mode |
+
+For real hardware, identity comes from `*IDN?` at session start. For mock instruments, identity comes from the instrument YAML configs.
+
 ```sql
 -- DuckDB: unnest parallel arrays for per-instrument queries
 SELECT
     step_name,
-    unnest(instr_name) AS instrument,
-    unnest(instr_serial) AS serial,
-    unnest(instr_cal_due) AS cal_due
-FROM read_parquet('results/runs/**/*.parquet');
-
--- Find measurements taken with instruments past calibration
-SELECT step_name, measurement_name, unnest(instr_name) AS instr,
-       unnest(instr_cal_due) AS cal_due
+    unnest(step_instruments_name) AS instrument,
+    unnest(step_instruments_serial) AS serial,
+    unnest(step_instruments_cal_due) AS cal_due
 FROM read_parquet('results/runs/**/*.parquet')
-WHERE list_has(instr_cal_due, (
-    SELECT d FROM unnest(instr_cal_due) AS t(d) WHERE d < current_date::text
-));
+WHERE record_type = 'step';
 ```
 
-### What — Test Context
+## Test context
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `sequence_id` | string | Test sequence ID |
-| `test_phase` | string | production/engineering/debug |
+| `test_phase` | string | `production` / `characterization` / `development` |
+| `project_name` | string | Project name from `litmus.yaml` |
 | `git_commit` | string | Code version at test time |
+| `git_branch` | string | Branch at test time |
+| `git_remote` | string | Remote URL at test time |
 
-### Configuration — Input Conditions (Dynamic `in_*`)
+## Input conditions (dynamic `in_*`)
 
-For each input parameter, columns are created dynamically:
+For each parametrize axis or sidecar sweep parameter, the writer emits a column. Types are inferred from values.
 
-| Column Pattern | Type | Description |
-|----------------|------|-------------|
-| `in_{param}` | float64 | Value commanded |
-| `in_{param}_instrument` | string | Instrument name ("psu_main") |
+| Column pattern | Type | Description |
+|---|---|---|
+| `in_{param}` | float64 / int64 / string | Value commanded for that axis |
+| `in_{param}_instrument` | string | Instrument name |
 | `in_{param}_resource` | string | VISA address at test time |
 | `in_{param}_channel` | string | Channel on instrument |
 | `in_{param}_dut_pin` | string | DUT pin driven |
 | `in_{param}_fixture_connection` | string | Fixture routing connection |
 
-**Example:** For a test with `vin` and `load` inputs:
-- `in_vin`, `in_vin_instrument`, `in_vin_resource`, `in_vin_channel`
-- `in_load`, `in_load_instrument`, `in_load_resource`, `in_load_channel`
+**Naming convention:**
 
-#### Naming Convention
+| Type | Pattern | Examples |
+|------|---------|----------|
+| Spec conditions | bare name | `in_temperature`, `in_load`, `in_vin` |
+| Implementation details | fixture-prefixed | `in_psu.voltage`, `in_dmm.sample_count` |
 
-Parameter names follow a convention that distinguishes spec-relevant conditions from implementation details:
+Bare names are spec-relevant for condition matching; prefixed names are stimulus/settings. Convention is enforced by docs, not by the writer.
 
-| Type | Pattern | Examples | Notes |
-|------|---------|----------|-------|
-| **Spec conditions** | Bare name | `in_temperature`, `in_load` | Match spec condition keys |
-| **Implementation details** | Fixture-prefixed | `in_psu.voltage`, `in_dmm.sample_count` | Stimulus/settings |
+## Observations (dynamic `out_*`)
 
-This convention is enforced by documentation, not code. When analyzing data:
-- Bare names (`in_temperature`, `in_load`) are spec-relevant for condition matching
-- Prefixed names (`in_psu.voltage`) are implementation details
+Observations are *measured* context — readings captured during the test, not commanded values.
 
-### Observation — Context Data (Dynamic `out_*`)
-
-Observations are measured context captured during test execution—not the commanded values (in_*), but actual readings that provide context for the measurement.
-
-| Column Pattern | Type | Description |
+| Column pattern | Type | Description |
 |----------------|------|-------------|
-| `out_{key}` | varies | Observed value (scalar, array, or path reference) |
+| `out_{key}` | varies | Observed value (scalar, array, or file reference) |
 
-**Examples:**
-- `out_temp_probe.temperature` — Actual temperature reading (24.8°C)
-- `out_temp_probe.humidity` — Humidity at time of test (45.2%)
-- `out_scope.waveform` — Raw waveform data or path reference
+Examples: `out_temp_probe.temperature`, `out_temp_probe.humidity`, `out_scope.waveform`.
 
-**Usage in test code:**
-```python
-def test_output_voltage(psu, dmm, temp_probe, context):
-    # Log environmental observations
-    context.observe("temp_probe.temperature", temp_probe.read())
-    context.observe("temp_probe.humidity", temp_probe.read_humidity())
+For non-scalar payloads, the value is a string starting with `_ref/`:
 
-    # Configure stimulus (if tracking actual applied values)
-    context.configure("psu.actual_voltage", psu.read_voltage())
-
-    # THE measurement
-    return dmm.measure_dc_voltage()
-```
-
-**File references** are stored in the `_ref/` directory with type-based formats:
-
-| Data Type | Storage Format | Column Value |
-|-----------|----------------|--------------|
-| Scalar (float, int, str, bool) | Inline | `3.31` |
+| Data Type | Storage format | Example column value |
+|-----------|----------------|----------------------|
+| Scalar (float / int / str / bool) | inline | `3.31` |
 | `Waveform` | `.npz` with t0, dt, Y, attrs | `_ref/{id}_scope_waveform.npz` |
 | `numpy.ndarray` | `.npy` compressed | `_ref/{id}_raw_samples.npy` |
-| `Path` | Copied, extension preserved | `_ref/{id}_debug_log.txt` |
+| `Path` | copied, extension preserved | `_ref/{id}_debug_log.txt` |
 | Pydantic model | `.json` | `_ref/{id}_protocol_trace.json` |
 | `bytes` | `.bin` | `_ref/{id}_raw_data.bin` |
 
-**Detecting file references:** Values starting with `_ref/` are file paths relative to the parquet file.
-
-**Loading file references:**
 ```python
 from litmus.data.backends.parquet import load_file, is_file_reference
 
-# Check if value is a file reference
 if is_file_reference(column_value):
     data = load_file(parquet_path, column_value)
 ```
 
-### Measurement — Core
+## Measurement core (on `record_type='measurement'` rows)
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `measurement_name` | string | "vout", "iout", "efficiency" |
-| `measurement_timestamp` | timestamp | When measured |
-| `value` | float64 | Measured value (always scalar) |
-| `units` | string | Units (V, A, %, etc.) |
-| `outcome` | string | pass/fail/error |
-| `low_limit` | float64 | Lower limit |
-| `high_limit` | float64 | Upper limit |
-| `nominal` | float64 | Expected value |
-| `comparator` | string | GELE, EQ, GT, etc. |
+| `measurement_name` | string | `"output_voltage"`, `"efficiency"`, ... |
+| `measurement_timestamp` | timestamp[us, UTC] | When the measurement was recorded |
+| `measurement_value` | float64 | Measured value (scalar; non-scalar payloads go to `_ref/` via `out_*`) |
+| `measurement_units` | string | Units (`V`, `A`, `%`, ...) |
+| `measurement_outcome` | string | `passed` / `failed` / `skipped` / `errored` / `aborted` / `terminated` / `done` |
 
-### Spec Traceability
+## Limits (on `record_type='measurement'` rows)
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `characteristic_id` | string | Characteristic ID for structured queries (e.g., "output_voltage") |
-| `spec_ref` | string | Human-readable reference with conditions (e.g., "Table 4.2 @ temp=25") |
+| `limit_low` | float64 | Lower bound (NULL if no lower limit) |
+| `limit_high` | float64 | Upper bound (NULL if no upper limit) |
+| `limit_nominal` | float64 | Expected / target value |
+| `limit_comparator` | string | `GELE`, `EQ`, `GE`, `LE`, `GELT`, `GTLE`, `GTLT`, `GT`, `LT`, `NE` |
 
-**`characteristic_id`** enables structured queries:
+## Spec traceability
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `characteristic_id` | string | Characteristic ID from the product YAML (e.g. `"output_voltage"`) |
+| `spec_ref` | string | Human-readable reference with conditions (e.g. `"Table 4.2 @ temp=25"`) |
+
 ```sql
--- Find all measurements for a specific characteristic
-SELECT * FROM results WHERE characteristic_id = 'output_voltage';
-
 -- Yield by characteristic across all products
-SELECT characteristic_id, product_id, AVG(CASE WHEN outcome='pass' THEN 1.0 ELSE 0.0 END) as yield
-FROM results
+SELECT characteristic_id, product_id,
+       AVG(CASE WHEN measurement_outcome='passed' THEN 1.0 ELSE 0.0 END) AS yield
+FROM read_parquet('results/runs/**/*.parquet')
+WHERE record_type = 'measurement'
 GROUP BY characteristic_id, product_id;
 ```
 
-**`spec_ref`** provides human-readable traceability for reports and documentation.
-
-### Measurement Signal Path
+## Measurement signal path
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `meas_dut_pin` | string | DUT pin measured |
-| `meas_fixture_connection` | string | Fixture routing connection |
-| `meas_instrument` | string | Instrument name ("dmm_main") |
-| `meas_instrument_resource` | string | VISA address |
-| `meas_instrument_channel` | string | Channel ("CH1") |
+| `dut_pin` | string | DUT pin that was measured |
+| `fixture_connection` | string | Fixture routing connection name |
+| `instrument_name` | string | Role name of the instrument that took the measurement |
+| `instrument_resource` | string | VISA address |
+| `instrument_channel` | string | Channel on the instrument |
 
-### Rollup Outcomes
+## Rollup outcomes
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `vector_outcome` | string | Did this vector pass/fail |
-| `run_outcome` | string | Did the entire run pass/fail |
+| `step_outcome` | string | Did this step pass overall |
+| `vector_outcome` | string | Did this vector pass |
+| `run_outcome` | string | Did the entire run pass |
 
-### Custom Metadata
+## Environment traceability
 
-Test architects can add custom columns via `run_context`:
+| Column | Type | Description |
+|--------|------|-------------|
+| `python_version` | string | e.g. `"3.13.1"` |
+| `litmus_version` | string | Installed Litmus version |
+| `env_fingerprint` | string | Hash of the lockfile + top-level deps |
+
+## Custom metadata
+
+Test code can add arbitrary columns via `run_context.set()`:
 
 ```python
-def test_example(run_context, psu, dmm):
+def test_example(run_context, psu, dmm, verify):
     run_context.set("operator_badge", "EMP-12345")
     run_context.set("fixture_serial", "FIX-001")
     run_context.set("ambient_temp", 23.5)
-    # ...
+    ...
 ```
 
-These become columns in the Parquet file:
-- `operator_badge`
-- `fixture_serial`
-- `ambient_temp`
+Those become Parquet columns prefixed `custom_*` with inferred types.
 
-## Steps Schema (`_steps.parquet`)
-
-One row per step (including steps that never executed). Sibling file alongside the measurements Parquet. Queryable with DuckDB independently.
-
-### Step Identity
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `index` | int32 | 0-based step order |
-| `name` | string | Test function name |
-| `node_id` | string | pytest node ID (`tests/test_power.py::test_voltage`) |
-| `file` | string | Source file path |
-| `function` | string | Function name |
-| `class` | string | Class name (nullable) |
-| `module` | string | Module name |
-| `step_path` | string | Full path (`parent::child`) |
-| `description` | string | Step description (nullable) |
-
-### Execution
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `outcome` | string | `pass`, `fail`, `error`, `skip`, `not_started` |
-| `started_at` | timestamp | Step start time (null for not_started) |
-| `ended_at` | timestamp | Step end time (null for not_started) |
-| `duration_s` | float64 | Wall-clock duration in seconds |
-
-### Counts
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `has_measurements` | bool | True if step produced measurements |
-| `measurement_count` | int32 | Number of measurements recorded |
-| `vector_count` | int32 | Number of test vectors |
-
-### Run Context (denormalized)
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `run_id` | string | UUID of the test run |
-| `session_id` | string | UUID of the session |
-| `dut_serial` | string | DUT serial number |
-| `station_id` | string | Station config ID |
-| `run_started_at` | timestamp | When the run started |
-
-### Example Query
-
-```sql
--- Step execution summary for a run
-SELECT name, outcome, duration_s, measurement_count
-FROM 'results/runs/**/*_steps.parquet'
-WHERE run_id = 'abc123'
-ORDER BY index
-
--- Find slowest steps across all runs
-SELECT name, AVG(duration_s) AS avg_s, COUNT(*) AS runs
-FROM 'results/runs/**/*_steps.parquet'
-WHERE outcome != 'not_started'
-GROUP BY name
-ORDER BY avg_s DESC
-
--- Coverage: which steps are never reached?
-SELECT name, COUNT(*) AS total,
-       SUM(CASE WHEN outcome = 'not_started' THEN 1 ELSE 0 END) AS never_ran
-FROM 'results/runs/**/*_steps.parquet'
-GROUP BY name
-HAVING never_ran > 0
-```
-
-## File-Level Metadata
-
-Metadata is stored in Parquet file-level metadata (not columns). Config snapshots (station, fixture, product spec) are tracked via git — the `git_commit` column in each row identifies the exact code and config state.
-
-| Key | Description |
-|-----|-------------|
-| `environment_json` | Environment snapshot (Python version, OS, litmus version, top-level deps, lockfile hash) |
-| `step_results` | Step results with outcomes, timing, and code identity (includes `not_started` for unexecuted steps) |
-| `litmus_version` | Litmus version |
-| `schema_version` | Schema version (2.0) |
-
-Access with PyArrow:
-```python
-import pyarrow.parquet as pq
-from litmus.environment import EnvironmentSnapshot
-
-pf = pq.ParquetFile("results/runs/2026-01-15/20260115T143025Z_SN001/measurements.parquet")
-metadata = pf.schema_arrow.metadata
-
-env = EnvironmentSnapshot.model_validate_json(metadata[b"environment_json"])
-print(f"Python: {env.python_version}, Litmus: {env.litmus_version}")
-```
-
-## Querying Examples
-
-### Load and Analyze a Run
-
-```python
-import pandas as pd
-
-df = pd.read_parquet("results/runs/2026-01-15/20260115T143025Z_SN001/measurements.parquet")
-
-# Filter to specific test step
-vout_tests = df[df["step_name"] == "test_output_voltage"]
-
-# Analyze by input condition
-print(vout_tests.groupby("in_vin")["value"].mean())
-
-# Find failures with full context
-failures = df[df["outcome"] == "fail"]
-print(failures[["step_name", "measurement_name", "value", "in_vin", "meas_instrument"]])
-```
-
-### Big Data Queries (DuckDB)
-
-```sql
--- Find yield by product and station across ALL runs
-SELECT
-    product_id,
-    station_id,
-    measurement_name,
-    COUNT(*) as total,
-    SUM(CASE WHEN outcome = 'pass' THEN 1 ELSE 0 END) as passed,
-    ROUND(100.0 * passed / total, 2) as yield_pct
-FROM read_parquet('results/runs/**/*.parquet')
-GROUP BY 1, 2, 3
-ORDER BY yield_pct ASC;
-
--- Which instrument had the most failures?
-SELECT meas_instrument, meas_instrument_resource, COUNT(*) as failures
-FROM read_parquet('results/runs/**/*.parquet')
-WHERE outcome = 'fail'
-GROUP BY 1, 2
-ORDER BY failures DESC;
-
--- Correlation: does input voltage affect output?
-SELECT
-    in_vin,
-    AVG(value) as avg_vout,
-    STDDEV(value) as std_vout
-FROM read_parquet('results/runs/**/*.parquet')
-WHERE measurement_name = 'vout'
-GROUP BY in_vin
-ORDER BY in_vin;
-```
-
-### Schema Auto-Discovery
-
-Parquet is self-describing—schema is embedded in each file:
-
-| Platform | Command |
-|----------|---------|
-| DuckDB | `DESCRIBE SELECT * FROM read_parquet('file.parquet')` |
-| Spark | `spark.read.parquet("path/").printSchema()` |
-| Polars | `pl.read_parquet("file.parquet").schema` |
-| Pandas | `pd.read_parquet("file.parquet").columns` |
-
-## Dynamic Schema
-
-**Schema varies per test—this is correct and unavoidable.**
-
-Different tests have different:
-- Configuration parameters (`in_*`): vin, load, temp, duty_cycle, ...
-- Observations (`out_*`): temp_probe.temperature, scope.waveform, ...
-- Measurements: vout, iout, efficiency, ...
-- Custom metadata
-
-When querying across runs, big data platforms handle this automatically:
-
-```sql
--- DuckDB/Spark union schemas; missing columns become NULL
-SELECT station_id, measurement_name, outcome, in_vin, in_temp, out_temp_probe.temperature
-FROM read_parquet('results/runs/**/*.parquet')
-WHERE in_vin IS NOT NULL  -- filter to tests that used vin
-```
-
-## Retry Handling
-
-All retries are stored. Each retry produces measurement rows with the same `vector_index` and different `vector_retry`:
-
-```
-vector_index | vector_retry | measurement_name | value | outcome
-0            | 0            | vout             | 3.50  | fail   ← first execution
-0            | 1            | vout             | 3.48  | fail   ← first retry
-0            | 2            | vout             | 3.30  | pass   ← second retry
-```
-
-`vector_retry` is **0-based**: `0` is the first execution; `N` is the Nth retry. Filter to the final execution with `WHERE vector_retry = (SELECT MAX(vector_retry) ...)` or, more idiomatically, query the daemon's `retry_count` rollup on the `steps` view: `WHERE retry_count > 0` finds anything that retried.
-
-## ATML/IEEE 1671 Alignment
-
-| Litmus Concept | ATML Equivalent |
-|----------------|-----------------|
-| `TestRun` | `TestResults` |
-| `TestStep` | `TestGroup` |
-| `TestVector` | (Conditions) |
-| `Measurement` | `Data` |
-| `DUT` | `UUT` |
-| `Outcome` | `OutcomeValue` |
-| `Comparator` | `Comparator` |
-| `meas_dut_pin` | `uutPort` |
-| `meas_instrument_channel` | `instrumentPort` |
-
-## Outcome Values
+## Outcome values
 
 | Value | Meaning |
 |-------|---------|
-| `pass` | All limits satisfied |
-| `fail` | One or more limits exceeded |
-| `skip` | Test was skipped |
-| `error` | Test encountered an error |
-| `aborted` | Test was aborted |
+| `passed` | All limits satisfied |
+| `failed` | One or more limits exceeded |
+| `skipped` | Test was skipped (`pytest.skip`, marker, or session-level skip) |
+| `errored` | Test errored before pass/fail could be decided |
+| `terminated` | Run was terminated (keyboard interrupt, signal) |
+| `aborted` | Run was aborted by operator |
+| `done` | Container outcome — work finished, no measurements |
 
-## Comparator Values
+Source of truth: `src/litmus/data/models.py` (`Outcome`).
 
-| Comparator | Pass Condition |
+## Comparator values
+
+| Comparator | Pass condition |
 |------------|----------------|
 | `GELE` | `low <= value <= high` (default) |
 | `GELT` | `low <= value < high` |
@@ -517,120 +296,119 @@ vector_index | vector_retry | measurement_name | value | outcome
 | `LE` | `value <= high` |
 | `LT` | `value < high` |
 
-## Context API
+## Retries
 
-The `Context` provides methods for recording `in_*` and `out_*` data during test execution. Context is hierarchical with scoped inheritance:
+All retries are stored. Each retry produces measurement rows with the same `vector_index` and an incremented `vector_retry`:
 
-- **Run level**: Data visible to all steps and vectors
-- **Step level**: Data visible to all vectors in that step
-- **Vector level**: Data visible only to that vector
-
-Data set at parent level is inherited by children. Children can override parent values locally.
-
-```python
-def test_output_voltage(psu, dmm, temp_probe, harness):
-    ctx = harness.context  # Current active context (vector > step > run)
-
-    # Semantic methods (preferred)
-    ctx.configure("psu.voltage", 5.0)              # → in_psu.voltage
-    ctx.observe("temp_probe.temperature", 24.8)    # → out_temp_probe.temperature
-
-    # Explicit aliases
-    ctx.set_in("psu.voltage", 5.0)
-    ctx.set_out("temp_probe.temperature", 24.8)
-
-    # Bulk operations
-    ctx.configure_all({"psu.voltage": 5.0, "eload.current": 0.8})
-    ctx.observe_all({"temp_probe.temperature": 24.8, "temp_probe.humidity": 45})
-
-    # Direct set (aliases)
-    ctx.set_params({"psu.voltage": 5.0})
-    ctx.set_observations({"temp_probe.temperature": 24.8})
-
-    # Read back (includes inherited values from parent contexts)
-    voltage = ctx.get_param("psu.voltage")
-    all_inputs = ctx.params     # Dict of all in_* values (merged with parents)
-    all_outputs = ctx.observations   # Dict of all out_* values (merged with parents)
-
-    return dmm.measure_dc_voltage()
+```
+vector_index | vector_retry | measurement_name | measurement_value | measurement_outcome
+0            | 0            | output_voltage   | 3.50              | failed   ← first execution
+0            | 1            | output_voltage   | 3.48              | failed   ← first retry
+0            | 2            | output_voltage   | 3.30              | passed   ← second retry
 ```
 
-### Context Inheritance Example
+Filter to the final execution with `WHERE vector_retry = (SELECT MAX(vector_retry) ...)` or use the daemon's `runs` view, which already rolls `retry_count` per `(run_id, step_path, vector_index)`.
+
+## File-level metadata
+
+Beyond columns, each Parquet file carries metadata:
+
+| Key | Description |
+|-----|-------------|
+| `environment_json` | Full environment snapshot (Python version, OS, Litmus version, top-level deps, lockfile hash) |
+| `litmus_version` | Litmus version that produced this file |
+| `schema_version` | Schema version (`"1.0"` at time of writing — see `SCHEMA_VERSION` in `src/litmus/data/schemas.py`) |
 
 ```python
-# Run-level context (persists across all tests)
-harness.run_context.configure("operator", "jane")
+import pyarrow.parquet as pq
+from litmus.environment import EnvironmentSnapshot
 
-with harness.step():
-    # Step-level context (inherits from run)
-    harness.context.configure("fixture.id", "FIX-01")
-
-    with harness.run_vector(Vector(temp=25)):
-        # Vector context inherits from step and run
-        harness.context.params
-        # → {"operator": "jane", "fixture.id": "FIX-01", "temp": 25}
-
-    with harness.run_vector(Vector(temp=85)):
-        # Fresh vector context, still inherits step and run
-        harness.context.params
-        # → {"operator": "jane", "fixture.id": "FIX-01", "temp": 85}
+pf = pq.ParquetFile("results/runs/2026-05-16/T143025Z_SN001.parquet")
+metadata = pf.schema_arrow.metadata
+env = EnvironmentSnapshot.model_validate_json(metadata[b"environment_json"])
+print(f"Python {env.python_version}, Litmus {env.litmus_version}")
 ```
 
-**Note:** Vector params from config are automatically populated as `in_*` columns. Use `configure()` to add implementation details (fixture-prefixed names) or readback values.
+## Querying examples
 
-## Waveform Model
+### Load a run with pandas
 
-The `Waveform` model captures time-series data with efficient storage:
-
-```python
-from litmus.data.models import Waveform
-
-# Create waveform from scope data
-waveform = Waveform(
-    t0=0.0,           # Start time (seconds from trigger)
-    dt=1e-6,          # Sample interval (1 µs)
-    Y=[0.1, 0.2, ...], # Sample values
-    attrs={           # Metadata
-        "channel": "CH1",
-        "units": "V",
-        "coupling": "DC",
-    }
-)
-
-# Properties
-print(waveform.num_samples)  # Number of samples
-print(waveform.duration)     # Total duration in seconds
-time = waveform.time_axis()  # Reconstructed time array
-```
-
-**Storing waveforms:**
-```python
-def test_transient(context, scope, harness):
-    scope.trigger_single()
-    waveform = scope.fetch_waveform("CH1")
-
-    # Observe stores to _ref/ automatically
-    harness.context.observe("scope.waveform", waveform)
-
-    return analyze_peak(waveform.Y)
-```
-
-**Loading waveforms:**
 ```python
 import pandas as pd
-from litmus.data.backends.parquet import load_file
 
-df = pd.read_parquet("results/runs/2026-01-28/run.parquet")
-row = df.iloc[0]
+df = pd.read_parquet("results/runs/2026-05-16/T143025Z_SN001.parquet")
 
-# Load waveform from _ref/
-if row["out_scope_waveform"].startswith("_ref/"):
-    waveform = load_file(parquet_path, row["out_scope_waveform"])
-    # waveform is a Waveform object with t0, dt, Y, attrs
+# Step rows
+steps = df[df["record_type"] == "step"]
+# Measurement rows with full context
+measurements = df[df["record_type"] == "measurement"]
+
+# Failures with full context
+failures = measurements[measurements["measurement_outcome"] == "failed"]
+print(failures[["step_name", "measurement_name", "measurement_value",
+                "limit_low", "limit_high", "dut_pin", "instrument_name"]])
 ```
 
-## See Also
+### Yield by station with DuckDB
 
-- [Data Models](models.md) — Pydantic model reference
-- [Traceability](../guides/traceability.md) — Signal path traceability
-- [Test Harness](../integration/harness.md) — Recording measurements
+```sql
+SELECT
+    product_id,
+    station_id,
+    measurement_name,
+    COUNT(*) AS total,
+    SUM(CASE WHEN measurement_outcome = 'passed' THEN 1 ELSE 0 END) AS passed,
+    ROUND(100.0 * SUM(CASE WHEN measurement_outcome = 'passed' THEN 1 ELSE 0 END) / COUNT(*), 2) AS yield_pct
+FROM read_parquet('results/runs/**/*.parquet')
+WHERE record_type = 'measurement'
+GROUP BY 1, 2, 3
+ORDER BY yield_pct ASC;
+```
+
+### Cross-run instrument-failure correlation
+
+```sql
+SELECT
+    instrument_name,
+    instrument_resource,
+    COUNT(*) AS failures
+FROM read_parquet('results/runs/**/*.parquet')
+WHERE record_type = 'measurement'
+  AND measurement_outcome = 'failed'
+GROUP BY 1, 2
+ORDER BY failures DESC;
+```
+
+### Slowest steps across runs
+
+```sql
+SELECT
+    step_name,
+    AVG(EPOCH(step_ended_at) - EPOCH(step_started_at)) AS avg_seconds,
+    COUNT(*) AS runs
+FROM read_parquet('results/runs/**/*.parquet')
+WHERE record_type = 'step'
+  AND step_started_at IS NOT NULL
+GROUP BY step_name
+ORDER BY avg_seconds DESC;
+```
+
+## ATML / IEEE 1671 alignment
+
+| Litmus column | ATML equivalent |
+|---|---|
+| `TestRun` (`run_id`) | `TestResults` |
+| `record_type='step'` | `TestGroup` |
+| `vector_index` | (Conditions) |
+| `record_type='measurement'` | `Data` |
+| `DUT` (`dut_*`) | `UUT` |
+| `measurement_outcome` | `OutcomeValue` |
+| `limit_comparator` | `Comparator` |
+| `dut_pin` | `uutPort` |
+| `instrument_channel` | `instrumentPort` |
+
+## See also
+
+- [Models](models.md) — Pydantic model index + ERD
+- [Event types](event-types.md) — the event-log payloads that source these rows
+- [Measurement traceability](../how-to/traceability.md) — how the signal-path columns get populated

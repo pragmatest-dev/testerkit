@@ -28,7 +28,7 @@ Litmus provides **infrastructure services** that any test runner can use:
 │  │ • Products    │  │ • DMM, PSU    │  │ • Capabilities│              │
 │  │ • Stations    │  │ • Scope       │  │ • Compatibility│             │
 │  │ • Fixtures    │  │ • ELoad       │  │ • Requirements│              │
-│  │ • Sequences   │  │ • Simulation  │  │               │              │
+│  │               │  │ • Simulation  │  │               │              │
 │  └───────────────┘  └───────────────┘  └───────────────┘              │
 │                                                                         │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐              │
@@ -59,7 +59,7 @@ Litmus provides **infrastructure services** that any test runner can use:
 Litmus **does not** include a test execution engine. Instead, it integrates with existing runners:
 
 - **pytest** — Primary integration via pytest plugin
-- **OpenHTF** — Migration adapter for existing test suites
+- **OpenHTF** — Migration adapter for existing test suites (OpenHTF is Google's open-source hardware-test framework)
 - **Custom runners** — Results API for any test source
 
 ## Multiple Entry Points
@@ -98,48 +98,34 @@ The plugin provides:
 
 ## Migration Path (OpenHTF Adapter)
 
-For teams with existing OpenHTF test suites:
-
-```python
-from litmus.integration.openhtf import LitmusExecutor
-
-# Use Litmus with existing OpenHTF test
-with LitmusExecutor(station="bench_1", dut_serial="SN123") as executor:
-    executor.execute(my_openhtf_test)
-```
-
-The adapter:
-- Uses Litmus instruments and configuration
-- Stores results in Litmus format
-- Preserves existing test logic
+For teams with existing OpenHTF test suites, Litmus offers an incremental
+migration path that preserves existing test logic while routing results
+into Litmus storage. See the [OpenHTF adapter guide](../integration/openhtf-adapter.md)
+for the supported migration strategies (results bridge, plug-as-driver
+refactor, full pytest port).
 
 ## Catch-All (Results API)
 
 For any test source (LabVIEW, TestStand, custom scripts):
 
 ```python
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 client = LitmusClient()
 
-# Record results from any source
-run = client.create_run(
+run = client.start_run(
     dut_serial="SN123",
     station_id="bench_1",
-    test_sequence_id="external_test",
+    test_phase="production",
 )
 
-client.log_measurement(
-    run_id=run.id,
-    name="output_voltage",
-    value=3.31,
-    units="V",
-    low_limit=3.135,
-    high_limit=3.465,
-)
+with run.step("output_voltage") as step:
+    step.measure("output_voltage", 3.31, units="V", low=3.135, high=3.465)
 
-client.complete_run(run.id)
+run.finish()
 ```
+
+See the [Python client reference](../reference/client.md) for the full surface (`start_run`, `RunBuilder.step`, `StepBuilder.measure`, `VectorBuilder` for parametrized steps).
 
 ## AI Integration (MCP)
 
@@ -152,15 +138,19 @@ AI Agent (Claude Code)
 ┌───────────────────────────────────────┐
 │           MCP Server                   │
 ├───────────────────────────────────────┤
-│ Tools:                                │
-│ • litmus (CRUD operations)           │
-│ • litmus_discover (find instruments) │
-│ • litmus_match (capability check)    │
-│ • litmus_run (execute tests)         │
-│ • litmus_open (browser URLs)         │
-│ • litmus_events (query events)       │
-│ • litmus_sessions (list sessions)    │
-│ • litmus_channels (query channels)   │
+│ Tools (twelve, all `litmus_*`):        │
+│ • litmus_project (CRUD on YAML)        │
+│ • litmus_discover (find instruments)   │
+│ • litmus_match (capability check)      │
+│ • litmus_run (execute tests)           │
+│ • litmus_open (browser URLs)           │
+│ • litmus_schema (entity JSON schema)   │
+│ • litmus_events (query events)         │
+│ • litmus_sessions (list sessions)      │
+│ • litmus_channels (query channels)     │
+│ • litmus_metrics (yield / Pareto / Cpk)│
+│ • litmus_runs (query runs view)        │
+│ • litmus_steps (query steps view)      │
 └───────────────────────────────────────┘
         │
         ▼

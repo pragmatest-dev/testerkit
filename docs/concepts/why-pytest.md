@@ -1,6 +1,6 @@
 # Why pytest?
 
-Litmus uses pytest as its test runner. Tests are **plain pytest** — no decorator, no base class. Litmus contributes three fixtures (`context`, `verify`, `logger`), a handful of markers, and a sidecar YAML; everything else is stock pytest.
+Litmus uses pytest as its test runner. Tests are **plain pytest** — no decorator, no base class. Litmus contributes [20 fixtures](../reference/litmus-fixtures.md) (of which `context`, `verify`, and `logger` are the three you hit every test), [seven markers](../reference/litmus-markers.md), and a [sidecar YAML](../reference/configuration.md); everything else is stock pytest.
 
 This page explains what you get for free — features you'd otherwise build and maintain yourself. For the pytest fundamentals (discovery, markers, fixtures, parametrize, CLI), the official docs at <https://docs.pytest.org/> are authoritative.
 
@@ -32,7 +32,7 @@ No proprietary IDE. No new test language. No vendor lock-in. Runs with `pytest`,
 | Measurement/event persistence     | `logger.measure(name, v, ...)` → parquet, traceable  |
 | Product-spec-driven limits + pins | `verify(name, v)` resolves from product YAML     |
 | Vector parameters + change detect | `context.get_param(k)`, `context.changed(k)`         |
-| Operator-editable sweeps          | Sidecar `test_<module>.yaml` `vectors:` overrides    |
+| Operator-editable sweeps          | Sidecar `test_<module>.yaml` `sweeps:` overrides     |
 | Instrument role fixtures          | Station config → `dmm`, `psu`, `scope` auto-fixtures |
 | Mock mode                         | `--mock-instruments`, sidecar `mocks:`, `pytest-mock` |
 | Session flags                     | `--station`, `--product`, `--operator`, `--dut-serial`, `--test-phase` |
@@ -42,10 +42,12 @@ Retries and explicit test dependencies are **ecosystem plugins**, not Litmus add
 
 ## Why this matters for AI assistants
 
-When an AI writes or debugs your tests, pytest is the framework it knows best. LLMs have read the pytest docs thousands of times. Custom sequencers require teaching the tool the API from scratch every time. By building on pytest, Litmus inherits all of that training for free — the only things the AI needs to learn are the three fixtures (`context`, `verify`, `logger`) and one marker (`litmus_limits`).
+When an AI writes or debugs your tests, pytest is the framework it knows best. LLMs have read the pytest docs thousands of times. A custom test runner requires teaching the tool the API from scratch every time. By building on pytest, Litmus inherits all of that training for free — the AI only has to learn Litmus's added vocabulary on top: the [20 fixtures](../reference/litmus-fixtures.md) (most often `context`, `verify`, `logger`, `pins`, `instruments`, plus the per-instrument-role fixtures from the active station), and the [seven markers](../reference/litmus-markers.md) (`litmus_limits`, `litmus_sweeps`, `litmus_mocks`, `litmus_characteristics`, `litmus_connections`, `litmus_retry`, `litmus_prompts`).
 
 ## Next steps
 
-- [Writing Tests](../guides/writing-tests.md) — end-to-end patterns
-- [pytest-native reference](../reference/pytest-native.md) — fixture card
+- [Writing Tests](../how-to/writing-tests.md) — end-to-end patterns
+- [Litmus fixtures](../reference/litmus-fixtures.md) — all 20 plugin fixtures
+- [Litmus markers](../reference/litmus-markers.md) — the seven `litmus_*` markers
+- [pytest-native reference](../reference/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
 - [pytest docs](https://docs.pytest.org/en/stable/) — official reference for everything that isn't Litmus-specific

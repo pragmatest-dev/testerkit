@@ -2,30 +2,36 @@
 
 Each Litmus run produces **one sealed parquet** at
 `results/runs/{date}/{timestamp}_{serial}.parquet`. The parquet's unified
-`RUN_ROW_SCHEMA` carries three row kinds, distinguished by an explicit
+`RUN_ROW_SCHEMA` carries two row kinds, distinguished by an explicit
 `record_type` column:
 
 | `record_type` | Cardinality | Carries |
 |---|---|---|
-| `'run'` | 1 row per parquet | Run-level identity (run_id, dut_serial, station, fixture, environment); measurement & step columns NULL |
-| `'step'` | One per `(step_path, vector_index)` | Step identity + outcome + timing; measurement columns NULL |
-| `'measurement'` | One per recorded measurement | Full measurement payload + denormalized step + run context |
+| `'step'` | One per `(step_path, vector_index)` | Step identity + outcome + timing + denormalized run / DUT / station context; measurement columns NULL |
+| `'measurement'` | One per recorded measurement | Full measurement payload + the same denormalized step + run context |
+
+Run-level identity (`run_id`, `dut_serial`, `station_*`, environment,
+git) is denormalized onto **every** row — there is no separate `'run'`
+record type to filter for. Reconstruct a runs-table either by taking
+the `DISTINCT` run-level columns from any row kind, or by reading the
+first row of each parquet file.
 
 This file is everything you need for a single run — sealed, atomic,
 write-once, portable. Drop the directory into S3, GCS, or your local lake;
 ingest however your warehouse/lakehouse prefers.
 
-This page shows the canonical 3-line transform for splitting a Litmus
-parquet into the three logical tables your warehouse expects.
+This page shows the canonical transform for splitting a Litmus parquet
+into the logical tables your warehouse expects.
 
 ## DuckDB (local, native)
 
 ```sql
--- One file → three tables
+-- One file → three tables. Run identity is denormalized; derive runs from DISTINCT.
 INSERT INTO runs
-SELECT * EXCLUDE (record_type, measurement_name, measurement_value, /* … */)
-FROM read_parquet('results/runs/2026-05-08/12-00_SN001.parquet')
-WHERE record_type = 'run';
+SELECT DISTINCT run_id, session_id, run_started_at, run_ended_at,
+       dut_serial, dut_part_number, station_id, station_hostname,
+       run_outcome, project_name, git_commit
+FROM read_parquet('results/runs/2026-05-08/12-00_SN001.parquet');
 
 INSERT INTO steps
 SELECT * EXCLUDE (record_type, measurement_name, measurement_value, /* … */)
@@ -50,12 +56,11 @@ CREATE OR REPLACE STAGE litmus_runs
   URL='s3://my-bucket/data/runs/'
   FILE_FORMAT = (TYPE = PARQUET);
 
--- Three filtered COPY INTOs per file (or use Snowflake tasks for batch)
+-- runs is derived via DISTINCT — run identity is denormalized onto every row
 COPY INTO runs FROM (
-  SELECT $1:run_id::STRING, $1:dut_serial::STRING, /* ... */
+  SELECT DISTINCT $1:run_id::STRING, $1:dut_serial::STRING, /* ... */
   FROM @litmus_runs/2026-05-08/12-00_SN001.parquet
   (FILE_FORMAT => 'PARQUET')
-  WHERE $1:record_type = 'run'
 );
 
 COPY INTO steps        FROM (… WHERE $1:record_type = 'step');
@@ -75,12 +80,11 @@ OPTIONS (
   uris = ['gs://my-bucket/data/runs/*.parquet']
 );
 
--- Materialize three logical tables via filtered INSERTs
+-- Materialize three logical tables: runs via DISTINCT, others via record_type filter
 INSERT INTO litmus.runs
-SELECT run_id, dut_serial, station_hostname, run_started_at, run_ended_at,
+SELECT DISTINCT run_id, dut_serial, station_hostname, run_started_at, run_ended_at,
        run_outcome, /* ... */
-FROM litmus.run_rows
-WHERE record_type = 'run';
+FROM litmus.run_rows;
 
 INSERT INTO litmus.steps        SELECT … WHERE record_type = 'step';
 INSERT INTO litmus.measurements SELECT … WHERE record_type = 'measurement';
@@ -93,12 +97,13 @@ import pyspark.sql.functions as F
 
 df = spark.read.parquet("s3://my-bucket/data/runs/")
 
-(df.where(F.col("record_type") == "run")
-   .drop("measurement_name", "measurement_value", /* ... */)
+# runs is the DISTINCT projection of run-level columns from any row
+(df.select("run_id", "dut_serial", "station_hostname",
+           "run_started_at", "run_ended_at", "run_outcome").distinct()
    .write.mode("append").format("delta").saveAsTable("litmus.runs"))
 
 (df.where(F.col("record_type") == "step")
-   .drop("measurement_name", "measurement_value", /* ... */)
+   .drop("measurement_name", "measurement_value")
    .write.mode("append").format("delta").saveAsTable("litmus.steps"))
 
 (df.where(F.col("record_type") == "measurement")
@@ -118,8 +123,8 @@ WITH (
   format = 'PARQUET'
 );
 
--- Three filtered INSERTs into the target Iceberg tables
-INSERT INTO litmus.runs         SELECT … FROM litmus.run_rows WHERE record_type = 'run';
+-- runs is the DISTINCT projection; steps / measurements filter by record_type
+INSERT INTO litmus.runs         SELECT DISTINCT run_id, dut_serial, … FROM litmus.run_rows;
 INSERT INTO litmus.steps        SELECT … FROM litmus.run_rows WHERE record_type = 'step';
 INSERT INTO litmus.measurements SELECT … FROM litmus.run_rows WHERE record_type = 'measurement';
 ```
@@ -129,8 +134,10 @@ INSERT INTO litmus.measurements SELECT … FROM litmus.run_rows WHERE record_typ
 ```python
 import duckdb
 
-# Three logical views over the parquet glob
-runs   = duckdb.sql("SELECT * FROM read_parquet('results/runs/*/*.parquet') WHERE record_type = 'run'").df()
+# Three logical views over the parquet glob.
+# runs is DISTINCT over the denormalized run-identity columns; the other
+# two filter by record_type.
+runs   = duckdb.sql("SELECT DISTINCT run_id, dut_serial, station_hostname, run_started_at, run_ended_at, run_outcome FROM read_parquet('results/runs/*/*.parquet')").df()
 steps  = duckdb.sql("SELECT * FROM read_parquet('results/runs/*/*.parquet') WHERE record_type = 'step'").df()
 meas   = duckdb.sql("SELECT * FROM read_parquet('results/runs/*/*.parquet') WHERE record_type = 'measurement'").df()
 ```

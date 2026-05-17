@@ -12,13 +12,15 @@ By default, all litmus results write to a shared directory:
 └── sessions/    # Session index
 ```
 
+(See [three-stores](three-stores.md) for what each directory holds: `events/` is the typed [event log](event-log.md), `channels/` is the [ChannelStore](three-stores.md) time-series segments, `runs/` is the materialized Parquet view, `sessions/` is the lightweight session index.) Each Parquet (Apache Parquet — the columnar storage format DuckDB and Spark both read natively) file is one run.
+
 This means every project on the machine shares one results pool. `litmus runs`, `litmus serve`, and DuckDB queries see everything.
 
 **Resolution order** (first match wins):
 
 1. Explicit `--data-dir` argument or `data_dir=` parameter
 2. `data_dir` in project `litmus.yaml`
-3. `LITMUS_RESULTS_DIR` environment variable
+3. `LITMUS_HOME` environment variable
 4. `~/.local/share/litmus/data/` (platform default)
 
 To isolate a project's results, add to `litmus.yaml`:
@@ -36,7 +38,7 @@ When querying across files with different schemas, missing columns appear as NUL
 
 ```sql
 -- DuckDB handles mixed schemas automatically
-SELECT station_id, project_name, outcome
+SELECT station_id, project_name, run_outcome
 FROM read_parquet('~/.local/share/litmus/data/runs/**/*.parquet',
                   union_by_name=true)
 ```
@@ -59,15 +61,15 @@ hold and the project must not break them:
   identity in the materialized table; `(run_id, step_path,
   vector_index, measurement_name, vector_retry)` discriminates
   measurement rows. These tuples do not change shape in 0.x.
-- **`record_type` discriminator stable.** The `'run'` / `'step'` /
-  `'measurement'` values are part of the wire format and do not change.
+- **`record_type` discriminator stable.** The `'step'` / `'measurement'`
+  values are part of the wire format and do not change.
 - **Read with `union_by_name=true`.** Consumer queries that follow the
   recommended `read_parquet(..., union_by_name=true)` pattern survive
   every additive evolution automatically.
 
 Schema rewrites and column removals are deferred to the 1.0 cut, when
 a migration story for old files lands. See
-[API stability framing](../explorations/api-stability-and-versioning.md)
+[API stability framing](../_internal/explorations/api-stability-and-versioning.md)
 for the broader HARD vs SOFT contract picture.
 
 ## The query index

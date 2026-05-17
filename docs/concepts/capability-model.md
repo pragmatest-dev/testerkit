@@ -29,7 +29,7 @@ This is the `Capability` base class. Both `InstrumentCapability` and `ProductCha
 
 ## Functions (MeasurementFunction enum)
 
-The `function` field uses a flat enum of ~51 named signal types. These come from three sources:
+The `function` field uses a flat enum of ~70 named signal types. These come from three sources:
 
 | Source | What it contributed |
 |--------|-------------------|
@@ -103,7 +103,7 @@ attributes:                      # Fixed hardware facts
 | `range` | `{min, max, units}` | Value range (e.g., 0 to 1000 V) |
 | `accuracy` | `{pct_reading, pct_range, absolute, units}` | How close to true value |
 | `resolution` | `{digits, value, units}` | Smallest distinguishable change |
-| `specs` | `list[SpecBand]` | Condition-dependent specs (see below) |
+| `bands` | `list[SpecBand]` | Condition-dependent specs (see below) |
 
 **Conditions** — operating parameters that affect other parameters' accuracy:
 | Field | Type | Description |
@@ -207,7 +207,7 @@ The `when` keys reference the flat union of `signals`, `conditions`, and `contro
 
 ### Condition Keys (ConditionKey enum)
 
-`ConditionKey` is a shared vocabulary for the `conditions` dict (30 canonical keys), not enforced at the model level. These keys were derived from auditing 150+ instrument datasheets:
+`ConditionKey` is a shared vocabulary for the `conditions` dict (27 canonical keys), not enforced at the model level. These keys were derived from auditing 150+ instrument datasheets:
 
 | Category | Keys |
 |----------|------|
@@ -230,7 +230,7 @@ name: "DC-DC Converter Board"
 pins:
   VOUT:
     name: "J1.3"
-    type: signal
+    role: signal
 
 characteristics:
   rail_3v3:

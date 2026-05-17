@@ -15,8 +15,7 @@ same rule pytest applies to stacked decorators.
 
 ## Sidecar YAML
 
-A sidecar `test_<module>.yaml` next to the test file carries vectors, limits,
-and mocks for the tests in that module:
+A **sidecar** is a YAML file next to your test module (`test_foo.py` → `test_foo.yaml`) carrying vectors, limits, and mocks for that file's tests. See [reference/configuration](../reference/configuration.md) for the full schema.
 
 ```yaml
 # tests/test_power.yaml
@@ -62,7 +61,7 @@ def test_output_voltage(vin, context, psu, dmm, logger):
     logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-The `@pytest.mark.litmus_sweeps(...)` form is also available for inline use
+The [`@pytest.mark.litmus_sweeps(...)`](../reference/litmus-markers.md#litmus_sweeps) form is also available for inline use
 of the runner-neutral vector vocabulary:
 
 ```python
@@ -138,8 +137,7 @@ YAML (sidecars, profiles, stations, products).
 
 ## Product with Change Detection
 
-Put slow-changing parameters first. Use `context.changed()` to detect outer
-loop changes:
+Put slow-changing parameters first. Use `context.changed(key)` — returns True iff this iteration's value differs from the previous iteration's — to detect outer loop changes:
 
 ```yaml
 sweeps:
@@ -159,7 +157,7 @@ def test_temp_sweep(context, chamber, dmm, logger):
 
 ## Retries
 
-For flaky tests, use the pytest ecosystem:
+For flaky tests, use the pytest ecosystem (the [`@pytest.mark.flaky`](https://github.com/pytest-dev/pytest-rerunfailures) marker is provided by `pytest-rerunfailures`):
 
 ```python
 import pytest

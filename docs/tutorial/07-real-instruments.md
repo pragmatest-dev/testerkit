@@ -8,7 +8,7 @@ A test that works with real instruments OR in mock mode using the same code.
 
 ## Station Configuration
 
-Define your test station (the bench where you test):
+Define your test station (the bench where you test). The `driver:` value points at a [PyMeasure](https://pymeasure.readthedocs.io/) (or [PyVISA](https://pyvisa.readthedocs.io/)) driver class:
 
 ```yaml
 # stations/bench_1.yaml
@@ -113,6 +113,8 @@ In CI, always run with `--mock-instruments`:
 
 ## VISA Address Formats
 
+VISA (Virtual Instrument Software Architecture) is the cross-vendor standard for addressing test instruments — every PyVISA-backed driver uses one of these resource strings.
+
 | Type | Format | Example |
 |------|--------|---------|
 | TCP/IP | `TCPIP::host::INSTR` | `TCPIP::192.168.1.100::INSTR` |
@@ -156,23 +158,17 @@ instruments:
       voltage: 5.0
 ```
 
-**sequences/smoke.yaml:**
+**tests/test_power.yaml** (sidecar):
 ```yaml
-id: smoke
-name: "Smoke Test"
-test_phase: development
-
-steps:
-  - id: output_voltage
-    test: tests/test_power.py::test_output_voltage
-    limits:
-      test_output_voltage:
-        low: 3.135
-        high: 3.465
-        nominal: 3.3
-        units: V
-    mocks:
-      dmm.measure_voltage: 3.31
+limits:
+  output_voltage:
+    low: 3.135
+    high: 3.465
+    nominal: 3.3
+    units: V
+mocks:
+  - target: dmm.measure_voltage
+    return_value: 3.31
 ```
 
 **tests/test_power.py:**
@@ -204,7 +200,7 @@ pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SI
 - Station configuration with instruments and `mock_config`
 - Instrument role fixtures from station config (e.g. `psu`, `dmm`)
 - `--mock-instruments` flag for hardware-free testing
-- Per-test mock values with `mocks` in sequence steps
+- Per-test mock values with `mocks` in the sidecar YAML
 - VISA address formats
 
 ## Next Step

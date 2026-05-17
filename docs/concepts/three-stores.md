@@ -14,11 +14,11 @@ Litmus uses three complementary data stores, each optimized for a different acce
 
 The event log captures every significant action as a typed event. It is the canonical record of what happened.
 
-- **Write path:** `EventLog.emit()` → buffered Arrow IPC → Flight `do_put` to DuckDB
+- **Write path:** `EventLog.emit()` → buffered Arrow IPC → Flight `do_put` to DuckDB (see [flight-streaming](flight-streaming.md) for `do_put`/`do_get` / DuckDB daemon details; Arrow IPC is Apache Arrow's on-disk record-batch format)
 - **Read path:** SQL via Flight `do_get`, or direct IPC file reads
 - **Storage:** `results/events/{date}/{session_id}.arrow`
 
-Events are normalized — `SessionStarted` carries run metadata once, `MeasurementRecorded` carries only measurement fields. Subscribers denormalize at write time.
+Events are normalized — `SessionStarted` carries session/station/operator metadata once (and must NOT carry `run_id`); `RunStarted` carries the run/DUT context per test run; `MeasurementRecorded` carries only measurement fields. Subscribers denormalize at write time.
 
 ## ChannelStore — Time-Series Data
 
@@ -39,6 +39,10 @@ The Parquet backend produces analysis-ready files with one row per measurement, 
 - **Storage:** `results/runs/{date}/{timestamp}_{serial}.parquet`
 
 The Parquet files are a **materialized view** of the event stream. They can be regenerated from events if the schema changes.
+
+### Live streaming + crash safety
+
+During execution, the materializer holds row state in-process and flushes to a single per-run parquet at run end. The operator UI subscribes to the in-process event stream for live updates — there is no separate JSONL journal on disk. If the process is killed before the parquet is finalized, the close-time fallback writes whatever rows reached the materializer with `run_outcome = aborted`.
 
 ## How They Relate
 

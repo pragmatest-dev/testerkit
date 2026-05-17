@@ -1,27 +1,14 @@
 # Step 4: Add Limits
 
-**Goal:** Add pass/fail criteria to measurements.
+**Goal:** Decide pass/fail for a measurement.
 
-## What You'll Build
+In step 3 your tests called `verify(..., limit={...})` or `logger.measure(..., low=..., high=...)` to record a measurement. The pass/fail decision happens because a **[limit](../reference/models.md)** is present. This step is about the `Limit` shape and the two ways to attach a limit to a test from code: inline on the call, or via a Litmus marker on the test function. Both pass the limit through the same resolution chain.
 
-A test that measures voltage and passes/fails based on configurable limits.
+Step 5 will move limits out of code and into a YAML file next to the test — keep that destination in mind, but don't reach for YAML yet.
 
-## The Problem
+## The `Limit` shape
 
-In Step 3, we used `verify(...)` to compare against a product spec. For
-one-off measurements without a spec, you need explicit limits:
-
-```python
-def test_voltage(dmm, logger):
-    logger.measure("output_voltage", dmm.measure_voltage())  # Logged, but is it passing?
-```
-
-Without a limit, the measurement is recorded but unchecked. We need limits
-to determine pass/fail.
-
-## Understanding Limits
-
-A `Limit` defines acceptable bounds for a measurement:
+`Limit` lives in `litmus.models.test_config` (`src/litmus/models/test_config.py`):
 
 ```python
 from litmus.models.test_config import Limit
@@ -34,129 +21,69 @@ limit = Limit(
 )
 ```
 
-## The Measurement Model
+## How a measurement is checked
 
-Under the hood, the logger creates `Measurement` objects:
+The `logger.measure(...)` call records a [`Measurement`](../reference/models.md) row with the value, units, and limit. `verify(...)` does the same plus raises `AssertionError` on FAIL. Either way, the row carries an `Outcome`:
 
-```python
-from litmus.data import Measurement, Outcome
+| Outcome | String value | Meaning |
+|---------|--------------|---------|
+| `Outcome.PASSED` | `"passed"` | Value within limits |
+| `Outcome.FAILED` | `"failed"` | Value outside limits |
+| `Outcome.SKIPPED` | `"skipped"` | Test was skipped |
+| `Outcome.ERRORED` | `"errored"` | Test encountered an error |
+| `Outcome.ABORTED` | `"aborted"` | Run aborted by operator |
+| `Outcome.TERMINATED` | `"terminated"` | Run terminated (keyboard interrupt, signal) |
+| `Outcome.DONE` | `"done"` | Container outcome — work finished, no measurements |
 
-m = Measurement(
-    name="output_voltage",
-    value=3.31,
-    units="V",
-    low_limit=3.135,
-    high_limit=3.465,
-)
+Source: `Outcome` in `src/litmus/data/models.py`. Container outcomes roll up via the ladder `skipped < done < passed < failed < errored < terminated < aborted` — the worst child wins (`skipped` and `done` rank below `passed` so a parent with one skipped child and one passing child still resolves to `passed`).
 
-# Check against limits
-m.check_limit()
+## Inline limit on the call
 
-print(m.outcome)  # Outcome.PASS
-```
-
-## Outcome Values
-
-| Outcome | Meaning |
-|---------|---------|
-| `PASS` | Value within limits |
-| `FAIL` | Value outside limits |
-| `SKIP` | Test was skipped |
-| `ERROR` | Test encountered an error |
-| `ABORTED` | Test was aborted |
-
-## Inline Limits with `logger.measure`
-
-Pass an explicit `Limit` to the logger:
+The simplest form: pass `limit=` directly to `verify` or as `low=`/`high=`/`units=` kwargs on `logger.measure`. This is what you already saw in step 3 — recapped here for completeness:
 
 ```python
 from litmus.models.test_config import Limit
 
-
-def test_output_voltage(dmm, logger):
-    logger.measure(
+def test_output_voltage(dmm, verify):
+    verify(
         "output_voltage",
-        dmm.measure_voltage(),
+        dmm.measure_dc_voltage(),
         limit=Limit(low=3.135, high=3.465, units="V"),
     )
 ```
 
-If the measurement is outside limits, the logger records `outcome=FAIL` and
-raises an `AssertionError`.
+Or via `logger.measure`:
 
-## Limits via Marker
+```python
+def test_output_voltage(dmm, logger):
+    logger.measure(
+        "output_voltage",
+        dmm.measure_dc_voltage(),
+        low=3.135, high=3.465, units="V",
+    )
+```
 
-For a whole-test limit injection that reads nicely at the top of the test,
-use the `litmus_limits` marker. Values merge with sidecar `limits:`:
+Inline limits are fine for one-off tests. They clutter the test body when limits get long or vary per test.
+
+## Limit via marker
+
+The `litmus_limits` marker pulls the limit dict out of the body and pins it at the top of the test (`src/litmus/pytest_plugin/markers.py`):
 
 ```python
 import pytest
 
-
-@pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
-def test_output_voltage(dmm, logger):
-    logger.measure("output_voltage", dmm.measure_voltage())
+@pytest.mark.litmus_limits(
+    output_voltage={"low": 3.135, "high": 3.465, "units": "V"},
+)
+def test_output_voltage(dmm, verify):
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-## Limits via Sidecar YAML
-
-The cleanest option for non-trivial tests is a sidecar `test_<module>.yaml`
-next to the test file:
-
-```yaml
-# test_voltage.yaml
-limits:
-  output_voltage: {low: 3.135, high: 3.465, units: "V"}
-```
-
-The test is then just:
-
-```python
-def test_output_voltage(dmm, logger):
-    logger.measure("output_voltage", dmm.measure_voltage())
-```
-
-`logger.measure` resolves the limit from the sidecar automatically.
-
-## What If It Fails?
-
-Configure a mock value outside the limit range. Using a sidecar:
-
-```yaml
-# test_voltage.yaml
-limits:
-  output_voltage: {low: 3.135, high: 3.465, units: "V"}
-mocks:
-  dmm.measure_voltage: 2.5   # Below limit - will fail!
-```
-
-Run the test:
-
-```bash
-pytest tests/test_voltage.py --station=stations/my_station.yaml --mock-instruments -v
-```
-
-Output:
-```
-AssertionError: Measurement 'output_voltage' FAILED at vector 0:
-2.5 not in [3.135, 3.465]
-```
-
-## Characterization Mode
-
-During development, you may want to record values without failing. Drop the
-limit and just call `logger.measure` without one — the value is recorded
-with `outcome=unchecked`.
+The marker accepts one keyword per measurement name. `verify("output_voltage", ...)` resolves the limit from the marker without you passing `limit=` explicitly. You can apply `@pytest.mark.litmus_limits` at function, class, or module level — class scope applies to every method on the class.
 
 ## Comparators
 
-By default, limits use `GELE` (greater-or-equal to low, less-or-equal to high):
-
-```
-low <= value <= high
-```
-
-Other comparators are available:
+By default, limits use `GELE` (greater-or-equal to low, less-or-equal to high): `low <= value <= high`. Other comparators are available when the test needs a different shape:
 
 ```python
 from litmus.models.enums import Comparator
@@ -169,178 +96,51 @@ limit = Limit(high=1.0, comparator=Comparator.LE)  # value <= 1.0
 limit = Limit(low=0.0, comparator=Comparator.GE)   # value >= 0.0
 
 # Must equal nominal
-limit = Limit(nominal=5.0, comparator=Comparator.EQ)  # value == 5.0
+limit = Limit(nominal=5.0, comparator=Comparator.EQ)
 ```
 
-| Comparator | Pass Condition |
+Full list:
+
+| Comparator | Pass condition |
 |------------|----------------|
-| `GELE` | low <= value <= high (default) |
-| `EQ` | value == nominal |
-| `NE` | value != nominal |
-| `LT` | value < high |
-| `LE` | value <= high |
-| `GT` | value > low |
-| `GE` | value >= low |
+| `GELE` | `low <= value <= high` (default) |
+| `GELT` | `low <= value < high` |
+| `GTLE` | `low < value <= high` |
+| `GTLT` | `low < value < high` |
+| `EQ` | `value == nominal` |
+| `NE` | `value != nominal` |
+| `GE` | `value >= low` |
+| `GT` | `value > low` |
+| `LE` | `value <= high` |
+| `LT` | `value < high` |
 
-## The Problem with Hardcoded Limits
+## Characterization mode (no limit)
 
-Inline `Limit(...)` in code has issues:
+During development you may want to record a value without deciding pass/fail. Drop the limit and `logger.measure` records the row with `measurement_outcome` left NULL (unchecked):
 
 ```python
 def test_voltage(dmm, logger):
-    logger.measure(
-        "voltage",
-        dmm.measure_voltage(),
-        limit=Limit(low=3.135, high=3.465, units="V"),
-    )
+    logger.measure("output_voltage", dmm.measure_dc_voltage(), units="V")
 ```
 
-Problems:
-- Changing limits requires code changes
-- Non-developers can't modify limits
-- No link to product specifications
-- Different limits for different conditions (temperature, load) are awkward
+`verify` requires a limit (it's the whole point of `verify`); use `logger.measure` for characterization.
 
-Solution: **sidecar YAML** (next step).
+## What's missing — and what step 5 fixes
 
-## Dynamic Limits (Callable)
+Inline limits and markers live in the test code. That means a non-developer can't change them, condition-dependent limits get awkward, and limits can't be reused across multiple test files. Step 5 introduces the **[sidecar YAML](05-configuration.md)** — a file next to the test that carries limits (and sweeps, mocks, retries, prompts) without changing the test code.
 
-For limits that vary based on test conditions (temperature, load, etc.), use callable limits.
+For [condition-indexed bands](../how-to/limits.md#condition-indexed-bands) (different bands at different temperatures or loads) jump to [Test limits](../how-to/limits.md#condition-indexed-bands) when you need it.
 
-### Why Callable Limits?
+## What you learned
 
-Sometimes limits depend on test conditions:
-- Tighter tolerance at room temperature, looser at extremes
-- Different limits for different loads
-- Limits that scale with input voltage
-
-### Inline Python (Simple)
-
-Define limits as Python expressions in a sidecar:
-
-```yaml
-# tests/test_voltage.yaml
-sweeps:
-  - {temperature: [-40, 25, 85]}
-limits:
-  output_voltage:
-    callable: |
-      temp = ctx.get_param("temperature")
-      if temp < 0:
-        return Limit(low=3.15, high=3.45, units="V")
-      elif temp < 50:
-        return Limit(low=3.25, high=3.35, units="V")
-      else:
-        return Limit(low=3.10, high=3.50, units="V")
-```
-
-The callable has access to:
-- `ctx.get_param(key)` - Input parameters from test vectors
-- `ctx.get_observation(key)` - Observations from context.observe()
-- `Limit` class - For constructing return limits
-
-### Module Function (Complex)
-
-For more complex logic, use a Python function:
-
-```python
-# myproject/limits.py
-from litmus.models.test_config import Limit
-
-def output_voltage(ctx):
-    """Temperature-dependent voltage limit."""
-    temp = ctx.get_param("temperature")
-    load = ctx.get_param("load_current")
-
-    # Tighter limits at room temp, nominal load
-    if temp >= 20 and temp <= 30 and load < 0.5:
-        return Limit(low=3.25, high=3.35, units="V")
-    else:
-        return Limit(low=3.10, high=3.50, units="V")
-```
-
-Reference it in YAML:
-
-```yaml
-limits:
-  output_voltage:
-    callable: myproject.limits.output_voltage
-```
-
-See the [Limits Guide](../guides/limits.md) for full details on callable limits.
-
-## Accessing Limits in Tests
-
-Tests can retrieve resolved limits via context:
-
-```python
-def test_voltage_with_limit_logging(dmm, context, logger):
-    # Get the resolved limit
-    limit = context.get_limit("output_voltage")
-
-    # Log limit info for traceability
-    if limit:
-        context.observe("limit_low", limit.low)
-        context.observe("limit_high", limit.high)
-        context.observe("spec_ref", limit.spec_ref)
-
-    logger.measure("output_voltage", dmm.measure_voltage())
-```
-
-This is useful for:
-- **Adaptive test behavior**: Take more samples if near limit
-- **Enhanced logging**: Record limit context alongside measurements
-- **Custom validation**: Implement domain-specific pass/fail logic
-
-## Complete Example
-
-**stations/my_station.yaml:**
-```yaml
-id: my_station
-
-instruments:
-  dmm:
-    type: dmm
-    driver: pymeasure.instruments.keysight.Keysight34461A
-    resource: "TCPIP::192.168.1.100::INSTR"
-    mock_config:
-      voltage: 3.31
-```
-
-**tests/test_limits.yaml:**
-```yaml
-limits:
-  output_voltage:
-    low: 3.135
-    high: 3.465
-    nominal: 3.3
-    units: V
-mocks:
-  - {target: dmm.measure_voltage, return_value: 3.31}
-```
-
-**tests/test_limits.py:**
-```python
-def test_output_voltage(dmm, logger):
-    """Verify output voltage is within spec."""
-    logger.measure("output_voltage", dmm.measure_voltage())
-```
-
-**Run:**
-```bash
-pytest tests/test_limits.py --station=my_station --mock-instruments -v
-```
-
-## What You Learned
-
-- The `Limit` model for pass/fail criteria
-- How measurements are checked against limits
-- Different comparator types (GELE, LE, GE, EQ, etc.)
-- Callable limits for condition-dependent pass/fail criteria
-- Why we need external configuration
+- The `Limit` model — `low`, `high`, `nominal`, `units`, `comparator`
+- Inline limits via `verify(..., limit=...)` or `logger.measure(..., low=..., high=...)`
+- The `litmus_limits` marker for class/function-level limit binding
+- The `Outcome` ladder and what each value means
+- The `Comparator` enum for non-`GELE` checks
 
 ## Next Step
 
-Move limits out of code and into YAML configuration.
+Move the limits out of code and into a YAML file next to your test.
 
 [Step 5: Test Configuration →](05-configuration.md)

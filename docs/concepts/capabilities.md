@@ -1,6 +1,6 @@
 # Capabilities
 
-**Capabilities** describe what instruments can do and what products need. The capability system enables automatic matching between products and stations using an ATML/IEEE 1641-inspired signal-parameter model.
+**Capabilities** describe what instruments can do and what products need. The capability system enables automatic matching between products and stations using an ATML (Automatic Test Markup Language) / IEEE 1641-inspired signal-parameter model — ATML / IEEE 1671 is the industry test-data interchange standard Litmus aligns with.
 
 ## What Is a Capability?
 
@@ -16,9 +16,11 @@ A capability has three core dimensions:
 
 ```
 Capability (base)
-├── InstrumentCapability    — adds channels, modes, readback
-└── ProductCharacteristic   — adds pin/net, datasheet_ref, specs
+├── InstrumentCapability    — adds channels, readback
+└── ProductCharacteristic   — adds pin / pins / net / signal_group, datasheet_ref
 ```
+
+A `ProductCharacteristic` must specify at least one physical interface (`pin`, `pins`, `net`, or `signal_group`) — the validator rejects characteristics that don't.
 
 Both share the same `function + direction + signals/conditions/controls/attributes` core. Direction always describes the hardware it's on: "input" means "this device receives/sinks signal."
 
@@ -110,19 +112,22 @@ Direction pairing happens in the matching service (`_directions_compatible()`), 
 
 ## Capability Matching
 
-The matcher determines whether a station can test a product using tiered matching controlled by `MatchDepth`:
+The matcher determines whether a station can test a product using tiered matching controlled by `MatchDepth` (an enum naming how deep to take the match check):
 
 1. **Function match** — instrument has same `MeasurementFunction` as requirement
 2. **Direction match** — directions pair correctly (OUTPUT↔INPUT, BIDIR satisfies both)
 3. **Parameter range containment** — instrument's parameter ranges contain required values
-4. **Accuracy** — instrument accuracy must be better than required (condition-aware via SpecBand)
+4. **Accuracy** — instrument accuracy must be better than required (condition-aware via [`SpecBand`](../reference/models.md), the value-plus-condition record)
 5. **Resolution** — instrument resolution must meet or exceed required
 
 ```python
-from litmus.matching.service import find_compatible_stations, load_product_by_id
+from litmus.matching.service import find_compatible_stations
+from litmus.store import get_product
 
-product = load_product_by_id("power_board")
-matches = find_compatible_stations(product)
+# Load by id (`get_product` looks up `products/<id>.yaml` from the project root).
+# Use `load_product(Path(...))` when you have an explicit path on disk.
+product = get_product("power_board")
+matches = find_compatible_stations(product)   # takes the loaded Product object
 
 for match in matches:
     print(f"{match.station_id}: {'Compatible' if match.compatible else 'Missing capabilities'}")
@@ -146,7 +151,7 @@ char = product.characteristics["output_voltage"]
 
 ## MeasurementFunction
 
-The `MeasurementFunction` enum provides fine-grained signal identification, aligned with IVI instrument class specifications:
+The `MeasurementFunction` enum provides fine-grained signal identification, aligned with IVI (Interchangeable Virtual Instrument Foundation) instrument class specifications:
 
 | Function | Description | Typical Instrument |
 |----------|-------------|--------------------|
@@ -222,7 +227,7 @@ For function generators and waveform sources, the `MeasurementFunction.WAVEFORM`
 - dc
 ```
 
-Per IEEE 1641, waveform shapes are **characteristics of the signal**, not distinct signal types. Function generators should have a single `function: waveform` capability rather than separate capabilities for each shape.
+Per IEEE 1641 (the test-vocabulary standard underlying ATML), waveform shapes are **characteristics of the signal**, not distinct signal types. Function generators should have a single `function: waveform` capability rather than separate capabilities for each shape.
 
 ## Typed Collections
 
@@ -304,14 +309,17 @@ When a station instrument has `catalog_ref: keysight_34461a`, the matching engin
 ```python
 from litmus.matching.service import find_compatible_stations, check_station_compatibility
 
-# Find all compatible stations
+# Find all compatible stations (takes the loaded Product object)
 matches = find_compatible_stations(product)
 
-# Check specific station
-result = check_station_compatibility(product, station)
-if not result.compatible:
-    print(f"Missing: {result.missing_capabilities}")
+# Check specific station — takes id strings, returns dict | None
+result = check_station_compatibility(product_id, station_id)
+if result and not result["compatible"]:
+    for cap in result["missing"]:
+        print(f"Missing: {cap['direction']} {cap['function']}")
 ```
+
+`find_compatible_stations(product)` takes a loaded `Product` object and returns a `list[StationMatch]`. `check_station_compatibility(product_id, station_id)` takes id strings and returns a `dict | None`; its `missing` value is a list of dicts shaped `{characteristic, function, direction}`.
 
 ### HTTP API
 
@@ -356,4 +364,4 @@ capabilities:
 
 - [Fixtures](fixtures.md) — Mapping DUT pins to instruments
 - [Architecture](architecture.md) — System data flow
-- [Adding Instruments](../guides/adding-instruments.md) — Creating custom drivers
+- [Custom drivers](../how-to/custom-drivers.md) — Creating custom drivers

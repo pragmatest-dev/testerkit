@@ -17,12 +17,11 @@ pins:
   VIN:
     name: "J1.1"
     net: "VIN_5V"
-    type: power
+    role: power
   VOUT:
     name: "J1.3"
     net: "VOUT_3V3"
-    type: signal
-
+    role: signal
 characteristics:
   input_voltage:
     direction: input       # DUT receives this
@@ -54,25 +53,25 @@ pins:
   VIN:
     name: "J1.1"           # Physical designator
     net: "VIN_5V"          # Schematic net name
-    type: power
+    role: power
   VOUT:
     name: "J1.3"
     net: "VOUT_3V3"
-    type: signal
+    role: signal
   SDA:
     name: "J2.1"
     net: "I2C_SDA"
-    type: signal
+    role: signal
 ```
 
 ### Pin Types
 
-| Type | Description |
+| Role | Description |
 |------|-------------|
-| `signal` | General signal pin (default) |
-| `power` | Power supply pin |
-| `ground` | Ground reference |
-| `nc` | No connect / reserved |
+| `signal` | General measured/stimulated signal (default) |
+| `ground` | Current return / reference |
+| `power` | Power input/output (VIN, VOUT) |
+| `reference` | Voltage reference, not driven |
 
 ## Characteristics
 
@@ -101,8 +100,7 @@ A single pin can have multiple characteristics:
 pins:
   VOUT:
     name: "J1.3"
-    type: signal
-
+    role: signal
 characteristics:
   output_voltage:
     pins: [VOUT]
@@ -170,11 +168,10 @@ Group related signals for protocols like I2C, SPI, or UART:
 pins:
   SDA:
     name: "J2.1"
-    type: signal
+    role: signal
   SCL:
     name: "J2.2"
-    type: signal
-
+    role: signal
 signal_groups:
   i2c_main:
     protocol: i2c
@@ -213,7 +210,7 @@ characteristics:
 
 ## Part Numbers
 
-The `part_number` field maps a product to its manufacturing part number. When present, it automatically populates `dut_part_number` in test results (unless overridden by `--dut-part-number` on the CLI). This enables yield analytics filtering by part number.
+The `part_number` field maps a product to its manufacturing part number. When present, it automatically populates `dut_part_number` in test results (`dut_part_number` is the operator-facing identifier — the printed/scanned part number — as opposed to the internal `product_id`; see [how-to/traceability](../how-to/traceability.md)). Overridable via `--dut-part-number` on the CLI. This enables yield analytics filtering by part number.
 
 ```yaml
 id: power_board
@@ -257,11 +254,16 @@ Inheritance rules:
 In Python:
 
 ```python
-from litmus.products.loader import load_product
+from litmus.store import load_product
 
 product = load_product("products/power_board.yaml")
 print(product.id)
-print(product.characteristics["output_voltage"].nominal)
+# Nominal lives on each SpecBand, not on the characteristic itself.
+# Resolve the right band for the current operating point:
+char = product.characteristics["output_voltage"]
+band = char.get_spec_at({"temperature": 25, "load": 0.5})
+if band is not None:
+    print(band.value)
 ```
 
 ## Next Steps

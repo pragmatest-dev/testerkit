@@ -1,12 +1,13 @@
 # Step 9: Production Ready
 
-**Goal:** Build a complete production test suite with fixtures, sequences, and full traceability.
+**Goal:** Build a complete production test class with fixtures, sidecar configuration, and full traceability.
 
 ## What You'll Build
 
-A production-ready test suite with:
+A production-ready test class with:
 - Pin-to-instrument mapping (fixtures)
-- Ordered test execution (sequences)
+- Ordered test execution (pytest class methods, in definition order)
+- Per-test limits, mocks, sweeps, and retries (sidecar YAML)
 - Full signal traceability
 
 ## Complete Project Structure
@@ -19,11 +20,10 @@ my_project/
 │   └── bench_1.yaml
 ├── fixtures/                       # HOW pins connect to instruments
 │   └── power_board_fixture.yaml
-├── sequences/                      # Test config + execution order
-│   └── production_test.yaml        # Steps with vectors, limits, mocks
-├── tests/                          # Test code
+├── tests/                          # Test code + sidecar
 │   ├── conftest.py
-│   └── test_power_board.py
+│   ├── test_power_board.py         # Test class — execution order = method order
+│   └── test_power_board.yaml       # Sidecar — limits, sweeps, mocks per method
 └── results/                        # Output (gitignored)
 ```
 
@@ -39,15 +39,18 @@ product_id: power_board
 
 connections:
   vin_supply:
+    name: vin_supply          # Required — matches the dict key
     dut_pin: VIN              # From product spec
     instrument: psu           # From station config
     instrument_channel: "1"
 
   vout_measure:
+    name: vout_measure
     dut_pin: VOUT
     instrument: dmm
 
   gnd_supply:
+    name: gnd_supply
     dut_pin: GND
     instrument: psu
     instrument_channel: "GND"
@@ -55,7 +58,7 @@ connections:
 
 ## The pins Fixture
 
-With a fixture config, you can access instruments via pin names:
+With a fixture config, you can access instruments via pin names. The [`pins`](../reference/litmus-fixtures.md#pins--session) *fixture* is a dict keyed by product-pin name returning the instrument routed to that pin by the active fixture YAML — distinct from the `pins:` block in the product YAML, which declares the pin set itself ([concepts/products](../concepts/products.md)):
 
 ```python
 def test_output_voltage(pins, logger):
@@ -90,94 +93,89 @@ The `pins` approach provides:
 - **Portability** — Same test works on stations with different instruments
 - **Traceability** — Measurements linked to DUT pins
 
-## Test Sequences
+## The Production Test Class
 
-Sequences are the **single source of truth** for test configuration. Each step carries its own vectors, limits, and mocks:
+A test class groups related test methods that run in definition order. Each method gets its own row in the run, with its own limits, sweeps, mocks, and retries from the sidecar.
+
+```python
+# tests/test_power_board.py
+class TestPowerBoardProduction:
+    """Production test for power_board — runs in method order."""
+
+    def test_input_voltage(self, pins, verify):
+        pins["VIN"].set_voltage(5.0)
+        pins["VIN"].enable_output()
+        verify("input_voltage", pins["VIN"].measure_voltage())
+
+    def test_output_voltage(self, pins, verify):
+        verify("output_voltage", pins["VOUT"].measure_voltage())
+
+    def test_load_sweep(self, pins, verify, load_percent):
+        # load_percent is parametrized via the sidecar's sweeps:
+        verify("output_voltage", pins["VOUT"].measure_voltage())
+```
 
 ```yaml
-# sequences/production_test.yaml
-id: power_board_production
-name: "Power Board Production Test"
-product_family: power_board
-test_phase: production
-required_fixture: power_board_fixture
+# tests/test_power_board.yaml — sidecar
+limits:
+  input_voltage:
+    low: 4.5
+    high: 5.5
+    nominal: 5.0
+    units: V
+  output_voltage:
+    low: 3.135
+    high: 3.465
+    units: V
 
-steps:
-  - id: verify_input
-    test: tests/test_power_board.py::test_input_voltage
-    description: "Verify input power"
-    limits:
-      test_input_voltage:
-        low: 4.5
-        high: 5.5
-        nominal: 5.0
-        units: V
-    mocks:
-      psu.measure_voltage: 5.0
+mocks:
+  - target: psu.measure_voltage
+    return_value: 5.0
+  - target: dmm.measure_voltage
+    return_value: 3.31
 
-  - id: output_no_load
-    test: tests/test_power_board.py::test_output_voltage
-    description: "Output at no load"
-    skip_on: [verify_input]     # Skip if verify_input failed
-    limits:
-      test_output_voltage:
-        low: 3.135
-        high: 3.465
-        units: V
-    mocks:
-      dmm.measure_voltage: 3.31
-
-  - id: output_loaded
-    test: tests/test_power_board.py::test_load_sweep
-    description: "Output under load"
-    skip_on: [output_no_load]
-    vectors:
-      expand: product
-      load_percent: [0, 50, 100]
-    limits:
+tests:
+  TestPowerBoardProduction:
+    tests:
       test_load_sweep:
-        low: 3.135
-        high: 3.465
-        units: V
-    retry:
-      max_retries: 1
+        sweeps:
+          - load_percent: [0, 50, 100]
+        retry:
+          max_retries: 2
 ```
 
-## Sequence Features
+The sidecar mirrors pytest's node-id structure (the `path::Class::method` identifier pytest assigns each test). Top-level keys (`limits`, `mocks`) apply file-wide. The recursive `tests:` tree lets you scope per-class and per-method overrides.
 
-### skip_on: Dependency-Based Skipping
+## Sidecar Features
+
+### retry: Per-Test Retry on Failure
 
 ```yaml
-steps:
-  - name: power_on
-    test: test_power_board.test_power_on
-
-  - name: measure_output
-    test: test_power_board.test_output
-    skip_on: [power_on]    # Skip if power_on failed
+tests:
+  TestPowerBoardProduction:
+    tests:
+      test_margin:
+        retry:
+          max_retries: 2
+          delay: 0.5
+          on: [AssertionError]  # only retry on this exception name
 ```
 
-### retry: Per-Step Retry
+### prompts: Operator Prompts
 
 ```yaml
-steps:
-  - name: flaky_test
-    test: test_power_board.test_margin
-    retry:
-      max_retries: 2
-      delay_seconds: 0.5
+prompts:
+  visual_inspection:
+    message: "Verify LED is GREEN"
+    prompt_type: confirm
+    timeout_seconds: 30
 ```
 
-### dialog: Operator Prompts
+Reference the prompt from a test method via the [`prompt()`](../reference/litmus-fixtures.md#prompt--function) fixture (Litmus's operator-prompt helper for paused interactions).
 
-```yaml
-steps:
-  - name: visual_inspection
-    dialog:
-      type: confirm
-      message: "Verify LED is GREEN"
-      title: "Visual Check"
-```
+### Ordering across files
+
+A test class runs its methods in definition order. To order tests across multiple files, name the files so pytest collects them in the desired order (`test_01_power.py`, `test_02_thermal.py`) or filter via a profile (see [Profiles](../how-to/profiles.md)).
 
 ## Complete Example
 
@@ -187,9 +185,9 @@ id: power_board
 name: "5V to 3.3V Converter"
 
 pins:
-  VIN: {name: "J1.1", type: power}
-  VOUT: {name: "J1.3", type: signal}
-  GND: {name: "J1.2", type: ground}
+  VIN: {name: "J1.1", role: power}
+  VOUT: {name: "J1.3", role: signal}
+  GND: {name: "J1.2", role: ground}
 
 characteristics:
   output_voltage:
@@ -227,25 +225,25 @@ product_id: power_board
 
 connections:
   vin_supply:
+    name: vin_supply
     dut_pin: VIN
     instrument: psu
   vout_measure:
+    name: vout_measure
     dut_pin: VOUT
     instrument: dmm
 ```
 
 **tests/test_power_board.py:**
 ```python
-def test_input_voltage(pins, verify):
-    """Verify input voltage."""
-    pins["VIN"].set_voltage(5.0)
-    pins["VIN"].enable_output()
-    verify("input_voltage", pins["VIN"].measure_voltage())
+class TestPowerBoardProduction:
+    def test_input_voltage(self, pins, verify):
+        pins["VIN"].set_voltage(5.0)
+        pins["VIN"].enable_output()
+        verify("input_voltage", pins["VIN"].measure_voltage())
 
-
-def test_output_voltage(pins, verify):
-    """Verify output at various loads."""
-    verify("output_voltage", pins["VOUT"].measure_voltage())
+    def test_output_voltage(self, pins, verify):
+        verify("output_voltage", pins["VOUT"].measure_voltage())
 ```
 
 ## Running Production Tests
@@ -290,10 +288,12 @@ litmus serve
 ```python
 import pyarrow.parquet as pq
 
-# Read measurements
-table = pq.read_table("results/measurements")
-for row in table.to_pylist():
-    print(f"{row['measurement_name']}: {row['value']} {row['units']}")
+# Read all run parquets under the date-partitioned results directory
+table = pq.read_table("results/runs")             # recurses into date subdirs
+rows = table.to_pylist()
+# Filter to measurement rows (vs. step rows)
+for row in (r for r in rows if r["record_type"] == "measurement"):
+    print(f"{row['measurement_name']}: {row['measurement_value']} {row['measurement_units']}")
 ```
 
 ## Full Traceability
@@ -323,14 +323,15 @@ Spec: output_voltage @ tolerance=5%
 | Product spec | `products/power_board.yaml` | What to test |
 | Station | `stations/bench_1.yaml` | Where to test |
 | Fixture | `fixtures/power_board_fixture.yaml` | Pin-to-instrument mapping |
-| Sequence | `sequences/production_test.yaml` | Test order + vectors, limits, mocks |
-| Tests | `tests/test_power_board.py` | Test code |
+| Test class | `tests/test_power_board.py` | Test code, methods run in definition order |
+| Sidecar | `tests/test_power_board.yaml` | Limits, sweeps, mocks, retries per method |
 
 ## What You Learned
 
 - Fixture configuration for pin-to-instrument mapping
 - The `pins` fixture for DUT-centric testing
-- Test sequences for ordered execution
+- Pytest classes as the unit of ordered execution
+- Sidecar YAML for per-test limits, sweeps, mocks, and retries
 - Full traceability from spec to measurement
 
 ## Congratulations!
@@ -341,5 +342,7 @@ You've completed the tutorial. You now have a foundation for production hardware
 
 - [API Reference](../reference/api.md) — MCP tools and HTTP endpoints
 - [Configuration Reference](../reference/configuration.md) — All YAML options
-- [pytest-native Reference](../reference/pytest-native.md) — Fixtures, markers, sidecar YAML
+- [Litmus fixtures](../reference/litmus-fixtures.md) — all 20 fixtures the plugin exposes
+- [Litmus markers](../reference/litmus-markers.md) — the seven `litmus_*` markers and their sidecar equivalents
+- [pytest-native Reference](../reference/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
 - [Test Harness Integration](../integration/harness.md) — Advanced patterns

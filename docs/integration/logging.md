@@ -15,14 +15,14 @@ This guide shows how to integrate Litmus logging without changing your test fram
 ## Quick Start
 
 ```python
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 client = LitmusClient()
 
 run = client.start_run(
     dut_serial="SN12345",
     station_id="my_station",
-    test_sequence_id="my_test",
+    test_phase="production",
 )
 
 with run.step("measurement_step") as step:
@@ -38,7 +38,7 @@ run.finish()
 Log specific measurements:
 
 ```python
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 def run_test(dut_serial: str):
     client = LitmusClient()
@@ -46,7 +46,7 @@ def run_test(dut_serial: str):
     run = client.start_run(
         dut_serial=dut_serial,
         station_id="bench_1",
-        test_sequence_id="voltage_test",
+        test_phase="production",
     )
 
     # Your existing test code
@@ -61,25 +61,28 @@ def run_test(dut_serial: str):
     run.finish()
 ```
 
-### Approach 2: Context Manager
+### Approach 2: try / finally for cleanup on errors
 
-Automatic cleanup on errors:
+`LitmusClient.start_run()` returns a `RunBuilder`. It is not itself a context manager — use try / finally to ensure `finish()` runs even on error. Steps inside the run are context-managed via `run.step(...)`.
 
 ```python
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 def run_test(dut_serial: str):
     client = LitmusClient()
-
-    with client.run(
+    run = client.start_run(
         dut_serial=dut_serial,
         station_id="bench_1",
-        test_sequence_id="voltage_test",
-    ) as run:
+        test_phase="production",
+    )
+    try:
         with run.step("measurements") as step:
             voltage = measure_voltage()
             step.measure("voltage", voltage, units="V", low=3.0, high=3.6)
-    # Automatically finishes (or aborts on exception)
+        run.finish()
+    except Exception as e:
+        run.abort(str(e))
+        raise
 ```
 
 ### Approach 3: Decorator Pattern
@@ -88,7 +91,7 @@ Wrap existing functions:
 
 ```python
 from functools import wraps
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 def log_to_litmus(test_name: str):
     """Decorator to log test results to Litmus."""
@@ -99,7 +102,7 @@ def log_to_litmus(test_name: str):
             run = client.start_run(
                 dut_serial=dut_serial,
                 station_id="default",
-                test_sequence_id=test_name,
+                test_phase="production",
             )
 
             try:
@@ -149,7 +152,7 @@ pytest tests/ --data-dir=/path/to/results
 ### Environment Variable
 
 ```bash
-export LITMUS_RESULTS_DIR=/shared/test_results
+export LITMUS_HOME=/shared/test_results
 ```
 
 ## Querying Results
@@ -164,11 +167,11 @@ df = pd.read_parquet("results/runs/2026-01-30/20260130T143025Z_SN001.parquet")
 
 # Filter by test
 vout = df[df["step_name"] == "test_output_voltage"]
-print(vout[["value", "outcome", "in_vin"]])
+print(vout[["measurement_value", "measurement_outcome", "in_vin"]])
 
 # Load all runs
 df_all = pd.read_parquet("results/runs/**/*.parquet")
-print(df_all.groupby("step_name")["outcome"].value_counts())
+print(df_all.groupby("step_name")["measurement_outcome"].value_counts())
 ```
 
 ### DuckDB
@@ -178,9 +181,9 @@ import duckdb
 
 # Query across all runs
 duckdb.sql("""
-    SELECT dut_serial, step_name, outcome, COUNT(*)
+    SELECT dut_serial, step_name, measurement_outcome, COUNT(*)
     FROM 'results/runs/**/*.parquet'
-    GROUP BY dut_serial, step_name, outcome
+    GROUP BY dut_serial, step_name, measurement_outcome
 """).show()
 ```
 
@@ -199,25 +202,19 @@ litmus show <run_id>         # Show run details
 run = client.start_run(
     dut_serial="SN12345",
     station_id="bench_1",
-    test_sequence_id="production_test",
+    test_phase="production",
     # Optional metadata
     dut_part_number="PCB-001",
     dut_revision="A",
     dut_lot_number="LOT2026-01",
+    station_type="bench",
     operator="Jane Doe",
-    test_phase="production",
 )
 ```
 
 ### Custom Metadata
 
-```python
-run.add_metadata(
-    firmware_version="1.2.3",
-    calibration_date="2026-01-15",
-    temperature_c=25.0,
-)
-```
+`LitmusClient.start_run()` accepts the fields listed above. Anything beyond those is rejected — the surface is intentionally narrow. For custom columns, use the `run_context` fixture inside pytest-native tests (see [Writing tests](../how-to/writing-tests.md)).
 
 ### Measurement Metadata
 
@@ -240,7 +237,7 @@ step.measure(
 
 ```python
 import logging
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +259,7 @@ class LitmusHandler(logging.Handler):
 ### With Database
 
 ```python
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 def sync_to_database(run_id: str, db_connection):
     """Sync Litmus results to external database."""
@@ -271,15 +268,17 @@ def sync_to_database(run_id: str, db_connection):
     run = client.get_run(run_id)
     measurements = client.get_measurements(run_id)
 
+    # run is a RunSummary Pydantic model — use attribute access
     db_connection.execute(
         "INSERT INTO test_runs (id, serial, outcome) VALUES (?, ?, ?)",
-        (run_id, run['dut_serial'], run['outcome'])
+        (run_id, run.dut_serial, run.outcome)
     )
 
+    # measurements is list[dict] keyed by parquet column names
     for m in measurements:
         db_connection.execute(
             "INSERT INTO measurements (run_id, name, value) VALUES (?, ?, ?)",
-            (run_id, m['measurement_name'], m['value'])
+            (run_id, m['measurement_name'], m['measurement_value'])
         )
 ```
 
@@ -287,52 +286,38 @@ def sync_to_database(run_id: str, db_connection):
 
 ```python
 import boto3
-from litmus import LitmusClient
+from litmus.client import LitmusClient
 
 def upload_results(run_id: str, bucket: str):
-    """Upload results to S3."""
+    """Upload a sealed run parquet to S3.
+
+    Litmus writes one parquet per run at
+    ``results/runs/{date}/{timestamp}_{serial}.parquet`` — there is no
+    split into separate `test_runs/`, `measurements/`, or `vectors/`
+    directories. The file_path is on the run summary.
+    """
     s3 = boto3.client('s3')
 
     client = LitmusClient()
     run = client.get_run(run_id)
 
-    # Upload Parquet files
-    for table in ['test_runs', 'measurements', 'vectors']:
-        local_path = f"results/{table}/{run_id}.parquet"
-        s3_key = f"test_results/{run['dut_serial']}/{run_id}/{table}.parquet"
-        s3.upload_file(local_path, bucket, s3_key)
+    local_path = run.file_path                  # attribute on RunSummary
+    s3_key = f"test_results/{run.dut_serial}/{run_id}.parquet"
+    s3.upload_file(local_path, bucket, s3_key)
 ```
 
 ## Performance Considerations
 
-### Batch Measurements
+### Stream a sample series under one name
+
+When a step records hundreds of samples, use `allow_repeat=True` so the duplicate-name guard doesn't fire:
 
 ```python
-# Slower: Individual calls
 for i, value in enumerate(values):
-    step.measure(f"sample_{i}", value)
-
-# Faster: Batch
-measurements = [
-    {"name": f"sample_{i}", "value": v}
-    for i, v in enumerate(values)
-]
-step.measure_batch(measurements)
+    step.measure("voltage_sample", value, allow_repeat=True)
 ```
 
-### Async Logging
-
-```python
-import asyncio
-from litmus import AsyncLitmusClient
-
-async def log_results():
-    client = AsyncLitmusClient()
-
-    async with client.run(...) as run:
-        async with run.step("measurements") as step:
-            await step.measure("voltage", 3.31)
-```
+For very large samples (waveforms, scope captures), prefer the channel store and emit a single `out_*` reference (see [Querying channels](../how-to/querying-channels.md)).
 
 ## Best Practices
 

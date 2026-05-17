@@ -9,7 +9,7 @@ Arrow Flight provides:
 - **Zero-copy** — Arrow record batches transfer between processes without serialization overhead
 - **Cross-process** — Multiple processes query the same data through a shared gRPC server
 - **Language-agnostic** — Any Arrow Flight client (Python, Go, Rust, Java) can connect
-- **SQL queryability** — DuckDB runs as the in-memory query engine behind the Flight server
+- **SQL queryability** — [DuckDB](https://duckdb.org/) (an embedded analytical SQL engine that reads Parquet/Arrow directly) runs as the in-memory query engine behind the Flight server
 
 The alternative — having each process read Arrow IPC files directly — creates file locking issues and can't provide real-time access to buffered (unflushed) data.
 
@@ -35,7 +35,7 @@ A ref-counted daemon process manages the DuckDB instance:
 2. **Subsequent callers** increment the ref count and connect
 3. **On release**, the ref is decremented; daemon exits after idle timeout
 
-## How `litmus.connect()` Starts the Server
+## How `connect()` Starts the Server
 
 When `EventStore` is created, it calls `duckdb_manager.acquire(events_dir)` which:
 
@@ -73,4 +73,4 @@ This is critical for the operator UI, which may need to display waveforms with m
 
 - [Event Log Architecture](event-log.md) — How events flow through the system
 - [Three Stores Architecture](three-stores.md) — All three data stores
-- [Querying Channels Guide](../guides/querying-channels.md) — Practical channel queries
+- [Querying Channels Guide](../how-to/querying-channels.md) — Practical channel queries

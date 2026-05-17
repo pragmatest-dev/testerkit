@@ -38,7 +38,7 @@ def docs_index():
                 "Products, stations, capabilities, fixtures, and matching",
             ),
             (
-                "guides",
+                "how-to",
                 "integration_instructions",
                 "How-To Guides",
                 "Step-by-step guides for common tasks",
@@ -48,12 +48,6 @@ def docs_index():
                 "api",
                 "Reference",
                 "MCP tools, HTTP endpoints, CLI, models, configuration",
-            ),
-            (
-                "examples",
-                "code",
-                "Examples",
-                "Complete working examples with full source",
             ),
         ]
 
@@ -87,7 +81,7 @@ def docs_index():
                 ui.link("Core Concepts", "/docs/concepts/overview").classes(
                     "text-blue-600 hover:underline"
                 )
-                ui.link("Writing Tests", "/docs/guides/writing-tests").classes(
+                ui.link("Writing Tests", "/docs/how-to/writing-tests").classes(
                     "text-blue-600 hover:underline"
                 )
 

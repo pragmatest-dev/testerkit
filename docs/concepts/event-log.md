@@ -1,6 +1,6 @@
 # Event Log Architecture
 
-The event log is Litmus's unified record of everything that happens during testing — sessions, instrument connections, measurements, diagnostics, and more. It replaces the earlier journal and StreamingDestination patterns with a single, typed event stream.
+The event log is Litmus's unified record of everything that happens during testing — sessions, instrument connections, measurements, diagnostics, and more. It replaces earlier text-log + streaming patterns with a single, typed event stream.
 
 ## Why a Unified Event Stream
 
@@ -24,7 +24,7 @@ Each event type adds a `Literal` `event_type` field used as a discriminator for 
 
 ## Event Categories
 
-Litmus defines events across 8 categories:
+Litmus defines events across 11 categories.
 
 ### Session (2 events)
 | Event | Type String | Description |
@@ -32,11 +32,30 @@ Litmus defines events across 8 categories:
 | `SessionStarted` | `session.started` | Session-wide metadata: station, operator, fixture |
 | `SessionEnded` | `session.ended` | Session outcome |
 
-### Run (2 events)
+### Run (3 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
 | `RunStarted` | `run.started` | Full run context: DUT, product, operator, config snapshots |
 | `RunEnded` | `run.ended` | Run outcome |
+| `RunMaterialized` | `run.materialized` | Parquet file written; ready for downstream consumers (defined but not currently in the `Event` discriminated union). |
+
+### Slot (2 events — multi-DUT)
+| Event | Type String | Description |
+|-------|-------------|-------------|
+| `SlotStarted` | `slot.started` | A multi-DUT slot subprocess begins |
+| `SlotCompleted` | `slot.completed` | A multi-DUT slot subprocess finishes |
+
+### Sync (2 events — multi-DUT)
+| Event | Type String | Description |
+|-------|-------------|-------------|
+| `SyncArrived` | `sync.arrived` | A worker reached a synchronization barrier |
+| `SyncRelease` | `sync.release` | All workers arrived; barrier released |
+
+### Route (2 events — signal switching)
+| Event | Type String | Description |
+|-------|-------------|-------------|
+| `RouteClosed` | `route.closed` | Switch route closed (signal connected) |
+| `RouteOpened` | `route.opened` | Switch route opened (signal disconnected) |
 
 ### Fixture (5 events)
 | Event | Type String | Description |
@@ -164,7 +183,7 @@ cut, the following invariants hold and the project must not break them:
 
 Breaking event-shape changes (renaming, removing, type-narrowing
 required fields) defer to the 1.0 cut. See
-[API stability framing](../explorations/api-stability-and-versioning.md)
+[API stability framing](../_internal/explorations/api-stability-and-versioning.md)
 for the broader HARD vs SOFT picture.
 
 ## See Also

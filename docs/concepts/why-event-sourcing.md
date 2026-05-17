@@ -38,7 +38,7 @@ Not everything is event-sourced — that would be the wrong shape for some data.
 |---|---|---|
 | Configuration (`litmus.yaml`, `station.yaml`, products, catalog) | CRUD via YAML, hand-edited | Operators evolve them deliberately over time |
 | Test execution data (runs, steps, measurements, events) | Append-only events → derived projections | Immutable historical record |
-| Channel sample data (high-rate time-series) | Append-only sample streams (event-log carries metadata) | Same domain semantics, different physics — too large for the WAL |
+| Channel sample data (high-rate time-series) | Append-only sample streams (event-log carries metadata) | Same domain semantics, different physics — too large for the WAL (write-ahead log) |
 
 Configuration *should* be mutable: you add a station, change a limit, update a product spec. Execution data *shouldn't* be mutable: a run happened on a date with an outcome, and that doesn't change. Channel data is execution data with a size exception — sample streams at kHz–MHz rates can't fit through the event WAL, so they get their own append-only log with event-log metadata referencing them.
 

@@ -7,11 +7,11 @@ Litmus is a Python-native hardware test platform for the AI-assisted era.
 | Section | Description |
 |---------|-------------|
 | [Tutorial](tutorial/index.md) | Engineer's First Project - progressive learning path |
-| [Integration](integration/overview.md) | Adopt Litmus with existing tests and infrastructure |
-| [Concepts](concepts/overview.md) | Products, stations, capabilities, fixtures, and matching |
-| [How-To Guides](guides/writing-tests.md) | Step-by-step guides for common tasks |
+| [Integration](integration/index.md) | Adopt Litmus with existing tests and infrastructure |
+| [Concepts](concepts/index.md) | Products, stations, capabilities, fixtures, and matching |
+| [How-To Guides](how-to/writing-tests.md) | Step-by-step guides for common tasks |
 | [Reference](reference/api.md) | MCP tools, HTTP endpoints, CLI, models |
-| [Examples](../examples/README.md) | Seven runnable example projects (01-vanilla → 07-profiles) |
+| [Examples](https://github.com/pragmatest-dev/litmus/tree/main/examples) | Seven runnable example projects, each one rung of the framework adoption ladder (01-vanilla → 07-profiles) |
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ cd examples/01-vanilla && uv run pytest -v
 litmus serve
 ```
 
-**Configure for Claude Code:**
+**Configure for [Claude Code](how-to/mcp-integration.md):** (Anthropic's terminal AI coding assistant)
 ```bash
 litmus setup claude-code
 ```
@@ -82,7 +82,7 @@ Start with the [Tutorial](tutorial/index.md) — a progressive learning path fro
 
 ### Have Existing Tests?
 
-Check out [Integration](integration/overview.md) — guides for adopting Litmus incrementally with LabVIEW, TestStand, or existing pytest suites.
+Check out [Integration](integration/index.md) — guides for adopting Litmus incrementally with LabVIEW, TestStand, or existing pytest suites.
 
 ### Quick Reference
 
@@ -92,12 +92,14 @@ Jump to [Reference](reference/api.md) for API documentation, configuration schem
 
 ```
 litmus/
-├── config/          # Configuration models and loaders
-├── instruments/     # Instrument drivers and library
+├── models/          # Pydantic models for every YAML entity (project, station, product, capability, ...)
+├── store.py         # Canonical YAML I/O — every read/write of catalog / station / product / fixture YAML
+├── instruments/     # Instrument base classes (Instrument, VisaInstrument) + Mock factory
 ├── matching/        # Capability matching service
-├── execution/       # pytest plugin
-├── data/            # Event log, channels, Parquet backend
-├── mcp/             # MCP server
+├── pytest_plugin/   # pytest plugin (fixtures, markers, sidecar loader)
+├── execution/       # Test-execution helpers (verify, harness, logger, decorators)
+├── data/            # Parquet schema + backend, event log/store, run store, channel store
+├── mcp/             # MCP server (12 `litmus_*` tools)
 ├── api/             # HTTP API (FastAPI)
 ├── ui/              # Operator UI (NiceGUI)
 └── client.py        # Python client library

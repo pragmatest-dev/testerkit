@@ -1,161 +1,117 @@
-# pytest-native: The Three-Object Split
+# pytest-native reference
 
-Litmus tests are plain pytest classes (or loose module-level functions)
-that consume up to three fixtures — `context`, `verify`, `logger` —
-each with a single, distinct responsibility. The plugin enforces Litmus
-conventions from the outside via pytest hooks; tests stay native pytest.
+Litmus is a pytest plugin. Every pytest concept — collection, fixtures, markers, plugins, `conftest.py`, command-line flags — works unchanged. This page is the map of what pytest gives you natively and what Litmus layers on top of it. For the Litmus surface specifically see [Litmus fixtures](litmus-fixtures.md) and [Litmus markers](litmus-markers.md).
 
-## The three fixtures
+## Collection
 
-| Fixture  | What it holds                                  | Verbs                                       | Source                                           |
-|----------|------------------------------------------------|---------------------------------------------|--------------------------------------------------|
-| `context`| Vector inputs + observations                   | `get_param`, `changed`, `observe`              | Sidecar YAML `vectors:` / `@pytest.mark.parametrize` |
-| `verify` | Limit check + record + raise on FAIL           | `verify(name, value, limit=..., characteristic=...)` | Always present; resolves limits via active `product_context` |
-| `logger` | Event persistence                              | `measure(name, value, limit=...)`, `record` | Always present                                   |
+Litmus uses pytest's default collection. No custom collectors, no replacement of `pytest_collect_file`.
 
-Data-flow rule: **test → spec → logger**. Logger reads ambient ContextVars
-at write time (one-way snapshot); otherwise the three objects do not call
-into each other.
+| Convention | Default |
+|---|---|
+| Test files | `tests/test_*.py` or `tests/*_test.py` |
+| Test classes | classes named `Test*` (no `__init__`) |
+| Test functions / methods | functions named `test_*` |
+| Override | standard pytest `python_files` / `python_classes` / `python_functions` in `pyproject.toml` |
 
-## Minimum viable test
+What Litmus adds at collection time:
 
-```python
-from litmus.execution.harness import Context
-from litmus.execution.logger import TestRunLogger
-from litmus.products.context import ProductContext
+- A `pytest_collection_modifyitems` hook merges per-test sidecar YAML (`tests/test_<module>.yaml`) into each item's marker set. This expands `litmus_sweeps` into one pytest case per row exactly as if you had written `@pytest.mark.parametrize` — pytest still owns the case multiplication.
+- Profiles (`--test-profile=<name>`) add `pytest.mark.skip` to items they exclude. The selection is visible in `pytest --collect-only -q`.
 
+The sidecar is recursive: top-level keys apply to every test in the file; `tests: { ClassName: { ... } }` scopes per class; `tests: { ClassName: { tests: { test_method: { ... } } } }` scopes per method. See [Test configuration](configuration.md#test-configuration).
 
-class TestPowerUp:
-    def test_output_voltage(
-        self,
-        context: Context,
-        psu,
-        dmm,
-        spec: ProductContext,
-    ) -> None:
-        psu.set_voltage(context.get_param("vin"))
-        psu.enable_output()
-        verify("output_voltage", dmm.measure_dc_voltage())
-```
+## Fixtures
 
-`verify` resolves the limit from the product YAML, calls
-`logger.measure`, and raises `AssertionError` if the outcome is `FAIL`.
+pytest's fixture model is unchanged.
 
-## Unified sidecar YAML
+- **All four scopes work.** `function`, `class`, `module`, `session` — choose the one that matches your resource cost.
+- **Resolution by name.** Take a fixture in the test signature; pytest resolves it from the nearest `conftest.py` upward, then from registered plugins (Litmus included).
+- **Yield fixtures, finalizers, request injection** all work as pytest documents them.
+- **`autouse=True`** works. Litmus's own `logger` fixture is autouse-session so every test sees an active logger without taking it as an argument.
 
-Each test module may have a sibling `test_<name>.yaml` with three
-optional blocks:
+You can write your own fixtures in `conftest.py` alongside Litmus's. A common pattern is a project-local `dut` factory wrapping the Litmus `dut` session fixture, or a per-class hardware-setup fixture that takes `instruments` as a dependency.
 
-```yaml
-# test_power_board_smoke.yaml
-vectors:
-  vin: [4.5, 5.0, 5.5]
-  load_current: [0.1, 0.4, 0.8]
+The 20 fixtures the Litmus plugin contributes are documented in [Litmus fixtures](litmus-fixtures.md).
 
-limits:
-  efficiency:      {low: 55,  high: 100, units: "%"}
-  startup_current: {high: 50, units: "mA", comparator: LE}
-  output_voltage:  {ref: "output_voltage"}   # delegates to product spec
+## Markers
 
-mocks:
-  dmm.measure_dc_voltage: 3.3
-```
+pytest's marker mechanism is unchanged. All of these work on Litmus tests as documented in the pytest manual:
 
-Blocks are independent — a test may use any combination, and `ref:` entries
-resolve against the active `ProductContext` if one is configured.
+| Marker | Use |
+|---|---|
+| `@pytest.mark.parametrize` | Generate one pytest case per row. Stack to cross-product. |
+| `@pytest.mark.skip` / `@pytest.mark.skipif` | Skip the test (with optional condition). |
+| `@pytest.mark.xfail` | Mark as expected-to-fail; surfaces as `XFAIL` / `XPASS`. |
+| `@pytest.mark.usefixtures("a", "b")` | Require fixtures without taking them in the signature. |
+| `@pytest.mark.filterwarnings` | Per-test warning filters. |
+| Custom markers via `pytest.ini` / `pyproject.toml` | Register and filter with `-m`. |
 
-## Limit resolution chain
+The seven `@pytest.mark.litmus_*` markers Litmus adds live in the same registry and stack with native ones (with one constraint — see the [no-stacking rule](litmus-markers.md#no-stacking-rule) for Litmus markers). See [Litmus markers](litmus-markers.md) for full details.
 
-When `logger.measure(name, value)` is called without an explicit `limit=`:
+`@pytest.mark.parametrize` and `@pytest.mark.litmus_sweeps` interoperate: both feed the same `context.get_param(name)` API and the same parquet `in_*` columns at runtime.
 
-1. **Explicit `limit=` kwarg** — used directly
-2. **Sidecar `limits:` entry** — pushed by the plugin into
-   `_active_limits_var` for the running test. Each entry is a dict;
-   add a `bands:` key for **condition-indexed overrides** (see below).
-3. **Product spec** — `get_active_product_context().get_limit(name)`
-4. **None** — recorded as unchecked
+## conftest.py
 
-### Condition-indexed bands
+Works as pytest documents it. Place a `conftest.py` in `tests/` (or a subdirectory) for fixtures and hooks that apply to that scope. Common uses with Litmus:
 
-A sidecar limit entry can carry a `bands:` list; each band has a
-`when:` clause plus the fields it overrides. The dict's top-level
-fields are defaults inherited by every band. At measurement time the
-first band whose `when:` matches the active vector params wins. No
-match raises `pytest.UsageError`.
+- Project-local fixtures that wrap or extend Litmus's (a typed `dut` accessor, a per-class measurement helper).
+- `pytest_addoption` for project-specific CLI flags.
+- `pytest_collection_modifyitems` for project-specific item filtering. (Litmus's hook is in the plugin and runs alongside, not instead of, yours.)
+- `pytest_runtest_setup` / `_teardown` for per-test setup beyond what fixtures express.
 
-```yaml
-limits:
-  output_voltage:
-    units: V
-    bands:
-      - {when: {vin: 5.0, load: 0.1}, low: 3.234, high: 3.366}
-      - {when: {vin: 3.3},            low: 3.1,   high: 3.5}    # any load at 3.3 V
-```
+The Litmus plugin loads via the standard pytest entry-point mechanism — no `conftest.py` manipulation needed.
 
-See [Test Limits → Condition-indexed bands](../guides/limits.md#condition-indexed-bands) for the full semantics.
+## Command-line flags
 
-## Native `@pytest.mark.parametrize`
+All pytest flags work. The ones that matter most for hardware test work:
 
-`@pytest.mark.parametrize` is first-class. `context.get_param(name)` reads
-`request.node.callspec.params` regardless of whether the vectors came from
-sidecar YAML, a `@pytest.fixture(params=[...])` declaration, or stacked
-`parametrize` markers. Range strings like `"4.5:5.5:0.5"` are accepted in
-sidecar vectors.
+| Flag | Purpose |
+|---|---|
+| `-k "expr"` | Run tests whose nodeid matches the substring expression. |
+| `-m "marker"` | Run tests whose markers match the boolean expression. |
+| `-x` / `--maxfail=N` | Stop after the first failure / Nth failure. |
+| `--lf` / `--ff` | Run last-failed / failed-first (uses pytest's cache). |
+| `--collect-only -q` | Show what would run without running. |
+| `-v` / `-q` | Verbose / quiet. |
+| `--tb=short` / `--tb=line` / `--tb=no` | Traceback style. |
+| `-p no:plugin` | Disable a specific plugin. |
+| `--co` | Alias for `--collect-only`. |
 
-## Self-loop mode — the `vectors` fixture
+Litmus adds the following flags (see [CLI reference](cli.md) for the full set):
 
-When the test function's signature includes the `vectors` fixture,
-Litmus collapses the expansion into a **single** pytest case and hands
-the test an iterator over the full matrix. Every source (native
-parametrize, sidecar `vectors:`, profile overrides) feeds into the
-same matrix:
+| Flag | Purpose |
+|---|---|
+| `--station <id-or-path>` | Resolve a `stations/*.yaml` to activate. |
+| `--product <id-or-path>` | Resolve a `products/*.yaml` to drive spec lookup. |
+| `--dut-part-number <pn>` | Content match against `product.part_number:`. |
+| `--fixture <id-or-path>` | Resolve a `fixtures/*.yaml` for pin → instrument routing. |
+| `--test-profile <name>` | Apply a named profile (test selection + overrides). Pair with `--no-test-profile` to disable a `default_profile:` set in `litmus.yaml`. |
+| `--mock-instruments` | Replace every real instrument with a mock. |
+| `--guardband <pct>` | Tighten spec-derived limits for manufacturing margin. |
+| `--data-dir <path>` | Override the canonical results directory. |
 
-```python
-@pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
-def test_rails_sweep(vectors, psu, dmm, verify):
-    for v in vectors:
-        psu.set_voltage(v["vin"])
-        verify("output_voltage", dmm.measure_dc_voltage())
-```
+## Plugins that interact with Litmus
 
-Each `__next__` on the iterator pushes the row's params into
-`_active_vector_params_var` and bumps `_active_vector_index_var`, so
-`verify`, `context.changed`, and row stamping (`meas_vector_index`,
-`in_*` columns) behave identically to parametrize mode. A non-empty
-matrix that never iterates fails the test — silent skips are hidden
-bugs. Combining the `vectors` fixture with native parametrize on the
-same test is fine (parametrize rows feed into the consolidated
-matrix); combining it with **class-level** parametrize raises
-`UsageError` at collection.
+| Plugin | Notes |
+|---|---|
+| **pytest-rerunfailures** | Powers `@pytest.mark.litmus_retry`. Install it if you use the marker; the translation happens in the plugin. |
+| **pytest-xdist** | Parallel execution. Generally **not** appropriate for hardware tests on a single bench (instruments aren't reentrant). Fine for mock-only suites and CI lint passes. |
+| **pytest-cov** | Code coverage. Works unchanged on test files; collects coverage on the test code, not on instrument drivers behind hardware. |
+| **pytest-html** / **pytest-json-report** | Independent of Litmus's own event log + parquet output. Run them alongside if you want pytest-flavored reports too. |
 
-## Implicit prereq chain
+## Discovery vs activation
 
-Methods within a test class run in source order. If method `test_a` fails
-for any parametrize instance, subsequent method `test_b` is skipped for
-all of its parametrize instances. The chain is method-level; per-case
-matching via `callspec.id` is out of scope. Loose module-level
-`def test_*` functions are exempt from the implicit chain.
+Two things to keep separate:
 
-## Duplicate-name guard
+- **Discovery** is pytest's: what `tests/test_*.py` files match, what items they expose. Litmus has no opinion here.
+- **Activation** is Litmus's: which station, product, fixture, profile is loaded for the session. Driven by the CLI flags above (or by `default_station:` / `default_profile:` in `litmus.yaml`).
 
-`logger.measure` maintains a per-step `seen_names` set. A second call
-with the same name within one step raises `DuplicateMeasurementError`.
-To stream samples under one name, pass `allow_repeat=True`:
+A test that runs on a bringup tier with no station YAML and a test that runs on a factory tier with full traceability are **collected identically**. The activation context decides what fixtures resolve to and what limits `verify` finds.
 
-```python
-for _ in range(100):
-    logger.measure("voltage_sample", dmm.measure_dc_voltage(),
-                   limit=..., allow_repeat=True)
-```
+## See also
 
-## Graceful degradation
-
-The three input sources are independent. Tests work under any combination:
-
-| Sidecar | Spec | Test shape                                                |
-|---------|------|-----------------------------------------------------------|
-| —       | —    | `logger.measure("v", val, limit=Limit(...))`              |
-| —       | ✓    | `verify("output_voltage", val)`                       |
-| ✓       | —    | `logger.measure("efficiency", eff)` — auto-resolves       |
-| ✓       | ✓    | verify for characteristics; logger.measure for procedure |
-| —       | —    | `assert 3.2 <= val <= 3.4` — pure pytest, no Litmus YAML  |
+- [Litmus fixtures](litmus-fixtures.md) — all 20 fixtures the plugin contributes
+- [Litmus markers](litmus-markers.md) — the seven `litmus_*` markers and their sidecar equivalents
+- [Test configuration](configuration.md#test-configuration) — sidecar YAML merge semantics
+- [CLI reference](cli.md) — full flag list, including the non-pytest commands (`litmus serve`, `litmus runs`, etc.)
+- [pytest documentation](https://docs.pytest.org/en/stable/) — canonical reference for everything in the "pytest-native" half of this page

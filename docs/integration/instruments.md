@@ -101,7 +101,7 @@ For testing without hardware, Litmus provides a `Mock` factory that works with a
 
 ```python
 from pymeasure.instruments.keithley import Keithley2400
-from litmus.instruments import Mock
+from litmus.instruments.mocks import Mock
 
 # Create mock that passes isinstance checks
 smu = Mock(Keithley2400, voltage=5.0, current=1.5e-6)
@@ -115,7 +115,7 @@ assert smu.voltage == 5.0
 Mock supports three value types:
 
 ```python
-from litmus.instruments import Mock
+from litmus.instruments.mocks import Mock
 
 # Simple values - always returned
 dmm = Mock(object, measure_voltage=3.31)
@@ -170,7 +170,7 @@ pytest tests/ --station=dev_station --mock-instruments --dut-serial=TEST001
 Scan for available VISA instruments:
 
 ```python
-from litmus.instruments import discover_visa, get_info_visa
+from litmus.instruments.discovery import discover_visa, get_info_visa
 
 # Find all instruments
 resources = discover_visa()
@@ -222,7 +222,7 @@ def psu(instruments):
 ```python
 #!/usr/bin/env python3
 import pyvisa
-from litmus.instruments import Mock
+from litmus.instruments.mocks import Mock
 
 def measure_voltage(resource: str, mock: bool = False) -> float:
     if mock:
@@ -249,31 +249,46 @@ if __name__ == "__main__":
 
 Every measurement records which instrument took it:
 
+Per-step instrument identity is stored as parallel arrays (one entry
+per instrument touched by the step) under the `step_instruments_*`
+columns:
+
 ```python
-# Result Parquet includes:
-# - instrument_serial: "SN123456"
-# - instrument_model: "34461A"
-# - instrument_cal_due: "2024-06-15"
-# - instrument_firmware: "1.0.2"
+# Each step row carries parallel arrays:
+# - step_instruments_name      : ["dmm", "psu", ...]
+# - step_instruments_serial    : ["SN123456", "SN789", ...]
+# - step_instruments_model     : ["34461A", "E36312A", ...]
+# - step_instruments_firmware  : ["1.0.2", "2.1.0", ...]
+# - step_instruments_resource  : ["TCPIP::...", "GPIB::...", ...]
+# (See `INSTRUMENT_ARRAY_KEYS` in litmus.data.backends._row_helpers.)
 ```
 
-Configure calibration info in station:
+Configure calibration info on the **instrument asset** (`instruments/<id>.yaml`) and reference it from the station:
 
 ```yaml
-instruments:
-  dmm:
-    type: dmm
-    driver: pymeasure.instruments.keysight.Keysight34461A
-    resource: "TCPIP::192.168.1.100::INSTR"
-    calibration:
-      due_date: 2024-06-15
-      last_cal: 2023-06-15
-      certificate: "CAL-2023-1234"
-      lab: "Acme Calibration"
+# instruments/keysight_dmm_001.yaml
+id: keysight_dmm_001
+catalog_ref: catalog/keysight/34461a.yaml
+serial: MY12345678
+calibration:
+  due_date: 2024-06-15
+  last_cal: 2023-06-15
+  certificate: "CAL-2023-1234"
+  lab: "Acme Calibration"
 ```
+
+```yaml
+# stations/bench_1.yaml
+instruments:
+  dmm: keysight_dmm_001                            # role → instrument id
+resources:
+  keysight_dmm_001: "TCPIP::192.168.1.100::INSTR"  # id → VISA address
+```
+
+A station's `instruments:` block does not carry a `calibration:` field — that lives on the instrument asset YAML, which the loader joins to the station at session start.
 
 ## Next Steps
 
-- [Adding Instruments](../guides/adding-instruments.md) — Station configuration details
-- [Mock Mode](../guides/mock-mode.md) — Testing without hardware
+- [Custom drivers](../how-to/custom-drivers.md) — Build a non-VISA driver
+- [Mock Mode](../how-to/mock-mode.md) — Testing without hardware
 - [Stations](../concepts/stations.md) — Station architecture
