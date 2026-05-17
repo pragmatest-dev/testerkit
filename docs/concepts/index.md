@@ -26,6 +26,5 @@ Why Litmus is built the way it is. Read top-to-bottom for the framework's mental
 
 - [Why event sourcing](why-event-sourcing.md) — append-only event log as the source of truth
 - [Event log](event-log.md) — the durable record of every run
-- [Three stores](three-stores.md) — EventStore, ChannelStore, ParquetBackend
-- [Results storage](results-storage.md) — how parquet runs land on disk
+- [Three stores](three-stores.md) — EventStore, ChannelStore, ParquetBackend; on-disk layout, data_dir resolution, schema-evolution contract
 - [Flight streaming](flight-streaming.md) — cross-process data access via Arrow Flight

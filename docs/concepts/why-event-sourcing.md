@@ -64,6 +64,5 @@ There's no "the materialization service" everyone has to wait on, no central wri
 
 ## See also
 
-- [Three Stores Architecture](three-stores.md) — the *what*: events, channels, runs (parquet projection)
+- [Three Stores Architecture](three-stores.md) — the *what*: events, channels, runs (parquet projection); on-disk layout, data_dir resolution, schema-evolution contract
 - [Event Log Architecture](event-log.md) — event types, dispatch, durability
-- [Results Storage](results-storage.md) — on-disk layout

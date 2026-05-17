@@ -80,6 +80,69 @@ Events (source of truth)
 
 Sessions are not a stored entity — they're derived from events at query time.
 
+## Where the data dir lives
+
+`<data_dir>` defaults to a shared per-user directory so every project on the machine sees the same results pool — `litmus runs`, `litmus serve`, and DuckDB queries see everything.
+
+Resolution order (first match wins):
+
+1. Explicit `--data-dir` argument or `data_dir=` parameter
+2. `data_dir` field in the project's `litmus.yaml`
+3. `LITMUS_HOME` environment variable
+4. `~/.local/share/litmus/data/` (platform default via `platformdirs`)
+
+To isolate a project's results from the shared pool, add to `litmus.yaml`:
+
+```yaml
+name: my-project
+data_dir: results    # writes to ./results/ instead of the global pool
+```
+
+## Schema evolution — HARD contract
+
+Parquet files are the permanent record. Each litmus version may add columns; older files simply lack them. The parquet artifact is a **HARD contract**: changes must be additive because written files cannot be retroactively rewritten when a new version ships.
+
+Until the 1.0 cut, the following invariants hold:
+
+- **New columns only.** Every release may add columns. Existing column names, types, and semantics are stable across 0.x releases.
+- **No removals or type changes** in 0.x. If a column would otherwise be removed or repurposed, it stays in the schema and reads as NULL for newly-written rows; the old meaning is documented as deprecated.
+- **PK stability.** `(run_id, step_path, vector_index)` is the per-step identity in the materialized table; `(run_id, step_path, vector_index, measurement_name, vector_retry)` discriminates measurement rows. These tuples do not change shape in 0.x.
+- **`record_type` discriminator stable.** The `'run'` / `'step'` / `'measurement'` values are part of the wire format and do not change.
+- **Read with `union_by_name=true`.** Consumer queries that follow the recommended `read_parquet(..., union_by_name=true)` pattern survive every additive evolution automatically.
+
+```sql
+-- DuckDB handles mixed schemas automatically
+SELECT station_id, project_name, run_outcome
+FROM read_parquet('~/.local/share/litmus/data/runs/**/*.parquet',
+                  union_by_name=true)
+```
+
+Schema rewrites and column removals are deferred to the 1.0 cut, when a migration story for old files lands.
+
+## The DuckDB query index
+
+Litmus maintains a DuckDB index alongside the parquet files to speed up queries like `litmus runs` and the web UI. The index is a **disposable cache** — it can be deleted and rebuilt at any time without data loss. The index file lives at `<data_dir>/runs/_index.duckdb`.
+
+If a schema column the index doesn't yet know about appears in a parquet file, the index runs `ALTER TABLE … ADD COLUMN IF NOT EXISTS` to absorb it. There is no version-gated drop-and-rebuild.
+
+To force a full rebuild:
+
+```bash
+rm ~/.local/share/litmus/data/runs/_index.duckdb*
+```
+
+## Mixed versions on one machine
+
+When multiple projects use different litmus versions but share the global results directory:
+
+| Layer | What happens | User impact |
+|---|---|---|
+| Parquet files | Each version writes its own schema. Newer files may have more columns. | NULL values for columns that didn't exist when the file was written. |
+| Query index | Schema is additive (`ALTER TABLE … ADD COLUMN IF NOT EXISTS`) per data_dir. The runs daemon is one process per data_dir, not per version. | New columns appear in the index once a newer-version process writes them. |
+| Web UI / CLI | Shows whatever the current index has. | Some fields may be empty for older runs. |
+
+The rule: newer is always a superset. An older litmus version reading newer results ignores unknown columns; a newer version reading older results sees NULL for missing columns. No version corrupts or downgrades another's data.
+
 ## See Also
 
 - [Event Log Architecture](event-log.md) — Deep dive into the event system

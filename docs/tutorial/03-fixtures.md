@@ -2,7 +2,7 @@
 
 **Goal:** Adopt Litmus's per-test fixtures so measurements get recorded with full [traceability](../how-to/traceability.md).
 
-In step 2, your tests called driver methods and used `assert` for pass/fail. Litmus's `logger` and `verify` fixtures slot in alongside that, recording each measurement to the run record (the row Litmus writes per test in parquet — see [results storage](../concepts/results-storage.md)) without changing how your test reads.
+In step 2, your tests called driver methods and used `assert` for pass/fail. Litmus's `logger` and `verify` fixtures slot in alongside that, recording each measurement to the run record (the row Litmus writes per test in parquet — see [three stores](../concepts/three-stores.md)) without changing how your test reads.
 
 You don't need any new YAML for this step. Keep the `conftest.py` from step 2 — the `psu` / `dmm` fixtures still work.
 
