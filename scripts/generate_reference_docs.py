@@ -445,6 +445,72 @@ def _generate_models(*, check: bool) -> bool:
 
 
 # =============================================================================
+# configuration.md
+# =============================================================================
+
+
+# (yaml-file-pattern, validating-model-dotted-path, one-line-purpose)
+_CONFIG_FILES: list[tuple[str, str, str]] = [
+    (
+        "`litmus.yaml`",
+        "litmus.models.project.ProjectConfig",
+        "Project root — names, defaults, profiles, multi-slot knobs.",
+    ),
+    (
+        "`stations/<id>.yaml`",
+        "litmus.models.station.StationConfig",
+        "Concrete station deployment — instruments, drivers, resources.",
+    ),
+    (
+        "`stations/types/<id>.yaml`",
+        "litmus.models.station.StationType",
+        "Abstract station-type template — required roles, capabilities.",
+    ),
+    (
+        "`fixtures/<id>.yaml`",
+        "litmus.models.test_config.FixtureConfig",
+        "DUT-pin ↔ instrument-channel routing (single-DUT) or per-slot routing (multi-DUT).",
+    ),
+    (
+        "`products/<id>.yaml`",
+        "litmus.models.product.Product",
+        "Product specification — pins, signal groups, characteristics.",
+    ),
+    (
+        "`tests/test_<name>.yaml`",
+        "litmus.models.test_config.SidecarConfig",
+        "Sidecar test config co-located with `tests/test_<name>.py`"
+        " — sweeps, limits, mocks, retry, prompts.",
+    ),
+    (
+        "`catalog/<vendor>/<model>.yaml`",
+        "litmus.models.catalog.InstrumentCatalogEntry",
+        "Instrument capability catalog"
+        " — see [catalog-schema.md](catalog-schema.md) for the full reference.",
+    ),
+]
+
+
+def _generate_configuration(*, check: bool) -> bool:
+    target = DOCS_DIR / "configuration.md"
+
+    rows = [
+        "| File | Pydantic model | What it carries |",
+        "|---|---|---|",
+    ]
+    for pattern, dotted, purpose in _CONFIG_FILES:
+        cls_name = dotted.rsplit(".", 1)[1]
+        model_anchor = f"models.md#model-{cls_name.lower()}"
+        rows.append(f"| {pattern} | [`{cls_name}`]({model_anchor}) | {purpose} |")
+
+    body = "\n".join(rows)
+
+    existing = target.read_text()
+    new = _replace_section(existing, "configuration-file-index", body)
+    return _write_or_check(target, new, check=check)
+
+
+# =============================================================================
 # Dispatcher
 # =============================================================================
 
@@ -452,6 +518,7 @@ def _generate_models(*, check: bool) -> bool:
 GENERATORS: dict[str, Any] = {
     "event-types": _generate_event_types,
     "models": _generate_models,
+    "configuration": _generate_configuration,
 }
 
 

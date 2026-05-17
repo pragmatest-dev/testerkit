@@ -1,459 +1,390 @@
-# Configuration Reference
+# Configuration reference
 
-Litmus uses YAML files for configuration, validated by Pydantic models.
+Litmus uses YAML files for every config surface, validated by Pydantic models. This page enumerates the files, their canonical locations, and the shape of each. Every model is `extra="forbid"` — typos like `descriptin:` raise `ValidationError` at load time. Filename stems must match the `id:` field for id-keyed entities (`store.py:_check_id_matches_filename`).
 
-## Product Specification
+For the full field-by-field reference of each model, see [models.md](models.md). For deep-dive references on catalog YAML and profile resolution, see the dedicated pages linked from each section.
 
-**Location:** `products/<product_id>.yaml`
+## YAML files at a glance
+
+<!-- GENERATED:configuration-file-index:start -->
+| File | Pydantic model | What it carries |
+|---|---|---|
+| `litmus.yaml` | [`ProjectConfig`](models.md#model-projectconfig) | Project root — names, defaults, profiles, multi-slot knobs. |
+| `stations/<id>.yaml` | [`StationConfig`](models.md#model-stationconfig) | Concrete station deployment — instruments, drivers, resources. |
+| `stations/types/<id>.yaml` | [`StationType`](models.md#model-stationtype) | Abstract station-type template — required roles, capabilities. |
+| `fixtures/<id>.yaml` | [`FixtureConfig`](models.md#model-fixtureconfig) | DUT-pin ↔ instrument-channel routing (single-DUT) or per-slot routing (multi-DUT). |
+| `products/<id>.yaml` | [`Product`](models.md#model-product) | Product specification — pins, signal groups, characteristics. |
+| `tests/test_<name>.yaml` | [`SidecarConfig`](models.md#model-sidecarconfig) | Sidecar test config co-located with `tests/test_<name>.py` — sweeps, limits, mocks, retry, prompts. |
+| `catalog/<vendor>/<model>.yaml` | [`InstrumentCatalogEntry`](models.md#model-instrumentcatalogentry) | Instrument capability catalog — see [catalog-schema.md](catalog-schema.md) for the full reference. |
+<!-- GENERATED:configuration-file-index:end -->
+
+## Project — `litmus.yaml` {#project-litmus-yaml}
+
+The project root. Lives at the repo root; every other YAML resolves relative to it. Validated by [`ProjectConfig`](models.md#model-projectconfig).
 
 ```yaml
-id: string              # Unique identifier
-name: string            # Display name
-description: string     # Optional
-revision: string        # Version/revision
-datasheet: string       # Optional path/URL
-schematic: string       # Optional path/URL
+name: my_project                  # required — project name
+data_dir: data                    # optional — runs/, events/, channels/ subtree (default: ./data)
+default_station: bench_1          # optional — fallback when no --station and no hostname match
+default_fixture: power_board_fix  # optional — fallback when no --fixture and no profile binds one
+default_profile: production       # optional — fallback when no --test-profile
+mock_instruments: false           # optional — global mock toggle (CLI: --mock-instruments)
 
-pins:                     # Physical connection points
-  <key>:                  # Pin reference name (used in characteristics)
-    name: string          # Physical designator (e.g., "J1.1", "TP5")
-    net: string           # Schematic net name (optional)
-    role: signal | power | ground | reference   # Pin role (default: signal)
-    description: string   # Optional
+profiles:                         # optional — named ProfileConfig blocks (see below)
+  production:
+    description: "Production line config"
+    facets: {phase: production}
+    runner:
+      addopts: "--strict-markers -p no:cacheprovider"
 
-signal_groups:            # Bus interfaces
-  <key>:
-    protocol: string      # i2c, spi, uart, parallel, custom
-    signals:
-      - pin: string       # Reference to pins.<key>
-        role: string      # data, clock, chip_select, etc.
-        index: integer    # For multi-bit (DATA[0], DATA[1])
-    parameters:           # Protocol-specific parameters
-      frequency: integer
-      <param>: value
-    description: string
+runner: {}                        # optional — dict[str, Any] consumed by the active runner's plugin
 
-characteristics:
-  <name>:                 # Characteristic identifier
-    function: dc_voltage | ac_voltage | dc_current | ac_current | resistance | waveform | ...
-    direction: input | output | bidir
-    units: string         # e.g., "V", "A", "ohm"
+required_inputs:                  # optional — dict[name, PromptConfig] (operator-input prompts)
+  operator_id:
+    message: "Scan operator badge"
+    prompt_type: input
 
-    # Physical interface (at least one required)
-    pin: string           # Single pin reference (Product.pins key)
-    pins: [string] | string  # Multiple pins (list or range: "GPIO[0:7]")
-    net: string           # Schematic net name
-    signal_group: string  # Reference to signal_groups.<key>
-
-    # For multi-channel DUT outputs
-    channel: string       # Single channel
-    channels: [string] | string  # Multiple channels (list or range: "CH[1:4]")
-
-    # Traceability
-    datasheet_ref: string # Optional reference
-    schematic_ref: string # Deprecated: use net instead
-
-    bands:
-      - value: float            # Nominal/expected value
-        accuracy:               # Accuracy specification
-          pct_reading: float    # Percentage of reading
-          pct_range: float      # Percentage of range
-          absolute: float       # Absolute accuracy
-        when:                   # Operating conditions this band applies to (optional)
-          temperature: {min: float, max: float}
-          load: {min: float, max: float}
-          <param>: value
-        resolution:             # Measurement-resolution spec (optional)
-          value: float
-          units: string
+multi_slot:                       # optional — multi-DUT orchestrator knobs
+  child_grace_seconds: 5.0        # seconds from SIGTERM to SIGKILL per child pytest
 ```
 
-`bands:` lives inside each characteristic. There is no top-level `bands:` on Product — see `src/litmus/models/product.py`. `SpecBand` has no `comparator` field; the comparator lives on `Limit` (the test-config schema), not on the product spec.
+- `runner:` is `dict[str, Any]` (default `{}`). It is *not* a string. The active runner's plugin validates the block against its own schema.
+- `required_inputs:` is `dict[str, PromptConfig]`, not a list.
+- `default_*` keys are CLI-overridable: explicit flag → this field → fail with a usage error if neither is present.
 
-### Pin Types
+### Profile blocks under `profiles:`
 
-| Role | Description |
-|------|-------------|
-| `signal` | General signal pin (default) |
-| `power` | Power supply pin |
-| `ground` | Ground reference |
-| `reference` | Voltage reference (not driven) |
-
-### Comparator Reference
-
-| Comparator | Meaning | Pass Condition |
-|------------|---------|----------------|
-| `EQ` | Equals | value == nominal |
-| `NE` | Not equals | value != nominal |
-| `LT` | Less than | value < high |
-| `LE` | Less or equal | value <= high |
-| `GT` | Greater than | value > low |
-| `GE` | Greater or equal | value >= low |
-| `GELE` | In range (inclusive) | low <= value <= high |
-| `GELT` | In range (high exclusive) | low <= value < high |
-| `GTLE` | In range (low exclusive) | low < value <= high |
-| `GTLT` | In range (exclusive) | low < value < high |
-
-## Station Configuration
-
-**Location:** `stations/<station_id>.yaml`
+A profile is a [`ProfileConfig`](models.md#model-profileconfig) — same flat shape as a test entry (limits / sweeps / mocks / retry / prompts apply session-wide), plus profile-only metadata. Selected at session start via `--test-profile <name>` or the `default_profile`.
 
 ```yaml
-id: string              # Unique identifier
-name: string            # Display name
-location: string        # Physical location
-description: string
-
-instruments:
-  <name>:                 # Instrument alias / role name (used in tests as fixture)
-    type: string          # Instrument type (psu, dmm, eload, scope, smu)
-    driver: string        # Python import path to driver class
-    resource: string      # VISA address
-    catalog_ref: string   # Optional: catalog entry ID for capability/topology resolution
-    channels: [string]    # Optional: channel keys (resolved from catalog if omitted)
-    mock: boolean         # If true, uses Mock with mock_config values
-    mock_config:          # Values for --mock-instruments mode (keys are driver method names)
-      measure_dc_voltage: float
-      measure_current: float
-      measure_resistance: float
-
-supported_phases:         # Optional: which test phases this station supports
-  - validation
-  - production
-  - debug
+profiles:
+  thermal_extended:
+    description: "85 °C soak + adjacent retry on flaky thermal probe"
+    facets: {phase: thermal, lab: bench_a}    # dimension-tagged for filtering
+    extends: production                       # parent profile — last-wins merge
+    station_type: thermal_bench               # bind to a StationType (resolver verifies)
+    fixture: thermal_fixture_v2               # bind to a Fixture (CLI --fixture wins)
+    runner:
+      addopts: "-m thermal"
+      markers:                                # ecosystem markers applied via the cascade
+        - flaky:
+            reruns: 2
+    limits:                                   # session-wide limits
+      output_voltage: {low: 3.2, high: 3.4, units: V}
+    tests:                                    # recursive per-class / per-method overrides
+      test_thermal:
+        sweeps:
+          - {temperature: [25, 85]}
 ```
 
-### Common Instrument Types
+`extends:` chains are walked parent-first; leaves carry only deltas. Parent profiles with no `facets:` are reachable only as extends targets (they cannot be selected directly). See [how-to/profiles.md](../how-to/profiles.md) for the workflow.
 
-| Type | Description | Capabilities |
-|------|-------------|--------------|
-| `dmm` | Digital Multimeter | voltage, current, resistance |
-| `scope` | Oscilloscope | voltage (AC), frequency, time |
-| `psu` | DC Power Supply | voltage output, current output |
-| `eload` | Electronic Load | current sink |
-| `funcgen` | Function Generator | waveform output |
+## Station — `stations/<id>.yaml` {#station-yaml}
 
-## Fixture Configuration
-
-**Location:** `fixtures/<fixture_id>.yaml`
-
-Fixtures define pin-to-instrument mappings, bridging product pins to station instruments.
+Concrete station deployment. Validated by [`StationConfig`](models.md#model-stationconfig). Filename stem must equal `id:`.
 
 ```yaml
-id: string              # Unique identifier
-name: string            # Display name
-product_id: string      # Specific product (preferred)
-product_family: string  # Or product family for shared fixtures
-product_revision: string # Optional: specific revision
+id: bench_1                       # required — matches filename stem
+name: "Bench 1"                   # required — display name
+station_type: thermal_bench       # optional — names a StationType template (resolver cross-checks)
+hostname: bench-01.lab            # optional — auto-matches socket.gethostname() at session start
+location: "Lab 3, Rack B"
+description: "RF + thermal characterization bench"
+supported_phases: [validation, production]
 
-connections:
-  <name>:                 # Fixture connection name
-    dut_pin: string       # Product pin reference
-    net: string           # Or schematic net name
-    instrument: string    # Station instrument name
-    instrument_channel: string  # Channel on instrument
-    instrument_terminal: string # Terminal on channel (hi, lo, signal, etc.)
+instruments:                      # dict[role, StationInstrumentConfig]
+  dmm:
+    type: dmm                     # required — instrument-type (canonical or alias)
+    driver: pymeasure.instruments.keysight.KeysightDMM34465A
+    resource: "TCPIP0::192.168.1.50::INSTR"
+    catalog_ref: keysight_34465a  # optional — catalog entry id (resolves channels/capabilities)
+    channels:                     # optional — dict[str, str]; resolved from catalog if omitted
+      voltage: "1"
+    mock: false                   # true = use Mock(driver, **mock_config) instead of real driver
+    mock_config:                  # keys are driver METHOD NAMES (not signal names)
+      measure_dc_voltage: 3.31
+      measure_current: 0.105
+    description: "Lab calibrated 2026-04-12"
+
+  psu:
+    type: psu
+    driver: pymeasure.instruments.rigol.RigolDP832
+    resource: "USB0::0x1AB1::0x0E11::DP8B240500001::INSTR"
 ```
 
-### Example
+- `instruments.<role>.channels` is `dict[str, str]`, not a list.
+- `mock_config` keys are driver method names (`measure_dc_voltage`, `set_voltage`), not signal names. See [how-to/mock-mode.md](../how-to/mock-mode.md).
+- For `type:` values: canonical names live on [`InstrumentType`](models.md#enum-instrumenttype). Short aliases (e.g. `fgen` → `function_generator`) are accepted via `_INSTRUMENT_TYPE_ALIASES` in `litmus.store`. Unknown values trigger a warning, not an error.
+- Validator: real-hardware instruments (`mock: false`) require at least one of `resource:` or `driver:`. Mock-only instruments don't.
+
+## Station type — `stations/types/<id>.yaml` {#station-type-yaml}
+
+Abstract station-type template. Concrete stations declare compatibility via `station_type:`. Validated by [`StationType`](models.md#model-stationtype).
 
 ```yaml
-# fixtures/power_board_fixture.yaml
-id: power_board_fixture
+id: thermal_bench
+description: "Thermal characterization bench — chamber + 2× DMM + PSU"
+instruments:                      # dict[role, InstrumentConfig] — required roles
+  chamber:
+    type: chamber
+    driver: drivers.cincinnati.cs_900
+  dmm_main:
+    type: dmm
+    driver: pymeasure.instruments.keysight.KeysightDMM34465A
+  dmm_ref:
+    type: dmm
+    driver: pymeasure.instruments.keysight.KeysightDMM34465A
+  psu:
+    type: psu
+    driver: pymeasure.instruments.rigol.RigolDP832
+capabilities: [thermal_soak, dual_dmm_compare]
+```
+
+`validate_station_against_type(station, station_type)` enforces role coverage at session start. A station declaring `station_type: thermal_bench` must define instruments under every role the type names, with matching `type:` values.
+
+## Fixture — `fixtures/<id>.yaml` {#fixture-yaml}
+
+DUT-pin ↔ instrument-channel routing. Validated by [`FixtureConfig`](models.md#model-fixtureconfig).
+
+Single-DUT — top-level `connections:`:
+
+```yaml
+id: power_board_fix
 name: "Power Board Test Fixture"
-product_id: power_board
+product_id: power_board                # specific product (preferred)
+product_family: power_boards           # OR product family for shared fixtures
+product_revision: rev_a                # optional — refinement
+station_types: [thermal_bench, rf_bench]  # which StationType templates this can wire against
+dut_resource: "/dev/ttyUSB0"           # optional — DUT control connection
+description: "Standard 4-rail board fixture"
 
-connections:
-  VIN:
-    dut_pin: VIN
-    net: VIN_5V
-    instrument: psu
+connections:                           # dict[name, FixtureConnection]
+  vout_measure:
+    name: vout_measure                 # REQUIRED — must match the key
+    instrument: dmm                    # role name on the station
     instrument_channel: "1"
-  VOUT:
-    dut_pin: VOUT
-    net: VOUT_3V3
+    instrument_terminal: hi            # optional — hi / lo / sense_hi / sense_lo / signal / …
+    dut_pin: VOUT                      # reference into Product.pins
+    net: VOUT_3V3                      # optional — schematic net name
+    function: dc_voltage               # optional — per-function disambiguation (DMM for DC, scope for AC)
+    description: "Direct-wired DMM probe on VOUT"
+
+  vout_switched:
+    name: vout_switched
     instrument: dmm
+    instrument_channel: "1"
+    dut_pin: VOUT
+    route:                             # optional — switch routing (SwitchRoute)
+      switch: matrix                   # role name of the switch instrument
+      channels: ["r0c0"]
+      settling_ms: 10
 ```
 
-### When to Use Fixtures
-
-| Scenario | Use Fixture? |
-|----------|--------------|
-| Simple bench, one product | No — use direct instrument fixtures |
-| Multiple products on same bench | Yes — map each product's pins |
-| Production test with compliance needs | Yes — provides traceability |
-| Development/CI | No — use Mock(DMM), Mock(PSU) |
-
-## Test Configuration
-
-Per-test config is one vocabulary — pytest markers — delivered three
-ways. Marker fields live directly at each entry's root, alongside the
-reserved `runner:` and `tests:` keys; same shape inline
-(`@pytest.mark.X(...)`), in the sidecar, or in a profile.
-
-Resolution order (least → most specific):
-
-1. **Sidecar file-level** — marker fields at the top of `test_<module>.yaml`
-2. **Sidecar class-branch / per-test** — nested `tests.<Cls>.<marker>:` /
-   `tests.<name>.<marker>:`
-3. **Inline `@pytest.mark.<name>(...)`** on method or class
-4. **Profile chain** — parent profile first, child last (`extends:`)
-5. **CLI flags** — always win
-
-Same rule at every level: later entry with the same marker name + first
-key wins on overlap; non-overlapping passes through.
-
-### Inline marker form
-
-```python
-import pytest
-
-
-@pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5]}])
-@pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
-def test_example(vin, dmm, logger):
-    logger.measure("output_voltage", dmm.measure_dc_voltage())
-```
-
-Native `@pytest.mark.parametrize` keeps working unchanged. Use
-`litmus_sweeps` when you want runner-neutral payloads (translates 1:1
-to pytest, has a YAML form, supports range expanders).
-
-### Sidecar YAML form
+Multi-DUT — top-level `slots:` instead of `connections:`:
 
 ```yaml
-# test_example.yaml — same directory as the test module
-limits:                         # file-wide; applies to every test
-  output_voltage: {low: 3.135, high: 3.465, units: V}
-
-tests:
-  test_example:                 # leaf
-    sweeps:
-      - {vin: [4.5, 5.0, 5.5]}
-
-  TestIdle:                     # class branch
-    limits: {i_idle: {low: 0.0, high: 0.1, units: A}}   # applies to every TestIdle method
-    tests:
-      test_quiescent:           # nested leaf
-        mocks:
-          - {target: dmm.measure_dc_current, return_value: 0.05}
+id: multi_slot_fix
+name: "Quad Power Board Fixture"
+product_id: power_board
+station_types: [bench_4ch]
+slots:                                 # dict[slot_name, FixtureSlot]
+  slot_1:
+    dut_resource: "/dev/ttyUSB0"       # per-slot DUT connection
+    description: "Bottom-left slot"
+    connections:
+      vout_measure:
+        name: vout_measure
+        instrument: dmm
+        instrument_channel: "1"
+        dut_pin: VOUT
+  slot_2:
+    dut_resource: "/dev/ttyUSB1"
+    connections:
+      vout_measure:
+        name: vout_measure
+        instrument: dmm
+        instrument_channel: "2"
+        dut_pin: VOUT
 ```
 
-The shape mirrors pytest's `file::Class::method` node IDs: a class is a
-branch with its own marker fields plus a nested `tests:` dict; a function
-is a leaf with marker fields only. See the
-[Litmus markers reference](litmus-markers.md) for the seven
-marker names (`limits`, `sweeps`, `mocks`, `characteristics`,
-`connections`, `retry`, `prompts`).
+- `FixtureConnection.name` is required — there is no key-as-name auto-fill. Declare `name:` matching the dict key on every connection.
+- `connections:` and `slots:` are mutually exclusive on a single `FixtureConfig` — validator rejects both being set.
 
-### Retries
+See [concepts/fixtures.md](../concepts/fixtures.md) for the design rationale, [how-to/multi-dut-testing.md](../how-to/multi-dut-testing.md) for slot workflow.
 
-Sidecar `retry:` (or `@pytest.mark.litmus_retry(...)`) takes the real `RetryConfig` shape (`src/litmus/models/test_config.py`):
+## Product — `products/<id>.yaml` {#product-yaml}
+
+Product specification. Validated by [`Product`](models.md#model-product). Filename stem must equal `id:`.
 
 ```yaml
-retry: {max_retries: 3, delay: 0.5, on: ["AssertionError"]}
-```
+id: power_board                       # required — matches filename stem
+name: "DC-DC Power Board"             # required
+part_number: PWR-CONV-001             # optional — operator-facing dut_part_number
+base: power_board_base                # optional — inherits from another product (see Variants)
+revision: rev_a
+description: "5 V → 3.3 V buck converter"
+datasheet: "docs/DS-power-board-001.pdf"
+schematic: "docs/SCH-power-board-001.pdf"
+driver: drivers.power_board.PowerBoard   # optional — dotted import path for DUT driver
 
-Or via the marker:
+pins:                                 # dict[key, Pin] — physical connection points
+  VIN:
+    name: "J1.1"                      # physical designator
+    net: VIN_5V                       # schematic net name
+    role: power                       # signal | power | ground | reference (default: signal)
+    description: "5 V input"
+  VOUT:
+    name: "J1.3"
+    net: VOUT_3V3
+    role: power
+  GND:
+    name: "J1.2"
+    role: ground
 
-```python
-@pytest.mark.litmus_retry(max_retries=3, delay=0.5)
-def test_flaky(dmm, logger): ...
-```
-
-For pytest-ecosystem retries instead of the Litmus marker, `pytest-rerunfailures` still works:
-
-```python
-@pytest.mark.flaky(reruns=3, reruns_delay=0.5)
-def test_flaky(dmm, logger): ...
-```
-
-### Vector shape
-
-`sweeps` payloads are always a **list of axis-group dicts**.
-Each top-level dict in the list is one independent loop; multi-key
-dicts inside one entry zip together; stacked entries cross-product
-(top entry = outermost / slowest loop).
-
-```yaml
-sweeps:
-  - {temperature: [25, 85]}              # outer loop — slow
-  - {vin: [3.3, 5.0, 12.0]}              # middle loop
-  - {load_a: [0.1, 0.4], load_b: [10, 20]}  # zipped — same length
-```
-
-Range expanders (`linspace`, `arange`, `logspace`, `geomspace`,
-`repeat`, `range`) substitute for argvalues:
-
-```yaml
-sweeps:
-  - {voltage: {linspace: [3.0, 5.0, 5]}}   # 3.0, 3.5, 4.0, 4.5, 5.0
-```
-
-See the [Test Vectors guide](../how-to/vector-expansion.md) for full
-semantics — loop ordering, list-length checks, generators.
-
-## Instrument Catalog
-
-The catalog is a per-project collection of YAML descriptors for instruments — what each instrument is, what it can do, what shape its channels and capabilities take. The matcher reads this to decide which station can run which test.
-
-**Location:** `catalog/**/*.yaml` (or override via `catalog_dir` in `litmus.yaml`).
-
-```yaml
-id: keysight_34461a
-name: "Keysight 34461A 6½-Digit DMM"
-type: dmm
-manufacturer: Keysight
-model: "34461A"
-
-channels:                   # Structured channel topology
-  "1":
-    terminals: [hi, lo]     # Physical terminals (hi, lo, signal, sense_hi, etc.)
-    connector: binding_post # Connector type
-    ground: floating        # Ground topology (floating, shared, earth)
-
-capabilities:
-  - function: dc_voltage    # MeasurementFunction enum
-    direction: input        # input (measure) or output (source)
-    readback: false         # true for built-in meters
-    channels: ["1"]
+signal_groups:                        # dict[name, SignalGroup] — bus interfaces
+  i2c_control:
+    protocol: i2c                     # i2c | spi | uart | parallel | custom
     signals:
-      voltage:
-        range: {min: 0, max: 1000, units: V}
-        accuracy: {pct_reading: 0.005, pct_range: 0.001}
-        resolution: {digits: 6.5}
+      - pin: SDA
+        role: data
+      - pin: SCL
+        role: clock
+    parameters:
+      frequency: 100000
+
+characteristics:                      # dict[name, ProductCharacteristic]
+  rail_3v3_output:
+    function: dc_voltage              # MeasurementFunction enum
+    direction: output                 # input | output | bidir | transform
+    units: V
+    pin: VOUT                         # at least one of: pin, pins, net, signal_group
+    datasheet_ref: "Table 4.2"
+    bands:                            # list[SpecBand]
+      - when: {}                      # empty when: = unconditional default
+        value: 3.3
+        accuracy: {pct_reading: 3.0}
+      - when:
+          temperature: {min: 0, max: 70, units: degC}
+        value: 3.3
+        accuracy: {pct_reading: 2.0}
 ```
 
-Schema source of truth: `src/litmus/models/catalog.py` (`InstrumentCatalogEntry`) + `src/litmus/models/capability.py` (`Capability`, `Signal`, `Condition`, `Control`, `Attribute`).
+- `bands:` lives inside each characteristic. There is no top-level `bands:` on `Product`.
+- `ProductCharacteristic` fields: `function`, `direction`, `units`, `pin`, `pins`, `net`, `signal_group`, `datasheet_ref`, plus the inherited `signals`/`conditions`/`controls`/`attributes`/`bands` from `Capability`. There is no `channel:` / `channels:` / `schematic_ref:` on characteristics — `extra="forbid"` rejects them.
+- `base:` lets a product inherit from another. Sibling-then-products-root search; circular and missing-base raise `ValueError`.
 
-### Channel Topology
+See [tutorial/06-specifications.md](../tutorial/06-specifications.md) for the workflow and [how-to/spec-driven-testing.md](../how-to/spec-driven-testing.md) for spec-driven verify.
 
-Channels describe the physical interface of each instrument channel:
+## Sidecar — `tests/test_<name>.yaml` {#sidecar-yaml}
+
+Co-located with each test module. Validated by [`SidecarConfig`](models.md#model-sidecarconfig). Top-level shape is the same as a `TestEntry`, plus a recursive `tests:` tree for per-class / per-method overrides.
 
 ```yaml
-channels:
-  "CH1":
-    label: "Input 1"                  # Optional display name
-    terminals: [signal]               # Physical terminal types
-    connector: bnc                    # Connector type
-    ground: shared                    # Ground topology
+# tests/test_power.yaml — sibling to tests/test_power.py
+limits:                               # dict[measurement_name, MeasurementLimitConfig]
+  output_voltage: {low: 3.2, high: 3.4, units: V}
+  ripple_mv:    {high: 50, units: mV, characteristic: ripple_spec}
+
+sweeps:                               # list[SweepEntry] — vector cross-products
+  - {vin: [4.5, 5.0, 5.5], load: [0.1, 0.5, 1.0]}
+
+mocks:                                # list[MockEntry] — installed via patch.object
+  - target: psu.set_voltage
+    return_value: null
+  - target: dmm.measure_dc_voltage
+    return_value: 3.31
+
+characteristics: [rail_3v3_output]    # bind tests to product characteristics
+
+connections: ["vout_measure"]         # constrain to a subset of fixture connections
+
+retry:                                # RetryConfig
+  max_retries: 2                      # not "max_attempts"
+  delay: 1.0                          # seconds; not "delay_seconds"
+  on: [AssertionError, TimeoutError]  # exception class names; None = retry on any
+
+prompts:                              # dict[id, PromptConfig]
+  confirm_dut_seated:
+    message: "Confirm DUT is seated correctly"
+    prompt_type: confirm
+
+runner: {}                            # opaque per-runner config
+
+tests:                                # recursive — keyed by pytest node-id segment
+  TestRails:                          # class-level entry — overrides apply to its methods
+    limits:
+      output_voltage: {low: 3.25, high: 3.35, units: V}
+    test_rail_under_load:             # per-method entry — most specific
+      sweeps:
+        - {load: [0.1, 1.0, 2.0]}
 ```
 
-Terminal types: `hi`, `lo`, `sense_hi`, `sense_lo`, `guard`, `signal`, `trigger`
-Connector types: `binding_post`, `banana`, `bnc`, `terminal_block`, `probe`, `triax`, `sma`, `smb`, `spring`, `pxi`, `screw_terminal`
-Ground topology: `floating` (isolated), `shared` (common ground), `earth` (referenced to earth)
+- `limits:` value shape: see [`MeasurementLimitConfig`](models.md#model-measurementlimitconfig). Supports direct `{low, high, nominal, units}`, characteristic-driven `{characteristic, tolerance_pct}`, conditional `{bands: [...]}`, callable, lookup tables, and stepped — see [how-to/limits.md](../how-to/limits.md).
+- `sweeps:` value shape is a list of dicts; each dict maps param name → list of values. Multiple dicts in the list compose as axes (cross-product).
+- `retry:` field names are `max_retries` and `delay`, not `max_attempts` / `delay_seconds`.
 
-### Catalog Variant Inheritance (`base`)
+Resolution order for any field (least → most specific):
 
-Catalog entries can inherit from a base entry using the `base` field to avoid YAML duplication. The variant only needs to specify what differs from the base.
+1. Sidecar file-level (top-level entry, applies to every test in the module)
+2. Sidecar class-branch (`tests.<ClassName>`)
+3. Sidecar per-test leaf (`tests.<ClassName>.<test_name>`)
+4. Inline `@pytest.mark.<name>(...)` decorators on the method or class
+5. Profile chain (parent-first, last-wins) injected as markers at collection time
+
+CLI flags compose with this chain rather than overriding it wholesale. For example `--mock-instruments` overrides `ProjectConfig.mock_instruments`; `-k` / `-m` compose with `runner.keyword` / `runner.markexpr`.
+
+See [pytest-native.md](pytest-native.md) for pytest node IDs and [reference/litmus-markers.md](litmus-markers.md) for the full marker surface.
+
+## Catalog — `catalog/<vendor>/<model>.yaml` {#catalog-yaml}
+
+Instrument capability catalog. Validated by [`InstrumentCatalogEntry`](models.md#model-instrumentcatalogentry). Full reference: [catalog-schema.md](catalog-schema.md); worked recipes: [catalog-cookbook.md](catalog-cookbook.md).
+
+In brief — fields sit at the root, *not* under a `catalog_entry:` wrapper:
 
 ```yaml
-# catalog/keysight_34465a.yaml — inherits from 34461A, overrides capabilities
 id: keysight_34465a
+manufacturer: Keysight
 model: "34465A"
-name: "Keysight 34465A Digital Multimeter"
-base: keysight_34461a    # Inherits manufacturer, type, channels
-
-capabilities:              # Replaces base capabilities entirely
+type: dmm
+interfaces: [usb, lan, gpib]
+channels:
+  "1": {terminals: [hi, lo, sense_hi, sense_lo], connector: binding_post, ground: shared}
+capabilities:
   - function: dc_voltage
     direction: input
     signals:
       voltage:
         range: {min: 0.0001, max: 1000, units: V}
-        accuracy: {pct_reading: 0.0015, pct_range: 0.0003}
-        resolution: {digits: 6.5}
+        accuracy: {pct_reading: 0.0024, pct_range: 0.0005}
 ```
 
-**Merge rules** (section-level override, not deep merge):
+Variant SKUs use a separate file with `base:` pointing at the parent — merge happens at load time per `_merge_capabilities` (capabilities merged by `(function, direction)` key, signals/conditions/controls/attributes deep-merged inside matching capabilities). See [catalog-schema.md#variants-option-codes](catalog-schema.md#variants-option-codes).
 
-| Section | Variant provides it | Variant omits it |
-|---------|-------------------|------------------|
-| `capabilities:` | Replaces base entirely | Inherits from base |
-| `channels:` | Replaces base entirely | Inherits from base |
-| `manufacturer` | Uses variant's | Inherits from base |
-| `type` | Uses variant's | Inherits from base |
-| `id`, `model`, `name` | Always from variant | — |
-
-Chains are supported (A → B → C) up to depth 5. Circular references raise `ValueError`.
-
-## Project Configuration
-
-**Location:** `litmus.yaml` (project root)
-
-```yaml
-name: string                  # Required — project identifier
-data_dir: string              # Optional — override default data directory
-default_station: string       # Optional default station for sessions
-default_fixture: string       # Optional default fixture
-default_profile: string       # Optional default profile name
-mock_instruments: bool        # Force mock mode for all instruments (default: false)
-runner: string                # Optional default runner (e.g. "pytest")
-required_inputs: list         # Optional list of session-required inputs
-multi_slot: MultiSlotConfig   # Optional multi-DUT slot configuration
-
-profiles:                     # Named config sets — see docs/how-to/profiles.md
-  <profile_name>:
-    description: string       # Optional human-readable description
-    facets: {key: value, ...} # Exact-match keys for CLI selection
-    extends: <parent_name>    # Optional single-parent inheritance
-
-    runner:                   # Pytest-level knobs applied to the session
-      addopts: string         # Appended to PYTEST_ADDOPTS before collection
-      markexpr: string        # Like -m: "not slow and not hardware"
-      keyword: string         # Like -k: "rails"
-
-    limits:                   # Session-wide marker fields (every test in run)
-      v_rail: {tolerance_pct: 5.0}
-
-    tests:                    # Recursive tree mirroring pytest node IDs
-      TestRails:              # class branch
-        sweeps:               # applied to every TestRails method
-          - {vin: [4.5, 5.0, 5.5]}
-        tests:
-          test_rail:          # nested leaf
-            limits: {v_rail: {low: 3.25, high: 3.35}}
-      test_standalone:        # module-level leaf
-        runner:
-          markers:
-            - skip: "bench required"
-```
-
-Profiles share the marker-field / `tests:` shape with sidecars — same
-vocabulary, same merge rules. Standalone files at `profiles/*.yaml`
-work too; the file stem is the profile name.
-
-**Selection:** facet flags (`--<facet>=<value>`) are auto-synthesized
-from the union of `facets:` keys declared across profiles. Exactly one
-profile must match the full facet query — zero or many → `UsageError`.
-`--test-profile=<name>` is a name-based escape hatch.
-
-## Pydantic Models
-
-Every YAML entity is validated by a Pydantic model in `src/litmus/models/`. Load through `litmus.store` so the same validation and search-path rules apply across CLI, MCP, and HTTP:
+## Loading a YAML file
 
 ```python
-from litmus.store import load_product, load_station
+from pathlib import Path
+from litmus.store import (
+    load_project, load_station, load_station_type,
+    load_fixture, load_product, load_catalog_entry, load_sidecar,
+)
 
-product = load_product("products/my_product.yaml")
-print(product.id)
-print(product.characteristics["output_voltage"].bands[0].value)
-
-station = load_station("stations/bench_1.yaml")
-print(station.instruments["dmm"].resource)
+project = load_project(Path("litmus.yaml"))
+station = load_station(Path("stations/bench_1.yaml"))
 ```
 
-Direct model paths if you need them:
+Every loader raises `pydantic.ValidationError` with the offending field path on type / shape errors and `ValueError` from the model's own validators on semantic problems (unknown SpecBand `when:` keys, namespace overlap, mutually-exclusive fields). See [models.md](models.md) for the full model surface, [api.md](api.md) for the JSON / MCP entry points.
 
-```python
-from litmus.models.product import Product
-from litmus.models.station import StationConfig
-from litmus.models.test_config import SidecarConfig
-from litmus.models.capability import Capability, SpecBand
-```
+## See also
 
-## Next Steps
-
-- [Litmus fixtures](litmus-fixtures.md) — all 20 plugin fixtures
-- [Litmus markers](litmus-markers.md) — the seven `litmus_*` markers
-- [pytest-native reference](pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
-- [Core Concepts](../concepts/index.md) — Understanding the data model
+- [Models](models.md) — every Pydantic model with field tables
+- [Catalog schema](catalog-schema.md) — full `InstrumentCatalogEntry` reference
+- [Catalog cookbook](catalog-cookbook.md) — recipes per datasheet shape
+- [Profiles (how-to)](../how-to/profiles.md) — workflow for the `profiles:` block
+- [Limits (how-to)](../how-to/limits.md) — `MeasurementLimitConfig` shapes
+- [Spec-driven testing (how-to)](../how-to/spec-driven-testing.md) — characteristic-driven limits
+- [Multi-DUT testing (how-to)](../how-to/multi-dut-testing.md) — fixture `slots:` workflow
+- [Mock mode (how-to)](../how-to/mock-mode.md) — station `mock_config:` and sidecar `mocks:`
+- [Pytest-native (reference)](pytest-native.md) — node IDs, marker surface
+- [Litmus markers (reference)](litmus-markers.md) — every marker with payload shape
+- [Fixtures (concept)](../concepts/fixtures.md) — design rationale for fixtures
