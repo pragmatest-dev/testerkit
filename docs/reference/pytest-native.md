@@ -1,10 +1,10 @@
 # pytest-native reference
 
-Litmus is a pytest plugin. Every pytest concept — collection, fixtures, markers, plugins, `conftest.py`, command-line flags — works unchanged. This page is the map of what pytest gives you natively and what Litmus layers on top of it. For the Litmus surface specifically see [Litmus fixtures](litmus-fixtures.md) and [Litmus markers](litmus-markers.md).
+Litmus is a hardware test **platform**; pytest is its primary test-runner integration. The bundled pytest plugin slots into a stock pytest install with zero configuration — every pytest concept (collection, fixtures, markers, plugins, `conftest.py`, command-line flags) works unchanged. This page is the map of what pytest gives you natively and what the plugin layers on top. For the plugin's own surface see [Litmus fixtures](litmus-fixtures.md) and [Litmus markers](litmus-markers.md). Other runner integrations (OpenHTF, LabVIEW / TestStand via the results API) live under [Integrations](../integration/index.md).
 
 ## Collection
 
-Litmus uses pytest's default collection. No custom collectors, no replacement of `pytest_collect_file`.
+The bundled pytest plugin uses pytest's default collection. No custom collectors, no replacement of `pytest_collect_file`.
 
 | Convention | Default |
 |---|---|

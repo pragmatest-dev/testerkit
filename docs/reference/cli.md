@@ -577,7 +577,7 @@ litmus runs --limit 5
 ### CI/CD
 
 ```bash
-# Run tests via pytest (not CLI - Litmus is a pytest plugin)
+# Run tests via pytest — the bundled plugin slots in automatically
 pytest tests/
 
 # Check results

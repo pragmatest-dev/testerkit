@@ -1,8 +1,8 @@
-# Why pytest?
+# Why pytest is the primary path
 
-Litmus uses pytest as its test runner. Tests are **plain pytest** — no decorator, no base class. Litmus contributes [20 fixtures](../reference/litmus-fixtures.md) (of which `context`, `verify`, and `logger` are the three you hit every test), [seven markers](../reference/litmus-markers.md), and a [sidecar YAML](../reference/configuration.md); everything else is stock pytest.
+Litmus is a hardware test platform; pytest is its primary runner integration (OpenHTF and the LabVIEW / TestStand results API are alternatives — see [Integrations](../integration/index.md)). The bundled pytest plugin slots into stock pytest with zero configuration. Tests are **plain pytest** — no decorator, no base class. The plugin contributes [20 fixtures](../reference/litmus-fixtures.md) (of which `context`, `verify`, and `logger` are the three you hit every test), [seven markers](../reference/litmus-markers.md), and a [sidecar YAML](../reference/configuration.md); everything else is stock pytest.
 
-This page explains what you get for free — features you'd otherwise build and maintain yourself. For the pytest fundamentals (discovery, markers, fixtures, parametrize, CLI), the official docs at <https://docs.pytest.org/> are authoritative.
+This page explains what you get for free by choosing pytest — features you'd otherwise build and maintain yourself. For the pytest fundamentals (discovery, markers, fixtures, parametrize, CLI), the official docs at <https://docs.pytest.org/> are authoritative.
 
 ## You already know the basics
 

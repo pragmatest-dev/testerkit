@@ -23,7 +23,7 @@ This guide shows how to migrate incrementally.
 | `Plug` | User's driver class | Any Python class — PyMeasure, custom, or refactored plug |
 | `PhaseResult` | `Outcome` | passed / failed / skipped / errored / done / terminated / aborted |
 | `test_record` | `TestRun` | Results storage |
-| `Test` class | pytest test file | Litmus uses pytest natively |
+| `Test` class | pytest test file | pytest is Litmus's primary runner integration |
 
 ## Migration Strategies
 
