@@ -65,12 +65,12 @@ Events: `MeasurementRecorded`. Carries the full effective `inputs` dict — oute
 ## Worked example — swept class with method-level inner sweep
 
 ```python
-@pytest.mark.litmus_sweeps(voltage=[1, 2, 3])      # class-level → outer
+@pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])      # class-level → outer
 class TestPower:
     def test_warmup(self, voltage):
         logger.measure("vin_warmup", voltage)
 
-    @pytest.mark.litmus_sweeps(current=[4, 5, 6])  # method-level → inner
+    @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])  # method-level → inner
     def test_load(self, voltage, current):
         logger.measure("vout_load", voltage * 1.1)
 
@@ -106,9 +106,9 @@ StepStarted ("TestPower",            vi=1, inputs={voltage:2}, ...)
 When the method uses the `vectors` fixture, pytest sees ONE item per outer iteration. The step has ONE outer identity (matching the outer-iteration position) and N inner TestVectors from the matrix:
 
 ```python
-@pytest.mark.litmus_sweeps(voltage=[1, 2, 3])
+@pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
 class TestPower:
-    @pytest.mark.litmus_sweeps(current=[4, 5, 6])
+    @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])
     def test_load(self, voltage, vectors, logger):
         for v in vectors:
             logger.measure("vout", voltage * v["current"])

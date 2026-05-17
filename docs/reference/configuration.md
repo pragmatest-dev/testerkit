@@ -112,10 +112,10 @@ instruments:
     catalog_ref: string   # Optional: catalog entry ID for capability/topology resolution
     channels: [string]    # Optional: channel keys (resolved from catalog if omitted)
     mock: boolean         # If true, uses Mock with mock_config values
-    mock_config:          # Values for --mock-instruments mode
-      voltage: float
-      current: float
-      resistance: float
+    mock_config:          # Values for --mock-instruments mode (keys are driver method names)
+      measure_dc_voltage: float
+      measure_current: float
+      measure_resistance: float
 
 supported_phases:         # Optional: which test phases this station supports
   - validation
@@ -209,7 +209,7 @@ key wins on overlap; non-overlapping passes through.
 import pytest
 
 
-@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
+@pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5]}])
 @pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
 def test_example(vin, dmm, logger):
     logger.measure("output_voltage", dmm.measure_dc_voltage())

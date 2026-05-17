@@ -237,7 +237,7 @@ limits:
     units: V
     spec_ref: "output_voltage @ guardband=10%"
 mocks:
-  - target: dmm.measure_voltage
+  - target: dmm.measure_dc_voltage
     return_value: 3.31
 ```
 
@@ -245,7 +245,7 @@ mocks:
 ```python
 def test_output_voltage(dmm, verify):
     """Verify output voltage meets guardbanded spec."""
-    verify("output_voltage", dmm.measure_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ## Traceability Chain

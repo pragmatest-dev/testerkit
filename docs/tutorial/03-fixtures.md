@@ -107,7 +107,7 @@ Litmus also adds a native sweep marker, `@pytest.mark.litmus_sweeps`, that feeds
 ```python
 import pytest
 
-@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
+@pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5]}])
 def test_output_voltage(vin, psu, dmm, verify):
     ...
 ```

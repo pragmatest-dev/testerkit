@@ -29,17 +29,17 @@ instruments:
     driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
-      voltage: 3.31
-      current: 0.1
-      resistance: 1000
+      measure_dc_voltage: 3.31
+      measure_current: 0.1
+      measure_resistance: 1000
 
   psu:
     type: psu
     driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
     mock_config:
-      voltage: 5.0
-      current: 0.5
+      measure_voltage: 5.0
+      measure_current: 0.5
 ```
 
 ### Test-Level (Override for Specific Tests)
@@ -58,7 +58,7 @@ limits:
 tests:
   test_output_voltage:
     mocks:
-      - target: dmm.measure_voltage
+      - target: dmm.measure_dc_voltage
         return_value: 3.31
       - target: psu.measure_current
         return_value: 0.5
@@ -100,8 +100,8 @@ For parametrized tests with different outputs per condition, drive the mock from
 ```python
 def test_load_regulation(load, dmm, verify, mocker):
     expected = {0.1: 3.32, 0.5: 3.30, 0.8: 3.28}[load]
-    mocker.patch.object(dmm, "measure_voltage", return_value=expected)
-    verify("output_voltage", dmm.measure_voltage())
+    mocker.patch.object(dmm, "measure_dc_voltage", return_value=expected)
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Pair with a sidecar sweep declaration so pytest parametrizes the test:
@@ -162,7 +162,7 @@ instruments:
     mock: true              # Always mock this instrument, no driver needed
     catalog_ref: generic_dmm
     mock_config:
-      voltage: 3.3
+      measure_dc_voltage: 3.3
 
   eload:
     type: eload
@@ -219,13 +219,13 @@ Configure mock values close to real measurements:
 ```yaml
 # Good: realistic values
 mock_config:
-  voltage: 3.31
-  current: 0.102
+  measure_dc_voltage: 3.31
+  measure_current: 0.102
 
 # Bad: obviously fake
 mock_config:
-  voltage: 1234
-  current: 5678
+  measure_dc_voltage: 1234
+  measure_current: 5678
 ```
 
 ### 2. Test Edge Cases
@@ -238,8 +238,8 @@ patching the instrument with `mocker.patch.object(...)`:
 # tests/test_edge.py
 def test_edge_case(condition, dmm, verify, mocker):
     value = {"normal": 3.3, "high": 99.99}[condition]
-    mocker.patch.object(dmm, "measure_voltage", return_value=value)
-    verify("output_voltage", dmm.measure_voltage())
+    mocker.patch.object(dmm, "measure_dc_voltage", return_value=value)
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ```yaml
@@ -256,7 +256,7 @@ For simple tests, configure mock values to match limit nominals:
 
 ```yaml
 mocks:
-  - target: dmm.measure_voltage
+  - target: dmm.measure_dc_voltage
     return_value: 3.3              # matches nominal
 limits:
   test_voltage:
@@ -278,7 +278,7 @@ import pytest
 @pytest.mark.hardware
 def test_real_measurement(dmm):
     """Test requiring real hardware."""
-    v = dmm.measure_voltage()
+    v = dmm.measure_dc_voltage()
     assert isinstance(v, float)
 ```
 

@@ -22,16 +22,16 @@ instruments:
     driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
-      voltage: 3.31       # Value returned in mock mode
-      current: 0.1
+      measure_dc_voltage: 3.31    # Method-keyed return for mock mode
+      measure_current: 0.1
 
   psu:
     type: psu
     driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
     mock_config:
-      voltage: 5.0
-      current: 0.1
+      measure_voltage: 5.0
+      measure_current: 0.1
 ```
 
 This defines:
@@ -50,7 +50,7 @@ def test_output_voltage(psu, dmm, logger):
     psu.set_voltage(5.0)
     psu.enable_output()
 
-    logger.measure("output_voltage", dmm.measure_voltage())
+    logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Run with real hardware:
@@ -82,7 +82,7 @@ For tests that need specific mock values, use `litmus_mocks` in the sidecar:
 ```yaml
 # tests/test_voltage.yaml
 mocks:
-  - {target: dmm.measure_voltage, return_value: 3.31}
+  - {target: dmm.measure_dc_voltage, return_value: 3.31}
   - {target: psu.measure_current, return_value: 0.5}
 limits:
   test_output_voltage: {low: 3.2, high: 3.4, units: V}
@@ -149,13 +149,13 @@ instruments:
     driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
-      voltage: 3.31
+      measure_dc_voltage: 3.31
   psu:
     type: psu
     driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
     mock_config:
-      voltage: 5.0
+      measure_voltage: 5.0
 ```
 
 **tests/test_power.yaml** (sidecar):
@@ -167,7 +167,7 @@ limits:
     nominal: 3.3
     units: V
 mocks:
-  - target: dmm.measure_voltage
+  - target: dmm.measure_dc_voltage
     return_value: 3.31
 ```
 
@@ -179,7 +179,7 @@ def test_output_voltage(psu, dmm, logger):
     psu.set_current_limit(1.0)
     psu.enable_output()
 
-    voltage = dmm.measure_voltage()
+    voltage = dmm.measure_dc_voltage()
 
     psu.disable_output()
     logger.measure("output_voltage", voltage)

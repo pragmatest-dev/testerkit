@@ -440,7 +440,7 @@ instruments:
     resource: "TCPIP::192.168.1.100::INSTR"
     mock: true
     mock_config:
-      voltage: 5.0
+      measure_voltage: 5.0    # method name on MyDMM
 ```
 
 ## Next Steps

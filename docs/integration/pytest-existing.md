@@ -223,23 +223,24 @@ mock_instruments: false
 
 ```yaml
 # tests/test_<module>.yaml
-test_voltage:
-  limits:
-    voltage:
-      low: 3.0
-      high: 3.6
-      units: V
+tests:
+  test_voltage:
+    limits:
+      voltage:
+        low: 3.0
+        high: 3.6
+        units: V
 
-test_power_rails:
-  limits:
-    vcc:
-      low: 3.2
-      high: 3.4
-      units: V
-    vdd:
-      low: 1.7
-      high: 1.9
-      units: V
+  test_power_rails:
+    limits:
+      vcc:
+        low: 3.2
+        high: 3.4
+        units: V
+      vdd:
+        low: 1.7
+        high: 1.9
+        units: V
 ```
 
 ## Running Tests

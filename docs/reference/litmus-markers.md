@@ -10,12 +10,12 @@ At most one inline `@pytest.mark.litmus_X` decorator of each kind per test. Mult
 
 ```python
 # OK
-@pytest.mark.litmus_sweeps(temperature=[-40, 25, 85], load=[0.1, 0.5])
+@pytest.mark.litmus_sweeps([{"temperature": [-40, 25, 85], "load": [0.1, 0.5]}])
 def test_x(...): ...
 
 # Not OK — raises StackedMarkersError
-@pytest.mark.litmus_sweeps(temperature=[-40, 25, 85])
-@pytest.mark.litmus_sweeps(load=[0.1, 0.5])
+@pytest.mark.litmus_sweeps([{"temperature": [-40, 25, 85]}])
+@pytest.mark.litmus_sweeps([{"load": [0.1, 0.5]}])
 def test_x(...): ...
 ```
 
@@ -53,11 +53,11 @@ limits:
 
 Litmus-native parametrize. Each entry in the list is one **axis-group dict** — single-key dicts run as one independent loop; multi-key dicts inside one entry zip together; stacked entries cross-product (top entry = outermost / slowest loop).
 
-**Signature (inline):** `@pytest.mark.litmus_sweeps(**by_axis)` (single axis) or `@pytest.mark.litmus_sweeps([entries])` (multiple axes).
+**Signature (inline):** `@pytest.mark.litmus_sweeps([entries])` — one positional list of axis-group dicts. Single-axis is `[{"name": [values]}]`; cross-product is multiple entries; zipped paired values are multiple keys in one entry.
 
 ```python
 # Single axis
-@pytest.mark.litmus_sweeps(vin=[3.3, 5.0, 12.0])
+@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0, 12.0]}])
 def test_rail(vin, psu, dmm, verify): ...
 
 # Cross-product — outer first, inner last

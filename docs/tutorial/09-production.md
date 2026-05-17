@@ -66,7 +66,7 @@ def test_output_voltage(pins, logger):
     pins["VIN"].set_voltage(5.0)
     pins["VIN"].enable_output()
 
-    voltage = pins["VOUT"].measure_voltage()
+    voltage = pins["VOUT"].measure_dc_voltage()
 
     logger.measure("output_voltage", voltage)
 ```
@@ -108,11 +108,11 @@ class TestPowerBoardProduction:
         verify("input_voltage", pins["VIN"].measure_voltage())
 
     def test_output_voltage(self, pins, verify):
-        verify("output_voltage", pins["VOUT"].measure_voltage())
+        verify("output_voltage", pins["VOUT"].measure_dc_voltage())
 
     def test_load_sweep(self, pins, verify, load_percent):
         # load_percent is parametrized via the sidecar's sweeps:
-        verify("output_voltage", pins["VOUT"].measure_voltage())
+        verify("output_voltage", pins["VOUT"].measure_dc_voltage())
 ```
 
 ```yaml
@@ -131,7 +131,7 @@ limits:
 mocks:
   - target: psu.measure_voltage
     return_value: 5.0
-  - target: dmm.measure_voltage
+  - target: dmm.measure_dc_voltage
     return_value: 3.31
 
 tests:
@@ -210,12 +210,12 @@ instruments:
     type: psu
     driver: pymeasure.instruments.keysight.KeysightE36312A
     resource: "GPIB0::5::INSTR"
-    mock_config: {voltage: 5.0}
+    mock_config: {measure_voltage: 5.0}
   dmm:
     type: dmm
     driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
-    mock_config: {voltage: 3.31}
+    mock_config: {measure_dc_voltage: 3.31}
 ```
 
 **fixtures/power_board_fixture.yaml:**
@@ -243,7 +243,7 @@ class TestPowerBoardProduction:
         verify("input_voltage", pins["VIN"].measure_voltage())
 
     def test_output_voltage(self, pins, verify):
-        verify("output_voltage", pins["VOUT"].measure_voltage())
+        verify("output_voltage", pins["VOUT"].measure_dc_voltage())
 ```
 
 ## Running Production Tests

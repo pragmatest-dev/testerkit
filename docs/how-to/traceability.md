@@ -197,29 +197,30 @@ The `comparator` field defines how values are compared against limits:
 ### Setting Comparators in `tests/test_<module>.yaml`
 
 ```yaml
-test_output_voltage:
-  limits:
-    output_voltage:
-      low: 3.135
-      high: 3.465
-      nominal: 3.3
-      comparator: GELE  # Default: inclusive range
-      units: V
-      spec_ref: "output_voltage @ tolerance_pct=5"
+tests:
+  test_output_voltage:
+    limits:
+      output_voltage:
+        low: 3.135
+        high: 3.465
+        nominal: 3.3
+        comparator: GELE  # Default: inclusive range
+        units: V
+        spec_ref: "output_voltage @ tolerance_pct=5"
 
-test_minimum_current:
-  limits:
-    load_current:
-      low: 0.1
-      comparator: GE  # Only lower bound: must be >= 0.1A
-      units: A
+  test_minimum_current:
+    limits:
+      load_current:
+        low: 0.1
+        comparator: GE  # Only lower bound: must be >= 0.1A
+        units: A
 
-test_exact_value:
-  limits:
-    calibration_ref:
-      nominal: 1.000
-      comparator: EQ  # Exact match required
-      units: V
+  test_exact_value:
+    limits:
+      calibration_ref:
+        nominal: 1.000
+        comparator: EQ  # Exact match required
+        units: V
 ```
 
 ## Querying Traceable Results

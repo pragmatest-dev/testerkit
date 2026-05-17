@@ -65,7 +65,7 @@ The [`@pytest.mark.litmus_sweeps(...)`](../reference/litmus-markers.md#litmus_sw
 of the runner-neutral vector vocabulary:
 
 ```python
-@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5], load=[0.1, 0.4, 0.8])
+@pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5], "load": [0.1, 0.4, 0.8]}])
 def test_sweep(vin, load, ...): ...
 ```
 

@@ -40,7 +40,7 @@ A pytest test class is a hardware-test **sequence** — a named, ordered group o
 This matches the way TestStand (National Instruments' commercial test executive), OpenTAP (Keysight's open-source test sequencer), and Spintop OpenHTF (a community OpenHTF wrapper) model test sequences — and how a hardware engineer would naturally write the equivalent pseudocode (`for each voltage: run the warmup → load test → cooldown sequence`).
 
 ```python
-@pytest.mark.litmus_sweeps(voltage=[1, 2, 3])      # class becomes the outer loop
+@pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])      # class becomes the outer loop
 class TestPowerSequence:
     def test_warmup(self, voltage, psu, dut):
         psu.set_voltage(voltage)
@@ -72,16 +72,18 @@ combination, and `context.get_param("name")` reads the active value:
 import pytest
 
 # Single loop
-@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
+@pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5]}])
 def test_rails(vin, context, verify, psu, dmm): ...
 
-# Nested loops (cross-product). Top-to-bottom = outer-to-inner.
-@pytest.mark.litmus_sweeps(temp=[25, 85])           # outer (slow to change)
-@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])     # inner (fast to change)
+# Nested loops (cross-product). Top entry = outer/slowest.
+@pytest.mark.litmus_sweeps([
+    {"temp": [25, 85]},              # outer (slow to change)
+    {"vin": [4.5, 5.0, 5.5]},        # inner (fast to change)
+])
 def test_rails(temp, vin, context, verify, psu, chamber, dmm): ...
 
 # Paired values (input/expected lists step together). List lengths must match.
-@pytest.mark.litmus_sweeps(vin=[3.3, 5.0, 5.5], expected=[3.30, 3.31, 3.30])
+@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0, 5.5], "expected": [3.30, 3.31, 3.30]}])
 def test_rails(vin, expected, ...): ...
 ```
 
@@ -105,9 +107,11 @@ note for migrating projects from `@pytest.mark.parametrize`.
 Hardware reconfig dominates multi-parameter sweeps (PSU settle 500 ms, DMM range switch 1 s, chamber soak 5–30 min). `context.changed(key)` returns `True` only when the parameter differs from the previous test case. Pair this with the top-to-bottom outer-to-inner ordering so the slow setup only runs when it actually rolls over:
 
 ```python
-@pytest.mark.litmus_sweeps(temp=[25, 85])           # outer (3 changes)
-@pytest.mark.litmus_sweeps(vin=[5.0, 5.5])           # middle
-@pytest.mark.litmus_sweeps(load=[0.1, 0.4])          # inner
+@pytest.mark.litmus_sweeps([
+    {"temp": [25, 85]},               # outer (3 changes)
+    {"vin": [5.0, 5.5]},              # middle
+    {"load": [0.1, 0.4]},             # inner
+])
 def test_rails(temp, vin, load, context, psu, chamber, dut_load, dmm, verify):
     if context.changed("temp"):
         chamber.set_temperature(temp)
@@ -128,7 +132,7 @@ one matrix. The test executes as **one** pytest case; you iterate the
 matrix inside:
 
 ```python
-@pytest.mark.litmus_sweeps(vin=[4.5, 5.0, 5.5])
+@pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5]}])
 def test_rails_sweep(vectors, psu, dmm, verify):
     for v in vectors:
         psu.set_voltage(v["vin"])
@@ -164,7 +168,7 @@ def test_rails(context, verify, logger, dmm):
 
 | Marker                            | Purpose                                                       |
 |-----------------------------------|---------------------------------------------------------------|
-| `litmus_sweeps(**by_argname)`    | Sweep one or more parameters across values (zip on multi-kwarg) |
+| `litmus_sweeps([{argname: values, ...}, ...])` | Sweep one or more parameters across values (multiple keys in one dict = zipped; multiple dicts = cross-product) |
 | `litmus_limits(**by_name)`        | Limits by measurement name (supports `when:`-keyed bands)     |
 | `litmus_characteristics([<id>, ...])` | Bind the test to one or more product characteristics (limits + DUT pin auto-resolve) |
 | `litmus_connections([name, ...])` or `litmus_connections(**by_instrument)` | Bind to fixture-connection names (positional list, like `litmus_characteristics`) OR to raw instrument channels (kwargs by instrument, like `litmus_limits`) |

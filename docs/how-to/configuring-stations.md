@@ -88,9 +88,9 @@ instruments:
     driver: pymeasure.instruments.keysight.Keysight34461A
     resource: "TCPIP::192.168.1.100::INSTR"
     mock_config:
-      voltage: 3.31
-      current: 0.1
-      resistance: 1000
+      measure_dc_voltage: 3.31
+      measure_current: 0.1
+      measure_resistance: 1000
 ```
 
 ### Running in Mock Mode
@@ -218,14 +218,14 @@ instruments:
     mock: true
     catalog_ref: generic_dmm
     mock_config:
-      voltage: 3.31
-      current: 0.1
+      measure_dc_voltage: 3.31
+      measure_current: 0.1
   psu:
     type: psu
     mock: true
     catalog_ref: generic_psu
     mock_config:
-      voltage: 5.0
+      measure_voltage: 5.0
 ```
 
 Run in CI:
