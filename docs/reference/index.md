@@ -4,12 +4,12 @@ Authoritative listing of Litmus's public surface, organized by what you're holdi
 
 ## Writing pytest tests
 
-The pytest plugin is the primary surface. Five pages cover everything you need to author a test.
+pytest is the foundation; the bundled plugin layers fixtures, markers, and YAML on top. Read in order — each page assumes the previous.
 
-- [Litmus fixtures](litmus-fixtures.md) — all 20 fixtures the plugin contributes, with signatures, scopes, and per-fixture examples.
-- [Litmus markers](litmus-markers.md) — the seven `@pytest.mark.litmus_*` decorators and their 1:1 sidecar equivalents.
-- [pytest-native](pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers / `conftest.py` / CLI flags. Nothing Litmus-specific.
-- [Test configuration](configuration.md) — `litmus.yaml`, station YAML, fixture YAML, sidecar YAML, profile YAML schemas + merge semantics.
+- [pytest-native](pytest-native.md) — how a Litmus test uses pytest's own collection / fixtures / markers / `conftest.py` / CLI flags. Nothing Litmus-specific. The baseline every other page builds on.
+- [Litmus fixtures](litmus-fixtures.md) — all 20 fixtures the plugin contributes on top of pytest's, with signatures, scopes, and per-fixture examples.
+- [Litmus markers](litmus-markers.md) — the seven `@pytest.mark.litmus_*` decorators the plugin registers and their 1:1 sidecar equivalents.
+- [Test configuration](configuration.md) — `litmus.yaml`, station YAML, fixture YAML, sidecar YAML, profile YAML — the schemas the fixtures and markers read from.
 
 ## Authoring instrument catalog YAML
 
