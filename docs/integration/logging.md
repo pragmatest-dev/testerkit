@@ -1,303 +1,87 @@
-# Logging Integration
+# Logging integration
 
-Integrate Litmus logging and data collection into existing test infrastructure.
+Send Litmus results onward to external systems — Python logging frameworks, databases, cloud storage. Litmus owns the parquet record; this page covers the bridges to other platforms.
 
-## Overview
+For the underlying API to write into Litmus's store, see the [Python client reference](../reference/client.md). For HTTP / MCP query endpoints, see [api.md](../reference/api.md).
 
-Litmus provides:
-- Structured measurement logging to Parquet
-- Test run tracking with metadata
-- Query API for results
-- Export capabilities
+## Where the data already is
 
-This guide shows how to integrate Litmus logging without changing your test framework.
+Results land in Parquet under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet` regardless of which submission path you use (pytest plugin, `LitmusClient`, OpenHTF bridge — see [three-stores.md](../concepts/three-stores.md) for the canonical layout and the `data_dir` resolution chain). The integration patterns below all read from that store and forward the data elsewhere.
 
-## Quick Start
+For the on-write side, see:
 
-```python
-from litmus.client import LitmusClient
+- [Python client reference](../reference/client.md) — `LitmusClient` API for submitting test runs from non-pytest sources
+- [Submitting results from non-pytest sources](results-api.md) — when to use which submission path
+- [Litmus fixtures](../reference/litmus-fixtures.md) — the pytest plugin path (most projects)
 
-client = LitmusClient()
+## Python logging-framework bridge
 
-run = client.start_run(
-    dut_serial="SN12345",
-    station_id="my_station",
-    test_phase="production",
-)
-
-with run.step("measurement_step") as step:
-    step.measure("voltage", 3.31, units="V", low=3.0, high=3.6)
-
-run.finish()
-```
-
-## Logging Approaches
-
-### Approach 1: Explicit Logging
-
-Log specific measurements:
-
-```python
-from litmus.client import LitmusClient
-
-def run_test(dut_serial: str):
-    client = LitmusClient()
-
-    run = client.start_run(
-        dut_serial=dut_serial,
-        station_id="bench_1",
-        test_phase="production",
-    )
-
-    # Your existing test code
-    voltage = measure_voltage()
-    current = measure_current()
-
-    # Log to Litmus
-    with run.step("measurements") as step:
-        step.measure("voltage", voltage, units="V", low=3.0, high=3.6)
-        step.measure("current", current, units="A", low=0, high=1.0)
-
-    run.finish()
-```
-
-### Approach 2: try / finally for cleanup on errors
-
-`LitmusClient.start_run()` returns a `RunBuilder`. It is not itself a context manager — use try / finally to ensure `finish()` runs even on error. Steps inside the run are context-managed via `run.step(...)`.
-
-```python
-from litmus.client import LitmusClient
-
-def run_test(dut_serial: str):
-    client = LitmusClient()
-    run = client.start_run(
-        dut_serial=dut_serial,
-        station_id="bench_1",
-        test_phase="production",
-    )
-    try:
-        with run.step("measurements") as step:
-            voltage = measure_voltage()
-            step.measure("voltage", voltage, units="V", low=3.0, high=3.6)
-        run.finish()
-    except Exception as e:
-        run.abort(str(e))
-        raise
-```
-
-### Approach 3: Decorator Pattern
-
-Wrap existing functions:
-
-```python
-from functools import wraps
-from litmus.client import LitmusClient
-
-def log_to_litmus(test_name: str):
-    """Decorator to log test results to Litmus."""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(dut_serial: str, *args, **kwargs):
-            client = LitmusClient()
-            run = client.start_run(
-                dut_serial=dut_serial,
-                station_id="default",
-                test_phase="production",
-            )
-
-            try:
-                result = func(dut_serial, run, *args, **kwargs)
-                run.finish()
-                return result
-            except Exception as e:
-                run.abort(str(e))
-                raise
-
-        return wrapper
-    return decorator
-
-@log_to_litmus("voltage_test")
-def test_voltage(dut_serial: str, run):
-    """Test with automatic logging."""
-    voltage = measure_voltage()
-
-    with run.step("voltage_check") as step:
-        step.measure("voltage", voltage, units="V", low=3.0, high=3.6)
-
-    return voltage
-```
-
-## Data Storage
-
-### Default Location
-
-Results are stored in Parquet files with self-describing filenames:
-
-```
-<data_dir>/runs/{date}/
-├── {timestamp}_{serial}.parquet     # With serial (production)
-├── {timestamp}_{serial}_ref/        # External data for above (waveforms, images)
-├── {timestamp}.parquet              # Without serial (dev/debug)
-└── {timestamp}_ref/                 # External data for above
-```
-
-All timestamps are UTC for consistent cross-timezone analysis.
-
-### Custom Location
-
-```bash
-pytest tests/ --data-dir=/path/to/results
-```
-
-### Environment Variable
-
-```bash
-export LITMUS_HOME=/shared/test_results
-```
-
-## Querying Results
-
-### Pandas
-
-```python
-import pandas as pd
-
-# Load a specific run
-df = pd.read_parquet("data/runs/2026-01-30/20260130T143025Z_SN001.parquet")
-
-# Filter by test
-vout = df[df["step_name"] == "test_output_voltage"]
-print(vout[["measurement_value", "measurement_outcome", "in_vin"]])
-
-# Load all runs
-df_all = pd.read_parquet("data/runs/**/*.parquet")
-print(df_all.groupby("step_name")["measurement_outcome"].value_counts())
-```
-
-### DuckDB
-
-```python
-import duckdb
-
-# Query across all runs
-duckdb.sql("""
-    SELECT dut_serial, step_name, measurement_outcome, COUNT(*)
-    FROM 'data/runs/**/*.parquet'
-    GROUP BY dut_serial, step_name, measurement_outcome
-""").show()
-```
-
-### CLI
-
-```bash
-litmus runs                  # List recent runs
-litmus show <run_id>         # Show run details
-```
-
-## Metadata
-
-### Run Metadata
-
-```python
-run = client.start_run(
-    dut_serial="SN12345",
-    station_id="bench_1",
-    test_phase="production",
-    # Optional metadata
-    dut_part_number="PCB-001",
-    dut_revision="A",
-    dut_lot_number="LOT2026-01",
-    station_type="bench",
-    operator="Jane Doe",
-)
-```
-
-### Custom Metadata
-
-`LitmusClient.start_run()` accepts the fields listed above. Anything beyond those is rejected — the surface is intentionally narrow. For custom columns, use the `run_context` fixture inside pytest-native tests (see [Writing tests](../how-to/writing-tests.md)).
-
-### Measurement Metadata
-
-```python
-step.measure(
-    name="voltage",
-    value=3.31,
-    units="V",
-    low=3.0,
-    high=3.6,
-    spec_ref="SPEC-001",
-    dut_pin="J1.3",
-    instrument_channel="CH1",
-)
-```
-
-## Integration Patterns
-
-### With Logging Framework
+Attach a `logging.Handler` that turns log records into step failures on the active run:
 
 ```python
 import logging
 from litmus.client import LitmusClient
 
-logger = logging.getLogger(__name__)
-
 class LitmusHandler(logging.Handler):
-    """Send log records to Litmus."""
+    """Forward warnings/errors to the active run as step failures."""
 
     def __init__(self, run):
         super().__init__()
         self.run = run
-        self.step = None
+        self.step = None  # set by caller before emitting failing records
 
     def emit(self, record):
-        if record.levelno >= logging.WARNING:
-            # Log errors/warnings as step failures
-            if self.step:
-                self.step.fail(record.getMessage())
+        if record.levelno >= logging.WARNING and self.step is not None:
+            self.step.fail(record.getMessage())
 ```
 
-### With Database
+Wire it up in the calling code:
+
+```python
+client = LitmusClient()
+run = client.start_run(dut_serial="SN001", station_id="bench_1")
+handler = LitmusHandler(run)
+logging.getLogger("my_test").addHandler(handler)
+```
+
+## Sync to an external database
+
+After a run finishes, push its summary + measurement rows into a SQL database:
 
 ```python
 from litmus.client import LitmusClient
 
 def sync_to_database(run_id: str, db_connection):
-    """Sync Litmus results to external database."""
+    """Mirror one Litmus run's summary + measurements into an external DB."""
     client = LitmusClient()
+    run = client.get_run(run_id)              # RunSummary (Pydantic model)
+    measurements = client.get_measurements(run_id)  # list[dict] keyed by parquet columns
 
-    run = client.get_run(run_id)
-    measurements = client.get_measurements(run_id)
-
-    # run is a RunSummary Pydantic model — use attribute access
     db_connection.execute(
         "INSERT INTO test_runs (id, serial, outcome) VALUES (?, ?, ?)",
         (run_id, run.dut_serial, run.outcome)
     )
 
-    # measurements is list[dict] keyed by parquet column names
     for m in measurements:
         db_connection.execute(
             "INSERT INTO measurements (run_id, name, value) VALUES (?, ?, ?)",
-            (run_id, m['measurement_name'], m['measurement_value'])
+            (run_id, m["measurement_name"], m["measurement_value"])
         )
 ```
 
-### With Cloud Storage
+`run` is a Pydantic `RunSummary` — use attribute access. `measurements` is a list of dicts keyed by parquet column names (`measurement_name`, `measurement_value`, `measurement_units`, `measurement_outcome`, `limit_low`, `limit_high`, etc. — see [parquet-schema.md](../reference/parquet-schema.md) for the full list).
+
+## Upload a sealed run to cloud storage
+
+Each run's parquet file is self-contained. Upload it as a single object:
 
 ```python
 import boto3
 from litmus.client import LitmusClient
 
 def upload_results(run_id: str, bucket: str):
-    """Upload a sealed run parquet to S3.
-
-    Litmus writes one parquet per run at
-    ``<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`` — there is no
-    split into separate `test_runs/`, `measurements/`, or `vectors/`
-    directories. The file_path is on the run summary.
-    """
-    s3 = boto3.client('s3')
-
+    """Upload the sealed run parquet to S3."""
+    s3 = boto3.client("s3")
     client = LitmusClient()
     run = client.get_run(run_id)
 
@@ -306,29 +90,36 @@ def upload_results(run_id: str, bucket: str):
     s3.upload_file(local_path, bucket, s3_key)
 ```
 
-## Performance Considerations
+Litmus writes one parquet per run at `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. There is no separate `test_runs/`, `measurements/`, or `vectors/` directory — the multi-row schema (`record_type='run'` / `'step'` / `'measurement'`) lives inside the one file.
 
-### Stream a sample series under one name
+## Querying the existing store
 
-When a step records hundreds of samples, use `allow_repeat=True` so the duplicate-name guard doesn't fire:
+For ad-hoc analysis (not external-system integration), prefer the canonical reader paths:
 
 ```python
-for i, value in enumerate(values):
-    step.measure("voltage_sample", value, allow_repeat=True)
+import duckdb
+
+# Cross-run query — DuckDB reads the parquet directly
+duckdb.sql("""
+    SELECT dut_serial, step_name, measurement_outcome, COUNT(*)
+    FROM '<data_dir>/runs/**/*.parquet'
+    GROUP BY dut_serial, step_name, measurement_outcome
+""").show()
 ```
 
-For very large samples (waveforms, scope captures), prefer the channel store and emit a single `out_*` reference (see [Querying channels](../how-to/querying-channels.md)).
+Or use `litmus runs` / `litmus show` / the HTTP API — see [results-api.md](results-api.md) for the routing.
 
-## Best Practices
+## Best practices
 
-1. **Log at the right granularity** — Not every variable, just key measurements
-2. **Include metadata** — Serial numbers, timestamps, conditions
-3. **Use consistent naming** — Same measurement names across tests
-4. **Handle errors gracefully** — Abort runs on failure
-5. **Don't block on logging** — Use async for high-speed tests
+1. **Don't block the test on external syncs.** Run database / cloud-storage forwarders out-of-band against finished runs, not inline with `run.finish()`.
+2. **Use `run_id` as the join key everywhere.** It's the stable identifier across the parquet file, the event log, channel data, and any downstream system.
+3. **Read with `union_by_name=true`** when querying across multiple runs — the schema is additive across litmus versions, so a query that uses this flag survives every release.
+4. **Don't re-implement the schema downstream.** Mirror columns by name; let Litmus stay canonical for the data shape.
 
-## Next Steps
+## See also
 
-- [Results API](results-api.md) — Full API reference
-- [Test Harness](harness.md) — Measurement tracking
-- [Python Client](../reference/client.md) — Detailed client API
+- [Python client reference](../reference/client.md) — full `LitmusClient` API surface
+- [Submitting results from non-pytest sources](results-api.md) — when to use which submission path
+- [Parquet schema](../reference/parquet-schema.md) — column-by-column reference
+- [Three stores](../concepts/three-stores.md) — on-disk layout, data_dir resolution, schema-evolution contract
+- [HTTP / MCP API](../reference/api.md) — REST + tool endpoints
