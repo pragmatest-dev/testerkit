@@ -1,30 +1,45 @@
 # Litmus fixtures
 
-The Litmus pytest plugin registers **20 public fixtures**, defined in `src/litmus/pytest_plugin/__init__.py`. Take any of them in a test's signature; pytest resolves and injects them by name. Names beginning with `_` (e.g. `_route_manager`, `_litmus_push_params`) are internal and may change without notice.
+The bundled pytest plugin registers **20 public fixtures**, defined in `src/litmus/pytest_plugin/__init__.py`. Take any of them in a test's signature; pytest resolves and injects them by name. Names beginning with `_` (e.g. `_route_manager`, `_litmus_push_params`) are internal and may change without notice.
 
 This page is the comprehensive reference. For a guided introduction see the [tutorial](../tutorial/index.md); for the seven `@pytest.mark.litmus_*` markers see [Litmus markers](litmus-markers.md).
 
 ## At a glance
 
-| Group | Fixtures |
-|---|---|
-| Always available | `logger`, `context` |
-| Configuration | `product_context`, `station_config`, `fixture_config`, `run_context`, `mock_instruments` |
-| Hardware access | `instruments`, `instrument`, `instrument_records`, `dut`, `pins`, `routes`, `fixture_manager` |
-| Per-test workflow | `verify`, `limits`, `connections`, `prompt` |
-| Special modes | `vectors`, `sync` |
+Grouped by what you reach for the fixture **for**:
 
-Plus **one role-named fixture per instrument** the station YAML declares (see [Per-role auto-fixtures](#per-role-auto-fixtures)).
+| Group | What you'd reach for it for | Fixtures |
+|---|---|---|
+| Recording measurements | Write a measurement row, resolve a limit, raise on FAIL, prompt the operator | `verify`, `logger`, `limits`, `prompt` |
+| Talking to instruments | Get a driver instance, route a signal, hit a DUT pin | `instruments`, `instrument`, `instrument_records`, `dut`, `pins`, `routes`, `fixture_manager` |
+| Reading per-test state | Active sweep params, observations, the connection currently being iterated | `context`, `connections` |
+| Reading loaded configuration | The typed YAML / CLI that shaped this run | `product_context`, `station_config`, `fixture_config`, `run_context`, `mock_instruments` |
+| Special modes | Self-loop sweep iteration, multi-DUT sync | `vectors`, `sync` |
+
+Plus **one role-named fixture per instrument the station YAML declares** (e.g. `dmm`, `psu`, `scope`). See [Per-role auto-fixtures](#per-role-auto-fixtures).
+
+Every fixture above is available in every test — pytest will resolve any of them by name. The "what you'd reach for it for" column is intent, not availability. Several have meaningful "no project state" defaults (`product_context` returns `None`, `instruments` returns `{}`, `connections` returns `None`, etc.) so taking one in a vanilla project is safe.
 
 ---
 
-## Always available
+## Recording measurements
 
-These two fixtures resolve on every pytest run, including vanilla `tests/test_*.py` with no station, no product, no sidecar.
+The verbs you write into test bodies. Most tests need `verify` and nothing else from this group.
+
+### `verify` — function
+
+Callable: `verify(name, value, *, limit=None)`. Records the measurement row (value, units, limits, traceability), resolves a limit from the active chain (sidecar / inline marker / product spec), stamps `measurement_outcome`, and **raises `AssertionError`** when the value is out of range.
+
+```python
+def test_rail(dmm, verify):
+    verify("output_voltage", dmm.measure_dc_voltage())
+```
+
+Same record-side effect as `logger.measure`; the only difference is `verify` raises on FAIL. Use `verify` when a fail should stop the line.
 
 ### `logger` — session, autouse
 
-Yields a `TestRunLogger`. Autouse, so even tests that don't take it as an argument get measurement logging via `verify` (which routes through the current logger). Opens the event log and Parquet subscriber at session start, flushes them at session end.
+Yields a `TestRunLogger`. Autouse, so every test gets logging behind `verify` even when it doesn't take `logger` itself. Opens the event log and Parquet subscriber at session start, flushes them at session end.
 
 ```python
 def test_voltage(dmm, logger):
@@ -32,82 +47,38 @@ def test_voltage(dmm, logger):
     logger.measure("output_voltage", v, units="V")
 ```
 
-`logger.measure(name, value, *, units=None, limit=None)` records a measurement row without raising. See [`verify`](#verify--function) for the raising variant.
+`logger.measure(name, value, *, units=None, limit=None)` records a measurement row without raising. Same recording path as `verify`, just no FAIL-side effect — use it when a failing measurement shouldn't abort the test (characterization mode, sweeps you want to plot post-hoc, etc.).
 
-### `context` — function
+### `limits` — function
 
-Returns a fresh `Context` exposing the run/DUT/station/vector state for the active test. Always present — no station or sidecar required.
-
-| Method | Returns | Purpose |
-|---|---|---|
-| `context.get_param(name, default=None)` | `Any` | Read a sweep / parametrize value. |
-| `context.params` | `dict` | All active params for this row. |
-| `context.changed(key)` | `bool` | True if `key` differs from prior iteration. |
-| `context.last(key, default=None)` | `Any` | Prior iteration's value for `key`. |
-| `context.observe(key, value)` | `None` | Record a free-form observation. |
-| `context.observations` | `dict` | All recorded observations. |
-| `context.product` | `ProductContext \| None` | Active product context (= `product_context` fixture). |
-| `context.station` | `StationConfig \| None` | Active station config (= `station_config` fixture). |
-| `context.run` | `TestRun \| None` | The current `TestRun`. |
-| `context.limits` | `LimitsView` | Read-only limits mapping (= `limits` fixture). |
-| `context.characteristics` | `tuple[str, ...]` | Active characteristic IDs from `litmus_characteristics`. |
+Read-only `name → Limit` mapping for the current test, resolved from the same chain as `verify`. Use for ad-hoc pythonic assertions:
 
 ```python
-def test_rail(context, psu, dmm, verify):
-    psu.set_voltage(context.get_param("vin", 5.0))
-    verify("vout", dmm.measure_dc_voltage())
+def test_inline_check(dmm, limits):
+    v = dmm.measure_dc_voltage()
+    assert v in limits["output_voltage"]
 ```
+
+`limits[name]` raises `KeyError` when no limit is configured — there is no silent default.
+
+### `prompt` — function
+
+Returns a callable that resolves operator prompts declared via `@pytest.mark.litmus_prompts`:
+
+```python
+@pytest.mark.litmus_prompts(
+    inspect={"message": "Verify LED is GREEN", "prompt_type": "confirm"},
+)
+def test_visual(prompt, verify):
+    prompt("inspect")  # blocks until operator responds
+    verify("led_state", read_led_color())
+```
+
+See [`litmus_prompts`](litmus-markers.md#litmus_prompts) for the marker shape.
 
 ---
 
-## Configuration
-
-These fixtures expose the typed configuration models loaded from project YAML. They resolve to `None` when the relevant YAML is absent — tests can safely take them in vanilla projects.
-
-### `product_context` — session
-
-Returns a `ProductContext` loaded from `products/*.yaml`, or `None` if no `products/` directory or no match.
-
-Resolution chain (first match wins):
-1. `--product <id-or-path>` — `<id>` looks up `products/<id>.yaml`; `<path>` is used directly.
-2. `--dut-part-number <pn>` — content match against `product.part_number:` across `products/*.yaml`.
-3. Single-file fallback when `products/` holds exactly one product file.
-4. `None`.
-
-```python
-def test_spec(product_context, dmm, verify):
-    if product_context:
-        limit = product_context.get_limit("output_voltage", temperature=25)
-    verify("output_voltage", dmm.measure_dc_voltage())
-```
-
-### `station_config` — session
-
-Returns the `StationConfig` resolved from `--station` / `stations/*.yaml`, or `None`. Also publishes the value to the active-station ContextVar so `context.station` works without taking the fixture.
-
-### `fixture_config` — session
-
-Returns the `FixtureConfig` resolved from `--fixture` / `fixtures/*.yaml`, or `None`. In worker mode (multi-slot), extracts just this slot's `connections` and `dut_resource`.
-
-### `run_context` — session
-
-Returns the `RunContext` carried on the active `TestRunLogger`. Use it to attach run-level metadata that persists across tests:
-
-```python
-def test_setup(run_context):
-    run_context.set("operator_badge", "EMP-12345")
-    run_context.set("fixture_serial", "FIX-001")
-```
-
-For step- or vector-scoped state, use `context` instead.
-
-### `mock_instruments` — session
-
-Returns `bool`. True when `--mock-instruments` was passed or `LITMUS_MOCK_INSTRUMENTS=1` is set. The same flag drives the `instruments` fixture's behavior; tests rarely take it directly except for diagnostic branches.
-
----
-
-## Hardware access
+## Talking to instruments
 
 These fixtures need a station YAML to produce useful results. Without one they return empty dicts / `None`.
 
@@ -185,32 +156,33 @@ def test_lookup(fixture_manager):
 
 ---
 
-## Per-test workflow
+## Reading per-test state
 
-The everyday fixtures for writing test bodies.
+The active vector's params, observations, and currently-bound connection.
 
-### `verify` — function
+### `context` — function
 
-Callable: `verify(name, value, *, limit=None)`. Records the measurement row (value, units, limits, traceability), resolves a limit from the active chain (sidecar / inline marker / product spec), stamps `measurement_outcome`, and **raises `AssertionError`** when the value is out of range.
+Returns a `Context` exposing the run / DUT / station / vector state for the active test. Resolves on every test, with empty defaults when there's nothing to expose.
+
+| Method | Returns | Purpose |
+|---|---|---|
+| `context.get_param(name, default=None)` | `Any` | Read a sweep / parametrize value. |
+| `context.params` | `dict` | All active params for this row. |
+| `context.changed(key)` | `bool` | True if `key` differs from prior iteration. |
+| `context.last(key, default=None)` | `Any` | Prior iteration's value for `key`. |
+| `context.observe(key, value)` | `None` | Record a free-form observation. |
+| `context.observations` | `dict` | All recorded observations. |
+| `context.product` | `ProductContext \| None` | Active product context (= `product_context` fixture). |
+| `context.station` | `StationConfig \| None` | Active station config (= `station_config` fixture). |
+| `context.run` | `TestRun \| None` | The current `TestRun`. |
+| `context.limits` | `LimitsView` | Read-only limits mapping (= `limits` fixture). |
+| `context.characteristics` | `tuple[str, ...]` | Active characteristic IDs from `litmus_characteristics`. |
 
 ```python
-def test_rail(dmm, verify):
-    verify("output_voltage", dmm.measure_dc_voltage())
+def test_rail(context, psu, dmm, verify):
+    psu.set_voltage(context.get_param("vin", 5.0))
+    verify("vout", dmm.measure_dc_voltage())
 ```
-
-Same record-side effect as `logger.measure`; the only difference is `verify` raises on FAIL. Use `verify` when a fail should stop the line.
-
-### `limits` — function
-
-Read-only `name → Limit` mapping for the current test, resolved from the same chain as `verify`. Use for ad-hoc pythonic assertions:
-
-```python
-def test_inline_check(dmm, limits):
-    v = dmm.measure_dc_voltage()
-    assert v in limits["output_voltage"]
-```
-
-`limits[name]` raises `KeyError` when no limit is configured — there is no silent default.
 
 ### `connections` — function
 
@@ -222,24 +194,58 @@ def test_per_pin(connections, dmm):
         v = dmm.measure_voltage()
 ```
 
-### `prompt` — function
+---
 
-Returns a callable that resolves operator prompts declared via `@pytest.mark.litmus_prompts`:
+## Reading loaded configuration
+
+Typed accessors over the YAML / CLI that shaped this run. Each one resolves to its model OR `None` (or an empty dict / bool) — taking one in a vanilla project is safe.
+
+### `product_context` — session
+
+Returns a `ProductContext` loaded from `products/*.yaml`, or `None` if no `products/` directory or no match.
+
+Resolution chain (first match wins):
+1. `--product <id-or-path>` — `<id>` looks up `products/<id>.yaml`; `<path>` is used directly.
+2. `--dut-part-number <pn>` — content match against `product.part_number:` across `products/*.yaml`.
+3. Single-file fallback when `products/` holds exactly one product file.
+4. `None`.
 
 ```python
-@pytest.mark.litmus_prompts(
-    inspect={"message": "Verify LED is GREEN", "prompt_type": "confirm"},
-)
-def test_visual(prompt, verify):
-    prompt("inspect")  # blocks until operator responds
-    verify("led_state", read_led_color())
+def test_spec(product_context, dmm, verify):
+    if product_context:
+        limit = product_context.get_limit("output_voltage", temperature=25)
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-See [`litmus_prompts`](litmus-markers.md#litmus_prompts) for the marker shape.
+### `station_config` — session
+
+Returns the `StationConfig` resolved from `--station` / `stations/*.yaml`, or `None`. Also publishes the value to the active-station ContextVar so `context.station` works without taking the fixture.
+
+### `fixture_config` — session
+
+Returns the `FixtureConfig` resolved from `--fixture` / `fixtures/*.yaml`, or `None`. In worker mode (multi-slot), extracts just this slot's `connections` and `dut_resource`.
+
+### `run_context` — session
+
+Returns the `RunContext` carried on the active `TestRunLogger`. Use it to attach run-level metadata that persists across tests:
+
+```python
+def test_setup(run_context):
+    run_context.set("operator_badge", "EMP-12345")
+    run_context.set("fixture_serial", "FIX-001")
+```
+
+For per-test or per-vector state, use `context` instead.
+
+### `mock_instruments` — session
+
+Returns `bool`. True when `--mock-instruments` was passed or `LITMUS_MOCK_INSTRUMENTS=1` is set. The same flag drives the `instruments` fixture's behavior; tests rarely take it directly except for diagnostic branches.
 
 ---
 
 ## Special modes
+
+Two fixtures that switch the execution shape itself, not just expose data.
 
 ### `vectors` — function
 
@@ -295,7 +301,7 @@ These names are not hard-coded — they come from your station YAML at session s
 ## See also
 
 - [Litmus markers](litmus-markers.md) — the seven `@pytest.mark.litmus_*` decorators and their sidecar equivalents
-- [pytest-native reference](pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
+- [pytest-native reference](pytest-native.md) — how the bundled plugin uses pytest's own collection / fixtures / markers
 - [Models](models.md) — `Limit`, `MeasurementLimitConfig`, `ProductContext`, `StationConfig`, `FixtureConfig` field shapes
 - [Test vectors & sweeps](../how-to/vector-expansion.md) — `litmus_sweeps`, `parametrize`, and the `vectors` self-loop fixture
 - [Spec-driven testing](../how-to/spec-driven-testing.md) — `litmus_characteristics` + `connections` workflow
