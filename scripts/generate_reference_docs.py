@@ -631,6 +631,137 @@ def _generate_api(*, check: bool) -> bool:
 
 
 # =============================================================================
+# cli.md
+# =============================================================================
+
+
+def _render_click_param(param: Any) -> tuple[str, str, str]:
+    """Return (name-cell, type-cell, help-cell) for one click Param.
+
+    Distinguishes arguments (positional) from options (--flag) by the
+    Param subclass; renders sensible type strings for click types
+    (Choice as ``{a, b, c}``, INT/FLOAT/STRING as bare names).
+    """
+    import click
+
+    name = param.name or ""
+    if isinstance(param, click.Argument):
+        cell = f"`{name.upper()}`"
+        if param.nargs == -1:
+            cell += "..."
+    else:
+        opts = "/".join(f"`{o}`" for o in param.opts)
+        if param.secondary_opts:
+            opts += "/" + "/".join(f"`{o}`" for o in param.secondary_opts)
+        cell = opts
+
+    pt = param.type
+    if isinstance(pt, click.Choice):
+        type_str = "{" + ", ".join(pt.choices) + "}"
+    elif pt is None or getattr(pt, "name", "") == "boolean":
+        type_str = "flag" if getattr(param, "is_flag", False) else "bool"
+    else:
+        type_str = getattr(pt, "name", "")
+
+    help_text = ""
+    if isinstance(param, click.Option):
+        help_text = (param.help or "").replace("\n", " ").strip()
+        if (
+            param.default is not None
+            and not param.is_flag
+            and not param.required
+            and type(param.default).__name__ != "Sentinel"  # click._utils.Sentinel.UNSET
+        ):
+            help_text = (
+                f"{help_text}  *(default: `{param.default}`)*"
+                if help_text
+                else f"*(default: `{param.default}`)*"
+            )
+
+    return cell, type_str, help_text
+
+
+def _render_click_command(cmd: Any, dotted: str, *, level: int = 4) -> list[str]:
+    """Render one click Command as heading + summary + params table."""
+    import click
+
+    hashes = "#" * level
+    out = [f"{hashes} `litmus {dotted}` {{#cli-{dotted.replace(' ', '-')}}}"]
+    summary = (cmd.help or cmd.short_help or "").strip()
+    summary_first = summary.split("\n\n", 1)[0] if summary else ""
+    summary_first = " ".join(line.strip() for line in summary_first.splitlines() if line.strip())
+    if summary_first:
+        out.append("")
+        out.append(summary_first)
+    out.append("")
+
+    # Skip the implicit --help on every command — readers know.
+    visible_params = [
+        p for p in cmd.params if not (isinstance(p, click.Option) and p.opts == ["--help"])
+    ]
+    if visible_params:
+        out.append("| Argument / option | Type | Description |")
+        out.append("|---|---|---|")
+        for p in visible_params:
+            name_cell, type_cell, help_cell = _render_click_param(p)
+            type_disp = f"`{type_cell}`" if type_cell else ""
+            out.append(f"| {name_cell} | {type_disp} | {help_cell} |")
+    else:
+        out.append("*(no options or arguments.)*")
+    out.append("")
+    return out
+
+
+def _walk_commands(group: Any, prefix: str = "") -> list[tuple[str, Any]]:
+    """Yield ``(dotted-path, command)`` for every leaf command, depth-first.
+
+    Group nodes are returned so the renderer can emit a section heading,
+    but only leaf commands carry param tables — groups exist purely to
+    namespace.
+    """
+    import click
+
+    out: list[tuple[str, Any]] = []
+    for name in sorted(group.commands):
+        cmd = group.commands[name]
+        dotted = f"{prefix} {name}".strip()
+        out.append((dotted, cmd))
+        if isinstance(cmd, click.Group):
+            out.extend(_walk_commands(cmd, dotted))
+    return out
+
+
+def _generate_cli(*, check: bool) -> bool:
+    import click
+
+    from litmus.cli import main
+
+    parts: list[str] = []
+    for dotted, cmd in _walk_commands(main):
+        depth = dotted.count(" ")  # 0 = top-level, 1 = one level nested, …
+        if isinstance(cmd, click.Group):
+            # ### for top-level groups (under `## Commands`), #### for nested.
+            hashes = "#" * (depth + 3)
+            parts.append(f"{hashes} `litmus {dotted}` (group) {{#cli-{dotted.replace(' ', '-')}}}")
+            help_first = (cmd.help or cmd.short_help or "").splitlines()[0].strip()
+            if help_first:
+                parts.append("")
+                parts.append(help_first)
+            parts.append("")
+            continue
+        # Leaf command — top-level uses ###, subcommand-of-group uses ####.
+        level = depth + 3
+        parts.extend(_render_click_command(cmd, dotted, level=level))
+
+    body = "\n".join(parts).rstrip() + "\n"
+
+    target = DOCS_DIR / "cli.md"
+    existing = target.read_text()
+    new = _replace_section(existing, "cli-commands", body)
+    return _write_or_check(target, new, check=check)
+
+
+# =============================================================================
 # Dispatcher
 # =============================================================================
 
@@ -640,6 +771,7 @@ GENERATORS: dict[str, Any] = {
     "models": _generate_models,
     "configuration": _generate_configuration,
     "api": _generate_api,
+    "cli": _generate_cli,
 }
 
 

@@ -1,599 +1,469 @@
-# CLI Reference
+# CLI reference
 
-The `litmus` command-line interface provides tools for running the operator UI, inspecting test results, starting the MCP server, and configuring AI tool integrations.
+`litmus` is a Click application; every command, group, option, and argument below is enumerated from `litmus.cli:main`. To regenerate after touching any command:
+
+```bash
+uv run python scripts/generate_reference_docs.py cli
+```
+
+The pre-commit hook runs the same generator in `--check` mode, so source / docs drift fails the commit.
 
 ## Installation
 
-After installing Litmus, the `litmus` command is available:
-
 ```bash
-uv sync            # Install dependencies
-litmus --help      # Show available commands
-litmus --version   # Show version (0.1.0)
+uv pip install litmus
+litmus --help
 ```
+
+After install, `litmus` is on `$PATH`. The `litmus` entry point is registered by `pyproject.toml` (`litmus = "litmus.cli:main"`).
 
 ## Commands
 
-### litmus init
+<!-- GENERATED:cli-commands:start -->
+### `litmus catalog` (group) {#cli-catalog}
 
-Initialize a new Litmus project with scaffolding for hardware tests.
+Catalog commands.
 
-```bash
-litmus init [NAME] [OPTIONS]
-```
+#### `litmus catalog datasheet` {#cli-catalog-datasheet}
 
-**Options:**
+Generate a formatted datasheet from a catalog YAML file.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--no-git` | `False` | Skip git initialization |
-| `--discover` | `False` | Auto-discover instruments and create station file |
-| `--starter / --no-starter` | _prompts_ | Generate starter example files |
-| `--tier` | _prompts_ | Scaffold tier: `bringup` (Tier 0/1 — MagicMock fixtures, one test, no station/product YAML), `bench` (Tier 2 starter), `factory` (Tier 3/4 — bench + profiles) |
-| `--ai` | _none_ | Set up AI tool integration: `claude-code`, `claude-desktop`, or `copilot` |
-| `--name` | _auto-detect_ | Project name (overrides auto-detect) |
+| Argument / option | Type | Description |
+|---|---|---|
+| `YAML_PATH` | `path` |  |
+| `-f`/`--format` | `{html, pdf}` | Output format (default: html)  *(default: `html`)* |
+| `-o`/`--output` | `path` | Output file path |
 
-**Examples:**
+### `litmus daemon` (group) {#cli-daemon}
 
-```bash
-# Create new project directory
-litmus init my_project                # Create my_project/ with scaffolding
-litmus init my_project --discover     # + auto-detect instruments
+Manage Litmus background daemons (events / runs / channels).
 
-# Scaffold current directory (like uv init)
-cd my_project
-litmus init                           # Add litmus files to CWD
-litmus init --discover                # + auto-detect instruments
-```
+#### `litmus daemon restart` {#cli-daemon-restart}
 
-With `NAME`: creates a new directory and scaffolds inside it. Without `NAME`: scaffolds the current directory. All files are skip-if-exists, so it's safe to run on an existing project.
+Restart selected daemons (SIGTERM the running process; respawn on next access).
 
-When `--discover` is used (or the user confirms discovery interactively), Litmus scans for VISA instruments, looks up each in the catalog to determine its type (dmm, smu, psu, etc.), and writes `stations/station.yaml` with auto-assigned roles. Duplicate types are numbered (dmm1, dmm2).
+| Argument / option | Type | Description |
+|---|---|---|
+| `TARGETS`... | `text` |  |
+| `--all` | `flag` | Restart every daemon under the project |
 
-The station file is gitignored since it's bench-specific.
+#### `litmus daemon status` {#cli-daemon-status}
 
-### litmus serve
+Show running daemons, their PIDs, refs, and locations.
 
-Start the operator UI server (NiceGUI + FastAPI).
+*(no options or arguments.)*
 
-```bash
-litmus serve [OPTIONS]
-```
+#### `litmus daemon stop` {#cli-daemon-stop}
 
-**Options:**
+Stop selected daemons without respawning.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--host` | `127.0.0.1` | Host address to bind to |
-| `--port` | `8000` | Port to bind to |
-| `--reload` | `false` | Enable auto-reload for development |
+| Argument / option | Type | Description |
+|---|---|---|
+| `TARGETS`... | `text` |  |
+| `--all` | `flag` | Stop every daemon under the project |
 
-**Examples:**
+### `litmus data` (group) {#cli-data}
 
-```bash
-# Default: http://localhost:8000
-litmus serve
+Data retention and management.
 
-# Custom port
-litmus serve --port 8080
+#### `litmus data prune` {#cli-data-prune}
 
-# Bind to all interfaces (production)
-litmus serve --host 0.0.0.0
+Delete date-partitioned data older than the specified period.
 
-# Development with auto-reload
-litmus serve --reload
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `--older-than` | `text` | Retention period (e.g. 30d, 90d) |
+| `--type` | `text` | Data types to prune (e.g. channels, events) |
+| `--data-dir` | `text` | Results directory |
+| `--dry-run` | `flag` | Show what would be deleted |
 
-**What it starts:**
+#### `litmus data reindex` {#cli-data-reindex}
 
-- **NiceGUI pages** at `/`, `/stations`, `/products`, `/fixtures`, `/instruments`, `/tests`, `/runs`
-- **FastAPI routes** at `/api/*` for programmatic access
-- **WebSocket** for live UI updates
+Kill index daemons and rebuild on next access.
 
-### litmus runs
+| Argument / option | Type | Description |
+|---|---|---|
+| `--data-dir` | `text` | Results directory |
 
-List recent test runs from the results directory.
+### `litmus discover` {#cli-discover}
 
-```bash
-litmus runs [OPTIONS]
-```
+Scan for available instruments.
 
-**Options:**
+| Argument / option | Type | Description |
+|---|---|---|
+| `--visa` | `flag` | VISA instruments only |
+| `--ni` | `flag` | NI devices only |
+| `--serial` | `flag` | Serial ports only |
+| `--lxi` | `flag` | LXI network instruments only |
+| `--identify`/`--no-identify` | `flag` | Query *IDN? for each instrument |
+| `--json` | `flag` | Output as JSON |
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--data-dir` | `results` | Path to results directory |
-| `--limit` | `20` | Number of runs to display |
+### `litmus export` {#cli-export}
 
-**Example output:**
+Export a test run or session to a different format via event replay.
 
-```
-$ litmus runs
-Run ID     DUT Serial      Station              Outcome
-------------------------------------------------------------
-a1b2c3d4   SN12345         bench_1              pass
-e5f6g7h8   SN12346         bench_1              fail
-i9j0k1l2   SN12347         bench_2              pass
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `ID` | `text` |  |
+| `-f`/`--format` | `text` | Target format (csv, json, stdf, hdf5, tdms, mdf4, atml) |
+| `-o`/`--output-dir` | `text` | Output directory |
+| `--data-dir` | `text` | Data directory |
 
-### litmus show
+### `litmus grafana` (group) {#cli-grafana}
 
-Show details for a specific test run.
+Grafana dashboard provisioning and data server.
 
-```bash
-litmus show <RUN_ID> [OPTIONS]
-```
+#### `litmus grafana export` {#cli-grafana-export}
 
-**Arguments:**
+Export dashboards and provisioning templates for manual setup.
 
-| Argument | Description |
-|----------|-------------|
-| `RUN_ID` | Test run ID (full or partial, e.g., `a1b2c3d4`) |
+| Argument / option | Type | Description |
+|---|---|---|
+| `--output-dir`/`-o` | `path` | Output directory  *(default: `grafana-export`)* |
 
-**Options:**
+#### `litmus grafana serve` {#cli-grafana-serve}
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--data-dir` | from `litmus.yaml` or `results` | Path to results directory |
-| `-f`, `--format` | *(none)* | Generate report: `html`, `pdf`, `json`, `csv` |
-| `-o`, `--output` | `.` (current dir) | Output file or directory |
-| `-t`, `--template` | `default` | Jinja2 template name |
+Start the pgwire server for Grafana.
 
-Without `-f`, prints a terminal summary. With `-f`, generates a report file.
+| Argument / option | Type | Description |
+|---|---|---|
+| `--host` | `text` | Bind address  *(default: `0.0.0.0`)* |
+| `--port` | `integer` | PostgreSQL wire protocol port  *(default: `5433`)* |
+| `--data-dir` | `path` |  |
+| `--refresh-seconds` | `integer` | Seconds between IPC table refreshes (events, channels)  *(default: `30`)* |
 
-**Terminal output:**
+#### `litmus grafana setup` {#cli-grafana-setup}
 
-```
-$ litmus show a1b2c3d4
-Test Run: a1b2c3d4-5678-9abc-def0-1234567890ab
-  DUT Serial: SN12345
-  Station: bench_1
-  Outcome: pass
-  Started: 2025-01-15T10:30:00
-  Ended: 2025-01-15T10:32:15
-  Steps: 3
-  Measurements: 27 (0 failed)
+Install provisioning config and dashboards into Grafana.
 
-Measurements:
-  output_voltage: 3.31 V [pass]
-  input_current: 0.45 A [pass]
-  efficiency: 87.2 % [pass]
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `--grafana-home` | `directory` | Grafana installation directory (default: auto-detect) |
+| `--grafana-url` | `text` | Grafana URL for API setup (e.g. http://localhost:3000) |
+| `--grafana-token` | `text` | Grafana API token or service account token |
+| `--grafana-user` | `text` | Grafana username for basic auth |
+| `--grafana-password` | `text` | Grafana password for basic auth |
+| `--host` | `text` | pgwire host for datasource config  *(default: `127.0.0.1`)* |
+| `--port` | `integer` | pgwire port for datasource config  *(default: `5433`)* |
+| `--folder` | `text` | Grafana folder for dashboards  *(default: `Litmus`)* |
 
-**Report generation:**
+### `litmus init` {#cli-init}
 
-```bash
-# HTML report (self-contained, print-friendly)
-litmus show a1b2c3d4 -f html
+Initialize a new Litmus project.
 
-# PDF report (requires weasyprint: pip install 'litmus[pdf]')
-litmus show a1b2c3d4 -f pdf -o reports/
+| Argument / option | Type | Description |
+|---|---|---|
+| `NAME` | `text` |  |
+| `--no-git` | `flag` | Skip git initialization |
+| `--discover` | `flag` | Auto-discover instruments and create station file |
+| `--starter`/`--no-starter` | `flag` | Generate starter example files (prompts if not specified) |
+| `--tier` | `{bringup, bench, factory}` | Scaffold tier. 'bringup' = Tier 0/1 (MagicMock fixtures, one test, one sidecar, no station/product YAML). 'bench' = Tier 2 starter (equivalent to --starter). 'factory' = Tier 3/4 (bench + profiles). |
+| `--ai` | `{claude-code, claude-desktop, copilot}` | Set up AI tool integration (MCP server + project instructions) |
+| `--name` | `text` | Project name (overrides auto-detect) |
 
-# JSON report
-litmus show a1b2c3d4 -f json -o result.json
+### `litmus instrument` (group) {#cli-instrument}
 
-# CSV report (one row per measurement)
-litmus show a1b2c3d4 -f csv
-```
+Instrument management commands.
 
-**Template resolution:** project `reports/templates/{name}.html` → built-in `litmus/reports/templates/{name}.html`. Create custom templates to match your organization's report format.
+#### `litmus instrument cal` {#cli-instrument-cal}
 
-## Yield / Manufacturing Metrics
+Update calibration information for an instrument.
 
-### litmus metrics summary
+| Argument / option | Type | Description |
+|---|---|---|
+| `INSTRUMENT_ID` | `text` |  |
+| `--due` | `text` | Calibration due date (YYYY-MM-DD) |
+| `--last` | `text` | Last calibration date (YYYY-MM-DD) |
+| `--cert` | `text` | Certificate number |
+| `--lab` | `text` | Calibration lab name |
 
-Show yield summary (FPY = First-Pass Yield, RTY = Rolled Throughput Yield — manufacturing acronyms for the fraction of units that pass first try / pass every step).
+#### `litmus instrument list` {#cli-instrument-list}
 
-```bash
-litmus metrics summary [OPTIONS]
-```
+List all instrument configuration files.
 
-**Options:**
+| Argument / option | Type | Description |
+|---|---|---|
+| `--json` | `flag` | Output as JSON |
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--data-dir` | from `litmus.yaml` or `results` | Results directory |
-| `--phase` | exclude `development` | Test phase filter (or `all`) |
-| `--since` | *(none)* | Start date (ISO format) |
-| `--until` | *(none)* | End date (ISO format) |
-| `--product` | *(none)* | Product ID filter |
-| `--station` | *(none)* | Station ID filter |
-| `--period` | *(none)* | Period bucket: `day`, `week`, or `month` |
-| `--json` | *(off)* | Emit JSON instead of a table |
+#### `litmus instrument show` {#cli-instrument-show}
 
-**Example:**
+Show details for a specific instrument.
 
-```
-$ litmus metrics summary --data-dir results
-Runs: 150  |  Unique serials: 120
-First-pass yield:  85.0%
-Final yield:       95.8%
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `INSTRUMENT_ID` | `text` |  |
+| `--json` | `flag` | Output as JSON |
 
-### litmus metrics pareto
+### `litmus mcp` (group) {#cli-mcp}
 
-Top failure modes (Pareto analysis).
+MCP server commands for AI-assisted workflows.
 
-```bash
-litmus metrics pareto [--top N] [filter options...]
-```
+#### `litmus mcp serve` {#cli-mcp-serve}
 
-### litmus metrics cpk
+Start the MCP server for AI agents.
 
-Process capability (Cpk/Cp) across measurements.
+| Argument / option | Type | Description |
+|---|---|---|
+| `--transport` | `text` | Transport type (stdio, sse)  *(default: `stdio`)* |
 
-```bash
-litmus metrics cpk [--min-samples N] [filter options...]
-```
+### `litmus metrics` (group) {#cli-metrics}
 
-### litmus metrics trend
+Manufacturing-test analytics (yield, pareto, cpk, trend, retest, time-loss).
 
-Yield trend over time.
+#### `litmus metrics cpk` {#cli-metrics-cpk}
 
-```bash
-litmus metrics trend [--period day|week|month] [filter options...]
-```
+Process capability (Cpk/Cp) per measurement.
 
-### litmus metrics time-loss
+| Argument / option | Type | Description |
+|---|---|---|
+| `--json` | `flag` | Output as JSON |
+| `--station` | `text` | Station ID |
+| `--product` | `text` | Product ID |
+| `--until` | `text` | End date (ISO format) |
+| `--since` | `text` | Start date (ISO format) |
+| `--phase` | `text` | Test phase (or 'all') |
+| `--data-dir` | `text` | Results directory |
+| `--min-samples` | `integer` | Minimum sample count  *(default: `10`)* |
+
+#### `litmus metrics pareto` {#cli-metrics-pareto}
+
+Top failures (Pareto). Group by product / step / measurement.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--json` | `flag` | Output as JSON |
+| `--station` | `text` | Station ID |
+| `--product` | `text` | Product ID |
+| `--until` | `text` | End date (ISO format) |
+| `--since` | `text` | Start date (ISO format) |
+| `--phase` | `text` | Test phase (or 'all') |
+| `--data-dir` | `text` | Results directory |
+| `--top` | `integer` | Number of top failures  *(default: `10`)* |
+| `--group-by` | `{product, step, measurement}` | Lens for the pareto: ``product`` groups runs by ``dut_part_number`` (most-failing SKUs); ``step`` groups steps by ``step_path`` (most-failing tests); ``measurement`` groups limit-bearing measurements by name (the historical default).  *(default: `product`)* |
+
+#### `litmus metrics retest` {#cli-metrics-retest}
+
+Retest rates: how often DUTs are retried.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--json` | `flag` | Output as JSON |
+| `--station` | `text` | Station ID |
+| `--product` | `text` | Product ID |
+| `--until` | `text` | End date (ISO format) |
+| `--since` | `text` | Start date (ISO format) |
+| `--phase` | `text` | Test phase (or 'all') |
+| `--data-dir` | `text` | Results directory |
+| `--period` | `{day, week, month}` | *(default: `day`)* |
+
+#### `litmus metrics summary` {#cli-metrics-summary}
+
+Yield summary: FPY, final yield, run counts, duration stats.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--json` | `flag` | Output as JSON |
+| `--station` | `text` | Station ID |
+| `--product` | `text` | Product ID |
+| `--until` | `text` | End date (ISO format) |
+| `--since` | `text` | Start date (ISO format) |
+| `--phase` | `text` | Test phase (or 'all') |
+| `--data-dir` | `text` | Results directory |
+| `--period` | `{day, week, month}` | *(default: `day`)* |
+
+#### `litmus metrics time-loss` {#cli-metrics-time-loss}
 
 Time lost to failures and errors.
 
-```bash
-litmus metrics time-loss [--period day|week|month] [filter options...]
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `--json` | `flag` | Output as JSON |
+| `--station` | `text` | Station ID |
+| `--product` | `text` | Product ID |
+| `--until` | `text` | End date (ISO format) |
+| `--since` | `text` | Start date (ISO format) |
+| `--phase` | `text` | Test phase (or 'all') |
+| `--data-dir` | `text` | Results directory |
+| `--period` | `{day, week, month}` | *(default: `day`)* |
 
-## Data management commands
+#### `litmus metrics trend` {#cli-metrics-trend}
 
-Run-data lifecycle commands. Source: `src/litmus/cli.py` (`@main.group("data")`).
+Yield trend over time.
 
-### litmus data prune
+| Argument / option | Type | Description |
+|---|---|---|
+| `--json` | `flag` | Output as JSON |
+| `--station` | `text` | Station ID |
+| `--product` | `text` | Product ID |
+| `--until` | `text` | End date (ISO format) |
+| `--since` | `text` | Start date (ISO format) |
+| `--phase` | `text` | Test phase (or 'all') |
+| `--data-dir` | `text` | Results directory |
+| `--period` | `{day, week, month}` | *(default: `day`)* |
 
-Delete run records older than a cutoff.
+### `litmus new-test` {#cli-new-test}
 
-```bash
-litmus data prune --older-than 30d [--dry-run]
-```
+Scaffold a new test file.
 
-### litmus data reindex
+| Argument / option | Type | Description |
+|---|---|---|
+| `NAME` | `text` |  |
 
-Rebuild the DuckDB index from parquet files (use after manually copying parquets between machines).
+### `litmus runs` {#cli-runs}
 
-```bash
-litmus data reindex
-```
+List recent test runs.
 
-## Daemon commands
+| Argument / option | Type | Description |
+|---|---|---|
+| `--data-dir` | `text` | Results directory |
+| `--limit` | `integer` | Number of runs to show  *(default: `20`)* |
+| `--json` | `flag` | Output as JSON |
 
-`litmus serve` and `pytest` both rely on background daemons (events, runs, channels). Manage them with `litmus daemon`.
+### `litmus sbom` {#cli-sbom}
 
-### litmus daemon status
+Export CycloneDX SBOM for a test run's software environment.
 
-Show the state of every daemon Litmus owns on this machine.
+| Argument / option | Type | Description |
+|---|---|---|
+| `RUN_ID` | `text` |  |
+| `--data-dir` | `text` | Results directory |
+| `-o`/`--output` | `text` | Output file (default: stdout) |
 
-```bash
-litmus daemon status
-```
+### `litmus schema` (group) {#cli-schema}
 
-### litmus daemon restart
+JSON Schema generation for YAML validation.
 
-Stop and restart all daemons (clears their in-memory state; on-disk parquet remains).
+#### `litmus schema export` {#cli-schema-export}
 
-```bash
-litmus daemon restart
-```
+Export JSON Schema files for all Litmus YAML types.
 
-### litmus daemon stop
+| Argument / option | Type | Description |
+|---|---|---|
+| `--output-dir`/`-o` | `text` | Directory for .schema.json files  *(default: `schemas`)* |
 
-Stop the daemons. They restart on next use.
+#### `litmus schema refresh` {#cli-schema-refresh}
 
-```bash
-litmus daemon stop
-```
+Refresh .vscode/schemas/ and .vscode/settings.json after a Litmus upgrade.
 
-## MCP Commands
+| Argument / option | Type | Description |
+|---|---|---|
+| `--project-dir` | `text` | Project root (defaults to current directory).  *(default: `.`)* |
 
-### litmus mcp serve
+### `litmus serve` {#cli-serve}
 
-Start the MCP (Model Context Protocol) server for AI agents.
+Start the operator UI server.
 
-```bash
-litmus mcp serve [OPTIONS]
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `--host` | `text` | Host to bind to  *(default: `127.0.0.1`)* |
+| `--port` | `integer` | Port to bind to  *(default: `8000`)* |
+| `--reload` | `flag` | Enable auto-reload for development |
 
-**Options:**
+### `litmus setup` (group) {#cli-setup}
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--transport` | `stdio` | Transport type (`stdio` or `sse`) |
+Configure AI tool integrations.
 
-**What it exposes:**
+#### `litmus setup claude-code` {#cli-setup-claude-code}
 
-Twelve tools, all prefixed `litmus_`. Full reference in [HTTP & MCP API](api.md#mcp-tools).
+Configure Litmus MCP server for Claude Code.
 
-| Tool | Purpose |
-|------|---------|
-| `litmus_project` | Read / list / save project files |
-| `litmus_discover` | VISA discovery |
-| `litmus_match` | Match a product against stations |
-| `litmus_run` | Start a test run |
-| `litmus_open` | Open a resource in the operator UI |
-| `litmus_schema` | JSON schema for a YAML entity type |
-| `litmus_events` | Query the event store |
-| `litmus_sessions` | List sessions |
-| `litmus_channels` | Query channel data |
-| `litmus_metrics` | Compute yield / Pareto / Cpk / retest / time-loss |
-| `litmus_runs` | Query the runs view |
-| `litmus_steps` | Query the steps view |
+| Argument / option | Type | Description |
+|---|---|---|
+| `--print-only` | `flag` | Print config instead of installing |
 
-**Example:**
-
-```bash
-# Start MCP server (used by Claude Code, etc.)
-litmus mcp serve
-```
-
-## Setup Commands
-
-Configure AI tool integrations automatically.
-
-### litmus setup claude-code
-
-Configure Litmus for Claude Code.
-
-```bash
-litmus setup claude-code [OPTIONS]
-```
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--print-only` | Print config instead of installing |
-
-**What it does:**
-
-1. Registers the Litmus MCP server via `claude mcp add`
-2. Copies skill command stubs to `.claude/commands/`
-3. Generates `CLAUDE.md` project instructions (if not already present)
-
-**Example:**
-
-```bash
-litmus setup claude-code
-```
-
-```
-✓ Registered Litmus MCP server
-✓ Copied commands to .claude/commands/ (2 files)
-✓ Created CLAUDE.md (project instructions)
-```
-
-### litmus setup claude-desktop
+#### `litmus setup claude-desktop` {#cli-setup-claude-desktop}
 
 Configure Litmus for Claude Desktop.
 
-```bash
-litmus setup claude-desktop [OPTIONS]
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `--legacy` | `flag` | Use legacy JSON config instead of .mcpb bundle |
+| `--print-only` | `flag` | Print config instead of installing |
 
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--legacy` | Use legacy JSON config instead of .mcpb bundle |
-| `--print-only` | Print config instead of installing |
-
-**What it does:**
-
-Builds a `.mcpb` Desktop Extension bundle that can be double-clicked to install in Claude Desktop. Includes the MCP server configuration and bundled skills.
-
-Use `--legacy` for older Claude Desktop versions that don't support `.mcpb` — this writes directly to `claude_desktop_config.json`.
-
-**Example:**
-
-```bash
-litmus setup claude-desktop
-```
-
-```
-✓ Built litmus.mcpb (Desktop Extension)
-  → /mnt/c/Users/ryan/Desktop/litmus.mcpb
-  Double-click to install in Claude Desktop.
-```
-
-### litmus setup copilot
-
-Configure Litmus for GitHub Copilot (VS Code and CLI).
-
-```bash
-litmus setup copilot [OPTIONS]
-```
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--print-only` | Print config instead of installing |
-
-**What it does:**
-
-1. Creates/merges `.vscode/mcp.json` with litmus MCP server config
-2. Copies prompt stubs to `.github/prompts/`
-3. Generates `.github/copilot-instructions.md` (if not present)
-4. Generates `AGENTS.md` (if not present) — read by Copilot CLI, Codex, Gemini CLI, and others
-
-**Example:**
-
-```bash
-litmus setup copilot
-```
-
-```
-✓ Wrote .vscode/mcp.json (litmus MCP server)
-✓ Copied prompts to .github/prompts/ (2 files)
-✓ Created .github/copilot-instructions.md
-✓ Created AGENTS.md
-```
-
-### litmus setup cursor
-
-Configure Litmus MCP server for Cursor IDE.
-
-```bash
-litmus setup cursor [OPTIONS]
-```
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--print-only` | Print config instead of installing |
-
-**What it does:**
-
-Creates or updates `.cursor/mcp.json` in the current project directory.
-
-**Example:**
-
-```bash
-# Install in current project
-litmus setup cursor
-```
-
-### litmus setup cline
+#### `litmus setup cline` {#cli-setup-cline}
 
 Configure Litmus MCP server for Cline (VS Code extension).
 
-```bash
-litmus setup cline [OPTIONS]
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `--print-only` | `flag` | Print config instead of installing |
 
-**Options:**
+#### `litmus setup copilot` {#cli-setup-copilot}
 
-| Option | Description |
-|--------|-------------|
-| `--print-only` | Print config instead of installing |
+Configure Litmus for GitHub Copilot (VS Code + CLI).
 
-**What it does:**
+| Argument / option | Type | Description |
+|---|---|---|
+| `--print-only` | `flag` | Print config instead of installing |
 
-Creates or updates `cline_mcp_settings.json` in the VS Code user settings directory.
+#### `litmus setup cursor` {#cli-setup-cursor}
 
-**Example:**
+Configure Litmus MCP server for Cursor.
 
-```bash
-litmus setup cline
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `--print-only` | `flag` | Print config instead of installing |
 
-### litmus setup show
+#### `litmus setup show` {#cli-setup-show}
 
-Display current MCP server configuration and available tools.
+Show current MCP server configuration.
 
-```bash
-litmus setup show
-```
+*(no options or arguments.)*
 
-**Example output:**
+### `litmus show` {#cli-show}
 
-```
-Litmus MCP Server
-----------------------------------------
-Command: /path/to/litmus mcp serve
-Transport: stdio
+Show details for a specific test run.
 
-Available tools (all prefixed ``litmus_``):
-  - litmus_project   : Read / list / save project files
-  - litmus_discover  : VISA discovery
-  - litmus_match     : Match a product against stations
-  - litmus_run       : Start a test run
-  - litmus_open      : Open a resource in the operator UI
-  - litmus_schema    : JSON schema for a YAML entity type
-  - litmus_events    : Query the event store
-  - litmus_sessions  : List sessions
-  - litmus_channels  : Query channel data
-  - litmus_metrics   : Compute yield / Pareto / Cpk / retest / time-loss
-  - litmus_runs      : Query the runs view
-  - litmus_steps     : Query the steps view
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `RUN_ID` | `text` |  |
+| `--data-dir` | `text` | Results directory |
+| `-f`/`--format` | `{html, pdf, json, csv}` | Generate report in format |
+| `-o`/`--output` | `text` | Output file or directory |
+| `-t`/`--template` | `text` | Report template name  *(default: `default`)* |
+| `--env` | `flag` | Show environment snapshot |
 
-## Getting Started (recommended order)
+### `litmus station` (group) {#cli-station}
 
-**1. Create your project**
-```bash
-litmus init quick_start --starter && cd quick_start
-pytest                              # verify everything works with mocks
-```
+Station management commands.
 
-**2. Define your product spec** — What are you testing?
-Most engineers start here. Describe your DUT's characteristics and limits.
-```bash
-litmus serve                        # open UI → Products → New
-# or create products/my_board.yaml manually
-```
+#### `litmus station init` {#cli-station-init}
 
-**3. Set up your bench** — What instruments do you have?
-```bash
-litmus discover                     # scan VISA bus to see what's connected
-litmus station init                 # interactive: assign roles to discovered instruments
-```
-See [From Mocks to Hardware](../tutorial/from-mocks-to-hardware.md) for the full transition guide.
+Initialize a new station configuration.
 
-**4. Write your first real test**
-```bash
-litmus new-test output_voltage      # prompts for which instruments to use
-# edit tests/test_output_voltage.py with your measurement logic
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `--station-id` | `text` | Unique station identifier |
+| `--name` | `text` | Human-readable station name |
+| `--location` | `text` | Physical location |
 
-**5. Run with mocks, then real hardware**
-```bash
-pytest --mock-instruments           # verify test logic without hardware
-pytest --station=my_bench           # run against real instruments
-```
+#### `litmus station update` {#cli-station-update}
 
-**6. Review results**
-```bash
-litmus runs                         # list recent runs
-litmus show <run_id>                # terminal summary
-litmus show <run_id> -f html        # generate HTML report
-litmus serve                        # full UI at localhost:8000
-```
+Re-discover and update instrument identity in configuration.
 
-**Common next steps:**
-- Add a **sidecar** next to a test file to define vectors, limits, and mocks → see [Writing Tests](../how-to/writing-tests.md)
-- Add a **fixture** to map DUT pins to instruments → `litmus serve` → Fixtures → New
-- Set up **AI assistance** → `litmus setup claude-code`
+| Argument / option | Type | Description |
+|---|---|---|
+| `STATION_ID` | `text` |  |
 
-## Common Workflows
+#### `litmus station validate` {#cli-station-validate}
 
-### Development
+Validate station instruments against configuration.
 
-```bash
-# Start UI with auto-reload
-litmus serve --reload
+| Argument / option | Type | Description |
+|---|---|---|
+| `STATION_ID` | `text` |  |
+| `--strict` | `flag` | Fail on any mismatch |
 
-# In another terminal, watch test runs
-litmus runs --limit 5
-```
+### `litmus validate` {#cli-validate}
 
-### CI/CD
+Validate YAML configuration files.
 
-```bash
-# Run tests via pytest — the bundled plugin slots in automatically
-pytest tests/
-
-# Check results
-litmus runs --data-dir results
-litmus show <run_id>
-```
-
-### AI-Assisted Development
-
-```bash
-# One-time setup for Claude Code
-litmus setup claude-code
-
-# Start using Litmus tools in Claude Code
-# Claude can now read specs, match stations, run tests
-```
+| Argument / option | Type | Description |
+|---|---|---|
+| `PATHS`... | `path` |  |
+| `--type`/`-t` | `{catalog, product, station, sequence, fixture, instrument_asset, project}` | Explicit file type (skips auto-detection). |
+| `--json` | `flag` | Output as JSON |
+<!-- GENERATED:cli-commands:end -->
 
 ## Test phase
 
@@ -641,23 +511,26 @@ duckdb.sql("""
 
 See [Profiles](../how-to/profiles.md) for the profile YAML shape.
 
-## Environment Variables
+## Environment variables
 
 | Variable | Description |
-|----------|-------------|
-| `LITMUS_HOME` | Default data directory (resolution: `--data-dir` arg → project `litmus.yaml` `data_dir:` → `LITMUS_HOME` → `platformdirs.user_data_dir("litmus")`) |
+|---|---|
+| `LITMUS_HOME` | Default data directory. Resolution: `--data-dir` arg → project `litmus.yaml` `data_dir:` → `LITMUS_HOME` → `platformdirs.user_data_dir("litmus")`. |
 | `LITMUS_TEST_PHASE` | Default `test_phase` for runs (see *Test phase* above). |
-| `LITMUS_MOCK_INSTRUMENTS` | Set to `1` to enable mock mode without `--mock-instruments`. |
+| `LITMUS_MOCK_INSTRUMENTS` | Set to `1` to enable mock mode without passing `--mock-instruments`. |
+| `LITMUS_SKIP_DAEMON_NOTIFY` | Suppresses the daemon-notify gRPC hop when constructing `ParquetBackend` — useful in tooling scripts that read backends without serving runs. |
 
-## Exit Codes
+## Exit codes
 
 | Code | Meaning |
-|------|---------|
+|---|---|
 | `0` | Success |
-| `1` | General error (invalid options, missing files) |
-| `2` | Command not found |
+| `1` | General error (invalid options, missing files, validation failures) |
+| `2` | Command not found / usage error (Click standard) |
 
-## See Also
+## See also
 
-- [Platform Architecture](../concepts/platform-architecture.md) — Multiple entry points
-- [MCP Tools](../how-to/mcp-integration.md) — Full tool reference
+- [Platform architecture](../concepts/platform-architecture.md) — what each entry point owns
+- [MCP tools](../how-to/mcp-integration.md) — the agent-side parallel to most `litmus` subcommands
+- [Configuration](configuration.md) — YAML files the CLI reads
+- [API reference](api.md) — HTTP routes the `litmus serve` UI mounts
