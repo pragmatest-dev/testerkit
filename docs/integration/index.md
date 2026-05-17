@@ -14,7 +14,6 @@ You keep your existing test runner (LabVIEW, TestStand, plain Python) and only p
 You bring your existing pytest suite or OpenHTF tests under the Litmus runtime to pick up event sourcing, traceability, and the operator UI.
 
 - [Existing pytest projects](pytest-existing.md) — adopt Litmus from a working pytest suite
-- [OpenHTF adapter](openhtf-adapter.md) — bridge OpenHTF phase records into Litmus
 - [Harness](harness.md) — the imperative `TestHarness` API for non-pytest runners
 
 ## Hardware and data

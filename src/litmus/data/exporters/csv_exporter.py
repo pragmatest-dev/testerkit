@@ -61,7 +61,7 @@ class CsvSubscriber(EventSubscriber):
         *,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
-        self._output_dir = output_dir / "exports" / "csv"
+        self._output_dir = output_dir
         self._on_output = on_output
         self._run_started: RunStarted | None = None
         self._measurements: list[MeasurementRecorded] = []

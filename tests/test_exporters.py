@@ -120,7 +120,7 @@ class TestCsvSubscriber:
         sub.open()
         _replay_events(sample_test_run, sub)
         sub.close()
-        csv_dir = tmp_path / "exports" / "csv"
+        csv_dir = tmp_path
         files = list(csv_dir.glob("*.csv"))
         assert len(files) == 1
 
@@ -129,7 +129,7 @@ class TestCsvSubscriber:
         sub.open()
         _replay_events(sample_test_run, sub)
         sub.close()
-        csv_dir = tmp_path / "exports" / "csv"
+        csv_dir = tmp_path
         csv_file = next(csv_dir.glob("*.csv"))
 
         with csv_file.open() as f:
@@ -148,7 +148,7 @@ class TestCsvSubscriber:
         sub.open()
         _replay_events(sample_test_run, sub)
         sub.close()
-        csv_dir = tmp_path / "exports" / "csv"
+        csv_dir = tmp_path
         csv_file = next(csv_dir.glob("*.csv"))
 
         with csv_file.open() as f:
@@ -164,7 +164,7 @@ class TestCsvSubscriber:
         sub.open()
         _replay_events(sample_test_run, sub)
         sub.close()
-        csv_dir = tmp_path / "exports" / "csv"
+        csv_dir = tmp_path
         csv_file = next(csv_dir.glob("*.csv"))
 
         with csv_file.open() as f:
@@ -181,7 +181,7 @@ class TestJsonSubscriber:
         sub.open()
         _replay_events(sample_test_run, sub)
         sub.close()
-        json_dir = tmp_path / "exports" / "json"
+        json_dir = tmp_path
         files = list(json_dir.glob("*.json"))
         assert len(files) == 1
 
@@ -190,7 +190,7 @@ class TestJsonSubscriber:
         sub.open()
         _replay_events(sample_test_run, sub)
         sub.close()
-        json_dir = tmp_path / "exports" / "json"
+        json_dir = tmp_path
         json_file = next(json_dir.glob("*.json"))
 
         data = json.loads(json_file.read_text())
@@ -510,7 +510,7 @@ class TestReconstructTestRun:
         sub.open()
         _replay_events(sample_test_run, sub)
         sub.close()
-        csv_dir = tmp_path / "exports" / "csv"
+        csv_dir = tmp_path
         csv_file = next(csv_dir.glob("*.csv"))
 
         with csv_file.open() as f:

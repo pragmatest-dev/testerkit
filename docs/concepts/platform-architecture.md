@@ -96,14 +96,6 @@ The plugin provides:
 - Instrument fixtures from station config
 - Automatic result logging via `logger.measure` / `verify`
 
-## Migration Path (OpenHTF Adapter)
-
-For teams with existing OpenHTF test suites, Litmus offers an incremental
-migration path that preserves existing test logic while routing results
-into Litmus storage. See the [OpenHTF adapter guide](../integration/openhtf-adapter.md)
-for the supported migration strategies (results bridge, plug-as-driver
-refactor, full pytest port).
-
 ## Catch-All (Results API)
 
 For any test source (LabVIEW, TestStand, custom scripts):

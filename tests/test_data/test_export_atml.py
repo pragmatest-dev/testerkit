@@ -29,7 +29,7 @@ class TestAtmlSubscriber:
         # RunEnded triggers _write, but close is idempotent
         sub.close()
         run_id = str(test_run.id)[:8]
-        return tmp_path / "exports" / "atml" / f"{run_id}.xml"
+        return tmp_path / f"{run_id}.xml"
 
     def test_creates_file(
         self,

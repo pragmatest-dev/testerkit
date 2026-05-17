@@ -163,7 +163,7 @@ class AtmlSubscriber(EventSubscriber):
         *,
         on_output: Callable[[OutputFile], None] | None = None,
     ) -> None:
-        self._output_dir = output_dir / "exports" / "atml"
+        self._output_dir = output_dir
         self._on_output = on_output
         self._run_started: RunStarted | None = None
         self._instruments: list[InstrumentConnected] = []
