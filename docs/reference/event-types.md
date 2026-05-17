@@ -1,335 +1,444 @@
-# Event Types Reference
+# Event types reference
 
-Complete reference for all Litmus event types. All events inherit from `EventBase`.
+Every record in the Litmus event log inherits from `EventBase`. This page enumerates every event class, its `event_type` discriminator string, and the fields the class adds beyond the base.
 
-**Source:** `litmus/data/events.py`
+The tables below are generated from source — `src/litmus/data/events.py`. To regenerate after touching the models, run:
 
-## Base Fields (all events)
+```bash
+uv run python scripts/generate_reference_docs.py event-types
+```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | UUID | Unique event identifier (auto-generated) |
-| `occurred_at` | datetime | When the event was created |
-| `received_at` | datetime | When `EventLog.emit()` processed it |
-| `session_id` | UUID | Session this event belongs to |
-| `run_id` | UUID \| None | Test run (if applicable) |
+The pre-commit hook runs the same generator in `--check` mode, so source / docs drift fails the commit.
 
-## Session Events
+## Base fields (every event)
 
-### `session.started` — SessionStarted
+<!-- GENERATED:event-types-base-fields:start -->
+| Field | Type | Default |
+|---|---|---|
+| `id` | `UUID` | *via* `uuid4()` |
+| `occurred_at` | `datetime` | *via* `_utcnow()` |
+| `received_at` | `datetime \| None` | `None` |
+| `session_id` | `UUID` | *via* `uuid4()` |
+| `run_id` | `UUID \| None` | `None` |
+<!-- GENERATED:event-types-base-fields:end -->
 
-Emitted once at session start. Contains session-wide metadata only. Run-level fields (DUT, config snapshots) live in `RunStarted`.
+`event_type` is the discriminator — every subclass declares it as a `Literal` with a fixed string value (shown as the section heading below).
+
+<!-- GENERATED:event-types-by-category:start -->
+## Session events
+
+### `session.started` — `SessionStarted`
+
+Emitted once at the start of a session (interactive or test orchestrator).
 
 | Field | Type | Default |
-|-------|------|---------|
-| `session_type` | str | `"test_run"` |
-| `station_id` | str | *required* |
-| `station_name` | str \| None | |
-| `station_type` | str \| None | |
-| `station_location` | str \| None | |
-| `station_hostname` | str \| None | |
-| `pid` | int \| None | |
-| `client` | str | auto-detected |
-| `operator_id` | str \| None | |
-| `operator_name` | str \| None | |
-| `fixture_id` | str \| None | |
-| `slot_count` | int | `1` |
+|---|---|---|
+| `session_type` | `str` | `'test_run'` |
+| `station_id` | `str \| None` | `None` |
+| `station_name` | `str \| None` | `None` |
+| `station_type` | `str \| None` | `None` |
+| `station_location` | `str \| None` | `None` |
+| `station_hostname` | `str \| None` | `None` |
+| `pid` | `int \| None` | `None` |
+| `client` | `str` | *via* `_detect_client()` |
+| `operator_id` | `str \| None` | `None` |
+| `operator_name` | `str \| None` | `None` |
+| `fixture_id` | `str \| None` | `None` |
+| `slot_count` | `int` | `1` |
 
-### `session.ended` — SessionEnded
+### `session.ended` — `SessionEnded`
 
-| Field | Type | Default |
-|-------|------|---------|
-| `outcome` | str | `"passed"` |
-
-## Run Events
-
-### `run.started` — RunStarted
-
-Emitted once per test run. Contains full run context (DUT, product, config snapshots). In single-DUT mode, one `RunStarted` follows `SessionStarted`. In multi-DUT mode, each worker emits its own `RunStarted`.
+Emitted at the end of a session. Must NOT carry run_id.
 
 | Field | Type | Default |
-|-------|------|---------|
-| `station_id` | str | *required* |
-| `station_name` | str \| None | |
-| `station_type` | str \| None | |
-| `station_location` | str \| None | |
-| `station_hostname` | str \| None | |
-| `slot_id` | str \| None | |
-| `pid` | int \| None | |
-| `client` | str | auto-detected |
-| `dut_serial` | str | `""` |
-| `dut_part_number` | str \| None | |
-| `dut_revision` | str \| None | |
-| `dut_lot_number` | str \| None | |
-| `product_id` | str \| None | |
-| `product_name` | str \| None | |
-| `product_revision` | str \| None | |
-| `operator_id` | str \| None | |
-| `operator_name` | str \| None | |
-| `fixture_id` | str \| None | |
-| `test_phase` | str | `"production"` |
-| `git_commit` | str \| None | |
-| `environment_json` | str \| None | |
-| `custom_metadata` | dict | `{}` |
-| `channel_refs` | list[str] | `[]` |
+|---|---|---|
+| `outcome` | `str \| None` | `None` |
 
-### `run.ended` — RunEnded
+## Run events
+
+### `run.started` — `RunStarted`
+
+Emitted once per test run. Contains full run context.
+
+| Field | Type | Default |
+|---|---|---|
+| `station_id` | `str \| None` | `None` |
+| `station_name` | `str \| None` | `None` |
+| `station_type` | `str \| None` | `None` |
+| `station_location` | `str \| None` | `None` |
+| `station_hostname` | `str \| None` | `None` |
+| `slot_id` | `str \| None` | `None` |
+| `slot_index` | `int \| None` | `None` |
+| `pid` | `int \| None` | `None` |
+| `client` | `str` | *via* `_detect_client()` |
+| `dut_serial` | `str` | `''` |
+| `dut_part_number` | `str \| None` | `None` |
+| `dut_revision` | `str \| None` | `None` |
+| `dut_lot_number` | `str \| None` | `None` |
+| `product_id` | `str \| None` | `None` |
+| `product_name` | `str \| None` | `None` |
+| `product_revision` | `str \| None` | `None` |
+| `operator_id` | `str \| None` | `None` |
+| `operator_name` | `str \| None` | `None` |
+| `fixture_id` | `str \| None` | `None` |
+| `test_phase` | `str \| None` | `None` |
+| `project_name` | `str \| None` | `None` |
+| `git_commit` | `str \| None` | `None` |
+| `git_branch` | `str \| None` | `None` |
+| `git_remote` | `str \| None` | `None` |
+| `environment_json` | `str \| None` | `None` |
+| `custom_metadata` | `dict[str, Any]` | `{}` |
+| `channel_refs` | `list[str]` | `[]` |
+
+### `run.ended` — `RunEnded`
 
 Emitted at the end of a test run.
 
 | Field | Type | Default |
-|-------|------|---------|
-| `outcome` | str | `"passed"` |
+|---|---|---|
+| `outcome` | `str \| None` | `None` |
 
-## Fixture Events
+### `run.materialized` — `RunMaterialized`
 
-### `fixture.instrument_connected` — InstrumentConnected
-
-| Field | Type | Default |
-|-------|------|---------|
-| `role` | str | *required* |
-| `instrument_id` | str | *required* |
-| `driver` | str \| None | |
-| `resource` | str | *required* |
-| `protocol` | str | `"visa"` |
-| `manufacturer` | str \| None | |
-| `model` | str \| None | |
-| `serial` | str \| None | |
-| `firmware` | str \| None | |
-| `cal_due` | str \| None | |
-| `cal_last` | str \| None | |
-| `cal_certificate` | str \| None | |
-| `cal_lab` | str \| None | |
-| `mocked` | bool | `False` |
-
-### `fixture.identity_verified` — IdentityVerified
+Emitted by a materializer after a run's state has been written to a durable, query-optimized backend.
 
 | Field | Type | Default |
-|-------|------|---------|
-| `role` | str | *required* |
-| `expected` | dict | `{}` |
-| `actual` | dict | `{}` |
-| `matches` | bool | `True` |
-| `mismatches` | list[str] | `[]` |
+|---|---|---|
+| `materializer` | `str` | *required* |
+| `destination` | `str` | *required* |
+| `materialized_at` | `datetime` | *via* `_utcnow()` |
+| `row_counts` | `dict[str, int] \| None` | `None` |
 
-### `fixture.calibration_warning` — CalibrationWarning
+## Slot (multi-DUT) events
 
-| Field | Type | Default |
-|-------|------|---------|
-| `role` | str | *required* |
-| `instrument_id` | str | *required* |
-| `days_until_due` | int \| None | |
-| `message` | str | `""` |
+### `slot.started` — `SlotStarted`
 
-### `fixture.dut_scanned` — DutScanned
+Emitted when a DUT slot begins execution.
 
 | Field | Type | Default |
-|-------|------|---------|
-| `dut_serial` | str | *required* |
-| `scan_source` | str \| None | |
+|---|---|---|
+| `slot_id` | `str` | *required* |
+| `dut_serial` | `str` | *required* |
 
-### `fixture.instrument_disconnected` — InstrumentDisconnected
+### `slot.completed` — `SlotCompleted`
 
-| Field | Type | Default |
-|-------|------|---------|
-| `role` | str | *required* |
-| `instrument_id` | str | *required* |
-
-## Test Events
-
-### `test.steps_discovered` — StepsDiscovered
-
-Emitted after instruments connect, before steps execute. Carries the full list of collected test items.
+Emitted when a DUT slot finishes execution.
 
 | Field | Type | Default |
-|-------|------|---------|
-| `items` | list[dict] | `[]` |
+|---|---|---|
+| `slot_id` | `str` | *required* |
+| `outcome` | `str` | *required* |
+| `error_message` | `str \| None` | `None` |
 
-Each item dict contains: `node_id`, `name`, `file`, `module`, `class_name`, `function`.
+### `sync.arrived` — `SyncArrived`
 
-### `test.step_started` — StepStarted
-
-| Field | Type | Default |
-|-------|------|---------|
-| `step_name` | str | *required* |
-| `step_index` | int | *required* |
-| `step_path` | str | `""` |
-| `parent_path` | str | `""` |
-| `description` | str \| None | |
-| `vector_index` | int | `0` |
-| `inputs` | dict | `{}` |
-| `node_id` | str \| None | |
-| `file` | str \| None | |
-| `module` | str \| None | |
-| `class_name` | str \| None | |
-| `function` | str \| None | |
-
-### `test.measurement` — MeasurementRecorded
+Emitted by a child process when it reaches a named sync point.
 
 | Field | Type | Default |
-|-------|------|---------|
-| `step_name` | str | *required* |
-| `step_index` | int | *required* |
-| `step_path` | str | `""` |
-| `vector_index` | int | `0` |
-| `retry` | int | `0` (0-based: 0 = first execution, N = Nth retry) |
-| `measurement_name` | str | *required* |
-| `measurement_timestamp` | datetime \| None | |
-| `value` | float \| None | |
-| `units` | str \| None | |
-| `outcome` | str \| None | |
-| `limit_low` | float \| None | |
-| `limit_high` | float \| None | |
-| `limit_nominal` | float \| None | |
-| `limit_comparator` | str \| None | |
-| `characteristic_id` | str \| None | |
-| `spec_ref` | str \| None | |
-| `dut_pin` | str \| None | |
-| `fixture_connection` | str \| None | |
-| `instrument_name` | str \| None | |
-| `instrument_resource` | str \| None | |
-| `instrument_channel` | str \| None | |
-| `inputs` | dict | `{}` |
-| `outputs` | dict | `{}` |
-| `custom` | dict | `{}` |
+|---|---|---|
+| `slot_id` | `str` | *required* |
+| `name` | `str` | *required* |
 
-### `test.record` — RecordEvent
+### `sync.release` — `SyncRelease`
+
+Emitted by the orchestrator to unblock all slots at a sync point.
 
 | Field | Type | Default |
-|-------|------|---------|
-| `step_name` | str | *required* |
-| `step_index` | int | *required* |
-| `key` | str | *required* |
-| `value` | Any | *required* |
+|---|---|---|
+| `name` | `str` | *required* |
 
-### `test.step_ended` — StepEnded
+## Fixture events
 
-| Field | Type | Default |
-|-------|------|---------|
-| `step_name` | str | *required* |
-| `step_index` | int | *required* |
-| `step_path` | str | `""` |
-| `parent_path` | str | `""` |
-| `outcome` | str \| None | `None` (a step that opened but never recorded a measurement ends with no outcome stamped) |
-| `vector_index` | int | `0` |
-| `vector_outcome` | str \| None | (per-vector verdict; the step-level `outcome` is the aggregate) |
-| `inputs` | dict | `{}` |
-| `outputs` | dict | `{}` |
-| `node_id` | str \| None | |
-| `file` | str \| None | |
-| `module` | str \| None | |
-| `class_name` | str \| None | |
-| `function` | str \| None | |
+### `fixture.instrument_connected` — `InstrumentConnected`
 
-## Instrument Events
-
-### `instrument.read` — InstrumentRead
-
-Emitted when a driver read method is called via proxy. Array data is serialized as a `channel://` URI claim-check.
+Emitted when an instrument is connected and identified.
 
 | Field | Type | Default |
-|-------|------|---------|
-| `instrument_role` | str | *required* |
-| `channel_id` | str | *required* |
-| `method` | str | *required* |
-| `value` | Any | `None` |
-| `units` | str \| None | |
-| `resource` | str | `""` |
+|---|---|---|
+| `role` | `str` | *required* |
+| `instrument_id` | `str` | *required* |
+| `driver` | `str \| None` | `None` |
+| `resource` | `str` | *required* |
+| `protocol` | `str` | `'visa'` |
+| `manufacturer` | `str \| None` | `None` |
+| `model` | `str \| None` | `None` |
+| `serial` | `str \| None` | `None` |
+| `firmware` | `str \| None` | `None` |
+| `cal_due` | `str \| None` | `None` |
+| `cal_last` | `str \| None` | `None` |
+| `cal_certificate` | `str \| None` | `None` |
+| `cal_lab` | `str \| None` | `None` |
+| `mocked` | `bool` | `False` |
 
-### `instrument.set` — InstrumentSet
-
-| Field | Type | Default |
-|-------|------|---------|
-| `instrument_role` | str | *required* |
-| `channel_id` | str | *required* |
-| `attribute` | str | *required* |
-| `value` | Any | `None` |
-| `units` | str \| None | |
-| `resource` | str | `""` |
-
-### `instrument.configure` — InstrumentConfigure
+### `fixture.identity_verified` — `IdentityVerified`
 
 | Field | Type | Default |
-|-------|------|---------|
-| `instrument_role` | str | *required* |
-| `method` | str | *required* |
-| `parameters` | dict | `{}` |
-| `resource` | str | `""` |
+|---|---|---|
+| `role` | `str` | *required* |
+| `expected` | `dict[str, Any]` | `{}` |
+| `actual` | `dict[str, Any]` | `{}` |
+| `matches` | `bool` | `True` |
+| `mismatches` | `list[str]` | `[]` |
 
-## Diagnostic Events
-
-### `diagnostic.warning` — DiagnosticWarning
-
-| Field | Type | Default |
-|-------|------|---------|
-| `source` | str | `""` |
-| `message` | str | `""` |
-| `details` | dict | `{}` |
-
-### `diagnostic.error` — DiagnosticError
+### `fixture.calibration_warning` — `CalibrationWarning`
 
 | Field | Type | Default |
-|-------|------|---------|
-| `source` | str | `""` |
-| `message` | str | `""` |
-| `details` | dict | `{}` |
+|---|---|---|
+| `role` | `str` | *required* |
+| `instrument_id` | `str` | *required* |
+| `days_until_due` | `int \| None` | `None` |
+| `message` | `str` | `''` |
 
-## Stream Events
-
-### `stream.started` — StreamStarted
-
-| Field | Type | Default |
-|-------|------|---------|
-| `stream_id` | UUID | *required* |
-| `format` | str | `""` |
-| `path` | str \| None | |
-
-### `stream.ended` — StreamEnded
+### `fixture.dut_scanned` — `DutScanned`
 
 | Field | Type | Default |
-|-------|------|---------|
-| `stream_id` | UUID | *required* |
+|---|---|---|
+| `dut_serial` | `str` | *required* |
+| `scan_source` | `str \| None` | `None` |
 
-### `stream.frame_index` — StreamFrameIndex
+### `fixture.instrument_disconnected` — `InstrumentDisconnected`
 
-| Field | Type | Default |
-|-------|------|---------|
-| `stream_id` | UUID | *required* |
-| `frame_count` | int | `0` |
-
-## Dialog Events
-
-### `dialog.opened` — DialogOpened
+Emitted when an instrument is disconnected during teardown.
 
 | Field | Type | Default |
-|-------|------|---------|
-| `dialog_id` | UUID | *required* |
-| `dialog_type` | str | *required* |
-| `title` | str | *required* |
-| `message` | str | *required* |
-| `step_name` | str \| None | |
-| `blocking` | bool | `True` |
+|---|---|---|
+| `role` | `str` | *required* |
+| `instrument_id` | `str` | *required* |
 
-### `dialog.responded` — DialogResponded
+## Test events
+
+### `test.step_started` — `StepStarted`
 
 | Field | Type | Default |
-|-------|------|---------|
-| `dialog_id` | UUID | *required* |
-| `dialog_type` | str | *required* |
-| `response_type` | str | *required* |
-| `duration_seconds` | float | *required* |
-| `value` | str \| None | |
-| `choice` | int \| None | |
+|---|---|---|
+| `step_name` | `str` | *required* |
+| `step_index` | `int` | *required* |
+| `step_path` | `str` | `''` |
+| `parent_path` | `str` | `''` |
+| `description` | `str \| None` | `None` |
+| `vector_index` | `int` | `0` |
+| `inputs` | `dict[str, Any]` | `{}` |
+| `node_id` | `str \| None` | `None` |
+| `file` | `str \| None` | `None` |
+| `module` | `str \| None` | `None` |
+| `class_name` | `str \| None` | `None` |
+| `function` | `str \| None` | `None` |
 
-## Discriminated Union
+### `test.step_ended` — `StepEnded`
 
-All event types are combined into a discriminated union for deserialization:
+| Field | Type | Default |
+|---|---|---|
+| `step_name` | `str` | *required* |
+| `step_index` | `int` | *required* |
+| `step_path` | `str` | `''` |
+| `parent_path` | `str` | `''` |
+| `outcome` | `str \| None` | `None` |
+| `vector_index` | `int` | `0` |
+| `vector_outcome` | `str \| None` | `None` |
+| `inputs` | `dict[str, Any]` | `{}` |
+| `outputs` | `dict[str, Any]` | `{}` |
+| `node_id` | `str \| None` | `None` |
+| `file` | `str \| None` | `None` |
+| `module` | `str \| None` | `None` |
+| `class_name` | `str \| None` | `None` |
+| `function` | `str \| None` | `None` |
+
+### `test.measurement` — `MeasurementRecorded`
+
+A single measurement. Normalized: carries only measurement-specific fields.
+
+| Field | Type | Default |
+|---|---|---|
+| `step_name` | `str` | *required* |
+| `step_index` | `int` | *required* |
+| `step_path` | `str` | `''` |
+| `vector_index` | `int` | `0` |
+| `retry` | `int` | `0` |
+| `measurement_name` | `str` | *required* |
+| `measurement_timestamp` | `datetime \| None` | `None` |
+| `value` | `float \| None` | `None` |
+| `units` | `str \| None` | `None` |
+| `outcome` | `str \| None` | `None` |
+| `limit_low` | `float \| None` | `None` |
+| `limit_high` | `float \| None` | `None` |
+| `limit_nominal` | `float \| None` | `None` |
+| `limit_comparator` | `str \| None` | `None` |
+| `characteristic_id` | `str \| None` | `None` |
+| `spec_ref` | `str \| None` | `None` |
+| `dut_pin` | `str \| None` | `None` |
+| `fixture_connection` | `str \| None` | `None` |
+| `instrument_name` | `str \| None` | `None` |
+| `instrument_resource` | `str \| None` | `None` |
+| `instrument_channel` | `str \| None` | `None` |
+| `inputs` | `dict[str, Any]` | `{}` |
+| `outputs` | `dict[str, Any]` | `{}` |
+| `custom` | `dict[str, Any]` | `{}` |
+
+### `test.record` — `RecordEvent`
+
+A key/value record emitted by harness.record().
+
+| Field | Type | Default |
+|---|---|---|
+| `step_name` | `str` | *required* |
+| `step_index` | `int` | *required* |
+| `key` | `str` | *required* |
+| `value` | `Any` | *required* |
+
+### `test.steps_discovered` — `StepsDiscovered`
+
+Emitted after instruments connect, before steps execute.
+
+| Field | Type | Default |
+|---|---|---|
+| `items` | `list[dict[str, str \| int \| None]]` | `[]` |
+
+## Route (switching) events
+
+### `route.closed` — `RouteClosed`
+
+Emitted when switch channels are closed to activate a route.
+
+| Field | Type | Default |
+|---|---|---|
+| `connection_name` | `str` | *required* |
+| `switch_role` | `str` | *required* |
+| `channels` | `list[str]` | *required* |
+
+### `route.opened` — `RouteOpened`
+
+Emitted when switch channels are opened to deactivate a route.
+
+| Field | Type | Default |
+|---|---|---|
+| `connection_name` | `str` | *required* |
+| `switch_role` | `str` | *required* |
+| `channels` | `list[str]` | *required* |
+
+## Instrument (proxy traffic) events
+
+### `instrument.read` — `InstrumentRead`
+
+Emitted when a driver read method is called via proxy.
+
+| Field | Type | Default |
+|---|---|---|
+| `instrument_role` | `str` | *required* |
+| `channel_id` | `str` | *required* |
+| `method` | `str` | *required* |
+| `value` | `Any` | `None` |
+| `units` | `str \| None` | `None` |
+| `resource` | `str` | `''` |
+
+### `instrument.set` — `InstrumentSet`
+
+Emitted when a driver set method is called via proxy.
+
+| Field | Type | Default |
+|---|---|---|
+| `instrument_role` | `str` | *required* |
+| `channel_id` | `str` | *required* |
+| `attribute` | `str` | *required* |
+| `value` | `Any` | `None` |
+| `units` | `str \| None` | `None` |
+| `resource` | `str` | `''` |
+
+### `instrument.configure` — `InstrumentConfigure`
+
+Emitted when a driver configure method is called via proxy.
+
+| Field | Type | Default |
+|---|---|---|
+| `instrument_role` | `str` | *required* |
+| `method` | `str` | *required* |
+| `parameters` | `dict[str, Any]` | `{}` |
+| `resource` | `str` | `''` |
+
+## Diagnostic events
+
+### `diagnostic.warning` — `DiagnosticWarning`
+
+| Field | Type | Default |
+|---|---|---|
+| `source` | `str` | `''` |
+| `message` | `str` | `''` |
+| `details` | `dict[str, Any]` | `{}` |
+
+### `diagnostic.error` — `DiagnosticError`
+
+| Field | Type | Default |
+|---|---|---|
+| `source` | `str` | `''` |
+| `message` | `str` | `''` |
+| `details` | `dict[str, Any]` | `{}` |
+
+## Stream events
+
+### `stream.started` — `StreamStarted`
+
+| Field | Type | Default |
+|---|---|---|
+| `stream_id` | `UUID` | *required* |
+| `format` | `str` | `''` |
+| `path` | `str \| None` | `None` |
+
+### `stream.ended` — `StreamEnded`
+
+| Field | Type | Default |
+|---|---|---|
+| `stream_id` | `UUID` | *required* |
+
+### `stream.frame_index` — `StreamFrameIndex`
+
+| Field | Type | Default |
+|---|---|---|
+| `stream_id` | `UUID` | *required* |
+| `frame_count` | `int` | `0` |
+
+## Dialog events
+
+### `dialog.opened` — `DialogOpened`
+
+Emitted when an operator dialog is shown, pausing test execution.
+
+| Field | Type | Default |
+|---|---|---|
+| `dialog_id` | `UUID` | *required* |
+| `dialog_type` | `str` | *required* |
+| `title` | `str` | *required* |
+| `message` | `str` | *required* |
+| `step_name` | `str \| None` | `None` |
+| `blocking` | `bool` | `True` |
+
+### `dialog.responded` — `DialogResponded`
+
+Emitted when an operator dialog receives a response.
+
+| Field | Type | Default |
+|---|---|---|
+| `dialog_id` | `UUID` | *required* |
+| `dialog_type` | `str` | *required* |
+| `response_type` | `str` | *required* |
+| `duration_seconds` | `float` | *required* |
+| `value` | `str \| None` | `None` |
+| `choice` | `int \| None` | `None` |
+<!-- GENERATED:event-types-by-category:end -->
+
+## Discriminated union
+
+Every event class above is folded into the `Event` discriminated union for deserialization:
 
 ```python
 from litmus.data.events import Event
 
-# Deserialize any event from JSON
-event = Event.model_validate(json_data)
+event = Event.model_validate(json_payload)   # picks the right subclass by event_type
 ```
 
-The `event_type` field is the discriminator.
+`ALL_EVENTS` (a set of every class) and the per-category sets (`SESSION_EVENTS`, `RUN_EVENTS`, `SLOT_EVENTS`, `FIXTURE_EVENTS`, `TEST_EVENTS`, `ROUTE_EVENTS`, `INSTRUMENT_EVENTS`, `DIAGNOSTIC_EVENTS`, `STREAM_EVENTS`, `DIALOG_EVENTS`) are also exported from `litmus.data.events` for subscribers that filter by category.
+
+## See also
+
+- [Event log concept](../concepts/event-log.md) — why event sourcing, and how the log is consumed
+- [Three stores](../concepts/three-stores.md) — where events, runs, and channels each live
+- [Querying events](../how-to/querying-events.md) — DuckDB / Python recipes
+- [Parquet schema](parquet-schema.md) — the materialized row shape derived from these events
