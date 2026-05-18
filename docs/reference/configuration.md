@@ -326,11 +326,14 @@ tests:                                # recursive — keyed by pytest node-id se
 
 Resolution order for any field (least → most specific):
 
-1. Sidecar file-level (top-level entry, applies to every test in the module)
-2. Sidecar class-branch (`tests.<ClassName>`)
-3. Sidecar per-test leaf (`tests.<ClassName>.<test_name>`)
-4. Inline `@pytest.mark.<name>(...)` decorators on the method or class
-5. Profile chain (parent-first, last-wins) injected as markers at collection time
+1. Inline `@pytest.mark.<name>(...)` decorator on the test's class
+2. Inline `@pytest.mark.<name>(...)` decorator on the method
+3. Sidecar file-level (top-level entry, applies to every test in the module)
+4. Sidecar class-branch (`tests.<ClassName>`)
+5. Sidecar per-test leaf (`tests.<ClassName>.tests.<method_name>`)
+6. Profile chain (parent-first, last-wins) injected as markers at collection time
+
+Sidecar entries override inline decorators because sidecar-derived markers are applied to test items *after* the inline ones, and the resolver walks markers in insertion order with last-wins.
 
 CLI flags compose with this chain rather than overriding it wholesale. For example `--mock-instruments` overrides `ProjectConfig.mock_instruments`; `-k` / `-m` compose with `runner.keyword` / `runner.markexpr`.
 

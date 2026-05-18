@@ -15,7 +15,7 @@ measurement_name:
   characteristic: "..."    # delegate to a product-spec characteristic
 ```
 
-A limit needs at least one policy field that tells `verify` what to check. The flat-scalar shape above (`low` / `high` / `nominal` / `characteristic`) is the common case; the [Condition-indexed bands](#condition-indexed-bands) section below covers the `bands:` shape, and [Limits beyond min/max](#limits-beyond-minmax) covers tolerance, expression, lookup-table, and stepped forms.
+A limit needs at least one policy field that tells `verify` what to check. The flat-scalar shape above (`low` / `high` / `nominal` / `characteristic`) is the common case; the [Condition-indexed bands](#condition-indexed-bands) section below covers the `bands:` shape. Other policy fields — `tolerance_pct` / `tolerance_abs` (around a characteristic nominal), `expr` (a Python expression), `lookup` (a table keyed by sweep params), `steps` (multi-stage criteria), `callable` (a dotted path to a Python function) — work in the same place a `low` / `high` would go; combine with `bands:` for condition-indexed variants.
 
 | Field            | Required | Description                                     |
 |------------------|:--------:|-------------------------------------------------|
@@ -36,13 +36,16 @@ Both `verify(name, value)` and `logger.measure(name, value)` go through the same
 3. **Active product spec** — if the cascade has nothing and `verify` is in play, the resolver tries the active `ProductContext` for a characteristic named `name`. This works for unconditional characteristics; condition-indexed bands need the explicit `characteristic:` delegation in step 2 to forward sweep params correctly (see [Spec-driven testing](spec-driven-testing.md#condition-indexed-example--when-accuracy-varies-with-operating-point)).
 4. **None** — characterization mode. `logger.measure` records the value with `outcome = DONE`. `verify` raises `MissingLimitError` — judgment-bearing calls don't silently fall through.
 
-The cascade inside step 2 walks file → class → test → profile, with later entries overriding earlier ones key-by-key per measurement name:
+The cascade inside step 2 stacks marker sources in this order, with later entries overriding earlier ones key-by-key per measurement name:
 
-1. Sidecar **file-level** field — `limits: {...}` at the YAML root
-2. Sidecar **class branch** field — `tests.<Cls>.limits: {...}`
-3. Sidecar **per-test** field — `tests.<name>.limits: {...}` (or nested `tests.<Cls>.tests.<method>.limits: {...}`)
-4. Inline `@pytest.mark.litmus_limits(...)` on method or class
-5. Profile chain — parent profile first, leaf last
+1. Inline `@pytest.mark.litmus_limits(...)` on the test's class — earliest, weakest.
+2. Inline `@pytest.mark.litmus_limits(...)` on the method.
+3. Sidecar **file-level** `limits: {...}` (top of `tests/test_*.yaml`).
+4. Sidecar **class branch** — `tests.<Cls>.limits: {...}`.
+5. Sidecar **per-test** — `tests.<Cls>.tests.<method>.limits: {...}`.
+6. Profile chain — parent profile first, leaf last. Strongest.
+
+This may feel inverted relative to other Python config libraries: sidecar overrides inline because the platform applies sidecar-derived markers *after* inline decorators are already on the test item, and the resolver walks markers in insertion order with last-wins. Profile entries land after sidecar for the same reason.
 
 `verify(name, value)` does NOT bypass this chain — it walks the same resolver, and adds the `MissingLimitError` behavior in step 4 if nothing produces a limit.
 

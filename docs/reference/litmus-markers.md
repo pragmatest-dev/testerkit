@@ -218,7 +218,7 @@ Same vocabulary, three delivery channels:
 | Sidecar YAML (`tests/test_<module>.yaml`) | `limits: { output_voltage: { low: 3.135, high: 3.465, units: V } }` |
 | Profile YAML (`profiles/*.yaml`) | Same shape; applies session-wide via `--test-profile=<name>` |
 
-Resolution order (least → most specific): sidecar file-level → sidecar class/method → inline marker → profile chain → CLI flags. See [Test configuration](configuration.md#test-configuration) for the full merge semantics.
+Resolution order (least → most specific): inline marker (class then method) → sidecar file-level → sidecar class/method → profile chain. Sidecar overrides inline because sidecar markers are applied after inline decorators and the resolver is last-wins. CLI flags (`-k`, `-m`, `--mock-instruments`, etc.) compose with this chain rather than overriding it wholesale. See [Test configuration](configuration.md#sidecar-yaml) for the full merge semantics.
 
 ## See also
 
