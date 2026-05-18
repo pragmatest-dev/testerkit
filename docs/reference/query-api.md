@@ -207,38 +207,11 @@ Return distinct values for ``column`` with their counts.
 Cardinality stats for the filter section's badge.
 <!-- GENERATED:query-api-classes:end -->
 
-## DuckDB vs Query API
+## When the Query API doesn't cover what you need
 
-The Query API and raw DuckDB read the same parquet files. Pick the Query API when you want:
+The three classes above expose the methods the UI, HTTP routes, and `litmus metrics` CLI use. If you hit a query the Query API doesn't have, the right move is to add the method to the class so every consumer benefits — not to drop to raw SQL inside your test code. File the gap; the surface is meant to grow.
 
-- typed result rows (`RunRow` / `StepRow` instead of `dict[str, Any]`);
-- automatic schema drift handling (column renames update once, in the Query class);
-- operator-facing identifiers handled (`product` filter → `dut_part_number`; `station` filter → `station_hostname`);
-- daemon-served fast path when the runs daemon is up.
-
-Drop to DuckDB when you need to:
-
-- join across tables in a single SQL pass (e.g. `runs` ⨯ `measurements`);
-- aggregate at granularities the Query API doesn't expose;
-- script ad-hoc analytics where a Python class is overhead.
-
-There is no separate `measurements/` directory — measurement rows live in the same per-run parquet files as run-level and step rows, discriminated by the `record_type` column (`'run'` / `'step'` / `'measurement'`). The on-disk layout is `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet` (`src/litmus/data/backends/parquet.py:193-194`).
-
-```python
-import duckdb
-
-# Bypass the Query API for a one-off aggregation
-duckdb.sql("""
-    SELECT dut_part_number, COUNT(*) AS fails
-    FROM read_parquet('data/runs/**/*.parquet')
-    WHERE record_type = 'measurement'
-      AND outcome = 'failed'
-    GROUP BY 1
-    ORDER BY 2 DESC
-""").df()
-```
-
-For schema column names, see [parquet-schema.md](parquet-schema.md). The `record_type` discriminator is what lets one file carry the runs / steps / measurements rows.
+For one-off ad-hoc exploration outside production code, raw DuckDB recipes live on [Querying events](../how-to/querying-events.md), which also covers the on-disk parquet layout and the `record_type` discriminator that lets one file carry run / step / measurement rows.
 
 ## See also
 
