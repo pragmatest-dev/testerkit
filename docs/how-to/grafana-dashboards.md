@@ -2,7 +2,7 @@
 
 Visualize test results, events, and instrument channel data with pre-built Grafana dashboards.
 
-> **Prerequisites.** A running Grafana instance (8.x or later, with the built-in PostgreSQL datasource). `litmus` installed with the Grafana extras (`uv pip install 'litmus[grafana]'`). At least one run already recorded under `data/` — empty stores render empty dashboards.
+> **Prerequisites.** A running Grafana instance (10.x or later, with the built-in PostgreSQL datasource — earlier versions don't have the `grafana-postgresql-datasource` plugin the dashboards target). `litmus` installed with the Grafana extras (`uv pip install 'litmus-test[grafana]'` — the PyPI name is `litmus-test`; the import is `litmus`). At least one run already recorded under `data/` — empty stores render empty dashboards.
 
 ## Overview
 
@@ -62,13 +62,13 @@ This creates the datasource, a "Litmus" folder, and imports all 10 dashboards.
 Overall yield gauge, pass/fail/error counts, first-pass yield over time, outcome breakdown pie chart, and volume bar chart. Filter by phase, product, and station.
 
 ### Failure Pareto
-Top failing steps ranked by failure count with failure rate percentages. Identifies the most impactful test failures.
+Top failing step + measurement pairs ranked by failure count with failure rate percentages. Identifies the most impactful test failures.
 
 ### Measurement Distribution
-Histogram of measurement values with statistical summary (mean, sigma, Cp, Cpk). Select any measurement by name.
+Histogram of measurement values with statistical summary (mean, sigma, Cp, Cpk). Selector picks by `step_name / measurement_name`.
 
 ### Measurement Trend
-Scatter plot of measurement values over time with limit lines (low, high, nominal). Select any measurement by name.
+Scatter plot of measurement values over time with limit lines (low, high, nominal). Selector picks by `step_name / measurement_name`.
 
 ### Station Comparison
 Yield and duration comparison across test stations. Identifies station-level performance differences.
@@ -83,10 +83,10 @@ Full test history for a specific serial number — all runs and measurements. Se
 Event volume over time, event type breakdown, recent sessions with cross-store joins (event count + channel samples per session), instrument activity, and dialog events. Filter by event type.
 
 ### Channel Explorer
-Time-series visualization of instrument channel data. Per-session statistics (mean, min, max, stddev), channel volume over time. Select by channel name.
+Time-series visualization of instrument channel data. Per-session statistics (mean, min, max, stddev), channel volume over time. Selector picks by `source_method` (the driver method that produced the channel — e.g. `dmm.measure_voltage`).
 
 ### Asset Utilization
-Instrument inventory with identity, calibration status, and total usage time. Activity breakdown by instrument, sessions per instrument, and recent operations. Filter by instrument role.
+Instrument inventory with identity, calibration status, and total usage time. Activity breakdown by instrument, sessions per instrument, and recent operations. Filter by instrument role (the variable is labeled `instrument` in the UI but filters on `instrument_role`).
 
 ## Architecture
 
@@ -104,7 +104,7 @@ litmus grafana serve (Buena Vista + DuckDB)
 
 All timestamps are stored as UTC and converted to naive UTC timestamps at the pgwire layer for Grafana compatibility.
 
-The data server auto-refreshes Arrow IPC tables every 30 seconds (configurable with `--refresh`). Parquet views are always live (DuckDB reads on query).
+The data server auto-refreshes Arrow IPC tables every 30 seconds (configurable with `--refresh-seconds`). Parquet views are always live (DuckDB reads on query).
 
 ## SQL Tables
 
