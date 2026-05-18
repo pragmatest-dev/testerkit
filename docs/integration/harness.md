@@ -10,6 +10,7 @@
 
 ```python
 from litmus.data.event_store import EventStore
+from litmus.data.events import RunStarted, SessionStarted
 from litmus.execution.harness import TestHarness
 from litmus.execution.logger import TestRunLogger
 
@@ -20,15 +21,36 @@ logger = TestRunLogger(
     data_dir="data",
 )
 
-# Attach an EventLog so emitted events actually hit disk
+# Attach an EventLog so emitted events actually hit disk.
 store = EventStore(_data_dir="data")
 logger.event_log = store.get_event_log(logger.test_run.session_id)
+
+# Emit the session-open / run-open events. The runs daemon
+# only materializes a run if it has seen RunStarted — emit it
+# before any measurements.
+logger.event_log.emit(
+    SessionStarted.from_station(
+        session_id=logger.test_run.session_id,
+        station_id=logger.test_run.station_id,
+        station_hostname=logger.test_run.station_hostname,
+    )
+)
+logger.event_log.emit(
+    RunStarted(
+        session_id=logger.test_run.session_id,
+        run_id=logger.test_run.id,
+        station_id=logger.test_run.station_id,
+        station_hostname=logger.test_run.station_hostname,
+        dut_serial=logger.test_run.dut.serial,
+        test_phase=logger.test_run.test_phase,
+    )
+)
 
 harness = TestHarness(logger=logger, step_name="test_output_voltage")
 
 # … iterate vectors, measure, etc.
 
-logger.finalize()   # emit RunEnded + flush; daemon materializes parquet
+logger.finalize()   # emits RunEnded; the runs daemon picks it up and writes parquet
 ```
 
 `TestRunLogger.__init__` takes the run-level metadata directly (`dut_serial`, `station_id`, `station_name`, `operator_id`, `test_phase`, `product_id`, `data_dir`, etc.). The logger constructs a `TestRun` and a `RunContext` (a plain class wrapping the run record, with a `.set(key, value)` method for custom metadata) for you; you don't construct either.
@@ -120,7 +142,7 @@ harness.measure(
 Limit resolution order (when `limit=` is not passed):
 
 1. Per-vector limit, if the current vector was built with one
-2. Test-level limits — the harness's `limits=` constructor kwarg, or the entries from `config["limits"]` (they're merged at construction time, not separate fallbacks)
+2. Test-level limits — the harness's `limits=` constructor kwarg if you passed one; **otherwise** the entries parsed from `config["limits"]`. They aren't merged: if you pass `limits=`, the harness ignores `config["limits"]` entirely. Pick one source per test.
 3. The active product context's `get_limit(name, **vector_params)` — vector params are passed as condition kwargs so the right `SpecBand` is selected
 4. `None` — measurement recorded as unchecked
 
@@ -142,7 +164,7 @@ with harness.step(name="measure"):
             harness.measure("output_voltage", float(dmm.measure_dc_voltage()))
 ```
 
-A `step()` context manager is required around every measurement. Calling `harness.measure(...)` outside any `step()` block raises — there is no implicit step that gets created from the constructor's `step_name`. (`step_name` is the *default name* used by `harness.run_all(test_fn)`, which opens a step for you.)
+Group measurements under named steps with the `step()` context manager. When you call `harness.measure(...)` outside any `step()` block, the logger silently auto-creates a step named after the measurement — convenient for quick scripts, but it means every loose measurement becomes its own one-row step in the parquet. For grouped reporting, wrap related measurements in an explicit `step()` block. `step_name` (the harness's constructor arg) is the default name `harness.run_all(test_fn)` uses when it opens a step for you.
 
 ## Operator prompts
 
@@ -183,7 +205,7 @@ harness.context.set_params({"vin": 5.0, "load": 0.5})
 harness.context.set_observations({"temp_probe.temperature": 24.8})
 ```
 
-`set_params` / `set_observations` are dict-update bulk helpers: equivalent to `configure(k, v)` / `observe(k, v)` for every key with one important asymmetry — `observe()` routes large numeric arrays to the channel store and stashes a `channel://` URI on the row, while `set_observations()` writes whatever you pass directly into `Context._observations` with no channel-store routing. Use `observe()` for waveforms / array readings; use `set_observations()` for plain scalar dicts you've already assembled.
+`set_params` / `set_observations` are dict-update bulk helpers: equivalent to `configure(k, v)` / `observe(k, v)` for every key with one important asymmetry — `observe()` routes large numeric arrays to the channel store and stashes a `channel://` URI on the row, while `set_observations()` writes whatever you pass directly through with no channel-store routing. Use `observe()` for waveforms / array readings; use `set_observations()` for plain scalar dicts you've already assembled.
 
 `context.measure(name, value, ...)` is a third option for recording. It's a thin redirect to `harness.measure(...)`, so you can record without holding a harness reference — useful inside helper functions that already take a `Context`:
 

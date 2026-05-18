@@ -45,16 +45,16 @@ For each instrument in the active station YAML, Litmus substitutes a stand-in fo
 - **Every method call is a silent no-op returning `None`** unless you've listed it in `mock_config:`. Missing methods don't raise `AttributeError`.
 - **Methods you do list in `mock_config:` return the configured value** — a scalar (returned on every call), a dict (first positional arg is the lookup key), or a callable (invoked with the call args).
 - `connect()` / `disconnect()` are wired automatically; the stand-in works as a context manager.
-- The stand-in carries `manufacturer` / `model` / `serial` / `firmware` from any `info:` block on the station entry.
+- When the station entry references an instrument-asset file (`instruments/<id>.yaml`), the stand-in carries the asset's identity fields (`manufacturer` / `model` / `serial` / `firmware`) so traceability rows still show meaningful values. Without an asset reference these stay `None`.
 
 What the platform skips for mocked instruments:
 
 - **`*IDN?` identity verification** — only runs against real hardware.
-- **Resource locking** — mocks don't take a VISA lock on the resource string.
+- **Resource locking** — mocks don't take the inter-process file lock on the resource string that real instruments take.
 
 What still runs for mocks:
 
-- **Calibration check.** Runs unconditionally. If your station YAML lists a `calibration:` block with an expired or near-due date, you'll see the warning whether the instrument is real or mocked.
+- **Calibration check.** Runs unconditionally. If the instrument's asset file (`instruments/<id>.yaml`) has a `calibration:` block with an expired or near-due date, you'll see the warning whether the instrument is real or mocked.
 - **`test_phase` auto-demotion to `"development"`.** `--mock-instruments` (or any per-instrument `mock: true`) demotes the run's `test_phase` regardless of what `--test-phase=` requested. Dashboards and queries can filter mock data out of production yield by `WHERE test_phase = 'production'`.
 
 ## The three independent mock layers
@@ -82,7 +82,7 @@ Each layer's source of truth:
 
 Layer ② cascade walks file → class → test → profile. Later entries with the same `target` overwrite earlier ones. **A profile with `mocks: []` does NOT clear earlier entries** — it simply contributes nothing. To remove a specific target, re-declare it with the value you want.
 
-The non-pytest `TestHarness` entry point has its own fourth path with a different precedence (per-vector mocks attached to the vector, plus a built-in fallback from limit nominals for `*voltage*` / `*current*` methods on `dmm` / `psu`). The pytest path does NOT consult this fallback.
+The non-pytest `TestHarness` entry point has its own per-vector path: pass `_mocks: {...}` on a vector to apply method overrides for just that vector, falling back to the harness's `config["mocks"]` test-level dict when a vector doesn't carry one.
 
 ## Verify mocks are actually firing
 
@@ -105,9 +105,12 @@ Three signals to check before you trust a mock-mode result:
 3. **`fixture.instrument_connected` events carry `mocked: true`** — each instrument logs whether it came up real or mocked:
    ```python
    from litmus.data.event_store import EventStore
-   with EventStore() as store:
+   store = EventStore()
+   try:
        for ev in store.events(session_id=session_id, event_type="fixture.instrument_connected"):
            print(ev["role"], ev["mocked"])
+   finally:
+       store.close()
    ```
 
 If a measurement comes back as `None`, the next `float(...)` cast or `verify(...)` will surface it as an `ERRORED` row — the most likely cause is that the method the test called (e.g. `dmm.measure_dc_voltage()`) wasn't listed in `mock_config:`. Add it, or layer a `mocks:` entry over it.

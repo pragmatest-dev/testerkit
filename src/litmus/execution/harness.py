@@ -1036,30 +1036,15 @@ class TestHarness:
         """Get mock configuration for a vector.
 
         Resolution order:
-        1. Vector-level _mocks (per-vector config)
-        2. Test-level mocks (constant for all vectors)
-        3. Limit nominal values (fallback)
+        1. Vector-level ``_mocks`` (per-vector config)
+        2. Test-level ``mocks`` (constant for all vectors)
         """
         vector_mock = vector.get("_mocks", {})
         if vector_mock:
             return vector_mock
-
-        # Fall back to test-level mocks
         if self._test_level_mock:
             return self._test_level_mock
-
-        # Fall back to limit nominal values
-        mock_from_limits: dict[str, Any] = {}
-        for name, limit_config in self._limits.items():
-            if isinstance(limit_config, Limit) and limit_config.nominal is not None:
-                # Infer instrument.measurement from limit name
-                # Convention: limit name matches measurement, dmm is default for voltage
-                if "voltage" in name.lower():
-                    mock_from_limits["dmm.measure_voltage"] = float(limit_config.nominal)
-                elif "current" in name.lower():
-                    mock_from_limits["psu.measure_current"] = float(limit_config.nominal)
-
-        return mock_from_limits
+        return {}
 
     @contextmanager
     def run_vector(self, vector: Vector) -> Iterator[TestVector]:

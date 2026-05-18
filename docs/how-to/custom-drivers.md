@@ -1,18 +1,18 @@
 # Writing custom instrument drivers
 
-Litmus doesn't ship instrument drivers — you bring your own. This page covers writing a driver from scratch, choosing between simulation strategies, and registering the driver so the platform finds it.
+Litmus doesn't ship instrument drivers — you bring your own. This page covers writing a driver, registering it so the platform finds it, and the two hardware-free paths Litmus supports.
 
-If your instrument speaks SCPI over VISA, [start with `VisaInstrument`](#scpi-instruments-via-visa). For serial, DAQmx, USB, or proprietary protocols, [extend `Instrument` directly](#non-visa-instruments). For tests that should run without any driver code at all, [use the `Mock` factory](#the-mock-factory).
+If your instrument speaks SCPI over VISA, [start with `VisaInstrument`](#scpi-instruments-via-visa). For serial, DAQmx, USB, or proprietary protocols, [extend `Instrument` directly](#non-visa-instruments).
 
 ## Architecture overview
 
-The instrument package (`litmus.instruments.*`) gives you two base classes and one factory:
+The instrument package (`litmus.instruments.*`) gives you two base classes and one mock factory:
 
 | Surface | Import | Use it for |
 |---|---|---|
 | `Instrument` | `from litmus.instruments.base import Instrument` | Any protocol you handle yourself — serial, DAQmx, USB, HID, proprietary RPC |
 | `VisaInstrument` | `from litmus.instruments.visa import VisaInstrument` | SCPI / IEEE 488.2 instruments — wraps PyVISA, adds `query()` / `write()` / `*IDN?` parsing, generates a `pyvisa-sim` config when `simulate=True` |
-| `Mock` (factory function) | `from litmus.instruments.mocks import Mock` | Tests that should bypass driver code entirely. Wraps any class and returns an instance whose methods are no-ops unless explicitly configured |
+| `Mock` | `from litmus.instruments.mocks import Mock` | Substitute for a driver class in tests. Returns a `class MockClass(cls)` instance so `isinstance(mock, MyDMM)` passes, `connect()`/`disconnect()` are auto-wired no-ops, and only explicitly-configured methods return values. The platform calls this for you from station YAML's `mock_config:`; you import it directly only for bringup-tier conftest fixtures. |
 
 The package's `__init__.py` is documentation-only — import from the submodules directly. `from litmus.instruments import Instrument` does not work.
 
@@ -23,8 +23,8 @@ Instrument (ABC, in base.py)
    │      └── your concrete VISA drivers (MyDMM, MyPSU, ...)
    └── your direct subclasses (SerialDMM, DaqmxAI, USBPowerSupply, ...)
 
-Mock (factory in mocks.py) — orthogonal to the class hierarchy
-   └── Mock(AnyClass, **return_values) → mock instance of AnyClass
+Mock (mocks.py) — orthogonal to the class hierarchy
+   └── Mock(AnyClass, **method_values) → instance of a subclass of AnyClass
 ```
 
 ## What an instrument advertises to the platform
@@ -306,50 +306,13 @@ def connect(self) -> None:
 
 ---
 
-## The `Mock` factory
+## Running without hardware
 
-`Mock()` is orthogonal to the `simulate=True` driver-internal flag. It wraps **any** class and returns an instance whose methods are no-ops unless you give them return values. The platform uses this when station YAML says `mock: true` (or `--mock-instruments` is passed) — see [Mock mode vs `simulate=True`](#mock-mode-vs-simulatetrue) below.
+Two paths. They behave differently and you pick based on what the test is exercising.
 
-```python
-from litmus.instruments.mocks import Mock, as_mock
+### Platform mock-mode — the default
 
-# Simple scalar values
-dmm = Mock(MyDMM, measure_voltage=5.0, measure_current=0.1)
-dmm.measure_voltage()         # 5.0
-dmm.measure_current()         # 0.1
-dmm.set_voltage(3.3)          # no-op, returns None
-
-# Dict values for argument-based lookup — great for SCPI
-inst = Mock(MyDMM, query={
-    "MEAS:VOLT?": "5.0",
-    "*IDN?": "Vendor,Model,SN1,1.0",
-})
-inst.query("MEAS:VOLT?")      # "5.0"
-
-# Callable values for full control
-inst = Mock(MyDMM, query=lambda cmd: "5.0" if "VOLT" in cmd else "0.0")
-
-# Dynamic value updates via the mock-control surface
-as_mock(dmm).set_mock_value("measure_voltage", 3.3)
-dmm.measure_voltage()         # 3.3
-```
-
-`Mock` preserves the typed surface — `dmm` is typed as `MyDMM`, so editor autocomplete and type checkers see the real driver's methods. Use `as_mock(instance)` to reach the mock-specific control surface (`set_mock_value`, `mock_values`, `_connected`) without fighting the declared type.
-
-`Mock` instances behave as context managers (`connect()` → `disconnect()` are wired automatically) and pass `isinstance(mock, MyDMM)` checks.
-
----
-
-## Mock mode vs `simulate=True`
-
-The platform has **two** independent mock paths. Knowing which one fires when matters for writing useful tests.
-
-| Path | What it does | How it's triggered |
-|---|---|---|
-| Driver-internal `simulate=True` | Your driver's own simulation branch runs. For VISA: pyvisa-sim. For non-VISA: your hand-written `if self.simulate: ...` branches. The driver class is instantiated normally; identity fields populate from your code. | You pass `simulate=True` when constructing the driver yourself. |
-| Platform mock mode | The driver class is NOT instantiated. The platform calls `Mock(object, **mock_config)` and substitutes the mock for the real driver. Your `simulate=True` branch never runs. | `mock: true` on the instrument block in station YAML; OR `--mock-instruments` CLI flag; OR `LITMUS_MOCK_INSTRUMENTS=1` environment variable. |
-
-When platform mock mode is active, the station YAML's `mock_config:` keys become method names whose return values the Mock will produce. The driver's own `simulate=True` branch is dead code in this path.
+In station YAML, set `mock: true` and list the method return values under `mock_config:`. The platform substitutes a stand-in for the real driver: your driver class is never instantiated, `connect()` is never called, and methods you listed return the configured values (everything else returns `None`).
 
 ```yaml
 # stations/my_station.yaml
@@ -358,14 +321,43 @@ instruments:
     type: dmm
     driver: my_pkg.MyDMM
     resource: "TCPIP::192.168.1.100::INSTR"
+    mock: true                       # opt in at the instrument level
     mock_config:
-      measure_voltage: 5.0     # Mock(MyDMM).measure_voltage() → 5.0
+      measure_voltage: 5.0           # dmm.measure_voltage() → 5.0 inside tests
       measure_current: 0.1
+      query:                         # dict — first arg is the lookup key
+        "MEAS:VOLT?": "5.0"
+        "*IDN?": "Vendor,Model,SN1,1.0"
 ```
 
-With `pytest --mock-instruments` (or `mock: true` on the instrument), the test gets a `Mock(MyDMM, measure_voltage=5.0, measure_current=0.1)` — `MyDMM.__init__` is never called.
+`mock_config:` keys are **method names on your driver**, not signal names. Values can be:
 
-If you specifically want your driver's `simulate=True` branch to exercise (because you've written non-trivial simulation logic in it), construct the driver yourself in a fixture rather than relying on platform mock mode.
+- a scalar → returned on every call regardless of args
+- a dict → first positional argument is the lookup key (great for SCPI `query()`)
+- a callable → invoked with the call's args, return value goes back to the test
+
+Method names you don't list still exist (they're on the class) and become no-ops returning `None`. Attribute names that don't exist on the class raise `AttributeError` — that's the seam where a typo in `mock_config:` keys shows up.
+
+`--mock-instruments` (CLI) and `LITMUS_MOCK_INSTRUMENTS=1` (env var) force `mock: true` for every instrument in the station. Test code is identical whether the station is real or mocked:
+
+```python
+def test_voltage(dmm, verify):
+    verify("output_voltage", dmm.measure_voltage())
+```
+
+`dmm` resolves to a real `MyDMM` against hardware and to a `MockMyDMM` returning `5.0` against `mock: true` — pytest never sees the difference. The auto-fixture is registered from the station YAML's `instruments:` keys; see [Litmus fixtures](../reference/litmus-fixtures.md#per-role-auto-fixtures).
+
+For the full mock-mode surface (sidecar `mocks:` overrides, the three layered pipelines, resolution order) see [mock-mode.md](mock-mode.md).
+
+### Driver-internal `simulate=True` — when you write the simulation yourself
+
+`Instrument` takes a `simulate: bool` flag on `__init__` and stores it. **What that flag actually does is up to your driver.** The base class does nothing with it; the platform doesn't wire it. If you write `if self.simulate: ...` branches in your methods, those branches run. If you don't, `simulate=True` is silent.
+
+The exception is `VisaInstrument`, which auto-generates a pyvisa-sim YAML on `connect()`. The generator (`src/litmus/instruments/visa.py:177-273`) wires exactly two SCPI properties: `voltage` (queries `MEAS:VOLT?`, setter `VOLT {value}`) and `current` (queries `MEAS:CURR?`, setter `CURR {value}`), plus `*IDN?` and whatever static dialogues you list in `sim_config["responses"]`. That covers a DMM measuring DC voltage / current. Resistance, frequency, scope waveforms, PSU output-enable state, anything else — your driver writes its own `if self.simulate:` branches or its own SCPI dialogue entries.
+
+For non-VISA protocols, there is no framework simulation. `Instrument.__init__` stores `simulate=True`; the rest is your code. The DAQmx and serial examples below show the pattern.
+
+Use `simulate=True` when you've put real work into the driver's own simulation logic — a pyvisa-sim setup that holds state, a state machine for a sequencer, a closed-loop model for a PSU — and the test needs to exercise that logic. Otherwise use platform mock-mode (`mock_config:`); it doesn't require any simulation code in the driver at all.
 
 ---
 
@@ -392,37 +384,36 @@ Now `def test_voltage(dmm, verify): ...` resolves `dmm` to a connected `MyDMM` i
 
 For [station configuration](configuring-stations.md) details (other `driver:` examples, multi-channel routing, the `catalog_ref:` link) see the how-to. For the `catalog_ref:` target schema see [catalog schema](../reference/catalog-schema.md).
 
-### conftest.py (local override)
+### conftest.py (bringup tier — no station YAML yet)
 
-For ad-hoc tests where you don't want a station YAML, define the fixture yourself in `conftest.py`:
+Before you have a station YAML, write the fixture yourself in `conftest.py`. The Litmus-provided `mock_instruments` fixture is `True` when `--mock-instruments` or `LITMUS_MOCK_INSTRUMENTS=1` is set, so the same fixture serves real and mock paths:
 
 ```python
-# conftest.py
+# tests/conftest.py
 import pytest
 
-from litmus.client import Mock
+from litmus.instruments.mocks import Mock
 from my_pkg.drivers import MyDMM
 
 
-@pytest.fixture
-def dmm(mock_instruments):
-    """Custom DMM fixture. `mock_instruments` is True when
-    --mock-instruments or LITMUS_MOCK_INSTRUMENTS=1 is set."""
+@pytest.fixture(scope="session")
+def dmm(mock_instruments) -> MyDMM:
     if mock_instruments:
-        yield Mock(MyDMM, measure_voltage=5.0)
-        return
-
-    with MyDMM("TCPIP::192.168.1.100::INSTR") as inst:
-        yield inst
+        return Mock(MyDMM, measure_voltage=5.0, measure_current=0.1)
+    return MyDMM("TCPIP::192.168.1.100::INSTR")
 ```
 
-Use the station-YAML path for production benches (it's what `litmus serve` / the operator UI / capability matching all read). Use conftest fixtures for ad-hoc tests or to override a station-defined instrument with custom setup.
+This is the same pattern [tutorial step 2](../tutorial/02-mock-instruments.md) introduces — `Mock(MyDMM, **values)` returns a `MockMyDMM` instance whose declared methods become no-ops returning your configured values. `isinstance(dmm, MyDMM)` still passes; `dmm.set_voltage(3.3)` is a silent no-op; `dmm.measure_voltage()` returns `5.0`.
+
+Step up to station YAML once you have more than one bench or want capability matching. The station path supersedes the conftest fixture — the platform auto-registers a `dmm` fixture from `instruments.dmm:` in the YAML.
 
 ---
 
 ## Testing your driver
 
-Test the driver's own behavior — its `simulate=True` branches, its `connect()` / `disconnect()` lifecycle, its method outputs — directly. This is independent of how the platform wires it up.
+Two scopes: testing *the driver class itself* (does its `connect()` open the port? does its `measure_voltage()` parse the response correctly?) is separate from testing *a procedure that uses the driver* (which is what `mock_config:` + the Litmus plugin handle).
+
+For driver-level tests, exercise whatever simulation pathway you've actually built. If your driver is `VisaInstrument`-based and you only need voltage/current/IDN, the auto-generated pyvisa-sim config covers you:
 
 ```python
 import pytest
@@ -430,28 +421,28 @@ import pytest
 from my_pkg.drivers import MyDMM
 
 
-class TestMyDMM:
-    """Driver-level tests; no Litmus plugin needed."""
+def test_measure_voltage_simulated():
+    with MyDMM(
+        "TCPIP::192.168.1.100::INSTR",
+        simulate=True,
+        sim_config={"voltage": 3.3},
+    ) as dmm:
+        assert dmm.measure_voltage() == pytest.approx(3.3, abs=0.001)
+```
 
-    def test_measure_voltage_simulated(self):
-        dmm = MyDMM(
-            "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
-            sim_config={"voltage": 3.3},
-        )
-        dmm.connect()
-        try:
-            assert dmm.measure_voltage() == pytest.approx(3.3, abs=0.001)
-        finally:
-            dmm.disconnect()
+If your driver needs methods the auto-sim doesn't cover (resistance, frequency, waveform, output-enable state, anything non-voltage / non-current), add static SCPI dialogues via `sim_config["responses"]` for query-shaped methods, or write `if self.simulate:` branches inside the driver. There is no auto-simulation for non-VISA drivers — `Instrument.__init__` stores the `simulate` flag and that's it.
 
-    def test_context_manager(self):
-        with MyDMM(
-            "TCPIP::192.168.1.100::INSTR",
-            simulate=True,
-            sim_config={"voltage": 5.0},
-        ) as dmm:
-            assert dmm.measure_voltage() == 5.0
+When in doubt for driver-level tests, use `Mock` directly — it doesn't depend on any simulation infrastructure being present:
+
+```python
+from litmus.instruments.mocks import Mock
+
+from my_pkg.drivers import MyDMM
+
+
+def test_overrange_handling():
+    dmm = Mock(MyDMM, measure_voltage=999.0)
+    # exercise your driver-wrapper code that consumes measure_voltage()
 ```
 
 To gate tests on real hardware availability, register a marker in your project's `conftest.py` and use `-m` to filter:
@@ -485,7 +476,7 @@ pytest -m "not hardware"            # only simulation tests (CI default)
 
 - **Pass `resource=` to the base.** Non-VISA drivers should pass the connection identifier (port, channel, vendor:product) to `super().__init__(resource=...)` so traceability and the operator UI display something meaningful.
 - **Guard optional dependencies.** Wrap `import nidaqmx` / `import usb.core` / etc. in a `try / except ImportError` block so the driver imports cleanly on hardware-free hosts.
-- **Don't conflate `simulate=True` with `Mock`.** Driver-internal `simulate=True` is for "this driver simulates itself"; platform mock mode (`Mock(object, **mock_config)`) bypasses your driver entirely. Document which mode your fixture uses.
+- **Let the station YAML decide mock vs real.** Don't import any mock class in your driver or test code. `mock: true` + `mock_config:` in the station block is the canonical path; the platform substitutes a stand-in that returns your listed method values. Reach for driver-internal `simulate=True` only when you've written non-trivial simulation logic that the test should exercise.
 - **Capabilities live in the catalog, not in code.** Your driver class is just code — Litmus learns "this is a DMM that measures DC voltage" from the catalog YAML you point `catalog_ref:` at. Don't try to declare capabilities via Python mixins or class attributes.
 
 ## See also

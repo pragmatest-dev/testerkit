@@ -2,7 +2,7 @@
 
 Derive test limits and [traceability](traceability.md) from the [product specification](../concepts/products.md). The `verify` fixture resolves the limit, DUT pin, and spec reference automatically from the active `product_context` (a [`ProductContext`](../concepts/products.md) — the loaded-product container exposed to tests) — you just call `verify(name, value)`.
 
-> **Prerequisites.** A `products/<id>.yaml` file with at least one characteristic (see [tutorial step 6](../tutorial/06-specifications.md)). The session must be started with `--product=<id>` (or `--product=<path>`) so the product context is active. Limits also flow from sidecar YAML / markers / profiles — this page focuses on the product-spec path.
+> **Prerequisites.** A `products/<id>.yaml` file with at least one characteristic (see [tutorial step 6](../tutorial/06-specifications.md)). The product context must be active — pass `--product=<id>` / `--product=<path>`, or `--dut-part-number=<pn>` to look it up by part number, or rely on single-file autodiscovery when there's exactly one product YAML in `products/`. Limits also flow from sidecar YAML / markers / profiles — this page focuses on the product-spec path.
 
 ## The workflow
 
@@ -82,7 +82,7 @@ def test_output_voltage(temperature, load, dmm, verify, chamber, eload):
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-(The two parametrize axes are zipped into one combined axis so every case hits a declared band — the cross-product `{25,85} × {0.5,1.0}` would produce the case `(25, 1.0)` that matches neither band and would still raise `ValueError` even through the marker path. Make your parametrize cover the bands your spec declares.)
+(The two parametrize axes are zipped into one combined axis so every case hits a declared band — the cross-product `{25,85} × {0.5,1.0}` would produce the case `(25, 1.0)` that matches neither band. Through the marker path the no-match falls through to `None` and `verify` then raises `MissingLimitError` with the resolution chain in the message. Make your parametrize cover the bands your spec declares.)
 
 `spec_ref` on the recorded row reflects the matched band's conditions in **alphabetical order by key**:
 
