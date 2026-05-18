@@ -64,7 +64,7 @@ client = LitmusClient()
 
 run = client.start_run(
     dut_serial="SN123",
-    station_hostname="bench-01",
+    station_id="bench_01",
     test_phase="production",
 )
 
