@@ -20,13 +20,14 @@ uv add ~/src/litmus
 
 That's it. Litmus's pytest plugin registers via its entry point in `pyproject.toml` — pytest discovers and loads it automatically. **You do not need to add `pytest_plugins = ["litmus"]` to your conftest.**
 
-The plugin registers these CLI flags out of the box (`src/litmus/pytest_plugin/hooks.py:896-962`):
+The plugin registers these CLI flags out of the box (`src/litmus/pytest_plugin/hooks.py:896-1018`):
 
-- `--dut-serial`, `--dut-serials`, `--dut-part-number`
-- `--station`, `--station-host`, `--station-type`
-- `--fixture`, `--product`
-- `--mock-instruments`, `--test-phase`, `--test-profile`, `--operator`
-- `--data-dir`, `--guardband`
+- `--dut-serial`, `--dut-serials`, `--dut-part-number`, `--dut-revision`, `--dut-lot-number`
+- `--station`, `--slot`, `--fixture`, `--product`
+- `--mock-instruments` / `--no-mock-instruments`, `--test-phase`, `--test-profile` / `--no-test-profile`, `--operator`
+- `--data-dir`, `--guardband`, `--strict-traceability`
+
+The full table with defaults and descriptions is in [reference/pytest-native.md](../reference/pytest-native.md). Dynamic flags for profile facets and `required_inputs:` keys are also registered — see that page.
 
 **Do not re-register these in your own `pytest_addoption`** — pytest treats duplicate flag registration as a fatal `argparse.ArgumentError` at collection. The plugin already owns them.
 

@@ -11,7 +11,7 @@ The pre-commit hook runs the same generator in `--check` mode, so source / docs 
 ## Installation
 
 ```bash
-uv pip install litmus
+uv pip install litmus-test       # PyPI name is litmus-test; the import is `litmus`
 litmus --help
 ```
 

@@ -4,7 +4,7 @@ Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP
 
 Full per-tool reference: [api.md → MCP tools](../reference/api.md#mcp-tools). This page is the operational how-to.
 
-> **Prerequisites.** `litmus` installed and on `$PATH` (`uv pip install litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, real or mock instruments configured in `stations/`.
+> **Prerequisites.** `litmus` installed and on `$PATH` (`uv pip install litmus-test` — the PyPI distribution is `litmus-test`; the import is `litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, real or mock instruments configured in `stations/`.
 
 ## Setup
 
@@ -12,11 +12,11 @@ Full per-tool reference: [api.md → MCP tools](../reference/api.md#mcp-tools). 
 
 | Client | Command | What gets written |
 |---|---|---|
-| Claude Code (CLI) | `litmus setup claude-code` | `~/.claude.json` MCP server entry |
-| Claude Desktop | `litmus setup claude-desktop` | `~/.config/Claude/claude_desktop_config.json` (auto-detects WSL paths) |
-| GitHub Copilot Chat | `litmus setup copilot` | `~/.config/github-copilot/intellij/mcp.json` |
-| Cursor | `litmus setup cursor` | `~/.cursor/mcp.json` |
-| Cline (VS Code) | `litmus setup cline` | VS Code workspace MCP settings |
+| Claude Code (CLI) | `litmus setup claude-code` | Registers the MCP server via `claude mcp add litmus`, copies skill stubs to `.claude/commands/`, and creates / updates `./CLAUDE.md` |
+| Claude Desktop | `litmus setup claude-desktop` | Builds a `litmus.mcpb` Desktop Extension bundle on the user's Desktop (zip) for double-click install. Use `--legacy` to write `~/.config/Claude/claude_desktop_config.json` directly instead. |
+| GitHub Copilot Chat | `litmus setup copilot` | Project-local `.vscode/mcp.json` plus `.github/copilot-instructions.md` |
+| Cursor | `litmus setup cursor` | Project-local `.cursor/mcp.json` |
+| Cline (VS Code) | `litmus setup cline` | `cline_mcp_settings.json` in VS Code User settings (`~/.config/Code/User/` on Linux, `~/Library/Application Support/Code/User/` on macOS, `~/AppData/Roaming/Code/User/` on Windows) |
 | Anything else | `litmus mcp serve` directly | You configure your AI client manually |
 
 After running any setup command, restart the client to pick up the new MCP server.

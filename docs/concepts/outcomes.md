@@ -100,9 +100,12 @@ The runs daemon's materializer (`materialize_run_to_parquet`) was asked to write
 - The process was killed mid-flight (SIGKILL, segfault, OOM kill, host shutdown).
 - An exception bypassed `_teardown_logger` before `finalize()` could run.
 
-The rig state is **unknown**. ABORTED is the only run-level outcome not produced by the cascade — it's a side-effect of *who writes the row*. The runs daemon materializes parquet from event accumulators; when the materializer reaches a run that never closed, it stamps `"aborted"` directly into the `run_outcome` column.
+The rig state is **unknown**. ABORTED has two producers, both outside the cascade ladder:
 
-ABORTED reading on a row means downstream tooling and operator runbooks should treat the rig as "physically inspect required."
+- The runs daemon's materializer stamps `"aborted"` directly into `run_outcome` when it reaches a run that never closed — the materializer fallback path. This is the involuntary path (process died).
+- `LitmusClient.RunBuilder.abort(message=...)` (in `litmus.client`) stamps `Outcome.ABORTED` on the run before saving. This is the explicit path for external runners that want to declare a run aborted from caller code.
+
+ABORTED reading on a row means downstream tooling and operator runbooks should treat the rig as "physically inspect required" for the materializer-fallback case, and as "operator-declared abort" for the `RunBuilder.abort()` case — usually distinguishable from the run's other events.
 
 ### `None` — never judged, never finalized
 
@@ -172,7 +175,7 @@ An exception in a called function (e.g. driver raises a VISA timeout) does **not
 
 | Outcome | Triggering conditions | Sources |
 |---|---|---|
-| `ABORTED` (string `"aborted"`) | Materializer (`materialize_run_to_parquet`) was asked to write a run with `outcome=None` — the daemon never saw a `RunEnded`. Stamped directly into the column; not from cascade. | `data/backends/parquet.py:662` |
+| `ABORTED` (string `"aborted"`) | Either (a) materializer fallback — `materialize_run_to_parquet` was asked to write a run with `outcome=None` because the daemon never saw a `RunEnded`; OR (b) explicit operator abort via `LitmusClient.RunBuilder.abort()`. Both bypass the cascade. | `data/backends/parquet.py:662`, `client.py:339` |
 | `TERMINATED` | Cascade rollup from any step that landed TERMINATED via `pytest_keyboard_interrupt` | `execution/logger.py:854` |
 | `ERRORED` | Cascade rollup from any ERRORED step or measurement | `execution/logger.py:854` |
 | `FAILED` | Cascade rollup from any FAILED step or measurement | `execution/logger.py:854` |
@@ -186,10 +189,10 @@ An exception in a called function (e.g. driver raises a VISA timeout) does **not
 The materializer is a free function in the runs daemon, not an in-runner subscriber. Flow:
 
 1. The runs daemon accumulates events (`SessionStarted`, `RunStarted`, `StepStarted`, `MeasurementRecorded`, etc.) into per-run `EventAccumulator` instances inside `AccumulatorPool`.
-2. On `RunEnded`, the daemon calls `materialize_run_to_parquet(acc, ended_at, run_outcome=event.outcome)` (`data/backends/parquet.py:637`). The cascade-derived outcome rides through `RunEnded.outcome`.
+2. On `RunEnded`, the daemon calls `materialize_run_to_parquet(acc, runs_dir, outcome=outcome)` (`data/backends/parquet.py:637`, called from `_runs_duckdb_daemon.py:1426`). The cascade-derived outcome rides through `RunEnded.outcome`.
 3. If the daemon's `close()` runs before any `RunEnded` for a still-open run, the materializer is invoked with `outcome=None` and stamps `"aborted"` as the fallback (`parquet.py:662`).
 
-That fallback is the **only** place ABORTED is produced. The cascade never produces it.
+The cascade never produces ABORTED. Two non-cascade producers do: the materializer fallback above, and explicit `LitmusClient.RunBuilder.abort()` (`client.py:339`) — the latter is the path for external runners that want to declare a run aborted in caller code rather than by daemon timeout.
 
 ### Multi-DUT slot orchestrator
 
