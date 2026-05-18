@@ -46,30 +46,46 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --all-extras --dev
-      - name: Run benchmarks (current)
-        run: |
-          uv run pytest -m benchmark --benchmark-only \
-            --benchmark-json=benchmark-current.json -q
-      - name: Run benchmarks (previous tag)
+      - name: Run benchmarks — interleaved, warm both sides
         run: |
           PREV_TAG=$(git tag --sort=-v:refname | sed -n '2p')
           if [ -z "$PREV_TAG" ]; then
-            echo "No previous tag — skipping regression check"
+            echo "No previous tag — running current only (no comparison)"
+            uv run pytest -m benchmark --benchmark-only \
+              --benchmark-json=benchmark-current.json -q
             exit 0
           fi
+
+          # OS file-system cache state dominates ms-scale benchmark
+          # variance. To compare prev vs current fairly, both runs
+          # must see warm caches. Run each side TWICE; discard the
+          # cold first run; keep the warm second run for comparison.
+          # Total: 4 benchmark passes (~4–5 min) but min-vs-min
+          # variance drops to ~5%.
+
+          # Pass 1 — current, cold cache (discard)
+          uv run pytest -m benchmark --benchmark-only \
+            --benchmark-json=/tmp/bench-curr-cold.json -q
+          # Pass 2 — previous tag, cold cache (discard)
           git checkout "$PREV_TAG"
-          # Overlay the CURRENT benchmark test files so prev and curr
-          # runs both use the same warmup / min_rounds / disable_gc
-          # settings. Without this overlay, the prev run uses whatever
-          # benchmark config it shipped with — which makes the min
-          # comparison meaningless (apples to oranges).
+          # Overlay current test files so prev and curr runs use
+          # identical pytest-benchmark settings (warmup, min_rounds,
+          # disable_gc). Without overlay, the prev sample reflects
+          # whatever bench config it shipped with — invalid compare.
           git checkout "${GITHUB_REF_NAME}" -- \
             tests/test_data/test_perf.py \
             tests/test_data/test_perf_daemon.py
           uv sync --all-extras --dev
           uv run pytest -m benchmark --benchmark-only \
+            --benchmark-json=/tmp/bench-prev-cold.json -q || true
+          # Pass 3 — previous tag again, warm cache (keep)
+          uv run pytest -m benchmark --benchmark-only \
             --benchmark-json=benchmark-previous.json -q || true
+          # Pass 4 — current, warm cache (keep)
           git checkout "${GITHUB_REF_NAME}"
+          uv sync --all-extras --dev
+          uv run pytest -m benchmark --benchmark-only \
+            --benchmark-json=benchmark-current.json -q
       - name: Check for regression (min, 25% threshold)
         run: |
           if [ ! -f benchmark-previous.json ]; then
