@@ -66,7 +66,7 @@ Key step-row columns (full list in [Parquet schema](../reference/parquet-schema.
 - `step_outcome` (rollup), `vector_outcome` (per vector), `run_outcome` (run-wide)
 - Denormalized run context: `run_id`, `dut_serial`, `station_id`, `session_id`
 
-## "Never ran" rows (`step_outcome IS NULL`)
+## "Never ran" rows (`step_outcome IS NULL`) {#never-ran}
 
 After `RunEnded`, `materialize_run_to_parquet()` compares the discovered items against actually-executed steps. Missing steps get synthetic rows where:
 

@@ -336,7 +336,7 @@ instruments:
 - a dict → first positional argument is the lookup key (great for SCPI `query()`)
 - a callable → invoked with the call's args, return value goes back to the test
 
-Method names you don't list still exist (they're on the class) and become no-ops returning `None`. Attribute names that don't exist on the class raise `AttributeError` — that's the seam where a typo in `mock_config:` keys shows up.
+Method names you list return the configured value. Method names you don't list are silent no-ops returning `None`, regardless of whether they exist on the real driver class — the platform path uses a generic stand-in, so the typed-method surface isn't there to validate against. A typo in `mock_config:` keys won't raise; it'll just show up as a `None` reading on the row.
 
 `--mock-instruments` (CLI) and `LITMUS_MOCK_INSTRUMENTS=1` (env var) force `mock: true` for every instrument in the station. Test code is identical whether the station is real or mocked:
 
@@ -345,7 +345,7 @@ def test_voltage(dmm, verify):
     verify("output_voltage", dmm.measure_voltage())
 ```
 
-`dmm` resolves to a real `MyDMM` against hardware and to a `MockMyDMM` returning `5.0` against `mock: true` — pytest never sees the difference. The auto-fixture is registered from the station YAML's `instruments:` keys; see [Litmus fixtures](../reference/litmus-fixtures.md#per-role-auto-fixtures).
+The test calls `dmm.measure_voltage()` whether `dmm` is a real `MyDMM` or the stand-in returning `5.0` from `mock_config:` — pytest never sees the difference. The auto-fixture is registered from the station YAML's `instruments:` keys; see [Litmus fixtures](../reference/litmus-fixtures.md#per-role-auto-fixtures). One thing to note: `isinstance(dmm, MyDMM)` is `False` under platform mock-mode (the stand-in isn't a subclass of your driver class). If a test path depends on that check, use the bringup-tier `conftest.py` pattern below where `Mock(MyDMM, ...)` does preserve isinstance.
 
 For the full mock-mode surface (sidecar `mocks:` overrides, the three layered pipelines, resolution order) see [mock-mode.md](mock-mode.md).
 
@@ -353,7 +353,7 @@ For the full mock-mode surface (sidecar `mocks:` overrides, the three layered pi
 
 `Instrument` takes a `simulate: bool` flag on `__init__` and stores it. **What that flag actually does is up to your driver.** The base class does nothing with it; the platform doesn't wire it. If you write `if self.simulate: ...` branches in your methods, those branches run. If you don't, `simulate=True` is silent.
 
-The exception is `VisaInstrument`, which auto-generates a pyvisa-sim YAML on `connect()`. The generator (`src/litmus/instruments/visa.py:177-273`) wires exactly two SCPI properties: `voltage` (queries `MEAS:VOLT?`, setter `VOLT {value}`) and `current` (queries `MEAS:CURR?`, setter `CURR {value}`), plus `*IDN?` and whatever static dialogues you list in `sim_config["responses"]`. That covers a DMM measuring DC voltage / current. Resistance, frequency, scope waveforms, PSU output-enable state, anything else — your driver writes its own `if self.simulate:` branches or its own SCPI dialogue entries.
+The exception is `VisaInstrument`, which auto-generates a pyvisa-sim YAML on `connect()`. The generator wires exactly two SCPI properties: `voltage` (queries `MEAS:VOLT?`, setter `VOLT {value}`) and `current` (queries `MEAS:CURR?`, setter `CURR {value}`), plus `*IDN?` and whatever static dialogues you list in `sim_config["responses"]`. That covers a DMM measuring DC voltage / current. Resistance, frequency, scope waveforms, PSU output-enable state, anything else — your driver writes its own `if self.simulate:` branches or its own SCPI dialogue entries.
 
 For non-VISA protocols, there is no framework simulation. `Instrument.__init__` stores `simulate=True`; the rest is your code. The DAQmx and serial examples below show the pattern.
 
