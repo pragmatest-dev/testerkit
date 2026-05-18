@@ -2,65 +2,25 @@
 
 Litmus is a **hardware test platform**, not a test framework. Understanding this distinction is key to using Litmus effectively.
 
-## Platform vs Framework
+## Platform vs framework
 
-| | Framework | Platform |
-|---|-----------|----------|
-| **Scope** | Runs tests | Provides infrastructure |
-| **Test execution** | Framework does it | Delegates to pytest/OpenHTF/etc. |
-| **Entry points** | One (the framework) | Many (CLI, API, MCP, UI) |
-| **Extensibility** | Plugins | Modular services |
-| **Examples** | pytest, Robot Framework | Litmus, NI TestStand |
+A test framework's job ends at "run the test." A test platform's job is everything around it: store the result, version the config, route signals to instruments, expose what happened to operators and dashboards and AI agents. Litmus does the platform job and delegates execution to pytest (the primary integration) or any other Python entry point that calls into `LitmusClient` to submit results.
 
-## What Litmus Provides
+## What Litmus provides
 
-Litmus provides **infrastructure services** that any test runner can use:
+The infrastructure pieces a hardware-test team needs whether they're running pytest, a hand-written loop, or a bridge from a non-Python runner:
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         LITMUS PLATFORM                                  │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐              │
-│  │ Configuration │  │  Instruments  │  │   Matching    │              │
-│  │    Service    │  │    Service    │  │    Service    │              │
-│  │               │  │               │  │               │              │
-│  │ • Products    │  │ • DMM, PSU    │  │ • Capabilities│              │
-│  │ • Stations    │  │ • Scope       │  │ • Compatibility│             │
-│  │ • Fixtures    │  │ • ELoad       │  │ • Requirements│              │
-│  │               │  │ • Simulation  │  │               │              │
-│  └───────────────┘  └───────────────┘  └───────────────┘              │
-│                                                                         │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐              │
-│  │  Event Log   │  │   Dialogs     │  │   Channels    │              │
-│  │   Service    │  │   Service     │  │    Service    │              │
-│  │               │  │               │  │               │              │
-│  │ • EventStore │  │ • Operator    │  │ • ChannelStore│              │
-│  │ • Parquet    │  │   prompts     │  │ • Flight RPC  │              │
-│  │ • DuckDB     │  │ • Confirmations│ │ • LTTB decim. │              │
-│  └───────────────┘  └───────────────┘  └───────────────┘              │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-                              │
-           ┌──────────────────┼──────────────────┐
-           │                  │                  │
-           ▼                  ▼                  ▼
-    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-    │   pytest    │    │   OpenHTF   │    │  Your Own   │
-    │   plugin    │    │   adapter   │    │   runner    │
-    │             │    │             │    │             │
-    │ native      │    │ (migration) │    │ Results API │
-    │ fixtures    │    │             │    │             │
-    └─────────────┘    └─────────────┘    └─────────────┘
-```
+- **Configuration** — `litmus.yaml` (project), `stations/*.yaml` (benches), `fixtures/*.yaml` (DUT routing), `products/*.yaml` (specs), `catalog/*.yaml` (instrument capabilities). All YAML, all Pydantic-validated, all editable without touching test code.
+- **Instrument plumbing** — auto-fixtures from station YAML, the `Mock` substitution for hardware-free tests, switch-route activation through fixture connections. Drivers themselves are user-supplied (PyMeasure, PyVISA, vendor SDK).
+- **Capability matching** — does this station have what this product needs? See [capabilities](capabilities.md).
+- **Results storage** — three stores feeding one queryable surface: the [event log](event-log.md), the parquet runs store, and the channel store for time-series. See [three stores](three-stores.md) for the layout and tradeoffs.
+- **Operator surface** — NiceGUI web UI, operator prompts during a test, real-time dashboards.
+- **AI surface** — MCP server exposing tools an agent can drive: discovery, matching, run launching, results query. Platform never calls an LLM itself.
 
-## What Litmus Does NOT Provide
+## What Litmus does not provide
 
-Litmus **does not** include a test execution engine. Instead, it integrates with existing runners:
-
-- **pytest** — Primary integration via pytest plugin
-- **OpenHTF** — Migration adapter for existing test suites (OpenHTF is Google's open-source hardware-test framework)
-- **Custom runners** — Results API for any test source
+- **A test execution engine.** Litmus delegates to pytest for new projects; non-pytest runners (LabVIEW / TestStand bridges, hand-written loops, etc.) use [`LitmusClient`](../reference/client.md) to submit results.
+- **Instrument drivers.** Bring your own — PyMeasure, PyVISA, vendor libraries, or your own classes derived from `litmus.instruments.Instrument` / `VisaInstrument`. See [custom drivers](../how-to/custom-drivers.md).
 
 ## Multiple Entry Points
 
@@ -80,25 +40,22 @@ All entry points share the same:
 - Result storage
 - Data models
 
-## pytest Integration (Primary Path)
+## pytest integration (primary path)
 
-For new projects, use the pytest plugin:
+For new projects, use the pytest plugin. Station YAML declares your instruments; the plugin auto-registers a fixture per role (`dmm`, `psu`, etc.) and supplies `context` / `verify` / `logger` for the test body:
 
 ```python
-def test_output_voltage(context, psu, dmm, logger):
+def test_output_voltage(context, psu, dmm, verify):
     psu.set_voltage(context.get_param("vin", 5.0))
     psu.enable_output()
-    logger.measure("output_voltage", dmm.measure_dc_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-The plugin provides:
-- `context`, `verify`, and `logger` fixtures
-- Instrument fixtures from station config
-- Automatic result logging via `logger.measure` / `verify`
+`psu` and `dmm` come from `instruments:` in the active station YAML — they aren't built-in fixtures. See [writing-tests](../how-to/writing-tests.md) for the full pytest-native surface.
 
-## Catch-All (Results API)
+## Catch-all (results API)
 
-For any test source (LabVIEW, TestStand, custom scripts):
+For any test source that isn't pytest — LabVIEW shelling out, TestStand step calling Python, an ad-hoc characterization script:
 
 ```python
 from litmus.client import LitmusClient
@@ -107,7 +64,7 @@ client = LitmusClient()
 
 run = client.start_run(
     dut_serial="SN123",
-    station_id="bench_1",
+    station_hostname="bench-01",
     test_phase="production",
 )
 
@@ -151,55 +108,14 @@ AI Agent (Claude Code)
 
 **Important:** Litmus does NOT call LLMs. It exposes tools for AI agents to call.
 
-## Benefits of Platform Architecture
+## When to use what
 
-### 1. Separation of Concerns
-
-- Configuration is separate from test code
-- Instrument drivers are reusable
-- Results are stored consistently
-
-### 2. Flexibility
-
-- Choose your test runner (pytest, OpenHTF, custom)
-- Storage: Event log (Arrow IPC) + Parquet (materialized views) + Channels (time-series)
-- Choose your integration (CLI, API, UI, AI)
-
-### 3. Incremental Adoption
-
-Start small, expand as needed:
-
-1. **Phase 1:** Use Results API to store test data
-2. **Phase 2:** Add configuration management
-3. **Phase 3:** Add instrument drivers
-4. **Phase 4:** Add AI tooling
-
-### 4. Team Scalability
-
-- Developers write test code (pytest)
-- Engineers configure limits (YAML)
-- Operators run tests (UI)
-- CI/CD monitors results (API)
-- AI assists with test generation (MCP)
-
-## Comparison with Other Systems
-
-| System | Type | Litmus Equivalent |
-|--------|------|-------------------|
-| pytest | Test framework | pytest plugin (primary integration) |
-| Robot Framework | Test framework | Could build integration |
-| NI TestStand | Test platform | Similar concept, different tech |
-| OpenHTF | Test framework | Migration adapter available |
-
-## When to Use What
-
-| Scenario | Recommended Approach |
-|----------|---------------------|
-| New test project | pytest-native tests with `context`/`verify`/`logger` fixtures |
-| Existing pytest tests | Drop in Litmus fixtures + sidecar YAML incrementally |
-| Existing OpenHTF tests | Use OpenHTF adapter |
-| LabVIEW/TestStand tests | Use Results API |
-| AI-assisted development | Use MCP server |
+| Scenario | Approach |
+|---|---|
+| New pytest project | pytest-native tests with `context` / `verify` / `logger` fixtures (see [tutorial step 3](../tutorial/03-fixtures.md)). |
+| Existing pytest tests | Drop in Litmus fixtures + sidecar YAML incrementally — see [integration/pytest-existing](../integration/pytest-existing.md). |
+| LabVIEW / TestStand / non-pytest runners | Use [`LitmusClient`](../reference/client.md) to write run results from any Python boundary the other runner can shell out to. |
+| AI-assisted test authoring | Run the [MCP server](../how-to/mcp-integration.md) and point Claude Code / Cursor / Cline at it. |
 
 ## Architecture Summary
 
@@ -222,7 +138,7 @@ Start small, expand as needed:
                     │         STORAGE LAYER           │
                     │                                 │
                     │  Events  │ Channels │  Parquet  │
-                    │ (Arrow)  │ (Arrow)  │ (results) │
+                    │ (Arrow)  │ (Arrow)  │  (runs/)  │
                     └─────────────────────────────────┘
 ```
 
