@@ -1,6 +1,6 @@
 # Multi-DUT Testing
 
-Litmus supports parallel testing of multiple DUTs (Devices Under Test) using a subprocess-per-slot architecture. Each DUT slot runs in its own process with isolated environment, while shared instruments are served centrally via an `InstrumentServer` (an internal RPC server that lets multiple test workers share one physical instrument).
+Litmus supports parallel testing of multiple DUTs (Devices Under Test) using a subprocess-per-slot architecture. Each DUT slot runs in its own process with isolated environment, while shared instruments are served centrally so multiple slots can drive one physical instrument without colliding.
 
 > **Prerequisites.** Single-DUT tests already working against your station — multi-DUT is a layer on top, not a replacement (see [tutorial step 7](../tutorial/07-real-instruments.md)). A fixture YAML defining at least two slots (template in this page). Instruments that can be channel-shared or one physical instrument per slot.
 
@@ -15,22 +15,28 @@ slots:
   slot_1:
     connections:
       vout:
+        name: vout
         instrument: dmm
         instrument_channel: "1"
       vin:
+        name: vin
         instrument: psu
         instrument_channel: "1"
   slot_2:
     connections:
       vout:
+        name: vout
         instrument: dmm
         instrument_channel: "2"
       vin:
+        name: vin
         instrument: psu
         instrument_channel: "2"
 ```
 
-Slots are executed in definition order (not alphabetical). The instrument channel mappings route each slot to different physical channels on shared instruments.
+Every connection block needs a `name:` field — Litmus doesn't auto-fill it from the dict key. Omit it and the file fails to load at session start with a clear error pointing at the missing field.
+
+Slots are spawned in YAML order and **run in parallel**, one subprocess each. The instrument channel mappings route each slot to different physical channels on shared instruments.
 
 ## Running Multi-DUT Tests
 
@@ -50,6 +56,7 @@ pytest tests/ \
 | `--fixture` | Path to fixture YAML (triggers multi-DUT mode) |
 | `--dut-serial` | Single serial applied to all slots (with warning) |
 | `--dut-serials` | Per-slot assignment: `slot_1=SN001,slot_2=SN002` |
+| `--slot` | Run a single slot in a non-orchestrator process (e.g. for debugging one slot in isolation against the multi-DUT fixture). Supplying `--slot` and `--dut-serials` together is an error. |
 | `--mock-instruments` | Use mock instruments (each slot gets independent mocks) |
 
 ## Serial Assignment
@@ -117,10 +124,13 @@ Each measurement row includes a `slot_id` column for multi-DUT runs. Query with 
 
 ```sql
 SELECT slot_id, step_name, measurement_outcome, measurement_value
-FROM read_parquet('results/**/*.parquet')
-WHERE slot_id IS NOT NULL
+FROM read_parquet('<data_dir>/runs/**/*.parquet')
+WHERE record_type = 'measurement'
+  AND slot_id IS NOT NULL
 ORDER BY slot_id, step_index
 ```
+
+Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `litmus.yaml` → `LITMUS_HOME` → platform default. See [reference/parquet-schema.md](../reference/parquet-schema.md) for the column shape and the `record_type` discriminator that lets one file carry run / step / measurement rows.
 
 ## Debugging Failures
 
@@ -131,9 +141,14 @@ Each worker subprocess has these env vars for debugging:
 | Variable | Description |
 |----------|-------------|
 | `_LITMUS_SLOT_ID` | Slot identifier (e.g., `slot_1`) |
-| `LITMUS_DUT_SERIAL` | DUT serial for this slot |
-| `_LITMUS_SESSION_ID` | Shared session ID across all slots |
+| `_LITMUS_SLOT_INDEX` | 0-based index of this slot in the orchestrator's spawn order |
 | `_LITMUS_SLOT_COUNT` | Total number of slots |
+| `_LITMUS_SESSION_ID` | Shared session ID across all slots |
+| `LITMUS_DUT_SERIAL` | DUT serial for this slot (orchestrator sets per-slot from `--dut-serials`) |
+| `LITMUS_DUT_PART_NUMBER` | DUT part number (shared across slots) |
+| `LITMUS_DUT_REVISION` | DUT revision (shared) |
+| `LITMUS_DUT_LOT_NUMBER` | DUT lot / batch (shared) |
+| `LITMUS_DUT_RESOURCE` | Per-slot DUT control connection (e.g. `/dev/ttyUSB0`) from the slot's `dut_resource:` field |
 | `LITMUS_FIXTURE_SLOT` | JSON-serialized slot configuration |
 | `_LITMUS_INSTRUMENT_SERVER` | InstrumentServer address (if shared instruments) |
 | `_LITMUS_SHARED_ROLES` | Comma-separated shared instrument roles |
