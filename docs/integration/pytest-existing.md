@@ -20,7 +20,7 @@ uv add ~/src/litmus
 
 That's it. Litmus's pytest plugin registers via its entry point in `pyproject.toml` — pytest discovers and loads it automatically. **You do not need to add `pytest_plugins = ["litmus"]` to your conftest.**
 
-The plugin registers these CLI flags out of the box (`src/litmus/pytest_plugin/hooks.py:896-1018`):
+The plugin registers these CLI flags out of the box:
 
 - `--dut-serial`, `--dut-serials`, `--dut-part-number`, `--dut-revision`, `--dut-lot-number`
 - `--station`, `--slot`, `--fixture`, `--product`
