@@ -1,6 +1,6 @@
 # Configuration reference
 
-Litmus uses YAML files for every config surface, validated by Pydantic models. This page enumerates the files, their canonical locations, and the shape of each. Every model is `extra="forbid"` — typos like `descriptin:` raise `ValidationError` at load time. Filename stems must match the `id:` field for id-keyed entities (`store.py:_check_id_matches_filename`).
+Litmus uses YAML files for every config surface, validated by Pydantic models. This page enumerates the files, their canonical locations, and the shape of each. Most models reject unknown fields — typos like `descriptin:` fail the load with a clear error pointing at the offending key. (One exception: per-test `mocks:` entries deliberately allow arbitrary keys so they can pass them through to `unittest.mock.patch.object`.) Filename stems must match the `id:` field for id-keyed entities.
 
 For the full field-by-field reference of each model, see [models.md](models.md). For deep-dive references on catalog YAML and profile resolution, see the dedicated pages linked from each section.
 
@@ -100,7 +100,7 @@ instruments:                      # dict[role, StationInstrumentConfig]
     catalog_ref: keysight_34465a  # optional — catalog entry id (resolves channels/capabilities)
     channels:                     # optional — dict[str, str]; resolved from catalog if omitted
       voltage: "1"
-    mock: false                   # true = use Mock(driver, **mock_config) instead of real driver
+    mock: false                   # true = substitute a mock returning mock_config values for the real driver
     mock_config:                  # keys are driver METHOD NAMES (not signal names)
       measure_dc_voltage: 3.31
       measure_current: 0.105
@@ -270,8 +270,8 @@ characteristics:                      # dict[name, ProductCharacteristic]
 ```
 
 - `bands:` lives inside each characteristic. There is no top-level `bands:` on `Product`.
-- `ProductCharacteristic` fields: `function`, `direction`, `units`, `pin`, `pins`, `net`, `signal_group`, `datasheet_ref`, plus the inherited `signals`/`conditions`/`controls`/`attributes`/`bands` from `Capability`. There is no `channel:` / `channels:` / `schematic_ref:` on characteristics — `extra="forbid"` rejects them.
-- `base:` lets a product inherit from another. Sibling-then-products-root search; circular and missing-base raise `ValueError`.
+- `ProductCharacteristic` fields: `function`, `direction`, `units`, `pin`, `pins`, `net`, `signal_group`, `datasheet_ref`, plus the inherited `signals`/`conditions`/`controls`/`attributes`/`bands` from `Capability`. There is no `channel:` / `channels:` / `schematic_ref:` on characteristics — the loader rejects unknown keys.
+- `base:` lets a product inherit from another. The loader searches the products directory for a file whose stem matches the `base:` value first, then scans every product YAML for an `id:` match. Circular and missing-base references raise an error at load time.
 
 See [tutorial/06-specifications.md](../tutorial/06-specifications.md) for the workflow and [how-to/spec-driven-testing.md](../how-to/spec-driven-testing.md) for spec-driven verify.
 
@@ -314,9 +314,10 @@ tests:                                # recursive — keyed by pytest node-id se
   TestRails:                          # class-level entry — overrides apply to its methods
     limits:
       output_voltage: {low: 3.25, high: 3.35, units: V}
-    test_rail_under_load:             # per-method entry — most specific
-      sweeps:
-        - {load: [0.1, 1.0, 2.0]}
+    tests:                            # per-method entries live under another `tests:` key
+      test_rail_under_load:           # most specific
+        sweeps:
+          - {load: [0.1, 1.0, 2.0]}
 ```
 
 - `limits:` value shape: see [`MeasurementLimitConfig`](models.md#model-measurementlimitconfig). Supports direct `{low, high, nominal, units}`, characteristic-driven `{characteristic, tolerance_pct}`, conditional `{bands: [...]}`, callable, lookup tables, and stepped — see [how-to/limits.md](../how-to/limits.md).
@@ -358,22 +359,33 @@ capabilities:
         accuracy: {pct_reading: 0.0024, pct_range: 0.0005}
 ```
 
-Variant SKUs use a separate file with `base:` pointing at the parent — merge happens at load time per `_merge_capabilities` (capabilities merged by `(function, direction)` key, signals/conditions/controls/attributes deep-merged inside matching capabilities). See [catalog-schema.md#variants-option-codes](catalog-schema.md#variants-option-codes).
+Variant SKUs use a separate file with `base:` pointing at the parent — the loader merges capabilities by `(function, direction)` key and deep-merges signals/conditions/controls/attributes inside matching capabilities. See [catalog-schema.md#variants-option-codes](catalog-schema.md#variants-option-codes).
 
 ## Loading a YAML file
+
+Most loaders live in `litmus.store`:
 
 ```python
 from pathlib import Path
 from litmus.store import (
     load_project, load_station, load_station_type,
-    load_fixture, load_product, load_catalog_entry, load_sidecar,
+    load_fixture, load_product, load_catalog_entry,
 )
 
 project = load_project(Path("litmus.yaml"))
 station = load_station(Path("stations/bench_1.yaml"))
 ```
 
-Every loader raises `pydantic.ValidationError` with the offending field path on type / shape errors and `ValueError` from the model's own validators on semantic problems (unknown SpecBand `when:` keys, namespace overlap, mutually-exclusive fields). See [models.md](models.md) for the full model surface, [api.md](api.md) for the JSON / MCP entry points.
+The sidecar loader is separate — it lives in `litmus.execution.sidecar` because the sidecar is keyed by the **test module file** (`tests/test_power.py`), not the YAML file directly. It derives the matching YAML by swapping `.py` → `.yaml`:
+
+```python
+from pathlib import Path
+from litmus.execution.sidecar import load_sidecar
+
+sidecar = load_sidecar(Path("tests/test_power.py"))   # reads tests/test_power.yaml
+```
+
+Every loader raises with the offending field path on type / shape errors and a clear message on semantic problems (unknown SpecBand `when:` keys, namespace overlap, mutually-exclusive fields). See [models.md](models.md) for the full model surface, [api.md](api.md) for the JSON / MCP entry points.
 
 ## See also
 
