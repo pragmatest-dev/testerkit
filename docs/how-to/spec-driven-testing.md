@@ -10,7 +10,9 @@ Derive test limits and [traceability](traceability.md) from the [product specifi
 2. Run with `--product=<id>` (looks up `products/<id>.yaml`) or `--product=<path>` (explicit path)
 3. Call `verify(name, value)` from the test body — everything else flows through
 
-## Minimal example
+## Minimal example — unconditional characteristic
+
+The simplest case: one band, no `when:` clauses. `verify("name", value)` picks up the limit straight from the product spec.
 
 ```yaml
 # products/power_board.yaml
@@ -20,6 +22,38 @@ pins:
   VOUT:
     name: "J1.3"
     net: "VOUT_3V3"
+characteristics:
+  output_voltage:
+    direction: output
+    function: dc_voltage
+    units: V
+    pins: [VOUT]
+    datasheet_ref: "Section 7.2"
+    bands:
+      - value: 3.3
+        accuracy: {pct_reading: 5}
+```
+
+```python
+# tests/test_power.py
+def test_output_voltage(dmm, verify):
+    verify("output_voltage", dmm.measure_dc_voltage())
+```
+
+`verify` resolves the limit (3.3 V ± 5 % → 3.135..3.465), records the row, and raises `LimitFailure` on fail. The recorded fields:
+
+- `dut_pin = "J1.3"` — `ProductContext` copies it from `Product.pins[primary_pin_id].name` (`src/litmus/products/context.py:160`), not the pin dict-key.
+- `spec_ref = "Section 7.2"` — built from `characteristic.datasheet_ref` (or the literal string `"spec"` when `datasheet_ref` is absent); see `_build_spec_ref` at `src/litmus/execution/limits.py:148-154`.
+- `characteristic_id = "output_voltage"` — the dict key under `characteristics:`.
+
+## Condition-indexed example — when accuracy varies with operating point
+
+When a characteristic's bands have `when:` clauses (different accuracy bands per temperature / load / etc.), `verify("name", value)` alone won't pick the right band. The bare `spec.get_limit(name)` call inside the verify chain doesn't forward your active vector params to the band matcher, so condition-indexed lookups raise `ValueError` ("No spec band matches: …").
+
+Bind through `@pytest.mark.litmus_limits` (or sidecar) using `characteristic:`. That route reads the active vector params, picks the matching band, and passes the limit back to `verify`:
+
+```yaml
+# products/power_board.yaml
 characteristics:
   output_voltage:
     direction: output
@@ -40,16 +74,23 @@ characteristics:
 # tests/test_power.py
 import pytest
 
-class TestPowerBoard:
-    @pytest.mark.parametrize("temperature", [25, 85])
-    @pytest.mark.parametrize("load", [0.5, 1.0])
-    def test_output_voltage(self, temperature, load, dmm, verify, chamber, eload):
-        chamber.set_temperature(temperature)
-        eload.set_current(load)
-        verify("output_voltage", dmm.measure_dc_voltage())
+@pytest.mark.litmus_limits(output_voltage={"characteristic": "output_voltage"})
+@pytest.mark.parametrize("temperature,load", [(25, 0.5), (85, 1.0)])
+def test_output_voltage(temperature, load, dmm, verify, chamber, eload):
+    chamber.set_temperature(temperature)
+    eload.set_current(load)
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`verify` picks the condition row that matches the current parametrize values, resolves limits from the accuracy spec, records `dut_pin="VOUT"` and `spec_ref="output_voltage @ temperature=25, load=0.5"`, and raises `AssertionError` on fail.
+(The two parametrize axes are zipped into one combined axis so every case hits a declared band — the cross-product `{25,85} × {0.5,1.0}` would produce the case `(25, 1.0)` that matches neither band and would still raise `ValueError` even through the marker path. Make your parametrize cover the bands your spec declares.)
+
+`spec_ref` on the recorded row reflects the matched band's conditions in alphabetical order:
+
+```
+spec_ref = "Section 7.2 @ load=0.5, temperature=25"
+```
+
+Per `_build_spec_ref` (`src/litmus/execution/limits.py:152`): `sorted(conditions.items())` → `f"{base} @ {k1=v1}, {k2=v2}"`.
 
 ## Guardband
 
@@ -91,7 +132,9 @@ limits:
 
 ## Condition matching
 
-`verify("output_voltage", v)` uses the current vector's active parameters to pick a matching condition row from the characteristic's `bands:`. The match runs against the row that `context.get_param(...)` would return — i.e. whatever the active `@pytest.mark.parametrize` / `@pytest.mark.litmus_sweeps` row sets. Drive different conditions by adding parametrize axes, not by passing condition kwargs to `verify`.
+When the limit is bound through `@pytest.mark.litmus_limits(<name>={"characteristic": "<char_id>"})` (or sidecar) the resolver reads the active vector params (`get_active_vector_params()` — set per pytest case from `callspec.params`) and selects the first `band` whose `when:` clauses all match. Drive different conditions by adding parametrize / `litmus_sweeps` axes, not by passing condition kwargs to `verify`.
+
+If you call `verify("name", value)` without a `litmus_limits` binding and the characteristic has condition-indexed bands, the resolver falls through to `spec.get_limit(name)` with no conditions and raises `ValueError`. The unconditional-characteristic shortcut in [Minimal example](#minimal-example--unconditional-characteristic) only works because that characteristic has a single band whose empty `when:` matches anything.
 
 ## What ends up in the parquet row
 
@@ -103,8 +146,8 @@ Every `verify` records:
 | `measurement_value` | the `value` arg                                    |
 | `limit_low` / `limit_high` / `limit_nominal` / `measurement_units` | spec characteristic + tolerance |
 | `measurement_outcome` | `passed` / `failed` (lowercase enum value)        |
-| `spec_ref`       | e.g. `"output_voltage @ temperature=25, load=0.5"`    |
-| `dut_pin`        | pins list on the characteristic                       |
+| `spec_ref`       | e.g. `"Section 7.2 @ load=0.5, temperature=25"` (`datasheet_ref` or `"spec"` + conditions sorted alphabetically) |
+| `dut_pin`        | `Product.pins[primary_pin_id].name` (the human pin designator, e.g. `"J1.3"`) |
 | `fixture_connection`  | from the active fixture YAML                          |
 | `instrument_*`   | ambient ContextVars from the driver layer             |
 
