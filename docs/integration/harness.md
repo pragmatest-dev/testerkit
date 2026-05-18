@@ -6,9 +6,10 @@
 
 ## Required collaborators
 
-`TestHarness` writes through a `TestRunLogger`, which writes through the event log. To run outside pytest you wire both up explicitly:
+`TestHarness` writes through a `TestRunLogger`. The logger only persists events to disk when it has an `EventLog` attached. The pytest plugin wires this up automatically (`pytest_plugin/__init__.py:244-250`); outside pytest you do it yourself:
 
 ```python
+from litmus.data.event_store import EventStore
 from litmus.execution.harness import TestHarness
 from litmus.execution.logger import TestRunLogger
 
@@ -16,14 +17,23 @@ logger = TestRunLogger(
     dut_serial="SN12345",
     station_id="bench_1",
     test_phase="characterization",
+    data_dir="data",
 )
 
+# Attach an EventLog so emitted events actually hit disk
+store = EventStore(_data_dir="data")
+logger.event_log = store.get_event_log(logger.test_run.session_id)
+
 harness = TestHarness(logger=logger, step_name="test_output_voltage")
+
+# … iterate vectors, measure, etc.
+
+logger.finalize()   # emit RunEnded + flush; daemon materializes parquet
 ```
 
-`TestRunLogger.__init__` takes the run-level metadata directly (`dut_serial`, `station_id`, `station_name`, `operator_id`, `test_phase`, `product_id`, `data_dir`, etc.) — see `src/litmus/execution/logger.py` for the full keyword list. The `RunContext` Pydantic model is created internally from `TestRun`; you don't construct it.
+`TestRunLogger.__init__` takes the run-level metadata directly (`dut_serial`, `station_id`, `station_name`, `operator_id`, `test_phase`, `product_id`, `data_dir`, etc.) — see `src/litmus/execution/logger.py:387-426` for the full keyword list. The logger constructs a `TestRun` and a `RunContext` (a plain class wrapping `TestRun`, defined at `logger.py:307-339`) for you; you don't construct either.
 
-A harness without a logger still runs, but no events are recorded — useful only for tests-of-tests.
+A harness whose logger has no `event_log` still runs, but **emit calls silently no-op** — every `logger._event_log.emit(...)` site is guarded by `if self._event_log is not None`. Useful for unit-testing the harness loop without persisting; not what you want for a real run. If your data dir stays empty, this is the first thing to check.
 
 ## Constructor signature
 
@@ -107,12 +117,12 @@ harness.measure(
 )
 ```
 
-Limit resolution order (when `limit=` is not passed):
+Limit resolution order (when `limit=` is not passed) per `_resolve_limit` (`harness.py:647-702`):
 
-1. Per-measurement limit in `limits=` constructor arg
-2. `config["limits"][name]` from the config dict
-3. `product_context.get_limit(name)` from the active product spec
-4. None — measurement recorded as unchecked
+1. Per-vector `_limits[name]` if the current vector carries one
+2. Test-level `self._limits[name]` — the constructor's `limits=` kwarg if set, otherwise the entries parsed out of `config["limits"]` at `__init__` time (they're merged, not separate fallbacks)
+3. `product_context.get_limit(name, **vector_params)` — vector params get passed as condition kwargs for SpecBand selection
+4. `None` — measurement recorded as unchecked
 
 Pass a `Limit` object (`from litmus import Limit`) for explicit limits. The sidecar-style dict shape (`{"low": 3.0, "high": 3.6, "units": "V"}`) goes in `config["limits"]`, not as the `limit=` kwarg.
 
@@ -132,7 +142,7 @@ with harness.step(name="measure"):
             harness.measure("output_voltage", float(dmm.measure_dc_voltage()))
 ```
 
-Step boundaries are required when you want measurements grouped under named work; otherwise everything attaches to the top-level `step_name` passed in the constructor.
+A `step()` context manager is required around every measurement. Calling `harness.measure(...)` outside any `step()` block raises — there is no implicit step that gets created from the constructor's `step_name`. (`step_name` is the *default name* used by `harness.run_all(test_fn)`, which opens a step for you.)
 
 ## Operator prompts
 
@@ -144,23 +154,27 @@ harness.prompt(
 )
 ```
 
-`prompt_type` matches the `PromptConfig` shapes from `litmus.models.test_config`: `confirm`, `choice`, `text`, etc.
+`prompt_type` is one of the three values `PromptConfig.prompt_type` accepts (`test_config.py:531` — `Literal["confirm", "choice", "input"]`, default `"confirm"`). No `"text"`; for free-form text input use `"input"`.
 
 ## Hierarchical context
 
-`harness.context` returns the active context (run → step → vector). Each level inherits from its parent and can override locally:
+`harness.context` returns the active `Context` (vector ▸ step ▸ run, most-specific-wins). `harness.run_context` returns the run-level `Context` directly. Each child context inherits from its parent and can override locally.
+
+To stamp stimulus values (→ parquet `in_*` columns), use `configure()`. For environmental readings (→ `out_*` columns), use `observe()`:
 
 ```python
-harness.run_context.set("operator", "jane")           # run scope
-with harness.step():
-    harness.context.set("fixture.id", "FIX-01")       # step scope
+harness.run_context.configure("operator", "jane")            # run scope
+with harness.step(name="measure"):
+    harness.context.configure("fixture.id", "FIX-01")        # step scope
     for vector in harness.vectors:
         with harness.run_vector(vector):
-            harness.context.observe("temp_probe.temperature", 24.8)  # vector scope
+            harness.context.observe("temp_probe.temperature", 24.8)   # vector scope
             harness.measure("output_voltage", float(dmm.measure_dc_voltage()))
 ```
 
-Run-scope fields appear as columns in every Parquet row this run produces. Step- and vector-scope fields appear only on the rows from that scope.
+There is no `Context.set(name, value)` method — the verb pair is `configure` / `observe`. (The `run_context` pytest fixture exposes a *different* class, `RunContext` from `logger.py:307`, which DOES have a `.set()` method that writes to `TestRun.custom_metadata`. Don't confuse the two: `harness.run_context` is a `Context`; the pytest `run_context` fixture is a `RunContext`.)
+
+Run-scope fields appear as columns in every parquet row this run produces. Step- and vector-scope fields appear only on the rows from that scope.
 
 Bulk seeding (useful when you already hold the dict from somewhere else):
 
@@ -169,9 +183,9 @@ harness.context.set_params({"vin": 5.0, "load": 0.5})
 harness.context.set_observations({"temp_probe.temperature": 24.8})
 ```
 
-`set_params` / `set_observations` write the whole dict at once — equivalent to calling `configure(k, v)` / `observe(k, v)` for every key, but skips the per-key validator and lets you reuse a builder dict in one shot. Both are intended for harness setup; tests should still use the per-key methods for clarity.
+`set_params` / `set_observations` are dict-update bulk helpers: equivalent to `configure(k, v)` / `observe(k, v)` for every key with one important asymmetry — `observe()` routes large numeric arrays to the channel store and stashes a `channel://` URI on the row, while `set_observations()` writes whatever you pass directly into `Context._observations` with no channel-store routing. Use `observe()` for waveforms / array readings; use `set_observations()` for plain scalar dicts you've already assembled.
 
-`context.measure(name, value, ...)` is a third option for recording. It is a thin redirect to `harness.measure(...)` that goes through `context._harness`, so you can record without holding a harness reference — useful inside helper functions that already take a `Context`:
+`context.measure(name, value, ...)` (`harness.py:433`) is a third option for recording. It's a thin redirect to `harness.measure(...)` that goes through `context._harness`, so you can record without holding a harness reference — useful inside helper functions that already take a `Context`:
 
 ```python
 def log_voltage(ctx, dmm):
