@@ -1,16 +1,16 @@
 # Query API reference
 
-The Query API is the public read path over Litmus's materialized parquet stores. Every operator page in the NiceGUI UI, every HTTP `GET` under `/api/runs`, `/api/steps`, `/api/measurements`, and every `litmus metrics …` CLI subcommand goes through it. Reach for these classes when you need analytics from Python — they handle DuckDB schema, filtering, and pagination so your code stays in Pydantic models instead of raw SQL.
+The Query API is the public read path over Litmus's materialized parquet stores. The operator-UI results, explore, and metrics pages read through it, the HTTP routes `/api/runs`, `/api/runs/{run_id}/steps`, and `/api/metrics/*` wrap it, and every `litmus metrics …` CLI subcommand goes through it. Reach for these classes when you need analytics from Python — they handle the DuckDB Flight connection, schema, filtering, and pagination so your code stays in Pydantic models instead of raw SQL.
 
-Three classes, one per materialized table. All read through the runs daemon's DuckDB Flight server when one is running, falling back to direct parquet reads otherwise.
+Three classes, one per materialized table. Every call goes through the runs DuckDB Flight daemon; constructing a query client calls `runs_duckdb_manager.acquire()`, which spawns the daemon if it isn't already running and force-restarts it if its Flight server isn't responding (`src/litmus/data/runs_duckdb_manager.py:35-72`).
 
 | Class | Table | Use for |
 |---|---|---|
 | [`RunsQuery`](#runsquery) | `runs` (one row per run) | Recent runs, per-run summary, run-level filters (phase, product, station, lot, outcome, date range) |
-| [`StepsQuery`](#stepsquery) | `steps` (one row per pytest item × vector) | Step-level results, per-run step list, step-tree views, failure pareto by step |
-| [`MeasurementsQuery`](#measurementsquery) | `measurements` (one row per measurement) | Yield, Cpk, retest rates, parametric histograms, time-loss analytics |
+| [`StepsQuery`](#stepsquery) | `steps` (one row per pytest item × vector, plus container rows for class- and module-scoped step paths) | Step-level results, per-run step list, step-tree views, failure pareto by step |
+| [`MeasurementsQuery`](#measurementsquery) | `measurements` view | Yield, Cpk, retest rates, parametric histograms, time-loss analytics |
 
-Open one with no args to read the active project's data dir; pass `_data_dir=<path>` to point elsewhere. Always close it (the daemon ref counts open clients):
+Open one with no args to read the active project's data dir — resolution is `_data_dir=<path>` arg → project `litmus.yaml` → `LITMUS_HOME` env → `platformdirs.user_data_dir("litmus")` (`src/litmus/data/data_dir.py`). Pass `_data_dir=<path>` to point elsewhere. Always close it (the daemon ref-counts open clients):
 
 ```python
 from litmus.analysis.runs_query import RunsQuery
@@ -222,20 +222,23 @@ Drop to DuckDB when you need to:
 - aggregate at granularities the Query API doesn't expose;
 - script ad-hoc analytics where a Python class is overhead.
 
+There is no separate `measurements/` directory — measurement rows live in the same per-run parquet files as run-level and step rows, discriminated by the `record_type` column (`'run'` / `'step'` / `'measurement'`). The on-disk layout is `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet` (`src/litmus/data/backends/parquet.py:193-194`).
+
 ```python
 import duckdb
 
-# Bypass the Query API for a one-off join
+# Bypass the Query API for a one-off aggregation
 duckdb.sql("""
-    SELECT r.dut_part_number, COUNT(*) AS fails
-    FROM read_parquet('data/runs/**/*.parquet') r
-    JOIN read_parquet('data/measurements/**/*.parquet') m
-      ON r.run_id = m.run_id
-    WHERE m.outcome = 'failed'
+    SELECT dut_part_number, COUNT(*) AS fails
+    FROM read_parquet('data/runs/**/*.parquet')
+    WHERE record_type = 'measurement'
+      AND outcome = 'failed'
     GROUP BY 1
     ORDER BY 2 DESC
 """).df()
 ```
+
+For schema column names, see [parquet-schema.md](parquet-schema.md). The `record_type` discriminator is what lets one file carry the runs / steps / measurements rows.
 
 ## See also
 
