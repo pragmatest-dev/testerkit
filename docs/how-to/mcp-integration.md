@@ -151,7 +151,7 @@ result = litmus_project(action="init", path="~/my-hardware-tests")
 project = result["project_root"]
 ```
 
-Creates the project skeleton: `pyproject.toml`, `litmus.yaml`, `conftest.py`, and the entity directories (`products/`, `stations/`, `fixtures/`, `tests/`, `catalog/`).
+Creates the project skeleton: `pyproject.toml`, `litmus.yaml`, `conftest.py`, and the directories `products/`, `stations/`, `fixtures/`, `instruments/`, `tests/`, `results/`, `reports/` (`bringup` tier only creates `tests/`, `results/`, `reports/`).
 
 After this, **you** (the human) need to drop to a terminal and run `uv sync` to install dependencies. The AI assistant cannot do this for you — running shell commands requires explicit user action.
 
