@@ -106,7 +106,7 @@ tests:
         units: V
 ```
 
-Top-level keys must be [SidecarConfig fields](../reference/configuration.md#test-configuration) (`limits`, `sweeps`, `mocks`, `prompts`, `retry`, `connections`, `characteristics`, `tests`, `runner`). A test name at the YAML root fails Pydantic validation with `extra="forbid"`.
+Top-level keys must be [SidecarConfig fields](../reference/configuration.md#sidecar-yaml) (`limits`, `sweeps`, `mocks`, `prompts`, `retry`, `connections`, `characteristics`, `tests`, `runner`). A test name at the YAML root fails validation because the model rejects unknown keys.
 
 ## Four ways to mix Litmus in
 
@@ -170,10 +170,10 @@ with harness.step("test_power_rails"):
     harness.measure("vdd", vdd, limit=Limit(low=1.7, high=1.9, units="V"))
 ```
 
-`TestHarness.measure()` takes `name`, `value`, optional `units`, `limit` (a `Limit` model — no `low=` / `high=` kwargs), `dut_pin`, `instrument_channel`, `fixture_connection`. Limits resolve from `harness.limits` config or the explicit `limit=` argument.
+`TestHarness.measure()` takes `name`, `value`, optional `units`, `limit` (a `Limit` model — no `low=` / `high=` kwargs), `dut_pin`, `instrument_channel`, `fixture_connection`. When `limit=` is not passed, the harness resolves limits from its `limits=` / `config["limits"]` (whichever you provided at construction) and the active `product_context`; see [integration/harness.md → Recording measurements](harness.md#recording-measurements).
 
 - Pros: the most direct way to drive Litmus from non-pytest Python (Robot Framework, unittest, ad-hoc scripts).
-- Trade-off: don't construct `TestRunLogger` at module-import time — its `__init__` opens an event log, captures environment, and notifies the daemon. That work belongs in a session-start hook or a `setup_module` / `pytest_sessionstart` handler, not at import.
+- Trade-off: don't construct `TestRunLogger` at module-import time — its `__init__` captures git state and the hostname for the `TestRun` record, and you'd rather that snapshot happen at session start, not module load. Open the event log explicitly afterward (`logger.event_log = store.get_event_log(...)`) so it lines up with the session boundary. That work belongs in a session-start hook or `pytest_sessionstart`, not at import.
 - Trade-off: in a pytest project where the plugin is loaded, the autouse `logger` fixture already does this work for you. Path C is for the non-pytest case.
 
 See [test harness](harness.md) for the imperative-runner integration guide.
@@ -291,7 +291,7 @@ pytest tests/ --station=bench_1 --dut-serial=SN001
       --test-phase=development
 ```
 
-For CI, the simplest setup is a `stations/ci_station.yaml` whose every instrument has `mock: true`. With `--mock-instruments`, the platform substitutes `Mock(driver_class, **mock_config)` for each instrument and your driver class is never instantiated. See [mock mode](../how-to/mock-mode.md) for the details.
+For CI, the simplest setup is a `stations/ci_station.yaml` whose every instrument has `mock: true`. With `--mock-instruments`, the platform substitutes a stand-in for each instrument that returns the values listed in `mock_config:`; your driver class is never instantiated, `connect()` is never called. See [mock mode](../how-to/mock-mode.md) for the details.
 
 ### Production
 
