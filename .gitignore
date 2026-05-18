@@ -27,3 +27,10 @@ litmus/skills/refs/
 # models in src/litmus/models/. Don't commit snapshots.
 /schemas/
 .benchmarks/
+
+# Local databases and env files
+*.duckdb
+*.duckdb.wal
+.env
+.env.local
+.env.*.local
