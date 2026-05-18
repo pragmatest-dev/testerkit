@@ -20,7 +20,7 @@ The infrastructure pieces a hardware-test team needs whether they're running pyt
 ## What Litmus does not provide
 
 - **A test execution engine.** Litmus delegates to pytest for new projects; non-pytest runners (LabVIEW / TestStand bridges, hand-written loops, etc.) use [`LitmusClient`](../reference/client.md) to submit results.
-- **Instrument drivers.** Bring your own — PyMeasure, PyVISA, vendor libraries, or your own classes derived from `litmus.instruments.Instrument` / `VisaInstrument`. See [custom drivers](../how-to/custom-drivers.md).
+- **Instrument drivers.** Bring your own — PyMeasure, PyVISA, vendor libraries, or your own classes derived from `Instrument` / `VisaInstrument` (importable from `litmus.instruments.base` and `litmus.instruments.visa` respectively). See [custom drivers](../how-to/custom-drivers.md).
 
 ## Multiple Entry Points
 
