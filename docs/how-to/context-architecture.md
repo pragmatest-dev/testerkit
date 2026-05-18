@@ -59,7 +59,7 @@ Three properties surface the entities that are active for this test.
 
 ```python
 def test_serial_stamp(self, context, verify):
-    serial = context.run.dut.serial            # str or None
+    serial = context.run.dut.serial            # str (DUT.serial is required); context.run itself is None outside a run
     verify("serial_present", bool(serial))
 ```
 
@@ -125,10 +125,15 @@ Reach for `get_limit` when test logic needs to *react* to a limit's numbers — 
 ```python
 def test_adaptive(self, context, dmm, verify):
     limit = context.get_limit("output_voltage")
-    samples = 10 if limit and limit.tolerance < 0.05 else 5
+    # Take more samples when the spec window is tight (< 5% of nominal).
+    tight = limit is not None and limit.low is not None and limit.high is not None \
+        and limit.nominal is not None and (limit.high - limit.low) < 0.05 * limit.nominal
+    samples = 10 if tight else 5
     readings = [dmm.measure_dc_voltage() for _ in range(samples)]
     verify("output_voltage", sum(readings) / len(readings))
 ```
+
+`Limit` carries `low`, `high`, `nominal`, `units`, `comparator`, `characteristic_id`, `spec_ref` (`src/litmus/models/test_config.py:233-254`) — no `tolerance` attribute; derive what you need from those fields.
 
 `get_limit` returns `None` when no limit is defined for that name. For applying limits to measurements, just pass `limit=...` to `verify` — the resolver runs there automatically.
 
@@ -136,13 +141,27 @@ See [Limits](limits.md) for limit resolution order and [Spec-driven testing](spe
 
 ## Iterate active fixture connections
 
-When the test declares `@pytest.mark.litmus_characteristics([...])` or `@pytest.mark.litmus_connections(...)`, `context.connections` yields a `FixtureConnection` per active wiring. Iterating activates per-connection state (routing, the active-characteristic ContextVar) so `verify` stamps traceability correctly.
+When the test declares `@pytest.mark.litmus_characteristics([...])` or `@pytest.mark.litmus_connections(...)`, `context.connections` is a `ConnectionIterator` over the active wirings. Iterating it pushes per-connection state into ContextVars — the active connection (so drivers route correctly) and the active characteristic (so `verify` stamps `characteristic_id` automatically):
 
 ```python
 @pytest.mark.litmus_characteristics(["rail_3v3", "rail_5v"])
 def test_all_rails(self, context, dmm, verify):
-    for conn in context.connections:
-        verify(f"{conn.characteristic}.voltage", dmm.measure_dc_voltage())
+    for _conn in context.connections:
+        # active characteristic is pushed by the iterator — verify reads it
+        # via the _active_characteristic_var ContextVar and stamps it on the row.
+        verify("voltage", dmm.measure_dc_voltage())
+```
+
+`FixtureConnection` (`src/litmus/models/test_config.py:366-425`) carries `name`, `instrument`, `instrument_channel`, `instrument_terminal`, `dut_pin`, `net`, `function`, `route` — it does NOT carry `characteristic`. The char→connection mapping lives privately on `ConnectionIterator._conn_to_char` (`src/litmus/execution/connections.py:66`) and surfaces only through the active-char ContextVar that iteration pushes.
+
+To run a verification per characteristic when there are multiple, scope iteration with `for_characteristic`:
+
+```python
+@pytest.mark.litmus_characteristics(["rail_3v3", "rail_5v"])
+def test_all_rails(self, context, dmm, verify):
+    for char_id in context.characteristics:
+        for _conn in context.connections.for_characteristic(char_id):
+            verify(f"{char_id}.voltage", dmm.measure_dc_voltage())
 ```
 
 If the test declares connections but never iterates, the autouse cleanup raises — silent skips are worse than errors. The `connections` fixture is also available as a direct argument when you'd rather not reach through `context`.
