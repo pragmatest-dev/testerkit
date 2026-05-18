@@ -262,9 +262,11 @@ litmus setup copilot           # GitHub Copilot (VS Code + CLI)
 
 When you're ready to move from mocks to real instruments, see [From Mocks to Hardware](from-mocks-to-hardware.md). It covers discovering instruments, creating a real station config, and common troubleshooting.
 
+[Step 1: Run Something →](01-first-test.md)
+
 ## Next Steps
 
+- [Tutorial index](index.md) — full step-by-step path (recommended next)
 - [Core Concepts](../concepts/index.md) — Understand products, stations, and capabilities
 - [Writing Tests](../how-to/writing-tests.md) — Patterns and best practices
 - [Configuration Reference](../reference/configuration.md) — YAML schema details
-- [Tutorial](index.md) — Step-by-step learning path

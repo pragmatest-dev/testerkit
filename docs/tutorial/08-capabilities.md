@@ -232,8 +232,8 @@ This tells you: add a current measurement instrument to test this product.
 - Using the matcher API (Python, HTTP)
 - Interpreting missing capability results
 
-## Next Step
+## Continue
 
 Put it all together for production-ready testing.
 
-[Step 9: Production Ready →](09-production.md)
+← [Step 7: Real Instruments](07-real-instruments.md)  |  [Step 9: Production Ready →](09-production.md)

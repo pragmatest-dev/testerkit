@@ -182,9 +182,7 @@ cut, the following invariants hold and the project must not break them:
   read from JSON and don't depend on the index column set.
 
 Breaking event-shape changes (renaming, removing, type-narrowing
-required fields) defer to the 1.0 cut. See
-[API stability framing](../_internal/explorations/api-stability-and-versioning.md)
-for the broader HARD vs SOFT picture.
+required fields) defer to the 1.0 cut.
 
 ## See Also
 

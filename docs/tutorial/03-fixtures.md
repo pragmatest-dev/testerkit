@@ -187,8 +187,8 @@ Full schema in [Parquet storage schema](../reference/parquet-schema.md).
 - Pytest classes group related tests; methods run in source order
 - Parametrize works as it always does; values land in `in_*` columns
 
-## Next Step
+## Continue
 
 So far you've been passing `limit=` inline on every `verify` call. Step 4 separates the limit shape from the test code.
 
-[Step 4: Add Limits →](04-limits.md)
+← [Step 2: Mock Instruments](02-mock-instruments.md)  |  [Step 4: Add Limits →](04-limits.md)

@@ -2,6 +2,8 @@
 
 Visualize test results, events, and instrument channel data with pre-built Grafana dashboards.
 
+> **Prerequisites.** A running Grafana instance (8.x or later, with the built-in PostgreSQL datasource). `litmus` installed with the Grafana extras (`uv pip install 'litmus[grafana]'`). At least one run already recorded under `data/` — empty stores render empty dashboards.
+
 ## Overview
 
 Litmus ships 10 Grafana dashboards that query all three data stores:

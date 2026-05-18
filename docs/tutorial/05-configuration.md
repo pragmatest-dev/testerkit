@@ -180,8 +180,8 @@ This uses `pytest-rerunfailures` (already a Litmus dependency).
 - Using `context.changed()` for outer-loop detection
 - Retries via `@pytest.mark.flaky`
 
-## Next Step
+## Continue
 
 Where do these limit values come from? Let's link them to product specifications.
 
-[Step 6: Product Specifications →](06-specifications.md)
+← [Step 4: Add Limits](04-limits.md)  |  [Step 6: Product Specifications →](06-specifications.md)

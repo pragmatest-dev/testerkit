@@ -100,6 +100,8 @@ curl "http://localhost:8000/api/channels/scope.ch1?max_points=500"
 4. The UI subscribes via `EventStore.on_event()` and receives events in real time
 5. Channel data flows to `ChannelStore` with LTTB (Largest Triangle Three Buckets) decimation — a downsampling algorithm that preserves visual peaks — for display
 
+← [Step 9: Production Ready](09-production.md)  |  [Tutorial index](index.md)
+
 ## Next Steps
 
 - [Event Log Architecture](../concepts/event-log.md) — How events work

@@ -81,8 +81,8 @@ The point of the wrap-in-conftest pattern: **the test code is the same on a lapt
 
 In later steps you'll lift this conftest conditional into station YAML (step 7) so the same setup serves a whole bench of tests. For now, conftest is enough.
 
-## Next Step
+## Continue
 
 Now let's adopt three of [Litmus's per-test fixtures](../reference/litmus-fixtures.md) — `context`, `verify`, `logger` — to start recording measurements with limits.
 
-[Step 3: pytest-native tests →](03-fixtures.md)
+← [Step 1: Run Something](01-first-test.md)  |  [Step 3: pytest-native tests →](03-fixtures.md)

@@ -4,6 +4,8 @@ Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP
 
 Full per-tool reference: [api.md → MCP tools](../reference/api.md#mcp-tools). This page is the operational how-to.
 
+> **Prerequisites.** `litmus` installed and on `$PATH` (`uv pip install litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, real or mock instruments configured in `stations/`.
+
 ## Setup
 
 `litmus setup <client>` writes the right MCP config file for each supported client. All commands accept `--print-only` to show the config that would be written without modifying anything on disk.

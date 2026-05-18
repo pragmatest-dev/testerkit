@@ -203,8 +203,8 @@ pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SI
 - Per-test mock values with `mocks` in the sidecar YAML
 - VISA address formats
 
-## Next Step
+## Continue
 
 How does Litmus know which station can test which product?
 
-[Step 8: Capability Matching →](08-capabilities.md)
+← [Step 6: Product Specifications](06-specifications.md)  |  [Step 8: Capability Matching →](08-capabilities.md)

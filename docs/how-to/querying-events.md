@@ -2,6 +2,8 @@
 
 Three ways to query events: MCP tool (AI agents), HTTP API (any client), or Python (in-process).
 
+> **Prerequisites.** Events already written under `<data_dir>/events/` — every Litmus test run writes events automatically; empty stores return empty lists, not errors. For the HTTP path, `litmus serve` must be running. For the Python path, only `litmus` itself.
+
 ## MCP Tool: `litmus_events`
 
 ```

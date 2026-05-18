@@ -12,7 +12,7 @@ TestRun                              ← one per pytest session
             └── Measurement          ← one per `logger.measure` / `verify` call
 ```
 
-Each level emits its own event in the run log. Each level rolls its outcome up to the next level via the severity-max ladder (see [Outcomes](outcomes.md)).
+Each level emits its own event in the run log. Each level rolls its outcome up to the next level via the severity-max ladder (see [Outcomes](outcomes.md)). `verify` and `logger.measure` are pytest [fixtures](../reference/litmus-fixtures.md); `vectors` is the [self-loop fixture](../how-to/vector-expansion.md).
 
 ## What each level is
 

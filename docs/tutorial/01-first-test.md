@@ -142,8 +142,8 @@ source .venv/bin/activate  # Linux/Mac
 - How to run tests with pytest
 - Basic project structure for Litmus tests
 
-## Next Step
+## Continue
 
 Now let's make the test actually do something useful.
 
-[Step 2: Mock Instruments →](02-mock-instruments.md)
+← [Quick Start](00-quickstart.md)  |  [Step 2: Mock Instruments →](02-mock-instruments.md)

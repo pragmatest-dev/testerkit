@@ -141,8 +141,8 @@ For [condition-indexed bands](../how-to/limits.md#condition-indexed-bands) (diff
 - The `Outcome` ladder and what each value means
 - The `Comparator` enum for non-`GELE` checks
 
-## Next Step
+## Continue
 
 Move the limits out of code and into a YAML file next to your test.
 
-[Step 5: Test Configuration →](05-configuration.md)
+← [Step 3: pytest-native tests](03-fixtures.md)  |  [Step 5: Test Configuration →](05-configuration.md)

@@ -253,7 +253,7 @@ erDiagram
 | Where to test | `StationType` | `StationConfig` |
 | What to run | `SidecarConfig` (file scope) + pytest collection | `TestRun` |
 | Single iteration | `TestEntry` (per-method scope) | `TestVector` |
-| Expected value | `Limit` / `SpecBand` | `Measurement` |
+| Expected value | [`Limit`](../reference/models.md#model-limit) / [`SpecBand`](../reference/models.md#model-specband) | [`Measurement`](../reference/models.md#model-measurement) |
 
 ## Core Flows
 

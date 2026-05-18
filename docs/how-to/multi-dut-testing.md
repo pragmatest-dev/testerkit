@@ -2,6 +2,8 @@
 
 Litmus supports parallel testing of multiple DUTs (Devices Under Test) using a subprocess-per-slot architecture. Each DUT slot runs in its own process with isolated environment, while shared instruments are served centrally via an `InstrumentServer` (an internal RPC server that lets multiple test workers share one physical instrument).
 
+> **Prerequisites.** Single-DUT tests already working against your station — multi-DUT is a layer on top, not a replacement (see [tutorial step 7](../tutorial/07-real-instruments.md)). A fixture YAML defining at least two slots (template in this page). Instruments that can be channel-shared or one physical instrument per slot.
+
 ## Creating a Multi-Slot Fixture
 
 Define slots in your [fixture YAML](../concepts/fixtures.md). Each slot represents one DUT position:

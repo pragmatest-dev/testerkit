@@ -2,6 +2,8 @@
 
 Derive test limits and [traceability](traceability.md) from the [product specification](../concepts/products.md). The `verify` fixture resolves the limit, DUT pin, and spec reference automatically from the active `product_context` (a [`ProductContext`](../concepts/products.md) — the loaded-product container exposed to tests) — you just call `verify(name, value)`.
 
+> **Prerequisites.** A `products/<id>.yaml` file with at least one characteristic (see [tutorial step 6](../tutorial/06-specifications.md)). The session must be started with `--product=<id>` (or `--product=<path>`) so the product context is active. Limits also flow from sidecar YAML / markers / profiles — this page focuses on the product-spec path.
+
 ## The workflow
 
 1. Define the product YAML with typed characteristics, pins, and operating conditions
@@ -116,6 +118,8 @@ No manual threading of traceability fields — they're injected by the plugin.
 | Procedure-only measurement (no product characteristic) | `logger.measure("startup_time", t, ...)` |
 | Dynamic limit from conditions                          | Callable limit via marker / sidecar     |
 | No limits, data collection only                        | `logger.measure(...)` with no limits    |
+
+`verify` raises `MissingLimitError` (from `litmus.execution.verify`) when none of the resolution sources — markers, sidecar, profile, or product spec — produce a limit for the named measurement. This is intentional: a `verify` call with no spec is a config bug, not a silent "unchecked" recording. Use `logger.measure` for characterization sweeps where unchecked rows are the point.
 
 ## See also
 

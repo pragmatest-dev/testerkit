@@ -174,6 +174,12 @@ logger.measure("thermal_resistance", measure_rtheta())   # recorded, unchecked
 
 Values show up in the parquet output for post-hoc analysis.
 
+### `MissingLimitError` — why `verify` won't fall through to "unchecked"
+
+`verify` is judgment-bearing — calling it with no resolvable limit raises `litmus.execution.verify.MissingLimitError` rather than silently recording the value. The error message lists the resolution chain that was checked (markers → sidecar → spec) so the missing source is obvious.
+
+If you genuinely want to record without judging, use `logger.measure(name, value)` instead — it stamps the row as `Outcome.DONE` and never raises on missing limits. The two methods divide cleanly: `verify` if a pass/fail decision belongs on the row, `logger.measure` if not.
+
 ## Best practices
 
 1. **Prefer `verify(name, v)`** when a product spec exists — limits, DUT pin, and `spec_ref` all flow automatically

@@ -68,7 +68,7 @@ Because Litmus is a platform, you can access it through multiple entry points:
 
 | Entry Point | Use Case | How It Works |
 |-------------|----------|--------------|
-| **pytest** | New test development | pytest-native: `context`, `verify`, `logger` fixtures |
+| **pytest** | New test development | pytest-native: [`context`](../how-to/context-architecture.md), `verify`, `logger` [fixtures](../reference/litmus-fixtures.md) |
 | **CLI** | Operations, debugging | `litmus runs`, `litmus show` |
 | **HTTP API** | CI/CD, dashboards | `POST /api/runs`, `GET /api/runs/{id}` |
 | **MCP Server** | AI integration | Claude Code, other AI agents |

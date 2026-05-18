@@ -11,6 +11,8 @@ Both produce identical rows on PASS. They differ only on FAIL:
 
 Rule of thumb: _would a fail here stop the line?_ → `verify`. Else → `logger.measure`.
 
+`verify` also raises `MissingLimitError` (from `litmus.execution.verify`) when no limit can be resolved for the measurement — markers, sidecar, profile, and product spec are all checked, and an empty result is a config bug rather than an "unchecked" path. Switch to `logger.measure` if you intentionally want to record a value without judging it.
+
 ## The core per-test fixtures
 
 | Fixture   | Role                                         | Typical verbs |

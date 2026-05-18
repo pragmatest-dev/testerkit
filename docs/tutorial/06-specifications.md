@@ -265,8 +265,8 @@ Every measurement can be traced back to the original specification.
 - Guardbanding for production margins
 - Traceability from spec to test results
 
-## Next Step
+## Continue
 
 Now let's connect to real instruments.
 
-[Step 7: Real Instruments →](07-real-instruments.md)
+← [Step 5: Test Configuration](05-configuration.md)  |  [Step 7: Real Instruments →](07-real-instruments.md)

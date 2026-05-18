@@ -338,6 +338,8 @@ Spec: output_voltage @ tolerance=5%
 
 You've completed the tutorial. You now have a foundation for production hardware testing with Litmus.
 
+← [Step 8: Capability Matching](08-capabilities.md)  |  [Step 10: Live Monitoring →](10-live-monitoring.md)
+
 ## Next Steps
 
 - [API Reference](../reference/api.md) — MCP tools and HTTP endpoints

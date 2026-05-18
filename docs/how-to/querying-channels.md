@@ -2,6 +2,8 @@
 
 Channel data stores time-series instrument readings — waveforms, voltage traces, temperature logs. Query it via MCP tool, HTTP API, or Python.
 
+> **Prerequisites.** Channel data already written under `<data_dir>/channels/` — drivers that write to the [channel store](../concepts/three-stores.md) via `context.observe()` or via instrument-proxy traffic. Empty stores return empty lists, not errors. For the HTTP path, `litmus serve` must be running.
+
 ## MCP Tool: `litmus_channels`
 
 ```
