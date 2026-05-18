@@ -6,7 +6,7 @@ For worked recipes (one per recurring datasheet shape), see the [catalog cookboo
 
 **Status:** Frozen at `CATALOG_SCHEMA_VERSION = "1.0"` for the 0.1.0 release. Schema evolution within `1.0` is additive only — new optional fields and new enum values are allowed; renames, removals, and type narrowing require a version bump.
 
-Source of truth: `src/litmus/models/capability.py` and `src/litmus/models/catalog.py`.
+For the full Pydantic model surface backing every field below, see [models reference](models.md#catalog-entry--litmusmodelscatalog).
 
 ## File shape
 
@@ -53,11 +53,11 @@ Field reference — `InstrumentCatalogEntry`:
 | `driver` | `str \| None` | no | Dotted path used as default when a station omits `driver:` |
 | `interfaces` | `list[str]` | no | |
 | `form_factor` | `str \| None` | no | |
-| `channels` | `dict[str, ChannelTopology]` | no | Every channel referenced in `capabilities[].channels` must appear here |
+| `channels` | `dict[str, ChannelTopology]` | no | List every channel that the capabilities below reference. Not enforced at load time — typos resolve to an empty channel and quietly fail at runtime. |
 | `attributes` | `dict[str, Attribute]` | no | Board-level facts that don't belong to a single capability |
 | `capabilities` | `list[InstrumentCapability]` | no | The measurement and source functions this model can do |
 
-Unknown root-level keys are rejected (`extra="forbid"`).
+Unknown root-level keys are rejected at load time.
 
 ## Decision tree — where does this datasheet spec go?
 
@@ -126,7 +126,7 @@ signals:
 
 **`AccuracySpec`** — `pct_reading`, `pct_range`, `absolute`, `units` (optional; only when the absolute term's units differ from the signal's, e.g. dB on a percent-range signal).
 
-**`ResolutionSpec`** — `bits`, `digits`, `value`, `units` (use exactly one of `bits`, `digits`, `value`).
+**`ResolutionSpec`** — `bits`, `digits`, `value`, `units`. Pick one of `bits` / `digits` / `value` to describe how the instrument quantizes — combining them isn't validated but isn't meaningful either.
 
 ### conditions — operating conditions that affect accuracy
 
@@ -182,7 +182,7 @@ attributes:
         value: 0.0001
 ```
 
-Each `Attribute` must carry exactly one of `value` (numeric or string), `range` (min/max), or `options` (enumerated list) — *or* it may carry only `bands` when every value is condition-dependent. Validator: `Attribute._require_value_range_or_options`.
+Each `Attribute` must carry exactly one of `value` (numeric, string, or bool), `range` (min/max), or `options` (enumerated list) — *or* it may carry only `bands` when every value is condition-dependent. Combining more than one of `value` / `range` / `options` raises a validation error at load time.
 
 ### Board-level `attributes:` (file root)
 
@@ -223,7 +223,7 @@ bands:
     accuracy: {pct_reading: 0.05}
 ```
 
-**`when:` keys** must reference a name in `signals`, `conditions`, or `controls` on the *same capability*. Unknown keys raise `ValueError` and the file fails to load (validator: `Capability._validate_band_when_keys` in `src/litmus/models/capability.py`).
+**`when:` keys** must reference a name in `signals`, `conditions`, or `controls` on the *same capability*. Unknown keys raise `ValueError` and the file fails to load.
 
 **`when:` values** — pick by what you need to express:
 
@@ -239,7 +239,7 @@ bands:
 
 When a `RangeSpec` / `PointSpec` / `ListSpec` `when:` value omits `units:`, the validator copies them from the sibling whose `range.units` the key references. Bare scalars and lists carry no units — only use them when the sibling units are unambiguous.
 
-Multiple `when:` keys are ANDed (every clause must match). An empty `when: {}` is unconditional and always applies. See `band_matches()` in `src/litmus/models/capability.py` for the matching logic.
+Multiple `when:` keys are ANDed (every clause must match). An empty `when: {}` is unconditional and always applies.
 
 ## `qualifier` — calibration confidence
 
@@ -252,7 +252,6 @@ Multiple `when:` keys are ANDed (every clause must match). An empty `when: {}` i
 | `nominal` | Design target, not individually tested |
 | `supplemental` | Informational, not warranted |
 
-Source: `SpecQualifier` in `src/litmus/models/capability.py`.
 
 ```yaml
 signals:
@@ -267,7 +266,7 @@ signals:
 
 ## `MeasurementFunction` enum {#measurementfunction-enum}
 
-Pick the **most specific** value the datasheet supports. Source: `MeasurementFunction` in `src/litmus/models/enums.py` — read the file for the full set (50+ values across DC, AC, RF, optical, environmental, motion).
+Pick the **most specific** value the datasheet supports. See [`MeasurementFunction` in the models reference](models.md#enum-measurementfunction) for the full set (50+ values across DC, AC, RF, optical, environmental, motion).
 
 Common mistakes:
 
@@ -296,11 +295,11 @@ channels:
     optional: false                      # true = not present on all configurations
 ```
 
-Enums (all in `src/litmus/models/enums.py`):
+Allowed enum values (see [enums in the models reference](models.md#enum-terminalrole) for the full lists):
 
-- **`TerminalRole`** — `hi`, `lo`, `sense_hi`, `sense_lo`, `guard`, `signal`, `trigger`, …
-- **`ConnectorType`** — `bnc`, `binding_post`, `dsub`, `usb`, `lan`, `gpib`, …
-- **`GroundTopology`** — `floating`, `shared`, `earth`
+- **terminals** — `hi`, `lo`, `sense_hi`, `sense_lo`, `guard`, `ground`, `signal`, `trigger`, plus the four-wire impedance roles `hcur`, `hpot`, `lcur`, `lpot`.
+- **connector** — physical connector at the chassis: `binding_post`, `banana`, `bnc`, `sma`, `smb`, `triax`, `terminal_block`, `screw_terminal`, `dsub`, `d_sub_9`, `d_sub_15`, `vhdci`, `phoenix`, `tekvpi`, `pxi`, `spring`, `probe`, `apc_3.5`, `type_n`, `k_2.4mm`, `v_1.85mm`, `proprietary`. (Bus / control interfaces — `usb`, `lan`, `gpib` — belong in the file-root `interfaces:` field, NOT in `connector:`.)
+- **ground** — `floating`, `shared`, `earth`.
 
 ## Variants (option codes) {#variants-option-codes}
 
@@ -331,7 +330,9 @@ capabilities:
       power: {range: {min: -20, max: 25, units: dBm}}   # higher output, same shape
 ```
 
-`base:` resolution searches the same directory first, then the catalog root. Circular inheritance and missing-base references raise `ValueError`. Source: `_load_with_inheritance` in `src/litmus/store.py`.
+`base:` resolution searches the same directory first, then the catalog root. Circular inheritance and missing-base references raise `ValueError` at load time.
+
+**What `base:` merges and what it replaces:** capabilities (matched by `(function, direction)` key) deep-merge — variant entries only need to declare the deltas inside matching signals/conditions/controls/attributes. Root-level dicts (`channels:`, `interfaces:`, `attributes:`) and root-level scalars (`type:`, `model:`, etc.) are *replaced wholesale* by the variant if present, *inherited* from the base otherwise. So a variant that needs one extra channel must redeclare all the channels, not just the new one.
 
 ## Same quantity, different roles
 
@@ -360,7 +361,7 @@ print(f'OK: {entry.manufacturer} {entry.model} — {len(entry.capabilities)} cap
 "
 ```
 
-Pydantic raises `ValidationError` with the offending field path on type or shape mismatches, and `ValueError` from `Capability._validate_band_when_keys` on unknown `SpecBand` `when:` keys or namespace overlap across `signals` / `conditions` / `controls`.
+The loader raises with the offending field path on type / shape mismatches (extra keys, wrong type, missing required field), and on the semantic checks: unknown `SpecBand` `when:` keys, or a name appearing in more than one of `signals` / `conditions` / `controls` on the same capability.
 
 ## Comments policy
 
