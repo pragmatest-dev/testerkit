@@ -42,13 +42,13 @@ def test_output_voltage(dmm, verify):
 
 `verify` resolves the limit (3.3 V ± 5 % → 3.135..3.465), records the row, and raises `LimitFailure` on fail. The recorded fields:
 
-- `dut_pin = "J1.3"` — `ProductContext` copies it from `Product.pins[primary_pin_id].name` (`src/litmus/products/context.py:160`), not the pin dict-key.
-- `spec_ref = "Section 7.2"` — built from `characteristic.datasheet_ref` (or the literal string `"spec"` when `datasheet_ref` is absent); see `_build_spec_ref` at `src/litmus/execution/limits.py:148-154`.
+- `dut_pin = "J1.3"` — copied from the pin's `name:` field (the human designator), not from the dict key (`VOUT`) you reference it by.
+- `spec_ref = "Section 7.2"` — built from the characteristic's `datasheet_ref:`. When `datasheet_ref:` is absent, the literal string `"spec"` is used instead.
 - `characteristic_id = "output_voltage"` — the dict key under `characteristics:`.
 
 ## Condition-indexed example — when accuracy varies with operating point
 
-When a characteristic's bands have `when:` clauses (different accuracy bands per temperature / load / etc.), `verify("name", value)` alone won't pick the right band. The bare `spec.get_limit(name)` call inside the verify chain doesn't forward your active vector params to the band matcher, so condition-indexed lookups raise `ValueError` ("No spec band matches: …").
+When a characteristic's bands have `when:` clauses (different accuracy bands per temperature / load / etc.), `verify("name", value)` on its own won't pick the right band. The product-spec-only path inside `verify` doesn't forward your active sweep params to the band matcher, so condition-indexed lookups raise `ValueError` ("No spec band matches: …").
 
 Bind through `@pytest.mark.litmus_limits` (or sidecar) using `characteristic:`. That route reads the active vector params, picks the matching band, and passes the limit back to `verify`:
 
@@ -84,13 +84,13 @@ def test_output_voltage(temperature, load, dmm, verify, chamber, eload):
 
 (The two parametrize axes are zipped into one combined axis so every case hits a declared band — the cross-product `{25,85} × {0.5,1.0}` would produce the case `(25, 1.0)` that matches neither band and would still raise `ValueError` even through the marker path. Make your parametrize cover the bands your spec declares.)
 
-`spec_ref` on the recorded row reflects the matched band's conditions in alphabetical order:
+`spec_ref` on the recorded row reflects the matched band's conditions in **alphabetical order by key**:
 
 ```
 spec_ref = "Section 7.2 @ load=0.5, temperature=25"
 ```
 
-Per `_build_spec_ref` (`src/litmus/execution/limits.py:152`): `sorted(conditions.items())` → `f"{base} @ {k1=v1}, {k2=v2}"`.
+(The base — `"Section 7.2"` — comes from the characteristic's `datasheet_ref:` and the conditions are appended after `@`, alphabetized.)
 
 ## Guardband
 
@@ -132,9 +132,9 @@ limits:
 
 ## Condition matching
 
-When the limit is bound through `@pytest.mark.litmus_limits(<name>={"characteristic": "<char_id>"})` (or sidecar) the resolver reads the active vector params (`get_active_vector_params()` — set per pytest case from `callspec.params`) and selects the first `band` whose `when:` clauses all match. Drive different conditions by adding parametrize / `litmus_sweeps` axes, not by passing condition kwargs to `verify`.
+When the limit is bound through `@pytest.mark.litmus_limits(<name>={"characteristic": "<char_id>"})` (or sidecar), the resolver reads the active sweep params and selects the first `band` whose `when:` clauses all match. Drive different conditions by adding parametrize / `litmus_sweeps` axes, not by passing condition kwargs to `verify`.
 
-If you call `verify("name", value)` without a `litmus_limits` binding and the characteristic has condition-indexed bands, the resolver falls through to `spec.get_limit(name)` with no conditions and raises `ValueError`. The unconditional-characteristic shortcut in [Minimal example](#minimal-example--unconditional-characteristic) only works because that characteristic has a single band whose empty `when:` matches anything.
+If you call `verify("name", value)` without a `litmus_limits` binding and the characteristic has condition-indexed bands, the resolver can't match and raises `ValueError`. The unconditional-characteristic shortcut in [Minimal example](#minimal-example--unconditional-characteristic) only works because that characteristic has a single band whose empty `when:` matches anything.
 
 ## What ends up in the parquet row
 

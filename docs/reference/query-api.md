@@ -2,7 +2,7 @@
 
 The Query API is the public read path over Litmus's materialized parquet stores. The operator-UI results, explore, and metrics pages read through it, the HTTP routes `/api/runs`, `/api/runs/{run_id}/steps`, and `/api/metrics/*` wrap it, and every `litmus metrics …` CLI subcommand goes through it. Reach for these classes when you need analytics from Python — they handle the DuckDB Flight connection, schema, filtering, and pagination so your code stays in Pydantic models instead of raw SQL.
 
-Three classes, one per materialized table. Every call goes through the runs DuckDB Flight daemon; constructing a query client calls `runs_duckdb_manager.acquire()`, which spawns the daemon if it isn't already running and force-restarts it if its Flight server isn't responding (`src/litmus/data/runs_duckdb_manager.py:35-72`).
+Three classes, one per materialized table. Every call goes through the runs DuckDB Flight daemon; constructing a query client spawns the daemon if it isn't already running and force-restarts it if its Flight server stops responding — you don't have to manage that lifecycle.
 
 | Class | Table | Use for |
 |---|---|---|
@@ -10,7 +10,7 @@ Three classes, one per materialized table. Every call goes through the runs Duck
 | [`StepsQuery`](#stepsquery) | `steps` (one row per pytest item × vector, plus container rows for class- and module-scoped step paths) | Step-level results, per-run step list, step-tree views, failure pareto by step |
 | [`MeasurementsQuery`](#measurementsquery) | `measurements` view | Yield, Cpk, retest rates, parametric histograms, time-loss analytics |
 
-Open one with no args to read the active project's data dir — resolution is `_data_dir=<path>` arg → project `litmus.yaml` → `LITMUS_HOME` env → `platformdirs.user_data_dir("litmus")` (`src/litmus/data/data_dir.py`). Pass `_data_dir=<path>` to point elsewhere. Always close it (the daemon ref-counts open clients):
+Open one with no args to read the active project's data dir — resolution is `_data_dir=<path>` arg → project `litmus.yaml` `data_dir:` → `LITMUS_HOME` env var → platform default. Pass `_data_dir=<path>` to point elsewhere. Always close it (the daemon ref-counts open clients):
 
 ```python
 from litmus.analysis.runs_query import RunsQuery

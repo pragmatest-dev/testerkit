@@ -30,7 +30,7 @@ def my_setup(mock_instruments):
         yield {"mode": "hardware"}
 ```
 
-All four sources resolve through `mocks_active()` (`src/litmus/pytest_plugin/helpers.py:296-316`). Priority — highest first:
+All four sources are checked in this priority order — first match wins:
 
 1. `--mock-instruments` / `--no-mock-instruments` CLI flag (either explicit flag wins).
 2. `LITMUS_MOCK_INSTRUMENTS=1` env var.
@@ -39,29 +39,23 @@ All four sources resolve through `mocks_active()` (`src/litmus/pytest_plugin/hel
 
 ## What mock mode actually does
 
-For each instrument in the active station YAML, the [`InstrumentPool`](../concepts/fixtures.md#shared-instruments) substitutes a mock for the real driver. The substitution is built in `load_and_connect` at `src/litmus/instruments/lifecycle.py:136`:
+For each instrument in the active station YAML, Litmus substitutes a stand-in for the real driver. The driver class is never imported; `connect()` is never called. The substituted object behaves like this:
 
-```python
-inst: Any = Mock(object, **(mock_config or {}))
-```
-
-That call returns a `MockClass(object)` instance from `src/litmus/instruments/mocks.py:98-220`. Key properties of the substituted object:
-
-- **`isinstance(dmm, MyDMM)` is `False`** in this path. The mock is a subclass of `object`, not of your driver class. Tests that rely on isinstance against the real driver class will fail; either don't do that, or construct `Mock(MyDMM, …)` yourself in a conftest fixture (the user-direct path is described in [custom-drivers.md](custom-drivers.md#conftestpy-bringup-tier--no-station-yaml-yet)).
-- **Every method called on the mock is a silent no-op returning `None`** unless you've put a value for it in `mock_config:`. Because the base is `object`, the mock has no typed surface to validate against — there is no `AttributeError` for missing methods.
+- **`isinstance(dmm, MyDMM)` is `False`.** The stand-in isn't a subclass of your driver class. Tests that rely on isinstance against the real driver class will fail; either don't do that, or build your own stand-in in a conftest fixture (see [bringup-tier conftest in custom-drivers.md](custom-drivers.md#conftestpy-bringup-tier--no-station-yaml-yet)).
+- **Every method call is a silent no-op returning `None`** unless you've listed it in `mock_config:`. Missing methods don't raise `AttributeError`.
 - **Methods you do list in `mock_config:` return the configured value** — a scalar (returned on every call), a dict (first positional arg is the lookup key), or a callable (invoked with the call args).
-- `connect()` / `disconnect()` are wired automatically; the mock works as a context manager.
-- The instance has `manufacturer` / `model` / `serial` / `firmware` copied from the station YAML's optional `info:` block if present (`lifecycle.py:137-141`).
+- `connect()` / `disconnect()` are wired automatically; the stand-in works as a context manager.
+- The stand-in carries `manufacturer` / `model` / `serial` / `firmware` from any `info:` block on the station entry.
 
 What the platform skips for mocked instruments:
 
-- **`*IDN?` identity verification** (`lifecycle.py:183-193`) — only runs for `record.mocked == False`.
-- **Resource locking** (`pool.py:96`) — mocks don't take a real `resource:` lock.
+- **`*IDN?` identity verification** — only runs against real hardware.
+- **Resource locking** — mocks don't take a VISA lock on the resource string.
 
 What still runs for mocks:
 
-- **Calibration check** (`lifecycle.py:195`, `check_calibration`) — runs unconditionally. If your station YAML lists a `calibration:` block with an expired or near-due date, you'll see the warning whether the instrument is real or mocked.
-- **`test_phase` auto-demotion to `"development"`** — `--mock-instruments` (or any per-instrument `mock: true`) demotes the run's `test_phase` regardless of what `--test-phase=` requested. Dashboards and queries can filter mock data out of production yield by `WHERE test_phase = 'production'`.
+- **Calibration check.** Runs unconditionally. If your station YAML lists a `calibration:` block with an expired or near-due date, you'll see the warning whether the instrument is real or mocked.
+- **`test_phase` auto-demotion to `"development"`.** `--mock-instruments` (or any per-instrument `mock: true`) demotes the run's `test_phase` regardless of what `--test-phase=` requested. Dashboards and queries can filter mock data out of production yield by `WHERE test_phase = 'production'`.
 
 ## The three independent mock layers
 
@@ -80,15 +74,15 @@ test body        │ ③ mocker.patch.object(...) →  patch.object(instr, attr,
 
 Each layer's source of truth:
 
-| Layer | Where it's configured | What installs it | What it can set |
+| Layer | Where it's configured | When it applies | What it can set |
 |---|---|---|---|
-| ① Station defaults | `station.yaml` → `instruments.<role>.mock_config` | `load_and_connect` (`lifecycle.py:136`) at session start | Default method return values for the role |
-| ② Sidecar / marker | `tests/test_*.yaml` → `mocks:` or `tests.<name>.mocks:`, or `@pytest.mark.litmus_mocks([...])` inline | `_litmus_apply_mocks` autouse fixture (`pytest_plugin/autouse.py:300-345`), via `install_mocks` (`execution/mocks.py:30-63`) which calls `patch.object` | Any per-test override; full `patch.object` kwargs (`return_value`, `side_effect`, `wraps`, `spec`, etc.) |
-| ③ Test-body patch | Inside the test body | `pytest-mock`'s `mocker.patch.object(...)` — **add `pytest-mock` to your project's dev dependencies; Litmus does not pull it in.** | Any per-vector / per-row override |
+| ① Station defaults | `stations/<id>.yaml` → `instruments.<role>.mock_config` | Built at session start, every test sees it | Default method return values for the role |
+| ② Sidecar / marker | `tests/test_*.yaml` → `mocks:` (or `tests.<name>.mocks:`), or `@pytest.mark.litmus_mocks([...])` inline | Per-test, layered on top of ① for the duration of the test | Any kwarg `unittest.mock.patch.object` accepts (`return_value`, `side_effect`, `wraps`, `spec`, …) |
+| ③ Test-body patch | Inside the test body | Per-call, inside one test only | Any per-vector / per-row override. Requires `pytest-mock` — add it to your project's dev dependencies; Litmus does not pull it in. |
 
-Layer ② cascade walks the marker chain root-to-leaf (file → class → test → profile). Later entries with the same `target` overwrite earlier ones in a `by_target` dict (`autouse.py:321-334`). **A profile with `mocks: []` does NOT clear earlier entries** — it simply contributes nothing. To remove a specific target, re-declare it with the value you want.
+Layer ② cascade walks file → class → test → profile. Later entries with the same `target` overwrite earlier ones. **A profile with `mocks: []` does NOT clear earlier entries** — it simply contributes nothing. To remove a specific target, re-declare it with the value you want.
 
-The `TestHarness` (non-pytest entry point) has its own fourth path with a different precedence (`vector._mocks` → test-level → limit nominal, with a hardcoded mapping of `*voltage*` → `dmm.measure_voltage` and `*current*` → `psu.measure_current`). The pytest path does NOT consult this fallback.
+The non-pytest `TestHarness` entry point has its own fourth path with a different precedence (per-vector mocks attached to the vector, plus a built-in fallback from limit nominals for `*voltage*` / `*current*` methods on `dmm` / `psu`). The pytest path does NOT consult this fallback.
 
 ## Verify mocks are actually firing
 
@@ -108,7 +102,7 @@ Three signals to check before you trust a mock-mode result:
        assert row.test_phase == "development"
    ```
 
-3. **`fixture.instrument_connected` events carry `mocked: true`** — each instrument logs whether it came up real or mocked (`pool.py:108`):
+3. **`fixture.instrument_connected` events carry `mocked: true`** — each instrument logs whether it came up real or mocked:
    ```python
    from litmus.data.event_store import EventStore
    with EventStore() as store:
@@ -152,7 +146,7 @@ For [per-instrument `mock: true`](#per-instrument-mock-on-real-stations) (mockin
 
 Per-test overrides written in the sidecar YAML next to the test module, or inline via `@pytest.mark.litmus_mocks([...])`. The sidecar form is the YAML serialization of the marker; both feed the same [`litmus_mocks`](../reference/litmus-markers.md#litmus_mocks) pipeline.
 
-Each entry is a `MockEntry` — a `target:` plus any kwargs `unittest.mock.patch.object` accepts. `MockEntry` is `extra="allow"`, so unknown kwargs pass through verbatim. The kwargs `patch.object` actually does something useful with:
+Each entry is a `target:` plus any kwargs `unittest.mock.patch.object` accepts. Unknown kwargs pass through verbatim. The ones `patch.object` actually does something useful with:
 
 | Field | Effect |
 |---|---|
@@ -232,7 +226,7 @@ tests:
       - {load: [0.1, 0.5, 0.8]}
 ```
 
-`mocker.patch.object` runs after the autouse `_litmus_apply_mocks` fixture, so it layers on top of any sidecar / marker mocks for the same test.
+`mocker.patch.object` runs after sidecar / marker mocks are installed, so it layers on top of them for the same test.
 
 This is also the path for **dict-keyed and callable values** — useful for SCPI-style mocks that need to respond differently to different commands:
 
@@ -246,11 +240,11 @@ def test_idn_and_measure(dmm, mocker):
     }.get(cmd, ""))
 ```
 
-The `Mock` factory in layer ① also accepts dict-form and callable-form values in `mock_config` — see `src/litmus/instruments/mocks.py:71-95`.
+Layer ① accepts the same dict-form and callable-form values in `mock_config:` as `mocker.patch.object` does.
 
 ## Per-instrument mock on real stations
 
-Mock one instrument while keeping others on real hardware. Set `mock: true` on the instrument's station entry. With `mock: true`, the entry doesn't need `driver:` or `resource:` (`StationInstrumentConfig.resource_required_for_real_hardware` skips the check when `mock=True`):
+Mock one instrument while keeping others on real hardware. Set `mock: true` on the instrument's station entry. With `mock: true`, the entry doesn't need `driver:` or `resource:` — the validator skips both requirements when the instrument is declared as a mock:
 
 ```yaml
 # stations/mixed_bench.yaml
@@ -283,7 +277,7 @@ Run **without** `--mock-instruments`:
 pytest tests/ --station=mixed_bench --dut-serial=SN001
 ```
 
-`psu` and `eload` connect to real hardware; `dmm` is mocked. With `--mock-instruments` (or the env var, or `mock_instruments: true` in `litmus.yaml`), every instrument is mocked regardless of per-instrument `mock:` flags — the per-instrument flag is OR'd with the session-wide flag (`pytest_plugin/__init__.py:749`).
+`psu` and `eload` connect to real hardware; `dmm` is mocked. With `--mock-instruments` (or the env var, or `mock_instruments: true` in `litmus.yaml`), every instrument is mocked regardless of per-instrument `mock:` flags — the per-instrument flag is OR'd with the session-wide flag.
 
 Common scenarios:
 
