@@ -86,7 +86,7 @@ jobs:
           uv sync --all-extras --dev
           uv run pytest -m benchmark --benchmark-only \
             --benchmark-json=benchmark-current.json -q
-      - name: Check for regression (min, 25% threshold)
+      - name: Check for regression (min, 10% threshold)
         run: |
           if [ ! -f benchmark-previous.json ]; then
             echo "No previous benchmark — skipping comparison"
@@ -98,22 +98,25 @@ jobs:
           import json, sys
           # Compare on min (best-of-N rounds): the closest signal to
           # 'what the code can actually do' without OS scheduler / GC
-          # interference. The benchmark tests are configured with
-          # min_rounds=30 + warmup so min is stable.
+          # interference. Both benchmark-current.json and
+          # benchmark-previous.json come from warm-cache runs (passes 3
+          # and 4 in the interleaved schedule above), so the cache state
+          # is symmetric and the min-vs-min variance on identical code
+          # is well under 10%. A real >10% slowdown trips the gate.
           prev = {b['name']: b['stats']['min'] for b in json.load(open('benchmark-previous.json'))['benchmarks']}
           curr = {b['name']: b['stats']['min'] for b in json.load(open('benchmark-current.json'))['benchmarks']}
           regressions = []
           for name, cur_min in curr.items():
               if name in prev:
                   pct = (cur_min - prev[name]) / prev[name] * 100
-                  if pct > 25:
+                  if pct > 10:
                       regressions.append(f'{name}: +{pct:.1f}% (prev min={prev[name]*1000:.2f}ms, curr min={cur_min*1000:.2f}ms)')
           if regressions:
-              print('BENCHMARK REGRESSIONS (>25% on min):')
+              print('BENCHMARK REGRESSIONS (>10% on min):')
               for r in regressions:
                   print(f'  {r}')
               sys.exit(1)
-          print('No serious benchmark regressions detected.')
+          print('No regressions detected.')
           "
 
   smoke-test:
