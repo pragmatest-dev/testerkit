@@ -50,8 +50,16 @@ harness = TestHarness(logger=logger, step_name="test_output_voltage")
 
 # … iterate vectors, measure, etc.
 
-logger.finalize()   # emits RunEnded; the runs daemon picks it up and writes parquet
+# Close the run: finalize() emits RunEnded only — caller is responsible for
+# closing the session and the event log.
+from litmus.data.events import SessionEnded
+
+logger.finalize()                                                     # RunEnded → runs daemon → parquet
+logger.event_log.emit(SessionEnded(session_id=logger.test_run.session_id))
+logger.event_log.close()
 ```
+
+`finalize()` emits `RunEnded` and closes the open step but does NOT emit `SessionEnded`, does NOT close the event log, and does NOT close the channel store. Leaving any of these open from a long-running process leaks file handles and prevents the runs daemon from retiring the run's cohort. Emit `SessionEnded` and `.close()` the event log (and `channel_store.close()` if you wired one) before exiting.
 
 `TestRunLogger.__init__` takes the run-level metadata directly (`dut_serial`, `station_id`, `station_name`, `operator_id`, `test_phase`, `product_id`, `data_dir`, etc.). The logger constructs a `TestRun` and a `RunContext` (a plain class wrapping the run record, with a `.set(key, value)` method for custom metadata) for you; you don't construct either.
 
