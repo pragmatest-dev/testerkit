@@ -15,11 +15,11 @@ measurement_name:
   characteristic: "..."    # delegate to a product-spec characteristic
 ```
 
-At least one of `low`, `high`, `nominal`, or `characteristic` is required.
+A limit needs at least one policy field that tells `verify` what to check. The flat-scalar shape above (`low` / `high` / `nominal` / `characteristic`) is the common case; the [Condition-indexed bands](#condition-indexed-bands) section below covers the `bands:` shape, and [Limits beyond min/max](#limits-beyond-minmax) covers tolerance, expression, lookup-table, and stepped forms.
 
 | Field            | Required | Description                                     |
 |------------------|:--------:|-------------------------------------------------|
-| `low`            | *        | Lower limit (* at least one of low/high/nominal/characteristic) |
+| `low`            | *        | Lower limit (* at least one policy field: low / high / nominal / characteristic / bands / tolerance_pct / tolerance_abs / expr / lookup / steps / callable) |
 | `high`           | *        | Upper limit                                     |
 | `nominal`        |          | Expected value (EQ/NE comparators)              |
 | `units`          |          | Unit of measure (for reporting)                 |
@@ -29,22 +29,22 @@ At least one of `low`, `high`, `nominal`, or `characteristic` is required.
 
 ## Where limits come from
 
-Limits flow through Litmus's marker cascade. When
-`logger.measure(name, value)` is called without `limit=`, resolution
-walks the full merge cascade (least → most specific):
+Both `verify(name, value)` and `logger.measure(name, value)` go through the same resolver. When `limit=` is passed explicitly, that value short-circuits the rest — every other source is ignored. Otherwise the resolver checks, in this order, and the **first match wins**:
 
-1. **Explicit `limit=`** — `logger.measure("v", val, limit=Limit(low=..., high=..., units="V"))`
-2. **Sidecar file-level field** — `limits: {...}` at the YAML root
-3. **Sidecar class branch field** — `tests.<Cls>.limits: {...}`
-4. **Sidecar per-test field** — `tests.<name>.limits: {...}` (or nested `tests.<Cls>.tests.<method>.limits: {...}`)
-5. **Inline `@pytest.mark.litmus_limits(...)`** on method / class
-6. **Profile chain** — parent profile first, child last
-7. **Product spec** — `characteristic: "<name>"` delegation against the active [`ProductContext`](../concepts/products.md) (the loaded-product container)
-8. **None** — characterization mode (unchecked, still recorded)
+1. **Explicit `limit=`** — `verify("v", val, limit=Limit(low=..., high=..., units="V"))` or `logger.measure(...)` with the same kwarg. Short-circuits everything below.
+2. **Active limits entry for `name`** — populated from the sidecar / marker / profile cascade (merged into one entry per measurement name at test setup; details below).
+3. **Active product spec** — if the cascade has nothing and `verify` is in play, the resolver tries the active `ProductContext` for a characteristic named `name`. This works for unconditional characteristics; condition-indexed bands need the explicit `characteristic:` delegation in step 2 to forward sweep params correctly (see [Spec-driven testing](spec-driven-testing.md#condition-indexed-example--when-accuracy-varies-with-operating-point)).
+4. **None** — characterization mode. `logger.measure` records the value with `outcome = DONE`. `verify` raises `MissingLimitError` — judgment-bearing calls don't silently fall through.
 
-Later stages override earlier ones key-by-key (per measurement name).
+The cascade inside step 2 walks file → class → test → profile, with later entries overriding earlier ones key-by-key per measurement name:
 
-`verify(name, value)` bypasses this chain and reads directly from the active product spec.
+1. Sidecar **file-level** field — `limits: {...}` at the YAML root
+2. Sidecar **class branch** field — `tests.<Cls>.limits: {...}`
+3. Sidecar **per-test** field — `tests.<name>.limits: {...}` (or nested `tests.<Cls>.tests.<method>.limits: {...}`)
+4. Inline `@pytest.mark.litmus_limits(...)` on method or class
+5. Profile chain — parent profile first, leaf last
+
+`verify(name, value)` does NOT bypass this chain — it walks the same resolver, and adds the `MissingLimitError` behavior in step 4 if nothing produces a limit.
 
 ## Marker form
 
@@ -176,9 +176,9 @@ Values show up in the parquet output for post-hoc analysis.
 
 ### `MissingLimitError` — why `verify` won't fall through to "unchecked"
 
-`verify` is judgment-bearing — calling it with no resolvable limit raises `litmus.execution.verify.MissingLimitError` rather than silently recording the value. The error message lists the resolution chain that was checked (markers → sidecar → spec) so the missing source is obvious.
+`verify` is judgment-bearing — calling it with no resolvable limit raises `MissingLimitError` (importable from `litmus.execution.verify`) rather than silently recording the value. The error names every source the resolver checked — `limit=` kwarg, sidecar / marker / profile cascade, and the active product spec — so the missing source is obvious.
 
-If you genuinely want to record without judging, use `logger.measure(name, value)` instead — it stamps the row as `Outcome.DONE` and never raises on missing limits. The two methods divide cleanly: `verify` if a pass/fail decision belongs on the row, `logger.measure` if not.
+If you genuinely want to record without judging, use `logger.measure(name, value)` instead — it records the value with `outcome = DONE` and never raises on missing limits. The two methods divide cleanly: `verify` if a pass/fail decision belongs on the row, `logger.measure` if not.
 
 ## Best practices
 
