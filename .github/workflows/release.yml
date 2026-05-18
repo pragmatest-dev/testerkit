@@ -58,6 +58,14 @@ jobs:
             exit 0
           fi
           git checkout "$PREV_TAG"
+          # Overlay the CURRENT benchmark test files so prev and curr
+          # runs both use the same warmup / min_rounds / disable_gc
+          # settings. Without this overlay, the prev run uses whatever
+          # benchmark config it shipped with — which makes the min
+          # comparison meaningless (apples to oranges).
+          git checkout "${GITHUB_REF_NAME}" -- \
+            tests/test_data/test_perf.py \
+            tests/test_data/test_perf_daemon.py
           uv sync --all-extras --dev
           uv run pytest -m benchmark --benchmark-only \
             --benchmark-json=benchmark-previous.json -q || true
