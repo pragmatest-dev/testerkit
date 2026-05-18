@@ -82,7 +82,18 @@ class TestEventStorePerf:
 
         benchmark(emit_all)
 
-    @pytest.mark.benchmark(group="event-query")
+    # Query benchmarks below operate on sub-millisecond to low-millisecond
+    # ranges. pytest-benchmark's defaults (5 rounds, no warmup, GC enabled)
+    # produce mean/median variance >25% even on identical code, which
+    # makes a release-time regression gate unusable. Override to:
+    #   * warmup=True — let DuckDB caches / page-cache stabilize
+    #   * min_rounds=30 — give the min statistic a stable floor
+    #   * disable_gc=True — eliminate Python GC pauses from the sample
+    # With these settings the release workflow compares `stats['min']`
+    # (best-of-30 rounds) and a real >25% slowdown survives the gate
+    # while CI scheduler jitter does not.
+
+    @pytest.mark.benchmark(group="event-query", warmup=True, min_rounds=30, disable_gc=True)
     @pytest.mark.parametrize("n_events", [100, 1_000, 10_000])
     def test_query_scale(self, event_store: EventStore, benchmark, n_events: int):
         """Query performance as event count grows."""
@@ -96,7 +107,7 @@ class TestEventStorePerf:
         result = benchmark(query_all)
         assert len(result) == n_events
 
-    @pytest.mark.benchmark(group="event-query")
+    @pytest.mark.benchmark(group="event-query", warmup=True, min_rounds=30, disable_gc=True)
     def test_query_by_type_10k(self, event_store: EventStore, benchmark):
         """Filter by event_type over 10k events."""
         sid = uuid4()
@@ -117,7 +128,7 @@ class TestEventStorePerf:
         result = benchmark(query_type)
         assert len(result) == 1
 
-    @pytest.mark.benchmark(group="event-query")
+    @pytest.mark.benchmark(group="event-query", warmup=True, min_rounds=30, disable_gc=True)
     def test_query_multi_session(self, event_store: EventStore, benchmark):
         """Query across 50 sessions, 200 events each (10k total)."""
         target_sid = None

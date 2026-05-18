@@ -119,7 +119,7 @@ def warm_daemon():
     yield
 
 
-@pytest.mark.benchmark(group="daemon-queries")
+@pytest.mark.benchmark(group="daemon-queries", warmup=True, min_rounds=30, disable_gc=True)
 def test_runs_count_by_outcome(benchmark, warm_daemon):
     """Warm RunsQuery.count_by_outcome — indexed TABLE scan.
 
@@ -134,7 +134,7 @@ def test_runs_count_by_outcome(benchmark, warm_daemon):
     assert result is not None
 
 
-@pytest.mark.benchmark(group="daemon-queries")
+@pytest.mark.benchmark(group="daemon-queries", warmup=True, min_rounds=30, disable_gc=True)
 def test_runs_filter_options(benchmark, warm_daemon):
     """Warm get_runs_filter_options — distinct values from indexed TABLE.
 
@@ -146,7 +146,7 @@ def test_runs_filter_options(benchmark, warm_daemon):
     assert isinstance(result, dict)
 
 
-@pytest.mark.benchmark(group="daemon-queries")
+@pytest.mark.benchmark(group="daemon-queries", warmup=True, min_rounds=30, disable_gc=True)
 def test_measurements_summary_counts(benchmark, warm_daemon):
     """Warm MeasurementsQuery.summary_counts — TABLE scan, no parquet glob.
 
@@ -162,7 +162,7 @@ def test_measurements_summary_counts(benchmark, warm_daemon):
     assert result is not None
 
 
-@pytest.mark.benchmark(group="daemon-queries")
+@pytest.mark.benchmark(group="daemon-queries", warmup=True, min_rounds=30, disable_gc=True)
 def test_measurements_describe_columns(benchmark, warm_daemon):
     """Warm MeasurementsQuery.describe_columns — schema + dynamic catalog.
 
@@ -177,7 +177,7 @@ def test_measurements_describe_columns(benchmark, warm_daemon):
     assert isinstance(result, list)
 
 
-@pytest.mark.benchmark(group="daemon-queries")
+@pytest.mark.benchmark(group="daemon-queries", warmup=True, min_rounds=30, disable_gc=True)
 def test_measurements_yield_summary(benchmark, warm_daemon):
     """Warm MeasurementsQuery.yield_summary — aggregation over TABLE rows.
 

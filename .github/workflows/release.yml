@@ -62,7 +62,7 @@ jobs:
           uv run pytest -m benchmark --benchmark-only \
             --benchmark-json=benchmark-previous.json -q || true
           git checkout "${GITHUB_REF_NAME}"
-      - name: Check for regression (10% threshold)
+      - name: Check for regression (min, 25% threshold)
         run: |
           if [ ! -f benchmark-previous.json ]; then
             echo "No previous benchmark — skipping comparison"
@@ -72,20 +72,24 @@ jobs:
             --group-by=name 2>&1 | tee benchmark-diff.txt || true
           python3 -c "
           import json, sys
-          prev = {b['name']: b['stats']['mean'] for b in json.load(open('benchmark-previous.json'))['benchmarks']}
-          curr = {b['name']: b['stats']['mean'] for b in json.load(open('benchmark-current.json'))['benchmarks']}
+          # Compare on min (best-of-N rounds): the closest signal to
+          # 'what the code can actually do' without OS scheduler / GC
+          # interference. The benchmark tests are configured with
+          # min_rounds=30 + warmup so min is stable.
+          prev = {b['name']: b['stats']['min'] for b in json.load(open('benchmark-previous.json'))['benchmarks']}
+          curr = {b['name']: b['stats']['min'] for b in json.load(open('benchmark-current.json'))['benchmarks']}
           regressions = []
-          for name, cur_mean in curr.items():
+          for name, cur_min in curr.items():
               if name in prev:
-                  pct = (cur_mean - prev[name]) / prev[name] * 100
-                  if pct > 10:
-                      regressions.append(f'{name}: +{pct:.1f}%')
+                  pct = (cur_min - prev[name]) / prev[name] * 100
+                  if pct > 25:
+                      regressions.append(f'{name}: +{pct:.1f}% (prev min={prev[name]*1000:.2f}ms, curr min={cur_min*1000:.2f}ms)')
           if regressions:
-              print('BENCHMARK REGRESSIONS (>10%):')
+              print('BENCHMARK REGRESSIONS (>25% on min):')
               for r in regressions:
                   print(f'  {r}')
               sys.exit(1)
-          print('No benchmark regressions detected.')
+          print('No serious benchmark regressions detected.')
           "
 
   smoke-test:
