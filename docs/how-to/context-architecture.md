@@ -49,7 +49,7 @@ def test_rails(self, context, psu, dmm, verify):
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-You can also take the param as a regular pytest argument (`def test_rails(self, vin, context, ...)`) and skip `get_param` — the two forms are interchangeable. The `context.params` dict carries the same values pytest puts on `request.node.callspec.params`, so use whichever reads cleaner.
+You can also take the param as a regular pytest argument (`def test_rails(self, vin, context, ...)`) and skip `get_param` — the two forms see the same value. Pick whichever reads cleaner.
 
 `context.get_param(name, default)` returns the default if no sweep / parametrize was declared. `context.params[name]` raises `KeyError` instead — pick by whether a missing param is an error or just absent.
 
@@ -118,59 +118,61 @@ Returns `None` on the first iteration (no previous context to read from) and whe
 
 ## Resolve a limit by name with `get_limit()`
 
-`context.limits["name"]` returns the *config* — `MeasurementLimitConfig`, the raw marker / sidecar entry. `context.get_limit("name")` walks the full resolver (markers → sidecar → product spec → callable → product-context characteristic lookup) and returns a concrete `Limit` with numeric `low` / `high` / `nominal` evaluated against the active vector.
+`context.limits["name"]` returns the raw limit entry as it was written in a marker or sidecar — useful only if you want to inspect what was declared. `context.get_limit("name")` runs the full resolver and gives you back a `Limit` with concrete `low` / `high` / `nominal` numbers, evaluated for the active sweep iteration.
 
-Reach for `get_limit` when test logic needs to *react* to a limit's numbers — adaptive sample counts, conditional setup, decision branches:
+Reach for `get_limit` when test logic needs to *react* to a limit — adaptive sample counts, conditional setup, decision branches:
 
 ```python
 def test_adaptive(self, context, dmm, verify):
     limit = context.get_limit("output_voltage")
     # Take more samples when the spec window is tight (< 5% of nominal).
-    tight = limit is not None and limit.low is not None and limit.high is not None \
-        and limit.nominal is not None and (limit.high - limit.low) < 0.05 * limit.nominal
+    tight = (
+        limit is not None
+        and limit.low is not None and limit.high is not None
+        and limit.nominal is not None
+        and (limit.high - limit.low) < 0.05 * limit.nominal
+    )
     samples = 10 if tight else 5
     readings = [dmm.measure_dc_voltage() for _ in range(samples)]
     verify("output_voltage", sum(readings) / len(readings))
 ```
 
-`Limit` carries `low`, `high`, `nominal`, `units`, `comparator`, `characteristic_id`, `spec_ref` (`src/litmus/models/test_config.py:233-254`) — no `tolerance` attribute; derive what you need from those fields.
-
-`get_limit` returns `None` when no limit is defined for that name. For applying limits to measurements, just pass `limit=...` to `verify` — the resolver runs there automatically.
+The `Limit` object exposes `low` / `high` / `nominal` / `units` / `comparator` plus traceability fields — see [`Limit` in the models reference](../reference/models.md#model-limit) for the full surface. `get_limit` returns `None` when no limit is defined for that name. For *applying* a limit to a measurement, just pass `limit=...` to `verify` — the resolver runs there automatically.
 
 See [Limits](limits.md) for limit resolution order and [Spec-driven testing](spec-driven-testing.md) for how product specs feed in.
 
 ## Iterate active fixture connections
 
-When the test declares `@pytest.mark.litmus_characteristics([...])` or `@pytest.mark.litmus_connections(...)`, `context.connections` is a `ConnectionIterator` over the active wirings. Iterating it pushes per-connection state into ContextVars — the active connection (so drivers route correctly) and the active characteristic (so `verify` stamps `characteristic_id` automatically):
+A fixture connection wires a single DUT pin (or net) to a specific instrument channel — and optionally through a switch route. When the test declares `@pytest.mark.litmus_characteristics([...])` or `@pytest.mark.litmus_connections(...)`, iterating `context.connections` is what *physically moves the bench* between measurements: each step of the loop closes the switch matrix to that connection's pin, so the same `dmm.measure_dc_voltage()` call lands on a different rail every time around. The platform also stamps the measurement row with the connection's `dut_pin` and the matching characteristic id, so the test body stays the same shape no matter how many rails you're walking.
 
 ```python
 @pytest.mark.litmus_characteristics(["rail_3v3", "rail_5v"])
 def test_all_rails(self, context, dmm, verify):
-    for _conn in context.connections:
-        # active characteristic is pushed by the iterator — verify reads it
-        # via the _active_characteristic_var ContextVar and stamps it on the row.
+    for conn in context.connections:
+        # Switch matrix is now routed to conn.dut_pin; verify stamps the row
+        # with dut_pin + the matching characteristic_id automatically.
         verify("voltage", dmm.measure_dc_voltage())
 ```
 
-`FixtureConnection` (`src/litmus/models/test_config.py:366-425`) carries `name`, `instrument`, `instrument_channel`, `instrument_terminal`, `dut_pin`, `net`, `function`, `route` — it does NOT carry `characteristic`. The char→connection mapping lives privately on `ConnectionIterator._conn_to_char` (`src/litmus/execution/connections.py:66`) and surfaces only through the active-char ContextVar that iteration pushes.
+The loop variable `conn` carries the connection's `dut_pin`, `instrument`, `instrument_channel`, and `instrument_terminal` if you need them for diagnostics or per-rail setup — but for the measurement itself, the platform handles routing and traceability stamping. Test code reads the same whether you have one rail or ten.
 
-To run a verification per characteristic when there are multiple, scope iteration with `for_characteristic`:
+To walk one characteristic at a time when several are in scope, scope the iteration with `for_characteristic`:
 
 ```python
 @pytest.mark.litmus_characteristics(["rail_3v3", "rail_5v"])
 def test_all_rails(self, context, dmm, verify):
     for char_id in context.characteristics:
-        for _conn in context.connections.for_characteristic(char_id):
+        for conn in context.connections.for_characteristic(char_id):
             verify(f"{char_id}.voltage", dmm.measure_dc_voltage())
 ```
 
-If the test declares connections but never iterates, the autouse cleanup raises — silent skips are worse than errors. The `connections` fixture is also available as a direct argument when you'd rather not reach through `context`.
+If the test declares connections but never iterates them, the run fails — silent skips are worse than errors. The `connections` fixture is also available as a direct argument when you'd rather not reach through `context`.
 
 See [Spec-driven testing](spec-driven-testing.md) for the characteristic / connection / spec workflow.
 
 ## Keep mutable state across sweep iterations
 
-`context.params` is rebuilt every time you read it (the property merges the parent chain). For a writable scratchpad shared across iterations of the same class, use a `scope="class"` pytest fixture — no Litmus-specific API needed:
+`context.params` is read-only — assigning to it has no effect. For a writable scratchpad shared across iterations of the same class, use a `scope="class"` pytest fixture — no Litmus-specific API needed:
 
 ```python
 import time
