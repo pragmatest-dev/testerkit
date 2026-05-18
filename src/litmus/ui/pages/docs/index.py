@@ -26,10 +26,10 @@ def docs_index():
                 " from first test to production",
             ),
             (
-                "integration",
-                "sync_alt",
-                "Integration",
-                "Adopt Litmus with existing tests and infrastructure",
+                "how-to",
+                "integration_instructions",
+                "How-To Guides",
+                "Step-by-step guides for common tasks",
             ),
             (
                 "concepts",
@@ -38,16 +38,16 @@ def docs_index():
                 "Products, stations, capabilities, fixtures, and matching",
             ),
             (
-                "how-to",
-                "integration_instructions",
-                "How-To Guides",
-                "Step-by-step guides for common tasks",
-            ),
-            (
                 "reference",
                 "api",
                 "Reference",
                 "MCP tools, HTTP endpoints, CLI, models, configuration",
+            ),
+            (
+                "integration",
+                "sync_alt",
+                "Integration",
+                "Adopt Litmus with existing tests and infrastructure",
             ),
         ]
 
