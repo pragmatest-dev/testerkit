@@ -71,16 +71,16 @@ def docs_index():
         with ui.row().classes("gap-6 flex-wrap"):
             with ui.column().classes("gap-2"):
                 ui.markdown("**Get Started**").classes("font-medium")
-                ui.link("Installation", "/docs/tutorial/01-first-test").classes(
+                ui.link("Quick Start", "/docs/tutorial/00-quickstart").classes(
                     "text-blue-600 hover:underline"
                 )
-                ui.link("Quick Start", "/docs/tutorial").classes("text-blue-600 hover:underline")
+                ui.link("First Test", "/docs/tutorial/01-first-test").classes(
+                    "text-blue-600 hover:underline"
+                )
 
             with ui.column().classes("gap-2"):
                 ui.markdown("**Learn**").classes("font-medium")
-                ui.link("Core Concepts", "/docs/concepts/overview").classes(
-                    "text-blue-600 hover:underline"
-                )
+                ui.link("Core Concepts", "/docs/concepts").classes("text-blue-600 hover:underline")
                 ui.link("Writing Tests", "/docs/how-to/writing-tests").classes(
                     "text-blue-600 hover:underline"
                 )

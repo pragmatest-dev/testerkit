@@ -137,7 +137,8 @@ def _create_docs_layout(section: str | None = None, page: str | None = None):
             window.mermaid = mermaid;
 
             const MERMAID_KEYWORDS = new RegExp(
-                '^\\\\s*(flowchart|graph|erDiagram|sequenceDiagram|stateDiagram(-v2)?|' +
+                '^\\\\s*(?:%%[\\\\s\\\\S]*?%%\\\\s*)*' +
+                '(flowchart|graph|erDiagram|sequenceDiagram|stateDiagram(-v2)?|' +
                 'classDiagram|gantt|pie|journey|gitGraph|mindmap|timeline|' +
                 'requirementDiagram|C4Context|C4Container|quadrantChart|' +
                 'xychart-beta|sankey-beta|block-beta)\\\\b'
