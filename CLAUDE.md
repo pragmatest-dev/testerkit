@@ -95,6 +95,10 @@ suppresses its daemon-notify hop.
 - `docs/` has codebase descriptions and must be updated when implementing new features
 - `examples/` has three-tier working examples (01-bringup / 02-station / 03-profiles)
 - MCP tools and skills for AI workflows
+- **Verify every claim against source before writing.** Open the file, read the function, then write the page. Pattern-matching from "things that look like this usually do that" produces plausible-sounding docs that don't survive an audit. Confirmed-against-source claims are the baseline, not the goal.
+- **No framework internals in user-facing pages** (anything under `docs/` not `docs/_internal/`). No file:line citations in published prose, no private attribute names (`_foo`, `_active_*_var`), no internal class names users don't construct (`MockClass`, `ConnectionIterator`, `MeasurementLimitConfig` when "the raw limit entry" reads cleaner), no implementation-chain narration. Verification artifacts belong in commit messages and audit reports, not the page. Pydantic class names users actually reference in YAML (e.g. `InstrumentCatalogEntry`, `SpecBand`, `MeasurementFunction`) stay — those are API surface.
+- **Audit-driven fixes are per-page.** When applying audit findings across multiple docs pages: fix ONE page, re-audit, confirm 0 critical, THEN move to the next. Batch-fixing across pages propagates the same misreading into every fix; the only loop that converges is per-page fix → re-audit → next. Scrub passes ("remove internals") count as rewrites and must re-audit.
+- **The 5 reference pages under `docs/reference/` that contain generator markers** (`event-types.md`, `models.md`, `configuration.md`, `api.md`, `cli.md`, `pytest-native.md`, `query-api.md`) — never hand-edit the content between `<!-- GENERATED:...:start -->` / `<!-- GENERATED:...:end -->` markers. Run `uv run python scripts/generate_reference_docs.py --all` to regenerate. The pre-commit `reference-docs-drift` hook fails the commit on drift.
 
 Do NOT bloat CLAUDE.md with implementation details — the AI can discover those from code.
 
