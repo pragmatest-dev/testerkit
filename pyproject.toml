@@ -1,12 +1,12 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-fancy-pypi-readme"]
 build-backend = "hatchling.build"
 
 [project]
 name = "litmus-test"
 version = "0.1.1"
 description = "Hardware test platform for the AI-assisted era"
-readme = "README.md"
+dynamic = ["readme"]
 requires-python = ">=3.11"
 license = "Apache-2.0"
 authors = [
@@ -111,6 +111,22 @@ dev = [
     "zeroconf>=0.80",
     "pytest-rerunfailures>=16.1",
 ]
+
+# PyPI renders README.md without the rest of the repo, so relative
+# links like ./docs/... and ./LICENSE 404 on pypi.org. The README in
+# the source tree stays relative-link friendly (GitHub navigation
+# works); this hook rewrites those to absolute URLs on the
+# main branch when building the sdist / wheel for PyPI.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+# `](./` → `](https://github.com/pragmatest-dev/litmus/blob/main/`
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\(\./'
+replacement = '](https://github.com/pragmatest-dev/litmus/blob/main/'
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/litmus"]

@@ -61,7 +61,7 @@ After the starter project runs, the recommended progression:
 
 1. **[Tutorial](./docs/tutorial/index.md)** — Ten short chapters from a first test through live production monitoring. Read in order; each builds on the last.
 2. **[Examples](./examples/README.md)** — Seven self-contained projects (`01-vanilla` → `07-profiles`) that isolate one concept each. Clone, run, modify.
-3. **[Concepts](./docs/concepts.md)** — Reference for the vocabulary: station, fixture, product, sequence, capability, vector.
+3. **[Concepts](./docs/concepts/index.md)** — Reference for the vocabulary: station, fixture, product, sequence, capability, vector.
 
 When you're ready to leave mocks behind, [From Mocks to Hardware](./docs/tutorial/from-mocks-to-hardware.md) covers the transition.
 
@@ -162,9 +162,9 @@ litmus setup <tool>             # AI tool integration
 
 ## Docs
 
-- [Quick start](./docs/quickstart.md) — First project in 5 minutes
-- [Architecture overview](./docs/architecture-erd.md) — How things connect
-- [docs/](./docs/) — Guides, tutorial, reference
+- [Quick start](./docs/tutorial/00-quickstart.md) — First project in 5 minutes
+- [Architecture overview](./docs/concepts/architecture.md) — How things connect
+- [docs/](./docs/) — Tutorial, how-to, reference, concepts
 
 ## License
 
