@@ -1,0 +1,44 @@
+name: Notify pragmatest.com on docs change
+
+# Fire whenever a push to main touches docs/. The pragmatest.com docs
+# subsystem fetches docs live from this repo's main branch via the
+# GitHub API and caches with `revalidateTag('litmus-docs', ...)`. This
+# workflow POSTs to its webhook to invalidate the cache so the next
+# request to pragmatest.com/litmus/docs/* fetches fresh content.
+#
+# README in the litmus tree is bundled into the wheel's METADATA at
+# build time but rendered on PyPI from a frozen snapshot — that's a
+# separate path and not invalidated here.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+  workflow_dispatch: # allow manual triggers from the Actions tab
+
+jobs:
+  revalidate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST revalidation webhook
+        env:
+          URL: ${{ secrets.PRAGMATEST_REVALIDATE_URL }}
+          SECRET: ${{ secrets.PRAGMATEST_REVALIDATE_SECRET }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$SECRET" ]; then
+            echo "::error::PRAGMATEST_REVALIDATE_URL or PRAGMATEST_REVALIDATE_SECRET not set in repo secrets"
+            exit 1
+          fi
+          response=$(curl -sS -o /tmp/body -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "Content-Type: application/json" \
+            -H "x-pragmatest-revalidate-secret: $SECRET" \
+            -d '{"product":"litmus"}')
+          echo "HTTP $response"
+          cat /tmp/body
+          echo
+          if [ "$response" != "200" ]; then
+            echo "::error::Revalidation webhook returned $response"
+            exit 1
+          fi
