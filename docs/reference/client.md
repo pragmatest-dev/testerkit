@@ -125,9 +125,9 @@ step.measure(
 | `GT` | value > low |
 | `GE` | value >= low |
 
-### Test Vectors
+### VectorBuilder
 
-For parametrized tests with multiple conditions:
+Returned by `step.vector(**params)` context manager. Same `measure` / `fail` / `skip` surface as `StepBuilder`, scoped to one vector under the step.
 
 ```python
 with run.step("voltage_sweep") as step:
@@ -136,6 +136,16 @@ with run.step("voltage_sweep") as step:
             output = measure_output(voltage)
             vec.measure("output_voltage", output, units="V")
 ```
+
+**Methods:**
+
+| Method | Description |
+|---|---|
+| `vec.measure(...)` | Record a measurement on this vector (same signature as `step.measure`). |
+| `vec.fail(message=None)` | Mark this vector as failed; does not propagate to the parent step until the step ends. |
+| `vec.skip(message=None)` | Mark this vector as skipped. |
+
+`vec.fail` / `vec.skip` are the vector-scoped versions of the step methods — set the outcome on the active `TestVector` instead of the `TestStep`. Use them when an inner sweep iteration should be marked individually while the rest of the step proceeds.
 
 ## Complete Example
 

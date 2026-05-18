@@ -69,6 +69,30 @@ for vector in harness.vectors:
 
 `run_vector` is a context manager that opens / closes the vector boundary, runs the configured retry loop, and stamps every measurement inside with vector params and indices.
 
+### Convenience entry points
+
+For the common case — one test function executed across every vector with retries handled for you — the harness exposes two higher-level entry points:
+
+```python
+def measure_rail(vector):
+    psu.set_voltage(vector["vin"])
+    return float(dmm.measure_dc_voltage())   # value goes to inferred measurement name
+
+step = harness.run_all(measure_rail, step_name="output_voltage")
+# step is a completed TestStep with one TestVector per harness.vectors entry,
+# each carrying a Measurement with name inferred from limits.
+```
+
+| Method | Signature | What it does |
+|---|---|---|
+| `harness.run_all(test_fn, step_name=None)` | `Callable[[Vector], Any] → TestStep` | Opens a step, iterates `harness.vectors`, runs each through `run_with_retry`. Returns the completed step. |
+| `harness.run_with_retry(vector, test_fn)` | `(Vector, Callable[[Vector], Any]) → TestVector` | Runs `test_fn(vector)` inside `run_vector`, retrying up to `retry_config.max_retries` times. Returns the final `TestVector`. |
+| `harness.record(key, value)` | `(str, Any) → None` | Emits a `RecordEvent` with `(key, value)`. Use for non-measurement diagnostics — firmware version, calibration timestamp, raw register dump. JSON-serializable values only. |
+| `harness.current_vector` (property) | → `Vector \| None` | The vector currently inside `run_vector`, or `None` when called outside a vector boundary. |
+| `harness.retry_config` (property) | → `RetryConfig` | The active `RetryConfig` (constructor arg, sidecar `retry:`, or the default `max_retries=0, delay=0`). |
+
+`test_fn` can return a single value (logged under the inferred measurement name) or yield `(name, value)` tuples for multiple measurements per vector. See `harness.measure(...)` below for the per-call form.
+
 ## Recording measurements
 
 ```python
@@ -137,6 +161,24 @@ with harness.step():
 ```
 
 Run-scope fields appear as columns in every Parquet row this run produces. Step- and vector-scope fields appear only on the rows from that scope.
+
+Bulk seeding (useful when you already hold the dict from somewhere else):
+
+```python
+harness.context.set_params({"vin": 5.0, "load": 0.5})
+harness.context.set_observations({"temp_probe.temperature": 24.8})
+```
+
+`set_params` / `set_observations` write the whole dict at once — equivalent to calling `configure(k, v)` / `observe(k, v)` for every key, but skips the per-key validator and lets you reuse a builder dict in one shot. Both are intended for harness setup; tests should still use the per-key methods for clarity.
+
+`context.measure(name, value, ...)` is a third option for recording. It is a thin redirect to `harness.measure(...)` that goes through `context._harness`, so you can record without holding a harness reference — useful inside helper functions that already take a `Context`:
+
+```python
+def log_voltage(ctx, dmm):
+    ctx.measure("output_voltage", float(dmm.measure_dc_voltage()))
+```
+
+`harness.measure(...)` and `context.measure(...)` produce identical events; pick whichever is in scope.
 
 ## Spec-driven limits
 

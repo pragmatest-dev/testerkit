@@ -38,6 +38,7 @@ import os as _os
 _os.environ.setdefault("LITMUS_SKIP_DAEMON_NOTIFY", "1")
 
 import argparse
+import ast
 import importlib
 import inspect
 import re
@@ -344,6 +345,12 @@ _MODELS_MODULES: list[tuple[str, str]] = [
     ("Instrument record", "litmus.models.instrument"),
     ("Instrument asset", "litmus.models.instrument_asset"),
     ("Runtime data (events, runs, steps, measurements)", "litmus.data.models"),
+    ("Channel store records", "litmus.data.channels.models"),
+    ("HTTP API request shapes", "litmus.api.models"),
+    ("HTTP API response shapes", "litmus.api.responses"),
+    ("Query API row records", "litmus.analysis.runs_query"),
+    ("Query API row records (steps)", "litmus.analysis.steps_query"),
+    ("Query API facets & filters", "litmus.analysis.measurement_facets"),
 ]
 
 
@@ -607,7 +614,7 @@ def _generate_api(*, check: bool) -> bool:
         parts.append("")
     http_body = "\n".join(parts).rstrip() + "\n"
 
-    # ---- MCP tools ------------------------------------------------------
+    # ---- MCP tools + prompts -------------------------------------------
     from litmus.mcp.server import create_mcp_server
 
     mcp = create_mcp_server()
@@ -623,10 +630,19 @@ def _generate_api(*, check: bool) -> bool:
         mcp_parts.append(f"| `{name}` | {params} | {summary} |")
     mcp_body = "\n".join(mcp_parts)
 
+    prompts_dict = asyncio.run(mcp.get_prompts())
+    prompt_parts: list[str] = ["| Prompt | Arguments | Summary |", "|---|---|---|"]
+    for name, prompt in sorted(prompts_dict.items()):
+        args = ", ".join(f"`{a.name}`" for a in (prompt.arguments or [])) or "—"
+        summary = _first_paragraph(prompt.description)
+        prompt_parts.append(f"| `{name}` | {args} | {summary} |")
+    prompts_body = "\n".join(prompt_parts)
+
     target = DOCS_DIR / "api.md"
     existing = target.read_text()
     new = _replace_section(existing, "api-http-routes", http_body)
     new = _replace_section(new, "api-mcp-tools", mcp_body)
+    new = _replace_section(new, "api-mcp-prompts", prompts_body)
     return _write_or_check(target, new, check=check)
 
 
@@ -762,6 +778,211 @@ def _generate_cli(*, check: bool) -> bool:
 
 
 # =============================================================================
+# pytest-native.md (pytest_addoption flags)
+# =============================================================================
+
+
+def _ast_str(node: ast.AST) -> str | None:
+    """Return the string value of a `Constant` / `Str` / simple concat, else None."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        # f-strings — skip; we don't render them
+        return None
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _ast_str(node.left)
+        right = _ast_str(node.right)
+        if left is not None and right is not None:
+            return left + right
+    return None
+
+
+def _extract_addoption_calls(func: ast.FunctionDef) -> list[dict[str, Any]]:
+    """Walk a function body, collect every `group.addoption(...)` call.
+
+    Returns one dict per call with keys: flag (the first positional arg),
+    default (rendered string or None), action (string or None), help (string or None),
+    dest (string or None). Calls that take a non-literal first arg are skipped.
+    """
+    out: list[dict[str, Any]] = []
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr != "addoption":
+            continue
+        if not node.args:
+            continue
+        flag = _ast_str(node.args[0])
+        if flag is None:
+            continue
+
+        entry: dict[str, Any] = {
+            "flag": flag,
+            "default": None,
+            "action": None,
+            "help": None,
+            "dest": None,
+        }
+        for kw in node.keywords:
+            if kw.arg is None:
+                continue
+            if kw.arg == "help":
+                entry["help"] = _ast_str(kw.value)
+            elif kw.arg == "action":
+                entry["action"] = _ast_str(kw.value)
+            elif kw.arg == "dest":
+                entry["dest"] = _ast_str(kw.value)
+            elif kw.arg == "default":
+                # Render the default as best we can; non-literal → "*dynamic*".
+                v = kw.value
+                if isinstance(v, ast.Constant):
+                    entry["default"] = v.value
+                else:
+                    entry["default"] = "*dynamic*"
+        out.append(entry)
+    return out
+
+
+def _generate_pytest_native(*, check: bool) -> bool:
+    target = DOCS_DIR / "pytest-native.md"
+    source = (REPO_ROOT / "src/litmus/pytest_plugin/hooks.py").read_text()
+    tree = ast.parse(source)
+
+    func: ast.FunctionDef | None = None
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "pytest_addoption":
+            func = node
+            break
+    if func is None:
+        raise SystemExit("error: pytest_addoption not found in src/litmus/pytest_plugin/hooks.py")
+
+    addoptions = _extract_addoption_calls(func)
+
+    parts = ["| Flag | Type | Default | Description |", "|---|---|---|---|"]
+    for entry in addoptions:
+        flag = f"`{entry['flag']}`"
+        action = entry["action"]
+        default = entry["default"]
+        if action == "store_true":
+            type_str = "`flag`"
+            default_str = "`False`" if default in (None, False) else f"`{default}`"
+        elif action == "store_false":
+            type_str = "`flag` (inverse)"
+            default_str = "`True`" if default in (None, True) else f"`{default}`"
+        else:
+            type_str = "`text`"
+            if default is None:
+                default_str = ""
+            elif default == "*dynamic*":
+                default_str = "*resolved at runtime*"
+            else:
+                default_str = f"`{default!r}`" if isinstance(default, str) else f"`{default}`"
+        help_text = (entry["help"] or "").replace("\n", " ").strip()
+        help_text = re.sub(r"\s+", " ", help_text)
+        help_cell = help_text.replace("|", "\\|")
+        parts.append(f"| {flag} | {type_str} | {default_str} | {help_cell} |")
+
+    parts.append("")
+    parts.append(
+        "Plus dynamic flags generated from `litmus.yaml`:"
+        " every `profiles[*].facets:` key becomes `--<facet-key>` and"
+        " every `required_inputs:` key becomes `--<required-input-key>`."
+        " See [how-to/profiles.md](../how-to/profiles.md) for the resolution"
+        " chain (CLI flag → env var → profile binding → `default_*`)."
+    )
+
+    body = "\n".join(parts).rstrip() + "\n"
+
+    existing = target.read_text()
+    new = _replace_section(existing, "pytest-plugin-flags", body)
+    return _write_or_check(target, new, check=check)
+
+
+# =============================================================================
+# query-api.md (RunsQuery / StepsQuery / MeasurementsQuery method tables)
+# =============================================================================
+
+
+_QUERY_CLASSES: list[tuple[str, str]] = [
+    ("`RunsQuery`", "litmus.analysis.runs_query.RunsQuery"),
+    ("`StepsQuery`", "litmus.analysis.steps_query.StepsQuery"),
+    ("`MeasurementsQuery`", "litmus.analysis.measurements_query.MeasurementsQuery"),
+]
+
+
+def _render_method_signature(name: str, method: Any) -> str:
+    """Render a method's signature with parameter names + annotations + return."""
+    try:
+        sig = inspect.signature(method)
+    except (TypeError, ValueError):
+        return f"`{name}(...)`"
+    params: list[str] = []
+    for p_name, p in sig.parameters.items():
+        if p_name == "self":
+            continue
+        bit = p_name
+        if p.kind is inspect.Parameter.KEYWORD_ONLY and "*" not in params:
+            params.append("*")
+        if p.annotation is not inspect.Parameter.empty:
+            bit += f": {_render_annotation(p.annotation)}"
+        if p.default is not inspect.Parameter.empty:
+            bit += f" = {p.default!r}"
+        params.append(bit)
+    ret = ""
+    if sig.return_annotation is not inspect.Signature.empty:
+        ret = f" → {_render_annotation(sig.return_annotation)}"
+    return f"`{name}({', '.join(params)}){ret}`"
+
+
+def _public_methods(cls: type) -> list[tuple[str, Any]]:
+    """Return ``(name, method)`` for every public method declared on cls (not inherited)."""
+    out: list[tuple[str, Any]] = []
+    for name, val in inspect.getmembers(cls, predicate=inspect.isfunction):
+        if name.startswith("_"):
+            continue
+        if name not in cls.__dict__:  # skip inherited
+            continue
+        out.append((name, val))
+    out.sort(key=lambda nm: inspect.getsourcelines(nm[1])[1])
+    return out
+
+
+def _generate_query_api(*, check: bool) -> bool:
+    target = DOCS_DIR / "query-api.md"
+
+    parts: list[str] = []
+    for label, dotted in _QUERY_CLASSES:
+        module_name, cls_name = dotted.rsplit(".", 1)
+        module = importlib.import_module(module_name)
+        cls = getattr(module, cls_name)
+        anchor = cls_name.lower()
+        parts.append(f"## {label} {{#{anchor}}}\n")
+        blurb = _first_paragraph(cls.__doc__)
+        if blurb:
+            parts.append(blurb)
+            parts.append("")
+        parts.append(f"Source: `{module_name}`. Import: `from {module_name} import {cls_name}`.\n")
+
+        for name, method in _public_methods(cls):
+            sig = _render_method_signature(name, method)
+            parts.append(f"### `{cls_name}.{name}` {{#{anchor}-{name}}}\n")
+            parts.append(sig)
+            parts.append("")
+            doc = _first_paragraph(method.__doc__)
+            if doc:
+                parts.append(doc)
+                parts.append("")
+
+    body = "\n".join(parts).rstrip() + "\n"
+
+    existing = target.read_text()
+    new = _replace_section(existing, "query-api-classes", body)
+    return _write_or_check(target, new, check=check)
+
+
+# =============================================================================
 # Dispatcher
 # =============================================================================
 
@@ -772,6 +993,8 @@ GENERATORS: dict[str, Any] = {
     "configuration": _generate_configuration,
     "api": _generate_api,
     "cli": _generate_cli,
+    "pytest-native": _generate_pytest_native,
+    "query-api": _generate_query_api,
 }
 
 

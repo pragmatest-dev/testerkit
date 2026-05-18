@@ -1146,6 +1146,420 @@ Canonical terminal outcome of a measurement / step / run.
 | `'terminated'` |  |
 | `'aborted'` |  |
 | `'done'` |  |
+
+### Channel store records — `litmus.data.channels.models`
+
+#### `ChannelDescriptor` {#model-channeldescriptor}
+
+Metadata for a single channel, written once when first seen.
+
+| Field | Type | Default |
+|---|---|---|
+| `channel_id` | `str` | *required* |
+| `data_type` | `str` | `'scalar'` |
+| `instrument_role` | `str` | `''` |
+| `resource` | `str` | `''` |
+| `units` | `str \| None` | `None` |
+| `properties` | `dict[str, Any]` | `{}` |
+| `first_seen` | `datetime` | *via* `_utcnow()` |
+
+#### `ChannelSample` {#model-channelsample}
+
+A single channel data point delivered to subscribers.
+
+| Field | Type | Default |
+|---|---|---|
+| `channel_id` | `str` | *required* |
+| `timestamp` | `datetime` | *required* |
+| `value` | `Any` | *required* |
+| `units` | `str \| None` | `None` |
+| `sample_interval` | `float \| None` | `None` |
+| `source_method` | `str` | `''` |
+
+### HTTP API request shapes — `litmus.api.models`
+
+#### `LaunchRequest` {#model-launchrequest}
+
+Request to launch a test run.
+
+| Field | Type | Default |
+|---|---|---|
+| `product_id` | `str \| None` | `None` |
+| `dut_serial` | `str` | *required* |
+| `station_id` | `str` | *required* |
+| `test_path` | `str` | `'tests'` |
+| `operator` | `str \| None` | `None` |
+| `mock_instruments` | `bool` | `False` |
+
+#### `RunStatus` {#model-runstatus}
+
+Status of a test run.
+
+| Field | Type | Default |
+|---|---|---|
+| `run_id` | `str` | *required* |
+| `status` | `Literal['pending', 'running', 'completed', 'failed']` | *required* |
+| `progress_pct` | `int` | `0` |
+| `current_step` | `str \| None` | `None` |
+
+#### `ActiveRun` {#model-activerun}
+
+Public summary of one currently-tracked run.
+
+| Field | Type | Default |
+|---|---|---|
+| `run_id` | `str` | *required* |
+| `status` | `Literal['pending', 'running', 'completed', 'failed']` | *required* |
+| `progress_pct` | `int` | `0` |
+| `current_step` | `str \| None` | `None` |
+| `dut_serial` | `str` | *required* |
+| `station_id` | `str` | *required* |
+
+#### `DialogCreate` {#model-dialogcreate}
+
+Request body for creating a dialog.
+
+| Field | Type | Default |
+|---|---|---|
+| `type` | `Literal['confirm', 'choice', 'input']` | `'confirm'` |
+| `title` | `str` | *required* |
+| `message` | `str` | *required* |
+| `run_id` | `str \| None` | `None` |
+| `step_name` | `str \| None` | `None` |
+| `timeout_seconds` | `float \| None` | `None` |
+| `choices` | `list[str] \| None` | `None` |
+| `allow_multiple` | `bool` | `False` |
+| `placeholder` | `str` | `''` |
+| `default_value` | `str` | `''` |
+| `confirm_label` | `str` | `'Confirm'` |
+| `cancel_label` | `str` | `'Cancel'` |
+
+#### `DialogRespondRequest` {#model-dialogrespondrequest}
+
+Request body for responding to a dialog.
+
+| Field | Type | Default |
+|---|---|---|
+| `confirmed` | `bool` | `False` |
+| `choice` | `int \| None` | `None` |
+| `choices` | `list[int] \| None` | `None` |
+| `value` | `str \| None` | `None` |
+| `cancelled` | `bool` | `False` |
+
+#### `SaveRequest` {#model-saverequest}
+
+Request body for saving an entity via the unified save endpoint.
+
+| Field | Type | Default |
+|---|---|---|
+| `content` | `dict[str, Any]` | *required* |
+| `project` | `str \| None` | `None` |
+
+### HTTP API response shapes — `litmus.api.responses`
+
+#### `RunsListResponse` {#model-runslistresponse}
+
+``GET /runs`` — list of recent runs (denormalized run-level summaries).
+
+| Field | Type | Default |
+|---|---|---|
+| `runs` | `list[RunRow]` | *required* |
+
+#### `MeasurementsListResponse` {#model-measurementslistresponse}
+
+``GET /runs/{run_id}/measurements`` — flat measurement rows.
+
+| Field | Type | Default |
+|---|---|---|
+| `measurements` | `list[dict[str, Any]]` | *required* |
+
+#### `StepsListResponse` {#model-stepslistresponse}
+
+``GET /runs/{run_id}/steps`` — ordered step rows.
+
+| Field | Type | Default |
+|---|---|---|
+| `steps` | `list[StepRow]` | *required* |
+
+#### `StepsTreeResponse` {#model-stepstreeresponse}
+
+``GET /runs/{run_id}/steps/tree`` — hierarchical step tree.
+
+| Field | Type | Default |
+|---|---|---|
+| `tree` | `list[StepNode]` | *required* |
+
+#### `RunLaunchResponse` {#model-runlaunchresponse}
+
+``POST /runs`` — kick-off acknowledgement.
+
+| Field | Type | Default |
+|---|---|---|
+| `run_id` | `str` | *required* |
+| `status` | `Literal['running']` | *required* |
+
+#### `ActiveRunsResponse` {#model-activerunsresponse}
+
+``GET /active`` — currently-tracked runs.
+
+| Field | Type | Default |
+|---|---|---|
+| `active_runs` | `list[dict[str, Any]]` | *required* |
+| `count` | `int` | *required* |
+
+#### `DialogsListResponse` {#model-dialogslistresponse}
+
+``GET /dialogs`` — pending operator dialogs.
+
+| Field | Type | Default |
+|---|---|---|
+| `dialogs` | `list[dict[str, Any]]` | *required* |
+
+#### `DialogCreateResponse` {#model-dialogcreateresponse}
+
+``POST /dialogs`` — registration acknowledgement.
+
+| Field | Type | Default |
+|---|---|---|
+| `dialog_id` | `str` | *required* |
+| `status` | `Literal['pending']` | *required* |
+
+#### `DialogRespondAck` {#model-dialogrespondack}
+
+``POST /dialogs/{dialog_id}/respond`` — response acknowledgement.
+
+| Field | Type | Default |
+|---|---|---|
+| `status` | `Literal['ok']` | *required* |
+
+#### `ProductsListResponse` {#model-productslistresponse}
+
+``GET /products`` — product summaries (id + label-only fields).
+
+| Field | Type | Default |
+|---|---|---|
+| `products` | `list[dict[str, Any]]` | *required* |
+
+#### `ProductRequirementsResponse` {#model-productrequirementsresponse}
+
+``GET /products/{product_id}/requirements`` — required capabilities.
+
+| Field | Type | Default |
+|---|---|---|
+| `product_id` | `str` | *required* |
+| `requirements` | `list[RequirementSummary]` | *required* |
+
+#### `StationsListResponse` {#model-stationslistresponse}
+
+``GET /stations`` — station summaries.
+
+| Field | Type | Default |
+|---|---|---|
+| `stations` | `list[dict[str, Any]]` | *required* |
+
+#### `StationCapabilitiesResponse` {#model-stationcapabilitiesresponse}
+
+``GET /stations/{station_id}/capabilities`` — what the station provides.
+
+| Field | Type | Default |
+|---|---|---|
+| `station_id` | `str` | *required* |
+| `capabilities` | `list[CapabilitySummary]` | *required* |
+
+#### `MatchSingleResponse` {#model-matchsingleresponse}
+
+``GET /match?product_id=X&station_id=Y`` — one-station match check.
+
+| Field | Type | Default |
+|---|---|---|
+| `product_id` | `str` | *required* |
+| `station_id` | `str` | *required* |
+| `compatible` | `bool` | *required* |
+
+#### `MatchAllResponse` {#model-matchallresponse}
+
+``GET /match?product_id=X`` — all-stations match result.
+
+| Field | Type | Default |
+|---|---|---|
+| `product_id` | `str` | *required* |
+| `stations` | `list[dict[str, Any]]` | *required* |
+
+#### `InstrumentTypesResponse` {#model-instrumenttypesresponse}
+
+``GET /instruments/types`` — distinct catalog instrument types.
+
+| Field | Type | Default |
+|---|---|---|
+| `instrument_types` | `list[str]` | *required* |
+
+#### `InstrumentAssetsResponse` {#model-instrumentassetsresponse}
+
+``GET /instruments/assets`` — physical-device asset files.
+
+| Field | Type | Default |
+|---|---|---|
+| `assets` | `list[dict[str, Any]]` | *required* |
+| `count` | `int` | *required* |
+
+#### `MetricsResponse` {#model-metricsresponse}
+
+Shared shape for ``GET /metrics/*`` endpoints.
+
+| Field | Type | Default |
+|---|---|---|
+| `data` | `list[dict[str, Any]]` | `[]` |
+
+#### `GenericObjectResponse` {#model-genericobjectresponse}
+
+Permissive passthrough for endpoints that return ad-hoc objects.
+
+*(no fields)*
+
+### Query API row records — `litmus.analysis.runs_query`
+
+#### `RunRow` {#model-runrow}
+
+One row from the ``runs`` table — denormalized run-level summary.
+
+| Field | Type | Default |
+|---|---|---|
+| `file_path` | `str \| None` | `None` |
+| `run_id` | `str \| None` | `None` |
+| `session_id` | `str \| None` | `None` |
+| `slot_id` | `str \| None` | `None` |
+| `dut_serial` | `str \| None` | `None` |
+| `dut_part_number` | `str \| None` | `None` |
+| `dut_lot_number` | `str \| None` | `None` |
+| `station_id` | `str \| None` | `None` |
+| `station_name` | `str \| None` | `None` |
+| `station_hostname` | `str \| None` | `None` |
+| `fixture_id` | `str \| None` | `None` |
+| `outcome` | `str \| None` | `None` |
+| `started_at` | `datetime \| None` | `None` |
+| `ended_at` | `datetime \| None` | `None` |
+| `num_measurements` | `int \| None` | `None` |
+| `num_steps` | `int \| None` | `None` |
+| `test_phase` | `str \| None` | `None` |
+| `product_id` | `str \| None` | `None` |
+| `operator_id` | `str \| None` | `None` |
+| `project_name` | `str \| None` | `None` |
+
+### Query API row records (steps) — `litmus.analysis.steps_query`
+
+#### `StepRow` {#model-steprow}
+
+One row from the ``steps`` table — full denormalized run + step context.
+
+| Field | Type | Default |
+|---|---|---|
+| `file_path` | `str \| None` | `None` |
+| `run_id` | `str \| None` | `None` |
+| `session_id` | `str \| None` | `None` |
+| `slot_id` | `str \| None` | `None` |
+| `step_index` | `int \| None` | `None` |
+| `step_name` | `str \| None` | `None` |
+| `step_path` | `str \| None` | `None` |
+| `parent_path` | `str \| None` | `None` |
+| `vector_index` | `int \| None` | `None` |
+| `outcome` | `str \| None` | `None` |
+| `started_at` | `datetime \| None` | `None` |
+| `ended_at` | `datetime \| None` | `None` |
+| `duration_s` | `float \| None` | `None` |
+| `has_measurements` | `bool \| None` | `None` |
+| `measurement_count` | `int \| None` | `None` |
+| `vector_count` | `int \| None` | `None` |
+| `retry_count` | `int \| None` | `None` |
+| `markers` | `str \| None` | `None` |
+| `dut_serial` | `str \| None` | `None` |
+| `station_id` | `str \| None` | `None` |
+| `inputs` | `dict[str, Any]` | `{}` |
+| `outputs` | `dict[str, Any]` | `{}` |
+
+#### `StepNode` {#model-stepnode}
+
+One node in a hierarchical step tree, built from ``step_path``.
+
+| Field | Type | Default |
+|---|---|---|
+| `step` | `StepRow` | *required* |
+| `children` | `list[StepNode]` | `[]` |
+
+### Query API facets & filters — `litmus.analysis.measurement_facets`
+
+#### `FacetSpec` {#model-facetspec}
+
+Self-describing definition of one filter facet.
+
+| Field | Type | Default |
+|---|---|---|
+| `column` | `str` | *required* |
+| `kind` | `FacetKind` | *required* |
+| `enum_class` | `type[StrEnum] \| None` | `None` |
+| `label` | `str` | *required* |
+| `description` | `str` | `''` |
+
+#### `FacetOption` {#model-facetoption}
+
+One pickable value within a facet, with the row count it covers.
+
+| Field | Type | Default |
+|---|---|---|
+| `value` | `str` | *required* |
+| `count` | `int` | *required* |
+
+#### `SummaryCounts` {#model-summarycounts}
+
+Cardinality stats for the cardinality badge — single query result.
+
+| Field | Type | Default |
+|---|---|---|
+| `total_rows` | `int` | *required* |
+| `distinct_runs` | `int` | *required* |
+| `distinct_measurements` | `int` | *required* |
+| `distinct_products` | `int` | *required* |
+
+#### `ParametricRow` {#model-parametricrow}
+
+One long-format row from a scatter / line / bar parametric query.
+
+| Field | Type | Default |
+|---|---|---|
+| `x` | `float \| str \| datetime \| date \| None` | `None` |
+| `y` | `float` | *required* |
+| `group` | `str` | `''` |
+
+#### `HistogramRow` {#model-histogramrow}
+
+One bin in a histogram result. ``x`` is the bin midpoint.
+
+| Field | Type | Default |
+|---|---|---|
+| `bin` | `int` | *required* |
+| `x` | `float` | *required* |
+| `y` | `int` | *required* |
+| `group` | `str` | `''` |
+
+#### `FilterSet` {#model-filterset}
+
+Current filter state — URL-shareable, validated against ``MEASUREMENT_FACETS``.
+
+| Field | Type | Default |
+|---|---|---|
+| `string_filters` | `dict[str, list[str]]` | `{}` |
+| `enum_filters` | `dict[str, list[str]]` | `{}` |
+| `since` | `date \| None` | `None` |
+| `until` | `date \| None` | `None` |
+
+#### `FacetKind` {#enum-facetkind}
+
+How a facet's options are sourced and displayed in the UI.
+
+| Value | Description |
+|---|---|
+| `'enum'` |  |
+| `'string'` |  |
+| `'date'` |  |
 <!-- GENERATED:models-by-module:end -->
 
 ## Entity-relationship diagram

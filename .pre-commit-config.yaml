@@ -57,6 +57,6 @@ repos:
         name: reference-docs-drift
         entry: uv run python scripts/generate_reference_docs.py --all --check
         language: system
-        files: ^(scripts/generate_reference_docs\.py|src/litmus/(data/(events|models)\.py|models/.*\.py|api/app\.py|mcp/server\.py|cli\.py|grafana/cli\.py)|docs/reference/(event-types|models|configuration|api|cli)\.md)$
+        files: ^(scripts/generate_reference_docs\.py|src/litmus/(data/(events|models)\.py|data/channels/models\.py|models/.*\.py|api/(app|models|responses)\.py|mcp/server\.py|cli\.py|grafana/cli\.py|pytest_plugin/hooks\.py|analysis/(runs|steps|measurements)_query\.py|analysis/measurement_facets\.py)|docs/reference/(event-types|models|configuration|api|cli|pytest-native|query-api)\.md)$
         pass_filenames: false
         require_serial: true

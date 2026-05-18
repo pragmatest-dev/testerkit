@@ -517,7 +517,17 @@ See [Profiles](../how-to/profiles.md) for the profile YAML shape.
 |---|---|
 | `LITMUS_HOME` | Default data directory. Resolution: `--data-dir` arg → project `litmus.yaml` `data_dir:` → `LITMUS_HOME` → `platformdirs.user_data_dir("litmus")`. |
 | `LITMUS_TEST_PHASE` | Default `test_phase` for runs (see *Test phase* above). |
+| `LITMUS_TEST_PROFILE` | Default profile name; equivalent to `--test-profile`. |
 | `LITMUS_MOCK_INSTRUMENTS` | Set to `1` to enable mock mode without passing `--mock-instruments`. |
+| `LITMUS_AUTO_CONFIRM` | Truthy → auto-resolve operator prompts and dialogs in non-tty contexts (CI, subprocess runs). Set to `"confirm"` to auto-confirm, `"cancel"` to auto-cancel; any other truthy value defaults to confirm. |
+| `LITMUS_SERVER_URL` | Server URL the dialog bridge uses to POST operator prompts from subprocess test runs back to the UI host (default: `http://localhost:8000`). |
+| `LITMUS_DUT_SERIAL` | Default DUT serial (shared across slots). For per-slot serials, use `LITMUS_DUT_SERIAL_<SLOT_ID>` (e.g. `LITMUS_DUT_SERIAL_SLOT_1`). |
+| `LITMUS_DUT_PART_NUMBER` | Default DUT part number (`dut_part_number` on every run). |
+| `LITMUS_DUT_REVISION` | Default DUT hardware revision. |
+| `LITMUS_DUT_LOT_NUMBER` | Default DUT lot / batch number. |
+| `LITMUS_FIXTURE_SLOT` | JSON-serialized `ResolvedSlot` injected into per-slot child processes by the multi-DUT orchestrator. Operator-set values are ignored. |
+| `LITMUS_DAEMON_IDLE_TIMEOUT` | Seconds a background daemon (events, runs, channels) waits idle before self-shutting-down (default: `300`). |
+| `LITMUS_DAEMON_SPAWN_TIMEOUT` | Seconds to wait for a daemon to report ready after spawning (default: `30`). |
 | `LITMUS_SKIP_DAEMON_NOTIFY` | Suppresses the daemon-notify gRPC hop when constructing `ParquetBackend` — useful in tooling scripts that read backends without serving runs. |
 
 ## Exit codes

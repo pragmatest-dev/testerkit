@@ -60,6 +60,16 @@ Twelve tools, all prefixed `litmus_`. Each tool's parameter shape and full docst
 
 For per-tool parameter detail and worked examples, see [how-to/mcp-integration.md](../how-to/mcp-integration.md).
 
+## MCP prompts
+
+Prompts are reusable instruction templates an agent can fetch via the MCP `prompts/get` protocol method. Registered with `@mcp.prompt(name=...)` in `create_mcp_server()`.
+
+<!-- GENERATED:api-mcp-prompts:start -->
+| Prompt | Arguments | Summary |
+|---|---|---|
+| `datasheet-to-test` | — | Get the full datasheet-to-test workflow guide. |
+<!-- GENERATED:api-mcp-prompts:end -->
+
 ## HTTP endpoints
 
 Every route is mounted under the `/api/` prefix. Field shapes for request / response models live in [models.md](models.md); query parameter detail is in the per-handler source.

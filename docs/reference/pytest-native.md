@@ -77,18 +77,32 @@ All pytest flags work. The ones that matter most for hardware test work:
 | `-p no:plugin` | Disable a specific plugin. |
 | `--co` | Alias for `--collect-only`. |
 
-Litmus adds the following flags (see [CLI reference](cli.md) for the full set):
+Litmus adds the flags below. The table is generated from `pytest_addoption` in `src/litmus/pytest_plugin/hooks.py`; regenerate with `uv run python scripts/generate_reference_docs.py pytest-native` after editing the hook.
 
-| Flag | Purpose |
-|---|---|
-| `--station <id-or-path>` | Resolve a `stations/*.yaml` to activate. |
-| `--product <id-or-path>` | Resolve a `products/*.yaml` to drive spec lookup. |
-| `--dut-part-number <pn>` | Content match against `product.part_number:`. |
-| `--fixture <id-or-path>` | Resolve a `fixtures/*.yaml` for pin → instrument routing. |
-| `--test-profile <name>` | Apply a named profile (test selection + overrides). Pair with `--no-test-profile` to disable a `default_profile:` set in `litmus.yaml`. |
-| `--mock-instruments` | Replace every real instrument with a mock. |
-| `--guardband <pct>` | Tighten spec-derived limits for manufacturing margin. |
-| `--data-dir <path>` | Override the canonical results directory. |
+<!-- GENERATED:pytest-plugin-flags:start -->
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dut-serial` | `text` | `'DUT001'` | DUT serial number |
+| `--dut-serials` | `text` |  | Per-slot DUT serials: slot_1=SN1,slot_2=SN2 |
+| `--slot` | `text` |  | Physical fixture slot for this single-process run (e.g. ``slot_1``, ``slot_2``). Use this when running a single DUT against a specific position in a multi-slot fixture so the run records which slot was exercised. Multi-slot orchestration uses ``--dut-serials`` instead — supplying both is an error. |
+| `--dut-part-number` | `text` |  | DUT part number |
+| `--dut-revision` | `text` |  | DUT revision |
+| `--dut-lot-number` | `text` |  | DUT lot/batch number (mirrors LITMUS_DUT_LOT_NUMBER env var) |
+| `--station` | `text` |  | Station ID or YAML path. Bare id looks up ``stations/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml`` is used as an explicit path. When unset, the resolver tries hostname auto-match against stations/*.yaml ``hostname:`` fields, then falls back to ``ProjectConfig.default_station``. |
+| `--operator` | `text` |  | Operator name |
+| `--data-dir` | `text` | *resolved at runtime* | Directory for Parquet results (default: platform data dir) |
+| `--product` | `text` |  | Product ID or YAML path. Bare id looks up ``products/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml`` is used as an explicit path. |
+| `--guardband` | `text` | `'0'` | Default guardband percentage |
+| `--mock-instruments` | `flag` | `False` | Use mock instruments instead of real hardware. Resolution: this flag > LITMUS_MOCK_INSTRUMENTS env var > litmus.yaml `mock_instruments:` > false. |
+| `--no-mock-instruments` | `flag` (inverse) | `True` | Use real hardware (overrides LITMUS_MOCK_INSTRUMENTS env and litmus.yaml `mock_instruments: true`). |
+| `--fixture` | `text` |  | Fixture ID or YAML path. Bare id looks up ``fixtures/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml`` is used as an explicit path. When unset, the resolver tries the active profile's ``fixture:`` field, then ``ProjectConfig.default_fixture``, then the single-file fallback in ``fixtures/``. |
+| `--test-phase` | `text` |  | Test phase (development, validation, characterization, production). If not specified, auto-detects from git status. |
+| `--strict-traceability` | `flag` | `False` | Fail tests whose measurements lack required traceability fields (run_id, step_name, and spec_ref/dut_pin when a spec is active). |
+| `--test-profile` | `text` | *resolved at runtime* | Named profile from litmus.yaml `profiles:` (overrides vectors, limits, markers, and filter for the session). |
+| `--no-test-profile` | `flag` | `False` | Skip profile resolution. Use when profiles are declared but you want to run with bare project defaults (ad-hoc runs). |
+
+Plus dynamic flags generated from `litmus.yaml`: every `profiles[*].facets:` key becomes `--<facet-key>` and every `required_inputs:` key becomes `--<required-input-key>`. See [how-to/profiles.md](../how-to/profiles.md) for the resolution chain (CLI flag → env var → profile binding → `default_*`).
+<!-- GENERATED:pytest-plugin-flags:end -->
 
 ## Plugins that interact with Litmus
 

@@ -35,6 +35,12 @@ If you're reading the parquet, the event log, or any export — these pages desc
 - [Parquet schema](parquet-schema.md) — every column in the run parquet, the `record_type` discriminator, how retries land.
 - [Output formats](outputs.md) — what `litmus show -f <fmt>` and `litmus export` produce for HTML / PDF / JSON / CSV.
 
+## Reading results back
+
+For analytics from Python — yield, Cpk, pareto, trends — without writing raw DuckDB.
+
+- [Query API](query-api.md) — `RunsQuery`, `StepsQuery`, `MeasurementsQuery`. The public read path the UI and HTTP API both use.
+
 ## Command line
 
 - [CLI reference](cli.md) — every `litmus <command>` and its flags.
