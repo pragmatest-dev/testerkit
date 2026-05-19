@@ -1,9 +1,10 @@
 ---
 name: section-reviewer
-description: Opus agent that reviews AND fixes catalog YAML against an inventory file. Semantic checks only — no PDF access. Complements the mechanical audit script.
+description: Reviews AND fixes catalog YAML against an inventory file. Semantic checks only — no PDF access. Complements the mechanical audit script.
 variables: YAML_PATH, SECTION_NAME, INVENTORY_PATH, CAPABILITIES, ENUM_LIST
-model: opus
 ---
+
+**Recommended model tier:** high-capability reasoning (Anthropic Opus, Google Gemini 2.5 Pro, OpenAI GPT-5 / o-series, or equivalent). Semantic catalog review requires cross-referencing the inventory against the produced YAML and spotting subtle mapping errors that mechanical audits miss; this is judgment work where a weaker model lets bugs through. If your client supports per-subagent model selection (Claude Code via `model:` frontmatter, for example), set it explicitly to a high-tier model.
 
 # Section Reviewer-Fixer Agent
 

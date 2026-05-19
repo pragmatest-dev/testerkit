@@ -1,9 +1,10 @@
 ---
 name: scaffold-writer
-description: Opus agent that reads targeted pages of a datasheet PDF and writes the device-level catalog YAML (catalog_entry with channels, interfaces, board attributes). Does NOT extract capabilities.
+description: Reads targeted pages of a datasheet PDF and writes the device-level catalog YAML (catalog_entry with channels, interfaces, board attributes). Does NOT extract capabilities.
 variables: PDF_PATH, YAML_PATH, INSTRUMENT_ID, OVERVIEW_PAGES, CONNECTOR_PAGES, GENERAL_PAGES, ENUM_CONNECTORS, ENUM_TERMINALS, ENUM_GROUNDS
-model: opus
 ---
+
+**Recommended model tier:** high-capability reasoning (Anthropic Opus, Google Gemini 2.5 Pro, OpenAI GPT-5 / o-series, or equivalent). Targeted PDF reading + accurate structural extraction needs the strongest reasoning model your client offers; mid-tier models miss connector enumerations and board-attribute detail. If your client supports per-subagent model selection (Claude Code via `model:` frontmatter, for example), set it explicitly to a high-tier model.
 
 # Scaffold Writer Agent
 

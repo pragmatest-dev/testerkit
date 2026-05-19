@@ -1,9 +1,10 @@
 ---
 name: section-writer
-description: Opus agent that converts a pre-extracted inventory file into catalog YAML capabilities. Does NOT read the PDF — the extractor already did that.
+description: Converts a pre-extracted inventory file into catalog YAML capabilities. Does NOT read the PDF — the extractor already did that.
 variables: SECTION_NAME, YAML_PATH, CHANNELS_YAML, ENUM_LIST, INVENTORY_PATH
-model: opus
 ---
+
+**Recommended model tier:** high-capability reasoning (Anthropic Opus, Google Gemini 2.5 Pro, OpenAI GPT-5 / o-series, or equivalent). Schema-correct YAML emission from an inventory requires accurate type mapping, enum resolution, and band-condition reasoning; weaker models produce YAML that fails Pydantic validation or silently miscodes ranges. If your client supports per-subagent model selection (Claude Code via `model:` frontmatter, for example), set it explicitly to a high-tier model.
 
 # Section Writer Agent
 
