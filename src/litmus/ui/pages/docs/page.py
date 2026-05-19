@@ -86,6 +86,81 @@ def _create_docs_layout(section: str | None = None, page: str | None = None):
     except OSError:
         css_version = 0
     ui.add_head_html(f'<link rel="stylesheet" href="/static/global.css?v={css_version}">')
+
+    # Right-side TOC styles + populator script.
+    # Styles live in <head>; script in <body> (after DOM exists).
+    # NiceGUI's bundled Tailwind subset doesn't include `lg:block`,
+    # so we use an explicit media query for the show/hide breakpoint.
+    ui.add_head_html("""
+        <style>
+          .docs-toc { display: none; }
+          @media (min-width: 1024px) {
+            .docs-toc { display: block; }
+          }
+          .docs-toc {
+            position: sticky; top: 16px; align-self: flex-start;
+            max-height: calc(100vh - 32px); overflow-y: auto;
+          }
+          #docs-toc-list a {
+            display: block; padding: 2px 0;
+            color: #475569; text-decoration: none;
+          }
+          #docs-toc-list a:hover { color: #1e293b; }
+          #docs-toc-list a.toc-active { color: #1d4ed8; font-weight: 500; }
+          #docs-toc-list li.toc-h3 { padding-left: 0.75rem; font-size: 0.75rem; }
+        </style>
+    """)
+    ui.add_body_html("""
+        <script>
+          (function() {
+            function build() {
+              const aside = document.getElementById('docs-toc-aside');
+              const list = document.getElementById('docs-toc-list');
+              if (!aside || !list) return;
+              const prose = document.querySelector('.prose');
+              if (!prose) return;
+              const headings = Array.from(prose.querySelectorAll('h2[id], h3[id]'));
+              if (headings.length < 3) {
+                aside.style.display = 'none';
+                return;
+              }
+              list.innerHTML = '';
+              headings.forEach(h => {
+                const li = document.createElement('li');
+                if (h.tagName === 'H3') li.className = 'toc-h3';
+                const a = document.createElement('a');
+                a.href = '#' + h.id;
+                a.textContent = h.textContent;
+                li.appendChild(a);
+                list.appendChild(li);
+              });
+              const observer = new IntersectionObserver(entries => {
+                const visible = entries.filter(e => e.isIntersecting);
+                if (visible.length === 0) return;
+                visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+                const activeId = visible[0].target.id;
+                list.querySelectorAll('a').forEach(a => {
+                  a.classList.toggle('toc-active', a.getAttribute('href') === '#' + activeId);
+                });
+              }, { rootMargin: '-80px 0px -75% 0px', threshold: 0 });
+              headings.forEach(h => observer.observe(h));
+            }
+            // Prose arrives over WebSocket after DOMContentLoaded —
+            // observe insertions until it appears, then build.
+            if (document.querySelector('.prose')) {
+              build();
+            } else {
+              const mo = new MutationObserver(() => {
+                if (document.querySelector('.prose')) {
+                  mo.disconnect();
+                  build();
+                }
+              });
+              mo.observe(document.body, { childList: true, subtree: true });
+            }
+          })();
+        </script>
+    """)
     # Mermaid diagram rendering. NiceGUI strips the ``class="language-X"``
     # attribute on ``<code>`` elements, so we can't select by language hint.
     # Instead we sniff fenced code blocks by their content: the first non-
@@ -377,7 +452,16 @@ def _render_doc_page_content(section: str, page: str):
                 content = md_path.read_text()
                 ui.markdown(
                     content,
-                    extras=["fenced-code-blocks", "tables", "strike", "task_list"],
+                    extras=[
+                        "fenced-code-blocks",
+                        "tables",
+                        "strike",
+                        "task_list",
+                        # Adds id="..." to every heading. Powers anchor links
+                        # and the right-side TOC. Slug uses lowercase-dash
+                        # convention.
+                        "header-ids",
+                    ],
                 ).classes("prose prose-slate max-w-none")
 
                 # Next/prev navigation — prominent button cards so the next step is
@@ -427,6 +511,21 @@ def _render_doc_page_content(section: str, page: str):
                     ui.link(f"Back to {_get_section_title(section)}", f"/docs/{section}").classes(
                         "text-blue-600 hover:underline"
                     )
+
+        # Right-side TOC. The aside itself is mounted here as a flex
+        # sibling of the content column; the script that populates it
+        # from prose headings lives in <body> via _toc_script_html().
+        # Self-hides if <3 H2s. Hidden below lg breakpoint.
+        ui.html(
+            sanitize=False,
+            content=(
+                '<aside class="docs-toc w-56 shrink-0 px-4 py-6" id="docs-toc-aside">'
+                '<p class="text-xs font-semibold uppercase tracking-wide '
+                'text-slate-500 mb-3">On this page</p>'
+                '<nav><ol id="docs-toc-list" class="space-y-1 text-sm"></ol></nav>'
+                "</aside>"
+            ),
+        )
 
 
 def _render_section_index_content(section: str):
