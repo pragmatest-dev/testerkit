@@ -488,17 +488,25 @@ def _render_doc_page_content(section: str, page: str):
                     prev_slug = ordered[idx - 1] if idx > 0 else None
                     next_slug = ordered[idx + 1] if idx < len(ordered) - 1 else None
 
+                    section_title = _get_section_title(section)
+                    # Show "Step N of M" position for tutorial pages (they
+                    # read sequentially). Other sections aren't a path.
+                    if section == "tutorial":
+                        ui.label(f"{section_title} · Step {idx + 1} of {len(ordered)}").classes(
+                            "mt-4 text-center text-xs text-slate-500"
+                        )
+
                     btn_base = (
                         "block flex-1 p-4 border rounded-lg "
                         "bg-white border-slate-200 hover:border-blue-500 hover:shadow-md "
                         "transition no-underline"
                     )
-                    with ui.row().classes("mt-12 pt-8 border-t border-slate-200 gap-4 w-full"):
+                    with ui.row().classes("mt-8 pt-8 border-t border-slate-200 gap-4 w-full"):
                         if prev_slug:
                             with ui.link(target=f"/docs/{section}/{prev_slug}").classes(
                                 btn_base + " text-left"
                             ):
-                                ui.label("← Previous").classes(
+                                ui.label(f"← Previous · {section_title}").classes(
                                     "text-xs uppercase tracking-wide text-slate-500"
                                 )
                                 ui.label(title_for[prev_slug]).classes(
@@ -510,7 +518,7 @@ def _render_doc_page_content(section: str, page: str):
                             with ui.link(target=f"/docs/{section}/{next_slug}").classes(
                                 btn_base + " text-right"
                             ):
-                                ui.label("Next →").classes(
+                                ui.label(f"Next · {section_title} →").classes(
                                     "text-xs uppercase tracking-wide text-slate-500"
                                 )
                                 ui.label(title_for[next_slug]).classes(
