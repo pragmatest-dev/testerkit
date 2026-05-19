@@ -32,34 +32,38 @@ litmus setup claude-code
 
 ## Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        User Layer                            │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐        │
-│  │ pytest  │  │   CLI   │  │   UI    │  │   MCP   │        │
-│  │  tests  │  │         │  │(NiceGUI)│  │ Server  │        │
-│  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘        │
-└───────┼────────────┼────────────┼────────────┼──────────────┘
-        │            │            │            │
-        ▼            ▼            ▼            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Platform Layer                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │   Config    │  │ Instruments │  │  Matching   │         │
-│  │   Loader    │  │   Drivers   │  │   Service   │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │   Product   │  │   Station   │  │    Data     │         │
-│  │    Specs    │  │   Configs   │  │   Backend   │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-└─────────────────────────────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Storage Layer                           │
-│   Events (Arrow IPC)  │  Channels (Arrow)  │  Parquet       │
-│   DuckDB via Flight   │  LTTB decimation   │  (results)     │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph User["User Layer"]
+        direction LR
+        pytest["pytest tests"]
+        cli["CLI"]
+        ui["UI (NiceGUI)"]
+        mcp["MCP Server"]
+    end
+
+    subgraph Platform["Platform Layer"]
+        direction LR
+        cfg["Config Loader"]
+        drv["Instrument Drivers"]
+        match["Matching Service"]
+        product["Product Specs"]
+        station["Station Configs"]
+        data["Data Backend"]
+    end
+
+    subgraph Storage["Storage Layer"]
+        direction LR
+        events["Events<br/>(Arrow IPC + DuckDB via Flight)"]
+        channels["Channels<br/>(Arrow + LTTB decimation)"]
+        parquet["Parquet<br/>(results)"]
+    end
+
+    pytest --> Platform
+    cli --> Platform
+    ui --> Platform
+    mcp --> Platform
+    Platform --> Storage
 ```
 
 ## Key Features

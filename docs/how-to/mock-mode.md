@@ -61,15 +61,22 @@ What still runs for mocks:
 
 Litmus has three places mock values get into a running test, applied in distinct passes. They are NOT a single priority chain — each layer adds or overrides values on top of the previous one.
 
-```
-session start    │ ① Station mock_config  →  Mock(object, **mock_config)
-                 │                              (the base mock instance)
-                 │
-test setup       │ ② Sidecar / marker mocks:  →  patch.object(instr, attr, **kwargs)
-                 │                              (overlay applied per-test, torn down after)
-                 │
-test body        │ ③ mocker.patch.object(...) →  patch.object(instr, attr, ...)
-                 │                              (overlay applied per-call, torn down at test end)
+```mermaid
+flowchart LR
+    classDef phase fill:#f1f5f9,stroke:#94a3b8,color:#0f172a
+
+    subgraph s1["session start"]
+        l1["① Station mock_config<br/>→ Mock(object, **mock_config)<br/><sub>the base mock instance</sub>"]
+    end
+    subgraph s2["test setup"]
+        l2["② Sidecar / marker mocks<br/>→ patch.object(instr, attr, **kwargs)<br/><sub>overlay applied per-test, torn down after</sub>"]
+    end
+    subgraph s3["test body"]
+        l3["③ mocker.patch.object(...)<br/>→ patch.object(instr, attr, ...)<br/><sub>overlay applied per-call, torn down at test end</sub>"]
+    end
+
+    s1 --> s2 --> s3
+    class s1,s2,s3 phase
 ```
 
 Each layer's source of truth:

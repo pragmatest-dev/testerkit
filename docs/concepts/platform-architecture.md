@@ -80,30 +80,13 @@ See the [Python client reference](../reference/client.md) for the full surface (
 
 Litmus exposes its platform services via MCP (Model Context Protocol):
 
-```
-AI Agent (Claude Code)
-        │
-        ▼
-┌───────────────────────────────────────┐
-│           MCP Server                   │
-├───────────────────────────────────────┤
-│ Tools (twelve, all `litmus_*`):        │
-│ • litmus_project (CRUD on YAML)        │
-│ • litmus_discover (find instruments)   │
-│ • litmus_match (capability check)      │
-│ • litmus_run (execute tests)           │
-│ • litmus_open (browser URLs)           │
-│ • litmus_schema (entity JSON schema)   │
-│ • litmus_events (query events)         │
-│ • litmus_sessions (list sessions)      │
-│ • litmus_channels (query channels)     │
-│ • litmus_metrics (yield / Pareto / Cpk)│
-│ • litmus_runs (query runs view)        │
-│ • litmus_steps (query steps view)      │
-└───────────────────────────────────────┘
-        │
-        ▼
-  Litmus Platform Services
+```mermaid
+flowchart TB
+    agent["AI Agent (Claude Code)"]
+    mcp["**MCP Server**<br/><br/>Tools (twelve, all litmus_*):<br/>• litmus_project (CRUD on YAML)<br/>• litmus_discover (find instruments)<br/>• litmus_match (capability check)<br/>• litmus_run (execute tests)<br/>• litmus_open (browser URLs)<br/>• litmus_schema (entity JSON schema)<br/>• litmus_events (query events)<br/>• litmus_sessions (list sessions)<br/>• litmus_channels (query channels)<br/>• litmus_metrics (yield / Pareto / Cpk)<br/>• litmus_runs (query runs view)<br/>• litmus_steps (query steps view)"]
+    platform["Litmus Platform Services"]
+
+    agent --> mcp --> platform
 ```
 
 **Important:** Litmus does NOT call LLMs. It exposes tools for AI agents to call.
@@ -119,27 +102,35 @@ AI Agent (Claude Code)
 
 ## Architecture Summary
 
-```
-                    ┌─────────────────────────────────┐
-                    │         USER INTERFACES         │
-                    │                                 │
-                    │  CLI   API   MCP   UI   pytest │
-                    └─────────────┬───────────────────┘
-                                  │
-                    ┌─────────────▼───────────────────┐
-                    │       LITMUS PLATFORM           │
-                    │                                 │
-                    │  Config │ Instruments │ Matching│
-                    │  ───────┼─────────────┼─────────│
-                    │  Results│   Dialogs   │ Products│
-                    └─────────────┬───────────────────┘
-                                  │
-                    ┌─────────────▼───────────────────┐
-                    │         STORAGE LAYER           │
-                    │                                 │
-                    │  Events  │ Channels │  Parquet  │
-                    │ (Arrow)  │ (Arrow)  │  (runs/)  │
-                    └─────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph UI["USER INTERFACES"]
+        direction LR
+        cli["CLI"]
+        api["API"]
+        mcp["MCP"]
+        nicegui["UI"]
+        pytest["pytest"]
+    end
+
+    subgraph Platform["LITMUS PLATFORM"]
+        direction LR
+        cfg["Config"]
+        instr["Instruments"]
+        match["Matching"]
+        results["Results"]
+        dialogs["Dialogs"]
+        products["Products"]
+    end
+
+    subgraph Storage["STORAGE LAYER"]
+        direction LR
+        events["Events<br/>(Arrow)"]
+        channels["Channels<br/>(Arrow)"]
+        parquet["Parquet<br/>(runs/)"]
+    end
+
+    UI --> Platform --> Storage
 ```
 
 Litmus is the infrastructure layer that connects your tests (top) to your data (bottom), regardless of how you choose to run them.

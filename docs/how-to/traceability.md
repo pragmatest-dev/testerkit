@@ -46,39 +46,35 @@ For each input parameter, Litmus captures the full signal path:
 
 Every measurement can be traced from result back to source:
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         TRACEABILITY CHAIN                               │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  Measurement Output                                                     │
-│  └── spec_ref ────────────► Product Spec (products/id.yaml)            │
-│      │                       └── Characteristic ID from datasheet       │
-│      │                                                                  │
-│      ├── dut_pin ────► Product Pin Definition                     │
-│      │                       └── Physical location: "J1.3", net: "VOUT"│
-│      │                                                                  │
-│      ├── fixture_connection ► Fixture Config (fixture.yaml)       │
-│      │                       └── Maps DUT pin to instrument             │
-│      │                                                                  │
-│      ├── instrument_name ──► Station Config (station.yaml)             │
-│      │                       └── Logical name: "dmm_main"               │
-│      │                                                                  │
-│      ├── instrument_resource ► Physical Connection                 │
-│      │                       └── VISA: "TCPIP::192.168.1.100::INSTR"   │
-│      │                                                                  │
-│      └── instrument_channel ► Instrument Channel                   │
-│                              └── Specific input: "CH1", "ai0"           │
-│                                                                         │
-│  Stimulus Inputs (per parameter)                                        │
-│  └── in_{param} ──────────► Value commanded                            │
-│      ├── in_{param}_instrument ► Source instrument                      │
-│      ├── in_{param}_resource ► VISA address                            │
-│      ├── in_{param}_channel ► Channel on instrument                    │
-│      ├── in_{param}_dut_pin ► DUT pin driven                           │
-│      └── in_{param}_fixture_connection ► Fixture routing               │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    meas["Measurement Output"]
+    spec["Product Spec<br/>(products/id.yaml)<br/><sub>Characteristic ID from datasheet</sub>"]
+    pin["Product Pin Definition<br/><sub>Physical location: J1.3, net: VOUT</sub>"]
+    fix["Fixture Config<br/>(fixture.yaml)<br/><sub>Maps DUT pin to instrument</sub>"]
+    sta["Station Config<br/>(station.yaml)<br/><sub>Logical name: dmm_main</sub>"]
+    res["Physical Connection<br/><sub>VISA: TCPIP::192.168.1.100::INSTR</sub>"]
+    ch["Instrument Channel<br/><sub>Specific input: CH1, ai0</sub>"]
+
+    meas -- spec_ref --> spec
+    meas -- dut_pin --> pin
+    meas -- fixture_connection --> fix
+    meas -- instrument_name --> sta
+    meas -- instrument_resource --> res
+    meas -- instrument_channel --> ch
+
+    stim["Stimulus Inputs<br/>(in_&#123;param&#125;)"]
+    sinstr["Source instrument"]
+    sres["VISA address"]
+    sch["Channel on instrument"]
+    spin["DUT pin driven"]
+    sfix["Fixture routing"]
+
+    stim -- in_{param}_instrument --> sinstr
+    stim -- in_{param}_resource --> sres
+    stim -- in_{param}_channel --> sch
+    stim -- in_{param}_dut_pin --> spin
+    stim -- in_{param}_fixture_connection --> sfix
 ```
 
 ## Setting Traceability in Tests

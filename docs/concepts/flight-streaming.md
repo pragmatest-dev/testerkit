@@ -15,18 +15,28 @@ The alternative — having each process read Arrow IPC files directly — create
 
 ## Architecture
 
-```
-Process A (pytest)          Process B (litmus serve)
-  │                           │
-  ├── EventLog.emit()         ├── EventStore.events()
-  │     ├── IPC file write    │     └── Flight do_get (SQL)
-  │     └── Flight do_put ──► │                │
-  │                           │                ▼
-  │                      DuckDB Daemon (in-memory)
-  │                           │
-  │                      Flight gRPC Server
-  │                           │
-  └───────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph A["Process A (pytest)"]
+        emit["EventLog.emit()"]
+        ipc["IPC file write"]
+        doput["Flight do_put"]
+        emit --> ipc
+        emit --> doput
+    end
+
+    subgraph B["Process B (litmus serve)"]
+        query["EventStore.events()"]
+        doget["Flight do_get (SQL)"]
+        query --> doget
+    end
+
+    daemon["DuckDB Daemon<br/>(in-memory)"]
+    grpc["Flight gRPC Server"]
+
+    doput --> daemon
+    doget --> daemon
+    daemon --> grpc
 ```
 
 A ref-counted daemon process manages the DuckDB instance:
