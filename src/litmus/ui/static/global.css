@@ -390,23 +390,29 @@ body {
 
 .prose thead {
   background: #f1f5f9;
+  border-bottom: 2px solid #cbd5e1; /* slate-300, defines header */
 }
 
 .prose th {
   font-weight: 600;
   text-align: left;
-  padding: 0.75rem 1rem;
-  border: 1px solid #e2e8f0;
-  color: #475569;
+  padding: 0.5rem 0.75rem;
+  color: #0f172a; /* slate-900 for stronger header weight */
 }
 
 .prose td {
-  padding: 0.75rem 1rem;
-  border: 1px solid #e2e8f0;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #e2e8f0; /* slate-200, row separator only */
+  vertical-align: top;
+}
+
+/* Zebra striping — slate-50 on odd rows for scannability. */
+.prose tbody tr:nth-child(odd) {
+  background: #f8fafc;
 }
 
 .prose tbody tr:hover {
-  background: #f8fafc;
+  background: #f1f5f9; /* slate-100, contrasts both white + zebra */
 }
 
 .prose hr {
