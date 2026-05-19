@@ -33,7 +33,11 @@ If you're new to Litmus, work through the [Tutorial](../tutorial/index.md) first
 - [Querying historical events](querying-events.md) — MCP tool, HTTP API, Python
 - [Querying channel data](querying-channels.md) — time-series data plane
 
+## AI-assisted authoring
+
+- [MCP integration](mcp-integration.md) — register the MCP server with Claude Code, Cursor, Copilot, Cline, Claude Desktop
+- [Datasheet → tests with Claude Code](datasheet-to-test.md) — end-to-end walkthrough of the `datasheet-to-test` workflow
+
 ## Integrations
 
-- [MCP integration](mcp-integration.md) — Claude Code, Cursor, Copilot, etc.
 - [Grafana dashboards](grafana-dashboards.md) — pre-built dashboards for results, events, channels

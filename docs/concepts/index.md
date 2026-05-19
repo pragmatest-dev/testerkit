@@ -28,3 +28,7 @@ Why Litmus is built the way it is. Read top-to-bottom for the framework's mental
 - [Event log](event-log.md) — the durable record of every run
 - [Three stores](three-stores.md) — EventStore, ChannelStore, ParquetBackend; on-disk layout, data_dir resolution, schema-evolution contract
 - [Flight streaming](flight-streaming.md) — cross-process data access via Arrow Flight
+
+## AI integration
+
+- [Why AI integration](why-ai-integration.md) — what AI-assisted authoring buys you, why this is supportive rather than magic, and how to adopt at your own pace

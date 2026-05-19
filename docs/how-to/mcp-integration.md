@@ -2,7 +2,7 @@
 
 Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with **12 tools** that expose the datasheet → test workflow to AI assistants. The platform does **not** call LLMs itself — it only exposes tools that an AI agent drives.
 
-Full per-tool reference: [api.md → MCP tools](../reference/api.md#mcp-tools). This page is the operational how-to.
+This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../concepts/why-ai-integration.md); for the end-to-end workflow walkthrough see [datasheet-to-test](datasheet-to-test.md); for the full inventory of shipped skills + sub-agents + slash commands see [reference/skills](../reference/skills.md). Per-tool MCP reference: [api.md → MCP tools](../reference/api.md#tools).
 
 > **Prerequisites.** `litmus` installed and on `$PATH` (`uv pip install litmus-test` — the PyPI distribution is `litmus-test`; the import is `litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, real or mock instruments configured in `stations/`.
 
