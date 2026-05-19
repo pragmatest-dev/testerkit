@@ -446,8 +446,12 @@ def _render_doc_page_content(section: str, page: str):
         # Sidebar navigation (sticky)
         _render_sidebar_nav(section, page)
 
-        # Main content (scrolls with window)
-        with ui.column().classes("docs-content p-6 max-w-4xl"):
+        # Main content (scrolls with window). Reference pages get a wider
+        # container (max-w-5xl) so the heavy field/type/default tables
+        # stop squashing. Other sections keep max-w-4xl for comfortable
+        # body-text reading.
+        content_width = "max-w-5xl" if section == "reference" else "max-w-4xl"
+        with ui.column().classes(f"docs-content p-6 {content_width}"):
             if md_path.exists():
                 content = md_path.read_text()
                 ui.markdown(
