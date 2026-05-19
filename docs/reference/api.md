@@ -17,9 +17,11 @@ uv run python scripts/generate_reference_docs.py api
 
 The pre-commit hook runs the same generator in `--check` mode, so source / docs drift fails the commit.
 
-## Setup
+## MCP server
 
-### MCP server
+For AI agents (Claude Code, Cursor, Cline, etc.) over stdio. The MCP tools wrap the same Python functions that back the HTTP routes; behavior is identical.
+
+### Setup
 
 ```bash
 litmus setup claude-code     # Claude Code
@@ -30,14 +32,7 @@ litmus setup cline           # Cline (VS Code)
 litmus mcp serve             # Manual stdio server (auto-launched by the setup commands)
 ```
 
-### HTTP server
-
-```bash
-litmus serve                 # API at http://localhost:8000/api/
-litmus serve --reload        # Dev mode with auto-reload
-```
-
-## MCP tools
+### Tools
 
 Twelve tools, all prefixed `litmus_`. Each tool's parameter shape and full docstring is also available via the MCP `tools/list` protocol method; the table below summarizes.
 
@@ -60,7 +55,7 @@ Twelve tools, all prefixed `litmus_`. Each tool's parameter shape and full docst
 
 For per-tool parameter detail and worked examples, see [how-to/mcp-integration.md](../how-to/mcp-integration.md).
 
-## MCP prompts
+### Prompts
 
 Prompts are reusable instruction templates an agent can fetch via the MCP `prompts/get` protocol method. Registered with `@mcp.prompt(name=...)` in `create_mcp_server()`.
 
@@ -70,7 +65,18 @@ Prompts are reusable instruction templates an agent can fetch via the MCP `promp
 | `datasheet-to-test` | — | Get the full datasheet-to-test workflow guide. |
 <!-- GENERATED:api-mcp-prompts:end -->
 
-## HTTP endpoints
+## HTTP API
+
+For any HTTP client.
+
+### Setup
+
+```bash
+litmus serve                 # API at http://localhost:8000/api/
+litmus serve --reload        # Dev mode with auto-reload
+```
+
+> **Running `litmus serve` locally?** The interactive OpenAPI explorer at <http://localhost:8000/api/docs> (Swagger UI) is richer than the table below — full request/response schemas, validation rules, and a "Try it out" button that executes calls from the browser. ReDoc at <http://localhost:8000/api/redoc> and raw spec at <http://localhost:8000/api/openapi.json> for codegen.
 
 Every route is mounted under the `/api/` prefix. Field shapes for request / response models live in [models.md](models.md); query parameter detail is in the per-handler source.
 
@@ -183,7 +189,7 @@ Every route is mounted under the `/api/` prefix. Field shapes for request / resp
 | `GET` | `/api/redoc` | — | ReDoc rendering of the OpenAPI schema. |
 <!-- GENERATED:api-http-routes:end -->
 
-## Response format
+### Response format
 
 All JSON responses use camelCase for envelope fields (`runs`, `events`, `metrics`) and snake_case for record fields (which match the Pydantic model field names — see [models.md](models.md)). Errors follow the FastAPI convention:
 
@@ -193,7 +199,7 @@ All JSON responses use camelCase for envelope fields (`runs`, `events`, `metrics
 
 with the HTTP status code carrying the category (`404` not found, `422` validation, `500` server error).
 
-## Authentication
+### Authentication
 
 No authentication for the local-only `litmus serve` deployment. If you expose the API beyond localhost, put it behind a reverse proxy that handles auth.
 
