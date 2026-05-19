@@ -468,6 +468,16 @@ def _render_doc_page_content(section: str, page: str):
                     ],
                 ).classes("prose prose-slate max-w-none")
 
+                # Edit-on-GitHub footer. Links to the source on main.
+                # Source path is relative to the repo root.
+                github_url = (
+                    f"https://github.com/pragmatest-dev/litmus/blob/main/docs/{section}/{page}.md"
+                )
+                with ui.row().classes("mt-8 text-sm text-slate-500"):
+                    ui.link("Edit this page on GitHub →", target=github_url, new_tab=True).classes(
+                        "text-slate-500 hover:text-slate-800 hover:underline no-underline"
+                    )
+
                 # Next/prev navigation — prominent button cards so the next step is
                 # the obvious continuation, not a footnote.
                 outline = _parse_section_outline(section)
