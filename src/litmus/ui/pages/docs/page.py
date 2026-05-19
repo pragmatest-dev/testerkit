@@ -78,7 +78,14 @@ def _create_docs_layout(section: str | None = None, page: str | None = None):
     """Create docs layout with breadcrumb in header."""
     from litmus.ui.shared.layout import create_sidebar
 
-    ui.add_head_html('<link rel="stylesheet" href="/static/global.css">')
+    # Cache-bust the stylesheet by mtime so end users always see CSS
+    # updates without a hard refresh. Same pattern as shared/layout.py.
+    css_path = Path(__file__).parent.parent.parent / "static" / "global.css"
+    try:
+        css_version = int(css_path.stat().st_mtime)
+    except OSError:
+        css_version = 0
+    ui.add_head_html(f'<link rel="stylesheet" href="/static/global.css?v={css_version}">')
     # Mermaid diagram rendering. NiceGUI strips the ``class="language-X"``
     # attribute on ``<code>`` elements, so we can't select by language hint.
     # Instead we sniff fenced code blocks by their content: the first non-

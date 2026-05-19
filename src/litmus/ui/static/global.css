@@ -256,15 +256,22 @@ body {
   color: #be185d;
 }
 
+/* Code blocks: light bg + Pygments syntax highlighting.
+ *
+ * markdown2's `fenced-code-blocks` extra delegates to Pygments and
+ * emits tokenized <span class="k|s|n|...">. The .codehilite stylesheet
+ * below colors those tokens to match pragmatest's github-light theme
+ * (closest match available in Pygments is the `default` style). */
 .prose pre {
-  background: #1e293b;
-  color: #e2e8f0;
+  background: #f8fafc;
+  color: #1e293b;
   padding: 1rem;
   border-radius: 0.5rem;
   overflow-x: auto;
   margin: 1.5rem 0;
   font-size: 0.875rem;
   line-height: 1.6;
+  border: 1px solid #e2e8f0;
 }
 
 .prose pre code {
@@ -273,6 +280,77 @@ body {
   color: inherit;
   font-size: inherit;
 }
+
+/* Pygments `default` style — generated via
+ *   HtmlFormatter(style='default', cssclass='codehilite').get_style_defs('.codehilite')
+ * Comments + colors trimmed for readability; behavior unchanged. */
+.prose .codehilite { background: transparent; }
+.prose .codehilite .c,
+.prose .codehilite .ch,
+.prose .codehilite .cm,
+.prose .codehilite .c1,
+.prose .codehilite .cs,
+.prose .codehilite .cpf { color: #3D7B7B; font-style: italic; }
+.prose .codehilite .cp { color: #9C6500; }
+.prose .codehilite .err { border: 1px solid #F00; }
+.prose .codehilite .k,
+.prose .codehilite .kc,
+.prose .codehilite .kd,
+.prose .codehilite .kn,
+.prose .codehilite .kr,
+.prose .codehilite .nt { color: #008000; font-weight: bold; }
+.prose .codehilite .kp,
+.prose .codehilite .nb,
+.prose .codehilite .bp,
+.prose .codehilite .sx { color: #008000; }
+.prose .codehilite .kt { color: #B00040; }
+.prose .codehilite .o { color: #666; }
+.prose .codehilite .ow { color: #A2F; font-weight: bold; }
+.prose .codehilite .m,
+.prose .codehilite .mb,
+.prose .codehilite .mf,
+.prose .codehilite .mh,
+.prose .codehilite .mi,
+.prose .codehilite .mo,
+.prose .codehilite .il { color: #666; }
+.prose .codehilite .s,
+.prose .codehilite .sa,
+.prose .codehilite .sb,
+.prose .codehilite .sc,
+.prose .codehilite .dl,
+.prose .codehilite .s2,
+.prose .codehilite .sh,
+.prose .codehilite .s1 { color: #BA2121; }
+.prose .codehilite .sd { color: #BA2121; font-style: italic; }
+.prose .codehilite .se { color: #AA5D1F; font-weight: bold; }
+.prose .codehilite .si { color: #A45A77; font-weight: bold; }
+.prose .codehilite .sr { color: #A45A77; }
+.prose .codehilite .ss,
+.prose .codehilite .nv,
+.prose .codehilite .vc,
+.prose .codehilite .vg,
+.prose .codehilite .vi,
+.prose .codehilite .vm { color: #19177C; }
+.prose .codehilite .na { color: #687822; }
+.prose .codehilite .nc,
+.prose .codehilite .nn { color: #00F; font-weight: bold; }
+.prose .codehilite .no { color: #800; }
+.prose .codehilite .nd { color: #A2F; }
+.prose .codehilite .ne { color: #CB3F38; font-weight: bold; }
+.prose .codehilite .nf,
+.prose .codehilite .fm { color: #00F; }
+.prose .codehilite .ni { color: #717171; font-weight: bold; }
+.prose .codehilite .nl { color: #767600; }
+.prose .codehilite .w { color: #BBB; }
+.prose .codehilite .gh,
+.prose .codehilite .gp { color: #000080; font-weight: bold; }
+.prose .codehilite .gu { color: #800080; font-weight: bold; }
+.prose .codehilite .gd { color: #A00000; }
+.prose .codehilite .gi { color: #008400; }
+.prose .codehilite .gr { color: #E40000; }
+.prose .codehilite .go { color: #717171; }
+.prose .codehilite .gs { font-weight: bold; }
+.prose .codehilite .ge { font-style: italic; }
 
 .prose ul {
   list-style-type: disc;
