@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![CI](https://github.com/pragmatest-dev/litmus/actions/workflows/ci.yml/badge.svg)](https://github.com/pragmatest-dev/litmus/actions/workflows/ci.yml)
 
-**Python hardware test platform for electronics production and validation.**
+**Python hardware test platform for electronics validation and production.**
 
 Litmus is a pytest plugin and command-line tool for hardware test engineers. You write tests as plain pytest functions; Litmus handles the parts that aren't your test — instrument setup, limit checking, results storage, operator UI. Tests run against mock instruments out of the box, so you can start without hardware and move to a real bench later.
 
