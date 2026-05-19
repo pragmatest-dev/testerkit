@@ -308,6 +308,12 @@ def _flatten_outline(outline: list[tuple[str | None, list[tuple[str, str]]]]) ->
     return [slug for _, items in outline for _, slug in items]
 
 
+def _numeric_prefix(slug: str) -> str | None:
+    """Return the leading numeric prefix of a doc slug, e.g. `00-quickstart` → `00`."""
+    m = re.match(r"^(\d+)-", slug)
+    return m.group(1) if m else None
+
+
 def _render_sidebar_nav(section: str, current_page: str | None = None):
     """Render the section sidebar as a tree driven by ``index.md``."""
     outline = _parse_section_outline(section)
@@ -325,13 +331,29 @@ def _render_sidebar_nav(section: str, current_page: str | None = None):
                 )
             for title, slug in items:
                 is_current = slug == current_page
-                link_classes = "text-sm py-1 block "
-                link_classes += "pl-2" if group_label is not None else ""
+                prefix = _numeric_prefix(slug)
+                # Active state: 2px blue left border + bluish bg + heavier text.
+                # Matches the pragmatest sidebar (Phase I.4) so the two
+                # renderers feel the same.
+                base_pl = "pl-3" if group_label is not None else "pl-2"
                 if is_current:
-                    link_classes += " text-blue-600 font-medium"
+                    link_classes = (
+                        f"text-sm py-1 {base_pl} pr-2 block border-l-2 border-blue-600 "
+                        "bg-blue-50 text-blue-900 font-medium rounded-r no-underline"
+                    )
+                    badge_color = "text-blue-700"
                 else:
-                    link_classes += " text-slate-600 hover:text-blue-600"
-                ui.link(title, f"/docs/{section}/{slug}").classes(link_classes)
+                    link_classes = (
+                        f"text-sm py-1 {base_pl} pr-2 block border-l-2 border-transparent "
+                        "text-slate-700 hover:border-slate-300 hover:bg-slate-50 "
+                        "hover:text-blue-600 rounded-r no-underline"
+                    )
+                    badge_color = "text-slate-400"
+                with ui.link(target=f"/docs/{section}/{slug}").classes(link_classes):
+                    with ui.row().classes("items-baseline gap-2 flex-nowrap"):
+                        if prefix is not None:
+                            ui.label(prefix).classes(f"text-xs font-mono {badge_color} shrink-0")
+                        ui.label(title).classes("text-sm truncate")
 
 
 def _render_doc_page_content(section: str, page: str):
