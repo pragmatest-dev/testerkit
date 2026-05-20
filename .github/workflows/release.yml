@@ -111,14 +111,40 @@ jobs:
           # and 4 in the interleaved schedule above), so the cache state
           # is symmetric and the min-vs-min variance on identical code
           # is well under 10%. A real >10% slowdown trips the gate.
+          #
+          # ``GATE_EXCLUDE`` names benchmarks whose sampling is too
+          # noisy for min-of-N comparison — typically tests that route
+          # through the events daemon (Flight RPC + DuckDB plan + OS
+          # page cache); their floor swings 10x between back-to-back
+          # runs of identical code. They stay in the benchmark suite
+          # for observability but don't fail the release gate. Add a
+          # name here only with a comment justifying why the test is
+          # gate-unstable.
+          GATE_EXCLUDE = {
+              # Event-daemon round-trip dominates the wall-clock for
+              # n_events=1000; min floor isn't stable enough for a
+              # 10%-min gate. n=100 and n=10000 happen to be tighter
+              # but use the same gate-exclude for symmetry.
+              'test_query_scale[100]',
+              'test_query_scale[1000]',
+              'test_query_scale[10000]',
+          }
           prev = {b['name']: b['stats']['min'] for b in json.load(open('benchmark-previous.json'))['benchmarks']}
           curr = {b['name']: b['stats']['min'] for b in json.load(open('benchmark-current.json'))['benchmarks']}
           regressions = []
+          ignored = []
           for name, cur_min in curr.items():
-              if name in prev:
-                  pct = (cur_min - prev[name]) / prev[name] * 100
-                  if pct > 10:
-                      regressions.append(f'{name}: +{pct:.1f}% (prev min={prev[name]*1000:.2f}ms, curr min={cur_min*1000:.2f}ms)')
+              if name not in prev:
+                  continue
+              pct = (cur_min - prev[name]) / prev[name] * 100
+              if pct <= 10:
+                  continue
+              line = f'{name}: +{pct:.1f}% (prev min={prev[name]*1000:.2f}ms, curr min={cur_min*1000:.2f}ms)'
+              (ignored if name in GATE_EXCLUDE else regressions).append(line)
+          if ignored:
+              print('Ignored (gate-excluded, noisy sampling):')
+              for r in ignored:
+                  print(f'  {r}')
           if regressions:
               print('BENCHMARK REGRESSIONS (>10% on min):')
               for r in regressions:

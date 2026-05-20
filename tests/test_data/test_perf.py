@@ -96,7 +96,15 @@ class TestEventStorePerf:
     @pytest.mark.benchmark(group="event-query", warmup=True, min_rounds=30, disable_gc=True)
     @pytest.mark.parametrize("n_events", [100, 1_000, 10_000])
     def test_query_scale(self, event_store: EventStore, benchmark, n_events: int):
-        """Query performance as event count grows."""
+        """Query performance as event count grows.
+
+        Recorded for observability, but **excluded from the release
+        regression gate** — every call routes through the events
+        daemon (Flight RPC + DuckDB plan + OS page cache), and the
+        floor swings 10× between local back-to-back runs of identical
+        code. min-of-N can't stabilize against that. See
+        ``GATE_EXCLUDE`` in ``.github/workflows/release.yml``.
+        """
         sid = uuid4()
         for i in range(n_events):
             event_store.emit(_make_measurement(sid, i))
