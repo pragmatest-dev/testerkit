@@ -27,6 +27,7 @@ from litmus.execution._state import (
     get_active_instruments,
     get_active_product_context,
     get_active_profile,
+    get_active_profile_name,
     get_active_slot_runner,
     get_current_logger,
     set_active_instruments,
@@ -288,7 +289,7 @@ def pytest_report_header(config):
     else:
         lines = [f"litmus: results → {resolved}"]
 
-    profile_name = get_active_profile()
+    profile_name = get_active_profile_name()
     if profile_name:
         composed = os.environ.get("PYTEST_ADDOPTS", "").strip()
         if composed:

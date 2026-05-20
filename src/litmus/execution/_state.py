@@ -63,6 +63,7 @@ _active_limits_var: ContextVar[dict[str, Any]] = ContextVar("_active_limits")
 _active_test_characteristics_var: ContextVar[list[str]] = ContextVar("_active_test_characteristics")
 _active_characteristic_var: ContextVar[str | None] = ContextVar("_active_characteristic")
 _active_profile_var: ContextVar[ProfileConfig | None] = ContextVar("_active_profile")
+_active_profile_name_var: ContextVar[str | None] = ContextVar("_active_profile_name", default=None)
 _active_facets_var: ContextVar[dict[str, str]] = ContextVar("_active_facets")
 _session_inputs_var: ContextVar[dict[str, str]] = ContextVar("_session_inputs")
 _active_vector_params_var: ContextVar[dict[str, Any]] = ContextVar("_active_vector_params")
@@ -357,6 +358,27 @@ def get_active_profile() -> ProfileConfig | None:
 def set_active_profile(value: ProfileConfig | None) -> None:
     """Set the active profile. Returns None."""
     _active_profile_var.set(value)
+
+
+def get_active_profile_name() -> str | None:
+    """Return the source-name of the active profile (the dict key in
+    ``project.profiles``), or ``None`` if no profile is active.
+
+    Separate from ``get_active_profile()`` because ``ProfileConfig``
+    itself doesn't carry the name — profile names live on the
+    ``project.profiles`` dict key, lost when we hand the value off
+    to ``set_active_profile``. The pytest banner + diagnostics need
+    the human-facing name, not the merged-config object.
+    """
+    try:
+        return _active_profile_name_var.get()
+    except LookupError:
+        return None
+
+
+def set_active_profile_name(value: str | None) -> None:
+    """Set the active profile name. Returns None."""
+    _active_profile_name_var.set(value)
 
 
 def get_active_facets() -> dict[str, str]:
