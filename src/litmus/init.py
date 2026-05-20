@@ -300,6 +300,30 @@ A [Litmus](https://github.com/pragmatest-dev/litmus) hardware test project.
 | `instruments/` | Custom instrument definitions (YAML) |
 | `data/` | Local test output (starter only; gitignored). See `litmus data promote`. |
 | `reports/` | Generated HTML / PDF / CSV / JSON reports (gitignored) |
+
+## Running tests
+
+```bash
+pytest                          # mock instruments (per litmus.yaml)
+litmus serve                    # operator UI at localhost:8000
+litmus runs                     # list recent runs
+```
+
+## Sharing data across projects
+
+Test runs land in this project's local `data/` folder while you're
+learning. When you're ready to share data with other projects +
+benches on this machine, run:
+
+```bash
+litmus data promote
+# (skips starter-example runs by default; --include-starter to bring them too)
+```
+
+This copies your real runs into the global Litmus store
+(`~/.local/share/litmus/data/` on Linux) and removes the local
+`data_dir:` override from `litmus.yaml`. Future runs go directly
+to the global store.
 """
         readme_path.write_text(readme_content)
         created_files.append("README.md")
