@@ -44,7 +44,7 @@ from litmus.execution._state import (
     reset_current_vector,
 )
 from litmus.execution.sidecar import resolve_limit
-from litmus.models.test_config import Limit
+from litmus.models.test_config import Limit, coerce_limit
 
 if TYPE_CHECKING:
     from litmus.data.event_log import EventLog
@@ -509,7 +509,23 @@ class TestRunLogger:
         # to any step (setup-phase failures before a step opened,
         # keyboard interrupts). ``finalize()`` folds this into the
         # retry-aware step rollup to produce the final run outcome.
+        # Mutate only via :meth:`record_external_outcome` — that's the
+        # public surface for hook code; the underscore guards against
+        # ad-hoc reads.
         self._external_run_outcome: Outcome | None = None
+
+    def record_external_outcome(self, outcome: Outcome | None) -> None:
+        """Fold a run-level outcome contribution that has no owning step.
+
+        Setup-phase failures and keyboard interrupts produce an
+        outcome that can't attach to a step (none was opened, or the
+        signal is run-scoped). Hook code calls this instead of
+        mutating ``_external_run_outcome`` directly. ``finalize()``
+        merges the accumulator with the retry-aware step rollup.
+        """
+        if outcome is None:
+            return
+        self._external_run_outcome = escalate_outcome(self._external_run_outcome, outcome)
 
     @property
     def event_log(self) -> EventLog | None:
@@ -984,9 +1000,8 @@ class TestRunLogger:
             The persisted :class:`Measurement` with the requested
             ``outcome`` (default DONE).
         """
-        # Coerce dict literal to a Limit so callers don't have to import
-        # the model just to type ``limit={"low": ..., "high": ..., "units": ...}``.
-        limit_obj: Limit | None = Limit.model_validate(limit) if isinstance(limit, dict) else limit
+        # Accept dict literals at the call site (shared with ``verify``).
+        limit_obj = coerce_limit(limit)
         resolved_limit = _resolve_measurement_limit(
             name,
             inline_any=False,

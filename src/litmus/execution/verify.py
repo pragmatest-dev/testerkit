@@ -24,7 +24,7 @@ from collections.abc import Mapping
 from typing import Any, Protocol
 
 from litmus.data.models import Measurement, Outcome
-from litmus.models.test_config import Limit
+from litmus.models.test_config import Limit, coerce_limit
 
 
 class VerifyFn(Protocol):
@@ -173,11 +173,8 @@ def build_verify_callable() -> VerifyFn:
                 "is a Litmus runner plugin installed?"
             )
 
-        # Coerce dict literal to a Limit. Same shape as the YAML / marker
-        # dicts so call-site authors don't have to import Limit just to
-        # type ``limit={"low": 3.2, "high": 3.4, "units": "V"}``.
-        if isinstance(limit, dict):
-            limit = Limit.model_validate(limit)
+        # Accept dict literals at the call site (shared with ``logger.measure``).
+        limit_obj = coerce_limit(limit)
 
         # Resolve limit + record under the same ``characteristic`` context
         # so the limit chain and auto-traceability both see the override.
@@ -195,7 +192,7 @@ def build_verify_callable() -> VerifyFn:
                 high=None,
                 nominal=None,
                 comparator=None,
-                limit=limit,
+                limit=limit_obj,
                 units=None,
             )
             if effective_limit is None:
@@ -221,7 +218,7 @@ def build_verify_callable() -> VerifyFn:
                 float(value) if value is not None else None,
                 effective_limit,
             )
-            measurement = logger.measure(name, value, limit=limit, outcome=outcome)
+            measurement = logger.measure(name, value, limit=limit_obj, outcome=outcome)
 
         if outcome == Outcome.FAILED:
             raise LimitFailure(

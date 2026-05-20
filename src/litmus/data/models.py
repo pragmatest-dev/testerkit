@@ -184,22 +184,19 @@ def retry_aware_rollup(steps: Iterable[TestStep]) -> Outcome | None:
     object identity. Steps with ``outcome is None`` are skipped (they
     haven't recorded a verdict yet).
     """
+    # Modern Python dicts preserve insertion order; a single dict is
+    # enough to bucket-by-node_id AND remember which bucket came first.
     groups: dict[Any, list[TestStep]] = {}
-    order: list[Any] = []
     for step in steps:
         if step.outcome is None:
             continue
         key: Any = step.node_id if step.node_id is not None else id(step)
-        if key not in groups:
-            order.append(key)
-            groups[key] = []
-        groups[key].append(step)
+        groups.setdefault(key, []).append(step)
 
     result: Outcome | None = None
-    for key in order:
+    for bucket in groups.values():
         # Last attempt's outcome is THE outcome for this node_id.
-        final = groups[key][-1].outcome
-        result = escalate_outcome(result, final)
+        result = escalate_outcome(result, bucket[-1].outcome)
     return result
 
 

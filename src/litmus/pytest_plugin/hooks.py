@@ -1221,10 +1221,13 @@ def _stamp_container_outcome(logger_inst: Any, open_state: dict[str, Any]) -> No
     container_path = container.step_path
     # Retry-aware: a child test that ran twice (litmus_retry +
     # pytest-rerunfailures) contributes only its FINAL attempt's
-    # outcome to the container rollup. Industry convention — pytest-
-    # rerunfailures, STDF MIR.RTST_COD, Jenkins flaky-test-handler all
-    # treat the final attempt as the disposition; the prior attempts
-    # stay in the step record as retest metadata.
+    # outcome to the container rollup. ``retry_aware_rollup`` groups
+    # by ``node_id`` (last-attempt-wins per group) — same shape as the
+    # run-level rollup in ``logger.finalize``, just scoped to one
+    # container's children. Industry convention: pytest-rerunfailures,
+    # STDF MIR.RTST_COD, Jenkins flaky-test-handler all treat the
+    # final attempt as the disposition; the prior attempts stay in
+    # the step record as retest metadata.
     eligible = [s for s in steps[first_idx + 1 :] if s.parent_path == container_path]
     container.outcome = retry_aware_rollup(eligible)
 
@@ -1306,15 +1309,17 @@ def _escalate_step_and_run(logger_inst: Any, step: Any, new_outcome: Outcome) ->
 
     When ``step is None`` (setup failure before the step opened, or a
     keyboard interrupt with no test running), the outcome has no step
-    to attach to — it goes into ``logger._external_run_outcome`` so
-    ``finalize()`` still picks it up.
+    to attach to — it routes through
+    :meth:`TestRunLogger.record_external_outcome` so ``finalize()``
+    still picks it up.
+
+    Callers must pass a non-None ``logger_inst`` (they all check upstream
+    via ``get_current_logger()``).
     """
     if step is not None:
         step.outcome = escalate_outcome(step.outcome, new_outcome)
     else:
-        logger_inst._external_run_outcome = escalate_outcome(
-            logger_inst._external_run_outcome, new_outcome
-        )
+        logger_inst.record_external_outcome(new_outcome)
 
 
 def _stamp_step_from_call_outcome(logger_inst: Any, outcome_obj: Any) -> None:
