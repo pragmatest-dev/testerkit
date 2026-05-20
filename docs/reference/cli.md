@@ -66,6 +66,15 @@ Stop selected daemons without respawning.
 
 Data retention and management.
 
+#### `litmus data promote` {#cli-data-promote}
+
+Move a starter project's local runs to the global store.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--include-starter` | `flag` | Also promote runs that match starter sentinels (example_product / starter_station / STARTER001 / etc.). Default skips these as throwaway learning runs. |
+| `--dry-run` | `flag` | Show what would be promoted; write nothing. |
+
 #### `litmus data prune` {#cli-data-prune}
 
 Delete date-partitioned data older than the specified period.
