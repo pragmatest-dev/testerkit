@@ -1146,9 +1146,38 @@ def setup_claude_code(print_only: bool):
     config = {"name": "litmus", **_mcp_server_entry()}
 
     if print_only:
-        click.echo("Add this to your Claude Code MCP configuration:\n")
-        click.echo(json.dumps(config, indent=2))
-        click.echo("\nOr run: litmus setup claude-code")
+        # Preview ALL three side effects of the real run so users can
+        # decide whether to commit before doing so. Previously only the
+        # MCP JSON was shown, hiding the .claude/commands/ + CLAUDE.md
+        # writes entirely.
+        cmd = f"claude mcp add litmus -- {litmus_path} mcp serve"
+        stubs_src = Path(__file__).parent / "skills" / "commands" / "claude-code"
+        stubs_dst = Path.cwd() / ".claude" / "commands"
+        claude_md = Path.cwd() / "CLAUDE.md"
+        stub_files = sorted(p.name for p in stubs_src.glob("*.md")) if stubs_src.exists() else []
+
+        def _rel(p: Path) -> Path:
+            try:
+                return p.relative_to(Path.cwd())
+            except ValueError:
+                return p
+
+        click.echo("`litmus setup claude-code` would do three things:\n")
+        click.echo("1. Register the MCP server via the Claude CLI:")
+        click.echo(f"   $ {cmd}\n")
+        click.echo("   Equivalent MCP JSON if you'd rather configure manually:")
+        for line in json.dumps(config, indent=2).splitlines():
+            click.echo(f"   {line}")
+        click.echo("")
+        click.echo(f"2. Copy {len(stub_files)} slash-command stub(s) to {_rel(stubs_dst)}/:")
+        for name in stub_files:
+            click.echo(f"     {name}")
+        click.echo("")
+        action = "Create" if not claude_md.exists() else "Update (Litmus section)"
+        click.echo(f"3. {action} {_rel(claude_md)}")
+        click.echo("   (Litmus context the agent reads on every conversation in this project.)")
+        click.echo("")
+        click.echo("Re-run without --print-only to apply all three.")
         return
 
     # 1. Register MCP server via claude CLI
