@@ -59,6 +59,11 @@ dependencies = [
     "pytz>=2025.2",
     "duckdb>=1.5.0",
     "orjson>=3.9",
+    # pytest is a runtime dependency, not a dev tool — Litmus is a
+    # pytest plugin (see [project.entry-points.pytest11]), and the
+    # starter project's tests + every tutorial expect `pytest` to be
+    # importable + on PATH the moment `pip install litmus-test` finishes.
+    "pytest>=8.0",
 ]
 
 [project.optional-dependencies]
