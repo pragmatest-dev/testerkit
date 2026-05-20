@@ -66,7 +66,14 @@ jobs:
           # Pass 1 — current, cold cache (discard)
           uv run pytest -m benchmark --benchmark-only \
             --benchmark-json=/tmp/bench-curr-cold.json -q
-          # Pass 2 — previous tag, cold cache (discard)
+          # Pass 2 — previous tag, cold cache (discard).
+          # ``uv sync``/``uv run`` re-resolves dependencies and
+          # rewrites ``uv.lock`` if the resolver picked anything new;
+          # ``git checkout <ref>`` refuses to switch when ``uv.lock``
+          # is dirty. Restore it before each version-switching
+          # checkout. (Pass 4 below has the same restore for the same
+          # reason — that's the one that bit us on the v0.1.2 release.)
+          git restore uv.lock
           git checkout "$PREV_TAG"
           # Overlay current test files so prev and curr runs use
           # identical pytest-benchmark settings (warmup, min_rounds,
@@ -81,7 +88,8 @@ jobs:
           # Pass 3 — previous tag again, warm cache (keep)
           uv run pytest -m benchmark --benchmark-only \
             --benchmark-json=benchmark-previous.json -q || true
-          # Pass 4 — current, warm cache (keep)
+          # Pass 4 — current, warm cache (keep). Same restore as Pass 2.
+          git restore uv.lock
           git checkout "${GITHUB_REF_NAME}"
           uv sync --all-extras --dev
           uv run pytest -m benchmark --benchmark-only \
@@ -169,6 +177,10 @@ jobs:
             echo "No previous tag — skipping upgrade test"
             exit 0
           fi
+          # Restore uv.lock before each version-switching checkout —
+          # ``uv sync``/``uv run`` may rewrite it, which blocks
+          # ``git checkout <ref>``. Symmetric with the benchmarks job.
+          git restore uv.lock
           git checkout "$PREV_TAG"
           uv sync --all-extras --dev
           mkdir -p /tmp/upgrade_project
@@ -179,6 +191,7 @@ jobs:
               --station=starter_station \
               --mock-instruments --dut-serial=UPGRADE001 || true
           fi
+          git restore uv.lock
           git checkout "${GITHUB_REF_NAME}"
       - name: Install current and verify old data readable
         run: |
