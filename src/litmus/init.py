@@ -79,7 +79,7 @@ def init_project(
     # Create directories. Bringup tier skips station/product/fixture —
     # those layers are off until the user graduates to Tier 2.
     if tier == "bringup":
-        subdirs = ["tests", "results", "reports"]
+        subdirs = ["tests", "reports"]
     else:
         subdirs = [
             "products",
@@ -87,7 +87,6 @@ def init_project(
             "fixtures",
             "instruments",
             "tests",
-            "results",
             "reports",
         ]
     for subdir in subdirs:
@@ -233,12 +232,15 @@ Run with --mock-instruments for hardware-free testing:
 
         proj_data: dict[str, Any] = {"name": project_name}
         if starter:
-            # No ``data_dir:`` — starter uses the global default
-            # under platformdirs.user_data_dir("litmus")/results so a
-            # fresh user immediately benefits from cross-project
-            # analytics in the operator UI / litmus runs / litmus show.
+            # Starter projects write to a project-local ``data/`` dir so
+            # learning runs (mock instruments, example_product, etc.) don't
+            # pollute the global platformdirs store users will share across
+            # projects on this machine. When the user is ready, ``litmus
+            # data promote`` migrates non-starter runs into the global
+            # store and removes this override.
             proj_data.update(
                 {
+                    "data_dir": "data",
                     "default_station": "starter_station",
                     "default_fixture": "example_fixture",
                     "mock_instruments": True,
@@ -258,10 +260,17 @@ __pycache__/
 .venv/
 venv/
 
-# Litmus
-results/
+# Litmus — local outputs (kept out of version control)
+#   data/    runtime parquet + event log + channels (starter projects only;
+#            after `litmus data promote` this dir is no longer used)
+#   reports/ generated HTML / PDF / CSV / JSON reports
+data/
 reports/
-stations/
+
+# Source-of-truth Litmus config IS in git on purpose:
+#   stations/, products/, fixtures/, tests/, instruments/, profiles/
+# Do NOT add those above — losing them silently is exactly the bug
+# this template used to ship.
 
 # IDE
 .idea/
@@ -289,7 +298,8 @@ A [Litmus](https://github.com/pragmatest-dev/litmus) hardware test project.
 | `fixtures/` | Test fixture definitions (YAML) |
 | `tests/` | Test code (Python) |
 | `instruments/` | Custom instrument definitions (YAML) |
-| `results/` | Test output (gitignored) |
+| `data/` | Local test output (starter only; gitignored). See `litmus data promote`. |
+| `reports/` | Generated HTML / PDF / CSV / JSON reports (gitignored) |
 """
         readme_path.write_text(readme_content)
         created_files.append("README.md")
@@ -348,7 +358,7 @@ A [Litmus](https://github.com/pragmatest-dev/litmus) hardware test project.
     if tier == "bringup":
         created_files.extend(_create_bringup_files(path))
     elif starter:
-        starter_files = _create_starter_files(path, project_name)
+        starter_files = _create_starter_files(path)
         created_files.extend(starter_files)
 
     # Initialize git repository (skip if already in a repo)
@@ -390,12 +400,11 @@ def get_project_contents(path: Path) -> list[dict[str, str]]:
     return contents
 
 
-def _create_starter_files(path: Path, project_name: str) -> list[str]:
+def _create_starter_files(path: Path) -> list[str]:
     """Create starter example files for a new project.
 
     Args:
         path: Project root directory.
-        project_name: Sanitized project name.
 
     Returns:
         List of created file paths (relative to project root).
