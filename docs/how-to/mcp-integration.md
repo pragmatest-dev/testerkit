@@ -57,7 +57,7 @@ Defined in `src/litmus/mcp/server.py` via `@mcp.tool(name=...)`.
 | `litmus_runs` | Query the runs view (filtered, paginated) | Same data the operator-UI runs list reads |
 | `litmus_steps` | Query the steps view (one row per step execution) | Step-level rollup with outcome and timing |
 
-For each tool's full parameter list and return shape, see [`api.md`](../reference/api.md#mcp-tools).
+For each tool's full parameter list and return shape, see [`api.md`](../reference/api.md#tools).
 
 ### `litmus_project`
 
@@ -445,8 +445,8 @@ def test_output():
 
 ## See also
 
-- [api.md → MCP tools](../reference/api.md#mcp-tools) — full per-tool reference: parameters, return shapes, every keyword
-- [cli.md → litmus setup](../reference/cli.md#litmus-setup) — `litmus setup show` and the `--print-only` flag
+- [api.md → MCP tools](../reference/api.md#tools) — full per-tool reference: parameters, return shapes, every keyword
+- [cli.md → litmus setup](../reference/cli.md#cli-setup) — `litmus setup show` and the `--print-only` flag
 - [litmus-fixtures.md → context, verify, logger](../reference/litmus-fixtures.md) — every pytest fixture this page references
 - [outcomes](../concepts/outcomes.md) — what each `run_outcome` / `step_outcome` / `measurement_outcome` value means
 - [capabilities](../concepts/capabilities.md) — characteristics, SpecBand, the matching model

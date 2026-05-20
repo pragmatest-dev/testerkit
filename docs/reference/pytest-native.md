@@ -1,6 +1,6 @@
 # pytest-native reference
 
-Litmus is a hardware test **platform**; pytest is its primary test-runner integration. The bundled pytest plugin slots into a stock pytest install with zero configuration — every pytest concept (collection, fixtures, markers, plugins, `conftest.py`, command-line flags) works unchanged. This page is the map of what pytest gives you natively and what the plugin layers on top. For the plugin's own surface see [Litmus fixtures](litmus-fixtures.md) and [Litmus markers](litmus-markers.md). Other runner integrations (OpenHTF, LabVIEW / TestStand via the results API) live under [Integrations](../integration/index.md).
+Litmus is a hardware test **platform**; pytest is its primary test-runner integration. The bundled pytest plugin slots into a stock pytest install with zero configuration — every pytest concept (collection, fixtures, markers, plugins, `conftest.py`, command-line flags) works unchanged. This page is the map of what pytest gives you natively and what the plugin layers on top. For the plugin's own surface see [Litmus fixtures](litmus-fixtures.md) and [Litmus markers](litmus-markers.md). Other runner integrations (OpenHTF, LabVIEW / TestStand via the results API) live under [Integrations](../integration/).
 
 ## Collection
 
@@ -18,7 +18,7 @@ What Litmus adds at collection time:
 - A `pytest_collection_modifyitems` hook merges per-test sidecar YAML (`tests/test_<module>.yaml`) into each item's marker set. This expands `litmus_sweeps` into one pytest case per row exactly as if you had written `@pytest.mark.parametrize` — pytest still owns the case multiplication.
 - Profiles (`--test-profile=<name>`) add `pytest.mark.skip` to items they exclude. The selection is visible in `pytest --collect-only -q`.
 
-The sidecar is recursive: top-level keys apply to every test in the file; `tests: { ClassName: { ... } }` scopes per class; `tests: { ClassName: { tests: { test_method: { ... } } } }` scopes per method. See [Test configuration](configuration.md#test-configuration).
+The sidecar is recursive: top-level keys apply to every test in the file; `tests: { ClassName: { ... } }` scopes per class; `tests: { ClassName: { tests: { test_method: { ... } } } }` scopes per method. See [Sidecar configuration](configuration.md#sidecar-yaml).
 
 ## Fixtures
 
@@ -126,6 +126,6 @@ A test that runs on a bringup tier with no station YAML and a test that runs on 
 
 - [Litmus fixtures](litmus-fixtures.md) — all 20 fixtures the plugin contributes
 - [Litmus markers](litmus-markers.md) — the seven `litmus_*` markers and their sidecar equivalents
-- [Test configuration](configuration.md#test-configuration) — sidecar YAML merge semantics
+- [Sidecar configuration](configuration.md#sidecar-yaml) — sidecar YAML merge semantics
 - [CLI reference](cli.md) — full flag list, including the non-pytest commands (`litmus serve`, `litmus runs`, etc.)
 - [pytest documentation](https://docs.pytest.org/en/stable/) — canonical reference for everything in the "pytest-native" half of this page

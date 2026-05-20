@@ -124,7 +124,7 @@ connections:
     instrument_channel: "GND"
 ```
 
-A test addresses each connection by its `dut_pin` through the `pins` [pytest fixture](../reference/litmus-fixtures.md#pins--session):
+A test addresses each connection by its `dut_pin` through the `pins` [pytest fixture](../reference/litmus-fixtures.md#pins-session):
 
 ```python
 def test_output_voltage(pins, verify):

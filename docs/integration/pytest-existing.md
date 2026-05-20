@@ -315,7 +315,7 @@ litmus show <run_id>         # detailed report for one run
 litmus serve                 # operator UI at http://localhost:8000
 ```
 
-If `litmus runs` is empty, check that the test session reached `RunEnded` (the plugin's autouse `logger` finalizes the run at session end). A killed pytest process produces a parquet stamped `aborted` — see [outcomes](../concepts/outcomes.md#aborted--process-died-before-cleanup).
+If `litmus runs` is empty, check that the test session reached `RunEnded` (the plugin's autouse `logger` finalizes the run at session end). A killed pytest process produces a parquet stamped `aborted` — see [outcomes](../concepts/outcomes.md#aborted-process-died-before-cleanup).
 
 ## What this gets you vs what it costs
 

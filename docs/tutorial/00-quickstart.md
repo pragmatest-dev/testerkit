@@ -267,6 +267,6 @@ When you're ready to move from mocks to real instruments, see [From Mocks to Har
 ## Next Steps
 
 - [Tutorial index](index.md) — full step-by-step path (recommended next)
-- [Core Concepts](../concepts/index.md) — Understand products, stations, and capabilities
+- [Core Concepts](../concepts/) — Understand products, stations, and capabilities
 - [Writing Tests](../how-to/writing-tests.md) — Patterns and best practices
 - [Configuration Reference](../reference/configuration.md) — YAML schema details

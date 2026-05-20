@@ -6,11 +6,11 @@ Litmus is a Python-native hardware test platform for the AI-assisted era.
 
 | Section | Description |
 |---------|-------------|
-| [Tutorial](tutorial/index.md) | Engineer's First Project - progressive learning path |
+| [Tutorial](tutorial/) | Engineer's First Project - progressive learning path |
 | [How-To Guides](how-to/writing-tests.md) | Step-by-step guides for common tasks |
-| [Concepts](concepts/index.md) | Products, stations, capabilities, fixtures, and matching |
+| [Concepts](concepts/) | Products, stations, capabilities, fixtures, and matching |
 | [Reference](reference/api.md) | MCP tools, HTTP endpoints, CLI, models |
-| [Integration](integration/index.md) | Adopt Litmus with existing tests and infrastructure |
+| [Integration](integration/) | Adopt Litmus with existing tests and infrastructure |
 | [Examples](https://github.com/pragmatest-dev/litmus/tree/main/examples) | Seven runnable example projects, each one rung of the framework adoption ladder (01-vanilla → 07-profiles) |
 
 ## Quick Start
@@ -82,11 +82,11 @@ flowchart TB
 
 ### New to Litmus?
 
-Start with the [Tutorial](tutorial/index.md) — a progressive learning path from your first test to production deployment.
+Start with the [Tutorial](tutorial/) — a progressive learning path from your first test to production deployment.
 
 ### Have Existing Tests?
 
-Check out [Integration](integration/index.md) — guides for adopting Litmus incrementally with LabVIEW, TestStand, or existing pytest suites.
+Check out [Integration](integration/) — guides for adopting Litmus incrementally with LabVIEW, TestStand, or existing pytest suites.
 
 ### Quick Reference
 

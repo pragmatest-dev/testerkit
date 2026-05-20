@@ -74,7 +74,7 @@ class TestPowerUp:
                limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
-Methods run in source order. Each emits its own [step](../concepts/step-hierarchy.md) events; the class container's [outcome](../reference/models.md#outcome) rolls up from the worst child outcome.
+Methods run in source order. Each emits its own [step](../concepts/step-hierarchy.md) events; the class container's [outcome](../reference/models.md#enum-outcome) rolls up from the worst child outcome.
 
 If a downstream test should skip when an upstream one fails, use `@pytest.mark.dependency(depends=["test_input_voltage"])` from the [`pytest-dependency`](https://pytest-dependency.readthedocs.io/) plugin — pytest's ecosystem, not a Litmus addition.
 

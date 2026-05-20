@@ -2,7 +2,7 @@
 
 The bundled pytest plugin registers **20 public fixtures**, defined in `src/litmus/pytest_plugin/__init__.py`. Take any of them in a test's signature; pytest resolves and injects them by name. Names beginning with `_` (e.g. `_route_manager`, `_litmus_push_params`) are internal and may change without notice.
 
-This page is the comprehensive reference. For a guided introduction see the [tutorial](../tutorial/index.md); for the seven `@pytest.mark.litmus_*` markers see [Litmus markers](litmus-markers.md).
+This page is the comprehensive reference. For a guided introduction see the [tutorial](../tutorial/); for the seven `@pytest.mark.litmus_*` markers see [Litmus markers](litmus-markers.md).
 
 ## At a glance
 

@@ -58,7 +58,7 @@ connections:
 
 ## The pins Fixture
 
-With a fixture config, you can access instruments via pin names. The [`pins`](../reference/litmus-fixtures.md#pins--session) *fixture* is a dict keyed by product-pin name returning the instrument routed to that pin by the active fixture YAML — distinct from the `pins:` block in the product YAML, which declares the pin set itself ([concepts/products](../concepts/products.md)):
+With a fixture config, you can access instruments via pin names. The [`pins`](../reference/litmus-fixtures.md#pins-session) *fixture* is a dict keyed by product-pin name returning the instrument routed to that pin by the active fixture YAML — distinct from the `pins:` block in the product YAML, which declares the pin set itself ([concepts/products](../concepts/products.md)):
 
 ```python
 def test_output_voltage(pins, logger):
@@ -171,7 +171,7 @@ prompts:
     timeout_seconds: 30
 ```
 
-Reference the prompt from a test method via the [`prompt()`](../reference/litmus-fixtures.md#prompt--function) fixture (Litmus's operator-prompt helper for paused interactions).
+Reference the prompt from a test method via the [`prompt()`](../reference/litmus-fixtures.md#prompt-function) fixture (Litmus's operator-prompt helper for paused interactions).
 
 ### Ordering across files
 

@@ -2,7 +2,7 @@
 
 Task recipes for specific jobs. Ordered by the workflow a test engineer actually walks: write a test, run it without hardware, attach real instruments, then move to production.
 
-If you're new to Litmus, work through the [Tutorial](../tutorial/index.md) first — these guides assume you can already run a simple test.
+If you're new to Litmus, work through the [Tutorial](../tutorial/) first — these guides assume you can already run a simple test.
 
 ## Write tests
 

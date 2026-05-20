@@ -19,7 +19,7 @@ pytest tests/ --station=bench_1 --dut-serial=SIM001
 
 Or set `mock_instruments: true` in your project's `litmus.yaml` so every run mocks by default; override per-run with `--no-mock-instruments`.
 
-Take the [`mock_instruments`](../reference/litmus-fixtures.md#mock_instruments--session) fixture inside a test if you need to branch:
+Take the [`mock_instruments`](../reference/litmus-fixtures.md#mock_instruments-session) fixture inside a test if you need to branch:
 
 ```python
 @pytest.fixture
@@ -41,7 +41,7 @@ All four sources are checked in this priority order — first match wins:
 
 For each instrument in the active station YAML, Litmus substitutes a stand-in for the real driver. The driver class is never imported; `connect()` is never called. The substituted object behaves like this:
 
-- **`isinstance(dmm, MyDMM)` is `False`.** The stand-in isn't a subclass of your driver class. Tests that rely on isinstance against the real driver class will fail; either don't do that, or build your own stand-in in a conftest fixture (see [bringup-tier conftest in custom-drivers.md](custom-drivers.md#conftestpy-bringup-tier--no-station-yaml-yet)).
+- **`isinstance(dmm, MyDMM)` is `False`.** The stand-in isn't a subclass of your driver class. Tests that rely on isinstance against the real driver class will fail; either don't do that, or build your own stand-in in a conftest fixture (see [bringup-tier conftest in custom-drivers.md](custom-drivers.md#conftestpy-bringup-tier-no-station-yaml-yet)).
 - **Every method call is a silent no-op returning `None`** unless you've listed it in `mock_config:`. Missing methods don't raise `AttributeError`.
 - **Methods you do list in `mock_config:` return the configured value** — a scalar (returned on every call), a dict (first positional arg is the lookup key), or a callable (invoked with the call args).
 - `connect()` / `disconnect()` are wired automatically; the stand-in works as a context manager.
@@ -359,7 +359,7 @@ Sidecar YAML doesn't support per-vector mocks (only file-level / class-level / p
 
 ## See also
 
-- [Litmus fixtures → `mock_instruments`](../reference/litmus-fixtures.md#mock_instruments--session) — the boolean fixture this page demonstrates
+- [Litmus fixtures → `mock_instruments`](../reference/litmus-fixtures.md#mock_instruments-session) — the boolean fixture this page demonstrates
 - [Litmus markers → `litmus_mocks`](../reference/litmus-markers.md#litmus_mocks) — the marker that sidecar `mocks:` blocks compile to
 - [Custom drivers](custom-drivers.md) — driver authoring, including the bringup-tier conftest pattern that uses `Mock(MyDMM, …)` directly
 - [Configuration reference → Station YAML](../reference/configuration.md#station-yaml) — `mock_config:`, `mock:` field shapes
