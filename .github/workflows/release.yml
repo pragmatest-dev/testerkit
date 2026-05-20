@@ -113,21 +113,30 @@ jobs:
           # is well under 10%. A real >10% slowdown trips the gate.
           #
           # ``GATE_EXCLUDE`` names benchmarks whose sampling is too
-          # noisy for min-of-N comparison — typically tests that route
-          # through the events daemon (Flight RPC + DuckDB plan + OS
-          # page cache); their floor swings 10x between back-to-back
-          # runs of identical code. They stay in the benchmark suite
-          # for observability but don't fail the release gate. Add a
-          # name here only with a comment justifying why the test is
-          # gate-unstable.
+          # noisy for the 10%-min gate. The principle: a test is
+          # gate-stable when its base wall-clock is large enough that
+          # 10% is well above the irreducible noise (Flight RPC +
+          # DuckDB plan compile + page-cache jitter). For daemon-query
+          # benchmarks the noise floor is ~1-2 ms regardless of the
+          # query's intrinsic cost, so small-base tests (≲20 ms)
+          # randomly trip the gate while large-base tests (≳100 ms)
+          # ride out the same noise comfortably. Keep the large-count
+          # variants gated; exclude the small / no-count ones.
           GATE_EXCLUDE = {
-              # Event-daemon round-trip dominates the wall-clock for
-              # n_events=1000; min floor isn't stable enough for a
-              # 10%-min gate. n=100 and n=10000 happen to be tighter
-              # but use the same gate-exclude for symmetry.
+              # event-query group (test_perf.py) — all go through the
+              # events daemon. Only the 10k-event variant has a base
+              # big enough (~220 ms) to gate reliably.
               'test_query_scale[100]',
               'test_query_scale[1000]',
-              'test_query_scale[10000]',
+              'test_query_by_type_10k',     # ~2 ms base; 10% < noise
+              'test_query_multi_session',   # ~6 ms base
+              # daemon-queries group (test_perf_daemon.py) — all
+              # 4-10 ms; same noise profile, none gateable.
+              'test_runs_count_by_outcome',
+              'test_runs_filter_options',
+              'test_measurements_summary_counts',
+              'test_measurements_describe_columns',
+              'test_measurements_yield_summary',
           }
           prev = {b['name']: b['stats']['min'] for b in json.load(open('benchmark-previous.json'))['benchmarks']}
           curr = {b['name']: b['stats']['min'] for b in json.load(open('benchmark-current.json'))['benchmarks']}

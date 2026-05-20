@@ -98,12 +98,13 @@ class TestEventStorePerf:
     def test_query_scale(self, event_store: EventStore, benchmark, n_events: int):
         """Query performance as event count grows.
 
-        Recorded for observability, but **excluded from the release
-        regression gate** — every call routes through the events
-        daemon (Flight RPC + DuckDB plan + OS page cache), and the
-        floor swings 10× between local back-to-back runs of identical
-        code. min-of-N can't stabilize against that. See
-        ``GATE_EXCLUDE`` in ``.github/workflows/release.yml``.
+        Small-count variants (100, 1000) are excluded from the release
+        regression gate — every call routes through the events daemon
+        (Flight RPC + DuckDB plan + OS page cache), and the ~1–2 ms
+        irreducible noise floor swamps a 10%-min gate on a sub-30 ms
+        base. The 10k variant has a ~220 ms base (10% = 22 ms, well
+        above the noise floor) and stays gated. See ``GATE_EXCLUDE``
+        in ``.github/workflows/release.yml``.
         """
         sid = uuid4()
         for i in range(n_events):
