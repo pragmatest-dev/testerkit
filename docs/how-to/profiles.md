@@ -161,13 +161,16 @@ extends: power_family
 ```
 
 ```yaml
-# profiles/characterization.yaml — wide sweep, no limits
+# profiles/characterization.yaml — wide sweep, record-only
 facets: {test_phase: characterization}
+verify_requires_limit: false   # verify() records w/o judging when no limit resolves
 tests:
   TestRails.test_rail:
     sweeps:
       - {vin: [3.0, 3.3, 3.6, 4.0, 4.5, 5.0, 5.5, 6.0]}
 ```
+
+`verify_requires_limit: false` flips `verify()` to record-only when no limit resolves from any source — the same test bodies that judge in `production` record values in `characterization` without raising `MissingLimitError`. Default is to require a limit.
 
 `pytest --test-phase=production --product=tps54302` resolves:
 

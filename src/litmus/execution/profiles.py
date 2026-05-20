@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from litmus.execution._state import (
     set_active_facets,
     set_active_profile,
+    set_active_profile_name,
     set_session_inputs,
 )
 from litmus.execution.sidecar import _merge_entry_into
@@ -194,6 +195,8 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
             merged.station_type = profile.station_type
         if profile.fixture is not None:
             merged.fixture = profile.fixture
+        if profile.verify_requires_limit is not None:
+            merged.verify_requires_limit = profile.verify_requires_limit
         runner_block = dict(profile.runner)
         # Validate to catch typos early; addopts is concatenated specially.
         runner = validate_pytest_runner(runner_block)
@@ -412,8 +415,9 @@ def install_active_profile(config) -> None:
     no_profile = config.getoption("--no-test-profile", default=False)
     facet_flags = collect_facet_flags_from_config(config, project)
     profile_name = resolve_default_profile(profile_name, facet_flags, no_profile, project)
-    _, profile, facets = resolve_active_profile(profile_name, facet_flags, project)
+    resolved_name, profile, facets = resolve_active_profile(profile_name, facet_flags, project)
     set_active_profile(profile)
+    set_active_profile_name(resolved_name)
     set_active_facets(facets)
     if profile is None:
         return

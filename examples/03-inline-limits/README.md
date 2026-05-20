@@ -1,13 +1,13 @@
 # Stage 3 — Limits as a pytest marker
 
 Same drivers, same `verify`, same log. The only change from stage 2:
-the limit is a marker on the test function, not a `Limit(...)`
-instance inside the body.
+the limit is a marker on the test function, not a dict literal inside
+the body.
 
 ## Diff from stage 2
 
-- Deleted `from litmus.models.test_config import Limit` — no longer needed in the body
-- Deleted the module-level `V_RAIL = Limit(...)` constant
+- Deleted the module-level `V_RAIL = {...}` constant
+- Removed `limit=V_RAIL` from each `verify(...)` call
 - Added `@pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4, "units": "V"})` on each test
 
 ## Run it

@@ -94,14 +94,11 @@ def dmm() -> MagicMock:
 
 ```python
 # tests/test_smoke.py
-from litmus.models.test_config import Limit
-
-
 def test_rail(dmm, verify):
     verify(
         "v_rail",
         float(dmm.measure_dc_voltage()),
-        limit=Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
+        limit={"low": 3.2, "high": 3.4, "nominal": 3.3, "units": "V"},
     )
 ```
 

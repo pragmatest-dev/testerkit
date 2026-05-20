@@ -92,6 +92,11 @@ class TestTestRunLogger:
         step_1 = get_current_step()
         assert step_1 is not None
         assert step_1.outcome == Outcome.FAILED
+        # Run outcome is computed at finalize() — retry-aware rollup
+        # from steps + external accumulator. End the step first so the
+        # rollup includes its outcome.
+        logger.end_step()
+        logger.finalize()
         assert logger.test_run.outcome == Outcome.FAILED
 
     def test_log_measurement_error_propagates(self):
@@ -107,6 +112,8 @@ class TestTestRunLogger:
         step_2 = get_current_step()
         assert step_2 is not None
         assert step_2.outcome == Outcome.ERRORED
+        logger.end_step()
+        logger.finalize()
         assert logger.test_run.outcome == Outcome.ERRORED
 
     def test_error_overrides_fail(self):
@@ -125,6 +132,8 @@ class TestTestRunLogger:
         step_3 = get_current_step()
         assert step_3 is not None
         assert step_3.outcome == Outcome.ERRORED
+        logger.end_step()
+        logger.finalize()
         assert logger.test_run.outcome == Outcome.ERRORED
 
     def test_end_step(self):
@@ -150,6 +159,39 @@ class TestTestRunLogger:
 
         assert test_run.ended_at is not None
         assert test_run is logger.test_run
+
+    def test_finalize_retry_aware_rollup(self):
+        """A failing attempt followed by a passing retry stamps PASSED.
+
+        Same node_id across two steps means pytest-rerunfailures /
+        ``litmus_retry`` reran the test. Final attempt wins — matches
+        pytest-rerunfailures, STDF retest, Jenkins flaky-handler.
+        """
+        logger = TestRunLogger(
+            dut_serial="SN001",
+            station_id="station_001",
+        )
+
+        # Attempt 1: ERRORED.
+        logger.start_step("test_glitch", node_id="tests/test_x.py::test_glitch")
+        m1 = Measurement(name="voltage", value=None, outcome=Outcome.ERRORED)
+        logger.log_measurement(m1)
+        logger.end_step()
+
+        # Attempt 2 (same node_id): PASSED.
+        logger.start_step("test_glitch", node_id="tests/test_x.py::test_glitch")
+        m2 = Measurement(name="voltage", value=5.0, outcome=Outcome.PASSED)
+        logger.log_measurement(m2)
+        logger.end_step()
+
+        # Both step records persist (visible for retest / flake analysis).
+        assert len(logger.test_run.steps) == 2
+        assert logger.test_run.steps[0].outcome == Outcome.ERRORED
+        assert logger.test_run.steps[1].outcome == Outcome.PASSED
+
+        # Run outcome reflects the FINAL attempt, not the worst attempt.
+        logger.finalize()
+        assert logger.test_run.outcome == Outcome.PASSED
 
     def test_multiple_steps(self):
         logger = TestRunLogger(

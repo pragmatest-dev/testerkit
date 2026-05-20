@@ -47,6 +47,17 @@ class ProfileConfig(TestEntry):
     # field → ``ProjectConfig.default_fixture``. CLI wins; explicit
     # beats declarative.
     fixture: str | None = None
+    # When unset / True (default), ``verify(name, value)`` raises
+    # ``MissingLimitError`` if no limit resolves from any source
+    # (inline / marker / sidecar / profile / product spec). Set to
+    # ``False`` on a characterization-style profile to record values
+    # without judging — verify() with no resolved limit falls back to
+    # ``logger.measure`` semantics (Outcome.DONE). Affects ``verify``
+    # only; ``logger.measure`` is already record-only and unaffected.
+    # Stored as ``bool | None`` so the profile-chain merger can tell
+    # unset from explicitly-True; only ``False`` opts into the lenient
+    # path.
+    verify_requires_limit: bool | None = None
 
 
 class MultiSlotConfig(BaseModel):

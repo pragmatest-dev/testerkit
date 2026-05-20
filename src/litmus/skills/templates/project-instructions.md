@@ -19,7 +19,7 @@ Code folders contain Python scripts:
 
 ```bash
 pytest                            # Run tests
-pytest --mock-instruments         # Run with mock instruments
+pytest --mock-instruments         # Run with mock instruments (precedence: CLI > LITMUS_MOCK_INSTRUMENTS env > litmus.yaml mock_instruments: > false)
 pytest --station=my_bench         # Run against specific station (id or YAML path)
 pytest --test-profile=production  # Apply a named profile
 pytest --test-phase=production    # Select profile by facet
@@ -90,8 +90,11 @@ SELECT * FROM 'results/**/*.parquet' WHERE step_name = 'voltage_check'
 
 ## Reference Documentation
 
-Read these on demand — don't load them all upfront:
+Read these on demand via the CLI — don't load them all upfront. `litmus refs list` shows available topics.
 
-| Topic | File |
-|-------|------|
-| Profiles, facets, phase wiring | `{LITMUS_REFS}/profiles.md` |
+| Topic | Command |
+|-------|---------|
+| Project tiers (Tier 0 → 4 ladder, when to graduate) | `litmus refs show tiers` |
+| `verify` signature, limit dict shape, sidecar `limits:` schema, outcomes | `litmus refs show verify` |
+| Per-test mock overrides (`litmus_mocks` marker + sidecar `mocks:`) | `litmus refs show mocks` |
+| Profiles, facets, phase wiring | `litmus refs show profiles` |

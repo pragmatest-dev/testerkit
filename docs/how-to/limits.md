@@ -31,10 +31,10 @@ A limit needs at least one policy field that tells `verify` what to check. The f
 
 Both `verify(name, value)` and `logger.measure(name, value)` go through the same resolver. When `limit=` is passed explicitly, that value short-circuits the rest — every other source is ignored. Otherwise the resolver checks, in this order, and the **first match wins**:
 
-1. **Explicit `limit=`** — `verify("v", val, limit=Limit(low=..., high=..., units="V"))` or `logger.measure(...)` with the same kwarg. Short-circuits everything below.
+1. **Explicit `limit=`** — `verify("v", val, limit={"low": ..., "high": ..., "units": "V"})` or `logger.measure(...)` with the same kwarg. The kwarg accepts either a dict literal or a `Limit(...)` model. Short-circuits everything below.
 2. **Active limits entry for `name`** — populated from the sidecar / marker / profile cascade (merged into one entry per measurement name at test setup; details below).
 3. **Active product spec** — if the cascade has nothing and `verify` is in play, the resolver tries the active `ProductContext` for a characteristic named `name`. This works for unconditional characteristics; condition-indexed bands need the explicit `characteristic:` delegation in step 2 to forward sweep params correctly (see [Spec-driven testing](spec-driven-testing.md#condition-indexed-example--when-accuracy-varies-with-operating-point)).
-4. **None** — characterization mode. `logger.measure` records the value with `outcome = DONE`. `verify` raises `MissingLimitError` — judgment-bearing calls don't silently fall through.
+4. **None** — characterization mode. `logger.measure` records the value with `outcome = DONE`. `verify` raises `MissingLimitError` — judgment-bearing calls don't silently fall through unless the active profile sets `verify_requires_limit: false`, which routes `verify` to the same record-only fallback.
 
 The cascade inside step 2 stacks marker sources in this order, with later entries overriding earlier ones key-by-key per measurement name:
 
@@ -135,10 +135,10 @@ A limit without `bands:` is the flat scalar shape (`output_voltage: {low: 3.2, h
 ## Explicit `limit=` kwarg
 
 ```python
-from litmus.models.test_config import Limit
-
-logger.measure("v", val, limit=Limit(low=3.2, high=3.4, units="V"))
+logger.measure("v", val, limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
+
+Same shape works on `verify(name, value, limit={...})`. Need the model object for type-checking or as a shared constant? Import from the top-level package: `from litmus import Limit`.
 
 ## Product-spec delegation (`characteristic:`)
 

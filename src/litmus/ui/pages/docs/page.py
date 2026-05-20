@@ -78,7 +78,89 @@ def _create_docs_layout(section: str | None = None, page: str | None = None):
     """Create docs layout with breadcrumb in header."""
     from litmus.ui.shared.layout import create_sidebar
 
-    ui.add_head_html('<link rel="stylesheet" href="/static/global.css">')
+    # Cache-bust the stylesheet by mtime so end users always see CSS
+    # updates without a hard refresh. Same pattern as shared/layout.py.
+    css_path = Path(__file__).parent.parent.parent / "static" / "global.css"
+    try:
+        css_version = int(css_path.stat().st_mtime)
+    except OSError:
+        css_version = 0
+    ui.add_head_html(f'<link rel="stylesheet" href="/static/global.css?v={css_version}">')
+
+    # Right-side TOC styles + populator script.
+    # Styles live in <head>; script in <body> (after DOM exists).
+    # NiceGUI's bundled Tailwind subset doesn't include `lg:block`,
+    # so we use an explicit media query for the show/hide breakpoint.
+    ui.add_head_html("""
+        <style>
+          .docs-toc { display: none; }
+          @media (min-width: 1024px) {
+            .docs-toc { display: block; }
+          }
+          .docs-toc {
+            position: sticky; top: 16px; align-self: flex-start;
+            max-height: calc(100vh - 32px); overflow-y: auto;
+          }
+          #docs-toc-list a {
+            display: block; padding: 2px 0;
+            color: #475569; text-decoration: none;
+          }
+          #docs-toc-list a:hover { color: #1e293b; }
+          #docs-toc-list a.toc-active { color: #1d4ed8; font-weight: 500; }
+          #docs-toc-list li.toc-h3 { padding-left: 0.75rem; font-size: 0.75rem; }
+        </style>
+    """)
+    ui.add_body_html("""
+        <script>
+          (function() {
+            function build() {
+              const aside = document.getElementById('docs-toc-aside');
+              const list = document.getElementById('docs-toc-list');
+              if (!aside || !list) return;
+              const prose = document.querySelector('.prose');
+              if (!prose) return;
+              const headings = Array.from(prose.querySelectorAll('h2[id], h3[id]'));
+              if (headings.length < 3) {
+                aside.style.display = 'none';
+                return;
+              }
+              list.innerHTML = '';
+              headings.forEach(h => {
+                const li = document.createElement('li');
+                if (h.tagName === 'H3') li.className = 'toc-h3';
+                const a = document.createElement('a');
+                a.href = '#' + h.id;
+                a.textContent = h.textContent;
+                li.appendChild(a);
+                list.appendChild(li);
+              });
+              const observer = new IntersectionObserver(entries => {
+                const visible = entries.filter(e => e.isIntersecting);
+                if (visible.length === 0) return;
+                visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+                const activeId = visible[0].target.id;
+                list.querySelectorAll('a').forEach(a => {
+                  a.classList.toggle('toc-active', a.getAttribute('href') === '#' + activeId);
+                });
+              }, { rootMargin: '-80px 0px -75% 0px', threshold: 0 });
+              headings.forEach(h => observer.observe(h));
+            }
+            // Prose arrives over WebSocket after DOMContentLoaded —
+            // observe insertions until it appears, then build.
+            if (document.querySelector('.prose')) {
+              build();
+            } else {
+              const mo = new MutationObserver(() => {
+                if (document.querySelector('.prose')) {
+                  mo.disconnect();
+                  build();
+                }
+              });
+              mo.observe(document.body, { childList: true, subtree: true });
+            }
+          })();
+        </script>
+    """)
     # Mermaid diagram rendering. NiceGUI strips the ``class="language-X"``
     # attribute on ``<code>`` elements, so we can't select by language hint.
     # Instead we sniff fenced code blocks by their content: the first non-
@@ -308,6 +390,12 @@ def _flatten_outline(outline: list[tuple[str | None, list[tuple[str, str]]]]) ->
     return [slug for _, items in outline for _, slug in items]
 
 
+def _numeric_prefix(slug: str) -> str | None:
+    """Return the leading numeric prefix of a doc slug, e.g. `00-quickstart` → `00`."""
+    m = re.match(r"^(\d+)-", slug)
+    return m.group(1) if m else None
+
+
 def _render_sidebar_nav(section: str, current_page: str | None = None):
     """Render the section sidebar as a tree driven by ``index.md``."""
     outline = _parse_section_outline(section)
@@ -325,13 +413,29 @@ def _render_sidebar_nav(section: str, current_page: str | None = None):
                 )
             for title, slug in items:
                 is_current = slug == current_page
-                link_classes = "text-sm py-1 block "
-                link_classes += "pl-2" if group_label is not None else ""
+                prefix = _numeric_prefix(slug)
+                # Active state: 2px blue left border + bluish bg + heavier text.
+                # Matches the pragmatest sidebar (Phase I.4) so the two
+                # renderers feel the same.
+                base_pl = "pl-3" if group_label is not None else "pl-2"
                 if is_current:
-                    link_classes += " text-blue-600 font-medium"
+                    link_classes = (
+                        f"text-sm py-1 {base_pl} pr-2 block border-l-2 border-blue-600 "
+                        "bg-blue-50 text-blue-900 font-medium rounded-r no-underline"
+                    )
+                    badge_color = "text-blue-700"
                 else:
-                    link_classes += " text-slate-600 hover:text-blue-600"
-                ui.link(title, f"/docs/{section}/{slug}").classes(link_classes)
+                    link_classes = (
+                        f"text-sm py-1 {base_pl} pr-2 block border-l-2 border-transparent "
+                        "text-slate-700 hover:border-slate-300 hover:bg-slate-50 "
+                        "hover:text-blue-600 rounded-r no-underline"
+                    )
+                    badge_color = "text-slate-400"
+                with ui.link(target=f"/docs/{section}/{slug}").classes(link_classes):
+                    with ui.row().classes("items-baseline gap-2 flex-nowrap"):
+                        if prefix is not None:
+                            ui.label(prefix).classes(f"text-xs font-mono {badge_color} shrink-0")
+                        ui.label(title).classes("text-sm truncate")
 
 
 def _render_doc_page_content(section: str, page: str):
@@ -342,14 +446,37 @@ def _render_doc_page_content(section: str, page: str):
         # Sidebar navigation (sticky)
         _render_sidebar_nav(section, page)
 
-        # Main content (scrolls with window)
-        with ui.column().classes("docs-content p-6 max-w-4xl"):
+        # Main content (scrolls with window). Reference pages get a wider
+        # container (max-w-5xl) so the heavy field/type/default tables
+        # stop squashing. Other sections keep max-w-4xl for comfortable
+        # body-text reading.
+        content_width = "max-w-5xl" if section == "reference" else "max-w-4xl"
+        with ui.column().classes(f"docs-content p-6 {content_width}"):
             if md_path.exists():
                 content = md_path.read_text()
                 ui.markdown(
                     content,
-                    extras=["fenced-code-blocks", "tables", "strike", "task_list"],
+                    extras=[
+                        "fenced-code-blocks",
+                        "tables",
+                        "strike",
+                        "task_list",
+                        # Adds id="..." to every heading. Powers anchor links
+                        # and the right-side TOC. Slug uses lowercase-dash
+                        # convention.
+                        "header-ids",
+                    ],
                 ).classes("prose prose-slate max-w-none")
+
+                # Edit-on-GitHub footer. Links to the source on main.
+                # Source path is relative to the repo root.
+                github_url = (
+                    f"https://github.com/pragmatest-dev/litmus/blob/main/docs/{section}/{page}.md"
+                )
+                with ui.row().classes("mt-8 text-sm text-slate-500"):
+                    ui.link("Edit this page on GitHub →", target=github_url, new_tab=True).classes(
+                        "text-slate-500 hover:text-slate-800 hover:underline no-underline"
+                    )
 
                 # Next/prev navigation — prominent button cards so the next step is
                 # the obvious continuation, not a footnote.
@@ -361,17 +488,25 @@ def _render_doc_page_content(section: str, page: str):
                     prev_slug = ordered[idx - 1] if idx > 0 else None
                     next_slug = ordered[idx + 1] if idx < len(ordered) - 1 else None
 
+                    section_title = _get_section_title(section)
+                    # Show "Step N of M" position for tutorial pages (they
+                    # read sequentially). Other sections aren't a path.
+                    if section == "tutorial":
+                        ui.label(f"{section_title} · Step {idx + 1} of {len(ordered)}").classes(
+                            "mt-4 text-center text-xs text-slate-500"
+                        )
+
                     btn_base = (
                         "block flex-1 p-4 border rounded-lg "
                         "bg-white border-slate-200 hover:border-blue-500 hover:shadow-md "
                         "transition no-underline"
                     )
-                    with ui.row().classes("mt-12 pt-8 border-t border-slate-200 gap-4 w-full"):
+                    with ui.row().classes("mt-8 pt-8 border-t border-slate-200 gap-4 w-full"):
                         if prev_slug:
                             with ui.link(target=f"/docs/{section}/{prev_slug}").classes(
                                 btn_base + " text-left"
                             ):
-                                ui.label("← Previous").classes(
+                                ui.label(f"← Previous · {section_title}").classes(
                                     "text-xs uppercase tracking-wide text-slate-500"
                                 )
                                 ui.label(title_for[prev_slug]).classes(
@@ -383,7 +518,7 @@ def _render_doc_page_content(section: str, page: str):
                             with ui.link(target=f"/docs/{section}/{next_slug}").classes(
                                 btn_base + " text-right"
                             ):
-                                ui.label("Next →").classes(
+                                ui.label(f"Next · {section_title} →").classes(
                                     "text-xs uppercase tracking-wide text-slate-500"
                                 )
                                 ui.label(title_for[next_slug]).classes(
@@ -398,6 +533,21 @@ def _render_doc_page_content(section: str, page: str):
                     ui.link(f"Back to {_get_section_title(section)}", f"/docs/{section}").classes(
                         "text-blue-600 hover:underline"
                     )
+
+        # Right-side TOC. The aside itself is mounted here as a flex
+        # sibling of the content column; the script that populates it
+        # from prose headings lives in <body> via _toc_script_html().
+        # Self-hides if <3 H2s. Hidden below lg breakpoint.
+        ui.html(
+            sanitize=False,
+            content=(
+                '<aside class="docs-toc w-56 shrink-0 px-4 py-6" id="docs-toc-aside">'
+                '<p class="text-xs font-semibold uppercase tracking-wide '
+                'text-slate-500 mb-3">On this page</p>'
+                '<nav><ol id="docs-toc-list" class="space-y-1 text-sm"></ol></nav>'
+                "</aside>"
+            ),
+        )
 
 
 def _render_section_index_content(section: str):

@@ -44,7 +44,7 @@ from litmus.execution._state import (
     reset_current_vector,
 )
 from litmus.execution.sidecar import resolve_limit
-from litmus.models.test_config import Limit
+from litmus.models.test_config import Limit, coerce_limit
 
 if TYPE_CHECKING:
     from litmus.data.event_log import EventLog
@@ -505,6 +505,27 @@ class TestRunLogger:
         self._event_log: EventLog | None = None
         self._session_id: UUID = self.test_run.session_id
         self._data_dir = Path(data_dir) if data_dir is not None else None
+        # Accumulates run-level outcome contributions that don't belong
+        # to any step (setup-phase failures before a step opened,
+        # keyboard interrupts). ``finalize()`` folds this into the
+        # retry-aware step rollup to produce the final run outcome.
+        # Mutate only via :meth:`record_external_outcome` — that's the
+        # public surface for hook code; the underscore guards against
+        # ad-hoc reads.
+        self._external_run_outcome: Outcome | None = None
+
+    def record_external_outcome(self, outcome: Outcome | None) -> None:
+        """Fold a run-level outcome contribution that has no owning step.
+
+        Setup-phase failures and keyboard interrupts produce an
+        outcome that can't attach to a step (none was opened, or the
+        signal is run-scoped). Hook code calls this instead of
+        mutating ``_external_run_outcome`` directly. ``finalize()``
+        merges the accumulator with the retry-aware step rollup.
+        """
+        if outcome is None:
+            return
+        self._external_run_outcome = escalate_outcome(self._external_run_outcome, outcome)
 
     @property
     def event_log(self) -> EventLog | None:
@@ -846,12 +867,15 @@ class TestRunLogger:
                 "Stamp via logger.measure(outcome=...), check_limit(), or "
                 "set measurement.outcome explicitly before calling."
             )
-        # Cascade outcome up the test run hierarchy via the severity
-        # ladder (ABORTED > TERMINATED > ERRORED > FAILED > PASSED >
-        # DONE > SKIPPED). ``None`` ranks below everything.
+        # Cascade outcome up the vector → step hierarchy via the
+        # severity ladder (ABORTED > TERMINATED > ERRORED > FAILED >
+        # PASSED > DONE > SKIPPED). ``None`` ranks below everything.
+        # Run outcome is NOT stamped incrementally — ``finalize()``
+        # computes it from steps via :func:`retry_aware_rollup` so a
+        # retry that passes correctly stamps the run as PASSED
+        # instead of the worst earlier attempt's outcome.
         vector.outcome = escalate_outcome(vector.outcome, measurement.outcome)
         step.outcome = escalate_outcome(step.outcome, measurement.outcome)
-        self.test_run.outcome = escalate_outcome(self.test_run.outcome, measurement.outcome)
 
         # A measurement carrying limits is structurally equivalent
         # to a passing assert — the test code declared an intent to
@@ -943,7 +967,7 @@ class TestRunLogger:
         name: str,
         value: float | int | None,
         *,
-        limit: Limit | None = None,
+        limit: Limit | dict[str, Any] | None = None,
         outcome: Outcome = Outcome.DONE,
         allow_repeat: bool = False,
     ) -> Measurement:
@@ -976,6 +1000,8 @@ class TestRunLogger:
             The persisted :class:`Measurement` with the requested
             ``outcome`` (default DONE).
         """
+        # Accept dict literals at the call site (shared with ``verify``).
+        limit_obj = coerce_limit(limit)
         resolved_limit = _resolve_measurement_limit(
             name,
             inline_any=False,
@@ -983,7 +1009,7 @@ class TestRunLogger:
             high=None,
             nominal=None,
             comparator=None,
-            limit=limit,
+            limit=limit_obj,
             units=None,
         )
 
@@ -1138,6 +1164,14 @@ class TestRunLogger:
     def finalize(self) -> TestRun:
         """Complete test run and return result.
 
+        Computes the final run outcome with retry awareness via
+        :func:`retry_aware_rollup`: steps that share a ``node_id``
+        (``litmus_retry`` / ``pytest-rerunfailures`` reruns) collapse
+        to their final attempt before the severity ladder fires. The
+        :attr:`_external_run_outcome` accumulator (setup-phase
+        failures, keyboard interrupts — outcomes with no step to
+        attach to) is folded in last.
+
         Emits RunEnded event. Does NOT close the event log — caller is
         responsible for emitting SessionEnded and closing the log.
         """
@@ -1146,6 +1180,11 @@ class TestRunLogger:
             self.end_step()
 
         self.test_run.ended_at = _utcnow()
+
+        from litmus.data.models import retry_aware_rollup
+
+        step_outcome = retry_aware_rollup(self.test_run.steps)
+        self.test_run.outcome = escalate_outcome(step_outcome, self._external_run_outcome)
 
         if self._event_log is not None:
             self._event_log.emit(

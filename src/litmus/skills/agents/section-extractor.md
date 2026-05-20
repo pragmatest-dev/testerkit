@@ -1,9 +1,10 @@
 ---
 name: section-extractor
-description: Opus agent that reads PDF pages and produces a complete structured inventory file. ONE job — extraction only, no YAML, no schema knowledge.
+description: Reads PDF pages and produces a complete structured inventory file. ONE job — extraction only, no YAML, no schema knowledge.
 variables: PDF_PATH, PAGES, SECTION_NAME, INVENTORY_PATH
-model: opus
 ---
+
+**Recommended model tier:** high-capability reasoning (Anthropic Opus, Google Gemini 2.5 Pro, OpenAI GPT-5 / o-series, or equivalent). Complete-and-mechanical PDF extraction is the most demanding step in the workflow; a weaker model drops rows, misreads accuracy tables, and produces inventories that downstream agents can't recover from. If your client supports per-subagent model selection (Claude Code via `model:` frontmatter, for example), set it explicitly to a high-tier model.
 
 # Section Extractor Agent
 

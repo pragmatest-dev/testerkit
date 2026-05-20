@@ -1,9 +1,10 @@
 ---
 name: section-splitter
-description: Opus agent that reads a datasheet PDF and divides it into processing sections. ONE job — page ranges only, no YAML, no extraction.
+description: Reads a datasheet PDF and divides it into processing sections. ONE job — page ranges only, no YAML, no extraction.
 variables: PDF_PATH
-model: opus
 ---
+
+**Recommended model tier:** mid-to-high capability (Anthropic Sonnet or Opus, Google Gemini 2.5 Flash or Pro, OpenAI GPT-5 / o-series, or equivalent). Splitting is the lightest agent in the workflow — it scans the PDF outline and emits page ranges, no deep extraction — so a mid-tier model is usually fine. If the datasheet has a non-obvious structure or no TOC, bump to high-tier. If your client supports per-subagent model selection (Claude Code via `model:` frontmatter, for example), choose accordingly.
 
 # Section Splitter Agent
 

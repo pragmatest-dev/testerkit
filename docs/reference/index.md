@@ -44,3 +44,7 @@ For analytics from Python — yield, Cpk, pareto, trends — without writing raw
 ## Command line
 
 - [CLI reference](cli.md) — every `litmus <command>` and its flags.
+
+## AI integration
+
+- [Skills](skills.md) — the workflows, sub-agent templates, and slash commands that ship with Litmus for AI-assisted authoring.

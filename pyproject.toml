@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "litmus-test"
-version = "0.1.1"
+version = "0.1.2"
 description = "Hardware test platform for the AI-assisted era"
 dynamic = ["readme"]
 requires-python = ">=3.11"
@@ -59,6 +59,11 @@ dependencies = [
     "pytz>=2025.2",
     "duckdb>=1.5.0",
     "orjson>=3.9",
+    # pytest is a runtime dependency, not a dev tool — Litmus is a
+    # pytest plugin (see [project.entry-points.pytest11]), and the
+    # starter project's tests + every tutorial expect `pytest` to be
+    # importable + on PATH the moment `pip install litmus-test` finishes.
+    "pytest>=8.0",
 ]
 
 [project.optional-dependencies]
@@ -161,7 +166,15 @@ include = [
 ]
 exclude = [
     ".tmp",
-    "data",
+    # Top-level ``data/`` is the per-developer parquet output dir
+    # (gitignored). Scoped with a leading slash so the pattern doesn't
+    # also strip ``src/litmus/data/`` — the package subdirectory that
+    # holds the event store, models, and parquet schemas. The earlier
+    # unscoped ``data`` pattern shipped 0.1.0 / 0.1.1 wheels with a
+    # missing ``litmus.data`` subpackage; the pytest plugin imports
+    # ``litmus.data.models`` at module load and dies on a fresh
+    # ``pip install``.
+    "/data",
     "dist",
     "*.mp4",
     "*.pdf",

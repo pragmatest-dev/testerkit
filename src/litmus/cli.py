@@ -8,6 +8,8 @@ from pathlib import Path
 
 import click
 
+from litmus import __version__
+
 
 def _find_parquet_for_run(run_id: str, data_dir: str) -> Path | None:
     """Find the measurement parquet path for a run ID via the daemon's index.
@@ -25,7 +27,7 @@ def _find_parquet_for_run(run_id: str, data_dir: str) -> Path | None:
 
 
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(version=__version__, prog_name="litmus")
 def main():
     """Litmus hardware test platform."""
     pass
@@ -1092,9 +1094,7 @@ def _write_instructions(target_path: Path, header: str = "") -> str | None:
     if not template.exists():
         return None
 
-    # Resolve {LITMUS_REFS} to installed package path
-    refs_path = Path(__file__).parent / "skills" / "refs"
-    content = template.read_text().replace("{LITMUS_REFS}", str(refs_path))
+    content = template.read_text()
 
     if header:
         content = header + "\n\n" + content
@@ -1144,9 +1144,38 @@ def setup_claude_code(print_only: bool):
     config = {"name": "litmus", **_mcp_server_entry()}
 
     if print_only:
-        click.echo("Add this to your Claude Code MCP configuration:\n")
-        click.echo(json.dumps(config, indent=2))
-        click.echo("\nOr run: litmus setup claude-code")
+        # Preview ALL three side effects of the real run so users can
+        # decide whether to commit before doing so. Previously only the
+        # MCP JSON was shown, hiding the .claude/commands/ + CLAUDE.md
+        # writes entirely.
+        cmd = f"claude mcp add litmus -- {litmus_path} mcp serve"
+        stubs_src = Path(__file__).parent / "skills" / "commands" / "claude-code"
+        stubs_dst = Path.cwd() / ".claude" / "commands"
+        claude_md = Path.cwd() / "CLAUDE.md"
+        stub_files = sorted(p.name for p in stubs_src.glob("*.md")) if stubs_src.exists() else []
+
+        def _rel(p: Path) -> Path:
+            try:
+                return p.relative_to(Path.cwd())
+            except ValueError:
+                return p
+
+        click.echo("`litmus setup claude-code` would do three things:\n")
+        click.echo("1. Register the MCP server via the Claude CLI:")
+        click.echo(f"   $ {cmd}\n")
+        click.echo("   Equivalent MCP JSON if you'd rather configure manually:")
+        for line in json.dumps(config, indent=2).splitlines():
+            click.echo(f"   {line}")
+        click.echo("")
+        click.echo(f"2. Copy {len(stub_files)} slash-command stub(s) to {_rel(stubs_dst)}/:")
+        for name in stub_files:
+            click.echo(f"     {name}")
+        click.echo("")
+        action = "Create" if not claude_md.exists() else "Update (Litmus section)"
+        click.echo(f"3. {action} {_rel(claude_md)}")
+        click.echo("   (Litmus context the agent reads on every conversation in this project.)")
+        click.echo("")
+        click.echo("Re-run without --print-only to apply all three.")
         return
 
     # 1. Register MCP server via claude CLI
@@ -1258,7 +1287,7 @@ def setup_claude_desktop(legacy: bool, print_only: bool):
         "description": (
             "MCP server for hardware test configuration, instrument discovery, and test execution."
         ),
-        "version": "0.1.0",
+        "version": __version__,
         "author": "Litmus",
         "server": {
             "transport": "stdio",
@@ -1545,6 +1574,39 @@ def discover(
 # -----------------------------------------------------------------------------
 # Catalog Commands
 # -----------------------------------------------------------------------------
+
+
+@main.group()
+def refs():
+    """Stream curated reference docs to stdout.
+
+    The shipped ref files live inside the installed package, so the
+    CLI is the env-stable way for agents (and humans) to read them
+    without baking absolute paths into project config.
+    """
+    pass
+
+
+def _refs_dir() -> Path:
+    return Path(__file__).parent / "skills" / "refs"
+
+
+@refs.command("list")
+def refs_list():
+    """List available reference topics."""
+    for path in sorted(_refs_dir().glob("*.md")):
+        click.echo(path.stem)
+
+
+@refs.command("show")
+@click.argument("topic")
+def refs_show(topic: str):
+    """Print the named reference doc to stdout."""
+    path = _refs_dir() / f"{topic}.md"
+    if not path.exists():
+        available = ", ".join(sorted(p.stem for p in _refs_dir().glob("*.md"))) or "(none)"
+        raise click.ClickException(f"Unknown ref topic {topic!r}. Available: {available}")
+    click.echo(path.read_text(), nl=False)
 
 
 @main.group()
@@ -2394,6 +2456,182 @@ def data_prune(
         click.echo(f"\n{total} directories would be removed.")
     else:
         click.echo(f"\n{total} directories removed.")
+
+
+# Starter sentinels — runs whose product / station / serial / fixture
+# matches any of these are scaffold/example runs, skipped by default.
+# The user can opt them in with --include-starter.
+_STARTER_PRODUCT_IDS = {"example_product"}
+_STARTER_STATION_IDS = {"starter_station"}
+_STARTER_FIXTURE_IDS = {"example_fixture"}
+_STARTER_DUT_SERIALS = {"STARTER001", "SMOKE001"}
+
+
+def _is_starter_parquet(parquet_path: Path) -> bool:
+    """Return True if the parquet's first row matches any starter sentinel.
+
+    Reads only the columns needed; one parquet = one run = small file.
+    """
+    import pyarrow.parquet as pq
+
+    cols = ["product_id", "station_id", "dut_serial", "fixture_id"]
+    try:
+        t = pq.read_table(parquet_path, columns=cols)
+    except (FileNotFoundError, OSError, KeyError):
+        return False
+    if t.num_rows == 0:
+        return False
+    row0 = {c: t[c][0].as_py() for c in cols if c in t.column_names}
+    if row0.get("product_id") in _STARTER_PRODUCT_IDS:
+        return True
+    if row0.get("station_id") in _STARTER_STATION_IDS:
+        return True
+    if row0.get("dut_serial") in _STARTER_DUT_SERIALS:
+        return True
+    if row0.get("fixture_id") in _STARTER_FIXTURE_IDS:
+        return True
+    return False
+
+
+def _global_data_dir() -> Path:
+    """Resolve the platformdirs global data directory.
+
+    Mirrors the fallback in litmus.data.data_dir.resolve_data_dir but
+    ignores any project override — promote always targets the global
+    store regardless of where the current cwd points.
+    """
+    import os
+
+    import platformdirs
+
+    home = Path(os.environ.get("LITMUS_HOME", platformdirs.user_data_dir("litmus")))
+    return home / "data"
+
+
+@data.command("promote")
+@click.option(
+    "--include-starter",
+    is_flag=True,
+    help="Also promote runs that match starter sentinels "
+    "(example_product / starter_station / STARTER001 / etc.). "
+    "Default skips these as throwaway learning runs.",
+)
+@click.option("--dry-run", is_flag=True, help="Show what would be promoted; write nothing.")
+def data_promote(include_starter: bool, dry_run: bool) -> None:
+    """Move a starter project's local runs to the global store.
+
+    Starter projects ship with ``data_dir: data`` in litmus.yaml so
+    learning runs (mock instruments, example_product, STARTER001, etc.)
+    don't pollute the platformdirs global store shared across projects
+    on this machine. When you're ready to share data across projects,
+    `litmus data promote` copies non-starter runs into the global store
+    and removes the ``data_dir`` override from your litmus.yaml.
+
+    Idempotent. Re-running promote after adding the flag picks up
+    anything previously skipped.
+    """
+    import shutil
+
+    from ruamel.yaml import YAML
+
+    from litmus.connect import _find_project_config
+
+    found = _find_project_config()
+    if not found:
+        raise click.ClickException(
+            "No litmus.yaml found in this directory or any parent. "
+            "`litmus data promote` runs inside a project directory."
+        )
+    project_root, project = found
+
+    if not project.data_dir:
+        raise click.ClickException(
+            "This project's litmus.yaml has no `data_dir` override, "
+            "so it's already using the global store. Nothing to promote."
+        )
+
+    src_data = (project_root / project.data_dir).resolve()
+    dst_data = _global_data_dir().resolve()
+    if src_data == dst_data:
+        raise click.ClickException(
+            f"Project data_dir resolves to the global store ({src_data}); nothing to promote."
+        )
+
+    src_runs_root = src_data / "runs" / "runs"
+    if not src_runs_root.exists():
+        click.echo(f"No runs found under {src_runs_root}; nothing to promote.")
+        return
+
+    parquets = sorted(src_runs_root.glob("*/*.parquet"))
+    if not parquets:
+        click.echo(f"No parquet files under {src_runs_root}; nothing to promote.")
+        return
+
+    to_copy: list[tuple[Path, Path]] = []
+    skipped_starter = 0
+    skipped_collision = 0
+
+    for src in parquets:
+        is_starter = _is_starter_parquet(src)
+        if is_starter and not include_starter:
+            skipped_starter += 1
+            continue
+        # dst preserves the YYYY-MM-DD subdir from the source path.
+        rel = src.relative_to(src_runs_root)
+        dst = dst_data / "runs" / "runs" / rel
+        if dst.exists():
+            skipped_collision += 1
+            continue
+        to_copy.append((src, dst))
+
+    click.echo(f"Source:      {src_data}")
+    click.echo(f"Destination: {dst_data}")
+    click.echo("")
+    click.echo(f"Found {len(parquets)} run parquets total.")
+    if skipped_starter:
+        flag_hint = "" if include_starter else " (use --include-starter to include)"
+        click.echo(f"  {skipped_starter} starter / example run(s) — skipped{flag_hint}")
+    if skipped_collision:
+        click.echo(f"  {skipped_collision} already in global store — skipped (idempotent)")
+    click.echo(f"  {len(to_copy)} to promote")
+
+    if dry_run:
+        click.echo("\n[dry-run] No files copied. litmus.yaml unchanged.")
+        return
+
+    if not to_copy:
+        click.echo("\nNothing to promote. litmus.yaml unchanged.")
+        return
+
+    # Copy parquets. Each is independent — failures don't roll back, but
+    # files are skipped on collision so re-running is safe.
+    for src, dst in to_copy:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+    click.echo(f"\nCopied {len(to_copy)} run parquet(s) to {dst_data / 'runs' / 'runs'}/")
+
+    # Update litmus.yaml — drop the data_dir override so future runs
+    # and queries from this project use the global store. Uses ruamel
+    # to preserve formatting + comments.
+    litmus_yaml = project_root / "litmus.yaml"
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    with litmus_yaml.open() as f:
+        doc = yaml.load(f)
+    if "data_dir" in doc:
+        del doc["data_dir"]
+        with litmus_yaml.open("w") as f:
+            yaml.dump(doc, f)
+        try:
+            display_path = litmus_yaml.relative_to(Path.cwd())
+        except ValueError:
+            display_path = litmus_yaml
+        click.echo(f"Updated {display_path}: removed `data_dir` override.")
+
+    click.echo("")
+    click.echo("Future runs and `litmus runs` queries from this project now use the global store.")
+    click.echo(f"The local {src_data} directory still has the unpromoted runs.")
+    click.echo(f"To clean up once you're sure:  rm -rf {src_data}")
 
 
 @data.command("reindex")

@@ -46,7 +46,16 @@ from typing import Any
 from uuid import UUID
 
 from litmus.data.backends.parquet import ParquetBackend
-from litmus.data.models import DUT, Measurement, Outcome, RunSummary, TestRun, TestStep, TestVector
+from litmus.data.models import (
+    DUT,
+    Measurement,
+    Outcome,
+    RunSummary,
+    TestRun,
+    TestStep,
+    TestVector,
+    escalate_outcome,
+)
 
 
 def _to_float(value: float | int | str | None) -> float | None:
@@ -123,13 +132,7 @@ class VectorBuilder:
             m.outcome = Outcome.DONE
 
         self._vector.measurements.append(m)
-
-        # Update vector outcome if measurement failed
-        if m.outcome == Outcome.FAILED:
-            self._vector.outcome = Outcome.FAILED
-        elif m.outcome == Outcome.ERRORED and self._vector.outcome != Outcome.FAILED:
-            self._vector.outcome = Outcome.ERRORED
-
+        self._vector.outcome = escalate_outcome(self._vector.outcome, m.outcome)
         return m
 
     def fail(self, message: str | None = None) -> None:
@@ -179,12 +182,9 @@ class StepBuilder:
             yield builder
         finally:
             self._test_step.vectors.append(builder._finish())
-            # Update step outcome based on vector
-            v_outcome = builder._vector.outcome
-            if v_outcome == Outcome.FAILED:
-                self._test_step.outcome = Outcome.FAILED
-            elif v_outcome == Outcome.ERRORED and self._test_step.outcome != Outcome.FAILED:
-                self._test_step.outcome = Outcome.ERRORED
+            self._test_step.outcome = escalate_outcome(
+                self._test_step.outcome, builder._vector.outcome
+            )
 
     def measure(
         self,
@@ -307,14 +307,15 @@ class RunBuilder:
             yield builder
         finally:
             self._test_run.steps.append(builder._finish())
-            # Update run outcome based on step
-            if builder._test_step.outcome == Outcome.FAILED:
-                self._test_run.outcome = Outcome.FAILED
-            elif (
-                builder._test_step.outcome == Outcome.ERRORED
-                and self._test_run.outcome != Outcome.FAILED
-            ):
-                self._test_run.outcome = Outcome.ERRORED
+            # External-client API: run outcome stamps eagerly via the
+            # canonical severity ladder. The pytest plugin path uses
+            # retry-aware computation at ``logger.finalize()`` (see
+            # ``retry_aware_rollup``); this client has no equivalent
+            # finalize hook and no notion of retry, so monotonic
+            # escalation is the right shape here.
+            self._test_run.outcome = escalate_outcome(
+                self._test_run.outcome, builder._test_step.outcome
+            )
 
     def finish(self) -> TestRun:
         """Finalize and save the test run.

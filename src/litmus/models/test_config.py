@@ -337,6 +337,21 @@ class Limit(BaseModel):
         return f"Limit({', '.join(parts)})"
 
 
+def coerce_limit(value: Limit | dict | None) -> Limit | None:
+    """Coerce a dict-form limit into a :class:`Limit` model.
+
+    Used by ``verify`` and ``logger.measure`` to accept the YAML /
+    marker dict shape directly at the call site
+    (``limit={"low": ..., "high": ..., "units": "V"}``) without
+    forcing test authors to import ``Limit``. Pydantic owns the
+    validation — bad keys raise ``ValidationError`` per
+    ``Limit.model_config["extra"] == "forbid"``.
+    """
+    if isinstance(value, dict):
+        return Limit.model_validate(value)
+    return value
+
+
 # =============================================================================
 # Fixture models
 # =============================================================================

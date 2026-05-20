@@ -24,7 +24,7 @@ from collections.abc import Mapping
 from typing import Any, Protocol
 
 from litmus.data.models import Measurement, Outcome
-from litmus.models.test_config import Limit
+from litmus.models.test_config import Limit, coerce_limit
 
 
 class VerifyFn(Protocol):
@@ -39,7 +39,7 @@ class VerifyFn(Protocol):
         self,
         name: str,
         value: float | int | None,
-        limit: Limit | None = ...,
+        limit: Limit | dict[str, Any] | None = ...,
         characteristic: str | None = ...,
     ) -> Measurement: ...
 
@@ -159,7 +159,7 @@ def build_verify_callable() -> VerifyFn:
     def _verify(
         name: str,
         value: float | int | None,
-        limit: Limit | None = None,
+        limit: Limit | dict[str, Any] | None = None,
         characteristic: str | None = None,
     ) -> Measurement:
         from contextlib import nullcontext
@@ -172,6 +172,9 @@ def build_verify_callable() -> VerifyFn:
                 "verify() called without an active Litmus logger — "
                 "is a Litmus runner plugin installed?"
             )
+
+        # Accept dict literals at the call site (shared with ``logger.measure``).
+        limit_obj = coerce_limit(limit)
 
         # Resolve limit + record under the same ``characteristic`` context
         # so the limit chain and auto-traceability both see the override.
@@ -189,21 +192,33 @@ def build_verify_callable() -> VerifyFn:
                 high=None,
                 nominal=None,
                 comparator=None,
-                limit=limit,
+                limit=limit_obj,
                 units=None,
             )
             if effective_limit is None:
+                # Characterization / record-only profile opt-in:
+                # when the active profile sets ``verify_requires_limit: false``,
+                # fall through to ``logger.measure`` semantics — record the
+                # value with Outcome.DONE, no judgment. Default behavior
+                # (no profile, or profile leaves verify_requires_limit unset,
+                # or sets it to True) raises.
+                from litmus.execution._state import get_active_profile
+
+                profile = get_active_profile()
+                if profile is not None and profile.verify_requires_limit is False:
+                    return logger.measure(name, value, limit=None)
                 raise MissingLimitError(
                     f"verify({name!r}, ...) has no limit to judge against. "
                     "Pass limit=Limit(...), configure a limit via "
                     "@pytest.mark.litmus_limits / sidecar / profile / product spec, "
-                    "or use logger.measure() to record without judging."
+                    "use logger.measure() to record without judging, or "
+                    "set ``verify_requires_limit: false`` on the active profile."
                 )
             outcome = _compute_outcome(
                 float(value) if value is not None else None,
                 effective_limit,
             )
-            measurement = logger.measure(name, value, limit=limit, outcome=outcome)
+            measurement = logger.measure(name, value, limit=limit_obj, outcome=outcome)
 
         if outcome == Outcome.FAILED:
             raise LimitFailure(

@@ -334,6 +334,27 @@ Spec: output_voltage @ tolerance=5%
 - Sidecar YAML for per-test limits, sweeps, mocks, and retries
 - Full traceability from spec to measurement
 
+## Sharing data across projects: `litmus data promote`
+
+`litmus init --starter` ships your project with a `data_dir: data` override in `litmus.yaml`. Runs land in the project-local `data/` folder so your tutorial / mock-instrument exploration doesn't pollute the global store every other project on this machine will share.
+
+When you're ready to share data across projects and benches — typically once you have real hardware wired up and you want operator-UI access from any directory — run:
+
+```bash
+litmus data promote
+```
+
+This:
+
+- Walks your project-local `data/runs/runs/*.parquet`
+- **Skips** runs that match starter sentinels (`product_id: example_product`, `dut_serial: STARTER001`, etc.) — the throwaway scaffolding you ran while learning
+- Copies the rest into the global store (`~/.local/share/litmus/data/` on Linux; platformdirs equivalents on Mac/Windows)
+- Removes the `data_dir:` override from your `litmus.yaml` so future runs go straight to the global store
+
+Add `--dry-run` to preview without writing. Add `--include-starter` to bring the scaffolding runs along too if you happened to capture something worth keeping.
+
+The local `data/` directory stays in place after promote (the sandbox is still readable if you ever need it). When you're certain, `rm -rf data` to clean up.
+
 ## Congratulations!
 
 You've completed the tutorial. You now have a foundation for production hardware testing with Litmus.

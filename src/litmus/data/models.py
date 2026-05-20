@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
@@ -165,6 +166,38 @@ def escalate_outcome(
     cur_sev = current.severity if current is not None else -1
     inc_sev = incoming.severity if incoming is not None else -1
     return current if cur_sev >= inc_sev else incoming
+
+
+def retry_aware_rollup(steps: Iterable[TestStep]) -> Outcome | None:
+    """Roll up step outcomes for a parent container (class step / run).
+
+    Groups steps by ``node_id`` so multiple attempts of the same test
+    (``litmus_retry`` / ``pytest-rerunfailures``) collapse to a single
+    contribution. The LAST attempt's outcome wins per group — matching
+    pytest-rerunfailures' final-attempt-is-the-outcome semantics and
+    the STDF retest convention (retest count is metadata; the final
+    disposition is the disposition). After per-group reduction the
+    final attempts are escalated via the severity ladder.
+
+    Steps without a ``node_id`` (container steps, autouse-wrapped
+    cleanup) are not collapsed — each gets its own group keyed by
+    object identity. Steps with ``outcome is None`` are skipped (they
+    haven't recorded a verdict yet).
+    """
+    # Modern Python dicts preserve insertion order; a single dict is
+    # enough to bucket-by-node_id AND remember which bucket came first.
+    groups: dict[Any, list[TestStep]] = {}
+    for step in steps:
+        if step.outcome is None:
+            continue
+        key: Any = step.node_id if step.node_id is not None else id(step)
+        groups.setdefault(key, []).append(step)
+
+    result: Outcome | None = None
+    for bucket in groups.values():
+        # Last attempt's outcome is THE outcome for this node_id.
+        result = escalate_outcome(result, bucket[-1].outcome)
+    return result
 
 
 class Measurement(BaseModel):

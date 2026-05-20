@@ -150,7 +150,7 @@ When `logger.measure(name, value)` is called without `limit=`, resolution
 walks the marker merge cascade (see *Merge cascade* below) looking for
 the closest `litmus_limits` entry by measurement name, falling back to:
 
-1. Explicit limit — `logger.measure("v", val, limit=Limit(low=..., high=..., units="V"))`
+1. Explicit limit — `logger.measure("v", val, limit={"low": ..., "high": ..., "units": "V"})` (dict literal or `Limit(...)` both work)
 2. Any `litmus_limits` marker (inline decorator, sidecar, profile) whose
    key matches `name`
 3. Product spec via `characteristic: "<name>"` delegation
@@ -333,7 +333,7 @@ All three config sources are independent — tests work under any combination:
 
 | Sidecar | Spec | Shape                                                          |
 |---------|------|----------------------------------------------------------------|
-| —       | —    | `logger.measure("v", val, limit=Limit(low=..., high=..., units="V"))` — explicit |
+| —       | —    | `logger.measure("v", val, limit={"low": ..., "high": ..., "units": "V"})` — explicit |
 | —       | ✓    | `verify("output_voltage", val)`                            |
 | ✓       | —    | `logger.measure("efficiency", eff)` — auto-resolves            |
 | ✓       | ✓    | `verify` for characteristics; `logger.measure` for procedure |
