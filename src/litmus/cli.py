@@ -8,6 +8,8 @@ from pathlib import Path
 
 import click
 
+from litmus import __version__
+
 
 def _find_parquet_for_run(run_id: str, data_dir: str) -> Path | None:
     """Find the measurement parquet path for a run ID via the daemon's index.
@@ -25,7 +27,7 @@ def _find_parquet_for_run(run_id: str, data_dir: str) -> Path | None:
 
 
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(version=__version__, prog_name="litmus")
 def main():
     """Litmus hardware test platform."""
     pass
@@ -1258,7 +1260,7 @@ def setup_claude_desktop(legacy: bool, print_only: bool):
         "description": (
             "MCP server for hardware test configuration, instrument discovery, and test execution."
         ),
-        "version": "0.1.0",
+        "version": __version__,
         "author": "Litmus",
         "server": {
             "transport": "stdio",
