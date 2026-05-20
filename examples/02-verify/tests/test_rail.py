@@ -9,7 +9,8 @@ Test vectors are introduced here too: ``@pytest.mark.litmus_sweeps``
 is the runner-neutral name for declaring sweep axes. Each kwarg is
 one axis; multiple kwargs cross-product — same family shape as
 ``litmus_limits``. Limits are still inline in Python here
-(``Limit(low=..., high=...)``); later stages move them to YAML.
+(``limit={"low": ..., "high": ..., "units": ...}``); later stages
+move them to YAML.
 
 ``litmus_retry`` lands here too. Real benches misbehave — VISA
 timeouts, instrument-not-ready blips, thermal-soak races. The
@@ -22,9 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from litmus.models.test_config import Limit
-
-V_RAIL = Limit(low=3.2, high=3.4, units="V")
+V_RAIL = {"low": 3.2, "high": 3.4, "units": "V"}
 
 
 def test_rail_within_spec(verify, psu, dmm) -> None:

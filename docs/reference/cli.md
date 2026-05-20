@@ -318,6 +318,24 @@ Scaffold a new test file.
 |---|---|---|
 | `NAME` | `text` |  |
 
+### `litmus refs` (group) {#cli-refs}
+
+Stream curated reference docs to stdout.
+
+#### `litmus refs list` {#cli-refs-list}
+
+List available reference topics.
+
+*(no options or arguments.)*
+
+#### `litmus refs show` {#cli-refs-show}
+
+Print the named reference doc to stdout.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `TOPIC` | `text` |  |
+
 ### `litmus runs` {#cli-runs}
 
 List recent test runs.

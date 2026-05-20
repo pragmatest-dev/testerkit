@@ -166,7 +166,15 @@ include = [
 ]
 exclude = [
     ".tmp",
-    "data",
+    # Top-level ``data/`` is the per-developer parquet output dir
+    # (gitignored). Scoped with a leading slash so the pattern doesn't
+    # also strip ``src/litmus/data/`` — the package subdirectory that
+    # holds the event store, models, and parquet schemas. The earlier
+    # unscoped ``data`` pattern shipped 0.1.0 / 0.1.1 wheels with a
+    # missing ``litmus.data`` subpackage; the pytest plugin imports
+    # ``litmus.data.models`` at module load and dies on a fresh
+    # ``pip install``.
+    "/data",
     "dist",
     "*.mp4",
     "*.pdf",

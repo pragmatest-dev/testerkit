@@ -646,9 +646,13 @@ def _create_bringup_files(path: Path) -> list[str]:
         test_file.write_text('''"""Tier 0/1 smoke tests for a brand-new board.
 
 Bringup scaffold: no station / product / fixture YAML. Limits live
-inline or in a same-named sidecar (``test_smoke.yaml``). When you
-graduate to Tier 2 (add a station + product), the test bodies here
-are unchanged — you just swap the sidecar shape.
+inline (as a dict literal) or in a same-named sidecar
+(``test_smoke.yaml``). When you graduate to Tier 2 (add a station +
+product), the test bodies here are unchanged — you just swap the
+sidecar shape.
+
+For the full ``verify`` signature, limit dict schema, and outcomes,
+run ``litmus refs show verify``.
 
 Run::
 
@@ -657,16 +661,13 @@ Run::
 
 from __future__ import annotations
 
-from litmus.models.test_config import Limit
-
-
 
 def test_rail_inline(dmm, verify) -> None:
-    """No YAML. Limit lives in the test source."""
+    """No YAML. Limit lives in the test source as a dict literal."""
     verify(
         "v_rail",
         float(dmm.measure_dc_voltage()),
-        limit=Limit(low=3.2, high=3.4, nominal=3.3, units="V"),
+        limit={"low": 3.2, "high": 3.4, "nominal": 3.3, "units": "V"},
     )
 
 

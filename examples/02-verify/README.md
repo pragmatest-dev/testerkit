@@ -9,8 +9,8 @@ unchanged.
 
 - Added dep: `litmus-test` (the Litmus platform)
 - Replaced `assert 3.2 <= v <= 3.4` with `verify("v_rail", v, limit=V_RAIL)`
-- Added `from litmus.models.test_config import Limit` and one inline
-  `Limit(...)` at module level
+- Added a module-level `V_RAIL = {"low": 3.2, "high": 3.4, "units": "V"}`
+  dict — same shape verify accepts inline
 - Added `test_intermittent_glitch` decorated with
   `@pytest.mark.litmus_retry(max_retries=2, delay=0.05)` — retry
   on transient failures (VISA timeouts, instrument-not-ready blips)
@@ -94,7 +94,7 @@ outcome `DONE`.
 
 ## The gap this stage leaves
 
-The `Limit(...)` object is **inline in Python code**. Changing a
-limit means editing test source and re-running the whole suite. Stage
-3 moves limits to a pytest marker so you can tune them without
-touching the function body.
+The limit dict is **inline in Python code**. Changing a limit means
+editing test source and re-running the whole suite. Stage 3 moves
+limits to a pytest marker so you can tune them without touching the
+function body.

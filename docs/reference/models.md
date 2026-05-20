@@ -262,6 +262,7 @@ A named config set applied to a pytest session.
 | `extends` | `str \| None` | `None` |
 | `station_type` | `str \| None` | `None` |
 | `fixture` | `str \| None` | `None` |
+| `verify_requires_limit` | `bool \| None` | `None` |
 
 #### `MultiSlotConfig` {#model-multislotconfig}
 

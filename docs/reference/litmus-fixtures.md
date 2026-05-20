@@ -28,14 +28,20 @@ The verbs you write into test bodies. Most tests need `verify` and nothing else 
 
 ### `verify` — function
 
-Callable: `verify(name, value, *, limit=None)`. Records the measurement row (value, units, limits, traceability), resolves a limit from the active chain (sidecar / inline marker / product spec), stamps `measurement_outcome`, and **raises `AssertionError`** when the value is out of range.
+Callable: `verify(name, value, limit=None, characteristic=None)`. Records the measurement row (value, units, limits, traceability), resolves a limit from the active chain (sidecar / inline marker / product spec), stamps `measurement_outcome`, and **raises `AssertionError`** when the value is out of range.
+
+`limit=` accepts either a `Limit` model or a dict literal — `verify` coerces dicts via `Limit.model_validate(...)`.
 
 ```python
 def test_rail(dmm, verify):
-    verify("output_voltage", dmm.measure_dc_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage())            # limit resolves from sidecar/marker
+
+def test_rail_inline(dmm, verify):
+    verify("vout", dmm.measure_dc_voltage(),
+           limit={"low": 3.2, "high": 3.4, "units": "V"})         # inline dict literal
 ```
 
-Same record-side effect as `logger.measure`; the only difference is `verify` raises on FAIL. Use `verify` when a fail should stop the line.
+Same record-side effect as `logger.measure`; the only difference is `verify` raises on FAIL. Use `verify` when a fail should stop the line. With no resolvable limit, `verify` raises `MissingLimitError` — unless the active profile sets `verify_requires_limit: false`, in which case it falls back to `logger.measure` semantics (record-only, `Outcome.DONE`).
 
 ### `logger` — session, autouse
 
@@ -44,10 +50,10 @@ Yields a `TestRunLogger`. Autouse, so every test gets logging behind `verify` ev
 ```python
 def test_voltage(dmm, logger):
     v = dmm.measure_dc_voltage()
-    logger.measure("output_voltage", v, limit=Limit(low=3.2, high=3.4, units="V"))
+    logger.measure("output_voltage", v, limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
-`logger.measure(name, value, *, limit=None, outcome=Outcome.DONE, allow_repeat=False)` records a measurement row without raising. Same recording path as `verify`, just no FAIL-side effect — use it when a failing measurement shouldn't abort the test (characterization mode, sweeps you want to plot post-hoc, etc.).
+`logger.measure(name, value, *, limit=None, outcome=Outcome.DONE, allow_repeat=False)` records a measurement row without raising. `limit=` accepts either a `Limit` model or a dict literal. Same recording path as `verify`, just no FAIL-side effect — use it when a failing measurement shouldn't abort the test (characterization mode, sweeps you want to plot post-hoc, etc.).
 
 ### `limits` — function
 

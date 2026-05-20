@@ -1094,9 +1094,7 @@ def _write_instructions(target_path: Path, header: str = "") -> str | None:
     if not template.exists():
         return None
 
-    # Resolve {LITMUS_REFS} to installed package path
-    refs_path = Path(__file__).parent / "skills" / "refs"
-    content = template.read_text().replace("{LITMUS_REFS}", str(refs_path))
+    content = template.read_text()
 
     if header:
         content = header + "\n\n" + content
@@ -1576,6 +1574,39 @@ def discover(
 # -----------------------------------------------------------------------------
 # Catalog Commands
 # -----------------------------------------------------------------------------
+
+
+@main.group()
+def refs():
+    """Stream curated reference docs to stdout.
+
+    The shipped ref files live inside the installed package, so the
+    CLI is the env-stable way for agents (and humans) to read them
+    without baking absolute paths into project config.
+    """
+    pass
+
+
+def _refs_dir() -> Path:
+    return Path(__file__).parent / "skills" / "refs"
+
+
+@refs.command("list")
+def refs_list():
+    """List available reference topics."""
+    for path in sorted(_refs_dir().glob("*.md")):
+        click.echo(path.stem)
+
+
+@refs.command("show")
+@click.argument("topic")
+def refs_show(topic: str):
+    """Print the named reference doc to stdout."""
+    path = _refs_dir() / f"{topic}.md"
+    if not path.exists():
+        available = ", ".join(sorted(p.stem for p in _refs_dir().glob("*.md"))) or "(none)"
+        raise click.ClickException(f"Unknown ref topic {topic!r}. Available: {available}")
+    click.echo(path.read_text(), nl=False)
 
 
 @main.group()

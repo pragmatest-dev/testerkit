@@ -33,13 +33,11 @@ def test_output_voltage(psu, dmm):
 Add `logger` and record the measurement explicitly:
 
 ```python
-from litmus import Limit
-
 def test_output_voltage(psu, dmm, logger):
     psu.set_voltage(5.0)
     psu.enable_output()
     v = dmm.measure_dc_voltage()
-    logger.measure("output_voltage", v, limit=Limit(low=3.2, high=3.4, units="V"))
+    logger.measure("output_voltage", v, limit={"low": 3.2, "high": 3.4, "units": "V"})
     assert 3.2 <= v <= 3.4
 ```
 
@@ -50,13 +48,11 @@ Same control flow, but now there's a row in the run record with the value, units
 `verify` is `logger.measure` + `assert` in one call. Pass / fail is decided by the limit; an out-of-range value raises `AssertionError`:
 
 ```python
-from litmus import Limit
-
 def test_output_voltage(psu, dmm, verify):
     psu.set_voltage(5.0)
     psu.enable_output()
     verify("output_voltage", dmm.measure_dc_voltage(),
-           limit=Limit(low=3.2, high=3.4, units="V"))
+           limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
 For one-off tests, passing `limit=` inline is fine. The cleaner home for limits is the product spec or the sidecar YAML — both arrive in later steps.
@@ -66,18 +62,16 @@ For one-off tests, passing `limit=` inline is fine. The cleaner home for limits 
 A plain pytest class with hardware-test-shaped methods is the canonical Litmus shape:
 
 ```python
-from litmus import Limit
-
 class TestPowerUp:
     def test_input_voltage(self, psu, verify):
         psu.set_voltage(5.0)
         psu.enable_output()
         verify("input_voltage", psu.measure_voltage(),
-               limit=Limit(low=4.5, high=5.5, units="V"))
+               limit={"low": 4.5, "high": 5.5, "units": "V"})
 
     def test_output_voltage(self, dmm, verify):
         verify("output_voltage", dmm.measure_dc_voltage(),
-               limit=Limit(low=3.2, high=3.4, units="V"))
+               limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
 Methods run in source order. Each emits its own [step](../concepts/step-hierarchy.md) events; the class container's [outcome](../reference/models.md#outcome) rolls up from the worst child outcome.
@@ -90,14 +84,12 @@ If a downstream test should skip when an upstream one fails, use `@pytest.mark.d
 
 ```python
 import pytest
-from litmus import Limit
-
 @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
 def test_output_voltage(vin, psu, dmm, verify):
     psu.set_voltage(vin)
     psu.enable_output()
     verify("output_voltage", dmm.measure_dc_voltage(),
-           limit=Limit(low=3.2, high=3.4, units="V"))
+           limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
 The `vin` value lands in each measurement row's `in_vin` column (an example of the `in_*` [traceability](../how-to/traceability.md) columns — every parametrized input lands in its own `in_<name>` column), so you can later query "how did output_voltage track vin?" without re-instrumenting the test. Sweeping from YAML instead of inline arrives in step 5.
@@ -119,15 +111,13 @@ Use `@pytest.mark.parametrize` when you want pytest's per-row `pytest.param(...,
 Each `verify` or `logger.measure` call records one measurement. Call them as many times as you need:
 
 ```python
-from litmus import Limit
-
 def test_power_analysis(psu, dmm, verify):
     verify("input_voltage",  psu.measure_voltage(),
-           limit=Limit(low=4.5, high=5.5, units="V"))
+           limit={"low": 4.5, "high": 5.5, "units": "V"})
     verify("input_current",  psu.measure_current(),
-           limit=Limit(high=0.5, units="A"))
+           limit={"high": 0.5, "units": "A"})
     verify("output_voltage", dmm.measure_dc_voltage(),
-           limit=Limit(low=3.2, high=3.4, units="V"))
+           limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
 ## Streaming samples under one name
@@ -136,14 +126,12 @@ def test_power_analysis(psu, dmm, verify):
 
 ```python
 import time
-from litmus import Limit
-
 def test_stability(dmm, logger):
     for _ in range(10):
         logger.measure(
             "voltage_sample",
             dmm.measure_dc_voltage(),
-            limit=Limit(low=3.2, high=3.4, units="V"),
+            limit={"low": 3.2, "high": 3.4, "units": "V"},
             allow_repeat=True,
         )
         time.sleep(1)
@@ -182,7 +170,7 @@ Full schema in [Parquet storage schema](../reference/parquet-schema.md).
 
 ## What you learned
 
-- `logger.measure(name, value, limit=Limit(low=..., high=..., units="V"))` records a measurement explicitly
+- `logger.measure(name, value, limit={"low": ..., "high": ..., "units": "V"})` records a measurement explicitly
 - `verify(name, value, limit=...)` does the same plus pass/fail + raise on FAIL
 - Pytest classes group related tests; methods run in source order
 - Parametrize works as it always does; values land in `in_*` columns

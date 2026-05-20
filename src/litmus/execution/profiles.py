@@ -195,6 +195,8 @@ def flatten_profile_chain(leaf_name: str, project: ProjectConfig) -> ProfileConf
             merged.station_type = profile.station_type
         if profile.fixture is not None:
             merged.fixture = profile.fixture
+        if profile.verify_requires_limit is not None:
+            merged.verify_requires_limit = profile.verify_requires_limit
         runner_block = dict(profile.runner)
         # Validate to catch typos early; addopts is concatenated specially.
         runner = validate_pytest_runner(runner_block)

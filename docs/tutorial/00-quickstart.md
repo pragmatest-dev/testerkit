@@ -149,7 +149,7 @@ class TestMyProduct:
         verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-For measurements that don't come from the product spec, use `logger.measure(name, value, limit=Limit(low=..., high=..., units="V"))` with inline limits or a sidecar `test_<module>.yaml`.
+For measurements that don't come from the product spec, use `logger.measure(name, value, limit={"low": ..., "high": ..., "units": "V"})` with inline limits or a sidecar `test_<module>.yaml`.
 
 ### Sidecar (`tests/test_my_product.yaml`)
 

@@ -22,7 +22,7 @@ import yaml
 from pydantic import ValidationError
 
 from litmus.data._collection_indices import StepKey, assign_indices
-from litmus.data.models import CollectedItem, Outcome, escalate_outcome
+from litmus.data.models import CollectedItem, Outcome, escalate_outcome, retry_aware_rollup
 from litmus.execution._state import (
     get_active_instruments,
     get_active_product_context,
@@ -1219,11 +1219,14 @@ def _stamp_container_outcome(logger_inst: Any, open_state: dict[str, Any]) -> No
         return
     container = steps[first_idx]
     container_path = container.step_path
-    for child in steps[first_idx + 1 :]:
-        if child.parent_path != container_path:
-            continue
-        if child.outcome is not None:
-            container.outcome = escalate_outcome(container.outcome, child.outcome)
+    # Retry-aware: a child test that ran twice (litmus_retry +
+    # pytest-rerunfailures) contributes only its FINAL attempt's
+    # outcome to the container rollup. Industry convention — pytest-
+    # rerunfailures, STDF MIR.RTST_COD, Jenkins flaky-test-handler all
+    # treat the final attempt as the disposition; the prior attempts
+    # stay in the step record as retest metadata.
+    eligible = [s for s in steps[first_idx + 1 :] if s.parent_path == container_path]
+    container.outcome = retry_aware_rollup(eligible)
 
 
 @pytest.hookimpl(hookwrapper=True, trylast=True)
@@ -1287,19 +1290,31 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
 
 
 def _escalate_step_and_run(logger_inst: Any, step: Any, new_outcome: Outcome) -> None:
-    """Cascade ``new_outcome`` into both ``step.outcome`` and ``run.outcome``.
+    """Cascade ``new_outcome`` into ``step.outcome`` (when present) or
+    the logger's external-run-outcome accumulator.
 
-    Single helper for the two hooks that stamp outcomes from runner-side
-    signals (``pytest_runtest_call`` for call-phase exceptions,
-    ``pytest_runtest_makereport`` for setup/teardown failures, and
-    ``pytest_keyboard_interrupt`` for ABORTED). Keeps the cascade shape
-    consistent — no risk of one hook escalating step but not run.
-    ``step`` may be ``None`` (setup-phase failure with no step opened);
-    in that case only the run is escalated.
+    Called from runner-side signal hooks (``pytest_runtest_call`` for
+    call-phase exceptions, ``pytest_runtest_makereport`` for setup/
+    teardown failures, ``pytest_keyboard_interrupt`` for ABORTED).
+
+    Run-level outcome is NOT stamped incrementally here. ``finalize()``
+    walks ``test_run.steps`` via :func:`retry_aware_rollup` and folds
+    in :attr:`TestRunLogger._external_run_outcome` to compute the final
+    run outcome. The retry-aware rollup is what makes a passing retry
+    correctly stamp the run as ``PASSED`` instead of the worst earlier
+    attempt's outcome.
+
+    When ``step is None`` (setup failure before the step opened, or a
+    keyboard interrupt with no test running), the outcome has no step
+    to attach to — it goes into ``logger._external_run_outcome`` so
+    ``finalize()`` still picks it up.
     """
     if step is not None:
         step.outcome = escalate_outcome(step.outcome, new_outcome)
-    logger_inst.test_run.outcome = escalate_outcome(logger_inst.test_run.outcome, new_outcome)
+    else:
+        logger_inst._external_run_outcome = escalate_outcome(
+            logger_inst._external_run_outcome, new_outcome
+        )
 
 
 def _stamp_step_from_call_outcome(logger_inst: Any, outcome_obj: Any) -> None:
