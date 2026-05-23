@@ -55,6 +55,49 @@ The UI updates in real time as tests execute. Events flow through the system (se
 pytest → EventLog.emit() → EventStore → UI subscription
 ```
 
+## View the Run in Results
+
+When pytest finishes, the run lands in the Results history. Open
+[`http://localhost:8000/results`](http://localhost:8000/results) —
+each pytest invocation that produced one or more tests appears as a
+row. The list shows Outcome / Serial / Part Number / Hostname /
+Project / Phase / Started / Steps / Meas / Ended. There's no
+filter bar; columns are sortable and a stats strip above the
+table summarizes the visible runs.
+
+Click any row to drill into the detail view at `/results/<run_id>`.
+The detail page is a sticky header card with a tab strip beneath:
+**Overview** (run-level summary), **Steps** (one row per
+`(step_path, vector_index)` execution with its outcome and
+measurement count), **Measurements** (every value logged with its
+limit and outcome), and **DUT History** (this DUT's prior runs).
+
+For the full reference, see
+[Operator UI → Results — list](../reference/operator-ui/results/list.md)
+and [Operator UI → Results — detail](../reference/operator-ui/results/detail.md).
+
+## See How the Line Is Doing
+
+After a few runs accumulate, the
+[`/metrics`](http://localhost:8000/metrics) page becomes the
+go-to "is the bench healthy" view. A filter bar (Phase / Product /
+Station / Lot / Since / Until) sits above a tab strip with six
+analytical lenses:
+
+| Tab | What it shows |
+|---|---|
+| Yield | First-pass yield, final yield, run / failure counts, a yield trend chart, and time stats |
+| Pareto | Failure counts grouped by Product, Step, or Measurement (the group-by is a control on the tab) |
+| Cpk | Per-measurement process capability, ranked worst-first |
+| Retest | Time-bucketed retest rate — how many serials needed more than one attempt that period |
+| Time loss | Wall-clock time spent on failed / errored runs per period |
+| Assets | Per-instrument time share — Role / Resource / Sessions / Connected (s) / Share |
+
+For the full reference, see
+[Operator UI → Metrics](../reference/operator-ui/metrics.md).
+For the diagnostic recipe behind the Retest signal, see
+[Find flaky tests](../how-to/find-flaky-tests.md).
+
 ## Query Historical Data
 
 After tests complete, query the results:
@@ -104,6 +147,9 @@ curl "http://localhost:8000/api/channels/scope.ch1?max_points=500"
 
 ## Next Steps
 
+- [Tour of the Operator UI](../how-to/operator-ui-tour.md) — orientation map of all 14 sidebar entries
+- [Find flaky tests](../how-to/find-flaky-tests.md) — diagnostic recipe combining Metrics + Results + parquet queries
+- [Compare two runs](../how-to/compare-runs.md) — diff known-good vs failing
 - [Event Log Architecture](../concepts/event-log.md) — How events work
 - [Three Stores Architecture](../concepts/three-stores.md) — EventStore, ChannelStore, ParquetBackend
 - [Querying Events](../how-to/querying-events.md) — All query patterns
