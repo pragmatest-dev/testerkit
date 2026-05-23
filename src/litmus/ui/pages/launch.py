@@ -108,8 +108,12 @@ def launch_page(product: str = "", station: str = "", mock: str = ""):
             return
         ui.navigate.to(f"/live/{run_id}")
 
+    # data-testid attribute is a stable selector for the
+    # screenshot-regeneration script (scripts/regenerate-ui-
+    # screenshots.py). Don't drop it without updating that script's
+    # MANIFEST.
     with ui.column().classes("w-full max-w-xl p-6 gap-6"):
-        with ui.card().classes("w-full"):
+        with ui.card().classes("w-full").props('data-testid="launch-form"'):
             with ui.card_section():
                 ui.label("Test Configuration").classes("text-lg font-semibold")
 
