@@ -7,6 +7,8 @@ If you're new to Litmus, work through the [Tutorial](../tutorial/) first — the
 ## Operator UI
 
 - [Tour of the Operator UI](operator-ui-tour.md) — what each of the 13 sidebar entries does, with cross-links to per-screen reference
+- [Find flaky tests](find-flaky-tests.md) — use Metrics → Retest and Results detail to spot intermittents
+- [Compare two runs](compare-runs.md) — diff known-good vs failing with two tabs + a DuckDB query
 
 ## Write tests
 
