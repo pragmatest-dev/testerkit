@@ -92,6 +92,29 @@ MANIFEST: list[Shot] = [
         selector="[data-testid='results-stats']",
         output_path="results/stats.png",
     ),
+    # /results/{run_id} — single-run detail. {LATEST_RUN} resolves at
+    # script-start from ``litmus runs --json --limit 1`` so the shots
+    # always point at an existing run.
+    Shot(
+        url="/results/{LATEST_RUN}",
+        selector="[data-testid='result-header']",
+        output_path="results/detail-header.png",
+    ),
+    Shot(
+        url="/results/{LATEST_RUN}",
+        selector="[data-testid='result-overview']",
+        output_path="results/detail-overview.png",
+    ),
+    Shot(
+        url="/results/{LATEST_RUN}?tab=Steps",
+        selector="[data-testid='result-steps']",
+        output_path="results/detail-steps.png",
+    ),
+    Shot(
+        url="/results/{LATEST_RUN}?tab=Measurements",
+        selector="[data-testid='result-measurements']",
+        output_path="results/detail-measurements.png",
+    ),
 ]
 
 
@@ -155,6 +178,45 @@ def _capture(shots: list[Shot]) -> int:
     return written
 
 
+def _resolve_placeholders(shots: list[Shot]) -> list[Shot]:
+    """Substitute dynamic placeholders in shot URLs.
+
+    Currently supports ``{LATEST_RUN}`` — resolved to the most recent
+    run id from ``litmus runs --json --limit 1`` so detail-page shots
+    don't go stale every time the seed data churns.
+    """
+    needs_latest = any("{LATEST_RUN}" in s.url for s in shots)
+    if not needs_latest:
+        return shots
+    import json
+
+    raw = subprocess.check_output(
+        ["uv", "run", "litmus", "runs", "--json", "--limit", "1"],
+        cwd=REPO_ROOT,
+        text=True,
+    )
+    rows = json.loads(raw)
+    if not rows:
+        raise RuntimeError(
+            "{LATEST_RUN} placeholder used but ``litmus runs`` returned no rows; "
+            "run a test (e.g. ``cd examples/02-verify && uv run pytest``) and retry."
+        )
+    latest = rows[0].get("test_run_id") or rows[0].get("run_id")
+    if not latest:
+        raise RuntimeError(f"{{LATEST_RUN}} resolver: no run_id in row {rows[0]!r}")
+    resolved = [
+        Shot(
+            url=s.url.replace("{LATEST_RUN}", latest),
+            selector=s.selector,
+            output_path=s.output_path,
+            viewport_width=s.viewport_width,
+        )
+        for s in shots
+    ]
+    print(f"regenerate-ui-screenshots: resolved {{LATEST_RUN}} -> {latest[:8]}")
+    return resolved
+
+
 def main() -> int:
     proc = subprocess.Popen(
         [
@@ -173,7 +235,8 @@ def main() -> int:
     )
     try:
         _wait_for_server()
-        n = _capture(MANIFEST)
+        shots = _resolve_placeholders(MANIFEST)
+        n = _capture(shots)
         print(f"regenerate-ui-screenshots: done, {n} shot(s) written.")
     finally:
         proc.terminate()
