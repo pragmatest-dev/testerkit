@@ -38,6 +38,7 @@ If you're new to Litmus, work through the [Tutorial](../tutorial/) first — the
 
 - [Querying historical events](querying-events.md) — MCP tool, HTTP API, Python
 - [Querying channel data](querying-channels.md) — time-series data plane
+- [Export results](export-results.md) — `litmus show -f` for reports (HTML/PDF/JSON/CSV) and `litmus export -f` for interchange (STDF/HDF5/TDMS/MDF4/ATML)
 
 ## AI-assisted authoring
 
