@@ -101,7 +101,7 @@ Bar chart + table of retest activity per daily period:
 | Serials | Distinct DUT serials tested in the day |
 | Retested | DUT serials that ran more than once |
 | Rate | `Retested / Serials` as a percentage |
-| Avg attempts | Currently displays `0.0` for all rows — the source query emits a mean-retries metric under a key the renderer doesn't read. Tracked as a known UI bug; the column will populate once the renderer is fixed. |
+| Avg retries | Mean number of retries (executions − 1) across all DUTs in the day. A day where every DUT ran once shows `0.00`; a day where some DUTs ran twice or more shows a fractional value. |
 
 When no rows exist, the tab shows a message about how retest data is
 populated.

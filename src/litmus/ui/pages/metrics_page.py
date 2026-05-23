@@ -1070,9 +1070,9 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
             {"name": "retested", "label": "Retested", "field": "retested", "align": "right"},
             {"name": "rate", "label": "Rate", "field": "rate", "align": "right"},
             {
-                "name": "avg_attempts",
-                "label": "Avg attempts",
-                "field": "avg_attempts",
+                "name": "avg_retries",
+                "label": "Avg retries",
+                "field": "avg_retries",
                 "align": "right",
             },
         ]
@@ -1085,7 +1085,7 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
                     "serials": r.get("total_serials", 0),
                     "retested": r.get("retested_count", 0),
                     "rate": f"{r.get('retest_rate', 0):.1f}%",
-                    "avg_attempts": f"{r.get('avg_attempts', 0):.1f}",
+                    "avg_retries": f"{r.get('avg_retries', 0):.2f}",
                 }
                 for idx, r in enumerate(rows)
             ],

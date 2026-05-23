@@ -19,8 +19,12 @@ from litmus.ui.shared.components import (
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import query_events
 
-# Curated event-type list. The actual event store can hold any value, but
-# these are the categories worth a one-click filter.
+# Curated event-type list. The actual event store can hold any value
+# (see ``src/litmus/data/events.py`` for the full ~25-class set); the
+# entries below are the categories worth a one-click filter. Every
+# value here must match the literal ``event_type`` of an actual event
+# class in events.py — drift quietly breaks the filter (no rows
+# returned).
 _EVENT_TYPE_OPTIONS: list[str] = [
     "(any)",
     "session.started",
@@ -32,9 +36,9 @@ _EVENT_TYPE_OPTIONS: list[str] = [
     "test.measurement",
     "instrument.read",
     "instrument.set",
-    "instrument.connected",
-    "instrument.disconnected",
-    "dialog.requested",
+    "fixture.instrument_connected",
+    "fixture.instrument_disconnected",
+    "dialog.opened",
     "dialog.responded",
     "diagnostic.warning",
     "diagnostic.error",
