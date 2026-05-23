@@ -7,9 +7,35 @@ Litmus exposes two equivalent surfaces over the same Python code:
 
 The MCP tools are thin wrappers around the same Python functions that back the HTTP routes; behavior is identical.
 
-> **Live OpenAPI explorer.** When `litmus serve` is running, the OpenAPI schema lives at <http://localhost:8000/api/openapi.json>, with Swagger UI at <http://localhost:8000/api/docs> and ReDoc at <http://localhost:8000/api/redoc>. Use either for interactive request building, response previews, and codegen against the typed response models.
+## Live API explorer
 
-The tables below are generated from source — `src/litmus/api/app.py` for the HTTP routes and `src/litmus/mcp/server.py` for the MCP tools. To regenerate after touching either, run:
+When `litmus serve` is running, the HTTP API exposes three
+introspection endpoints. They live under `/api/*` (not at FastAPI's
+usual top-level paths — the top-level `/docs` route is the in-app
+documentation viewer) and reflect the current `litmus` build on
+the bench:
+
+| URL | What it serves |
+|---|---|
+| <http://localhost:8000/api/openapi.json> | The raw OpenAPI 3 schema (JSON). Feed it to your favorite client generator (`openapi-typescript-codegen`, `openapi-python-client`, etc.) to produce typed clients. |
+| <http://localhost:8000/api/docs> | Swagger UI — an interactive request-builder. Pick a route, fill in parameters, click Execute, see the actual response from the running server. Best for "what does this endpoint return on my bench". |
+| <http://localhost:8000/api/redoc> | ReDoc — a single-page reference rendering of the same schema with nested response models expanded. Best for "I just want to read the whole API". |
+
+The schema is generated from the same FastAPI route signatures and
+Pydantic response models that the route tables below document — so
+the Swagger / ReDoc views are always in sync with the actual
+deployed code. No build step.
+
+For setup details (how to start the server, how to register the
+MCP equivalent), see the [`litmus serve`](cli.md#cli-serve) CLI
+reference.
+
+## Generated tables
+
+The route and tool tables below are generated from source —
+`src/litmus/api/app.py` for the HTTP routes and
+`src/litmus/mcp/server.py` for the MCP tools. To regenerate after
+touching either, run:
 
 ```bash
 uv run python scripts/generate_reference_docs.py api
