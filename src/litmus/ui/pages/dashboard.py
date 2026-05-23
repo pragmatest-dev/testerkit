@@ -20,17 +20,23 @@ async def dashboard_page():
     """
     create_layout("Dashboard")
 
+    # data-testid attributes are stable selectors for the
+    # screenshot-regeneration script (scripts/regenerate-ui-
+    # screenshots.py). Don't drop them without updating that
+    # script's MANIFEST.
     with ui.column().classes("w-full p-6 gap-6"):
         with ui.row().classes("items-center gap-2"):
             ui.icon("memory").classes("text-slate-600")
             ui.label("Stations").classes("text-lg font-semibold text-slate-700")
-        stations_container = ui.row().classes("gap-4 flex-wrap w-full")
+        stations_container = (
+            ui.row().classes("gap-4 flex-wrap w-full").props('data-testid="dashboard-stations"')
+        )
         render_skeleton(stations_container, "h-24")
 
         with ui.row().classes("items-center gap-2 mt-4"):
             ui.icon("history").classes("text-slate-600")
             ui.label("Recent Runs").classes("text-lg font-semibold text-slate-700")
-        runs_container = ui.column().classes("w-full")
+        runs_container = ui.column().classes("w-full").props('data-testid="dashboard-runs"')
         render_skeleton(runs_container, "h-48")
 
     async def _load_dashboard() -> None:
