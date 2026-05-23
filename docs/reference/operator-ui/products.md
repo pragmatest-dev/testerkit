@@ -1,6 +1,6 @@
 # Products
 
-**URLs:** `/products` (list), `/products/new`, `/products/{id}`, `/products/{id}/edit`
+**URLs:** `/products` (list), `/products/new`, `/products/{id}`, `/products/{id}/edit`, `/products/{id}/stations` (the Stations tab as its own URL — bookmarkable)
 
 A product is a DUT under test — its part number, revision,
 characteristics (named measurements with limits and units), and pin
