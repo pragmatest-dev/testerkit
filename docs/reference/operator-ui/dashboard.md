@@ -19,7 +19,7 @@ One card per station configured in the project. Each card shows:
 | Status badge | A green outlined `Ready` badge |
 | Description | The station's description, when set |
 | Identifier row | Station id + location, prefixed with tag and pin icons |
-| Start Test button | Jumps to `/launch?station=<id>` (the Launch Test view, prefilled with this station) |
+| Start Test button | Jumps to `/launch?station=<id>` ([Launch Test](launch.md), prefilled with this station) |
 
 When no stations are configured but runs exist, the section renders
 "No stations configured." as italic placeholder text.
@@ -82,6 +82,6 @@ browser to pick up new runs or station changes.
 
 ## See also
 
-- the Launch Test view — start a new test session
+- [Launch Test](launch.md) — start a new test session
 - [Results list](results/list.md) — full run history beyond the 10
   shown here

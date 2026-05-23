@@ -180,6 +180,12 @@ MANIFEST: list[Shot] = [
         selector="[data-testid='dashboard-runs']",
         output_path="dashboard/runs.png",
     ),
+    # /launch — start a test session
+    Shot(
+        url="/launch",
+        selector="[data-testid='launch-form']",
+        output_path="launch/form.png",
+    ),
 ]
 
 
