@@ -152,6 +152,17 @@ MANIFEST: list[Shot] = [
         selector="[data-testid='explore-chart']",
         output_path="explore/chart.png",
     ),
+    # /events — event log browser
+    Shot(
+        url="/events",
+        selector="[data-testid='events-filters']",
+        output_path="events/filters.png",
+    ),
+    Shot(
+        url="/events",
+        selector="[data-testid='events-table']",
+        output_path="events/table.png",
+    ),
 ]
 
 
