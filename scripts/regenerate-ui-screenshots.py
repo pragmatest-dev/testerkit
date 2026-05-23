@@ -80,7 +80,19 @@ class Shot:
 #       selector="[data-testid='results-table']",
 #       output_path="results/table.png",
 #   ),
-MANIFEST: list[Shot] = []
+MANIFEST: list[Shot] = [
+    # /results — run history
+    Shot(
+        url="/results",
+        selector="[data-testid='results-table']",
+        output_path="results/table.png",
+    ),
+    Shot(
+        url="/results",
+        selector="[data-testid='results-stats']",
+        output_path="results/stats.png",
+    ),
+]
 
 
 def _wait_for_server(timeout_s: float = SERVER_READY_TIMEOUT_S) -> None:
