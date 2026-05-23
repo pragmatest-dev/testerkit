@@ -136,6 +136,22 @@ MANIFEST: list[Shot] = [
         selector="[data-testid='metrics-cpk']",
         output_path="metrics/cpk.png",
     ),
+    # /explore — Measurements (parametric viewer)
+    Shot(
+        url="/explore",
+        selector="[data-testid='explore-filters']",
+        output_path="explore/filters.png",
+    ),
+    Shot(
+        url="/explore",
+        selector="[data-testid='explore-plot-controls']",
+        output_path="explore/plot-controls.png",
+    ),
+    Shot(
+        url="/explore",
+        selector="[data-testid='explore-chart']",
+        output_path="explore/chart.png",
+    ),
 ]
 
 
