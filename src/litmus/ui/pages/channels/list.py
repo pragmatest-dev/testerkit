@@ -54,8 +54,11 @@ def channels_page() -> None:
         count_label = ui.label("…").classes("text-sm text-slate-600")
         # Persistent containers — never cleared. We swap visibility
         # between the table and the empty-state card depending on the
-        # registry being populated.
-        table_holder = ui.column().classes("w-full flex-1 min-h-0 gap-0")
+        # registry being populated. data-testid attributes are stable
+        # selectors for scripts/regenerate-ui-screenshots.py.
+        table_holder = (
+            ui.column().classes("w-full flex-1 min-h-0 gap-0").props('data-testid="channels-table"')
+        )
         empty_state = ui.column().classes("w-full")
 
         # ``state[table]`` is built lazily on the first tick that has

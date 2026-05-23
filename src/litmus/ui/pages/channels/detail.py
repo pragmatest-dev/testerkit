@@ -118,8 +118,12 @@ def channel_detail_page(
                     "Clear", icon="clear", on_click=lambda: _clear_filters(filters, refresh)
                 ).props("flat dense")
 
-        chart_card = ui.card().classes("w-full")
-        data_card = ui.card().classes("w-full")
+        # data-testid attributes are stable selectors for the
+        # screenshot-regeneration script (scripts/regenerate-ui-
+        # screenshots.py). Don't drop them without updating that
+        # script's MANIFEST.
+        chart_card = ui.card().classes("w-full").props('data-testid="channel-chart"')
+        data_card = ui.card().classes("w-full").props('data-testid="channel-data"')
 
         refresh()
 
