@@ -642,9 +642,15 @@ def section_index(section: str):
     _render_section_index_content(section)
 
 
-@ui.page("/docs/{section}/{page}")
+@ui.page("/docs/{section}/{page:path}")
 def doc_page(section: str, page: str):
-    """Render a documentation page."""
+    """Render a documentation page.
+
+    ``page`` is declared with the ``:path`` converter so nested
+    URLs like ``/docs/reference/operator-ui/dashboard`` resolve.
+    The slug ``operator-ui/dashboard`` then maps to
+    ``<DOCS_DIR>/reference/operator-ui/dashboard.md``.
+    """
     # Strip .md extension if present (from markdown links)
     if page.endswith(".md"):
         page = page[:-3]

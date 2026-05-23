@@ -41,6 +41,27 @@ For analytics from Python — yield, Cpk, pareto, trends — without writing raw
 
 - [Query API](query-api.md) — `RunsQuery`, `StepsQuery`, `MeasurementsQuery`. The public read path the UI and HTTP API both use.
 
+## Operator UI (`litmus serve`)
+
+Per-screen reference for the browser surface. For orientation, see the [Tour of the Operator UI](../how-to/operator-ui-tour.md).
+
+- [Dashboard](operator-ui/dashboard.md) — `/`
+- [Launch Test](operator-ui/launch.md) — `/launch`
+- [Live monitor](operator-ui/live.md) — `/live/{run_id}`
+- [Results — list](operator-ui/results/list.md) — `/results`
+- [Results — detail](operator-ui/results/detail.md) — `/results/{run_id}`
+- [Metrics](operator-ui/metrics.md) — `/metrics`
+- [Measurements](operator-ui/measurements.md) — `/explore`
+- [Events](operator-ui/events.md) — `/events`
+- [Channels — list](operator-ui/channels/list.md) — `/channels`
+- [Channels — detail](operator-ui/channels/detail.md) — `/channels/{channel}`
+- [System Designer](operator-ui/designer.md) — `/designer`
+- [Stations](operator-ui/stations.md) — `/stations`
+- [Products](operator-ui/products.md) — `/products`
+- [Fixtures](operator-ui/fixtures.md) — `/fixtures`
+- [Instruments](operator-ui/instruments.md) — `/instruments`
+- [Tests](operator-ui/tests.md) — `/tests`
+
 ## Command line
 
 - [CLI reference](cli.md) — every `litmus <command>` and its flags.
