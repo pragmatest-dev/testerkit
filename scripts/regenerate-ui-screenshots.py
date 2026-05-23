@@ -115,6 +115,27 @@ MANIFEST: list[Shot] = [
         selector="[data-testid='result-measurements']",
         output_path="results/detail-measurements.png",
     ),
+    # /metrics — yield / pareto / cpk / retest / time-loss / assets
+    Shot(
+        url="/metrics",
+        selector="[data-testid='metrics-filters']",
+        output_path="metrics/filters.png",
+    ),
+    Shot(
+        url="/metrics",
+        selector="[data-testid='metrics-yield']",
+        output_path="metrics/yield.png",
+    ),
+    Shot(
+        url="/metrics?tab=Pareto",
+        selector="[data-testid='metrics-pareto']",
+        output_path="metrics/pareto.png",
+    ),
+    Shot(
+        url="/metrics?tab=Cpk",
+        selector="[data-testid='metrics-cpk']",
+        output_path="metrics/cpk.png",
+    ),
 ]
 
 
