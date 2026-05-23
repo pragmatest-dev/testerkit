@@ -536,7 +536,7 @@ def _auto_save(state, quiet: bool = True) -> bool:
 
     fixture_data = state.to_fixture_yaml()
     try:
-        save_fixture(state.fixture_id, fixture_data["fixture"], fixture_data["points"])
+        save_fixture(state.fixture_id, fixture_data["fixture"], fixture_data["connections"])
         if not quiet:
             ui.notify("Saved", type="positive")
         return True
