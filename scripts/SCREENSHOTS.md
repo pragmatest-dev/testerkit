@@ -1,0 +1,87 @@
+# UI screenshot regeneration
+
+The cropped PNGs under `docs/_assets/operator-ui/` are produced by
+`scripts/regenerate-ui-screenshots.py`. The script starts a local
+`litmus serve` on port 8765, drives Playwright through every entry in
+its `MANIFEST`, and writes one PNG per shot. The PNGs are committed;
+the script regenerates them in-place when the UI changes.
+
+## Running
+
+```bash
+uv run python scripts/regenerate-ui-screenshots.py
+```
+
+Requires `playwright>=1.58` (already a dev dep) with a Chromium install:
+
+```bash
+uv run playwright install chromium
+```
+
+The script spawns its own server on port 8765 to avoid colliding with a
+running `litmus serve` on the default 8000.
+
+## Adding a shot
+
+1. Open the screen in `litmus serve` and pick the element you want to
+   crop to.
+2. Inspect the element. If it doesn't already have a stable
+   `data-testid` attribute, add one to the relevant module under
+   `src/litmus/ui/pages/`. Choose a name shaped like
+   `<screen>-<region>`: e.g. `results-table`, `metrics-tabs`,
+   `launch-station-picker`. Commit the testid addition separately from
+   the docs commit so reviewers see them in isolation.
+3. Append a row to `MANIFEST` in `regenerate-ui-screenshots.py`:
+
+   ```python
+   Shot(
+       url="/results",
+       selector="[data-testid='results-table']",
+       output_path="results/table.png",
+   ),
+   ```
+
+4. Re-run the script. The new PNG lands at
+   `docs/_assets/operator-ui/results/table.png`.
+5. Reference it from the docs page with a relative path:
+
+   ```markdown
+   ![Results — run table](../../_assets/operator-ui/results/table.png)
+   ```
+
+## Updating an existing shot
+
+UI changed and an existing PNG looks stale? Just re-run the script. The
+output paths are deterministic — every shot overwrites the previous PNG
+in place. The diff in `git status` shows which screenshots actually
+changed; commit only those.
+
+## Conventions
+
+| Topic | Rule |
+|---|---|
+| Viewport | 1440×900 (set in the script; don't override per shot) |
+| Filename | `<screen>/<region>.png` — match the docs subdirectory structure |
+| Selector | `[data-testid='...']` — stable testids only. No CSS class selectors (they break on Tailwind reflows). |
+| Page width | Don't capture full-page screenshots from this script — those belong on the tour page only and are captured manually with a viewport screenshot. This script is for cropped element shots. |
+| Element scope | One element per shot. If you want two regions on the same screen, write two entries. |
+
+## When something breaks
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `litmus serve did not respond at http://127.0.0.1:8765 within 45s` | Server failed to start (port in use, missing dep, …) | Run `uv run litmus serve --port 8765` manually and see the real error |
+| `selector "[data-testid='foo']" did not resolve on /bar` | Testid not present on the element, or wrong page | Open the page in a browser, verify the testid exists |
+| PNG looks empty / mostly white | Element rendered but content loaded after `networkidle` | Add an explicit wait selector for the content you care about, or capture a more specific child element |
+
+## Why this exists
+
+UI screenshots in docs rot fast: layout shifts, label changes, color
+tweaks all desync the screenshot from the running app. A reader who
+trusts a stale screenshot over the actual UI gets misled. Repeatable
+regeneration shortens that gap from "rewrite the docs page" to "re-run
+this script."
+
+It's also a forcing function: every documented region needs a stable
+testid. If the answer to "what testid?" is "there isn't one" — that's
+itself a UI-instrumentation gap worth fixing.
