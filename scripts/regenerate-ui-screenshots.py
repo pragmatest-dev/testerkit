@@ -163,6 +163,12 @@ MANIFEST: list[Shot] = [
         selector="[data-testid='events-table']",
         output_path="events/table.png",
     ),
+    # /channels — streaming-signal browser
+    Shot(
+        url="/channels",
+        selector="[data-testid='channels-table']",
+        output_path="channels/table.png",
+    ),
 ]
 
 
