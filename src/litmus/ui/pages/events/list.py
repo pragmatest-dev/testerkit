@@ -90,9 +90,13 @@ def events_page(
             )
             _render_table(table_slot, payload)
 
+        # data-testid attributes are stable selectors for the
+        # screenshot-regeneration script (scripts/regenerate-ui-
+        # screenshots.py). Don't drop them without updating that
+        # script's MANIFEST.
         # Filters render FIRST (above the table) so they read in
         # natural top-down order. The table slot is reserved second.
-        with ui.card().classes("w-full"):
+        with ui.card().classes("w-full").props('data-testid="events-filters"'):
             with ui.row().classes("items-end gap-3 flex-wrap p-2"):
                 filters.session_input = ui.input(
                     "Session ID", value=session_id, on_change=lambda _: refresh()
@@ -121,7 +125,9 @@ def events_page(
                     "color=primary"
                 )
 
-        table_slot = ui.column().classes("w-full flex-1 min-h-0 gap-0")
+        table_slot = (
+            ui.column().classes("w-full flex-1 min-h-0 gap-0").props('data-testid="events-table"')
+        )
 
         refresh()
 
