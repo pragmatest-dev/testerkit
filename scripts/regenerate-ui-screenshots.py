@@ -169,6 +169,17 @@ MANIFEST: list[Shot] = [
         selector="[data-testid='channels-table']",
         output_path="channels/table.png",
     ),
+    # / — Dashboard landing
+    Shot(
+        url="/",
+        selector="[data-testid='dashboard-stations']",
+        output_path="dashboard/stations.png",
+    ),
+    Shot(
+        url="/",
+        selector="[data-testid='dashboard-runs']",
+        output_path="dashboard/runs.png",
+    ),
 ]
 
 
