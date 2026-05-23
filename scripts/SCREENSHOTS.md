@@ -60,11 +60,33 @@ changed; commit only those.
 
 | Topic | Rule |
 |---|---|
-| Viewport | 1440×900 (set in the script; don't override per shot) |
+| Default viewport | 1440×900. Override the width per-shot via `Shot(..., viewport_width=N)` when a wide element (e.g. a results table) would otherwise render past the docs content column. |
+| Device pixel ratio | 2× always. Source PNG dimensions are double the displayed dimensions; the browser downsamples for crisp retina rendering. Don't override this per shot — pages assume uniform 2× source. |
 | Filename | `<screen>/<region>.png` — match the docs subdirectory structure |
 | Selector | `[data-testid='...']` — stable testids only. No CSS class selectors (they break on Tailwind reflows). |
 | Page width | Don't capture full-page screenshots from this script — those belong on the tour page only and are captured manually with a viewport screenshot. This script is for cropped element shots. |
 | Element scope | One element per shot. If you want two regions on the same screen, write two entries. |
+
+## Sizing for the docs renderer
+
+The cropped PNGs are displayed inside two docs renderers — pragmatest's
+Next.js prose column (reference pages cap at `max-w-5xl` ≈ 1024px) and
+NiceGUI's in-app docs column (narrower). To fit both without per-image
+markup:
+
+* Pick a `viewport_width` that lets the element render at roughly the
+  display width you want, knowing the source is 2×.
+* If you want a results table to fill ~960px in the docs, capture at
+  `viewport_width=960` (the source PNG is then ~1920px wide; browser
+  shows it at 960 logical pixels on a 2× display, ~960 CSS pixels in
+  the prose column).
+* Smaller elements (filter rows, status pills, single buttons) usually
+  fit fine at the default 1440 viewport — the cropped output is small
+  enough that no scaling is needed.
+
+The renderer-side CSS framing (subtle border + shadow on `.docs img`)
+lands in a follow-up commit once we have a real screenshot to tune
+against; until then PNGs render bare against the page background.
 
 ## When something breaks
 

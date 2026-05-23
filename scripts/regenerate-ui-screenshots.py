@@ -54,11 +54,20 @@ class Shot:
     that must resolve to a single element; the resulting PNG is cropped
     to that element's bounding box. ``output_path`` is relative to
     :data:`ASSET_ROOT` and ends in ``.png``.
+
+    ``viewport_width`` overrides the default capture width for shots
+    where a wide element (e.g. a results table) would otherwise render
+    far beyond the docs content column. The shot's height tracks the
+    default. ``None`` (the default) uses :data:`VIEWPORT`'s width.
+
+    All shots are captured at ``device_scale_factor=2``; the source PNG
+    is twice the displayed dimensions so retina downsampling stays crisp.
     """
 
     url: str
     selector: str
     output_path: str
+    viewport_width: int | None = None
 
 
 # Manifest grows as ``docs/reference/operator-ui/`` pages land. Group
@@ -103,12 +112,23 @@ def _capture(shots: list[Shot]) -> int:
     written = 0
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        ctx = browser.new_context(viewport=VIEWPORT)
+        # 2x device pixel ratio so PNGs stay crisp when the browser
+        # downsamples them to the docs content column on a retina
+        # display. Source dimensions are twice the displayed dimensions.
+        ctx = browser.new_context(viewport=VIEWPORT, device_scale_factor=2)
         page = ctx.new_page()
         try:
             for shot in shots:
                 target = ASSET_ROOT / shot.output_path
                 target.parent.mkdir(parents=True, exist_ok=True)
+                # Per-shot viewport override: wide elements like results
+                # tables render past the docs column at the default 1440;
+                # narrowing the viewport for that shot lets them render
+                # at a column-appropriate width before cropping.
+                width = (
+                    shot.viewport_width if shot.viewport_width is not None else VIEWPORT["width"]
+                )
+                page.set_viewport_size({"width": width, "height": VIEWPORT["height"]})
                 page.goto(SERVE_URL + shot.url, wait_until="networkidle")
                 element = page.wait_for_selector(shot.selector, timeout=ELEMENT_WAIT_TIMEOUT_MS)
                 if element is None:
