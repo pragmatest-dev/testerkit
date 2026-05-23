@@ -16,7 +16,13 @@ def stations_page():
     usage = usage_stats_by("station_id")
 
     with page_layout():
-        with ui.row().classes("items-center justify-between w-full"):
+        # data-testid for the screenshot-regeneration script (see
+        # scripts/regenerate-ui-screenshots.py MANIFEST).
+        with (
+            ui.row()
+            .classes("items-center justify-between w-full")
+            .props('data-testid="stations-header"')
+        ):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("settings_input_hdmi").classes("text-slate-600")
                 ui.label("Test Stations").classes("text-lg font-semibold text-slate-700")
