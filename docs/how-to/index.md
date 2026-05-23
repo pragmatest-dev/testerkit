@@ -33,6 +33,7 @@ If you're new to Litmus, work through the [Tutorial](../tutorial/) first — the
 - [Managing sessions](managing-sessions.md) — connect/disconnect lifecycle for instrument usage
 - [Multi-DUT testing](multi-dut-testing.md) — subprocess-per-slot, shared instruments
 - [Measurement traceability](traceability.md) — ATML / IEEE 1671 (the industry test-data interchange standard Litmus aligns with) metadata captured automatically
+- [Operator prompts](operator-prompts.md) — design guide for the `litmus_prompts` marker and the `prompt` fixture
 
 ## Query results
 
