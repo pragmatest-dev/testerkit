@@ -43,6 +43,8 @@ If you're new to Litmus, work through the [Tutorial](../tutorial/) first — the
 
 - [MCP integration](mcp-integration.md) — register the MCP server with Claude Code, Cursor, Copilot, Cline, Claude Desktop
 - [Datasheet → tests with Claude Code](datasheet-to-test.md) — end-to-end walkthrough of the `datasheet-to-test` workflow
+- [Query runs and metrics via MCP](mcp-query-runs.md) — `litmus_runs` / `litmus_steps` / `litmus_metrics` recipes
+- [Debug failures via MCP](mcp-debug-failures.md) — chained investigative workflow when a run fails
 
 ## Integrations
 
