@@ -20,3 +20,4 @@ You bring your existing pytest suite or OpenHTF tests under the Litmus runtime t
 
 - [Instruments](instruments.md) — bring your own drivers (PyVISA / PyMeasure / vendor)
 - [Lakehouse import](lakehouse-import.md) — pull Litmus parquet runs into your warehouse
+- [Grafana](grafana.md) — pgwire data source plus ten shipped dashboards
