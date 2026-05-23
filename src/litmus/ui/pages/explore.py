@@ -382,8 +382,12 @@ async def explore_page(request: Request):
             ui.icon("scatter_plot").classes("text-slate-600")
             ui.label("Measurements").classes("text-2xl font-semibold text-slate-700")
 
+        # data-testid attributes are stable selectors for the
+        # screenshot-regeneration script (scripts/regenerate-ui-
+        # screenshots.py). Don't drop them without updating that
+        # script's MANIFEST.
         # FILTER section
-        with ui.card().classes("w-full"):
+        with ui.card().classes("w-full").props('data-testid="explore-filters"'):
             ui.label("FILTER").classes("text-xs font-semibold text-slate-500 tracking-wider")
             with ui.row().classes("w-full gap-3 flex-wrap items-end"):
                 for facet in MEASUREMENT_FACETS:
@@ -398,7 +402,7 @@ async def explore_page(request: Request):
             cardinality_label = ui.label("…").classes("text-sm text-slate-600 italic mt-2")
 
         # PLOT section
-        with ui.card().classes("w-full"):
+        with ui.card().classes("w-full").props('data-testid="explore-plot-controls"'):
             ui.label("PLOT").classes("text-xs font-semibold text-slate-500 tracking-wider")
             with ui.row().classes("items-end gap-3 flex-wrap w-full"):
 
@@ -476,7 +480,7 @@ async def explore_page(request: Request):
                 )
 
         # Chart container — skeleton until first refresh fires.
-        chart_container = ui.column().classes("w-full")
+        chart_container = ui.column().classes("w-full").props('data-testid="explore-chart"')
         render_skeleton(chart_container, "h-[28rem]")
 
     # First load fires after page renders.
