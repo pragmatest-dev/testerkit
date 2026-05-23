@@ -32,9 +32,15 @@ async def results_page() -> None:
     with page_layout():
         page_header("Test Results", icon="history")
 
-        stats_holder = ui.column().classes("w-full")
-        empty_holder = ui.column().classes("w-full")
-        table_holder = ui.column().classes("w-full flex-1 min-h-0 gap-0")
+        # data-testid attributes are stable selectors for the
+        # screenshot-regeneration script (scripts/regenerate-ui-
+        # screenshots.py). Don't drop them without updating that
+        # script's MANIFEST.
+        stats_holder = ui.column().classes("w-full").props('data-testid="results-stats"')
+        empty_holder = ui.column().classes("w-full").props('data-testid="results-empty"')
+        table_holder = (
+            ui.column().classes("w-full flex-1 min-h-0 gap-0").props('data-testid="results-table"')
+        )
 
         state: dict[str, Any] = {"table": None}
 
