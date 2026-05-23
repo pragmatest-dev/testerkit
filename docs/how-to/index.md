@@ -4,6 +4,10 @@ Task recipes for specific jobs. Ordered by the workflow a test engineer actually
 
 If you're new to Litmus, work through the [Tutorial](../tutorial/) first — these guides assume you can already run a simple test.
 
+## Operator UI
+
+- [Tour of the Operator UI](operator-ui-tour.md) — what each of the 13 sidebar entries does, with cross-links to per-screen reference
+
 ## Write tests
 
 - [Writing tests](writing-tests.md) — pytest classes, sidecar YAML, the `verify` pattern
