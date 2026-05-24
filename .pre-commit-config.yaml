@@ -60,3 +60,16 @@ repos:
         files: ^(scripts/generate_reference_docs\.py|src/litmus/(data/(events|models)\.py|data/channels/models\.py|models/.*\.py|api/(app|models|responses)\.py|mcp/server\.py|cli\.py|grafana/cli\.py|pytest_plugin/hooks\.py|analysis/(runs|steps|measurements)_query\.py|analysis/measurement_facets\.py)|docs/reference/(event-types|models|configuration|api|cli|pytest-native|query-api)\.md)$
         pass_filenames: false
         require_serial: true
+
+      # Non-blocking reminder: when a UI file with a manifest-tracked
+      # data-testid changes, the corresponding cropped PNG under
+      # docs/_assets/operator-ui/ may be stale. The hook prints the
+      # rerun command but exits 0 — see scripts/SCREENSHOTS.md.
+      - id: screenshot-drift-reminder
+        name: screenshot-drift-reminder
+        entry: uv run python scripts/check-screenshot-drift.py
+        language: system
+        files: ^src/litmus/ui/pages/.*\.py$
+        pass_filenames: true
+        require_serial: false
+        verbose: true  # pre-commit only shows output on failure unless verbose

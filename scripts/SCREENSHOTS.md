@@ -56,6 +56,15 @@ output paths are deterministic — every shot overwrites the previous PNG
 in place. The diff in `git status` shows which screenshots actually
 changed; commit only those.
 
+The pre-commit hook `screenshot-drift-reminder` (in
+`.pre-commit-config.yaml`, implementation at
+`scripts/check-screenshot-drift.py`) helps you remember: when you
+commit a file under `src/litmus/ui/pages/` that contains a
+`data-testid` referenced in this script's `MANIFEST`, the hook prints
+the rerun command. It's a reminder, not a gate — it exits 0 either
+way. The author still has to actually re-run the script and commit
+the regenerated PNGs.
+
 ## Conventions
 
 | Topic | Rule |
