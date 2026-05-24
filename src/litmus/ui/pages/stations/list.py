@@ -91,4 +91,4 @@ def stations_page():
             row_key="id",
             on_row_click=lambda r: ui.navigate.to(f"/stations/{r['id']}"),
             time_columns=["last_run"],
-        )
+        ).props('data-testid="stations-table"')

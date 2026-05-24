@@ -186,6 +186,20 @@ MANIFEST: list[Shot] = [
         selector="[data-testid='launch-form']",
         output_path="launch/form.png",
     ),
+    # /docs — documentation landing (always present, no seed data needed)
+    Shot(
+        url="/docs",
+        selector="[data-testid='docs-cards']",
+        output_path="tour/docs.png",
+    ),
+    # NOTE: tour-bridge hero shots for the CONFIGURATION sidebar
+    # entries (stations / products / fixtures / instruments / tests /
+    # designer) are deferred until this script learns to run the
+    # serve subprocess against a seeded project (e.g. examples/06-
+    # station-catalog). The testids land on data-table containers
+    # that only render when the corresponding YAML files exist, and
+    # the litmus repo root has no station/product/fixture/instrument
+    # YAMLs of its own.
 ]
 
 

@@ -101,4 +101,4 @@ def fixtures_page():
             row_key="id",
             on_row_click=lambda r: ui.navigate.to(f"/fixtures/{r['id']}"),
             time_columns=["last_run"],
-        )
+        ).props('data-testid="fixtures-table"')

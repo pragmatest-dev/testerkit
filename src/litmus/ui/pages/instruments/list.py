@@ -82,7 +82,7 @@ def _render_catalog_tab():
         rows=rows,
         row_key="type",
         on_row_click=lambda r: ui.navigate.to(f"/instruments/{r['type']}"),
-    )
+    ).props('data-testid="instruments-catalog-table"')
 
 
 def _render_inventory_tab():
@@ -152,4 +152,4 @@ def _render_inventory_tab():
         rows=rows,
         row_key="id",
         on_row_click=lambda r: ui.navigate.to(f"/instruments/{r['id']}"),
-    )
+    ).props('data-testid="instruments-inventory-table"')

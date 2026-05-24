@@ -51,7 +51,7 @@ def docs_index():
             ),
         ]
 
-        with ui.row().classes("gap-4 flex-wrap"):
+        with ui.row().classes("gap-4 flex-wrap").props('data-testid="docs-cards"'):
             for section, icon, title, description in sections:
                 with (
                     ui.card()

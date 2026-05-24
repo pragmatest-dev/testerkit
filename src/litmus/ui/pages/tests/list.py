@@ -34,4 +34,4 @@ def tests_page():
             {"name": "path", "label": "Path", "field": "path", "align": "left", "sortable": True},
         ]
         rows = [{"name": t["name"], "path": t["path"]} for t in tests]
-        data_table(columns=columns, rows=rows, row_key="path")
+        data_table(columns=columns, rows=rows, row_key="path").props('data-testid="tests-table"')

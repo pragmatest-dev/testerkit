@@ -165,7 +165,7 @@ def designer_page(product: str = "", station: str = "", fixture: str = ""):
         )
 
         # --- Graph card ---
-        with ui.card().classes("w-full"):
+        with ui.card().classes("w-full").props('data-testid="designer-surface"'):
             ui.label("Design Surface").classes("text-xs text-slate-500 uppercase tracking-wide")
             ui.label(
                 "Click a pin to select it, then click a channel to wire. "
