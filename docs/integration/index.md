@@ -2,13 +2,13 @@
 
 Litmus is built for incremental adoption. Start where the existing pain is, expand from there. Each path below is independent — you don't have to migrate everything at once. Same category axis as the rest of the docs ([concepts](../concepts/), [how-to](../how-to/), [reference](../reference/)).
 
-## Configuration
+## Runtime
 
-Bring existing hardware, runners, or test code under Litmus.
+Bring existing test code, runners, or hardware under Litmus's runtime — adopt an existing pytest suite, drive Litmus from a non-pytest runner, plug in your own instrument drivers. Mirrors [reference/runtime](../reference/runtime/) on the other axis.
 
-- [Existing pytest projects](configuration/pytest-existing.md) — adopt Litmus from a working pytest suite
-- [Harness](configuration/harness.md) — the imperative `TestHarness` API for non-pytest runners
-- [Instruments](configuration/instruments.md) — bring your own drivers (PyVISA / PyMeasure / vendor)
+- [Existing pytest projects](runtime/pytest-existing.md) — adopt Litmus from a working pytest suite
+- [Harness](runtime/harness.md) — the imperative `TestHarness` API for non-pytest runners (OpenHTF bridges, hand-written loops)
+- [Instruments](runtime/instruments.md) — bring your own drivers (PyVISA / PyMeasure / vendor SDKs)
 
 ## Data
 

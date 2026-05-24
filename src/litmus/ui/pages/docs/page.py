@@ -414,7 +414,13 @@ def _render_sidebar_nav(section: str, current_page: str | None = None):
     if not outline:
         return
 
-    with ui.column().classes("w-56 p-4 border-r border-slate-200 docs-sidebar bg-white"):
+    # Sidebar background matches the page body (slate-50) so the prose
+    # column (rendered on bg-white below) reads as the focal surface and
+    # the sidebar reads as ambient chrome. The earlier bg-white sidebar
+    # created a visible vertical seam between the dark NiceGUI app
+    # sidebar and the white docs panel — slate-50 here keeps the docs
+    # area visually unified.
+    with ui.column().classes("w-56 p-4 border-r border-slate-200 docs-sidebar bg-slate-50"):
         ui.label(_get_section_title(section).upper()).classes(
             "text-xs text-slate-500 font-medium mb-2"
         )
