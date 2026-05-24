@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -26,10 +27,13 @@ _PYTEST_BIN = shutil.which("pytest") or "pytest"
 def _litmus_env(home: Path) -> dict[str, str]:
     """Return env with LITMUS_HOME pointed at a per-test global results dir.
 
-    The starter no longer sets ``data_dir:`` (it relies on the
-    global default under ``platformdirs.user_data_dir("litmus")``).
-    Tests redirect that root via ``LITMUS_HOME`` so each test gets
-    its own isolated ``<home>/results/`` tree.
+    Starter projects pin ``data_dir: data`` in their ``litmus.yaml``
+    (see ``src/litmus/init.py:234-248``) so learning runs stay
+    project-local instead of polluting the shared global store.
+    ``litmus.yaml`` wins over ``LITMUS_HOME`` per the resolution
+    chain in ``src/litmus/data/data_dir.py``, so LITMUS_HOME here
+    is a belt-and-braces isolation guard for any code path that
+    falls through to the global default.
     """
     import os
 
@@ -68,8 +72,11 @@ def _pytest(*args: str, cwd: Path, home: Path | None = None) -> subprocess.Compl
 def starter_project(tmp_path: Path) -> tuple[Path, Path]:
     """Create a starter project + isolated LITMUS_HOME, run its tests once.
 
-    Returns ``(project_dir, home_dir)`` so tests can read the
-    parquet results from ``home_dir / "results" / ...``.
+    Returns ``(project_dir, home_dir)``. Starter pins ``data_dir:
+    data`` in litmus.yaml so parquet lands in
+    ``project_dir / "data" / "runs" / .../*.parquet`` — read via the
+    standard CLI / API surface, which auto-resolves the data dir
+    from the litmus.yaml in cwd ancestors.
     """
     home = tmp_path / "home"
     home.mkdir()
@@ -88,6 +95,27 @@ def starter_project(tmp_path: Path) -> tuple[Path, Path]:
 
     result = _pytest("tests/", "-q", cwd=project, home=home)
     assert result.returncode == 0, f"pytest failed:\n{result.stdout}\n{result.stderr}"
+
+    # Pytest exits as soon as test functions return, but parquet
+    # materialization happens in the runs daemon — which is only
+    # spawned on first read from a RunsQuery / StepsQuery / etc. Poll
+    # `litmus runs` until it surfaces the row; that both triggers the
+    # daemon spawn AND verifies materialization has caught up.
+    # Otherwise downstream `litmus runs` / `litmus show` calls in the
+    # individual tests race the materializer and see "No test runs
+    # found."
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        probe = _litmus("runs", cwd=project, home=home)
+        if probe.returncode == 0 and "STARTER001" in probe.stdout:
+            break
+        time.sleep(0.5)
+    else:
+        raise AssertionError(
+            "timed out waiting for runs daemon to materialize STARTER001 "
+            f"in {project / 'data' / 'runs'}"
+        )
+
     return project, home
 
 
@@ -116,8 +144,9 @@ class TestQuickstart:
 
         cfg = yaml.safe_load((project / "litmus.yaml").read_text())
         assert cfg["name"] == "my_project"
-        # Starter relies on the global default — no ``data_dir`` key.
-        assert cfg.get("data_dir") is None
+        # Starter pins data_dir locally so learning runs stay out of
+        # the shared global store. See src/litmus/init.py:234-248.
+        assert cfg["data_dir"] == "data"
 
     def test_starter_tests_pass_with_mocks(self, tmp_path: Path):
         home = tmp_path / "home"
@@ -137,13 +166,14 @@ class TestQuickstart:
         assert result.returncode == 0
         assert "passed" in result.stdout
 
-    def test_results_stored_globally(self, starter_project: tuple[Path, Path]):
-        _project, home = starter_project
-        # Starter writes to the global LITMUS_HOME/results, not the
-        # project directory.
-        results = home / "results"
-        assert results.exists()
-        parquet_files = list(results.rglob("*.parquet"))
+    def test_results_stored_locally(self, starter_project: tuple[Path, Path]):
+        project, _home = starter_project
+        # Starter writes to the project-local data dir (litmus.yaml's
+        # data_dir: data setting). The global store is left alone so
+        # learning runs don't pollute it.
+        runs_dir = project / "data" / "runs"
+        assert runs_dir.exists()
+        parquet_files = list(runs_dir.rglob("*.parquet"))
         assert len(parquet_files) >= 1
 
 
@@ -200,9 +230,21 @@ class TestReindex:
         assert result.returncode == 0
         assert "rebuild" in result.stdout.lower()
 
-        runs_after = _litmus("runs", cwd=project, home=home)
+        # Reindex wipes the daemon's materialized table and replays
+        # events; the rebuild is async. Poll until the row reappears
+        # rather than racing the daemon on the first call.
+        deadline = time.monotonic() + 30.0
+        runs_after = None
+        while time.monotonic() < deadline:
+            runs_after = _litmus("runs", cwd=project, home=home)
+            if runs_after.returncode == 0 and "STARTER001" in runs_after.stdout:
+                break
+            time.sleep(0.5)
+        assert runs_after is not None
         assert runs_after.returncode == 0
-        assert "STARTER001" in runs_after.stdout
+        assert "STARTER001" in runs_after.stdout, (
+            f"reindex never repopulated STARTER001:\n{runs_after.stdout}"
+        )
 
 
 class TestMetricsAnalytics:
