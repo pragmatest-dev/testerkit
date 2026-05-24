@@ -36,7 +36,6 @@ deliberately a quick-glance summary.
 
 | Column | What it shows |
 |---|---|
-| Run ID | First 8 chars of the run UUID |
 | DUT | DUT serial number |
 | Station | Station hostname (the machine an operator recognizes), not the internal station id |
 | Started | Run start timestamp, browser-local time |

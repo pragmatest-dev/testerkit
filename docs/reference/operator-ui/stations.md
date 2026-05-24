@@ -41,7 +41,7 @@ test phases, then a tab strip with three tabs:
 |---|---|
 | Instruments | One row per instrument: Name, Driver, Resource, Manufacturer / Model, Serial, Cal Due, Status |
 | Sequences | The sequences this station supports, with derived capability summary |
-| Recent Runs | A run table scoped to this station (Run ID, DUT, Project, Started, Outcome) |
+| Recent Runs | A run table scoped to this station (DUT, Project, Started, Outcome) |
 
 When the URL points at a station that doesn't exist, the page shows
 a "Station not found." card.

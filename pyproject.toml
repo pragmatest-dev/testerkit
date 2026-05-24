@@ -148,6 +148,7 @@ packages = ["src/litmus"]
 "docs/concepts" = "litmus/_docs/concepts"
 "docs/how-to" = "litmus/_docs/how-to"
 "docs/reference" = "litmus/_docs/reference"
+"docs/_assets" = "litmus/_docs/_assets"
 
 [tool.hatch.build.targets.sdist]
 include = [
