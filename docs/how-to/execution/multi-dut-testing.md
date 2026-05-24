@@ -130,7 +130,7 @@ WHERE record_type = 'measurement'
 ORDER BY slot_id, step_index
 ```
 
-Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `litmus.yaml` → `LITMUS_HOME` → platform default. See [reference/parquet-schema.md](../../reference/parquet-schema.md) for the column shape and the `record_type` discriminator that lets one file carry run / step / measurement rows.
+Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `litmus.yaml` → `LITMUS_HOME` → platform default. See [reference/parquet-schema.md](../../reference/data/parquet-schema.md) for the column shape and the `record_type` discriminator that lets one file carry run / step / measurement rows.
 
 ## Debugging Failures
 

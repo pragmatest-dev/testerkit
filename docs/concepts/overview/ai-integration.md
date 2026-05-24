@@ -25,7 +25,7 @@ Three properties of the platform make the AI surface safe to use without losing 
 
 2. **MCP tools, not LLM calls.** Litmus does not embed an OpenAI / Anthropic / Google client. The AI tooling drives Litmus from outside. You bring your own AI client; Litmus exposes the operations.
 
-3. **Operator-in-the-loop by design.** The shipped workflows (see [skills reference](../../reference/skills.md)) STOP at every approval gate. "Here is the product spec I extracted, ok to save?" — you say yes or you edit first.
+3. **Operator-in-the-loop by design.** The shipped workflows (see [skills reference](../../reference/overview/skills.md)) STOP at every approval gate. "Here is the product spec I extracted, ok to save?" — you say yes or you edit first.
 
 This matters most when the AI gets it wrong. A misread accuracy spec or a wrongly assigned pin reads as a YAML diff or a `verify()` line — you spot it, push back, iterate. Compare to a workflow where the AI commits to a database: the same mistake disappears under "the system says so."
 
@@ -35,7 +35,7 @@ A few things AI integration in Litmus deliberately does **not** try to do:
 
 - **Run the test.** Test execution is pytest. The AI can scaffold a test file, but the test runs the same way it would without the AI.
 - **Decide pass/fail.** Limit checking, traceability, capability matching — all in code. The AI proposes; the deterministic platform decides.
-- **Hide the prompt.** All shipped workflows ([skills reference](../../reference/skills.md)) ship as plain markdown files at `src/litmus/skills/`. You can read them, audit them, fork them, ignore them.
+- **Hide the prompt.** All shipped workflows ([skills reference](../../reference/overview/skills.md)) ship as plain markdown files at `src/litmus/skills/`. You can read them, audit them, fork them, ignore them.
 - **Lock you to one model.** Sub-agent prompts include a recommended **tier** (high-capability / mid-capability) but no hard-coded model name. Pick whichever your client supports.
 
 ## Adoption ramp
@@ -52,5 +52,5 @@ Three adoption levels — pick whichever matches the user's trust level today:
 
 - [How-to: AI-assisted test development via MCP](../../how-to/overview/mcp-integration.md) — registering the MCP server with each supported AI client
 - [How-to: datasheet-to-test workflow](../../how-to/catalog/datasheet-to-test.md) — end-to-end walkthrough
-- [Reference: skills](../../reference/skills.md) — full inventory of workflows, agents, slash commands, MCP tools and prompts
-- [Reference: MCP server + HTTP API](../../reference/api.md) — the operations AI clients call
+- [Reference: skills](../../reference/overview/skills.md) — full inventory of workflows, agents, slash commands, MCP tools and prompts
+- [Reference: MCP server + HTTP API](../../reference/runtime/api.md) — the operations AI clients call

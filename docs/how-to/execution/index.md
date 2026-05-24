@@ -16,5 +16,5 @@ Author test code and run it — limits, sweeps, retries, traceability, operator 
 ## See also
 
 - [Concepts → Execution](../../concepts/execution/index.md) — the step model, outcomes, what each step records
-- [Reference → pytest fixtures](../../reference/litmus-fixtures.md) and [markers](../../reference/litmus-markers.md) — the per-test surface these recipes use
+- [Reference → pytest fixtures](../../reference/pytest/fixtures.md) and [markers](../../reference/pytest/markers.md) — the per-test surface these recipes use
 - [Tutorial](../../tutorial/) — sequential walk through the same recipes

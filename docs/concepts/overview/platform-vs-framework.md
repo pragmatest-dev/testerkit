@@ -19,7 +19,7 @@ The infrastructure pieces a hardware-test team needs whether they're running pyt
 
 ## What Litmus does not provide
 
-- **A test execution engine.** Litmus delegates to pytest for new projects; non-pytest runners (LabVIEW / TestStand bridges, hand-written loops, etc.) use [`LitmusClient`](../../reference/client.md) to submit results.
+- **A test execution engine.** Litmus delegates to pytest for new projects; non-pytest runners (LabVIEW / TestStand bridges, hand-written loops, etc.) use [`LitmusClient`](../../reference/runtime/client.md) to submit results.
 - **Instrument drivers.** Bring your own — PyMeasure, PyVISA, vendor libraries, or your own classes derived from `Instrument` / `VisaInstrument` (importable from `litmus.instruments.base` and `litmus.instruments.visa` respectively). See [custom drivers](../../how-to/configuration/custom-drivers.md).
 
 ## Multiple Entry Points
@@ -28,7 +28,7 @@ Because Litmus is a platform, you can access it through multiple entry points:
 
 | Entry Point | Use Case | How It Works |
 |-------------|----------|--------------|
-| **pytest** | New test development | pytest-native: [`context`](../../how-to/execution/test-context.md), `verify`, `logger` [fixtures](../../reference/litmus-fixtures.md) |
+| **pytest** | New test development | pytest-native: [`context`](../../how-to/execution/test-context.md), `verify`, `logger` [fixtures](../../reference/pytest/fixtures.md) |
 | **CLI** | Operations, debugging | `litmus runs`, `litmus show` |
 | **HTTP API** | CI/CD, dashboards | `POST /api/runs`, `GET /api/runs/{id}` |
 | **MCP Server** | AI integration | Claude Code, other AI agents |
@@ -74,7 +74,7 @@ with run.step("output_voltage") as step:
 run.finish()
 ```
 
-See the [Python client reference](../../reference/client.md) for the full surface (`start_run`, `RunBuilder.step`, `StepBuilder.measure`, `VectorBuilder` for parametrized steps).
+See the [Python client reference](../../reference/runtime/client.md) for the full surface (`start_run`, `RunBuilder.step`, `StepBuilder.measure`, `VectorBuilder` for parametrized steps).
 
 ## AI Integration (MCP)
 
@@ -97,7 +97,7 @@ flowchart TB
 |---|---|
 | New pytest project | pytest-native tests with `context` / `verify` / `logger` fixtures (see [tutorial step 3](../../tutorial/03-fixtures.md)). |
 | Existing pytest tests | Drop in Litmus fixtures + sidecar YAML incrementally — see [integration/pytest-existing](../../integration/pytest-existing.md). |
-| LabVIEW / TestStand / non-pytest runners | Use [`LitmusClient`](../../reference/client.md) to write run results from any Python boundary the other runner can shell out to. |
+| LabVIEW / TestStand / non-pytest runners | Use [`LitmusClient`](../../reference/runtime/client.md) to write run results from any Python boundary the other runner can shell out to. |
 | AI-assisted test authoring | Run the [MCP server](../../how-to/overview/mcp-integration.md) and point Claude Code / Cursor / Cline at it. |
 
 ## Architecture Summary

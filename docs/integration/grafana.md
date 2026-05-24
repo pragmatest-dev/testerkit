@@ -124,7 +124,7 @@ the four tables above.
 
 - [Grafana dashboards how-to](../how-to/data/grafana-dashboards.md) —
   step-by-step setup, including Docker and Grafana Cloud variants
-- [Parquet schema](../reference/parquet-schema.md) — the columns
+- [Parquet schema](../reference/data/parquet-schema.md) — the columns
   the dashboards select
 - [Three stores](../concepts/data/three-stores.md) — where parquet,
   events, and channels live on disk

@@ -2,7 +2,7 @@
 
 Send Litmus results onward to external systems — Python logging frameworks, databases, cloud storage. Litmus owns the parquet record; this page covers the bridges to other platforms.
 
-For the underlying API to write into Litmus's store, see the [Python client reference](../reference/client.md). For HTTP / MCP query endpoints, see [api.md](../reference/api.md).
+For the underlying API to write into Litmus's store, see the [Python client reference](../reference/runtime/client.md). For HTTP / MCP query endpoints, see [api.md](../reference/runtime/api.md).
 
 ## Where the data already is
 
@@ -10,9 +10,9 @@ Results land in Parquet under `<data_dir>/runs/{date}/{timestamp}_{serial}.parqu
 
 For the on-write side, see:
 
-- [Python client reference](../reference/client.md) — `LitmusClient` API for submitting test runs from non-pytest sources
+- [Python client reference](../reference/runtime/client.md) — `LitmusClient` API for submitting test runs from non-pytest sources
 - [Submitting results from non-pytest sources](results-api.md) — when to use which submission path
-- [Litmus fixtures](../reference/litmus-fixtures.md) — the pytest plugin path (most projects)
+- [Litmus fixtures](../reference/pytest/fixtures.md) — the pytest plugin path (most projects)
 
 ## Python logging-framework bridge
 
@@ -69,7 +69,7 @@ def sync_to_database(run_id: str, db_connection):
         )
 ```
 
-`run` is a Pydantic `RunSummary` — use attribute access. `measurements` is a list of dicts keyed by parquet column names (`measurement_name`, `measurement_value`, `measurement_units`, `measurement_outcome`, `limit_low`, `limit_high`, etc. — see [parquet-schema.md](../reference/parquet-schema.md) for the full list).
+`run` is a Pydantic `RunSummary` — use attribute access. `measurements` is a list of dicts keyed by parquet column names (`measurement_name`, `measurement_value`, `measurement_units`, `measurement_outcome`, `limit_low`, `limit_high`, etc. — see [parquet-schema.md](../reference/data/parquet-schema.md) for the full list).
 
 ## Upload a sealed run to cloud storage
 
@@ -118,8 +118,8 @@ Or use `litmus runs` / `litmus show` / the HTTP API — see [results-api.md](res
 
 ## See also
 
-- [Python client reference](../reference/client.md) — full `LitmusClient` API surface
+- [Python client reference](../reference/runtime/client.md) — full `LitmusClient` API surface
 - [Submitting results from non-pytest sources](results-api.md) — when to use which submission path
-- [Parquet schema](../reference/parquet-schema.md) — column-by-column reference
+- [Parquet schema](../reference/data/parquet-schema.md) — column-by-column reference
 - [Three stores](../concepts/data/three-stores.md) — on-disk layout, data_dir resolution, schema-evolution contract
-- [HTTP / MCP API](../reference/api.md) — REST + tool endpoints
+- [HTTP / MCP API](../reference/runtime/api.md) — REST + tool endpoints

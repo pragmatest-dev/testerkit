@@ -125,4 +125,4 @@ opens it.
 - [Compare two runs](compare-runs.md) — when the question is "what changed between this run and a known-good one"
 - [Query runs and metrics via MCP](mcp-query-runs.md) — the broader "ask Litmus questions" surface
 - [MCP integration](../overview/mcp-integration.md) — server setup
-- [API reference → MCP tools](../../reference/api.md#tools) — full per-tool parameter list
+- [API reference → MCP tools](../../reference/runtime/api.md#tools) — full per-tool parameter list

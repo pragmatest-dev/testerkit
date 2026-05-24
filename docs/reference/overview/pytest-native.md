@@ -1,6 +1,6 @@
 # pytest-native reference
 
-Litmus is a hardware test **platform**; pytest is its primary test-runner integration. The bundled pytest plugin slots into a stock pytest install with zero configuration — every pytest concept (collection, fixtures, markers, plugins, `conftest.py`, command-line flags) works unchanged. This page is the map of what pytest gives you natively and what the plugin layers on top. For the plugin's own surface see [Litmus fixtures](litmus-fixtures.md) and [Litmus markers](litmus-markers.md). Other runner integrations (OpenHTF, LabVIEW / TestStand via the results API) live under [Integrations](../integration/).
+Litmus is a hardware test **platform**; pytest is its primary test-runner integration. The bundled pytest plugin slots into a stock pytest install with zero configuration — every pytest concept (collection, fixtures, markers, plugins, `conftest.py`, command-line flags) works unchanged. This page is the map of what pytest gives you natively and what the plugin layers on top. For the plugin's own surface see [Litmus fixtures](../pytest/litmus-fixtures.md) and [Litmus markers](../pytest/litmus-markers.md). Other runner integrations (OpenHTF, LabVIEW / TestStand via the results API) live under [Integrations](../../integration/).
 
 ## Collection
 
@@ -31,7 +31,7 @@ pytest's fixture model is unchanged.
 
 You can write your own fixtures in `conftest.py` alongside Litmus's. A common pattern is a project-local `dut` factory wrapping the Litmus `dut` session fixture, or a per-class hardware-setup fixture that takes `instruments` as a dependency.
 
-The 20 fixtures the Litmus plugin contributes are documented in [Litmus fixtures](litmus-fixtures.md).
+The 20 fixtures the Litmus plugin contributes are documented in [Litmus fixtures](../pytest/litmus-fixtures.md).
 
 ## Markers
 
@@ -46,7 +46,7 @@ pytest's marker mechanism is unchanged. All of these work on Litmus tests as doc
 | `@pytest.mark.filterwarnings` | Per-test warning filters. |
 | Custom markers via `pytest.ini` / `pyproject.toml` | Register and filter with `-m`. |
 
-The seven `@pytest.mark.litmus_*` markers Litmus adds live in the same registry and stack with native ones (with one constraint — see the [no-stacking rule](litmus-markers.md#no-stacking-rule) for Litmus markers). See [Litmus markers](litmus-markers.md) for full details.
+The seven `@pytest.mark.litmus_*` markers Litmus adds live in the same registry and stack with native ones (with one constraint — see the [no-stacking rule](../pytest/litmus-markers.md#no-stacking-rule) for Litmus markers). See [Litmus markers](../pytest/litmus-markers.md) for full details.
 
 `@pytest.mark.parametrize` and `@pytest.mark.litmus_sweeps` interoperate: both feed the same `context.get_param(name)` API and the same parquet `in_*` columns at runtime.
 
@@ -124,8 +124,8 @@ A test that runs on a bringup tier with no station YAML and a test that runs on 
 
 ## See also
 
-- [Litmus fixtures](litmus-fixtures.md) — all 20 fixtures the plugin contributes
-- [Litmus markers](litmus-markers.md) — the seven `litmus_*` markers and their sidecar equivalents
+- [Litmus fixtures](../pytest/litmus-fixtures.md) — all 20 fixtures the plugin contributes
+- [Litmus markers](../pytest/litmus-markers.md) — the seven `litmus_*` markers and their sidecar equivalents
 - [Sidecar configuration](configuration.md#sidecar-yaml) — sidecar YAML merge semantics
 - [CLI reference](cli.md) — full flag list, including the non-pytest commands (`litmus serve`, `litmus runs`, etc.)
 - [pytest documentation](https://docs.pytest.org/en/stable/) — canonical reference for everything in the "pytest-native" half of this page

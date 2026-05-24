@@ -390,9 +390,9 @@ flags (e.g. `--test-phase=production`) select exactly one. See
 
 ## Next Steps
 
-- [Litmus fixtures](../../reference/litmus-fixtures.md) — all 20 fixtures with signatures and examples
-- [Litmus markers](../../reference/litmus-markers.md) — the seven `litmus_*` markers
-- [pytest-native reference](../../reference/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
+- [Litmus fixtures](../../reference/pytest/fixtures.md) — all 20 fixtures with signatures and examples
+- [Litmus markers](../../reference/pytest/markers.md) — the seven `litmus_*` markers
+- [pytest-native reference](../../reference/overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
 - [Profiles](profiles.md) — named config sets for the same test tree
 - [Limits guide](limits.md) — all limit forms and resolution order
 - [Simulation Mode](../configuration/mock-mode.md) — running without hardware

@@ -7,5 +7,5 @@ AI-assisted authoring against the capability catalog: produce instrument YAML an
 ## See also
 
 - [Concepts → AI integration](../../concepts/overview/ai-integration.md) — what the MCP surface gives an AI client and where the boundary sits
-- [Reference → Catalog schema](../../reference/catalog-schema.md) and [Catalog cookbook](../../reference/catalog-cookbook.md) — the YAML shape the workflow produces
-- [Reference → Skills](../../reference/skills.md) — full inventory of workflows, sub-agents, slash commands the platform ships
+- [Reference → Catalog schema](../../reference/catalog/schema.md) and [Catalog cookbook](../../reference/catalog/cookbook.md) — the YAML shape the workflow produces
+- [Reference → Skills](../../reference/overview/skills.md) — full inventory of workflows, sub-agents, slash commands the platform ships

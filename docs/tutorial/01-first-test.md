@@ -77,7 +77,7 @@ Later steps will introduce a **[station YAML](../concepts/configuration/stations
 
 ## Bench-bringup pattern
 
-For a brand-new board, the smallest scaffold is just a `conftest.py` fixture and one test. `litmus init --tier=bringup` creates this layout. (Forward references: [`Limit`](../reference/models.md) is Litmus's pass/fail-bound model, [`verify`](../reference/litmus-fixtures.md#verify-function) is the fixture that records a measurement and checks it against a limit — both introduced fully in step 3 / step 4. [PyVISA](https://pyvisa.readthedocs.io/) and [PyMeasure](https://pymeasure.readthedocs.io/) are the external instrument-driver libraries you'd swap into the fixture for real hardware.)
+For a brand-new board, the smallest scaffold is just a `conftest.py` fixture and one test. `litmus init --tier=bringup` creates this layout. (Forward references: [`Limit`](../reference/data/models.md) is Litmus's pass/fail-bound model, [`verify`](../reference/pytest/fixtures.md#verify-function) is the fixture that records a measurement and checks it against a limit — both introduced fully in step 3 / step 4. [PyVISA](https://pyvisa.readthedocs.io/) and [PyMeasure](https://pymeasure.readthedocs.io/) are the external instrument-driver libraries you'd swap into the fixture for real hardware.)
 
 ```python
 # tests/conftest.py

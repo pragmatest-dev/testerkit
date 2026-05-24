@@ -47,7 +47,7 @@ limit; a wild value is environment or hardware.
 
 If the test is genuinely intermittent and you can't fix the root
 cause yet, set an explicit retry policy with the
-[`@pytest.mark.litmus_retry`](../../reference/litmus-markers.md#litmus_retry)
+[`@pytest.mark.litmus_retry`](../../reference/pytest/markers.md#litmus_retry)
 marker:
 
 ```python
@@ -104,7 +104,7 @@ failing window is a smoking gun.
 
 - [Metrics — Retest tab](../../reference/operator-ui/metrics.md) — the chart used in step 1
 - [Results — detail view](../../reference/operator-ui/results/detail.md) — the step tree used in step 2
-- [`litmus_retry` marker](../../reference/litmus-markers.md#litmus_retry) — the retry policy in step 3
-- [Parquet schema → Retries](../../reference/parquet-schema.md#retries) — `vector_retry` column semantics
+- [`litmus_retry` marker](../../reference/pytest/markers.md#litmus_retry) — the retry policy in step 3
+- [Parquet schema → Retries](../../reference/data/parquet-schema.md#retries) — `vector_retry` column semantics
 - [Three stores](../../concepts/data/three-stores.md) — ParquetBackend + ChannelStore
 - [Compare two runs](compare-runs.md) — what to do once you've narrowed it to two specific runs

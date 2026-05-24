@@ -79,7 +79,7 @@ Twelve tools, all prefixed `litmus_`. Each tool's parameter shape and full docst
 | `litmus_steps` | `run_id`, `action`, `project` | Query the steps table for one run. |
 <!-- GENERATED:api-mcp-tools:end -->
 
-For per-tool parameter detail and worked examples, see [how-to/mcp-integration.md](../how-to/overview/mcp-integration.md).
+For per-tool parameter detail and worked examples, see [how-to/mcp-integration.md](../../how-to/overview/mcp-integration.md).
 
 ### Prompts
 
@@ -104,7 +104,7 @@ litmus serve --reload        # Dev mode with auto-reload
 
 > **Running `litmus serve` locally?** The interactive OpenAPI explorer at <http://localhost:8000/api/docs> (Swagger UI) is richer than the table below — full request/response schemas, validation rules, and a "Try it out" button that executes calls from the browser. ReDoc at <http://localhost:8000/api/redoc> and raw spec at <http://localhost:8000/api/openapi.json> for codegen.
 
-Every route is mounted under the `/api/` prefix. Field shapes for request / response models live in [models.md](models.md); query parameter detail is in the per-handler source.
+Every route is mounted under the `/api/` prefix. Field shapes for request / response models live in [models.md](../data/models.md); query parameter detail is in the per-handler source.
 
 <!-- GENERATED:api-http-routes:start -->
 ### Runs
@@ -217,7 +217,7 @@ Every route is mounted under the `/api/` prefix. Field shapes for request / resp
 
 ### Response format
 
-All JSON responses use camelCase for envelope fields (`runs`, `events`, `metrics`) and snake_case for record fields (which match the Pydantic model field names — see [models.md](models.md)). Errors follow the FastAPI convention:
+All JSON responses use camelCase for envelope fields (`runs`, `events`, `metrics`) and snake_case for record fields (which match the Pydantic model field names — see [models.md](../data/models.md)). Errors follow the FastAPI convention:
 
 ```json
 {"detail": "Run not found"}
@@ -231,8 +231,8 @@ No authentication for the local-only `litmus serve` deployment. If you expose th
 
 ## See also
 
-- [how-to/mcp-integration.md](../how-to/overview/mcp-integration.md) — agent setup walkthrough + per-tool examples
-- [reference/event-types.md](event-types.md) — event payload shapes consumed by `/api/events` and `litmus_events`
-- [reference/models.md](models.md) — full Pydantic model surface (response_model targets)
+- [how-to/mcp-integration.md](../../how-to/overview/mcp-integration.md) — agent setup walkthrough + per-tool examples
+- [reference/event-types.md](../data/event-types.md) — event payload shapes consumed by `/api/events` and `litmus_events`
+- [reference/models.md](../data/models.md) — full Pydantic model surface (response_model targets)
 - [reference/cli.md](cli.md) — `litmus serve`, `litmus setup`, `litmus mcp serve` CLI flags
-- [concepts/three-stores.md](../concepts/data/three-stores.md) — what `/api/events`, `/api/runs`, `/api/channels` each read from
+- [concepts/three-stores.md](../../concepts/data/three-stores.md) — what `/api/events`, `/api/runs`, `/api/channels` each read from

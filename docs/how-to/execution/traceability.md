@@ -342,5 +342,5 @@ Requirement: output_voltage
 
 ## See Also
 
-- [Parquet Schema Reference](../../reference/parquet-schema.md) — Complete column definitions
+- [Parquet Schema Reference](../../reference/data/parquet-schema.md) — Complete column definitions
 - [Test Harness](../../integration/harness.md) — Recording measurements with traceability

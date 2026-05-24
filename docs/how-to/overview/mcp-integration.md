@@ -2,7 +2,7 @@
 
 Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with **12 tools** that expose the datasheet → test workflow to AI assistants. The platform does **not** call LLMs itself — it only exposes tools that an AI agent drives.
 
-This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../../concepts/overview/ai-integration.md); for the end-to-end workflow walkthrough see [datasheet-to-test](../catalog/datasheet-to-test.md); for the full inventory of shipped skills + sub-agents + slash commands see [reference/skills](../../reference/skills.md). Per-tool MCP reference: [api.md → MCP tools](../../reference/api.md#tools).
+This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../../concepts/overview/ai-integration.md); for the end-to-end workflow walkthrough see [datasheet-to-test](../catalog/datasheet-to-test.md); for the full inventory of shipped skills + sub-agents + slash commands see [reference/skills](../../reference/overview/skills.md). Per-tool MCP reference: [api.md → MCP tools](../../reference/runtime/api.md#tools).
 
 > **Prerequisites.** `litmus` installed and on `$PATH` (`uv pip install litmus-test` — the PyPI distribution is `litmus-test`; the import is `litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, real or mock instruments configured in `stations/`.
 
@@ -57,7 +57,7 @@ Defined in `src/litmus/mcp/server.py` via `@mcp.tool(name=...)`.
 | `litmus_runs` | Query the runs view (filtered, paginated) | Same data the operator-UI runs list reads |
 | `litmus_steps` | Query the steps view (one row per step execution) | Step-level rollup with outcome and timing |
 
-For each tool's full parameter list and return shape, see [`api.md`](../../reference/api.md#tools).
+For each tool's full parameter list and return shape, see [`api.md`](../../reference/runtime/api.md#tools).
 
 ### `litmus_project`
 
@@ -298,11 +298,11 @@ def test_quiescent_current(context, psu, dmm, verify):
 )
 ```
 
-The `context`, `psu`, `dmm`, `verify` test arguments are all [pytest fixtures the plugin synthesizes](../../reference/litmus-fixtures.md):
+The `context`, `psu`, `dmm`, `verify` test arguments are all [pytest fixtures the plugin synthesizes](../../reference/pytest/fixtures.md):
 
 - `verify(name, value)` — resolve limit from product/sidecar, record measurement row, raise on FAIL
 - `context.get_param(name, default)` — read the active vector's parameter value
-- `psu` / `dmm` — [per-role auto-fixtures](../../reference/litmus-fixtures.md#per-role-auto-fixtures) synthesized from the station YAML
+- `psu` / `dmm` — [per-role auto-fixtures](../../reference/pytest/fixtures.md#per-role-auto-fixtures) synthesized from the station YAML
 
 **Sidecar YAML** (`tests/test_tps54302.yaml`) — write this with your AI client's filesystem tool, not via `litmus_project(action="save", type="test")` (which forces a `.py` extension):
 
@@ -445,9 +445,9 @@ def test_output():
 
 ## See also
 
-- [api.md → MCP tools](../../reference/api.md#tools) — full per-tool reference: parameters, return shapes, every keyword
+- [api.md → MCP tools](../../reference/runtime/api.md#tools) — full per-tool reference: parameters, return shapes, every keyword
 - [cli.md → litmus setup](../../reference/cli.md#cli-setup) — `litmus setup show` and the `--print-only` flag
-- [litmus-fixtures.md → context, verify, logger](../../reference/litmus-fixtures.md) — every pytest fixture this page references
+- [litmus-fixtures.md → context, verify, logger](../../reference/pytest/fixtures.md) — every pytest fixture this page references
 - [outcomes](../../concepts/execution/outcomes.md) — what each `run_outcome` / `step_outcome` / `measurement_outcome` value means
 - [capabilities](../../concepts/configuration/capabilities.md) — characteristics, SpecBand, the matching model
 - [limits](../execution/limits.md) — the full limit-resolution chain (sidecar / marker / product spec / inline)

@@ -2,7 +2,7 @@
 
 ## How the Framework Works
 
-> **Vocabulary primer.** This page drops a lot of names into one diagram. If you haven't seen them yet: **[product](../configuration/products.md)** and **[station](../configuration/stations.md)** are YAML definitions; **[sidecar](../../reference/configuration.md)** is the per-test YAML carrying limits / sweeps / mocks; **`verify` / `context` / `logger`** are three of the 20 pytest fixtures Litmus adds — the common per-test entry points (see [reference/litmus-fixtures](../../reference/litmus-fixtures.md)); **[characteristic](../configuration/capabilities.md)** is a measurable property on a product; **[capability](../configuration/capabilities.md)** is what an instrument can do.
+> **Vocabulary primer.** This page drops a lot of names into one diagram. If you haven't seen them yet: **[product](../configuration/products.md)** and **[station](../configuration/stations.md)** are YAML definitions; **[sidecar](../../reference/configuration.md)** is the per-test YAML carrying limits / sweeps / mocks; **`verify` / `context` / `logger`** are three of the 20 pytest fixtures Litmus adds — the common per-test entry points (see [reference/litmus-fixtures](../../reference/pytest/fixtures.md)); **[characteristic](../configuration/capabilities.md)** is a measurable property on a product; **[capability](../configuration/capabilities.md)** is what an instrument can do.
 
 ```mermaid
 flowchart LR
@@ -37,7 +37,7 @@ flowchart LR
 | **[Station](../configuration/stations.md)** | Physical test bench with instruments | Bench 1 with DMM, PSU, ELoad |
 | **[Capability](../configuration/capabilities.md)** | What an instrument can do | DMM: measure DC voltage |
 | **[Sidecar](../../reference/configuration.md)** | YAML alongside a test file declaring limits, sweeps, mocks, retry, prompts | `tests/test_power.yaml` |
-| **[TestRun](../../reference/models.md)** | One execution of a test file | Run abc123 on SN001 |
+| **[TestRun](../../reference/data/models.md)** | One execution of a test file | Run abc123 on SN001 |
 | **Measurement** | Single data point with pass/fail | VOUT = 3.31V PASS |
 
 ## System Overview
@@ -72,7 +72,7 @@ flowchart LR
 
 ## Entity Relationships
 
-The platform's data model splits cleanly into three concerns: **what you're testing** (products and their specs), **how you test it** (stations, fixtures, capabilities), and **what gets executed and recorded** (sidecar configuration and runs). Each diagram below covers one concern. For the full per-model schema with every field, see [reference/models](../../reference/models.md) and [reference/catalog-schema](../../reference/catalog-schema.md). Click any diagram to expand.
+The platform's data model splits cleanly into three concerns: **what you're testing** (products and their specs), **how you test it** (stations, fixtures, capabilities), and **what gets executed and recorded** (sidecar configuration and runs). Each diagram below covers one concern. For the full per-model schema with every field, see [reference/models](../../reference/data/models.md) and [reference/catalog-schema](../../reference/catalog/schema.md). Click any diagram to expand.
 
 ### 1. Products & Specs
 
@@ -253,7 +253,7 @@ erDiagram
 | Where to test | `StationType` | `StationConfig` |
 | What to run | `SidecarConfig` (file scope) + pytest collection | `TestRun` |
 | Single iteration | `TestEntry` (per-method scope) | `TestVector` |
-| Expected value | [`Limit`](../../reference/models.md#model-limit) / [`SpecBand`](../../reference/models.md#model-specband) | [`Measurement`](../../reference/models.md#model-measurement) |
+| Expected value | [`Limit`](../../reference/data/models.md#model-limit) / [`SpecBand`](../../reference/data/models.md#model-specband) | [`Measurement`](../../reference/data/models.md#model-measurement) |
 
 ## Core Flows
 

@@ -417,4 +417,4 @@ ORDER BY avg_seconds DESC;
 
 - [Models](models.md) — Pydantic model index + ERD
 - [Event types](event-types.md) — the event-log payloads that source these rows
-- [Measurement traceability](../how-to/execution/traceability.md) — how the signal-path columns get populated
+- [Measurement traceability](../../how-to/execution/traceability.md) — how the signal-path columns get populated

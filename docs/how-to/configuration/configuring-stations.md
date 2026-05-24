@@ -33,7 +33,7 @@ instruments:
 
 ## Instrument Fields
 
-Per [`StationInstrumentConfig`](../../reference/models.md) in `src/litmus/models/station.py`:
+Per [`StationInstrumentConfig`](../../reference/data/models.md) in `src/litmus/models/station.py`:
 
 | Field | Required | Description |
 |-------|----------|-------------|

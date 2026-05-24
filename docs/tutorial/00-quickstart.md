@@ -21,10 +21,10 @@ That's it. You'll see tests pass with mock instruments, limits checked, and resu
 > - **Product spec** — `products/*.yaml`. Describes the device under test. → [Step 6](06-specifications.md), [concepts/products](../concepts/configuration/products.md)
 > - **Station YAML** — `stations/*.yaml`. Declares the bench's instruments. → [Step 7](07-real-instruments.md), [concepts/stations](../concepts/configuration/stations.md)
 > - **Sidecar YAML** — `tests/test_<module>.yaml`. Carries limits, sweeps, mocks for tests in that module. → [Step 5](05-configuration.md)
-> - **`verify` / `logger` / `context` fixtures** — three of the 20 fixtures Litmus contributes. → [Step 3](03-fixtures.md), [reference/litmus-fixtures](../reference/litmus-fixtures.md)
-> - **`@pytest.mark.litmus_limits`** — one of the seven Litmus markers; pins a limit at the top of a test. → [Step 4](04-limits.md), [reference/litmus-markers](../reference/litmus-markers.md)
+> - **`verify` / `logger` / `context` fixtures** — three of the 20 fixtures Litmus contributes. → [Step 3](03-fixtures.md), [reference/litmus-fixtures](../reference/pytest/fixtures.md)
+> - **`@pytest.mark.litmus_limits`** — one of the seven Litmus markers; pins a limit at the top of a test. → [Step 4](04-limits.md), [reference/litmus-markers](../reference/pytest/markers.md)
 > - **`mock_config`** — Per-instrument return values for mock mode. → [Step 2](02-mock-instruments.md), [how-to/mock-mode](../how-to/configuration/mock-mode.md)
-> - **Characteristics, bands, accuracy, `when:`** — Product-spec vocabulary. → [Step 6](06-specifications.md), [reference/catalog-schema](../reference/catalog-schema.md)
+> - **Characteristics, bands, accuracy, `when:`** — Product-spec vocabulary. → [Step 6](06-specifications.md), [reference/catalog-schema](../reference/catalog/schema.md)
 > - **Capability matching** — How Litmus pairs a product to a station. → [Step 8](08-capabilities.md), [concepts/capabilities](../concepts/configuration/capabilities.md)
 > - **MCP** — Model Context Protocol; how AI agents drive Litmus. → [how-to/mcp-integration](../how-to/overview/mcp-integration.md)
 
@@ -130,7 +130,7 @@ instruments:
 
 ### Test Code (`tests/test_example.py`)
 
-Tests are **plain pytest** — no decorator, no base class. The Litmus plugin contributes [20 fixtures](../reference/litmus-fixtures.md) (the per-test `context` / `verify` / `logger`, plus `pins`, `instruments`, per-role auto-fixtures from the station YAML, etc.) and [seven markers](../reference/litmus-markers.md). For how Litmus tests use pytest's own collection / fixture / marker mechanisms see [pytest-native reference](../reference/pytest-native.md).
+Tests are **plain pytest** — no decorator, no base class. The Litmus plugin contributes [20 fixtures](../reference/pytest/fixtures.md) (the per-test `context` / `verify` / `logger`, plus `pins`, `instruments`, per-role auto-fixtures from the station YAML, etc.) and [seven markers](../reference/pytest/markers.md). For how Litmus tests use pytest's own collection / fixture / marker mechanisms see [pytest-native reference](../reference/overview/pytest-native.md).
 
 ```python
 # tests/test_my_product.py

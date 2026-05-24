@@ -19,7 +19,7 @@ pytest tests/ --station=bench_1 --dut-serial=SIM001
 
 Or set `mock_instruments: true` in your project's `litmus.yaml` so every run mocks by default; override per-run with `--no-mock-instruments`.
 
-Take the [`mock_instruments`](../../reference/litmus-fixtures.md#mock_instruments-session) fixture inside a test if you need to branch:
+Take the [`mock_instruments`](../../reference/pytest/fixtures.md#mock_instruments-session) fixture inside a test if you need to branch:
 
 ```python
 @pytest.fixture
@@ -154,7 +154,7 @@ For [per-instrument `mock: true`](#per-instrument-mock-on-real-stations) (mockin
 
 ## Layer ② — Sidecar `mocks:` (the `litmus_mocks` marker)
 
-Per-test overrides written in the sidecar YAML next to the test module, or inline via `@pytest.mark.litmus_mocks([...])`. The sidecar form is the YAML serialization of the marker; both feed the same [`litmus_mocks`](../../reference/litmus-markers.md#litmus_mocks) pipeline.
+Per-test overrides written in the sidecar YAML next to the test module, or inline via `@pytest.mark.litmus_mocks([...])`. The sidecar form is the YAML serialization of the marker; both feed the same [`litmus_mocks`](../../reference/pytest/markers.md#litmus_mocks) pipeline.
 
 Each entry is a `target:` plus any kwargs `unittest.mock.patch.object` accepts. Unknown kwargs pass through verbatim. The ones `patch.object` actually does something useful with:
 
@@ -359,8 +359,8 @@ Sidecar YAML doesn't support per-vector mocks (only file-level / class-level / p
 
 ## See also
 
-- [Litmus fixtures → `mock_instruments`](../../reference/litmus-fixtures.md#mock_instruments-session) — the boolean fixture this page demonstrates
-- [Litmus markers → `litmus_mocks`](../../reference/litmus-markers.md#litmus_mocks) — the marker that sidecar `mocks:` blocks compile to
+- [Litmus fixtures → `mock_instruments`](../../reference/pytest/fixtures.md#mock_instruments-session) — the boolean fixture this page demonstrates
+- [Litmus markers → `litmus_mocks`](../../reference/pytest/markers.md#litmus_mocks) — the marker that sidecar `mocks:` blocks compile to
 - [Custom drivers](custom-drivers.md) — driver authoring, including the bringup-tier conftest pattern that uses `Mock(MyDMM, …)` directly
 - [Configuration reference → Station YAML](../../reference/configuration.md#station-yaml) — `mock_config:`, `mock:` field shapes
 - [Limits](../execution/limits.md) — limit resolution chain (what the nominal you matched feeds into)

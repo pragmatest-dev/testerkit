@@ -23,7 +23,7 @@ with RunsQuery() as q:
 
 Row records returned by these methods live in [models.md](models.md) — see `RunRow`, `StepRow`, `StepNode`. Filter shapes (`FilterSet`, `FacetSpec`, `FacetOption`) also have field tables there.
 
-For low-level DuckDB queries against the parquet files directly, see [Querying events](../how-to/data/querying-events.md). The Query API is generally the better path — it shields you from schema renames and partition layout changes.
+For low-level DuckDB queries against the parquet files directly, see [Querying events](../../how-to/data/querying-events.md). The Query API is generally the better path — it shields you from schema renames and partition layout changes.
 
 <!-- GENERATED:query-api-classes:start -->
 ## `RunsQuery` {#runsquery}
@@ -211,13 +211,13 @@ Cardinality stats for the filter section's badge.
 
 The three classes above expose the methods the UI, HTTP routes, and `litmus metrics` CLI use. If you hit a query the Query API doesn't have, the right move is to add the method to the class so every consumer benefits — not to drop to raw SQL inside your test code. File the gap; the surface is meant to grow.
 
-For one-off ad-hoc exploration outside production code, raw DuckDB recipes live on [Querying events](../how-to/data/querying-events.md), which also covers the on-disk parquet layout and the `record_type` discriminator that lets one file carry run / step / measurement rows.
+For one-off ad-hoc exploration outside production code, raw DuckDB recipes live on [Querying events](../../how-to/data/querying-events.md), which also covers the on-disk parquet layout and the `record_type` discriminator that lets one file carry run / step / measurement rows.
 
 ## See also
 
 - [Models](models.md) — `RunRow`, `StepRow`, `StepNode`, `FilterSet`, `FacetSpec`, `FacetOption`, `SummaryCounts`, `ParametricRow`, `HistogramRow`
-- [Three stores](../concepts/data/three-stores.md) — what feeds these tables
+- [Three stores](../../concepts/data/three-stores.md) — what feeds these tables
 - [Parquet schema](parquet-schema.md) — the column shape underneath
-- [API reference](api.md) — HTTP endpoints that wrap the Query API
-- [Querying events](../how-to/data/querying-events.md) — raw DuckDB recipes
+- [API reference](../runtime/api.md) — HTTP endpoints that wrap the Query API
+- [Querying events](../../how-to/data/querying-events.md) — raw DuckDB recipes
 - [CLI reference](cli.md) — `litmus metrics …` subcommands (CLI surface for `MeasurementsQuery`)

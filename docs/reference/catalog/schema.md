@@ -6,7 +6,7 @@ For worked recipes (one per recurring datasheet shape), see the [catalog cookboo
 
 **Status:** Frozen at `CATALOG_SCHEMA_VERSION = "1.0"` for the 0.1.0 release. Schema evolution within `1.0` is additive only — new optional fields and new enum values are allowed; renames, removals, and type narrowing require a version bump.
 
-For the full Pydantic model surface backing every field below, see [models reference](models.md#catalog-entry--litmusmodelscatalog).
+For the full Pydantic model surface backing every field below, see [models reference](../data/models.md#catalog-entry--litmusmodelscatalog).
 
 ## File shape
 
@@ -266,7 +266,7 @@ signals:
 
 ## `MeasurementFunction` enum {#measurementfunction-enum}
 
-Pick the **most specific** value the datasheet supports. See [`MeasurementFunction` in the models reference](models.md#enum-measurementfunction) for the full set (50+ values across DC, AC, RF, optical, environmental, motion).
+Pick the **most specific** value the datasheet supports. See [`MeasurementFunction` in the models reference](../data/models.md#enum-measurementfunction) for the full set (50+ values across DC, AC, RF, optical, environmental, motion).
 
 Common mistakes:
 
@@ -295,7 +295,7 @@ channels:
     optional: false                      # true = not present on all configurations
 ```
 
-Allowed enum values (see [enums in the models reference](models.md#enum-terminalrole) for the full lists):
+Allowed enum values (see [enums in the models reference](../data/models.md#enum-terminalrole) for the full lists):
 
 - **terminals** — `hi`, `lo`, `sense_hi`, `sense_lo`, `guard`, `ground`, `signal`, `trigger`, plus the four-wire impedance roles `hcur`, `hpot`, `lcur`, `lpot`.
 - **connector** — physical connector at the chassis: `binding_post`, `banana`, `bnc`, `sma`, `smb`, `triax`, `terminal_block`, `screw_terminal`, `dsub`, `d_sub_9`, `d_sub_15`, `vhdci`, `phoenix`, `tekvpi`, `pxi`, `spring`, `probe`, `apc_3.5`, `type_n`, `k_2.4mm`, `v_1.85mm`, `proprietary`. (Bus / control interfaces — `usb`, `lan`, `gpib` — belong in the file-root `interfaces:` field, NOT in `connector:`.)
@@ -370,6 +370,6 @@ No comments in catalog YAML. All metadata belongs in the schema — extend the m
 ## See also
 
 - [Catalog cookbook](catalog-cookbook.md) — worked recipes per datasheet shape
-- [Capabilities](../concepts/configuration/capabilities.md) — what the catalog enables (matching, profile selection)
-- [Tutorial: capabilities](../tutorial/08-capabilities.md) — introduces the schema in context
-- [Models reference](models.md) — full Pydantic model surface
+- [Capabilities](../../concepts/configuration/capabilities.md) — what the catalog enables (matching, profile selection)
+- [Tutorial: capabilities](../../tutorial/08-capabilities.md) — introduces the schema in context
+- [Models reference](../data/models.md) — full Pydantic model surface

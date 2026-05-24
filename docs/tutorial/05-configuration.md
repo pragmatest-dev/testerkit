@@ -61,7 +61,7 @@ def test_output_voltage(vin, context, psu, dmm, logger):
     logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-The [`@pytest.mark.litmus_sweeps(...)`](../reference/litmus-markers.md#litmus_sweeps) form is also available for inline use
+The [`@pytest.mark.litmus_sweeps(...)`](../reference/pytest/markers.md#litmus_sweeps) form is also available for inline use
 of the runner-neutral vector vocabulary:
 
 ```python

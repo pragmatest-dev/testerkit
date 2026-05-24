@@ -12,11 +12,13 @@ This script overwrites only the content between matching markers; the
 hand-written prose, examples, and intros outside the markers stay put.
 
 Targets:
-    event-types   -> docs/reference/event-types.md
-    models        -> docs/reference/models.md
+    event-types   -> docs/reference/data/event-types.md
+    models        -> docs/reference/data/models.md
     configuration -> docs/reference/configuration.md
-    api           -> docs/reference/api.md
+    api           -> docs/reference/runtime/api.md
     cli           -> docs/reference/cli.md
+    pytest-native -> docs/reference/overview/pytest-native.md
+    query-api     -> docs/reference/data/query-api.md
 
 Usage:
     uv run python scripts/generate_reference_docs.py event-types
@@ -263,7 +265,7 @@ def _event_type_value(cls: type[BaseModel]) -> str:
 def _generate_event_types(*, check: bool) -> bool:
     from litmus.data import events as events_mod
 
-    target = DOCS_DIR / "event-types.md"
+    target = DOCS_DIR / "data" / "event-types.md"
 
     # Base fields section — emit the EventBase table.
     base_body = _render_field_table(events_mod.EventBase)
@@ -425,7 +427,7 @@ def _render_enum_class(cls: type[Enum], *, level: int = 4) -> list[str]:
 
 
 def _generate_models(*, check: bool) -> bool:
-    target = DOCS_DIR / "models.md"
+    target = DOCS_DIR / "data" / "models.md"
 
     # Per-module sections — emitted into the GENERATED:models-by-module block.
     parts: list[str] = []
@@ -638,7 +640,7 @@ def _generate_api(*, check: bool) -> bool:
         prompt_parts.append(f"| `{name}` | {args} | {summary} |")
     prompts_body = "\n".join(prompt_parts)
 
-    target = DOCS_DIR / "api.md"
+    target = DOCS_DIR / "runtime" / "api.md"
     existing = target.read_text()
     new = _replace_section(existing, "api-http-routes", http_body)
     new = _replace_section(new, "api-mcp-tools", mcp_body)
@@ -846,7 +848,7 @@ def _extract_addoption_calls(func: ast.FunctionDef) -> list[dict[str, Any]]:
 
 
 def _generate_pytest_native(*, check: bool) -> bool:
-    target = DOCS_DIR / "pytest-native.md"
+    target = DOCS_DIR / "overview" / "pytest-native.md"
     source = (REPO_ROOT / "src/litmus/pytest_plugin/hooks.py").read_text()
     tree = ast.parse(source)
 
@@ -950,7 +952,7 @@ def _public_methods(cls: type) -> list[tuple[str, Any]]:
 
 
 def _generate_query_api(*, check: bool) -> bool:
-    target = DOCS_DIR / "query-api.md"
+    target = DOCS_DIR / "data" / "query-api.md"
 
     parts: list[str] = []
     for label, dotted in _QUERY_CLASSES:

@@ -22,7 +22,7 @@ Sessions are created automatically by the Litmus pytest plugin. Each test run ge
 
 ## Session Metadata
 
-Every session captures rich context via the `SessionStarted` event (see [reference/event-types](../../reference/event-types.md)). Query it to answer questions like:
+Every session captures rich context via the `SessionStarted` event (see [reference/event-types](../../reference/data/event-types.md)). Query it to answer questions like:
 
 - What station was used?
 - Who was the operator?
@@ -94,5 +94,5 @@ Default: unlimited (keep everything). No surprise data loss.
 ## See Also
 
 - [Sessions Concept](../../concepts/data/sessions.md) — Why sessions exist
-- [connect() reference](../../reference/connect.md) — full API surface
+- [connect() reference](../../reference/runtime/connect.md) — full API surface
 - [Querying Events](../data/querying-events.md) — Event query patterns

@@ -16,7 +16,7 @@ All three are available on every test run — no station, no sidecar, no sweep r
 | `verify` | Records the row, resolves a limit, raises on FAIL      | `verify(name, value, limit=..., characteristic=...)` (`characteristic` = a named measurable property on the product spec — covered in step 6 / [concepts/capabilities](../concepts/configuration/capabilities.md)) |
 | `context`| Ambient run / DUT / station / vector state             | `get_param`, `changed`, `last`, `observe`, `.product`, `.station`, `.run` |
 
-These are the common per-test entry points. The plugin exposes 17 others (hardware accessors like `pins` / `instruments` / `dut`, configuration accessors like `product_context` / `station_config`, special modes like `vectors` / `sync`) — see the [Litmus fixtures reference](../reference/litmus-fixtures.md) for the full set.
+These are the common per-test entry points. The plugin exposes 17 others (hardware accessors like `pins` / `instruments` / `dut`, configuration accessors like `product_context` / `station_config`, special modes like `vectors` / `sync`) — see the [Litmus fixtures reference](../reference/pytest/fixtures.md) for the full set.
 
 ## From assert to logger.measure
 
@@ -74,7 +74,7 @@ class TestPowerUp:
                limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
-Methods run in source order. Each emits its own [step](../concepts/execution/step-hierarchy.md) events; the class container's [outcome](../reference/models.md#enum-outcome) rolls up from the worst child outcome.
+Methods run in source order. Each emits its own [step](../concepts/execution/step-hierarchy.md) events; the class container's [outcome](../reference/data/models.md#enum-outcome) rolls up from the worst child outcome.
 
 If a downstream test should skip when an upstream one fails, use `@pytest.mark.dependency(depends=["test_input_voltage"])` from the [`pytest-dependency`](https://pytest-dependency.readthedocs.io/) plugin — pytest's ecosystem, not a Litmus addition.
 
@@ -104,7 +104,7 @@ def test_output_voltage(vin, psu, dmm, verify):
     ...
 ```
 
-Use `@pytest.mark.parametrize` when you want pytest's per-row `pytest.param(..., id="...")` metadata; use `@pytest.mark.litmus_sweeps` when you want range expanders or sidecar parity. See [`litmus_sweeps`](../reference/litmus-markers.md#litmus_sweeps) and the [Litmus markers reference](../reference/litmus-markers.md) for all seven `litmus_*` markers.
+Use `@pytest.mark.parametrize` when you want pytest's per-row `pytest.param(..., id="...")` metadata; use `@pytest.mark.litmus_sweeps` when you want range expanders or sidecar parity. See [`litmus_sweeps`](../reference/pytest/markers.md#litmus_sweeps) and the [Litmus markers reference](../reference/pytest/markers.md) for all seven `litmus_*` markers.
 
 ## Multiple measurements per test
 
@@ -166,7 +166,7 @@ Each measurement row carries:
 | `measurement_timestamp` | when it was recorded |
 | `vector_index` | which sweep variant (NULL for non-parametrized tests) |
 
-Full schema in [Parquet storage schema](../reference/parquet-schema.md).
+Full schema in [Parquet storage schema](../reference/data/parquet-schema.md).
 
 ## What you learned
 

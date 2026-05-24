@@ -12,7 +12,7 @@ TestRun                              ← one per pytest session
             └── Measurement          ← one per `logger.measure` / `verify` call
 ```
 
-Each level emits its own event in the run log. Each level rolls its outcome up to the next level via the severity-max ladder (see [Outcomes](outcomes.md)). `verify` and `logger.measure` are pytest [fixtures](../../reference/litmus-fixtures.md); `vectors` is the [self-loop fixture](../../how-to/execution/vector-expansion.md).
+Each level emits its own event in the run log. Each level rolls its outcome up to the next level via the severity-max ladder (see [Outcomes](outcomes.md)). `verify` and `logger.measure` are pytest [fixtures](../../reference/pytest/fixtures.md); `vectors` is the [self-loop fixture](../../how-to/execution/vector-expansion.md).
 
 ## What each level is
 
@@ -150,4 +150,4 @@ The runs daemon materializes step events into a `steps_materialized` DuckDB tabl
 - `parent_path = '<class_name>'` → method directly under a class container
 - `parent_path = '<class>/<method>'` → would be a nested step (uncommon today; only via `harness.step()` self-loops)
 
-`MAX(severity)` over rows sharing a `step_path` aggregates "did this class ever fail in this run" across its iterations. See the [results storage reference](../../reference/parquet-schema.md) for the full column schema.
+`MAX(severity)` over rows sharing a `step_path` aggregates "did this class ever fail in this run" across its iterations. See the [results storage reference](../../reference/data/parquet-schema.md) for the full column schema.

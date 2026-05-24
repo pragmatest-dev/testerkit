@@ -56,7 +56,7 @@ the named profile's declared facets and error on mismatch.
 
 ## Profile shape
 
-A profile is a [`TestEntry`](../../reference/models.md) (the same per-test config record the sidecar uses) plus three
+A profile is a [`TestEntry`](../../reference/data/models.md) (the same per-test config record the sidecar uses) plus three
 profile-only fields:
 
 | Field         | Type                                 | Purpose                                     |

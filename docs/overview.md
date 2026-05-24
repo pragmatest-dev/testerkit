@@ -9,7 +9,7 @@ Litmus is a Python-native hardware test platform for the AI-assisted era.
 | [Tutorial](tutorial/) | Engineer's First Project - progressive learning path |
 | [How-To Guides](how-to/execution/writing-tests.md) | Step-by-step guides for common tasks |
 | [Concepts](concepts/) | Products, stations, capabilities, fixtures, and matching |
-| [Reference](reference/api.md) | MCP tools, HTTP endpoints, CLI, models |
+| [Reference](reference/runtime/api.md) | MCP tools, HTTP endpoints, CLI, models |
 | [Integration](integration/) | Adopt Litmus with existing tests and infrastructure |
 | [Examples](https://github.com/pragmatest-dev/litmus/tree/main/examples) | Seven runnable example projects, each one rung of the framework adoption ladder (01-vanilla → 07-profiles) |
 
@@ -90,7 +90,7 @@ Check out [Integration](integration/) — guides for adopting Litmus incremental
 
 ### Quick Reference
 
-Jump to [Reference](reference/api.md) for API documentation, configuration schemas, and CLI commands.
+Jump to [Reference](reference/runtime/api.md) for API documentation, configuration schemas, and CLI commands.
 
 ## Project Structure
 

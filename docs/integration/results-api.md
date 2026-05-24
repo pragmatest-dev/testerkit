@@ -4,17 +4,17 @@ When the test isn't a pytest function — LabVIEW, TestStand, a custom script, a
 
 ## Canonical reference
 
-The full API surface — `LitmusClient`, `RunBuilder`, `StepBuilder`, `VectorBuilder`, every method signature, the LabVIEW / TestStand / CLI integration patterns — lives on the [Python client reference](../reference/client.md). This page is the integration-level entry point; that page is the API.
+The full API surface — `LitmusClient`, `RunBuilder`, `StepBuilder`, `VectorBuilder`, every method signature, the LabVIEW / TestStand / CLI integration patterns — lives on the [Python client reference](../reference/runtime/client.md). This page is the integration-level entry point; that page is the API.
 
 ## When to use which path
 
 | You have | Use |
 |---|---|
-| Python code with the results in hand | [`LitmusClient`](../reference/client.md) — chained builder, writes directly to the store |
-| pytest tests | The pytest plugin, NOT this — see [Litmus fixtures](../reference/litmus-fixtures.md) |
+| Python code with the results in hand | [`LitmusClient`](../reference/runtime/client.md) — chained builder, writes directly to the store |
+| pytest tests | The pytest plugin, NOT this — see [Litmus fixtures](../reference/pytest/fixtures.md) |
 | Shell script or non-Python toolchain | Wrap the Python client in a one-file CLI; call it via subprocess |
-| LabVIEW | [LabVIEW pattern in `client.md`](../reference/client.md#from-labview) — Python Node call |
-| TestStand | [TestStand pattern in `client.md`](../reference/client.md#from-teststand) — Python adapter |
+| LabVIEW | [LabVIEW pattern in `client.md`](../reference/runtime/client.md#from-labview) — Python Node call |
+| TestStand | [TestStand pattern in `client.md`](../reference/runtime/client.md#from-teststand) — Python adapter |
 
 ## HTTP API caveat
 
@@ -24,14 +24,14 @@ The full API surface — `LitmusClient`, `RunBuilder`, `StepBuilder`, `VectorBui
 
 Once results are in the store, query through any of:
 
-- `client.list_runs()` / `client.get_run()` / `client.get_measurements()` — see [client.md](../reference/client.md#querying-results)
+- `client.list_runs()` / `client.get_run()` / `client.get_measurements()` — see [client.md](../reference/runtime/client.md#querying-results)
 - CLI: `litmus runs`, `litmus show <run_id>` — see [cli.md](../reference/cli.md)
-- HTTP: `GET /api/runs`, `GET /api/runs/{run_id}`, `GET /api/runs/{run_id}/measurements` — see [api.md](../reference/api.md)
-- Raw parquet via DuckDB / pandas / Polars — see [parquet-schema.md](../reference/parquet-schema.md) for columns and [three-stores.md](../concepts/data/three-stores.md) for the on-disk layout
+- HTTP: `GET /api/runs`, `GET /api/runs/{run_id}`, `GET /api/runs/{run_id}/measurements` — see [api.md](../reference/runtime/api.md)
+- Raw parquet via DuckDB / pandas / Polars — see [parquet-schema.md](../reference/data/parquet-schema.md) for columns and [three-stores.md](../concepts/data/three-stores.md) for the on-disk layout
 
 ## See also
 
-- [Python client reference](../reference/client.md) — full API, integration patterns, examples
+- [Python client reference](../reference/runtime/client.md) — full API, integration patterns, examples
 - [Logging integration](logging.md) — sending results onward to external systems (S3, databases, Python logging)
-- [Parquet schema](../reference/parquet-schema.md) — column-by-column reference for the stored data
+- [Parquet schema](../reference/data/parquet-schema.md) — column-by-column reference for the stored data
 - [Three stores](../concepts/data/three-stores.md) — where the data lives, data_dir resolution, schema-evolution contract

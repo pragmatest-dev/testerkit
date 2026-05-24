@@ -9,5 +9,5 @@ How a test run unfolds — the step model, what each step records, and how outco
 ## See also
 
 - [How-to → Writing tests](../../how-to/execution/writing-tests.md) — task recipe for authoring test code that fits the step model
-- [Reference → Pytest fixtures](../../reference/litmus-fixtures.md) — the fixtures the step model exposes (`context`, `verify`, `logger`)
+- [Reference → Pytest fixtures](../../reference/pytest/fixtures.md) — the fixtures the step model exposes (`context`, `verify`, `logger`)
 - [Data](../data/index.md) — where step events and the materialized run go after execution

@@ -11,4 +11,4 @@ The DUT-to-instrument model. Products and stations are YAML entities you author 
 
 - [How-to → Configuring stations](../../how-to/configuration/configuring-stations.md) — task recipe for writing station YAML
 - [Reference → Configuration](../../reference/configuration.md) — the YAML schemas (generated from the Pydantic models)
-- [Reference → Catalog schema](../../reference/catalog-schema.md) — how catalog entries define instrument capabilities
+- [Reference → Catalog schema](../../reference/catalog/schema.md) — how catalog entries define instrument capabilities

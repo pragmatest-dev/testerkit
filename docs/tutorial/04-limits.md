@@ -19,7 +19,7 @@ limit = {
 }
 ```
 
-Both `verify(name, value, limit=...)` and `logger.measure(name, value, limit=...)` accept this dict directly. Internally it's validated against the `Limit` Pydantic model in [`litmus.models.test_config`](../reference/models.md#model-limit). If you'd rather construct the model explicitly — for IDE type-checking or for a shared constant — `Limit` is re-exported from the top-level package:
+Both `verify(name, value, limit=...)` and `logger.measure(name, value, limit=...)` accept this dict directly. Internally it's validated against the `Limit` Pydantic model in [`litmus.models.test_config`](../reference/data/models.md#model-limit). If you'd rather construct the model explicitly — for IDE type-checking or for a shared constant — `Limit` is re-exported from the top-level package:
 
 ```python
 from litmus import Limit
@@ -31,7 +31,7 @@ The dict form is the canonical idiom in tutorials and examples; reach for `Limit
 
 ## How a measurement is checked
 
-`logger.measure(...)` records a [`Measurement`](../reference/models.md#model-measurement) row with the value, units, and limit. `verify(...)` does the same plus raises `AssertionError` on FAIL. Either way, the row carries an `Outcome`:
+`logger.measure(...)` records a [`Measurement`](../reference/data/models.md#model-measurement) row with the value, units, and limit. `verify(...)` does the same plus raises `AssertionError` on FAIL. Either way, the row carries an `Outcome`:
 
 | Outcome | String value | Meaning |
 |---------|--------------|---------|

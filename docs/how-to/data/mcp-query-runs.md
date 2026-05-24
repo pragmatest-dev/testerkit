@@ -120,6 +120,6 @@ clicking.
 - [MCP integration](../overview/mcp-integration.md) — server setup, client registration
 - [Datasheet → tests](../catalog/datasheet-to-test.md) — end-to-end authoring flow
 - [Debug failures via MCP](mcp-debug-failures.md) — investigation-focused recipe
-- [API reference → MCP tools](../../reference/api.md#tools) — every tool's full parameter list and return shape
+- [API reference → MCP tools](../../reference/runtime/api.md#tools) — every tool's full parameter list and return shape
 - [Operator UI → Results list](../../reference/operator-ui/results/list.md) — the UI surface that reads the same data
 - [Operator UI → Metrics](../../reference/operator-ui/metrics.md) — the UI surface that reads the same metrics actions

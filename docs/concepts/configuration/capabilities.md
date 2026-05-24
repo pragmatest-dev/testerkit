@@ -123,7 +123,7 @@ The matcher determines whether a station can test a product using tiered matchin
 1. **Function match** — instrument has same `MeasurementFunction` as requirement
 2. **Direction match** — directions pair correctly (OUTPUT↔INPUT, BIDIR satisfies both)
 3. **Parameter range containment** — instrument's parameter ranges contain required values
-4. **Accuracy** — instrument accuracy must be better than required (condition-aware via [`SpecBand`](../../reference/models.md), the value-plus-condition record)
+4. **Accuracy** — instrument accuracy must be better than required (condition-aware via [`SpecBand`](../../reference/data/models.md), the value-plus-condition record)
 5. **Resolution** — instrument resolution must meet or exceed required
 
 ```python

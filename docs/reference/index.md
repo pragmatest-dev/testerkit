@@ -1,45 +1,46 @@
 # Reference
 
-Authoritative listing of Litmus's public surface, organized by what you're holding when you reach for it. Each entry links to the page that exhaustively documents one boundary.
+Authoritative listing of Litmus's public surface, organized by the same category axis as [concepts](../concepts/) and [how-to](../how-to/). Each entry links to the page that exhaustively documents one boundary.
 
-## Writing pytest tests
+## Overview
 
-pytest is the foundation; the bundled plugin layers fixtures, markers, and YAML on top. Read in order — each page assumes the previous.
+The foundational pages — pytest mechanics every Litmus test uses, plus the inventory of AI / MCP skills the platform ships.
 
-- [pytest-native](pytest-native.md) — how a Litmus test uses pytest's own collection / fixtures / markers / `conftest.py` / CLI flags. Nothing Litmus-specific. The baseline every other page builds on.
-- [Litmus fixtures](litmus-fixtures.md) — all 20 fixtures the plugin contributes on top of pytest's, with signatures, scopes, and per-fixture examples.
-- [Litmus markers](litmus-markers.md) — the seven `@pytest.mark.litmus_*` decorators the plugin registers and their 1:1 sidecar equivalents.
-- [Test configuration](configuration.md) — `litmus.yaml`, station YAML, fixture YAML, sidecar YAML, profile YAML — the schemas the fixtures and markers read from.
+- [pytest-native](overview/pytest-native.md) — how a Litmus test uses pytest's own collection / fixtures / markers / `conftest.py` / CLI flags. Nothing Litmus-specific. The baseline every other page builds on.
+- [Skills](overview/skills.md) — the workflows, sub-agent templates, slash commands, and MCP prompts that ship with Litmus for AI-assisted authoring.
 
-## Authoring instrument catalog YAML
+## Configuration
 
-The catalog is shared across projects (one entry per `make.model`), so its schema gets its own pages.
+The YAML schemas every entity validates against, plus the catalog (its own thing because the catalog is shared across projects).
 
-- [Catalog schema](catalog-schema.md) — every field in a `catalog/<vendor>/<model>.yaml` entry, the rules, the "what goes WHERE" decision tree.
-- [Catalog cookbook](catalog-cookbook.md) — worked recipes for the recurring datasheet shapes (accuracy bands, dual-unit values, shared controls, conditional attributes, etc.).
+- [Configuration](configuration.md) — `litmus.yaml`, station YAML, fixture YAML, product YAML, sidecar YAML, profile YAML — all schemas the fixtures and markers read from (generated from the Pydantic models).
+- [Catalog → schema](catalog/schema.md) — every field in a `catalog/<vendor>/<model>.yaml` entry, the rules, the "what goes WHERE" decision tree.
+- [Catalog → cookbook](catalog/cookbook.md) — worked recipes for the recurring datasheet shapes (accuracy bands, dual-unit values, shared controls, conditional attributes, etc.).
 
-## Submitting results from outside pytest
+## pytest plugin
 
-For LabVIEW, TestStand, scripts, the operator UI — anywhere the test isn't a pytest function.
+The fixtures and markers the bundled pytest plugin contributes on top of stock pytest.
 
-- [`LitmusClient`](client.md) — Python client that submits test runs (no pytest required). Suits LabVIEW / TestStand bridges.
-- [`connect()`](connect.md) — interactive instrument access for scripts, notebooks, the operator UI. Returns a `StationConnection` with the full event-log / channel-store / instrument-pool surface.
-- [HTTP API](api.md) — REST endpoints exposed by `litmus serve`. Same shapes as the MCP tools.
+- [Fixtures](pytest/fixtures.md) — all 20 fixtures the plugin contributes on top of pytest's, with signatures, scopes, and per-fixture examples.
+- [Markers](pytest/markers.md) — the seven `@pytest.mark.litmus_*` decorators the plugin registers and their 1:1 sidecar equivalents.
 
-## Data shapes the system writes
+## Data
 
-If you're reading the parquet, the event log, or any export — these pages describe exactly what's in them.
+The shapes the system writes. If you're reading parquet, the event log, or any export — these pages describe exactly what's in them.
 
-- [Pydantic models](models.md) — every public model + ERD of how they reference each other.
-- [Event types](event-types.md) — every typed event payload the runtime emits.
-- [Parquet schema](parquet-schema.md) — every column in the run parquet, the `record_type` discriminator, how retries land.
-- [Output formats](outputs.md) — what `litmus show -f <fmt>` and `litmus export` produce for HTML / PDF / JSON / CSV.
+- [Models](data/models.md) — every public Pydantic model + ERD of how they reference each other (generated).
+- [Event types](data/event-types.md) — every typed event payload the runtime emits (generated).
+- [Parquet schema](data/parquet-schema.md) — every column in the run parquet, the `record_type` discriminator, how retries land.
+- [Output formats](data/outputs.md) — what `litmus show -f <fmt>` and `litmus export` produce for HTML / PDF / JSON / CSV / STDF / HDF5 / TDMS / MDF4 / ATML.
+- [Query API](data/query-api.md) — `RunsQuery`, `StepsQuery`, `MeasurementsQuery`. The public read path the UI and HTTP API both use (generated).
 
-## Reading results back
+## Runtime
 
-For analytics from Python — yield, Cpk, pareto, trends — without writing raw DuckDB.
+The interactive and programmatic surfaces — for LabVIEW, TestStand, scripts, dashboards, AI agents.
 
-- [Query API](query-api.md) — `RunsQuery`, `StepsQuery`, `MeasurementsQuery`. The public read path the UI and HTTP API both use.
+- [`LitmusClient`](runtime/client.md) — Python client that submits test runs (no pytest required). Suits LabVIEW / TestStand bridges.
+- [`connect()`](runtime/connect.md) — interactive instrument access for scripts, notebooks, the operator UI. Returns a `StationConnection` with the full event-log / channel-store / instrument-pool surface.
+- [HTTP & MCP API](runtime/api.md) — REST endpoints exposed by `litmus serve`, plus the twelve MCP tools (generated). Same shapes either way.
 
 ## Operator UI (`litmus serve`)
 
@@ -64,8 +65,4 @@ Per-screen reference for the browser surface. For orientation, see the [Tour of 
 
 ## Command line
 
-- [CLI reference](cli.md) — every `litmus <command>` and its flags.
-
-## AI integration
-
-- [Skills](skills.md) — the workflows, sub-agent templates, and slash commands that ship with Litmus for AI-assisted authoring.
+- [CLI reference](cli.md) — every `litmus <command>` and its flags (generated).

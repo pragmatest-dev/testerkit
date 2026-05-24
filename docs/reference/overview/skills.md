@@ -2,7 +2,7 @@
 
 Litmus ships a set of **AI workflow prompts** under `src/litmus/skills/` that drive Claude / Copilot / Cursor / Cline through hardware-test authoring tasks. This page is the inventory: what each prompt does, what it calls, and how it's installed.
 
-For motivation (why AI integration at all), see [concepts/why-ai-integration](../concepts/overview/ai-integration.md). For setup commands (`litmus setup <client>`), see [how-to/mcp-integration](../how-to/overview/mcp-integration.md).
+For motivation (why AI integration at all), see [concepts/why-ai-integration](../../concepts/overview/ai-integration.md). For setup commands (`litmus setup <client>`), see [how-to/mcp-integration](../../how-to/overview/mcp-integration.md).
 
 ## Three layers
 
@@ -98,7 +98,7 @@ Claude Desktop, Cursor, and Cline get the MCP server registration (so the agent 
 
 ## MCP tools the workflows call
 
-The 12 MCP tools exposed by `litmus mcp serve`. Per-tool parameter detail in the [API reference](api.md#tools).
+The 12 MCP tools exposed by `litmus mcp serve`. Per-tool parameter detail in the [API reference](../runtime/api.md#tools).
 
 | Tool | Workflows that use it |
 |---|---|
@@ -157,7 +157,7 @@ All `litmus setup` commands accept `--print-only` to show the config that would 
 
 ## See also
 
-- [Concepts: why AI integration](../concepts/overview/ai-integration.md) — motivation
-- [How-to: datasheet-to-test workflow](../how-to/catalog/datasheet-to-test.md) — end-to-end walkthrough
-- [How-to: MCP integration](../how-to/overview/mcp-integration.md) — registering the server with each AI client
-- [Reference: MCP tools](api.md#tools) — per-tool parameter detail
+- [Concepts: why AI integration](../../concepts/overview/ai-integration.md) — motivation
+- [How-to: datasheet-to-test workflow](../../how-to/catalog/datasheet-to-test.md) — end-to-end walkthrough
+- [How-to: MCP integration](../../how-to/overview/mcp-integration.md) — registering the server with each AI client
+- [Reference: MCP tools](../runtime/api.md#tools) — per-tool parameter detail

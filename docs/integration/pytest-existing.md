@@ -2,7 +2,7 @@
 
 You already have a pytest test suite. This page is the route to wiring Litmus in without rewriting it.
 
-The short version: install Litmus, point a station YAML at your bench, and the [bundled pytest plugin](../reference/litmus-fixtures.md) auto-loads. Existing tests keep running. New tests that take Litmus fixtures (`verify`, `logger`, `context`, your per-role instrument fixtures) get measurement logging, limit checking, parquet results, and the operator UI for free.
+The short version: install Litmus, point a station YAML at your bench, and the [bundled pytest plugin](../reference/pytest/fixtures.md) auto-loads. Existing tests keep running. New tests that take Litmus fixtures (`verify`, `logger`, `context`, your per-role instrument fixtures) get measurement logging, limit checking, parquet results, and the operator UI for free.
 
 The longer version is the rest of this page: install, what auto-loads, what fixtures appear, how to keep an old test alongside a new one, and four entry points for mixing in Litmus features at different depths.
 
@@ -27,7 +27,7 @@ The plugin registers these CLI flags out of the box:
 - `--mock-instruments` / `--no-mock-instruments`, `--test-phase`, `--test-profile` / `--no-test-profile`, `--operator`
 - `--data-dir`, `--guardband`, `--strict-traceability`
 
-The full table with defaults and descriptions is in [reference/pytest-native.md](../reference/pytest-native.md). Dynamic flags for profile facets and `required_inputs:` keys are also registered — see that page.
+The full table with defaults and descriptions is in [reference/pytest-native.md](../reference/overview/pytest-native.md). Dynamic flags for profile facets and `required_inputs:` keys are also registered — see that page.
 
 **Do not re-register these in your own `pytest_addoption`** — pytest treats duplicate flag registration as a fatal `argparse.ArgumentError` at collection. The plugin already owns them.
 
@@ -41,7 +41,7 @@ The plugin name appears in the loaded-plugins list at the top of the output. If 
 
 ## What fixtures appear
 
-The plugin provides a fixed set of [20 plugin fixtures](../reference/litmus-fixtures.md) (most-used: `verify`, `logger`, `context`, `pins`, `instruments`). It also synthesizes one [per-role auto-fixture](../reference/litmus-fixtures.md#per-role-auto-fixtures) per instrument in the active station YAML — so a station with `instruments: { dmm: ..., psu: ..., scope: ... }` exposes `dmm`, `psu`, `scope` as fixtures automatically. No wrapper code needed.
+The plugin provides a fixed set of [20 plugin fixtures](../reference/pytest/fixtures.md) (most-used: `verify`, `logger`, `context`, `pins`, `instruments`). It also synthesizes one [per-role auto-fixture](../reference/pytest/fixtures.md#per-role-auto-fixtures) per instrument in the active station YAML — so a station with `instruments: { dmm: ..., psu: ..., scope: ... }` exposes `dmm`, `psu`, `scope` as fixtures automatically. No wrapper code needed.
 
 ```python
 # tests/test_voltage.py — a new pytest test that uses Litmus
@@ -124,7 +124,7 @@ def test_output_voltage(dmm, verify):
 - Pros: smallest possible surface; standard pytest; uses everything the plugin offers.
 - Trade-off: requires a station YAML to define `dmm`.
 
-Use this for any test you're writing fresh. See [writing tests](../how-to/execution/writing-tests.md) for end-to-end patterns and [`reference/litmus-fixtures.md`](../reference/litmus-fixtures.md) for the full 20-fixture surface.
+Use this for any test you're writing fresh. See [writing tests](../how-to/execution/writing-tests.md) for end-to-end patterns and [`reference/litmus-fixtures.md`](../reference/pytest/fixtures.md) for the full 20-fixture surface.
 
 ### Path B — `LitmusClient` for result tracking from any existing test
 
@@ -144,7 +144,7 @@ with run.step("voltage_check") as step:
 run.finish()
 ```
 
-`LitmusClient` is a chained builder — `run.step()` and `step.vector()` are context managers; `run.finish()` finalizes and saves. Full API on [`reference/client.md`](../reference/client.md).
+`LitmusClient` is a chained builder — `run.step()` and `step.vector()` are context managers; `run.finish()` finalizes and saves. Full API on [`reference/client.md`](../reference/runtime/client.md).
 
 - Pros: zero plugin dependency; works from any Python code (LabVIEW Python Node, TestStand Python adapter, standalone scripts).
 - Trade-off: don't mix Path B with Path A in the same pytest session — the autouse `logger` fixture (plugin path) and a manually-constructed `LitmusClient` would each open their own run, producing duplicate parquet rows.
@@ -331,14 +331,14 @@ Pick what you need. The plugin doesn't force any of it — without YAMLs, you st
 
 ## See also
 
-- [Litmus fixtures](../reference/litmus-fixtures.md) — the 20 fixtures the plugin contributes (and the per-role auto-fixtures from station YAML)
-- [Litmus markers](../reference/litmus-markers.md) — `litmus_limits`, `litmus_sweeps`, `litmus_mocks`, `litmus_characteristics`, `litmus_connections`, `litmus_retry`, `litmus_prompts`
-- [pytest-native reference](../reference/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers / CLI flags
+- [Litmus fixtures](../reference/pytest/fixtures.md) — the 20 fixtures the plugin contributes (and the per-role auto-fixtures from station YAML)
+- [Litmus markers](../reference/pytest/markers.md) — `litmus_limits`, `litmus_sweeps`, `litmus_mocks`, `litmus_characteristics`, `litmus_connections`, `litmus_retry`, `litmus_prompts`
+- [pytest-native reference](../reference/overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers / CLI flags
 - [Writing tests](../how-to/execution/writing-tests.md) — end-to-end patterns for new Litmus-flavored tests
 - [Configuration reference](../reference/configuration.md) — full YAML schemas for `litmus.yaml`, station, fixture, sidecar, profile
 - [Mock mode](../how-to/configuration/mock-mode.md) — `--mock-instruments`, `mock_config:`, the mock pipeline
 - [Configuring stations](../how-to/configuration/configuring-stations.md) — station YAML reference + the `driver:` field
-- [Python client reference](../reference/client.md) — full `LitmusClient` / `RunBuilder` / `StepBuilder` API (Path B above)
+- [Python client reference](../reference/runtime/client.md) — full `LitmusClient` / `RunBuilder` / `StepBuilder` API (Path B above)
 - [Test harness](harness.md) — the imperative entry point for non-pytest runners (Path C above)
 - [Custom drivers](../how-to/configuration/custom-drivers.md) — writing your own driver class (Path D above)
 - [Submitting results from non-pytest sources](results-api.md) — LabVIEW, TestStand, CLI bridges via `LitmusClient`
