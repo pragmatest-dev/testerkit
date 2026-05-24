@@ -1,34 +1,39 @@
 # Concepts
 
-Why Litmus is built the way it is. Read top-to-bottom for the framework's mental model, or jump to the group that matches what you're trying to understand.
+Why Litmus is built the way it is. Concepts are grouped by what you're trying to understand. Each group has its own index; jump to the page you care about, or read top-to-bottom for the full mental model.
 
-## Foundations
+## Overview
 
-- [Why pytest](why-pytest.md) — why a hardware-test framework rides on pytest instead of its own runner
-- [Platform architecture](platform-architecture.md) — Litmus as platform, not test framework
-- [Architecture](architecture.md) — system-level view of products, stations, fixtures, and runs
+[Overview index →](overview/index.md). The framework's mental model from above — what Litmus is, what it isn't, and why pytest sits underneath.
 
-## The DUT-to-instrument model
+- [Architecture](overview/architecture.md) — system-level view of products, stations, fixtures, and runs
+- [Platform vs framework](overview/platform-vs-framework.md) — what the platform owns vs what the runner owns
+- [pytest](overview/pytest.md) — why a hardware-test platform rides on pytest instead of its own runner
+- [AI integration](overview/ai-integration.md) — what the MCP surface buys you and where it draws the line
 
-- [Products](products.md) — what you're testing
-- [Stations](stations.md) — where you test
-- [Capabilities](capabilities.md) — what an instrument can do, how capabilities/signals/conditions compose, and how matching pairs them with product characteristics
-- [Fixtures](fixtures.md) — pin-to-instrument mapping
+## Configuration
 
-## Execution & outcomes
+[Configuration index →](configuration/index.md). The DUT-to-instrument model — the YAML entities you author once and re-use across runs.
 
-- [Step hierarchy](step-hierarchy.md) — how test classes, methods, and vectors nest
-- [Step manifest](step-manifest.md) — what each step records
-- [Outcomes](outcomes.md) — passed / failed / errored / skipped / done / terminated / aborted severity ladder
-- [Sessions](sessions.md) — connect-to-disconnect observation windows for instrument use
+- [Products](configuration/products.md) — what you're testing
+- [Stations](configuration/stations.md) — where you test
+- [Capabilities](configuration/capabilities.md) — what instruments can do, how matching pairs them with product characteristics
+- [Fixtures](configuration/fixtures.md) — pin-to-instrument mapping
 
-## Data architecture
+## Execution
 
-- [Why event sourcing](why-event-sourcing.md) — append-only event log as the source of truth
-- [Event log](event-log.md) — the durable record of every run
-- [Three stores](three-stores.md) — EventStore, ChannelStore, ParquetBackend; on-disk layout, data_dir resolution, schema-evolution contract
-- [Flight streaming](flight-streaming.md) — cross-process data access via Arrow Flight
+[Execution index →](execution/index.md). How a test run unfolds — the step model, the outcome ladder, what each step records.
 
-## AI integration
+- [Step hierarchy](execution/step-hierarchy.md) — how test classes, methods, and vectors nest
+- [Step manifest](execution/step-manifest.md) — what each step records
+- [Outcomes](execution/outcomes.md) — passed / failed / errored / skipped / done / terminated / aborted severity ladder
 
-- [Why AI integration](why-ai-integration.md) — what AI-assisted authoring buys you, why this is supportive rather than magic, and how to adopt at your own pace
+## Data
+
+[Data index →](data/index.md). Where the run data lives and how the platform stays consistent across processes.
+
+- [Event log](data/event-log.md) — the durable record of every run
+- [Event sourcing](data/event-sourcing.md) — append-only event log as the source of truth
+- [Sessions](data/sessions.md) — connect-to-disconnect observation windows for instrument use
+- [Three stores](data/three-stores.md) — EventStore, ChannelStore, ParquetBackend; on-disk layout, data_dir resolution, schema-evolution contract
+- [Flight streaming](data/flight-streaming.md) — cross-process data access via Arrow Flight

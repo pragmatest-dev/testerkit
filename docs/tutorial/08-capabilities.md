@@ -56,7 +56,7 @@ characteristics:
     units: V
 ```
 
-**Station provides capabilities:** (`catalog_ref` points at an entry in the instrument catalog — `catalog/*.yaml` — that declares this instrument model's full capability shape. See [reference/catalog-schema](../reference/catalog-schema.md).)
+**Station provides capabilities:** (`catalog_ref` points at an entry in the instrument catalog — `catalog/*.yaml` — that declares this instrument model's full capability shape. See [reference/catalog-schema](../reference/catalog/schema.md).)
 ```yaml
 # stations/bench_1.yaml
 instruments:
@@ -77,7 +77,7 @@ The matcher checks up to five tiers, controlled by `MatchDepth` (an enum naming 
 1. **Function match** — Same `MeasurementFunction` (e.g., `dc_voltage`)
 2. **Direction match** — Directions pair (OUTPUT↔INPUT, BIDIR satisfies both)
 3. **Parameter range** — Instrument's range contains the required value (default depth)
-4. **Accuracy** — Instrument accuracy ≤ required (condition-aware via [`SpecBand`](../reference/models.md), the value-plus-condition record)
+4. **Accuracy** — Instrument accuracy ≤ required (condition-aware via [`SpecBand`](../reference/data/models.md), the value-plus-condition record)
 5. **Resolution** — Instrument resolution ≥ required
 
 Most use cases stop at range (tier 3). Use `MatchDepth.ACCURACY` or `MatchDepth.RESOLUTION` when you need tighter validation — for example, checking that a DMM's accuracy at a specific frequency band meets your product's requirements.

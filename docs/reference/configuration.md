@@ -77,7 +77,7 @@ profiles:
           - {temperature: [25, 85]}
 ```
 
-`extends:` chains are walked parent-first; leaves carry only deltas. Parent profiles with no `facets:` are reachable only as extends targets (they cannot be selected directly). See [how-to/profiles.md](../how-to/profiles.md) for the workflow.
+`extends:` chains are walked parent-first; leaves carry only deltas. Parent profiles with no `facets:` are reachable only as extends targets (they cannot be selected directly). See [how-to/profiles.md](../how-to/execution/profiles.md) for the workflow.
 
 ## Station — `stations/<id>.yaml` {#station-yaml}
 
@@ -113,7 +113,7 @@ instruments:                      # dict[role, StationInstrumentConfig]
 ```
 
 - `instruments.<role>.channels` is `dict[str, str]`, not a list.
-- `mock_config` keys are driver method names (`measure_dc_voltage`, `set_voltage`), not signal names. See [how-to/mock-mode.md](../how-to/mock-mode.md).
+- `mock_config` keys are driver method names (`measure_dc_voltage`, `set_voltage`), not signal names. See [how-to/mock-mode.md](../how-to/configuration/mock-mode.md).
 - For `type:` values: canonical names live on [`InstrumentType`](models.md#enum-instrumenttype). Short aliases (e.g. `fgen` → `function_generator`) are accepted via `_INSTRUMENT_TYPE_ALIASES` in `litmus.store`. Unknown values trigger a warning, not an error.
 - Validator: real-hardware instruments (`mock: false`) require at least one of `resource:` or `driver:`. Mock-only instruments don't.
 
@@ -210,7 +210,7 @@ slots:                                 # dict[slot_name, FixtureSlot]
 - `FixtureConnection.name` is required — there is no key-as-name auto-fill. Declare `name:` matching the dict key on every connection.
 - `connections:` and `slots:` are mutually exclusive on a single `FixtureConfig` — validator rejects both being set.
 
-See [concepts/fixtures.md](../concepts/fixtures.md) for the design rationale, [how-to/multi-dut-testing.md](../how-to/multi-dut-testing.md) for slot workflow.
+See [concepts/fixtures.md](../concepts/configuration/fixtures.md) for the design rationale, [how-to/multi-dut-testing.md](../how-to/execution/multi-dut-testing.md) for slot workflow.
 
 ## Product — `products/<id>.yaml` {#product-yaml}
 
@@ -273,7 +273,7 @@ characteristics:                      # dict[name, ProductCharacteristic]
 - `ProductCharacteristic` fields: `function`, `direction`, `units`, `pin`, `pins`, `net`, `signal_group`, `datasheet_ref`, plus the inherited `signals`/`conditions`/`controls`/`attributes`/`bands` from `Capability`. There is no `channel:` / `channels:` / `schematic_ref:` on characteristics — the loader rejects unknown keys.
 - `base:` lets a product inherit from another. The loader searches the products directory for a file whose stem matches the `base:` value first, then scans every product YAML for an `id:` match. Circular and missing-base references raise an error at load time.
 
-See [tutorial/06-specifications.md](../tutorial/06-specifications.md) for the workflow and [how-to/spec-driven-testing.md](../how-to/spec-driven-testing.md) for spec-driven verify.
+See [tutorial/06-specifications.md](../tutorial/06-specifications.md) for the workflow and [how-to/spec-driven-testing.md](../how-to/execution/spec-driven-testing.md) for spec-driven verify.
 
 ## Sidecar — `tests/test_<name>.yaml` {#sidecar-yaml}
 
@@ -320,7 +320,7 @@ tests:                                # recursive — keyed by pytest node-id se
           - {load: [0.1, 1.0, 2.0]}
 ```
 
-- `limits:` value shape: see [`MeasurementLimitConfig`](models.md#model-measurementlimitconfig). Supports direct `{low, high, nominal, units}`, characteristic-driven `{characteristic, tolerance_pct}`, conditional `{bands: [...]}`, callable, lookup tables, and stepped — see [how-to/limits.md](../how-to/limits.md).
+- `limits:` value shape: see [`MeasurementLimitConfig`](models.md#model-measurementlimitconfig). Supports direct `{low, high, nominal, units}`, characteristic-driven `{characteristic, tolerance_pct}`, conditional `{bands: [...]}`, callable, lookup tables, and stepped — see [how-to/limits.md](../how-to/execution/limits.md).
 - `sweeps:` value shape is a list of dicts; each dict maps param name → list of values. Multiple dicts in the list compose as axes (cross-product).
 - `retry:` field names are `max_retries` and `delay`, not `max_attempts` / `delay_seconds`.
 
@@ -395,11 +395,11 @@ Every loader raises with the offending field path on type / shape errors and a c
 - [Models](models.md) — every Pydantic model with field tables
 - [Catalog schema](catalog-schema.md) — full `InstrumentCatalogEntry` reference
 - [Catalog cookbook](catalog-cookbook.md) — recipes per datasheet shape
-- [Profiles (how-to)](../how-to/profiles.md) — workflow for the `profiles:` block
-- [Limits (how-to)](../how-to/limits.md) — `MeasurementLimitConfig` shapes
-- [Spec-driven testing (how-to)](../how-to/spec-driven-testing.md) — characteristic-driven limits
-- [Multi-DUT testing (how-to)](../how-to/multi-dut-testing.md) — fixture `slots:` workflow
-- [Mock mode (how-to)](../how-to/mock-mode.md) — station `mock_config:` and sidecar `mocks:`
+- [Profiles (how-to)](../how-to/execution/profiles.md) — workflow for the `profiles:` block
+- [Limits (how-to)](../how-to/execution/limits.md) — `MeasurementLimitConfig` shapes
+- [Spec-driven testing (how-to)](../how-to/execution/spec-driven-testing.md) — characteristic-driven limits
+- [Multi-DUT testing (how-to)](../how-to/execution/multi-dut-testing.md) — fixture `slots:` workflow
+- [Mock mode (how-to)](../how-to/configuration/mock-mode.md) — station `mock_config:` and sidecar `mocks:`
 - [Pytest-native (reference)](pytest-native.md) — node IDs, marker surface
 - [Litmus markers (reference)](litmus-markers.md) — every marker with payload shape
-- [Fixtures (concept)](../concepts/fixtures.md) — design rationale for fixtures
+- [Fixtures (concept)](../concepts/configuration/fixtures.md) — design rationale for fixtures

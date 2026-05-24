@@ -48,6 +48,28 @@ def format_datetime(dt: datetime | str | None) -> str:
     return f'<span class="litmus-time" data-utc="{iso}">{fallback}</span>'
 
 
+def format_session_label(session_event: dict) -> str:
+    """Render an operator-readable label for a SessionStarted event.
+
+    Format: ``<YYYY-MM-DD HH:MM:SS> • <client>``. Operators recognize
+    "what was running when" — never UUIDs. The ``client`` field
+    distinguishes pytest / jupyter / connect.py / etc.
+
+    Used by the Events page session filter and the Channels detail
+    session filter. Both surfaces previously displayed UUID prefixes;
+    this collapses on the same human-anchor convention.
+    """
+    ts = str(session_event.get("occurred_at") or session_event.get("timestamp") or "")
+    if ts:
+        date_part = ts.partition("T")[0]
+        time_part = ts.partition("T")[2].split(".", 1)[0].split("+", 1)[0]
+        ts_label = f"{date_part} {time_part}".strip()
+    else:
+        ts_label = "(unknown time)"
+    client = session_event.get("client") or "?"
+    return f"{ts_label} • {client}"
+
+
 def local_time_init_script() -> str:
     """Return the JS that converts every ``.litmus-time`` span on the
     page to browser-local-time.

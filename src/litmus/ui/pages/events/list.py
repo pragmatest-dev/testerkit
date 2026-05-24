@@ -12,15 +12,20 @@ from nicegui import ui
 from litmus.ui.shared.components import (
     data_table,
     format_datetime,
+    format_session_label,
     page_header,
     page_layout,
     push_url_state,
 )
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import query_events
+from litmus.ui.shared.services import query_events, query_sessions
 
-# Curated event-type list. The actual event store can hold any value, but
-# these are the categories worth a one-click filter.
+# Curated event-type list. The actual event store can hold any value
+# (see ``src/litmus/data/events.py`` for the full ~25-class set); the
+# entries below are the categories worth a one-click filter. Every
+# value here must match the literal ``event_type`` of an actual event
+# class in events.py — drift quietly breaks the filter (no rows
+# returned).
 _EVENT_TYPE_OPTIONS: list[str] = [
     "(any)",
     "session.started",
@@ -32,9 +37,9 @@ _EVENT_TYPE_OPTIONS: list[str] = [
     "test.measurement",
     "instrument.read",
     "instrument.set",
-    "instrument.connected",
-    "instrument.disconnected",
-    "dialog.requested",
+    "fixture.instrument_connected",
+    "fixture.instrument_disconnected",
+    "dialog.opened",
     "dialog.responded",
     "diagnostic.warning",
     "diagnostic.error",
@@ -59,6 +64,22 @@ def events_page(
     create_layout("Events")
 
     initial_event_type = event_type if event_type in _EVENT_TYPE_OPTIONS else "(any)"
+
+    # Build a session label map keyed by session_id. Reads the
+    # SessionStarted event for each known session and formats with
+    # ``format_session_label`` (timestamp + client). Operators
+    # recognize sessions by "what was running when", not by UUID.
+    session_payload = query_sessions()
+    session_events: list[dict[str, Any]] = list(session_payload.get("sessions") or [])
+    # Sort most-recent first so the dropdown's natural order matches
+    # operator memory.
+    session_events.sort(key=lambda s: str(s.get("occurred_at") or ""), reverse=True)
+    session_label_by_id: dict[str, str] = {
+        str(s["session_id"]): format_session_label(s) for s in session_events if s.get("session_id")
+    }
+    session_dropdown_options: dict[str, str] = {"": "(any)"}
+    session_dropdown_options.update(session_label_by_id)
+    initial_session = session_id if session_id in session_label_by_id else ""
 
     with page_layout():
         page_header("Event Log", icon="event_note")
@@ -88,15 +109,23 @@ def events_page(
                 since=filters.since() or None,
                 limit=current_limit,
             )
-            _render_table(table_slot, payload)
+            _render_table(table_slot, payload, session_label_by_id)
 
+        # data-testid attributes are stable selectors for the
+        # screenshot-regeneration script (scripts/regenerate-ui-
+        # screenshots.py). Don't drop them without updating that
+        # script's MANIFEST.
         # Filters render FIRST (above the table) so they read in
         # natural top-down order. The table slot is reserved second.
-        with ui.card().classes("w-full"):
+        with ui.card().classes("w-full").props('data-testid="events-filters"'):
             with ui.row().classes("items-end gap-3 flex-wrap p-2"):
-                filters.session_input = ui.input(
-                    "Session ID", value=session_id, on_change=lambda _: refresh()
-                ).classes("w-64")
+                filters.session_select = ui.select(
+                    session_dropdown_options,
+                    value=initial_session,
+                    label="Session",
+                    with_input=True,
+                    on_change=lambda _: refresh(),
+                ).classes("w-72")
                 filters.event_type_select = ui.select(
                     _EVENT_TYPE_OPTIONS,
                     value=initial_event_type,
@@ -121,7 +150,9 @@ def events_page(
                     "color=primary"
                 )
 
-        table_slot = ui.column().classes("w-full flex-1 min-h-0 gap-0")
+        table_slot = (
+            ui.column().classes("w-full flex-1 min-h-0 gap-0").props('data-testid="events-table"')
+        )
 
         refresh()
 
@@ -129,14 +160,15 @@ def events_page(
 class _Filters:
     """Tiny container so callbacks read filter values lazily."""
 
-    session_input: ui.input
+    session_select: ui.select
     event_type_select: ui.select
     role_input: ui.input
     since_input: ui.input
     limit_input: ui.number
 
     def session_id(self) -> str:
-        return (self.session_input.value or "").strip()
+        v = self.session_select.value
+        return (str(v) if v else "").strip()
 
     def event_type(self) -> str:
         v = (self.event_type_select.value or "").strip()
@@ -155,7 +187,11 @@ class _Filters:
             return 100
 
 
-def _render_table(slot: ui.column, payload: dict[str, Any]) -> None:
+def _render_table(
+    slot: ui.column,
+    payload: dict[str, Any],
+    session_label_by_id: dict[str, str],
+) -> None:
     """Replace ``slot`` content with a viewport-bound event table."""
     slot.clear()
     events = payload.get("events") or []
@@ -170,11 +206,14 @@ def _render_table(slot: ui.column, payload: dict[str, Any]) -> None:
             )
             return
 
+        # Session column shows the human label resolved from the
+        # session_id (timestamp + client). When the session isn't in
+        # the known map (older / orphaned events), fall back to a
+        # short id so operators can still see the grouping.
         columns = [
             {"name": "occurred_at", "label": "Timestamp", "field": "occurred_at", "align": "left"},
             {"name": "event_type", "label": "Type", "field": "event_type", "align": "left"},
             {"name": "session", "label": "Session", "field": "session", "align": "left"},
-            {"name": "run", "label": "Run", "field": "run", "align": "left"},
             {"name": "role", "label": "Role", "field": "role", "align": "left"},
             {"name": "summary", "label": "Summary", "field": "summary", "align": "left"},
         ]
@@ -183,8 +222,8 @@ def _render_table(slot: ui.column, payload: dict[str, Any]) -> None:
                 "id": str(idx),
                 "occurred_at": format_datetime(evt.get("occurred_at")),
                 "event_type": evt.get("event_type") or "",
-                "session": _short(evt.get("session_id")),
-                "run": _short(evt.get("run_id")),
+                "session": session_label_by_id.get(str(evt.get("session_id") or ""))
+                or _short(evt.get("session_id")),
                 "role": evt.get("instrument_role") or evt.get("role") or "",
                 "summary": _summarize(evt),
                 "_raw": evt,

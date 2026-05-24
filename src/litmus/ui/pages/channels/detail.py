@@ -118,8 +118,12 @@ def channel_detail_page(
                     "Clear", icon="clear", on_click=lambda: _clear_filters(filters, refresh)
                 ).props("flat dense")
 
-        chart_card = ui.card().classes("w-full")
-        data_card = ui.card().classes("w-full")
+        # data-testid attributes are stable selectors for the
+        # screenshot-regeneration script (scripts/regenerate-ui-
+        # screenshots.py). Don't drop them without updating that
+        # script's MANIFEST.
+        chart_card = ui.card().classes("w-full").props('data-testid="channel-chart"')
+        data_card = ui.card().classes("w-full").props('data-testid="channel-data"')
 
         refresh()
 
@@ -127,31 +131,35 @@ def channel_detail_page(
 def _build_session_options(rows: list[dict[str, Any]]) -> dict[str, str]:
     """Return ``{session_id_or_(any): label}`` for the session dropdown.
 
-    Labels are short — first-seen timestamp + 8-char session prefix —
-    so the operator can spot a recent run at a glance without needing
-    to know UUIDs. Sessions are ordered most-recent-first.
+    Operators identify a session by "what was running when" —
+    timestamp + client (pytest / jupyter / connect.py). The label
+    is built from the canonical SessionStarted-event metadata via
+    :func:`format_session_label` so this page agrees with the
+    Events page's session filter. Sessions order most-recent-first
+    (by last-write to this channel — operators remember "what I
+    just ran").
     """
-    by_session: dict[str, str] = {}
+    from litmus.ui.shared.components import format_session_label
+    from litmus.ui.shared.services import query_sessions
+
+    last_seen: dict[str, str] = {}
     for row in rows:
         sid = row.get("session_id")
         if sid is None:
             continue
         sid = str(sid)
         ts = str(row.get("timestamp") or "")
-        # Track the most recent timestamp seen per session so the
-        # label reflects last-write, not first-write — operators
-        # typically remember "what I just ran", not "the first time
-        # this session touched this channel".
-        if sid not in by_session or ts > by_session[sid]:
-            by_session[sid] = ts
+        if sid not in last_seen or ts > last_seen[sid]:
+            last_seen[sid] = ts
 
-    ordered = sorted(by_session.items(), key=lambda kv: kv[1], reverse=True)
+    session_events = query_sessions().get("sessions") or []
+    session_label_by_id: dict[str, str] = {
+        str(s["session_id"]): format_session_label(s) for s in session_events if s.get("session_id")
+    }
+
     options: dict[str, str] = {"(any)": "All sessions"}
-    for sid, ts in ordered:
-        # ``2026-04-22 07:12:35  c9925792``
-        date_part = ts.partition("T")[0]
-        time_part = ts.partition("T")[2].split(".", 1)[0].split("+", 1)[0]
-        options[sid] = f"{date_part} {time_part}  {sid[:8]}"
+    for sid in sorted(last_seen, key=lambda s: last_seen[s], reverse=True):
+        options[sid] = session_label_by_id.get(sid) or f"(unknown) {sid[:8]}"
     return options
 
 

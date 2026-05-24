@@ -343,7 +343,11 @@ async def metrics_page(
                 ui.icon("analytics").classes("text-slate-600")
                 ui.label("Metrics").classes("text-2xl font-semibold text-slate-700")
 
-        with ui.row().classes("gap-4 flex-wrap w-full"):
+        # data-testid attributes are stable selectors for the
+        # screenshot-regeneration script (scripts/regenerate-ui-
+        # screenshots.py). Don't drop them without updating that
+        # script's MANIFEST.
+        with ui.row().classes("gap-4 flex-wrap w-full").props('data-testid="metrics-filters"'):
             valid_phases = ["development", "validation", "characterization", "production"]
             initial_phase = [p for p in phase if p in valid_phases]
             phase_filter = multi_select_filter(
@@ -418,11 +422,11 @@ async def metrics_page(
         tabs.set_value(initial_tab_name)
 
         with ui.tab_panels(tabs, value=initial_tab_name).classes("w-full"):
-            with ui.tab_panel(yield_tab):
+            with ui.tab_panel(yield_tab).props('data-testid="metrics-yield"'):
                 summary_container = ui.row().classes("w-full gap-4")
                 trend_chart_container = ui.column().classes("w-full")
                 time_stats_container = ui.column().classes("w-full")
-            with ui.tab_panel(pareto_tab):
+            with ui.tab_panel(pareto_tab).props('data-testid="metrics-pareto"'):
                 pareto_group_select = ui.select(
                     options={
                         "product": "Product (most-failing dut_part_number)",
@@ -434,13 +438,13 @@ async def metrics_page(
                     on_change=_on_filter_change,
                 ).classes("w-96")
                 pareto_chart_container = ui.column().classes("w-full")
-            with ui.tab_panel(cpk_tab):
+            with ui.tab_panel(cpk_tab).props('data-testid="metrics-cpk"'):
                 cpk_table_container = ui.column().classes("w-full")
-            with ui.tab_panel(retest_tab):
+            with ui.tab_panel(retest_tab).props('data-testid="metrics-retest"'):
                 retest_container = ui.column().classes("w-full")
-            with ui.tab_panel(time_loss_tab):
+            with ui.tab_panel(time_loss_tab).props('data-testid="metrics-time-loss"'):
                 time_loss_container = ui.column().classes("w-full")
-            with ui.tab_panel(assets_tab):
+            with ui.tab_panel(assets_tab).props('data-testid="metrics-assets"'):
                 assets_container = ui.column().classes("w-full")
 
     # Render skeleton only for the ACTIVE tab's containers. Non-active tab
@@ -1066,9 +1070,9 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
             {"name": "retested", "label": "Retested", "field": "retested", "align": "right"},
             {"name": "rate", "label": "Rate", "field": "rate", "align": "right"},
             {
-                "name": "avg_attempts",
-                "label": "Avg attempts",
-                "field": "avg_attempts",
+                "name": "avg_retries",
+                "label": "Avg retries",
+                "field": "avg_retries",
                 "align": "right",
             },
         ]
@@ -1081,7 +1085,7 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
                     "serials": r.get("total_serials", 0),
                     "retested": r.get("retested_count", 0),
                     "rate": f"{r.get('retest_rate', 0):.1f}%",
-                    "avg_attempts": f"{r.get('avg_attempts', 0):.1f}",
+                    "avg_retries": f"{r.get('avg_retries', 0):.2f}",
                 }
                 for idx, r in enumerate(rows)
             ],

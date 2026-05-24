@@ -86,9 +86,9 @@ pins:
     role: power            # signal, ground, power, reference
 ```
 
-### [Characteristics](../concepts/capabilities.md)
+### [Characteristics](../concepts/configuration/capabilities.md)
 
-Measurable properties with expected values (each entry in `bands:` is a [`SpecBand`](../reference/models.md) — a value-plus-condition record):
+Measurable properties with expected values (each entry in `bands:` is a [`SpecBand`](../reference/data/models.md) — a value-plus-condition record):
 
 ```yaml
 characteristics:
@@ -124,7 +124,7 @@ limits:
     spec_ref: "output_voltage @ tolerance_pct=5"  # Traceability!
 ```
 
-The `spec_ref` field provides [traceability](../how-to/traceability.md) back to the specification.
+The `spec_ref` field provides [traceability](../how-to/execution/traceability.md) back to the specification.
 
 ## Guardbanding
 

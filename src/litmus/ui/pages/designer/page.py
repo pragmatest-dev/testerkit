@@ -165,7 +165,7 @@ def designer_page(product: str = "", station: str = "", fixture: str = ""):
         )
 
         # --- Graph card ---
-        with ui.card().classes("w-full"):
+        with ui.card().classes("w-full").props('data-testid="designer-surface"'):
             ui.label("Design Surface").classes("text-xs text-slate-500 uppercase tracking-wide")
             ui.label(
                 "Click a pin to select it, then click a channel to wire. "
@@ -536,7 +536,7 @@ def _auto_save(state, quiet: bool = True) -> bool:
 
     fixture_data = state.to_fixture_yaml()
     try:
-        save_fixture(state.fixture_id, fixture_data["fixture"], fixture_data["points"])
+        save_fixture(state.fixture_id, fixture_data["fixture"], fixture_data["connections"])
         if not quiet:
             ui.notify("Saved", type="positive")
         return True

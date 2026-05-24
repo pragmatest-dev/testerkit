@@ -858,6 +858,20 @@ def query_events(
     )
 
 
+def query_sessions() -> dict[str, Any]:
+    """List known sessions (``session.started`` events).
+
+    Returns ``{"sessions": [...], "count": int}``. Each entry is a
+    SessionStarted event dict — ``session_id``, ``client``,
+    ``occurred_at``, ``station_hostname``, ``operator_name``, etc.
+    See :func:`format_session_label` for the operator-readable
+    one-liner the filter widgets render.
+    """
+    from litmus.mcp.tools import sessions_query
+
+    return sessions_query(data_dir=_resolve_data_dir())
+
+
 def list_channels() -> dict[str, Any]:
     """Return the channel registry as ``{"channels": {channel_id: {...}}}``."""
     from litmus.mcp.tools import channels_list_query

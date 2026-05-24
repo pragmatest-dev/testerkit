@@ -33,9 +33,12 @@ async def live_page(run_id: str):
                     status_label = ui.label("Starting...").classes(
                         "px-3 py-1 rounded bg-blue-100 text-blue-800 text-sm font-medium"
                     )
-                with ui.row().classes("items-center gap-4 mt-2"):
-                    ui.label("Run ID:").classes("text-sm text-slate-500")
-                    ui.label(run_id).classes("text-sm font-mono text-slate-600")
+                # Run ID is kept on the page so the URL is copyable /
+                # bookmarkable, but rendered small and muted — operators
+                # identify runs by DUT serial + start time, not UUID.
+                with ui.row().classes("items-center gap-2 mt-2"):
+                    ui.label("Run ID:").classes("text-xs text-slate-400")
+                    ui.label(run_id).classes("text-xs font-mono text-slate-400 select-all")
 
             with ui.card_section():
                 progress = ui.linear_progress(value=0).classes("w-full")

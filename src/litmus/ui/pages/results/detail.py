@@ -131,7 +131,11 @@ async def result_detail_page(run_id: str, tab: str = ""):
             )
 
         # ── Static header card ────────────────────────────────────────────
-        with ui.card().classes("w-full sticky top-0 z-10"):
+        # data-testid attributes are stable selectors for the
+        # screenshot-regeneration script (scripts/regenerate-ui-
+        # screenshots.py). Don't drop them without updating that
+        # script's MANIFEST.
+        with ui.card().classes("w-full sticky top-0 z-10").props('data-testid="result-header"'):
             with ui.card_section().classes("py-2 px-3"):
                 with ui.row().classes("items-center justify-between w-full"):
                     with ui.row().classes("items-center gap-3"):
@@ -193,17 +197,17 @@ async def result_detail_page(run_id: str, tab: str = ""):
         # tab_panels / steps_tab / measurements_tab are now in scope for the
         # render_overview closure (late-binding).
         with ui.tab_panels(tabs, value=initial_tab).classes("w-full flex-1 min-h-0") as tab_panels:
-            with ui.tab_panel(overview_tab):
+            with ui.tab_panel(overview_tab).props('data-testid="result-overview"'):
                 render_overview()
 
-            with ui.tab_panel(steps_tab):
+            with ui.tab_panel(steps_tab).props('data-testid="result-steps"'):
                 # table.rows + table.update() path: create the table once,
                 # store the ref, update rows on live refresh.  The Quasar
                 # no-data slot shows the empty-state message without a
                 # separate visibility binding.
                 steps_table = _create_steps_table(state["steps"], parent_ended_at=run_obj.ended_at)
 
-            with ui.tab_panel(measurements_tab):
+            with ui.tab_panel(measurements_tab).props('data-testid="result-measurements"'):
                 meas_table = _create_meas_table(run_id, state["measurements"])
 
             if has_slots and timeline_tab is not None and session_id:
@@ -548,14 +552,12 @@ def _render_history_tab(
         if dut_runs:
             ui.label(f"Other runs for DUT: {dut_serial}").classes("text-sm text-slate-500 mb-2")
             columns = [
-                {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
                 {"name": "project", "label": "Project", "field": "project", "align": "left"},
                 {"name": "started", "label": "Started", "field": "started", "align": "left"},
                 {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
             ]
             rows = [
                 {
-                    "run_id": (r.test_run_id or "")[:8],
                     "full_run_id": r.test_run_id or "",
                     "project": r.project_name or "",
                     "started": format_datetime(r.started_at),
@@ -566,7 +568,7 @@ def _render_history_tab(
             data_table(
                 columns=columns,
                 rows=rows,
-                row_key="run_id",
+                row_key="full_run_id",
                 on_row_click=lambda r: ui.navigate.to(f"/results/{r['full_run_id']}"),
                 time_columns=["started"],
             )

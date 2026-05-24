@@ -73,11 +73,11 @@ Once this works, we'll add actual measurements.
 
 This step uses a `conftest.py` to define the `dmm` (and later `psu`) fixtures. That's the same pattern you'd use in any pytest project — Litmus does not require its own configuration to get started.
 
-Later steps will introduce a **[station YAML](../concepts/stations.md)** — a single file that declares the bench's instruments. When that exists, Litmus auto-registers an instrument-role fixture (for each instrument declared in the station YAML, a pytest fixture by that name is provided to your tests automatically) such as `dmm`, `psu`, etc., and you can drop the corresponding `conftest.py` fixtures. For step 1, ignore station YAML entirely.
+Later steps will introduce a **[station YAML](../concepts/configuration/stations.md)** — a single file that declares the bench's instruments. When that exists, Litmus auto-registers an instrument-role fixture (for each instrument declared in the station YAML, a pytest fixture by that name is provided to your tests automatically) such as `dmm`, `psu`, etc., and you can drop the corresponding `conftest.py` fixtures. For step 1, ignore station YAML entirely.
 
 ## Bench-bringup pattern
 
-For a brand-new board, the smallest scaffold is just a `conftest.py` fixture and one test. `litmus init --tier=bringup` creates this layout. (Forward references: [`Limit`](../reference/models.md) is Litmus's pass/fail-bound model, [`verify`](../reference/litmus-fixtures.md#verify-function) is the fixture that records a measurement and checks it against a limit — both introduced fully in step 3 / step 4. [PyVISA](https://pyvisa.readthedocs.io/) and [PyMeasure](https://pymeasure.readthedocs.io/) are the external instrument-driver libraries you'd swap into the fixture for real hardware.)
+For a brand-new board, the smallest scaffold is just a `conftest.py` fixture and one test. `litmus init --tier=bringup` creates this layout. (Forward references: [`Limit`](../reference/data/models.md) is Litmus's pass/fail-bound model, [`verify`](../reference/pytest/fixtures.md#verify-function) is the fixture that records a measurement and checks it against a limit — both introduced fully in step 3 / step 4. [PyVISA](https://pyvisa.readthedocs.io/) and [PyMeasure](https://pymeasure.readthedocs.io/) are the external instrument-driver libraries you'd swap into the fixture for real hardware.)
 
 ```python
 # tests/conftest.py
@@ -102,7 +102,7 @@ def test_rail(dmm, verify):
     )
 ```
 
-Rows land in parquet with `measurement_value`, `limit_low` / `limit_high`, and `measurement_outcome` populated. [Traceability](../how-to/traceability.md) columns (`dut_pin`, `instrument_channel`, `fixture_connection`, `spec_ref`) stay NULL until you graduate to a [station](../concepts/stations.md) + [product](../concepts/products.md) + [fixture](../concepts/fixtures.md) — at which point the test bodies don't change.
+Rows land in parquet with `measurement_value`, `limit_low` / `limit_high`, and `measurement_outcome` populated. [Traceability](../how-to/execution/traceability.md) columns (`dut_pin`, `instrument_channel`, `fixture_connection`, `spec_ref`) stay NULL until you graduate to a [station](../concepts/configuration/stations.md) + [product](../concepts/configuration/products.md) + [fixture](../concepts/configuration/fixtures.md) — at which point the test bodies don't change.
 
 See [`examples/01-vanilla`](https://github.com/pragmatest-dev/litmus/tree/main/examples/01-vanilla) for a runnable example.
 

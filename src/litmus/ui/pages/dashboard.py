@@ -20,17 +20,23 @@ async def dashboard_page():
     """
     create_layout("Dashboard")
 
+    # data-testid attributes are stable selectors for the
+    # screenshot-regeneration script (scripts/regenerate-ui-
+    # screenshots.py). Don't drop them without updating that
+    # script's MANIFEST.
     with ui.column().classes("w-full p-6 gap-6"):
         with ui.row().classes("items-center gap-2"):
             ui.icon("memory").classes("text-slate-600")
             ui.label("Stations").classes("text-lg font-semibold text-slate-700")
-        stations_container = ui.row().classes("gap-4 flex-wrap w-full")
+        stations_container = (
+            ui.row().classes("gap-4 flex-wrap w-full").props('data-testid="dashboard-stations"')
+        )
         render_skeleton(stations_container, "h-24")
 
         with ui.row().classes("items-center gap-2 mt-4"):
             ui.icon("history").classes("text-slate-600")
             ui.label("Recent Runs").classes("text-lg font-semibold text-slate-700")
-        runs_container = ui.column().classes("w-full")
+        runs_container = ui.column().classes("w-full").props('data-testid="dashboard-runs"')
         render_skeleton(runs_container, "h-48")
 
     async def _load_dashboard() -> None:
@@ -147,7 +153,6 @@ def _render_recent_runs(runs: list) -> None:
         # operator recognizes), not the internal slug. Universal
         # rule — see feedback_operator_facing_identifiers.md.
         columns = [
-            {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
             {"name": "dut", "label": "DUT", "field": "dut_serial", "align": "left"},
             {"name": "station", "label": "Station", "field": "station_hostname", "align": "left"},
             {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
@@ -155,7 +160,6 @@ def _render_recent_runs(runs: list) -> None:
         ]
         rows = [
             {
-                "run_id": (r.test_run_id or "")[:8],
                 "full_run_id": r.test_run_id or "",
                 "dut_serial": r.dut_serial or "",
                 "station_hostname": r.station_hostname or "",
@@ -167,7 +171,7 @@ def _render_recent_runs(runs: list) -> None:
         data_table(
             columns=columns,
             rows=rows,
-            row_key="run_id",
+            row_key="full_run_id",
             on_row_click=lambda r: ui.navigate.to(f"/results/{r['full_run_id']}"),
             time_columns=["started"],
         )
