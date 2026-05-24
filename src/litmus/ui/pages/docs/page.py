@@ -336,7 +336,16 @@ def _parse_section_outline(section: str) -> list[tuple[str | None, list[tuple[st
     every page in alphabetical order (legacy behavior).
     """
     section_dir = DOCS_DIR / section
-    all_pages = sorted(p.stem for p in section_dir.glob("*.md") if p.stem != "index")
+    # rglob discovers pages in subdirectories too (e.g.
+    # ``reference/operator-ui/dashboard.md``). Slugs are stored as
+    # forward-slash paths relative to the section dir, without the
+    # ``.md`` extension — the same shape used in URLs and in the
+    # link-href captures from index.md.
+    all_pages = sorted(
+        str(p.relative_to(section_dir).with_suffix("")).replace("\\", "/")
+        for p in section_dir.rglob("*.md")
+        if p.stem != "index"
+    )
     if not all_pages:
         return []
 
@@ -362,7 +371,10 @@ def _parse_section_outline(section: str) -> list[tuple[str | None, list[tuple[st
             continue
         for match in link_re.finditer(line):
             title, target = match.group(1), match.group(2)
-            slug = target.split("/")[-1]
+            # Index links may be ``operator-ui/dashboard.md`` (nested)
+            # or ``cli.md`` (flat). Drop the ``.md`` and match against
+            # the same shape ``all_pages`` carries.
+            slug = target.removeprefix("./")
             if slug in all_pages and slug not in referenced:
                 current_items.append((title, slug))
                 referenced.add(slug)
