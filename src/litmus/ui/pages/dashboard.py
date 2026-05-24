@@ -153,7 +153,6 @@ def _render_recent_runs(runs: list) -> None:
         # operator recognizes), not the internal slug. Universal
         # rule — see feedback_operator_facing_identifiers.md.
         columns = [
-            {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
             {"name": "dut", "label": "DUT", "field": "dut_serial", "align": "left"},
             {"name": "station", "label": "Station", "field": "station_hostname", "align": "left"},
             {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
@@ -161,7 +160,6 @@ def _render_recent_runs(runs: list) -> None:
         ]
         rows = [
             {
-                "run_id": (r.test_run_id or "")[:8],
                 "full_run_id": r.test_run_id or "",
                 "dut_serial": r.dut_serial or "",
                 "station_hostname": r.station_hostname or "",
@@ -173,7 +171,7 @@ def _render_recent_runs(runs: list) -> None:
         data_table(
             columns=columns,
             rows=rows,
-            row_key="run_id",
+            row_key="full_run_id",
             on_row_click=lambda r: ui.navigate.to(f"/results/{r['full_run_id']}"),
             time_columns=["started"],
         )

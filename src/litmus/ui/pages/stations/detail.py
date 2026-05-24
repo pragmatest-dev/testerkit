@@ -217,7 +217,6 @@ def _render_runs_tab(station_id: str):
 
     if station_runs:
         columns = [
-            {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
             {"name": "dut", "label": "DUT", "field": "dut", "align": "left"},
             {"name": "project", "label": "Project", "field": "project", "align": "left"},
             {"name": "started", "label": "Started", "field": "started", "align": "left"},
@@ -225,7 +224,6 @@ def _render_runs_tab(station_id: str):
         ]
         rows = [
             {
-                "run_id": (r.test_run_id or "")[:8],
                 "full_run_id": r.test_run_id or "",
                 "dut": r.dut_serial or "",
                 "project": r.project_name or "",
@@ -237,7 +235,7 @@ def _render_runs_tab(station_id: str):
         data_table(
             columns=columns,
             rows=rows,
-            row_key="run_id",
+            row_key="full_run_id",
             on_row_click=lambda r: ui.navigate.to(f"/results/{r['full_run_id']}"),
             time_columns=["started"],
         )

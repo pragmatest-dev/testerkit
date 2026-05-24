@@ -552,14 +552,12 @@ def _render_history_tab(
         if dut_runs:
             ui.label(f"Other runs for DUT: {dut_serial}").classes("text-sm text-slate-500 mb-2")
             columns = [
-                {"name": "run_id", "label": "Run ID", "field": "run_id", "align": "left"},
                 {"name": "project", "label": "Project", "field": "project", "align": "left"},
                 {"name": "started", "label": "Started", "field": "started", "align": "left"},
                 {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
             ]
             rows = [
                 {
-                    "run_id": (r.test_run_id or "")[:8],
                     "full_run_id": r.test_run_id or "",
                     "project": r.project_name or "",
                     "started": format_datetime(r.started_at),
@@ -570,7 +568,7 @@ def _render_history_tab(
             data_table(
                 columns=columns,
                 rows=rows,
-                row_key="run_id",
+                row_key="full_run_id",
                 on_row_click=lambda r: ui.navigate.to(f"/results/{r['full_run_id']}"),
                 time_columns=["started"],
             )
