@@ -424,41 +424,59 @@ def _render_sidebar_nav(section: str, current_page: str | None = None):
         ui.label(_get_section_title(section).upper()).classes(
             "text-xs text-slate-500 font-medium mb-2"
         )
-        for group_label, items in outline:
-            if group_label is not None:
-                ui.label(group_label).classes(
-                    "text-xs uppercase tracking-wide text-slate-400 font-semibold mt-3 mb-1"
+
+        def _render_link(title: str, slug: str, group_label: str | None) -> None:
+            is_current = slug == current_page
+            prefix = _numeric_prefix(slug)
+            base_pl = "pl-3" if group_label is not None else "pl-2"
+            if is_current:
+                link_classes = (
+                    f"text-sm py-1 {base_pl} pr-2 block border-l-2 border-blue-600 "
+                    "bg-blue-50 text-blue-900 font-medium rounded-r no-underline"
                 )
-            for title, slug in items:
-                is_current = slug == current_page
-                prefix = _numeric_prefix(slug)
-                # Active state: 2px blue left border + bluish bg + heavier text.
-                # Matches the pragmatest sidebar (Phase I.4) so the two
-                # renderers feel the same.
-                base_pl = "pl-3" if group_label is not None else "pl-2"
-                if is_current:
-                    link_classes = (
-                        f"text-sm py-1 {base_pl} pr-2 block border-l-2 border-blue-600 "
-                        "bg-blue-50 text-blue-900 font-medium rounded-r no-underline"
-                    )
-                    badge_color = "text-blue-700"
-                else:
-                    # Affordance: resting state uses blue-700 (link-blue
-                    # at rest, not just on hover) so the items read as
-                    # navigation rather than static labels. The sidebar
-                    # bg is slate-50; hover bumps to bg-white so the
-                    # interactive surface visibly lifts off chrome.
-                    link_classes = (
-                        f"text-sm py-1 {base_pl} pr-2 block border-l-2 border-transparent "
-                        "text-blue-700 hover:border-blue-400 hover:bg-white "
-                        "hover:text-blue-900 rounded-r no-underline transition-colors"
-                    )
-                    badge_color = "text-blue-400"
-                with ui.link(target=f"/docs/{section}/{slug}").classes(link_classes):
-                    with ui.row().classes("items-baseline gap-2 flex-nowrap"):
-                        if prefix is not None:
-                            ui.label(prefix).classes(f"text-xs font-mono {badge_color} shrink-0")
-                        ui.label(title).classes("text-sm truncate")
+                badge_color = "text-blue-700"
+            else:
+                link_classes = (
+                    f"text-sm py-1 {base_pl} pr-2 block border-l-2 border-transparent "
+                    "text-slate-700 hover:border-slate-300 hover:bg-white "
+                    "hover:text-blue-600 rounded-r no-underline"
+                )
+                badge_color = "text-slate-400"
+            with ui.link(target=f"/docs/{section}/{slug}").classes(link_classes):
+                with ui.row().classes("items-baseline gap-2 flex-nowrap"):
+                    if prefix is not None:
+                        ui.label(prefix).classes(f"text-xs font-mono {badge_color} shrink-0")
+                    ui.label(title).classes("text-sm truncate")
+
+        for group_label, items in outline:
+            if group_label is None:
+                # No group label — render items inline (tutorial sequence,
+                # legacy ungrouped sections).
+                for title, slug in items:
+                    _render_link(title, slug, None)
+                continue
+
+            # Accordion: the group containing the current page expands;
+            # all other groups collapse. Each group is its own expansion
+            # so clicking another group's header opens just that one
+            # (Quasar default — no exclusivity needed). Text styling
+            # lives on Quasar's header-class so it doesn't cascade into
+            # the child items.
+            #
+            # Visual hierarchy: group headers are larger + darker + bolder
+            # than child items so the section break is the dominant cue;
+            # children sit under it as a list. (Earlier pass had this
+            # inverted — text-xs slate-500 headers above text-sm slate-700
+            # children — which made children out-shout their parents.)
+            group_has_current = any(slug == current_page for _, slug in items)
+            header_classes = "text-sm text-slate-900 font-semibold"
+            with (
+                ui.expansion(group_label, value=group_has_current)
+                .classes("w-full mt-2")
+                .props(f"dense header-class='{header_classes}'")
+            ):
+                for title, slug in items:
+                    _render_link(title, slug, group_label)
 
 
 def _render_doc_page_content(section: str, page: str):
