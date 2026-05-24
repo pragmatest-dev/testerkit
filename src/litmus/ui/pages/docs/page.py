@@ -443,12 +443,17 @@ def _render_sidebar_nav(section: str, current_page: str | None = None):
                     )
                     badge_color = "text-blue-700"
                 else:
+                    # Affordance: resting state uses blue-700 (link-blue
+                    # at rest, not just on hover) so the items read as
+                    # navigation rather than static labels. The sidebar
+                    # bg is slate-50; hover bumps to bg-white so the
+                    # interactive surface visibly lifts off chrome.
                     link_classes = (
                         f"text-sm py-1 {base_pl} pr-2 block border-l-2 border-transparent "
-                        "text-slate-700 hover:border-slate-300 hover:bg-slate-50 "
-                        "hover:text-blue-600 rounded-r no-underline"
+                        "text-blue-700 hover:border-blue-400 hover:bg-white "
+                        "hover:text-blue-900 rounded-r no-underline transition-colors"
                     )
-                    badge_color = "text-slate-400"
+                    badge_color = "text-blue-400"
                 with ui.link(target=f"/docs/{section}/{slug}").classes(link_classes):
                     with ui.row().classes("items-baseline gap-2 flex-nowrap"):
                         if prefix is not None:
