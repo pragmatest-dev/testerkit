@@ -2,7 +2,7 @@
 
 Channel data stores time-series instrument readings — waveforms, voltage traces, temperature logs. Query it via MCP tool, HTTP API, or Python.
 
-> **Prerequisites.** Channel data already written under `<data_dir>/channels/` — drivers that write to the [channel store](../concepts/three-stores.md) via `context.observe()` or via instrument-proxy traffic. Empty stores return empty lists, not errors. For the HTTP path, `litmus serve` must be running.
+> **Prerequisites.** Channel data already written under `<data_dir>/channels/` — drivers that write to the [channel store](../concepts/data/three-stores.md) via `context.observe()` or via instrument-proxy traffic. Empty stores return empty lists, not errors. For the HTTP path, `litmus serve` must be running.
 
 ## MCP Tool: `litmus_channels`
 
@@ -36,7 +36,7 @@ curl "http://localhost:8000/api/channels/scope.ch1?session_id=abc123&max_points=
 curl "http://localhost:8000/api/channels/dmm.voltage?since=2026-03-10T14:00:00&until=2026-03-10T15:00:00"
 ```
 
-## Python: [`ChannelStore`](../concepts/three-stores.md)
+## Python: [`ChannelStore`](../concepts/data/three-stores.md)
 
 ```python
 from uuid import uuid4
@@ -93,5 +93,5 @@ Filters apply in order: session → time range → last_n → max_points.
 
 ## See Also
 
-- [Three Stores Architecture](../concepts/three-stores.md) — Where channels fit
-- [Flight Streaming](../concepts/flight-streaming.md) — Cross-process access model
+- [Three Stores Architecture](../concepts/data/three-stores.md) — Where channels fit
+- [Flight Streaming](../concepts/data/flight-streaming.md) — Cross-process access model

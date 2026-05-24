@@ -71,7 +71,7 @@ def test_serial_stamp(self, context, verify):
 
 Each returns `None` when the corresponding tier is absent. Bringup tests (no `stations/` YAML) get `context.station is None`; tests that don't load a product get `context.product is None`. Guard with `if context.station:` before reaching for fields, or take the typed fixture (`station_config`) when the test only runs with a station present — pytest will skip it otherwise.
 
-See [Stations](../concepts/stations.md) and [Products](../concepts/products.md) for the underlying entities.
+See [Stations](../concepts/configuration/stations.md) and [Products](../concepts/configuration/products.md) for the underlying entities.
 
 ## Record stimulus inputs with `configure()`
 
@@ -207,4 +207,4 @@ class TestPowerBoard:
 - [Limits](limits.md) — resolution order for `get_limit()`
 - [Litmus fixtures](../reference/litmus-fixtures.md) — every plugin fixture with signature
 - [Parquet schema](../reference/parquet-schema.md) — the row shape that holds these values
-- [Fixtures concept](../concepts/fixtures.md) — hardware fixtures vs pytest fixtures
+- [Fixtures concept](../concepts/configuration/fixtures.md) — hardware fixtures vs pytest fixtures

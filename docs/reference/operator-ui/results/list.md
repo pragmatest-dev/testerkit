@@ -84,7 +84,7 @@ run — the same record you get from:
 For the full schema of one run row, see
 [Models reference → `RunSummary`](../../models.md#model-runsummary).
 For the underlying event log Litmus materialises run rows from, see
-[Concepts → Event log](../../../concepts/event-log.md).
+[Concepts → Event log](../../../concepts/data/event-log.md).
 
 ## Common tasks
 
@@ -106,7 +106,7 @@ landing state, not the current view.
 
 - [`litmus runs` CLI](../../cli.md#cli-runs) — the same data over the
   command line
-- [Concepts → Outcomes](../../../concepts/outcomes.md) — what each
+- [Concepts → Outcomes](../../../concepts/execution/outcomes.md) — what each
   outcome value means and how rollups work
 
 The per-run detail view you reach by clicking a row gets its own

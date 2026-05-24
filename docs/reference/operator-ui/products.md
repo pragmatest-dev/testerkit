@@ -66,7 +66,7 @@ layouts are supported.
 
 For the YAML schema, see
 [Configuration reference → Products](../configuration.md#product-yaml).
-For the concept, see [Concepts → Products](../../concepts/products.md).
+For the concept, see [Concepts → Products](../../concepts/configuration/products.md).
 
 ## Common tasks
 
@@ -83,5 +83,5 @@ For the concept, see [Concepts → Products](../../concepts/products.md).
 ## See also
 
 - [Configuration reference → Products](../configuration.md#product-yaml)
-- [Concepts → Products](../../concepts/products.md)
+- [Concepts → Products](../../concepts/configuration/products.md)
 - [Launch Test](launch.md) — start a run for a product

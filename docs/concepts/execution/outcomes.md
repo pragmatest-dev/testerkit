@@ -2,7 +2,7 @@
 
 Every measurement, vector, step, and run carries an `Outcome` (an enum) or `None` if no verdict was ever rendered. This page explains what each value means, how a worse outcome on a child rolls up to the parent, and where each value gets stamped in source.
 
-For the column-by-column shape of how outcomes land in parquet, see [parquet schema → outcome values](../reference/parquet-schema.md). For the level hierarchy (measurement → vector → step → run) the cascade walks, see [step hierarchy](step-hierarchy.md).
+For the column-by-column shape of how outcomes land in parquet, see [parquet schema → outcome values](../../reference/parquet-schema.md). For the level hierarchy (measurement → vector → step → run) the cascade walks, see [step hierarchy](step-hierarchy.md).
 
 ## The severity ladder
 
@@ -204,14 +204,14 @@ Per-slot child outcomes are computed from `subprocess.Popen.returncode` by `Slot
 | `"failed"` | Child pytest exited non-zero | `execution/slot_runner.py:338` |
 | `"passed"` | Child pytest exited with code 0 | `execution/slot_runner.py:338` |
 
-The orchestrator's `SessionEnded.outcome` is the worst of these across slots (`slot_runner.py:622`). Each child still writes its own `RunEnded` carrying its cascade-derived Outcome from the per-run tables above. For the operational guide, see [multi-DUT testing](../how-to/multi-dut-testing.md).
+The orchestrator's `SessionEnded.outcome` is the worst of these across slots (`slot_runner.py:622`). Each child still writes its own `RunEnded` carrying its cascade-derived Outcome from the per-run tables above. For the operational guide, see [multi-DUT testing](../../how-to/multi-dut-testing.md).
 
 ## See also
 
 - [Step hierarchy](step-hierarchy.md) — the measurement / vector / step / run levels the cascade walks
 - [Step manifest](step-manifest.md) — how `outcome IS NULL` rows show as "Never Ran" in finalized runs
-- [Event log](event-log.md) — `RunEnded` / `StepEnded` events that carry the cascade-derived outcome
-- [Multi-DUT testing](../how-to/multi-dut-testing.md) — slot orchestrator outcomes in practice
-- [Limits](../how-to/limits.md) — how a measurement gets a limit attached (the trigger for measurement-level PASSED/FAILED and for step-level verdict intent)
-- [Models reference](../reference/models.md) — `Outcome` enum source-of-truth and field tables for `Measurement` / `TestVector` / `TestStep` / `TestRun`
-- [Parquet schema](../reference/parquet-schema.md) — column-level definitions of `run_outcome`, `step_outcome`, `measurement_outcome`
+- [Event log](../data/event-log.md) — `RunEnded` / `StepEnded` events that carry the cascade-derived outcome
+- [Multi-DUT testing](../../how-to/multi-dut-testing.md) — slot orchestrator outcomes in practice
+- [Limits](../../how-to/limits.md) — how a measurement gets a limit attached (the trigger for measurement-level PASSED/FAILED and for step-level verdict intent)
+- [Models reference](../../reference/models.md) — `Outcome` enum source-of-truth and field tables for `Measurement` / `TestVector` / `TestStep` / `TestRun`
+- [Parquet schema](../../reference/parquet-schema.md) — column-level definitions of `run_outcome`, `step_outcome`, `measurement_outcome`

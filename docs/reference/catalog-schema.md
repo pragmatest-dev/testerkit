@@ -370,6 +370,6 @@ No comments in catalog YAML. All metadata belongs in the schema — extend the m
 ## See also
 
 - [Catalog cookbook](catalog-cookbook.md) — worked recipes per datasheet shape
-- [Capabilities](../concepts/capabilities.md) — what the catalog enables (matching, profile selection)
+- [Capabilities](../concepts/configuration/capabilities.md) — what the catalog enables (matching, profile selection)
 - [Tutorial: capabilities](../tutorial/08-capabilities.md) — introduces the schema in context
 - [Models reference](models.md) — full Pydantic model surface

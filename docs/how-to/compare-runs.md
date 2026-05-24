@@ -79,7 +79,7 @@ behavior changed — that's your diff.
 
 Resolve `<data_dir>` from
 [`ProjectConfig`](../reference/configuration.md) or the
-[Three stores](../concepts/three-stores.md) page.
+[Three stores](../concepts/data/three-stores.md) page.
 
 ## 3. Compare environmental channels
 
@@ -111,5 +111,5 @@ the tool of your choice.
 - [Results — detail view](../reference/operator-ui/results/detail.md) — the per-run view used in step 1
 - [Channels reference](../reference/operator-ui/channels/list.md) — the channel views used in step 3
 - [Parquet schema](../reference/parquet-schema.md) — the columns you can join on
-- [Three stores](../concepts/three-stores.md) — where the parquet files live
+- [Three stores](../concepts/data/three-stores.md) — where the parquet files live
 - [Find flaky tests](find-flaky-tests.md) — when the two runs are the same test on the same DUT

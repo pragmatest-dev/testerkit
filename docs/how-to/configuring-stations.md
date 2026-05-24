@@ -244,7 +244,7 @@ pytest tests/ \
   --dut-serial=SN001
 ```
 
-See [Fixtures](../concepts/fixtures.md) for the pin-to-instrument mapping model.
+See [Fixtures](../concepts/configuration/fixtures.md) for the pin-to-instrument mapping model.
 
 ## Capability Declarations
 
@@ -380,6 +380,6 @@ instruments:
 
 ## Next Steps
 
-- [Stations Concept](../concepts/stations.md) — Understanding stations
-- [Capabilities](../concepts/capabilities.md) — Capability matching
+- [Stations Concept](../concepts/configuration/stations.md) — Understanding stations
+- [Capabilities](../concepts/configuration/capabilities.md) — Capability matching
 - [Custom drivers](custom-drivers.md) — Build a non-VISA driver

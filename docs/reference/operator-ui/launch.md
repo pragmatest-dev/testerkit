@@ -59,7 +59,7 @@ uses. Products come from the project's `products/` directory. Tests
 come from the project's `tests/` directory (`discover_tests`).
 
 The "compatible stations" filter behind the Product dropdown uses
-the [capability matching](../../concepts/capabilities.md) machinery
+the [capability matching](../../concepts/configuration/capabilities.md) machinery
 — a station is compatible with a product when its instruments cover
 every required characteristic of the product.
 
@@ -74,5 +74,5 @@ every required characteristic of the product.
 ## See also
 
 - [Dashboard](dashboard.md) — the start screen that links here
-- [Concepts → Capabilities](../../concepts/capabilities.md) — how
+- [Concepts → Capabilities](../../concepts/configuration/capabilities.md) — how
   the station-compatibility filter is computed

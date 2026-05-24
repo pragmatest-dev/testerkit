@@ -235,4 +235,4 @@ No authentication for the local-only `litmus serve` deployment. If you expose th
 - [reference/event-types.md](event-types.md) — event payload shapes consumed by `/api/events` and `litmus_events`
 - [reference/models.md](models.md) — full Pydantic model surface (response_model targets)
 - [reference/cli.md](cli.md) — `litmus serve`, `litmus setup`, `litmus mcp serve` CLI flags
-- [concepts/three-stores.md](../concepts/three-stores.md) — what `/api/events`, `/api/runs`, `/api/channels` each read from
+- [concepts/three-stores.md](../concepts/data/three-stores.md) — what `/api/events`, `/api/runs`, `/api/channels` each read from

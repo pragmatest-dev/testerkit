@@ -33,7 +33,7 @@ Each instrument has:
 | `type` | Instrument type (dmm, scope, psu, eload, etc.) |
 | `resource` | VISA address or connection string |
 | `mock_config` | Values for `--mock-instruments` mode |
-Instruments can be shared across multiple DUT slots in a multi-DUT fixture. When shared, the orchestrator connects them once and serves them to worker subprocesses via an `InstrumentServer` (an internal RPC server that lets multiple test workers share one physical instrument — TCP with per-resource locking). No special flags needed — sharing is detected automatically from the fixture topology. See [Configuring Stations](../how-to/configuring-stations.md#shared-instruments-multi-dut) for details.
+Instruments can be shared across multiple DUT slots in a multi-DUT fixture. When shared, the orchestrator connects them once and serves them to worker subprocesses via an `InstrumentServer` (an internal RPC server that lets multiple test workers share one physical instrument — TCP with per-resource locking). No special flags needed — sharing is detected automatically from the fixture topology. See [Configuring Stations](../../how-to/configuring-stations.md#shared-instruments-multi-dut) for details.
 
 ### Common Instrument Types
 
@@ -118,7 +118,7 @@ instruments:
 
 ### Instrument aliases per test
 
-Station configs define the physical instrument inventory. A sidecar YAML can optionally remap fixture names to different station instruments on a per-test or per-class basis via marker fields. See [Writing Tests](../how-to/writing-tests.md) for details.
+Station configs define the physical instrument inventory. A sidecar YAML can optionally remap fixture names to different station instruments on a per-test or per-class basis via marker fields. See [Writing Tests](../../how-to/writing-tests.md) for details.
 
 ## Using Stations in Tests
 
@@ -146,7 +146,7 @@ litmus show <run_id>            # Show run details
 
 ## Supported Test Phases
 
-Stations can optionally declare which test phases (`test_phase` is a station-level setting selecting the workflow phase — development, validation, production — and gating mocks; see [how-to/profiles](../how-to/profiles.md)) they support:
+Stations can optionally declare which test phases (`test_phase` is a station-level setting selecting the workflow phase — development, validation, production — and gating mocks; see [how-to/profiles](../../how-to/profiles.md)) they support:
 
 ```yaml
 id: bench_1
@@ -209,4 +209,4 @@ pytest tests/ --station=stations/ci_station.yaml --mock-instruments --dut-serial
 
 - [Capabilities](capabilities.md) — Understanding what stations can do
 - [Fixtures](fixtures.md) — Mapping DUT pins to instruments
-- [Configuration Reference](../reference/configuration.md) — YAML schema details
+- [Configuration Reference](../../reference/configuration.md) — YAML schema details

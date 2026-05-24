@@ -1,10 +1,10 @@
-# Why pytest is the primary path
+# pytest as the primary runner
 
-Litmus is a hardware test platform; pytest is its primary runner integration (OpenHTF and the LabVIEW / TestStand results API are alternatives — see [Integrations](../integration/)). The bundled pytest plugin slots into stock pytest with zero configuration. Tests are **plain pytest** — no decorator, no base class. The plugin contributes [20 fixtures](../reference/litmus-fixtures.md) (of which `context`, `verify`, and `logger` are the three you hit every test), [seven markers](../reference/litmus-markers.md), and a [sidecar YAML](../reference/configuration.md); everything else is stock pytest.
+Litmus is a hardware test platform; the bundled pytest plugin is its primary runner integration. OpenHTF and the LabVIEW / TestStand results API are the alternatives — see [Integrations](../../integration/). Tests under the pytest path are **plain pytest** — no decorator, no base class. The plugin contributes [20 fixtures](../../reference/litmus-fixtures.md) (`context`, `verify`, `logger` are the three a test hits every time), [seven markers](../../reference/litmus-markers.md), and a [sidecar YAML](../../reference/configuration.md); everything else is stock pytest.
 
-This page explains what you get for free by choosing pytest — features you'd otherwise build and maintain yourself. For the pytest fundamentals (discovery, markers, fixtures, parametrize, CLI), the official docs at <https://docs.pytest.org/> are authoritative.
+The choice carries the rest of the pytest ecosystem with it. The sections below name what pytest already provides (so the platform doesn't reimplement it), what the platform adds on top, and why this division benefits AI-assisted authoring.
 
-## You already know the basics
+## Shape of a Litmus test
 
 ```python
 class TestPowerBoard:
@@ -12,9 +12,9 @@ class TestPowerBoard:
         verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-No proprietary IDE. No new test language. No vendor lock-in. Runs with `pytest`, shows up in the IDE test explorer, works with every pytest plugin.
+Plain pytest collection — no proprietary IDE, no test DSL. Runs with the `pytest` command, shows up in the IDE test explorer, works alongside every pytest plugin.
 
-## What pytest handles for you (free)
+## What stock pytest provides
 
 - **Test discovery and selection** — `pytest -k`, `-m`, node IDs, `--lf`/`--ff` for last-failed / failures-first
 - **Markers for classification** — `@pytest.mark.smoke`, `@pytest.mark.slow`, etc.; Litmus adds hardware-specific flags on top
@@ -40,14 +40,14 @@ No proprietary IDE. No new test language. No vendor lock-in. Runs with `pytest`,
 
 Retries and explicit test dependencies are **ecosystem plugins**, not Litmus additions — use `@pytest.mark.flaky(reruns=N)` (`pytest-rerunfailures`) and `@pytest.mark.dependency(depends=[...])` (`pytest-dependency`).
 
-## Why this matters for AI assistants
+## Implication for AI-assisted authoring
 
-When an AI writes or debugs your tests, pytest is the framework it knows best. LLMs have read the pytest docs thousands of times. A custom test runner requires teaching the tool the API from scratch every time. By building on pytest, Litmus inherits all of that training for free — the AI only has to learn Litmus's added vocabulary on top: the [20 fixtures](../reference/litmus-fixtures.md) (most often `context`, `verify`, `logger`, `pins`, `instruments`, plus the per-instrument-role fixtures from the active station), and the [seven markers](../reference/litmus-markers.md) (`litmus_limits`, `litmus_sweeps`, `litmus_mocks`, `litmus_characteristics`, `litmus_connections`, `litmus_retry`, `litmus_prompts`).
+LLMs are trained on the pytest documentation and on the millions of public test suites that use it. By riding on pytest, the platform inherits that training: an AI assistant only has to learn Litmus's added vocabulary on top — the [20 fixtures](../../reference/litmus-fixtures.md) (most often `context`, `verify`, `logger`, `pins`, `instruments`, plus the per-instrument-role fixtures from the active station) and the [seven markers](../../reference/litmus-markers.md) (`litmus_limits`, `litmus_sweeps`, `litmus_mocks`, `litmus_characteristics`, `litmus_connections`, `litmus_retry`, `litmus_prompts`). A custom test runner would have to be taught from scratch.
 
-## Next steps
+## See also
 
-- [Writing Tests](../how-to/writing-tests.md) — end-to-end patterns
-- [Litmus fixtures](../reference/litmus-fixtures.md) — all 20 plugin fixtures
-- [Litmus markers](../reference/litmus-markers.md) — the seven `litmus_*` markers
-- [pytest-native reference](../reference/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
+- [Writing Tests](../../how-to/writing-tests.md) — end-to-end patterns
+- [Litmus fixtures](../../reference/litmus-fixtures.md) — all 20 plugin fixtures
+- [Litmus markers](../../reference/litmus-markers.md) — the seven `litmus_*` markers
+- [pytest-native reference](../../reference/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
 - [pytest docs](https://docs.pytest.org/en/stable/) — official reference for everything that isn't Litmus-specific

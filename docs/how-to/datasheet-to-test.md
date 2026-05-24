@@ -2,7 +2,7 @@
 
 Walks through the `datasheet-to-test` workflow end-to-end: from a product datasheet PDF to a runnable pytest suite, with operator approval at every step. This is the highest-leverage AI-assisted flow Litmus ships — it covers spec extraction, instrument selection, station config, and test scaffolding in one chained conversation.
 
-For motivation see [why AI integration](../concepts/why-ai-integration.md). For the full inventory of what ships, see the [skills reference](../reference/skills.md).
+For motivation see [why AI integration](../concepts/overview/ai-integration.md). For the full inventory of what ships, see the [skills reference](../reference/skills.md).
 
 ## Prerequisites
 
@@ -162,7 +162,7 @@ Three ways to use this flow short of the full pipeline:
 
 ## See also
 
-- [Concepts: why AI integration](../concepts/why-ai-integration.md) — motivation
+- [Concepts: why AI integration](../concepts/overview/ai-integration.md) — motivation
 - [Reference: skills](../reference/skills.md) — full inventory of workflows, agents, MCP tools
 - [How-to: MCP integration](mcp-integration.md) — per-client setup detail
 - [Reference: catalog schema](../reference/catalog-schema.md) — the shape product spec and catalog entries share

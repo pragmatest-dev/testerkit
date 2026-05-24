@@ -87,7 +87,7 @@ not a flake at all; it's a deterministic failure.
 
 Resolve `<data_dir>` from
 [`ProjectConfig`](../reference/configuration.md) or check the
-[Three Stores](../concepts/three-stores.md) page for the default
+[Three Stores](../concepts/data/three-stores.md) page for the default
 locations.
 
 ## 5. Cross-check the environment with channels
@@ -106,5 +106,5 @@ failing window is a smoking gun.
 - [Results — detail view](../reference/operator-ui/results/detail.md) — the step tree used in step 2
 - [`litmus_retry` marker](../reference/litmus-markers.md#litmus_retry) — the retry policy in step 3
 - [Parquet schema → Retries](../reference/parquet-schema.md#retries) — `vector_retry` column semantics
-- [Three stores](../concepts/three-stores.md) — ParquetBackend + ChannelStore
+- [Three stores](../concepts/data/three-stores.md) — ParquetBackend + ChannelStore
 - [Compare two runs](compare-runs.md) — what to do once you've narrowed it to two specific runs

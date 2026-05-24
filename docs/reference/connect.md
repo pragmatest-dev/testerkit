@@ -117,7 +117,7 @@ Lock files live in `~/.local/share/litmus/locks/` (Linux) and use `fcntl.flock()
 
 ## Flight server lifecycle
 
-When `start()` creates an `EventStore`, the store acquires a ref-counted DuckDB daemon via [Flight](../concepts/flight-streaming.md):
+When `start()` creates an `EventStore`, the store acquires a ref-counted DuckDB daemon via [Flight](../concepts/data/flight-streaming.md):
 
 1. First process to start a session spawns the daemon.
 2. Subsequent processes share it (ref-counted).
@@ -136,7 +136,7 @@ If `station` is `None`, it reads `default_station` from `litmus.yaml` in the CWD
 
 ## See also
 
-- [Sessions](../concepts/sessions.md) — why sessions exist and what they capture
+- [Sessions](../concepts/data/sessions.md) — why sessions exist and what they capture
 - [Managing sessions](../how-to/managing-sessions.md) — practical workflows
-- [Flight streaming](../concepts/flight-streaming.md) — the DuckDB daemon `connect()` rides on
+- [Flight streaming](../concepts/data/flight-streaming.md) — the DuckDB daemon `connect()` rides on
 - [Litmus fixtures](litmus-fixtures.md) — the pytest equivalents (every fixture is backed by the same `StationConnection` machinery)

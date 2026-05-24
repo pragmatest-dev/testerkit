@@ -76,9 +76,9 @@ decimation runs server-side (the chart asks for up to 1,000 points;
 the raw data table sees the full filtered set).
 
 For the storage layout, see
-[Concepts → Three stores](../../../concepts/three-stores.md).
+[Concepts → Three stores](../../../concepts/data/three-stores.md).
 
 ## See also
 
 - [Channels list](list.md) — the table you came from
-- [Concepts → Three stores](../../../concepts/three-stores.md)
+- [Concepts → Three stores](../../../concepts/data/three-stores.md)

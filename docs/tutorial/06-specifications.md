@@ -86,7 +86,7 @@ pins:
     role: power            # signal, ground, power, reference
 ```
 
-### [Characteristics](../concepts/capabilities.md)
+### [Characteristics](../concepts/configuration/capabilities.md)
 
 Measurable properties with expected values (each entry in `bands:` is a [`SpecBand`](../reference/models.md) — a value-plus-condition record):
 

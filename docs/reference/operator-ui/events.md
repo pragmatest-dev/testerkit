@@ -72,7 +72,7 @@ For the schema of each event type, see
 [Event types reference](../event-types.md).
 
 For the storage layout that makes the event log queryable, see
-[Concepts → Event log](../../concepts/event-log.md).
+[Concepts → Event log](../../concepts/data/event-log.md).
 
 ## Common tasks
 
@@ -90,4 +90,4 @@ For the storage layout that makes the event log queryable, see
 - [Results detail](results/detail.md) — the same events grouped into
   a single run's tabs
 - [Event types reference](../event-types.md)
-- [Concepts → Event log](../../concepts/event-log.md)
+- [Concepts → Event log](../../concepts/data/event-log.md)

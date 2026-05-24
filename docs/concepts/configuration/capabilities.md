@@ -123,7 +123,7 @@ The matcher determines whether a station can test a product using tiered matchin
 1. **Function match** — instrument has same `MeasurementFunction` as requirement
 2. **Direction match** — directions pair correctly (OUTPUT↔INPUT, BIDIR satisfies both)
 3. **Parameter range containment** — instrument's parameter ranges contain required values
-4. **Accuracy** — instrument accuracy must be better than required (condition-aware via [`SpecBand`](../reference/models.md), the value-plus-condition record)
+4. **Accuracy** — instrument accuracy must be better than required (condition-aware via [`SpecBand`](../../reference/models.md), the value-plus-condition record)
 5. **Resolution** — instrument resolution must meet or exceed required
 
 ```python
@@ -456,5 +456,5 @@ Matching: dc_voltage OUTPUT ↔ dc_voltage INPUT
 ## Next Steps
 
 - [Fixtures](fixtures.md) — Mapping DUT pins to instruments
-- [Architecture](architecture.md) — System data flow
-- [Custom drivers](../how-to/custom-drivers.md) — Creating custom drivers
+- [Architecture](../overview/architecture.md) — System data flow
+- [Custom drivers](../../how-to/custom-drivers.md) — Creating custom drivers

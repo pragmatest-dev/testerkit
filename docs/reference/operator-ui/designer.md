@@ -138,7 +138,7 @@ the current state is bookmarkable.
 - Stations come from `stations/`.
 - Fixtures (loaded and saved) live in `fixtures/`.
 - Auto-Match uses the same
-  [capability matching](../../concepts/capabilities.md) machinery
+  [capability matching](../../concepts/configuration/capabilities.md) machinery
   used elsewhere to find a station-channel that satisfies a product
   pin's required signal direction.
 
@@ -158,6 +158,6 @@ the current state is bookmarkable.
 
 - [Fixtures](fixtures.md) — the entity reference for what gets saved
 - [Configuration reference → Fixture YAML](../configuration.md#fixture-yaml) — the schema the designer writes
-- [Concepts → Capabilities](../../concepts/capabilities.md) — how Auto-Match decides what fits
+- [Concepts → Capabilities](../../concepts/configuration/capabilities.md) — how Auto-Match decides what fits
 - [Stations](stations.md) — the station whose instruments populate the channel side
 - [Products](products.md) — the product whose pins populate the DUT side

@@ -126,7 +126,7 @@ the four tables above.
   step-by-step setup, including Docker and Grafana Cloud variants
 - [Parquet schema](../reference/parquet-schema.md) — the columns
   the dashboards select
-- [Three stores](../concepts/three-stores.md) — where parquet,
+- [Three stores](../concepts/data/three-stores.md) — where parquet,
   events, and channels live on disk
 - [Find flaky tests](../how-to/find-flaky-tests.md) — the
   diagnostic recipe that combines Yield + Failure Pareto +

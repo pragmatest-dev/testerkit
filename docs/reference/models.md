@@ -10,7 +10,7 @@ uv run python scripts/generate_reference_docs.py models
 
 The hand-written ERD below stays put; it changes only when relationships change shape, not on every field rename.
 
-For conceptual framing of the capability-side models (`InstrumentCapability`, `ProductCharacteristic`, `SpecBand`, `Signal`, `Condition`, `Control`, `Attribute`, `ChannelTopology`), see [concepts/capabilities](../concepts/capabilities.md). For the event log subclasses of `EventBase`, see [event-types.md](event-types.md).
+For conceptual framing of the capability-side models (`InstrumentCapability`, `ProductCharacteristic`, `SpecBand`, `Signal`, `Condition`, `Control`, `Attribute`, `ChannelTopology`), see [concepts/capabilities](../concepts/configuration/capabilities.md). For the event log subclasses of `EventBase`, see [event-types.md](event-types.md).
 
 ## Shared enums (`litmus.models.enums`)
 
@@ -2000,7 +2000,7 @@ station.instruments["dmm_main"]
 # Match: function ✓, direction pair (OUTPUT↔INPUT) ✓, range contains 3.3V ✓
 ```
 
-See [concepts/capabilities](../concepts/capabilities.md) for the full matching story.
+See [concepts/capabilities](../concepts/configuration/capabilities.md) for the full matching story.
 
 ## See also
 
@@ -2008,5 +2008,5 @@ See [concepts/capabilities](../concepts/capabilities.md) for the full matching s
 - [Configuration](configuration.md) — YAML schema reference (uses these same models)
 - [Parquet schema](parquet-schema.md) — the materialized row shape
 - [Catalog schema](catalog-schema.md) — `InstrumentCatalogEntry` in depth
-- [Capabilities (concept)](../concepts/capabilities.md) — `InstrumentCapability` / `ProductCharacteristic` design
+- [Capabilities (concept)](../concepts/configuration/capabilities.md) — `InstrumentCapability` / `ProductCharacteristic` design
 - [Context architecture (how-to)](../how-to/context-architecture.md) — the runtime `Context` class (not a `BaseModel`)

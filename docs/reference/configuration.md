@@ -210,7 +210,7 @@ slots:                                 # dict[slot_name, FixtureSlot]
 - `FixtureConnection.name` is required — there is no key-as-name auto-fill. Declare `name:` matching the dict key on every connection.
 - `connections:` and `slots:` are mutually exclusive on a single `FixtureConfig` — validator rejects both being set.
 
-See [concepts/fixtures.md](../concepts/fixtures.md) for the design rationale, [how-to/multi-dut-testing.md](../how-to/multi-dut-testing.md) for slot workflow.
+See [concepts/fixtures.md](../concepts/configuration/fixtures.md) for the design rationale, [how-to/multi-dut-testing.md](../how-to/multi-dut-testing.md) for slot workflow.
 
 ## Product — `products/<id>.yaml` {#product-yaml}
 
@@ -402,4 +402,4 @@ Every loader raises with the offending field path on type / shape errors and a c
 - [Mock mode (how-to)](../how-to/mock-mode.md) — station `mock_config:` and sidecar `mocks:`
 - [Pytest-native (reference)](pytest-native.md) — node IDs, marker surface
 - [Litmus markers (reference)](litmus-markers.md) — every marker with payload shape
-- [Fixtures (concept)](../concepts/fixtures.md) — design rationale for fixtures
+- [Fixtures (concept)](../concepts/configuration/fixtures.md) — design rationale for fixtures

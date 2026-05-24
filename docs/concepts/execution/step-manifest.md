@@ -49,7 +49,7 @@ The runs daemon caches the discovered items in memory via its accumulator. When 
 
 ## Storage
 
-There is **one parquet file per run**. Step records and measurement records share the same file, discriminated by the [`record_type`](../reference/parquet-schema.md) column:
+There is **one parquet file per run**. Step records and measurement records share the same file, discriminated by the [`record_type`](../../reference/parquet-schema.md) column:
 
 ```
 <data_dir>/runs/{date}/
@@ -59,7 +59,7 @@ There is **one parquet file per run**. Step records and measurement records shar
    └── record_type='measurement'          # one row per recorded measurement
 ```
 
-Key step-row columns (full list in [Parquet schema](../reference/parquet-schema.md)):
+Key step-row columns (full list in [Parquet schema](../../reference/parquet-schema.md)):
 
 - `step_name`, `step_path`, `step_index`, `parent_path`, `step_node_id`
 - `step_started_at`, `step_ended_at`, `step_vector_count`
@@ -116,6 +116,6 @@ store.events(event_type="test.steps_discovered", session_id=sid)
 
 ## See also
 
-- [Event log](event-log.md) — how events get to Parquet
-- [Parquet schema](../reference/parquet-schema.md) — full column list
-- [Three stores](three-stores.md) — EventStore, ChannelStore, ParquetBackend
+- [Event log](../data/event-log.md) — how events get to Parquet
+- [Parquet schema](../../reference/parquet-schema.md) — full column list
+- [Three stores](../data/three-stores.md) — EventStore, ChannelStore, ParquetBackend

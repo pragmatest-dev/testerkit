@@ -1,8 +1,8 @@
-# Why event sourcing?
+# Event sourcing
 
-Litmus stores test execution data as an immutable, append-only log of events; queryable run/step/measurement views are *materialized projections* of that log. This page explains why — what traditional test-result schemas force you into, and what Litmus gets for free by inverting the usual data model.
+The platform stores test execution data as an immutable, append-only log of events. The queryable Run / Step / Measurement views (parquet, DuckDB index) are *materialized projections* of that log — derived, regenerable, never the source of truth.
 
-The companion pages cover the *what*: see [Three Stores Architecture](three-stores.md) and [Event Log Architecture](event-log.md).
+The companion pages cover the **what**: [Event log](event-log.md) for the event-type taxonomy and dispatch; [Three stores](three-stores.md) for the on-disk layout of events, channels, and the materialized parquet. This page covers the **why** — what traditional CRUD test-result schemas force a platform into, and what falls out of inverting the model.
 
 ## The CRUD trap for test results
 

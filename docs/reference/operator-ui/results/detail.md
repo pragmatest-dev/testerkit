@@ -212,7 +212,7 @@ Bookmarking the URL bookmarks the run + the open tab.
 - [Results list](list.md) — the table you came from
 - [`litmus show` CLI](../../cli.md#cli-show) — the same data over the
   command line
-- [Concepts → Outcomes](../../../concepts/outcomes.md) — what each
+- [Concepts → Outcomes](../../../concepts/execution/outcomes.md) — what each
   outcome value means and how rollups work
-- [Concepts → Step hierarchy](../../../concepts/step-hierarchy.md) —
+- [Concepts → Step hierarchy](../../../concepts/execution/step-hierarchy.md) —
   how classes, methods, and vectors nest in the Steps table

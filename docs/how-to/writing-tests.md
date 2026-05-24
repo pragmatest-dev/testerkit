@@ -61,7 +61,7 @@ voltage=2: warmup → load_regulation → cooldown
 voltage=3: warmup → load_regulation → cooldown
 ```
 
-See the [step hierarchy concepts page](../concepts/step-hierarchy.md) for the data model — how container/method/measurement events compose and how `step_path` / `parent_path` identify each level.
+See the [step hierarchy concepts page](../concepts/execution/step-hierarchy.md) for the data model — how container/method/measurement events compose and how `step_path` / `parent_path` identify each level.
 
 ## Sweeping inputs (test vectors)
 

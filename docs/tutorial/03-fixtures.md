@@ -2,7 +2,7 @@
 
 **Goal:** Adopt Litmus's per-test fixtures so measurements get recorded with full [traceability](../how-to/traceability.md).
 
-In step 2, your tests called driver methods and used `assert` for pass/fail. Litmus's `logger` and `verify` fixtures slot in alongside that, recording each measurement to the run record (the row Litmus writes per test in parquet — see [three stores](../concepts/three-stores.md)) without changing how your test reads.
+In step 2, your tests called driver methods and used `assert` for pass/fail. Litmus's `logger` and `verify` fixtures slot in alongside that, recording each measurement to the run record (the row Litmus writes per test in parquet — see [three stores](../concepts/data/three-stores.md)) without changing how your test reads.
 
 You don't need any new YAML for this step. Keep the `conftest.py` from step 2 — the `psu` / `dmm` fixtures still work.
 
@@ -13,7 +13,7 @@ All three are available on every test run — no station, no sidecar, no sweep r
 | Fixture  | What it gives the test                                 | Verbs                                            |
 |----------|--------------------------------------------------------|--------------------------------------------------|
 | `logger` | Per-measurement event-log writer                       | `measure(name, value, ...)`, `record`            |
-| `verify` | Records the row, resolves a limit, raises on FAIL      | `verify(name, value, limit=..., characteristic=...)` (`characteristic` = a named measurable property on the product spec — covered in step 6 / [concepts/capabilities](../concepts/capabilities.md)) |
+| `verify` | Records the row, resolves a limit, raises on FAIL      | `verify(name, value, limit=..., characteristic=...)` (`characteristic` = a named measurable property on the product spec — covered in step 6 / [concepts/capabilities](../concepts/configuration/capabilities.md)) |
 | `context`| Ambient run / DUT / station / vector state             | `get_param`, `changed`, `last`, `observe`, `.product`, `.station`, `.run` |
 
 These are the common per-test entry points. The plugin exposes 17 others (hardware accessors like `pins` / `instruments` / `dut`, configuration accessors like `product_context` / `station_config`, special modes like `vectors` / `sync`) — see the [Litmus fixtures reference](../reference/litmus-fixtures.md) for the full set.
@@ -74,7 +74,7 @@ class TestPowerUp:
                limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
-Methods run in source order. Each emits its own [step](../concepts/step-hierarchy.md) events; the class container's [outcome](../reference/models.md#enum-outcome) rolls up from the worst child outcome.
+Methods run in source order. Each emits its own [step](../concepts/execution/step-hierarchy.md) events; the class container's [outcome](../reference/models.md#enum-outcome) rolls up from the worst child outcome.
 
 If a downstream test should skip when an upstream one fails, use `@pytest.mark.dependency(depends=["test_input_voltage"])` from the [`pytest-dependency`](https://pytest-dependency.readthedocs.io/) plugin — pytest's ecosystem, not a Litmus addition.
 

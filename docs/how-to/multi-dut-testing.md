@@ -6,7 +6,7 @@ Litmus supports parallel testing of multiple DUTs (Devices Under Test) using a s
 
 ## Creating a Multi-Slot Fixture
 
-Define slots in your [fixture YAML](../concepts/fixtures.md). Each slot represents one DUT position:
+Define slots in your [fixture YAML](../concepts/configuration/fixtures.md). Each slot represents one DUT position:
 
 ```yaml
 # fixtures/dual_board.yaml
@@ -93,7 +93,7 @@ def test_thermal_soak(dmm, sync):
     v = dmm.measure_voltage()
 ```
 
-The `SyncCoordinator` (an internal helper that brokers `sync.wait()` rendezvous between slot workers) in the orchestrator process handles sync point coordination via [EventStore](../concepts/event-log.md) events. If a slot dies, the coordinator unblocks remaining slots to prevent deadlocks.
+The `SyncCoordinator` (an internal helper that brokers `sync.wait()` rendezvous between slot workers) in the orchestrator process handles sync point coordination via [EventStore](../concepts/data/event-log.md) events. If a slot dies, the coordinator unblocks remaining slots to prevent deadlocks.
 
 ## Reading Per-Slot Results
 

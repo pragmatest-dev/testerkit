@@ -154,6 +154,6 @@ the production rollout.
 ## See also
 
 - [Reference → litmus_prompts marker](../reference/litmus-markers.md#litmus_prompts)
-- [Concepts → Step hierarchy](../concepts/step-hierarchy.md) — where prompts sit in the run timeline
+- [Concepts → Step hierarchy](../concepts/execution/step-hierarchy.md) — where prompts sit in the run timeline
 - [Tour of the Operator UI](operator-ui-tour.md) — the ACTIVE TESTS sidebar block, which is your prompt-waiting signal
 - [Multi-DUT testing](multi-dut-testing.md) — prompts in subprocess-per-slot setups

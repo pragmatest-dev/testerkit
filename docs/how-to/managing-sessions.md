@@ -93,6 +93,6 @@ Default: unlimited (keep everything). No surprise data loss.
 
 ## See Also
 
-- [Sessions Concept](../concepts/sessions.md) — Why sessions exist
+- [Sessions Concept](../concepts/data/sessions.md) — Why sessions exist
 - [connect() reference](../reference/connect.md) — full API surface
 - [Querying Events](querying-events.md) — Event query patterns

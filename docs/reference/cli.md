@@ -567,7 +567,7 @@ See [Profiles](../how-to/profiles.md) for the profile YAML shape.
 
 ## See also
 
-- [Platform architecture](../concepts/platform-architecture.md) — what each entry point owns
+- [Platform architecture](../concepts/overview/platform-vs-framework.md) — what each entry point owns
 - [MCP tools](../how-to/mcp-integration.md) — the agent-side parallel to most `litmus` subcommands
 - [Configuration](configuration.md) — YAML files the CLI reads
 - [API reference](api.md) — HTTP routes the `litmus serve` UI mounts

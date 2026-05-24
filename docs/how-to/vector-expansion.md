@@ -133,7 +133,7 @@ variants, then all cooldown variants); `litmus_sweeps` reorders to
 condition-first because that's what hardware test sequences want.
 
 Each class iteration emits its own **container step** in the event
-log — see [Step Hierarchy](../concepts/step-hierarchy.md) for what
+log — see [Step Hierarchy](../concepts/execution/step-hierarchy.md) for what
 the event stream looks like and how it composes with measurements.
 
 ### Where you put the decorator matters

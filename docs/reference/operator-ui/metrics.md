@@ -208,5 +208,5 @@ report.
 - [Results list](results/list.md) — the run-level table this rolls up from
 - [`litmus metrics` CLI group](../cli.md#cli-metrics) — per-subcommand
   links are in [Underlying data](#underlying-data) above
-- [Concepts → Outcomes](../../concepts/outcomes.md) — how
+- [Concepts → Outcomes](../../concepts/execution/outcomes.md) — how
   pass / fail / error are decided in the first place

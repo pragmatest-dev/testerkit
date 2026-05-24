@@ -65,7 +65,7 @@ root.
 
 For the YAML schema, see
 [Configuration reference → Fixtures](../configuration.md#fixture-yaml).
-For the concept, see [Concepts → Fixtures](../../concepts/fixtures.md).
+For the concept, see [Concepts → Fixtures](../../concepts/configuration/fixtures.md).
 
 ## Common tasks
 
@@ -79,4 +79,4 @@ For the concept, see [Concepts → Fixtures](../../concepts/fixtures.md).
 ## See also
 
 - [Configuration reference → Fixtures](../configuration.md#fixture-yaml)
-- [Concepts → Fixtures](../../concepts/fixtures.md)
+- [Concepts → Fixtures](../../concepts/configuration/fixtures.md)

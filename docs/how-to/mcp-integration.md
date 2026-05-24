@@ -2,7 +2,7 @@
 
 Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with **12 tools** that expose the datasheet → test workflow to AI assistants. The platform does **not** call LLMs itself — it only exposes tools that an AI agent drives.
 
-This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../concepts/why-ai-integration.md); for the end-to-end workflow walkthrough see [datasheet-to-test](datasheet-to-test.md); for the full inventory of shipped skills + sub-agents + slash commands see [reference/skills](../reference/skills.md). Per-tool MCP reference: [api.md → MCP tools](../reference/api.md#tools).
+This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../concepts/overview/ai-integration.md); for the end-to-end workflow walkthrough see [datasheet-to-test](datasheet-to-test.md); for the full inventory of shipped skills + sub-agents + slash commands see [reference/skills](../reference/skills.md). Per-tool MCP reference: [api.md → MCP tools](../reference/api.md#tools).
 
 > **Prerequisites.** `litmus` installed and on `$PATH` (`uv pip install litmus-test` — the PyPI distribution is `litmus-test`; the import is `litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, real or mock instruments configured in `stations/`.
 
@@ -138,7 +138,7 @@ run = runs["runs"][0]
 print(run["run_outcome"])           # one of the 7 Outcome values
 ```
 
-See [outcomes](../concepts/outcomes.md) for what each value means.
+See [outcomes](../concepts/execution/outcomes.md) for what each value means.
 
 ## The AI-driven workflow
 
@@ -157,7 +157,7 @@ After this, **you** (the human) need to drop to a terminal and run `uv sync` to 
 
 ### Step 1 — Create a product spec from the datasheet
 
-A product spec declares the DUT's pins and its [characteristics](../concepts/capabilities.md) (measurable properties + their spec bands). The spec is what `verify(name, value)` resolves limits against later.
+A product spec declares the DUT's pins and its [characteristics](../concepts/configuration/capabilities.md) (measurable properties + their spec bands). The spec is what `verify(name, value)` resolves limits against later.
 
 Key concepts in datasheet vocabulary:
 
@@ -210,7 +210,7 @@ litmus_project(action="save", type="product", id="tps54302", content={
 }, project=project)
 ```
 
-For the full product schema see [configuration reference → product](../reference/configuration.md#product-specification). For the band-matching and `accuracy:` semantics see [capabilities → condition-dependent specs](../concepts/capabilities.md#condition-dependent-specs-specband).
+For the full product schema see [configuration reference → product](../reference/configuration.md#product-specification). For the band-matching and `accuracy:` semantics see [capabilities → condition-dependent specs](../concepts/configuration/capabilities.md#condition-dependent-specs-specband).
 
 ### Step 2 — Set up the test station
 
@@ -448,8 +448,8 @@ def test_output():
 - [api.md → MCP tools](../reference/api.md#tools) — full per-tool reference: parameters, return shapes, every keyword
 - [cli.md → litmus setup](../reference/cli.md#cli-setup) — `litmus setup show` and the `--print-only` flag
 - [litmus-fixtures.md → context, verify, logger](../reference/litmus-fixtures.md) — every pytest fixture this page references
-- [outcomes](../concepts/outcomes.md) — what each `run_outcome` / `step_outcome` / `measurement_outcome` value means
-- [capabilities](../concepts/capabilities.md) — characteristics, SpecBand, the matching model
+- [outcomes](../concepts/execution/outcomes.md) — what each `run_outcome` / `step_outcome` / `measurement_outcome` value means
+- [capabilities](../concepts/configuration/capabilities.md) — characteristics, SpecBand, the matching model
 - [limits](limits.md) — the full limit-resolution chain (sidecar / marker / product spec / inline)
 - [vector-expansion](vector-expansion.md) — `sweeps:` shape (cross-product vs zipped), range expanders
 - [spec-driven-testing](spec-driven-testing.md) — `litmus_characteristics` + product-spec workflow

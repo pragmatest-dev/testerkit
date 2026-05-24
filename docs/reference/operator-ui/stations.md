@@ -73,7 +73,7 @@ the YAML in an IDE) are picked up on next page load.
 
 For the YAML schema, see
 [Configuration reference → Stations](../configuration.md#station-yaml).
-For the concept, see [Concepts → Stations](../../concepts/stations.md).
+For the concept, see [Concepts → Stations](../../concepts/configuration/stations.md).
 
 ## Common tasks
 
@@ -86,5 +86,5 @@ For the concept, see [Concepts → Stations](../../concepts/stations.md).
 ## See also
 
 - [Configuration reference → Stations](../configuration.md#station-yaml)
-- [Concepts → Stations](../../concepts/stations.md)
+- [Concepts → Stations](../../concepts/configuration/stations.md)
 - [Launch Test](launch.md) — pick a station and start a run

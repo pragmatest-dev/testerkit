@@ -18,14 +18,14 @@ That's it. You'll see tests pass with mock instruments, limits checked, and resu
 
 > **Concepts cheat-sheet.** Quick Start shows a complete Litmus project, which means it uses every concept the framework has — most for the first time. Each term in the rest of this page links forward to the tutorial step that introduces it properly:
 >
-> - **Product spec** — `products/*.yaml`. Describes the device under test. → [Step 6](06-specifications.md), [concepts/products](../concepts/products.md)
-> - **Station YAML** — `stations/*.yaml`. Declares the bench's instruments. → [Step 7](07-real-instruments.md), [concepts/stations](../concepts/stations.md)
+> - **Product spec** — `products/*.yaml`. Describes the device under test. → [Step 6](06-specifications.md), [concepts/products](../concepts/configuration/products.md)
+> - **Station YAML** — `stations/*.yaml`. Declares the bench's instruments. → [Step 7](07-real-instruments.md), [concepts/stations](../concepts/configuration/stations.md)
 > - **Sidecar YAML** — `tests/test_<module>.yaml`. Carries limits, sweeps, mocks for tests in that module. → [Step 5](05-configuration.md)
 > - **`verify` / `logger` / `context` fixtures** — three of the 20 fixtures Litmus contributes. → [Step 3](03-fixtures.md), [reference/litmus-fixtures](../reference/litmus-fixtures.md)
 > - **`@pytest.mark.litmus_limits`** — one of the seven Litmus markers; pins a limit at the top of a test. → [Step 4](04-limits.md), [reference/litmus-markers](../reference/litmus-markers.md)
 > - **`mock_config`** — Per-instrument return values for mock mode. → [Step 2](02-mock-instruments.md), [how-to/mock-mode](../how-to/mock-mode.md)
 > - **Characteristics, bands, accuracy, `when:`** — Product-spec vocabulary. → [Step 6](06-specifications.md), [reference/catalog-schema](../reference/catalog-schema.md)
-> - **Capability matching** — How Litmus pairs a product to a station. → [Step 8](08-capabilities.md), [concepts/capabilities](../concepts/capabilities.md)
+> - **Capability matching** — How Litmus pairs a product to a station. → [Step 8](08-capabilities.md), [concepts/capabilities](../concepts/configuration/capabilities.md)
 > - **MCP** — Model Context Protocol; how AI agents drive Litmus. → [how-to/mcp-integration](../how-to/mcp-integration.md)
 
 ## How to Install

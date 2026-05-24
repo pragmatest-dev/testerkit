@@ -188,4 +188,4 @@ required fields) defer to the 1.0 cut.
 
 - [Three Stores Architecture](three-stores.md) — How EventStore fits with ChannelStore and ParquetBackend
 - [Sessions](sessions.md) — What sessions are and why they exist
-- [Event Types Reference](../reference/event-types.md) — Complete field reference for all event types
+- [Event Types Reference](../../reference/event-types.md) — Complete field reference for all event types

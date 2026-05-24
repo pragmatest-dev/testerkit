@@ -483,7 +483,7 @@ pytest -m "not hardware"            # only simulation tests (CI default)
 
 - [Catalog schema](../reference/catalog-schema.md) — what a `catalog/<vendor>/<model>.yaml` entry declares (the matcher's contract)
 - [Catalog cookbook](../reference/catalog-cookbook.md) — worked recipes for common datasheet shapes
-- [Capabilities](../concepts/capabilities.md) — capability model + matching algorithm
+- [Capabilities](../concepts/configuration/capabilities.md) — capability model + matching algorithm
 - [Configuring stations](configuring-stations.md) — the `driver:` field and the rest of the station YAML
 - [Mock mode](mock-mode.md) — `--mock-instruments`, `mock_config:`, the three mock pipelines
 - [Litmus fixtures](../reference/litmus-fixtures.md) — `instruments`, `instrument`, `pins`, `mock_instruments`, and how per-role auto-fixtures get registered

@@ -25,7 +25,7 @@ with connect("bench_1", mock=True) as station:
     print(f"Voltage: {voltage}")
 ```
 
-This creates a session, connects instruments, and logs all interactions to the [event store](../concepts/event-log.md) (see also [three-stores](../concepts/three-stores.md)).
+This creates a session, connects instruments, and logs all interactions to the [event store](../concepts/data/event-log.md) (see also [three-stores](../concepts/data/three-stores.md)).
 
 ## Monitor in the UI
 
@@ -49,7 +49,7 @@ Open `http://localhost:8000` — the operator UI shows live session activity, in
 pytest tests/ -s
 ```
 
-The UI updates in real time as tests execute. Events flow through the system (see [concepts/event-log](../concepts/event-log.md) for `EventLog` / `EventStore` definitions):
+The UI updates in real time as tests execute. Events flow through the system (see [concepts/event-log](../concepts/data/event-log.md) for `EventLog` / `EventStore` definitions):
 
 ```
 pytest → EventLog.emit() → EventStore → UI subscription
@@ -119,7 +119,7 @@ litmus_channels(channel_id="dmm.voltage")
 
 ## Channel Data from Instrument Reads
 
-When instruments are read through the proxy, scalar values appear in events directly. Array data (waveforms) is stored in the [`ChannelStore`](../concepts/three-stores.md) (Litmus's time-series store for instrument arrays) with a `channel://` claim-check URI in the event:
+When instruments are read through the proxy, scalar values appear in events directly. Array data (waveforms) is stored in the [`ChannelStore`](../concepts/data/three-stores.md) (Litmus's time-series store for instrument arrays) with a `channel://` claim-check URI in the event:
 
 ```python
 with connect("bench_1", mock=True) as station:
@@ -138,7 +138,7 @@ curl "http://localhost:8000/api/channels/scope.ch1?max_points=500"
 ## What's Happening Under the Hood
 
 1. `connect()` creates an `EventStore` and `EventLog` for the session
-2. The EventStore acquires a [DuckDB Flight daemon](../concepts/flight-streaming.md) for cross-process queries
+2. The EventStore acquires a [DuckDB Flight daemon](../concepts/data/flight-streaming.md) for cross-process queries
 3. Each `emit()` writes to Arrow IPC files and pushes to DuckDB
 4. The UI subscribes via `EventStore.on_event()` and receives events in real time
 5. Channel data flows to `ChannelStore` with LTTB (Largest Triangle Three Buckets) decimation — a downsampling algorithm that preserves visual peaks — for display
@@ -150,7 +150,7 @@ curl "http://localhost:8000/api/channels/scope.ch1?max_points=500"
 - [Tour of the Operator UI](../how-to/operator-ui-tour.md) — orientation map of all 14 sidebar entries
 - [Find flaky tests](../how-to/find-flaky-tests.md) — diagnostic recipe combining Metrics + Results + parquet queries
 - [Compare two runs](../how-to/compare-runs.md) — diff known-good vs failing
-- [Event Log Architecture](../concepts/event-log.md) — How events work
-- [Three Stores Architecture](../concepts/three-stores.md) — EventStore, ChannelStore, ParquetBackend
+- [Event Log Architecture](../concepts/data/event-log.md) — How events work
+- [Three Stores Architecture](../concepts/data/three-stores.md) — EventStore, ChannelStore, ParquetBackend
 - [Querying Events](../how-to/querying-events.md) — All query patterns
 - [Querying Channels](../how-to/querying-channels.md) — Channel query with LTTB
