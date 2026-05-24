@@ -124,7 +124,7 @@ limits:
     spec_ref: "output_voltage @ tolerance_pct=5"  # Traceability!
 ```
 
-The `spec_ref` field provides [traceability](../how-to/traceability.md) back to the specification.
+The `spec_ref` field provides [traceability](../how-to/execution/traceability.md) back to the specification.
 
 ## Guardbanding
 

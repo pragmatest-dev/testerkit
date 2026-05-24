@@ -13,4 +13,4 @@ Where the run data lives and how the platform stays consistent across processes.
 - [Reference → Event types](../../reference/event-types.md) — every event class the runtime emits, generated from source
 - [Reference → Parquet schema](../../reference/parquet-schema.md) — every column in the materialized run parquet
 - [Reference → Query API](../../reference/query-api.md) — `RunsQuery`, `StepsQuery`, `MeasurementsQuery` — the read path the UI and HTTP API both use
-- [How-to → Querying events](../../how-to/querying-events.md), [Querying channels](../../how-to/querying-channels.md), [Export results](../../how-to/export-results.md)
+- [How-to → Querying events](../../how-to/data/querying-events.md), [Querying channels](../../how-to/data/querying-channels.md), [Export results](../../how-to/data/export-results.md)

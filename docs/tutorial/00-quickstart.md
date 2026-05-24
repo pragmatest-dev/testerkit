@@ -23,10 +23,10 @@ That's it. You'll see tests pass with mock instruments, limits checked, and resu
 > - **Sidecar YAML** — `tests/test_<module>.yaml`. Carries limits, sweeps, mocks for tests in that module. → [Step 5](05-configuration.md)
 > - **`verify` / `logger` / `context` fixtures** — three of the 20 fixtures Litmus contributes. → [Step 3](03-fixtures.md), [reference/litmus-fixtures](../reference/litmus-fixtures.md)
 > - **`@pytest.mark.litmus_limits`** — one of the seven Litmus markers; pins a limit at the top of a test. → [Step 4](04-limits.md), [reference/litmus-markers](../reference/litmus-markers.md)
-> - **`mock_config`** — Per-instrument return values for mock mode. → [Step 2](02-mock-instruments.md), [how-to/mock-mode](../how-to/mock-mode.md)
+> - **`mock_config`** — Per-instrument return values for mock mode. → [Step 2](02-mock-instruments.md), [how-to/mock-mode](../how-to/configuration/mock-mode.md)
 > - **Characteristics, bands, accuracy, `when:`** — Product-spec vocabulary. → [Step 6](06-specifications.md), [reference/catalog-schema](../reference/catalog-schema.md)
 > - **Capability matching** — How Litmus pairs a product to a station. → [Step 8](08-capabilities.md), [concepts/capabilities](../concepts/configuration/capabilities.md)
-> - **MCP** — Model Context Protocol; how AI agents drive Litmus. → [how-to/mcp-integration](../how-to/mcp-integration.md)
+> - **MCP** — Model Context Protocol; how AI agents drive Litmus. → [how-to/mcp-integration](../how-to/overview/mcp-integration.md)
 
 ## How to Install
 
@@ -208,7 +208,7 @@ def test_something(context, psu, dmm, verify):
 
 **No hardcoded values in code.** Conditions come from `context` (populated by native `@pytest.mark.parametrize` or sidecar YAML). Limits come from the product spec, an inline `@pytest.mark.litmus_limits` decorator, or the sidecar's `limits:` field — never inline asserts.
 
-For the full reference — markers, sidecar YAML, `context.changed()`, mocks, retries — see the [Writing Tests guide](../how-to/writing-tests.md).
+For the full reference — markers, sidecar YAML, `context.changed()`, mocks, retries — see the [Writing Tests guide](../how-to/execution/writing-tests.md).
 
 ## View Results
 
@@ -250,7 +250,7 @@ print(df[df["record_type"] == "measurement"])   # measurement rows only
 
 ## Optional: Set Up AI Assistance
 
-If you use an AI coding tool, Litmus can register its [MCP (Model Context Protocol)](../how-to/mcp-integration.md) server and generate project instructions so your AI understands the framework:
+If you use an AI coding tool, Litmus can register its [MCP (Model Context Protocol)](../how-to/overview/mcp-integration.md) server and generate project instructions so your AI understands the framework:
 
 ```bash
 litmus setup claude-code       # Claude Code
@@ -268,5 +268,5 @@ When you're ready to move from mocks to real instruments, see [Step 7: Real Inst
 
 - [Tutorial index](index.md) — full step-by-step path (recommended next)
 - [Core Concepts](../concepts/) — Understand products, stations, and capabilities
-- [Writing Tests](../how-to/writing-tests.md) — Patterns and best practices
+- [Writing Tests](../how-to/execution/writing-tests.md) — Patterns and best practices
 - [Configuration Reference](../reference/configuration.md) — YAML schema details

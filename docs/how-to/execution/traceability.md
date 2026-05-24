@@ -123,7 +123,7 @@ def test_output_voltage(dmm, verify):
 
 ### Hierarchical Context
 
-The [harness](../integration/harness.md) (Litmus's runner-agnostic execution wrapper) provides hierarchical context with scoped inheritance:
+The [harness](../../integration/harness.md) (Litmus's runner-agnostic execution wrapper) provides hierarchical context with scoped inheritance:
 
 ```python
 from litmus.execution.harness import TestHarness
@@ -342,5 +342,5 @@ Requirement: output_voltage
 
 ## See Also
 
-- [Parquet Schema Reference](../reference/parquet-schema.md) — Complete column definitions
-- [Test Harness](../integration/harness.md) — Recording measurements with traceability
+- [Parquet Schema Reference](../../reference/parquet-schema.md) — Complete column definitions
+- [Test Harness](../../integration/harness.md) — Recording measurements with traceability

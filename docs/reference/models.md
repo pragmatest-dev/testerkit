@@ -2009,4 +2009,4 @@ See [concepts/capabilities](../concepts/configuration/capabilities.md) for the f
 - [Parquet schema](parquet-schema.md) — the materialized row shape
 - [Catalog schema](catalog-schema.md) — `InstrumentCatalogEntry` in depth
 - [Capabilities (concept)](../concepts/configuration/capabilities.md) — `InstrumentCapability` / `ProductCharacteristic` design
-- [Context architecture (how-to)](../how-to/context-architecture.md) — the runtime `Context` class (not a `BaseModel`)
+- [Context architecture (how-to)](../how-to/execution/test-context.md) — the runtime `Context` class (not a `BaseModel`)

@@ -2,7 +2,7 @@
 
 Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with **12 tools** that expose the datasheet → test workflow to AI assistants. The platform does **not** call LLMs itself — it only exposes tools that an AI agent drives.
 
-This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../concepts/overview/ai-integration.md); for the end-to-end workflow walkthrough see [datasheet-to-test](datasheet-to-test.md); for the full inventory of shipped skills + sub-agents + slash commands see [reference/skills](../reference/skills.md). Per-tool MCP reference: [api.md → MCP tools](../reference/api.md#tools).
+This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../../concepts/overview/ai-integration.md); for the end-to-end workflow walkthrough see [datasheet-to-test](../catalog/datasheet-to-test.md); for the full inventory of shipped skills + sub-agents + slash commands see [reference/skills](../../reference/skills.md). Per-tool MCP reference: [api.md → MCP tools](../../reference/api.md#tools).
 
 > **Prerequisites.** `litmus` installed and on `$PATH` (`uv pip install litmus-test` — the PyPI distribution is `litmus-test`; the import is `litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, real or mock instruments configured in `stations/`.
 
@@ -57,7 +57,7 @@ Defined in `src/litmus/mcp/server.py` via `@mcp.tool(name=...)`.
 | `litmus_runs` | Query the runs view (filtered, paginated) | Same data the operator-UI runs list reads |
 | `litmus_steps` | Query the steps view (one row per step execution) | Step-level rollup with outcome and timing |
 
-For each tool's full parameter list and return shape, see [`api.md`](../reference/api.md#tools).
+For each tool's full parameter list and return shape, see [`api.md`](../../reference/api.md#tools).
 
 ### `litmus_project`
 
@@ -138,7 +138,7 @@ run = runs["runs"][0]
 print(run["run_outcome"])           # one of the 7 Outcome values
 ```
 
-See [outcomes](../concepts/execution/outcomes.md) for what each value means.
+See [outcomes](../../concepts/execution/outcomes.md) for what each value means.
 
 ## The AI-driven workflow
 
@@ -157,7 +157,7 @@ After this, **you** (the human) need to drop to a terminal and run `uv sync` to 
 
 ### Step 1 — Create a product spec from the datasheet
 
-A product spec declares the DUT's pins and its [characteristics](../concepts/configuration/capabilities.md) (measurable properties + their spec bands). The spec is what `verify(name, value)` resolves limits against later.
+A product spec declares the DUT's pins and its [characteristics](../../concepts/configuration/capabilities.md) (measurable properties + their spec bands). The spec is what `verify(name, value)` resolves limits against later.
 
 Key concepts in datasheet vocabulary:
 
@@ -210,7 +210,7 @@ litmus_project(action="save", type="product", id="tps54302", content={
 }, project=project)
 ```
 
-For the full product schema see [configuration reference → product](../reference/configuration.md#product-specification). For the band-matching and `accuracy:` semantics see [capabilities → condition-dependent specs](../concepts/configuration/capabilities.md#condition-dependent-specs-specband).
+For the full product schema see [configuration reference → product](../../reference/configuration.md#product-specification). For the band-matching and `accuracy:` semantics see [capabilities → condition-dependent specs](../../concepts/configuration/capabilities.md#condition-dependent-specs-specband).
 
 ### Step 2 — Set up the test station
 
@@ -255,7 +255,7 @@ litmus_project(action="save", type="station", id="bench_1", content={
 }, project=project)
 ```
 
-`mock_config:` keys are the **method names** the driver class exposes, not signal names. With `--mock-instruments` (or `mock: true`), the platform substitutes `Mock(driver_class, **mock_config)` for the real driver, and those methods return the configured values. See [mock mode](mock-mode.md) for the full story.
+`mock_config:` keys are the **method names** the driver class exposes, not signal names. With `--mock-instruments` (or `mock: true`), the platform substitutes `Mock(driver_class, **mock_config)` for the real driver, and those methods return the configured values. See [mock mode](../configuration/mock-mode.md) for the full story.
 
 ### Step 3 — Generate the test files
 
@@ -298,11 +298,11 @@ def test_quiescent_current(context, psu, dmm, verify):
 )
 ```
 
-The `context`, `psu`, `dmm`, `verify` test arguments are all [pytest fixtures the plugin synthesizes](../reference/litmus-fixtures.md):
+The `context`, `psu`, `dmm`, `verify` test arguments are all [pytest fixtures the plugin synthesizes](../../reference/litmus-fixtures.md):
 
 - `verify(name, value)` — resolve limit from product/sidecar, record measurement row, raise on FAIL
 - `context.get_param(name, default)` — read the active vector's parameter value
-- `psu` / `dmm` — [per-role auto-fixtures](../reference/litmus-fixtures.md#per-role-auto-fixtures) synthesized from the station YAML
+- `psu` / `dmm` — [per-role auto-fixtures](../../reference/litmus-fixtures.md#per-role-auto-fixtures) synthesized from the station YAML
 
 **Sidecar YAML** (`tests/test_tps54302.yaml`) — write this with your AI client's filesystem tool, not via `litmus_project(action="save", type="test")` (which forces a `.py` extension):
 
@@ -339,7 +339,7 @@ For each vector (e.g. `temperature=25, load=0.5`):
 2. The resolver derives a nominal + accuracy from that band and applies the sidecar's `tolerance_pct` to widen it into a production limit.
 3. The test body runs, `dmm.measure_dc_voltage()` returns a value, `verify` checks it against the resolved limit, and the result lands as a parquet row with `outcome=PASSED` or `FAILED`.
 
-If no band matches the active vector and the limit has no flat top-level fields (`low:` / `high:`), the measurement records in characterization mode (`outcome=DONE`, no pass/fail). See [limits → condition-indexed bands](limits.md#condition-indexed-bands) for the precedence rules.
+If no band matches the active vector and the limit has no flat top-level fields (`low:` / `high:`), the measurement records in characterization mode (`outcome=DONE`, no pass/fail). See [limits → condition-indexed bands](../execution/limits.md#condition-indexed-bands) for the precedence rules.
 
 ### Step 4 — Execute and inspect
 
@@ -383,7 +383,7 @@ A sidecar `limits:` entry (or the kwargs to `@pytest.mark.litmus_limits`) is a `
 | Bands | `{bands: [{when: {temperature: 25}, low: 3.2, high: 3.4}, ...]}` | Condition-dependent inline bands evaluated against the vector |
 | Comparator override | `{nominal: 5.0, comparator: EQ}` | Pick an ATML comparator (`EQ`/`NE`/`LT`/`LE`/`GT`/`GE`/`GELE`/`GELT`/`GTLE`/`GTLT`) |
 
-Most common for AI-driven tests: **characteristic delegation** (when there's a product spec) and **direct** (when there isn't). See [limits how-to](limits.md) for the full resolution chain.
+Most common for AI-driven tests: **characteristic delegation** (when there's a product spec) and **direct** (when there isn't). See [limits how-to](../execution/limits.md) for the full resolution chain.
 
 The plain `Limit` model (also in `test_config.py`) is what the resolver hands the runtime — it carries only the resolved `low / high / nominal / units / characteristic_id / spec_ref / comparator`. `tolerance_pct`, `bands:`, and `characteristic:` live on `MeasurementLimitConfig` (the sidecar/marker shape).
 
@@ -445,13 +445,13 @@ def test_output():
 
 ## See also
 
-- [api.md → MCP tools](../reference/api.md#tools) — full per-tool reference: parameters, return shapes, every keyword
-- [cli.md → litmus setup](../reference/cli.md#cli-setup) — `litmus setup show` and the `--print-only` flag
-- [litmus-fixtures.md → context, verify, logger](../reference/litmus-fixtures.md) — every pytest fixture this page references
-- [outcomes](../concepts/execution/outcomes.md) — what each `run_outcome` / `step_outcome` / `measurement_outcome` value means
-- [capabilities](../concepts/configuration/capabilities.md) — characteristics, SpecBand, the matching model
-- [limits](limits.md) — the full limit-resolution chain (sidecar / marker / product spec / inline)
-- [vector-expansion](vector-expansion.md) — `sweeps:` shape (cross-product vs zipped), range expanders
-- [spec-driven-testing](spec-driven-testing.md) — `litmus_characteristics` + product-spec workflow
-- [mock-mode](mock-mode.md) — `--mock-instruments`, `mock_config:`, the substitution pipeline
-- [writing-tests](writing-tests.md) — pytest-test authoring patterns (for tests written by hand, not by an AI agent)
+- [api.md → MCP tools](../../reference/api.md#tools) — full per-tool reference: parameters, return shapes, every keyword
+- [cli.md → litmus setup](../../reference/cli.md#cli-setup) — `litmus setup show` and the `--print-only` flag
+- [litmus-fixtures.md → context, verify, logger](../../reference/litmus-fixtures.md) — every pytest fixture this page references
+- [outcomes](../../concepts/execution/outcomes.md) — what each `run_outcome` / `step_outcome` / `measurement_outcome` value means
+- [capabilities](../../concepts/configuration/capabilities.md) — characteristics, SpecBand, the matching model
+- [limits](../execution/limits.md) — the full limit-resolution chain (sidecar / marker / product spec / inline)
+- [vector-expansion](../execution/vector-expansion.md) — `sweeps:` shape (cross-product vs zipped), range expanders
+- [spec-driven-testing](../execution/spec-driven-testing.md) — `litmus_characteristics` + product-spec workflow
+- [mock-mode](../configuration/mock-mode.md) — `--mock-instruments`, `mock_config:`, the substitution pipeline
+- [writing-tests](../execution/writing-tests.md) — pytest-test authoring patterns (for tests written by hand, not by an AI agent)

@@ -2,11 +2,11 @@
 
 Litmus supports parallel testing of multiple DUTs (Devices Under Test) using a subprocess-per-slot architecture. Each DUT slot runs in its own process with isolated environment, while shared instruments are served centrally so multiple slots can drive one physical instrument without colliding.
 
-> **Prerequisites.** Single-DUT tests already working against your station — multi-DUT is a layer on top, not a replacement (see [tutorial step 7](../tutorial/07-real-instruments.md)). A fixture YAML defining at least two slots (template in this page). Instruments that can be channel-shared or one physical instrument per slot.
+> **Prerequisites.** Single-DUT tests already working against your station — multi-DUT is a layer on top, not a replacement (see [tutorial step 7](../../tutorial/07-real-instruments.md)). A fixture YAML defining at least two slots (template in this page). Instruments that can be channel-shared or one physical instrument per slot.
 
 ## Creating a Multi-Slot Fixture
 
-Define slots in your [fixture YAML](../concepts/configuration/fixtures.md). Each slot represents one DUT position:
+Define slots in your [fixture YAML](../../concepts/configuration/fixtures.md). Each slot represents one DUT position:
 
 ```yaml
 # fixtures/dual_board.yaml
@@ -93,7 +93,7 @@ def test_thermal_soak(dmm, sync):
     v = dmm.measure_voltage()
 ```
 
-The `SyncCoordinator` (an internal helper that brokers `sync.wait()` rendezvous between slot workers) in the orchestrator process handles sync point coordination via [EventStore](../concepts/data/event-log.md) events. If a slot dies, the coordinator unblocks remaining slots to prevent deadlocks.
+The `SyncCoordinator` (an internal helper that brokers `sync.wait()` rendezvous between slot workers) in the orchestrator process handles sync point coordination via [EventStore](../../concepts/data/event-log.md) events. If a slot dies, the coordinator unblocks remaining slots to prevent deadlocks.
 
 ## Reading Per-Slot Results
 
@@ -130,7 +130,7 @@ WHERE record_type = 'measurement'
 ORDER BY slot_id, step_index
 ```
 
-Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `litmus.yaml` → `LITMUS_HOME` → platform default. See [reference/parquet-schema.md](../reference/parquet-schema.md) for the column shape and the `record_type` discriminator that lets one file carry run / step / measurement rows.
+Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `litmus.yaml` → `LITMUS_HOME` → platform default. See [reference/parquet-schema.md](../../reference/parquet-schema.md) for the column shape and the `record_type` discriminator that lets one file carry run / step / measurement rows.
 
 ## Debugging Failures
 

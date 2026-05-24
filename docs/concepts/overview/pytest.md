@@ -46,7 +46,7 @@ LLMs are trained on the pytest documentation and on the millions of public test 
 
 ## See also
 
-- [Writing Tests](../../how-to/writing-tests.md) — end-to-end patterns
+- [Writing Tests](../../how-to/execution/writing-tests.md) — end-to-end patterns
 - [Litmus fixtures](../../reference/litmus-fixtures.md) — all 20 plugin fixtures
 - [Litmus markers](../../reference/litmus-markers.md) — the seven `litmus_*` markers
 - [pytest-native reference](../../reference/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers

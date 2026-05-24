@@ -536,7 +536,7 @@ duckdb.sql("""
 """)
 ```
 
-See [Profiles](../how-to/profiles.md) for the profile YAML shape.
+See [Profiles](../how-to/execution/profiles.md) for the profile YAML shape.
 
 ## Environment variables
 
@@ -568,6 +568,6 @@ See [Profiles](../how-to/profiles.md) for the profile YAML shape.
 ## See also
 
 - [Platform architecture](../concepts/overview/platform-vs-framework.md) — what each entry point owns
-- [MCP tools](../how-to/mcp-integration.md) — the agent-side parallel to most `litmus` subcommands
+- [MCP tools](../how-to/overview/mcp-integration.md) — the agent-side parallel to most `litmus` subcommands
 - [Configuration](configuration.md) — YAML files the CLI reads
 - [API reference](api.md) — HTTP routes the `litmus serve` UI mounts

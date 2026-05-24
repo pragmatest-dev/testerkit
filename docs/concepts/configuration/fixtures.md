@@ -49,7 +49,7 @@ This is also what makes a measurement traceable: every value flows through a nam
 | Multiple DUTs running in parallel | Required — see [Multi-DUT scaling](#multi-dut-scaling-slots-shared-instruments-switching) |
 | Production traceability — every measurement records its DUT-side pin | Required — `dut_pin` is the connection field that flows into the parquet row |
 
-For development without any fixture, see [Mock mode](../../how-to/mock-mode.md) and the per-role auto-fixtures in [Litmus fixtures](../../reference/litmus-fixtures.md#per-role-auto-fixtures).
+For development without any fixture, see [Mock mode](../../how-to/configuration/mock-mode.md) and the per-role auto-fixtures in [Litmus fixtures](../../reference/litmus-fixtures.md#per-role-auto-fixtures).
 
 ## Data model
 
@@ -202,7 +202,7 @@ slots:
         instrument_channel: "2"
 ```
 
-The orchestrator spawns a worker per slot. Each worker sees a flat fixture with just its slot's connections. Per-slot `dut_resource` overrides the fixture-level value. See [Multi-DUT testing](../../how-to/multi-dut-testing.md) for the operational guide.
+The orchestrator spawns a worker per slot. Each worker sees a flat fixture with just its slot's connections. Per-slot `dut_resource` overrides the fixture-level value. See [Multi-DUT testing](../../how-to/execution/multi-dut-testing.md) for the operational guide.
 
 ### Shared instruments
 
@@ -231,7 +231,7 @@ Switch routes activate lazily — the first method call on the resolved instrume
 
 ## Selecting a fixture at run time
 
-Stations do not pin a fixture themselves. The active fixture is chosen per session via the `--fixture` CLI flag (or a [profile](../../how-to/profiles.md) that sets it):
+Stations do not pin a fixture themselves. The active fixture is chosen per session via the `--fixture` CLI flag (or a [profile](../../how-to/execution/profiles.md) that sets it):
 
 ```bash
 pytest tests/ \
@@ -325,7 +325,7 @@ The recorded measurement row carries `dut_pin=VOUT`, `instrument_name=dmm`, `cha
 - [Stations](stations.md) — what instruments and roles get declared on the bench side
 - [Capabilities](capabilities.md) — the function / direction / signal model that drives matching (and the `function:` field on connections)
 - [Tutorial step 9 — Production ready](../../tutorial/09-production.md) — first hands-on with fixtures + sidecar config
-- [How-to — Configuring stations](../../how-to/configuring-stations.md) — the station YAML reference
-- [How-to — Multi-DUT testing](../../how-to/multi-dut-testing.md) — slots, shared instruments, parallel workers in practice
+- [How-to — Configuring stations](../../how-to/configuration/configuring-stations.md) — the station YAML reference
+- [How-to — Multi-DUT testing](../../how-to/execution/multi-dut-testing.md) — slots, shared instruments, parallel workers in practice
 - [Litmus fixtures](../../reference/litmus-fixtures.md) — the `pins`, `instruments`, `instrument`, `fixture_manager`, `connections` pytest fixtures that read this YAML
 - [Configuration reference](../../reference/configuration.md) — fixture YAML schema field-by-field

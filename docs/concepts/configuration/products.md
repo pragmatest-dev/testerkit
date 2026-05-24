@@ -210,7 +210,7 @@ characteristics:
 
 ## Part Numbers
 
-The `part_number` field maps a product to its manufacturing part number. When present, it automatically populates `dut_part_number` in test results (`dut_part_number` is the operator-facing identifier — the printed/scanned part number — as opposed to the internal `product_id`; see [how-to/traceability](../../how-to/traceability.md)). Overridable via `--dut-part-number` on the CLI. This enables yield analytics filtering by part number.
+The `part_number` field maps a product to its manufacturing part number. When present, it automatically populates `dut_part_number` in test results (`dut_part_number` is the operator-facing identifier — the printed/scanned part number — as opposed to the internal `product_id`; see [how-to/traceability](../../how-to/execution/traceability.md)). Overridable via `--dut-part-number` on the CLI. This enables yield analytics filtering by part number.
 
 ```yaml
 id: power_board

@@ -124,7 +124,7 @@ def test_output_voltage(dmm, verify):
 - Pros: smallest possible surface; standard pytest; uses everything the plugin offers.
 - Trade-off: requires a station YAML to define `dmm`.
 
-Use this for any test you're writing fresh. See [writing tests](../how-to/writing-tests.md) for end-to-end patterns and [`reference/litmus-fixtures.md`](../reference/litmus-fixtures.md) for the full 20-fixture surface.
+Use this for any test you're writing fresh. See [writing tests](../how-to/execution/writing-tests.md) for end-to-end patterns and [`reference/litmus-fixtures.md`](../reference/litmus-fixtures.md) for the full 20-fixture surface.
 
 ### Path B — `LitmusClient` for result tracking from any existing test
 
@@ -204,7 +204,7 @@ def measure_voltage(simulate=False):
         return dmm.measure_voltage()
 ```
 
-You can use this in isolation (no plugin, no station YAML) for the simulation contract alone, or wire it into a station YAML so the plugin handles instantiation. See [custom drivers](../how-to/custom-drivers.md).
+You can use this in isolation (no plugin, no station YAML) for the simulation contract alone, or wire it into a station YAML so the plugin handles instantiation. See [custom drivers](../how-to/configuration/custom-drivers.md).
 
 ## Coexistence patterns
 
@@ -291,7 +291,7 @@ pytest tests/ --station=bench_1 --dut-serial=SN001
       --test-phase=development
 ```
 
-For CI, the simplest setup is a `stations/ci_station.yaml` whose every instrument has `mock: true`. With `--mock-instruments`, the platform substitutes a stand-in for each instrument that returns the values listed in `mock_config:`; your driver class is never instantiated, `connect()` is never called. See [mock mode](../how-to/mock-mode.md) for the details.
+For CI, the simplest setup is a `stations/ci_station.yaml` whose every instrument has `mock: true`. With `--mock-instruments`, the platform substitutes a stand-in for each instrument that returns the values listed in `mock_config:`; your driver class is never instantiated, `connect()` is never called. See [mock mode](../how-to/configuration/mock-mode.md) for the details.
 
 ### Production
 
@@ -334,11 +334,11 @@ Pick what you need. The plugin doesn't force any of it — without YAMLs, you st
 - [Litmus fixtures](../reference/litmus-fixtures.md) — the 20 fixtures the plugin contributes (and the per-role auto-fixtures from station YAML)
 - [Litmus markers](../reference/litmus-markers.md) — `litmus_limits`, `litmus_sweeps`, `litmus_mocks`, `litmus_characteristics`, `litmus_connections`, `litmus_retry`, `litmus_prompts`
 - [pytest-native reference](../reference/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers / CLI flags
-- [Writing tests](../how-to/writing-tests.md) — end-to-end patterns for new Litmus-flavored tests
+- [Writing tests](../how-to/execution/writing-tests.md) — end-to-end patterns for new Litmus-flavored tests
 - [Configuration reference](../reference/configuration.md) — full YAML schemas for `litmus.yaml`, station, fixture, sidecar, profile
-- [Mock mode](../how-to/mock-mode.md) — `--mock-instruments`, `mock_config:`, the mock pipeline
-- [Configuring stations](../how-to/configuring-stations.md) — station YAML reference + the `driver:` field
+- [Mock mode](../how-to/configuration/mock-mode.md) — `--mock-instruments`, `mock_config:`, the mock pipeline
+- [Configuring stations](../how-to/configuration/configuring-stations.md) — station YAML reference + the `driver:` field
 - [Python client reference](../reference/client.md) — full `LitmusClient` / `RunBuilder` / `StepBuilder` API (Path B above)
 - [Test harness](harness.md) — the imperative entry point for non-pytest runners (Path C above)
-- [Custom drivers](../how-to/custom-drivers.md) — writing your own driver class (Path D above)
+- [Custom drivers](../how-to/configuration/custom-drivers.md) — writing your own driver class (Path D above)
 - [Submitting results from non-pytest sources](results-api.md) — LabVIEW, TestStand, CLI bridges via `LitmusClient`

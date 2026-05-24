@@ -175,7 +175,7 @@ Reference the prompt from a test method via the [`prompt()`](../reference/litmus
 
 ### Ordering across files
 
-A test class runs its methods in definition order. To order tests across multiple files, name the files so pytest collects them in the desired order (`test_01_power.py`, `test_02_thermal.py`) or filter via a profile (see [Profiles](../how-to/profiles.md)).
+A test class runs its methods in definition order. To order tests across multiple files, name the files so pytest collects them in the desired order (`test_01_power.py`, `test_02_thermal.py`) or filter via a profile (see [Profiles](../how-to/execution/profiles.md)).
 
 ## Complete Example
 

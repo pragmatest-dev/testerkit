@@ -96,7 +96,7 @@ analytical lenses:
 For the full reference, see
 [Operator UI → Metrics](../reference/operator-ui/metrics.md).
 For the diagnostic recipe behind the Retest signal, see
-[Find flaky tests](../how-to/find-flaky-tests.md).
+[Find flaky tests](../how-to/data/find-flaky-tests.md).
 
 ## Query Historical Data
 
@@ -147,10 +147,10 @@ curl "http://localhost:8000/api/channels/scope.ch1?max_points=500"
 
 ## Next Steps
 
-- [Tour of the Operator UI](../how-to/operator-ui-tour.md) — orientation map of all 14 sidebar entries
-- [Find flaky tests](../how-to/find-flaky-tests.md) — diagnostic recipe combining Metrics + Results + parquet queries
-- [Compare two runs](../how-to/compare-runs.md) — diff known-good vs failing
+- [Tour of the Operator UI](../how-to/overview/operator-ui-tour.md) — orientation map of all 14 sidebar entries
+- [Find flaky tests](../how-to/data/find-flaky-tests.md) — diagnostic recipe combining Metrics + Results + parquet queries
+- [Compare two runs](../how-to/data/compare-runs.md) — diff known-good vs failing
 - [Event Log Architecture](../concepts/data/event-log.md) — How events work
 - [Three Stores Architecture](../concepts/data/three-stores.md) — EventStore, ChannelStore, ParquetBackend
-- [Querying Events](../how-to/querying-events.md) — All query patterns
-- [Querying Channels](../how-to/querying-channels.md) — Channel query with LTTB
+- [Querying Events](../how-to/data/querying-events.md) — All query patterns
+- [Querying Channels](../how-to/data/querying-channels.md) — Channel query with LTTB

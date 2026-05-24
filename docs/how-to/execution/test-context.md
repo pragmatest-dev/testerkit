@@ -10,7 +10,7 @@ def test_rails(self, context, psu, dmm, verify):
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-DUT identity is at `context.run.dut` — the bare `dut` fixture is a different thing (the live driver). See [Litmus fixtures](../reference/litmus-fixtures.md) for the full per-test entry points.
+DUT identity is at `context.run.dut` — the bare `dut` fixture is a different thing (the live driver). See [Litmus fixtures](../../reference/litmus-fixtures.md) for the full per-test entry points.
 
 ## Skip expensive setup across a sweep
 
@@ -71,7 +71,7 @@ def test_serial_stamp(self, context, verify):
 
 Each returns `None` when the corresponding tier is absent. Bringup tests (no `stations/` YAML) get `context.station is None`; tests that don't load a product get `context.product is None`. Guard with `if context.station:` before reaching for fields, or take the typed fixture (`station_config`) when the test only runs with a station present — pytest will skip it otherwise.
 
-See [Stations](../concepts/configuration/stations.md) and [Products](../concepts/configuration/products.md) for the underlying entities.
+See [Stations](../../concepts/configuration/stations.md) and [Products](../../concepts/configuration/products.md) for the underlying entities.
 
 ## Record stimulus inputs with `configure()`
 
@@ -97,7 +97,7 @@ def test_output_voltage(self, context, dmm, temp_probe, verify):
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-Large numeric arrays (raw waveforms, sample blocks) route to the [channel store](querying-channels.md) automatically — `observe()` writes the array and stashes a `channel://` URI on the row. Scalars go straight onto the row.
+Large numeric arrays (raw waveforms, sample blocks) route to the [channel store](../data/querying-channels.md) automatically — `observe()` writes the array and stashes a `channel://` URI on the row. Scalars go straight onto the row.
 
 For the parquet column mapping (`in_*` for `configure`, `out_*` for `observe`), see [Traceability](traceability.md).
 
@@ -137,7 +137,7 @@ def test_adaptive(self, context, dmm, verify):
     verify("output_voltage", sum(readings) / len(readings))
 ```
 
-The `Limit` object exposes `low` / `high` / `nominal` / `units` / `comparator` plus traceability fields — see [`Limit` in the models reference](../reference/models.md#model-limit) for the full surface. `get_limit` returns `None` when no limit is defined for that name. For *applying* a limit to a measurement, just pass `limit=...` to `verify` — the resolver runs there automatically.
+The `Limit` object exposes `low` / `high` / `nominal` / `units` / `comparator` plus traceability fields — see [`Limit` in the models reference](../../reference/models.md#model-limit) for the full surface. `get_limit` returns `None` when no limit is defined for that name. For *applying* a limit to a measurement, just pass `limit=...` to `verify` — the resolver runs there automatically.
 
 See [Limits](limits.md) for limit resolution order and [Spec-driven testing](spec-driven-testing.md) for how product specs feed in.
 
@@ -205,6 +205,6 @@ class TestPowerBoard:
 - [Test vectors](vector-expansion.md) — sweep shapes, axis ordering, `changed()` patterns
 - [Traceability](traceability.md) — how `configure` / `observe` map to `in_*` / `out_*` parquet columns
 - [Limits](limits.md) — resolution order for `get_limit()`
-- [Litmus fixtures](../reference/litmus-fixtures.md) — every plugin fixture with signature
-- [Parquet schema](../reference/parquet-schema.md) — the row shape that holds these values
-- [Fixtures concept](../concepts/configuration/fixtures.md) — hardware fixtures vs pytest fixtures
+- [Litmus fixtures](../../reference/litmus-fixtures.md) — every plugin fixture with signature
+- [Parquet schema](../../reference/parquet-schema.md) — the row shape that holds these values
+- [Fixtures concept](../../concepts/configuration/fixtures.md) — hardware fixtures vs pytest fixtures

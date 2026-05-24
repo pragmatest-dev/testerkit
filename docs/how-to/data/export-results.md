@@ -19,7 +19,7 @@ STDF → `litmus export -f stdf`.
 - At least one completed run on disk
 - A run ID or session ID (prefix match works for both — get one
   from `litmus runs` or the operator UI's
-  [Results list](../reference/operator-ui/results/list.md))
+  [Results list](../../reference/operator-ui/results/list.md))
 
 ## Reports — `litmus show -f`
 
@@ -108,8 +108,8 @@ extension surface today.
 
 ## See also
 
-- [Lakehouse import](../integration/lakehouse-import.md) — when the receiver wants parquet rows directly, skip export entirely
-- [Grafana](../integration/grafana.md) — when the receiver wants live dashboards instead of files
-- [`litmus show`](../reference/cli.md#cli-show) — CLI reference for the report path
-- [`litmus export`](../reference/cli.md#cli-export) — CLI reference for the interchange path
-- [Three stores](../concepts/data/three-stores.md) — where the parquet and event data live on disk
+- [Lakehouse import](../../integration/lakehouse-import.md) — when the receiver wants parquet rows directly, skip export entirely
+- [Grafana](../../integration/grafana.md) — when the receiver wants live dashboards instead of files
+- [`litmus show`](../../reference/cli.md#cli-show) — CLI reference for the report path
+- [`litmus export`](../../reference/cli.md#cli-export) — CLI reference for the interchange path
+- [Three stores](../../concepts/data/three-stores.md) — where the parquet and event data live on disk

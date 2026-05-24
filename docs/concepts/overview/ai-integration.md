@@ -46,11 +46,11 @@ Three adoption levels — pick whichever matches the user's trust level today:
 
 2. **Workflows as a starting draft.** Invoke the `datasheet-to-test` workflow on a new product. Treat the YAML files it produces as a first draft, then hand-edit. Often faster than starting from a blank file.
 
-3. **Full datasheet → tests pipeline.** Drive `/catalog-from-datasheet` (instrument catalog) and `datasheet-to-test` (product+tests) end-to-end. Operator approval gates at every phase. See [how-to/datasheet-to-test](../../how-to/datasheet-to-test.md) for the walkthrough.
+3. **Full datasheet → tests pipeline.** Drive `/catalog-from-datasheet` (instrument catalog) and `datasheet-to-test` (product+tests) end-to-end. Operator approval gates at every phase. See [how-to/datasheet-to-test](../../how-to/catalog/datasheet-to-test.md) for the walkthrough.
 
 ## See also
 
-- [How-to: AI-assisted test development via MCP](../../how-to/mcp-integration.md) — registering the MCP server with each supported AI client
-- [How-to: datasheet-to-test workflow](../../how-to/datasheet-to-test.md) — end-to-end walkthrough
+- [How-to: AI-assisted test development via MCP](../../how-to/overview/mcp-integration.md) — registering the MCP server with each supported AI client
+- [How-to: datasheet-to-test workflow](../../how-to/catalog/datasheet-to-test.md) — end-to-end walkthrough
 - [Reference: skills](../../reference/skills.md) — full inventory of workflows, agents, slash commands, MCP tools and prompts
 - [Reference: MCP server + HTTP API](../../reference/api.md) — the operations AI clients call

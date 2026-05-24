@@ -1,6 +1,6 @@
 # Step 3: pytest-native tests
 
-**Goal:** Adopt Litmus's per-test fixtures so measurements get recorded with full [traceability](../how-to/traceability.md).
+**Goal:** Adopt Litmus's per-test fixtures so measurements get recorded with full [traceability](../how-to/execution/traceability.md).
 
 In step 2, your tests called driver methods and used `assert` for pass/fail. Litmus's `logger` and `verify` fixtures slot in alongside that, recording each measurement to the run record (the row Litmus writes per test in parquet — see [three stores](../concepts/data/three-stores.md)) without changing how your test reads.
 
@@ -92,7 +92,7 @@ def test_output_voltage(vin, psu, dmm, verify):
            limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
-The `vin` value lands in each measurement row's `in_vin` column (an example of the `in_*` [traceability](../how-to/traceability.md) columns — every parametrized input lands in its own `in_<name>` column), so you can later query "how did output_voltage track vin?" without re-instrumenting the test. Sweeping from YAML instead of inline arrives in step 5.
+The `vin` value lands in each measurement row's `in_vin` column (an example of the `in_*` [traceability](../how-to/execution/traceability.md) columns — every parametrized input lands in its own `in_<name>` column), so you can later query "how did output_voltage track vin?" without re-instrumenting the test. Sweeping from YAML instead of inline arrives in step 5.
 
 Litmus also adds a native sweep marker, `@pytest.mark.litmus_sweeps`, that feeds the same `in_*` columns and supports range expanders (`linspace`, `arange`, `logspace`):
 

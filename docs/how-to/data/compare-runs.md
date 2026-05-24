@@ -8,7 +8,7 @@ combine a two-tab browser pass with a parquet query.
 ## Prerequisites
 
 - Both run IDs in hand. Get them from
-  [`/results`](../reference/operator-ui/results/list.md) by hovering
+  [`/results`](../../reference/operator-ui/results/list.md) by hovering
   the row, or from the CLI: `litmus runs`.
 - `duckdb` installed for the parquet diff (optional but recommended).
 
@@ -21,7 +21,7 @@ http://localhost:8000/results/<run_id_a>
 http://localhost:8000/results/<run_id_b>
 ```
 
-On the [Results detail](../reference/operator-ui/results/detail.md)
+On the [Results detail](../../reference/operator-ui/results/detail.md)
 page, both tabs show the same shape — overview card, step tree,
 measurements table. Quickly scan:
 
@@ -78,14 +78,14 @@ both sides are populated but the values diverge are where the
 behavior changed — that's your diff.
 
 Resolve `<data_dir>` from
-[`ProjectConfig`](../reference/configuration.md) or the
-[Three stores](../concepts/data/three-stores.md) page.
+[`ProjectConfig`](../../reference/configuration.md) or the
+[Three stores](../../concepts/data/three-stores.md) page.
 
 ## 3. Compare environmental channels
 
 If both runs share a session, channels are already comparable in
 the same view. If they're from different sessions, open
-[`/channels`](../reference/operator-ui/channels/list.md), find each
+[`/channels`](../../reference/operator-ui/channels/list.md), find each
 session's channels, and click into each channel's detail view in
 two tabs to compare time-series.
 
@@ -108,8 +108,8 @@ the tool of your choice.
 
 ## Related
 
-- [Results — detail view](../reference/operator-ui/results/detail.md) — the per-run view used in step 1
-- [Channels reference](../reference/operator-ui/channels/list.md) — the channel views used in step 3
-- [Parquet schema](../reference/parquet-schema.md) — the columns you can join on
-- [Three stores](../concepts/data/three-stores.md) — where the parquet files live
+- [Results — detail view](../../reference/operator-ui/results/detail.md) — the per-run view used in step 1
+- [Channels reference](../../reference/operator-ui/channels/list.md) — the channel views used in step 3
+- [Parquet schema](../../reference/parquet-schema.md) — the columns you can join on
+- [Three stores](../../concepts/data/three-stores.md) — where the parquet files live
 - [Find flaky tests](find-flaky-tests.md) — when the two runs are the same test on the same DUT

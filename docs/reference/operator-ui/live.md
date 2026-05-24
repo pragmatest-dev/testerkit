@@ -42,13 +42,13 @@ The default tab is **Events**.
 When a test hits a [`litmus_prompts`](../litmus-markers.md#litmus_prompts)
 marker, the prompt renders as a modal on this page. The same
 session is also pushed to the
-[ACTIVE TESTS sidebar block](../../how-to/operator-ui-tour.md#active-tests-dynamic)
+[ACTIVE TESTS sidebar block](../../how-to/overview/operator-ui-tour.md#active-tests-dynamic)
 so an operator on any other page sees an amber row reading
 "N dialog(s) waiting" and can click straight back here. The
 modal is the dialog UI; the sidebar is the notifier.
 
 For prompt-design guidance, see
-[Design operator prompts](../../how-to/operator-prompts.md).
+[Design operator prompts](../../how-to/execution/operator-prompts.md).
 
 ## When the run finishes
 
@@ -96,5 +96,5 @@ auto-retry — refresh to reconnect.
 
 - [Launch Test](launch.md) — the form that redirects here
 - [Results detail](results/detail.md) — the post-run reference view
-- [Design operator prompts](../../how-to/operator-prompts.md) — the design guide for the dialogs this page surfaces
-- [Tour of the Operator UI](../../how-to/operator-ui-tour.md) — the ACTIVE TESTS sidebar block
+- [Design operator prompts](../../how-to/execution/operator-prompts.md) — the design guide for the dialogs this page surfaces
+- [Tour of the Operator UI](../../how-to/overview/operator-ui-tour.md) — the ACTIVE TESTS sidebar block

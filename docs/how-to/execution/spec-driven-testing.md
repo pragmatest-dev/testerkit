@@ -1,8 +1,8 @@
 # Spec-Driven Testing
 
-Derive test limits and [traceability](traceability.md) from the [product specification](../concepts/configuration/products.md). The `verify` fixture resolves the limit, DUT pin, and spec reference automatically from the active `product_context` (a [`ProductContext`](../concepts/configuration/products.md) — the loaded-product container exposed to tests) — you just call `verify(name, value)`.
+Derive test limits and [traceability](traceability.md) from the [product specification](../../concepts/configuration/products.md). The `verify` fixture resolves the limit, DUT pin, and spec reference automatically from the active `product_context` (a [`ProductContext`](../../concepts/configuration/products.md) — the loaded-product container exposed to tests) — you just call `verify(name, value)`.
 
-> **Prerequisites.** A `products/<id>.yaml` file with at least one characteristic (see [tutorial step 6](../tutorial/06-specifications.md)). The product context must be active — pass `--product=<id>` / `--product=<path>`, or `--dut-part-number=<pn>` to look it up by part number, or rely on single-file autodiscovery when there's exactly one product YAML in `products/`. Limits also flow from sidecar YAML / markers / profiles — this page focuses on the product-spec path.
+> **Prerequisites.** A `products/<id>.yaml` file with at least one characteristic (see [tutorial step 6](../../tutorial/06-specifications.md)). The product context must be active — pass `--product=<id>` / `--product=<path>`, or `--dut-part-number=<pn>` to look it up by part number, or rely on single-file autodiscovery when there's exactly one product YAML in `products/`. Limits also flow from sidecar YAML / markers / profiles — this page focuses on the product-spec path.
 
 ## The workflow
 
@@ -167,5 +167,5 @@ No manual threading of traceability fields — they're injected by the plugin.
 ## See also
 
 - [Limits guide](limits.md) — `characteristic:`, callables, resolution order
-- [Litmus fixtures](../reference/litmus-fixtures.md) — all 20 plugin fixtures with signatures
+- [Litmus fixtures](../../reference/litmus-fixtures.md) — all 20 plugin fixtures with signatures
 - [Writing Tests](writing-tests.md) — end-to-end patterns

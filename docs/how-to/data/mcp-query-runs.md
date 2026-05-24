@@ -8,7 +8,7 @@ the three tools you'll use most.
 
 ## Prerequisites
 
-- [MCP server registered](mcp-integration.md) with your AI client
+- [MCP server registered](../overview/mcp-integration.md) with your AI client
   (run `litmus setup <client>`, restart the client)
 - A project with at least a few runs already in the data dir
 
@@ -58,7 +58,7 @@ Overview tab renders.
 ## Recipe 3 — "Is the line healthy?"
 
 The `litmus_metrics` tool exposes the analytical lenses behind the
-[Metrics page](../reference/operator-ui/metrics.md). The split
+[Metrics page](../../reference/operator-ui/metrics.md). The split
 between MCP actions and UI tabs is not 1:1 — the UI's "Yield" tab
 is `summary` + `trend` on the MCP side, and the UI's "Assets" tab
 has no MCP equivalent yet:
@@ -117,9 +117,9 @@ clicking.
 
 ## See also
 
-- [MCP integration](mcp-integration.md) — server setup, client registration
-- [Datasheet → tests](datasheet-to-test.md) — end-to-end authoring flow
+- [MCP integration](../overview/mcp-integration.md) — server setup, client registration
+- [Datasheet → tests](../catalog/datasheet-to-test.md) — end-to-end authoring flow
 - [Debug failures via MCP](mcp-debug-failures.md) — investigation-focused recipe
-- [API reference → MCP tools](../reference/api.md#tools) — every tool's full parameter list and return shape
-- [Operator UI → Results list](../reference/operator-ui/results/list.md) — the UI surface that reads the same data
-- [Operator UI → Metrics](../reference/operator-ui/metrics.md) — the UI surface that reads the same metrics actions
+- [API reference → MCP tools](../../reference/api.md#tools) — every tool's full parameter list and return shape
+- [Operator UI → Results list](../../reference/operator-ui/results/list.md) — the UI surface that reads the same data
+- [Operator UI → Metrics](../../reference/operator-ui/metrics.md) — the UI surface that reads the same metrics actions

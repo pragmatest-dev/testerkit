@@ -29,10 +29,10 @@ Mock (mocks.py) — orthogonal to the class hierarchy
 
 ## What an instrument advertises to the platform
 
-A driver class is just Python — it doesn't declare capabilities in code. The capability metadata that the matcher uses ("this is a DMM that measures DC voltage") lives in the [catalog YAML](../reference/catalog-schema.md), referenced from the station YAML's `instruments:` block. Two pieces wire your driver into the platform:
+A driver class is just Python — it doesn't declare capabilities in code. The capability metadata that the matcher uses ("this is a DMM that measures DC voltage") lives in the [catalog YAML](../../reference/catalog-schema.md), referenced from the station YAML's `instruments:` block. Two pieces wire your driver into the platform:
 
-1. **Station YAML** — `instruments: { dmm: { driver: my_pkg.MyDMM, catalog_ref: my_pkg.my_dmm, resource: ... } }`. The `driver:` path is what Python imports; the dictionary key `dmm:` is the [per-role auto-fixture](../reference/litmus-fixtures.md#per-role-auto-fixtures) name tests see.
-2. **Catalog YAML** — declares the function / direction / signals the matcher pairs against product characteristics. See [catalog schema](../reference/catalog-schema.md) and the [catalog cookbook](../reference/catalog-cookbook.md) for the YAML shape.
+1. **Station YAML** — `instruments: { dmm: { driver: my_pkg.MyDMM, catalog_ref: my_pkg.my_dmm, resource: ... } }`. The `driver:` path is what Python imports; the dictionary key `dmm:` is the [per-role auto-fixture](../../reference/litmus-fixtures.md#per-role-auto-fixtures) name tests see.
+2. **Catalog YAML** — declares the function / direction / signals the matcher pairs against product characteristics. See [catalog schema](../../reference/catalog-schema.md) and the [catalog cookbook](../../reference/catalog-cookbook.md) for the YAML shape.
 
 The driver's class is what gets called; the catalog is what gets matched. They're independent.
 
@@ -345,7 +345,7 @@ def test_voltage(dmm, verify):
     verify("output_voltage", dmm.measure_voltage())
 ```
 
-The test calls `dmm.measure_voltage()` whether `dmm` is a real `MyDMM` or the stand-in returning `5.0` from `mock_config:` — pytest never sees the difference. The auto-fixture is registered from the station YAML's `instruments:` keys; see [Litmus fixtures](../reference/litmus-fixtures.md#per-role-auto-fixtures). One thing to note: `isinstance(dmm, MyDMM)` is `False` under platform mock-mode (the stand-in isn't a subclass of your driver class). If a test path depends on that check, use the bringup-tier `conftest.py` pattern below where `Mock(MyDMM, ...)` does preserve isinstance.
+The test calls `dmm.measure_voltage()` whether `dmm` is a real `MyDMM` or the stand-in returning `5.0` from `mock_config:` — pytest never sees the difference. The auto-fixture is registered from the station YAML's `instruments:` keys; see [Litmus fixtures](../../reference/litmus-fixtures.md#per-role-auto-fixtures). One thing to note: `isinstance(dmm, MyDMM)` is `False` under platform mock-mode (the stand-in isn't a subclass of your driver class). If a test path depends on that check, use the bringup-tier `conftest.py` pattern below where `Mock(MyDMM, ...)` does preserve isinstance.
 
 For the full mock-mode surface (sidecar `mocks:` overrides, the three layered pipelines, resolution order) see [mock-mode.md](mock-mode.md).
 
@@ -382,7 +382,7 @@ instruments:
 
 Now `def test_voltage(dmm, verify): ...` resolves `dmm` to a connected `MyDMM` instance.
 
-For [station configuration](configuring-stations.md) details (other `driver:` examples, multi-channel routing, the `catalog_ref:` link) see the how-to. For the `catalog_ref:` target schema see [catalog schema](../reference/catalog-schema.md).
+For [station configuration](configuring-stations.md) details (other `driver:` examples, multi-channel routing, the `catalog_ref:` link) see the how-to. For the `catalog_ref:` target schema see [catalog schema](../../reference/catalog-schema.md).
 
 ### conftest.py (bringup tier — no station YAML yet)
 
@@ -403,7 +403,7 @@ def dmm(mock_instruments) -> MyDMM:
     return MyDMM("TCPIP::192.168.1.100::INSTR")
 ```
 
-This is the same pattern [tutorial step 2](../tutorial/02-mock-instruments.md) introduces — `Mock(MyDMM, **values)` returns a `MockMyDMM` instance whose declared methods become no-ops returning your configured values. `isinstance(dmm, MyDMM)` still passes; `dmm.set_voltage(3.3)` is a silent no-op; `dmm.measure_voltage()` returns `5.0`.
+This is the same pattern [tutorial step 2](../../tutorial/02-mock-instruments.md) introduces — `Mock(MyDMM, **values)` returns a `MockMyDMM` instance whose declared methods become no-ops returning your configured values. `isinstance(dmm, MyDMM)` still passes; `dmm.set_voltage(3.3)` is a silent no-op; `dmm.measure_voltage()` returns `5.0`.
 
 Step up to station YAML once you have more than one bench or want capability matching. The station path supersedes the conftest fixture — the platform auto-registers a `dmm` fixture from `instruments.dmm:` in the YAML.
 
@@ -468,7 +468,7 @@ pytest -m hardware                  # only hardware tests
 pytest -m "not hardware"            # only simulation tests (CI default)
 ```
 
-`hardware` is not a Litmus-registered marker; the seven `litmus_*` markers are listed in [`litmus-markers.md`](../reference/litmus-markers.md). You own this marker locally.
+`hardware` is not a Litmus-registered marker; the seven `litmus_*` markers are listed in [`litmus-markers.md`](../../reference/litmus-markers.md). You own this marker locally.
 
 ---
 
@@ -481,9 +481,9 @@ pytest -m "not hardware"            # only simulation tests (CI default)
 
 ## See also
 
-- [Catalog schema](../reference/catalog-schema.md) — what a `catalog/<vendor>/<model>.yaml` entry declares (the matcher's contract)
-- [Catalog cookbook](../reference/catalog-cookbook.md) — worked recipes for common datasheet shapes
-- [Capabilities](../concepts/configuration/capabilities.md) — capability model + matching algorithm
+- [Catalog schema](../../reference/catalog-schema.md) — what a `catalog/<vendor>/<model>.yaml` entry declares (the matcher's contract)
+- [Catalog cookbook](../../reference/catalog-cookbook.md) — worked recipes for common datasheet shapes
+- [Capabilities](../../concepts/configuration/capabilities.md) — capability model + matching algorithm
 - [Configuring stations](configuring-stations.md) — the `driver:` field and the rest of the station YAML
 - [Mock mode](mock-mode.md) — `--mock-instruments`, `mock_config:`, the three mock pipelines
-- [Litmus fixtures](../reference/litmus-fixtures.md) — `instruments`, `instrument`, `pins`, `mock_instruments`, and how per-role auto-fixtures get registered
+- [Litmus fixtures](../../reference/litmus-fixtures.md) — `instruments`, `instrument`, `pins`, `mock_instruments`, and how per-role auto-fixtures get registered

@@ -15,7 +15,7 @@ Welcome to Litmus! This tutorial takes you from your first test to a production-
 | [6. Product Specifications](06-specifications.md) | Define [products](../concepts/configuration/products.md) | products/*.yaml, [characteristics](../concepts/configuration/capabilities.md) |
 | [7. Real Instruments](07-real-instruments.md) | Talk to hardware | [stations/*.yaml](../concepts/configuration/stations.md), VISA, simulation |
 | [8. Capability Matching](08-capabilities.md) | Find compatible [stations](../concepts/configuration/stations.md) | [direction flip, matching API](../concepts/configuration/capabilities.md) |
-| [9. Production Ready](09-production.md) | Full [traceability](../how-to/traceability.md) | [fixtures](../concepts/configuration/fixtures.md), test classes, sidecar |
+| [9. Production Ready](09-production.md) | Full [traceability](../how-to/execution/traceability.md) | [fixtures](../concepts/configuration/fixtures.md), test classes, sidecar |
 | [10. Live Monitoring](10-live-monitoring.md) | Monitor in real time | [sessions](../concepts/data/sessions.md), [events](../concepts/data/event-log.md), [channels](../concepts/data/three-stores.md) |
 
 ## Prerequisites

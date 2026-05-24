@@ -440,5 +440,5 @@ event = Event.model_validate(json_payload)   # picks the right subclass by event
 
 - [Event log concept](../concepts/data/event-log.md) — why event sourcing, and how the log is consumed
 - [Three stores](../concepts/data/three-stores.md) — where events, runs, and channels each live
-- [Querying events](../how-to/querying-events.md) — DuckDB / Python recipes
+- [Querying events](../how-to/data/querying-events.md) — DuckDB / Python recipes
 - [Parquet schema](parquet-schema.md) — the materialized row shape derived from these events

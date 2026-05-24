@@ -15,7 +15,7 @@ the operator UI and the parquet store to identify which.
 
 ## 1. Find the suspects in the Metrics → Retest tab
 
-Open [`/metrics`](../reference/operator-ui/metrics.md), click the
+Open [`/metrics`](../../reference/operator-ui/metrics.md), click the
 **Retest** tab. The chart shows the percentage of unique DUTs that
 needed more than one attempt to clear the same step, bucketed by
 period. The table below shows Period / Serials / Retested / Rate /
@@ -29,14 +29,14 @@ spike follows the test, the station, or the product.
 ## 2. Pin the test that's flaking
 
 The Retest tab is aggregate; for the specific test, open
-[`/results`](../reference/operator-ui/results/list.md). The list
+[`/results`](../../reference/operator-ui/results/list.md). The list
 doesn't text-filter by DUT serial, so sort by Started descending
 and scan the DUT column for one of the affected serials. A flaky
 test shows up as a serial that has both `passed` and `failed` rows
 in its history without an obvious code change between them.
 
 Click into a failing run. The
-[Results detail](../reference/operator-ui/results/detail.md) step
+[Results detail](../../reference/operator-ui/results/detail.md) step
 tree shows one row per `(step_path, vector_index)` regardless of
 retry count; to see the individual attempts, jump to the parquet
 query in the next step. Confirm the failing step's measurements
@@ -47,7 +47,7 @@ limit; a wild value is environment or hardware.
 
 If the test is genuinely intermittent and you can't fix the root
 cause yet, set an explicit retry policy with the
-[`@pytest.mark.litmus_retry`](../reference/litmus-markers.md#litmus_retry)
+[`@pytest.mark.litmus_retry`](../../reference/litmus-markers.md#litmus_retry)
 marker:
 
 ```python
@@ -86,15 +86,15 @@ retry of the same step on the same serial fails the same way is
 not a flake at all; it's a deterministic failure.
 
 Resolve `<data_dir>` from
-[`ProjectConfig`](../reference/configuration.md) or check the
-[Three Stores](../concepts/data/three-stores.md) page for the default
+[`ProjectConfig`](../../reference/configuration.md) or check the
+[Three Stores](../../concepts/data/three-stores.md) page for the default
 locations.
 
 ## 5. Cross-check the environment with channels
 
 If the measurement is wild but the DUT is fine, the cause is
 usually environmental. Open
-[`/channels`](../reference/operator-ui/channels/list.md), find the
+[`/channels`](../../reference/operator-ui/channels/list.md), find the
 session ID from the failing run's detail page, and look at any
 power-rail, temperature, or supply-current channel logged during
 that session. A 50 mV brown-out on the supply rail during the
@@ -102,9 +102,9 @@ failing window is a smoking gun.
 
 ## Related
 
-- [Metrics — Retest tab](../reference/operator-ui/metrics.md) — the chart used in step 1
-- [Results — detail view](../reference/operator-ui/results/detail.md) — the step tree used in step 2
-- [`litmus_retry` marker](../reference/litmus-markers.md#litmus_retry) — the retry policy in step 3
-- [Parquet schema → Retries](../reference/parquet-schema.md#retries) — `vector_retry` column semantics
-- [Three stores](../concepts/data/three-stores.md) — ParquetBackend + ChannelStore
+- [Metrics — Retest tab](../../reference/operator-ui/metrics.md) — the chart used in step 1
+- [Results — detail view](../../reference/operator-ui/results/detail.md) — the step tree used in step 2
+- [`litmus_retry` marker](../../reference/litmus-markers.md#litmus_retry) — the retry policy in step 3
+- [Parquet schema → Retries](../../reference/parquet-schema.md#retries) — `vector_retry` column semantics
+- [Three stores](../../concepts/data/three-stores.md) — ParquetBackend + ChannelStore
 - [Compare two runs](compare-runs.md) — what to do once you've narrowed it to two specific runs

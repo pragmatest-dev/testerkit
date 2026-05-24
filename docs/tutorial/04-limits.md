@@ -115,13 +115,13 @@ def test_voltage(dmm, logger):
     logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`verify` is judgment-bearing: calling it with no limit (no inline `limit=`, no marker, no sidecar, no product spec) raises `MissingLimitError`. For a wide characterization sweep where you want the same `verify()` test code to record values without judging, set `verify_requires_limit: false` on a [profile](../how-to/profiles.md) — `verify` then falls back to `logger.measure` semantics for that session.
+`verify` is judgment-bearing: calling it with no limit (no inline `limit=`, no marker, no sidecar, no product spec) raises `MissingLimitError`. For a wide characterization sweep where you want the same `verify()` test code to record values without judging, set `verify_requires_limit: false` on a [profile](../how-to/execution/profiles.md) — `verify` then falls back to `logger.measure` semantics for that session.
 
 ## What's missing — and what step 5 fixes
 
 Inline limits and markers live in the test code. That means a non-developer can't change them, condition-dependent limits get awkward, and limits can't be reused across multiple test files. Step 5 introduces the **[sidecar YAML](05-configuration.md)** — a file next to the test that carries limits (and sweeps, mocks, retries, prompts) without changing the test code.
 
-For [condition-indexed bands](../how-to/limits.md#condition-indexed-bands) (different bands at different temperatures or loads) jump to [Test limits](../how-to/limits.md#condition-indexed-bands) when you need it.
+For [condition-indexed bands](../how-to/execution/limits.md#condition-indexed-bands) (different bands at different temperatures or loads) jump to [Test limits](../how-to/execution/limits.md#condition-indexed-bands) when you need it.
 
 ## What you learned
 

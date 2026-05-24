@@ -7,7 +7,7 @@ workflow — "the run failed, why?"
 
 ## Prerequisites
 
-- [MCP server registered](mcp-integration.md) with your AI client
+- [MCP server registered](../overview/mcp-integration.md) with your AI client
 - A failing run in the data dir (this recipe assumes you already
   know which one)
 
@@ -93,7 +93,7 @@ usually environmental. Get the channel ids the run logged:
 last_n=300)` returns timestamped values. The assistant inspects for
 brown-outs, glitches, or thermal drift coincident with the failure
 window. `max_points` controls server-side downsampling
-([LTTB](../how-to/querying-channels.md)) when the raw series is
+([LTTB](../how-to/data/querying-channels.md)) when the raw series is
 too large to ship over the wire.
 
 ### 6. Hand off to a human if needed
@@ -124,5 +124,5 @@ opens it.
 - [Find flaky tests](find-flaky-tests.md) — the UI-first version of the same diagnostic, for the cases where you'd rather click than chat
 - [Compare two runs](compare-runs.md) — when the question is "what changed between this run and a known-good one"
 - [Query runs and metrics via MCP](mcp-query-runs.md) — the broader "ask Litmus questions" surface
-- [MCP integration](mcp-integration.md) — server setup
-- [API reference → MCP tools](../reference/api.md#tools) — full per-tool parameter list
+- [MCP integration](../overview/mcp-integration.md) — server setup
+- [API reference → MCP tools](../../reference/api.md#tools) — full per-tool parameter list

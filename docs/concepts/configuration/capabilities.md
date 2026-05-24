@@ -457,4 +457,4 @@ Matching: dc_voltage OUTPUT ↔ dc_voltage INPUT
 
 - [Fixtures](fixtures.md) — Mapping DUT pins to instruments
 - [Architecture](../overview/architecture.md) — System data flow
-- [Custom drivers](../../how-to/custom-drivers.md) — Creating custom drivers
+- [Custom drivers](../../how-to/configuration/custom-drivers.md) — Creating custom drivers

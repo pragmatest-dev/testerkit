@@ -309,5 +309,5 @@ These names are not hard-coded — they come from your station YAML at session s
 - [Litmus markers](litmus-markers.md) — the seven `@pytest.mark.litmus_*` decorators and their sidecar equivalents
 - [pytest-native reference](pytest-native.md) — how the bundled plugin uses pytest's own collection / fixtures / markers
 - [Models](models.md) — `Limit`, `MeasurementLimitConfig`, `ProductContext`, `StationConfig`, `FixtureConfig` field shapes
-- [Test vectors & sweeps](../how-to/vector-expansion.md) — `litmus_sweeps`, `parametrize`, and the `vectors` self-loop fixture
-- [Spec-driven testing](../how-to/spec-driven-testing.md) — `litmus_characteristics` + `connections` workflow
+- [Test vectors & sweeps](../how-to/execution/vector-expansion.md) — `litmus_sweeps`, `parametrize`, and the `vectors` self-loop fixture
+- [Spec-driven testing](../how-to/execution/spec-driven-testing.md) — `litmus_characteristics` + `connections` workflow

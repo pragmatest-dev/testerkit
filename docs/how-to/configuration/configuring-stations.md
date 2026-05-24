@@ -33,7 +33,7 @@ instruments:
 
 ## Instrument Fields
 
-Per [`StationInstrumentConfig`](../reference/models.md) in `src/litmus/models/station.py`:
+Per [`StationInstrumentConfig`](../../reference/models.md) in `src/litmus/models/station.py`:
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -244,7 +244,7 @@ pytest tests/ \
   --dut-serial=SN001
 ```
 
-See [Fixtures](../concepts/configuration/fixtures.md) for the pin-to-instrument mapping model.
+See [Fixtures](../../concepts/configuration/fixtures.md) for the pin-to-instrument mapping model.
 
 ## Capability Declarations
 
@@ -284,7 +284,7 @@ Invalid configurations raise `pydantic.ValidationError` with details about what'
 
 ## Shared Instruments (Multi-DUT)
 
-When a fixture defines multiple **slots** (parallel DUT positions — see [Multi-DUT testing](multi-dut-testing.md)), instruments referenced by more than one slot are automatically detected as **shared**. The orchestrator connects shared instruments once and hosts them via an internal RPC server (`InstrumentServer` in `src/litmus/instruments/server.py`); worker subprocesses access them through transparent proxy objects. Tests never know the difference.
+When a fixture defines multiple **slots** (parallel DUT positions — see [Multi-DUT testing](../execution/multi-dut-testing.md)), instruments referenced by more than one slot are automatically detected as **shared**. The orchestrator connects shared instruments once and hosts them via an internal RPC server (`InstrumentServer` in `src/litmus/instruments/server.py`); worker subprocesses access them through transparent proxy objects. Tests never know the difference.
 
 ### Per-Resource Locking
 
@@ -380,6 +380,6 @@ instruments:
 
 ## Next Steps
 
-- [Stations Concept](../concepts/configuration/stations.md) — Understanding stations
-- [Capabilities](../concepts/configuration/capabilities.md) — Capability matching
+- [Stations Concept](../../concepts/configuration/stations.md) — Understanding stations
+- [Capabilities](../../concepts/configuration/capabilities.md) — Capability matching
 - [Custom drivers](custom-drivers.md) — Build a non-VISA driver

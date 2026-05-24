@@ -43,7 +43,7 @@ For analytics from Python — yield, Cpk, pareto, trends — without writing raw
 
 ## Operator UI (`litmus serve`)
 
-Per-screen reference for the browser surface. For orientation, see the [Tour of the Operator UI](../how-to/operator-ui-tour.md).
+Per-screen reference for the browser surface. For orientation, see the [Tour of the Operator UI](../how-to/overview/operator-ui-tour.md).
 
 - [Dashboard](operator-ui/dashboard.md) — `/`
 - [Launch Test](operator-ui/launch.md) — `/launch`

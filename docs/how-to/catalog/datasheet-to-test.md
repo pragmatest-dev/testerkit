@@ -2,7 +2,7 @@
 
 Walks through the `datasheet-to-test` workflow end-to-end: from a product datasheet PDF to a runnable pytest suite, with operator approval at every step. This is the highest-leverage AI-assisted flow Litmus ships — it covers spec extraction, instrument selection, station config, and test scaffolding in one chained conversation.
 
-For motivation see [why AI integration](../concepts/overview/ai-integration.md). For the full inventory of what ships, see the [skills reference](../reference/skills.md).
+For motivation see [why AI integration](../../concepts/overview/ai-integration.md). For the full inventory of what ships, see the [skills reference](../../reference/skills.md).
 
 ## Prerequisites
 
@@ -11,7 +11,7 @@ For motivation see [why AI integration](../concepts/overview/ai-integration.md).
 - Claude Code installed and authenticated, with access to a high-capability model on your plan (Opus, GPT-5 / o-series, Gemini 2.5 Pro, or equivalent — the workflow does heavy PDF extraction)
 - A working catalog of instruments — either real catalog YAMLs in your project, or you can use Litmus's bundled generics
 
-If you don't have Claude Code, swap to any client that supports MCP — the steps work the same, only the invocation differs (slash command vs conversational). See the [skills reference](../reference/skills.md#slash-commands) for the matrix.
+If you don't have Claude Code, swap to any client that supports MCP — the steps work the same, only the invocation differs (slash command vs conversational). See the [skills reference](../../reference/skills.md#slash-commands) for the matrix.
 
 ## One-time setup
 
@@ -21,7 +21,7 @@ Register Litmus's MCP server with Claude Code:
 litmus setup claude-code
 ```
 
-This does three things ([full reference](../reference/skills.md#what-the-setup-commands-install)):
+This does three things ([full reference](../../reference/skills.md#what-the-setup-commands-install)):
 
 1. Registers Litmus as an MCP server (`claude mcp add litmus -- <litmus-bin> mcp serve`)
 2. Copies `/catalog-from-datasheet` and `/process-catalog` slash command stubs into `./.claude/commands/`
@@ -69,7 +69,7 @@ Common edits at this gate:
 
 ### Phase 2 — Save product spec
 
-Claude saves the spec to `products/<part_number>.yaml`. The spec uses the [Capability schema](../reference/catalog-schema.md) — same `signals`/`conditions`/`controls`/`attributes` shape as catalog entries. The MCP `litmus_project(action="save", type="product", ...)` call validates the YAML server-side against the live Pydantic model; you'll see Claude correct shape errors in-flight if it tries to save something invalid.
+Claude saves the spec to `products/<part_number>.yaml`. The spec uses the [Capability schema](../../reference/catalog-schema.md) — same `signals`/`conditions`/`controls`/`attributes` shape as catalog entries. The MCP `litmus_project(action="save", type="product", ...)` call validates the YAML server-side against the live Pydantic model; you'll see Claude correct shape errors in-flight if it tries to save something invalid.
 
 Approval gate: review the saved YAML. Edit directly if you want — the agent re-reads on the next step.
 
@@ -162,8 +162,8 @@ Three ways to use this flow short of the full pipeline:
 
 ## See also
 
-- [Concepts: why AI integration](../concepts/overview/ai-integration.md) — motivation
-- [Reference: skills](../reference/skills.md) — full inventory of workflows, agents, MCP tools
-- [How-to: MCP integration](mcp-integration.md) — per-client setup detail
-- [Reference: catalog schema](../reference/catalog-schema.md) — the shape product spec and catalog entries share
-- [Tutorial step 3: pytest-native tests](../tutorial/03-fixtures.md) — what the generated test code looks like in context
+- [Concepts: why AI integration](../../concepts/overview/ai-integration.md) — motivation
+- [Reference: skills](../../reference/skills.md) — full inventory of workflows, agents, MCP tools
+- [How-to: MCP integration](../overview/mcp-integration.md) — per-client setup detail
+- [Reference: catalog schema](../../reference/catalog-schema.md) — the shape product spec and catalog entries share
+- [Tutorial step 3: pytest-native tests](../../tutorial/03-fixtures.md) — what the generated test code looks like in context

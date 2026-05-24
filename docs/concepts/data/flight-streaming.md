@@ -83,4 +83,4 @@ This is critical for the operator UI, which may need to display waveforms with m
 
 - [Event Log Architecture](event-log.md) — How events flow through the system
 - [Three Stores Architecture](three-stores.md) — All three data stores
-- [Querying Channels Guide](../../how-to/querying-channels.md) — Practical channel queries
+- [Querying Channels Guide](../../how-to/data/querying-channels.md) — Practical channel queries
