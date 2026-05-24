@@ -66,7 +66,7 @@ For shipping data to cloud destinations or lakehouse formats (Snowflake, Delta, 
 - **DuckDB / Polars / Pandas:** read directly from `data/runs/{date}/*.parquet` with `record_type` filtering.
 - **Snowflake / Databricks / Trino-Iceberg:** copy parquets to your storage layer and ingest with an `INSERT INTO ... SELECT ... WHERE record_type = ...` split.
 
-Canonical recipes — see [Lakehouse Import](../../integration/lakehouse-import.md).
+Canonical recipes — see [Lakehouse Import](../../integration/data/lakehouse-import.md).
 
 ## Subscribers — internal mechanism
 

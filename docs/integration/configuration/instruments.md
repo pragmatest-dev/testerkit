@@ -289,6 +289,6 @@ A station's `instruments:` block does not carry a `calibration:` field — that 
 
 ## Next Steps
 
-- [Custom drivers](../how-to/configuration/custom-drivers.md) — Build a non-VISA driver
-- [Mock Mode](../how-to/configuration/mock-mode.md) — Testing without hardware
-- [Stations](../concepts/configuration/stations.md) — Station architecture
+- [Custom drivers](../../how-to/configuration/custom-drivers.md) — Build a non-VISA driver
+- [Mock Mode](../../how-to/configuration/mock-mode.md) — Testing without hardware
+- [Stations](../../concepts/configuration/stations.md) — Station architecture

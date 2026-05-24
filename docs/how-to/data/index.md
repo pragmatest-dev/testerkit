@@ -15,4 +15,4 @@ Pull data out of the runtime. Query the event log and channel store, debug failu
 
 - [Concepts → Data](../../concepts/data/index.md) — event log, three stores, sessions, flight streaming
 - [Reference → Event types](../../reference/data/event-types.md), [Parquet schema](../../reference/data/parquet-schema.md), [Query API](../../reference/data/query-api.md)
-- [Integration → Grafana](../../integration/grafana.md) — the pgwire data source and shipped dashboards
+- [Integration → Grafana](../../integration/data/grafana.md) — the pgwire data source and shipped dashboards

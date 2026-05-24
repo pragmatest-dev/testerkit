@@ -108,8 +108,8 @@ extension surface today.
 
 ## See also
 
-- [Lakehouse import](../../integration/lakehouse-import.md) — when the receiver wants parquet rows directly, skip export entirely
-- [Grafana](../../integration/grafana.md) — when the receiver wants live dashboards instead of files
+- [Lakehouse import](../../integration/data/lakehouse-import.md) — when the receiver wants parquet rows directly, skip export entirely
+- [Grafana](../../integration/data/grafana.md) — when the receiver wants live dashboards instead of files
 - [`litmus show`](../../reference/cli.md#cli-show) — CLI reference for the report path
 - [`litmus export`](../../reference/cli.md#cli-export) — CLI reference for the interchange path
 - [Three stores](../../concepts/data/three-stores.md) — where the parquet and event data live on disk

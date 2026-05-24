@@ -368,4 +368,4 @@ You've completed the tutorial. You now have a foundation for production hardware
 - [Litmus fixtures](../reference/pytest/fixtures.md) — all 20 fixtures the plugin exposes
 - [Litmus markers](../reference/pytest/markers.md) — the seven `litmus_*` markers and their sidecar equivalents
 - [pytest-native Reference](../reference/overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
-- [Test Harness Integration](../integration/harness.md) — Advanced patterns
+- [Test Harness Integration](../integration/configuration/harness.md) — Advanced patterns

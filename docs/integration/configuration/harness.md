@@ -1,6 +1,6 @@
 # Test Harness Integration
 
-> **For new pytest projects, use the plugin: [Litmus fixtures](../reference/pytest/fixtures.md) (`context`, `verify`, `logger`, `pins`, … — 20 in total) and [Litmus markers](../reference/pytest/markers.md) (`litmus_limits`, `litmus_sweeps`, …) handle setup automatically.** `TestHarness` is the imperative entry point for non-pytest runners (Robot Framework, unittest, custom harnesses) or for situations where you need explicit lifecycle control.
+> **For new pytest projects, use the plugin: [Litmus fixtures](../../reference/pytest/fixtures.md) (`context`, `verify`, `logger`, `pins`, … — 20 in total) and [Litmus markers](../../reference/pytest/markers.md) (`litmus_limits`, `litmus_sweeps`, …) handle setup automatically.** `TestHarness` is the imperative entry point for non-pytest runners (Robot Framework, unittest, custom harnesses) or for situations where you need explicit lifecycle control.
 
 `TestHarness` (in `litmus.execution.harness`) wraps the same machinery the pytest plugin uses: vector expansion, retry, limit resolution, measurement logging with full traceability.
 
@@ -247,7 +247,7 @@ harness.measure("output_voltage", float(dmm.measure_dc_voltage()))
 |---|---|---|
 | Lifecycle | Explicit (`step()`, `run_vector()`) | Implicit (pytest collection + hooks) |
 | Vector expansion | Configure via `config["vectors"]` | `@pytest.mark.parametrize` / sidecar `sweeps:` |
-| Limit resolution | Explicit `limits=` / `product_context=` | Fixture + marker chain (see [Litmus fixtures](../reference/pytest/fixtures.md) + [Litmus markers](../reference/pytest/markers.md)) |
+| Limit resolution | Explicit `limits=` / `product_context=` | Fixture + marker chain (see [Litmus fixtures](../../reference/pytest/fixtures.md) + [Litmus markers](../../reference/pytest/markers.md)) |
 | Trace context | `harness.context.*` | `context` fixture |
 | Instrument access | Caller-managed | Auto-fixtures from station YAML |
 
@@ -255,8 +255,8 @@ If you can use pytest-native, prefer it — every feature works out of the box. 
 
 ## See also
 
-- [Litmus fixtures](../reference/pytest/fixtures.md) + [Litmus markers](../reference/pytest/markers.md) — preferred entry point for pytest projects
-- [pytest-native reference](../reference/overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
+- [Litmus fixtures](../../reference/pytest/fixtures.md) + [Litmus markers](../../reference/pytest/markers.md) — preferred entry point for pytest projects
+- [pytest-native reference](../../reference/overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
 - [Existing pytest projects](pytest-existing.md) — adopt Litmus from a working pytest suite
-- [Results API](results-api.md) — post results from any external system without running a harness
-- [Models](../reference/data/models.md) — `Limit`, `RetryConfig`, `MeasurementLimitConfig`, `PromptConfig` shapes
+- [Results API](../data/results-api.md) — post results from any external system without running a harness
+- [Models](../../reference/data/models.md) — `Limit`, `RetryConfig`, `MeasurementLimitConfig`, `PromptConfig` shapes

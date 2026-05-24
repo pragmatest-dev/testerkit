@@ -8,7 +8,7 @@ the Grafana side.
 
 For a step-by-step setup walkthrough (install the extras, start
 the server, import the dashboards), see the
-[Grafana dashboards how-to](../how-to/data/grafana-dashboards.md).
+[Grafana dashboards how-to](../../how-to/data/grafana-dashboards.md).
 This page is the reference for what the integration provides:
 which dashboards exist, what tables they query, and where the
 boundaries are.
@@ -122,12 +122,12 @@ the four tables above.
 
 ## See also
 
-- [Grafana dashboards how-to](../how-to/data/grafana-dashboards.md) —
+- [Grafana dashboards how-to](../../how-to/data/grafana-dashboards.md) —
   step-by-step setup, including Docker and Grafana Cloud variants
-- [Parquet schema](../reference/data/parquet-schema.md) — the columns
+- [Parquet schema](../../reference/data/parquet-schema.md) — the columns
   the dashboards select
-- [Three stores](../concepts/data/three-stores.md) — where parquet,
+- [Three stores](../../concepts/data/three-stores.md) — where parquet,
   events, and channels live on disk
-- [Find flaky tests](../how-to/data/find-flaky-tests.md) — the
+- [Find flaky tests](../../how-to/data/find-flaky-tests.md) — the
   diagnostic recipe that combines Yield + Failure Pareto +
   Measurement Trend on a single workflow
