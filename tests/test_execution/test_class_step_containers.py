@@ -53,12 +53,20 @@ def _run_pytest(test_file: Path, *, session_id: str) -> subprocess.CompletedProc
 
 
 def _wait_for_run(session_id: str, *, timeout: float = 15.0) -> str:
-    """Block until the runs daemon has materialized this session's run."""
+    """Block until the run is FULLY materialized (ended_at set).
+
+    Polling with ``include_incomplete=True`` returns as soon as
+    ``RunStarted`` lands, but the steps materialization continues
+    asynchronously — a subsequent ``StepsQuery.list_for_run`` would
+    race the daemon and could read a partial step set. Polling for
+    a completed run (``ended_at IS NOT NULL``, the default) ensures
+    every step has been written to parquet before we read it.
+    """
     deadline = time.monotonic() + timeout
     runs_q = RunsQuery()
     try:
         while time.monotonic() < deadline:
-            runs = runs_q.find_for_session(session_id, include_incomplete=True)
+            runs = runs_q.find_for_session(session_id)
             if runs:
                 assert runs[0].run_id is not None
                 return runs[0].run_id
@@ -73,7 +81,7 @@ def _read_steps(session_id: str) -> list[StepRow]:
     run_id = _wait_for_run(session_id)
     steps_q = StepsQuery()
     try:
-        rows = list(steps_q.list_for_run(run_id, include_incomplete=True))
+        rows = list(steps_q.list_for_run(run_id))
     finally:
         steps_q.close()
     rows.sort(key=lambda s: (s.step_index or 0, s.vector_index or 0))
