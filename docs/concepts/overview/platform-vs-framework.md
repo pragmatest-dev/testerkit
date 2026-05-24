@@ -134,3 +134,13 @@ flowchart TB
 ```
 
 Litmus is the infrastructure layer that connects your tests (top) to your data (bottom), regardless of how you choose to run them.
+
+
+## See also
+
+**Related quadrants:**
+
+- [How-to → Overview](../../how-to/overview/index.md) — how-to entry point for this category
+- [Reference → Overview](../../reference/overview/index.md) — reference entry point for this category
+- [Integration](../../integration/index.md) — integration entry point for this category
+- [Tutorial](../../tutorial/index.md) — tutorial entry point for this category

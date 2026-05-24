@@ -79,8 +79,7 @@ table = channel_store.query(
 
 This is critical for the operator UI, which may need to display waveforms with millions of samples.
 
-## See Also
-
+## See also
 - [Event Log Architecture](event-log.md) — How events flow through the system
 - [Three Stores Architecture](three-stores.md) — All three data stores
 - [Querying Channels Guide](../../how-to/data/querying-channels.md) — Practical channel queries

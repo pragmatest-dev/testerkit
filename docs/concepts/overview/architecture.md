@@ -344,3 +344,13 @@ The storage layer uses three complementary stores:
 | **ParquetBackend** | Denormalized test results | Parquet files |
 
 Events are the source of truth. Parquet files are a materialized view produced by `materialize_run_to_parquet()`, called from the runs daemon on `RunEnded`. See [Three Stores Architecture](../data/three-stores.md) and [Event Log Architecture](../data/event-log.md) for details.
+
+
+## See also
+
+**Related quadrants:**
+
+- [How-to → Overview](../../how-to/overview/index.md) — how-to entry point for this category
+- [Reference → Overview](../../reference/overview/index.md) — reference entry point for this category
+- [Integration](../../integration/index.md) — integration entry point for this category
+- [Tutorial](../../tutorial/index.md) — tutorial entry point for this category

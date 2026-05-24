@@ -64,5 +64,13 @@ There's no "the materialization service" everyone has to wait on, no central wri
 
 ## See also
 
-- [Three Stores Architecture](three-stores.md) — the *what*: events, channels, runs (parquet projection); on-disk layout, data_dir resolution, schema-evolution contract
-- [Event Log Architecture](event-log.md) — event types, dispatch, durability
+**Same topic, other quadrants:**
+
+- [Reference → Event types](../../reference/data/event-types.md) — every event class the runtime emits, generated from source
+- [Reference → Parquet schema](../../reference/data/parquet-schema.md) — the materialized projection's column-level reference
+- [How-to → Export results](../../how-to/data/export-results.md) — exporters as event-replay consumers (one materializer per format)
+
+**Sibling concepts:**
+
+- [Event log](event-log.md) — the *what*: event types, dispatch, durability
+- [Three stores](three-stores.md) — events / channels / parquet projection; on-disk layout, `data_dir` resolution, schema-evolution contract

@@ -71,3 +71,13 @@ Canonical recipes — see [Lakehouse Import](../../integration/data/lakehouse-im
 ## Subscribers — internal mechanism
 
 The `EventSubscriber` class in `litmus.data.event_log` powers the exporter subscribers (`CsvSubscriber`, `JsonSubscriber`, `Hdf5Subscriber`, `Mdf4Subscriber`, `StdfSubscriber`, `AtmlSubscriber`) and the `litmus export` replay path. The canonical run parquet is produced by `materialize_run_to_parquet()` rather than a subscriber — it runs from the runs daemon's `AccumulatorPool` on `RunEnded`. This is not a public extension protocol: third-party packages should not register subscribers via entry points or any other mechanism. The set of supported formats is fixed by the package and surfaced through `litmus show` / `litmus export`.
+
+
+## See also
+
+**Related quadrants:**
+
+- [Concepts → Data](../../concepts/data/index.md) — concepts entry point for this category
+- [How-to → Data](../../how-to/data/index.md) — how-to entry point for this category
+- [Integration → Data](../../integration/data/index.md) — integration entry point for this category
+- [Tutorial](../../tutorial/index.md) — tutorial entry point for this category

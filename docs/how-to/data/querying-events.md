@@ -80,8 +80,7 @@ finally:
 
 Role filtering checks `role`, `instrument_role`, and the `channel_id` prefix (anything before the first `.`) across all event types.
 
-## See Also
-
+## See also
 - [Event Types Reference](../../reference/data/event-types.md) — All event type fields
 - [Event Log Architecture](../../concepts/data/event-log.md) — How events are stored
 - [MCP integration](../overview/mcp-integration.md) — Setting up `litmus_events` and the other MCP tools for AI clients

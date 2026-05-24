@@ -91,7 +91,6 @@ Use `max_points` when displaying data in charts. For analysis, query without dec
 
 Filters apply in order: session → time range → last_n → max_points.
 
-## See Also
-
+## See also
 - [Three Stores Architecture](../../concepts/data/three-stores.md) — Where channels fit
 - [Flight Streaming](../../concepts/data/flight-streaming.md) — Cross-process access model

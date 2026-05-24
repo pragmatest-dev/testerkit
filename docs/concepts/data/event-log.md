@@ -184,8 +184,18 @@ cut, the following invariants hold and the project must not break them:
 Breaking event-shape changes (renaming, removing, type-narrowing
 required fields) defer to the 1.0 cut.
 
-## See Also
+## See also
 
-- [Three Stores Architecture](three-stores.md) — How EventStore fits with ChannelStore and ParquetBackend
-- [Sessions](sessions.md) — What sessions are and why they exist
-- [Event Types Reference](../../reference/data/event-types.md) — Complete field reference for all event types
+**Same topic, other quadrants:**
+
+- [Reference → Event types](../../reference/data/event-types.md) — generated field reference for every event class
+- [Reference → Parquet schema](../../reference/data/parquet-schema.md) — the materialized projection of these events
+- [How-to → Querying events](../../how-to/data/querying-events.md) — MCP / HTTP / Python recipes for reading the event log
+- [Operator UI → Events](../../reference/operator-ui/events.md) — the browser view of the event log
+- [Tutorial → Step 10: Live monitoring](../../tutorial/10-live-monitoring.md) — first hands-on with events as they happen
+
+**Sibling concepts:**
+
+- [Event sourcing](event-sourcing.md) — why the platform is event-sourced rather than mutation-based
+- [Three stores](three-stores.md) — how EventStore fits with ChannelStore and ParquetBackend
+- [Sessions](sessions.md) — the observation window the event log keys events by

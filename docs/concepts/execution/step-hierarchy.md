@@ -151,3 +151,13 @@ The runs daemon materializes step events into a `steps_materialized` DuckDB tabl
 - `parent_path = '<class>/<method>'` → would be a nested step (uncommon today; only via `harness.step()` self-loops)
 
 `MAX(severity)` over rows sharing a `step_path` aggregates "did this class ever fail in this run" across its iterations. See the [results storage reference](../../reference/data/parquet-schema.md) for the full column schema.
+
+
+## See also
+
+**Related quadrants:**
+
+- [How-to → Execution](../../how-to/execution/index.md) — how-to entry point for this category
+- [Reference](../../reference/index.md) — reference entry point for this category
+- [Integration](../../integration/index.md) — integration entry point for this category
+- [Tutorial](../../tutorial/index.md) — tutorial entry point for this category

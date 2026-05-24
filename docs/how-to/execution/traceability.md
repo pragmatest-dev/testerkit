@@ -340,7 +340,6 @@ Requirement: output_voltage
    SELECT * FROM read_parquet('data/runs/**/*.parquet')
    ```
 
-## See Also
-
+## See also
 - [Parquet Schema Reference](../../reference/data/parquet-schema.md) — Complete column definitions
 - [Test Harness](../../integration/runtime/harness.md) — Recording measurements with traceability

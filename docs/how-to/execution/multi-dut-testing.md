@@ -171,3 +171,13 @@ Worker stdout is prefixed with `[slot_id]` in the orchestrator's output:
 **Shared instrument contention:** The InstrumentServer uses per-resource locking. If tests are slow, consider whether instrument access is the bottleneck (check the execution timeline).
 
 **Orphaned processes:** If the orchestrator crashes, worker processes are automatically terminated in the cleanup handler.
+
+
+## See also
+
+**Related quadrants:**
+
+- [Concepts → Execution](../../concepts/execution/index.md) — concepts entry point for this category
+- [Reference](../../reference/index.md) — reference entry point for this category
+- [Integration](../../integration/index.md) — integration entry point for this category
+- [Tutorial](../../tutorial/index.md) — tutorial entry point for this category

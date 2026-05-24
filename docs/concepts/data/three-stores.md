@@ -143,8 +143,19 @@ When multiple projects use different litmus versions but share the global result
 
 The rule: newer is always a superset. An older litmus version reading newer results ignores unknown columns; a newer version reading older results sees NULL for missing columns. No version corrupts or downgrades another's data.
 
-## See Also
+## See also
 
-- [Event Log Architecture](event-log.md) — Deep dive into the event system
-- [Sessions](sessions.md) — How sessions group activity
-- [Flight Streaming](flight-streaming.md) — Cross-process query model
+**Same topic, other quadrants:**
+
+- [Reference → Parquet schema](../../reference/data/parquet-schema.md) — column-level reference for the materialized run rows
+- [Reference → Query API](../../reference/data/query-api.md) — `RunsQuery` / `StepsQuery` / `MeasurementsQuery` — the read path over all three stores
+- [How-to → Querying events](../../how-to/data/querying-events.md), [Querying channels](../../how-to/data/querying-channels.md) — task recipes against each store
+- [How-to → Export results](../../how-to/data/export-results.md) — pulling rows out of the parquet store
+- [Integration → Lakehouse import](../../integration/data/lakehouse-import.md) — pulling Litmus parquet into your warehouse
+
+**Sibling concepts:**
+
+- [Event log](event-log.md) — the source-of-truth event stream
+- [Event sourcing](event-sourcing.md) — why the platform is event-sourced
+- [Sessions](sessions.md) — the observation window that keys events
+- [Flight streaming](flight-streaming.md) — the cross-process query model

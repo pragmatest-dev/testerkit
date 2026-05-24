@@ -374,3 +374,13 @@ signals:
     accuracy: {absolute: 0.8}
     # No specs[] needed — accuracy doesn't vary
 ```
+
+
+## See also
+
+**Related quadrants:**
+
+- [Concepts](../../concepts/index.md) — concepts entry point for this category
+- [How-to → Catalog](../../how-to/catalog/index.md) — how-to entry point for this category
+- [Integration](../../integration/index.md) — integration entry point for this category
+- [Tutorial](../../tutorial/index.md) — tutorial entry point for this category

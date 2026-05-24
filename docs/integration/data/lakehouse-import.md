@@ -174,3 +174,13 @@ short enough to live in any of them.
   columns carry URI strings (`file://_ref/{vector_id}_{key}.npy`) referencing
   these files. Consumers either dereference at query time or copy the
   `_ref/` directory alongside.
+
+
+## See also
+
+**Related quadrants:**
+
+- [Concepts → Data](../../concepts/data/index.md) — concepts entry point for this category
+- [How-to → Data](../../how-to/data/index.md) — how-to entry point for this category
+- [Reference → Data](../../reference/data/index.md) — reference entry point for this category
+- [Tutorial](../../tutorial/index.md) — tutorial entry point for this category

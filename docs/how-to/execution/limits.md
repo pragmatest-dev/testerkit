@@ -190,3 +190,13 @@ If you genuinely want to record without judging, use `logger.measure(name, value
 3. **Keep operator-tuned values in a sidecar `limits:` field** so non-developers can edit them
 4. **Match names** — the first argument to `verify` / `logger.measure` must match the limit key
 5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use `limits` (sidecar / profile) or `@pytest.mark.litmus_limits` (inline) or the product spec
+
+
+## See also
+
+**Related quadrants:**
+
+- [Concepts → Execution](../../concepts/execution/index.md) — concepts entry point for this category
+- [Reference](../../reference/index.md) — reference entry point for this category
+- [Integration](../../integration/index.md) — integration entry point for this category
+- [Tutorial](../../tutorial/index.md) — tutorial entry point for this category

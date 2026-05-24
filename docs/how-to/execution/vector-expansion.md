@@ -387,3 +387,13 @@ condition before the inner loop fires off measurements.
 3. **Use `vectors` fixture** when per-test pytest setup/teardown is
    the bottleneck — one pytest case with N internal iterations is
    often dramatically faster than N pytest cases.
+
+
+## See also
+
+**Related quadrants:**
+
+- [Concepts → Execution](../../concepts/execution/index.md) — concepts entry point for this category
+- [Reference](../../reference/index.md) — reference entry point for this category
+- [Integration](../../integration/index.md) — integration entry point for this category
+- [Tutorial](../../tutorial/index.md) — tutorial entry point for this category

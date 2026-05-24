@@ -91,8 +91,7 @@ Data retention settings can be configured in the global config at `~/.config/lit
 
 Default: unlimited (keep everything). No surprise data loss.
 
-## See Also
-
+## See also
 - [Sessions Concept](../../concepts/data/sessions.md) — Why sessions exist
 - [connect() reference](../../reference/runtime/connect.md) — full API surface
 - [Querying Events](../data/querying-events.md) — Event query patterns

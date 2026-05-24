@@ -129,3 +129,11 @@ A test that runs on a bringup tier with no station YAML and a test that runs on 
 - [Sidecar configuration](configuration.md#sidecar-yaml) — sidecar YAML merge semantics
 - [CLI reference](cli.md) — full flag list, including the non-pytest commands (`litmus serve`, `litmus runs`, etc.)
 - [pytest documentation](https://docs.pytest.org/en/stable/) — canonical reference for everything in the "pytest-native" half of this page
+
+
+**Related quadrants:**
+
+- [Concepts → Overview](../../concepts/overview/index.md) — concepts entry point for this category
+- [How-to → Overview](../../how-to/overview/index.md) — how-to entry point for this category
+- [Integration](../../integration/index.md) — integration entry point for this category
+- [Tutorial](../../tutorial/index.md) — tutorial entry point for this category

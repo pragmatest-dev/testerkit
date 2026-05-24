@@ -70,8 +70,7 @@ station.stop()
 - Manages per-resource instrument locking
 - Emits `SessionEnded` on close
 
-## See Also
-
+## See also
 - [Event Log Architecture](event-log.md) — How events are stored and queried
 - [Three Stores Architecture](three-stores.md) — Where session data lives
 - [connect() reference](../../reference/runtime/connect.md) — full API surface
