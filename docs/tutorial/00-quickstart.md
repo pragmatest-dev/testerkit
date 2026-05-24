@@ -260,7 +260,7 @@ litmus setup copilot           # GitHub Copilot (VS Code + CLI)
 
 ## Next: Connect Real Hardware
 
-When you're ready to move from mocks to real instruments, see [From Mocks to Hardware](from-mocks-to-hardware.md). It covers discovering instruments, creating a real station config, and common troubleshooting.
+When you're ready to move from mocks to real instruments, see [Step 7: Real Instruments](07-real-instruments.md). It covers station configuration, `litmus discover`, driver wiring, and common troubleshooting.
 
 [Step 1: Run Something →](01-first-test.md)
 

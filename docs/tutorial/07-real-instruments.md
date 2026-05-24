@@ -124,16 +124,50 @@ VISA (Virtual Instrument Software Architecture) is the cross-vendor standard for
 
 ## Discovering Instruments
 
-Find connected instruments:
+Litmus ships a CLI that walks the VISA bus and prints what it finds:
 
 ```bash
-python -c "import pyvisa; rm = pyvisa.ResourceManager(); print(rm.list_resources())"
+litmus discover
 ```
 
-Or use the Litmus MCP tool:
+Sample output:
+
 ```
-litmus_discover()
+Scanning for instruments...
+
+VISA: Found 3 instrument(s)
+------------------------------------------------------------
+  Keysight 34461A (SN: MY12345678) (TCPIP::192.168.1.100::INSTR)
+  Keysight E36312A (SN: MY87654321) (TCPIP::192.168.1.101::INSTR)
+  Keithley 2400 (SN: SN98765) (GPIB0::22::INSTR)
+
+Next: litmus station init
 ```
+
+Each line shows the manufacturer + model + serial + VISA resource
+string (the value that goes in `resource:` above). The MCP tool
+`litmus_discover()` returns the same instruments as JSON, with
+extra structured fields (`catalog_ref`, separated manufacturer /
+model / serial / type) that the CLI doesn't print.
+
+To walk a station scaffold interactively — pick a role per
+discovered instrument and write the YAML — follow the CLI's
+prompt:
+
+```bash
+litmus station init
+```
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `No module named 'pymeasure.instruments...'` | Driver package not installed. Litmus falls back to raw PyVISA. | `pip install pymeasure` (or `uv add pymeasure`). Verify the full import path in `driver:`. |
+| Instrument not responding / timeout | PyVISA can't reach the instrument | Verify resource string with `litmus discover`. Check network / GPIB cables. |
+| `instrument identity mismatch` warning | Instrument serial or model doesn't match the asset YAML | Open `instruments/<instrument-id>.yaml` (filename is the instrument ID — e.g. `dmm_MY12345.yaml`, not the station role) and update the manufacturer / model / serial fields, or accept the mismatch during development. |
+| `CALIBRATION EXPIRED` warning | Cal due date has passed in the instrument asset YAML | Update the `calibration.due_date` field, or accept the warning for development. |
+| Mock-mode results stamped as `development` even though you asked for `--test-phase=validation` | When `--mock-instruments` is on, the platform silently demotes `test_phase` to `development` on the result rows. The run still passes; the data is just tagged as dev. | This is by design — mock data shouldn't pollute validation metrics. Run against real hardware (drop `--mock-instruments`) to keep `validation` in the data. |
+| Fixture `psu` not found (or any role) | Station not loaded, or role not defined | Check `--station` flag points to the right file. Verify the role exists in your station YAML. |
 
 ## Complete Example
 

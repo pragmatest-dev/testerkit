@@ -474,7 +474,7 @@ def _create_starter_files(path: Path) -> list[str]:
             "#   2. litmus station init       — create a real station config\n"
             "#   3. Keep mock_config sections — they're used by --mock-instruments for CI\n"
             "#\n"
-            "# See: docs/tutorial/from-mocks-to-hardware.md\n\n"
+            "# See: docs/tutorial/07-real-instruments.md\n\n"
         )
         station_file.write_text(comment_header + dump_yaml(station_content))
         created_files.append("stations/starter_station.yaml")
