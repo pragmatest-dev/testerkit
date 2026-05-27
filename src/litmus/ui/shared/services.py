@@ -515,6 +515,71 @@ def discover_instrument_assets():
     return store_list_instrument_assets()
 
 
+class DUTRow(BaseModel):
+    """One row in the DUTs list — purely observed from run history.
+
+    DUTs are never declared in YAML by design (they're the unit under
+    test, identified at runtime by serial). The DUTs page is the only
+    entity list whose rows are all observed-only; no provenance chip
+    is rendered.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    serial: str
+    part_number: str = ""
+    lot_number: str = ""
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+
+
+def duts_from_runs() -> list[DUTRow]:
+    """Distinct DUTs observed in run history, with per-DUT run counts.
+
+    Groups by ``dut_serial``; the part number and lot number are
+    aggregated via ``MAX`` (expected constant per serial — taking ``MAX``
+    is just a SQL-idiomatic way to surface one value when the GROUP BY
+    key uniquely determines the row).
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    sql = """
+        SELECT
+            dut_serial AS serial,
+            MAX(dut_part_number) AS part_number,
+            MAX(dut_lot_number) AS lot_number,
+            COUNT(*) AS runs,
+            COUNT(*) FILTER (WHERE outcome = 'passed') AS passed,
+            COUNT(*) FILTER (WHERE outcome = 'failed') AS failed,
+            MAX(started_at) AS last_run
+        FROM runs
+        WHERE dut_serial IS NOT NULL AND dut_serial <> ''
+        GROUP BY dut_serial
+        ORDER BY last_run DESC NULLS LAST
+    """
+    try:
+        with RunsQuery() as q:
+            rows = q._query_dicts(sql)  # noqa: SLF001 — direct SQL is the documented escape hatch
+    except (ValueError, Exception):  # noqa: BLE001 — query layer can raise broadly
+        return []
+
+    return [
+        DUTRow(
+            serial=r["serial"],
+            part_number=r.get("part_number") or "",
+            lot_number=r.get("lot_number") or "",
+            runs=r.get("runs", 0),
+            passed=r.get("passed", 0),
+            failed=r.get("failed", 0),
+            last_run=r.get("last_run"),
+        )
+        for r in rows
+        if r.get("serial")
+    ]
+
+
 def _instrument_id_usage_stats() -> dict[str, dict[str, Any]]:
     """Run-count stats keyed by instrument id observed in ``step_instruments_id``.
 

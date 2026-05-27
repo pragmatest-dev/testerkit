@@ -8,6 +8,7 @@ from litmus.ui.pages import (
     dashboard,  # noqa: F401
     designer,  # noqa: F401
     docs,  # noqa: F401
+    duts,  # noqa: F401
     events,  # noqa: F401
     explore,  # noqa: F401
     fixtures,  # noqa: F401
