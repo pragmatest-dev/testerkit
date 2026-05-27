@@ -575,6 +575,78 @@ def discover_fixtures():
     return store_list_fixtures()
 
 
+class FixtureRow(BaseModel):
+    """One row in the merged fixtures list (YAML-configured + parquet-observed).
+
+    Mirrors :class:`StationRow` / :class:`ProductRow`. The optional
+    ``product`` label is the display name of the fixture's product
+    family (resolved via ``discover_products``); observed-only rows
+    leave it empty.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    id: str
+    name: str = ""
+    product: str = ""
+    revision: str = ""
+    connections: int = 0
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+    provenance: Literal["configured", "in_use", "observed_only"]
+
+
+def fixtures_with_provenance() -> list[FixtureRow]:
+    """Union of YAML-configured fixtures and fixtures observed in runs.
+
+    Two passes mirroring :func:`stations_with_provenance`. The display
+    ``product`` label is resolved against ``discover_products`` so the
+    operator sees the product name, not just the id.
+    """
+    configured = {f.id: f for f in discover_fixtures()}
+    products = {p["id"]: p for p in discover_products()}
+    usage = usage_stats_by("fixture_id")
+
+    rows: list[FixtureRow] = []
+    for fixture_id, fixture in configured.items():
+        stats = usage.get(fixture_id, {})
+        runs = stats.get("runs", 0)
+        product_id = fixture.product_id or fixture.product_family or ""
+        product_label = (products.get(product_id) or {}).get("name") or product_id
+        rows.append(
+            FixtureRow(
+                id=fixture_id,
+                name=fixture.name or "",
+                product=product_label,
+                revision=fixture.product_revision or "",
+                connections=len(fixture.connections or {}),
+                runs=runs,
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="in_use" if runs > 0 else "configured",
+            )
+        )
+
+    for fixture_id, stats in usage.items():
+        if fixture_id in configured:
+            continue
+        rows.append(
+            FixtureRow(
+                id=fixture_id,
+                runs=stats.get("runs", 0),
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="observed_only",
+            )
+        )
+
+    return rows
+
+
 def load_fixture_config(fixture_id: str):
     """Load fixture configuration by ID."""
     return store_get_fixture(fixture_id)

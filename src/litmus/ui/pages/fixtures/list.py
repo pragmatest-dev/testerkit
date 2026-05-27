@@ -1,37 +1,57 @@
-"""Fixtures listing page — table view."""
+"""Fixtures list page — table view with merged YAML + observed-from-runs rows."""
 
 from nicegui import ui
 
-from litmus.ui.shared.components import data_table, format_datetime, page_layout
+from litmus.ui.shared.components import (
+    data_table,
+    format_datetime,
+    page_layout,
+    push_url_state,
+)
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_fixtures, discover_products, usage_stats_by
+from litmus.ui.shared.services import fixtures_with_provenance
+
+# Filter chip vocabulary — keep in lockstep with FixtureRow.provenance.
+_FILTER_OPTIONS = ["All", "Configured", "In use", "Observed only"]
+_FILTER_TO_PROVENANCE = {
+    "Configured": "configured",
+    "In use": "in_use",
+    "Observed only": "observed_only",
+}
 
 
 @ui.page("/fixtures")
-def fixtures_page():
-    """Fixtures listing — one row per fixture, dense table."""
+def fixtures_page(filter: str = "All"):
+    """Fixtures list — one row per YAML fixture OR observed fixture id.
+
+    Each row carries a status chip showing whether it's configured-only,
+    actively in use, or observed-only. The filter chip row above the
+    table narrows the view; selection round-trips through the URL via
+    ``push_url_state``.
+    """
     create_layout("Fixtures")
 
-    fixtures = discover_fixtures()
-    products = {p["id"]: p for p in discover_products()}
-    usage = usage_stats_by("fixture_id")
+    rows_data = fixtures_with_provenance()
+    active_filter = filter if filter in _FILTER_OPTIONS else "All"
 
     with page_layout():
         with ui.row().classes("items-center justify-between w-full"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("hub").classes("text-slate-600")
                 ui.label("Test Fixtures").classes("text-lg font-semibold text-slate-700")
-                ui.badge(f"{len(fixtures)} fixtures").props("outline")
+                ui.badge(f"{len(rows_data)} fixtures").props("outline")
             ui.button(
                 "New Fixture",
                 icon="add",
                 on_click=lambda: ui.navigate.to("/fixtures/new"),
             ).props("color=primary")
 
-        if not fixtures:
+        if not rows_data:
             with ui.card().classes("w-full p-8 text-center"):
                 ui.icon("hub", size="xl").classes("text-slate-300")
-                ui.label("No fixtures configured").classes("text-xl text-slate-600 mt-4")
+                ui.label("No fixtures configured or observed").classes(
+                    "text-xl text-slate-600 mt-4"
+                )
                 ui.label(
                     "Fixtures define how DUT pins connect to station instruments. "
                     "Each fixture is tied to a product family and maps pin names to "
@@ -45,6 +65,13 @@ def fixtures_page():
             return
 
         columns = [
+            {
+                "name": "provenance",
+                "label": "Status",
+                "field": "provenance",
+                "align": "left",
+                "sortable": True,
+            },
             {"name": "id", "label": "ID", "field": "id", "align": "left", "sortable": True},
             {"name": "name", "label": "Name", "field": "name", "align": "left", "sortable": True},
             {
@@ -73,32 +100,71 @@ def fixtures_page():
                 "sortable": True,
             },
         ]
-        rows = []
-        for f in fixtures:
-            product_id = f.product_id or f.product_family or ""
-            product = products.get(product_id, {})
-            stats = usage.get(f.id, {})
-            rows.append(
-                {
-                    "id": f.id,
-                    "name": f.name or "",
-                    "product": product.get("name") or product_id,
-                    "product_id": product_id,
-                    "revision": f.product_revision or "",
-                    "connections": len(f.connections or {}),
-                    "runs": stats.get("runs", 0),
-                    "passed": stats.get("passed", 0),
-                    "failed": stats.get("failed", 0),
-                    "last_run": format_datetime(stats.get("last_run"))
-                    if stats.get("last_run")
-                    else "—",
-                }
-            )
 
-        data_table(
+        def _to_table_row(r) -> dict:
+            return {
+                "id": r.id,
+                "name": r.name,
+                "product": r.product,
+                "revision": r.revision,
+                "connections": r.connections if r.provenance != "observed_only" else "—",
+                "runs": r.runs,
+                "passed": r.passed,
+                "failed": r.failed,
+                "last_run": format_datetime(r.last_run) if r.last_run else "—",
+                "provenance": r.provenance,
+            }
+
+        all_rows = [_to_table_row(r) for r in rows_data]
+
+        def _filtered(selected: str) -> list[dict]:
+            if selected == "All":
+                return all_rows
+            wanted = _FILTER_TO_PROVENANCE.get(selected)
+            return [row for row in all_rows if row["provenance"] == wanted]
+
+        with ui.row().classes("items-center gap-2 w-full"):
+            ui.label("Show:").classes("text-sm text-slate-500")
+            toggle = ui.toggle(
+                _FILTER_OPTIONS,
+                value=active_filter,
+            ).props("color=primary dense unelevated")
+
+        table = data_table(
             columns=columns,
-            rows=rows,
+            rows=_filtered(active_filter),
             row_key="id",
-            on_row_click=lambda r: ui.navigate.to(f"/fixtures/{r['id']}"),
+            on_row_click=lambda r: (
+                ui.navigate.to(f"/fixtures/{r['id']}")
+                if r.get("provenance") != "observed_only"
+                else None
+            ),
             time_columns=["last_run"],
-        ).props('data-testid="fixtures-table"')
+        )
+        table.props('data-testid="fixtures-table"')
+
+        table.add_slot(
+            "body-cell-provenance",
+            """
+            <q-td :props="props">
+                <q-chip dense square
+                    :color="props.value === 'in_use' ? 'positive'
+                        : props.value === 'observed_only' ? 'warning'
+                        : 'grey-4'"
+                    :text-color="props.value === 'in_use' || props.value === 'observed_only'
+                        ? 'white' : 'grey-9'">
+                    {{ props.value === 'in_use' ? 'In use'
+                       : props.value === 'observed_only' ? 'Observed only'
+                       : 'Configured' }}
+                </q-chip>
+            </q-td>
+            """,
+        )
+
+        def _on_filter_change(e):
+            selected = e.value or "All"
+            table.rows = _filtered(selected)
+            table.update()
+            push_url_state("/fixtures", {"filter": selected})
+
+        toggle.on_value_change(_on_filter_change)
