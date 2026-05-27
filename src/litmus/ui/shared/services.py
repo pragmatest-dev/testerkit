@@ -3,8 +3,11 @@
 NO direct yaml.safe_load or Path I/O here — all persistence goes through litmus.store.
 """
 
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel
 
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import RunSummary
@@ -288,6 +291,76 @@ def save_product(product_id: str, product_data: dict) -> None:
 def discover_stations():
     """Discover station configurations from YAML files."""
     return store_list_stations()
+
+
+class StationRow(BaseModel):
+    """One row in the merged stations list (YAML-configured + parquet-observed).
+
+    `provenance` carries the config-vs-data relationship for the row:
+
+    - ``configured`` — YAML exists, no runs recorded
+    - ``in_use`` — YAML exists AND at least one run recorded
+    - ``observed_only`` — appears in run history with no YAML counterpart
+    """
+
+    model_config = {"extra": "forbid"}
+
+    id: str
+    name: str = ""
+    location: str = ""
+    instruments: int = 0
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+    provenance: Literal["configured", "in_use", "observed_only"]
+
+
+def stations_with_provenance() -> list[StationRow]:
+    """Union of YAML-configured stations and stations observed in runs.
+
+    Two passes: (1) every YAML station becomes a row tagged ``configured``
+    or ``in_use`` depending on whether any runs reference its id;
+    (2) any station id present in run history without a matching YAML
+    file becomes an ``observed_only`` row. Run stats come from the
+    existing ``usage_stats_by`` SQL aggregation — no extra query.
+    """
+    configured = {s.id: s for s in discover_stations()}
+    usage = usage_stats_by("station_id")
+
+    rows: list[StationRow] = []
+    for station_id, station in configured.items():
+        stats = usage.get(station_id, {})
+        runs = stats.get("runs", 0)
+        rows.append(
+            StationRow(
+                id=station_id,
+                name=station.name or "",
+                location=station.location or "",
+                instruments=len(station.instruments or {}),
+                runs=runs,
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="in_use" if runs > 0 else "configured",
+            )
+        )
+
+    for station_id, stats in usage.items():
+        if station_id in configured:
+            continue
+        rows.append(
+            StationRow(
+                id=station_id,
+                runs=stats.get("runs", 0),
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="observed_only",
+            )
+        )
+
+    return rows
 
 
 def load_station_config(station_id: str):

@@ -1,23 +1,42 @@
-"""Station list page — table view with run-usage stats."""
+"""Station list page — table view with merged YAML + observed-from-runs rows."""
 
 from nicegui import ui
 
-from litmus.ui.shared.components import data_table, format_datetime, page_layout
+from litmus.ui.shared.components import (
+    data_table,
+    format_datetime,
+    page_layout,
+    push_url_state,
+)
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_stations, usage_stats_by
+from litmus.ui.shared.services import stations_with_provenance
+
+# Filter chip vocabulary — keep in lockstep with StationRow.provenance.
+_FILTER_OPTIONS = ["All", "Configured", "In use", "Observed only"]
+_FILTER_TO_PROVENANCE = {
+    "Configured": "configured",
+    "In use": "in_use",
+    "Observed only": "observed_only",
+}
 
 
 @ui.page("/stations")
-def stations_page():
-    """Stations listing — one row per station + usage stats from runs."""
+def stations_page(filter: str = "All"):
+    """Stations list — one row per YAML station OR observed station id.
+
+    Each row carries a status chip showing whether it's configured-only,
+    actively in use, or observed-only (appears in run history without a
+    YAML file). The filter chip row above the table narrows the view;
+    filter selection is mirrored into the URL via ``push_url_state`` so
+    deep links are shareable.
+    """
     create_layout("Stations")
 
-    stations = discover_stations()
-    usage = usage_stats_by("station_id")
+    rows_data = stations_with_provenance()
+
+    active_filter = filter if filter in _FILTER_OPTIONS else "All"
 
     with page_layout():
-        # data-testid for the screenshot-regeneration script (see
-        # scripts/regenerate-ui-screenshots.py MANIFEST).
         with (
             ui.row()
             .classes("items-center justify-between w-full")
@@ -32,10 +51,10 @@ def stations_page():
                 on_click=lambda: ui.navigate.to("/stations/new"),
             ).props("color=primary")
 
-        if not stations:
+        if not rows_data:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("settings_input_hdmi").classes("text-4xl text-slate-300")
-                ui.label("No stations configured.").classes("text-slate-500 mt-2")
+                ui.label("No stations configured or observed.").classes("text-slate-500 mt-2")
                 ui.label("Create a station to define your test equipment setup.").classes(
                     "text-sm text-slate-400"
                 )
@@ -47,6 +66,13 @@ def stations_page():
             return
 
         columns = [
+            {
+                "name": "provenance",
+                "label": "Status",
+                "field": "provenance",
+                "align": "left",
+                "sortable": True,
+            },
             {"name": "id", "label": "ID", "field": "id", "align": "left", "sortable": True},
             {"name": "name", "label": "Name", "field": "name", "align": "left", "sortable": True},
             {"name": "location", "label": "Location", "field": "location", "align": "left"},
@@ -67,28 +93,74 @@ def stations_page():
                 "sortable": True,
             },
         ]
-        rows = []
-        for station in stations:
-            stats = usage.get(station.id, {})
-            rows.append(
-                {
-                    "id": station.id,
-                    "name": station.name or "",
-                    "location": station.location or "",
-                    "instruments": len(station.instruments or {}),
-                    "runs": stats.get("runs", 0),
-                    "passed": stats.get("passed", 0),
-                    "failed": stats.get("failed", 0),
-                    "last_run": format_datetime(stats.get("last_run"))
-                    if stats.get("last_run")
-                    else "—",
-                }
-            )
 
-        data_table(
+        def _to_table_row(r) -> dict:
+            return {
+                "id": r.id,
+                "name": r.name,
+                "location": r.location,
+                "instruments": r.instruments if r.provenance != "observed_only" else "—",
+                "runs": r.runs,
+                "passed": r.passed,
+                "failed": r.failed,
+                "last_run": format_datetime(r.last_run) if r.last_run else "—",
+                "provenance": r.provenance,
+            }
+
+        all_rows = [_to_table_row(r) for r in rows_data]
+
+        def _filtered(selected: str) -> list[dict]:
+            if selected == "All":
+                return all_rows
+            wanted = _FILTER_TO_PROVENANCE.get(selected)
+            return [row for row in all_rows if row["provenance"] == wanted]
+
+        # Filter chip row — above the table per UI consistency rule.
+        with ui.row().classes("items-center gap-2 w-full"):
+            ui.label("Show:").classes("text-sm text-slate-500")
+            toggle = ui.toggle(
+                _FILTER_OPTIONS,
+                value=active_filter,
+            ).props("color=primary dense unelevated")
+
+        table = data_table(
             columns=columns,
-            rows=rows,
+            rows=_filtered(active_filter),
             row_key="id",
-            on_row_click=lambda r: ui.navigate.to(f"/stations/{r['id']}"),
+            on_row_click=lambda r: (
+                ui.navigate.to(f"/stations/{r['id']}")
+                if r.get("provenance") != "observed_only"
+                else None
+            ),
             time_columns=["last_run"],
-        ).props('data-testid="stations-table"')
+        )
+        table.props('data-testid="stations-table"')
+
+        # Render the provenance column as a coloured q-chip. Colour map
+        # mirrors the chip vocabulary: configured → neutral, in_use →
+        # positive, observed_only → warning.
+        table.add_slot(
+            "body-cell-provenance",
+            """
+            <q-td :props="props">
+                <q-chip dense square
+                    :color="props.value === 'in_use' ? 'positive'
+                        : props.value === 'observed_only' ? 'warning'
+                        : 'grey-4'"
+                    :text-color="props.value === 'in_use' || props.value === 'observed_only'
+                        ? 'white' : 'grey-9'">
+                    {{ props.value === 'in_use' ? 'In use'
+                       : props.value === 'observed_only' ? 'Observed only'
+                       : 'Configured' }}
+                </q-chip>
+            </q-td>
+            """,
+        )
+
+        def _on_filter_change(e):
+            selected = e.value or "All"
+            table.rows = _filtered(selected)
+            table.update()
+            push_url_state("/stations", {"filter": selected})
+
+        toggle.on_value_change(_on_filter_change)
