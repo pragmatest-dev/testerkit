@@ -182,6 +182,72 @@ def discover_products() -> list[dict]:
     return products
 
 
+class ProductRow(BaseModel):
+    """One row in the merged products list (YAML-configured + parquet-observed).
+
+    Mirrors :class:`StationRow`'s shape (provenance values + run counts)
+    so the entity-observed-view pages stay structurally identical.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    id: str
+    name: str = ""
+    revision: str = ""
+    characteristics: int = 0
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+    provenance: Literal["configured", "in_use", "observed_only"]
+
+
+def products_with_provenance() -> list[ProductRow]:
+    """Union of YAML-configured products and products observed in runs.
+
+    Two passes: every YAML product becomes a row tagged ``configured``
+    or ``in_use`` depending on whether any runs reference its id; any
+    ``product_id`` present in run history without a matching YAML file
+    becomes an ``observed_only`` row.
+    """
+    configured = {p["id"]: p for p in discover_products()}
+    usage = usage_stats_by("product_id")
+
+    rows: list[ProductRow] = []
+    for product_id, product in configured.items():
+        stats = usage.get(product_id, {})
+        runs = stats.get("runs", 0)
+        rows.append(
+            ProductRow(
+                id=product_id,
+                name=product.get("name", "") or "",
+                revision=product.get("revision", "") or "",
+                characteristics=len(product.get("characteristics", {}) or {}),
+                runs=runs,
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="in_use" if runs > 0 else "configured",
+            )
+        )
+
+    for product_id, stats in usage.items():
+        if product_id in configured:
+            continue
+        rows.append(
+            ProductRow(
+                id=product_id,
+                runs=stats.get("runs", 0),
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="observed_only",
+            )
+        )
+
+    return rows
+
+
 def load_product_model(product_id: str):
     """Load a Product model by ID."""
     return store_get_product(product_id)
