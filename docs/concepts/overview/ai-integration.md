@@ -1,6 +1,6 @@
 # AI integration
 
-The platform exposes its operations as **MCP tools** an AI client can drive: discovery, capability matching, run launching, results query, schema validation, datasheet extraction, test scaffolding. It does not embed an LLM client itself — the user brings their own assistant (Claude Code, Cursor, Cline, Claude Desktop, Copilot, …), and Litmus is the typed surface on the other end of the wire.
+The platform exposes its operations as **typed tool calls** an AI client can drive — over an MCP server for clients that speak MCP, or via the CLI for any agent with a terminal: discovery, capability matching, run launching, results query, schema validation, datasheet extraction, test scaffolding. It does not embed an LLM client itself — the user brings their own assistant (Claude Code, Cursor, Cline, Claude Desktop, Copilot CLI, …), and Litmus is the typed surface on the other end of the wire.
 
 The cost of any structured platform is the upfront encoding work — getting existing instruments and products into the schema. AI integration is the platform's answer to that cost. An agent reads a datasheet PDF, drafts the catalog YAML, lands it as a file you can diff and review. The structured approach becomes worth adopting because the encoding work shrinks from hours to minutes.
 
@@ -23,7 +23,7 @@ Three properties of the platform make the AI surface safe to use without losing 
 
 1. **Everything is a file.** Products, stations, fixtures, profiles, sequences, results — all YAML or Parquet. An AI editing a product spec produces a diff you can review the same way you'd review a colleague's PR. There's no opaque database for the AI to mutate.
 
-2. **MCP tools, not LLM calls.** Litmus does not embed an OpenAI / Anthropic / Google client. The AI tooling drives Litmus from outside. You bring your own AI client; Litmus exposes the operations.
+2. **Tool calls, not LLM calls.** Litmus does not embed an OpenAI / Anthropic / Google client. The AI tooling drives Litmus from outside — over MCP for clients that speak it, via the CLI for agents with a terminal. You bring your own AI client; Litmus exposes the operations.
 
 3. **Operator-in-the-loop by design.** The shipped workflows (see [skills reference](../../reference/overview/skills.md)) STOP at every approval gate. "Here is the product spec I extracted, ok to save?" — you say yes or you edit first.
 
@@ -42,7 +42,7 @@ A few things AI integration in Litmus deliberately does **not** try to do:
 
 Three adoption levels — pick whichever matches the user's trust level today:
 
-1. **Just MCP tools.** Register the server (`litmus setup claude-code` and friends), then drive operations conversationally without using the workflows. "Add a 3.3V output rail to the product spec" — the agent calls `litmus_project(action="save", ...)` and shows the diff.
+1. **Just tool calls.** Either register the MCP server (`litmus setup claude-code` and friends) for clients that speak MCP, or have your agent invoke the CLI directly (`litmus runs`, `litmus show`, `litmus discover`, `litmus metrics`, ...). Drive operations conversationally without using the workflows. "Add a 3.3V output rail to the product spec" — the agent calls `litmus_project(action="save", ...)` (or edits the YAML file directly and runs `litmus validate`) and shows the diff.
 
 2. **Workflows as a starting draft.** Invoke the `datasheet-to-test` workflow on a new product. Treat the YAML files it produces as a first draft, then hand-edit. Often faster than starting from a blank file.
 
@@ -53,4 +53,5 @@ Three adoption levels — pick whichever matches the user's trust level today:
 - [How-to: AI-assisted test development via MCP](../../how-to/overview/mcp-integration.md) — registering the MCP server with each supported AI client
 - [How-to: datasheet-to-test workflow](../../how-to/catalog/datasheet-to-test.md) — end-to-end walkthrough
 - [Reference: skills](../../reference/overview/skills.md) — full inventory of workflows, agents, slash commands, MCP tools and prompts
-- [Reference: MCP server + HTTP API](../../reference/runtime/api.md) — the operations AI clients call
+- [Reference: MCP server + HTTP API](../../reference/runtime/api.md) — the operations AI clients call over MCP
+- [Reference: CLI](../../reference/cli.md) — the operations AI clients call via the terminal

@@ -4,6 +4,8 @@ Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP
 
 This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../../concepts/overview/ai-integration.md); for the end-to-end workflow walkthrough see [datasheet-to-test](../catalog/datasheet-to-test.md); for the full inventory of shipped skills + sub-agents + slash commands see [reference/skills](../../reference/overview/skills.md). Per-tool MCP reference: [api.md → MCP tools](../../reference/runtime/api.md#tools).
 
+> **CLI as a peer surface.** Any agent with a terminal — Claude Code with Bash, Cursor with terminal, the GitHub Copilot CLI — can drive Litmus through `litmus …` commands instead of (or alongside) MCP. The CLI surface mirrors most of the MCP tools (`litmus runs`, `litmus show`, `litmus discover`, `litmus metrics`, `litmus schema`, `litmus validate`, …). See [reference/cli](../../reference/cli.md). This page is for AI clients that speak MCP natively.
+
 > **Prerequisites.** `litmus` installed and on `$PATH` (`uv pip install litmus-test` — the PyPI distribution is `litmus-test`; the import is `litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, real or mock instruments configured in `stations/`.
 
 ## Setup
