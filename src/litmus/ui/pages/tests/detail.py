@@ -1,112 +1,133 @@
-"""Tests detail page — show source + sidecar YAML for a tests/ directory.
+"""Tests detail page — one ``test_*.py`` file.
 
-The route accepts a relative path under the project's tests/ tree
-(e.g. ``/tests/tests`` or ``/tests/tests/subgroup``) using FastAPI's
-``path:path`` converter so the slash inside the path survives the
-routing.
-
-Read-only for v1: code and sidecar render in monospace blocks. Editing
-lives in the file system (or the future :mod:`profiles` overlay,
-already documented on the page).
+Route uses FastAPI's ``path:path`` converter so the file path
+(including ``.py``) survives the routing — e.g. ``/tests/tests/test_rail.py``.
 """
 
 from pathlib import Path
 
 from nicegui import ui
 
-from litmus.ui.shared.components import page_layout
+from litmus.ui.shared.components import data_table, page_layout
 from litmus.ui.shared.layout import create_layout
+from litmus.ui.shared.services import walk_test_module
 
 
 @ui.page("/tests/{path:path}")
 def test_detail_page(path: str):
-    """One test directory — code + sidecar per ``test_*.py`` file."""
+    """One test module — Tests panel + Code + Sidecar tabs + Launch shortcut."""
     create_layout(f"Tests · {path}")
 
-    abs_dir = (Path.cwd() / path).resolve()
+    abs_path = (Path.cwd() / path).resolve()
     cwd = Path.cwd().resolve()
-    safe = abs_dir.is_relative_to(cwd)
+    safe = abs_path.is_relative_to(cwd)
 
     with page_layout():
-        if not safe or not abs_dir.exists() or not abs_dir.is_dir():
+        if not (safe and abs_path.exists() and abs_path.is_file() and abs_path.suffix == ".py"):
             with ui.card().classes("w-full p-6 text-center"):
-                ui.label(f"Test directory '{path}' not found.").classes("text-xl text-slate-600")
+                ui.label(f"Test file '{path}' not found.").classes("text-xl text-slate-600")
                 ui.link("← Back to Tests", "/tests").classes("text-blue-600 hover:underline")
             return
 
-        py_files = sorted(abs_dir.glob("test_*.py"))
+        module = walk_test_module(abs_path)
+        yaml_path = abs_path.with_suffix(".yaml")
 
+        # Header — path, badge, Launch
         with ui.row().classes("items-center justify-between w-full"):
             with ui.row().classes("items-center gap-2"):
-                ui.icon("science").classes("text-slate-600")
-                ui.label(path).classes("text-lg font-semibold text-slate-700")
-                ui.badge(f"{len(py_files)} file(s)").props("outline")
+                ui.icon("description").classes("text-slate-600")
+                ui.label(module.path).classes("text-lg font-mono font-semibold text-slate-700")
+                ui.badge(f"{len(module.tests)} tests").props("outline")
+                if module.has_sidecar:
+                    ui.badge("sidecar", color="primary").props("outline")
+            ui.button(
+                "Launch Test",
+                icon="play_arrow",
+                on_click=lambda p=module.path: ui.navigate.to(f"/launch?test={p}"),
+            ).props("color=primary")
 
-        ui.label(
-            "Read-only view of the test source + colocated sidecar YAML. "
-            "What actually runs is the cascade of inline markers, this sidecar, "
-            "and any active profile — see "
-        ).classes("text-sm text-slate-600").style("display: inline").tooltip(
-            "Sidecar < profile (last-wins). The active profile can override "
-            "any sidecar field for the run."
-        )
+        with ui.row().classes("items-center gap-1 text-sm text-slate-600"):
+            ui.label(
+                "What actually runs depends on the active profile — sidecar < profile "
+                "(last-wins). See"
+            )
+            ui.link("Profiles", "/profiles").classes("text-blue-600")
+            ui.label(".")
 
-        ui.link("Profiles", "/profiles").classes("text-blue-600 inline-block text-sm")
+        if module.parse_error:
+            with ui.card().classes("w-full p-4 border-l-4 border-red-500"):
+                ui.label("Could not parse this file:").classes("font-semibold text-red-700")
+                ui.label(module.parse_error).classes("text-xs font-mono mt-1")
 
-        if not py_files:
-            with ui.card().classes("w-full p-4"):
-                ui.label("No test_*.py files found in this directory.").classes(
-                    "text-slate-500 italic"
-                )
-            return
+        # Tests panel — one row per test function (with class qualifier)
+        if module.tests and not module.parse_error:
+            _render_tests_panel(module)
 
-        for py_file in py_files:
-            yaml_file = py_file.with_suffix(".yaml")
-            _render_test_file_card(py_file, yaml_file if yaml_file.exists() else None)
+        # Tabs: Code + Sidecar (if present)
+        with ui.tabs().props("inline-label no-caps dense").classes("w-full") as tabs:
+            code_tab = ui.tab("Code", icon="code")
+            sidecar_tab = ui.tab("Sidecar YAML", icon="settings") if module.has_sidecar else None
+
+        with ui.tab_panels(tabs, value=code_tab).classes("w-full"):
+            with ui.tab_panel(code_tab):
+                _render_code(abs_path)
+            if module.has_sidecar and sidecar_tab is not None:
+                with ui.tab_panel(sidecar_tab):
+                    _render_code(yaml_path)
 
         with ui.row().classes("mt-2"):
             ui.link("← Back to Tests", "/tests").classes("text-blue-600 hover:underline")
 
 
-def _render_test_file_card(py_file: Path, yaml_file: Path | None) -> None:
-    """Render one collapsible card per test file with code + sidecar tabs."""
-    rel_py = py_file.relative_to(Path.cwd()) if py_file.is_relative_to(Path.cwd()) else py_file
+def _render_tests_panel(module) -> None:
+    """Table of test functions in the file."""
+    columns = [
+        {"name": "name", "label": "Test", "field": "name", "align": "left", "sortable": True},
+        {
+            "name": "class_name",
+            "label": "Class",
+            "field": "class_name",
+            "align": "left",
+            "sortable": True,
+        },
+        {"name": "markers", "label": "Markers", "field": "markers", "align": "left"},
+        {
+            "name": "parametrize_count",
+            "label": "Vectors",
+            "field": "parametrize_count",
+            "align": "right",
+            "sortable": True,
+        },
+        {
+            "name": "sidecar",
+            "label": "Sidecar",
+            "field": "sidecar",
+            "align": "center",
+        },
+    ]
+    rows = [
+        {
+            "name": t.name,
+            "class_name": t.class_name or "—",
+            "markers": ", ".join(t.markers) if t.markers else "—",
+            "parametrize_count": t.parametrize_count or "—",
+            "sidecar": "✓" if t.has_sidecar_entry else "—",
+        }
+        for t in module.tests
+    ]
+    data_table(
+        columns=columns,
+        rows=rows,
+        row_key="name",
+    ).props('data-testid="test-functions-table"')
 
-    with ui.card().classes("w-full"):
-        with ui.row().classes("items-center justify-between w-full"):
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("description").classes("text-slate-600")
-                ui.label(py_file.name).classes("font-semibold")
-                if yaml_file is None:
-                    ui.badge("no sidecar", color="grey-5").props("outline")
-                else:
-                    ui.badge("sidecar", color="primary").props("outline")
-            ui.button(
-                "Launch Test",
-                icon="play_arrow",
-                on_click=lambda f=str(rel_py): ui.navigate.to(f"/launch?test={f}"),
-            ).props("color=primary dense")
 
-        with ui.tabs().props("inline-label no-caps dense").classes("w-full") as tabs:
-            code_tab = ui.tab("Code", icon="code")
-            sidecar_tab = ui.tab("Sidecar YAML", icon="settings") if yaml_file else None
-
-        with ui.tab_panels(tabs, value=code_tab).classes("w-full"):
-            with ui.tab_panel(code_tab):
-                try:
-                    code = py_file.read_text(encoding="utf-8")
-                except OSError as exc:
-                    ui.label(f"Could not read {py_file}: {exc}").classes("text-red-600 italic")
-                else:
-                    ui.code(code, language="python").classes("w-full")
-
-            if yaml_file is not None and sidecar_tab is not None:
-                with ui.tab_panel(sidecar_tab):
-                    try:
-                        sidecar = yaml_file.read_text(encoding="utf-8")
-                    except OSError as exc:
-                        ui.label(f"Could not read {yaml_file}: {exc}").classes(
-                            "text-red-600 italic"
-                        )
-                    else:
-                        ui.code(sidecar, language="yaml").classes("w-full")
+def _render_code(path: Path) -> None:
+    """Render a file as a code block in its language."""
+    language = "python" if path.suffix == ".py" else "yaml"
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        ui.label(f"Could not read {path}: {exc}").classes("text-red-600 italic")
+        return
+    ui.code(content, language=language).classes("w-full")

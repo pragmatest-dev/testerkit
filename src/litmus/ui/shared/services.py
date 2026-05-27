@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import RunSummary
@@ -745,7 +745,13 @@ def create_catalog_entry(
 
 
 def discover_tests() -> list[dict]:
-    """Discover available test directories."""
+    """Discover available test directories.
+
+    Legacy directory-grouped list — kept for callers that just want the
+    set of folders (e.g. the Launch Test form's Test Path dropdown).
+    Prefer :func:`walk_test_files` for the operator-UI list page which
+    needs per-file structure.
+    """
     tests = []
     search_paths = [Path.cwd() / "tests"]
 
@@ -760,6 +766,185 @@ def discover_tests() -> list[dict]:
             if test_entry not in tests:
                 tests.append(test_entry)
     return tests
+
+
+class TestFunctionRow(BaseModel):
+    """One test function found by AST walk."""
+
+    model_config = {"extra": "forbid"}
+
+    name: str  # bare function name (``test_foo``)
+    class_name: str | None = None  # parent ``TestX`` class if applicable
+    markers: list[str] = Field(default_factory=list)  # decorator names sans ``pytest.mark.``
+    parametrize_count: int = 0  # rough vector count from @parametrize / @litmus_sweeps
+    has_sidecar_entry: bool = False
+
+
+class TestModuleRow(BaseModel):
+    """One test module — a ``test_*.py`` file with its tests, sidecar, markers."""
+
+    model_config = {"extra": "forbid"}
+
+    path: str  # relative to cwd
+    directory: str  # parent directory relative to cwd
+    name: str  # filename
+    tests: list[TestFunctionRow] = Field(default_factory=list)
+    classes: list[str] = Field(default_factory=list)
+    has_sidecar: bool = False
+    parse_error: str | None = None  # set when AST parse fails
+
+
+def _decorator_marker_name(node: Any) -> str | None:
+    """Extract the marker name from a decorator node.
+
+    Returns ``litmus_sweeps`` for ``@pytest.mark.litmus_sweeps(...)`` /
+    ``@litmus.mark.litmus_sweeps(...)`` /
+    plain ``@litmus_sweeps``. Returns ``None`` for decorators that
+    don't look like marker references.
+    """
+    import ast
+
+    target = node
+    if isinstance(node, ast.Call):
+        target = node.func
+    if isinstance(target, ast.Attribute):
+        return target.attr
+    if isinstance(target, ast.Name):
+        return target.id
+    return None
+
+
+def _estimate_vector_count(node: Any) -> int:
+    """Best-effort vector count from a parametrize / litmus_sweeps decorator.
+
+    ``@pytest.mark.parametrize("x", [1, 2, 3])`` → 3.
+    ``@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0]}])`` →
+    sums the inner-list lengths for a rough cross-product upper bound.
+
+    Returns ``0`` when the decorator shape isn't recognised — the
+    overview is a sanity gauge, not a contract.
+    """
+    import ast
+
+    if not isinstance(node, ast.Call) or not node.args:
+        return 0
+    name = _decorator_marker_name(node) or ""
+    if name == "parametrize":
+        # second arg is the values list
+        if len(node.args) >= 2 and isinstance(node.args[1], (ast.List, ast.Tuple)):
+            return len(node.args[1].elts)
+        return 0
+    if name in ("litmus_sweeps", "litmus_mocks", "litmus_characteristics"):
+        # list-of-dicts form: each dict's values are lists; product across keys
+        first = node.args[0]
+        if isinstance(first, (ast.List, ast.Tuple)):
+            count = 0
+            for elt in first.elts:
+                if isinstance(elt, ast.Dict):
+                    product = 1
+                    for v in elt.values:
+                        if isinstance(v, (ast.List, ast.Tuple)):
+                            product *= max(len(v.elts), 1)
+                    count += product
+            return count
+    return 0
+
+
+def _function_to_row(node: Any, class_name: str | None, sidecar_names: set[str]) -> TestFunctionRow:
+    import ast
+
+    markers: list[str] = []
+    vector_count = 0
+    for d in node.decorator_list:  # type: ignore[attr-defined]
+        marker_name = _decorator_marker_name(d)
+        if marker_name and not isinstance(d, ast.Name):
+            markers.append(marker_name)
+        elif marker_name:
+            markers.append(marker_name)
+        if isinstance(d, ast.Call):
+            vector_count += _estimate_vector_count(d)
+    has_entry = node.name in sidecar_names or (
+        class_name is not None and class_name in sidecar_names
+    )
+    return TestFunctionRow(
+        name=node.name,
+        class_name=class_name,
+        markers=sorted(set(markers)),
+        parametrize_count=vector_count,
+        has_sidecar_entry=has_entry,
+    )
+
+
+def _sidecar_test_names(yaml_path: Path) -> set[str]:
+    """Return the set of test/class names keyed in a sidecar's ``tests:`` block."""
+    if not yaml_path.exists():
+        return set()
+    try:
+        import yaml as _yaml
+
+        data = _yaml.safe_load(yaml_path.read_text()) or {}
+    except (OSError, ValueError):
+        return set()
+    tests_block = data.get("tests") if isinstance(data, dict) else None
+    if not isinstance(tests_block, dict):
+        return set()
+    return set(tests_block.keys())
+
+
+def walk_test_module(py_path: Path) -> TestModuleRow:
+    """AST-walk one test module, populate a :class:`TestModuleRow`.
+
+    Picks up: top-level ``def test_*`` and ``class Test*`` (with their
+    ``def test_*`` methods), decorators on each, and the sidecar's
+    ``tests:`` block (if a sibling ``.yaml`` exists) to flag per-test
+    sidecar coverage. Survives parse errors — the row gets a
+    ``parse_error`` and an empty test list.
+    """
+    import ast
+
+    cwd = Path.cwd()
+    rel = py_path.relative_to(cwd) if py_path.is_relative_to(cwd) else py_path
+    parent = rel.parent
+    yaml_path = py_path.with_suffix(".yaml")
+    sidecar_names = _sidecar_test_names(yaml_path)
+    row = TestModuleRow(
+        path=str(rel),
+        directory=str(parent) or ".",
+        name=py_path.name,
+        has_sidecar=yaml_path.exists(),
+    )
+
+    try:
+        tree = ast.parse(py_path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError) as exc:
+        row.parse_error = str(exc)
+        return row
+
+    classes: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            classes.append(node.name)
+            for item in node.body:
+                if isinstance(
+                    item, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ) and item.name.startswith("test_"):
+                    row.tests.append(_function_to_row(item, node.name, sidecar_names))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith(
+            "test_"
+        ):
+            row.tests.append(_function_to_row(node, None, sidecar_names))
+
+    row.classes = classes
+    return row
+
+
+def walk_test_files(project_root: Path | None = None) -> list[TestModuleRow]:
+    """AST-walk every ``test_*.py`` under ``tests/``, sorted by path."""
+    root = project_root or Path.cwd()
+    tests_dir = root / "tests"
+    if not tests_dir.exists():
+        return []
+    return [walk_test_module(p) for p in sorted(tests_dir.rglob("test_*.py"))]
 
 
 # -----------------------------------------------------------------------------
