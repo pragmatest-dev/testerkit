@@ -225,6 +225,15 @@ MANIFEST: list[Shot] = [
         selector="[data-testid='instruments-catalog-table']",
         output_path="tour/instruments.png",
     ),
+    # Note: the Inventory tab on /instruments gained the merged-with-
+    # badge Status column but isn't captured here because the script
+    # doesn't yet support a pre-shot tab-click. Tracked in
+    # project_followup_entity_observed_view.md.
+    Shot(
+        url="/duts",
+        selector="[data-testid='duts-table']",
+        output_path="tour/duts.png",
+    ),
     Shot(
         url="/tests",
         selector="[data-testid='tests-table']",
