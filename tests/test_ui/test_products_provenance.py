@@ -32,7 +32,8 @@ def test_configured_no_runs(monkeypatch):
     assert rows[0].provenance == "configured"
 
 
-def test_configured_in_use(monkeypatch):
+def test_configured_with_runs_stays_configured(monkeypatch):
+    """YAML product with runs stays 'Configured' — chip is binary."""
     monkeypatch.setattr(
         services,
         "discover_products",
@@ -54,7 +55,7 @@ def test_configured_in_use(monkeypatch):
     rows = services.products_with_provenance()
     assert len(rows) == 1
     r = rows[0]
-    assert r.provenance == "in_use"
+    assert r.provenance == "configured"
     assert r.runs == 7
     assert r.characteristics == 4
     assert r.name == "3A Buck"
@@ -81,7 +82,7 @@ def test_observed_only(monkeypatch):
     assert r.characteristics == 0
 
 
-def test_mixed_three_kinds(monkeypatch):
+def test_mixed_configured_and_observed(monkeypatch):
     monkeypatch.setattr(
         services,
         "discover_products",
@@ -102,6 +103,6 @@ def test_mixed_three_kinds(monkeypatch):
     rows = services.products_with_provenance()
     by_id = {r.id: r for r in rows}
     assert by_id["tps54302"].provenance == "configured"
-    assert by_id["lm317"].provenance == "in_use"
+    assert by_id["lm317"].provenance == "configured"  # YAML wins
     assert by_id["unknown-dut"].provenance == "observed_only"
     assert len(rows) == 3

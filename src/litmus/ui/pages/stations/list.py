@@ -1,5 +1,7 @@
 """Station list page — table view with merged YAML + observed-from-runs rows."""
 
+from typing import Any
+
 from nicegui import ui
 
 from litmus.ui.shared.components import (
@@ -12,11 +14,12 @@ from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import stations_with_provenance
 
 # Filter chip vocabulary — keep in lockstep with StationRow.provenance.
-_FILTER_OPTIONS = ["All", "Configured", "In use", "Observed only"]
+# The Runs column already conveys "has activity", so the chip stays
+# binary: Configured (YAML exists) vs Observed (orphan).
+_FILTER_OPTIONS = ["All", "Configured", "Observed"]
 _FILTER_TO_PROVENANCE = {
     "Configured": "configured",
-    "In use": "in_use",
-    "Observed only": "observed_only",
+    "Observed": "observed_only",
 }
 
 
@@ -24,9 +27,9 @@ _FILTER_TO_PROVENANCE = {
 def stations_page(filter: str = "All"):
     """Stations list — one row per YAML station OR observed station id.
 
-    Each row carries a status chip showing whether it's configured-only,
-    actively in use, or observed-only (appears in run history without a
-    YAML file). The filter chip row above the table narrows the view;
+    Each row carries a Configured / Observed status chip (Observed =
+    appears in run history without a YAML file). The filter chip row
+    above the table narrows the view;
     filter selection is mirrored into the URL via ``push_url_state`` so
     deep links are shareable.
     """
@@ -116,12 +119,37 @@ def stations_page(filter: str = "All"):
             return [row for row in all_rows if row["provenance"] == wanted]
 
         # Filter chip row — above the table per UI consistency rule.
-        with ui.row().classes("items-center gap-2 w-full"):
-            ui.label("Show:").classes("text-sm text-slate-500")
-            toggle = ui.toggle(
-                _FILTER_OPTIONS,
-                value=active_filter,
-            ).props("color=primary dense unelevated")
+        # Wrapped in a card so it visually separates from the page
+        # header above and the table below; matches the /events pattern.
+        # Individual ui.button widgets in a gap'd row so each filter
+        # reads as its own discrete chip (the default ui.toggle packs
+        # them edge-to-edge with no separator).
+        filter_buttons: dict[str, Any] = {}
+
+        def _apply_filter(selected: str) -> None:
+            for opt, btn in filter_buttons.items():
+                if opt == selected:
+                    btn.props(remove="outline")
+                    btn.props("unelevated color=primary")
+                else:
+                    btn.props(remove="unelevated")
+                    btn.props("outline color=primary")
+            table.rows = _filtered(selected)
+            table.update()
+            push_url_state("/stations", {"filter": selected})
+
+        with ui.card().classes("w-full").props('data-testid="stations-filters"'):
+            with ui.row().classes("items-center gap-2"):
+                ui.label("Show").classes("text-sm font-medium text-slate-600 mr-2")
+                for opt in _FILTER_OPTIONS:
+                    btn = ui.button(opt, on_click=lambda _e, o=opt: _apply_filter(o)).props(
+                        "dense no-caps"
+                    )
+                    if opt == active_filter:
+                        btn.props("unelevated color=primary")
+                    else:
+                        btn.props("outline color=primary")
+                    filter_buttons[opt] = btn
 
         table = data_table(
             columns=columns,
@@ -136,31 +164,17 @@ def stations_page(filter: str = "All"):
         )
         table.props('data-testid="stations-table"')
 
-        # Render the provenance column as a coloured q-chip. Colour map
-        # mirrors the chip vocabulary: configured → neutral, in_use →
-        # positive, observed_only → warning.
+        # Render the provenance column as a coloured q-chip. Colour map:
+        # configured → neutral grey, observed_only → warning amber.
         table.add_slot(
             "body-cell-provenance",
             """
             <q-td :props="props">
                 <q-chip dense square
-                    :color="props.value === 'in_use' ? 'positive'
-                        : props.value === 'observed_only' ? 'warning'
-                        : 'grey-4'"
-                    :text-color="props.value === 'in_use' || props.value === 'observed_only'
-                        ? 'white' : 'grey-9'">
-                    {{ props.value === 'in_use' ? 'In use'
-                       : props.value === 'observed_only' ? 'Observed only'
-                       : 'Configured' }}
+                    :color="props.value === 'observed_only' ? 'warning' : 'grey-4'"
+                    :text-color="props.value === 'observed_only' ? 'white' : 'grey-9'">
+                    {{ props.value === 'observed_only' ? 'Observed' : 'Configured' }}
                 </q-chip>
             </q-td>
             """,
         )
-
-        def _on_filter_change(e):
-            selected = e.value or "All"
-            table.rows = _filtered(selected)
-            table.update()
-            push_url_state("/stations", {"filter": selected})
-
-        toggle.on_value_change(_on_filter_change)

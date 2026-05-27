@@ -40,7 +40,9 @@ def test_configured_no_runs(monkeypatch):
     assert rows[0].runs == 0
 
 
-def test_configured_in_use(monkeypatch):
+def test_configured_with_runs_stays_configured(monkeypatch):
+    """A YAML station with runs is still 'Configured' — the Runs column
+    carries the activity signal, not the chip."""
     monkeypatch.setattr(
         services,
         "discover_stations",
@@ -63,7 +65,7 @@ def test_configured_in_use(monkeypatch):
     assert len(rows) == 1
     r = rows[0]
     assert r.id == "bench-01"
-    assert r.provenance == "in_use"
+    assert r.provenance == "configured"
     assert r.runs == 12
     assert r.passed == 10
     assert r.failed == 2
@@ -99,8 +101,8 @@ def test_observed_only(monkeypatch):
     assert r.instruments == 0
 
 
-def test_mixed_three_kinds(monkeypatch):
-    """All three provenance values represented in one call."""
+def test_mixed_configured_and_observed(monkeypatch):
+    """Both provenance values represented in one call."""
     monkeypatch.setattr(
         services,
         "discover_stations",
@@ -121,6 +123,6 @@ def test_mixed_three_kinds(monkeypatch):
     rows = services.stations_with_provenance()
     by_id = {r.id: r for r in rows}
     assert by_id["bench-01"].provenance == "configured"
-    assert by_id["bench-02"].provenance == "in_use"
+    assert by_id["bench-02"].provenance == "configured"  # YAML wins; activity is in Runs column
     assert by_id["ghost-bench"].provenance == "observed_only"
     assert len(rows) == 3

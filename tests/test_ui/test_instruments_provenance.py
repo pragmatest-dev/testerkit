@@ -34,8 +34,8 @@ def test_configured_no_runs(monkeypatch):
     assert rows[0].provenance == "configured"
 
 
-def test_in_use_with_identity(monkeypatch):
-    """A configured asset with runs should resolve identity (mfr + model)."""
+def test_configured_with_runs_resolves_identity(monkeypatch):
+    """A YAML asset with runs stays 'configured'; identity (mfr + model) resolves."""
     asset = _fake_asset("dmm-001", manufacturer="Keysight", model="34461A", driver="drivers.DMM")
     asset.calibration = SimpleNamespace(due_date=date(2026, 12, 31), lab="In-house")
     monkeypatch.setattr(services, "discover_instrument_assets", lambda: [asset])
@@ -55,7 +55,8 @@ def test_in_use_with_identity(monkeypatch):
     rows = services.instrument_assets_with_provenance()
     assert len(rows) == 1
     r = rows[0]
-    assert r.provenance == "in_use"
+    assert r.provenance == "configured"
+    assert r.runs == 8
     assert r.identity == "Keysight 34461A"
     assert r.driver == "drivers.DMM"
     assert r.cal_due == "2026-12-31"
@@ -80,7 +81,7 @@ def test_observed_only(monkeypatch):
     assert r.driver == ""
 
 
-def test_mixed_three_kinds(monkeypatch):
+def test_mixed_configured_and_observed(monkeypatch):
     monkeypatch.setattr(
         services,
         "discover_instrument_assets",
@@ -98,6 +99,6 @@ def test_mixed_three_kinds(monkeypatch):
     rows = services.instrument_assets_with_provenance()
     by_id = {r.id: r for r in rows}
     assert by_id["dmm-001"].provenance == "configured"
-    assert by_id["psu-001"].provenance == "in_use"
+    assert by_id["psu-001"].provenance == "configured"  # YAML wins
     assert by_id["ghost-eload"].provenance == "observed_only"
     assert len(rows) == 3

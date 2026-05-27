@@ -43,8 +43,8 @@ def test_configured_no_runs(monkeypatch):
     assert rows[0].provenance == "configured"
 
 
-def test_in_use_with_product_label(monkeypatch):
-    """An in_use fixture should resolve its product label from discover_products."""
+def test_configured_with_runs_resolves_product_label(monkeypatch):
+    """A YAML fixture with runs stays 'configured'; product label resolves."""
     monkeypatch.setattr(
         services,
         "discover_fixtures",
@@ -66,7 +66,8 @@ def test_in_use_with_product_label(monkeypatch):
     rows = services.fixtures_with_provenance()
     assert len(rows) == 1
     r = rows[0]
-    assert r.provenance == "in_use"
+    assert r.provenance == "configured"
+    assert r.runs == 3
     assert r.product == "3A Buck"
     assert r.connections == 8
 
@@ -88,7 +89,7 @@ def test_observed_only_has_no_product_label(monkeypatch):
     assert r.connections == 0
 
 
-def test_mixed_three_kinds(monkeypatch):
+def test_mixed_configured_and_observed(monkeypatch):
     monkeypatch.setattr(
         services,
         "discover_fixtures",
@@ -107,6 +108,6 @@ def test_mixed_three_kinds(monkeypatch):
     rows = services.fixtures_with_provenance()
     by_id = {r.id: r for r in rows}
     assert by_id["fx-01"].provenance == "configured"
-    assert by_id["fx-02"].provenance == "in_use"
+    assert by_id["fx-02"].provenance == "configured"  # YAML wins
     assert by_id["fx-ghost"].provenance == "observed_only"
     assert len(rows) == 3

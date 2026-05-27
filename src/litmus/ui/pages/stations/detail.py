@@ -79,17 +79,17 @@ def _render_station_detail(station_id: str, config):
     # Tabbed content
     with ui.tabs().classes("w-full") as tabs:
         instruments_tab = ui.tab("Instruments", icon="cable")
-        sequences_tab = ui.tab("Sequences", icon="list_alt")
+        capabilities_tab = ui.tab("Capabilities", icon="list_alt")
         runs_tab = ui.tab("Recent Runs", icon="history")
 
-    setup_hash_sync_for_tabs(tabs, ["Instruments", "Sequences", "Recent Runs"])
+    setup_hash_sync_for_tabs(tabs, ["Instruments", "Capabilities", "Recent Runs"])
 
     with ui.tab_panels(tabs, value=instruments_tab).classes("w-full"):
         with ui.tab_panel(instruments_tab):
             _render_instruments_tab(station_id, instruments)
 
-        with ui.tab_panel(sequences_tab):
-            _render_sequences_tab(station_id, config)
+        with ui.tab_panel(capabilities_tab):
+            _render_capabilities_tab(station_id, config)
 
         with ui.tab_panel(runs_tab):
             _render_runs_tab(station_id)
@@ -174,8 +174,14 @@ def _render_instruments_tab(station_id: str, instruments: dict):
     )
 
 
-def _render_sequences_tab(station_id: str, config):
-    """Render the sequences tab with capabilities and compatible sequences."""
+def _render_capabilities_tab(station_id: str, config):
+    """Render the capabilities tab — what this station's instruments can do.
+
+    `station_id` is unused today; kept on the signature for symmetry with
+    the sibling renderers and so a future "compatible products/tests"
+    panel can be added without a churn-y signature change.
+    """
+    _ = station_id
     # Station capabilities summary
     station_caps = get_station_capabilities(config)
     if station_caps:

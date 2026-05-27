@@ -199,7 +199,7 @@ class ProductRow(BaseModel):
     passed: int = 0
     failed: int = 0
     last_run: datetime | None = None
-    provenance: Literal["configured", "in_use", "observed_only"]
+    provenance: Literal["configured", "observed_only"]
 
 
 def products_with_provenance() -> list[ProductRow]:
@@ -227,7 +227,7 @@ def products_with_provenance() -> list[ProductRow]:
                 passed=stats.get("passed", 0),
                 failed=stats.get("failed", 0),
                 last_run=stats.get("last_run"),
-                provenance="in_use" if runs > 0 else "configured",
+                provenance="configured",
             )
         )
 
@@ -364,9 +364,12 @@ class StationRow(BaseModel):
 
     `provenance` carries the config-vs-data relationship for the row:
 
-    - ``configured`` — YAML exists, no runs recorded
-    - ``in_use`` — YAML exists AND at least one run recorded
+    - ``configured`` — YAML exists (with or without recorded runs)
     - ``observed_only`` — appears in run history with no YAML counterpart
+
+    Activity for ``configured`` rows lives in the Runs column, not the
+    chip — splitting "in use" into its own chip duplicated the Runs
+    column without adding precision.
     """
 
     model_config = {"extra": "forbid"}
@@ -379,7 +382,7 @@ class StationRow(BaseModel):
     passed: int = 0
     failed: int = 0
     last_run: datetime | None = None
-    provenance: Literal["configured", "in_use", "observed_only"]
+    provenance: Literal["configured", "observed_only"]
 
 
 def stations_with_provenance() -> list[StationRow]:
@@ -408,7 +411,7 @@ def stations_with_provenance() -> list[StationRow]:
                 passed=stats.get("passed", 0),
                 failed=stats.get("failed", 0),
                 last_run=stats.get("last_run"),
-                provenance="in_use" if runs > 0 else "configured",
+                provenance="configured",
             )
         )
 
@@ -646,7 +649,7 @@ class InstrumentAssetRow(BaseModel):
     passed: int = 0
     failed: int = 0
     last_run: datetime | None = None
-    provenance: Literal["configured", "in_use", "observed_only"]
+    provenance: Literal["configured", "observed_only"]
 
 
 def instrument_assets_with_provenance() -> list[InstrumentAssetRow]:
@@ -688,7 +691,7 @@ def instrument_assets_with_provenance() -> list[InstrumentAssetRow]:
                 passed=stats.get("passed", 0),
                 failed=stats.get("failed", 0),
                 last_run=stats.get("last_run"),
-                provenance="in_use" if runs > 0 else "configured",
+                provenance="configured",
             )
         )
 
@@ -789,7 +792,7 @@ class FixtureRow(BaseModel):
     passed: int = 0
     failed: int = 0
     last_run: datetime | None = None
-    provenance: Literal["configured", "in_use", "observed_only"]
+    provenance: Literal["configured", "observed_only"]
 
 
 def fixtures_with_provenance() -> list[FixtureRow]:
@@ -820,7 +823,7 @@ def fixtures_with_provenance() -> list[FixtureRow]:
                 passed=stats.get("passed", 0),
                 failed=stats.get("failed", 0),
                 last_run=stats.get("last_run"),
-                provenance="in_use" if runs > 0 else "configured",
+                provenance="configured",
             )
         )
 

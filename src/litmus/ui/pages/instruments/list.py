@@ -1,11 +1,13 @@
 """Instrument library list page — Catalog + Inventory as tabs.
 
 The Inventory tab uses the merged-with-badge pattern (Configured /
-In use / Observed only) — same shape as ``/stations``, ``/products``,
+In use / Observed) — same shape as ``/stations``, ``/products``,
 and ``/fixtures``. The Catalog tab lists instrument *types* (templates,
 not physical things); the observed side doesn't fit cleanly there and
 is intentionally not surfaced.
 """
+
+from typing import Any
 
 from nicegui import ui
 
@@ -22,11 +24,12 @@ from litmus.ui.shared.services import (
 )
 
 # Filter chip vocabulary — keep in lockstep with InstrumentAssetRow.provenance.
-_FILTER_OPTIONS = ["All", "Configured", "In use", "Observed only"]
+# The Runs column already conveys "has activity", so the chip stays
+# binary: Configured (YAML exists) vs Observed (orphan).
+_FILTER_OPTIONS = ["All", "Configured", "Observed"]
 _FILTER_TO_PROVENANCE = {
     "Configured": "configured",
-    "In use": "in_use",
-    "Observed only": "observed_only",
+    "Observed": "observed_only",
 }
 
 
@@ -115,7 +118,7 @@ def _render_catalog_tab():
 def _render_inventory_tab(active_filter: str):
     """Inventory = physical asset files joined with observed-from-runs.
 
-    Each row carries a status chip (Configured / In use / Observed only)
+    Each row carries a status chip (Configured / In use / Observed)
     derived by joining the asset YAMLs against distinct instrument ids
     seen in ``step_instruments_id`` across run history.
     """
@@ -192,12 +195,32 @@ def _render_inventory_tab(active_filter: str):
         wanted = _FILTER_TO_PROVENANCE.get(selected)
         return [row for row in all_rows if row["provenance"] == wanted]
 
-    with ui.row().classes("items-center gap-2 w-full"):
-        ui.label("Show:").classes("text-sm text-slate-500")
-        toggle = ui.toggle(
-            _FILTER_OPTIONS,
-            value=active_filter,
-        ).props("color=primary dense unelevated")
+    filter_buttons: dict[str, Any] = {}
+
+    def _apply_filter(selected: str) -> None:
+        for opt, btn in filter_buttons.items():
+            if opt == selected:
+                btn.props(remove="outline")
+                btn.props("unelevated color=primary")
+            else:
+                btn.props(remove="unelevated")
+                btn.props("outline color=primary")
+        table.rows = _filtered(selected)
+        table.update()
+        push_url_state("/instruments", {"filter": selected})
+
+    with ui.card().classes("w-full").props('data-testid="instruments-filters"'):
+        with ui.row().classes("items-center gap-2"):
+            ui.label("Show").classes("text-sm font-medium text-slate-600 mr-2")
+            for opt in _FILTER_OPTIONS:
+                btn = ui.button(opt, on_click=lambda _e, o=opt: _apply_filter(o)).props(
+                    "dense no-caps"
+                )
+                if opt == active_filter:
+                    btn.props("unelevated color=primary")
+                else:
+                    btn.props("outline color=primary")
+                filter_buttons[opt] = btn
 
     table = data_table(
         columns=columns,
@@ -217,23 +240,10 @@ def _render_inventory_tab(active_filter: str):
         """
         <q-td :props="props">
             <q-chip dense square
-                :color="props.value === 'in_use' ? 'positive'
-                    : props.value === 'observed_only' ? 'warning'
-                    : 'grey-4'"
-                :text-color="props.value === 'in_use' || props.value === 'observed_only'
-                    ? 'white' : 'grey-9'">
-                {{ props.value === 'in_use' ? 'In use'
-                   : props.value === 'observed_only' ? 'Observed only'
-                   : 'Configured' }}
+                :color="props.value === 'observed_only' ? 'warning' : 'grey-4'"
+                :text-color="props.value === 'observed_only' ? 'white' : 'grey-9'">
+                {{ props.value === 'observed_only' ? 'Observed' : 'Configured' }}
             </q-chip>
         </q-td>
         """,
     )
-
-    def _on_filter_change(e):
-        selected = e.value or "All"
-        table.rows = _filtered(selected)
-        table.update()
-        push_url_state("/instruments", {"filter": selected})
-
-    toggle.on_value_change(_on_filter_change)
