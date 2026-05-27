@@ -1,7 +1,7 @@
 # Tour of the Operator UI
 
-A map of the 15 sidebar entries behind `litmus serve`, grouped by
-the same section bands the sidebar uses (14 functional screens
+A map of the 16 sidebar entries behind `litmus serve`, grouped by
+the same section bands the sidebar uses (15 functional screens
 plus the in-app docs viewer). Use this as a "what does each
 sidebar entry do" lookup; the per-screen [reference pages](../../reference/operator-ui/)
 have the field-by-field detail.
@@ -170,12 +170,26 @@ number, lot, runs, passed, failed, last run.
 ### Tests — `/tests`
 
 A flat table inventory of the test directories Litmus discovered
-under `tests/`. Lightweight — no per-row actions. The Launch Test
-form's Test Path dropdown is populated from the same source.
+under `tests/`. Click a row for the detail view at `/tests/<path>`:
+the test source (read-only) and the colocated sidecar YAML side by
+side, plus a per-file `Launch Test` shortcut. The Launch Test form's
+Test Path dropdown is populated from the same source.
 
 ![Tests](../../_assets/operator-ui/tour/tests.png)
 
 → [Tests reference](../../reference/operator-ui/tests.md)
+
+### Profiles — `/profiles`
+
+Browse the project's configured profiles. One profile = one
+named bundle of test config (`limits`, `sweeps`, `mocks`,
+`characteristics`, etc.) that overrides each test's sidecar at
+session start. Loaded from `litmus.yaml: profiles:` and
+`profiles/*.yaml`. Detail view shows the resolved YAML, the
+`extends:` inheritance chain, and a `Launch Test` shortcut that
+pre-fills `?test_profile=<name>`.
+
+![Profiles](../../_assets/operator-ui/tour/profiles.png)
 
 ## DOCUMENTATION
 

@@ -240,6 +240,11 @@ MANIFEST: list[Shot] = [
         output_path="tour/tests.png",
     ),
     Shot(
+        url="/profiles",
+        selector="[data-testid='profiles-table']",
+        output_path="tour/profiles.png",
+    ),
+    Shot(
         url="/designer",
         selector="[data-testid='designer-surface']",
         output_path="tour/designer.png",
