@@ -1,19 +1,41 @@
-"""Product list page — table view with run-usage stats."""
+"""Product list page — table view with merged YAML + observed-from-runs rows."""
+
+from typing import Any
 
 from nicegui import ui
 
-from litmus.ui.shared.components import data_table, format_datetime, page_layout
+from litmus.ui.shared.components import (
+    data_table,
+    format_datetime,
+    page_layout,
+    push_url_state,
+)
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_products, usage_stats_by
+from litmus.ui.shared.services import products_with_provenance
+
+# Filter chip vocabulary — keep in lockstep with ProductRow.provenance.
+# The Runs column already conveys "has activity", so the chip stays
+# binary: Configured (YAML exists) vs Observed (orphan).
+_FILTER_OPTIONS = ["All", "Configured", "Observed"]
+_FILTER_TO_PROVENANCE = {
+    "Configured": "configured",
+    "Observed": "observed_only",
+}
 
 
 @ui.page("/products")
-def products_page():
-    """Products listing — one row per product + usage stats from runs."""
+def products_page(filter: str = "All"):
+    """Products list — one row per YAML product OR observed product id.
+
+    Each row carries a Configured / Observed status chip (Observed =
+    appears in run history without a YAML file). The filter chip row
+    above the table narrows the view;
+    filter selection is mirrored into the URL via ``push_url_state``.
+    """
     create_layout("Products")
 
-    products = discover_products()
-    usage = usage_stats_by("product_id")
+    rows_data = products_with_provenance()
+    active_filter = filter if filter in _FILTER_OPTIONS else "All"
 
     with page_layout():
         with ui.row().classes("items-center justify-between w-full"):
@@ -26,15 +48,22 @@ def products_page():
                 on_click=lambda: ui.navigate.to("/products/new"),
             ).props("color=primary")
 
-        if not products:
+        if not rows_data:
             with ui.card().classes("w-full p-6 text-center"):
-                ui.label("No product specifications found.").classes("text-slate-500")
+                ui.label("No products configured or observed.").classes("text-slate-500")
                 ui.label("Create product folders in products/ directory.").classes(
                     "text-sm text-slate-400"
                 )
             return
 
         columns = [
+            {
+                "name": "provenance",
+                "label": "Status",
+                "field": "provenance",
+                "align": "left",
+                "sortable": True,
+            },
             {"name": "id", "label": "ID", "field": "id", "align": "left", "sortable": True},
             {"name": "name", "label": "Name", "field": "name", "align": "left", "sortable": True},
             {"name": "revision", "label": "Rev", "field": "revision", "align": "left"},
@@ -55,28 +84,77 @@ def products_page():
                 "sortable": True,
             },
         ]
-        rows = []
-        for product in products:
-            stats = usage.get(product["id"], {})
-            rows.append(
-                {
-                    "id": product["id"],
-                    "name": product.get("name", ""),
-                    "revision": product.get("revision", "") or "",
-                    "characteristics": len(product.get("characteristics", {}) or {}),
-                    "runs": stats.get("runs", 0),
-                    "passed": stats.get("passed", 0),
-                    "failed": stats.get("failed", 0),
-                    "last_run": format_datetime(stats.get("last_run"))
-                    if stats.get("last_run")
-                    else "—",
-                }
-            )
 
-        data_table(
+        def _to_table_row(r) -> dict:
+            return {
+                "id": r.id,
+                "name": r.name,
+                "revision": r.revision,
+                "characteristics": r.characteristics if r.provenance != "observed_only" else "—",
+                "runs": r.runs,
+                "passed": r.passed,
+                "failed": r.failed,
+                "last_run": format_datetime(r.last_run) if r.last_run else "—",
+                "provenance": r.provenance,
+            }
+
+        all_rows = [_to_table_row(r) for r in rows_data]
+
+        def _filtered(selected: str) -> list[dict]:
+            if selected == "All":
+                return all_rows
+            wanted = _FILTER_TO_PROVENANCE.get(selected)
+            return [row for row in all_rows if row["provenance"] == wanted]
+
+        filter_buttons: dict[str, Any] = {}
+
+        def _apply_filter(selected: str) -> None:
+            for opt, btn in filter_buttons.items():
+                if opt == selected:
+                    btn.props(remove="outline")
+                    btn.props("unelevated color=primary")
+                else:
+                    btn.props(remove="unelevated")
+                    btn.props("outline color=primary")
+            table.rows = _filtered(selected)
+            table.update()
+            push_url_state("/products", {"filter": selected})
+
+        with ui.card().classes("w-full").props('data-testid="products-filters"'):
+            with ui.row().classes("items-center gap-2"):
+                ui.label("Show").classes("text-sm font-medium text-slate-600 mr-2")
+                for opt in _FILTER_OPTIONS:
+                    btn = ui.button(opt, on_click=lambda _e, o=opt: _apply_filter(o)).props(
+                        "dense no-caps"
+                    )
+                    if opt == active_filter:
+                        btn.props("unelevated color=primary")
+                    else:
+                        btn.props("outline color=primary")
+                    filter_buttons[opt] = btn
+
+        table = data_table(
             columns=columns,
-            rows=rows,
+            rows=_filtered(active_filter),
             row_key="id",
-            on_row_click=lambda r: ui.navigate.to(f"/products/{r['id']}"),
+            on_row_click=lambda r: (
+                ui.navigate.to(f"/products/{r['id']}")
+                if r.get("provenance") != "observed_only"
+                else None
+            ),
             time_columns=["last_run"],
-        ).props('data-testid="products-table"')
+        )
+        table.props('data-testid="products-table"')
+
+        table.add_slot(
+            "body-cell-provenance",
+            """
+            <q-td :props="props">
+                <q-chip dense square
+                    :color="props.value === 'observed_only' ? 'warning' : 'grey-4'"
+                    :text-color="props.value === 'observed_only' ? 'white' : 'grey-9'">
+                    {{ props.value === 'observed_only' ? 'Observed' : 'Configured' }}
+                </q-chip>
+            </q-td>
+            """,
+        )

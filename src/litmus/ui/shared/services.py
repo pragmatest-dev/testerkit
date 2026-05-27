@@ -3,8 +3,11 @@
 NO direct yaml.safe_load or Path I/O here — all persistence goes through litmus.store.
 """
 
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel
 
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import RunSummary
@@ -179,6 +182,72 @@ def discover_products() -> list[dict]:
     return products
 
 
+class ProductRow(BaseModel):
+    """One row in the merged products list (YAML-configured + parquet-observed).
+
+    Mirrors :class:`StationRow`'s shape (provenance values + run counts)
+    so the entity-observed-view pages stay structurally identical.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    id: str
+    name: str = ""
+    revision: str = ""
+    characteristics: int = 0
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+    provenance: Literal["configured", "observed_only"]
+
+
+def products_with_provenance() -> list[ProductRow]:
+    """Union of YAML-configured products and products observed in runs.
+
+    Two passes: every YAML product becomes a row tagged ``configured``
+    or ``in_use`` depending on whether any runs reference its id; any
+    ``product_id`` present in run history without a matching YAML file
+    becomes an ``observed_only`` row.
+    """
+    configured = {p["id"]: p for p in discover_products()}
+    usage = usage_stats_by("product_id")
+
+    rows: list[ProductRow] = []
+    for product_id, product in configured.items():
+        stats = usage.get(product_id, {})
+        runs = stats.get("runs", 0)
+        rows.append(
+            ProductRow(
+                id=product_id,
+                name=product.get("name", "") or "",
+                revision=product.get("revision", "") or "",
+                characteristics=len(product.get("characteristics", {}) or {}),
+                runs=runs,
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="configured",
+            )
+        )
+
+    for product_id, stats in usage.items():
+        if product_id in configured:
+            continue
+        rows.append(
+            ProductRow(
+                id=product_id,
+                runs=stats.get("runs", 0),
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="observed_only",
+            )
+        )
+
+    return rows
+
+
 def load_product_model(product_id: str):
     """Load a Product model by ID."""
     return store_get_product(product_id)
@@ -290,6 +359,79 @@ def discover_stations():
     return store_list_stations()
 
 
+class StationRow(BaseModel):
+    """One row in the merged stations list (YAML-configured + parquet-observed).
+
+    `provenance` carries the config-vs-data relationship for the row:
+
+    - ``configured`` — YAML exists (with or without recorded runs)
+    - ``observed_only`` — appears in run history with no YAML counterpart
+
+    Activity for ``configured`` rows lives in the Runs column, not the
+    chip — splitting "in use" into its own chip duplicated the Runs
+    column without adding precision.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    id: str
+    name: str = ""
+    location: str = ""
+    instruments: int = 0
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+    provenance: Literal["configured", "observed_only"]
+
+
+def stations_with_provenance() -> list[StationRow]:
+    """Union of YAML-configured stations and stations observed in runs.
+
+    Two passes: (1) every YAML station becomes a row tagged ``configured``
+    or ``in_use`` depending on whether any runs reference its id;
+    (2) any station id present in run history without a matching YAML
+    file becomes an ``observed_only`` row. Run stats come from the
+    existing ``usage_stats_by`` SQL aggregation — no extra query.
+    """
+    configured = {s.id: s for s in discover_stations()}
+    usage = usage_stats_by("station_id")
+
+    rows: list[StationRow] = []
+    for station_id, station in configured.items():
+        stats = usage.get(station_id, {})
+        runs = stats.get("runs", 0)
+        rows.append(
+            StationRow(
+                id=station_id,
+                name=station.name or "",
+                location=station.location or "",
+                instruments=len(station.instruments or {}),
+                runs=runs,
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="configured",
+            )
+        )
+
+    for station_id, stats in usage.items():
+        if station_id in configured:
+            continue
+        rows.append(
+            StationRow(
+                id=station_id,
+                runs=stats.get("runs", 0),
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="observed_only",
+            )
+        )
+
+    return rows
+
+
 def load_station_config(station_id: str):
     """Load station configuration by ID."""
     return store_get_station(station_id)
@@ -376,6 +518,200 @@ def discover_instrument_assets():
     return store_list_instrument_assets()
 
 
+class DUTRow(BaseModel):
+    """One row in the DUTs list — purely observed from run history.
+
+    DUTs are never declared in YAML by design (they're the unit under
+    test, identified at runtime by serial). The DUTs page is the only
+    entity list whose rows are all observed-only; no provenance chip
+    is rendered.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    serial: str
+    part_number: str = ""
+    lot_number: str = ""
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+
+
+def duts_from_runs() -> list[DUTRow]:
+    """Distinct DUTs observed in run history, with per-DUT run counts.
+
+    Groups by ``dut_serial``; the part number and lot number are
+    aggregated via ``MAX`` (expected constant per serial — taking ``MAX``
+    is just a SQL-idiomatic way to surface one value when the GROUP BY
+    key uniquely determines the row).
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    sql = """
+        SELECT
+            dut_serial AS serial,
+            MAX(dut_part_number) AS part_number,
+            MAX(dut_lot_number) AS lot_number,
+            COUNT(*) AS runs,
+            COUNT(*) FILTER (WHERE outcome = 'passed') AS passed,
+            COUNT(*) FILTER (WHERE outcome = 'failed') AS failed,
+            MAX(started_at) AS last_run
+        FROM runs
+        WHERE dut_serial IS NOT NULL AND dut_serial <> ''
+        GROUP BY dut_serial
+        ORDER BY last_run DESC NULLS LAST
+    """
+    try:
+        with RunsQuery() as q:
+            rows = q._query_dicts(sql)  # noqa: SLF001 — direct SQL is the documented escape hatch
+    except (ValueError, Exception):  # noqa: BLE001 — query layer can raise broadly
+        return []
+
+    return [
+        DUTRow(
+            serial=r["serial"],
+            part_number=r.get("part_number") or "",
+            lot_number=r.get("lot_number") or "",
+            runs=r.get("runs", 0),
+            passed=r.get("passed", 0),
+            failed=r.get("failed", 0),
+            last_run=r.get("last_run"),
+        )
+        for r in rows
+        if r.get("serial")
+    ]
+
+
+def _instrument_id_usage_stats() -> dict[str, dict[str, Any]]:
+    """Run-count stats keyed by instrument id observed in ``step_instruments_id``.
+
+    The runs parquet stores per-step instrument arrays — one DuckDB row
+    per run carries ``step_instruments_id`` as a list. UNNESTing gives
+    one row per (run, instrument) pair; DISTINCT inside an outer count
+    would over-credit if the same instrument is used in multiple steps,
+    so the outer aggregation is grouped after UNNEST and counts distinct
+    ``run_id`` per instrument.
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    sql = """
+        SELECT
+            inst_id AS value,
+            COUNT(DISTINCT run_id) AS runs,
+            COUNT(DISTINCT run_id) FILTER (WHERE outcome = 'passed') AS pass_count,
+            COUNT(DISTINCT run_id) FILTER (WHERE outcome = 'failed') AS fail_count,
+            MAX(started_at) AS last_run
+        FROM (
+            SELECT UNNEST(step_instruments_id) AS inst_id, run_id, outcome, started_at
+            FROM runs
+            WHERE step_instruments_id IS NOT NULL
+        )
+        WHERE inst_id IS NOT NULL AND inst_id <> ''
+        GROUP BY inst_id
+        ORDER BY runs DESC
+    """
+    try:
+        with RunsQuery() as q:
+            rows = q._query_dicts(sql)  # noqa: SLF001 — direct SQL is the documented escape hatch
+    except (ValueError, Exception):  # noqa: BLE001 — query layer can raise broadly
+        return {}
+
+    return {
+        r["value"]: {
+            "runs": r.get("runs", 0),
+            "passed": r.get("pass_count", 0),
+            "failed": r.get("fail_count", 0),
+            "last_run": r.get("last_run"),
+        }
+        for r in rows
+        if r.get("value")
+    }
+
+
+class InstrumentAssetRow(BaseModel):
+    """One row in the merged instrument-inventory list.
+
+    Mirrors :class:`StationRow` / :class:`ProductRow` / :class:`FixtureRow`.
+    ``identity`` is the joined manufacturer + model display string from
+    the asset YAML (empty for observed-only rows).
+    """
+
+    model_config = {"extra": "forbid"}
+
+    id: str
+    driver: str = ""
+    identity: str = ""
+    serial: str = ""
+    cal_due: str = ""
+    cal_lab: str = ""
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+    provenance: Literal["configured", "observed_only"]
+
+
+def instrument_assets_with_provenance() -> list[InstrumentAssetRow]:
+    """Union of YAML-configured instrument assets and assets observed in runs.
+
+    Observed side comes from :func:`_instrument_id_usage_stats` which
+    UNNESTs the per-run ``step_instruments_id`` array — an instrument
+    id that appears in any run but has no asset YAML is rendered as
+    ``observed_only``.
+    """
+    from datetime import date as _date
+
+    configured = {a.id: a for a in discover_instrument_assets()}
+    usage = _instrument_id_usage_stats()
+
+    rows: list[InstrumentAssetRow] = []
+    for asset_id, asset in configured.items():
+        stats = usage.get(asset_id, {})
+        runs = stats.get("runs", 0)
+        mfr = asset.info.manufacturer or ""
+        model = asset.info.model or ""
+        identity = f"{mfr} {model}".strip()
+
+        cal_due = asset.calibration.due_date
+        if cal_due:
+            cal_str = cal_due.isoformat() if isinstance(cal_due, _date) else str(cal_due)
+        else:
+            cal_str = ""
+
+        rows.append(
+            InstrumentAssetRow(
+                id=asset_id,
+                driver=asset.driver or "",
+                identity=identity,
+                serial=str(asset.info.serial or ""),
+                cal_due=cal_str,
+                cal_lab=asset.calibration.lab or "",
+                runs=runs,
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="configured",
+            )
+        )
+
+    for asset_id, stats in usage.items():
+        if asset_id in configured:
+            continue
+        rows.append(
+            InstrumentAssetRow(
+                id=asset_id,
+                runs=stats.get("runs", 0),
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="observed_only",
+            )
+        )
+
+    return rows
+
+
 def load_instrument_asset_by_id(instrument_id: str):
     """Load a single instrument asset file by ID."""
     return store_get_instrument_asset(instrument_id)
@@ -434,6 +770,78 @@ def discover_tests() -> list[dict]:
 def discover_fixtures():
     """Discover fixture configurations from YAML files."""
     return store_list_fixtures()
+
+
+class FixtureRow(BaseModel):
+    """One row in the merged fixtures list (YAML-configured + parquet-observed).
+
+    Mirrors :class:`StationRow` / :class:`ProductRow`. The optional
+    ``product`` label is the display name of the fixture's product
+    family (resolved via ``discover_products``); observed-only rows
+    leave it empty.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    id: str
+    name: str = ""
+    product: str = ""
+    revision: str = ""
+    connections: int = 0
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+    provenance: Literal["configured", "observed_only"]
+
+
+def fixtures_with_provenance() -> list[FixtureRow]:
+    """Union of YAML-configured fixtures and fixtures observed in runs.
+
+    Two passes mirroring :func:`stations_with_provenance`. The display
+    ``product`` label is resolved against ``discover_products`` so the
+    operator sees the product name, not just the id.
+    """
+    configured = {f.id: f for f in discover_fixtures()}
+    products = {p["id"]: p for p in discover_products()}
+    usage = usage_stats_by("fixture_id")
+
+    rows: list[FixtureRow] = []
+    for fixture_id, fixture in configured.items():
+        stats = usage.get(fixture_id, {})
+        runs = stats.get("runs", 0)
+        product_id = fixture.product_id or fixture.product_family or ""
+        product_label = (products.get(product_id) or {}).get("name") or product_id
+        rows.append(
+            FixtureRow(
+                id=fixture_id,
+                name=fixture.name or "",
+                product=product_label,
+                revision=fixture.product_revision or "",
+                connections=len(fixture.connections or {}),
+                runs=runs,
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="configured",
+            )
+        )
+
+    for fixture_id, stats in usage.items():
+        if fixture_id in configured:
+            continue
+        rows.append(
+            FixtureRow(
+                id=fixture_id,
+                runs=stats.get("runs", 0),
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="observed_only",
+            )
+        )
+
+    return rows
 
 
 def load_fixture_config(fixture_id: str):
