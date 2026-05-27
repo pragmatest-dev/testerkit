@@ -1,7 +1,7 @@
 # Tour of the Operator UI
 
-A map of the 14 sidebar entries behind `litmus serve`, grouped by
-the same section bands the sidebar uses (13 functional screens
+A map of the 15 sidebar entries behind `litmus serve`, grouped by
+the same section bands the sidebar uses (14 functional screens
 plus the in-app docs viewer). Use this as a "what does each
 sidebar entry do" lookup; the per-screen [reference pages](../../reference/operator-ui/)
 have the field-by-field detail.
@@ -107,13 +107,18 @@ station, click a pin, click a channel — wire saved to disk. The
 fastest way to author or refine a fixture YAML without touching
 the file directly.
 
+![System Designer](../../_assets/operator-ui/tour/designer.png)
+
 → [System Designer reference](../../reference/operator-ui/designer.md)
 
 ### Stations — `/stations`
 
 Browse, edit, and create stations. One station = one bench's worth
-of instruments. The list page is also the run-history scoreboard:
-each row carries Runs / Passed / Failed counts for that station.
+of instruments. The list page also picks up stations Litmus has
+seen in run history but doesn't have YAML for — tagged with a
+`Configured` / `Observed` chip and filterable from the row above.
+
+![Stations](../../_assets/operator-ui/tour/stations.png)
 
 → [Stations reference](../../reference/operator-ui/stations.md)
 
@@ -121,8 +126,11 @@ each row carries Runs / Passed / Failed counts for that station.
 
 Browse, edit, and create products. One product = one DUT type
 (part number + revision) with its pin map and characteristics.
-Detail view shows compatible stations (the matcher decides) and
-the run scoreboard per product.
+Same `Configured` / `Observed` treatment as Stations — a part
+number that appears in run history with no YAML shows up tagged
+`Observed`.
+
+![Products](../../_assets/operator-ui/tour/products.png)
 
 → [Products reference](../../reference/operator-ui/products.md)
 
@@ -132,6 +140,8 @@ Browse, edit, and create fixtures. One fixture = the wiring
 between a product's pins and a station's instrument channels. The
 detail view's Diagram tab renders the connection map as Mermaid.
 
+![Fixtures](../../_assets/operator-ui/tour/fixtures.png)
+
 → [Fixtures reference](../../reference/operator-ui/fixtures.md)
 
 ### Instruments — `/instruments`
@@ -139,15 +149,31 @@ detail view's Diagram tab renders the connection map as Mermaid.
 Two tabs: **Catalog** (instrument types — the templates that
 describe capabilities) and **Inventory** (physical assets — the
 actual units on the bench with serial numbers and calibration
-dates). The detail page shape depends on which the URL resolves to.
+dates). The Inventory tab carries the `Configured` / `Observed`
+chip — an instrument id that appears in the per-step instrument
+arrays without an asset YAML shows up as `Observed`.
+
+![Instruments — Catalog tab](../../_assets/operator-ui/tour/instruments.png)
 
 → [Instruments reference](../../reference/operator-ui/instruments.md)
+
+### DUTs — `/duts`
+
+The list of every DUT serial Litmus has seen in run history. DUTs
+are never declared in YAML by design (the unit-under-test is
+identified at runtime), so every row is observation-derived — no
+`Configured` / `Observed` chip is needed. Columns: serial, part
+number, lot, runs, passed, failed, last run.
+
+![DUTs](../../_assets/operator-ui/tour/duts.png)
 
 ### Tests — `/tests`
 
 A flat table inventory of the test directories Litmus discovered
 under `tests/`. Lightweight — no per-row actions. The Launch Test
 form's Test Path dropdown is populated from the same source.
+
+![Tests](../../_assets/operator-ui/tour/tests.png)
 
 → [Tests reference](../../reference/operator-ui/tests.md)
 
@@ -160,6 +186,8 @@ The in-app docs viewer. Renders the same Markdown corpus
 content is served locally; Mermaid diagrams load their renderer
 from `cdn.jsdelivr.net`, so air-gapped benches see code blocks
 where the diagrams would be.
+
+![Documentation](../../_assets/operator-ui/tour/docs.png)
 
 ## Common starting points
 
