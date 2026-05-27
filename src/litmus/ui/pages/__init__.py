@@ -17,6 +17,7 @@ from litmus.ui.pages import (
     live,  # noqa: F401
     metrics_page,  # noqa: F401
     products,  # noqa: F401
+    profiles,  # noqa: F401
     results,  # noqa: F401
     stations,  # noqa: F401
     tests,  # noqa: F401

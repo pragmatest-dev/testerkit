@@ -140,6 +140,7 @@ def create_sidebar():
             _nav_item("/instruments", "precision_manufacturing", "Instruments")
             _nav_item("/duts", "memory", "DUTs")
             _nav_item("/tests", "science", "Tests")
+            _nav_item("/profiles", "layers", "Profiles")
 
             ui.separator().classes("bg-slate-700 my-2")
             ui.label("DOCUMENTATION").classes("text-xs text-slate-500 px-3 pt-2")

@@ -772,6 +772,54 @@ def discover_fixtures():
     return store_list_fixtures()
 
 
+class ProfileRow(BaseModel):
+    """One row in the profiles list.
+
+    Profiles are config-only today — the runs parquet doesn't carry the
+    profile that was active for a given run, so the merged-with-badge
+    pattern doesn't apply. Every row is configured-only by definition.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    name: str
+    station_type: str = ""
+    fixture: str = ""
+    extends: str = ""
+    facets: str = ""
+    tests_count: int = 0
+
+
+def discover_profiles() -> list[ProfileRow]:
+    """List configured profiles from the project's ``litmus.yaml`` +
+    ``profiles/*.yaml`` files. Per-profile fields are extracted into a
+    typed display row.
+    """
+    project = load_project_config()
+    rows: list[ProfileRow] = []
+    for name, profile in (project.profiles or {}).items():
+        facets_str = ", ".join(f"{k}={v}" for k, v in (profile.facets or {}).items())
+        rows.append(
+            ProfileRow(
+                name=name,
+                station_type=profile.station_type or "",
+                fixture=profile.fixture or "",
+                extends=profile.extends or "",
+                facets=facets_str,
+                tests_count=len(profile.tests or {}),
+            )
+        )
+    return rows
+
+
+def load_profile_config(name: str):
+    """Load a single profile's ProfileConfig (already merged from
+    inline + per-file sources by ``load_project_config``).
+    """
+    project = load_project_config()
+    return (project.profiles or {}).get(name)
+
+
 class FixtureRow(BaseModel):
     """One row in the merged fixtures list (YAML-configured + parquet-observed).
 
