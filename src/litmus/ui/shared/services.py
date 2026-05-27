@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import RunSummary
@@ -745,7 +745,13 @@ def create_catalog_entry(
 
 
 def discover_tests() -> list[dict]:
-    """Discover available test directories."""
+    """Discover available test directories.
+
+    Legacy directory-grouped list — kept for callers that just want the
+    set of folders (e.g. the Launch Test form's Test Path dropdown).
+    Prefer :func:`walk_test_files` for the operator-UI list page which
+    needs per-file structure.
+    """
     tests = []
     search_paths = [Path.cwd() / "tests"]
 
@@ -762,6 +768,265 @@ def discover_tests() -> list[dict]:
     return tests
 
 
+class TestFunctionRow(BaseModel):
+    """One test function found by AST walk."""
+
+    model_config = {"extra": "forbid"}
+
+    name: str  # bare function name (``test_foo``)
+    class_name: str | None = None  # parent ``TestX`` class if applicable
+    markers: list[str] = Field(default_factory=list)  # decorator names sans ``pytest.mark.``
+    parametrize_count: int = 0  # rough vector count from @parametrize / @litmus_sweeps
+    has_sidecar_entry: bool = False
+
+
+class TestModuleRow(BaseModel):
+    """One test module — a ``test_*.py`` file with its tests, sidecar, markers."""
+
+    model_config = {"extra": "forbid"}
+
+    path: str  # relative to cwd
+    directory: str  # parent directory relative to cwd
+    name: str  # filename
+    tests: list[TestFunctionRow] = Field(default_factory=list)
+    classes: list[str] = Field(default_factory=list)
+    has_sidecar: bool = False
+    parse_error: str | None = None  # set when AST parse fails
+
+
+def _decorator_marker_name(node: Any) -> str | None:
+    """Extract the marker name from a decorator node.
+
+    Returns ``litmus_sweeps`` for ``@pytest.mark.litmus_sweeps(...)`` /
+    ``@litmus.mark.litmus_sweeps(...)`` /
+    plain ``@litmus_sweeps``. Returns ``None`` for decorators that
+    don't look like marker references.
+    """
+    import ast
+
+    target = node
+    if isinstance(node, ast.Call):
+        target = node.func
+    if isinstance(target, ast.Attribute):
+        return target.attr
+    if isinstance(target, ast.Name):
+        return target.id
+    return None
+
+
+def _estimate_vector_count(node: Any) -> int:
+    """Best-effort vector count from a parametrize / litmus_sweeps decorator.
+
+    ``@pytest.mark.parametrize("x", [1, 2, 3])`` → 3.
+    ``@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0]}])`` →
+    sums the inner-list lengths for a rough cross-product upper bound.
+
+    Returns ``0`` when the decorator shape isn't recognised — the
+    overview is a sanity gauge, not a contract.
+    """
+    import ast
+
+    if not isinstance(node, ast.Call) or not node.args:
+        return 0
+    name = _decorator_marker_name(node) or ""
+    if name == "parametrize":
+        # second arg is the values list
+        if len(node.args) >= 2 and isinstance(node.args[1], (ast.List, ast.Tuple)):
+            return len(node.args[1].elts)
+        return 0
+    if name in ("litmus_sweeps", "litmus_mocks", "litmus_characteristics"):
+        # list-of-dicts form: each dict's values are lists; product across keys
+        first = node.args[0]
+        if isinstance(first, (ast.List, ast.Tuple)):
+            count = 0
+            for elt in first.elts:
+                if isinstance(elt, ast.Dict):
+                    product = 1
+                    for v in elt.values:
+                        if isinstance(v, (ast.List, ast.Tuple)):
+                            product *= max(len(v.elts), 1)
+                    count += product
+            return count
+    return 0
+
+
+def _function_to_row(node: Any, class_name: str | None, sidecar_names: set[str]) -> TestFunctionRow:
+    import ast
+
+    markers: list[str] = []
+    vector_count = 0
+    for d in node.decorator_list:  # type: ignore[attr-defined]
+        marker_name = _decorator_marker_name(d)
+        if marker_name and not isinstance(d, ast.Name):
+            markers.append(marker_name)
+        elif marker_name:
+            markers.append(marker_name)
+        if isinstance(d, ast.Call):
+            vector_count += _estimate_vector_count(d)
+    has_entry = node.name in sidecar_names or (
+        class_name is not None and class_name in sidecar_names
+    )
+    return TestFunctionRow(
+        name=node.name,
+        class_name=class_name,
+        markers=sorted(set(markers)),
+        parametrize_count=vector_count,
+        has_sidecar_entry=has_entry,
+    )
+
+
+def _sidecar_test_names(yaml_path: Path) -> set[str]:
+    """Return the set of test/class names keyed in a sidecar's ``tests:`` block."""
+    if not yaml_path.exists():
+        return set()
+    try:
+        import yaml as _yaml
+
+        data = _yaml.safe_load(yaml_path.read_text()) or {}
+    except (OSError, ValueError):
+        return set()
+    tests_block = data.get("tests") if isinstance(data, dict) else None
+    if not isinstance(tests_block, dict):
+        return set()
+    return set(tests_block.keys())
+
+
+def walk_test_module(py_path: Path) -> TestModuleRow:
+    """AST-walk one test module, populate a :class:`TestModuleRow`.
+
+    Picks up: top-level ``def test_*`` and ``class Test*`` (with their
+    ``def test_*`` methods), decorators on each, and the sidecar's
+    ``tests:`` block (if a sibling ``.yaml`` exists) to flag per-test
+    sidecar coverage. Survives parse errors — the row gets a
+    ``parse_error`` and an empty test list.
+    """
+    import ast
+
+    cwd = Path.cwd()
+    rel = py_path.relative_to(cwd) if py_path.is_relative_to(cwd) else py_path
+    parent = rel.parent
+    yaml_path = py_path.with_suffix(".yaml")
+    sidecar_names = _sidecar_test_names(yaml_path)
+    row = TestModuleRow(
+        path=str(rel),
+        directory=str(parent) or ".",
+        name=py_path.name,
+        has_sidecar=yaml_path.exists(),
+    )
+
+    try:
+        tree = ast.parse(py_path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError) as exc:
+        row.parse_error = str(exc)
+        return row
+
+    classes: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            classes.append(node.name)
+            for item in node.body:
+                if isinstance(
+                    item, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ) and item.name.startswith("test_"):
+                    row.tests.append(_function_to_row(item, node.name, sidecar_names))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith(
+            "test_"
+        ):
+            row.tests.append(_function_to_row(node, None, sidecar_names))
+
+    row.classes = classes
+    return row
+
+
+def walk_test_files(project_root: Path | None = None) -> list[TestModuleRow]:
+    """AST-walk every ``test_*.py`` under ``tests/``, sorted by path."""
+    root = project_root or Path.cwd()
+    tests_dir = root / "tests"
+    if not tests_dir.exists():
+        return []
+    return [walk_test_module(p) for p in sorted(tests_dir.rglob("test_*.py"))]
+
+
+class TestRunStats(BaseModel):
+    """Aggregated step-level run history for one ``step_path``."""
+
+    model_config = {"extra": "forbid"}
+
+    step_path: str
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+
+
+def step_path_stats() -> dict[str, TestRunStats]:
+    """Aggregate the ``steps`` table by ``step_path`` — counts and recency
+    per distinct step path across all of run history.
+
+    Returns ``{step_path: TestRunStats}``. Skips blank step paths.
+    """
+    from litmus.analysis.steps_query import StepsQuery
+
+    sql = """
+        SELECT step_path,
+               COUNT(DISTINCT run_id) AS runs,
+               COUNT(*) FILTER (WHERE outcome = 'passed') AS passed,
+               COUNT(*) FILTER (WHERE outcome = 'failed') AS failed,
+               MAX(started_at) AS last_run
+        FROM steps
+        WHERE step_path IS NOT NULL AND step_path <> ''
+        GROUP BY step_path
+    """
+    try:
+        with StepsQuery() as q:
+            rows = q._query_dicts(sql)  # noqa: SLF001 — documented escape hatch
+    except (ValueError, Exception):  # noqa: BLE001 — query layer can raise broadly
+        return {}
+
+    return {
+        r["step_path"]: TestRunStats(
+            step_path=r["step_path"],
+            runs=r.get("runs", 0),
+            passed=r.get("passed", 0),
+            failed=r.get("failed", 0),
+            last_run=r.get("last_run"),
+        )
+        for r in rows
+    }
+
+
+def _expected_step_paths(modules: list[TestModuleRow]) -> set[str]:
+    """Set of step_paths the AST walk says SHOULD exist in history.
+
+    Both bare class names and ``Class/method`` qualifiers — the runtime
+    emits step rows for class nodes themselves (parent steps) as well as
+    their leaf methods, and either form is legitimately ``in_code``.
+    """
+    expected: set[str] = set()
+    for m in modules:
+        for t in m.tests:
+            if t.class_name:
+                expected.add(t.class_name)  # class-as-step parent row
+                expected.add(f"{t.class_name}/{t.name}")  # method leaf
+            else:
+                expected.add(t.name)
+    return expected
+
+
+def observed_only_step_paths(modules: list[TestModuleRow]) -> list[TestRunStats]:
+    """Step paths in history with no matching test function in current source.
+
+    Surfaces tests that have been renamed, deleted, or run from a branch
+    whose code isn't currently checked out. Sorted by last_run desc so
+    the most-recently-orphaned paths come first.
+    """
+    all_stats = step_path_stats()
+    expected = _expected_step_paths(modules)
+    orphans = [stats for sp, stats in all_stats.items() if sp not in expected]
+    orphans.sort(key=lambda s: s.last_run or datetime.min, reverse=True)
+    return orphans
+
+
 # -----------------------------------------------------------------------------
 # Fixture Services
 # -----------------------------------------------------------------------------
@@ -770,6 +1035,54 @@ def discover_tests() -> list[dict]:
 def discover_fixtures():
     """Discover fixture configurations from YAML files."""
     return store_list_fixtures()
+
+
+class ProfileRow(BaseModel):
+    """One row in the profiles list.
+
+    Profiles are config-only today — the runs parquet doesn't carry the
+    profile that was active for a given run, so the merged-with-badge
+    pattern doesn't apply. Every row is configured-only by definition.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    name: str
+    station_type: str = ""
+    fixture: str = ""
+    extends: str = ""
+    facets: str = ""
+    tests_count: int = 0
+
+
+def discover_profiles() -> list[ProfileRow]:
+    """List configured profiles from the project's ``litmus.yaml`` +
+    ``profiles/*.yaml`` files. Per-profile fields are extracted into a
+    typed display row.
+    """
+    project = load_project_config()
+    rows: list[ProfileRow] = []
+    for name, profile in (project.profiles or {}).items():
+        facets_str = ", ".join(f"{k}={v}" for k, v in (profile.facets or {}).items())
+        rows.append(
+            ProfileRow(
+                name=name,
+                station_type=profile.station_type or "",
+                fixture=profile.fixture or "",
+                extends=profile.extends or "",
+                facets=facets_str,
+                tests_count=len(profile.tests or {}),
+            )
+        )
+    return rows
+
+
+def load_profile_config(name: str):
+    """Load a single profile's ProfileConfig (already merged from
+    inline + per-file sources by ``load_project_config``).
+    """
+    project = load_project_config()
+    return (project.profiles or {}).get(name)
 
 
 class FixtureRow(BaseModel):

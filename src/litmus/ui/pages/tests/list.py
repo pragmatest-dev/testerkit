@@ -1,37 +1,194 @@
-"""Test directories list page — table view."""
+"""Tests list page — one row per ``test_*.py`` file, grouped by directory.
+
+AST-walks every test module under ``tests/`` and renders a row per file
+with: test count, class count, markers summary, sidecar presence.
+Files in the same directory render under a directory header so the
+project's test layout is visible at a glance.
+"""
+
+from collections import defaultdict
 
 from nicegui import ui
 
-from litmus.ui.shared.components import data_table, page_layout
+from litmus.ui.shared.components import data_table, format_datetime, page_layout
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_tests
+from litmus.ui.shared.services import (
+    TestModuleRow,
+    observed_only_step_paths,
+    step_path_stats,
+    walk_test_files,
+)
 
 
 @ui.page("/tests")
 def tests_page():
-    """Tests listing — one row per test directory."""
+    """Flat list of test modules grouped by directory."""
     create_layout("Tests")
 
-    tests = discover_tests()
+    modules = walk_test_files()
+    stats_by_path = step_path_stats()
+    orphans = observed_only_step_paths(modules)
 
     with page_layout():
-        with ui.row().classes("items-center gap-2"):
-            ui.icon("science").classes("text-slate-600")
-            ui.label("Test Directories").classes("text-lg font-semibold text-slate-700")
-            ui.badge(f"{len(tests)} dirs").props("outline")
+        with ui.row().classes("items-center justify-between w-full"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("science").classes("text-slate-600")
+                ui.label("Tests").classes("text-lg font-semibold text-slate-700")
+                ui.badge(f"{len(modules)} files").props("outline")
 
-        if not tests:
+        if not modules and not orphans:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("science").classes("text-4xl text-slate-300")
-                ui.label("No test directories found.").classes("text-slate-500 mt-2")
-                ui.label("Add test_*.py files to a tests/ directory.").classes(
-                    "text-sm text-slate-400"
-                )
+                ui.label("No test files found.").classes("text-slate-500 mt-2")
+                ui.label("Add test_*.py files under tests/.").classes("text-sm text-slate-400")
             return
 
-        columns = [
-            {"name": "name", "label": "Name", "field": "name", "align": "left", "sortable": True},
-            {"name": "path", "label": "Path", "field": "path", "align": "left", "sortable": True},
-        ]
-        rows = [{"name": t["name"], "path": t["path"]} for t in tests]
-        data_table(columns=columns, rows=rows, row_key="path").props('data-testid="tests-table"')
+        # Group by directory, preserve sorted order
+        groups: dict[str, list[TestModuleRow]] = defaultdict(list)
+        for m in modules:
+            groups[m.directory].append(m)
+
+        with ui.element("div").classes("w-full").props('data-testid="tests-table"'):
+            for directory in sorted(groups.keys()):
+                _render_directory_header(directory)
+                for module in groups[directory]:
+                    _render_module_row(module, stats_by_path)
+
+        if orphans:
+            _render_orphans_section(orphans)
+
+
+def _render_directory_header(directory: str) -> None:
+    with ui.row().classes("items-center gap-2 mt-4 mb-1 text-slate-600"):
+        ui.icon("folder").classes("text-slate-400 text-base")
+        ui.label(f"{directory}/").classes("text-sm font-mono font-semibold")
+
+
+def _render_module_row(module: TestModuleRow, stats_by_path: dict) -> None:
+    """One file row under its directory header.
+
+    Clickable — navigates to the per-file detail page. Run-history
+    counts (runs / passed / failed) are summed across the module's
+    leaf step paths (``Class/method`` and bare ``test_func``).
+    """
+    if module.parse_error:
+        with (
+            ui.row()
+            .classes("items-center gap-3 ml-6 py-1 px-2 text-red-700 cursor-pointer")
+            .on("click", lambda *_a, m=module: ui.navigate.to(f"/tests/{m.path}"))
+        ):
+            ui.icon("warning", size="sm").classes("text-red-600")
+            ui.label(module.name).classes("font-mono text-sm")
+            ui.label(f"parse error: {module.parse_error[:60]}").classes("text-xs italic")
+        return
+
+    test_count = len(module.tests)
+    class_count = len(module.classes)
+    parametrize_total = sum(t.parametrize_count for t in module.tests)
+    markers_summary = sorted({m for t in module.tests for m in t.markers})
+
+    runs_total = 0
+    failed_total = 0
+    for t in module.tests:
+        key = f"{t.class_name}/{t.name}" if t.class_name else t.name
+        s = stats_by_path.get(key)
+        if s is not None:
+            runs_total += s.runs
+            failed_total += s.failed
+
+    with (
+        ui.row()
+        .classes("items-center gap-4 ml-6 py-1 px-2 rounded hover:bg-slate-50 cursor-pointer")
+        .on("click", lambda *_a, m=module: ui.navigate.to(f"/tests/{m.path}"))
+    ):
+        ui.icon("description", size="sm").classes("text-slate-500")
+        ui.label(module.name).classes("font-mono text-sm flex-1")
+
+        # Test count + class count
+        with ui.row().classes("items-center gap-1 text-xs text-slate-600 min-w-24"):
+            ui.label(f"{test_count} tests")
+            if class_count:
+                ui.label(f"· {class_count} class{'es' if class_count > 1 else ''}").classes(
+                    "text-slate-500"
+                )
+
+        # Parametrize total (rough vector count)
+        if parametrize_total:
+            ui.badge(f"~{parametrize_total} vectors", color="grey-3").props(
+                "outline text-color=grey-7"
+            )
+
+        # Markers chips
+        with ui.row().classes("items-center gap-1"):
+            for marker in markers_summary[:4]:
+                ui.badge(marker, color="grey-3").props("text-color=grey-8 dense")
+            if len(markers_summary) > 4:
+                ui.label(f"+{len(markers_summary) - 4}").classes("text-xs text-slate-500")
+
+        # Run-history summary (only when any runs exist for this module)
+        if runs_total:
+            with ui.row().classes("items-center gap-1 text-xs text-slate-600"):
+                ui.label(f"{runs_total} runs").classes("text-slate-700")
+                if failed_total:
+                    ui.label(f"· {failed_total} failed").classes("text-red-600")
+
+        # Sidecar indicator
+        if module.has_sidecar:
+            ui.badge("sidecar", color="primary").props("outline dense")
+        else:
+            ui.icon("remove", size="sm").classes("text-slate-300")
+
+
+def _render_orphans_section(orphans: list) -> None:
+    """Step paths in run history that don't match any current source.
+
+    Renames / deletions / runs from a different code state surface here.
+    """
+    with ui.row().classes("items-center gap-2 mt-6"):
+        ui.icon("history_toggle_off").classes("text-amber-600")
+        ui.label("Observed in history (no matching source)").classes(
+            "text-base font-semibold text-slate-700"
+        )
+        ui.badge(f"{len(orphans)}", color="warning").props("outline")
+
+    ui.label(
+        "Step paths in run history that don't match any current "
+        "test_*.py file — likely renamed, deleted, or run from a "
+        "different code state."
+    ).classes("text-sm text-slate-500 mb-1")
+
+    columns = [
+        {
+            "name": "step_path",
+            "label": "Step Path",
+            "field": "step_path",
+            "align": "left",
+            "sortable": True,
+        },
+        {"name": "runs", "label": "Runs", "field": "runs", "align": "right", "sortable": True},
+        {"name": "passed", "label": "Passed", "field": "passed", "align": "right"},
+        {"name": "failed", "label": "Failed", "field": "failed", "align": "right"},
+        {
+            "name": "last_run",
+            "label": "Last Run",
+            "field": "last_run",
+            "align": "left",
+            "sortable": True,
+        },
+    ]
+    rows = [
+        {
+            "step_path": o.step_path,
+            "runs": o.runs,
+            "passed": o.passed,
+            "failed": o.failed,
+            "last_run": format_datetime(o.last_run) if o.last_run else "—",
+        }
+        for o in orphans
+    ]
+    data_table(
+        columns=columns,
+        rows=rows,
+        row_key="step_path",
+        time_columns=["last_run"],
+    ).props('data-testid="tests-orphans-table"')
