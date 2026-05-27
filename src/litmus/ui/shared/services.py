@@ -947,6 +947,86 @@ def walk_test_files(project_root: Path | None = None) -> list[TestModuleRow]:
     return [walk_test_module(p) for p in sorted(tests_dir.rglob("test_*.py"))]
 
 
+class TestRunStats(BaseModel):
+    """Aggregated step-level run history for one ``step_path``."""
+
+    model_config = {"extra": "forbid"}
+
+    step_path: str
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+
+
+def step_path_stats() -> dict[str, TestRunStats]:
+    """Aggregate the ``steps`` table by ``step_path`` — counts and recency
+    per distinct step path across all of run history.
+
+    Returns ``{step_path: TestRunStats}``. Skips blank step paths.
+    """
+    from litmus.analysis.steps_query import StepsQuery
+
+    sql = """
+        SELECT step_path,
+               COUNT(DISTINCT run_id) AS runs,
+               COUNT(*) FILTER (WHERE outcome = 'passed') AS passed,
+               COUNT(*) FILTER (WHERE outcome = 'failed') AS failed,
+               MAX(started_at) AS last_run
+        FROM steps
+        WHERE step_path IS NOT NULL AND step_path <> ''
+        GROUP BY step_path
+    """
+    try:
+        with StepsQuery() as q:
+            rows = q._query_dicts(sql)  # noqa: SLF001 — documented escape hatch
+    except (ValueError, Exception):  # noqa: BLE001 — query layer can raise broadly
+        return {}
+
+    return {
+        r["step_path"]: TestRunStats(
+            step_path=r["step_path"],
+            runs=r.get("runs", 0),
+            passed=r.get("passed", 0),
+            failed=r.get("failed", 0),
+            last_run=r.get("last_run"),
+        )
+        for r in rows
+    }
+
+
+def _expected_step_paths(modules: list[TestModuleRow]) -> set[str]:
+    """Set of step_paths the AST walk says SHOULD exist in history.
+
+    Both bare class names and ``Class/method`` qualifiers — the runtime
+    emits step rows for class nodes themselves (parent steps) as well as
+    their leaf methods, and either form is legitimately ``in_code``.
+    """
+    expected: set[str] = set()
+    for m in modules:
+        for t in m.tests:
+            if t.class_name:
+                expected.add(t.class_name)  # class-as-step parent row
+                expected.add(f"{t.class_name}/{t.name}")  # method leaf
+            else:
+                expected.add(t.name)
+    return expected
+
+
+def observed_only_step_paths(modules: list[TestModuleRow]) -> list[TestRunStats]:
+    """Step paths in history with no matching test function in current source.
+
+    Surfaces tests that have been renamed, deleted, or run from a branch
+    whose code isn't currently checked out. Sorted by last_run desc so
+    the most-recently-orphaned paths come first.
+    """
+    all_stats = step_path_stats()
+    expected = _expected_step_paths(modules)
+    orphans = [stats for sp, stats in all_stats.items() if sp not in expected]
+    orphans.sort(key=lambda s: s.last_run or datetime.min, reverse=True)
+    return orphans
+
+
 # -----------------------------------------------------------------------------
 # Fixture Services
 # -----------------------------------------------------------------------------

@@ -10,9 +10,14 @@ from collections import defaultdict
 
 from nicegui import ui
 
-from litmus.ui.shared.components import page_layout
+from litmus.ui.shared.components import data_table, format_datetime, page_layout
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import TestModuleRow, walk_test_files
+from litmus.ui.shared.services import (
+    TestModuleRow,
+    observed_only_step_paths,
+    step_path_stats,
+    walk_test_files,
+)
 
 
 @ui.page("/tests")
@@ -21,6 +26,8 @@ def tests_page():
     create_layout("Tests")
 
     modules = walk_test_files()
+    stats_by_path = step_path_stats()
+    orphans = observed_only_step_paths(modules)
 
     with page_layout():
         with ui.row().classes("items-center justify-between w-full"):
@@ -29,7 +36,7 @@ def tests_page():
                 ui.label("Tests").classes("text-lg font-semibold text-slate-700")
                 ui.badge(f"{len(modules)} files").props("outline")
 
-        if not modules:
+        if not modules and not orphans:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("science").classes("text-4xl text-slate-300")
                 ui.label("No test files found.").classes("text-slate-500 mt-2")
@@ -45,7 +52,10 @@ def tests_page():
             for directory in sorted(groups.keys()):
                 _render_directory_header(directory)
                 for module in groups[directory]:
-                    _render_module_row(module)
+                    _render_module_row(module, stats_by_path)
+
+        if orphans:
+            _render_orphans_section(orphans)
 
 
 def _render_directory_header(directory: str) -> None:
@@ -54,10 +64,12 @@ def _render_directory_header(directory: str) -> None:
         ui.label(f"{directory}/").classes("text-sm font-mono font-semibold")
 
 
-def _render_module_row(module: TestModuleRow) -> None:
+def _render_module_row(module: TestModuleRow, stats_by_path: dict) -> None:
     """One file row under its directory header.
 
-    Clickable — navigates to the per-file detail page.
+    Clickable — navigates to the per-file detail page. Run-history
+    counts (runs / passed / failed) are summed across the module's
+    leaf step paths (``Class/method`` and bare ``test_func``).
     """
     if module.parse_error:
         with (
@@ -74,6 +86,15 @@ def _render_module_row(module: TestModuleRow) -> None:
     class_count = len(module.classes)
     parametrize_total = sum(t.parametrize_count for t in module.tests)
     markers_summary = sorted({m for t in module.tests for m in t.markers})
+
+    runs_total = 0
+    failed_total = 0
+    for t in module.tests:
+        key = f"{t.class_name}/{t.name}" if t.class_name else t.name
+        s = stats_by_path.get(key)
+        if s is not None:
+            runs_total += s.runs
+            failed_total += s.failed
 
     with (
         ui.row()
@@ -104,8 +125,70 @@ def _render_module_row(module: TestModuleRow) -> None:
             if len(markers_summary) > 4:
                 ui.label(f"+{len(markers_summary) - 4}").classes("text-xs text-slate-500")
 
+        # Run-history summary (only when any runs exist for this module)
+        if runs_total:
+            with ui.row().classes("items-center gap-1 text-xs text-slate-600"):
+                ui.label(f"{runs_total} runs").classes("text-slate-700")
+                if failed_total:
+                    ui.label(f"· {failed_total} failed").classes("text-red-600")
+
         # Sidecar indicator
         if module.has_sidecar:
             ui.badge("sidecar", color="primary").props("outline dense")
         else:
             ui.icon("remove", size="sm").classes("text-slate-300")
+
+
+def _render_orphans_section(orphans: list) -> None:
+    """Step paths in run history that don't match any current source.
+
+    Renames / deletions / runs from a different code state surface here.
+    """
+    with ui.row().classes("items-center gap-2 mt-6"):
+        ui.icon("history_toggle_off").classes("text-amber-600")
+        ui.label("Observed in history (no matching source)").classes(
+            "text-base font-semibold text-slate-700"
+        )
+        ui.badge(f"{len(orphans)}", color="warning").props("outline")
+
+    ui.label(
+        "Step paths in run history that don't match any current "
+        "test_*.py file — likely renamed, deleted, or run from a "
+        "different code state."
+    ).classes("text-sm text-slate-500 mb-1")
+
+    columns = [
+        {
+            "name": "step_path",
+            "label": "Step Path",
+            "field": "step_path",
+            "align": "left",
+            "sortable": True,
+        },
+        {"name": "runs", "label": "Runs", "field": "runs", "align": "right", "sortable": True},
+        {"name": "passed", "label": "Passed", "field": "passed", "align": "right"},
+        {"name": "failed", "label": "Failed", "field": "failed", "align": "right"},
+        {
+            "name": "last_run",
+            "label": "Last Run",
+            "field": "last_run",
+            "align": "left",
+            "sortable": True,
+        },
+    ]
+    rows = [
+        {
+            "step_path": o.step_path,
+            "runs": o.runs,
+            "passed": o.passed,
+            "failed": o.failed,
+            "last_run": format_datetime(o.last_run) if o.last_run else "—",
+        }
+        for o in orphans
+    ]
+    data_table(
+        columns=columns,
+        rows=rows,
+        row_key="step_path",
+        time_columns=["last_run"],
+    ).props('data-testid="tests-orphans-table"')

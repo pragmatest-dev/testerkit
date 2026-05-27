@@ -8,9 +8,9 @@ from pathlib import Path
 
 from nicegui import ui
 
-from litmus.ui.shared.components import data_table, page_layout
+from litmus.ui.shared.components import data_table, format_datetime, page_layout
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import walk_test_module
+from litmus.ui.shared.services import step_path_stats, walk_test_module
 
 
 @ui.page("/tests/{path:path}")
@@ -61,7 +61,8 @@ def test_detail_page(path: str):
 
         # Tests panel — one row per test function (with class qualifier)
         if module.tests and not module.parse_error:
-            _render_tests_panel(module)
+            stats_by_path = step_path_stats()
+            _render_tests_panel(module, stats_by_path)
 
         # Tabs: Code + Sidecar (if present)
         with ui.tabs().props("inline-label no-caps dense").classes("w-full") as tabs:
@@ -79,8 +80,8 @@ def test_detail_page(path: str):
             ui.link("← Back to Tests", "/tests").classes("text-blue-600 hover:underline")
 
 
-def _render_tests_panel(module) -> None:
-    """Table of test functions in the file."""
+def _render_tests_panel(module, stats_by_path: dict) -> None:
+    """Table of test functions in the file with per-test run history."""
     columns = [
         {"name": "name", "label": "Test", "field": "name", "align": "left", "sortable": True},
         {
@@ -104,21 +105,39 @@ def _render_tests_panel(module) -> None:
             "field": "sidecar",
             "align": "center",
         },
-    ]
-    rows = [
+        {"name": "runs", "label": "Runs", "field": "runs", "align": "right", "sortable": True},
+        {"name": "passed", "label": "Passed", "field": "passed", "align": "right"},
+        {"name": "failed", "label": "Failed", "field": "failed", "align": "right"},
         {
-            "name": t.name,
-            "class_name": t.class_name or "—",
-            "markers": ", ".join(t.markers) if t.markers else "—",
-            "parametrize_count": t.parametrize_count or "—",
-            "sidecar": "✓" if t.has_sidecar_entry else "—",
-        }
-        for t in module.tests
+            "name": "last_run",
+            "label": "Last Run",
+            "field": "last_run",
+            "align": "left",
+            "sortable": True,
+        },
     ]
+    rows = []
+    for t in module.tests:
+        key = f"{t.class_name}/{t.name}" if t.class_name else t.name
+        s = stats_by_path.get(key)
+        rows.append(
+            {
+                "name": t.name,
+                "class_name": t.class_name or "—",
+                "markers": ", ".join(t.markers) if t.markers else "—",
+                "parametrize_count": t.parametrize_count or "—",
+                "sidecar": "✓" if t.has_sidecar_entry else "—",
+                "runs": s.runs if s else 0,
+                "passed": s.passed if s else 0,
+                "failed": s.failed if s else 0,
+                "last_run": format_datetime(s.last_run) if s and s.last_run else "—",
+            }
+        )
     data_table(
         columns=columns,
         rows=rows,
         row_key="name",
+        time_columns=["last_run"],
     ).props('data-testid="test-functions-table"')
 
 
