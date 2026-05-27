@@ -1,18 +1,41 @@
-"""Instrument library list page — Catalog + Inventory as tabs."""
+"""Instrument library list page — Catalog + Inventory as tabs.
 
-from datetime import date
+The Inventory tab uses the merged-with-badge pattern (Configured /
+In use / Observed only) — same shape as ``/stations``, ``/products``,
+and ``/fixtures``. The Catalog tab lists instrument *types* (templates,
+not physical things); the observed side doesn't fit cleanly there and
+is intentionally not surfaced.
+"""
 
 from nicegui import ui
 
-from litmus.ui.shared.components import data_table, page_layout
+from litmus.ui.shared.components import (
+    data_table,
+    format_datetime,
+    page_layout,
+    push_url_state,
+)
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_instrument_assets, discover_instrument_types
+from litmus.ui.shared.services import (
+    discover_instrument_types,
+    instrument_assets_with_provenance,
+)
+
+# Filter chip vocabulary — keep in lockstep with InstrumentAssetRow.provenance.
+_FILTER_OPTIONS = ["All", "Configured", "In use", "Observed only"]
+_FILTER_TO_PROVENANCE = {
+    "Configured": "configured",
+    "In use": "in_use",
+    "Observed only": "observed_only",
+}
 
 
 @ui.page("/instruments")
-def instruments_page():
+def instruments_page(filter: str = "All"):
     """Instruments listing — Catalog (types) + Inventory (assets) tabs."""
     create_layout("Instruments")
+
+    active_filter = filter if filter in _FILTER_OPTIONS else "All"
 
     with page_layout():
         with ui.row().classes("items-center justify-between w-full"):
@@ -36,11 +59,15 @@ def instruments_page():
             with ui.tab_panel(catalog_tab):
                 _render_catalog_tab()
             with ui.tab_panel(inventory_tab):
-                _render_inventory_tab()
+                _render_inventory_tab(active_filter)
 
 
 def _render_catalog_tab():
-    """Catalog = instrument type definitions (capabilities + SCPI + simulation)."""
+    """Catalog = instrument type definitions (capabilities + SCPI + simulation).
+
+    Templates, not physical things — the merged-with-badge pattern
+    doesn't fit here, so the Catalog tab keeps its original shape.
+    """
     instrument_types = discover_instrument_types()
     if not instrument_types:
         with ui.card().classes("w-full p-6 text-center"):
@@ -85,16 +112,22 @@ def _render_catalog_tab():
     ).props('data-testid="instruments-catalog-table"')
 
 
-def _render_inventory_tab():
-    """Inventory = physical asset files (serials, calibration, manufacturer/model)."""
-    assets = discover_instrument_assets()
-    if not assets:
+def _render_inventory_tab(active_filter: str):
+    """Inventory = physical asset files joined with observed-from-runs.
+
+    Each row carries a status chip (Configured / In use / Observed only)
+    derived by joining the asset YAMLs against distinct instrument ids
+    seen in ``step_instruments_id`` across run history.
+    """
+    rows_data = instrument_assets_with_provenance()
+
+    if not rows_data:
         with ui.card().classes("w-full bg-blue-50 border-blue-200"):
             with ui.card_section():
                 with ui.row().classes("items-start gap-3"):
                     ui.icon("info", color="blue").classes("mt-1")
                     with ui.column().classes("gap-1"):
-                        ui.label("No instrument asset files found.").classes(
+                        ui.label("No instrument assets configured or observed.").classes(
                             "font-semibold text-blue-900"
                         )
                         ui.label(
@@ -104,6 +137,13 @@ def _render_inventory_tab():
         return
 
     columns = [
+        {
+            "name": "provenance",
+            "label": "Status",
+            "field": "provenance",
+            "align": "left",
+            "sortable": True,
+        },
         {"name": "id", "label": "ID", "field": "id", "align": "left", "sortable": True},
         {"name": "driver", "label": "Driver", "field": "driver", "align": "left"},
         {
@@ -121,35 +161,79 @@ def _render_inventory_tab():
             "sortable": True,
         },
         {"name": "cal_lab", "label": "Cal Lab", "field": "cal_lab", "align": "left"},
+        {"name": "runs", "label": "Runs", "field": "runs", "align": "right", "sortable": True},
+        {
+            "name": "last_run",
+            "label": "Last Run",
+            "field": "last_run",
+            "align": "left",
+            "sortable": True,
+        },
     ]
-    rows = []
-    for asset in assets:
-        cal_due = asset.calibration.due_date
-        if cal_due:
-            if isinstance(cal_due, date):
-                cal_str = cal_due.isoformat()
-            else:
-                cal_str = str(cal_due)
-        else:
-            cal_str = ""
 
-        mfr = asset.info.manufacturer or ""
-        model = asset.info.model or ""
-        identity = f"{mfr} {model}".strip() if (mfr or model) else ""
+    def _to_table_row(r) -> dict:
+        return {
+            "id": r.id,
+            "driver": r.driver,
+            "identity": r.identity,
+            "serial": r.serial,
+            "cal_due": r.cal_due,
+            "cal_lab": r.cal_lab,
+            "runs": r.runs,
+            "last_run": format_datetime(r.last_run) if r.last_run else "—",
+            "provenance": r.provenance,
+        }
 
-        rows.append(
-            {
-                "id": asset.id,
-                "driver": asset.driver or "",
-                "identity": identity,
-                "serial": str(asset.info.serial or ""),
-                "cal_due": cal_str,
-                "cal_lab": asset.calibration.lab or "",
-            }
-        )
-    data_table(
+    all_rows = [_to_table_row(r) for r in rows_data]
+
+    def _filtered(selected: str) -> list[dict]:
+        if selected == "All":
+            return all_rows
+        wanted = _FILTER_TO_PROVENANCE.get(selected)
+        return [row for row in all_rows if row["provenance"] == wanted]
+
+    with ui.row().classes("items-center gap-2 w-full"):
+        ui.label("Show:").classes("text-sm text-slate-500")
+        toggle = ui.toggle(
+            _FILTER_OPTIONS,
+            value=active_filter,
+        ).props("color=primary dense unelevated")
+
+    table = data_table(
         columns=columns,
-        rows=rows,
+        rows=_filtered(active_filter),
         row_key="id",
-        on_row_click=lambda r: ui.navigate.to(f"/instruments/{r['id']}"),
-    ).props('data-testid="instruments-inventory-table"')
+        on_row_click=lambda r: (
+            ui.navigate.to(f"/instruments/{r['id']}")
+            if r.get("provenance") != "observed_only"
+            else None
+        ),
+        time_columns=["last_run"],
+    )
+    table.props('data-testid="instruments-inventory-table"')
+
+    table.add_slot(
+        "body-cell-provenance",
+        """
+        <q-td :props="props">
+            <q-chip dense square
+                :color="props.value === 'in_use' ? 'positive'
+                    : props.value === 'observed_only' ? 'warning'
+                    : 'grey-4'"
+                :text-color="props.value === 'in_use' || props.value === 'observed_only'
+                    ? 'white' : 'grey-9'">
+                {{ props.value === 'in_use' ? 'In use'
+                   : props.value === 'observed_only' ? 'Observed only'
+                   : 'Configured' }}
+            </q-chip>
+        </q-td>
+        """,
+    )
+
+    def _on_filter_change(e):
+        selected = e.value or "All"
+        table.rows = _filtered(selected)
+        table.update()
+        push_url_state("/instruments", {"filter": selected})
+
+    toggle.on_value_change(_on_filter_change)

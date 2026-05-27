@@ -515,6 +515,135 @@ def discover_instrument_assets():
     return store_list_instrument_assets()
 
 
+def _instrument_id_usage_stats() -> dict[str, dict[str, Any]]:
+    """Run-count stats keyed by instrument id observed in ``step_instruments_id``.
+
+    The runs parquet stores per-step instrument arrays — one DuckDB row
+    per run carries ``step_instruments_id`` as a list. UNNESTing gives
+    one row per (run, instrument) pair; DISTINCT inside an outer count
+    would over-credit if the same instrument is used in multiple steps,
+    so the outer aggregation is grouped after UNNEST and counts distinct
+    ``run_id`` per instrument.
+    """
+    from litmus.analysis.runs_query import RunsQuery
+
+    sql = """
+        SELECT
+            inst_id AS value,
+            COUNT(DISTINCT run_id) AS runs,
+            COUNT(DISTINCT run_id) FILTER (WHERE outcome = 'passed') AS pass_count,
+            COUNT(DISTINCT run_id) FILTER (WHERE outcome = 'failed') AS fail_count,
+            MAX(started_at) AS last_run
+        FROM (
+            SELECT UNNEST(step_instruments_id) AS inst_id, run_id, outcome, started_at
+            FROM runs
+            WHERE step_instruments_id IS NOT NULL
+        )
+        WHERE inst_id IS NOT NULL AND inst_id <> ''
+        GROUP BY inst_id
+        ORDER BY runs DESC
+    """
+    try:
+        with RunsQuery() as q:
+            rows = q._query_dicts(sql)  # noqa: SLF001 — direct SQL is the documented escape hatch
+    except (ValueError, Exception):  # noqa: BLE001 — query layer can raise broadly
+        return {}
+
+    return {
+        r["value"]: {
+            "runs": r.get("runs", 0),
+            "passed": r.get("pass_count", 0),
+            "failed": r.get("fail_count", 0),
+            "last_run": r.get("last_run"),
+        }
+        for r in rows
+        if r.get("value")
+    }
+
+
+class InstrumentAssetRow(BaseModel):
+    """One row in the merged instrument-inventory list.
+
+    Mirrors :class:`StationRow` / :class:`ProductRow` / :class:`FixtureRow`.
+    ``identity`` is the joined manufacturer + model display string from
+    the asset YAML (empty for observed-only rows).
+    """
+
+    model_config = {"extra": "forbid"}
+
+    id: str
+    driver: str = ""
+    identity: str = ""
+    serial: str = ""
+    cal_due: str = ""
+    cal_lab: str = ""
+    runs: int = 0
+    passed: int = 0
+    failed: int = 0
+    last_run: datetime | None = None
+    provenance: Literal["configured", "in_use", "observed_only"]
+
+
+def instrument_assets_with_provenance() -> list[InstrumentAssetRow]:
+    """Union of YAML-configured instrument assets and assets observed in runs.
+
+    Observed side comes from :func:`_instrument_id_usage_stats` which
+    UNNESTs the per-run ``step_instruments_id`` array — an instrument
+    id that appears in any run but has no asset YAML is rendered as
+    ``observed_only``.
+    """
+    from datetime import date as _date
+
+    configured = {a.id: a for a in discover_instrument_assets()}
+    usage = _instrument_id_usage_stats()
+
+    rows: list[InstrumentAssetRow] = []
+    for asset_id, asset in configured.items():
+        stats = usage.get(asset_id, {})
+        runs = stats.get("runs", 0)
+        mfr = asset.info.manufacturer or ""
+        model = asset.info.model or ""
+        identity = f"{mfr} {model}".strip()
+
+        cal_due = asset.calibration.due_date
+        if cal_due:
+            cal_str = cal_due.isoformat() if isinstance(cal_due, _date) else str(cal_due)
+        else:
+            cal_str = ""
+
+        rows.append(
+            InstrumentAssetRow(
+                id=asset_id,
+                driver=asset.driver or "",
+                identity=identity,
+                serial=str(asset.info.serial or ""),
+                cal_due=cal_str,
+                cal_lab=asset.calibration.lab or "",
+                runs=runs,
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="in_use" if runs > 0 else "configured",
+            )
+        )
+
+    for asset_id, stats in usage.items():
+        if asset_id in configured:
+            continue
+        rows.append(
+            InstrumentAssetRow(
+                id=asset_id,
+                runs=stats.get("runs", 0),
+                passed=stats.get("passed", 0),
+                failed=stats.get("failed", 0),
+                last_run=stats.get("last_run"),
+                provenance="observed_only",
+            )
+        )
+
+    return rows
+
+
 def load_instrument_asset_by_id(instrument_id: str):
     """Load a single instrument asset file by ID."""
     return store_get_instrument_asset(instrument_id)
