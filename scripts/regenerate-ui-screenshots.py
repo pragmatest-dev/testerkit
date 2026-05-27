@@ -37,6 +37,16 @@ from playwright.sync_api import ViewportSize, sync_playwright
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ASSET_ROOT = REPO_ROOT / "docs" / "_assets" / "operator-ui"
+
+# Screenshots run against examples/07-profiles — the canonical fully-
+# featured example (catalog + stations + products + fixtures + profiles +
+# real test history). Running against the repo root means CONFIGURATION
+# entity pages (/stations, /products, /fixtures, /instruments, /tests)
+# all render empty because the litmus repo doesn't ship those YAMLs.
+#
+# To re-seed history data: ``cd examples/07-profiles && pytest`` then
+# wait ~3 s for the runs daemon to materialise parquet.
+SCREENSHOT_PROJECT = REPO_ROOT / "examples" / "07-profiles"
 SERVE_HOST = "127.0.0.1"
 SERVE_PORT = 8765
 SERVE_URL = f"http://{SERVE_HOST}:{SERVE_PORT}"
@@ -192,14 +202,39 @@ MANIFEST: list[Shot] = [
         selector="[data-testid='docs-cards']",
         output_path="tour/docs.png",
     ),
-    # NOTE: tour-bridge hero shots for the CONFIGURATION sidebar
-    # entries (stations / products / fixtures / instruments / tests /
-    # designer) are deferred until this script learns to run the
-    # serve subprocess against a seeded project (e.g. examples/06-
-    # station-catalog). The testids land on data-table containers
-    # that only render when the corresponding YAML files exist, and
-    # the litmus repo root has no station/product/fixture/instrument
-    # YAMLs of its own.
+    # Tour-bridge hero shots for the CONFIGURATION sidebar entries.
+    # The screenshot project (examples/07-profiles) ships YAMLs for all
+    # of these so the data-table containers actually render.
+    Shot(
+        url="/stations",
+        selector="[data-testid='stations-table']",
+        output_path="tour/stations.png",
+    ),
+    Shot(
+        url="/products",
+        selector="[data-testid='products-table']",
+        output_path="tour/products.png",
+    ),
+    Shot(
+        url="/fixtures",
+        selector="[data-testid='fixtures-table']",
+        output_path="tour/fixtures.png",
+    ),
+    Shot(
+        url="/instruments",
+        selector="[data-testid='instruments-catalog-table']",
+        output_path="tour/instruments.png",
+    ),
+    Shot(
+        url="/tests",
+        selector="[data-testid='tests-table']",
+        output_path="tour/tests.png",
+    ),
+    Shot(
+        url="/designer",
+        selector="[data-testid='designer-surface']",
+        output_path="tour/designer.png",
+    ),
 ]
 
 
@@ -277,7 +312,7 @@ def _resolve_placeholders(shots: list[Shot]) -> list[Shot]:
 
     raw = subprocess.check_output(
         ["uv", "run", "litmus", "runs", "--json", "--limit", "1"],
-        cwd=REPO_ROOT,
+        cwd=SCREENSHOT_PROJECT,
         text=True,
     )
     rows = json.loads(raw)
@@ -314,7 +349,7 @@ def main() -> int:
             "--port",
             str(SERVE_PORT),
         ],
-        cwd=REPO_ROOT,
+        cwd=SCREENSHOT_PROJECT,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

@@ -127,7 +127,7 @@ flowchart TB
         direction LR
         events["Events<br/>(Arrow)"]
         channels["Channels<br/>(Arrow)"]
-        parquet["Parquet<br/>(runs/)"]
+        parquet["Runs<br/>(Parquet)"]
     end
 
     UI --> Platform --> Storage
