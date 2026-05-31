@@ -468,10 +468,10 @@ ChannelStore explicitly **does not** support composite/struct values per row (no
 `ChannelDescriptor` (`models.py:19-28`) is **global, kind-level**, no `session_id`, no `run_id`:
 
 ```
-channel_id, data_type, instrument_role, resource, units, properties (dict), first_seen
+channel_id, data_type, instrument_role, resource, units, attributes (dict), first_seen
 ```
 
-`properties` is the dict for project-specific metadata (channel-level). **No promoted typed fields for `sample_rate` / `dt`** — those are waveform-specific concepts and live on the Waveform model. The descriptor uniformly serves any channel shape.
+`attributes` is the dict for project-specific metadata (channel-level). **No promoted typed fields for `sample_rate` / `dt`** — those are waveform-specific concepts and live on the Waveform model. The descriptor uniformly serves any channel shape. *(Today this field is `properties` in source; rename to `attributes` is build item 17 — pre-1.0 mechanical alignment with `FileArtifactMetadata.attributes` and `Waveform.attributes`.)*
 
 **Channel kind is global per `channel_id`, NOT per session.** One descriptor per `channel_id` across all sessions. The kind-registry (`_registry.json`) is session-agnostic. So `data_type`, `units`, `instrument_role`, and (after build item 14) the leaf type are pinned at first write and validated on every subsequent write, **across all sessions ever**. Two sessions cannot have the same `channel_id` with different leaf types — the second one errors. This is intentional: cross-session analytics need stable schemas per channel.
 
@@ -533,7 +533,7 @@ For edge cases (intentional schema migration, instrument swap): a `litmus channe
 wf.Y               → samples column
 wf.t0              → acquired_at column (instrument's clock for the first sample)
 wf.dt              → sample_interval column (per-acquisition spacing)
-wf.attrs           → descriptor.properties (channel-level) or row-inlined (per-acquisition); TBD
+wf.attributes      → descriptor.attributes (channel-level) or row-inlined (per-acquisition); TBD
 platform wall-clock → received_at column
 ```
 
@@ -1030,6 +1030,15 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 
 16. **Optional `namespace` argument on `observe` / `verify` / `stream`.** Addresses the channel-collision risk for test authors (§5 naming subsection). Author can write `observe("voltage", v, namespace="psu_under_test")` instead of `observe("psu_under_test.voltage", v)`. The effective `channel_id` is the dotted form. Drivers already get this for free via `observer.read` (instrument_role auto-prepends); this exposes the same convenience to test code. Small lift on the verb signatures; non-breaking (omitting namespace = today's behavior). Pre-1.0.
 
+**Schema vocabulary consistency:**
+
+17. **Rename metadata-dict fields to `attributes` across all schemas.** Today three different names for the same concept:
+    - `ChannelDescriptor.properties` (`channels/models.py:27`)
+    - `Waveform.attrs` (`data/models.py:485-515`)
+    - future `FileArtifactMetadata.attributes` (build item 1)
+
+    Pick **`attributes`** as canonical: matches HDF5 / xarray / pandas (newer Python data-science ecosystem); avoids `@property` decorator ambiguity; user-facing in `Waveform` (test authors construct `Waveform(t0, dt, Y, attributes=...)`). Mechanical rename in three places + their call sites. Pre-1.0; no backcompat shim. Sets up clean cross-store attribute queries when L1 lands (same field name on every store). Small lift; the design doc already refers to "attributes" everywhere — this is the source-side alignment.
+
 **That's a shippable v1.** Every captured artifact is durably stored; every capture leaves an event with a claim URI; the API is three verbs with consistent dispatch; parquet rows manifest by a single fixed policy; the existing `artifact_viewer` + ref endpoint already surface the artifacts. No attribute query yet — findability at MVP is **URL resolution from the run/event that referenced the artifact**.
 
 ### Long-term
@@ -1172,7 +1181,7 @@ None of the editorial moves are architectural bets. They're surface choices, rec
 
 - **`observer.read` rename** — small change, deferred until someone touches the file.
 - **`acquired_at` source semantics** per driver — what does "instrument time" mean precisely for each instrument? Per-driver decisions; not blocking the schema change.
-- **`Waveform.attrs` landing spot** — descriptor `properties` vs row-inlined. Defer; not blocking.
+- **`Waveform.attributes` landing spot** — descriptor `attributes` vs row-inlined. Defer; not blocking. (Names assume build item 17 has landed — today the source fields are `Waveform.attrs` and `ChannelDescriptor.properties`.)
 - **Consumer SDK implementation details** — actual class layout, async-vs-sync, transport. Sketch above is the shape; implementation needs a real spike.
 - **`channels.stream` context-manager handle shape** — exact methods (`.write`, `.close`, `.flush`). Bikeshed-friendly, defer.
 - **Sample-rate / dt promotion to descriptor** — explicitly **not** doing in v1; revisit if a real use case lands that needs typed-field queryability (`SELECT channels WHERE sample_rate > 1e6`).
