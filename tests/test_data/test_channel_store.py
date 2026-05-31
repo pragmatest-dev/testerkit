@@ -34,7 +34,9 @@ class TestScalarChannel:
         table = reader.read_all()
         assert len(table) == 2
         assert "value" in table.schema.names
-        assert "timestamp" in table.schema.names
+        # Item 11: ``timestamp`` → ``received_at`` + nullable ``sampled_at``.
+        assert "received_at" in table.schema.names
+        assert "sampled_at" in table.schema.names
 
     def test_empty_session_no_files(self, tmp_path: Path):
         store = _make_store(tmp_path)

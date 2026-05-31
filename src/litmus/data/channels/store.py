@@ -242,6 +242,7 @@ class ChannelStore:
         source: str = "observe",
         instrument_role: str = "",
         resource: str = "",
+        sampled_at: datetime | None = None,
     ) -> str:
         """Write a value directly to a channel.
 
@@ -262,6 +263,12 @@ class ChannelStore:
             resource: Driver connection string (VISA address etc.) of
                 the instrument producing this channel. Same purpose
                 as ``instrument_role`` — first-write provenance.
+            sampled_at: Hardware-side sampling timestamp (build
+                item 11). ``None`` if the driver doesn't know; the
+                ``received_at`` column always captures the system-side
+                write time so analytics has a fallback. Most scope /
+                DAQ acquisitions carry a hardware timestamp; simple
+                DMM measure calls don't.
 
         Returns:
             ``channel://`` URI pointing to this data in the store.
@@ -290,6 +297,7 @@ class ChannelStore:
             source,
             units=units,
             sample_interval=sample_interval,
+            sampled_at=sampled_at,
         )
         if row is None:
             raise ValueError(f"Channel {channel_id}: could not classify value")
@@ -359,18 +367,30 @@ class ChannelStore:
         self,
         channel_id: str,
         value: object,
-        timestamp: datetime,
+        received_at: datetime,
         source: str,
         *,
         units: str | None = None,
         sample_interval: float | None = None,
+        sampled_at: datetime | None = None,
     ) -> tuple[str, dict | None, ChannelSample | None]:
-        """Convert a value to an Arrow-compatible row dict."""
+        """Convert a value to an Arrow-compatible row dict.
+
+        ``received_at`` (build item 11) is the system-side write time
+        — always set. ``sampled_at`` is the optional hardware-side
+        sampling time; callers with a hardware-timestamped sample
+        pass it through.
+        """
         normalized = self._normalize_value(value, sample_interval)
 
         sid = str(self._session_id)
 
-        common = {"timestamp": timestamp, "source_method": source, "session_id": sid}
+        common = {
+            "received_at": received_at,
+            "sampled_at": sampled_at,
+            "source_method": source,
+            "session_id": sid,
+        }
 
         if isinstance(normalized, dict):
             row: dict = {**common, **normalized}
@@ -404,7 +424,8 @@ class ChannelStore:
 
         sample = ChannelSample(
             channel_id=channel_id,
-            timestamp=timestamp,
+            received_at=received_at,
+            sampled_at=sampled_at,
             value=sample_value,
             units=units,
             sample_interval=sample_interval,
@@ -553,14 +574,16 @@ class ChannelStore:
 
         result = pa.concat_tables(tables, promote_options="permissive")
 
-        # Filter by time range
+        # Filter by time range. ``start``/``end`` filter against
+        # ``received_at`` (the system-side write time, always present);
+        # ``sampled_at`` is nullable and not all rows have it.
         if start is not None or end is not None:
-            timestamps = result.column("timestamp").to_pylist()
+            received = result.column("received_at").to_pylist()
             start_utc = _to_utc(start)
             end_utc = _to_utc(end)
             keep = [
                 (not start_utc or ts >= start_utc) and (not end_utc or ts <= end_utc)
-                for ts in timestamps
+                for ts in received
             ]
             result = result.filter(keep)
 
