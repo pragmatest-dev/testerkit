@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
 from litmus.data.ref import classify_value
@@ -139,6 +140,7 @@ class Context:
         prev: Context | None = None,
         harness: TestHarness | None = None,
         channel_store: Any | None = None,
+        session_id: UUID | None = None,
     ):
         """Initialize context with optional parent for inheritance.
 
@@ -147,11 +149,21 @@ class Context:
             prev: Previous sibling context (for change detection across vectors).
             harness: TestHarness reference for accessing limits and other harness features.
             channel_store: Optional ChannelStore for direct writes of numeric data.
+            session_id: Session this context belongs to. Required for blob observations
+                (routed through FileStore.put which is session-scoped). Production
+                paths pull from the active session; some test paths leave None.
         """
         self._parent = parent
         self._prev = prev
         self._harness = harness
         self._channel_store = channel_store
+        # session_id: pull from harness if not explicit (so subcontexts inherit
+        # without callers having to thread it through every time).
+        if session_id is None and harness is not None:
+            session_id = getattr(harness, "_session_id", None)
+        elif session_id is None and parent is not None:
+            session_id = parent._session_id
+        self._session_id: UUID | None = session_id
         self._params: dict[str, Any] = {}
         self._observations: dict[str, Any] = {}
         # ``connections`` iterates :class:`FixtureConnection` objects the
@@ -191,16 +203,42 @@ class Context:
         """Record an observation/measurement context (→ out_* column).
 
         Use for measured environmental data, raw readings, and context.
-        Numeric arrays are written to ChannelStore directly and a URI is stored.
+        Numeric arrays go to ChannelStore directly and a URI is stored.
+        Blobs (Path, bytes, Image, Waveform, Pydantic model, etc.) go to
+        FileStore and a ``file://`` URI is stored.
 
         Args:
             key: Observation name (e.g., "temp_probe.temperature", "scope.waveform").
-            value: The observed value. Large arrays go to ChannelStore, blobs to file store.
+            value: The observed value. Numeric arrays go to ChannelStore;
+                blobs go to FileStore; scalars stay inline.
         """
-        if self._channel_store is not None and value is not None:
+        if value is not None:
             vtype = classify_value(value)
-            if vtype in ("numeric_array", "channel"):
+            if vtype in ("numeric_array", "channel") and self._channel_store is not None:
                 uri = self._channel_store.write(key, value, source="observe")
+                self._observations[key] = uri
+                return
+            if vtype == "blob":
+                # Item 3a — fixes half of the image-drop. Route blobs through
+                # FileStore.put; stash the resulting URI in observations.
+                # Pre-3a: blobs were silently stashed as raw values, never
+                # written to disk except via the at-RunEnded materializer
+                # _ref path (and the latter only when run materialization
+                # actually ran — blobs were lost on crash).
+                if self._session_id is None:
+                    raise RuntimeError(
+                        f"Cannot observe blob ({type(value).__name__}) for {key!r}: "
+                        "Context has no session_id. Production paths plumb session_id "
+                        "via TestHarness; tests that exercise the blob path must "
+                        "pass session_id explicitly."
+                    )
+                from litmus.data.files import get_filestore  # noqa: PLC0415
+
+                uri = get_filestore().put(
+                    name=key,
+                    value=value,
+                    session_id=str(self._session_id),
+                )
                 self._observations[key] = uri
                 return
 
@@ -513,6 +551,7 @@ class TestHarness:
         instruments: dict[str, Any] | None = None,
         mock_instruments: bool = False,
         channel_store: Any | None = None,
+        session_id: UUID | None = None,
     ):
         """Initialize harness.
 
@@ -527,6 +566,10 @@ class TestHarness:
             instruments: Dictionary of instrument instances for mock configuration.
             mock_instruments: Whether using mock instruments.
             channel_store: Optional ChannelStore for direct writes of numeric data.
+            session_id: Session this harness's contexts belong to. Production paths
+                (pytest plugin, connect.py, slot_runner) pass the active session;
+                test paths can leave None when the blob-observation path isn't
+                exercised.
         """
         self._config = config or {}
         self._logger = logger
@@ -535,6 +578,7 @@ class TestHarness:
         self._instruments = instruments or {}
         self._mock_instruments = mock_instruments
         self._channel_store = channel_store
+        self._session_id = session_id
         self._test_level_mock = self._config.get("mocks", {})
 
         # Parse retry config
