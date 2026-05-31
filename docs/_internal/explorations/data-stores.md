@@ -73,9 +73,10 @@ These are **expected ranges**, not benchmarked promises. End-to-end Flight throu
 | FileStore stream (sink) | Direct file write via format library (PyAV / soundfile / etc.) | video H.264 via PyAV ~50–200 MB/s; raw byte streams → disk speed | encoder CPU + disk |
 | ParquetBackend (materialization) | Batch write at RunEnded | not throughput-critical — sized to one run | one-shot per run; no continuous load |
 
-Two write-side takeaways:
+Three write-side takeaways:
 - For **high-rate continuous numerics**, ARRAY_SCHEMA on ChannelStore is the right tool (~100s of MB/s). Per-sample SCALAR_SCHEMA is fine for moderate rates (DMM polling, sensor sampling) but per-sample notify limits it.
 - For **video and large continuous captures**, FileStore's streaming sink wrapping a format library (PyAV) hits encoder-bound throughput, not store-bound throughput. The store is just the orchestrator.
+- **EventStore write volume drops dramatically under Position 2** (channel events are lifecycle-only; see §8). Pre-Position-2 estimates assumed ~1 event per channel sample; under Position 2 it's ~1 event per channel per session (`ChannelStarted`) + ~1 per close. For a 10 kHz channel that wrote 10M samples in a session, the EventStore sees **2 events**, not 10 million. The ~1-10K events/s number above stays accurate for *significant* events (lifecycle, measurements, errors); the per-sample flood that would push much higher just doesn't happen.
 
 ### Read performance per store
 
@@ -706,14 +707,69 @@ Every meaningful operation emits an event; each carries data inline (when small)
 | Operation | Event emitted | Data lands in | Event payload carries |
 |---|---|---|---|
 | `observe(name, scalar)` | `Observation` *(needs adding — silent today)* | event itself | `name`, `value` inline |
-| `observe(name, channel-shaped)` | `Observation` *(needs adding)* | ChannelStore (one row) | `name`, `channel://…` claim |
+| `observe(name, channel-shaped)` | `Observation` + `ChannelStarted` *(first write per channel/session only)* | ChannelStore (one row per call) | `Observation`: `name`, `channel://…` claim. `ChannelStarted`: see below |
 | `observe(name, file-shaped)` | `Observation` *(needs adding)* | FileStore | `name`, `file://…` claim, mime/dtype attrs |
 | `verify(name, scalar, limit)` | `Measurement` | event itself | `name`, `value`, `limit`, `outcome` |
 | `verify(name, non_scalar)` | `Measurement` | ChannelStore or FileStore (by shape) | `name`, `value=NULL`, `outcome=DONE`, claim URI |
-| `stream(name, sample)` | `InstrumentRead`-style event per write | ChannelStore (one row per call) | inline value or `channel://…` claim |
-| `observer.read(...)` (driver) | `InstrumentRead` | ChannelStore | scalar inline OR `channel://…` claim + `{length, sample_interval, min, max}` |
+| `stream(name, sample)` | `ChannelStarted` (first write per channel/session only) | ChannelStore (one row per call) | **NO per-sample event** — sample data via ChannelStore subscription only |
+| `channels.write(name, sample)` | `ChannelStarted` (first write per channel/session only) | ChannelStore (one row per call) | same — no per-sample event |
+| `observer.read(...)` (driver) | `ChannelStarted` (first write per channel/session only) + (existing) `InstrumentConnected` carries instrument identity at connect time | ChannelStore (one row per call) | same — no per-sample event |
 | `filestore.stream(name, format)` | `StreamStarted` / `StreamFrameIndex` ×N / `StreamEnded` | FileStore (one file, incremental) | `stream_id`, `format`, `path`, final `file://…` in `StreamEnded` |
+| Channel pruned (retention) | `ChannelClosed` | — | `channel_id`, `session_id`, `reason` |
 | Run / step / vector lifecycle | `RunStarted`, `StepStarted`, `VectorStarted`, `VectorEnded`, `StepEnded`, `RunEnded` | event itself | identifiers + timestamps |
+
+### Channel events are lifecycle-only, not per-sample
+
+> **Architectural call (Position 2 — adopted for v0.2.0):** the EventStore is the timeline of *significant moments*; channel sample data is NOT a stream of timeline events. Per-sample channel writes go to ChannelStore only. Subscribers wanting per-sample data subscribe to ChannelStore via Flight `do_get`; subscribers wanting the timeline subscribe to EventStore.
+
+This matches the OTel-shaped split (traces ≠ metric samples). Reasons:
+
+- **Scaling.** Channels can write at 10 kHz+; per-sample events flood the EventStore. The event log was the dominant write-side cost and the JSON-payload-filter the dominant read-side cost. Lifecycle-only makes both vanish for sample data.
+- **Honesty.** Per-sample writes aren't "things that happened" at the timeline level — they're continuous data. Mixing them with run/step/vector lifecycle events makes the timeline harder to scan for significant moments.
+- **No data loss.** Sample data is still complete in ChannelStore (every sample is a row). The event log just isn't the place to consume it.
+- **Tool affinity.** Per-sample subscribers already want ChannelStore semantics (typed rows, time-window queries, per-sample notify). Forcing them through the event log was the wrong shape.
+
+**What lifecycle events for channels actually carry:**
+
+```python
+class ChannelStarted(EventBase):
+    """First sample written to a channel in this session.
+
+    Once per (channel_id, session_id). Carries enough context to
+    let consumers find + subscribe to the channel without further
+    discovery.
+    """
+    event_type: Literal["channel.started"] = "channel.started"
+    channel_id: str
+    data_type: str              # "scalar:float", "array:bool", etc. (per item 14)
+    units: str | None = None
+    # Instrument fields — populated when source is an instrument (observer.read);
+    # null for stream() / channels.write / daemon-driven writes.
+    instrument_role: str | None = None
+    method: str | None = None
+    resource: str | None = None
+
+class ChannelClosed(EventBase):
+    """Channel reached end of session OR was retention-pruned.
+
+    Once per (channel_id, session_id). Useful for consumers tracking
+    "channel is still being written to" vs "no more data coming".
+    """
+    event_type: Literal["channel.closed"] = "channel.closed"
+    channel_id: str
+    reason: str  # "session_ended" | "retention_prune" | etc.
+```
+
+**What goes away under Position 2:**
+
+- `InstrumentRead` as a per-sample event — retired in v0.2.0. Its instrument-identity payload moves to `ChannelStarted` (instrument fields, populated when applicable) + the existing `InstrumentConnected` (fires once per instrument per session, already carries `manufacturer` / `model` / `serial` / `firmware` / `cal_*`).
+- No new `ChannelSample` per-sample event. Sample data is reachable via ChannelStore queries / subscriptions; the event log doesn't duplicate it.
+
+**What this means for consumers:**
+
+- "Live plot of channel X" → subscribe to ChannelStore Flight `do_get` (per-sample push). EventStore subscription only for "channel X started" / "channel X closed" notifications.
+- "What was happening in this run?" → walk EventStore for the significant moments; correlate to ChannelStore queries (by session_id + time bounds) for sample data when needed.
+- "Audit trail of every read" → ChannelStore IS the audit trail (every sample is a row, immutable, session-stamped). No need for per-sample events.
 
 ### Hierarchical context — what each level's lifecycle event snapshots
 
@@ -967,9 +1023,9 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 2. **No streaming sink.** `save_ref_to_dir` writes whole values. `StreamStarted` / `StreamEnded` / `StreamFrameIndex` events at `events.py:616` are defined but no writer backs them.
 3. **No live home for produced files.** `_ref` at the RunStore is materialization-only; the EventLog `_ref` is live but unused for blobs. Produced files during a run are held in-memory — won't survive a crash, can't hold a video.
 4. **`observe()` emits no event.** `Context.observe()` (`harness.py:190`) writes arrays to the channel but emits no event — manually-observed captures are untraceable, invisible to live subscribers, missing from the timeline.
-5. **`observer.read` doesn't stamp the vector's `out_*`.** Scalar instrument readings link to verify rows only via the event log today, not via row columns. Breaks the polymorphic `observe`/`verify` symmetry.
+5. **`observer.read` doesn't stamp the vector's `out_*`.** Scalar instrument readings link to verify rows only via the event log today, not via row columns. Breaks the polymorphic `observe`/`verify` symmetry. (Note: under Position 2 — see §8 — per-sample events are retired; stamping happens once per (vector, channel) pair on first write into that vector, not per sample.)
 6. **`observe`/`verify` route incorrectly for arrays today.** `classify_value` (`ref.py:19-39`) sends `numeric_array` → ChannelStore for any caller, which is right for stream-from-instrument but currently bypasses the explicit-verb model. Need the dispatch to honor the verb's intent.
-7. **Metadata/attribute search is not performant.** Events are opaque JSON for filter-on-payload; the only typed index (run parquet) is run-scoped, missing standalone data.
+7. **Metadata/attribute search is not performant.** Events are opaque JSON for filter-on-payload; the only typed index (run parquet) is run-scoped, missing standalone data. (Under Position 2 the volume is dramatically smaller — only lifecycle events stay in EventStore — but the typed-payload work (item 21) still helps for the lifecycle events that DO exist.)
 8. **ChannelStore type support is limited / lossy.** `_infer_field_type` (`channels/models.py:45-66`) casts scalar `int` → `pa.float64()` (truncates large ints; loses int semantics); `_infer_schema` array branch (line 86) **hardcodes** `pa.list_(pa.float64())` regardless of element type. Result: a list of `bool` (digital waveform) round-trips as `[1.0, 0.0, 1.0]`; a list of `str` (status stream) is broken; numpy dtypes are erased. Only float arrays work cleanly.
 
 ---
@@ -996,13 +1052,19 @@ Item 1 is the foundation; decomposed for execution clarity.
 
 3. **Blob → `file://` claim-check** — fixes the image-drop. Route blobs through FileStore in `InstrumentRead` serialization AND in `observe()` instead of `repr()`. DoD: `tests/test_image_drop_fix.py` writes an image via `observer.read` and via `observe()`, asserts both produce a `file://` claim and resolve to readable bytes.
 4. **`observe()` emits a claim event** the way `observer.read` does. Adds `Observation` event for every observe call (scalar inline; non-scalar carrying URI). DoD: every `observe()` call results in exactly one event in the EventStore; consumers can subscribe and react.
-5. **`observer.read` stamps the vector's `out_*`** so scalar instrument readings link to verify rows via row columns, not just events. **This PR also renames `observer.read` → `record_read`** (the naming-smell rename rides this change since the file is touched). Update all call sites in driver code. DoD: verify rows in a vector that had `observer.read` calls show `out_<channel_name>` columns; rename grep returns zero old references.
+4b. **Introduce `ChannelStarted` + `ChannelClosed` event classes; retire per-sample `InstrumentRead`.** (Position 2; see §8.) Two new event classes in `events.py`:
+    - `ChannelStarted(channel_id, data_type, units?, instrument_role?, method?, resource?)` — fires once per `(channel_id, session_id)` on first write into a channel. Carries instrument fields when source is an instrument; null otherwise.
+    - `ChannelClosed(channel_id, reason)` — fires when a channel is sealed for a session (session_ended) or retention-pruned. Useful for consumers tracking "still being written to" vs "no more data coming".
+    - `InstrumentRead` itself is **retired** in v0.2.0 — per-sample events go away. Instrument identity moves to `ChannelStarted`'s optional fields + the existing `InstrumentConnected` (already fires once at connect time; carries `manufacturer`/`model`/`serial`/`firmware`/`cal_*`).
+    - Per no-backcompat principle: no alias for `InstrumentRead`; consumers reading the old event type get migrated to read `ChannelStarted` / subscribe to ChannelStore directly for sample data.
+    - DoD: `tests/test_events_channel_lifecycle.py` covers `ChannelStarted` firing once per (channel, session), `ChannelClosed` firing on close, instrument-source vs non-instrument-source field population, and no per-sample event during a multi-sample channel write.
+5. **`observer.read` stamps the vector's `out_*`** so scalar instrument readings link to verify rows via row columns, not just events. **Position 2 reshape:** per-sample events are retired (see §8 + new item 4b); stamping happens once per `(vector, channel_id)` pair on first write into that vector, not per sample event. `observer.read` itself: writes channel + emits `ChannelStarted` on first write per channel/session + stamps vector `out_*` on first write per vector. **This PR also renames `observer.read` → `record_read`** (the naming-smell rename rides this change since the file is touched). DoD: verify rows in a vector that had `observer.read` calls show `out_<channel_name>` columns; ChannelStarted event fires exactly once per (channel, session); rename grep returns zero old references.
 
 **Dispatch (fixes gap 6):**
 
 6. **`observe`/`verify` dispatch by value shape, not by classify_value-as-of-today.** Channel-shaped numerics (Waveform, numeric ndarray) → ChannelStore; arbitrary bytes/formats → FileStore. References (handle, URI, Path-already-in-FileStore) stamped without re-write.
-7. **`stream(name, sample)` verb** as the test-author-facing channel-write sugar (sugar over `channels.write`). One-line append-a-sample; never auto-associates.
-8. **Symmetric streaming verbs**: `channels.write` / `channels.stream` + `filestore.put` / `filestore.stream`. Both one-shot and context-managed shapes per store.
+7. **`stream(name, sample)` verb** as the test-author-facing channel-write sugar (sugar over `channels.write`). One-line append-a-sample; never auto-associates. **Position 2:** emits `ChannelStarted` once per channel/session on first write; subsequent writes go to ChannelStore only (no per-sample event). DoD: `tests/test_stream.py` covers per-sample channel write + `ChannelStarted` fires exactly once + ChannelStore receives every sample + no per-sample event in the EventStore.
+8. **Symmetric streaming verbs**: `channels.write` / `channels.stream` + `filestore.put` / `filestore.stream`. Both one-shot and context-managed shapes per store. **Position 2:** `channels.write` / `channels.stream` follow the same lifecycle-event-only pattern as item 7.
 
 **Materialization:**
 
@@ -1057,11 +1119,12 @@ Item 1 is the foundation; decomposed for execution clarity.
 20. **Consumer SDK (`litmus.live`)** — typed event objects, `subscribe_events` / `subscribe_channel` / `subscribe_file` / `subscribe_run_live` / `deref`. **Commit to async** as the canonical API (matches Flight `do_get`'s natural generator semantics + non-blocking UI consumers). Hides transport + URI dispatch; doesn't hide data shape. DoD: `tests/test_litmus_live.py` covers each subscription primitive + `deref`; a sample MCP tool consumes runs via the SDK.
 
 21. **Typed Arrow event payloads.** Replace the opaque `json` string payload column in `event_log.py:31-40` with native nested Arrow structs per event type. Two reasonable schema shapes — union payload column or per-event-type record batches in one IPC file (the latter closer to how Arrow IPC already works). Either way, the envelope (`event_number`, `event_type`, `session_id`, `received_at`) stays typed and indexed; payload becomes typed too.
-    - **Write gain:** 5–10× (no per-event JSON encode)
-    - **Read gain on payload filters:** **10–50×** (columnar pushdown + DuckDB statistics vs full-scan + JSON parse). The bigger number; more important for analytic workflows.
+    - **Write gain:** 5–10× per event (no per-event JSON encode). Under Position 2 (see §8 + item 4b) event volume drops dramatically because per-sample channel events are retired, so the aggregate write-throughput pressure on EventStore is much lower than pre-Position-2 estimates suggested.
+    - **Read gain on payload filters:** **10–50×** (columnar pushdown + DuckDB statistics vs full-scan + JSON parse). Still the bigger number for the lifecycle events that DO exist (filtering `ChannelStarted` by `instrument_role`, `InstrumentConnected` by `model`, etc.).
     - **Closes the "events aren't a search surface" gap** for any predicate inside the payload.
     - Substantial lift — every event consumer (UI, materializer, MCP tools, exporters) reads from JSON today; all need updating. Plan for proportional execution time.
-    - DoD: payload-field filter queries (e.g., `event_type = 'InstrumentRead' AND payload.channel_id = 'X'`) execute against typed columns; existing consumers continue working.
+    - **Urgency drops under Position 2** — without the per-sample event flood, the JSON payload bottleneck is no longer the dominant perf issue. Still worth doing for correctness + queryability of lifecycle event payloads, but lower-priority than pre-Position-2.
+    - DoD: payload-field filter queries (e.g., `event_type = 'ChannelStarted' AND payload.instrument_role = 'scope'`) execute against typed columns; existing consumers continue working.
 
 22. **Local shared-memory transport for Consumer SDK.** When subscriber is on the same machine as producer, use `multiprocessing.shared_memory` (or POSIX `shm`) for zero-copy reads instead of Flight over loopback. Transport selection auto-detects local vs network.
     - Symmetric gain on reads and writes (3–10× for local subscribers); consumer CPU drops to near-zero.
