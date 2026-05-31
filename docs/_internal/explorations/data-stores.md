@@ -352,6 +352,63 @@ observe("dut_video", sink)        # link to this vector
 - `EventLog.emit(...)` directly — events are emitted by the verbs and lifecycle machinery.
 - Format-specific serializer calls (`.npz`/`.png`/`.mp4`) — pass the Python object; the registry picks the format.
 
+### Related and composite data — XY, complex, paired streams
+
+A common T&M shape is **two related arrays/streams** — IV curves (V + I), S-parameters (real + imag), eye diagrams (time-offset + voltage), spectrum analyses (frequency + magnitude). The architecture handles these without adding store complexity. Two patterns, picked by use case:
+
+**Pattern A — Two related channels (for streaming, live UI).** When the data is continuous over time and you want it live-subscribable, use two channels with a **shared prefix**:
+
+```python
+# Streaming IV sweep over time
+stream("iv_sweep.voltage", psu.measure_voltage())
+stream("iv_sweep.current", dmm.measure_current())
+
+# Streaming complex S11 (real + imag as paired channels)
+stream("s11.real", complex_val.real)
+stream("s11.imag", complex_val.imag)
+```
+
+Relationship is preserved by **naming convention** + **shared session/timestamps**. Reader correlates by timestamp join (in close-timing acquisitions, exact match; otherwise within ε). Each axis stays independently live-subscribable — UIs can plot voltage and current side-by-side, or compute current/voltage live.
+
+**Pattern B — One discrete artifact (for captures).** When the data is a complete dataset captured at one moment (one IV curve per test, one full S-parameter sweep), use a Pydantic model or numpy array. The serialization registry routes it to FileStore:
+
+```python
+# IV curve as a discrete artifact per vector
+xy = XYData(x=voltages, y=currents, x_units="V", y_units="A")
+observe("iv_curve", xy)                   # → FileStore as .npz
+
+# Complex sweep — numpy complex128 is a primitive dtype
+s_params = np.array([0.5+0.3j, 0.4+0.2j, ...], dtype=np.complex128)
+observe("s11_sweep", s_params)            # → FileStore as .npy (round-trips losslessly)
+
+# Eye diagram XY scatter
+observe("eye_diagram", XYData(x=time_offsets, y=voltage_samples))
+```
+
+`XYData` is a small Pydantic model (`x`, `y`, optional `x_units`/`y_units`/`x_name`/`y_name`) — see build item 15. Numpy `complex64`/`complex128` are first-class dtypes that round-trip through `np.save` cleanly; the existing serialization registry handles them without special-casing.
+
+**When to use which:**
+
+| Your data | Pattern |
+|---|---|
+| Streaming pairs over time, live UI watchability | A — two related channels |
+| One discrete dataset per vector / per acquisition | B — model / numpy → FileStore |
+| Frequency-domain captures (FFT, S-parameters, spectrum) | B — complex numpy → FileStore |
+| Eye diagrams, scatter plots | B — `XYData` → FileStore |
+| Real-time correlated streams from two instruments | A — two channels |
+| Pre-computed lookup tables / calibration curves | B — model / numpy → FileStore (or station YAML if static) |
+
+**Why not add struct/composite types to ChannelStore?** Two parallel channels preserve independent live subscribability AND keep ChannelStore's schema simple ("typed scalars and arrays of primitives" — see build item 14). Forcing per-row structs would mean every consumer needs per-channel schema awareness for the composite case. Two channels are simpler to subscribe to, aggregate, and reason about. Composite-as-one-artifact belongs in FileStore.
+
+**Industry precedent** — same shape choices:
+
+| System | Pattern |
+|---|---|
+| TDMS | Group with separate channels for related signals ("IV_Sweep" group containing "Voltage" + "Current"); OR composite waveforms in one channel |
+| HDF5 / NWB | Dimension-scale-paired datasets for XY; native `complex64`/`complex128` dtypes |
+| TouchStone (VNA) | Parallel columns per S-parameter (S11_real, S11_imag, …) |
+| NumPy | Native `complex64`/`complex128`; `np.savez` for paired x/y arrays |
+
 ---
 
 ## 5. ChannelStore — schema details
@@ -385,6 +442,26 @@ Two timestamps per row, distinct meanings:
 | `received_at` | when the row was written to ChannelStore | always platform wall-clock | required |
 
 When the producer doesn't provide an instrument timestamp, `acquired_at` is null. When provided, the gap (`received_at - acquired_at`) gives transport latency / acquisition staleness — useful for clock-drift detection and audit.
+
+### Supported leaf types (v0.2.0)
+
+ChannelStore is **a typed time-series store for any primitive leaf type, in scalar or array shape**. Build item 14 closes today's gaps (scalar `int` cast to float; arrays hardcoded to float64). After v0.2.0:
+
+| Shape | Supported leaf types | `ChannelDescriptor.data_type` |
+|---|---|---|
+| Scalar | `float`, `int`, `bool`, `str` | `"scalar:float"`, `"scalar:int"`, `"scalar:bool"`, `"scalar:str"` |
+| Array | `list<float>`, `list<int>`, `list<bool>`, `list<str>`, numpy ndarrays of any primitive dtype | `"array:float"`, `"array:int"`, `"array:bool"`, `"array:str"` |
+
+The leaf type is **inferred at first write** (kind-registry pattern, same as `units`) and validated on subsequent writes. Mismatches error at write time.
+
+Use cases for non-float channels:
+- **Digital waveforms** — `list<bool>` (logic-analyzer trace, GPIO state stream)
+- **Status / state streams** — `scalar:str` (operator status, state machine label)
+- **Error code streams** — `scalar:int` (counter values, error codes as integers)
+- **Boolean indicators** — `scalar:bool` (fault active, lid open, ready signal)
+- **Counter values** — `scalar:int` (preserves int semantics; no float-truncation hazard)
+
+ChannelStore explicitly **does not** support composite/struct values per row (no `pa.struct<...>`, no native complex). For paired streams (XY, complex), use two related channels (Pattern A in §4). For composite captures, use `XYData` / numpy → FileStore (Pattern B in §4). This keeps ChannelStore simple and uniformly typed.
 
 ### Channel descriptor (kind registry)
 
@@ -851,6 +928,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 5. **`observer.read` doesn't stamp the vector's `out_*`.** Scalar instrument readings link to verify rows only via the event log today, not via row columns. Breaks the polymorphic `observe`/`verify` symmetry.
 6. **`observe`/`verify` route incorrectly for arrays today.** `classify_value` (`ref.py:19-39`) sends `numeric_array` → ChannelStore for any caller, which is right for stream-from-instrument but currently bypasses the explicit-verb model. Need the dispatch to honor the verb's intent.
 7. **Metadata/attribute search is not performant.** Events are opaque JSON for filter-on-payload; the only typed index (run parquet) is run-scoped, missing standalone data.
+8. **ChannelStore type support is limited / lossy.** `_infer_field_type` (`channels/models.py:45-66`) casts scalar `int` → `pa.float64()` (truncates large ints; loses int semantics); `_infer_schema` array branch (line 86) **hardcodes** `pa.list_(pa.float64())` regardless of element type. Result: a list of `bool` (digital waveform) round-trips as `[1.0, 0.0, 1.0]`; a list of `str` (status stream) is broken; numpy dtypes are erased. Only float arrays work cleanly.
 
 ---
 
@@ -891,6 +969,20 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 **FileStore typing:**
 
 13. **MIME + extension + attributes** on artifact metadata. Litmus convention table for vendor formats (NPZ, NPY, TDMS, pickle).
+
+**ChannelStore typed leaf-types:**
+
+14. **Typed leaf-type support across scalars and arrays in ChannelStore.** Closes gap 8.
+    - Scalar `int` preserved as `pa.int64()` (not cast to `float64`). Fixes truncation hazard for large ints.
+    - Array element type inferred from `value[0]` (for lists/tuples) or numpy `dtype` (for ndarrays), instead of hardcoded `pa.list_(pa.float64())`. Supports `list<bool>` (digital waveforms), `list<int>`, `list<str>`, plus the existing `list<float64>`.
+    - `ChannelDescriptor.data_type` extended to carry the leaf type (e.g., `"scalar:bool"`, `"array:bool"`, `"scalar:int"`, `"array:str"`) so subsequent writes validate against the kind-registry pattern.
+    - Legacy `SCALAR_SCHEMA` / `ARRAY_SCHEMA` (float-only) stay as fallbacks for empty-query results.
+    - Flight `encode_value` already utf8 + JSON-encoded — works for any type today; typed Flight transport is a future perf optimization (deferred to L8 if needed).
+    - Small lift; concentrated in `models.py:45-95`.
+
+**Related/composite data helper:**
+
+15. **`XYData` model + complex-array verification.** Small Pydantic model for paired arrays (`x`, `y`, optional `x_units`/`y_units`/`x_name`/`y_name`); registered with the serialization registry (item 12) so `observe(name, XYData(...))` routes to FileStore as `.npz`. Plus a test that verifies `numpy.complex128` / `complex64` arrays round-trip cleanly through the registry (they should — numpy primitive dtype + `np.save` handles them natively; just needs explicit coverage). Trivial lift; formalizes the "Pattern B" workflow from §4.
 
 **That's a shippable v1.** Every captured artifact is durably stored; every capture leaves an event with a claim URI; the API is three verbs with consistent dispatch; parquet rows manifest by a single fixed policy; the existing `artifact_viewer` + ref endpoint already surface the artifacts. No attribute query yet — findability at MVP is **URL resolution from the run/event that referenced the artifact**.
 
