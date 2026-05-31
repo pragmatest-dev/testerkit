@@ -62,7 +62,7 @@ The split earns its weight: each store serves what it's specifically good at; th
 
 ### Write performance per store (order-of-magnitude estimates)
 
-These are **expected ranges**, not benchmarked promises. End-to-end Flight throughput isn't measured today — `test_data/test_perf.py` covers local writes only; build item L3 below adds the end-to-end bench.
+These are **expected ranges**, not benchmarked promises. End-to-end Flight throughput isn't measured today — `test_data/test_perf.py` covers local writes only; build item 19 below adds the end-to-end bench.
 
 | Store | Write path | Realistic throughput | What limits it |
 |---|---|---|---|
@@ -94,13 +94,13 @@ Read paths have their own bottlenecks, separate from writes. Where the architect
 | Parquet | analytical scan | ~500 MB/s – 5 GB/s | already well-optimized (column projection + predicate pushdown native) |
 
 Three read-side takeaways:
-- **EventStore payload filtering is the slowest read in the system today** (~5–50 MB/s) and is the biggest single read-side bottleneck. The L5 refactor (typed Arrow payloads) lifts this by 10–50× because payload fields become columnar with DuckDB pushdown.
-- **ChannelStore and Parquet reads are already well-optimized** — Arrow columnar + DuckDB. Remaining gains come from transport (L6 shared-memory).
-- **FileStore video decode** is software CPU-bound today on the consumer side. Mirror of the L7 encoder story: a hardware-decode option (L7b) would gain 10–20× for video playback in UIs.
+- **EventStore payload filtering is the slowest read in the system today** (~5–50 MB/s) and is the biggest single read-side bottleneck. Build item 21 (typed Arrow payloads) lifts this by 10–50× because payload fields become columnar with DuckDB pushdown.
+- **ChannelStore and Parquet reads are already well-optimized** — Arrow columnar + DuckDB. Remaining gains come from transport (build item 22 — local shared-memory).
+- **FileStore video decode** is software CPU-bound today on the consumer side. Mirror of the build item 23 encoder story: a hardware-decode option (build item 24) gains 10–20× for video playback in UIs.
 
-### Read performance after the L5/L6 refactors
+### Read performance after the typed-payload + shared-memory refactors
 
-| Store / path | Read today | After L5/L6 (L7b for video decode) |
+| Store / path | Read today | After items 21/22 (24 for video decode) |
 |---|---|---|
 | EventStore envelope filter | 100–500 MB/s | 200–1000 MB/s (cleaner schema) |
 | EventStore **payload filter** | 5–50 MB/s (JSON parse) | **100–500 MB/s** (typed pushdown — 10–50× win) |
@@ -111,9 +111,9 @@ Three read-side takeaways:
 | FileStore video decode | 50–200 MB/s (sw) | **500 MB/s – 2 GB/s** (hw decode — L7b) |
 | Parquet analytical scan | 500 MB/s – 5 GB/s | unchanged |
 
-**L5 wins more on reads than writes.** L5 was sold above as a 5–10× write improvement; the read side is **10–50× on payload filters** — the more important number for analytic workflows. It's also what closes the "events aren't a search surface" gap: once payloads are columnar, **EventStore itself becomes searchable** without needing a separate per-store index layer.
+**Build item 21 wins more on reads than writes.** Item 21 was sold above as a 5–10× write improvement; the read side is **10–50× on payload filters** — the more important number for analytic workflows. It's also what closes the "events aren't a search surface" gap: once payloads are columnar, **EventStore itself becomes searchable** without needing a separate per-store index layer.
 
-**L6 is symmetric** on reads and writes — both ends benefit from shared-memory zero-copy. The qualitative win for consumers is consumer CPU dropping to near-zero (no more wire deserialization per Flight batch); meaningful for live UIs that today have to deserialize every batch.
+**Build item 22 is symmetric** on reads and writes — both ends benefit from shared-memory zero-copy. The qualitative win for consumers is consumer CPU dropping to near-zero (no more wire deserialization per Flight batch); meaningful for live UIs that today have to deserialize every batch.
 
 ### Performance headroom — improvement levers
 
@@ -134,7 +134,7 @@ The current estimates assume v0.2.0 architecture as-designed. There's substantia
 | Fix | Gain | Lift |
 |---|---|---|
 | Batch samples into Arrow record batches per channel before flush | 5–10× for high-rate scalars | medium — touches writer path; subscriber-latency vs throughput tradeoff |
-| Byte-aware flush threshold (build item L3) | stable behavior under load, not raw throughput | small |
+| Byte-aware flush threshold (build item 19) | stable behavior under load, not raw throughput | small |
 | Server-side per-subscriber filtering — only notify subscribers that asked for this channel | 3–5× when many subscribers + many channels | medium |
 | `ARRAY_SCHEMA` opt-in for streams that can tolerate buffer-rate subscribe | 10–50× | none — usage pattern, just document |
 
@@ -195,7 +195,7 @@ For Litmus's positioning (Python-native, pytest-integrated, accessible), the Rus
 - **Video:** 500 MB/s – 2 GB/s with hardware encoders
 - **One-shot artifacts:** disk speed (NVMe: 1–7 GB/s)
 
-That's 10–20× headroom over current conservative estimates, achievable mostly through known incremental moves — none of which require leaving the Python + Arrow + DuckDB stack. The build items (L3, L5, L6, L7 in §12) capture the work.
+That's 10–20× headroom over current conservative estimates, achievable mostly through known incremental moves — none of which require leaving the Python + Arrow + DuckDB stack. The build items (19, 21, 22, 23 in §12) capture the work.
 
 ---
 
@@ -847,7 +847,7 @@ A UI is a natural fourth caller, in two modes:
 
 Then opens an event subscription filtered by `session_id` — the consumer SDK shape from §9: `LiveClient.subscribe_events(EventFilter(session_id=…))`. Receives all events as the bench produces them; follows claim URIs to ChannelStore / FileStore for data; renders.
 
-Neither mode needs new architecture — both ride the existing factory + consumer SDK. The work to enable UI session-create is UX (gather config from the operator); the work to enable UI session-join is the Consumer SDK (build item L4).
+Neither mode needs new architecture — both ride the existing factory + consumer SDK. The work to enable UI session-create is UX (gather config from the operator); the work to enable UI session-join is the Consumer SDK (build item 20).
 
 ### Three lifecycle phases — same events, three roles
 
@@ -976,18 +976,27 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 
 ## 12. Build items
 
+> **Scope commitment (per the v0.2.0 decision):** v0.2.0 is the release where data architecture stabilizes for pre-1.0. We're fixing *all* the data stuff from 0.1.x. That means the originally-long-term items L2-L7b move into MVP scope. Only L1 (per-store attribute indexes — genuinely greenfield index work) stays long-term. Calendar is multi-month; see §16 for milestones.
+
 ### MVP (initial release) — stores + API consistency + types
 
 **Stores:**
 
-1. **Stand up FileStore** as a first-class session-scoped peer: durable `put(key, value, attrs) -> file://…`, live lifecycle, `file://` URI, attributes captured at put as self-description (mime / dtype / dimensions / size). Unify the two existing `_ref` dirs.
-2. **Streaming sink** behind the existing `Stream*` events (`events.py:616-628`) — `open(key, format) -> sink; write(chunk); close()`. Wraps PyAV / soundfile / tifffile / nptdms / h5py / pyarrow per format. Final `file://` claim in `StreamEnded`.
+Item 1 is the foundation; decomposed for execution clarity.
+
+1a. **FileStore put API + URI scheme.** Implement `filestore.put(name, value, attributes) -> file://…` and the URI/path layout. DoD: `tests/test_filestore_put.py` — put a Path / bytes / Waveform / Pydantic model; assert returned URI resolves to a file on disk; metadata roundtrips.
+1b. **FileStore live lifecycle + Stream events.** Wire `StreamStarted` / `StreamFrameIndex` / `StreamEnded` events around the put + streaming-sink paths. DoD: events emit in correct order with correct payloads; subscribers see them via the existing event subscription path.
+1c. **FileStore attributes + MIME typing.** Capture attributes at put time (mime, extension, size, dimensions/duration where format library exposes them). DoD: `tests/test_filestore_attributes.py` covers each built-in format's metadata extraction.
+1d. **Unify the two `_ref` dirs.** Migrate `events/{session_id}_ref/` + `runs/{stem}_ref/` into one canonical FileStore layout. DoD: existing code paths that read from either location continue working (or are updated); single source of truth on disk.
+1e. **FileStore integration test.** End-to-end test that observe → file:// claim in event → materialized into parquet `out_*` column → range-served via artifact viewer. DoD: golden-path test passes; failure modes (missing file, malformed URI) raise typed errors.
+
+2. **Streaming sink** behind the existing `Stream*` events (`events.py:616-628`) — `open(key, format) -> sink; write(chunk); close()`. Wraps PyAV / soundfile / tifffile / nptdms / h5py / pyarrow per format. Final `file://` claim in `StreamEnded`. DoD: write video / audio / TDMS via the sink; subscribe to `StreamFrameIndex` events; range-read partial bytes during write.
 
 **API consistency (fixes gaps 1, 3, 4, 5):**
 
-3. **Blob → `file://` claim-check** — fixes the image-drop. Route blobs through FileStore in `InstrumentRead` serialization AND in `observe()` instead of `repr()`.
-4. **`observe()` emits a claim event** the way `observer.read` does. Adds `Observation` event for every observe call (scalar inline; non-scalar carrying URI).
-5. **`observer.read` stamps the vector's `out_*`** so scalar instrument readings link to verify rows via row columns, not just events.
+3. **Blob → `file://` claim-check** — fixes the image-drop. Route blobs through FileStore in `InstrumentRead` serialization AND in `observe()` instead of `repr()`. DoD: `tests/test_image_drop_fix.py` writes an image via `observer.read` and via `observe()`, asserts both produce a `file://` claim and resolve to readable bytes.
+4. **`observe()` emits a claim event** the way `observer.read` does. Adds `Observation` event for every observe call (scalar inline; non-scalar carrying URI). DoD: every `observe()` call results in exactly one event in the EventStore; consumers can subscribe and react.
+5. **`observer.read` stamps the vector's `out_*`** so scalar instrument readings link to verify rows via row columns, not just events. **This PR also renames `observer.read` → `record_read`** (the naming-smell rename rides this change since the file is touched). Update all call sites in driver code. DoD: verify rows in a vector that had `observer.read` calls show `out_<channel_name>` columns; rename grep returns zero old references.
 
 **Dispatch (fixes gap 6):**
 
@@ -1019,7 +1028,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
     - Array element type inferred from `value[0]` (for lists/tuples) or numpy `dtype` (for ndarrays), instead of hardcoded `pa.list_(pa.float64())`. Supports `list<bool>` (digital waveforms), `list<int>`, `list<str>`, plus the existing `list<float64>`.
     - `ChannelDescriptor.data_type` extended to carry the leaf type (e.g., `"scalar:bool"`, `"array:bool"`, `"scalar:int"`, `"array:str"`) so subsequent writes validate against the kind-registry pattern.
     - Legacy `SCALAR_SCHEMA` / `ARRAY_SCHEMA` (float-only) stay as fallbacks for empty-query results.
-    - Flight `encode_value` already utf8 + JSON-encoded — works for any type today; typed Flight transport is a future perf optimization (deferred to L8 if needed).
+    - Flight `encode_value` already utf8 + JSON-encoded — works for any type today; typed Flight transport is a future perf optimization (post-v0.2.0; not committed).
     - Small lift; concentrated in `models.py:45-95`.
 
 **Related/composite data helper:**
@@ -1039,37 +1048,50 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 
     Pick **`attributes`** as canonical: matches HDF5 / xarray / pandas (newer Python data-science ecosystem); avoids `@property` decorator ambiguity; user-facing in `Waveform` (test authors construct `Waveform(t0, dt, Y, attributes=...)`). Mechanical rename in three places + their call sites. Pre-1.0; no backcompat shim. Sets up clean cross-store attribute queries when L1 lands (same field name on every store). Small lift; the design doc already refers to "attributes" everywhere — this is the source-side alignment.
 
-**That's a shippable v1.** Every captured artifact is durably stored; every capture leaves an event with a claim URI; the API is three verbs with consistent dispatch; parquet rows manifest by a single fixed policy; the existing `artifact_viewer` + ref endpoint already surface the artifacts. No attribute query yet — findability at MVP is **URL resolution from the run/event that referenced the artifact**.
+**Live + perf:**
 
-### Long-term
+18. **Live waveform plot.** Subscribe the channel detail page (`ui/pages/channels/detail.py`) to the event stream; redraw on each new `InstrumentRead`. The list page already live-updates via event subscriptions; copy that pattern. DoD: detail page redraws per new sample without manual refresh; visible during a long acquisition.
 
-L1. **Per-store attribute indexes.** Promote captured attributes (file: width/height/dtype; channel: min/max from `InstrumentRead`) into typed, prunable indexes so questions like *"files where width > 1024"* or *"captures where max > X"* don't require open-every-file or scan-every-event. Channels and files each own their own index; `run_id` is an optional join, not the scope. The TDMS-properties / DIAdem move.
+19. **Perf: byte-aware flush + end-to-end Flight bench.** `BufferedIPCWriter` flushes by **row count** (fine for scalars; dangerous for dense arrays). Switch to byte-aware threshold + add an end-to-end Flight streaming bench (the existing `test_data/test_perf.py` measures local writes only). DoD: bench validates the §2 performance estimates within order-of-magnitude; byte-aware flush stable under load.
 
-L2. **Live waveform plot.** Subscribe the channel detail page (`ui/pages/channels/detail.py`) to the event stream; redraw on each new `InstrumentRead`. The list page already live-updates via event subscriptions; copy that pattern.
+20. **Consumer SDK (`litmus.live`)** — typed event objects, `subscribe_events` / `subscribe_channel` / `subscribe_file` / `subscribe_run_live` / `deref`. **Commit to async** as the canonical API (matches Flight `do_get`'s natural generator semantics + non-blocking UI consumers). Hides transport + URI dispatch; doesn't hide data shape. DoD: `tests/test_litmus_live.py` covers each subscription primitive + `deref`; a sample MCP tool consumes runs via the SDK.
 
-L3. **Perf: byte-aware flush + end-to-end Flight bench.** `BufferedIPCWriter` flushes by **row count**, fine for scalars but dangerous for dense arrays (N full waveforms buffered per flush). The existing bench (`test_data/test_perf.py`) measures local writes only; nothing measures the end-to-end Flight streaming path that the live plot will depend on. This is also what would validate the performance estimates in §2.
-
-L4. **Consumer SDK (`litmus.live`)** — typed event objects, `subscribe_events` / `subscribe_channel` / `subscribe_file` / `subscribe_run_live` / `deref`. Hides transport + URI dispatch; doesn't hide data shape.
-
-L5. **Typed Arrow event payloads.** Replace the opaque `json` string payload column in `event_log.py:31-40` with native nested Arrow structs per event type. Two reasonable schema shapes — union payload column or per-event-type record batches in one IPC file (the latter closer to how Arrow IPC already works). Either way, the envelope (`event_number`, `event_type`, `session_id`, `received_at`) stays typed and indexed; payload becomes typed too.
+21. **Typed Arrow event payloads.** Replace the opaque `json` string payload column in `event_log.py:31-40` with native nested Arrow structs per event type. Two reasonable schema shapes — union payload column or per-event-type record batches in one IPC file (the latter closer to how Arrow IPC already works). Either way, the envelope (`event_number`, `event_type`, `session_id`, `received_at`) stays typed and indexed; payload becomes typed too.
     - **Write gain:** 5–10× (no per-event JSON encode)
-    - **Read gain on payload filters:** **10–50×** (columnar pushdown + DuckDB statistics vs full-scan + JSON parse). This is the bigger number and the more important one for analytic workflows.
-    - **Closes the "events aren't a search surface" gap** for any predicate inside the payload (channel_id, min/max, units, limits, etc.). EventStore itself becomes searchable; no separate per-store payload index needed for envelope-adjacent queries.
-    - Medium lift — schema migration + per-event-type record-batch wiring.
+    - **Read gain on payload filters:** **10–50×** (columnar pushdown + DuckDB statistics vs full-scan + JSON parse). The bigger number; more important for analytic workflows.
+    - **Closes the "events aren't a search surface" gap** for any predicate inside the payload.
+    - Substantial lift — every event consumer (UI, materializer, MCP tools, exporters) reads from JSON today; all need updating. Plan for proportional execution time.
+    - DoD: payload-field filter queries (e.g., `event_type = 'InstrumentRead' AND payload.channel_id = 'X'`) execute against typed columns; existing consumers continue working.
 
-L6. **Local shared-memory transport for Consumer SDK.** When subscriber is on the same machine as producer, use `multiprocessing.shared_memory` (or POSIX `shm`) for zero-copy reads instead of Flight over loopback. Transport selection auto-detects local vs network. **Symmetric gain on reads and writes** (3–10× for local subscribers); consumer CPU drops to near-zero (no Flight-wire deserialization per batch). Combined with L5, lifts EventStore + ChannelStore live throughput into the **GB/s range** for local deployments. Medium lift — alternative transport in the Flight server + Consumer SDK.
+22. **Local shared-memory transport for Consumer SDK.** When subscriber is on the same machine as producer, use `multiprocessing.shared_memory` (or POSIX `shm`) for zero-copy reads instead of Flight over loopback. Transport selection auto-detects local vs network.
+    - Symmetric gain on reads and writes (3–10× for local subscribers); consumer CPU drops to near-zero.
+    - Combined with item 21, lifts EventStore + ChannelStore live throughput into the **GB/s range** for local deployments.
+    - **Substantial lift** — custom shm-backed Arrow IPC needs careful lifetime management (when does the shm get reaped? what happens on consumer crash?). Closer to a focused mini-project than medium.
+    - DoD: local subscribers route via shm automatically; remote subscribers stay on Flight; perf bench shows the gap.
 
-L7. **Hardware video encoder option.** `filestore.stream(name, format="mp4", hwaccel="auto")` flips PyAV from software H.264 to NVENC (NVIDIA) / VAAPI (Intel) / VideoToolbox (Mac). Estimated **10–20× video write throughput gain** (50 MB/s → 500 MB/s – 2 GB/s). Small lift — PyAV exposes hardware encoders natively; expose as a sink option.
+23. **Hardware video encoder option.** `filestore.stream(name, format="mp4", hwaccel="auto")` flips PyAV from software H.264 to NVENC (NVIDIA) / VAAPI (Intel) / VideoToolbox (Mac). Estimated 10–20× video write throughput gain. DoD: writing video via the sink uses hardware encoder when available; falls back to software cleanly when not; documented in artifact viewer + streaming-sink docs.
 
-L7b. **Hardware video decoder option** for FileStore playback consumers — companion to L7 on the read side. Today software H.264 decode in the UI consumer caps video playback at ~50–200 MB/s (CPU-bound). Hardware decode (NVDEC, VideoToolbox decode, VAAPI) lifts decode to **500 MB/s – 2 GB/s**, same 10–20× shape as the encoder. Same library (PyAV) exposes hwaccel for decode; expose on the Consumer SDK file-watch API. Small lift; pairs naturally with L7.
+24. **Hardware video decoder option** for FileStore playback consumers — companion to item 23 on the read side. Today software H.264 decode in the UI consumer caps video playback at ~50–200 MB/s (CPU-bound). Hardware decode (NVDEC, VideoToolbox decode, VAAPI) lifts decode to 500 MB/s – 2 GB/s. Same library (PyAV) exposes hwaccel for decode; expose on the Consumer SDK file-watch API. DoD: video playback uses hardware decode when available; fallback works.
 
-### Naming smell flagged
+**Documentation work (ships with v0.2.0):**
 
-- **`observer.read` is a writing API misleadingly named "read".** It takes a value the caller already read from the instrument and (1) writes it to ChannelStore and (2) emits an `InstrumentRead` event. Rename candidate: `record_read` / `record_sample` / `report_read`. Pre-1.0, cheap rename, doesn't change the model.
+25. **Operator-UI reference page fixes (5 stale pages).** Updates needed for changes that landed in 0.1.3 but missed the docs. Files: `docs/reference/operator-ui/tests.md`, `stations.md`, `products.md`, `fixtures.md`, `instruments.md`. Tracked in `project_followup_operator_ui_reference_drift.md`. DoD: each page matches running UI; screenshots regenerated.
 
-### Search by raw time-series values
+26. **Operator-UI new reference pages (2 missing).** New files: `docs/reference/operator-ui/duts.md`, `docs/reference/operator-ui/profiles.md`. DoD: each page exists, follows the established operator-ui reference page format, screenshots included.
 
-Not a goal, ever. Not an industry pattern. Search by **derived attributes/stats** is the goal, and it's deferred to L1.
+27. **`docs/concepts/data/three-stores.md` updates to four-store model.** Add FileStore as first-class; update storage layout diagram; reflect the `received_at` / `acquired_at` schema. DoD: page reflects four-store reality; diagrams updated.
+
+28. **New `docs/concepts/data/` pages.** Concept pages for the three-verb model (`observe`/`verify`/`stream`) and for the raw-data layer (FileStore + claim-check). Should cover the user surface as it appears in §3-§4 of this internal note, but pitched at test-engineer audience (no internal class names; no file:line citations). DoD: pages exist; pass the docs-writer agent's audience-fit checks.
+
+29. **`docs/reference/` updates for new verbs.** Anywhere `observe` / `verify` / new `stream` are referenced needs updating. Includes `docs/reference/api.md`, possibly `docs/reference/litmus-markers.md`, `docs/reference/configuration.md`. DoD: reference pages reflect three-verb model; generator pre-commit hook passes.
+
+30. **CHANGELOG `[Unreleased]` entries.** Fill with v0.2.0 entries: data architecture (FileStore lift, three verbs, schema rename, typed leaf-types, MIME typing, serialization registry, auto-promotion rule, Consumer SDK, perf refactors); operator-UI doc drift fixes; new pages; breaking changes (schema rename; `properties` → `attributes`; `observer.read` → `record_read`; `rm -rf data/` migration policy from 0.1.x). DoD: CHANGELOG entries present; entries reference PRs.
+
+**That's the v0.2.0 commitment.** Every captured artifact durably stored; every capture leaves an event with a claim URI; three verbs with consistent dispatch; parquet rows manifest by a single fixed policy; typed leaf-types end-to-end; consumer SDK gives a clean read surface; performance refactors land; supporting docs ship coherent.
+
+### Long-term (post v0.2.0)
+
+L1. **Per-store attribute indexes.** Promote captured attributes (file: width/height/dtype; channel: min/max from `InstrumentRead`) into typed, prunable indexes so questions like *"files where width > 1024"* or *"captures where max > X"* don't require open-every-file or scan-every-event. Channels and files each own their own index; `run_id` is an optional join. The TDMS-properties / DIAdem move. Genuinely greenfield index work — that's why it stays long-term.
 
 ---
 
@@ -1179,49 +1201,78 @@ None of the editorial moves are architectural bets. They're surface choices, rec
 
 ## 15. What's still open
 
-- **`observer.read` rename** — small change, deferred until someone touches the file.
-- **`acquired_at` source semantics** per driver — what does "instrument time" mean precisely for each instrument? Per-driver decisions; not blocking the schema change.
-- **`Waveform.attributes` landing spot** — descriptor `attributes` vs row-inlined. Defer; not blocking. (Names assume build item 17 has landed — today the source fields are `Waveform.attrs` and `ChannelDescriptor.properties`.)
-- **Consumer SDK implementation details** — actual class layout, async-vs-sync, transport. Sketch above is the shape; implementation needs a real spike.
-- **`channels.stream` context-manager handle shape** — exact methods (`.write`, `.close`, `.flush`). Bikeshed-friendly, defer.
-- **Sample-rate / dt promotion to descriptor** — explicitly **not** doing in v1; revisit if a real use case lands that needs typed-field queryability (`SELECT channels WHERE sample_rate > 1e6`).
-- **Performance benchmarks** — estimates in §2 are not measured end-to-end; build item L3 is the bench that would validate them.
-- **Station-level environmental daemon** — today every test process produces its own environmental snapshot (lab temp, humidity) by setting up the relevant instrument. A long-running "station daemon" could own those instruments and stream them into well-known channel IDs (`station.lab_temp`, etc.); test processes would just `observe("lab_temp", channels.handle("station.lab_temp"))` to associate. Channels are session-scoped and support multiple writers, so the architecture supports this — needs a process boundary + config convention. Reasonable v0.2.x or v0.3.x add; not blocking v0.2.0.
+Items still genuinely open after the v0.2.0 commitment (most other open items have been promoted to build items 18-30):
+
+- **`acquired_at` source semantics** per driver — what does "instrument time" mean precisely for each instrument? Per-driver decisions during build-out; not blocking the schema change.
+- **`Waveform.attributes` landing spot** — descriptor `attributes` vs row-inlined per-acquisition. Defer; not blocking. (Names assume build item 17 has landed.)
+- **`channels.stream` context-manager handle shape** — exact methods (`.write`, `.close`, `.flush`, maybe `.flush_bytes(N)`). Bikeshed-friendly, defer to implementation of build item 8.
+- **Sample-rate / dt promotion to descriptor** — explicitly **not** doing in v0.2.0; revisit if a real use case lands that needs typed-field queryability (`SELECT channels WHERE sample_rate > 1e6`). Most consumers go through Waveform.dt directly.
+- **Per-driver acquisition-time provenance** for `acquired_at` — does the platform interrogate the instrument for its clock, or accept whatever the driver provides? Driver-author choice; document the convention.
+- **Station-level environmental daemon** — per-process metadata production today; daemon pattern (one long-running monitor → channels) is a clean future move. Reasonable v0.2.x or v0.3.x add; not blocking v0.2.0.
+- **Channel-type-global scoping** — committed for v0.2.0 (global per channel_id); revisit if real adopters hit cross-project / cross-station collisions. Project-scoped or station-scoped registry possible in v0.3.x with adapter for existing data.
+- **Backend swap** — architecture is ready (verbs are backend-agnostic); per-backend adapter implementation is v0.3.x+ work, not blocking v0.2.0. See §17.
 
 ---
 
-## 16. v0.2.0 release scope — closes data + documentation needs together
+## 16. v0.2.0 release model — fix all the data stuff, then tag
 
-v0.2.0 is the release that lands this architecture coherently. It closes **both** the data layer lift (build items 1–13 in §12, optionally L5–L7) **and** the supporting documentation work that's been accumulating. Shipping them together makes the architecture + documentation **coherent and comprehensive at a single tag** rather than splitting them across releases.
+> **Commitment:** v0.2.0 is the release where data architecture stabilizes for pre-1.0. **All** build items in §12 (1a–30) land before the tag fires. Data is important enough that v0.2.0 is gated on completeness, not calendar.
 
-### Code work (§12 build items)
+### Execution model — many branches, one tag
 
-- MVP items 1–13 — FileStore, streaming sink, blob claim-check, observe emits event, observer.read stamps out_*, dispatch by value shape, stream verb, symmetric streaming verbs, auto-promotion rule, type-stable out registry, schema rename + acquired_at, serialization registry, MIME typing.
-- Optional in scope: L5 (typed Arrow event payloads), L6 (local shared-memory transport), L7 (hardware video encoder) — significant perf wins, all small-to-medium lift.
+v0.2.0 is **not a long-lived release branch**. Work proceeds as it has been for 0.1.x:
 
-### Documentation work (rides along)
+- Each build item (or coherent group) → its own feature branch off `main`.
+- Each branch → small PR → review → merge to `main`.
+- `main` stays continuously deployable / installable from source.
+- The **`v0.2.0` tag fires when every MVP build item has landed on `main`**, including the supporting documentation work.
 
-- **Operator-UI reference drift** (tracked in `project_followup_operator_ui_reference_drift.md`) — 5 stale pages need updates (`tests.md`, `stations.md`, `products.md`, `fixtures.md`, `instruments.md`) for UI changes that landed in 0.1.3; 2 missing pages need creation (`duts.md`, `profiles.md`).
-- **`docs/concepts/data/three-stores.md`** — update from three stores to four (add FileStore as first-class); update the storage diagram + layout descriptions.
-- **`docs/concepts/data/`** new pages — concept page for the verb model (observe / verify / stream) + how `out_*` denormalization works. Currently the concepts under `data/` cover three-stores + event-log + flight-streaming; need to add verbs + raw-data-layer.
-- **`docs/reference/`** — verb-model entry points need documenting; `observer.read` rename (if landed) flows through here.
-- **CHANGELOG `[Unreleased]`** — currently empty; fills with v0.2.0 entries for all of the above.
-- **`docs/integration/openhtf-adapter.md`** etc. — anywhere the verb model is referenced needs reflecting the three-verb story.
+This is exactly how 0.1.x worked (PRs #11, #12, #13 landed individually; 0.1.3 was tagged after all three were in). v0.2.0 is the same pattern, just with a bigger backlog to clear before tagging.
 
-### Sequencing for the v0.2.0 branch
+### Migration policy from 0.1.x
 
-1. Land FileStore (item 1) + dispatch policy (item 6) first — they unblock most other items.
-2. Items 3, 4, 5 — the four API-consistency fixes (image-drop, observe event, observer.read out_*).
-3. Items 7, 8 — verb additions (stream, symmetric streaming).
-4. Items 9, 10, 11, 12, 13 — materialization rules + schema rename + serialization registry + MIME typing.
-5. Item 2 (streaming sink) — slot in opportunistically; depends on item 1.
-6. Long-term items L5, L6, L7 in scope if calendar allows; otherwise to v0.2.x patches.
-7. Documentation work in parallel — operator-UI drift can clear independently of the architecture lift.
-8. Final pass: CHANGELOG, public docs reflect the new architecture, smoke-test all tutorial examples against new dispatch.
+**Pre-1.0; no backcompat shim.** v0.2.0 introduces breaking changes to on-disk Arrow IPC formats (schema rename — `timestamp` → `received_at` + new `acquired_at` column; typed leaf-type expansion; `properties` → `attributes`). Existing 0.1.x data directories will not be readable by v0.2.0.
 
-### Why coherent at one tag matters
+The supported migration path is:
 
-Pre-1.0 audiences should see one release where the architecture stabilizes — not a string of releases where the data layer rolls in piecemeal and the docs always lag a version. v0.2.0 is when "this is what Litmus does with your test data" becomes a settled story for adopters to build on.
+```bash
+# 1. Finish any in-flight runs on 0.1.x
+# 2. Export anything you need from existing data (litmus export ...)
+# 3. Wipe the data directory
+rm -rf data/
+# 4. Upgrade to v0.2.0
+uv add litmus-test==0.2.0
+# 5. Start fresh
+```
+
+No `litmus migrate` tool, no read-old-write-new shim, no compatibility flag. Pre-1.0 reality. Documented explicitly in `MIGRATION.md` (build item part of doc work).
+
+### Milestones (PR clusters, not release-points)
+
+These cluster related PRs so progress is visible during the multi-month landing. Each is multiple PRs to main; none of them is a separate release.
+
+| Milestone | Cluster of items | Demo-able outcome |
+|---|---|---|
+| **M1 — FileStore foundation** | 1a, 1b, 1c, 1d, 1e, 2, 3 | blob captures land in FileStore; image-drop fixed; `_ref` unified; streaming sink works |
+| **M2 — Verb consistency** | 4, 5 (+ observer.read rename), 6, 7, 8 | three verbs work with consistent dispatch; symmetric channels/filestore APIs; observations traceable |
+| **M3 — Materialization rules** | 9, 10 | pure-characterization runs produce parquet rows; type-stable kind-registry enforced |
+| **M4 — Schemas, types, serialization** | 11, 12, 13, 14, 15, 16, 17 | `received_at`/`acquired_at` schemas; typed leaf-types end-to-end; `XYData` model; namespace argument; metadata fields named `attributes` consistently |
+| **M5 — Live + perf** | 18, 19, 20 | live waveform plot; perf bench validates §2 estimates; Consumer SDK (async) ships |
+| **M6 — Payload + transport refactors** | 21, 22 | typed Arrow event payloads (read-side win); local shared-memory transport |
+| **M7 — Video performance** | 23, 24 | hardware video encode + decode |
+| **M8 — Documentation rollup** | 25, 26, 27, 28, 29, 30 | operator-UI doc drift cleared; public docs reflect four-store + three-verb model; CHANGELOG complete |
+
+Milestones can run in parallel where they don't depend on each other (M5 can start once M1 lands; M8 doc work can run alongside any code milestone for the pages it depends on).
+
+### Calendar honesty
+
+Multi-month landing. Realistic execution depending on focus is 4-6 months of part-time work or 2-3 months of focused work, plus the perf refactors (items 21-22) which are substantial in their own right. The tag fires when M1-M8 are all merged to main, not on a calendar date.
+
+### Why "all or nothing for the tag"
+
+Pre-1.0 audiences should see one release where data architecture stabilizes — not a string of releases where the data layer rolls in piecemeal and the docs always lag a version. **v0.2.0 is when "this is what Litmus does with your test data" becomes a settled story for adopters to build on.** Tagging early means adopters integrate against a half-built model and have to re-integrate when the rest lands. The tag IS the integration commitment.
+
+Patches (0.2.1, 0.2.2, …) absorb bug fixes after the tag. Long-term items (L1; possibly things from §15 if they get prioritized) land in v0.3.0 or later.
 
 ---
 
@@ -1303,13 +1354,48 @@ Each store has natural backend choices; cross-mixing is fine:
 
 ### What server mode loses
 
-The **L6 local shared-memory transport** doesn't apply in server mode — it's specifically for same-machine processes. Server deployments pay the network cost; local deployments get the shm fast-path. Both ride the same verbs, just different transport profiles.
+The **build item 22 local shared-memory transport** doesn't apply in server mode — it's specifically for same-machine processes. Server deployments pay the network cost; local deployments get the shm fast-path. Both ride the same verbs, just different transport profiles.
 
 ### Why this isn't v0.2.0
 
 v0.2.0 is about the **data architecture itself** — getting the stores, verbs, dispatch, and lifecycle right. Backend swap is a **v0.3.0 / v0.4.0 lift** when remote/server deployment becomes a real product goal. The architecture is *ready* for it (user code won't change when the lift lands); the *implementation work* is a per-backend engineering investment that doesn't block the v0.2.0 design.
 
 What v0.2.0 does establish: the abstractions (Flight for typed-row stores; fsspec for files) that make the eventual swap not a rewrite. So v0.2.0 work is preparatory even though it doesn't deliver server mode itself.
+
+---
+
+## 18. Non-goals for v0.2.0
+
+What v0.2.0 **explicitly does not include**, consolidated here so future contributors don't re-litigate. Each is a deliberate scope decision, not an oversight.
+
+### Architectural non-goals (won't do for design reasons)
+
+- **Search by raw time-series values** — never a goal. Not an industry pattern. Search by derived attributes/stats (per L1) is the goal, deferred to post-v0.2.0.
+- **Struct / composite types in ChannelStore** — explicitly no `pa.struct<…>` rows. For paired streams (XY, complex), use two related channels (Pattern A in §4). For composite captures, use a model → FileStore (Pattern B). Keeps ChannelStore uniformly typed.
+- **Native complex dtype in ChannelStore** — use two parallel channels (real, imag) for streaming complex; use numpy complex via FileStore (`.npz`) for discrete captures. Arrow's complex extension types aren't worth the maturity cost for the marginal ergonomic gain.
+- **Sample-rate / dt promotion to descriptor** — Waveform-specific fields stay on the Waveform model; ChannelStore descriptor remains uniform across all channel shapes. Revisit only if a real typed-field-query use case lands.
+- **Per-row struct values** as anything richer than typed leaf primitives — `bool`/`int`/`float`/`str` for scalars; lists of same for arrays. No nested structures. Discipline keeps the schema interpretable.
+
+### Scope non-goals (won't do for "this isn't the release for it" reasons)
+
+- **Backend swap implementation** (Kafka events / S3 files / Snowflake parquet / etc.) — architecture is ready (verbs are backend-agnostic); per-backend adapter work is v0.3.0+ when remote deployment becomes a product goal. See §17.
+- **`litmus migrate` tool from 0.1.x** — pre-1.0, no backcompat. `rm -rf data/` is the migration. Documented in `MIGRATION.md`. See §16.
+- **Project-scoped or station-scoped channel registry** — v0.2.0 commits to global per channel_id. Revisit in v0.3.x if real adopters hit cross-project / cross-station collisions. See §15 open item.
+- **Station-level environmental daemon** — per-process metadata production today; daemon pattern is a clean future move (v0.2.x / v0.3.x). See §15 open item.
+- **Per-store attribute indexes (L1)** — genuinely greenfield index work; deferred to v0.3.0+ when adopters demonstrate the use case at scale.
+- **Typed Flight transport** (vs today's utf8 + JSON encode_value) — works today; performance optimization deferred. Would be L8-class long-term work.
+- **Auth / IAM / encryption** for server-mode Flight + HTTP — operational concerns for server deployment, not v0.2.0 architecture work. See §17.
+
+### Behavior non-goals (won't do for "user expectations" reasons)
+
+- **Auto-association of `stream` calls with the active vector** — `stream` and `observe` stay strictly orthogonal. Author calls `observe(name, ch)` explicitly to associate a streamed channel with a vector. Avoids surprising "which vector did this auto-stamp" behavior across vector boundaries.
+- **`out_*` overwrite warning on repeated stamps** — last-write-wins is the rule for vector context. Author intentionally stamps multiple times in some workflows (multi-stage captures). No noisy warning.
+- **Cross-session channel data merging at query time** — channel rows are session-tagged; readers explicitly join by session if they want cross-session aggregation. No implicit "all sessions of voltage" view.
+- **Per-event-type events.py:* validators** that block "unusual" combinations — events are intentionally permissive at write time. Validation happens at consumer / materializer / parquet boundaries, not at emit.
+
+### What this means for adopters reading the doc
+
+If you're trying to do something on this list, you're correctly identifying a real need that v0.2.0 doesn't address. The deferrals aren't "we forgot" — they're scoped out deliberately so v0.2.0 can ship. Most have a clear v0.3.0+ path. A few (raw-value search, per-row structs) are permanent non-goals.
 
 ---
 
