@@ -106,7 +106,8 @@ class TestRegistry:
         assert registry_path.exists()
         data = json.loads(registry_path.read_text())
         assert "dmm.dc_voltage" in data
-        assert data["dmm.dc_voltage"]["data_type"] == "scalar"
+        # Build item 14: typed leaf — ``3.3`` is ``float`` → ``"scalar:float"``.
+        assert data["dmm.dc_voltage"]["data_type"] == "scalar:float"
 
 
 class TestStreaming:

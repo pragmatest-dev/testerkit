@@ -180,9 +180,9 @@ def _render_descriptor_card(descriptor: dict[str, Any]) -> None:
                 info_field("Resource", descriptor.get("resource") or "")
                 info_field("Units", descriptor.get("units") or "")
                 info_field("First seen", format_datetime(descriptor.get("first_seen")))
-                props = descriptor.get("properties") or {}
-                if props:
-                    info_field("Properties", ", ".join(f"{k}={v}" for k, v in props.items()))
+                attrs = descriptor.get("attributes") or {}
+                if attrs:
+                    info_field("Attributes", ", ".join(f"{k}={v}" for k, v in attrs.items()))
 
 
 def _render_chart(

@@ -716,12 +716,12 @@ def load_file(parquet_path: Path, ref: str) -> Any:
             data = dict(np.load(path, allow_pickle=True))
             # Check if this looks like a Waveform
             if "Y" in data and "t0" in data and "dt" in data:
-                attrs = {k: v for k, v in data.items() if k not in ("Y", "t0", "dt")}
+                attributes = {k: v for k, v in data.items() if k not in ("Y", "t0", "dt")}
                 return Waveform(
                     Y=data["Y"].tolist(),
                     t0=float(data["t0"]),
                     dt=float(data["dt"]),
-                    attrs=attrs,
+                    attributes=attributes,
                 )
             return data
 

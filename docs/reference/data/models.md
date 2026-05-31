@@ -1132,7 +1132,7 @@ Time-series waveform data with metadata.
 | `t0` | `float` | `0.0` |
 | `dt` | `float` | *required* |
 | `Y` | `list[float]` | *required* |
-| `attrs` | `dict[str, Any]` | `{}` |
+| `attributes` | `dict[str, Any]` | `{}` |
 
 #### `Outcome` {#enum-outcome}
 
@@ -1157,11 +1157,11 @@ Metadata for a single channel, written once when first seen.
 | Field | Type | Default |
 |---|---|---|
 | `channel_id` | `str` | *required* |
-| `data_type` | `str` | `'scalar'` |
+| `data_type` | `str` | `'scalar:float'` |
 | `instrument_role` | `str` | `''` |
 | `resource` | `str` | `''` |
 | `units` | `str \| None` | `None` |
-| `properties` | `dict[str, Any]` | `{}` |
+| `attributes` | `dict[str, Any]` | `{}` |
 | `first_seen` | `datetime` | *via* `_utcnow()` |
 
 #### `ChannelSample` {#model-channelsample}

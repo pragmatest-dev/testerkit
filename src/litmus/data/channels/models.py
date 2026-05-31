@@ -17,14 +17,26 @@ from litmus.data.models import _utcnow
 
 
 class ChannelDescriptor(BaseModel):
-    """Metadata for a single channel, written once when first seen."""
+    """Metadata for a single channel, written once when first seen.
+
+    ``data_type`` carries the channel's shape AND leaf type after
+    build item 14 — examples: ``"scalar:float"``, ``"scalar:int"``,
+    ``"scalar:bool"``, ``"scalar:str"``, ``"array:float"``,
+    ``"array:int"``, ``"array:bool"``, ``"array:str"``. Legacy bare
+    ``"scalar"`` / ``"array"`` values from pre-0.2 data dirs aren't
+    supported (no-backcompat; ``rm -rf data/`` is the migration).
+    """
 
     channel_id: str
-    data_type: str = "scalar"  # "scalar", "array"
+    data_type: str = "scalar:float"  # "{shape}:{leaf}" — see class docstring
     instrument_role: str = ""
     resource: str = ""
     units: str | None = None
-    properties: dict[str, Any] = Field(default_factory=dict)
+    # Channel-level metadata bag. Renamed from ``properties`` to
+    # ``attributes`` in build item 17 for cross-schema vocabulary
+    # consistency (matches FileArtifactMetadata.attributes and
+    # Waveform.attributes).
+    attributes: dict[str, Any] = Field(default_factory=dict)
     first_seen: datetime = Field(default_factory=_utcnow)
 
 
@@ -43,11 +55,27 @@ class ChannelSample(BaseModel):
 
 
 def _infer_field_type(value: object) -> pa.DataType:
-    """Infer an Arrow data type from a Python value."""
+    """Infer an Arrow data type from a Python value.
+
+    Build item 14: typed leaf-type support. Pre-0.2 ``int`` was cast
+    to ``float64`` (truncation hazard for large ints); arrays always
+    became ``list<float64>``. Now leaf types preserve:
+
+    - scalar ``bool`` → ``pa.bool_()``
+    - scalar ``int`` → ``pa.int64()`` (was ``float64``)
+    - scalar ``float`` → ``pa.float64()``
+    - scalar ``str`` → ``pa.utf8()``
+    - list/tuple → ``pa.list_(<inferred leaf>)`` from first element
+      (or ``float64`` for empty)
+    - numpy array → ``pa.list_(<dtype from numpy>)`` (was hardcoded
+      float64)
+    - else → ``pa.utf8()`` (repr fallback)
+    """
+    # bool must come BEFORE int since `True` is also an int in Python.
     if isinstance(value, bool):
         return pa.bool_()
     if isinstance(value, int):
-        return pa.float64()
+        return pa.int64()
     if isinstance(value, float):
         return pa.float64()
     if isinstance(value, str):
@@ -57,24 +85,83 @@ def _infer_field_type(value: object) -> pa.DataType:
             return pa.list_(pa.float64())
         first = value[0]
         if isinstance(first, (list, tuple)):
-            return pa.list_(pa.list_(pa.float64()))
-        if isinstance(first, (int, float)):
-            return pa.list_(pa.float64())
-        return pa.list_(pa.utf8())
-    if hasattr(value, "tolist"):  # numpy array
+            # Nested lists — fall back to the leaf of the inner list.
+            return pa.list_(_infer_field_type(first))
+        # Element type follows leaf-inference rules; bool before int.
+        return pa.list_(_infer_field_type(first))
+    if hasattr(value, "tolist") and hasattr(value, "dtype"):
+        # numpy array — preserve dtype (item 14: no more float64 erasure).
+        try:
+            leaf = pa.from_numpy_dtype(value.dtype)  # type: ignore[attr-defined]
+        except (pa.ArrowNotImplementedError, TypeError):
+            leaf = pa.float64()
+        return pa.list_(leaf)
+    if hasattr(value, "tolist"):
+        # Generic array-like without dtype — fall back to float64.
         return pa.list_(pa.float64())
     return pa.utf8()  # fallback: store repr
+
+
+def _data_type_for(value: object) -> str:
+    """Return the ``ChannelDescriptor.data_type`` string for a value.
+
+    Format: ``"{shape}:{leaf}"`` — e.g., ``"scalar:int"``, ``"array:bool"``.
+    Used by the registry to record the channel's kind at first write.
+    """
+    if isinstance(value, dict):
+        return "struct"
+    if isinstance(value, (list, tuple)) or (
+        hasattr(value, "tolist") and not isinstance(value, str)
+    ):
+        # array shape — leaf type from first element / dtype
+        if isinstance(value, (list, tuple)) and value:
+            first = value[0]
+            return f"array:{_leaf_name_from_pytype(first)}"
+        if hasattr(value, "tolist") and hasattr(value, "dtype"):
+            return f"array:{_leaf_name(value.dtype)}"  # type: ignore[attr-defined]
+        return "array:float"  # empty or unknown
+    return f"scalar:{_leaf_name_from_pytype(value)}"
+
+
+def _leaf_name_from_pytype(value: object) -> str:
+    """Map a Python value to a leaf-type name for ``data_type``."""
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, str):
+        return "str"
+    return "any"
+
+
+def _leaf_name(dtype: Any) -> str:
+    """Map a numpy dtype to a leaf-type name for ``data_type``."""
+    kind = getattr(dtype, "kind", None)
+    if kind == "b":
+        return "bool"
+    if kind in ("i", "u"):
+        return "int"
+    if kind == "f":
+        return "float"
+    if kind in ("U", "S", "O"):
+        return "str"
+    return "any"
 
 
 def _infer_schema(value: object) -> pa.Schema:
     """Build an Arrow schema from the first value written to a channel.
 
-    - scalar (int/float) → timestamp + value columns
-    - str/bool → timestamp + value columns with appropriate type
-    - list/tuple of numbers → timestamp + samples + sample_interval
-    - dict → timestamp + one column per key
-    - numpy array → timestamp + samples
-    - tuple ``([samples], dt)`` is a legacy waveform, converted before calling this
+    Build item 14: leaf types preserve through to the column dtype.
+
+    - scalar (int/float/bool/str) → timestamp + value (typed) columns
+    - list/tuple → timestamp + samples (typed) + sample_interval
+    - numpy array → timestamp + samples (typed from numpy dtype) +
+      sample_interval
+    - dict → timestamp + one column per key (each typed)
+    - tuple ``([samples], dt)`` is a legacy waveform, converted before
+      calling this
     """
     fields: list[pa.Field] = [pa.field("timestamp", pa.timestamp("us", tz="UTC"))]
 
@@ -82,8 +169,17 @@ def _infer_schema(value: object) -> pa.Schema:
         for k, v in value.items():
             fields.append(pa.field(k, _infer_field_type(v)))
     elif isinstance(value, (list, tuple)) or hasattr(value, "tolist"):
-        # numpy array or list/tuple of numbers → array channel
-        fields.append(pa.field("samples", pa.list_(pa.float64())))
+        # Array channel — leaf type is inferred from first element /
+        # numpy dtype (item 14: no more hardcoded float64 erasure).
+        array_type = _infer_field_type(value)
+        # ``_infer_field_type`` returns the FULL list type for arrays
+        # (e.g., list<bool>). Use it directly as the ``samples`` column.
+        if pa.types.is_list(array_type):
+            fields.append(pa.field("samples", array_type))
+        else:
+            # Defensive: if the array inference returned non-list,
+            # fall back to wrapping with float64.
+            fields.append(pa.field("samples", pa.list_(pa.float64())))
         fields.append(pa.field("sample_interval", pa.float64()))
     else:
         # scalar (int/float/bool/str) — delegate to the single-value
