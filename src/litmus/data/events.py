@@ -15,10 +15,9 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, model_serializer, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from litmus.data.models import _utcnow
-from litmus.data.ref import classify_value, is_ref, make_channel_uri
 
 
 def _detect_client() -> str:
@@ -548,68 +547,44 @@ class RouteOpened(EventBase):
 # ---------------------------------------------------------------------------
 
 
-class InstrumentRead(EventBase):
-    """Emitted when a driver read method is called via proxy.
+class ChannelStarted(EventBase):
+    """A channel received its first sample in this session.
 
-    For array/waveform data, ``value`` holds the full Python object in memory
-    (subscribers like ChannelStore get the real data), but JSON serialization
-    replaces it with a claim-check summary to keep the JSON column compact.
+    Position 2 lifecycle event: emitted once per ``(channel_id, session_id)``
+    pair. Replaces the per-sample ``InstrumentRead`` event (retired in
+    v0.2.0). Sample data lives in ChannelStore — subscribers wanting
+    per-sample access subscribe to ChannelStore via Flight ``do_get``.
+
+    Carries enough context to let consumers find + subscribe to the
+    channel without further discovery. Instrument fields are populated
+    when the source is an instrument observer; null otherwise (for
+    ``stream(...)`` / ``channels.write`` / daemon-driven writes).
     """
 
-    event_type: Literal["instrument.read"] = "instrument.read"
-    instrument_role: str
+    event_type: Literal["channel.started"] = "channel.started"
     channel_id: str
-    method: str
-    value: Any = None
     units: str | None = None
-    resource: str = ""
+    # Instrument source fields — populated for observer.read; null otherwise.
+    instrument_role: str | None = None
+    method: str | None = None
+    resource: str | None = None
 
-    @model_serializer(mode="wrap")
-    def _serialize_with_claim_check(self, handler: Any) -> dict[str, Any]:
-        """Scalars and URIs inline; raw arrays → ``channel://`` URI claim-check.
 
-        When proxy writes to ChannelStore directly, value is already a URI
-        string — pass through. Fallback for no-channel-store case still
-        builds a claim-check reference.
-        """
-        data = handler(self)
-        v = self.value
+class ChannelClosed(EventBase):
+    """A channel was sealed for this session.
 
-        # Already a URI from proxy writing to ChannelStore
-        if is_ref(v):
-            return data
+    Position 2 lifecycle event. Fires when a session ends (all of its
+    channels close) or when retention pruning removes a channel.
+    Consumers tracking "still being written to" vs "no more data
+    coming" key off this event.
 
-        vtype = classify_value(v)
+    Emission wiring lives downstream — for v0.2.0 initial cut the
+    class exists; SessionEnded-tied emission lands in a follow-up.
+    """
 
-        if vtype == "scalar":
-            return data
-
-        if vtype in ("numeric_array", "channel"):
-            uri = make_channel_uri(self.channel_id, str(self.session_id))
-            ref: dict[str, Any] = {
-                "_ref": uri,
-                "channel_id": self.channel_id,
-                "type": "array" if vtype == "numeric_array" else "struct",
-            }
-            if isinstance(v, (list, tuple)) and len(v) >= 1:
-                first = v[0]
-                if isinstance(first, (list, tuple)):
-                    samples = first
-                    dt = v[1] if len(v) > 1 else None
-                    ref["length"] = len(samples)
-                    if dt is not None:
-                        ref["sample_interval"] = dt
-                    if samples:
-                        ref["min"] = min(samples)
-                        ref["max"] = max(samples)
-            elif hasattr(v, "tolist"):
-                ref["length"] = len(v)  # type: ignore[arg-type]
-            data["value"] = ref
-            return data
-
-        # blob — repr for JSON serialization
-        data["value"] = repr(v)
-        return data
+    event_type: Literal["channel.closed"] = "channel.closed"
+    channel_id: str
+    reason: str  # e.g., "session_ended" | "retention_prune"
 
 
 class InstrumentSet(EventBase):
@@ -709,7 +684,8 @@ TEST_EVENTS = {
     StepsDiscovered,
 }
 ROUTE_EVENTS = {RouteClosed, RouteOpened}
-INSTRUMENT_EVENTS = {InstrumentRead, InstrumentSet, InstrumentConfigure}
+INSTRUMENT_EVENTS = {InstrumentSet, InstrumentConfigure}
+CHANNEL_EVENTS = {ChannelStarted, ChannelClosed}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
 STREAM_EVENTS = {StreamStarted, StreamEnded, StreamFrameIndex}
 DIALOG_EVENTS = {DialogOpened, DialogResponded}
@@ -721,6 +697,7 @@ ALL_EVENTS = (
     | TEST_EVENTS
     | ROUTE_EVENTS
     | INSTRUMENT_EVENTS
+    | CHANNEL_EVENTS
     | DIAGNOSTIC_EVENTS
     | STREAM_EVENTS
     | DIALOG_EVENTS
@@ -749,9 +726,10 @@ Event = Annotated[
     | StepsDiscovered
     | RouteClosed
     | RouteOpened
-    | InstrumentRead
     | InstrumentSet
     | InstrumentConfigure
+    | ChannelStarted
+    | ChannelClosed
     | DiagnosticWarning
     | DiagnosticError
     | StreamStarted

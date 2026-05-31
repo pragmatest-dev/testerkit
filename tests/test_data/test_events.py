@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from litmus.data.events import (
     ALL_EVENTS,
+    CHANNEL_EVENTS,
     DIAGNOSTIC_EVENTS,
     DIALOG_EVENTS,
     FIXTURE_EVENTS,
@@ -180,6 +181,7 @@ class TestEventModels:
             + len(TEST_EVENTS)
             + len(ROUTE_EVENTS)
             + len(INSTRUMENT_EVENTS)
+            + len(CHANNEL_EVENTS)
             + len(DIAGNOSTIC_EVENTS)
             + len(STREAM_EVENTS)
             + len(DIALOG_EVENTS)

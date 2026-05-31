@@ -331,19 +331,6 @@ Emitted when switch channels are opened to deactivate a route.
 
 ## Instrument (proxy traffic) events
 
-### `instrument.read` — `InstrumentRead`
-
-Emitted when a driver read method is called via proxy.
-
-| Field | Type | Default |
-|---|---|---|
-| `instrument_role` | `str` | *required* |
-| `channel_id` | `str` | *required* |
-| `method` | `str` | *required* |
-| `value` | `Any` | `None` |
-| `units` | `str \| None` | `None` |
-| `resource` | `str` | `''` |
-
 ### `instrument.set` — `InstrumentSet`
 
 Emitted when a driver set method is called via proxy.
@@ -367,6 +354,29 @@ Emitted when a driver configure method is called via proxy.
 | `method` | `str` | *required* |
 | `parameters` | `dict[str, Any]` | `{}` |
 | `resource` | `str` | `''` |
+
+## Channel (lifecycle) events
+
+### `channel.started` — `ChannelStarted`
+
+A channel received its first sample in this session.
+
+| Field | Type | Default |
+|---|---|---|
+| `channel_id` | `str` | *required* |
+| `units` | `str \| None` | `None` |
+| `instrument_role` | `str \| None` | `None` |
+| `method` | `str \| None` | `None` |
+| `resource` | `str \| None` | `None` |
+
+### `channel.closed` — `ChannelClosed`
+
+A channel was sealed for this session.
+
+| Field | Type | Default |
+|---|---|---|
+| `channel_id` | `str` | *required* |
+| `reason` | `str` | *required* |
 
 ## Diagnostic events
 

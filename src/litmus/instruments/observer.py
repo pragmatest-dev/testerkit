@@ -15,7 +15,7 @@ from typing import Any
 from uuid import UUID
 
 from litmus.data.event_log import EventLog
-from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
 from litmus.data.ref import classify_value
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,11 @@ class EventEmitter:
         self._run_id = run_id
         self._resource = resource
         self._channel_store = channel_store
+        # Position 2: per-(observer-instance, channel) "started" tracker.
+        # First write per channel emits ``ChannelStarted``; subsequent
+        # writes don't re-emit. Observer instance is per-session, so this
+        # is effectively per (channel_id, session_id).
+        self._started_channels: set[str] = set()
 
     def _store_value(self, channel_id: str, value: Any, source: str) -> Any:
         """Write to channel store if possible, return URI or raw value."""
@@ -72,19 +77,47 @@ class EventEmitter:
         return value
 
     def read(self, channel: str, value: Any, method: str = "") -> None:
-        """Emit an InstrumentRead event."""
-        event_value = self._store_value(channel, value, method)
-        self._event_log.emit(
-            InstrumentRead(
-                session_id=self._session_id,
-                run_id=self._run_id,
-                instrument_role=self._role,
-                channel_id=channel,
-                method=method,
-                value=event_value,
-                resource=self._resource,
+        """Record an instrument read.
+
+        Under Position 2 (lifecycle-only channel events): the per-sample
+        ``InstrumentRead`` event is retired. This method:
+
+        1. Writes the value to ChannelStore (sample data lives there).
+        2. Emits ``ChannelStarted`` on the first write per (channel,
+           session). Subsequent writes do not emit per-sample events;
+           subscribers wanting per-sample access subscribe to
+           ChannelStore via Flight ``do_get``.
+        3. Stamps the active harness Context's ``out_<channel>`` with
+           the channel URI on first write per (vector, channel). This
+           lets ``verify`` measurement rows reference the channel via
+           a denormalized column. ``setdefault`` makes it idempotent.
+        """
+        stored_value = self._store_value(channel, value, method)
+
+        # 1. ChannelStarted on first write per (channel, session)
+        if channel not in self._started_channels:
+            self._started_channels.add(channel)
+            self._event_log.emit(
+                ChannelStarted(
+                    session_id=self._session_id,
+                    run_id=self._run_id,
+                    channel_id=channel,
+                    instrument_role=self._role,
+                    method=method,
+                    resource=self._resource,
+                )
             )
-        )
+
+        # 2. Stamp active vector's out_<channel> on first write per
+        #    (vector, channel). Idempotent via setdefault.
+        from litmus.execution._state import get_current_context  # noqa: PLC0415
+
+        ctx = get_current_context()
+        if ctx is not None and isinstance(stored_value, str):
+            # Only stamp when we have a URI (channel store wrote and
+            # returned channel://...). For inline scalars, the row's
+            # measurement.value carries the data; out_* not needed.
+            ctx._observations.setdefault(channel, stored_value)
 
     def set(self, channel: str, value: Any, attr: str = "") -> None:
         """Emit an InstrumentSet event."""

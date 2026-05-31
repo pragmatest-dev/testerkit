@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from litmus.data.events import InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentSet
 from litmus.instruments.observers.modbus import ModbusObserver
 
 from .conftest import make_observer
@@ -14,7 +14,7 @@ class TestModbusRead:
         obs.on_call("read_holding_registers", (100, 10), {}, [1, 2, 3])
         assert len(log.events) == 1
         e = log.events[0]
-        assert isinstance(e, InstrumentRead)
+        assert isinstance(e, ChannelStarted)
         assert e.channel_id == "plc.read_holding_registers"
 
     def test_read_register(self):

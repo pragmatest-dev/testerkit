@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from litmus.data.events import InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentSet
 from litmus.instruments.observers.tektronix import TektronixObserver
 
 from .conftest import make_observer
@@ -23,7 +23,7 @@ class TestTektronixDescriptors:
         obs, log = make_observer(TektronixObserver, driver_class=DescriptorDriver, role="scope")
         obs.on_getattr("bandwidth", 100e6)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].channel_id == "scope.bandwidth"
 
     def test_setattr_emits_set(self):
@@ -38,7 +38,7 @@ class TestTektronixScpi:
         obs, log = make_observer(TektronixObserver, role="scope")
         obs.on_call("query", ("MEAS:FREQ?",), {}, "1000")
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].channel_id == "scope.meas_freq"
 
     def test_write_parses_scpi(self):
@@ -55,4 +55,4 @@ class TestTektronixFallback:
         obs, log = make_observer(TektronixObserver, role="scope")
         obs.on_call("measure_frequency", (), {}, 1000)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)

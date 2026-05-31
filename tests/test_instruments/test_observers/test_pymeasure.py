@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from litmus.data.events import InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentSet
 from litmus.instruments.observer import EventEmitter
 from litmus.instruments.observers.pymeasure import PyMeasureObserver, build_channel_map
 from litmus.models.instrument import ChannelKind
@@ -170,7 +170,7 @@ class TestPyMeasureObserverGetattr:
         result = obs.on_getattr("voltage", 3.3)
         assert result == 3.3
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].channel_id == "dmm.voltage"
 
     def test_control_property_emits_read(self):
@@ -178,7 +178,7 @@ class TestPyMeasureObserverGetattr:
         result = obs.on_getattr("voltage", 3.3)
         assert result == 3.3
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
 
     def test_unmapped_attr_no_event(self):
         obs, log = _make_observer(ReadOnlyProp)
@@ -207,7 +207,7 @@ class TestPyMeasureObserverCall:
         obs, log = _make_observer(MixedDriver)
         obs.on_call("measure_current", (), {}, 0.001)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].channel_id == "dmm.current"
 
     def test_mapped_method_skipped(self):

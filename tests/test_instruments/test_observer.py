@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
 from litmus.instruments.observer import DriverObserver, EventEmitter
 
 
@@ -29,17 +29,43 @@ def _make_emitter() -> tuple[EventEmitter, CollectingLog]:
 
 
 class TestEventEmitterRead:
-    def test_emits_instrument_read(self):
+    def test_first_read_emits_channel_started(self):
+        """Position 2 / v0.2.0: per-sample InstrumentRead is retired.
+
+        First write per (channel, session) emits ChannelStarted —
+        carries the instrument identity. Subsequent reads for the
+        same channel don't re-emit (sample data lives in ChannelStore).
+        """
         emitter, log = _make_emitter()
         emitter.read("dmm.voltage", 3.3, method="measure_voltage")
 
         assert len(log.events) == 1
         event = log.events[0]
-        assert isinstance(event, InstrumentRead)
+        assert isinstance(event, ChannelStarted)
         assert event.channel_id == "dmm.voltage"
-        assert event.value == 3.3
+        assert event.instrument_role == "dmm"
         assert event.method == "measure_voltage"
         assert event.resource == "GPIB::16"
+
+    def test_subsequent_reads_do_not_emit_per_sample(self):
+        """Only the first write per (channel, session) emits ChannelStarted."""
+        emitter, log = _make_emitter()
+        emitter.read("dmm.voltage", 3.3, method="measure_voltage")
+        emitter.read("dmm.voltage", 3.4, method="measure_voltage")
+        emitter.read("dmm.voltage", 3.5, method="measure_voltage")
+
+        # Only one ChannelStarted, despite three reads
+        assert len(log.events) == 1
+        assert isinstance(log.events[0], ChannelStarted)
+
+    def test_different_channels_each_get_their_own_channel_started(self):
+        emitter, log = _make_emitter()
+        emitter.read("dmm.voltage", 3.3, method="measure_voltage")
+        emitter.read("dmm.current", 0.1, method="measure_current")
+
+        assert len(log.events) == 2
+        assert all(isinstance(e, ChannelStarted) for e in log.events)
+        assert {e.channel_id for e in log.events} == {"dmm.voltage", "dmm.current"}
 
 
 class TestEventEmitterSet:
@@ -69,11 +95,12 @@ class TestEventEmitterConfigure:
 
 class TestEventEmitterChannelStore:
     def test_writes_to_channel_store(self):
+        """Channel store still receives every sample; only the EVENT is lifecycle-only."""
         log = CollectingLog()
         written: list = []
 
         class FakeStore:
-            def write(self, channel_id: str, value, source: str = "") -> str:  # noqa: ANN001
+            def write(self, channel_id: str, value, source: str = "") -> str:  # noqa: ANN001, ARG002
                 written.append((channel_id, value))
                 return f"channel://{channel_id}"
 
@@ -83,11 +110,16 @@ class TestEventEmitterChannelStore:
             role="dmm",
             channel_store=FakeStore(),
         )
+        # Three reads — three channel writes; one event (ChannelStarted on first)
         emitter.read("dmm.voltage", 3.3, method="v")
-        assert len(written) == 1
-        assert written[0] == ("dmm.voltage", 3.3)
-        # Event value should be the URI
-        assert log.events[0].value == "channel://dmm.voltage"
+        emitter.read("dmm.voltage", 3.4, method="v")
+        emitter.read("dmm.voltage", 3.5, method="v")
+
+        assert len(written) == 3
+        assert [w[1] for w in written] == [3.3, 3.4, 3.5]
+        # One ChannelStarted event (not three per-sample InstrumentRead)
+        assert len(log.events) == 1
+        assert isinstance(log.events[0], ChannelStarted)
 
 
 class TestDriverObserverBase:

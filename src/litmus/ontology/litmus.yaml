@@ -973,19 +973,32 @@ concepts:
 
   # ---- Instrument events ----
 
-  - id: instrument_read
+  - id: channel_started
     category: event
-    event_type: instrument.read
+    event_type: channel.started
     summary: >
-      A driver read method was called via proxy. Array/waveform values
-      are replaced with a channel:// URI claim-check at JSON-serialize
-      time to keep the column compact.
-    model: litmus.data.events.InstrumentRead
+      A channel received its first sample in this session. Position 2
+      lifecycle event — emitted once per (channel_id, session_id) pair;
+      replaces the per-sample InstrumentRead event retired in v0.2.0.
+      Sample data lives in ChannelStore.
+    model: litmus.data.events.ChannelStarted
     relationships:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
-      - { kind: references,    target: channel_descriptor }   # array values claim-check via channel:// URI
-      - { kind: references,    target: waveform }              # array reads carry Waveform-shaped data
+      - { kind: references,    target: channel_descriptor }
+
+  - id: channel_closed
+    category: event
+    event_type: channel.closed
+    summary: >
+      A channel was sealed for this session — session ended OR retention
+      pruned. Consumers tracking "still being written to" vs "no more
+      data coming" key off this event.
+    model: litmus.data.events.ChannelClosed
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: references,    target: channel_descriptor }
 
   - id: instrument_set
     category: event

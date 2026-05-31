@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from litmus.data.events import InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentSet
 from litmus.instruments.observers.lantz import LantzObserver
 
 from .conftest import make_observer
@@ -29,14 +29,14 @@ class TestLantzGetattr:
         obs, log = make_observer(LantzObserver, driver_class=FeatDriver, role="laser")
         obs.on_getattr("wavelength", 532.0)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].channel_id == "laser.wavelength"
 
     def test_read_only_emits_read(self):
         obs, log = make_observer(LantzObserver, driver_class=FeatDriver, role="laser")
         obs.on_getattr("power", 1.0)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
 
     def test_unmapped_no_emit(self):
         obs, log = make_observer(LantzObserver, driver_class=FeatDriver, role="laser")
@@ -63,7 +63,7 @@ class TestLantzCall:
         obs, log = make_observer(LantzObserver, driver_class=FeatDriver, role="laser")
         obs.on_call("measure_power", (), {}, 1.0)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
 
     def test_mapped_method_skipped(self):
         obs, log = make_observer(LantzObserver, driver_class=FeatDriver, role="laser")

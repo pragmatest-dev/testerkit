@@ -6,7 +6,7 @@ from typing import cast
 from uuid import uuid4
 
 from litmus.data.event_log import EventLog
-from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
 from litmus.instruments.observer import EventEmitter
 from litmus.instruments.observers.generic import GenericObserver
 from litmus.instruments.observers.pymeasure import PyMeasureObserver
@@ -73,11 +73,10 @@ class TestReadMethods:
         assert result == 3.3
         assert len(log.events) == 1
         event = log.events[0]
-        assert isinstance(event, InstrumentRead)
+        assert isinstance(event, ChannelStarted)
         assert event.instrument_role == "dmm"
         assert event.channel_id == "dmm.dc_voltage"
         assert event.method == "measure_dc_voltage"
-        assert event.value == 3.3
 
     def test_return_value_preserved(self):
         proxy, _ = _make_proxy()
@@ -194,16 +193,15 @@ class TestPropertyRead:
         assert v == 3.3
         assert len(log.events) == 1
         event = log.events[0]
-        assert isinstance(event, InstrumentRead)
+        assert isinstance(event, ChannelStarted)
         assert event.channel_id == "dmm.voltage"
-        assert event.value == 3.3
 
     def test_get_read_emits_read(self):
         proxy, log = _make_property_proxy()
         c = proxy.current
         assert c == 0.001
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].channel_id == "dmm.current"
 
 
@@ -243,5 +241,5 @@ class TestMixedMethodAndProperty:
         t = proxy.measure_temperature()
         assert t == 25.0
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].method == "measure_temperature"

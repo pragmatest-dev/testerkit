@@ -27,8 +27,10 @@ from litmus.execution._state import (
     get_current_logger,
     get_current_step,
     get_current_vector,
+    push_current_context,
     push_current_step,
     push_current_vector,
+    reset_current_context,
     reset_current_step,
     reset_current_vector,
 )
@@ -1196,8 +1198,11 @@ class TestHarness:
         if current_step is not None:
             current_step.vectors.append(test_vector)
 
-        # Set contextvar for concurrency-safe resolution
+        # Set contextvars for concurrency-safe resolution. The context
+        # var lets observer.read stamp this vector's out_<channel> on
+        # first write per (vector, channel) — item 5 / Position 2.
         vector_token = push_current_vector(test_vector)
+        context_token = push_current_context(self._vector_context)
         try:
             yield test_vector
         except AssertionError as e:
@@ -1218,6 +1223,7 @@ class TestHarness:
             test_vector.params = self._vector_context.params
             test_vector.observations = self._vector_context.observations
             test_vector.ended_at = _utcnow()
+            reset_current_context(context_token)
             reset_current_vector(vector_token)
             # Save current context for next vector's change detection
             self._prev_vector_context = self._vector_context
