@@ -233,7 +233,14 @@ _EVENT_CATEGORIES: list[tuple[str, list[str]]] = [
     ),
     (
         "Test",
-        ["StepStarted", "StepEnded", "MeasurementRecorded", "RecordEvent", "StepsDiscovered"],
+        [
+            "StepStarted",
+            "StepEnded",
+            "MeasurementRecorded",
+            "RecordEvent",
+            "Observation",
+            "StepsDiscovered",
+        ],
     ),
     ("Route (switching)", ["RouteClosed", "RouteOpened"]),
     (

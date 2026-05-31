@@ -422,6 +422,32 @@ class RecordEvent(EventBase):
     value: Any
 
 
+class Observation(EventBase):
+    """Emitted by ``Context.observe(key, value)``.
+
+    Carries the observation that landed in the vector's ``out_<name>``
+    column. Value is the scalar inline when scalar, or the claim URI
+    string (``channel://…`` or ``file://…``) when the value was
+    routed to a store.
+
+    Item 4 in the v0.2.0 data-architecture lift — closes the gap
+    where ``observe()`` calls were silent on the event timeline.
+    """
+
+    event_type: Literal["test.observation"] = "test.observation"
+
+    # Step/vector context (matches MeasurementRecorded shape)
+    step_name: str = ""
+    step_index: int = 0
+    step_path: str = ""
+    vector_index: int = 0
+    retry: int = 0
+
+    # Observation
+    name: str
+    value: Any = None
+
+
 class StepEnded(EventBase):
     event_type: Literal["test.step_ended"] = "test.step_ended"
     step_name: str
@@ -674,7 +700,14 @@ FIXTURE_EVENTS = {
     DutScanned,
     InstrumentDisconnected,
 }
-TEST_EVENTS = {StepStarted, MeasurementRecorded, RecordEvent, StepEnded, StepsDiscovered}
+TEST_EVENTS = {
+    StepStarted,
+    MeasurementRecorded,
+    RecordEvent,
+    Observation,
+    StepEnded,
+    StepsDiscovered,
+}
 ROUTE_EVENTS = {RouteClosed, RouteOpened}
 INSTRUMENT_EVENTS = {InstrumentRead, InstrumentSet, InstrumentConfigure}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
@@ -711,6 +744,7 @@ Event = Annotated[
     | StepStarted
     | MeasurementRecorded
     | RecordEvent
+    | Observation
     | StepEnded
     | StepsDiscovered
     | RouteClosed

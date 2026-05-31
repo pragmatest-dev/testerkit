@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from litmus.data.events import Observation
 from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
 from litmus.data.ref import classify_value
 from litmus.execution._state import (
@@ -240,9 +241,52 @@ class Context:
                     session_id=str(self._session_id),
                 )
                 self._observations[key] = uri
+                self._emit_observation(key, uri)
                 return
 
         self._observations[key] = value
+        self._emit_observation(key, value)
+
+    def _emit_observation(self, key: str, value: Any) -> None:
+        """Emit an ``Observation`` event for the value that landed in ``_observations``.
+
+        Item 4 in the v0.2.0 data-architecture lift. Pre-item-4 the
+        observe path was silent on the event timeline; subscribers
+        couldn't see captures. After item 4, each observe call
+        produces exactly one ``Observation`` event with the value
+        (or claim URI) plus step/vector context pulled from the
+        active ContextVars.
+
+        Skips emit silently when there's no active logger /
+        event_log / session — observe() should still work outside
+        an event-logged context (e.g., bare unit tests of Context).
+        """
+        if self._session_id is None:
+            return
+        logger = get_current_logger()
+        event_log = getattr(logger, "event_log", None) if logger is not None else None
+        if event_log is None:
+            return
+
+        # Pull step/vector context from active ContextVars; defaults
+        # are fine when called outside a step/vector (defensive).
+        step = get_current_step()
+        vector = get_current_vector()
+        run_id = getattr(getattr(logger, "test_run", None), "id", None)
+
+        event_log.emit(
+            Observation(
+                session_id=self._session_id,
+                run_id=run_id,
+                step_name=getattr(step, "name", "") if step else "",
+                step_index=getattr(step, "step_index", 0) if step else 0,
+                step_path=getattr(step, "step_path", "") if step else "",
+                vector_index=getattr(vector, "index", 0) if vector else 0,
+                retry=getattr(vector, "retry", 0) if vector else 0,
+                name=key,
+                value=value,
+            )
+        )
 
     def changed(self, key: str) -> bool:
         """Check if an input parameter changed from the previous vector.

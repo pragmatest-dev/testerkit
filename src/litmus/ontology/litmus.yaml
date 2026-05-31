@@ -893,6 +893,18 @@ concepts:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
 
+  - id: observation
+    category: event
+    event_type: test.observation
+    summary: >
+      Emitted by Context.observe(key, value). Carries the observation
+      that landed in the vector's out_<name> column (scalar inline, or
+      claim URI when routed to ChannelStore or FileStore).
+    model: litmus.data.events.Observation
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
   - id: step_ended
     category: event
     event_type: test.step_ended

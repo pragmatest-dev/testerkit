@@ -285,6 +285,20 @@ A key/value record emitted by harness.record().
 | `key` | `str` | *required* |
 | `value` | `Any` | *required* |
 
+### `test.observation` — `Observation`
+
+Emitted by ``Context.observe(key, value)``.
+
+| Field | Type | Default |
+|---|---|---|
+| `step_name` | `str` | `''` |
+| `step_index` | `int` | `0` |
+| `step_path` | `str` | `''` |
+| `vector_index` | `int` | `0` |
+| `retry` | `int` | `0` |
+| `name` | `str` | *required* |
+| `value` | `Any` | `None` |
+
 ### `test.steps_discovered` — `StepsDiscovered`
 
 Emitted after instruments connect, before steps execute.
