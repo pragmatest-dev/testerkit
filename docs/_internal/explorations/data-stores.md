@@ -1218,16 +1218,30 @@ Items still genuinely open after the v0.2.0 commitment (most other open items ha
 
 > **Commitment:** v0.2.0 is the release where data architecture stabilizes for pre-1.0. **All** build items in §12 (1a–30) land before the tag fires. Data is important enough that v0.2.0 is gated on completeness, not calendar.
 
-### Execution model — many branches, one tag
+### Execution model — stage branch accumulates, then merges to main
 
-v0.2.0 is **not a long-lived release branch**. Work proceeds as it has been for 0.1.x:
+v0.2.0 work accumulates on a **long-lived stage branch** — `feat/0.2.0-data-improvements` (the branch this design doc lives on). Model:
 
-- Each build item (or coherent group) → its own feature branch off `main`.
-- Each branch → small PR → review → merge to `main`.
-- `main` stays continuously deployable / installable from source.
-- The **`v0.2.0` tag fires when every MVP build item has landed on `main`**, including the supporting documentation work.
+- Each build item (or coherent group) → its own feature branch off `feat/0.2.0-data-improvements`.
+- Each branch → small PR → review → merge **into the stage branch** (not into `main`).
+- The stage branch accumulates everything v0.2.0 needs.
+- **`main` stays at 0.1.x semantics** throughout the v0.2.0 development cycle — clean separation between "what's released" and "what's being built."
+- When all MVP build items have landed on the stage branch, the stage branch → one final PR → merge to `main` → tag `v0.2.0`.
 
-This is exactly how 0.1.x worked (PRs #11, #12, #13 landed individually; 0.1.3 was tagged after all three were in). v0.2.0 is the same pattern, just with a bigger backlog to clear before tagging.
+| Why this model | Trade-offs |
+|---|---|
+| Clean "what's in v0.2.0" boundary — one branch diff against main shows the whole release | Long-running stage branch needs periodic rebase from main to absorb any 0.1.x patches |
+| Adopters following main get stable 0.1.x throughout development — no half-built v0.2.0 architecture in their installed version | Final merge PR is large (the whole release as one diff) |
+| Stage branch can self-test as a whole — integration testing happens continuously as items land | Stage-branch reviewers need to track inbound PRs against the stage, not main |
+| Reverts within v0.2.0 are local to the stage branch — no main churn if something needs rework | Rebase / merge conflicts handled in-stage as items land |
+
+### Stage-branch hygiene
+
+- **Periodic rebase from main.** Any 0.1.x patch that lands on main (security fix, critical bug) gets pulled into the stage branch via rebase or merge. Frequency: weekly or when main changes touch a file the stage branch is modifying.
+- **PRs into the stage branch use the same review process as main.** Don't lower the bar because "it's just the stage."
+- **Tests run on the stage branch** as if it were main — every PR into the stage triggers the same CI gates (lint, type, tests, pre-commit hooks).
+- **Stage-branch commits stay tidy.** Squash-merge PRs into the stage so the eventual `feat/0.2.0-data-improvements` → `main` merge has a clean history.
+- **No tags on the stage branch.** Tags only fire on main after the final merge.
 
 ### Migration policy from 0.1.x
 
@@ -1247,9 +1261,9 @@ uv add litmus-test==0.2.0
 
 No `litmus migrate` tool, no read-old-write-new shim, no compatibility flag. Pre-1.0 reality. Documented explicitly in `MIGRATION.md` (build item part of doc work).
 
-### Milestones (PR clusters, not release-points)
+### Milestones (PR clusters within the stage branch)
 
-These cluster related PRs so progress is visible during the multi-month landing. Each is multiple PRs to main; none of them is a separate release.
+These cluster related PRs so progress is visible during the multi-month landing. Each milestone is multiple PRs **into the stage branch**; none of them is a separate release.
 
 | Milestone | Cluster of items | Demo-able outcome |
 |---|---|---|
@@ -1266,7 +1280,7 @@ Milestones can run in parallel where they don't depend on each other (M5 can sta
 
 ### Calendar honesty
 
-Multi-month landing. Realistic execution depending on focus is 4-6 months of part-time work or 2-3 months of focused work, plus the perf refactors (items 21-22) which are substantial in their own right. The tag fires when M1-M8 are all merged to main, not on a calendar date.
+Multi-month landing. Realistic execution depending on focus is 4-6 months of part-time work or 2-3 months of focused work, plus the perf refactors (items 21-22) which are substantial in their own right. The tag fires when M1-M8 are all merged into the stage branch AND the stage branch has merged into main — not on a calendar date.
 
 ### Why "all or nothing for the tag"
 
