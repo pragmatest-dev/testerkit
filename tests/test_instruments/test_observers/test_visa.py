@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from litmus.data.events import InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentSet
 from litmus.instruments.observers.visa import VisaObserver, parse_scpi
 
 from .conftest import make_observer
@@ -34,15 +34,14 @@ class TestVisaObserverQuery:
         obs.on_call("query", ("MEAS:VOLT:DC?",), {}, "3.3")
         assert len(log.events) == 1
         e = log.events[0]
-        assert isinstance(e, InstrumentRead)
+        assert isinstance(e, ChannelStarted)
         assert e.channel_id == "dmm.meas_volt_dc"
-        assert e.value == "3.3"
 
     def test_ask_emits_read(self):
         obs, log = make_observer(VisaObserver, role="dmm")
         obs.on_call("ask", ("FREQ?",), {}, "1000")
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].channel_id == "dmm.freq"
 
 
@@ -60,7 +59,7 @@ class TestVisaObserverWrite:
         obs, log = make_observer(VisaObserver, role="dmm")
         obs.on_call("write", ("MEAS:VOLT?",), {}, None)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
 
     def test_write_rst(self):
         obs, log = make_observer(VisaObserver, role="dmm")
@@ -90,7 +89,7 @@ class TestVisaObserverFallback:
         obs, log = make_observer(VisaObserver, role="dmm")
         obs.on_call("measure_voltage", (), {}, 3.3)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
 
     def test_lifecycle_silent(self):
         obs, log = make_observer(VisaObserver, role="dmm")

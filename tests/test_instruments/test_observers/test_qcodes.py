@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from litmus.data.events import InstrumentConfigure, InstrumentRead
+from litmus.data.events import ChannelStarted, InstrumentConfigure
 from litmus.instruments.observers.qcodes import QCodesObserver
 
 from .conftest import make_observer
@@ -40,7 +40,7 @@ class TestQCodesGetattr:
         obs, log = make_observer(QCodesObserver, driver_class=DescriptorDriver, role="qc")
         obs.on_getattr("voltage", 3.3)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].channel_id == "qc.voltage"
 
     def test_unmapped_no_emit(self):
@@ -61,7 +61,7 @@ class TestQCodesCall:
         obs, log = make_observer(QCodesObserver, role="qc")
         obs.on_call("measure_voltage", (), {}, 3.3)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
 
 
 class TestQCodesInstanceParams:

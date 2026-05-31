@@ -43,6 +43,10 @@ if TYPE_CHECKING:
 # Step/vector — stack-like, push/pop with token. Used by logger.py + harness.py.
 _current_step_var: ContextVar[Any] = ContextVar("current_step", default=None)
 _current_vector_var: ContextVar[Any] = ContextVar("current_vector", default=None)
+# The active ``Context`` (harness.Context, not to be confused with ProductContext).
+# Pushed by the harness around vector execution; consumed by ``observer.read`` to
+# stamp channel URIs onto the active vector's ``out_*`` columns (item 5).
+_current_context_var: ContextVar[Any] = ContextVar("current_context", default=None)
 
 # Active TestRunLogger — session singleton, set once per test by the runner.
 _current_logger_var: ContextVar[TestRunLogger | None] = ContextVar("_current_logger", default=None)
@@ -186,6 +190,21 @@ def push_current_vector(vector: Any) -> Token[Any]:
 def reset_current_vector(token: Token[Any]) -> None:
     """Restore the prior active vector using a token from :func:`push_current_vector`."""
     _current_vector_var.reset(token)
+
+
+def get_current_context() -> Any:
+    """Return the active harness :class:`Context`, or ``None`` outside one."""
+    return _current_context_var.get()
+
+
+def push_current_context(context: Any) -> Token[Any]:
+    """Set the active context; returns a token for :func:`reset_current_context`."""
+    return _current_context_var.set(context)
+
+
+def reset_current_context(token: Token[Any]) -> None:
+    """Restore the prior active context using a token from :func:`push_current_context`."""
+    _current_context_var.reset(token)
 
 
 def get_current_logger() -> TestRunLogger | None:
