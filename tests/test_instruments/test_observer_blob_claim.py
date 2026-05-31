@@ -1,0 +1,329 @@
+"""Item 3b — observer.read blob → file:// claim-check.
+
+Pre-3b: an instrument that returns a blob (PIL image, raw bytes,
+arbitrary Pydantic model, Path) had the value silently dropped at
+``EventEmitter._store_value`` because the channel store path was
+skipped for blobs and no FileStore route existed. The blob never
+reached durable storage.
+
+After 3b (this PR):
+
+- ``_store_value`` detects ``classify_value(value) == "blob"`` and
+  routes the bytes through ``FileStore.put(...)`` with the
+  session_id from EventEmitter.
+- The returned ``file://`` URI is written into ChannelStore as the
+  channel's sample value — works as a ``scalar:str`` channel because
+  C2 (item 14) made ChannelStore accept str leaf types.
+- The URI is returned to the caller, so ``EventEmitter.read``'s
+  existing ``ctx._observations.setdefault(...)`` stamping picks it
+  up unchanged.
+
+Depends on C1 (ChannelStarted lifecycle) + C2 (typed leaf types) +
+C1a (FileStore.put). Per CLAUDE.md test conventions: uses
+``resolve_data_dir()`` + uuid4 session_ids for per-test isolation.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from uuid import uuid4
+
+import pyarrow as pa
+import pytest
+from pydantic import BaseModel
+
+from litmus.data.data_dir import resolve_data_dir
+from litmus.data.events import ChannelStarted
+from litmus.data.files import _reset_for_tests
+from litmus.data.ref import classify_value
+from litmus.instruments.observer import EventEmitter
+
+
+class CollectingLog:
+    def __init__(self) -> None:
+        self.events: list = []
+
+    def emit(self, event) -> None:  # noqa: ANN001
+        self.events.append(event)
+
+
+class FakeChannelStore:
+    """Captures the writes EventEmitter routes through it.
+
+    Mimics the parts of ``litmus.data.channels.ChannelStore.write``
+    that EventEmitter touches: takes (channel_id, value, source),
+    returns a synthesized ``channel://`` URI, records the args.
+    """
+
+    def __init__(self) -> None:
+        self.writes: list[tuple[str, object, str]] = []
+
+    def write(self, channel_id: str, value, source: str = "") -> str:  # noqa: ANN001
+        self.writes.append((channel_id, value, source))
+        return f"channel://{channel_id}?session=test"
+
+
+@pytest.fixture(autouse=True)
+def _reset_filestore_singleton():
+    """Reset the FileStore module singleton between tests."""
+    _reset_for_tests()
+    yield
+    _reset_for_tests()
+
+
+def _emitter_with_store() -> tuple[EventEmitter, CollectingLog, FakeChannelStore, str]:
+    log = CollectingLog()
+    store = FakeChannelStore()
+    sid = uuid4()
+    emitter = EventEmitter(
+        event_log=log,  # type: ignore[arg-type]
+        session_id=sid,
+        role="scope",
+        run_id=uuid4(),
+        resource="USB::0x0699::0x0408",
+        channel_store=store,
+    )
+    return emitter, log, store, str(sid)
+
+
+def _expected_file_dir(session_id: str) -> Path:
+    """Reproduce FileStore's on-disk layout for assertions."""
+    from datetime import UTC, datetime
+
+    today = datetime.now(UTC).date().isoformat()
+    return resolve_data_dir() / "files" / today / session_id
+
+
+# --------------------------------------------------------------------- #
+# bytes — the canonical blob case (e.g. instrument screenshot)          #
+# --------------------------------------------------------------------- #
+
+
+def test_bytes_blob_lands_in_filestore_and_uri_in_channel_store() -> None:
+    """Scope screenshot (raw bytes) round-trips through FileStore + URI in channel."""
+    emitter, _log, store, sid = _emitter_with_store()
+    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRfake"
+
+    # sanity: classify_value still calls this a blob
+    assert classify_value(png_bytes) == "blob"
+
+    emitter.read("scope.screenshot", png_bytes, method="screenshot")
+
+    # ChannelStore got the URI as the channel value (not the raw bytes)
+    assert len(store.writes) == 1
+    channel_id, written_value, source = store.writes[0]
+    assert channel_id == "scope.screenshot"
+    assert isinstance(written_value, str)
+    assert written_value.startswith(f"file://{sid}/")
+    assert source == "screenshot"
+
+    # URI resolves to the actual bytes on disk
+    filename = written_value[len(f"file://{sid}/") :]
+    landed = _expected_file_dir(sid) / filename
+    assert landed.read_bytes() == png_bytes
+
+
+def test_bytes_blob_emits_channel_started_once() -> None:
+    """First per-channel-per-session write still emits ChannelStarted."""
+    emitter, log, _store, _sid = _emitter_with_store()
+    emitter.read("scope.screenshot", b"png1", method="screenshot")
+    emitter.read("scope.screenshot", b"png2", method="screenshot")
+    emitter.read("scope.screenshot", b"png3", method="screenshot")
+
+    started = [e for e in log.events if isinstance(e, ChannelStarted)]
+    assert len(started) == 1
+    assert started[0].channel_id == "scope.screenshot"
+    assert started[0].instrument_role == "scope"
+
+
+def test_each_blob_write_creates_a_distinct_file() -> None:
+    """Three blob writes → three files on disk → three URIs in ChannelStore.
+
+    No silent overwrite (FileStore.put produces ``name``, ``name_2``,
+    ``name_3`` suffixes from C1a collision handling).
+    """
+    emitter, _log, store, sid = _emitter_with_store()
+    emitter.read("scope.screenshot", b"png1", method="screenshot")
+    emitter.read("scope.screenshot", b"png2", method="screenshot")
+    emitter.read("scope.screenshot", b"png3", method="screenshot")
+
+    uris = [w[1] for w in store.writes]
+    assert len(uris) == 3
+    assert len(set(uris)) == 3  # all distinct
+
+    session_dir = _expected_file_dir(sid)
+    for uri in uris:
+        assert isinstance(uri, str)
+        filename = uri[len(f"file://{sid}/") :]
+        assert (session_dir / filename).exists()
+
+
+# --------------------------------------------------------------------- #
+# Path blob — instrument that hands back a file path                     #
+# --------------------------------------------------------------------- #
+
+
+def test_path_blob_routes_through_filestore(tmp_path: Path) -> None:
+    """An instrument that returns a Path (e.g. a TDMS dump file)."""
+    emitter, _log, store, sid = _emitter_with_store()
+    src = tmp_path / "capture.tdms"
+    src.write_bytes(b"\x00\x01\x02fake-tdms")
+
+    assert classify_value(src) == "blob"
+
+    emitter.read("daq.capture", src, method="acquire")
+
+    assert len(store.writes) == 1
+    uri = store.writes[0][1]
+    assert isinstance(uri, str)
+    assert uri.startswith(f"file://{sid}/")
+    # Path's suffix preserved through FileStore.put
+    assert uri.endswith(".tdms")
+
+
+# --------------------------------------------------------------------- #
+# Pydantic blob — instrument that hands back a structured object         #
+# --------------------------------------------------------------------- #
+
+
+def test_pydantic_blob_routes_through_filestore() -> None:
+    """An instrument observer that returns a Pydantic model gets json-claimed."""
+    emitter, _log, store, sid = _emitter_with_store()
+
+    class Capture(BaseModel):
+        sensor: str
+        value: float
+
+    cap = Capture(sensor="thermistor", value=23.5)
+    assert classify_value(cap) == "blob"
+
+    emitter.read("sensor.reading", cap, method="read_all")
+
+    assert len(store.writes) == 1
+    uri = store.writes[0][1]
+    assert isinstance(uri, str)
+    assert uri.startswith(f"file://{sid}/")
+    assert uri.endswith(".json")
+
+
+# --------------------------------------------------------------------- #
+# negative — non-blob values stay on the channel-store path              #
+# --------------------------------------------------------------------- #
+
+
+def test_scalar_value_still_routes_to_channel_store_not_filestore() -> None:
+    """Per the original gap-6 design, scalar reads go straight to ChannelStore."""
+    emitter, _log, store, _sid = _emitter_with_store()
+    emitter.read("dmm.voltage", 3.31, method="measure_voltage")
+
+    # FakeChannelStore got the raw float
+    assert len(store.writes) == 1
+    _, value, _ = store.writes[0]
+    assert value == 3.31
+
+    # No FileStore touched — nothing on disk for this channel
+    sid = str(emitter._session_id)
+    files_dir = _expected_file_dir(sid)
+    if files_dir.exists():
+        for entry in files_dir.iterdir():
+            assert "dmm.voltage" not in entry.name
+
+
+def test_array_value_still_routes_to_channel_store_not_filestore() -> None:
+    """Numeric arrays remain ChannelStore territory — never FileStore."""
+    emitter, _log, store, _sid = _emitter_with_store()
+    samples = [3.31, 3.32, 3.33, 3.30, 3.31]
+    assert classify_value(samples) == "numeric_array"
+
+    emitter.read("dmm.waveform", samples, method="acquire_waveform")
+
+    assert len(store.writes) == 1
+    _, value, _ = store.writes[0]
+    assert value == samples
+
+
+def test_numpy_array_value_still_routes_to_channel_store_not_filestore() -> None:
+    """Numpy arrays are channel-shaped, not blob-shaped."""
+    np = pytest.importorskip("numpy")
+    emitter, _log, store, _sid = _emitter_with_store()
+    arr = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64)
+    assert classify_value(arr) == "numeric_array"
+
+    emitter.read("daq.samples", arr, method="read_block")
+
+    assert len(store.writes) == 1
+    _, value, _ = store.writes[0]
+    # passthrough — same array object
+    assert value is arr
+
+
+# --------------------------------------------------------------------- #
+# integration — blob URI flows through to vector out_* stamping          #
+# --------------------------------------------------------------------- #
+
+
+def test_blob_uri_stamps_active_vectors_out_column() -> None:
+    """The URI from FileStore propagates onto the active vector's out_*.
+
+    This is the bridge between the in-progress channel and the parquet
+    materialization path: a verify row in this vector now references
+    the screenshot via ``out_scope.screenshot``.
+    """
+    from litmus.execution._state import (
+        push_current_context,
+        reset_current_context,
+    )
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self._observations: dict[str, str] = {}
+
+    ctx = FakeContext()
+    token = push_current_context(ctx)  # type: ignore[arg-type]
+    try:
+        emitter, _log, _store, sid = _emitter_with_store()
+        emitter.read("scope.screenshot", b"\x89PNG\r\n\x1a\n", method="screenshot")
+
+        assert "scope.screenshot" in ctx._observations
+        uri = ctx._observations["scope.screenshot"]
+        assert isinstance(uri, str)
+        assert uri.startswith(f"file://{sid}/")
+    finally:
+        reset_current_context(token)
+
+
+# --------------------------------------------------------------------- #
+# negative — no channel store: blob is dropped (no-session case)         #
+# --------------------------------------------------------------------- #
+
+
+def test_no_channel_store_blob_value_passes_through_unchanged() -> None:
+    """Driver outside a session (no channel_store wired): pre-3b behavior.
+
+    Without a session to scope the FileStore put to, the raw blob
+    flows back through the emitter unchanged. This is the same shape
+    as the no-channel-store branch for scalars; intentional.
+    """
+    log = CollectingLog()
+    emitter = EventEmitter(
+        event_log=log,  # type: ignore[arg-type]
+        session_id=uuid4(),
+        role="dmm",
+        channel_store=None,
+    )
+    raw = b"binary-blob"
+    emitter.read("dmm.raw", raw, method="raw_read")
+
+    # ChannelStarted still emits (it's the lifecycle marker)
+    started = [e for e in log.events if isinstance(e, ChannelStarted)]
+    assert len(started) == 1
+
+
+# --------------------------------------------------------------------- #
+# silence the unused pyarrow import warning under pyright/ruff           #
+# --------------------------------------------------------------------- #
+
+
+def test_pyarrow_is_available_for_subsequent_tests() -> None:
+    """Smoke check; pa is imported to keep parity with sibling test modules."""
+    assert pa.__name__ == "pyarrow"

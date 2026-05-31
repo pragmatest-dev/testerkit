@@ -16,6 +16,7 @@ from uuid import UUID
 
 from litmus.data.event_log import EventLog
 from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
+from litmus.data.files import get_filestore
 from litmus.data.ref import classify_value
 
 logger = logging.getLogger(__name__)
@@ -66,14 +67,40 @@ class EventEmitter:
         self._started_channels: set[str] = set()
 
     def _store_value(self, channel_id: str, value: Any, source: str) -> Any:
-        """Write to channel store if possible, return URI or raw value."""
-        if self._channel_store is not None and value is not None:
-            vtype = classify_value(value)
-            if vtype != "blob":
-                try:
-                    return self._channel_store.write(channel_id, value, source=source)
-                except (OSError, ValueError, TypeError) as exc:
-                    logger.debug("Channel store write failed for %s: %s", channel_id, exc)
+        """Route a value to the right store; return URI or the raw value.
+
+        - Blobs (PIL image, raw bytes, Path, Pydantic model, anything
+          ``classify_value`` flags as ``"blob"``) route through
+          :func:`FileStore.put` (build item 3b). The returned
+          ``file://`` URI is written into ChannelStore as the channel's
+          sample value — a ``scalar:str`` channel (relies on C2's typed
+          leaf-types, build item 14) so the live channel timeline
+          carries the claim-check. URI returned to the caller for
+          ``out_*`` stamping.
+        - Channel-shaped numerics (scalar / list / numpy array / dict)
+          go straight to ChannelStore as before; its ``write`` returns
+          a ``channel://`` URI for downstream stamping.
+        - When no ChannelStore is wired (driver outside a session), the
+          raw value is returned unchanged — blobs are still dropped in
+          that path because there's no session to scope a FileStore put
+          to. This matches pre-3b behavior for the no-session case.
+        """
+        if self._channel_store is None or value is None:
+            return value
+
+        vtype = classify_value(value)
+        if vtype == "blob":
+            uri = get_filestore().put(channel_id, value, session_id=str(self._session_id))
+            try:
+                self._channel_store.write(channel_id, uri, source=source)
+            except (OSError, ValueError, TypeError) as exc:
+                logger.debug("Channel store URI write failed for %s: %s", channel_id, exc)
+            return uri
+
+        try:
+            return self._channel_store.write(channel_id, value, source=source)
+        except (OSError, ValueError, TypeError) as exc:
+            logger.debug("Channel store write failed for %s: %s", channel_id, exc)
         return value
 
     def read(self, channel: str, value: Any, method: str = "") -> None:
