@@ -1050,7 +1050,11 @@ Item 1 is the foundation; decomposed for execution clarity.
 
 **API consistency (fixes gaps 1, 3, 4, 5):**
 
-3. **Blob → `file://` claim-check** — fixes the image-drop. Route blobs through FileStore in `InstrumentRead` serialization AND in `observe()` instead of `repr()`. DoD: `tests/test_image_drop_fix.py` writes an image via `observer.read` and via `observe()`, asserts both produce a `file://` claim and resolve to readable bytes.
+3a. **`Context.observe` blob → `file://` claim-check** — fixes half of the image-drop. Today `Context.observe` (`harness.py:200-207`) stashes raw blobs in `self._observations[key] = value`; under 3a it routes through `FileStore.put` and stashes the URI instead. Lands clean today — no event coupling, no dependency on the channel-event reshape. DoD: `tests/test_observe_blob_claim.py` writes a Path / bytes / Pydantic value via `observe()`, asserts `_observations[key]` is a `file://` URI and the bytes resolve.
+
+3b. **`observer.read` blob → `file://` claim-check + ChannelStore str-typed write** — fixes the other half of the image-drop. The proper place for instrument-blob handling under Position 2 is `observer._store_value` (`observer.py:63-72`), not the InstrumentRead serializer (which retires under item 4b). Routes blob to FileStore, writes the URI back to ChannelStore as a `scalar:str` channel value (uses item 14 typed leaf-types). **Depends on item 14** (typed leaf-types — ChannelStore must accept str values cleanly) **and item 4b** (new channel-lifecycle event story). DoD: `tests/test_instrument_blob_claim.py` writes an instrument-sourced blob, asserts the URI lands in ChannelStore as a `scalar:str` channel + bytes resolve from the URI.
+
+(Sequenced: 3a now — independent. 3b after 4b + 14 land.)
 4. **`observe()` emits a claim event** the way `observer.read` does. Adds `Observation` event for every observe call (scalar inline; non-scalar carrying URI). DoD: every `observe()` call results in exactly one event in the EventStore; consumers can subscribe and react.
 4b. **Introduce `ChannelStarted` + `ChannelClosed` event classes; retire per-sample `InstrumentRead`.** (Position 2; see §8.) Two new event classes in `events.py`:
     - `ChannelStarted(channel_id, data_type, units?, instrument_role?, method?, resource?)` — fires once per `(channel_id, session_id)` on first write into a channel. Carries instrument fields when source is an instrument; null otherwise.
