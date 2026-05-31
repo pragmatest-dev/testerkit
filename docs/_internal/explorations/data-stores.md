@@ -1261,6 +1261,25 @@ uv add litmus-test==0.2.0
 
 No `litmus migrate` tool, no read-old-write-new shim, no compatibility flag. Pre-1.0 reality. Documented explicitly in `MIGRATION.md` (build item part of doc work).
 
+### Sharper principle — anything not currently working is not a backcompat constraint
+
+The migration policy above is for the *behaviors that work today*. For everything else: **v0.2.0 doesn't need to preserve broken behavior**. The image-drop bug, the ambiguous `_ref/{filename}` URI scheme that resolves differently depending on whether it's in an events-side or runs-side `_ref` dir, the silent float-cast of `int`/`bool` arrays in ChannelStore, the JSON-payload-only EventStore — these are *bugs being fixed*, not contracts being honored.
+
+This sharpens several build items:
+- **Item 1d (unify `_ref` dirs):** the legacy `file://_ref/{filename}` URI shape doesn't need to keep resolving. Old call sites get rewritten to use `FileStore.put` returning the new `file://{session_id}/{filename}` form; nothing keeps reading the old shape.
+- **Item 5 (`observer.read` → `record_read`):** no alias, no deprecation period.
+- **Item 6 (dispatch policy):** `classify_value`'s current `numeric_array → ChannelStore` branch can just be deleted for the `observe`/`verify` path. No legacy preservation.
+- **Item 12 (serialization registry):** pickle-fallback warning behavior is greenfield — pick what's right, no need to match `save_ref_to_dir`'s current silence.
+- **Item 14 (typed leaf-types):** scalar `int` was being silently cast to `float64`; that's a bug, fix it without considering "what about code that depended on the cast?"
+- **Item 17 (rename `properties` → `attributes`):** mechanical rename, no shim.
+- **Item 21 (typed Arrow event payloads):** the JSON payload column can just be replaced. Existing consumers that read JSON via `json_extract_string(...)` get updated to typed access; no dual-read path.
+
+The only backcompat constraints that DO bind v0.2.0:
+- Public-facing API surfaces *that work today and external code calls* (verify, observe, the LitmusClient public methods that pre-0.2 users rely on for scripted runs).
+- On-disk semantics for behaviors documented as stable (run parquet column meanings for measurements that pass/fail/error correctly today — i.e., the analytical surface).
+
+Everything else is a bug fix, not a contract break.
+
 ### Milestones (PR clusters within the stage branch)
 
 These cluster related PRs so progress is visible during the multi-month landing. Each milestone is multiple PRs **into the stage branch**; none of them is a separate release.
