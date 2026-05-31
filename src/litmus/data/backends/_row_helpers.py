@@ -513,7 +513,7 @@ def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
                 Y=value.Y,
                 t0=value.t0,
                 dt=value.dt,
-                **value.attrs,
+                **value.attributes,
             )
         else:
             filename = f"{prefix}.json"

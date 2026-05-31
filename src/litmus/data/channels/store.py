@@ -26,6 +26,7 @@ from litmus.data.channels.models import (
     SCALAR_SCHEMA,
     ChannelDescriptor,
     ChannelSample,
+    _data_type_for,
     _infer_schema,
     sample_to_batch,
 )
@@ -347,8 +348,9 @@ class ChannelStore:
         if tolist is not None:
             return {"samples": tolist(), "sample_interval": sample_interval or 0.0}
 
-        # Plain list of numbers → array with sample_interval
-        if isinstance(value, (list, tuple)) and value and isinstance(value[0], (int, float)):
+        # Plain non-empty list/tuple → array with sample_interval (any leaf
+        # type — bool / int / float / str supported per build item 14).
+        if isinstance(value, (list, tuple)) and value:
             return {"samples": list(value), "sample_interval": sample_interval or 0.0}
 
         return value
@@ -375,33 +377,30 @@ class ChannelStore:
             # A normalized dict with a ``samples`` list is a waveform
             # capture (the result of ``_normalize_value`` folding an
             # array / tuple / numpy ndarray into ``{samples,
-            # sample_interval}``). Tag it accordingly so the registry
-            # carries the precise shape, not the generic ``struct``
-            # used for arbitrary structured records.
-            if isinstance(normalized.get("samples"), list):
-                data_type = "waveform"
+            # sample_interval}``). Tag it with the typed array form
+            # (build item 14: ``"array:<leaf>"``); ``"struct"`` is kept
+            # for arbitrary structured records.
+            samples = normalized.get("samples")
+            if isinstance(samples, list):
+                data_type = _data_type_for(samples)
             else:
                 data_type = "struct"
             sample_value = normalized
-        elif isinstance(normalized, bool):
+        elif isinstance(normalized, (bool, int, float, str)):
+            # Per build item 14, leaf type is preserved on the row's
+            # ``value`` column (no more int → float cast). The order
+            # ``bool, int, float, str`` matters: ``True`` is also an
+            # ``int`` in Python, so the bool branch must come first via
+            # the ``isinstance`` tuple ordering plus ``_data_type_for``.
             row = {**common, "value": normalized}
-            data_type = "scalar_bool"
+            data_type = _data_type_for(normalized)
             sample_value = normalized
-        elif isinstance(normalized, str):
-            row = {**common, "value": normalized}
-            data_type = "scalar_str"
-            sample_value = normalized
-        elif isinstance(normalized, (int, float)):
-            float_value = float(normalized)
-            row = {**common, "value": float_value}
-            data_type = "scalar"
-            sample_value = float_value
         else:
             warnings.warn(
                 f"Channel {channel_id}: cannot store {type(value).__name__}",
                 stacklevel=3,
             )
-            return "scalar", None, None
+            return "scalar:float", None, None
 
         sample = ChannelSample(
             channel_id=channel_id,

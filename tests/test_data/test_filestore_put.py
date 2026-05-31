@@ -107,7 +107,7 @@ def test_put_waveform_writes_npz_with_t0_dt_attrs(store: FileStore) -> None:
         Y=[1.0, 2.0, 3.0, 4.0],
         t0=0.1,
         dt=1e-6,
-        attrs={"units": "V", "channel": "scope.ch1"},
+        attributes={"units": "V", "channel": "scope.ch1"},
     )
 
     uri = store.put("scope.capture", wf, session_id=sid)

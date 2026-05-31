@@ -29,13 +29,13 @@ class TestSerializeRef:
     """Type-dispatch logic for ref payloads."""
 
     def test_waveform_returns_model_dump(self) -> None:
-        wfm = Waveform(t0=0.0, dt=0.001, Y=[1.0, 2.0, 3.0], attrs={"units": "V"})
+        wfm = Waveform(t0=0.0, dt=0.001, Y=[1.0, 2.0, 3.0], attributes={"units": "V"})
         result = _serialize_ref(wfm)
         assert result == {
             "t0": 0.0,
             "dt": 0.001,
             "Y": [1.0, 2.0, 3.0],
-            "attrs": {"units": "V"},
+            "attributes": {"units": "V"},
         }
 
     def test_arbitrary_basemodel_returns_model_dump(self) -> None:

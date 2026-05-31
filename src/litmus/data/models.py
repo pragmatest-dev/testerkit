@@ -492,13 +492,16 @@ class Waveform(BaseModel):
         t0: Start time (seconds from trigger)
         dt: Sample interval (seconds)
         Y: Sample values (voltage, current, etc.)
-        attrs: Metadata (units, channel, coupling, etc.)
+        attributes: Metadata (units, channel, coupling, etc.). Renamed
+            from ``attrs`` in build item 17 for cross-schema vocabulary
+            consistency (matches FileArtifactMetadata.attributes and
+            ChannelDescriptor.attributes).
     """
 
     t0: float = 0.0
     dt: float
     Y: list[float]  # Sample values
-    attrs: dict[str, Any] = Field(default_factory=dict)
+    attributes: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def num_samples(self) -> int:

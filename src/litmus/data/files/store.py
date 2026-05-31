@@ -192,7 +192,7 @@ class FileStore:
             if HAS_NUMPY:
                 import numpy as np  # noqa: PLC0415
 
-                np.savez(dest, Y=value.Y, t0=value.t0, dt=value.dt, **value.attrs)
+                np.savez(dest, Y=value.Y, t0=value.t0, dt=value.dt, **value.attributes)
             else:
                 dest.write_text(value.model_dump_json())
             return
