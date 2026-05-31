@@ -60,7 +60,7 @@ Each is optimized for an access pattern the others can't serve well:
 
 The split earns its weight: each store serves what it's specifically good at; the event log unifies them via claim URIs so consumers walk one timeline and dereference claims to reach the actual bytes.
 
-### Performance per store (order-of-magnitude estimates)
+### Write performance per store (order-of-magnitude estimates)
 
 These are **expected ranges**, not benchmarked promises. End-to-end Flight throughput isn't measured today — `test_data/test_perf.py` covers local writes only; build item L3 below adds the end-to-end bench.
 
@@ -73,9 +73,47 @@ These are **expected ranges**, not benchmarked promises. End-to-end Flight throu
 | FileStore stream (sink) | Direct file write via format library (PyAV / soundfile / etc.) | video H.264 via PyAV ~50–200 MB/s; raw byte streams → disk speed | encoder CPU + disk |
 | ParquetBackend (materialization) | Batch write at RunEnded | not throughput-critical — sized to one run | one-shot per run; no continuous load |
 
-Two takeaways:
+Two write-side takeaways:
 - For **high-rate continuous numerics**, ARRAY_SCHEMA on ChannelStore is the right tool (~100s of MB/s). Per-sample SCALAR_SCHEMA is fine for moderate rates (DMM polling, sensor sampling) but per-sample notify limits it.
 - For **video and large continuous captures**, FileStore's streaming sink wrapping a format library (PyAV) hits encoder-bound throughput, not store-bound throughput. The store is just the orchestrator.
+
+### Read performance per store
+
+Read paths have their own bottlenecks, separate from writes. Where the architecture bites hardest today is **EventStore payload filtering** — the opaque JSON column means any predicate on payload fields (channel_id, min/max, units, limits) is full-scan + per-row JSON parse.
+
+| Store | Read pattern | Realistic throughput today | What limits it |
+|---|---|---|---|
+| EventStore | envelope-only filter (event_type, session_id, received_at, event_number) | ~100–500 MB/s | typed columns; DuckDB columnar pushdown; fast |
+| EventStore | **payload-field filter** (any JSON content) | **~5–50 MB/s** | **JSON parse per row** — no statistics, no pruning, no pushdown |
+| EventStore | live subscribe (Flight `do_get`) | ~10–100 MB/s on loopback | wire serialization + per-event notify |
+| ChannelStore | per-sample query (windowed) | ~50–200 MB/s SCALAR; ~100–500 MB/s ARRAY | typed read is already fast; DuckDB pushdown |
+| ChannelStore | live subscribe (Flight `do_get`) | ~50–200 MB/s on loopback | wire serialization; multiple channels add aggregate fan-out |
+| FileStore | full file read | disk-bound (~500 MB/s – 7 GB/s NVMe) | disk + protocol overhead (~5–10% for HTTP) |
+| FileStore | range read (partial) | disk-bound | same as above |
+| FileStore | **video decode** (consumer side) | ~50–200 MB/s | **software H.264 decode CPU-bound** |
+| Parquet | analytical scan | ~500 MB/s – 5 GB/s | already well-optimized (column projection + predicate pushdown native) |
+
+Three read-side takeaways:
+- **EventStore payload filtering is the slowest read in the system today** (~5–50 MB/s) and is the biggest single read-side bottleneck. The L5 refactor (typed Arrow payloads) lifts this by 10–50× because payload fields become columnar with DuckDB pushdown.
+- **ChannelStore and Parquet reads are already well-optimized** — Arrow columnar + DuckDB. Remaining gains come from transport (L6 shared-memory).
+- **FileStore video decode** is software CPU-bound today on the consumer side. Mirror of the L7 encoder story: a hardware-decode option (L7b) would gain 10–20× for video playback in UIs.
+
+### Read performance after the L5/L6 refactors
+
+| Store / path | Read today | After L5/L6 (L7b for video decode) |
+|---|---|---|
+| EventStore envelope filter | 100–500 MB/s | 200–1000 MB/s (cleaner schema) |
+| EventStore **payload filter** | 5–50 MB/s (JSON parse) | **100–500 MB/s** (typed pushdown — 10–50× win) |
+| EventStore live subscribe | 10–100 MB/s | **GB/s** (local shared-memory) |
+| ChannelStore at-rest query | 100–500 MB/s | 200 MB/s – 3 GB/s (mmap + compression) |
+| ChannelStore live subscribe | 50–200 MB/s | **GB/s** (local shared-memory) |
+| FileStore full / range read | disk-bound | unchanged |
+| FileStore video decode | 50–200 MB/s (sw) | **500 MB/s – 2 GB/s** (hw decode — L7b) |
+| Parquet analytical scan | 500 MB/s – 5 GB/s | unchanged |
+
+**L5 wins more on reads than writes.** L5 was sold above as a 5–10× write improvement; the read side is **10–50× on payload filters** — the more important number for analytic workflows. It's also what closes the "events aren't a search surface" gap: once payloads are columnar, **EventStore itself becomes searchable** without needing a separate per-store index layer.
+
+**L6 is symmetric** on reads and writes — both ends benefit from shared-memory zero-copy. The qualitative win for consumers is consumer CPU dropping to near-zero (no more wire deserialization per Flight batch); meaningful for live UIs that today have to deserialize every batch.
 
 ### Performance headroom — improvement levers
 
@@ -866,11 +904,17 @@ L3. **Perf: byte-aware flush + end-to-end Flight bench.** `BufferedIPCWriter` fl
 
 L4. **Consumer SDK (`litmus.live`)** — typed event objects, `subscribe_events` / `subscribe_channel` / `subscribe_file` / `subscribe_run_live` / `deref`. Hides transport + URI dispatch; doesn't hide data shape.
 
-L5. **Typed Arrow event payloads.** Replace the opaque `json` string payload column in `event_log.py:31-40` with native nested Arrow structs per event type. Eliminates per-event JSON encode/decode; makes payload fields directly queryable (closes the "events aren't a search surface" gap for envelope-style queries). Estimated 5–10× write + read throughput improvement on EventStore. Medium lift — schema migration + per-event-type record-batch wiring.
+L5. **Typed Arrow event payloads.** Replace the opaque `json` string payload column in `event_log.py:31-40` with native nested Arrow structs per event type. Two reasonable schema shapes — union payload column or per-event-type record batches in one IPC file (the latter closer to how Arrow IPC already works). Either way, the envelope (`event_number`, `event_type`, `session_id`, `received_at`) stays typed and indexed; payload becomes typed too.
+    - **Write gain:** 5–10× (no per-event JSON encode)
+    - **Read gain on payload filters:** **10–50×** (columnar pushdown + DuckDB statistics vs full-scan + JSON parse). This is the bigger number and the more important one for analytic workflows.
+    - **Closes the "events aren't a search surface" gap** for any predicate inside the payload (channel_id, min/max, units, limits, etc.). EventStore itself becomes searchable; no separate per-store payload index needed for envelope-adjacent queries.
+    - Medium lift — schema migration + per-event-type record-batch wiring.
 
-L6. **Local shared-memory transport for Consumer SDK.** When subscriber is on the same machine as producer, use `multiprocessing.shared_memory` (or POSIX `shm`) for zero-copy reads instead of Flight over loopback. Transport selection auto-detects local vs network. Estimated 3–10× for local subscribers; consumer CPU drops to near-zero. Combined with L5, lifts EventStore + ChannelStore live throughput into the **GB/s range** for local deployments. Medium lift — alternative transport in the Flight server + Consumer SDK.
+L6. **Local shared-memory transport for Consumer SDK.** When subscriber is on the same machine as producer, use `multiprocessing.shared_memory` (or POSIX `shm`) for zero-copy reads instead of Flight over loopback. Transport selection auto-detects local vs network. **Symmetric gain on reads and writes** (3–10× for local subscribers); consumer CPU drops to near-zero (no Flight-wire deserialization per batch). Combined with L5, lifts EventStore + ChannelStore live throughput into the **GB/s range** for local deployments. Medium lift — alternative transport in the Flight server + Consumer SDK.
 
-L7. **Hardware video encoder option.** `filestore.stream(name, format="mp4", hwaccel="auto")` flips PyAV from software H.264 to NVENC (NVIDIA) / VAAPI (Intel) / VideoToolbox (Mac). Estimated **10–20× video throughput gain** (50 MB/s → 500 MB/s – 2 GB/s). Small lift — PyAV exposes hardware encoders natively; expose as a sink option.
+L7. **Hardware video encoder option.** `filestore.stream(name, format="mp4", hwaccel="auto")` flips PyAV from software H.264 to NVENC (NVIDIA) / VAAPI (Intel) / VideoToolbox (Mac). Estimated **10–20× video write throughput gain** (50 MB/s → 500 MB/s – 2 GB/s). Small lift — PyAV exposes hardware encoders natively; expose as a sink option.
+
+L7b. **Hardware video decoder option** for FileStore playback consumers — companion to L7 on the read side. Today software H.264 decode in the UI consumer caps video playback at ~50–200 MB/s (CPU-bound). Hardware decode (NVDEC, VideoToolbox decode, VAAPI) lifts decode to **500 MB/s – 2 GB/s**, same 10–20× shape as the encoder. Same library (PyAV) exposes hwaccel for decode; expose on the Consumer SDK file-watch API. Small lift; pairs naturally with L7.
 
 ### Naming smell flagged
 
