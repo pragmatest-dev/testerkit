@@ -473,6 +473,48 @@ channel_id, data_type, instrument_role, resource, units, properties (dict), firs
 
 `properties` is the dict for project-specific metadata (channel-level). **No promoted typed fields for `sample_rate` / `dt`** — those are waveform-specific concepts and live on the Waveform model. The descriptor uniformly serves any channel shape.
 
+**Channel kind is global per `channel_id`, NOT per session.** One descriptor per `channel_id` across all sessions. The kind-registry (`_registry.json`) is session-agnostic. So `data_type`, `units`, `instrument_role`, and (after build item 14) the leaf type are pinned at first write and validated on every subsequent write, **across all sessions ever**. Two sessions cannot have the same `channel_id` with different leaf types — the second one errors. This is intentional: cross-session analytics need stable schemas per channel.
+
+### Naming conventions and uniqueness
+
+**`channel_id` is the global identifier**; uniqueness is the author's responsibility. If two unrelated producers both write `channel_id="voltage"`, they share the same descriptor and the same channel data rows (distinguished only by `session_id` per row). After build item 14, type mismatch errors; same type silently merges.
+
+This is a real namespace-collision risk for test authors. **The established convention is dot-separated namespacing**:
+
+| Naming pattern | Example | When to use |
+|---|---|---|
+| `{instrument_role}.{signal}` | `dmm.voltage`, `psu.voltage`, `scope.ch1` | driver-produced channels (most common — `observer.read` auto-prepends the instrument role) |
+| `{instrument_role}.{port}.{aspect}` | `scope.ch1.capture`, `scope.ch2.capture` | multi-port instruments where each port is a logical channel |
+| `{component}.{signal}` | `fixture.lid_open`, `chamber.temp` | non-instrument continuous streams (fixture sensors, environmental) |
+| `{purpose}.{signal}` | `iv_sweep.voltage`, `iv_sweep.current` | paired streams from a single test phase (per §4 Pattern A) |
+| `{namespace}.{leaf}` | anything you compose | escape hatch for project-specific naming |
+
+**Drivers handle namespacing automatically.** `observer.read(channel="voltage", value=v, method="measure_dc_voltage")` from inside a driver whose `instrument_role="dmm"` writes to `channel_id="dmm.voltage"` — the role is the namespace. So driver authors don't think about collision; the wrapper handles it.
+
+**Test-author `observe`/`stream` calls need explicit naming.** When the test author writes `observe("voltage", v)`, there's no implicit namespace; collision is possible. Either:
+
+```python
+# Author types the namespace explicitly
+observe("psu_under_test.voltage", v)
+
+# OR (build item 16, future) — explicit namespace argument
+observe("voltage", v, namespace="psu_under_test")    # → "psu_under_test.voltage"
+```
+
+**Multi-DUT parallel execution is NOT a collision problem.** Each slot/worker emits its own `SessionStarted` (per `slot_runner.py:568`), so all writes share the channel kind but are session-tagged on the data rows. Same `channel_id="dmm.voltage"` across 4 workers means: one shared descriptor (correct — it IS the same kind of signal), four distinct sessions of data rows (correct — per-DUT isolation). The kind-registry validates that all workers are writing the same type — which is what you want.
+
+**What the system does NOT enforce:**
+- No format requirement (you CAN write a bare `channel_id="voltage"`; system accepts it)
+- No reservation registry (anyone can claim any name first)
+- No auto-prefix outside `observer.read` (the test-author `observe` path is honest about what name the author typed)
+
+**Recommended discipline:**
+1. Drivers always namespace by `instrument_role` (handled automatically by the observer wrapper).
+2. Test authors namespace by purpose, fixture, or DUT-context — never bare leaf names like `"voltage"` unless you can guarantee uniqueness across all tests in the project.
+3. If you hit a kind-registry collision error, that's the system telling you two unrelated producers grabbed the same name — disambiguate by renaming, not by deleting the descriptor.
+
+For edge cases (intentional schema migration, instrument swap): a `litmus channels reset-descriptor <channel_id>` admin tool would handle the rare cases. Not v0.2.0 critical; v0.2.x patch.
+
 ### Scoping reality
 
 | Scope | Where it lives for a channel |
@@ -984,6 +1026,10 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 
 15. **`XYData` model + complex-array verification.** Small Pydantic model for paired arrays (`x`, `y`, optional `x_units`/`y_units`/`x_name`/`y_name`); registered with the serialization registry (item 12) so `observe(name, XYData(...))` routes to FileStore as `.npz`. Plus a test that verifies `numpy.complex128` / `complex64` arrays round-trip cleanly through the registry (they should — numpy primitive dtype + `np.save` handles them natively; just needs explicit coverage). Trivial lift; formalizes the "Pattern B" workflow from §4.
 
+**Naming convenience:**
+
+16. **Optional `namespace` argument on `observe` / `verify` / `stream`.** Addresses the channel-collision risk for test authors (§5 naming subsection). Author can write `observe("voltage", v, namespace="psu_under_test")` instead of `observe("psu_under_test.voltage", v)`. The effective `channel_id` is the dotted form. Drivers already get this for free via `observer.read` (instrument_role auto-prepends); this exposes the same convenience to test code. Small lift on the verb signatures; non-breaking (omitting namespace = today's behavior). Pre-1.0.
+
 **That's a shippable v1.** Every captured artifact is durably stored; every capture leaves an event with a claim URI; the API is three verbs with consistent dispatch; parquet rows manifest by a single fixed policy; the existing `artifact_viewer` + ref endpoint already surface the artifacts. No attribute query yet — findability at MVP is **URL resolution from the run/event that referenced the artifact**.
 
 ### Long-term
@@ -1167,6 +1213,94 @@ v0.2.0 is the release that lands this architecture coherently. It closes **both*
 ### Why coherent at one tag matters
 
 Pre-1.0 audiences should see one release where the architecture stabilizes — not a string of releases where the data layer rolls in piecemeal and the docs always lag a version. v0.2.0 is when "this is what Litmus does with your test data" becomes a settled story for adopters to build on.
+
+---
+
+## 17. Server deployment + backend swappability
+
+The architecture is **store-abstract at the user surface**: verbs (`observe` / `verify` / `stream`) don't know about backends. So a backend swap doesn't change user code — but it does need work behind the verbs. **Server-ready ≠ server-deployed.** This section covers what's already designed for it, what's a clean swap, and what operational work is needed before server deployment is realistic.
+
+### What's server-ready today
+
+Every store already has a transport that could front-end a remote backend:
+
+| Store | Already uses | Already supports |
+|---|---|---|
+| EventStore | Arrow Flight `do_put` / `do_get` | client/server transport (Flight is the protocol) |
+| ChannelStore | Arrow Flight `do_put` / `do_get` | same |
+| FileStore | local FS today; fsspec is the planned abstraction | remote backends via fsspec (S3, GCS, Azure, NAS) |
+| ParquetBackend | local parquet + DuckDB | DuckDB-over-S3 via httpfs extension |
+
+User-facing test code doesn't change between local and server modes:
+
+```python
+# Test code identical whether backend is local or remote
+verify("vout", dmm.measure_voltage(), Limit(low=3.2, high=3.4))
+observe("scope.ch1.capture", scope.acquire())
+stream("iv_curve.i", dmm.read_current())
+```
+
+What changes is **project configuration** (`litmus.yaml`) — pointing each store at a local or remote endpoint:
+
+```yaml
+# Local (today)
+data_dir: ./data
+
+# Remote / server mode
+event_store:
+  flight_url: grpc://litmus-events.internal:8815
+channel_store:
+  flight_url: grpc://litmus-channels.internal:8816
+file_store:
+  backend: s3://my-bucket/litmus/files
+parquet_backend:
+  backend: s3://my-bucket/litmus/runs
+```
+
+### Per-store backend alternatives
+
+Each store has natural backend choices; cross-mixing is fine:
+
+| Store | Natural fits | Awkward / poor fit |
+|---|---|---|
+| **EventStore** | Kafka (it IS an event log); EventStoreDB; ClickHouse (high-volume OLAP); Postgres with `LISTEN/NOTIFY` | DynamoDB (cost at high event rates); Redis (no good archival) |
+| **ChannelStore** | InfluxDB, TimescaleDB, kdb+, Prometheus (push gateway), ClickHouse, AWS Timestream | S3 (no live subscribe); DynamoDB (wrong query model) |
+| **FileStore** | S3, GCS, Azure Blob, MinIO, R2, NFS, NAS — all via fsspec | DynamoDB (not file storage); Redis (memory-only) |
+| **ParquetBackend** | Snowflake, BigQuery, Databricks/Delta Lake, Apache Iceberg, ClickHouse | DynamoDB (not analytical); Redis (not analytical) |
+
+### Realistic deployment shapes
+
+| Profile | Backends |
+|---|---|
+| **All-local single machine** (today) | local Arrow IPC + DuckDB + local FS |
+| **All-cloud, single project** | Kafka events + ClickHouse channels + S3 files + Snowflake parquet |
+| **Hybrid: live local, archive remote** | local Arrow IPC + DuckDB (live) + S3 for FileStore archive + Snowflake for analytics |
+| **Compliance-heavy (regulated industry)** | local writes + encrypted S3 + on-prem Postgres + audit-only access |
+| **Multi-bench enterprise** | one shared event/channel/file infrastructure; benches are clients writing to it |
+
+### What lift it takes to make swap real
+
+| Lift | Today | After swap-ready |
+|---|---|---|
+| Per-store abstract interface (Protocol or ABC) | concrete implementations | typed interface; concrete is one of N backends |
+| Per-backend adapter | n/a | one adapter class per backend (`KafkaEventStore`, `S3FileStore`, `TimescaleChannelStore`, etc.) |
+| Config-driven backend selection | hardcoded local paths | `backend: kafka` / `backend: s3` per store in `litmus.yaml` |
+| Auth / IAM | local-trust assumptions | per-backend; varies by service (Flight auth handlers; S3 IAM; Kafka SASL) |
+| Service discovery | hardcoded / env | DNS / Consul / Kubernetes / configuration |
+| Encryption in transit | optional | mandatory (TLS for Flight; HTTPS for HTTP-based) |
+| Tenant isolation | n/a (one project per machine) | partitioning / namespacing in shared backends |
+| Network failure handling | n/a | retry + buffering + circuit-breaker policy |
+| Consistency model surfacing | n/a (local strict) | document per-backend consistency to consumers |
+
+### What server mode loses
+
+The **L6 local shared-memory transport** doesn't apply in server mode — it's specifically for same-machine processes. Server deployments pay the network cost; local deployments get the shm fast-path. Both ride the same verbs, just different transport profiles.
+
+### Why this isn't v0.2.0
+
+v0.2.0 is about the **data architecture itself** — getting the stores, verbs, dispatch, and lifecycle right. Backend swap is a **v0.3.0 / v0.4.0 lift** when remote/server deployment becomes a real product goal. The architecture is *ready* for it (user code won't change when the lift lands); the *implementation work* is a per-backend engineering investment that doesn't block the v0.2.0 design.
+
+What v0.2.0 does establish: the abstractions (Flight for typed-row stores; fsspec for files) that make the eventual swap not a rewrite. So v0.2.0 work is preparatory even though it doesn't deliver server mode itself.
 
 ---
 
