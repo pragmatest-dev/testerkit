@@ -1134,6 +1134,19 @@ Time-series waveform data with metadata.
 | `Y` | `list[float]` | *required* |
 | `attributes` | `dict[str, Any]` | `{}` |
 
+#### `XYData` {#model-xydata}
+
+Paired x/y arrays for related-but-non-time-series data (item 15).
+
+| Field | Type | Default |
+|---|---|---|
+| `x` | `list[float]` | *required* |
+| `y` | `list[float]` | *required* |
+| `x_units` | `str \| None` | `None` |
+| `y_units` | `str \| None` | `None` |
+| `x_name` | `str \| None` | `None` |
+| `y_name` | `str \| None` | `None` |
+
 #### `Outcome` {#enum-outcome}
 
 Canonical terminal outcome of a measurement / step / run.

@@ -625,6 +625,18 @@ concepts:
       reference.
     model: litmus.data.models.Waveform
 
+  - id: xy_data
+    category: runtime
+    summary: >
+      Paired x/y arrays for related-but-non-time-series data — IV curves,
+      eye diagrams, S-parameter sweeps, optical spectra. The "Pattern B"
+      shape from §4: one discrete artifact per vector, routed to FileStore
+      via the serializer registry as a single .npz with x/y + optional
+      unit/name keys. Use parallel channels (stream) when the data is
+      continuous over time and live-subscribable; use XYData when it's a
+      complete captured dataset.
+    model: litmus.data.models.XYData
+
   - id: instrument_record
     category: runtime
     summary: >

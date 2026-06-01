@@ -1058,7 +1058,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 12 | Promote `save_ref_to_dir` to registry | C6-remainder | ✅ DONE | (this PR) |
 | 13 | MIME + extension + attributes on artifact metadata | C6-remainder | ✅ DONE | (this PR) |
 | 14 | Typed leaf-type support (scalar/array × bool/int/float/str) | C2 | ✅ DONE | #18 |
-| 15 | `XYData` model + complex-array round-trip coverage | C8 | ⏳ PENDING | — |
+| 15 | `XYData` model + complex-array round-trip coverage | C8 | ✅ DONE | (this PR) |
 | 16 | Optional `namespace=` kwarg on observe/verify/stream | C3 | ⏳ PENDING | — |
 | 17 | Rename metadata fields → `attributes` across schemas | C2 | ✅ DONE | #18 |
 | 18 | Live waveform plot on channels detail page | C10 | ⏳ PENDING | — |
@@ -1073,6 +1073,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 
 - **Channel-id source/disambiguation field** — see §5 *Naming conventions and uniqueness* and the C3 introduction. User-sourced channels (test-author `observe`/`stream` calls) can silently merge when two tests use the same name for different concepts; C2's type-stability catches the type-mismatch case loudly but same-type-different-meaning is residual. Resolution path: add `step_path` / `vector_id` columns to the ChannelStore row schema so analytics can disambiguate without breaking the live-UI subscription story; `namespace=` (item 16) stays as opt-in convenience. To be designed when C3 starts.
 - **`EventEmitter.read` rename** — agreed `read` is a sample-arrival hook on EventEmitter that may emit, not a 1:1 verb. Original design-doc rename (`read` → `record_read`) was verb-shaped at a layer that should stay machinery. Deferred to a later cluster; pick a non-verb name then.
+- **`FileStore._resolve_uri` walks date dirs** — landed in item 1c (PR #23). Today's URI is logical (no date), so resolution walks `{files_dir}/*/{session_id}/{filename}`. Cost: O(days) per resolution in the worst case (cross-session/historical reads); 1 stat in the dominant case (within-session reads hit today's date dir). Acceptable for now because within-session is the hot path. Long-term fix is **L1 (per-store attribute indexes)** — already on the long-term roadmap as "genuinely greenfield index work"; L1 turns `read_attributes` and `_resolve_uri` into indexed lookups (DuckDB / parquet manifest, peer to the runs daemon). If the walk bites before L1: (a) in-process `{uri: Path}` resolution cache for repeated reads (cheap, ~20 lines); (b) per-session-dir index sidecar (tiny per-session write for O(1) lookup). Don't pre-optimize; revisit when a real workload measures the bottleneck.
 
 ### MVP (initial release) — stores + API consistency + types
 
