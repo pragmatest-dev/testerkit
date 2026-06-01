@@ -47,9 +47,21 @@ class TestClassifyValue:
         # Empty list has no first element to check
         assert classify_value([]) == "blob"
 
-    def test_string_list(self):
-        # List of strings is not numeric
-        assert classify_value(["a", "b"]) == "blob"
+    def test_string_list_is_numeric_array(self):
+        """Item 6 + C2: str arrays route to ChannelStore via the typed-leaf path.
+
+        Pre-item-6 ``list[str]`` was classified as ``blob`` and routed
+        to FileStore (as ``.pkl`` via pickle fallback). C2 added the
+        typed-str-array schema support; item 6 loosens the classifier
+        so the gate accepts. "numeric_array" remains the literal even
+        though str isn't numeric — the name is API-stable; the
+        meaning is "channel-shaped array" post-item-6.
+        """
+        assert classify_value(["a", "b"]) == "numeric_array"
+
+    def test_bool_list_is_numeric_array(self):
+        """Item 6: ``list[bool]`` reaches the typed-bool-array path."""
+        assert classify_value([True, False, True]) == "numeric_array"
 
 
 class TestChannelUri:

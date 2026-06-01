@@ -20,9 +20,15 @@ def classify_value(value: Any) -> Literal["scalar", "numeric_array", "channel", 
     """Classify a value for storage routing.
 
     - **scalar**: int, float, str, bool, None — stored inline
-    - **numeric_array**: list/tuple of numbers, waveform tuple, numpy array — ChannelStore
-    - **channel**: dict with numeric/structured data — ChannelStore (flexible schema)
-    - **blob**: everything else (bytes, Path, pickle-only objects) — file ref
+    - **numeric_array**: list/tuple/array of bool/int/float/str leaves,
+      waveform tuple, numpy array — ChannelStore. (The name says
+      "numeric" but post-item-6 + C2 typed leaf-types it covers any
+      primitive leaf — including str arrays for status streams. The
+      literal stays for API stability.)
+    - **channel**: dict with numeric/structured data — ChannelStore
+      (flexible / struct schema)
+    - **blob**: everything else (bytes, Path, pickle-only objects) —
+      file ref
     """
     if isinstance(value, (int, float, str, bool, type(None))):
         return "scalar"
@@ -30,7 +36,13 @@ def classify_value(value: Any) -> Literal["scalar", "numeric_array", "channel", 
         return "channel"
     if isinstance(value, (list, tuple)) and len(value) >= 1:
         first = value[0]
-        if isinstance(first, (int, float)):
+        # Item 6 + C2 typed leaf-types: bool / int / float / str arrays
+        # all route to ChannelStore. Order: bool BEFORE int because
+        # ``True`` is also an ``int`` in Python; if int came first,
+        # bool arrays would still match (via subclass) but the
+        # explicit bool check documents the intent. ``str`` reaches
+        # the typed-str-leaf codepath C2 added.
+        if isinstance(first, (bool, int, float, str)):
             return "numeric_array"
         if isinstance(first, (list, tuple)):  # waveform: ([samples], dt)
             return "numeric_array"
