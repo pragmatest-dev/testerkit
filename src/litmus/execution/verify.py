@@ -41,6 +41,7 @@ class VerifyFn(Protocol):
         value: float | int | None,
         limit: Limit | dict[str, Any] | None = ...,
         characteristic: str | None = ...,
+        namespace: str | None = ...,
     ) -> Measurement: ...
 
 
@@ -161,7 +162,14 @@ def build_verify_callable() -> VerifyFn:
         value: float | int | None,
         limit: Limit | dict[str, Any] | None = None,
         characteristic: str | None = None,
+        namespace: str | None = None,
     ) -> Measurement:
+        # Item 16: namespace= prefix sugar. The effective name (used
+        # for limit lookup, measurement_name on the row, and any
+        # downstream out_<name> projection) is "{namespace}.{name}".
+        # Pure opt-in convenience — nothing automatic.
+        if namespace:
+            name = f"{namespace}.{name}"
         from contextlib import nullcontext
 
         from litmus.execution._state import pushed_active_characteristic

@@ -1049,7 +1049,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 4 | `observe()` emits Observation event | 4 | ✅ DONE | #16 |
 | 4b | `ChannelStarted`/`ChannelClosed`; retire `InstrumentRead` | C1 | ✅ DONE | #17 |
 | 5 | `observer.read` stamps vector `out_*` (rename DEFERRED) | C1 | ✅ DONE | #17 |
-| 6 | Verb dispatch by value shape | C3 | ⏳ PENDING | — |
+| 6 | Verb dispatch by value shape (observe-side; verify deferred to follow-up) | C3a | 🚧 PARTIAL | (this PR) |
 | 7 | `stream(name, sample)` test-author verb | C3 | ⏳ PENDING | — |
 | 8 | Symmetric `channels.{write,stream}` / `filestore.{put,stream}` | C3 | ⏳ PENDING | — |
 | 9 | Auto-promotion rule in materializer (≥1 verify → verify rows; 0 + ≥1 observe → DONE row) | C6-partial | ✅ DONE | #21 |
@@ -1060,7 +1060,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 13 | MIME + extension + attributes on artifact metadata | C6-remainder | ✅ DONE | (this PR) |
 | 14 | Typed leaf-type support (scalar/array × bool/int/float/str) | C2 | ✅ DONE | #18 |
 | 15 | `XYData` model + complex-array round-trip coverage | C8 | ✅ DONE | (this PR) |
-| 16 | Optional `namespace=` kwarg on observe/verify/stream | C3 | ⏳ PENDING | — |
+| 16 | Optional `namespace=` kwarg on observe/verify/stream (observe + verify shipped; stream lands with C3b/item 7) | C3a | 🚧 PARTIAL | (this PR) |
 | 17 | Rename metadata fields → `attributes` across schemas | C2 | ✅ DONE | #18 |
 | 18 | Live waveform plot on channels detail page | C10 | ⏳ PENDING | — |
 | 19 | Byte-aware flush + end-to-end Flight bench | C10 | ⏳ PENDING | — |

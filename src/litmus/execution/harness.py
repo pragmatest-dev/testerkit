@@ -15,7 +15,15 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from litmus.data.events import Observation
-from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
+from litmus.data.models import (
+    Measurement,
+    Outcome,
+    TestStep,
+    TestVector,
+    Waveform,
+    _utcnow,
+    escalate_outcome,
+)
 from litmus.data.ref import classify_value
 from litmus.execution._state import (
     get_active_characteristic,
@@ -202,24 +210,85 @@ class Context:
         """
         self._params[key] = value
 
-    def observe(self, key: str, value: Any) -> None:
+    def observe(self, key: str, value: Any, *, namespace: str | None = None) -> None:
         """Record an observation/measurement context (→ out_* column).
 
-        Use for measured environmental data, raw readings, and context.
-        Numeric arrays go to ChannelStore directly and a URI is stored.
-        Blobs (Path, bytes, Image, Waveform, Pydantic model, etc.) go to
-        FileStore and a ``file://`` URI is stored.
+        Per §3 + §4 of the design doc, ``observe`` is a polymorphic
+        intent verb — the author writes one call and the framework
+        picks the store by value shape:
+
+        - **scalar** (int/float/bool/str/None) → inline in
+          ``_observations``; lands in the parquet ``out_*`` column
+          directly.
+        - **Waveform** → ChannelStore (item 6 verb-layer unpack:
+          writes ``wf.Y`` as the array payload with
+          ``sample_interval=wf.dt``); ``out_<name>`` carries the
+          ``channel://`` URI. **Caveat**: ``t0`` and
+          ``Waveform.attributes`` have no row-level home in today's
+          schema (open per design doc §15) — they're dropped with a
+          ``RuntimeWarning`` when non-default. Use
+          ``filestore.put(name, wf)`` if you need them preserved.
+        - **numeric_array** (list/tuple/ndarray of bool/int/float/str
+          leaves, plus dict struct shapes) → ChannelStore;
+          ``out_<name>`` carries the ``channel://`` URI.
+        - **blob** (bytes/Path/PIL.Image/Pydantic/anything else) →
+          FileStore via :func:`get_filestore().put`; ``out_<name>``
+          carries the ``file://`` URI.
+        - **already a URI** (``channel://`` / ``file://``) → stamped
+          as-is (no re-write).
 
         Args:
-            key: Observation name (e.g., "temp_probe.temperature", "scope.waveform").
-            value: The observed value. Numeric arrays go to ChannelStore;
-                blobs go to FileStore; scalars stay inline.
+            key: Observation name (e.g., "temperature", "scope.waveform").
+            value: The observed value (any of the four shapes above).
+            namespace: Item 16 — optional prefix for grouping. When
+                set, the effective name becomes ``"{namespace}.{key}"``
+                (e.g., ``observe("voltage", v, namespace="psu_under_test")``
+                → effective name ``"psu_under_test.voltage"``). Pure
+                opt-in convenience; nothing automatic.
         """
+        # Item 16: namespace= prefix sugar. Applies uniformly to the
+        # observations dict key, the channel_id (when written to
+        # ChannelStore), the file artifact name (when written to
+        # FileStore), and the Observation event's ``name``.
+        full_key = f"{namespace}.{key}" if namespace else key
+
         if value is not None:
+            # Item 6: Waveform routes to ChannelStore via verb-layer
+            # unpack. classify_value reports Waveform as ``blob`` (no
+            # ``tolist``); the design doc §4 says channel-shaped, so we
+            # route directly and emit a RuntimeWarning when ``t0`` /
+            # ``attributes`` would be lost (per §15 open item).
+            if isinstance(value, Waveform):
+                if self._channel_store is not None:
+                    if value.t0 != 0.0 or value.attributes:
+                        import warnings  # noqa: PLC0415
+
+                        warnings.warn(
+                            f"observe({full_key!r}, Waveform): t0={value.t0!r} and "
+                            f"attributes={value.attributes!r} cannot be preserved on a "
+                            "ChannelStore array row in today's schema (open per design "
+                            "doc §15). Y + dt are preserved; t0/attributes dropped. Use "
+                            "filestore.put(name, wf) if you need everything preserved.",
+                            RuntimeWarning,
+                            stacklevel=2,
+                        )
+                    uri = self._channel_store.write(
+                        full_key,
+                        value.Y,
+                        sample_interval=value.dt,
+                        source="observe",
+                    )
+                    self._observations[full_key] = uri
+                    self._emit_observation(full_key, uri)
+                    return
+                # No channel store wired (bare Context test): fall through
+                # to the FileStore path; Waveform becomes a .npz blob.
+
             vtype = classify_value(value)
             if vtype in ("numeric_array", "channel") and self._channel_store is not None:
-                uri = self._channel_store.write(key, value, source="observe")
-                self._observations[key] = uri
+                uri = self._channel_store.write(full_key, value, source="observe")
+                self._observations[full_key] = uri
+                self._emit_observation(full_key, uri)
                 return
             if vtype == "blob":
                 # Item 3a — fixes half of the image-drop. Route blobs through
@@ -230,7 +299,7 @@ class Context:
                 # actually ran — blobs were lost on crash).
                 if self._session_id is None:
                     raise RuntimeError(
-                        f"Cannot observe blob ({type(value).__name__}) for {key!r}: "
+                        f"Cannot observe blob ({type(value).__name__}) for {full_key!r}: "
                         "Context has no session_id. Production paths plumb session_id "
                         "via TestHarness; tests that exercise the blob path must "
                         "pass session_id explicitly."
@@ -238,16 +307,16 @@ class Context:
                 from litmus.data.files import get_filestore  # noqa: PLC0415
 
                 uri = get_filestore().put(
-                    name=key,
+                    name=full_key,
                     value=value,
                     session_id=str(self._session_id),
                 )
-                self._observations[key] = uri
-                self._emit_observation(key, uri)
+                self._observations[full_key] = uri
+                self._emit_observation(full_key, uri)
                 return
 
-        self._observations[key] = value
-        self._emit_observation(key, value)
+        self._observations[full_key] = value
+        self._emit_observation(full_key, value)
 
     def _emit_observation(self, key: str, value: Any) -> None:
         """Emit an ``Observation`` event for the value that landed in ``_observations``.
