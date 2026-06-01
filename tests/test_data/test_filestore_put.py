@@ -309,28 +309,24 @@ def test_two_sessions_isolate_in_separate_subdirs(store: FileStore) -> None:
 
 
 # --------------------------------------------------------------------- #
-# attributes parameter (forward-compat; not persisted yet)              #
+# attributes parameter — persisted to sidecar (item 1c)                  #
 # --------------------------------------------------------------------- #
 
 
-def test_attributes_argument_accepted_but_not_persisted_in_1a(store: FileStore) -> None:
-    """``attributes`` is accepted today but not persisted — item 1c wires it.
-
-    This test pins the forward-compatible signature so 1c can change
-    only the persistence behavior, not the API.
-    """
+def test_attributes_argument_persisted_to_sidecar(store: FileStore) -> None:
+    """Item 1c: ``attributes`` round-trips through a sidecar .meta.json."""
     sid = _session_id()
 
-    uri = store.put(
-        "x",
-        b"y",
-        session_id=sid,
-        attributes={"mime": "application/octet-stream", "size": 1},
-    )
+    user_attrs = {"camera": "scope-a", "scale_v_div": 0.5}
+    uri = store.put("x", b"y", session_id=sid, attributes=user_attrs)
 
-    # URI shape unchanged; bytes land; attributes are not (yet) on disk
     _, filename = _parse_uri(uri)
     session_dir = _expected_session_dir(store, sid)
     assert (session_dir / filename).exists()
-    # No sidecar metadata file yet (lands in 1c).
-    assert not (session_dir / f"{filename}.meta.json").exists()
+
+    # Sidecar lands next to the artifact (item 1c)
+    sidecar_path = session_dir / f"{filename}.meta.json"
+    assert sidecar_path.exists()
+    metadata = store.read_attributes(uri)
+    assert metadata is not None
+    assert metadata.attributes == user_attrs

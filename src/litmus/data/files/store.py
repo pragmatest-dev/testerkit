@@ -8,6 +8,8 @@ via ``classify_value``).
 
 URI format:    ``file://{session_id}/{filename}``
 On disk:       ``{data_dir}/files/{date}/{session_id}/{filename}``
+Sidecar:       ``{filename}.meta.json`` (item 1c — MIME + size +
+               user attributes)
 
 Filename convention:
 - with ``vector_id``:  ``{vector_id_short}_{name}.{ext}``
@@ -21,9 +23,8 @@ Type dispatch + MIME convention live in
 types either expose ``litmus_serialize(dest)`` (the protocol) or
 register via :func:`register_serializer`.
 
-Forward-compatible parameter ``attributes`` is accepted but not
-yet persisted — that lands in item 1c. Streaming sink lands in 1b.
-Migration of the two legacy ``_ref`` dirs lands in 1d.
+Streaming sink lands in 1b. Migration of the two legacy ``_ref``
+dirs lands in 1d.
 """
 
 from __future__ import annotations
@@ -33,7 +34,10 @@ from pathlib import Path
 from typing import Any
 
 from litmus.data.data_dir import resolve_data_dir
+from litmus.data.files.models import FileArtifactMetadata
 from litmus.data.files.serializers import find_serializer
+
+_SIDECAR_SUFFIX = ".meta.json"
 
 # Truncate vector_id to N chars for filename prefix (audit trail
 # without bloating). Matches existing ``VECTOR_ID_LENGTH`` convention
@@ -54,10 +58,10 @@ class FileStore:
     store does not type-check the incoming value beyond what its
     serializer can handle.
 
-    Attributes/metadata persistence is **not** implemented in this
-    initial cut. The ``attributes`` parameter is accepted for forward
-    compatibility; it will be wired in build item 1c (MIME typing +
-    attributes persistence).
+    Per build item 1c, every put writes a sidecar
+    ``{filename}.meta.json`` next to the artifact carrying
+    :class:`FileArtifactMetadata` (mime / extension / size_bytes /
+    user attributes). Read it back with :meth:`read_attributes`.
     """
 
     def __init__(self, data_dir: Path | None = None) -> None:
@@ -93,17 +97,16 @@ class FileStore:
             vector_id: Optional vector context. When provided, the
                 first 8 chars prefix the filename for audit
                 (matches existing convention).
-            attributes: Forward-compat parameter. Not persisted in
-                this cut; wired in item 1c.
+            attributes: User-supplied metadata bag persisted into the
+                sidecar (item 1c). ``None`` writes an empty
+                attributes dict. The bag is round-trippable via
+                :meth:`read_attributes`.
 
         Returns:
             URI of the form ``file://{session_id}/{filename}``.
             The filename reflects the actual on-disk name (including
             any collision-avoidance ``_2`` / ``_3`` suffix).
         """
-        # Accepted for forward compat; persistence wired in item 1c.
-        del attributes
-
         serializer = find_serializer(value)
         # Path values: the source file's suffix wins over the
         # serializer's default ``.bin`` so e.g. ``capture.tdms`` stays
@@ -125,7 +128,66 @@ class FileStore:
         # Write via the registered handler.
         serializer.write(value, dest)
 
+        # Item 1c: write the sidecar metadata file. size_bytes is read
+        # after the write so it reflects the actual on-disk size,
+        # whatever the serializer produced.
+        metadata = FileArtifactMetadata(
+            mime=serializer.mime,
+            extension=ext,
+            size_bytes=dest.stat().st_size,
+            attributes=dict(attributes or {}),
+        )
+        sidecar_path = dest.with_name(dest.name + _SIDECAR_SUFFIX)
+        sidecar_path.write_text(metadata.model_dump_json())
+
         return f"file://{session_id}/{filename}"
+
+    def read_attributes(self, uri: str) -> FileArtifactMetadata | None:
+        """Return the :class:`FileArtifactMetadata` for ``uri``, or None.
+
+        ``None`` when the URI doesn't resolve to a FileStore artifact
+        on disk, or when its sidecar is missing (e.g. an artifact put
+        before item 1c landed).
+
+        Args:
+            uri: A ``file://{session_id}/{filename}`` URI returned
+                by :meth:`put`.
+        """
+        artifact_path = self._resolve_uri(uri)
+        if artifact_path is None:
+            return None
+        sidecar_path = artifact_path.with_name(artifact_path.name + _SIDECAR_SUFFIX)
+        if not sidecar_path.exists():
+            return None
+        return FileArtifactMetadata.model_validate_json(sidecar_path.read_text())
+
+    def _resolve_uri(self, uri: str) -> Path | None:
+        """Walk date directories to find the on-disk path for a URI.
+
+        URIs are logical references (``file://{session_id}/{filename}``)
+        — date is intentionally absent so a backend swap or a manual
+        date-dir reorganization stays transparent. Resolution walks
+        ``{files_dir}/*/{session_id}/{filename}`` and returns the
+        first match. ``None`` when nothing matches.
+        """
+        if not uri.startswith("file://"):
+            return None
+        rest = uri[len("file://") :]
+        if "/" not in rest:
+            return None
+        session_id, _, filename = rest.partition("/")
+        if not session_id or not filename:
+            return None
+        # Sidecars themselves end with .meta.json — refuse to resolve
+        # them so callers can't accidentally read a sidecar as its own
+        # artifact.
+        if filename.endswith(_SIDECAR_SUFFIX):
+            return None
+        for date_dir in self._files_dir.glob("*"):
+            candidate = date_dir / session_id / filename
+            if candidate.exists():
+                return candidate
+        return None
 
     # ----- internals -------------------------------------------------
 
