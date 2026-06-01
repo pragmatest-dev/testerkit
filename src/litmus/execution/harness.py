@@ -359,6 +359,58 @@ class Context:
             )
         )
 
+    def verify(
+        self,
+        name: str,
+        value: float | int | None,
+        limit: Any = None,
+        *,
+        characteristic: str | None = None,
+        namespace: str | None = None,
+    ) -> Any:
+        """Record + judge a measurement (→ measurement row).
+
+        Polymorphic intent verb symmetric with :meth:`observe`. Per §3
+        of the design doc, ``verify`` is one of three sibling
+        test-author verbs — exposed both as a method on Context (for
+        programmatic / non-pytest use) and as a bare pytest fixture
+        (for idiomatic pytest tests). Both shapes route through the
+        same underlying ``_perform_verify`` implementation.
+
+        Args:
+            name: Measurement name.
+            value: The measured value (scalar). Non-scalar dispatch
+                is a deferred follow-up — see design doc §4 and the
+                C3a scope decision.
+            limit: Optional ``Limit`` (or dict) to judge against. When
+                omitted, falls through to ``logger.measure`` (DONE
+                outcome) when the active profile sets
+                ``verify_requires_limit: false``; otherwise raises
+                ``MissingLimitError``.
+            characteristic: Override the active characteristic for
+                limit resolution.
+            namespace: Item 16 — optional prefix sugar. When set, the
+                effective name becomes ``"{namespace}.{name}"`` for
+                limit lookup, measurement row, and event payload.
+
+        Returns:
+            The recorded :class:`Measurement`.
+
+        Raises:
+            LimitFailure: When the value falls outside the limit.
+            MissingLimitError: When no limit is configured and the
+                active profile requires one.
+        """
+        from litmus.execution.verify import _perform_verify  # noqa: PLC0415
+
+        return _perform_verify(
+            name,
+            value,
+            limit=limit,
+            characteristic=characteristic,
+            namespace=namespace,
+        )
+
     def changed(self, key: str) -> bool:
         """Check if an input parameter changed from the previous vector.
 

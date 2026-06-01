@@ -978,6 +978,33 @@ def context() -> Context:
 
 
 @pytest.fixture
+def observe(context: Context) -> Callable[..., None]:
+    """Callable fixture: ``observe(name, value[, namespace=...])`` — stash in vector.
+
+    Per §3 of the design doc, ``observe`` is one of three sibling
+    test-author verbs (``observe`` / ``verify`` / ``stream``).
+    Exposed both as a method on Context (``context.observe(...)``,
+    for programmatic / non-pytest use) and as this bare callable
+    fixture (the pytest-idiomatic shape).
+
+    Both shapes route through the same :meth:`Context.observe`
+    implementation, so the verb behaves identically regardless of
+    which surface the test author reaches for. Symmetric with the
+    ``verify`` fixture (which has always been bare).
+
+    Examples:
+        ``observe("temperature", 23.5)`` — scalar lands inline
+        ``observe("scope.cap", wf)`` — Waveform → ChannelStore
+        ``observe("voltage", 3.31, namespace="psu_a")`` — namespaced
+    """
+
+    def _observe(name: str, value: Any, *, namespace: str | None = None) -> None:
+        context.observe(name, value, namespace=namespace)
+
+    return _observe
+
+
+@pytest.fixture
 def connections(
     _litmus_resolve_connections: None,  # noqa: F811  # pytest fixture-ordering dep
     context: Context,
