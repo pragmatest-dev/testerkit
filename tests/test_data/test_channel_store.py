@@ -70,8 +70,11 @@ class TestArrayChannel:
         assert len(arrow_files) == 1
         reader = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb"))
         table = reader.read_all()
-        assert "samples" in table.schema.names
-        assert table.column("samples")[0].as_py() == [1.0, 2.0, 3.0, 4.0]
+        # Post-C3a-pre: array payload lives in the ``value`` column
+        # (uniform with scalar rows). ``sample_interval`` distinguishes
+        # array-shape rows from scalar-shape rows.
+        assert "value" in table.schema.names
+        assert table.column("value")[0].as_py() == [1.0, 2.0, 3.0, 4.0]
         assert table.column("sample_interval")[0].as_py() == 1e-5
 
     def test_flat_list_stored(self, tmp_path: Path):
@@ -82,7 +85,7 @@ class TestArrayChannel:
         arrow_files = list((tmp_path / "channels").glob("*/*.arrow"))
         reader = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb"))
         table = reader.read_all()
-        assert table.column("samples")[0].as_py() == [1.0, 2.0, 3.0]
+        assert table.column("value")[0].as_py() == [1.0, 2.0, 3.0]
 
 
 class TestMultipleChannels:
@@ -184,7 +187,9 @@ class TestSubscriptions:
 
         assert len(received) == 1
         # Normalized to dict
-        assert received[0].value == {"samples": [1.0, 2.0, 3.0], "sample_interval": 1e-5}
+        # Post-C3a-pre: normalize folds the array payload into ``value``
+        # (uniform with the scalar row's ``value``).
+        assert received[0].value == {"value": [1.0, 2.0, 3.0], "sample_interval": 1e-5}
         store.close()
 
 
@@ -238,7 +243,7 @@ class TestWrite:
 
         result = store.query("scope.ch1_waveform")
         assert len(result) == 1
-        assert result.column("samples")[0].as_py() == [1.0, 2.0, 3.0]
+        assert result.column("value")[0].as_py() == [1.0, 2.0, 3.0]
         store.close()
 
     def test_write_blob_raises(self, tmp_path: Path):

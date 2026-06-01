@@ -1055,7 +1055,8 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 9 | Auto-promotion rule in materializer (≥1 verify → verify rows; 0 + ≥1 observe → DONE row) | C6-partial | ✅ DONE | #21 |
 | 10 | Type-stable `out_<name>` registry | C6-partial | ✅ DONE | #21 |
 | 11 | Schema rename `timestamp` → `received_at` + nullable `sampled_at` | C7 | ✅ DONE | #20 |
-| 12 | Promote `save_ref_to_dir` to registry | C6-remainder | ✅ DONE | (this PR) |
+| 11b | Schema rename `samples` → `value` (unify payload column across scalar/array shapes) | C3a-pre | ✅ DONE | (this PR) |
+| 12 | Promote `save_ref_to_dir` to registry | C6-remainder | ✅ DONE | #22 |
 | 13 | MIME + extension + attributes on artifact metadata | C6-remainder | ✅ DONE | (this PR) |
 | 14 | Typed leaf-type support (scalar/array × bool/int/float/str) | C2 | ✅ DONE | #18 |
 | 15 | `XYData` model + complex-array round-trip coverage | C8 | ✅ DONE | (this PR) |

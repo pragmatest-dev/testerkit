@@ -342,24 +342,33 @@ class ChannelStore:
         value: object,
         sample_interval: float | None = None,
     ) -> object:
-        """Normalize legacy tuple format and numpy arrays for schema inference."""
-        # Legacy waveform tuple: ([samples], dt)
+        """Normalize legacy tuple format and numpy arrays for schema inference.
+
+        Build item 11b (C3a-pre): the array payload lands in the
+        ``value`` key (uniform with the scalar shape's ``value``
+        column). Pre-rename this used ``samples`` (plural); the
+        column was asymmetric with scalar rows' ``value`` column for
+        no semantic gain — one channel write is one sample / one
+        row, regardless of whether its payload is a scalar or an
+        array.
+        """
+        # Legacy waveform tuple: ([items], dt)
         if isinstance(value, (list, tuple)) and len(value) >= 1:
             first = value[0]
             if isinstance(first, (list, tuple)):
-                samples = list(first)
+                items = list(first)
                 dt = float(value[1]) if len(value) > 1 else 0.0
-                return {"samples": samples, "sample_interval": dt}
+                return {"value": items, "sample_interval": dt}
 
         # numpy array → list
         tolist = getattr(value, "tolist", None)
         if tolist is not None:
-            return {"samples": tolist(), "sample_interval": sample_interval or 0.0}
+            return {"value": tolist(), "sample_interval": sample_interval or 0.0}
 
         # Plain non-empty list/tuple → array with sample_interval (any leaf
         # type — bool / int / float / str supported per build item 14).
         if isinstance(value, (list, tuple)) and value:
-            return {"samples": list(value), "sample_interval": sample_interval or 0.0}
+            return {"value": list(value), "sample_interval": sample_interval or 0.0}
 
         return value
 
@@ -394,15 +403,15 @@ class ChannelStore:
 
         if isinstance(normalized, dict):
             row: dict = {**common, **normalized}
-            # A normalized dict with a ``samples`` list is a waveform
-            # capture (the result of ``_normalize_value`` folding an
-            # array / tuple / numpy ndarray into ``{samples,
+            # A normalized dict with a ``value`` list is an array
+            # write (the result of ``_normalize_value`` folding an
+            # array / tuple / numpy ndarray into ``{value,
             # sample_interval}``). Tag it with the typed array form
             # (build item 14: ``"array:<leaf>"``); ``"struct"`` is kept
-            # for arbitrary structured records.
-            samples = normalized.get("samples")
-            if isinstance(samples, list):
-                data_type = _data_type_for(samples)
+            # for arbitrary structured records (the dict shape).
+            payload = normalized.get("value")
+            if isinstance(payload, list) and "sample_interval" in normalized:
+                data_type = _data_type_for(payload)
             else:
                 data_type = "struct"
             sample_value = normalized

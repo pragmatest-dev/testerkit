@@ -1382,7 +1382,9 @@ def channels_recent_query(
             rows = []
 
         samples, latest = _build_recent_series(rows)
-        last_updated = str(rows[-1]["timestamp"]) if rows and rows[-1].get("timestamp") else None
+        last_updated = (
+            str(rows[-1]["received_at"]) if rows and rows[-1].get("received_at") else None
+        )
 
         out[channel_id] = {
             **descriptor,
@@ -1400,18 +1402,19 @@ def _build_recent_series(rows: list[dict[str, Any]]) -> tuple[list[Any], Any]:
 
     Two cases:
 
-    * **Waveform / array rows** — the most recent row carries a
-      ``samples`` list. The sparkline is that capture's samples
+    * **Array rows** — the most recent row carries a list-typed
+      ``value`` (post-C3a-pre rename; pre-rename this was
+      ``samples``). The sparkline is that capture's values
       directly (the within-capture trace), and ``latest`` is the
       array's final value. This matches what an operator wants to
       see for scope traces: the actual waveform shape.
     * **Scalar rows** — each row's ``value`` (or ``y`` / ``reading``)
-      contributes one point to the sparkline keyed by timestamp.
+      contributes one point to the sparkline keyed by ``received_at``.
       ``latest`` is the most recent point's value.
 
     The sparkline output is ``[(ts_str, value), ...]`` for scalars
-    and ``[value, ...]`` for waveforms (no timestamp per intra-
-    capture sample). The UI's sparkline renderer accepts either —
+    and ``[value, ...]`` for arrays (no timestamp per intra-
+    capture value). The UI's sparkline renderer accepts either —
     it pulls the second element of tuples and treats bare numbers
     as a value sequence.
     """
@@ -1419,16 +1422,19 @@ def _build_recent_series(rows: list[dict[str, Any]]) -> tuple[list[Any], Any]:
         return [], None
 
     last_row = rows[-1]
-    last_samples = last_row.get("samples")
-    if isinstance(last_samples, list) and last_samples:
-        numeric = [v for v in last_samples if isinstance(v, (int, float))]
+    last_value = last_row.get("value")
+    # Distinguish array rows from scalar rows by payload shape: a
+    # list-typed ``value`` means "this row holds N inner values"
+    # (array channel); anything else is a scalar row.
+    if isinstance(last_value, list) and last_value:
+        numeric = [v for v in last_value if isinstance(v, (int, float))]
         latest_value = numeric[-1] if numeric else None
         return list(numeric), latest_value
 
     samples: list[tuple[str, Any]] = []
     latest: Any = None
     for row in rows:
-        ts = row.get("timestamp")
+        ts = row.get("received_at")
         value = _channel_row_scalar(row)
         if ts is not None and value is not None:
             samples.append((str(ts), value))
@@ -1438,9 +1444,14 @@ def _build_recent_series(rows: list[dict[str, Any]]) -> tuple[list[Any], Any]:
 
 
 def _channel_row_scalar(row: dict[str, Any]) -> Any:
-    """Pull a single scalar from a channel row, or ``None`` if none stamped."""
+    """Pull a single scalar from a channel row, or ``None`` if none stamped.
+
+    Post-C3a-pre: a row's ``value`` can be a scalar (scalar channel)
+    OR a list (array channel). This helper returns scalars only; for
+    array rows the caller handles the list shape separately.
+    """
     for key in ("value", "y", "reading"):
-        if key in row and row[key] is not None:
+        if key in row and row[key] is not None and not isinstance(row[key], list):
             return row[key]
     return None
 
