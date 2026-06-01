@@ -209,25 +209,28 @@ def _render_chart(
         units = descriptor.get("units") or ""
         y_label = f"value ({units})" if units else "value"
 
-        # Array-of-samples capture: rows carry a ``samples`` list (e.g.
+        # Array-of-items capture: rows carry a ``value`` list (e.g.
         # scope.waveform's per-trigger waveform). Plot the most recent
         # capture as a single series. We detect array rows from the
         # row shape rather than the registry's declared ``data_type``,
         # since channels written by older sessions can come back
         # classified as ``"struct"`` while still being array-shaped.
+        # Note: scalar rows also have a ``value`` column post-C3a-pre,
+        # but it's a scalar — the ``isinstance(..., list)`` check
+        # disambiguates.
         last_row = rows[-1]
-        last_samples = last_row.get("samples")
+        last_values = last_row.get("value")
         y_axis_scale = False
-        if isinstance(last_samples, list) and last_samples:
+        if isinstance(last_values, list) and last_values:
             interval = last_row.get("sample_interval") or 0.0
             if interval:
                 # Sample interval recorded → label X as time using the
                 # most readable unit for the capture window.
-                x_values, x_axis_label = _format_time_axis(interval, len(last_samples))
+                x_values, x_axis_label = _format_time_axis(interval, len(last_values))
             else:
-                x_values = [str(i) for i in range(len(last_samples))]
+                x_values = [str(i) for i in range(len(last_values))]
                 x_axis_label = "sample"
-            y_data: list[Any] = list(last_samples)
+            y_data: list[Any] = list(last_values)
             # Waveform values can occupy a tiny fraction of their
             # absolute range (a 24mV ripple on a 3.3V rail). Force
             # ECharts to ignore the 0 baseline so the variation is
@@ -282,7 +285,7 @@ def _render_chart(
                     "nameGap": 30,
                 },
                 "yAxis": {"type": "value", "name": y_label, "scale": y_axis_scale},
-                "series": _build_chart_series(rows, last_samples, y_data),
+                "series": _build_chart_series(rows, last_values, y_data),
                 "grid": {"left": 60, "right": 30, "top": 60, "bottom": 70},
             }
         ).classes("w-full h-96 px-4 pb-4")
@@ -395,11 +398,15 @@ def _extract_scalar(row: dict[str, Any]) -> Any:
 
 
 def _value_summary(row: dict[str, Any]) -> str:
-    """Render the row's value compactly (full numbers; truncate arrays)."""
-    samples = row.get("samples")
-    if isinstance(samples, list):
-        head = ", ".join(f"{v:.4g}" if isinstance(v, (int, float)) else str(v) for v in samples[:4])
-        more = "" if len(samples) <= 4 else f" … +{len(samples) - 4} more"
+    """Render the row's value compactly (full numbers; truncate arrays).
+
+    Post-C3a-pre: both scalar and array rows have a ``value`` column;
+    array rows' ``value`` is a list. Disambiguate by type.
+    """
+    payload = row.get("value")
+    if isinstance(payload, list):
+        head = ", ".join(f"{v:.4g}" if isinstance(v, (int, float)) else str(v) for v in payload[:4])
+        more = "" if len(payload) <= 4 else f" … +{len(payload) - 4} more"
         return f"[{head}{more}]"
     val = _extract_scalar(row)
     if isinstance(val, (int, float)):
@@ -431,7 +438,7 @@ def _format_time_axis(interval: float, n: int) -> tuple[list[str], str]:
 
 def _build_chart_series(
     rows: list[dict[str, Any]],
-    last_samples: list[Any] | None,
+    last_values: list[Any] | None,
     y_data: list[Any],
 ) -> list[dict[str, Any]]:
     """Build the ECharts ``series`` array.
@@ -444,7 +451,7 @@ def _build_chart_series(
 
     For scalar channels the series is a single line.
     """
-    if last_samples is None or not last_samples:
+    if last_values is None or not last_values:
         return [
             {
                 "type": "line",
@@ -454,12 +461,12 @@ def _build_chart_series(
             }
         ]
 
-    waveform_rows = [r for r in rows if isinstance(r.get("samples"), list) and r.get("samples")]
+    waveform_rows = [r for r in rows if isinstance(r.get("value"), list) and r.get("value")]
     if len(waveform_rows) <= 1:
         return [
             {
                 "type": "line",
-                "data": list(last_samples),
+                "data": list(last_values),
                 "showSymbol": False,
                 "smooth": False,
             }
@@ -477,7 +484,9 @@ _RECENT_WINDOW = 10
 
 def _build_waveform_series(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Per-capture lines (recent) + min/max envelope (older)."""
-    captures = [list(r.get("samples") or []) for r in rows if r.get("samples")]
+    # ``r.get("value")`` may be a scalar (for scalar channels) or a list
+    # (for array channels) — guard with isinstance to skip non-list rows.
+    captures = [list(r.get("value") or []) for r in rows if isinstance(r.get("value"), list)]
     captures = [c for c in captures if c]
     if not captures:
         return []

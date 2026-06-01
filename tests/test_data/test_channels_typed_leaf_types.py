@@ -161,21 +161,21 @@ def test_data_type_for_numpy_bool_array() -> None:
 def test_schema_bool_array_samples_column_is_list_of_bool() -> None:
     """Critical: bool array round-trips as list<bool>, not [1.0, 0.0, 1.0]."""
     schema = _infer_schema([True, False, True])
-    samples_field = schema.field("samples")
+    samples_field = schema.field("value")
     assert pa.types.is_list(samples_field.type)
     assert samples_field.type.value_type == pa.bool_()
 
 
 def test_schema_int_array_samples_column_is_list_of_int() -> None:
     schema = _infer_schema([1, 2, 3])
-    samples_field = schema.field("samples")
+    samples_field = schema.field("value")
     assert pa.types.is_list(samples_field.type)
     assert samples_field.type.value_type == pa.int64()
 
 
 def test_schema_str_array_samples_column_is_list_of_str() -> None:
     schema = _infer_schema(["IDLE", "RUNNING"])
-    samples_field = schema.field("samples")
+    samples_field = schema.field("value")
     assert pa.types.is_list(samples_field.type)
     assert samples_field.type.value_type == pa.utf8()
 

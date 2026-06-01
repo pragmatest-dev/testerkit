@@ -165,18 +165,24 @@ def _infer_schema(value: object) -> pa.Schema:
     """Build an Arrow schema from the first value written to a channel.
 
     Build item 14: leaf types preserve through to the column dtype.
+    Build item 11b (C3a-pre): the payload column is named ``value``
+    uniformly across shapes. For arrays its type is ``list<leaf>``;
+    for scalars it's ``leaf``. One row = one channel write (one
+    "sample"); the column carries that write's payload regardless of
+    inner shape.
 
-    - scalar (int/float/bool/str) → timestamp + value (typed) columns
-    - list/tuple → timestamp + samples (typed) + sample_interval
-    - numpy array → received_at + samples (typed from numpy dtype) +
-      sample_interval
-    - dict → received_at + one column per key (each typed)
-    - tuple ``([samples], dt)`` is a legacy waveform, converted before
+    - scalar (int/float/bool/str) → ``received_at`` + ``sampled_at``
+      + ``value`` (typed scalar)
+    - list/tuple → ``received_at`` + ``sampled_at`` + ``value``
+      (typed ``list<leaf>``) + ``sample_interval`` (inner spacing)
+    - numpy array → same as list (typed via numpy dtype)
+    - dict → ``received_at`` + ``sampled_at`` + per-key columns
+    - tuple ``([items], dt)`` is a legacy waveform, converted before
       calling this
 
-    ``sampled_at`` (build item 11) is included as a nullable column
-    on every schema for the hardware-side sampling timestamp; the
-    per-channel default is ``None`` when the writer doesn't know.
+    ``sampled_at`` (build item 11) is nullable for hardware-side
+    sampling time; ``sample_interval`` (array shape only) is the
+    inter-value time within a single write's payload.
     """
     fields: list[pa.Field] = [
         pa.field("received_at", pa.timestamp("us", tz="UTC"), nullable=False),
@@ -191,13 +197,13 @@ def _infer_schema(value: object) -> pa.Schema:
         # numpy dtype (item 14: no more hardcoded float64 erasure).
         array_type = _infer_field_type(value)
         # ``_infer_field_type`` returns the FULL list type for arrays
-        # (e.g., list<bool>). Use it directly as the ``samples`` column.
+        # (e.g., list<bool>). Use it directly as the ``value`` column.
         if pa.types.is_list(array_type):
-            fields.append(pa.field("samples", array_type))
+            fields.append(pa.field("value", array_type))
         else:
             # Defensive: if the array inference returned non-list,
             # fall back to wrapping with float64.
-            fields.append(pa.field("samples", pa.list_(pa.float64())))
+            fields.append(pa.field("value", pa.list_(pa.float64())))
         fields.append(pa.field("sample_interval", pa.float64()))
     else:
         # scalar (int/float/bool/str) — delegate to the single-value
@@ -229,7 +235,7 @@ ARRAY_SCHEMA = pa.schema(
     [
         pa.field("received_at", pa.timestamp("us", tz="UTC"), nullable=False),
         pa.field("sampled_at", pa.timestamp("us", tz="UTC"), nullable=True),
-        pa.field("samples", pa.list_(pa.float64())),
+        pa.field("value", pa.list_(pa.float64())),
         pa.field("sample_interval", pa.float64()),
         pa.field("source_method", pa.utf8()),
         pa.field("session_id", pa.utf8()),
