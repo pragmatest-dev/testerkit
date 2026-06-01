@@ -1034,6 +1034,46 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 
 > **Scope commitment (per the v0.2.0 decision):** v0.2.0 is the release where data architecture stabilizes for pre-1.0. We're fixing *all* the data stuff from 0.1.x. That means the originally-long-term items L2-L7b move into MVP scope. Only L1 (per-store attribute indexes — genuinely greenfield index work) stays long-term. Calendar is multi-month; see §16 for milestones.
 
+### Status (v0.2.0 stage branch `feat/0.2.0-data-improvements`)
+
+| Item | Title | Cluster | Status | PR |
+|---|---|---|---|---|
+| 1a | FileStore put API + URI scheme | C1a | ✅ DONE | #14 |
+| 1b | FileStore live lifecycle + Stream events | C4 | ⏳ PENDING | — |
+| 1c | FileStore attributes + MIME typing | C4 | ⏳ PENDING | — |
+| 1d | Unify the two `_ref` dirs | C4 | ⏳ PENDING | — |
+| 1e | FileStore integration test | C4 | ⏳ PENDING | — |
+| 2 | Streaming sink (PyAV / soundfile / TDMS / h5py) | C5 | ⏳ PENDING | — |
+| 3a | `Context.observe` blob → `file://` claim | 3a | ✅ DONE | #15 |
+| 3b | `observer.read` blob → `file://` + ChannelStore `scalar:str` | C-3b | ✅ DONE | #19 |
+| 4 | `observe()` emits Observation event | 4 | ✅ DONE | #16 |
+| 4b | `ChannelStarted`/`ChannelClosed`; retire `InstrumentRead` | C1 | ✅ DONE | #17 |
+| 5 | `observer.read` stamps vector `out_*` (rename DEFERRED) | C1 | ✅ DONE | #17 |
+| 6 | Verb dispatch by value shape | C3 | ⏳ PENDING | — |
+| 7 | `stream(name, sample)` test-author verb | C3 | ⏳ PENDING | — |
+| 8 | Symmetric `channels.{write,stream}` / `filestore.{put,stream}` | C3 | ⏳ PENDING | — |
+| 9 | Auto-promotion rule in materializer (≥1 verify → verify rows; 0 + ≥1 observe → DONE row) | C6-partial | 🚧 IN-PROGRESS | — |
+| 10 | Type-stable `out_<name>` registry | C6-partial | 🚧 IN-PROGRESS | — |
+| 11 | Schema rename `timestamp` → `received_at` + nullable `sampled_at` | C7 | ✅ DONE | #20 |
+| 12 | Promote `save_ref_to_dir` to registry | C6 | ⏳ PENDING | — |
+| 13 | MIME + extension + attributes on artifact metadata | C6 | ⏳ PENDING | — |
+| 14 | Typed leaf-type support (scalar/array × bool/int/float/str) | C2 | ✅ DONE | #18 |
+| 15 | `XYData` model + complex-array round-trip coverage | C8 | ⏳ PENDING | — |
+| 16 | Optional `namespace=` kwarg on observe/verify/stream | C3 | ⏳ PENDING | — |
+| 17 | Rename metadata fields → `attributes` across schemas | C2 | ✅ DONE | #18 |
+| 18 | Live waveform plot on channels detail page | C10 | ⏳ PENDING | — |
+| 19 | Byte-aware flush + end-to-end Flight bench | C10 | ⏳ PENDING | — |
+| 20 | Consumer SDK (`litmus.live`) | C10 | ⏳ PENDING | — |
+| 21 | Typed Arrow event payloads | C11 | ⏳ PENDING | — |
+| 22 | Local shared-memory transport | C11 | ⏳ PENDING | — |
+| 23 | Hardware video encoder option | C5 | ⏳ PENDING | — |
+| 24 | (TBD per design doc growth) | C5 | ⏳ PENDING | — |
+
+**Parked deliberations (not blocking any cluster):**
+
+- **Channel-id source/disambiguation field** — see §5 *Naming conventions and uniqueness* and the C3 introduction. User-sourced channels (test-author `observe`/`stream` calls) can silently merge when two tests use the same name for different concepts; C2's type-stability catches the type-mismatch case loudly but same-type-different-meaning is residual. Resolution path: add `step_path` / `vector_id` columns to the ChannelStore row schema so analytics can disambiguate without breaking the live-UI subscription story; `namespace=` (item 16) stays as opt-in convenience. To be designed when C3 starts.
+- **`EventEmitter.read` rename** — agreed `read` is a sample-arrival hook on EventEmitter that may emit, not a 1:1 verb. Original design-doc rename (`read` → `record_read`) was verb-shaped at a layer that should stay machinery. Deferred to a later cluster; pick a non-verb name then.
+
 ### MVP (initial release) — stores + API consistency + types
 
 **Stores:**

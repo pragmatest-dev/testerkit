@@ -437,6 +437,75 @@ def build_input_columns(vector: TestVector) -> dict[str, Any]:
     return cols
 
 
+def observation_kind(value: Any) -> str:
+    """Item 10: classify an observation value for parquet column kind-stability.
+
+    Returns a short tag describing the shape that ends up in the
+    parquet ``out_<name>`` column. Used by
+    :func:`validate_observation_kinds` to enforce that the first
+    observation of a name pins the kind and subsequent observations
+    must match — otherwise the column would carry mixed types.
+
+    URIs (``channel://`` and ``file://``) are tagged ``"uri"`` even
+    though they're str at the storage layer — keeps "this column is
+    a claim-check ref" distinct from "this column is a free string".
+    """
+    if is_ref(value):
+        return "uri"
+    if isinstance(value, bool):
+        return "scalar:bool"
+    if isinstance(value, int):
+        return "scalar:int"
+    if isinstance(value, float):
+        return "scalar:float"
+    if isinstance(value, str):
+        return "scalar:str"
+    if isinstance(value, list):
+        return "list"
+    if isinstance(value, dict):
+        return "dict"
+    return f"other:{type(value).__name__}"
+
+
+def validate_observation_kinds(
+    registry: dict[str, str],
+    observations: dict[str, Any],
+    *,
+    where: str,
+) -> None:
+    """Item 10: register first-observation kinds; raise on mismatch.
+
+    Mutates ``registry`` in place — the materializer threads a
+    single registry through every vector in a run. ``where`` is
+    included in the error message (e.g.
+    ``"vector 3 of test_x"``) for diagnostic clarity.
+
+    Args:
+        registry: ``name -> kind`` map. First observation of each
+            name registers its kind; subsequent observations must
+            match.
+        observations: The vector's ``observations`` dict.
+        where: Diagnostic prefix used in the error message.
+
+    Raises:
+        ValueError: When an observation's kind disagrees with the
+            registered kind for its name.
+    """
+    for name, value in observations.items():
+        if name.startswith("_"):
+            continue
+        kind = observation_kind(value)
+        existing = registry.get(name)
+        if existing is None:
+            registry[name] = kind
+        elif existing != kind:
+            raise ValueError(
+                f"out_{name} kind mismatch at {where}: first observation "
+                f"registered '{existing}'; now seeing '{kind}'. "
+                "Item 10: out_<name> must be type-stable across vectors."
+            )
+
+
 def build_output_columns(
     vector: TestVector,
     ref_saver: Callable[[str, str, Any], str] | None = None,
