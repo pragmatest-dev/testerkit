@@ -16,31 +16,24 @@ Filename convention:
   immutability — repeated puts create distinct files; the vector's
   ``out_<name>`` last-write-wins separately at materialization)
 
-This initial cut (build item 1a) implements ``put()`` with type
-dispatch reused from the existing ``save_ref_to_dir`` helper logic.
-Forward-compatible parameters (``attributes``) are accepted but not
+Type dispatch + MIME convention live in
+:mod:`litmus.data.files.serializers` (build items 12 + 13). Custom
+types either expose ``litmus_serialize(dest)`` (the protocol) or
+register via :func:`register_serializer`.
+
+Forward-compatible parameter ``attributes`` is accepted but not
 yet persisted — that lands in item 1c. Streaming sink lands in 1b.
 Migration of the two legacy ``_ref`` dirs lands in 1d.
 """
 
 from __future__ import annotations
 
-import json
-import pickle
-import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from litmus.data.data_dir import resolve_data_dir
-from litmus.data.models import Waveform
-
-try:
-    import importlib.util as _ilu
-
-    HAS_NUMPY = _ilu.find_spec("numpy") is not None
-except Exception:  # pragma: no cover - defensive
-    HAS_NUMPY = False
+from litmus.data.files.serializers import find_serializer
 
 # Truncate vector_id to N chars for filename prefix (audit trail
 # without bloating). Matches existing ``VECTOR_ID_LENGTH`` convention
@@ -86,15 +79,14 @@ class FileStore:
             name: Logical name for the artifact (e.g.
                 ``"scope.ch1.capture"``). Forms the bulk of the
                 filename. Should not include extension; extension is
-                chosen by the type dispatch.
-            value: The value to write. Type-dispatched:
-                ``Path`` → copy with suffix preserved;
-                ``Waveform`` → ``.npz`` (with ``Y`` / ``t0`` / ``dt``
-                  / attrs as keys);
-                ``bytes`` → ``.bin``;
-                Pydantic ``BaseModel`` → ``.json``;
-                numpy ``ndarray`` → ``.npy``;
-                anything else → ``.pkl`` (last-resort fallback).
+                chosen by the registry (build item 12).
+            value: The value to write. Routed through
+                :func:`litmus.data.files.serializers.find_serializer`
+                — see that module for the built-in convention table
+                and the ``litmus_serialize`` protocol /
+                :func:`register_serializer` extension points.
+                Last-resort fallback is pickle with a
+                ``RuntimeWarning`` naming the type.
             session_id: Session this artifact belongs to. Required.
                 Callers (verb layer) pull from the active-session
                 ContextVar.
@@ -112,9 +104,14 @@ class FileStore:
         # Accepted for forward compat; persistence wired in item 1c.
         del attributes
 
-        # Pick the extension via type dispatch (without writing yet)
-        # so we can compute a collision-free filename first.
-        ext = self._extension_for(value)
+        serializer = find_serializer(value)
+        # Path values: the source file's suffix wins over the
+        # serializer's default ``.bin`` so e.g. ``capture.tdms`` stays
+        # ``.tdms`` on disk.
+        if isinstance(value, Path):
+            ext = value.suffix or serializer.extension
+        else:
+            ext = serializer.extension
         prefix = f"{vector_id[:_VECTOR_ID_LENGTH]}_" if vector_id else ""
 
         # Compute session directory (date-partitioned for retention/ops)
@@ -125,8 +122,8 @@ class FileStore:
         filename = self._unique_filename(session_dir, f"{prefix}{name}", ext)
         dest = session_dir / filename
 
-        # Write via type-dispatched serializer.
-        self._write(value, dest)
+        # Write via the registered handler.
+        serializer.write(value, dest)
 
         return f"file://{session_id}/{filename}"
 
@@ -161,58 +158,3 @@ class FileStore:
             if not (directory / candidate).exists():
                 return candidate
             n += 1
-
-    @staticmethod
-    def _extension_for(value: Any) -> str:
-        """Pick the file extension this value will serialize to."""
-        if isinstance(value, Path):
-            return value.suffix or ".bin"
-        if isinstance(value, Waveform):
-            return ".npz" if HAS_NUMPY else ".json"
-        if isinstance(value, bytes):
-            return ".bin"
-        if hasattr(value, "model_dump"):
-            return ".json"
-        if hasattr(value, "tolist"):
-            return ".npy" if HAS_NUMPY else ".json"
-        return ".pkl"
-
-    @staticmethod
-    def _write(value: Any, dest: Path) -> None:
-        """Type-dispatched write. Mirrors ``save_ref_to_dir`` in
-        ``data/backends/_row_helpers.py``. Item 12 will promote both
-        to a registry; for 1a we duplicate the dispatch locally so
-        the legacy helper's behavior is unaffected.
-        """
-        if isinstance(value, Path):
-            shutil.copy(value, dest)
-            return
-
-        if isinstance(value, Waveform):
-            if HAS_NUMPY:
-                import numpy as np  # noqa: PLC0415
-
-                np.savez(dest, Y=value.Y, t0=value.t0, dt=value.dt, **value.attributes)
-            else:
-                dest.write_text(value.model_dump_json())
-            return
-
-        if isinstance(value, bytes):
-            dest.write_bytes(value)
-            return
-
-        if hasattr(value, "model_dump"):
-            dest.write_text(value.model_dump_json())
-            return
-
-        if hasattr(value, "tolist"):
-            if HAS_NUMPY:
-                import numpy as np  # noqa: PLC0415
-
-                np.save(dest, value)
-            else:
-                dest.write_text(json.dumps(value.tolist()))
-            return
-
-        with open(dest, "wb") as f:
-            pickle.dump(value, f)
