@@ -1040,7 +1040,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 |---|---|---|---|---|
 | 1a | FileStore put API + URI scheme | C1a | ✅ DONE | #14 |
 | 1b | FileStore live lifecycle + Stream events | C4 | ⏳ PENDING | — |
-| 1c | FileStore attributes + MIME typing | C4 | ⏳ PENDING | — |
+| 1c | FileStore attributes + MIME typing | C4-partial | ✅ DONE | (this PR) |
 | 1d | Unify the two `_ref` dirs | C4 | ⏳ PENDING | — |
 | 1e | FileStore integration test | C4 | ⏳ PENDING | — |
 | 2 | Streaming sink (PyAV / soundfile / TDMS / h5py) | C5 | ⏳ PENDING | — |
