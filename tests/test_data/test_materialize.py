@@ -132,7 +132,12 @@ def results_tree() -> Generator[_ResultsTree, None, None]:
 
 
 def test_materialize_rewrites_parquet(results_tree: _ResultsTree) -> None:
-    """Materializing channel refs rewrites parquet URIs to file:// refs."""
+    """Materializing channel refs rewrites parquet URIs to file:// refs.
+
+    Item 1d: refs now route through FileStore (canonical home), so
+    the URI shape is ``file://{session_id}/{filename}`` instead of
+    the legacy ``file://_ref/{filename}``.
+    """
     count = materialize_channel_refs(results_tree.root, [results_tree.channel_dir])
 
     assert count == 1
@@ -140,20 +145,26 @@ def test_materialize_rewrites_parquet(results_tree: _ResultsTree) -> None:
     table = pq.read_table(results_tree.parquet)
     new_uri = table.column("out_waveform")[0].as_py()
 
-    assert new_uri.startswith("file://_ref/")
+    assert new_uri.startswith("file://")
     assert new_uri.endswith(".arrow")
     # session_short and channel_id both contain the per-test uuid suffix
     suffix = results_tree.date_stem.rsplit("-", 1)[-1]
     assert suffix in new_uri
     assert "scope.ch1.waveform" in new_uri
+    # Per-parquet ``_ref/`` sidecar dir is NOT created post-1d —
+    # materialized channel data lives in FileStore alongside other
+    # session artifacts.
+    legacy_sidecar = results_tree.parquet.parent / "test_run_ref"
+    assert not legacy_sidecar.exists()
 
-    # Verify the sidecar arrow file exists and contains correct data
-    ref_dir = results_tree.parquet.parent / "test_run_ref"
-    assert ref_dir.is_dir()
-    arrow_files = list(ref_dir.glob("*.arrow"))
-    assert len(arrow_files) == 1
+    # Verify the .arrow file landed in FileStore and contains correct data
+    from litmus.data.files import get_filestore
 
-    saved = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb")).read_all()
+    artifact_path = get_filestore()._resolve_uri(new_uri)
+    assert artifact_path is not None
+    assert artifact_path.exists()
+
+    saved = ipc.open_stream(pa.OSFile(str(artifact_path), "rb")).read_all()
     assert saved.num_rows == 3
     assert saved.column("value").to_pylist() == [1.0, 2.0, 3.0]
 

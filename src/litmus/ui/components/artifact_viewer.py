@@ -66,7 +66,12 @@ def list_artifacts(measurement: dict[str, Any]) -> list[tuple[str, str]]:
     for key, value in measurement.items():
         if not key.startswith("out_") or not isinstance(value, str):
             continue
-        if value.startswith("file://_ref/") or value.startswith("channel://"):
+        # Item 1d: ``file://`` URIs come in two shapes — legacy
+        # ``file://_ref/{filename}`` (per-parquet sidecar) and
+        # FileStore-canonical ``file://{session_id}/{filename}``.
+        # Both are file references; ``channel://`` is the live-channel
+        # reference. Anything else is inline data.
+        if value.startswith(("file://", "channel://")):
             refs.append((key.removeprefix("out_"), value))
     return refs
 

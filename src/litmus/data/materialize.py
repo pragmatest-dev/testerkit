@@ -2,8 +2,13 @@
 
 When channel data (Arrow IPC files) is pruned before parquet test runs,
 ``channel://`` URIs in parquet ``out_*`` columns would break. This module
-copies referenced channel data into each parquet's ``_ref/`` sidecar
-directory as ``.arrow`` files and rewrites the parquet with ``file://`` URIs.
+copies referenced channel data into FileStore as ``.arrow`` IPC files
+and rewrites the parquet with ``file://{session_id}/{filename}`` URIs.
+
+Build item 1d: previously this wrote to a per-parquet ``_ref/`` sidecar
+directory with ``file://_ref/{filename}`` URIs. Post-1d, all artifacts
+land in one canonical home (FileStore at ``files/{date}/{session_id}/``)
+so a session's blobs + materialized channel data live together.
 
 Uses RunStore for all parquet access — no direct file scanning.
 """
@@ -14,27 +19,15 @@ from pathlib import Path
 from uuid import UUID
 
 import pyarrow as pa
-import pyarrow.ipc as ipc
-
-from litmus.data.backends._row_helpers import REF_PATH_PREFIX
-
-
-def _save_arrow_ref(ref_dir: Path, channel_id: str, session_short: str, table: pa.Table) -> str:
-    """Save Arrow IPC table to ref dir, return ``file://`` URI."""
-    ref_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{channel_id}_{session_short}.arrow"
-    writer = ipc.new_stream(ref_dir / filename, table.schema)
-    writer.write_table(table)
-    writer.close()
-    return f"file://{REF_PATH_PREFIX}{filename}"
 
 
 def materialize_channel_refs(data_dir: Path, channel_dirs_to_prune: list[Path]) -> int:
     """Materialize channel:// refs in parquet files before channel pruning.
 
     Queries RunStore (DuckDB index) to find channel refs, reads channel
-    data via ChannelStore API, saves materialized data as sidecar files,
-    then rewrites parquet files with ``file://`` URIs via RunStore.
+    data via ChannelStore API, writes materialized data into FileStore
+    (one canonical home — item 1d), then rewrites parquet files with
+    ``file://{session_id}/{filename}`` URIs via RunStore.
 
     Args:
         data_dir: Root results directory (contains ``runs/`` and
@@ -45,6 +38,7 @@ def materialize_channel_refs(data_dir: Path, channel_dirs_to_prune: list[Path]) 
         Count of materialized references.
     """
     from litmus.data.channels.store import ChannelStore
+    from litmus.data.files import get_filestore
     from litmus.data.run_store import RunStore
 
     pruning = ChannelStore.list_channel_refs(channel_dirs_to_prune)
@@ -62,6 +56,7 @@ def materialize_channel_refs(data_dir: Path, channel_dirs_to_prune: list[Path]) 
         return 0
 
     run_store = RunStore(_data_dir=data_dir)
+    filestore = get_filestore()
 
     try:
         # DuckDB query — no file scanning
@@ -82,11 +77,16 @@ def materialize_channel_refs(data_dir: Path, channel_dirs_to_prune: list[Path]) 
 
         for file_path, file_refs in by_file.items():
             replacements: dict[str, dict[int, str]] = {}
-            ref_dir = RunStore.ref_dir_for(Path(file_path))
 
             for ref in file_refs:
                 channel_id = ref["channel_id"]
                 session_short = ref["session_short"]
+                # The full session_id comes from the URI's ``?session=``
+                # query parameter, captured at parquet-write time and
+                # surfaced through the daemon's ``measurement_refs`` index
+                # (item 1d). Fall back to session_short when an older
+                # parquet predates the session_id column.
+                session_id = ref.get("session_id") or session_short
                 key = (channel_id, session_short)
 
                 if key not in cache:
@@ -95,11 +95,13 @@ def materialize_channel_refs(data_dir: Path, channel_dirs_to_prune: list[Path]) 
                         session_id=session_short,
                     )
 
-                new_uri = _save_arrow_ref(
-                    ref_dir,
+                # Item 1d: write into FileStore (one canonical home)
+                # via the Arrow Table serializer registered in
+                # C6-remainder. URI is ``file://{session_id}/{filename}``.
+                new_uri = filestore.put(
                     channel_id,
-                    session_short,
                     cache[key],
+                    session_id=session_id,
                 )
                 replacements.setdefault(ref["col_name"], {})[ref["row_idx"]] = new_uri
                 count += 1

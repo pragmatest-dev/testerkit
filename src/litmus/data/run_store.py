@@ -252,7 +252,7 @@ class RunStore:
         quoted = ", ".join(f"'{_sql_escape(s)}'" for s in session_shorts)
         return self._flight_query(f"""
             SELECT file_path, step_index, measurement_name, col_name,
-                   row_idx, uri, channel_id, session_short
+                   row_idx, uri, channel_id, session_short, session_id
             FROM measurement_refs
             WHERE session_short IN ({quoted})
         """)

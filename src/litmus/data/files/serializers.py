@@ -153,6 +153,20 @@ def _write_pandas_dataframe(value: Any, dest: Path) -> None:
     value.to_parquet(dest)
 
 
+def _write_arrow_table(value: Any, dest: Path) -> None:
+    """Write a pyarrow Table as an Arrow IPC stream file.
+
+    Used by the materializer's channel-data preservation flow
+    (item 1d) — preserves a channel's Arrow rows verbatim under
+    FileStore.
+    """
+    import pyarrow.ipc as ipc
+
+    writer = ipc.new_stream(dest, value.schema)
+    writer.write_table(value)
+    writer.close()
+
+
 def _write_pickle(value: Any, dest: Path) -> None:
     with open(dest, "wb") as f:
         pickle.dump(value, f)
@@ -201,6 +215,17 @@ def _is_basemodel(value: Any) -> bool:
     return hasattr(value, "model_dump_json")
 
 
+def _is_arrow_table(value: Any) -> bool:
+    """True for pyarrow Table-shaped values (item 1d)."""
+    # Duck-type rather than ``isinstance(value, pa.Table)`` so the
+    # check is cheap when pyarrow isn't already loaded by the call
+    # site. The materializer's preservation path always has pyarrow
+    # imported, but the registry itself shouldn't be transitively
+    # dependent.
+    mod = type(value).__module__
+    return mod.startswith("pyarrow.") and type(value).__name__ == "Table"
+
+
 def _register_builtins() -> None:
     """Register the built-in handlers in priority order.
 
@@ -216,11 +241,13 @@ def _register_builtins() -> None:
     3. ``XYData``       — distinct from BaseModel (item 15; lands as
        .npz paired arrays, not .json)
     4. ``bytes``        — raw payload
-    5. PIL ``Image``    — opportunistic, before ndarray
+    5. pyarrow ``Table``— item 1d; used by the materializer's
+       channel-data preservation flow
+    6. PIL ``Image``    — opportunistic, before ndarray
        (PIL.Image quacks like an array)
-    6. pandas DataFrame — opportunistic
-    7. Pydantic         — any model_dump_json-capable object
-    8. numpy ``ndarray``— covers any tolist + dtype object
+    7. pandas DataFrame — opportunistic
+    8. Pydantic         — any model_dump_json-capable object
+    9. numpy ``ndarray``— covers any tolist + dtype object
     """
     # Type-specific dispatch lives at the bottom of each predicate.
     waveform_ext, waveform_mime = _waveform_ext_and_mime()
@@ -244,6 +271,17 @@ def _register_builtins() -> None:
         (
             lambda v: isinstance(v, bytes),
             Serializer(extension=".bin", mime="application/octet-stream", write=_write_bytes),
+        ),
+        (
+            _is_arrow_table,
+            # Item 1d: pyarrow.Table → ``.arrow`` IPC stream.
+            # Used by the materializer to preserve channel data
+            # before retention pruning.
+            Serializer(
+                extension=".arrow",
+                mime="application/vnd.apache.arrow.stream",
+                write=_write_arrow_table,
+            ),
         ),
         (
             _is_pil_image,

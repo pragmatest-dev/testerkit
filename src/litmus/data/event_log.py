@@ -24,7 +24,6 @@ import pyarrow as pa
 
 from litmus.data._event_filters import event_matches_role
 from litmus.data._ipc_writer import BufferedIPCWriter, read_ipc_batches
-from litmus.data.backends._row_helpers import save_ref_to_dir
 from litmus.data.events import EventBase
 
 # Schema for the index columns stored in IPC files.
@@ -182,7 +181,13 @@ class EventLog:
         )
         self._subscribers: list[EventSubscriber] = []
         self._failed: set[EventSubscriber] = set()
-        self._ref_dir = date_dir / f"{session_id}_ref"
+        # Item 1d: events no longer own a ref dir. Pre-Position-2 events
+        # held raw blob payloads and ``save_ref`` wrote them under
+        # ``events/{date}/{session_id}_ref/``. Under Position 2 + C-3b
+        # all blobs route through FileStore at the verb layer
+        # (Context.observe / observer._store_value); events carry the
+        # ``file://`` URI string and the EventLog has nothing of its own
+        # to claim-check.
 
     @property
     def path(self) -> Path:
@@ -243,11 +248,6 @@ class EventLog:
         """
         sub.open()
         self._subscribers.append(sub)
-
-    def save_ref(self, vector_id: str, key: str, value: Any) -> str:
-        """Save large data to _ref/ subdirectory."""
-        self._ref_dir.mkdir(exist_ok=True)
-        return save_ref_to_dir(self._ref_dir, vector_id, key, value)
 
     def events(
         self,

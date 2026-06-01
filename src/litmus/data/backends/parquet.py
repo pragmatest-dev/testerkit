@@ -45,7 +45,6 @@ from litmus.data.backends._row_helpers import (
     INSTRUMENT_ARRAY_KEYS,
     OUTPUT_PREFIX,
     REF_PATH_PREFIX,
-    VECTOR_ID_LENGTH,
     build_row,
     build_run_metadata,
     build_run_row,
@@ -53,7 +52,6 @@ from litmus.data.backends._row_helpers import (
     build_step_row,
     extract_prefixed_fields,
     run_context_from_run_started,
-    save_ref_to_dir,
     validate_observation_kinds,
 )
 from litmus.data.data_dir import resolve_data_dir
@@ -229,7 +227,7 @@ class ParquetBackend:
         rows: list[dict[str, Any]] = [self._build_run_row(test_run, instrument_arrays)]
 
         # Build measurement rows (may create _ref/ directory for large data)
-        rows.extend(self._build_measurement_rows(test_run, parquet_path, instrument_arrays))
+        rows.extend(self._build_measurement_rows(test_run, instrument_arrays))
 
         # Append a ``record_type='step'`` row for every (step, vector)
         # — containers, action steps, swept variants, and
@@ -305,7 +303,6 @@ class ParquetBackend:
     def _build_measurement_rows(
         self,
         test_run: TestRun,
-        parquet_path: Path,
         instrument_arrays: dict[str, list] | None = None,
     ) -> list[dict[str, Any]]:
         """Build one row per measurement with all metadata denormalized.
@@ -323,8 +320,22 @@ class ParquetBackend:
         ``ValueError`` rather than letting parquet coerce / refuse.
         """
 
+        # Item 1d: ref writes route through FileStore (one canonical
+        # home for all blobs) instead of the per-parquet sibling
+        # ``{stem}_ref/``. The vector_id-shortened prefix on the
+        # FileStore filename preserves the audit trail.
+        from litmus.data.files import get_filestore  # noqa: PLC0415
+
+        filestore = get_filestore()
+        session_id_str = str(test_run.session_id)
+
         def ref_saver(vector_id: str, key: str, value: Any) -> str:
-            return self._save_file(parquet_path, vector_id, key, value)
+            return filestore.put(
+                key,
+                value,
+                session_id=session_id_str,
+                vector_id=vector_id,
+            )
 
         def _build(
             measurement: Measurement,
@@ -396,22 +407,6 @@ class ParquetBackend:
                         )
                         rows.append(_build(promoted, step, step_idx, vector, step_arrays))
         return rows
-
-    def _get_ref_dir(self, parquet_path: Path) -> Path:
-        """Get or create the _ref directory for a parquet file."""
-        # Replace .parquet with _ref
-        ref_dir = parquet_path.parent / (parquet_path.stem + "_ref")
-        ref_dir.mkdir(parents=True, exist_ok=True)
-        return ref_dir
-
-    def _save_file(self, parquet_path: Path, vector_id: str, key: str, value: Any) -> str:
-        """Save file in format appropriate for the data type.
-
-        Returns:
-            Path reference string like "_ref/abc123_scope_waveform.npz"
-        """
-        ref_dir = self._get_ref_dir(parquet_path)
-        return save_ref_to_dir(ref_dir, vector_id[:VECTOR_ID_LENGTH], key, value)
 
     def _build_run_row(
         self,
@@ -738,12 +733,56 @@ def materialize_run_to_parquet(
     )
 
 
-def load_file(parquet_path: Path, ref: str) -> Any:
+def _resolve_ref_to_path(parquet_path: Path | None, ref: str) -> Path | None:
+    """Resolve a file ref to an on-disk path. Item 1d dual-path.
+
+    Returns ``None`` for non-file references (channel://, plain
+    strings) or unresolvable URIs. Callers decide what to do with
+    the un-resolution (typically return the ref as-is).
+
+    ``parquet_path`` is only consulted for legacy
+    ``file://_ref/{filename}`` URIs (per-parquet sidecar layout).
+    New FileStore-shape URIs (``file://{session_id}/{filename}``)
+    resolve without it.
+    """
+    raw = ref
+    if raw.startswith("file://"):
+        raw = raw[len("file://") :]
+
+    # Legacy: starts with the per-parquet ``_ref/`` prefix.
+    if raw.startswith(REF_PATH_PREFIX):
+        if parquet_path is None:
+            return None
+        filename = raw[len(REF_PATH_PREFIX) :]
+        return parquet_path.parent / (parquet_path.stem + "_ref") / filename
+
+    # New (item 1d): logical FileStore reference ``{session_id}/{filename}``.
+    # Resolve via FileStore — file lives under
+    # ``{data_dir}/files/{date}/{session_id}/{filename}`` and the
+    # date is walked by FileStore._resolve_uri.
+    if "/" in raw and ref.startswith("file://"):
+        from litmus.data.files import get_filestore  # noqa: PLC0415
+
+        return get_filestore()._resolve_uri(ref)
+
+    return None
+
+
+def load_file(parquet_path: Path | None, ref: str) -> Any:
     """Load a file reference (``file://`` URI or legacy ``_ref/`` path).
 
+    Dual-path post-item-1d:
+
+    - New: ``file://{session_id}/{filename}`` — resolves through
+      FileStore (canonical home for all artifacts).
+    - Legacy: ``file://_ref/{filename}`` or bare ``_ref/{filename}`` —
+      resolves to the parquet's sibling ``{stem}_ref/`` directory.
+      Stays for the lifetime of pre-1d parquets on disk.
+
     Args:
-        parquet_path: Path to the parquet file (used to locate _ref/ dir).
-        ref: Reference string — ``"file://_ref/abc.npz"`` or legacy ``"_ref/abc.npz"``.
+        parquet_path: Path to the parquet file (used to locate the
+            legacy ``_ref/`` sibling dir).
+        ref: Reference string — any of the three shapes above.
 
     Returns:
         Loaded data in appropriate format:
@@ -751,25 +790,16 @@ def load_file(parquet_path: Path, ref: str) -> Any:
         - .npy → numpy array
         - .json → dict or Pydantic model
         - .bin → bytes
+        - .arrow → Arrow Table
         - .pkl → pickled object
         - Other → raw file path
     """
-    # Normalize: strip file:// prefix if present
-    raw = ref
-    if raw.startswith("file://"):
-        raw = raw[len("file://") :]
-
-    if not raw.startswith(REF_PATH_PREFIX):
-        return ref  # Not a file reference, return as-is
-
-    # Get path relative to parquet file
-    ref_dir = parquet_path.parent / (parquet_path.stem + "_ref")
-    filename = raw[len(REF_PATH_PREFIX) :]
-    path = ref_dir / filename
-    ext = path.suffix.lower()
-
+    path = _resolve_ref_to_path(parquet_path, ref)
+    if path is None:
+        return ref  # Not a file reference or unresolved
     if not path.exists():
         return ref  # File not found, return reference
+    ext = path.suffix.lower()
 
     try:
         if ext == ".npz":
@@ -878,8 +908,10 @@ def load_ref(
     scheme = ref_scheme(value)
 
     if scheme == "file":
-        if parquet_path is None:
-            return value
+        # Item 1d: new FileStore-shape URIs resolve without
+        # parquet_path (FileStore walks date dirs itself). Legacy
+        # ``file://_ref/...`` URIs still need parquet_path for the
+        # per-parquet sibling-dir resolution.
         return load_file(parquet_path, value)
 
     if scheme == "channel":
