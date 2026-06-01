@@ -1171,7 +1171,8 @@ A single channel data point delivered to subscribers.
 | Field | Type | Default |
 |---|---|---|
 | `channel_id` | `str` | *required* |
-| `timestamp` | `datetime` | *required* |
+| `received_at` | `datetime` | *required* |
+| `sampled_at` | `datetime \| None` | `None` |
 | `value` | `Any` | *required* |
 | `units` | `str \| None` | `None` |
 | `sample_interval` | `float \| None` | `None` |

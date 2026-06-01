@@ -41,10 +41,21 @@ class ChannelDescriptor(BaseModel):
 
 
 class ChannelSample(BaseModel):
-    """A single channel data point delivered to subscribers."""
+    """A single channel data point delivered to subscribers.
+
+    Two timestamps (build item 11):
+
+    - ``received_at`` (was ``timestamp``): when the system received
+      the sample (today's ``datetime.now(UTC)`` at write time).
+    - ``sampled_at``: when the instrument sampled the value at the source.
+      Hardware-timestamped values (scope acquisitions, DAQ blocks)
+      should set this. Nullable — drivers that don't know leave it
+      ``None`` and analytics falls back to ``received_at``.
+    """
 
     channel_id: str
-    timestamp: datetime
+    received_at: datetime
+    sampled_at: datetime | None = None
     value: Any
     units: str | None = None
     sample_interval: float | None = None
@@ -157,13 +168,20 @@ def _infer_schema(value: object) -> pa.Schema:
 
     - scalar (int/float/bool/str) → timestamp + value (typed) columns
     - list/tuple → timestamp + samples (typed) + sample_interval
-    - numpy array → timestamp + samples (typed from numpy dtype) +
+    - numpy array → received_at + samples (typed from numpy dtype) +
       sample_interval
-    - dict → timestamp + one column per key (each typed)
+    - dict → received_at + one column per key (each typed)
     - tuple ``([samples], dt)`` is a legacy waveform, converted before
       calling this
+
+    ``sampled_at`` (build item 11) is included as a nullable column
+    on every schema for the hardware-side sampling timestamp; the
+    per-channel default is ``None`` when the writer doesn't know.
     """
-    fields: list[pa.Field] = [pa.field("timestamp", pa.timestamp("us", tz="UTC"))]
+    fields: list[pa.Field] = [
+        pa.field("received_at", pa.timestamp("us", tz="UTC"), nullable=False),
+        pa.field("sampled_at", pa.timestamp("us", tz="UTC"), nullable=True),
+    ]
 
     if isinstance(value, dict):
         for k, v in value.items():
@@ -199,20 +217,22 @@ def _infer_schema(value: object) -> pa.Schema:
 
 SCALAR_SCHEMA = pa.schema(
     [
-        ("timestamp", pa.timestamp("us", tz="UTC")),
-        ("value", pa.float64()),
-        ("source_method", pa.utf8()),
-        ("session_id", pa.utf8()),
+        pa.field("received_at", pa.timestamp("us", tz="UTC"), nullable=False),
+        pa.field("sampled_at", pa.timestamp("us", tz="UTC"), nullable=True),
+        pa.field("value", pa.float64()),
+        pa.field("source_method", pa.utf8()),
+        pa.field("session_id", pa.utf8()),
     ]
 )
 
 ARRAY_SCHEMA = pa.schema(
     [
-        ("timestamp", pa.timestamp("us", tz="UTC")),
-        ("samples", pa.list_(pa.float64())),
-        ("sample_interval", pa.float64()),
-        ("source_method", pa.utf8()),
-        ("session_id", pa.utf8()),
+        pa.field("received_at", pa.timestamp("us", tz="UTC"), nullable=False),
+        pa.field("sampled_at", pa.timestamp("us", tz="UTC"), nullable=True),
+        pa.field("samples", pa.list_(pa.float64())),
+        pa.field("sample_interval", pa.float64()),
+        pa.field("source_method", pa.utf8()),
+        pa.field("session_id", pa.utf8()),
     ]
 )
 
@@ -238,12 +258,13 @@ def sample_schema() -> pa.Schema:
     """
     return pa.schema(
         [
-            ("channel_id", pa.utf8()),
-            ("timestamp", pa.timestamp("us", tz="UTC")),
-            ("value", pa.utf8()),  # JSON-encoded for flexibility
-            ("source_method", pa.utf8()),
-            ("units", pa.utf8()),
-            ("sample_interval", pa.float64()),
+            pa.field("channel_id", pa.utf8()),
+            pa.field("received_at", pa.timestamp("us", tz="UTC"), nullable=False),
+            pa.field("sampled_at", pa.timestamp("us", tz="UTC"), nullable=True),
+            pa.field("value", pa.utf8()),  # JSON-encoded for flexibility
+            pa.field("source_method", pa.utf8()),
+            pa.field("units", pa.utf8()),
+            pa.field("sample_interval", pa.float64()),
         ]
     )
 
@@ -254,7 +275,8 @@ def sample_to_batch(sample: ChannelSample) -> pa.RecordBatch:
     return pa.record_batch(
         {
             "channel_id": [sample.channel_id],
-            "timestamp": [sample.timestamp],
+            "received_at": [sample.received_at],
+            "sampled_at": [sample.sampled_at],
             "value": [value_str],
             "source_method": [sample.source_method],
             "units": [sample.units or ""],
@@ -272,8 +294,8 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
     the client (delivering subscription updates back to user
     callbacks). The ``value`` column is JSON-decoded; non-JSON
     strings pass through. Optional columns (``units``,
-    ``sample_interval``, ``source_method``) read defensively for
-    older or trimmed schemas.
+    ``sample_interval``, ``source_method``, ``sampled_at``) read
+    defensively for trimmed schemas.
     """
     columns = set(batch.schema.names)
     value_raw = batch.column("value")[i].as_py()
@@ -294,9 +316,14 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
     if "source_method" in columns:
         source_method = batch.column("source_method")[i].as_py() or ""
 
+    sampled_at: datetime | None = None
+    if "sampled_at" in columns:
+        sampled_at = batch.column("sampled_at")[i].as_py()
+
     return ChannelSample(
         channel_id=batch.column("channel_id")[i].as_py(),
-        timestamp=batch.column("timestamp")[i].as_py(),
+        received_at=batch.column("received_at")[i].as_py(),
+        sampled_at=sampled_at,
         value=value,
         units=units,
         sample_interval=sample_interval,

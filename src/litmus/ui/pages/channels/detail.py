@@ -148,7 +148,7 @@ def _build_session_options(rows: list[dict[str, Any]]) -> dict[str, str]:
         if sid is None:
             continue
         sid = str(sid)
-        ts = str(row.get("timestamp") or "")
+        ts = str(row.get("received_at") or "")
         if sid not in last_seen or ts > last_seen[sid]:
             last_seen[sid] = ts
 
@@ -205,7 +205,7 @@ def _render_chart(
                 ui.label("No samples for the current filters.").classes("text-slate-500 italic")
             return
 
-        x_values = [_axis_tick(r.get("timestamp")) for r in rows]
+        x_values = [_axis_tick(r.get("received_at")) for r in rows]
         units = descriptor.get("units") or ""
         y_label = f"value ({units})" if units else "value"
 
@@ -235,7 +235,7 @@ def _render_chart(
             y_axis_scale = True
         else:
             y_data = [_extract_scalar(r) for r in rows]
-            x_axis_label = "timestamp"
+            x_axis_label = "received"
 
         chart = ui.echart(
             {
@@ -300,7 +300,7 @@ def _render_chart(
 
 
 def _render_data_table(card: ui.card, rows: list[dict[str, Any]]) -> None:
-    """Raw rows table — timestamp / value / source / session."""
+    """Raw rows table — received / value / source / session."""
     card.clear()
     with card:
         with ui.card_section():
@@ -314,9 +314,9 @@ def _render_data_table(card: ui.card, rows: list[dict[str, Any]]) -> None:
 
         columns = [
             {
-                "name": "timestamp",
-                "label": "Timestamp",
-                "field": "timestamp",
+                "name": "received_at",
+                "label": "Received",
+                "field": "received_at",
                 "align": "left",
             },
             {
@@ -341,7 +341,7 @@ def _render_data_table(card: ui.card, rows: list[dict[str, Any]]) -> None:
         table_rows = [
             {
                 "id": str(idx),
-                "timestamp": format_datetime(r.get("timestamp")),
+                "received_at": format_datetime(r.get("received_at")),
                 "value": _value_summary(r),
                 "source": r.get("source_method") or "",
                 "session": (str(r.get("session_id"))[:8] if r.get("session_id") else ""),
@@ -352,7 +352,7 @@ def _render_data_table(card: ui.card, rows: list[dict[str, Any]]) -> None:
             columns=columns,
             rows=table_rows,
             row_key="id",
-            time_columns=["timestamp"],
+            time_columns=["received_at"],
         )
 
 
@@ -389,7 +389,7 @@ def _extract_scalar(row: dict[str, Any]) -> Any:
             return row[key]
     # Fallback: first non-metadata field
     for k, v in row.items():
-        if k not in ("timestamp", "source_method", "session_id") and v is not None:
+        if k not in ("received_at", "sampled_at", "source_method", "session_id") and v is not None:
             return v
     return None
 

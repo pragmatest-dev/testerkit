@@ -43,14 +43,21 @@ class ChannelClient:
         source: str = "remote",
         units: str | None = None,
         sample_interval: float | None = None,
+        sampled_at: datetime | None = None,
     ) -> None:
-        """Write a value to a remote channel via do_put."""
+        """Write a value to a remote channel via do_put.
+
+        ``sampled_at`` (build item 11) is the optional hardware-side
+        acquisition timestamp; ``None`` when the remote producer
+        doesn't know.
+        """
         value_str = encode_value(value)
         schema = sample_schema()
         batch = pa.record_batch(
             {
                 "channel_id": [channel_id],
-                "timestamp": [datetime.now(UTC)],
+                "received_at": [datetime.now(UTC)],
+                "sampled_at": [sampled_at],
                 "value": [value_str],
                 "source_method": [source],
                 "units": [units or ""],

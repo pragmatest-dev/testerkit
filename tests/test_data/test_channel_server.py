@@ -181,7 +181,7 @@ class TestInProcessServer:
         table = client.query("ts.ch", max_points=5)
         assert len(table) == 5
 
-        all_ts = store.query("ts.ch").column("timestamp").to_pylist()
+        all_ts = store.query("ts.ch").column("received_at").to_pylist()
         mid = all_ts[5]
         table_windowed = client.query("ts.ch", start=mid)
         assert len(table_windowed) == 5
