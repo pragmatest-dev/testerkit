@@ -60,7 +60,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from litmus.data.models import Waveform
+from litmus.data.models import Waveform, XYData
 
 try:
     HAS_NUMPY = _ilu.find_spec("numpy") is not None
@@ -107,6 +107,31 @@ def _write_waveform(value: Waveform, dest: Path) -> None:
         import numpy as np
 
         np.savez(dest, Y=value.Y, t0=value.t0, dt=value.dt, **value.attributes)
+    else:
+        dest.write_text(value.model_dump_json())
+
+
+def _write_xydata(value: XYData, dest: Path) -> None:
+    """Item 15: pack paired x/y arrays into a single ``.npz``.
+
+    Optional units / names land as scalar string entries in the same
+    archive so a reader (UI plot, materializer ref-deref) can
+    reconstruct axis labels without a sidecar lookup. Only set keys
+    are written — readers should treat absent keys as None.
+    """
+    if HAS_NUMPY:
+        import numpy as np
+
+        kwargs: dict[str, Any] = {"x": value.x, "y": value.y}
+        if value.x_units is not None:
+            kwargs["x_units"] = value.x_units
+        if value.y_units is not None:
+            kwargs["y_units"] = value.y_units
+        if value.x_name is not None:
+            kwargs["x_name"] = value.x_name
+        if value.y_name is not None:
+            kwargs["y_name"] = value.y_name
+        np.savez(dest, **kwargs)
     else:
         dest.write_text(value.model_dump_json())
 
@@ -188,12 +213,14 @@ def _register_builtins() -> None:
     1. ``Path``         — distinct from bytes; copy-with-suffix
     2. ``Waveform``     — distinct from BaseModel (also a BaseModel
        subclass; needs to land as .npz, not .json)
-    3. ``bytes``        — raw payload
-    4. Pydantic         — any model_dump_json-capable object
+    3. ``XYData``       — distinct from BaseModel (item 15; lands as
+       .npz paired arrays, not .json)
+    4. ``bytes``        — raw payload
     5. PIL ``Image``    — opportunistic, before ndarray
        (PIL.Image quacks like an array)
     6. pandas DataFrame — opportunistic
-    7. numpy ``ndarray``— covers any tolist + dtype object
+    7. Pydantic         — any model_dump_json-capable object
+    8. numpy ``ndarray``— covers any tolist + dtype object
     """
     # Type-specific dispatch lives at the bottom of each predicate.
     waveform_ext, waveform_mime = _waveform_ext_and_mime()
@@ -207,6 +234,12 @@ def _register_builtins() -> None:
         (
             lambda v: isinstance(v, Waveform),
             Serializer(extension=waveform_ext, mime=waveform_mime, write=_write_waveform),
+        ),
+        (
+            lambda v: isinstance(v, XYData),
+            # Item 15: paired x/y arrays + optional unit/name keys → .npz.
+            # MIME shares the numpy-npz convention (item 13).
+            Serializer(extension=waveform_ext, mime=waveform_mime, write=_write_xydata),
         ),
         (
             lambda v: isinstance(v, bytes),

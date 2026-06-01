@@ -516,3 +516,38 @@ class Waveform(BaseModel):
     def time_axis(self) -> list[float]:
         """Reconstruct time axis: t = t0 + i*dt."""
         return [self.t0 + i * self.dt for i in range(self.num_samples)]
+
+
+class XYData(BaseModel):
+    """Paired x/y arrays for related-but-non-time-series data (item 15).
+
+    For data the test author thinks of as one artifact rather than two
+    parallel channels: IV curves, eye diagrams, S-parameter sweeps,
+    optical spectra. Per the §4 manifestation rules, this is "Pattern
+    B" — one discrete artifact per vector that routes to FileStore.
+
+    ``observe(name, XYData(...))`` registers via the serializer
+    registry (build item 12) and lands on disk as a single ``.npz``
+    holding ``x``, ``y``, and any of the optional unit/name keys
+    that were set. The MIME convention (build item 13) is
+    ``application/x-numpy-npz``.
+
+    Use parallel channels (`stream`) instead when the data is
+    continuous over time and you want it live-subscribable — see §4
+    Pattern A.
+
+    Attributes:
+        x: Independent-axis values.
+        y: Dependent-axis values. Must have the same length as ``x``.
+        x_units: Optional units for the x axis ("V", "Hz", "dBm").
+        y_units: Optional units for the y axis.
+        x_name: Optional human label for the x axis ("Bias voltage").
+        y_name: Optional human label for the y axis.
+    """
+
+    x: list[float]
+    y: list[float]
+    x_units: str | None = None
+    y_units: str | None = None
+    x_name: str | None = None
+    y_name: str | None = None
