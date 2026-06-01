@@ -21,9 +21,20 @@ this factory rather than constructing per-call.
 
 from __future__ import annotations
 
+from litmus.data.files.serializers import (
+    Serializer,
+    find_serializer,
+    register_serializer,
+)
 from litmus.data.files.store import FileStore
 
-__all__ = ["FileStore", "get_filestore"]
+__all__ = [
+    "FileStore",
+    "Serializer",
+    "find_serializer",
+    "get_filestore",
+    "register_serializer",
+]
 
 
 _filestore: FileStore | None = None

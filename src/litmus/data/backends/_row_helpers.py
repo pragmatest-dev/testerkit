@@ -7,9 +7,6 @@ added in one place.
 
 from __future__ import annotations
 
-import json as _json
-import pickle
-import shutil
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from litmus.data.models import Measurement, TestRun, TestVector, Waveform
+from litmus.data.models import Measurement, TestRun, TestVector
 from litmus.data.ref import classify_value, is_ref
 from litmus.environment import EnvironmentSnapshot
 
@@ -551,66 +548,38 @@ def build_output_columns(
 
 
 def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
-    """Save large observation data to a _ref/ directory and return the reference path.
+    """Save observation data to a _ref/ directory and return the reference path.
 
-    This is the shared implementation used by both JournalWriter and
-    ParquetBackend — the only difference is which directory they target.
+    Both materialization paths use this helper to save out-of-row
+    artifacts alongside the parquet (the ``_ref/`` sibling directory
+    convention). The dispatch table itself lives in
+    :mod:`litmus.data.files.serializers` (build item 12); this
+    helper just owns the ``_ref/`` filename / URI shape.
 
     Args:
         ref_dir: Target directory for reference files.
-        vector_id: Vector ID prefix (first 8 chars).
+        vector_id: Vector ID prefix.
         key: Key name for the data.
-        value: Data to save (Path, Waveform, bytes, ndarray, Pydantic model).
+        value: Data to save. Routed through
+            :func:`~litmus.data.files.serializers.find_serializer`
+            — see that module for the convention table and the
+            ``litmus_serialize`` / :func:`register_serializer`
+            extension points.
 
     Returns:
-        Reference string like ``"_ref/abc123_waveform.npz"``.
+        Reference string like ``"file://_ref/abc123_waveform.npz"``.
     """
-    prefix = f"{vector_id}_{key}"
+    from litmus.data.files.serializers import find_serializer
 
+    serializer = find_serializer(value)
+    # Path values: source suffix wins over the serializer's default
+    # ``.bin`` so e.g. ``capture.tdms`` stays ``.tdms`` on disk.
     if isinstance(value, Path):
-        ext = value.suffix or ".bin"
-        filename = f"{prefix}{ext}"
-        shutil.copy(value, ref_dir / filename)
-
-    elif isinstance(value, Waveform):
-        if HAS_NUMPY:
-            import numpy as np  # noqa: PLC0415
-
-            filename = f"{prefix}.npz"
-            np.savez(
-                ref_dir / filename,
-                Y=value.Y,
-                t0=value.t0,
-                dt=value.dt,
-                **value.attributes,
-            )
-        else:
-            filename = f"{prefix}.json"
-            (ref_dir / filename).write_text(value.model_dump_json())
-
-    elif isinstance(value, bytes):
-        filename = f"{prefix}.bin"
-        (ref_dir / filename).write_bytes(value)
-
-    elif hasattr(value, "model_dump"):
-        filename = f"{prefix}.json"
-        (ref_dir / filename).write_text(value.model_dump_json())
-
-    elif hasattr(value, "tolist"):
-        if HAS_NUMPY:
-            import numpy as np  # noqa: PLC0415
-
-            filename = f"{prefix}.npy"
-            np.save(ref_dir / filename, value)
-        else:
-            filename = f"{prefix}.json"
-            (ref_dir / filename).write_text(_json.dumps(value.tolist()))
-
+        ext = value.suffix or serializer.extension
     else:
-        filename = f"{prefix}.pkl"
-        with open(ref_dir / filename, "wb") as f:
-            pickle.dump(value, f)
-
+        ext = serializer.extension
+    filename = f"{vector_id}_{key}{ext}"
+    serializer.write(value, ref_dir / filename)
     return f"file://{REF_PATH_PREFIX}{filename}"
 
 
