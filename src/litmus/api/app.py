@@ -267,8 +267,14 @@ def create_api_router() -> APIRouter:
     def get_ref(run_id: str, uri: str):
         """Materialize a measurement-output ref URI to its underlying data.
 
-        Clients pass the URI from any ``out_*`` column verbatim
-        (``file://_ref/abc.npz`` or ``channel://scope.ch1?session=...``).
+        Clients pass the URI from any ``out_*`` column verbatim. Three
+        URI shapes are recognized (item 1d dual-path):
+
+        * ``file://{session_id}/{filename}`` — FileStore canonical
+          (post-1d)
+        * ``file://_ref/{filename}`` — legacy per-parquet sidecar
+        * ``channel://scope.ch1?session=...`` — live channel reference
+
         The endpoint resolves the run's parquet path, calls
         :func:`litmus.data.backends.parquet.load_ref`, then dispatches
         on the materialized type:

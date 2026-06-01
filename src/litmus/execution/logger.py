@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import socket
+from collections.abc import Callable
 from contextvars import Token
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -548,6 +549,31 @@ class TestRunLogger:
             return self._event_log.path
         return None
 
+    def _make_ref_saver(self) -> Callable[[str, str, Any], str]:
+        """Return a ref-saver bound to this logger's session.
+
+        Item 1d: ``build_output_columns`` calls back into the ref
+        saver for blob outputs that haven't already been URI'd by
+        the verb layer. Pre-1d this routed to ``EventLog.save_ref``
+        (writing into ``events/{sid}_ref/``); post-1d every artifact
+        goes to FileStore so the run + its blobs share one
+        session-keyed dir under ``files/``.
+        """
+        from litmus.data.files import get_filestore  # noqa: PLC0415
+
+        filestore = get_filestore()
+        session_id_str = str(self._session_id)
+
+        def _save(vector_id: str, key: str, value: Any) -> str:
+            return filestore.put(
+                key,
+                value,
+                session_id=session_id_str,
+                vector_id=vector_id,
+            )
+
+        return _save
+
     def build_instrument_arrays(self, roles: list[str] | None = None) -> dict[str, list]:
         """Build parallel arrays for instrument identity and calibration.
 
@@ -931,7 +957,7 @@ class TestRunLogger:
                 inputs=inputs,
                 outputs=build_output_columns(
                     vector,
-                    ref_saver=self._event_log.save_ref,
+                    ref_saver=self._make_ref_saver(),
                 ),
                 custom=dict(self.test_run.custom_metadata),
             )

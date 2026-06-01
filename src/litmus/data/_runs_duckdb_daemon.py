@@ -227,8 +227,21 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             row_idx INTEGER NOT NULL,
             uri VARCHAR NOT NULL,
             channel_id VARCHAR NOT NULL,
-            session_short VARCHAR NOT NULL
+            session_short VARCHAR NOT NULL,
+            -- Item 1d: full session_id (UUID) is what FileStore.put
+            -- needs to scope materialized channel refs into the right
+            -- session dir. session_short stays for compatibility with
+            -- channel-store path naming (8-char prefix).
+            session_id VARCHAR
         )
+    """)
+    # Item 1d schema migration: pre-1d DuckDB files have a
+    # ``measurement_refs`` table without ``session_id``. CREATE TABLE
+    # IF NOT EXISTS won't add the column to an existing table — do it
+    # explicitly. ALTER TABLE … ADD COLUMN IF NOT EXISTS is a no-op
+    # when the column already exists, so this is safe across versions.
+    conn.execute("""
+        ALTER TABLE measurement_refs ADD COLUMN IF NOT EXISTS session_id VARCHAR
     """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS _ingested (
@@ -559,6 +572,8 @@ def _index_io_and_refs(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None
                         (row_number() OVER ()) - 1 AS row_idx,
                         "{escaped_col}" AS uri,
                         regexp_extract("{escaped_col}", 'channel://([^?]+)', 1) AS channel_id,
+                        regexp_extract("{escaped_col}", '[?&]session=([^&]+)', 1)
+                            AS session_id,
                         left(regexp_extract("{escaped_col}", '[?&]session=([^&]+)', 1), 8)
                             AS session_short
                     FROM read_parquet('{escaped}')
@@ -571,7 +586,7 @@ def _index_io_and_refs(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None
                     f"""
                     INSERT INTO measurement_refs
                     SELECT ? AS file_path, step_index, measurement_name,
-                           col_name, row_idx, uri, channel_id, session_short
+                           col_name, row_idx, uri, channel_id, session_short, session_id
                     FROM ({" UNION ALL ".join(ref_parts)})
                 """,
                     [fkey],

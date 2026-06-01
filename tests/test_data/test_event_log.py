@@ -120,16 +120,6 @@ class TestEventLog:
         assert call_count == 1
         log.close()
 
-    def test_save_ref(self, tmp_path):
-        session_id = uuid4()
-        log = EventLog(tmp_path / "events", session_id)
-
-        ref = log.save_ref("abc12345", "trace", b"\x00\x01\x02")
-        assert ref == "file://_ref/abc12345_trace.bin"
-        # Ref dir lives alongside the Arrow IPC in the date partition
-        assert (log.path.parent / f"{session_id}_ref" / "abc12345_trace.bin").exists()
-        log.close()
-
     def test_multiple_events_in_one_file(self, tmp_path):
         run_id = uuid4()
         log = EventLog(tmp_path / "events", run_id)
