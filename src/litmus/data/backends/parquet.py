@@ -54,6 +54,7 @@ from litmus.data.backends._row_helpers import (
     extract_prefixed_fields,
     run_context_from_run_started,
     save_ref_to_dir,
+    validate_observation_kinds,
 )
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import (
@@ -307,47 +308,93 @@ class ParquetBackend:
         parquet_path: Path,
         instrument_arrays: dict[str, list] | None = None,
     ) -> list[dict[str, Any]]:
-        """Build one row per measurement with all metadata denormalized."""
+        """Build one row per measurement with all metadata denormalized.
+
+        Item 9 (auto-promotion): a vector with 0 measurements + ≥1
+        observation produces one synthesized row per observation,
+        ``name=<obs>``, ``value=None``, ``outcome=DONE``. A vector
+        with ≥1 measurement produces verify rows only and the
+        observations ride along as ``out_*`` columns via
+        :func:`build_output_columns`.
+
+        Item 10 (kind-stable ``out_<name>``): the same name across
+        vectors must keep the same kind. A per-run registry catches
+        mixed-type violations at materialization with a clear
+        ``ValueError`` rather than letting parquet coerce / refuse.
+        """
 
         def ref_saver(vector_id: str, key: str, value: Any) -> str:
             return self._save_file(parquet_path, vector_id, key, value)
 
+        def _build(
+            measurement: Measurement,
+            step: TestStep,
+            step_idx: int,
+            vector: TestVector,
+            step_arrays: dict[str, list],
+        ) -> dict[str, Any]:
+            row_model = build_row(
+                test_run,
+                measurement,
+                step.name,
+                step_idx,
+                vector,
+                step_arrays,
+                ref_saver=ref_saver,
+                # Fall back step_path → step.name so the daemon's
+                # GROUP BY (step_path, vector_index) gives each
+                # logical step its own row. Same fallback for
+                # step_started_at / step_ended_at — the daemon
+                # filters on ``ended_at IS NOT NULL`` by default,
+                # and a step row with no timing information is
+                # invisible to operator queries.
+                step_path=step.step_path or step.name,
+                step_started_at=step.started_at or test_run.started_at,
+                step_ended_at=step.ended_at or test_run.ended_at or test_run.started_at,
+                step_node_id=step.node_id,
+                step_module=step.module,
+                step_file=step.file,
+                step_class=step.class_name,
+                step_function=step.function,
+                step_markers=step.markers,
+                step_outcome=step.outcome.value if step.outcome else None,
+                meta=meta,
+            )
+            return row_model.to_flat_dict()
+
         meta = build_run_metadata(test_run)
         rows: list[dict[str, Any]] = []
+        out_kind_registry: dict[str, str] = {}
         for step_idx, step in enumerate(test_run.steps):
             step_arrays = step.instrument_arrays or _ensure_instrument_arrays(
                 dict(instrument_arrays or {})
             )
             for vector in step.vectors:
+                # Item 10: validate observation kinds against the per-run
+                # registry. Raises ValueError on mismatch; caller surfaces.
+                validate_observation_kinds(
+                    out_kind_registry,
+                    vector.observations,
+                    where=f"vector {vector.index} of step {step.name!r}",
+                )
+
                 for measurement in vector.measurements:
-                    row_model = build_row(
-                        test_run,
-                        measurement,
-                        step.name,
-                        step_idx,
-                        vector,
-                        step_arrays,
-                        ref_saver=ref_saver,
-                        # Fall back step_path → step.name so the daemon's
-                        # GROUP BY (step_path, vector_index) gives each
-                        # logical step its own row. Same fallback for
-                        # step_started_at / step_ended_at — the daemon
-                        # filters on ``ended_at IS NOT NULL`` by default,
-                        # and a step row with no timing information is
-                        # invisible to operator queries.
-                        step_path=step.step_path or step.name,
-                        step_started_at=step.started_at or test_run.started_at,
-                        step_ended_at=step.ended_at or test_run.ended_at or test_run.started_at,
-                        step_node_id=step.node_id,
-                        step_module=step.module,
-                        step_file=step.file,
-                        step_class=step.class_name,
-                        step_function=step.function,
-                        step_markers=step.markers,
-                        step_outcome=step.outcome.value if step.outcome else None,
-                        meta=meta,
-                    )
-                    rows.append(row_model.to_flat_dict())
+                    rows.append(_build(measurement, step, step_idx, vector, step_arrays))
+
+                # Item 9: auto-promote observations in verify-less vectors
+                # to DONE rows. Each observation produces one row carrying
+                # value=None + outcome=DONE; the obs value itself rides
+                # along as out_<name> via the existing column projection.
+                if not vector.measurements and vector.observations:
+                    for obs_name in vector.observations:
+                        if obs_name.startswith("_"):
+                            continue
+                        promoted = Measurement(
+                            name=obs_name,
+                            value=None,
+                            outcome=Outcome.DONE,
+                        )
+                        rows.append(_build(promoted, step, step_idx, vector, step_arrays))
         return rows
 
     def _get_ref_dir(self, parquet_path: Path) -> Path:
@@ -570,16 +617,33 @@ def _build_unified_rows_from_acc(
     Free-standing because the daemon calls it with accumulator instances
     drawn from its pool; not method-on-class because EventAccumulator is
     the pure projection and shouldn't know about output formats.
+
+    Items 9 + 10 (live materialization path):
+
+    - Item 10: validate ``out_<name>`` kind stability across all
+      observation events. Mismatches raise ``ValueError`` here rather
+      than letting parquet silently coerce / refuse.
+    - Item 9: synthesize DONE rows for verify-less vectors. Each
+      observation in a vector with 0 measurements promotes to a row
+      with ``value=None``, ``outcome="done"``; the observation value
+      itself rides on ``out_<name>``.
     """
     rows: list[dict[str, Any]] = []
     run_row = _build_run_row_from_acc(acc, run_ended_at=run_ended_at, run_outcome=run_outcome)
     if run_row is not None:
         rows.append(run_row)
+    # Item 10 — fail loudly on a kind mismatch before we synthesize.
+    acc._validate_observation_kinds()
     for event in acc._measurement_events:
         row = acc._build_row(event)
         row["run_ended_at"] = run_ended_at
         row["run_outcome"] = run_outcome
         rows.append(row)
+    # Item 9 — promote observations in verify-less vectors.
+    for promoted_row in acc._build_promoted_rows():
+        promoted_row["run_ended_at"] = run_ended_at
+        promoted_row["run_outcome"] = run_outcome
+        rows.append(promoted_row)
     for entry in acc._build_step_results_from_events():
         step_row = _build_step_row_from_acc(
             acc, entry, run_ended_at=run_ended_at, run_outcome=run_outcome

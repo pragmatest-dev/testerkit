@@ -21,10 +21,12 @@ from litmus.data.backends._row_helpers import (
     _to_datetime,
     run_context_from_run_started,
     step_entry_dict,
+    validate_observation_kinds,
 )
 from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
+    Observation,
     RunEnded,
     RunStarted,
     StepEnded,
@@ -90,6 +92,10 @@ class EventAccumulator:
         self._run_started: Any = None  # RunStarted event (run context)
         self._instruments: list[Any] = []  # InstrumentConnected events
         self._measurement_events: list[Any] = []  # MeasurementRecorded events
+        # Item 4 + item 9: ``observe()`` events accumulate here so the
+        # auto-promotion rule can synthesize DONE rows for vectors with
+        # 0 measurements + ≥1 observations at materialization time.
+        self._observation_events: list[Any] = []
         # Step events keyed by (step_path, vector_index) so each sweep
         # variant — and each class-container iteration — gets its own
         # entry. ``step_index`` is unique per logical-step within its
@@ -135,6 +141,8 @@ class EventAccumulator:
             self._step_starts[_step_key(event)] = event
         elif isinstance(event, MeasurementRecorded):
             self._measurement_events.append(event)
+        elif isinstance(event, Observation):
+            self._observation_events.append(event)
         elif isinstance(event, StepEnded):
             self._step_ends[_step_key(event)] = event
         elif isinstance(event, RunEnded):
@@ -262,6 +270,136 @@ class EventAccumulator:
         """Get a field from the cached StepStarted event, or None."""
         start = self._step_starts.get((step_path, vector_index))
         return getattr(start, attr, None) if start else None
+
+    def _validate_observation_kinds(self) -> None:
+        """Item 10: walk every accumulated Observation and validate kinds.
+
+        Builds a per-run registry of ``name -> kind`` from the
+        accumulated observation events; raises ``ValueError`` if any
+        observation's kind disagrees with the registered kind for its
+        name. Called by :func:`_build_promoted_rows` before synthesis
+        so the materializer fails loudly rather than producing a
+        column with mixed types.
+
+        The same validation also lives in
+        :meth:`ParquetBackend._build_measurement_rows` for the
+        pre-built TestRun path. Two paths, one rule.
+        """
+        registry: dict[str, str] = {}
+        for ev in self._observation_events:
+            path = ev.step_path or ev.step_name or ""
+            validate_observation_kinds(
+                registry,
+                {ev.name: ev.value},
+                where=f"vector {ev.vector_index} of step path {path!r}",
+            )
+
+    def _build_promoted_rows(self) -> list[dict[str, Any]]:
+        """Item 9: synthesize DONE measurement rows for verify-less vectors.
+
+        Walks the per-(step_path, vector_index) tally of measurement
+        vs observation events. For each vector with 0 measurements
+        and ≥1 observations, emits one row per observation:
+        ``measurement_name = obs.name``, ``measurement_value =
+        None``, ``measurement_outcome = "done"``. The observation
+        value itself rides as ``out_<name>`` via the row's
+        ``outputs`` field — same projection as a verify row's
+        observations.
+
+        Counterpart of the offline-path promotion in
+        :meth:`ParquetBackend._build_measurement_rows`. The same
+        manifestation rule applies to both materialization paths.
+        """
+        # Tally measurements per vector key — verify-less vectors are
+        # the ones whose key isn't in this set.
+        measured_keys = {
+            (e.step_path or e.step_name or "", e.vector_index) for e in self._measurement_events
+        }
+
+        # Group observations by their vector key for synthesis.
+        by_key: dict[tuple[str, int], list[Any]] = {}
+        for ev in self._observation_events:
+            key = (ev.step_path or ev.step_name or "", ev.vector_index)
+            by_key.setdefault(key, []).append(ev)
+
+        rows: list[dict[str, Any]] = []
+        for key, obs_events in by_key.items():
+            if key in measured_keys:
+                # Vector had ≥1 verify — observations ride on those rows
+                # as out_*; no DONE promotion (matches the §7 rule).
+                continue
+            for obs in obs_events:
+                if obs.name.startswith("_"):
+                    continue
+                rows.append(self._build_promoted_row(obs))
+        return rows
+
+    def _build_promoted_row(self, obs: Any) -> dict[str, Any]:
+        """Synthesize one DONE row from a single Observation event.
+
+        Stamps the run/step context onto the row the same way
+        :meth:`_build_row` does for a verify row, but with
+        measurement-side fields filled in from observation defaults
+        (``value=None``, ``outcome="done"``) and the observation
+        value carried as ``out_<obs.name>`` in the row's ``outputs``.
+        """
+        path = obs.step_path or obs.step_name or ""
+        vec = obs.vector_index
+        start = self._step_starts.get((path, vec))
+        end = self._step_ends.get((path, vec))
+        node_id = start.node_id if start else None
+        parent_path = (start.parent_path if start else (end.parent_path if end else "")) or ""
+        # Inputs come from StepStarted (set at vector entry); outputs
+        # come from StepEnded (the post-execution vector snapshot).
+        # Fall back to the single observation event when neither has
+        # arrived yet (in-flight projection).
+        inputs = dict(start.inputs) if start and getattr(start, "inputs", None) else {}
+        outputs: dict[str, Any] = dict(end.outputs) if end and getattr(end, "outputs", None) else {}
+        # Always make sure this observation lands in outputs even if
+        # the StepEnded snapshot hasn't merged it yet.
+        outputs.setdefault(obs.name, obs.value)
+        row = MeasurementRow(
+            record_type="measurement",
+            **run_context_from_run_started(self._run_started, obs, include_env=True),
+            step_name=obs.step_name,
+            step_index=obs.step_index,
+            step_path=obs.step_path,
+            parent_path=parent_path,
+            step_started_at=start.occurred_at if start else None,
+            step_ended_at=end.occurred_at if end else None,
+            step_node_id=node_id,
+            step_module=self._step_start_field(path, vec, "module"),
+            step_file=self._step_start_field(path, vec, "file"),
+            step_class=self._step_start_field(path, vec, "class_name"),
+            step_function=self._step_start_field(path, vec, "function"),
+            step_markers=self._markers_by_node.get(node_id) if node_id else None,
+            step_outcome=end.outcome if end else None,
+            step_vector_count=(self._planned_vector_count.get(node_id or "", 1) if node_id else 1),
+            vector_index=vec,
+            vector_retry=obs.retry,
+            measurement_name=obs.name,
+            measurement_timestamp=None,
+            measurement_value=None,
+            measurement_units=None,
+            measurement_outcome="done",
+            limit_low=None,
+            limit_high=None,
+            limit_nominal=None,
+            limit_comparator=None,
+            characteristic_id=None,
+            spec_ref=None,
+            dut_pin=None,
+            fixture_connection=None,
+            instrument_name=None,
+            instrument_resource=None,
+            instrument_channel=None,
+            run_outcome=None,
+            inputs=inputs,
+            outputs=outputs,
+            instruments=self._build_instrument_arrays(),
+            custom={},
+        )
+        return row.to_flat_dict()
 
     def _build_row(self, event: Any) -> dict[str, Any]:
         """Denormalize a MeasurementRecorded event into a flat row dict."""
