@@ -146,96 +146,108 @@ class _LimitsMapping(Mapping[str, Limit]):
         return key in self._configs
 
 
+def _perform_verify(
+    name: str,
+    value: float | int | None,
+    limit: Limit | dict[str, Any] | None = None,
+    characteristic: str | None = None,
+    namespace: str | None = None,
+) -> Measurement:
+    """The actual verify implementation. Called by both
+    :meth:`Context.verify` (the method form) and the bare ``verify``
+    pytest fixture (the callable form). Resolves the active logger
+    via the usual ContextVar chain — no runner-specific arguments
+    needed.
+
+    The two shapes — method on Context and bare callable — share
+    this one body so the verb behaves identically regardless of which
+    surface the test author reaches for. Symmetric with
+    :meth:`Context.observe` / the future bare ``observe`` fixture.
+    """
+    # Item 16: namespace= prefix sugar. The effective name (used for
+    # limit lookup, measurement_name on the row, and any downstream
+    # out_<name> projection) is "{namespace}.{name}". Pure opt-in.
+    if namespace:
+        name = f"{namespace}.{name}"
+    from contextlib import nullcontext
+
+    from litmus.execution._state import (
+        get_current_logger,
+        pushed_active_characteristic,
+    )
+    from litmus.execution.logger import _resolve_measurement_limit
+
+    logger = get_current_logger()
+    if logger is None:
+        raise RuntimeError(
+            "verify() called without an active Litmus logger — is a Litmus runner plugin installed?"
+        )
+
+    # Accept dict literals at the call site (shared with ``logger.measure``).
+    limit_obj = coerce_limit(limit)
+
+    # Resolve limit + record under the same ``characteristic`` context
+    # so the limit chain and auto-traceability both see the override.
+    char_ctx = (
+        pushed_active_characteristic(characteristic)
+        if characteristic is not None
+        else nullcontext()
+    )
+
+    with char_ctx:
+        effective_limit = _resolve_measurement_limit(
+            name,
+            inline_any=False,
+            low=None,
+            high=None,
+            nominal=None,
+            comparator=None,
+            limit=limit_obj,
+            units=None,
+        )
+        if effective_limit is None:
+            # Characterization / record-only profile opt-in:
+            # when the active profile sets ``verify_requires_limit: false``,
+            # fall through to ``logger.measure`` semantics — record the
+            # value with Outcome.DONE, no judgment. Default behavior
+            # (no profile, or profile leaves verify_requires_limit unset,
+            # or sets it to True) raises.
+            from litmus.execution._state import get_active_profile
+
+            profile = get_active_profile()
+            if profile is not None and profile.verify_requires_limit is False:
+                return logger.measure(name, value, limit=None)
+            raise MissingLimitError(
+                f"verify({name!r}, ...) has no limit to judge against. "
+                "Pass limit=Limit(...), configure a limit via "
+                "@pytest.mark.litmus_limits / sidecar / profile / product spec, "
+                "use logger.measure() to record without judging, or "
+                "set ``verify_requires_limit: false`` on the active profile."
+            )
+        outcome = _compute_outcome(
+            float(value) if value is not None else None,
+            effective_limit,
+        )
+        measurement = logger.measure(name, value, limit=limit_obj, outcome=outcome)
+
+    if outcome == Outcome.FAILED:
+        raise LimitFailure(
+            name=name,
+            value=measurement.value,
+            limit=effective_limit,
+            dut_pin=measurement.dut_pin,
+            spec_ref=measurement.spec_ref,
+        )
+    return measurement
+
+
 def build_verify_callable() -> VerifyFn:
     """Construct the runner-neutral ``verify`` callable.
 
     Each runner adapter wraps this with its native fixture/decorator
     primitive (e.g. ``@pytest.fixture`` in :mod:`litmus.pytest_plugin`).
-    The callable resolves the active logger via the usual ContextVar
-    chain — no runner-specific arguments needed.
+    The callable delegates to :func:`_perform_verify` so the method
+    form (``Context.verify``) and the bare-callable form share one
+    implementation.
     """
-    from litmus.execution._state import get_current_logger
-    from litmus.execution.logger import _resolve_measurement_limit
-
-    def _verify(
-        name: str,
-        value: float | int | None,
-        limit: Limit | dict[str, Any] | None = None,
-        characteristic: str | None = None,
-        namespace: str | None = None,
-    ) -> Measurement:
-        # Item 16: namespace= prefix sugar. The effective name (used
-        # for limit lookup, measurement_name on the row, and any
-        # downstream out_<name> projection) is "{namespace}.{name}".
-        # Pure opt-in convenience — nothing automatic.
-        if namespace:
-            name = f"{namespace}.{name}"
-        from contextlib import nullcontext
-
-        from litmus.execution._state import pushed_active_characteristic
-
-        logger = get_current_logger()
-        if logger is None:
-            raise RuntimeError(
-                "verify() called without an active Litmus logger — "
-                "is a Litmus runner plugin installed?"
-            )
-
-        # Accept dict literals at the call site (shared with ``logger.measure``).
-        limit_obj = coerce_limit(limit)
-
-        # Resolve limit + record under the same ``characteristic`` context
-        # so the limit chain and auto-traceability both see the override.
-        char_ctx = (
-            pushed_active_characteristic(characteristic)
-            if characteristic is not None
-            else nullcontext()
-        )
-
-        with char_ctx:
-            effective_limit = _resolve_measurement_limit(
-                name,
-                inline_any=False,
-                low=None,
-                high=None,
-                nominal=None,
-                comparator=None,
-                limit=limit_obj,
-                units=None,
-            )
-            if effective_limit is None:
-                # Characterization / record-only profile opt-in:
-                # when the active profile sets ``verify_requires_limit: false``,
-                # fall through to ``logger.measure`` semantics — record the
-                # value with Outcome.DONE, no judgment. Default behavior
-                # (no profile, or profile leaves verify_requires_limit unset,
-                # or sets it to True) raises.
-                from litmus.execution._state import get_active_profile
-
-                profile = get_active_profile()
-                if profile is not None and profile.verify_requires_limit is False:
-                    return logger.measure(name, value, limit=None)
-                raise MissingLimitError(
-                    f"verify({name!r}, ...) has no limit to judge against. "
-                    "Pass limit=Limit(...), configure a limit via "
-                    "@pytest.mark.litmus_limits / sidecar / profile / product spec, "
-                    "use logger.measure() to record without judging, or "
-                    "set ``verify_requires_limit: false`` on the active profile."
-                )
-            outcome = _compute_outcome(
-                float(value) if value is not None else None,
-                effective_limit,
-            )
-            measurement = logger.measure(name, value, limit=limit_obj, outcome=outcome)
-
-        if outcome == Outcome.FAILED:
-            raise LimitFailure(
-                name=name,
-                value=measurement.value,
-                limit=effective_limit,
-                dut_pin=measurement.dut_pin,
-                spec_ref=measurement.spec_ref,
-            )
-        return measurement
-
-    return _verify
+    return _perform_verify
