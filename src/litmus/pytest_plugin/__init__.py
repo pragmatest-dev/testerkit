@@ -249,7 +249,7 @@ def _setup_event_log_and_subscribers(
     event_log = event_store.get_event_log(session_id)
     logger.event_log = event_log
 
-    channel_store = ChannelStore(results_path, session_id, serve=True)
+    channel_store = ChannelStore(results_path, session_id, serve=True, event_log=event_log)
     channel_store.open()
     set_channel_store(channel_store)
 

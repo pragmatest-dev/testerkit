@@ -25,7 +25,24 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+
+def _resolve_run_id() -> UUID | None:
+    """Active run_id for stamping on ``ChannelStarted`` / ``ChannelClosed``.
+
+    Pulled from the active :class:`TestRunLogger` ContextVar at write
+    time. ``None`` outside a run (interactive bringup, daemon-driven
+    channel writes). ChannelStore tolerates ``None`` — channel-lifecycle
+    events stay valid without run context.
+    """
+    from litmus.execution._state import get_current_logger  # noqa: PLC0415
+
+    logger = get_current_logger()
+    return getattr(getattr(logger, "test_run", None), "id", None)
 
 
 def _resolve_store() -> Any:
@@ -71,7 +88,7 @@ def write(name: str, sample: Any, *, namespace: str | None = None) -> str:
         The ``channel://`` URI for this write's channel.
     """
     full_name = f"{namespace}.{name}" if namespace else name
-    return _resolve_store().write(full_name, sample, source="stream")
+    return _resolve_store().write(full_name, sample, source="stream", run_id=_resolve_run_id())
 
 
 class _ChannelSink:
@@ -100,7 +117,9 @@ class _ChannelSink:
                 f"channel sink for {self._channel_id!r} is closed; opening a new "
                 "sink (or call channels.write) is required."
             )
-        return self._store.write(self._channel_id, sample, source="stream")
+        return self._store.write(
+            self._channel_id, sample, source="stream", run_id=_resolve_run_id()
+        )
 
     def close(self) -> None:
         """Mark the sink closed. Idempotent."""

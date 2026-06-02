@@ -76,11 +76,14 @@ class StationConnection:
         self._event_store = EventStore(_data_dir=self._data_dir)
         self._event_log = self._event_store.get_event_log(self._session_id)
 
-        # Create ChannelStore directly (not as EventLog subscriber)
+        # Create ChannelStore directly (not as EventLog subscriber).
+        # Pass event_log so ChannelStore can emit ChannelStarted /
+        # ChannelClosed lifecycle events (item 4b consolidation).
         self._channel_store = ChannelStore(
             self._event_store._data_dir,
             self._session_id,
             serve=True,
+            event_log=self._event_log,
         )
         self._channel_store.open()
 

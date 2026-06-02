@@ -109,8 +109,11 @@ def session(tmp_path: Path):
         on_emit=captured.append,
     )
 
-    # 2) ChannelStore with in-process Flight server (no daemon spawn)
-    cstore = ChannelStore(tmp_path, session_id, flush_threshold=100)
+    # 2) ChannelStore with in-process Flight server (no daemon spawn).
+    #    Wire event_log so ChannelStarted/Closed lifecycle events flow
+    #    into the captured stream (item 4b consolidation — store owns
+    #    the per-(channel, session) tracker now).
+    cstore = ChannelStore(tmp_path, session_id, flush_threshold=100, event_log=log)
     cstore.open()
     server, location = start_server_background(cstore)
 

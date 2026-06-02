@@ -60,11 +60,14 @@ class EventEmitter:
         self._run_id = run_id
         self._resource = resource
         self._channel_store = channel_store
-        # Position 2: per-(observer-instance, channel) "started" tracker.
-        # First write per channel emits ``ChannelStarted``; subsequent
-        # writes don't re-emit. Observer instance is per-session, so this
-        # is effectively per (channel_id, session_id).
-        self._started_channels: set[str] = set()
+        # Per-(channel, session) "started" tracking lives on
+        # :class:`ChannelStore` when one is wired (item 4b
+        # consolidation) — the store emits ``ChannelStarted`` exactly
+        # once per (channel, session) regardless of writer path.
+        # When no store is wired (bringup tier: driver used outside a
+        # station / session), this set is the fallback tracker so the
+        # event still fires for observability of the bare interaction.
+        self._fallback_started_channels: set[str] = set()
 
     def _store_value(self, channel_id: str, value: Any, source: str) -> Any:
         """Route a value to the right store; return URI or the raw value.
@@ -84,6 +87,11 @@ class EventEmitter:
           raw value is returned unchanged — blobs are still dropped in
           that path because there's no session to scope a FileStore put
           to. This matches pre-3b behavior for the no-session case.
+
+        ``ChannelStarted`` lifecycle event (Position 2) is emitted by
+        :class:`ChannelStore.write` on its first per-(channel, session)
+        write — not here. ``instrument_role`` / ``resource`` / ``run_id``
+        are passed through so ChannelStore can populate the event.
         """
         if self._channel_store is None or value is None:
             return value
@@ -92,13 +100,27 @@ class EventEmitter:
         if vtype == "blob":
             uri = get_filestore().write(channel_id, value, session_id=str(self._session_id))
             try:
-                self._channel_store.write(channel_id, uri, source=source)
+                self._channel_store.write(
+                    channel_id,
+                    uri,
+                    source=source,
+                    instrument_role=self._role,
+                    resource=self._resource,
+                    run_id=self._run_id,
+                )
             except (OSError, ValueError, TypeError) as exc:
                 logger.debug("Channel store URI write failed for %s: %s", channel_id, exc)
             return uri
 
         try:
-            return self._channel_store.write(channel_id, value, source=source)
+            return self._channel_store.write(
+                channel_id,
+                value,
+                source=source,
+                instrument_role=self._role,
+                resource=self._resource,
+                run_id=self._run_id,
+            )
         except (OSError, ValueError, TypeError) as exc:
             logger.debug("Channel store write failed for %s: %s", channel_id, exc)
         return value
@@ -110,20 +132,25 @@ class EventEmitter:
         ``InstrumentRead`` event is retired. This method:
 
         1. Writes the value to ChannelStore (sample data lives there).
-        2. Emits ``ChannelStarted`` on the first write per (channel,
-           session). Subsequent writes do not emit per-sample events;
-           subscribers wanting per-sample access subscribe to
-           ChannelStore via Flight ``do_get``.
-        3. Stamps the active harness Context's ``out_<channel>`` with
+           ``ChannelStore.write`` emits ``ChannelStarted`` on the first
+           per-(channel, session) write; subsequent writes are silent
+           on the event timeline. Subscribers wanting per-sample access
+           subscribe to ChannelStore via Flight ``do_get``.
+        2. Stamps the active harness Context's ``out_<channel>`` with
            the channel URI on first write per (vector, channel). This
            lets ``verify`` measurement rows reference the channel via
            a denormalized column. ``setdefault`` makes it idempotent.
+
+        Bringup-tier fallback: when no ChannelStore is wired (driver
+        used outside a station / session), this method emits
+        ``ChannelStarted`` directly so the observability surface stays
+        coherent for ad-hoc / interactive driver use.
         """
         stored_value = self._store_value(channel, value, method)
 
-        # 1. ChannelStarted on first write per (channel, session)
-        if channel not in self._started_channels:
-            self._started_channels.add(channel)
+        # Bringup-tier fallback: no ChannelStore to own emission.
+        if self._channel_store is None and channel not in self._fallback_started_channels:
+            self._fallback_started_channels.add(channel)
             self._event_log.emit(
                 ChannelStarted(
                     session_id=self._session_id,
@@ -135,8 +162,8 @@ class EventEmitter:
                 )
             )
 
-        # 2. Stamp active vector's out_<channel> on first write per
-        #    (vector, channel). Idempotent via setdefault.
+        # Stamp active vector's out_<channel> on first write per
+        # (vector, channel). Idempotent via setdefault.
         from litmus.execution._state import get_current_context  # noqa: PLC0415
 
         ctx = get_current_context()
