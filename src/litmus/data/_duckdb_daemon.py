@@ -29,18 +29,36 @@ from litmus.data._duckdb_flight_server import (
 from litmus.data._ipc_writer import read_ipc_batches
 from litmus.data.duckdb_manager import DuckDBDaemonManager
 
+
 # Columns the daemon binds from each row when inserting into ``events``.
 # ``received_at`` is deliberately EXCLUDED — server-stamped via ``now()``
 # in ``_INSERT_SQL`` (see comment there).
-_PUT_HOOK_COLUMNS = ["id", "event_type", "occurred_at", "session_id", "run_id", "json"]
+def _put_hook_columns() -> list[str]:
+    """Columns we bind on INSERT — envelope + JSON fallback + promoted payload.
 
-# Columns to narrow an IPC-loaded Arrow table to before binding. The IPC
-# file's schema may be wider than what we INSERT — this narrows it to
-# only the columns the daemon's events table cares about, then
-# ``_table_to_rows`` extracts ``_PUT_HOOK_COLUMNS`` for the bind. The
-# extra ``received_at`` column in the loaded table is read but
-# discarded (the daemon's ``now()`` overrides on insert).
-_EVENT_COLUMNS_FROM_IPC = [
+    Order matters: the SQL in ``_insert_sql()`` lists placeholders in this
+    order. Item 21 extends the bind list with payload columns so DuckDB
+    can SQL-pushdown filter on them.
+    """
+    from litmus.data.event_log import _PAYLOAD_COLUMNS  # noqa: PLC0415
+
+    return [
+        "id",
+        "event_type",
+        "occurred_at",
+        "session_id",
+        "run_id",
+        "json",
+        *_PAYLOAD_COLUMNS.keys(),
+    ]
+
+
+_PUT_HOOK_COLUMNS: list[str] = _put_hook_columns()
+
+# Columns to narrow an IPC-loaded Arrow table to before binding. Mirrors
+# ``_PUT_HOOK_COLUMNS`` plus ``received_at`` (read for ordering but
+# discarded at INSERT — the daemon's ``now()`` overrides).
+_EVENT_COLUMNS_FROM_IPC: list[str] = [
     "id",
     "event_type",
     "occurred_at",
@@ -48,35 +66,49 @@ _EVENT_COLUMNS_FROM_IPC = [
     "session_id",
     "run_id",
     "json",
+    *_PUT_HOOK_COLUMNS[6:],  # everything past the envelope+json
 ]
 
-# ON CONFLICT DO NOTHING deduplicates events that arrived via do_put during
-# the previous session and are now also present in the IPC files.
-#
-# Three columns answer three different questions:
-#
-# * ``occurred_at`` (in the JSON payload + top-level column) — client
-#   wall-clock at event construction. The "when did this happen in the
-#   source" answer for displays, analytics, time-bucket queries.
-# * ``received_at`` — server-stamped via ``now()`` here. The trustworthy
-#   "when did the daemon see it" answer for retention, staleness
-#   detection, and any time-window operator query that can't trust
-#   client clocks.
-# * ``event_number`` — server-stamped via ``nextval('event_seq')`` here.
-#   The "what commit-order did this land in" answer for the watcher's
-#   cursor and replay ordering. Strictly monotonic with INSERT order
-#   under the put-hook lock, so ``event_number > last`` poll never
-#   advances past a row that hasn't yet been inserted. ``received_at``
-#   was previously the cursor too, but ``now()`` (transaction-start
-#   timestamp) has subtle wall-clock ordering issues across concurrent
-#   put-hook batches even with the server lock, while ``nextval``
-#   advances under the same lock as the INSERT and is bulletproof.
-_INSERT_SQL = (
-    "INSERT INTO events "
-    "(id, event_type, occurred_at, received_at, event_number, session_id, run_id, json) "
-    "VALUES (?, ?, ?, now(), nextval('event_seq'), ?, ?, ?) "
-    "ON CONFLICT (id) DO NOTHING"
-)
+
+def _insert_sql() -> str:
+    """Build the ``INSERT INTO events ...`` SQL with one ``?`` per bound column.
+
+    Three columns answer three different questions:
+
+    * ``occurred_at`` — client wall-clock at event construction (in the
+      bind list).
+    * ``received_at`` — server-stamped via ``now()``.
+    * ``event_number`` — server-stamped via ``nextval('event_seq')``.
+
+    Item 21 extends with one ``?`` per promoted payload column at the
+    end. ON CONFLICT DO NOTHING deduplicates events that arrived via
+    do_put during the previous session and are also present in the
+    IPC files.
+    """
+    cols = [
+        "id",
+        "event_type",
+        "occurred_at",
+        "received_at",
+        "event_number",
+        "session_id",
+        "run_id",
+        "json",
+        *_PUT_HOOK_COLUMNS[6:],  # promoted payload columns
+    ]
+    # Placeholders: ? for envelope-id/event_type/occurred_at, then
+    # now() for received_at, nextval for event_number, then ? for
+    # session_id/run_id/json/each payload col.
+    placeholders = ["?", "?", "?", "now()", "nextval('event_seq')", "?", "?", "?"]
+    placeholders.extend("?" for _ in _PUT_HOOK_COLUMNS[6:])
+    return (
+        f"INSERT INTO events ({', '.join(cols)}) "
+        f"VALUES ({', '.join(placeholders)}) "
+        "ON CONFLICT (id) DO NOTHING"
+    )
+
+
+_INSERT_SQL: str = _insert_sql()
 
 
 def _table_to_rows(table: pa.Table) -> list[tuple]:
@@ -86,9 +118,19 @@ def _table_to_rows(table: pa.Table) -> list[tuple]:
     the register/INSERT path. SQL parameter binding works fine.
 
     Skips ``received_at`` — server-stamped via ``now()`` in
-    ``_INSERT_SQL``. The 6 columns bind to the 6 ``?`` placeholders.
+    ``_INSERT_SQL``. Columns bind to ``?`` placeholders in
+    ``_PUT_HOOK_COLUMNS`` order.
+
+    Tolerates IPC tables missing the newer payload columns (data
+    written before item 21) — fills with None for absent columns.
     """
-    cols = [table.column(c).to_pylist() for c in _PUT_HOOK_COLUMNS]
+    cols = []
+    n_rows = table.num_rows
+    for c in _PUT_HOOK_COLUMNS:
+        if c in table.schema.names:
+            cols.append(table.column(c).to_pylist())
+        else:
+            cols.append([None] * n_rows)
     return list(zip(*cols))
 
 
@@ -161,20 +203,59 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         conn.execute(index_sql)
 
 
+def _duckdb_type_for_arrow(arrow_type: pa.DataType) -> str:
+    """Map an Arrow type to its DuckDB column-type SQL.
+
+    Used by item 21's typed payload promotion: the IPC schema
+    declares the column types via Arrow; this helper translates
+    them into the ``ALTER TABLE ADD COLUMN IF NOT EXISTS``
+    statements the daemon runs on schema upgrade.
+    """
+    if pa.types.is_boolean(arrow_type):
+        return "BOOLEAN"
+    if pa.types.is_integer(arrow_type):
+        return "BIGINT"
+    if pa.types.is_floating(arrow_type):
+        return "DOUBLE"
+    if pa.types.is_string(arrow_type):
+        return "VARCHAR"
+    if pa.types.is_timestamp(arrow_type):
+        return "TIMESTAMPTZ"
+    raise ValueError(f"Unsupported Arrow type for events column: {arrow_type!r}")
+
+
+def _events_columns() -> tuple[tuple[str, str], ...]:
+    """Authoritative events-table column list.
+
+    Envelope columns are static. Payload columns are derived from
+    ``litmus.data.event_log._PAYLOAD_COLUMNS`` (item 21) so adding a
+    new event class with a new primitive field auto-migrates the
+    on-disk DB on next spawn — no manual sync between the IPC
+    schema and the DuckDB schema.
+    """
+    from litmus.data.event_log import _PAYLOAD_COLUMNS  # noqa: PLC0415
+
+    envelope = (
+        ("id", "VARCHAR"),
+        ("event_type", "VARCHAR"),
+        ("occurred_at", "TIMESTAMPTZ"),
+        ("received_at", "TIMESTAMPTZ"),
+        ("event_number", "BIGINT"),
+        ("session_id", "VARCHAR"),
+        ("run_id", "VARCHAR"),
+        ("json", "VARCHAR"),
+    )
+    payload = tuple(
+        (name, _duckdb_type_for_arrow(arrow_type)) for name, arrow_type in _PAYLOAD_COLUMNS.items()
+    )
+    return envelope + payload
+
+
 # Columns that should exist on ``events`` regardless of when the
 # on-disk DB was created. Drives ``ALTER TABLE ADD COLUMN IF NOT
 # EXISTS`` for upgrade migration; ``CREATE TABLE IF NOT EXISTS``
 # above covers the fresh case.
-_EVENTS_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("id", "VARCHAR"),
-    ("event_type", "VARCHAR"),
-    ("occurred_at", "TIMESTAMPTZ"),
-    ("received_at", "TIMESTAMPTZ"),
-    ("event_number", "BIGINT"),
-    ("session_id", "VARCHAR"),
-    ("run_id", "VARCHAR"),
-    ("json", "VARCHAR"),
-)
+_EVENTS_COLUMNS: tuple[tuple[str, str], ...] = _events_columns()
 
 
 # ── Background ingest ────────────────────────────────────────────────
@@ -247,7 +328,11 @@ def _ingest_one_file(
         return
 
     try:
-        table = table.select(_EVENT_COLUMNS_FROM_IPC)
+        # Old IPC files (pre-item-21) won't have the promoted payload
+        # columns. Intersect the projection with what the file actually
+        # has — _table_to_rows fills missing columns with None.
+        available = [c for c in _EVENT_COLUMNS_FROM_IPC if c in table.schema.names]
+        table = table.select(available)
     except (KeyError, pa.ArrowInvalid) as exc:
         warnings.warn(f"Skipping bad schema in {fpath.name}: {exc}", stacklevel=2)
         _mark("quarantined", str(exc))

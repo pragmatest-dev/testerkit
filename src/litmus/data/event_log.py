@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import json
 import os
+import types
 import warnings
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Union, get_args, get_origin
 from uuid import UUID
 
 import pyarrow as pa
@@ -26,8 +27,115 @@ from litmus.data._event_filters import event_matches_role
 from litmus.data._ipc_writer import BufferedIPCWriter, read_ipc_batches
 from litmus.data.events import EventBase
 
+# Envelope columns are addressed top-level on every event and are
+# NOT eligible for payload-column promotion (they're already typed).
+_ENVELOPE_FIELDS: frozenset[str] = frozenset(
+    {"id", "occurred_at", "received_at", "session_id", "run_id", "event_type"}
+)
+
+
+def _arrow_type_for_annotation(annotation: Any) -> pa.DataType | None:
+    """Pick an Arrow type for a primitive Pydantic field annotation.
+
+    Returns ``None`` for non-primitive / unsupported annotations
+    (``dict[str, Any]``, ``Any``, ``list[X]``, custom Pydantic models,
+    UUIDs that aren't already string-shaped) — those stay in the
+    JSON fallback column rather than getting typed pushdown.
+
+    Item 21: primitive-typed payload fields become Arrow-native
+    columns. Subscribers / queries that touch these fields skip the
+    JSON parse and get DuckDB columnar pushdown.
+    """
+    # Unwrap ``X | None`` / ``Optional[X]`` — nullability is handled
+    # at the schema level (every payload column is nullable).
+    origin = get_origin(annotation)
+    if origin is Union or origin is types.UnionType:
+        non_none = [a for a in get_args(annotation) if a is not type(None)]
+        if len(non_none) == 1:
+            return _arrow_type_for_annotation(non_none[0])
+        # Multi-variant union (other than X | None) — too complex to
+        # type column-wise; keep in JSON fallback.
+        return None
+
+    # Bare primitives only. ``bool`` BEFORE ``int`` because ``True``
+    # is also an ``int`` in Python's type hierarchy.
+    if annotation is bool:
+        return pa.bool_()
+    if annotation is int:
+        return pa.int64()
+    if annotation is float:
+        return pa.float64()
+    if annotation is str:
+        return pa.string()
+    if annotation is datetime:
+        return pa.timestamp("us", tz="UTC")
+    if annotation is UUID:
+        # UUIDs are written as strings everywhere else; consistent.
+        return pa.string()
+    return None
+
+
+def _build_payload_columns() -> dict[str, pa.DataType]:
+    """Walk ``EventBase`` subclasses, return union of primitive payload fields.
+
+    A field is promoted only if EVERY event class that declares it
+    resolves to the same primitive Arrow type. If any class declares
+    it with a non-primitive annotation (``Any``, ``dict``, custom
+    submodel) OR with a conflicting primitive (one class says ``int``,
+    another says ``str``), the field is excluded — it stays in the
+    JSON fallback for lossless round-trip.
+
+    This is strict on purpose: a polymorphic field promoted as
+    ``float`` would break writes when an ``Any``-typed instance hands
+    us a string. Better to keep ``value`` (used by both
+    ``MeasurementRecorded.value: float`` and ``Observation.value: Any``)
+    in JSON than to promote it and crash on the wrong shape.
+
+    Called once at import time; result is the source of truth for
+    the IPC schema's payload columns.
+    """
+    candidates: dict[str, pa.DataType] = {}
+    conflicts: set[str] = set()
+
+    for cls in EventBase.__subclasses__():
+        for name, field_info in cls.model_fields.items():
+            if name in _ENVELOPE_FIELDS or name in conflicts:
+                continue
+            pa_type = _arrow_type_for_annotation(field_info.annotation)
+            if pa_type is None:
+                # This class declares the field as non-primitive — even
+                # if other classes declared it as a primitive, we can't
+                # safely promote because one class will hand us a value
+                # the typed column can't hold.
+                conflicts.add(name)
+                candidates.pop(name, None)
+                continue
+            existing = candidates.get(name)
+            if existing is not None and existing != pa_type:
+                conflicts.add(name)
+                candidates.pop(name, None)
+                continue
+            candidates[name] = pa_type
+
+    return candidates
+
+
+_PAYLOAD_COLUMNS: dict[str, pa.DataType] = _build_payload_columns()
+"""Source of truth for typed payload columns in ``_IPC_SCHEMA``.
+
+Generated at import time by walking :class:`EventBase` subclasses.
+Each primitive-typed payload field becomes a nullable column. Fields
+not in this map (``dict[str, Any]``, ``Any``, list/struct types,
+multi-variant unions) stay in the ``json`` fallback column for
+lossless replay.
+"""
+
+
 # Schema for the index columns stored in IPC files.
-# Full event JSON is kept in the ``json`` column for lossless replay.
+# Item 21: primitive-typed payload fields are promoted to top-level
+# columns for SQL pushdown + JSON-parse elimination. The ``json``
+# column stays as the lossless-replay fallback for fields that
+# weren't promoted (dict[str, Any], Any, list/struct types).
 _IPC_SCHEMA = pa.schema(
     [
         ("id", pa.string()),
@@ -37,6 +145,7 @@ _IPC_SCHEMA = pa.schema(
         ("session_id", pa.string()),
         ("run_id", pa.string()),
         ("json", pa.string()),
+        *((name, dtype) for name, dtype in _PAYLOAD_COLUMNS.items()),
     ]
 )
 
@@ -198,20 +307,37 @@ class EventLog:
 
         Returns the flushed batch if the buffer hit the threshold, or
         None if the event was just buffered.
+
+        Item 21: in addition to writing the lossless ``json`` payload,
+        primitive payload fields declared by this event's class land
+        in dedicated typed columns (see :data:`_PAYLOAD_COLUMNS`).
+        Subscribers / queries that touch those fields get columnar
+        access without parsing JSON.
         """
         event.received_at = datetime.now(UTC)
+        dumped = event.model_dump(mode="python")
 
-        batch = self._ipc.append(
-            {
-                "id": str(event.id),
-                "event_type": event.event_type,  # type: ignore[attr-defined]
-                "occurred_at": event.occurred_at,
-                "received_at": event.received_at,
-                "session_id": str(event.session_id),
-                "run_id": str(event.run_id) if event.run_id else None,
-                "json": event.model_dump_json(),
-            }
-        )
+        row: dict[str, Any] = {
+            "id": str(event.id),
+            "event_type": event.event_type,  # type: ignore[attr-defined]
+            "occurred_at": event.occurred_at,
+            "received_at": event.received_at,
+            "session_id": str(event.session_id),
+            "run_id": str(event.run_id) if event.run_id else None,
+            "json": event.model_dump_json(),
+        }
+        for col_name in _PAYLOAD_COLUMNS:
+            value = dumped.get(col_name)
+            if value is None:
+                row[col_name] = None
+                continue
+            # UUIDs round-trip as strings (consistent with id / session_id)
+            if isinstance(value, UUID):
+                row[col_name] = str(value)
+            else:
+                row[col_name] = value
+
+        batch = self._ipc.append(row)
 
         for sub in self._subscribers:
             if sub in self._failed:

@@ -212,13 +212,12 @@ class TestEventStorePayloadFilterPerf:
         group="event-payload-filter", warmup=True, min_rounds=30, disable_gc=True
     )
     def test_query_by_payload_field_outcome_10k(self, event_store: EventStore, benchmark):
-        """Full payload-filter path: query 10k events then keep ``outcome="failed"``.
-
-        Mirrors what every cross-process subscriber does today via
-        ``_Subscription.matches`` — Python post-filter on a payload
-        field that SQL can't pushdown. Post-item-21 the outcome field
-        becomes a typed Arrow column; this query collapses to envelope
-        speed (10–50× per design doc §2).
+        """Legacy shape — query 10k events then Python-post-filter for
+        ``outcome="failed"``. Pre-item-21 this was the only option; post
+        item 21 callers should use the ``outcome=`` kwarg (see the next
+        test) to push the filter into SQL. This bench remains so we can
+        track that the Python-post-filter path doesn't regress for
+        callers who haven't migrated to the new kwarg.
         """
         sid = uuid4()
         # Mixed outcomes — 1 in 3 failed, so the filter has work to do.
@@ -234,6 +233,39 @@ class TestEventStorePayloadFilterPerf:
 
         result = benchmark(query_then_filter_failed)
         assert 3_000 <= len(result) <= 3_500  # ~1/3 of 10k
+
+    @pytest.mark.benchmark(
+        group="event-payload-filter", warmup=True, min_rounds=30, disable_gc=True
+    )
+    def test_query_by_outcome_kwarg_10k(self, event_store: EventStore, benchmark):
+        """SQL-pushdown variant — same dataset as the legacy bench, but
+        the filter goes into SQL via the ``outcome=`` kwarg promoted in
+        item 21.
+
+        Post-item-21 win: SQL filters the 10k rows down to ~3,333
+        matching rows at the daemon level; Flight transports only the
+        matches; Python parses only the matches' JSON. The legacy
+        bench above transports all 10k and parses all 10k.
+
+        The improvement ratio between this bench and the legacy one is
+        the on-the-wire item 21 win — design doc §2 estimated 10–50×.
+        """
+        sid = uuid4()
+        for i in range(10_000):
+            outcome = "failed" if i % 3 == 0 else "passed"
+            evt = _make_measurement(sid, i)
+            evt.outcome = outcome
+            event_store.emit(evt)
+
+        def query_failed_via_sql():
+            return event_store.events(
+                session_id=sid,
+                event_type="test.measurement",
+                outcome="failed",
+            )
+
+        result = benchmark(query_failed_via_sql)
+        assert 3_000 <= len(result) <= 3_500
 
     @pytest.mark.benchmark(
         group="event-payload-filter", warmup=True, min_rounds=30, disable_gc=True

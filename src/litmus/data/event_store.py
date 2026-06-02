@@ -268,17 +268,21 @@ class EventStore:
 
     # -- Read path -----------------------------------------------------------
 
-    def events(
+    def events(  # noqa: PLR0913
         self,
         *,
         session_id: UUID | None = None,
         run_id: UUID | None = None,
         event_type: str | None = None,
         role: str | None = None,
+        outcome: str | None = None,
+        channel_id: str | None = None,
+        measurement_name: str | None = None,
         since: datetime | None = None,
         until: str | None = None,
         until_event_number: int | None = None,
         limit: int | None = None,
+        **payload_filters: Any,
     ) -> list[dict]:
         """Query events from the DuckDB index via Flight.
 
@@ -291,6 +295,14 @@ class EventStore:
         ``limit`` is applied to the **most recent** rows (the SQL
         sorts ``received_at DESC`` under the limit, then re-sorts
         ASC for the caller). ``None`` returns all matching rows.
+
+        **Item 21 payload pushdown**: ``outcome=``, ``channel_id=``,
+        ``measurement_name=`` (and any ``**payload_filters`` kwarg
+        matching a promoted Arrow column) push into SQL directly —
+        no JSON parse, no Python iteration. ``role=`` similarly:
+        what used to be a Python post-filter is now a SQL OR over
+        the ``role`` / ``instrument_role`` / ``channel_id`` typed
+        columns.
         """
         # Flush any buffered events to IPC + Flight before querying
         # (on_flush callback pushes batches to Flight automatically)
@@ -317,7 +329,55 @@ class EventStore:
             conditions.append(f"received_at <= '{_sql_escape(until)}'")
         if until_event_number is not None:
             conditions.append(f"event_number <= {int(until_event_number)}")
+
+        # Item 21: payload-field SQL pushdown. Promoted columns are
+        # typed at the IPC schema level (see ``_PAYLOAD_COLUMNS`` in
+        # event_log.py) — DuckDB filters directly on the column with
+        # native pushdown instead of Python iterating + JSON parsing.
+        from litmus.data.event_log import _PAYLOAD_COLUMNS  # noqa: PLC0415
+
+        explicit_payload = {
+            "outcome": outcome,
+            "channel_id": channel_id,
+            "measurement_name": measurement_name,
+        }
+        for col_name, col_value in {**explicit_payload, **payload_filters}.items():
+            if col_value is None:
+                continue
+            if col_name not in _PAYLOAD_COLUMNS:
+                raise ValueError(
+                    f"events(): unknown payload filter {col_name!r}. "
+                    f"Promoted columns: {sorted(_PAYLOAD_COLUMNS)}. "
+                    "Fields not in this set live in the json fallback "
+                    "column and require a Python-side filter."
+                )
+            conditions.append(f"{col_name} = '{_sql_escape(str(col_value))}'")
+
+        # Role filter: SQL OR over the three columns that can carry the
+        # role designation. Before item 21 this was a Python post-filter
+        # via ``event_matches_role`` — pulled every row over Flight,
+        # parsed JSON, then iterated. Now it's an indexed columnar
+        # scan in the daemon.
+        if role:
+            role_escaped = _sql_escape(role)
+            conditions.append(
+                f"(role = '{role_escaped}' "
+                f"OR instrument_role = '{role_escaped}' "
+                f"OR channel_id LIKE '{role_escaped}.%')"
+            )
+
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # Project: envelope + json fallback only. Item 21 promoted
+        # primitive payload fields to top-level columns FOR SQL
+        # PUSHDOWN above — but we don't ship those columns back over
+        # Flight, because callers reconstruct the event dict from the
+        # JSON column anyway. Returning the typed columns would
+        # widen every row's wire transport for no API benefit. The
+        # JSON column already carries every field losslessly.
+        projection = (
+            "id, event_type, event_number, occurred_at, received_at, session_id, run_id, json"
+        )
 
         # Latest-N pushdown: SQL sorts received_at DESC under the
         # LIMIT (cheap with the index on received_at), then re-sorts
@@ -326,8 +386,8 @@ class EventStore:
         # events" pulls every event over Flight.
         if limit is not None and limit > 0:
             sql = f"""
-                SELECT * FROM (
-                    SELECT *
+                SELECT {projection} FROM (
+                    SELECT {projection}
                     FROM events
                     {where}
                     ORDER BY received_at DESC
@@ -337,20 +397,13 @@ class EventStore:
             """
         else:
             sql = f"""
-                SELECT *
+                SELECT {projection}
                 FROM events
                 {where}
                 ORDER BY received_at ASC
             """
         rows = self._flight_query(sql)
-
-        db_events: list[dict] = [_parse_event_row(row) for row in rows]
-
-        # Apply role filter (can't be done in SQL — needs event field inspection)
-        if role:
-            db_events = [e for e in db_events if event_matches_role(e, role)]
-
-        return db_events
+        return [_parse_event_row(row) for row in rows]
 
     def sessions(self) -> list[dict]:
         """List known sessions with metadata from SessionStarted events."""
