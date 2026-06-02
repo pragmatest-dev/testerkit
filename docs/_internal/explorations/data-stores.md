@@ -1050,8 +1050,8 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 4b | `ChannelStarted`/`ChannelClosed`; retire `InstrumentRead` | C1 | ✅ DONE | #17 |
 | 5 | `observer.read` stamps vector `out_*` (rename DEFERRED) | C1 | ✅ DONE | #17 |
 | 6 | Verb dispatch by value shape (observe-side; verify deferred to follow-up) | C3a | 🚧 PARTIAL | (this PR) |
-| 7 | `stream(name, sample)` test-author verb | C3 | ⏳ PENDING | — |
-| 8 | Symmetric `channels.{write,stream}` / `filestore.{put,stream}` | C3 | ⏳ PENDING | — |
+| 7 | `stream(name, sample)` test-author verb (Context.stream + bare fixture) | C3b | ✅ DONE | (this PR) |
+| 8 | Symmetric `channels.{write,stream}` / `filestore.{put,stream}` (filestore.stream stub; real sink rides item 2 / C5) | C3b | 🚧 PARTIAL | (this PR) |
 | 9 | Auto-promotion rule in materializer (≥1 verify → verify rows; 0 + ≥1 observe → DONE row) | C6-partial | ✅ DONE | #21 |
 | 10 | Type-stable `out_<name>` registry | C6-partial | ✅ DONE | #21 |
 | 11 | Schema rename `timestamp` → `received_at` + nullable `sampled_at` | C7 | ✅ DONE | #20 |

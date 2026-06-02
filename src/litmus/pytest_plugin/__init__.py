@@ -978,6 +978,36 @@ def context() -> Context:
 
 
 @pytest.fixture
+def stream(context: Context) -> Callable[..., str]:
+    """Callable fixture: ``stream(name, sample[, namespace=...])`` — append a sample.
+
+    The third sibling test-author intent verb (alongside ``observe`` /
+    ``verify``). Always routes to ChannelStore. Per §3 of the design
+    doc — explicit per-store streaming, never auto-associates with
+    the active vector. Use ``observe(name, channel_handle)`` to
+    associate a stream with a vector.
+
+    Both shapes are available — this bare callable (pytest-idiomatic)
+    and :meth:`Context.stream` (programmatic / non-pytest). Both
+    route through the same ``Context.stream`` body so the verb
+    behaves identically.
+
+    Example::
+
+        def test_iv_curve(stream, observe, psu, dmm):
+            observe("iv_curve.i", "channel://iv_curve.i")   # vector association
+            for v in [0.0, 0.5, 1.0, 1.5, 2.0]:
+                psu.set_voltage(v)
+                stream("iv_curve.i", dmm.read_current())
+    """
+
+    def _stream(name: str, sample: Any, *, namespace: str | None = None) -> str:
+        return context.stream(name, sample, namespace=namespace)
+
+    return _stream
+
+
+@pytest.fixture
 def observe(context: Context) -> Callable[..., None]:
     """Callable fixture: ``observe(name, value[, namespace=...])`` — stash in vector.
 

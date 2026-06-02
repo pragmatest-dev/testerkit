@@ -359,6 +359,57 @@ class Context:
             )
         )
 
+    def stream(
+        self,
+        name: str,
+        sample: Any,
+        *,
+        namespace: str | None = None,
+    ) -> str:
+        """Append one sample to a channel — sibling of observe / verify.
+
+        Per §3 of the design doc, ``stream`` is the third sibling
+        test-author intent verb. Always routes to ChannelStore (never
+        FileStore — that's the operational-verb split that gives
+        ``stream`` its commitment: subscribers know channels are
+        where to look). Per Position 2: emits ``ChannelStarted`` once
+        per (channel, session) on first write via the channel store's
+        own machinery; subsequent writes are ChannelStore-only (no
+        per-sample event).
+
+        Unlike :meth:`observe`, ``stream`` never stamps ``out_*`` on
+        the vector — it's an append-to-stream operation, not a
+        "stash this on my current context" operation. Per §3 line
+        236: ``stream`` and ``observe`` are strictly orthogonal.
+        Author wires the channel to the vector explicitly via
+        ``observe(name, channel_handle_or_URI)`` when association is
+        wanted.
+
+        Args:
+            name: Channel name.
+            sample: One sample to append. Same shape rules as
+                ``observe``'s array-handling path — scalar, list,
+                ndarray, dict (struct). Blobs raise ``ValueError``
+                at the ChannelStore gate; use ``filestore.put`` for
+                blobs.
+            namespace: Optional prefix sugar — effective channel_id
+                is ``"{namespace}.{name}"``.
+
+        Returns:
+            The ``channel://`` URI for this sample's channel.
+
+        Raises:
+            RuntimeError: When no ChannelStore is wired to the Context.
+        """
+        if self._channel_store is None:
+            raise RuntimeError(
+                f"Context.stream({name!r}, ...): no ChannelStore wired. "
+                "Construct a TestHarness with channel_store explicitly, "
+                "or run inside an active Litmus session."
+            )
+        full_name = f"{namespace}.{name}" if namespace else name
+        return self._channel_store.write(full_name, sample, source="stream")
+
     def verify(
         self,
         name: str,
