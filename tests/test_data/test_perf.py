@@ -156,6 +156,120 @@ class TestEventStorePerf:
 
 
 # ---------------------------------------------------------------------------
+# EventStore payload-field filter benchmarks (item 19 — item 21 baseline)
+#
+# These pin the cost of today's two-stage payload filter:
+#   1. SQL pulls every event matching the envelope filter (fast — typed
+#      columns, DuckDB columnar pushdown).
+#   2. Python parses the ``json`` column row-by-row and filters on a
+#      payload field (slow — JSON parse per row).
+#
+# Item 21 (typed Arrow event payloads) turns step 2 into native columnar
+# access + SQL pushdown — design doc §2 estimates 10–50× on the read
+# side. These benchmarks are the baseline that item 21 will be measured
+# against; the post-item-21 perf-bench compares stats['min'] against
+# these numbers and fails if the gain is less than the floor.
+# ---------------------------------------------------------------------------
+
+
+class TestEventStorePayloadFilterPerf:
+    """Pin the cost of the payload-field filter path (the item 21 target)."""
+
+    @pytest.mark.benchmark(group="event-payload-parse", warmup=True, min_rounds=30, disable_gc=True)
+    def test_parse_payload_cost_10k(self, event_store: EventStore, benchmark):
+        """Isolated JSON-parse cost — call ``_parse_event_row`` per row.
+
+        Subtracts the SQL/Flight transport from the total payload-filter
+        cost so item 21's payload-side win is measurable in isolation.
+        Post-item-21: this should collapse to near-zero (typed Arrow
+        access — no per-row Python JSON parse).
+        """
+        from litmus.data.event_store import _parse_event_row
+
+        sid = uuid4()
+        for i in range(10_000):
+            event_store.emit(_make_measurement(sid, i))
+        # Flush buffered events to Flight before the raw pull —
+        # event_store.events() does this internally; the raw
+        # _flight_query() does not.
+        event_store.flush()
+        rows = event_store._flight_query(
+            f"SELECT * FROM events WHERE session_id = '{sid}' ORDER BY received_at"
+        )
+        assert len(rows) == 10_000
+
+        def parse_all():
+            return [_parse_event_row(row) for row in rows]
+
+        result = benchmark(parse_all)
+        assert len(result) == 10_000
+        # Every event has the payload field we're checking — sanity guard
+        # against a future schema rename that would silently make the
+        # benchmark measure the empty path.
+        assert all(e.get("measurement_name", "").startswith("voltage_") for e in result)
+
+    @pytest.mark.benchmark(
+        group="event-payload-filter", warmup=True, min_rounds=30, disable_gc=True
+    )
+    def test_query_by_payload_field_outcome_10k(self, event_store: EventStore, benchmark):
+        """Full payload-filter path: query 10k events then keep ``outcome="failed"``.
+
+        Mirrors what every cross-process subscriber does today via
+        ``_Subscription.matches`` — Python post-filter on a payload
+        field that SQL can't pushdown. Post-item-21 the outcome field
+        becomes a typed Arrow column; this query collapses to envelope
+        speed (10–50× per design doc §2).
+        """
+        sid = uuid4()
+        # Mixed outcomes — 1 in 3 failed, so the filter has work to do.
+        for i in range(10_000):
+            outcome = "failed" if i % 3 == 0 else "passed"
+            evt = _make_measurement(sid, i)
+            evt.outcome = outcome
+            event_store.emit(evt)
+
+        def query_then_filter_failed():
+            all_events = event_store.events(session_id=sid, event_type="test.measurement")
+            return [e for e in all_events if e.get("outcome") == "failed"]
+
+        result = benchmark(query_then_filter_failed)
+        assert 3_000 <= len(result) <= 3_500  # ~1/3 of 10k
+
+    @pytest.mark.benchmark(
+        group="event-payload-filter", warmup=True, min_rounds=30, disable_gc=True
+    )
+    def test_query_by_role_10k(self, event_store: EventStore, benchmark):
+        """The existing ``role=`` filter — calls into ``events()``
+        which runs the role post-filter (event_matches_role) on every
+        row after the SQL+JSON round-trip. Same shape as the
+        outcome-filter benchmark above; pins the dual via the public
+        API path.
+        """
+        sid = uuid4()
+        from litmus.data.events import InstrumentConnected
+
+        # 10k mixed events; ~1/4 have the role we'll filter for
+        for i in range(10_000):
+            if i % 4 == 0:
+                event_store.emit(
+                    InstrumentConnected(
+                        session_id=sid,
+                        role="dmm",
+                        instrument_id=f"dmm_{i}",
+                        resource="GPIB::16",
+                    )
+                )
+            else:
+                event_store.emit(_make_measurement(sid, i))
+
+        def query_by_role():
+            return event_store.events(session_id=sid, role="dmm")
+
+        result = benchmark(query_by_role)
+        assert 2_400 <= len(result) <= 2_600
+
+
+# ---------------------------------------------------------------------------
 # ChannelStore benchmarks
 # ---------------------------------------------------------------------------
 
