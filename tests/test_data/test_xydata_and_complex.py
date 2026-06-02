@@ -100,7 +100,7 @@ class TestXYDataSerializerRegistration:
         sid = _sid()
         xy = XYData(x=[1.0, 2.0, 3.0], y=[10.0, 20.0, 30.0])
 
-        uri = store.put("iv_curve", xy, session_id=sid)
+        uri = store.write("iv_curve", xy, session_id=sid)
         assert uri.endswith(".npz")
 
         filename = _filename_from_uri(uri, sid)
@@ -124,7 +124,7 @@ class TestXYDataSerializerRegistration:
             y_name="Current",
         )
 
-        uri = store.put("iv", xy, session_id=sid)
+        uri = store.write("iv", xy, session_id=sid)
         filename = _filename_from_uri(uri, sid)
         archive = np.load(_session_dir(store, sid) / filename)
 
@@ -137,7 +137,7 @@ class TestXYDataSerializerRegistration:
         """Item 1c sidecar lands with the npz MIME convention from item 13."""
         sid = _sid()
         xy = XYData(x=[0.0, 1.0], y=[2.0, 3.0])
-        uri = store.put("curve", xy, session_id=sid)
+        uri = store.write("curve", xy, session_id=sid)
         meta = store.read_attributes(uri)
         assert meta is not None
         assert meta.mime == "application/x-numpy-npz"
@@ -159,7 +159,7 @@ class TestComplexArrayRoundTrip:
             dtype=np.complex128,
         )
 
-        uri = store.put("s11", arr, session_id=sid)
+        uri = store.write("s11", arr, session_id=sid)
         filename = _filename_from_uri(uri, sid)
         loaded = np.load(_session_dir(store, sid) / filename)
 
@@ -175,7 +175,7 @@ class TestComplexArrayRoundTrip:
             dtype=np.complex64,
         )
 
-        uri = store.put("iq", arr, session_id=sid)
+        uri = store.write("iq", arr, session_id=sid)
         filename = _filename_from_uri(uri, sid)
         loaded = np.load(_session_dir(store, sid) / filename)
 
@@ -189,7 +189,7 @@ class TestComplexArrayRoundTrip:
         sid = _sid()
         arr = np.array([1 + 1j, 2 - 2j], dtype=np.complex128)
 
-        uri = store.put("complex_signal", arr, session_id=sid)
+        uri = store.write("complex_signal", arr, session_id=sid)
         assert uri.endswith(".npy")
         meta = store.read_attributes(uri)
         assert meta is not None
@@ -209,7 +209,7 @@ class TestComplexArrayRoundTrip:
             y_name="amplitude",
         )
 
-        uri = store.put("eye", eye, session_id=sid)
+        uri = store.write("eye", eye, session_id=sid)
         filename = _filename_from_uri(uri, sid)
         archive = np.load(_session_dir(store, sid) / filename)
 

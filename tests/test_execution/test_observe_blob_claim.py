@@ -5,7 +5,7 @@ Pre-3a: ``Context.observe(key, blob)`` silently stashed the raw blob in
 materializer ``_ref`` path picked them up (and only when materialization
 actually ran).
 
-After 3a: blobs route through ``FileStore.put`` immediately; the URI is
+After 3a: blobs route through ``FileStore.write`` immediately; the URI is
 stashed instead. Bytes survive crashes; consumers see a ``file://`` URI
 in ``_observations``.
 

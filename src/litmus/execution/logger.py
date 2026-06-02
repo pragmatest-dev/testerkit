@@ -565,7 +565,7 @@ class TestRunLogger:
         session_id_str = str(self._session_id)
 
         def _save(vector_id: str, key: str, value: Any) -> str:
-            return filestore.put(
+            return filestore.write(
                 key,
                 value,
                 session_id=session_id_str,

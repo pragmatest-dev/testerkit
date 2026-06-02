@@ -330,7 +330,7 @@ class ParquetBackend:
         session_id_str = str(test_run.session_id)
 
         def ref_saver(vector_id: str, key: str, value: Any) -> str:
-            return filestore.put(
+            return filestore.write(
                 key,
                 value,
                 session_id=session_id_str,

@@ -68,7 +68,7 @@ class FileStore:
         self._data_dir = resolve_data_dir(data_dir)
         self._files_dir = self._data_dir / "files"
 
-    def put(
+    def write(
         self,
         name: str,
         value: Any,
