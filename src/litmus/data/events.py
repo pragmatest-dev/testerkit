@@ -615,21 +615,53 @@ class InstrumentConfigure(EventBase):
 
 
 class StreamStarted(EventBase):
+    """Emitted when a FileStore streaming sink opens.
+
+    Once per ``stream_id``. Carries the on-disk path so live consumers
+    can begin a range-read against the still-growing file before any
+    chunks land. ``path`` is the absolute filesystem path; the final
+    ``file://`` URI is announced via :class:`StreamEnded` at close
+    (it can't be known until the sink resolves a collision-free name).
+    """
+
     event_type: Literal["stream.started"] = "stream.started"
     stream_id: UUID
+    name: str = ""
     format: str = ""
     path: str | None = None
 
 
 class StreamEnded(EventBase):
+    """Emitted when a FileStore streaming sink closes.
+
+    Once per ``stream_id``. ``uri`` is the final ``file://`` claim that
+    callers can stash into vector ``out_*`` columns or hand to the
+    artifact viewer. ``size_bytes`` is the total appended-byte count
+    when the sink tracks it (``None`` for sinks that delegate sizing
+    to the underlying library and don't tally per-write).
+    """
+
     event_type: Literal["stream.ended"] = "stream.ended"
     stream_id: UUID
+    uri: str | None = None
+    size_bytes: int | None = None
 
 
 class StreamFrameIndex(EventBase):
+    """Emitted after each chunk lands in a FileStore streaming sink.
+
+    Live consumers react to this event and range-read the new byte
+    window (``Range: bytes={byte_offset - last_chunk_size}-{byte_offset - 1}``)
+    rather than polling. ``frame_count`` carries a per-frame counter
+    when the sink works in frames (video) and stays 0 otherwise;
+    ``byte_offset`` carries the post-write file size so consumers can
+    compute the new range from the previous offset.
+    """
+
     event_type: Literal["stream.frame_index"] = "stream.frame_index"
     stream_id: UUID
     frame_count: int = 0
+    byte_offset: int | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -400,24 +400,34 @@ A channel was sealed for this session.
 
 ### `stream.started` — `StreamStarted`
 
+Emitted when a FileStore streaming sink opens.
+
 | Field | Type | Default |
 |---|---|---|
 | `stream_id` | `UUID` | *required* |
+| `name` | `str` | `''` |
 | `format` | `str` | `''` |
 | `path` | `str \| None` | `None` |
 
 ### `stream.ended` — `StreamEnded`
 
+Emitted when a FileStore streaming sink closes.
+
 | Field | Type | Default |
 |---|---|---|
 | `stream_id` | `UUID` | *required* |
+| `uri` | `str \| None` | `None` |
+| `size_bytes` | `int \| None` | `None` |
 
 ### `stream.frame_index` — `StreamFrameIndex`
+
+Emitted after each chunk lands in a FileStore streaming sink.
 
 | Field | Type | Default |
 |---|---|---|
 | `stream_id` | `UUID` | *required* |
 | `frame_count` | `int` | `0` |
+| `byte_offset` | `int \| None` | `None` |
 
 ## Dialog events
 

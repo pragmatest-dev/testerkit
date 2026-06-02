@@ -1039,11 +1039,11 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | Item | Title | Cluster | Status | PR |
 |---|---|---|---|---|
 | 1a | FileStore put API + URI scheme | C1a | ✅ DONE | #14 |
-| 1b | FileStore live lifecycle + Stream events | C5 / item 2 | 🚧 DEFERRED | rides item 2 |
+| 1b | FileStore live lifecycle + Stream events | C5 | ✅ DONE | (this PR) |
 | 1c | FileStore attributes + MIME typing | C4-partial | ✅ DONE | #23 |
 | 1d | Unify the two `_ref` dirs | C4-mid | ✅ DONE | #25 |
 | 1e | FileStore integration test | C4-remainder | ✅ DONE | (this PR) |
-| 2 | Streaming sink (PyAV / soundfile / TDMS / h5py) | C5 | ⏳ PENDING | — |
+| 2 | Streaming sink (raw / jsonl / tdms / h5; PyAV + soundfile → item 23 follow-up) | C5 | ✅ DONE | (this PR) |
 | 3a | `Context.observe` blob → `file://` claim | 3a | ✅ DONE | #15 |
 | 3b | `observer.read` blob → `file://` + ChannelStore `scalar:str` | C-3b | ✅ DONE | #19 |
 | 4 | `observe()` emits Observation event | 4 | ✅ DONE | #16 |
@@ -1051,7 +1051,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 5 | `observer.read` stamps vector `out_*` (rename DEFERRED) | C1 | ✅ DONE | #17 |
 | 6 | Verb dispatch by value shape (observe-side; verify deferred to follow-up) | C3a | 🚧 PARTIAL | (this PR) |
 | 7 | `stream(name, sample)` test-author verb (Context.stream + bare fixture) | C3b | ✅ DONE | (this PR) |
-| 8 | Symmetric `channels.{write,stream}` / `filestore.{put,stream}` (filestore.stream stub; real sink rides item 2 / C5) | C3b | 🚧 PARTIAL | (this PR) |
+| 8 | Symmetric `channels.{write,stream}` / `files.{write,stream}` | C3b + C5 | ✅ DONE | (C3b shipped stub; C5 closed it) |
 | 9 | Auto-promotion rule in materializer (≥1 verify → verify rows; 0 + ≥1 observe → DONE row) | C6-partial | ✅ DONE | #21 |
 | 10 | Type-stable `out_<name>` registry | C6-partial | ✅ DONE | #21 |
 | 11 | Schema rename `timestamp` → `received_at` + nullable `sampled_at` | C7 | ✅ DONE | #20 |
@@ -1067,7 +1067,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 20 | Consumer SDK (`litmus.live`) | C10 | ⏳ PENDING | — |
 | 21 | Typed Arrow event payloads | C11 | ⏳ PENDING | — |
 | 22 | Local shared-memory transport | C11 | ⏳ PENDING | — |
-| 23 | Hardware video encoder option | C5 | ⏳ PENDING | — |
+| 23 | Hardware video encoder option (also lands PyAV `mp4` + soundfile `wav` formats) | C5 follow-up | ⏳ PENDING | — |
 | 24 | (TBD per design doc growth) | C5 | ⏳ PENDING | — |
 
 **Parked deliberations (not blocking any cluster):**
