@@ -1,6 +1,7 @@
 """Live test progress page with streaming event log."""
 
 import logging
+from uuid import UUID
 
 from nicegui import ui
 
@@ -62,7 +63,15 @@ async def live_page(run_id: str):
                 _channels_container, unsub_channels = create_channel_values_panel(event_store)
 
             with ui.tab_panel(streams_tab):
-                _streams_container, unsub_streams = create_file_streams_panel(event_store)
+                # Scope the panel to this run — operators on /live/{run_id}
+                # should only see streams from the run they're looking at.
+                try:
+                    run_uuid: UUID | None = UUID(run_id)
+                except ValueError:
+                    run_uuid = None
+                _streams_container, unsub_streams = create_file_streams_panel(
+                    event_store, run_id=run_uuid
+                )
 
             with ui.tab_panel(output_tab):
                 log = ui.log(max_lines=100).classes(

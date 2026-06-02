@@ -18,7 +18,9 @@ event on the NiceGUI thread the moment it lands.
 
 from __future__ import annotations
 
+import urllib.parse
 from collections.abc import Callable
+from uuid import UUID
 
 from nicegui import ui
 
@@ -32,12 +34,19 @@ _STATUS_DONE_CLS = "px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 tex
 
 def create_file_streams_panel(
     store: EventStore,
+    *,
+    run_id: UUID | None = None,
 ) -> tuple[ui.column, Callable[[], None]]:
-    """Live streams table.
+    """Live streams table — scoped to ``run_id`` when supplied.
 
     A row appears when ``StreamStarted`` lands; its status flips from
     OPEN → DONE and the size + artifact link populate when the
     matching ``StreamEnded`` (by ``stream_id``) arrives.
+
+    ``run_id`` filters the subscription to events whose ``run_id``
+    matches — used by ``/live/{run_id}`` so operators only see streams
+    from the run they're looking at. ``None`` shows everything (for
+    diagnostic / aggregate views).
 
     Returns ``(container, unsubscribe)`` so the caller can stop
     updates on page teardown.
@@ -109,12 +118,16 @@ def create_file_streams_panel(
         uri = evt.get("uri")
         if uri:
             with link_container:
-                ui.link("open →", f"/artifact?uri={uri}").classes(
+                # /api/files resolves file:// URIs via FileStore (the run
+                # may not be materialized yet, so /api/runs/{id}/ref isn't
+                # available for live streams).
+                encoded = urllib.parse.quote(uri, safe="")
+                ui.link("open →", f"/api/files?uri={encoded}").classes(
                     "text-xs text-blue-600 hover:underline"
                 )
 
-    unsub_started = ui_subscribe(store, _on_started, event_type="stream.started")
-    unsub_ended = ui_subscribe(store, _on_ended, event_type="stream.ended")
+    unsub_started = ui_subscribe(store, _on_started, event_type="stream.started", run_id=run_id)
+    unsub_ended = ui_subscribe(store, _on_ended, event_type="stream.ended", run_id=run_id)
 
     def unsubscribe() -> None:
         unsub_started()

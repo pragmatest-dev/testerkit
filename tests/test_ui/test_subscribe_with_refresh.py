@@ -32,9 +32,10 @@ class _FakeEventStore:
         event_type: str | None = None,
         role: str | None = None,
         session_id: Any = None,
+        run_id: Any = None,
         since: Any = None,
     ) -> Callable[[], None]:
-        _ = role, session_id, since
+        _ = role, session_id, run_id, since
         entry = (event_type, callback)
         self._subs.append(entry)
 

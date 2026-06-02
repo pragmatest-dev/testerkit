@@ -314,6 +314,34 @@ def create_api_router() -> APIRouter:
 
         return _serialize_ref(result)
 
+    @router.get("/files")
+    def get_file(uri: str) -> Response:
+        """Serve a FileStore artifact directly by ``file://`` URI.
+
+        Companion to :func:`get_ref` for the case where there's no
+        materialized run yet — live streams, in-progress captures, any
+        FileStore artifact reachable by URI alone.
+
+        ``uri`` must be ``file://{session_id}/{filename}``; the endpoint
+        resolves through :class:`FileStore` (which walks date-partitioned
+        session dirs) and serves the bytes with a magic-byte-sniffed
+        ``Content-Type``. Supports HTTP range reads so live consumers
+        can range-read a still-growing stream artifact.
+        """
+        from litmus.data.files import get_filestore
+
+        if not uri.startswith("file://"):
+            raise HTTPException(status_code=400, detail=f"Not a file:// URI: {uri!r}")
+        path = get_filestore()._resolve_uri(uri)
+        if path is None or not path.exists():
+            raise HTTPException(status_code=404, detail=f"Not found: {uri}")
+
+        from litmus.api._mime import sniff_mime  # noqa: PLC0415
+
+        data = path.read_bytes()
+        content_type = sniff_mime(data[:64])
+        return Response(content=data, media_type=content_type)
+
     @router.post("/runs", response_model=RunLaunchResponse)
     async def start_run(request: LaunchRequest):
         """Start a new test run."""

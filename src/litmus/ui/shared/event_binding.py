@@ -50,6 +50,7 @@ def ui_subscribe(
     event_type: str | None = None,
     role: str | None = None,
     session_id: UUID | None = None,
+    run_id: UUID | None = None,
     since: datetime | None = None,
 ) -> Callable[[], None]:
     """Subscribe to EventStore events, delivering on the NiceGUI UI thread.
@@ -69,6 +70,7 @@ def ui_subscribe(
         event_type=event_type,
         role=role,
         session_id=session_id,
+        run_id=run_id,
         since=since,
     )
 
