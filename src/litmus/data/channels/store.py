@@ -704,6 +704,11 @@ class ChannelStore:
         """The gRPC location of the Flight server, if running."""
         return self._flight_location
 
+    @property
+    def session_id(self) -> UUID:
+        """The session this store writes channels under."""
+        return self._session_id
+
     @staticmethod
     def list_channel_refs(date_dirs: list[Path]) -> set[tuple[str, str]]:
         """List (channel_id, session_short) pairs stored in the given date dirs.

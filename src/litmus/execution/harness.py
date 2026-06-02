@@ -234,8 +234,14 @@ class Context:
         - **blob** (bytes/Path/PIL.Image/Pydantic/anything else) →
           FileStore via :func:`get_filestore().put`; ``out_<name>``
           carries the ``file://`` URI.
-        - **already a URI** (``channel://`` / ``file://``) → stamped
+        - **URI string** (``channel://...`` / ``file://...``) → stamped
           as-is (no re-write).
+        - **Sink handle** (``_ChannelSink`` from
+          :func:`litmus.channels.stream`, ``_BaseSink`` from
+          :func:`litmus.files.stream`, or any object satisfying the
+          :class:`~litmus.data.ref.Latchable` Protocol) → ``.uri``
+          stamped as-is (no re-write — the sink already wrote its
+          data).
 
         Args:
             key: Observation name (e.g., "temperature", "scope.waveform").
@@ -253,6 +259,24 @@ class Context:
         full_key = f"{namespace}.{key}" if namespace else key
 
         if value is not None:
+            # Reference latching (design doc §4): if the caller hands
+            # us something that's already in a store — a URI string or
+            # a handle exposing ``.uri`` — stamp the URI without
+            # re-writing. Checked BEFORE shape dispatch so a ``str``
+            # URI doesn't fall through to the scalar-stash path and a
+            # sink handle doesn't get pickled as a blob.
+            from litmus.data.ref import Latchable, is_uri  # noqa: PLC0415
+
+            if is_uri(value):
+                self._observations[full_key] = value
+                self._emit_observation(full_key, value)
+                return
+            if isinstance(value, Latchable):
+                uri = value.uri
+                self._observations[full_key] = uri
+                self._emit_observation(full_key, uri)
+                return
+
             # Item 6: Waveform routes to ChannelStore via verb-layer
             # unpack. classify_value reports Waveform as ``blob`` (no
             # ``tolist``); the design doc §4 says channel-shaped, so we
