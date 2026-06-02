@@ -202,20 +202,29 @@ class TestFilesWrite:
             files.write("artifact", b"hello")
 
 
-class TestFilesStreamStub:
-    def test_stream_stub_raises_not_implemented(self) -> None:
-        """C3b ships the signature; the actual sink lands in build item 2 (C5)."""
-        with pytest.raises(NotImplementedError, match="build item 2"):
-            with files.stream("video.mp4", format="mp4"):
-                pass
+class TestFilesStreamSignature:
+    """C5 (item 2) landed the sink; verify the public signature stays stable.
 
-    def test_stream_stub_signature_includes_format_and_session_id(self) -> None:
+    Format-specific behavior tested in ``test_filestore_streaming.py``
+    (FileStore.open_stream class method) and ``test_files_stream_verb.py``
+    (litmus.files.stream verb integration).
+    """
+
+    def test_stream_signature_includes_format_and_session_id(self) -> None:
         import inspect
 
         sig = inspect.signature(files.stream)
         assert "name" in sig.parameters
         assert "format" in sig.parameters
         assert "session_id" in sig.parameters
+
+    def test_stream_unknown_format_raises_with_helpful_message(self) -> None:
+        """Unknown format dispatches the registry's clear error."""
+        from uuid import uuid4 as _uuid4
+
+        with pytest.raises(ValueError, match="unknown format 'mp4'"):
+            with files.stream("video.mp4", format="mp4", session_id=str(_uuid4())):
+                pass
 
 
 # --------------------------------------------------------------------- #

@@ -213,6 +213,12 @@ Every route is mounted under the `/api/` prefix. Field shapes for request / resp
 | `GET` | `/api/openapi.json` | `dict` | OpenAPI 3.0 schema for the Litmus HTTP API. |
 | `GET` | `/api/docs` | — | Swagger UI live API explorer (mounted under `/api/` to avoid colliding with NiceGUI's `/docs` Diátaxis browser). |
 | `GET` | `/api/redoc` | — | ReDoc rendering of the OpenAPI schema. |
+
+### Other
+
+| Method | Path | Response model | Summary |
+|---|---|---|---|
+| `GET` | `/api/files` | — | Serve a FileStore artifact directly by ``file://`` URI. |
 <!-- GENERATED:api-http-routes:end -->
 
 ### Response format

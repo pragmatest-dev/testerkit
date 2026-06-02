@@ -31,11 +31,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.files.models import FileArtifactMetadata
 from litmus.data.files.serializers import find_serializer
+from litmus.data.files.streaming import StreamingSink, get_format
+
+if TYPE_CHECKING:
+    from litmus.data.files.streaming import EventEmitter
 
 _SIDECAR_SUFFIX = ".meta.json"
 
@@ -141,6 +146,89 @@ class FileStore:
         sidecar_path.write_text(metadata.model_dump_json())
 
         return f"file://{session_id}/{filename}"
+
+    def open_stream(
+        self,
+        name: str,
+        *,
+        format: str,
+        session_id: str,
+        vector_id: str | None = None,
+        attributes: dict[str, Any] | None = None,
+        event_log: EventEmitter | None = None,
+        run_id: UUID | None = None,
+    ) -> StreamingSink:
+        """Open a streaming sink — one file, written incrementally.
+
+        Build item 2 (C5). Companion to :meth:`write` for cases where
+        bytes arrive over time rather than all-at-once (continuous DAQ,
+        video capture, line-delimited logs). The sink:
+
+        - allocates the on-disk path (collision-safe via the same
+          ``_unique_filename`` scheme as :meth:`write`)
+        - emits :class:`StreamStarted` on open (carries absolute path)
+        - emits :class:`StreamFrameIndex` after every :meth:`write` call
+          (carries ``byte_offset`` for HTTP range-read)
+        - emits :class:`StreamEnded` on :meth:`close` (carries final
+          ``file://`` URI + total size)
+        - writes the item-1c sidecar metadata on close
+
+        Live consumers learn the path from :class:`StreamStarted`,
+        range-read the new byte window on each :class:`StreamFrameIndex`,
+        and reach the final URI in :class:`StreamEnded`. See the
+        :mod:`litmus.data.files.streaming` module docstring for format
+        coverage + caveats per format on partial-decode-during-write.
+
+        Args:
+            name: Artifact name (becomes part of the filename).
+            format: One of the registered streaming formats —
+                ``"raw"``, ``"jsonl"``, ``"tdms"``, ``"h5"`` in
+                v0.2.0. See :func:`litmus.data.files.streaming.registered_formats`.
+            session_id: Session this artifact belongs to. Required.
+            vector_id: Optional vector context; first 8 chars prefix
+                the filename for audit.
+            attributes: User-supplied metadata bag — persisted into
+                the item-1c sidecar at close.
+            event_log: Event log to emit Stream* events into. ``None``
+                is allowed (silent writes — useful for tests of the
+                file path in isolation); production paths always plumb
+                this from the active session.
+            run_id: Optional run UUID stamped on Stream* events.
+
+        Returns:
+            A :class:`StreamingSink` — context-manageable; call
+            :meth:`StreamingSink.close` (or use a ``with`` block) to
+            finalize and receive the ``file://`` URI.
+        """
+        fmt = get_format(format)
+        prefix = f"{vector_id[:_VECTOR_ID_LENGTH]}_" if vector_id else ""
+        session_dir = self._session_dir(session_id)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        filename = self._unique_filename(session_dir, f"{prefix}{name}", fmt.extension)
+        dest = session_dir / filename
+
+        # Capture for sidecar write at close
+        attrs_for_sidecar = dict(attributes or {})
+
+        def _finalize() -> None:
+            metadata = FileArtifactMetadata(
+                mime=fmt.mime,
+                extension=fmt.extension,
+                size_bytes=dest.stat().st_size if dest.exists() else 0,
+                attributes=attrs_for_sidecar,
+            )
+            sidecar_path = dest.with_name(dest.name + _SIDECAR_SUFFIX)
+            sidecar_path.write_text(metadata.model_dump_json())
+
+        return fmt.open(
+            path=dest,
+            name=name,
+            format_name=format,
+            session_id=session_id,
+            event_log=event_log,
+            run_id=run_id,
+            finalizer=_finalize,
+        )
 
     def read_attributes(self, uri: str) -> FileArtifactMetadata | None:
         """Return the :class:`FileArtifactMetadata` for ``uri``, or None.

@@ -615,21 +615,44 @@ class InstrumentConfigure(EventBase):
 
 
 class StreamStarted(EventBase):
+    """Emitted when a FileStore streaming sink opens.
+
+    Once per ``stream_id``. Carries the on-disk path so live consumers
+    can begin a range-read or library-decode against the still-growing
+    file before any chunks land. ``path`` is the absolute filesystem
+    path; the final ``file://`` URI is announced via :class:`StreamEnded`
+    at close (it can't be known until the sink resolves a collision-free
+    name).
+
+    **Stream events are lifecycle-only** (the FileStore parallel of
+    Position 2 for channels). Per-chunk events would flood the
+    EventStore at high write rates (kHz captures, 30 fps video, etc.)
+    for no real subscriber gain. Live consumers subscribe to the
+    stream directly — range-read the file, decode via the format
+    library, or watch the underlying transport — using EventStore only
+    for discovery ("what streams are open / done").
+    """
+
     event_type: Literal["stream.started"] = "stream.started"
     stream_id: UUID
+    name: str = ""
     format: str = ""
     path: str | None = None
 
 
 class StreamEnded(EventBase):
+    """Emitted when a FileStore streaming sink closes.
+
+    Once per ``stream_id``. ``uri`` is the final ``file://`` claim that
+    callers can stash into vector ``out_*`` columns or hand to the
+    artifact viewer. ``size_bytes`` is the total appended-byte count
+    at close.
+    """
+
     event_type: Literal["stream.ended"] = "stream.ended"
     stream_id: UUID
-
-
-class StreamFrameIndex(EventBase):
-    event_type: Literal["stream.frame_index"] = "stream.frame_index"
-    stream_id: UUID
-    frame_count: int = 0
+    uri: str | None = None
+    size_bytes: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -687,7 +710,7 @@ ROUTE_EVENTS = {RouteClosed, RouteOpened}
 INSTRUMENT_EVENTS = {InstrumentSet, InstrumentConfigure}
 CHANNEL_EVENTS = {ChannelStarted, ChannelClosed}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
-STREAM_EVENTS = {StreamStarted, StreamEnded, StreamFrameIndex}
+STREAM_EVENTS = {StreamStarted, StreamEnded}
 DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
     SESSION_EVENTS
@@ -734,7 +757,6 @@ Event = Annotated[
     | DiagnosticError
     | StreamStarted
     | StreamEnded
-    | StreamFrameIndex
     | DialogOpened
     | DialogResponded,
     Field(discriminator="event_type"),

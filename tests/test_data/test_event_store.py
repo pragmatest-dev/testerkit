@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 
 from litmus.data.event_store import EventStore
-from litmus.data.events import SessionStarted
+from litmus.data.events import SessionStarted, StreamStarted
 
 
 @pytest.fixture(scope="module")
@@ -111,6 +111,91 @@ class TestSubscriptions:
         store.emit(_make_session_started(sid))
         assert len(received) == 0
         unsub()
+
+    def test_on_event_filters_by_run_id(self, store: EventStore):
+        """run_id filter: only events with matching run_id reach the subscriber.
+
+        Live `/live/{run_id}` pages rely on this so operators only see
+        streams from the run they navigated to.
+        """
+        sid = uuid4()
+        my_run = uuid4()
+        other_run = uuid4()
+        received = []
+        unsub = store.on_event(
+            lambda e: received.append(e),
+            event_type="stream.started",
+            run_id=my_run,
+            replay="none",  # only count live events for clarity
+        )
+        try:
+            # Same session, different runs — only ``my_run`` should land
+            store.emit(
+                StreamStarted(
+                    session_id=sid,
+                    run_id=other_run,
+                    stream_id=uuid4(),
+                    name="other",
+                    format="raw",
+                )
+            )
+            store.emit(
+                StreamStarted(
+                    session_id=sid,
+                    run_id=my_run,
+                    stream_id=uuid4(),
+                    name="mine",
+                    format="raw",
+                )
+            )
+            store.emit(
+                StreamStarted(
+                    session_id=sid,
+                    run_id=other_run,
+                    stream_id=uuid4(),
+                    name="other2",
+                    format="raw",
+                )
+            )
+
+            # Drain — give the in-process dispatcher a tick
+            time.sleep(0.05)
+
+            assert len(received) == 1
+            assert received[0]["name"] == "mine"
+            assert received[0]["run_id"] == str(my_run)
+        finally:
+            unsub()
+
+    def test_events_query_filters_by_run_id(self, store: EventStore):
+        """``events(run_id=...)`` returns only that run's events."""
+        sid = uuid4()
+        my_run = uuid4()
+        other_run = uuid4()
+        store.emit(
+            StreamStarted(
+                session_id=sid,
+                run_id=my_run,
+                stream_id=uuid4(),
+                name="mine_query",
+                format="raw",
+            )
+        )
+        store.emit(
+            StreamStarted(
+                session_id=sid,
+                run_id=other_run,
+                stream_id=uuid4(),
+                name="other_query",
+                format="raw",
+            )
+        )
+        store.flush()
+
+        rows = store.events(event_type="stream.started", run_id=my_run)
+        names = {r.get("name") for r in rows}
+        assert "mine_query" in names
+        assert "other_query" not in names
 
 
 class TestGetEventLog:

@@ -81,7 +81,7 @@ def _is_before(evt: dict, cutoff: datetime) -> bool:
 class _Subscription:
     """Internal subscription record."""
 
-    __slots__ = ("callback", "event_type", "role", "session_id", "since")
+    __slots__ = ("callback", "event_type", "role", "run_id", "session_id", "since")
 
     def __init__(
         self,
@@ -90,12 +90,14 @@ class _Subscription:
         event_type: str | None = None,
         role: str | None = None,
         session_id: UUID | None = None,
+        run_id: UUID | None = None,
         since: datetime | None = None,
     ) -> None:
         self.callback = callback
         self.event_type = event_type
         self.role = role
         self.session_id = session_id
+        self.run_id = run_id
         self.since = since
 
     def matches(self, evt: dict) -> bool:
@@ -104,6 +106,8 @@ class _Subscription:
         if self.role and not event_matches_role(evt, self.role):
             return False
         if self.session_id and evt.get("session_id") != str(self.session_id):
+            return False
+        if self.run_id and evt.get("run_id") != str(self.run_id):
             return False
         if self.since and _is_before(evt, self.since):
             return False
@@ -268,6 +272,7 @@ class EventStore:
         self,
         *,
         session_id: UUID | None = None,
+        run_id: UUID | None = None,
         event_type: str | None = None,
         role: str | None = None,
         since: datetime | None = None,
@@ -302,6 +307,8 @@ class EventStore:
         conditions: list[str] = []
         if session_id:
             conditions.append(f"session_id = '{_sql_escape(str(session_id))}'")
+        if run_id:
+            conditions.append(f"run_id = '{_sql_escape(str(run_id))}'")
         if event_type:
             conditions.append(f"event_type = '{_sql_escape(event_type)}'")
         if since:
@@ -415,6 +422,7 @@ class EventStore:
         event_type: str | None = None,
         role: str | None = None,
         session_id: UUID | None = None,
+        run_id: UUID | None = None,
         since: datetime | None = None,
         replay: str = "matching",
     ) -> Callable[[], None]:
@@ -482,6 +490,7 @@ class EventStore:
             event_type=event_type,
             role=role,
             session_id=session_id,
+            run_id=run_id,
             since=since,
         )
         with self._lock:
@@ -504,6 +513,7 @@ class EventStore:
                 else:
                     existing = self.events(
                         session_id=session_id,
+                        run_id=run_id,
                         event_type=event_type,
                         role=role,
                         since=since,

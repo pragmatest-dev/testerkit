@@ -1,4 +1,4 @@
-"""Power-user file-write surface — items 7 / 8.
+"""Power-user file-write surface — items 7 / 8 / 2.
 
 The test-author shape for blob outputs is :meth:`Context.observe` /
 the bare ``observe`` fixture, which auto-routes blobs to FileStore
@@ -10,8 +10,8 @@ forms:
   exposed as a top-level verb; symmetric with
   :func:`litmus.channels.write`)
 - :func:`stream` — context-managed file sink for streaming writes
-  (video, audio, continuous DAQ); **signature-only stub** in C3b —
-  the actual sink implementation lands in build item 2 (C5).
+  (continuous DAQ, line-delimited logs, TDMS / HDF5 capture). Item 2
+  lit in v0.2.0; see :mod:`litmus.data.files.streaming` for formats.
 
 Both delegate to the active FileStore singleton via
 :func:`litmus.data.files.get_filestore`. The ``session_id`` argument
@@ -34,7 +34,11 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from uuid import UUID
+
+if TYPE_CHECKING:
+    from litmus.data.files.streaming import EventEmitter, StreamingSink
 
 
 def _resolve_session_id(session_id: str | None) -> str:
@@ -107,42 +111,87 @@ def write(
     )
 
 
+def _resolve_event_log_and_run_id() -> tuple[EventEmitter | None, UUID | None]:
+    """Pull the active event_log + run_id from the current logger.
+
+    Mirrors :meth:`Context._emit_observation`'s plumbing. Both
+    returned values may be ``None`` — call sites must tolerate that
+    (the sink emits silently when no event_log is available; useful
+    for bare unit tests).
+    """
+    from litmus.execution._state import get_current_logger  # noqa: PLC0415
+
+    logger = get_current_logger()
+    if logger is None:
+        return None, None
+    event_log = getattr(logger, "event_log", None)
+    run_id = getattr(getattr(logger, "test_run", None), "id", None)
+    return event_log, run_id
+
+
 @contextmanager
 def stream(
     name: str,
     *,
     format: str,
     session_id: str | None = None,
-) -> Iterator[Any]:
-    """Context-managed file sink — streams bytes into one growing artifact.
+    vector_id: str | None = None,
+    attributes: dict[str, Any] | None = None,
+) -> Iterator[StreamingSink]:
+    """Context-managed file sink — streams chunks into one growing artifact.
 
-    **Signature-only stub** in C3b — raises ``NotImplementedError`` at
-    call time. The actual sink wraps PyAV / soundfile / tifffile /
-    nptdms / h5py / pyarrow per format and lands in build item 2 (C5).
-    Locked here so callers see the verb shape now; behavior fills in
-    when the streaming sink ships.
+    Build item 2 (C5). Per §3 / §4 of the design doc, this is the
+    FileStore-side equivalent of :func:`litmus.channels.stream` — both
+    stores can stream, with different granularity (file streams write
+    bytes per chunk; channel streams write one typed sample per call).
 
-    Per §3 / §4 of the design doc, this is the FileStore-side
-    equivalent of :func:`litmus.channels.stream` — both stores can
-    stream, with different granularity (file streams write bytes per
-    chunk; channel streams write one typed sample per call).
+    The sink emits :class:`~litmus.data.events.StreamStarted` on open,
+    :class:`~litmus.data.events.StreamFrameIndex` after each
+    :meth:`StreamingSink.write` (carries ``byte_offset`` so live
+    consumers range-read the new window), and
+    :class:`~litmus.data.events.StreamEnded` on close (carries the
+    final ``file://`` URI).
 
     Args:
-        name: Artifact name; the eventual ``file://`` URI is announced
-            via ``StreamEnded`` (item 1b — wires with item 2).
-        format: File format (``"mp4"``, ``"wav"``, ``"tdms"``,
-            ``"h5"``, etc.) — drives the underlying library choice.
+        name: Artifact name (becomes part of the filename).
+        format: Streaming format — one of ``"raw"``, ``"jsonl"``,
+            ``"tdms"``, ``"h5"`` in v0.2.0. See
+            :func:`litmus.data.files.streaming.registered_formats`.
         session_id: Session the stream belongs to. ``None`` resolves
             from the active Context.
+        vector_id: Optional vector context; first 8 chars prefix the
+            filename for audit.
+        attributes: User-supplied metadata bag persisted to the
+            item-1c sidecar at close.
 
     Yields:
-        A sink with ``.write(chunk)`` and ``.close()`` (in C5).
+        A :class:`~litmus.data.files.streaming.StreamingSink` with
+        ``.write(chunk)``, ``.close()``, and (for context-manager
+        exit) implicit close. The final URI is the return value of
+        :meth:`StreamingSink.close`; sinks expose ``.byte_offset``
+        and ``.stream_id`` for callers that want to surface them.
+
+    Example::
+
+        with litmus.files.stream("daq_capture", format="raw") as sink:
+            for chunk in daq.read_chunks():
+                sink.write(chunk)
+        # sink closed; URI emitted via StreamEnded event
     """
-    raise NotImplementedError(
-        f"litmus.files.stream(name={name!r}, format={format!r}) — "
-        "the streaming sink lands in build item 2 (C5). For one-shot "
-        "file writes today, use litmus.files.write(name, value), "
-        "which dispatches per format via the serializer registry."
+    from litmus.data.files import get_filestore  # noqa: PLC0415
+
+    sid = _resolve_session_id(session_id)
+    event_log, run_id = _resolve_event_log_and_run_id()
+    sink = get_filestore().open_stream(
+        name=name,
+        format=format,
+        session_id=sid,
+        vector_id=vector_id,
+        attributes=attributes,
+        event_log=event_log,
+        run_id=run_id,
     )
-    # unreachable — present to satisfy the generator contract
-    yield None
+    try:
+        yield sink
+    finally:
+        sink.close()
