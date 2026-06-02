@@ -249,7 +249,7 @@ _EVENT_CATEGORIES: list[tuple[str, list[str]]] = [
     ),
     ("Channel (lifecycle)", ["ChannelStarted", "ChannelClosed"]),
     ("Diagnostic", ["DiagnosticWarning", "DiagnosticError"]),
-    ("Stream", ["StreamStarted", "StreamEnded", "StreamFrameIndex"]),
+    ("Stream", ["StreamStarted", "StreamEnded"]),
     ("Dialog", ["DialogOpened", "DialogResponded"]),
 ]
 

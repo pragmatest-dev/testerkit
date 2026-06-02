@@ -419,16 +419,6 @@ Emitted when a FileStore streaming sink closes.
 | `uri` | `str \| None` | `None` |
 | `size_bytes` | `int \| None` | `None` |
 
-### `stream.frame_index` — `StreamFrameIndex`
-
-Emitted after each chunk lands in a FileStore streaming sink.
-
-| Field | Type | Default |
-|---|---|---|
-| `stream_id` | `UUID` | *required* |
-| `frame_count` | `int` | `0` |
-| `byte_offset` | `int \| None` | `None` |
-
 ## Dialog events
 
 ### `dialog.opened` — `DialogOpened`

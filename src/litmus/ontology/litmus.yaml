@@ -1051,15 +1051,6 @@ concepts:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
 
-  - id: stream_frame_index
-    category: event
-    event_type: stream.frame_index
-    summary: Periodic stream-progress beacon (frame_count).
-    model: litmus.data.events.StreamFrameIndex
-    relationships:
-      - { kind: stored_in,     target: event_store }
-      - { kind: inherits_from, target: event_base }
-
   # ---- Dialog events ----
 
   - id: dialog_opened

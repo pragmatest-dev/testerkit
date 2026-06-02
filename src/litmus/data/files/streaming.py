@@ -171,11 +171,18 @@ def registered_formats() -> list[str]:
 class _BaseSink:
     """Shared open / close / event-emission scaffolding.
 
-    Format-specific sinks subclass this, override :meth:`_write_chunk`
-    (which returns bytes-written) and optionally :meth:`_finalize`
-    (which is called once before close events emit). All emit-side
-    bookkeeping — stream_id, byte_offset, frame_count, StreamStarted /
-    StreamFrameIndex / StreamEnded — lives here.
+    Format-specific sinks subclass this, override :meth:`write` (which
+    appends a chunk and returns bytes-written) and optionally hand a
+    ``finalizer`` that runs once before :class:`StreamEnded` emits.
+    All emit-side bookkeeping — stream_id, StreamStarted / StreamEnded
+    — lives here.
+
+    Stream events are **lifecycle-only**. No per-chunk event flood;
+    live consumers subscribe to the stream directly (the file on disk,
+    Flight for ChannelStore data) and use EventStore only for
+    discovery. ``byte_offset`` is an informational producer-side
+    property so the caller can know how much has been written; it
+    isn't broadcast over the event log.
 
     ``event_log`` may be ``None``; in that case the sink writes
     silently. Production paths always have one; tests sometimes don't.
@@ -199,7 +206,6 @@ class _BaseSink:
         self._run_id = run_id
         self._stream_id = uuid4()
         self._byte_offset = 0
-        self._frame_count = 0
         self._closed = False
 
     @property
@@ -213,10 +219,6 @@ class _BaseSink:
     @property
     def byte_offset(self) -> int:
         return self._byte_offset
-
-    @property
-    def frame_count(self) -> int:
-        return self._frame_count
 
     def __enter__(self) -> _BaseSink:
         return self
@@ -266,22 +268,9 @@ class _BaseSink:
             )
         )
 
-    def _emit_frame_index(self, bytes_written: int) -> None:
-        if self._event_log is None:
-            return
+    def _track_bytes(self, bytes_written: int) -> None:
+        """Track total bytes written; no event emission (lifecycle-only)."""
         self._byte_offset += bytes_written
-        self._frame_count += 1
-        from litmus.data.events import StreamFrameIndex  # noqa: PLC0415
-
-        self._event_log.emit(
-            StreamFrameIndex(
-                session_id=self._session_uuid(),
-                run_id=self._run_id,
-                stream_id=self._stream_id,
-                frame_count=self._frame_count,
-                byte_offset=self._byte_offset,
-            )
-        )
 
     def _emit_ended(self, uri: str) -> None:
         if self._event_log is None:
@@ -289,7 +278,7 @@ class _BaseSink:
         from litmus.data.events import StreamEnded  # noqa: PLC0415
 
         size_bytes = self._byte_offset if self._byte_offset > 0 else None
-        # If we never tracked bytes (TDMS / HDF5), fall back to disk size
+        # If we never tracked bytes per-write (TDMS / HDF5), stat the file
         if size_bytes is None and self._path.exists():
             size_bytes = self._path.stat().st_size
         self._event_log.emit(
@@ -359,7 +348,7 @@ class _RawByteSink(_BaseSink):
             )
         n = self._file.write(chunk)
         self._file.flush()
-        self._emit_frame_index(n)
+        self._track_bytes(n)
         return n
 
     def close(self) -> str:
@@ -427,7 +416,7 @@ class _JsonlSink(_BaseSink):
             line = orjson.dumps(chunk) + b"\n"
         n = self._file.write(line)
         self._file.flush()
-        self._emit_frame_index(n)
+        self._track_bytes(n)
         return n
 
     def close(self) -> str:
@@ -515,13 +504,12 @@ class _TdmsSink(_BaseSink):
                     "ChannelObject('group', 'channel', np.array([...]))."
                 )
         self._writer.write_segment(list(objects))
-        # Per-chunk byte size: re-stat after write (nptdms doesn't surface it)
+        # Per-chunk byte size: re-stat after write (nptdms doesn't surface it).
+        # Direct assign (not _track_bytes) because the writer's first-segment
+        # file-init overhead would make a per-call delta look bigger than
+        # the chunk; stat() gives ground truth.
         size_after = self._path.stat().st_size if self._path.exists() else 0
         delta = size_after - self._byte_offset
-        self._emit_frame_index(max(delta, 0))
-        # _emit_frame_index already added delta to byte_offset; correct
-        # any drift by re-syncing to disk size (idempotent if delta was
-        # correct — guards against the first-segment file-init overhead).
         self._byte_offset = size_after
         return max(delta, 0)
 
@@ -621,9 +609,10 @@ class _H5Sink(_BaseSink):
                 ds[old_len:new_len] = arr
 
         self._file.flush()
+        # Direct stat assignment (h5py buffers; per-write deltas can be
+        # negative on early flushes when nothing's been emitted yet).
         size_after = self._path.stat().st_size if self._path.exists() else 0
         delta = size_after - self._byte_offset
-        self._emit_frame_index(max(delta, 0))
         self._byte_offset = size_after
         return max(delta, 0)
 

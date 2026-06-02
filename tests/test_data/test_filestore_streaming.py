@@ -3,15 +3,15 @@
 Tests:
 
 - ``FileStore.open_stream`` opens a sink and emits :class:`StreamStarted`.
-- :meth:`StreamingSink.write` appends + emits :class:`StreamFrameIndex`
-  with the post-write ``byte_offset``.
+- :meth:`StreamingSink.write` appends without emitting per-chunk events
+  (lifecycle-only event model — see ``test_emits_lifecycle_events_only``).
 - :meth:`StreamingSink.close` finalizes + emits :class:`StreamEnded`
   with the final ``file://`` URI + ``size_bytes``.
 - Context-manager exit calls close exactly once (idempotent ``close``).
 - Sidecar metadata (item 1c) lands at close with correct MIME / size.
 - Per format: raw, jsonl, tdms, h5.
-- Live-read-during-write — consumer can range-read the appended bytes
-  between :class:`StreamFrameIndex` events.
+- Live-read-during-write — consumer subscribes to the file directly,
+  using only :class:`StreamStarted` for discovery (the path).
 
 Per CLAUDE.md test conventions: uses ``tmp_path``-backed FileStore
 (FileStore writes don't spawn daemons).
@@ -26,11 +26,7 @@ from uuid import uuid4
 import orjson
 import pytest
 
-from litmus.data.events import (
-    StreamEnded,
-    StreamFrameIndex,
-    StreamStarted,
-)
+from litmus.data.events import StreamEnded, StreamStarted
 from litmus.data.files import FileStore
 from litmus.data.files.streaming import (
     StreamFormat,
@@ -178,40 +174,55 @@ class TestRawSink:
         assert len(files) == 1
         assert files[0].read_bytes() == b"abcdefg"
 
-    def test_emits_started_frame_index_ended_in_order(
-        self, store: FileStore, log: CollectingLog
-    ) -> None:
+    def test_emits_lifecycle_events_only(self, store: FileStore, log: CollectingLog) -> None:
+        """Lifecycle-only: StreamStarted + StreamEnded. No per-chunk events.
+
+        Per the Position-2 split for channels — the EventStore is for
+        discovery (what streams are open / done), not per-write notifications.
+        Live consumers subscribe to the stream directly (range-read,
+        format-library decode, Flight). Verified here by writing multiple
+        chunks and asserting the event log only carries the two lifecycle
+        events regardless of chunk count.
+        """
         sid = _sid()
         with store.open_stream("daq", format="raw", session_id=sid, event_log=log) as sink:
             sink.write(b"abc")
             sink.write(b"defg")
-        # Event order: started, frame_index(3), frame_index(7), ended
+            sink.write(b"more")
+            sink.write(b"chunks")
+
         types = [type(e).__name__ for e in log.events]
-        assert types == ["StreamStarted", "StreamFrameIndex", "StreamFrameIndex", "StreamEnded"]
+        assert types == ["StreamStarted", "StreamEnded"]
 
         started = log.events[0]
         assert isinstance(started, StreamStarted)
+        assert started.stream_id == sink.stream_id
         assert started.name == "daq"
         assert started.format == "raw"
         assert started.path is not None
         assert started.path.endswith("daq.bin")
 
-        fi1 = log.events[1]
-        assert isinstance(fi1, StreamFrameIndex)
-        assert fi1.stream_id == sink.stream_id
-        assert fi1.byte_offset == 3
-        assert fi1.frame_count == 1
-
-        fi2 = log.events[2]
-        assert isinstance(fi2, StreamFrameIndex)
-        assert fi2.byte_offset == 7
-        assert fi2.frame_count == 2
-
-        ended = log.events[3]
+        ended = log.events[1]
         assert isinstance(ended, StreamEnded)
         assert ended.stream_id == sink.stream_id
         assert ended.uri == f"file://{sid}/daq.bin"
-        assert ended.size_bytes == 7
+        assert ended.size_bytes == len(b"abc" + b"defg" + b"more" + b"chunks")
+
+    def test_byte_offset_property_tracks_per_write(
+        self, store: FileStore, log: CollectingLog
+    ) -> None:
+        """``sink.byte_offset`` is the producer-side write counter (not an event).
+
+        Producers can query it to know how much they've written; nothing
+        is emitted per write.
+        """
+        sid = _sid()
+        with store.open_stream("daq", format="raw", session_id=sid, event_log=log) as sink:
+            assert sink.byte_offset == 0
+            sink.write(b"abc")
+            assert sink.byte_offset == 3
+            sink.write(b"defg")
+            assert sink.byte_offset == 7
 
     def test_str_chunk_rejected_with_helpful_error(
         self, store: FileStore, log: CollectingLog
@@ -373,20 +384,18 @@ class TestTdmsSink:
         sid = _sid()
         with store.open_stream("capture", format="tdms", session_id=sid, event_log=log) as sink:
             sink.write(nptdms.ChannelObject("daq", "ch1", np.array([1.0])))
+            sink.write(nptdms.ChannelObject("daq", "ch1", np.array([2.0])))
 
         types = [type(e).__name__ for e in log.events]
-        assert types == ["StreamStarted", "StreamFrameIndex", "StreamEnded"]
+        assert types == ["StreamStarted", "StreamEnded"]
 
         started = log.events[0]
         assert isinstance(started, StreamStarted)
         assert started.format == "tdms"
 
-        fi = log.events[1]
-        assert isinstance(fi, StreamFrameIndex)
-        assert fi.byte_offset is not None and fi.byte_offset > 0
-
-        ended = log.events[2]
+        ended = log.events[1]
         assert isinstance(ended, StreamEnded)
+        assert ended.stream_id == sink.stream_id
         assert ended.uri == f"file://{sid}/capture.tdms"
         assert ended.size_bytes is not None and ended.size_bytes > 0
 
@@ -498,41 +507,50 @@ class TestStreamingSidecar:
 
 
 class TestLiveReadDuringWrite:
-    """A consumer can range-read the file between FrameIndex events.
+    """A consumer can range-read the file while the producer is still writing.
 
-    The producer emits StreamStarted with the on-disk path; the
-    consumer opens the file in read mode, range-reads from the
-    previous byte_offset to the new one on each FrameIndex.
+    Lifecycle-only event model: the producer emits StreamStarted with the
+    on-disk path; the consumer subscribes to the stream **directly**
+    (range-read the file, stat its size, decode via the format library).
+    EventStore is used for *discovery* only — the consumer reads
+    StreamStarted to learn the path, then deals with the file.
+
+    This test exercises that pattern with the raw format (the simplest
+    case for range-read) — pin the protocol so it can't silently
+    regress to per-chunk events.
     """
 
-    def test_consumer_reads_appended_window_per_chunk(
+    def test_consumer_can_read_file_while_producer_is_writing(
         self, store: FileStore, log: CollectingLog
     ) -> None:
         sid = _sid()
         sink = store.open_stream("stream", format="raw", session_id=sid, event_log=log)
 
-        # consumer learns path from StreamStarted
+        # Consumer learns path from StreamStarted — the one event we emit at open.
         started = next(e for e in log.events if isinstance(e, StreamStarted))
         assert started.path is not None
         consumer_path = Path(started.path)
 
-        # First chunk
+        # First chunk lands; consumer stat()s the file size and range-reads
+        # the new window. No per-chunk event needed.
         prev_offset = 0
         sink.write(b"hello-")
-        latest_fi = next(e for e in reversed(log.events) if isinstance(e, StreamFrameIndex))
-        assert latest_fi.byte_offset is not None
+        size = consumer_path.stat().st_size
         with consumer_path.open("rb") as f:
             f.seek(prev_offset)
-            assert f.read(latest_fi.byte_offset - prev_offset) == b"hello-"
-        prev_offset = latest_fi.byte_offset
+            assert f.read(size - prev_offset) == b"hello-"
+        prev_offset = size
 
-        # Second chunk
+        # Second chunk; same protocol — consumer polls + range-reads.
         sink.write(b"world")
-        latest_fi = next(e for e in reversed(log.events) if isinstance(e, StreamFrameIndex))
-        assert latest_fi.byte_offset is not None
+        size = consumer_path.stat().st_size
         with consumer_path.open("rb") as f:
             f.seek(prev_offset)
-            assert f.read(latest_fi.byte_offset - prev_offset) == b"world"
+            assert f.read(size - prev_offset) == b"world"
+
+        # No StreamFrameIndex events were emitted (lifecycle-only).
+        non_lifecycle = [e for e in log.events if not isinstance(e, StreamStarted | StreamEnded)]
+        assert non_lifecycle == []
 
         sink.close()
 

@@ -28,7 +28,7 @@ import orjson
 import pytest
 
 import litmus.files
-from litmus.data.events import StreamEnded, StreamFrameIndex, StreamStarted
+from litmus.data.events import StreamEnded, StreamStarted
 from litmus.data.files import _reset_for_tests
 from litmus.execution._state import (
     get_current_logger,
@@ -130,11 +130,11 @@ class TestEventLogResolution:
 
         with litmus.files.stream("with_log", format="raw", session_id=sid) as sink:
             sink.write(b"abc")
+        del sink  # quiet ruff F841 — context-managed by `with`
 
+        # Lifecycle-only: exactly the two events, in order.
         types = [type(e).__name__ for e in log.events]
-        assert "StreamStarted" in types
-        assert "StreamFrameIndex" in types
-        assert "StreamEnded" in types
+        assert types == ["StreamStarted", "StreamEnded"]
 
         for event in log.events:
             assert event.run_id == run_id
@@ -243,8 +243,13 @@ class TestCloseOnContextExit:
 # --------------------------------------------------------------------- #
 
 
-class TestLiveReadViaEvents:
-    def test_consumer_can_compute_window_from_events(
+class TestLiveReadViaDirectFileAccess:
+    """Lifecycle-only event model: consumer learns path from
+    :class:`StreamStarted` and subscribes to the file directly. No
+    per-chunk events; live UIs poll the file size or stat the
+    artifact."""
+
+    def test_consumer_reads_file_using_started_path_only(
         self, _isolated_filestore: None, _logger_slot: None
     ) -> None:
         sid = str(uuid4())
@@ -257,11 +262,16 @@ class TestLiveReadViaEvents:
             sink.write(b"second-")
             sink.write(b"third")
 
+        # Discovery via the single lifecycle-open event
         started = next(e for e in log.events if isinstance(e, StreamStarted))
         assert started.path is not None
         on_disk = Path(started.path)
-
-        fis = [e for e in log.events if isinstance(e, StreamFrameIndex)]
-        assert [fi.byte_offset for fi in fis] == [6, 13, 18]
-        assert [fi.frame_count for fi in fis] == [1, 2, 3]
         assert on_disk.read_bytes() == b"first-second-third"
+
+        # Lifecycle-only — exactly two events, no per-chunk noise
+        types = [type(e).__name__ for e in log.events]
+        assert types == ["StreamStarted", "StreamEnded"]
+
+        ended = log.events[-1]
+        assert isinstance(ended, StreamEnded)
+        assert ended.size_bytes == 18

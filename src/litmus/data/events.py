@@ -618,10 +618,19 @@ class StreamStarted(EventBase):
     """Emitted when a FileStore streaming sink opens.
 
     Once per ``stream_id``. Carries the on-disk path so live consumers
-    can begin a range-read against the still-growing file before any
-    chunks land. ``path`` is the absolute filesystem path; the final
-    ``file://`` URI is announced via :class:`StreamEnded` at close
-    (it can't be known until the sink resolves a collision-free name).
+    can begin a range-read or library-decode against the still-growing
+    file before any chunks land. ``path`` is the absolute filesystem
+    path; the final ``file://`` URI is announced via :class:`StreamEnded`
+    at close (it can't be known until the sink resolves a collision-free
+    name).
+
+    **Stream events are lifecycle-only** (the FileStore parallel of
+    Position 2 for channels). Per-chunk events would flood the
+    EventStore at high write rates (kHz captures, 30 fps video, etc.)
+    for no real subscriber gain. Live consumers subscribe to the
+    stream directly — range-read the file, decode via the format
+    library, or watch the underlying transport — using EventStore only
+    for discovery ("what streams are open / done").
     """
 
     event_type: Literal["stream.started"] = "stream.started"
@@ -637,31 +646,13 @@ class StreamEnded(EventBase):
     Once per ``stream_id``. ``uri`` is the final ``file://`` claim that
     callers can stash into vector ``out_*`` columns or hand to the
     artifact viewer. ``size_bytes`` is the total appended-byte count
-    when the sink tracks it (``None`` for sinks that delegate sizing
-    to the underlying library and don't tally per-write).
+    at close.
     """
 
     event_type: Literal["stream.ended"] = "stream.ended"
     stream_id: UUID
     uri: str | None = None
     size_bytes: int | None = None
-
-
-class StreamFrameIndex(EventBase):
-    """Emitted after each chunk lands in a FileStore streaming sink.
-
-    Live consumers react to this event and range-read the new byte
-    window (``Range: bytes={byte_offset - last_chunk_size}-{byte_offset - 1}``)
-    rather than polling. ``frame_count`` carries a per-frame counter
-    when the sink works in frames (video) and stays 0 otherwise;
-    ``byte_offset`` carries the post-write file size so consumers can
-    compute the new range from the previous offset.
-    """
-
-    event_type: Literal["stream.frame_index"] = "stream.frame_index"
-    stream_id: UUID
-    frame_count: int = 0
-    byte_offset: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -719,7 +710,7 @@ ROUTE_EVENTS = {RouteClosed, RouteOpened}
 INSTRUMENT_EVENTS = {InstrumentSet, InstrumentConfigure}
 CHANNEL_EVENTS = {ChannelStarted, ChannelClosed}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
-STREAM_EVENTS = {StreamStarted, StreamEnded, StreamFrameIndex}
+STREAM_EVENTS = {StreamStarted, StreamEnded}
 DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
     SESSION_EVENTS
@@ -766,7 +757,6 @@ Event = Annotated[
     | DiagnosticError
     | StreamStarted
     | StreamEnded
-    | StreamFrameIndex
     | DialogOpened
     | DialogResponded,
     Field(discriminator="event_type"),

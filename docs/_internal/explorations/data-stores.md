@@ -1039,7 +1039,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | Item | Title | Cluster | Status | PR |
 |---|---|---|---|---|
 | 1a | FileStore put API + URI scheme | C1a | ✅ DONE | #14 |
-| 1b | FileStore live lifecycle + Stream events | C5 | ✅ DONE | (this PR) |
+| 1b | FileStore lifecycle Stream events (StreamStarted / StreamEnded — per-chunk FrameIndex DROPPED per Position 2 parity) | C5 | ✅ DONE | (this PR) |
 | 1c | FileStore attributes + MIME typing | C4-partial | ✅ DONE | #23 |
 | 1d | Unify the two `_ref` dirs | C4-mid | ✅ DONE | #25 |
 | 1e | FileStore integration test | C4-remainder | ✅ DONE | (this PR) |
