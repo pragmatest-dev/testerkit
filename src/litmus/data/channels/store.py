@@ -13,6 +13,7 @@ import warnings
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any, Protocol
 from uuid import UUID
 
 import pyarrow as pa
@@ -124,6 +125,18 @@ def _decimate_table(table: pa.Table, max_points: int) -> pa.Table:
     return table.take(indices)
 
 
+class ChannelEventEmitter(Protocol):
+    """Structural type for anything ChannelStore can emit lifecycle events into.
+
+    Both the production :class:`litmus.data.event_log.EventLog` and the
+    test-side ``CollectingLog`` shape (just an ``emit`` method) satisfy
+    this. Keeps :class:`ChannelStore` decoupled from the heavyweight
+    event-log subsystem.
+    """
+
+    def emit(self, event: Any) -> None: ...
+
+
 class _ChannelWriter(BufferedIPCWriter):
     """Manages streaming IPC output for a single channel.
 
@@ -182,7 +195,7 @@ class ChannelStore:
     - Mid-session query() merging flushed files + in-memory buffer
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         data_dir: Path,
         session_id: UUID,
@@ -191,6 +204,7 @@ class ChannelStore:
         serve: bool = False,
         host: str = "127.0.0.1",
         port: int = 0,
+        event_log: ChannelEventEmitter | None = None,
     ) -> None:
         # Parent-only convention — caller passes the results parent
         # (containing ``runs/``, ``channels/``, ``events/`` …); the
@@ -208,6 +222,21 @@ class ChannelStore:
         self._flight_port = port
         self._flight_location: str | None = None
         self._flight_client: flight.FlightClient | None = None
+        # Position 2 (item 4b): ChannelStore owns ChannelStarted /
+        # ChannelClosed emission because per-(channel, session)
+        # tracking lives here naturally — the registry already records
+        # first write. Any writer path (observer.read /
+        # Context.stream / channels.write / FileStore stream sink)
+        # gets the right lifecycle events without coordinating its
+        # own tracker. ``event_log`` may be ``None`` for tests /
+        # bringup paths with no session event log.
+        self._event_log = event_log
+        # First-write run_id per channel — pairs with ChannelClosed
+        # on session-end so the two events carry the same run context.
+        # ``None`` for channels written outside any run (daemon writes,
+        # interactive bringup).
+        self._channel_run_ids: dict[str, UUID | None] = {}
+        self._closed = False
 
     def open(self) -> None:
         self._channels_dir.mkdir(parents=True, exist_ok=True)
@@ -232,7 +261,7 @@ class ChannelStore:
             return SCALAR_SCHEMA
         return None
 
-    def write(
+    def write(  # noqa: PLR0913
         self,
         channel_id: str,
         value: object,
@@ -243,6 +272,7 @@ class ChannelStore:
         instrument_role: str = "",
         resource: str = "",
         sampled_at: datetime | None = None,
+        run_id: UUID | None = None,
     ) -> str:
         """Write a value directly to a channel.
 
@@ -312,6 +342,26 @@ class ChannelStore:
                 resource=resource,
                 first_seen=now,
             )
+            # Position 2 (item 4b): emit ChannelStarted exactly once per
+            # (channel_id, session_id) — coincides with first-time registry
+            # entry. Stamp the first-write run_id so the paired
+            # ``ChannelClosed`` on session-end carries the same run
+            # context.
+            self._channel_run_ids[channel_id] = run_id
+            if self._event_log is not None:
+                from litmus.data.events import ChannelStarted  # noqa: PLC0415
+
+                self._event_log.emit(
+                    ChannelStarted(
+                        session_id=self._session_id,
+                        run_id=run_id,
+                        channel_id=channel_id,
+                        units=units,
+                        instrument_role=instrument_role or None,
+                        method=source or None,
+                        resource=resource or None,
+                    )
+                )
 
         # Get or create writer (schema inferred from first value)
         if channel_id not in self._writers:
@@ -682,7 +732,32 @@ class ChannelStore:
         return refs
 
     def close(self) -> None:
-        """Flush all writers, write channel registry, close."""
+        """Flush all writers, write channel registry, close.
+
+        Position 2 (item 4b): emits one :class:`ChannelClosed`
+        (``reason="session_ended"``) per channel that received at least
+        one write in this session, paired with the ``ChannelStarted``
+        that fired on first write. Idempotent — second close() emits
+        nothing.
+        """
+        # Position 2: emit ChannelClosed for every channel touched in
+        # this session — before tearing down Flight / writers so the
+        # event log captures the lifecycle marker while the event log
+        # is still live.
+        if not self._closed and self._event_log is not None:
+            from litmus.data.events import ChannelClosed  # noqa: PLC0415
+
+            for channel_id in list(self._registry):
+                self._event_log.emit(
+                    ChannelClosed(
+                        session_id=self._session_id,
+                        run_id=self._channel_run_ids.get(channel_id),
+                        channel_id=channel_id,
+                        reason="session_ended",
+                    )
+                )
+        self._closed = True
+
         # Close Flight client and release server ref
         if self._flight_client is not None:
             try:

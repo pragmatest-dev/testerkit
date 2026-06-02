@@ -277,6 +277,7 @@ class Context:
                         value.Y,
                         sample_interval=value.dt,
                         source="observe",
+                        run_id=self._current_run_id(),
                     )
                     self._observations[full_key] = uri
                     self._emit_observation(full_key, uri)
@@ -286,7 +287,9 @@ class Context:
 
             vtype = classify_value(value)
             if vtype in ("numeric_array", "channel") and self._channel_store is not None:
-                uri = self._channel_store.write(full_key, value, source="observe")
+                uri = self._channel_store.write(
+                    full_key, value, source="observe", run_id=self._current_run_id()
+                )
                 self._observations[full_key] = uri
                 self._emit_observation(full_key, uri)
                 return
@@ -317,6 +320,18 @@ class Context:
 
         self._observations[full_key] = value
         self._emit_observation(full_key, value)
+
+    def _current_run_id(self) -> UUID | None:
+        """Pull the active run_id from the active TestRunLogger ContextVar.
+
+        Returned by :meth:`stream` / :meth:`observe` / :meth:`verify`
+        write callers so ChannelStore can stamp the right run context
+        on ``ChannelStarted`` / ``ChannelClosed`` lifecycle events.
+        Returns ``None`` when called outside a run (interactive
+        bringup, daemon-driven writes, bare unit tests).
+        """
+        logger = get_current_logger()
+        return getattr(getattr(logger, "test_run", None), "id", None)
 
     def _emit_observation(self, key: str, value: Any) -> None:
         """Emit an ``Observation`` event for the value that landed in ``_observations``.
@@ -408,7 +423,9 @@ class Context:
                 "or run inside an active Litmus session."
             )
         full_name = f"{namespace}.{name}" if namespace else name
-        return self._channel_store.write(full_name, sample, source="stream")
+        return self._channel_store.write(
+            full_name, sample, source="stream", run_id=self._current_run_id()
+        )
 
     def verify(
         self,

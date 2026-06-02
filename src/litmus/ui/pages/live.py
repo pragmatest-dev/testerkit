@@ -59,16 +59,20 @@ async def live_page(run_id: str):
             with ui.tab_panel(events_tab):
                 _timeline_container, unsub_timeline = create_event_timeline(event_store)
 
+            # Parse the URL run_id once; both Channels and Streams scope
+            # their subscriptions to this run so operators on
+            # /live/{run_id} only see this run's activity.
+            try:
+                run_uuid: UUID | None = UUID(run_id)
+            except ValueError:
+                run_uuid = None
+
             with ui.tab_panel(channels_tab):
-                _channels_container, unsub_channels = create_channel_values_panel(event_store)
+                _channels_container, unsub_channels = create_channel_values_panel(
+                    event_store, run_id=run_uuid
+                )
 
             with ui.tab_panel(streams_tab):
-                # Scope the panel to this run — operators on /live/{run_id}
-                # should only see streams from the run they're looking at.
-                try:
-                    run_uuid: UUID | None = UUID(run_id)
-                except ValueError:
-                    run_uuid = None
                 _streams_container, unsub_streams = create_file_streams_panel(
                     event_store, run_id=run_uuid
                 )

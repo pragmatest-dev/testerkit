@@ -96,17 +96,45 @@ class TestEventEmitterConfigure:
 class TestEventEmitterChannelStore:
     def test_writes_to_channel_store(self):
         """Channel store still receives every sample; only the EVENT is lifecycle-only."""
+        from litmus.data.events import ChannelStarted
+
         log = CollectingLog()
         written: list = []
+        session_id = uuid4()
 
         class FakeStore:
-            def write(self, channel_id: str, value, source: str = "") -> str:  # noqa: ANN001, ARG002
+            # Mirrors the real ChannelStore item-4b contract: emits
+            # ChannelStarted exactly once on first write per channel.
+            _started: set = set()
+
+            def write(  # noqa: ANN001, ARG002, PLR0913
+                self,
+                channel_id: str,
+                value,
+                source: str = "",
+                instrument_role: str = "",
+                resource: str = "",
+                run_id=None,  # noqa: ANN001
+                **_kwargs,
+            ) -> str:
                 written.append((channel_id, value))
+                if channel_id not in self._started:
+                    self._started.add(channel_id)
+                    log.emit(
+                        ChannelStarted(
+                            session_id=session_id,
+                            run_id=run_id,
+                            channel_id=channel_id,
+                            instrument_role=instrument_role or None,
+                            method=source or None,
+                            resource=resource or None,
+                        )
+                    )
                 return f"channel://{channel_id}"
 
         emitter = EventEmitter(
             event_log=log,  # type: ignore[arg-type]
-            session_id=uuid4(),
+            session_id=session_id,
             role="dmm",
             channel_store=FakeStore(),
         )

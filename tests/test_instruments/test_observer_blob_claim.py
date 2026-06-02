@@ -53,13 +53,47 @@ class FakeChannelStore:
     Mimics the parts of ``litmus.data.channels.ChannelStore.write``
     that EventEmitter touches: takes (channel_id, value, source),
     returns a synthesized ``channel://`` URI, records the args.
+    Also mirrors item-4b consolidation: when ``event_log`` is wired,
+    emits ``ChannelStarted`` once per (channel, session) on first
+    write — the same contract the real store now upholds.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        session_id=None,  # noqa: ANN001
+        event_log=None,  # noqa: ANN001
+    ) -> None:
         self.writes: list[tuple[str, object, str]] = []
+        self._session_id = session_id
+        self._event_log = event_log
+        self._started: set[str] = set()
 
-    def write(self, channel_id: str, value, source: str = "") -> str:  # noqa: ANN001
+    def write(  # noqa: ANN001, PLR0913
+        self,
+        channel_id: str,
+        value,
+        source: str = "",
+        instrument_role: str = "",
+        resource: str = "",
+        run_id=None,  # noqa: ANN001
+        **_kwargs,
+    ) -> str:
         self.writes.append((channel_id, value, source))
+        if channel_id not in self._started:
+            self._started.add(channel_id)
+            if self._event_log is not None and self._session_id is not None:
+                from litmus.data.events import ChannelStarted
+
+                self._event_log.emit(
+                    ChannelStarted(
+                        session_id=self._session_id,
+                        run_id=run_id,
+                        channel_id=channel_id,
+                        instrument_role=instrument_role or None,
+                        method=source or None,
+                        resource=resource or None,
+                    )
+                )
         return f"channel://{channel_id}?session=test"
 
 
@@ -73,8 +107,10 @@ def _reset_filestore_singleton():
 
 def _emitter_with_store() -> tuple[EventEmitter, CollectingLog, FakeChannelStore, str]:
     log = CollectingLog()
-    store = FakeChannelStore()
     sid = uuid4()
+    # Wire the fake store with the same event_log + session_id the
+    # emitter uses, so the store can emit ChannelStarted (item 4b).
+    store = FakeChannelStore(session_id=sid, event_log=log)
     emitter = EventEmitter(
         event_log=log,  # type: ignore[arg-type]
         session_id=sid,
