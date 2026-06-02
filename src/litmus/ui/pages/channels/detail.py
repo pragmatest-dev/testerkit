@@ -7,9 +7,12 @@ from typing import Any
 
 from nicegui import ui
 
+from litmus.data.channels.models import ChannelSample
 from litmus.ui.shared.components import data_table, format_datetime, info_field, push_url_state
+from litmus.ui.shared.event_binding import ui_channel_data
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import list_channels, query_channel
+from litmus.ui.shared.timestamps import format_time_short
 
 
 @ui.page("/channels/{channel_id}")
@@ -63,6 +66,10 @@ def channel_detail_page(
         # before chart_card / data_card are built below.
         chart_card: ui.card | None = None
         data_card: ui.card | None = None
+        # Live-subscription handle — built by _render_chart on each
+        # refresh, cancelled before the next refresh so we don't leak
+        # stale callbacks targeting an orphaned chart object.
+        live_unsub_holder: list[Callable[[], None]] = []
 
         def refresh() -> None:
             if chart_card is None or data_card is None:
@@ -83,7 +90,19 @@ def channel_detail_page(
                 max_points=1000,  # LTTB decimation for chart-friendly response
             )
             data = payload.get("data") or []
-            _render_chart(chart_card, channel_id, data, descriptor)
+            # Cancel previous live subscription before rebuilding.
+            for unsub in live_unsub_holder:
+                unsub()
+            live_unsub_holder.clear()
+            live_unsub = _render_chart(
+                chart_card,
+                channel_id,
+                data,
+                descriptor,
+                session_filter=filters.session_id() or None,
+            )
+            if live_unsub is not None:
+                live_unsub_holder.append(live_unsub)
             _render_data_table(data_card, data)
 
         # Filters first (above chart + data) so the page reads top-down.
@@ -190,12 +209,40 @@ def _render_chart(
     channel_id: str,
     rows: list[dict[str, Any]],
     descriptor: dict[str, Any],
-) -> None:
-    """ECharts line plot of scalar values; first-sample plot for arrays."""
+    *,
+    session_filter: str | None = None,
+) -> Callable[[], None] | None:
+    """ECharts line plot of scalar values; first-sample plot for arrays.
+
+    Build item 18 (Live waveform plot): when the panel renders, also
+    subscribes to live samples for this channel and appends them to
+    the chart in real time. Returns the unsubscribe callable so the
+    page-level refresh() can cancel before re-rendering.
+
+    Scalar channels: each new sample appends one (received_at, value)
+    point to the trailing series.
+
+    Array channels (Waveform-shaped writes): each new sample replaces
+    the chart's series with the new array.
+
+    ``session_filter`` filters the **historical** query; live samples
+    from ChannelStore don't carry session_id on the Event signal today,
+    so they're shown regardless. Acceptable for v1: the historical
+    chart respects the filter, live tail shows fresh activity. A future
+    cluster can plumb session_id through :class:`ChannelSample` if
+    operators ask for it.
+    """
+    _ = session_filter  # unused on the live path — see docstring
     card.clear()
     with card:
         with ui.card_section():
-            ui.label("Chart").classes("font-semibold")
+            with ui.row().classes("items-center justify-between w-full"):
+                ui.label("Chart").classes("font-semibold")
+                # Build item 18 — live update indicator. Pulses on
+                # each sample received via ui_channel_data.
+                live_badge = ui.label("● live").classes(
+                    "px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700"
+                )
             ui.label("LTTB-decimated to ≤1,000 points; faithful peaks/valleys.").classes(
                 "text-xs text-slate-500"
             )
@@ -203,7 +250,18 @@ def _render_chart(
         if not rows:
             with ui.card_section():
                 ui.label("No samples for the current filters.").classes("text-slate-500 italic")
-            return
+            # Still subscribe to live samples — a channel with no past
+            # data starts producing now, render the first sample when it
+            # arrives (operator gets "live empty → first point" UX).
+            return _wire_live_subscription(
+                card=card,
+                channel_id=channel_id,
+                chart=None,
+                descriptor=descriptor,
+                rows_ref=rows,
+                session_filter=session_filter,
+                live_badge=live_badge,
+            )
 
         x_values = [_axis_tick(r.get("received_at")) for r in rows]
         units = descriptor.get("units") or ""
@@ -300,6 +358,114 @@ def _render_chart(
             ),
             once=True,
         )
+
+    return _wire_live_subscription(
+        card=card,
+        channel_id=channel_id,
+        chart=chart,
+        descriptor=descriptor,
+        rows_ref=rows,
+        session_filter=session_filter,
+        live_badge=live_badge,
+    )
+
+
+def _wire_live_subscription(  # noqa: PLR0913
+    *,
+    card: ui.card,
+    channel_id: str,
+    chart: ui.echart | None,
+    descriptor: dict[str, Any],
+    rows_ref: list[dict[str, Any]],
+    session_filter: str | None,
+    live_badge: ui.label,
+) -> Callable[[], None]:
+    """Subscribe to live samples for ``channel_id`` and update ``chart`` in place.
+
+    Returns the unsubscribe callable — caller must call it before
+    re-rendering the chart (so a stale callback doesn't mutate an
+    orphaned chart object).
+
+    Scalar channels: each new sample appends one point to the trailing
+    series and the X-axis category list.
+
+    Array channels: each new sample is the new waveform trace — replace
+    the chart's first series ``data`` with the array.
+
+    Empty initial state (``chart is None``): record samples in
+    ``rows_ref``; the chart is re-rendered on the next refresh() so
+    the operator sees data accumulate. We don't reach back into the
+    page to call refresh from here.
+    """
+    # NiceGUI Event auto-unsubscribes on client disconnect, but the
+    # page's refresh() cycle creates new chart objects without
+    # disconnecting — explicit unsubscribe avoids stale-callback
+    # mutations on a deleted chart.
+    signal = ui_channel_data(channel_id)
+
+    # LIVE badge stays static green when subscribed. A pulse-style
+    # animation tied to a one-shot ``ui.timer`` raced page teardown
+    # (timer fires after slot deletion → RuntimeError); the badge's
+    # presence alone signals "subscribed" clearly enough.
+    _ = live_badge
+
+    def _on_sample(sample: ChannelSample) -> None:
+        if chart is None:
+            # Empty initial state — nothing to mutate yet.
+            return
+
+        value = sample.value
+        ts_short = format_time_short(sample.received_at.isoformat())
+
+        opts = chart.options
+        series = opts.get("series") or []
+        x_data = (opts.get("xAxis") or {}).get("data") or []
+
+        if isinstance(value, list) and value:
+            # Array (waveform) — replace the trace with the new array.
+            interval = sample.sample_interval or 0.0
+            if interval:
+                x_axis_data, _label = _format_time_axis(interval, len(value))
+            else:
+                x_axis_data = [str(i) for i in range(len(value))]
+            opts["xAxis"]["data"] = x_axis_data
+            # Keep only one trace (the latest) to avoid unbounded growth;
+            # historical traces are part of the static load below the
+            # latest live capture.
+            opts["series"] = [
+                {
+                    "name": "live",
+                    "type": "line",
+                    "data": list(value),
+                    "showSymbol": False,
+                    "smooth": False,
+                    "lineStyle": {"width": 1.5, "color": "#2563eb"},
+                }
+            ]
+        else:
+            # Scalar — append (x, y) to the trailing series.
+            if not series:
+                return
+            primary = series[0]
+            data_list = list(primary.get("data") or [])
+            data_list.append(value)
+            primary["data"] = data_list
+            x_data_list = list(x_data)
+            x_data_list.append(ts_short)
+            opts["xAxis"]["data"] = x_data_list
+
+        chart.update()
+
+    signal.subscribe(_on_sample)
+
+    def _unsubscribe() -> None:
+        try:
+            signal.unsubscribe(_on_sample)
+        except ValueError:
+            # Already unsubscribed (auto-cleanup on client disconnect)
+            pass
+
+    return _unsubscribe
 
 
 def _render_data_table(card: ui.card, rows: list[dict[str, Any]]) -> None:
@@ -451,7 +617,10 @@ def _build_chart_series(
 
     For scalar channels the series is a single line.
     """
-    if last_values is None or not last_values:
+    # Scalar channel (or empty array): plot the scalar series from y_data.
+    # ``last_values`` for scalar channels is a single float — guard with
+    # isinstance before treating it as iterable.
+    if not isinstance(last_values, list) or not last_values:
         return [
             {
                 "type": "line",

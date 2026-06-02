@@ -115,35 +115,57 @@ def reset_channel_signals() -> None:
     _global_signal = None
 
 
+def _dispatch_sample_to_signals(sample: ChannelSample) -> None:
+    """Fan out one sample to its per-channel and global NiceGUI signals."""
+    evt = _channel_signals.get(sample.channel_id)
+    if evt is not None:
+        evt.emit(sample)
+    if _global_signal is not None:
+        _global_signal.emit(sample)
+
+
+def bind_flight_location(location: str) -> Callable[[], None]:
+    """Bridge a channels-daemon Flight server into NiceGUI Events.
+
+    The ``litmus serve`` startup path acquires the channels daemon but
+    isn't a writer — it has no ChannelStore of its own to bridge.
+    This entry point takes the daemon's gRPC location directly,
+    subscribes ``"*"`` via :class:`ChannelClient`, and fans samples
+    out to the per-channel + global NiceGUI signals that pages
+    subscribe to via :func:`ui_channel_data` /
+    :func:`ui_global_channel_data`.
+
+    Idempotent: a second call for the same location is a no-op.
+
+    Returns a cleanup callable.
+    """
+    if not location or location in _bound_locations:
+        return lambda: None
+
+    _bound_locations.add(location)
+    client = ChannelClient(location)
+    unsub = client.on_channel("*", _dispatch_sample_to_signals)
+
+    def _close() -> None:
+        unsub()
+        client.close()
+        _bound_locations.discard(location)
+
+    return _close
+
+
 def bind_channel_store(store: ChannelStore) -> Callable[[], None]:
     """Bridge a ChannelStore into NiceGUI Events for all browser clients.
 
     If the store has a Flight server, subscribes via ``ChannelClient``
-    for cross-process data. Otherwise, subscribes in-process via
-    ``store.on_channel()``.
+    for cross-process data — same path as :func:`bind_flight_location`.
+    Otherwise, subscribes in-process via ``store.on_channel()``.
 
     Call once at startup. Returns a cleanup callable.
     """
-
-    def _on_sample(sample: ChannelSample) -> None:
-        evt = _channel_signals.get(sample.channel_id)
-        if evt is not None:
-            evt.emit(sample)
-        if _global_signal is not None:
-            _global_signal.emit(sample)
-
     location = store.flight_location
-    if location and location not in _bound_locations:
-        _bound_locations.add(location)
-        client = ChannelClient(location)
-        unsub = client.on_channel("*", _on_sample)
-
-        def _close() -> None:
-            unsub()
-            client.close()
-            _bound_locations.discard(location)
-
-        return _close
+    if location:
+        return bind_flight_location(location)
 
     # Fallback: in-process only
-    return store.on_channel(None, _on_sample)
+    return store.on_channel(None, _dispatch_sample_to_signals)
