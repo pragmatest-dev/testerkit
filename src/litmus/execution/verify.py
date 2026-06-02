@@ -33,6 +33,15 @@ class VerifyFn(Protocol):
     Typing the fixture as this Protocol lets IDEs autocomplete
     ``verify("label", value, limit=..., characteristic=...)`` instead of
     showing ``Any``.
+
+    **Verbs separate cleanly**: ``verify`` judges scalars; ``observe``
+    handles all shapes (routing + URI). To capture an artifact AND
+    judge a metric, use both: ``observe("scope.cap", wf)`` to land the
+    capture in ChannelStore (URI rides as ``out_scope.cap`` on the
+    vector), then ``verify("overshoot", overshoot(wf), Limit(...))``
+    to judge the scalar metric. The artifact is queryable via
+    ``WHERE out_scope.cap IS NOT NULL`` — by data presence, not row
+    name (design doc §7).
     """
 
     def __call__(
@@ -162,7 +171,26 @@ def _perform_verify(
     The two shapes — method on Context and bare callable — share
     this one body so the verb behaves identically regardless of which
     surface the test author reaches for. Symmetric with
-    :meth:`Context.observe` / the future bare ``observe`` fixture.
+    :meth:`Context.observe` / the bare ``observe`` fixture.
+
+    **Verbs are separate**:
+
+    * ``verify`` is **judgment-bearing** — it takes a scalar and a
+      limit, decides PASSED / FAILED / ERRORED, and raises on FAIL.
+      Non-scalar values raise :class:`TypeError` pointing at
+      ``observe``.
+    * ``observe`` handles **all shapes** — scalar / array / Waveform /
+      blob. Non-scalars route to the right store; the resulting URI
+      rides on the active vector's ``out_<name>`` for downstream
+      query via ``WHERE out_<name> IS NOT NULL`` (design doc §7).
+
+    To capture an artifact AND judge a metric in the same step::
+
+        observe("scope.ch1.capture", wf)                      # URI on out_*
+        verify("overshoot", overshoot(wf), Limit(low=0, high=0.5))
+
+    The artifact's presence is queryable by ``out_scope.ch1.capture``
+    on any row in the vector — by data presence, not row name.
     """
     # Item 16: namespace= prefix sugar. The effective name (used for
     # limit lookup, measurement_name on the row, and any downstream
@@ -181,6 +209,24 @@ def _perform_verify(
     if logger is None:
         raise RuntimeError(
             "verify() called without an active Litmus logger — is a Litmus runner plugin installed?"
+        )
+
+    # Verb-semantic guard: ``verify`` is judgment-bearing and operates
+    # on numeric scalars. Non-scalar values belong to ``observe`` —
+    # raise a clear error pointing the caller at the right verb rather
+    # than silently routing the value to a store. Keeps the verbs
+    # clean: observe = "stash this"; verify = "judge this number."
+    if value is not None and not isinstance(value, (int, float)):
+        raise TypeError(
+            f"verify({name!r}, ...): expected a numeric scalar (int / "
+            f"float / None) but got {type(value).__name__}. ``verify`` is "
+            "judgment-bearing — it judges a scalar against a limit. To "
+            "capture a non-scalar artifact, use ``observe(name, value)`` "
+            "which routes by shape (Waveform / array → ChannelStore; "
+            "bytes / Path → FileStore) and stamps the resulting URI on "
+            "the active vector's out_<name>. To verify a metric of the "
+            "artifact, extract a scalar first: "
+            "``verify('overshoot', overshoot(wf), Limit(...))``."
         )
 
     # Accept dict literals at the call site (shared with ``logger.measure``).

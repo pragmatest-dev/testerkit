@@ -683,14 +683,18 @@ For each vector, at materialization:
 
 The decision is **materialization-time**, not eager. Events stream as they happen; the materializer reads the per-vector tally to decide row emission.
 
-### Explicit override (escape hatch)
+### Verbs are separate
 
-If an author wants a DONE row alongside verify rows (e.g., to make the capture itself a first-class measurement row), call `verify` on the non-scalar:
+`verify` is **judgment-bearing**: it judges a numeric scalar against a limit. It is **not** the polymorphic data-routing verb. That role belongs to `observe`. Pass a non-scalar to `verify` and you get a `TypeError` pointing you at `observe`.
+
+The right pattern when you want both an artifact captured AND a metric judged is two verbs in the same step:
 
 ```python
-verify("scope.ch1.capture", wf)                       # explicit DONE row
+observe("scope.ch1.capture", wf)                      # URI on out_*
 verify("overshoot", overshoot(wf), Limit(low=0, high=0.5))
 ```
+
+The captured artifact is queryable from any row in the vector via `WHERE out_scope.ch1.capture IS NOT NULL` — by data presence, not row name.
 
 ### Cost worth naming
 
@@ -1049,7 +1053,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 4 | `observe()` emits Observation event | 4 | ✅ DONE | #16 |
 | 4b | `ChannelStarted`/`ChannelClosed`; retire `InstrumentRead` | C1 | ✅ DONE | #17 |
 | 5 | `observer.read` stamps vector `out_*` (rename DEFERRED) | C1 | ✅ DONE | #17 |
-| 6 | Verb dispatch by value shape (observe-side; verify deferred to follow-up) | C3a | 🚧 PARTIAL | (this PR) |
+| 6 | Verb dispatch by value shape — `observe` is the polymorphic router (all shapes); `verify` is scalar-only and raises on non-scalar | C3a | ✅ DONE | (this PR) |
 | 7 | `stream(name, sample)` test-author verb (Context.stream + bare fixture) | C3b | ✅ DONE | (this PR) |
 | 8 | Symmetric `channels.{write,stream}` / `files.{write,stream}` | C3b + C5 | ✅ DONE | (C3b shipped stub; C5 closed it) |
 | 9 | Auto-promotion rule in materializer (≥1 verify → verify rows; 0 + ≥1 observe → DONE row) | C6-partial | ✅ DONE | #21 |
@@ -1112,7 +1116,7 @@ Item 1 is the foundation; decomposed for execution clarity.
 
 **Dispatch (fixes gap 6):**
 
-6. **`observe`/`verify` dispatch by value shape, not by classify_value-as-of-today.** Channel-shaped numerics (Waveform, numeric ndarray) → ChannelStore; arbitrary bytes/formats → FileStore. References (handle, URI, Path-already-in-FileStore) stamped without re-write.
+6. **`observe` dispatch by value shape; `verify` is scalar-only.** Channel-shaped numerics (Waveform, numeric ndarray) → ChannelStore; arbitrary bytes/formats → FileStore. References (handle, URI, Path-already-in-FileStore) stamped without re-write. `verify` is judgment-bearing: pass a non-scalar and it raises `TypeError` pointing at `observe`.
 7. **`stream(name, sample)` verb** as the test-author-facing channel-write sugar (sugar over `channels.write`). One-line append-a-sample; never auto-associates. **Position 2:** emits `ChannelStarted` once per channel/session on first write; subsequent writes go to ChannelStore only (no per-sample event). DoD: `tests/test_stream.py` covers per-sample channel write + `ChannelStarted` fires exactly once + ChannelStore receives every sample + no per-sample event in the EventStore.
 8. **Symmetric streaming verbs**: `channels.write` / `channels.stream` + `filestore.put` / `filestore.stream`. Both one-shot and context-managed shapes per store. **Position 2:** `channels.write` / `channels.stream` follow the same lifecycle-event-only pattern as item 7.
 
