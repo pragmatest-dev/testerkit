@@ -197,7 +197,12 @@ class TestSampleIntervalUnchanged:
 
 class TestNoStaleSamplesColumnAnywhere:
     @pytest.mark.parametrize(
-        "value",
+        # Rename ``value`` → ``payload`` to avoid the pytest plugin
+        # stamping mixed-type cases into a single ``in_value`` column —
+        # see test_materializer_auto_promotion.py::TestObservationKind
+        # for the same fix and the underlying daemon-materialization
+        # constraint.
+        "payload",
         [
             3.31,
             [1.0, 2.0, 3.0],
@@ -205,6 +210,6 @@ class TestNoStaleSamplesColumnAnywhere:
             {"a": 1.0, "b": "ok"},
         ],
     )
-    def test_inferred_schema_never_contains_samples(self, value) -> None:
-        schema = _infer_schema(value)
+    def test_inferred_schema_never_contains_samples(self, payload) -> None:
+        schema = _infer_schema(payload)
         assert "samples" not in schema.names, schema.names

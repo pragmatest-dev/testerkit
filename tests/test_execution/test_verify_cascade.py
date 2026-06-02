@@ -22,12 +22,14 @@ What we assert here:
 from __future__ import annotations
 
 import textwrap
+from collections.abc import Iterator
 from uuid import uuid4
 
 import pyarrow.parquet as pq
 import pytest
 
 from litmus.data.data_dir import resolve_data_dir
+from litmus.data.run_store import RunStore
 
 pytest_plugins = ["pytester"]
 
@@ -43,6 +45,29 @@ _INI = textwrap.dedent(
 
 # Project-local results via repo ``litmus.yaml``.
 _CANONICAL_RESULTS = resolve_data_dir()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _runs_daemon_for_verify_cascade() -> Iterator[None]:
+    """Keep the runs daemon alive for this module's pytester-subprocess tests.
+
+    These tests run pytest in a subprocess, which emits events to the
+    canonical events tree but doesn't directly spawn the runs daemon
+    (the subprocess doesn't construct a RunStore that would acquire
+    it). The materialization the tests poll for happens *inside* the
+    runs daemon — so without an acquire-on-this-process, the daemon
+    never spawns and no parquets get materialized.
+
+    Running the test file in isolation surfaces the gap; running the
+    full suite hides it because some earlier test acquires a RunStore.
+    This module-scoped fixture pins the daemon as a ref so it stays
+    alive throughout, regardless of which order the file runs in.
+    """
+    store = RunStore()
+    try:
+        yield
+    finally:
+        store.close()
 
 
 def _read_measurement_row(serial: str, measurement_name: str, *, timeout: float = 15.0) -> dict:

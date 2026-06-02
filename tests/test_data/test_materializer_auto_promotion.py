@@ -485,7 +485,14 @@ class TestObservationKind:
     """Direct coverage of the kind classifier used by item 10."""
 
     @pytest.mark.parametrize(
-        "value, expected",
+        # Rename parameter from ``value`` to ``payload`` to avoid the
+        # pytest plugin stamping mixed-type values into a single
+        # ``in_value`` column at runtime — Arrow refuses mixed-type
+        # columns during materialization. The param name ``value`` is
+        # particularly poisonous because it collides with the canonical
+        # ChannelStore row column. Other parametrize-with-mixed-types
+        # tests should follow the same convention.
+        "payload, expected",
         [
             ("channel://x?session=abc", "uri"),
             ("file://2026-05-31/abc/x.npz", "uri"),
@@ -498,10 +505,10 @@ class TestObservationKind:
             ({"a": 1}, "dict"),
         ],
     )
-    def test_classifier(self, value, expected) -> None:
+    def test_classifier(self, payload, expected) -> None:
         from litmus.data.backends._row_helpers import observation_kind
 
-        assert observation_kind(value) == expected
+        assert observation_kind(payload) == expected
 
     def test_bool_classified_before_int(self) -> None:
         """``True`` is also int in Python; bool branch must come first."""
