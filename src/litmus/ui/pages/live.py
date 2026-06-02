@@ -8,6 +8,7 @@ from litmus.api.runner import get_runner
 from litmus.data.event_store import EventStore
 from litmus.ui.components.channel_values import create_channel_values_panel
 from litmus.ui.components.event_timeline import create_event_timeline
+from litmus.ui.components.file_streams import create_file_streams_panel
 from litmus.ui.shared.dialogs import create_dialog_container
 from litmus.ui.shared.layout import create_layout
 
@@ -50,6 +51,7 @@ async def live_page(run_id: str):
         with ui.tabs().classes("w-full") as tabs:
             events_tab = ui.tab("Events")
             channels_tab = ui.tab("Channels")
+            streams_tab = ui.tab("Streams")
             output_tab = ui.tab("Output")
 
         with ui.tab_panels(tabs, value=events_tab).classes("w-full"):
@@ -58,6 +60,9 @@ async def live_page(run_id: str):
 
             with ui.tab_panel(channels_tab):
                 _channels_container, unsub_channels = create_channel_values_panel(event_store)
+
+            with ui.tab_panel(streams_tab):
+                _streams_container, unsub_streams = create_file_streams_panel(event_store)
 
             with ui.tab_panel(output_tab):
                 log = ui.log(max_lines=100).classes(
@@ -100,6 +105,7 @@ async def live_page(run_id: str):
             finally:
                 unsub_timeline()
                 unsub_channels()
+                unsub_streams()
                 event_store.close()
 
         ui.timer(0.1, update_progress, once=True)
