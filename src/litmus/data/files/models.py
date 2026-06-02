@@ -13,7 +13,7 @@ class FileArtifactMetadata(BaseModel):
     Written at put time alongside the artifact at
     ``{filename}.meta.json``. Captures the kind of file that landed,
     its size on disk, and any user-supplied attributes routed through
-    :meth:`FileStore.put`'s ``attributes`` kwarg.
+    :meth:`FileStore.write`'s ``attributes`` kwarg.
 
     Per build item 13, the ``mime`` value follows the Litmus
     convention table — see :mod:`litmus.data.files.serializers`.

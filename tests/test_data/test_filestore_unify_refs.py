@@ -70,7 +70,7 @@ class TestArrowTableSerializer:
         sid = _sid()
         tbl = pa.table({"timestamp": [1, 2, 3], "value": [1.0, 2.0, 3.0]})
 
-        uri = filestore.put("scope.ch1.waveform", tbl, session_id=sid)
+        uri = filestore.write("scope.ch1.waveform", tbl, session_id=sid)
         assert uri.startswith(f"file://{sid}/")
         assert uri.endswith(".arrow")
 
@@ -121,7 +121,7 @@ class TestDualPathRead:
     def test_load_file_resolves_new_filestore_uri(self, filestore: FileStore) -> None:
         """New ``file://{session_id}/{filename}`` resolves via FileStore."""
         sid = _sid()
-        uri = filestore.put("payload", b"new-bytes", session_id=sid)
+        uri = filestore.write("payload", b"new-bytes", session_id=sid)
 
         # parquet_path is irrelevant for new URIs — pass any
         result = load_file(Path("/tmp/whatever.parquet"), uri)
@@ -156,7 +156,7 @@ class TestResolveRefToPath:
 
     def test_resolves_filestore_uri_via_filestore(self, filestore: FileStore) -> None:
         sid = _sid()
-        uri = filestore.put("x", b"y", session_id=sid)
+        uri = filestore.write("x", b"y", session_id=sid)
         path = _resolve_ref_to_path(None, uri)
         assert path is not None
         assert path.read_bytes() == b"y"
@@ -180,7 +180,7 @@ class TestLoadRefDispatch:
     def test_new_file_uri_works_without_parquet_path(self, filestore: FileStore) -> None:
         """Item 1d: FileStore URIs are self-resolving."""
         sid = _sid()
-        uri = filestore.put("x", b"data", session_id=sid)
+        uri = filestore.write("x", b"data", session_id=sid)
 
         # No parquet_path needed for new URIs
         result = load_ref(uri, parquet_path=None)

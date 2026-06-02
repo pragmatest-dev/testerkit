@@ -6,8 +6,9 @@ via dispatch. Power users — code that knows it's emitting one
 specific file artifact, or wants explicit control — reach for these
 forms:
 
-- :func:`put` — one-shot file write (the canonical FileStore.put
-  API exposed as a top-level verb)
+- :func:`write` — one-shot file write (the canonical class method
+  exposed as a top-level verb; symmetric with
+  :func:`litmus.channels.write`)
 - :func:`stream` — context-managed file sink for streaming writes
   (video, audio, continuous DAQ); **signature-only stub** in C3b —
   the actual sink implementation lands in build item 2 (C5).
@@ -17,6 +18,16 @@ Both delegate to the active FileStore singleton via
 defaults to the active Context's session when called from inside a
 test; pass explicitly when calling from setup code that runs before
 a Context is pushed.
+
+The verb name is ``write`` (not ``put``) for two reasons:
+
+1. Symmetric with :func:`litmus.channels.write`. Test authors see
+   one verb for "create a new record in this store" across both
+   stores (module name + ``.write``).
+2. Semantically accurate. Today's behavior creates a new immutable
+   artifact per call (with collision-suffix naming when the name
+   repeats). That's append-a-new-record, not HTTP-PUT-style
+   idempotent replace. The ``put`` name would mislead.
 """
 
 from __future__ import annotations
@@ -27,7 +38,7 @@ from typing import Any
 
 
 def _resolve_session_id(session_id: str | None) -> str:
-    """Return the session_id to use for a FileStore put.
+    """Return the session_id to use for a FileStore write.
 
     Explicit ``session_id`` arg wins. Otherwise resolve from the
     active Context's ``_session_id`` via the ContextVar chain.
@@ -40,14 +51,14 @@ def _resolve_session_id(session_id: str | None) -> str:
     ctx = get_current_context()
     if ctx is None or getattr(ctx, "_session_id", None) is None:
         raise RuntimeError(
-            "litmus.filestore: no active session_id. Call inside an active "
+            "litmus.files: no active session_id. Call inside an active "
             "Litmus session (a TestHarness has pushed the Context), or pass "
             "session_id=... explicitly."
         )
     return str(ctx._session_id)
 
 
-def put(
+def write(
     name: str,
     value: Any,
     *,
@@ -57,10 +68,11 @@ def put(
 ) -> str:
     """Write ``value`` to FileStore; return its ``file://`` URI.
 
-    Top-level verb wrapping :meth:`FileStore.put`. Per §3 of the
-    design doc, this is the power-user explicit form of the
-    test-author blob-observation path (which auto-routes blobs to
-    FileStore via :meth:`Context.observe`). Reach for this when:
+    Top-level verb wrapping :meth:`FileStore.write`. Symmetric with
+    :func:`litmus.channels.write`. Per §3 of the design doc, this is
+    the power-user explicit form of the test-author blob-observation
+    path (which auto-routes blobs to FileStore via
+    :meth:`Context.observe`). Reach for this when:
 
     - The code is outside a test (setup / fixture / driver) and
       needs to claim-check an artifact under a specific session
@@ -70,7 +82,7 @@ def put(
 
     Args:
         name: Artifact name (forms the bulk of the filename).
-        value: The value to put (any registry-typed value — see
+        value: The value to write (any registry-typed value — see
             :mod:`litmus.data.files.serializers` for the dispatch
             table and the ``litmus_serialize`` protocol).
         session_id: Session this artifact belongs to. ``None``
@@ -86,7 +98,7 @@ def put(
     from litmus.data.files import get_filestore  # noqa: PLC0415
 
     sid = _resolve_session_id(session_id)
-    return get_filestore().put(
+    return get_filestore().write(
         name=name,
         value=value,
         session_id=sid,
@@ -127,9 +139,9 @@ def stream(
         A sink with ``.write(chunk)`` and ``.close()`` (in C5).
     """
     raise NotImplementedError(
-        f"litmus.filestore.stream(name={name!r}, format={format!r}) — "
+        f"litmus.files.stream(name={name!r}, format={format!r}) — "
         "the streaming sink lands in build item 2 (C5). For one-shot "
-        "file writes today, use litmus.filestore.put(name, value), "
+        "file writes today, use litmus.files.write(name, value), "
         "which dispatches per format via the serializer registry."
     )
     # unreachable — present to satisfy the generator contract

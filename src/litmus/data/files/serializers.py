@@ -1,7 +1,7 @@
 """Serialization registry for FileStore artifacts (build items 12 + 13).
 
 A single source of truth for "how does this value land on disk?"
-Both :meth:`FileStore.put` and the legacy ``save_ref_to_dir`` helper
+Both :meth:`FileStore.write` and the legacy ``save_ref_to_dir`` helper
 use this registry so the dispatch logic lives in one place and the
 MIME / extension convention is the same regardless of which file
 layout the caller writes to.

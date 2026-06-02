@@ -1,6 +1,6 @@
 """Build item 1c — FileStore attributes + MIME typing persistence.
 
-Every :meth:`FileStore.put` writes a sidecar
+Every :meth:`FileStore.write` writes a sidecar
 ``{filename}.meta.json`` next to the artifact carrying:
 
 - ``mime``: from the registered serializer (item 13 convention table)
@@ -47,7 +47,7 @@ def store(tmp_path: Path) -> FileStore:
 class TestSidecarShape:
     def test_sidecar_written_next_to_artifact(self, store: FileStore) -> None:
         sid = _session_id()
-        uri = store.put("x", b"abc", session_id=sid)
+        uri = store.write("x", b"abc", session_id=sid)
 
         # URI shape: file://{sid}/{filename}
         filename = uri[len(f"file://{sid}/") :]
@@ -61,7 +61,7 @@ class TestSidecarShape:
 
     def test_sidecar_is_valid_json_matching_FileArtifactMetadata(self, store: FileStore) -> None:
         sid = _session_id()
-        uri = store.put("x", b"abc", session_id=sid)
+        uri = store.write("x", b"abc", session_id=sid)
         metadata = store.read_attributes(uri)
 
         assert isinstance(metadata, FileArtifactMetadata)
@@ -79,7 +79,7 @@ class TestSidecarShape:
 class TestMIMETableRoundTrip:
     def test_bytes_lands_as_octet_stream(self, store: FileStore) -> None:
         sid = _session_id()
-        uri = store.put("x", b"abc", session_id=sid)
+        uri = store.write("x", b"abc", session_id=sid)
         meta = store.read_attributes(uri)
         assert meta is not None
         assert meta.mime == "application/octet-stream"
@@ -90,7 +90,7 @@ class TestMIMETableRoundTrip:
             a: int
 
         sid = _session_id()
-        uri = store.put("c", Cap(a=7), session_id=sid)
+        uri = store.write("c", Cap(a=7), session_id=sid)
         meta = store.read_attributes(uri)
         assert meta is not None
         assert meta.mime == "application/json"
@@ -99,7 +99,7 @@ class TestMIMETableRoundTrip:
     def test_waveform_lands_as_npz(self, store: FileStore) -> None:
         sid = _session_id()
         wf = Waveform(t0=0.0, dt=1e-6, Y=[1.0, 2.0, 3.0])
-        uri = store.put("scope.cap", wf, session_id=sid)
+        uri = store.write("scope.cap", wf, session_id=sid)
         meta = store.read_attributes(uri)
         assert meta is not None
         assert meta.mime == "application/x-numpy-npz"
@@ -108,7 +108,7 @@ class TestMIMETableRoundTrip:
     def test_ndarray_lands_as_npy(self, store: FileStore) -> None:
         sid = _session_id()
         arr = np.array([1.0, 2.0, 3.0], dtype=np.float64)
-        uri = store.put("samples", arr, session_id=sid)
+        uri = store.write("samples", arr, session_id=sid)
         meta = store.read_attributes(uri)
         assert meta is not None
         assert meta.mime == "application/x-numpy-npy"
@@ -121,7 +121,7 @@ class TestMIMETableRoundTrip:
         src = tmp_path / "capture.tdms"
         src.write_bytes(b"\x00fake-tdms")
 
-        uri = store.put("daq", src, session_id=sid)
+        uri = store.write("daq", src, session_id=sid)
         meta = store.read_attributes(uri)
         assert meta is not None
         # MIME comes from the registry default (Path → octet-stream) —
@@ -140,7 +140,7 @@ class TestSizeBytes:
     def test_size_reflects_actual_bytes_for_bytes_value(self, store: FileStore) -> None:
         sid = _session_id()
         payload = b"\x00" * 1024
-        uri = store.put("blob", payload, session_id=sid)
+        uri = store.write("blob", payload, session_id=sid)
         meta = store.read_attributes(uri)
         assert meta is not None
         assert meta.size_bytes == 1024
@@ -153,7 +153,7 @@ class TestSizeBytes:
             value: int
 
         sid = _session_id()
-        uri = store.put("m", M(value=42), session_id=sid)
+        uri = store.write("m", M(value=42), session_id=sid)
         meta = store.read_attributes(uri)
         assert meta is not None
         # The on-disk content is the JSON string ``{"value":42}``
@@ -176,21 +176,21 @@ class TestAttributesRoundTrip:
             "trigger_source": "ch1",
             "notes": "warm-up complete",
         }
-        uri = store.put("scope.ch1.cap", b"data", session_id=sid, attributes=attrs)
+        uri = store.write("scope.ch1.cap", b"data", session_id=sid, attributes=attrs)
         meta = store.read_attributes(uri)
         assert meta is not None
         assert meta.attributes == attrs
 
     def test_attributes_none_yields_empty_dict(self, store: FileStore) -> None:
         sid = _session_id()
-        uri = store.put("x", b"d", session_id=sid, attributes=None)
+        uri = store.write("x", b"d", session_id=sid, attributes=None)
         meta = store.read_attributes(uri)
         assert meta is not None
         assert meta.attributes == {}
 
     def test_attributes_omitted_yields_empty_dict(self, store: FileStore) -> None:
         sid = _session_id()
-        uri = store.put("x", b"d", session_id=sid)
+        uri = store.write("x", b"d", session_id=sid)
         meta = store.read_attributes(uri)
         assert meta is not None
         assert meta.attributes == {}
@@ -205,7 +205,7 @@ class TestReadAttributes:
     def test_read_attributes_returns_none_for_unknown_uri(self, store: FileStore) -> None:
         sid = _session_id()
         # Put something so the session dir exists, then read a different URI
-        store.put("x", b"d", session_id=sid)
+        store.write("x", b"d", session_id=sid)
         meta = store.read_attributes(f"file://{sid}/does-not-exist.bin")
         assert meta is None
 
@@ -217,7 +217,7 @@ class TestReadAttributes:
     def test_read_attributes_returns_none_when_sidecar_missing(self, store: FileStore) -> None:
         """Pre-1c artifacts (no sidecar) yield None — backwards-readable."""
         sid = _session_id()
-        uri = store.put("x", b"d", session_id=sid)
+        uri = store.write("x", b"d", session_id=sid)
         # Manually delete the sidecar to simulate a pre-1c artifact
         from datetime import UTC, datetime
 
@@ -231,7 +231,7 @@ class TestReadAttributes:
     def test_read_attributes_refuses_to_resolve_a_sidecar_uri(self, store: FileStore) -> None:
         """``read_attributes`` doesn't treat a sidecar as its own artifact."""
         sid = _session_id()
-        uri = store.put("x", b"d", session_id=sid)
+        uri = store.write("x", b"d", session_id=sid)
         # Try to read the sidecar's "URI" — should resolve to None
         sidecar_uri = uri + ".meta.json"
         assert store.read_attributes(sidecar_uri) is None
@@ -245,8 +245,8 @@ class TestReadAttributes:
 class TestCollisionPairsSidecar:
     def test_collision_creates_paired_artifact_and_sidecar(self, store: FileStore) -> None:
         sid = _session_id()
-        uri_a = store.put("dup", b"a", session_id=sid)
-        uri_b = store.put("dup", b"b", session_id=sid)
+        uri_a = store.write("dup", b"a", session_id=sid)
+        uri_b = store.write("dup", b"b", session_id=sid)
 
         assert uri_a != uri_b
         # Both artifacts have sidecars; metadata reads back independently

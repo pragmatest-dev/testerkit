@@ -98,7 +98,7 @@ def materialize_channel_refs(data_dir: Path, channel_dirs_to_prune: list[Path]) 
                 # Item 1d: write into FileStore (one canonical home)
                 # via the Arrow Table serializer registered in
                 # C6-remainder. URI is ``file://{session_id}/{filename}``.
-                new_uri = filestore.put(
+                new_uri = filestore.write(
                     channel_id,
                     cache[key],
                     session_id=session_id,

@@ -228,7 +228,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             uri VARCHAR NOT NULL,
             channel_id VARCHAR NOT NULL,
             session_short VARCHAR NOT NULL,
-            -- Item 1d: full session_id (UUID) is what FileStore.put
+            -- Item 1d: full session_id (UUID) is what FileStore.write
             -- needs to scope materialized channel refs into the right
             -- session dir. session_short stays for compatibility with
             -- channel-store path naming (8-char prefix).

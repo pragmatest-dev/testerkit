@@ -3,7 +3,7 @@
 Walks the full happy-path chain for a blob observation:
 
 1. ``Context.observe(name, blob)`` routes the value through
-   ``FileStore.put`` immediately (item 3a) and stashes the
+   ``FileStore.write`` immediately (item 3a) and stashes the
    resulting ``file://{session_id}/{filename}`` URI on the active
    vector's ``_observations`` map.
 2. Materialization (``ParquetBackend.save_test_run``) writes the
@@ -69,7 +69,7 @@ def session() -> tuple[Context, UUID]:
 
 
 # --------------------------------------------------------------------- #
-# Step 1: Context.observe → FileStore.put → URI on vector               #
+# Step 1: Context.observe → FileStore.write → URI on vector               #
 # --------------------------------------------------------------------- #
 
 

@@ -161,7 +161,7 @@ class Context:
             harness: TestHarness reference for accessing limits and other harness features.
             channel_store: Optional ChannelStore for direct writes of numeric data.
             session_id: Session this context belongs to. Required for blob observations
-                (routed through FileStore.put which is session-scoped). Production
+                (routed through FileStore.write which is session-scoped). Production
                 paths pull from the active session; some test paths leave None.
         """
         self._parent = parent
@@ -227,7 +227,7 @@ class Context:
           ``Waveform.attributes`` have no row-level home in today's
           schema (open per design doc §15) — they're dropped with a
           ``RuntimeWarning`` when non-default. Use
-          ``filestore.put(name, wf)`` if you need them preserved.
+          ``filestore.write(name, wf)`` if you need them preserved.
         - **numeric_array** (list/tuple/ndarray of bool/int/float/str
           leaves, plus dict struct shapes) → ChannelStore;
           ``out_<name>`` carries the ``channel://`` URI.
@@ -268,7 +268,7 @@ class Context:
                             f"attributes={value.attributes!r} cannot be preserved on a "
                             "ChannelStore array row in today's schema (open per design "
                             "doc §15). Y + dt are preserved; t0/attributes dropped. Use "
-                            "filestore.put(name, wf) if you need everything preserved.",
+                            "filestore.write(name, wf) if you need everything preserved.",
                             RuntimeWarning,
                             stacklevel=2,
                         )
@@ -292,7 +292,7 @@ class Context:
                 return
             if vtype == "blob":
                 # Item 3a — fixes half of the image-drop. Route blobs through
-                # FileStore.put; stash the resulting URI in observations.
+                # FileStore.write; stash the resulting URI in observations.
                 # Pre-3a: blobs were silently stashed as raw values, never
                 # written to disk except via the at-RunEnded materializer
                 # _ref path (and the latter only when run materialization
@@ -306,7 +306,7 @@ class Context:
                     )
                 from litmus.data.files import get_filestore  # noqa: PLC0415
 
-                uri = get_filestore().put(
+                uri = get_filestore().write(
                     name=full_key,
                     value=value,
                     session_id=str(self._session_id),
@@ -390,7 +390,7 @@ class Context:
             sample: One sample to append. Same shape rules as
                 ``observe``'s array-handling path — scalar, list,
                 ndarray, dict (struct). Blobs raise ``ValueError``
-                at the ChannelStore gate; use ``filestore.put`` for
+                at the ChannelStore gate; use ``filestore.write`` for
                 blobs.
             namespace: Optional prefix sugar — effective channel_id
                 is ``"{namespace}.{name}"``.

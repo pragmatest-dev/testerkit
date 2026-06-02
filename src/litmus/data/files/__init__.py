@@ -2,7 +2,7 @@
 
 Session-scoped, MIME-typed (later), format-portable. Reached by test authors
 indirectly via ``observe()``/``verify()`` routing (when the value is
-non-channel-shaped); reachable directly via ``filestore.put()`` /
+non-channel-shaped); reachable directly via ``files.write()`` /
 ``filestore.stream()`` for power-user cases.
 
 URI scheme: ``file://{session_id}/{filename}`` — a logical reference. The

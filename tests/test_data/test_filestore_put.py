@@ -1,4 +1,4 @@
-"""FileStore.put() — type dispatch, URI shape, collision handling.
+"""FileStore.write() — type dispatch, URI shape, collision handling.
 
 Covers DoD for build item 1a (FileStore put API + URI scheme):
 - put() returns ``file://{session_id}/{filename}``
@@ -71,7 +71,7 @@ def test_put_path_copies_with_suffix_preserved(store: FileStore, tmp_path: Path)
     src = tmp_path / "dut.tdms"
     src.write_bytes(b"\x00\x01\x02fake-tdms-bytes")
 
-    uri = store.put("dut_capture", src, session_id=sid)
+    uri = store.write("dut_capture", src, session_id=sid)
 
     parsed_sid, filename = _parse_uri(uri)
     assert parsed_sid == sid
@@ -86,7 +86,7 @@ def test_put_path_unsuffixed_defaults_to_bin(store: FileStore, tmp_path: Path) -
     src = tmp_path / "no_suffix"
     src.write_bytes(b"data")
 
-    uri = store.put("blob", src, session_id=sid)
+    uri = store.write("blob", src, session_id=sid)
 
     _, filename = _parse_uri(uri)
     assert filename.endswith(".bin")
@@ -94,7 +94,7 @@ def test_put_path_unsuffixed_defaults_to_bin(store: FileStore, tmp_path: Path) -
 
 def test_put_bytes_writes_bin(store: FileStore) -> None:
     sid = _session_id()
-    uri = store.put("payload", b"\xde\xad\xbe\xef", session_id=sid)
+    uri = store.write("payload", b"\xde\xad\xbe\xef", session_id=sid)
 
     _, filename = _parse_uri(uri)
     assert filename.endswith(".bin")
@@ -110,7 +110,7 @@ def test_put_waveform_writes_npz_with_t0_dt_attrs(store: FileStore) -> None:
         attributes={"units": "V", "channel": "scope.ch1"},
     )
 
-    uri = store.put("scope.capture", wf, session_id=sid)
+    uri = store.write("scope.capture", wf, session_id=sid)
 
     _, filename = _parse_uri(uri)
     assert filename.endswith(".npz")
@@ -131,7 +131,7 @@ def test_put_pydantic_model_writes_json(store: FileStore) -> None:
         value: float
 
     cap = Capture(sensor="thermistor", value=23.5)
-    uri = store.put("ambient", cap, session_id=sid)
+    uri = store.write("ambient", cap, session_id=sid)
 
     _, filename = _parse_uri(uri)
     assert filename.endswith(".json")
@@ -145,7 +145,7 @@ def test_put_ndarray_writes_npy(store: FileStore) -> None:
     sid = _session_id()
     arr = np.array([0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float64)
 
-    uri = store.put("samples", arr, session_id=sid)
+    uri = store.write("samples", arr, session_id=sid)
 
     _, filename = _parse_uri(uri)
     assert filename.endswith(".npy")
@@ -176,7 +176,7 @@ def test_put_unrecognized_value_falls_back_to_pickle(store: FileStore) -> None:
     sid = _session_id()
     val = _CustomPickleType(42, "hello")
 
-    uri = store.put("custom", val, session_id=sid)
+    uri = store.write("custom", val, session_id=sid)
 
     _, filename = _parse_uri(uri)
     assert filename.endswith(".pkl")
@@ -193,7 +193,7 @@ def test_put_unrecognized_value_falls_back_to_pickle(store: FileStore) -> None:
 def test_uri_shape_session_id_then_filename(store: FileStore) -> None:
     """URI is ``file://{session_id}/{filename}`` — Option A logical reference."""
     sid = _session_id()
-    uri = store.put("name", b"x", session_id=sid)
+    uri = store.write("name", b"x", session_id=sid)
 
     assert uri.startswith(f"file://{sid}/")
     after_sid = uri[len(f"file://{sid}/") :]
@@ -205,7 +205,7 @@ def test_vector_id_prefix_in_filename(store: FileStore) -> None:
     sid = _session_id()
     vid = _vector_id()
 
-    uri = store.put("scope.capture", b"x", session_id=sid, vector_id=vid)
+    uri = store.write("scope.capture", b"x", session_id=sid, vector_id=vid)
 
     _, filename = _parse_uri(uri)
     assert filename.startswith(f"{vid[:8]}_scope.capture")
@@ -215,7 +215,7 @@ def test_vector_id_prefix_in_filename(store: FileStore) -> None:
 def test_no_vector_id_means_no_prefix(store: FileStore) -> None:
     """Without ``vector_id``, the filename is just ``{name}.{ext}``."""
     sid = _session_id()
-    uri = store.put("scope.capture", b"x", session_id=sid)
+    uri = store.write("scope.capture", b"x", session_id=sid)
 
     _, filename = _parse_uri(uri)
     assert filename == "scope.capture.bin"
@@ -234,8 +234,8 @@ def test_repeated_put_same_name_creates_distinct_uris(store: FileStore) -> None:
     """
     sid = _session_id()
 
-    uri_a = store.put("scope.capture", b"first", session_id=sid)
-    uri_b = store.put("scope.capture", b"second", session_id=sid)
+    uri_a = store.write("scope.capture", b"first", session_id=sid)
+    uri_b = store.write("scope.capture", b"second", session_id=sid)
 
     assert uri_a != uri_b
     _, fname_a = _parse_uri(uri_a)
@@ -250,9 +250,9 @@ def test_repeated_put_same_name_creates_distinct_uris(store: FileStore) -> None:
 
 def test_three_collisions_use_sequential_suffixes(store: FileStore) -> None:
     sid = _session_id()
-    uri_a = store.put("dup", b"a", session_id=sid)
-    uri_b = store.put("dup", b"b", session_id=sid)
-    uri_c = store.put("dup", b"c", session_id=sid)
+    uri_a = store.write("dup", b"a", session_id=sid)
+    uri_b = store.write("dup", b"b", session_id=sid)
+    uri_c = store.write("dup", b"c", session_id=sid)
 
     _, fname_a = _parse_uri(uri_a)
     _, fname_b = _parse_uri(uri_b)
@@ -267,8 +267,8 @@ def test_collision_under_vector_prefix(store: FileStore) -> None:
     sid = _session_id()
     vid = _vector_id()
 
-    uri_a = store.put("capture", b"a", session_id=sid, vector_id=vid)
-    uri_b = store.put("capture", b"b", session_id=sid, vector_id=vid)
+    uri_a = store.write("capture", b"a", session_id=sid, vector_id=vid)
+    uri_b = store.write("capture", b"b", session_id=sid, vector_id=vid)
 
     _, fname_a = _parse_uri(uri_a)
     _, fname_b = _parse_uri(uri_b)
@@ -286,7 +286,7 @@ def test_on_disk_layout_is_files_date_session(store: FileStore) -> None:
     sid = _session_id()
     today = datetime.now(UTC).date().isoformat()
 
-    uri = store.put("x", b"y", session_id=sid)
+    uri = store.write("x", b"y", session_id=sid)
 
     _, filename = _parse_uri(uri)
     expected_path = resolve_data_dir() / "files" / today / sid / filename
@@ -299,8 +299,8 @@ def test_two_sessions_isolate_in_separate_subdirs(store: FileStore) -> None:
     sid_a = _session_id()
     sid_b = _session_id()
 
-    store.put("shared_name", b"from_a", session_id=sid_a)
-    store.put("shared_name", b"from_b", session_id=sid_b)
+    store.write("shared_name", b"from_a", session_id=sid_a)
+    store.write("shared_name", b"from_b", session_id=sid_b)
 
     today = datetime.now(UTC).date().isoformat()
     base = resolve_data_dir() / "files" / today
@@ -318,7 +318,7 @@ def test_attributes_argument_persisted_to_sidecar(store: FileStore) -> None:
     sid = _session_id()
 
     user_attrs = {"camera": "scope-a", "scale_v_div": 0.5}
-    uri = store.put("x", b"y", session_id=sid, attributes=user_attrs)
+    uri = store.write("x", b"y", session_id=sid, attributes=user_attrs)
 
     _, filename = _parse_uri(uri)
     session_dir = _expected_session_dir(store, sid)

@@ -1,4 +1,4 @@
-"""C3b — items 7 + 8: stream verb + power-user channels./filestore. surface.
+"""C3b — items 7 + 8: stream verb + power-user channels./files. surface.
 
 Item 7: ``stream(name, sample)`` is the third sibling test-author
 intent verb (alongside ``observe`` / ``verify``). Always routes to
@@ -11,8 +11,8 @@ Item 8: explicit power-user surface for each store.
 - ``litmus.channels.write(name, sample)`` — one-shot channel append
 - ``with litmus.channels.stream(name) as sink:`` — context-managed
   channel sink with ``.write(sample)`` / ``.close()``
-- ``litmus.filestore.put(name, value)`` — one-shot file put
-- ``with litmus.filestore.stream(name, format=...) as sink:`` —
+- ``litmus.files.write(name, value)`` — one-shot file write
+- ``with litmus.files.stream(name, format=...) as sink:`` —
   signature-only stub; real sink lands in build item 2 (C5).
 
 The verb-symmetry pattern from C3a-followup is followed: ``stream``
@@ -26,7 +26,7 @@ from uuid import uuid4
 
 import pytest
 
-from litmus import channels, filestore
+from litmus import channels, files
 from litmus.data.channels.store import ChannelStore
 from litmus.data.files import _reset_for_tests
 from litmus.execution._state import (
@@ -38,7 +38,7 @@ from litmus.execution.harness import Context, TestHarness
 
 
 @pytest.fixture(autouse=True)
-def _reset_filestore_singleton():
+def _reset_files_singleton():
     _reset_for_tests()
     yield
     _reset_for_tests()
@@ -170,12 +170,12 @@ class TestChannelsStream:
 
 
 # --------------------------------------------------------------------- #
-# Item 8 — litmus.filestore (power-user)                                 #
+# Item 8 — litmus.files (power-user)                                 #
 # --------------------------------------------------------------------- #
 
 
-class TestFileStorePut:
-    def test_put_with_explicit_session_id(self, tmp_path: Path) -> None:
+class TestFilesWrite:
+    def test_write_with_explicit_session_id(self, tmp_path: Path) -> None:
         """Power users can pass session_id explicitly (no Context required)."""
         from litmus.data.files import store as store_module
 
@@ -184,35 +184,35 @@ class TestFileStorePut:
         store_module.resolve_data_dir = lambda _=None: tmp_path  # type: ignore[assignment]
         _reset_for_tests()
         try:
-            uri = filestore.put("artifact", b"hello", session_id="sid-1234")
+            uri = files.write("artifact", b"hello", session_id="sid-1234")
             assert uri == "file://sid-1234/artifact.bin"
         finally:
             store_module.resolve_data_dir = original  # type: ignore[assignment]
             _reset_for_tests()
 
-    def test_put_resolves_session_from_active_context(self, context_with_store) -> None:
+    def test_write_resolves_session_from_active_context(self, context_with_store) -> None:
         """session_id=None falls back to the active Context's session."""
         ctx, _ = context_with_store
-        uri = filestore.put("artifact", b"hello")
+        uri = files.write("artifact", b"hello")
         assert uri.startswith(f"file://{ctx._session_id}/")
 
-    def test_put_without_session_raises(self) -> None:
+    def test_write_without_session_raises(self) -> None:
         """No session_id arg + no active Context = clear error."""
         with pytest.raises(RuntimeError, match="no active session_id"):
-            filestore.put("artifact", b"hello")
+            files.write("artifact", b"hello")
 
 
-class TestFileStoreStreamStub:
+class TestFilesStreamStub:
     def test_stream_stub_raises_not_implemented(self) -> None:
         """C3b ships the signature; the actual sink lands in build item 2 (C5)."""
         with pytest.raises(NotImplementedError, match="build item 2"):
-            with filestore.stream("video.mp4", format="mp4"):
+            with files.stream("video.mp4", format="mp4"):
                 pass
 
     def test_stream_stub_signature_includes_format_and_session_id(self) -> None:
         import inspect
 
-        sig = inspect.signature(filestore.stream)
+        sig = inspect.signature(files.stream)
         assert "name" in sig.parameters
         assert "format" in sig.parameters
         assert "session_id" in sig.parameters

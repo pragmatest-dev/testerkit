@@ -116,7 +116,7 @@ class TestOpportunisticHandlers:
         PIL = pytest.importorskip("PIL.Image")
         img = PIL.new("RGB", (8, 8), "blue")
         store = FileStore(data_dir=tmp_path)
-        uri = store.put("preview", img, session_id="testsess")
+        uri = store.write("preview", img, session_id="testsess")
         assert uri.endswith(".png")
 
         # Verify the file is actually a PNG (magic bytes)
@@ -132,7 +132,7 @@ class TestOpportunisticHandlers:
         pq = pytest.importorskip("pyarrow.parquet")
         df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
         store = FileStore(data_dir=tmp_path)
-        uri = store.put("export", df, session_id="testsess2")
+        uri = store.write("export", df, session_id="testsess2")
         assert uri.endswith(".parquet")
 
         sid, _, filename = uri.partition("file://")[2].partition("/")
@@ -187,7 +187,7 @@ class TestRegisterSerializer:
         )
 
         store = FileStore(data_dir=tmp_path)
-        uri = store.put("payload", b"\x01\x02\x03", session_id="testsess3")
+        uri = store.write("payload", b"\x01\x02\x03", session_id="testsess3")
         assert uri.endswith(".b64")
 
     def test_predicate_registration_for_un_importable_type(self) -> None:
@@ -232,7 +232,7 @@ class TestLitmusSerializeProtocol:
                 return dest
 
         store = FileStore(data_dir=tmp_path)
-        uri = store.put("artifact", MyArtifact(), session_id="testsess4")
+        uri = store.write("artifact", MyArtifact(), session_id="testsess4")
         assert uri.endswith(".myz")
 
         sid, _, filename = uri.partition("file://")[2].partition("/")
@@ -285,7 +285,7 @@ class TestPickleFallback:
         val = _UnregisteredCustom(7)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            uri = store.put("custom", val, session_id="testsess5")
+            uri = store.write("custom", val, session_id="testsess5")
 
         assert uri.endswith(".pkl")
         sid, _, filename = uri.partition("file://")[2].partition("/")

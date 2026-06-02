@@ -9,7 +9,7 @@ reached durable storage.
 After 3b (this PR):
 
 - ``_store_value`` detects ``classify_value(value) == "blob"`` and
-  routes the bytes through ``FileStore.put(...)`` with the
+  routes the bytes through ``FileStore.write(...)`` with the
   session_id from EventEmitter.
 - The returned ``file://`` URI is written into ChannelStore as the
   channel's sample value — works as a ``scalar:str`` channel because
@@ -19,7 +19,7 @@ After 3b (this PR):
   up unchanged.
 
 Depends on C1 (ChannelStarted lifecycle) + C2 (typed leaf types) +
-C1a (FileStore.put). Per CLAUDE.md test conventions: uses
+C1a (FileStore.write). Per CLAUDE.md test conventions: uses
 ``resolve_data_dir()`` + uuid4 session_ids for per-test isolation.
 """
 
@@ -139,7 +139,7 @@ def test_bytes_blob_emits_channel_started_once() -> None:
 def test_each_blob_write_creates_a_distinct_file() -> None:
     """Three blob writes → three files on disk → three URIs in ChannelStore.
 
-    No silent overwrite (FileStore.put produces ``name``, ``name_2``,
+    No silent overwrite (FileStore.write produces ``name``, ``name_2``,
     ``name_3`` suffixes from C1a collision handling).
     """
     emitter, _log, store, sid = _emitter_with_store()
@@ -177,7 +177,7 @@ def test_path_blob_routes_through_filestore(tmp_path: Path) -> None:
     uri = store.writes[0][1]
     assert isinstance(uri, str)
     assert uri.startswith(f"file://{sid}/")
-    # Path's suffix preserved through FileStore.put
+    # Path's suffix preserved through FileStore.write
     assert uri.endswith(".tdms")
 
 
