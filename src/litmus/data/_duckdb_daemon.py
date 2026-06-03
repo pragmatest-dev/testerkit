@@ -281,19 +281,7 @@ def _ingest_one_file(
         _mark("quarantined", "no valid batches")
         return
 
-    # Older IPC files (written before a typed payload column was
-    # added) don't have every column in ``_EVENT_COLUMNS_FROM_IPC``.
-    # Quarantining them on cold start would silently hide every
-    # historical event with no operator-visible cause. Instead,
-    # select what's present and pad missing columns with nulls so
-    # the row binder sees a full row.
-    column_names = table.column_names
-    missing = [c for c in _EVENT_COLUMNS_FROM_IPC if c not in column_names]
     try:
-        present = [c for c in _EVENT_COLUMNS_FROM_IPC if c in column_names]
-        table = table.select(present)
-        for col in missing:
-            table = table.append_column(col, pa.nulls(table.num_rows, type=pa.string()))
         table = table.select(_EVENT_COLUMNS_FROM_IPC)
     except (KeyError, pa.ArrowInvalid) as exc:
         warnings.warn(f"Skipping bad schema in {fpath.name}: {exc}", stacklevel=2)
