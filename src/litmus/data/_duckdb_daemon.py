@@ -28,11 +28,22 @@ from litmus.data._duckdb_flight_server import (
 )
 from litmus.data._ipc_writer import read_ipc_batches
 from litmus.data.duckdb_manager import DuckDBDaemonManager
+from litmus.data.events import TYPED_PAYLOAD_COLUMNS
 
 # Columns the daemon binds from each row when inserting into ``events``.
 # ``received_at`` is deliberately EXCLUDED — server-stamped via ``now()``
-# in ``_INSERT_SQL`` (see comment there).
-_PUT_HOOK_COLUMNS = ["id", "event_type", "occurred_at", "session_id", "run_id", "json"]
+# in ``_INSERT_SQL`` (see comment there). All other columns in the IPC
+# schema (envelope + every typed payload column) bind by position to
+# the ``?`` placeholders in ``_INSERT_SQL``.
+_PUT_HOOK_COLUMNS: list[str] = [
+    "id",
+    "event_type",
+    "occurred_at",
+    "session_id",
+    "run_id",
+    "json",
+    *TYPED_PAYLOAD_COLUMNS,
+]
 
 # Columns to narrow an IPC-loaded Arrow table to before binding. The IPC
 # file's schema may be wider than what we INSERT — this narrows it to
@@ -40,7 +51,7 @@ _PUT_HOOK_COLUMNS = ["id", "event_type", "occurred_at", "session_id", "run_id", 
 # ``_table_to_rows`` extracts ``_PUT_HOOK_COLUMNS`` for the bind. The
 # extra ``received_at`` column in the loaded table is read but
 # discarded (the daemon's ``now()`` overrides on insert).
-_EVENT_COLUMNS_FROM_IPC = [
+_EVENT_COLUMNS_FROM_IPC: list[str] = [
     "id",
     "event_type",
     "occurred_at",
@@ -48,6 +59,7 @@ _EVENT_COLUMNS_FROM_IPC = [
     "session_id",
     "run_id",
     "json",
+    *TYPED_PAYLOAD_COLUMNS,
 ]
 
 # ON CONFLICT DO NOTHING deduplicates events that arrived via do_put during
@@ -71,10 +83,18 @@ _EVENT_COLUMNS_FROM_IPC = [
 #   timestamp) has subtle wall-clock ordering issues across concurrent
 #   put-hook batches even with the server lock, while ``nextval``
 #   advances under the same lock as the INSERT and is bulletproof.
+# The bind order matches ``_PUT_HOOK_COLUMNS`` exactly:
+#   id, event_type, occurred_at, session_id, run_id, json, *TYPED_PAYLOAD_COLUMNS
+# ``received_at`` and ``event_number`` are server-stamped (now() + nextval)
+# so they don't take bind placeholders. The typed payload columns trail
+# the envelope; adding one is a single edit in ``events.py``.
+_TYPED_COLS_SQL = ", ".join(TYPED_PAYLOAD_COLUMNS)
+_TYPED_COLS_PLACEHOLDERS = ", ".join("?" for _ in TYPED_PAYLOAD_COLUMNS)
 _INSERT_SQL = (
     "INSERT INTO events "
-    "(id, event_type, occurred_at, received_at, event_number, session_id, run_id, json) "
-    "VALUES (?, ?, ?, now(), nextval('event_seq'), ?, ?, ?) "
+    "(id, event_type, occurred_at, received_at, event_number, "
+    f"session_id, run_id, json, {_TYPED_COLS_SQL}) "
+    f"VALUES (?, ?, ?, now(), nextval('event_seq'), ?, ?, ?, {_TYPED_COLS_PLACEHOLDERS}) "
     "ON CONFLICT (id) DO NOTHING"
 )
 
@@ -157,6 +177,18 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type)",
         "CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id)",
         "CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id)",
+        # Typed-payload-column indexes. Cover the high-traffic filters
+        # (operator pages, role-scoped queries, pass/fail dashboards).
+        # Low-cardinality enums (reason, format, dialog_type,
+        # response_type) skip the index — DuckDB columnar scans are
+        # cheap on them.
+        "CREATE INDEX IF NOT EXISTS idx_events_channel_id ON events(channel_id)",
+        "CREATE INDEX IF NOT EXISTS idx_events_outcome ON events(outcome)",
+        "CREATE INDEX IF NOT EXISTS idx_events_dut_serial ON events(dut_serial)",
+        "CREATE INDEX IF NOT EXISTS idx_events_role ON events(role)",
+        "CREATE INDEX IF NOT EXISTS idx_events_instrument_role ON events(instrument_role)",
+        "CREATE INDEX IF NOT EXISTS idx_events_step_name ON events(step_name)",
+        "CREATE INDEX IF NOT EXISTS idx_events_measurement_name ON events(measurement_name)",
     ):
         conn.execute(index_sql)
 
@@ -164,7 +196,9 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
 # Columns that should exist on ``events`` regardless of when the
 # on-disk DB was created. Drives ``ALTER TABLE ADD COLUMN IF NOT
 # EXISTS`` for upgrade migration; ``CREATE TABLE IF NOT EXISTS``
-# above covers the fresh case.
+# above covers the fresh case. Adding a typed payload column is a
+# single edit in ``events.TYPED_PAYLOAD_COLUMNS`` — it flows through
+# both the IPC schema and this migration list automatically.
 _EVENTS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("id", "VARCHAR"),
     ("event_type", "VARCHAR"),
@@ -174,6 +208,7 @@ _EVENTS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("session_id", "VARCHAR"),
     ("run_id", "VARCHAR"),
     ("json", "VARCHAR"),
+    *((col, "VARCHAR") for col in TYPED_PAYLOAD_COLUMNS),
 )
 
 
@@ -246,7 +281,19 @@ def _ingest_one_file(
         _mark("quarantined", "no valid batches")
         return
 
+    # Older IPC files (written before a typed payload column was
+    # added) don't have every column in ``_EVENT_COLUMNS_FROM_IPC``.
+    # Quarantining them on cold start would silently hide every
+    # historical event with no operator-visible cause. Instead,
+    # select what's present and pad missing columns with nulls so
+    # the row binder sees a full row.
+    column_names = table.column_names
+    missing = [c for c in _EVENT_COLUMNS_FROM_IPC if c not in column_names]
     try:
+        present = [c for c in _EVENT_COLUMNS_FROM_IPC if c in column_names]
+        table = table.select(present)
+        for col in missing:
+            table = table.append_column(col, pa.nulls(table.num_rows, type=pa.string()))
         table = table.select(_EVENT_COLUMNS_FROM_IPC)
     except (KeyError, pa.ArrowInvalid) as exc:
         warnings.warn(f"Skipping bad schema in {fpath.name}: {exc}", stacklevel=2)

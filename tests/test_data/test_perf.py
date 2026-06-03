@@ -270,6 +270,90 @@ class TestEventStorePayloadFilterPerf:
 
 
 # ---------------------------------------------------------------------------
+# EventStore typed-payload-column pushdown benchmarks (item 21)
+#
+# These pin the cost of the SAME queries above, now that the payload
+# fields they filter on are promoted to typed DuckDB columns.
+# Compare side-by-side with :class:`TestEventStorePayloadFilterPerf`
+# to read off the item-21 speedup.
+# ---------------------------------------------------------------------------
+
+
+class TestEventStoreTypedColumnPushdownPerf:
+    """Pin the cost of typed-column pushdown vs item-19 baselines."""
+
+    @pytest.mark.benchmark(
+        group="event-payload-filter", warmup=True, min_rounds=30, disable_gc=True
+    )
+    def test_pushdown_outcome_failed_10k(self, event_store: EventStore, benchmark):
+        """Pushdown variant of ``test_query_by_payload_field_outcome_10k``.
+
+        The ``outcome`` field is now a typed DuckDB column populated
+        from each event's ``typed_payload_values()``. The filter
+        ``outcome = 'failed'`` planned directly against the column
+        (no per-row Python JSON parse).
+        """
+        sid = uuid4()
+        for i in range(10_000):
+            outcome = "failed" if i % 3 == 0 else "passed"
+            evt = _make_measurement(sid, i)
+            evt.outcome = outcome
+            event_store.emit(evt)
+
+        def query_pushdown_failed():
+            # SQL pushdown via direct daemon query — the public
+            # ``events()`` API only exposes whitelisted filters, but
+            # the pushdown is what we're measuring here.
+            event_store.flush()
+            sql = (
+                "SELECT id, event_type, event_number, occurred_at, received_at, "
+                "session_id, run_id, json "
+                f"FROM events WHERE session_id = '{sid}' AND outcome = 'failed' "
+                "ORDER BY received_at"
+            )
+            rows = event_store._flight_query(sql)
+            from litmus.data.event_store import _parse_event_row
+
+            return [_parse_event_row(r) for r in rows]
+
+        result = benchmark(query_pushdown_failed)
+        assert 3_000 <= len(result) <= 3_500
+
+    @pytest.mark.benchmark(
+        group="event-payload-filter", warmup=True, min_rounds=30, disable_gc=True
+    )
+    def test_pushdown_role_dmm_10k(self, event_store: EventStore, benchmark):
+        """Pushdown variant of ``test_query_by_role_10k``.
+
+        ``event_store.events(role=...)`` now ORs three typed columns
+        (``role``, ``instrument_role``, ``channel_id LIKE 'role.%'``)
+        in SQL instead of pulling rows and running
+        ``event_matches_role`` per row in Python.
+        """
+        sid = uuid4()
+        from litmus.data.events import InstrumentConnected
+
+        for i in range(10_000):
+            if i % 4 == 0:
+                event_store.emit(
+                    InstrumentConnected(
+                        session_id=sid,
+                        role="dmm",
+                        instrument_id=f"dmm_{i}",
+                        resource="GPIB::16",
+                    )
+                )
+            else:
+                event_store.emit(_make_measurement(sid, i))
+
+        def query_pushdown_role():
+            return event_store.events(session_id=sid, role="dmm")
+
+        result = benchmark(query_pushdown_role)
+        assert 2_400 <= len(result) <= 2_600
+
+
+# ---------------------------------------------------------------------------
 # ChannelStore benchmarks
 # ---------------------------------------------------------------------------
 
