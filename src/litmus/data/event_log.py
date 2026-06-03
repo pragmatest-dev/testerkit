@@ -24,10 +24,18 @@ import pyarrow as pa
 
 from litmus.data._event_filters import event_matches_role
 from litmus.data._ipc_writer import BufferedIPCWriter, read_ipc_batches
-from litmus.data.events import EventBase
+from litmus.data.events import TYPED_PAYLOAD_COLUMNS, EventBase
 
 # Schema for the index columns stored in IPC files.
-# Full event JSON is kept in the ``json`` column for lossless replay.
+#
+# Envelope fields (id, event_type, occurred_at, received_at,
+# session_id, run_id) and the lossless ``json`` payload always exist.
+# In addition, every identifier and name field used for cross-event
+# traversal is promoted into its own VARCHAR column — see
+# :data:`litmus.data.events.TYPED_PAYLOAD_COLUMNS` for the rationale
+# and the list. Promotion duplicates the value (it remains inside
+# ``json``) but lets the daemon push WHERE filters down into DuckDB
+# instead of returning rows for Python to post-filter.
 _IPC_SCHEMA = pa.schema(
     [
         ("id", pa.string()),
@@ -37,6 +45,7 @@ _IPC_SCHEMA = pa.schema(
         ("session_id", pa.string()),
         ("run_id", pa.string()),
         ("json", pa.string()),
+        *((col, pa.string()) for col in TYPED_PAYLOAD_COLUMNS),
     ]
 )
 
@@ -201,17 +210,17 @@ class EventLog:
         """
         event.received_at = datetime.now(UTC)
 
-        batch = self._ipc.append(
-            {
-                "id": str(event.id),
-                "event_type": event.event_type,  # type: ignore[attr-defined]
-                "occurred_at": event.occurred_at,
-                "received_at": event.received_at,
-                "session_id": str(event.session_id),
-                "run_id": str(event.run_id) if event.run_id else None,
-                "json": event.model_dump_json(),
-            }
-        )
+        row = {
+            "id": str(event.id),
+            "event_type": event.event_type,  # type: ignore[attr-defined]
+            "occurred_at": event.occurred_at,
+            "received_at": event.received_at,
+            "session_id": str(event.session_id),
+            "run_id": str(event.run_id) if event.run_id else None,
+            "json": event.model_dump_json(),
+        }
+        row.update(event.typed_payload_values())
+        batch = self._ipc.append(row)
 
         for sub in self._subscribers:
             if sub in self._failed:

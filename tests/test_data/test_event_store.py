@@ -65,6 +65,55 @@ class TestEmitAndQuery:
         assert len(sessions) == 1
         assert sessions[0]["station_id"] == "test-station"
 
+    def test_role_filter_pushdown_matches_three_branches(self, store: EventStore):
+        """``role=`` pushes into SQL as ``role OR instrument_role OR channel_id LIKE``.
+
+        Each of the three branches in :func:`event_matches_role` is
+        exercised by a different event class; the query must return
+        all three. Events with no role linkage are excluded.
+        """
+        from litmus.data.events import (
+            ChannelStarted,
+            InstrumentConnected,
+            InstrumentSet,
+        )
+
+        sid = uuid4()
+        # Branch 1: role= matches on the ``role`` column (InstrumentConnected)
+        store.emit(
+            InstrumentConnected(
+                session_id=sid,
+                role="dmm",
+                instrument_id="dmm_a",
+                resource="GPIB::1",
+            )
+        )
+        # Branch 2: role= matches on ``instrument_role`` (InstrumentSet)
+        store.emit(
+            InstrumentSet(
+                session_id=sid,
+                instrument_role="dmm",
+                channel_id="dmm.range",
+                attribute="range",
+                value=10.0,
+            )
+        )
+        # Branch 3: role= matches via channel_id LIKE 'dmm.%' (ChannelStarted
+        # uses ``instrument_role`` too, so use a no-instrument-role variant
+        # to prove the prefix branch independently).
+        store.emit(ChannelStarted(session_id=sid, channel_id="dmm.ch1", units="V"))
+        # Negative: a role= filter must not match unrelated events
+        store.emit(_make_session_started(sid))
+
+        results = store.events(session_id=sid, role="dmm")
+        assert len(results) == 3
+        kinds = {r["event_type"] for r in results}
+        assert kinds == {
+            "fixture.instrument_connected",
+            "instrument.set",
+            "channel.started",
+        }
+
 
 class TestSubscriptions:
     def test_on_event_replays_existing(self, store: EventStore):

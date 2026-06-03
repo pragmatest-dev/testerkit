@@ -12,6 +12,7 @@ import pytest
 
 from litmus.data._event_reader import EventReader, find_session_log
 from litmus.data.event_log import _IPC_SCHEMA
+from litmus.data.events import TYPED_PAYLOAD_COLUMNS
 
 
 @pytest.fixture
@@ -25,18 +26,20 @@ def _write_events(path: Path, events: list[dict]) -> None:
     with pa.OSFile(str(path), "wb") as sink:
         writer = ipc.new_stream(sink, _IPC_SCHEMA)
         for evt in events:
-            batch = pa.record_batch(
-                {
-                    "id": [evt.get("id", "test")],
-                    "event_type": [evt.get("event_type", "unknown")],
-                    "occurred_at": [evt.get("occurred_at", datetime(2026, 1, 1, tzinfo=UTC))],
-                    "received_at": [evt.get("received_at", datetime(2026, 1, 1, tzinfo=UTC))],
-                    "session_id": [evt.get("session_id", "sid")],
-                    "run_id": [evt.get("run_id")],
-                    "json": [json.dumps(evt)],
-                },
-                schema=_IPC_SCHEMA,
-            )
+            row = {
+                "id": [evt.get("id", "test")],
+                "event_type": [evt.get("event_type", "unknown")],
+                "occurred_at": [evt.get("occurred_at", datetime(2026, 1, 1, tzinfo=UTC))],
+                "received_at": [evt.get("received_at", datetime(2026, 1, 1, tzinfo=UTC))],
+                "session_id": [evt.get("session_id", "sid")],
+                "run_id": [evt.get("run_id")],
+                "json": [json.dumps(evt)],
+            }
+            # Typed payload columns — read from the input dict so tests
+            # can exercise pushdown filters; default to None.
+            for col in TYPED_PAYLOAD_COLUMNS:
+                row[col] = [evt.get(col)]
+            batch = pa.record_batch(row, schema=_IPC_SCHEMA)
             writer.write_batch(batch)
         writer.close()
 

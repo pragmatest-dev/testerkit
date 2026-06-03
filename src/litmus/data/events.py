@@ -38,6 +38,60 @@ def _detect_client() -> str:
 # ---------------------------------------------------------------------------
 
 
+# Identifier and name fields promoted from the JSON payload into typed
+# DuckDB columns so the daemon can push WHERE filters down instead of
+# round-tripping rows to Python for post-filtering. The user-facing
+# rule: "all ids and names" — enough to uniquify any event and walk
+# its follow-ons.
+#
+# Three groups, by reason:
+#
+# * **Pairing IDs** — an open-event ``stream_id`` / ``dialog_id`` /
+#   ``channel_id`` / ``slot_id`` has a matching close-event with the
+#   same value. The pushdown answers "did this open ever close?"
+# * **Operator-facing identifiers** — ``dut_serial`` /
+#   ``station_hostname`` are how operators name what they're querying
+#   ("everything that happened to SN001 on bench-3").
+# * **Names + roles + enums** — recognition fields and the small set
+#   of kind/state enums that drive routine filters (``outcome``,
+#   ``reason``, ``format``, ``dialog_type``, ``response_type``).
+#
+# Adding a column is two edits — extend this tuple and the parallel
+# ``_EVENTS_COLUMNS`` in ``_duckdb_daemon.py``. The daemon's
+# ``ALTER TABLE ADD COLUMN IF NOT EXISTS`` auto-migrates existing DBs.
+TYPED_PAYLOAD_COLUMNS: tuple[str, ...] = (
+    # Pairing IDs
+    "stream_id",
+    "dialog_id",
+    "channel_id",
+    "slot_id",
+    # Operator-facing identifiers
+    "dut_serial",
+    "station_hostname",
+    # Other IDs
+    "instrument_id",
+    "node_id",
+    "step_path",
+    "fixture_id",
+    "operator_id",
+    "station_id",
+    # Names
+    "step_name",
+    "measurement_name",
+    "name",
+    # Instrument roles (two field names for legacy reasons — both
+    # promoted so the role= filter pushes down via SQL OR).
+    "role",
+    "instrument_role",
+    # Kind/state enums
+    "outcome",
+    "reason",
+    "format",
+    "dialog_type",
+    "response_type",
+)
+
+
 class EventBase(BaseModel):
     """Base for all event log events.
 
@@ -49,6 +103,28 @@ class EventBase(BaseModel):
     received_at: datetime | None = None  # Set by EventLog.emit()
     session_id: UUID = Field(default_factory=uuid4)
     run_id: UUID | None = None
+
+    def typed_payload_values(self) -> dict[str, str | None]:
+        """Return promoted column values for this event as ``{col: str | None}``.
+
+        Reads each column in :data:`TYPED_PAYLOAD_COLUMNS` via
+        ``getattr``, stringifying UUIDs and coercing empty strings to
+        ``None`` so the columns stay sparse (``WHERE col IS NOT NULL``
+        cleanly distinguishes "field absent" from "field set to "").
+        Events that don't declare a given column return ``None`` for
+        it — every event produces every column slot.
+        """
+        out: dict[str, str | None] = {}
+        for col in TYPED_PAYLOAD_COLUMNS:
+            val = getattr(self, col, None)
+            if val is None:
+                out[col] = None
+            elif isinstance(val, str):
+                out[col] = val or None
+            else:
+                # UUID stringifies; ints/floats coerce.
+                out[col] = str(val)
+        return out
 
 
 # ---------------------------------------------------------------------------

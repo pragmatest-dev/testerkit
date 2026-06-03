@@ -317,7 +317,28 @@ class EventStore:
             conditions.append(f"received_at <= '{_sql_escape(until)}'")
         if until_event_number is not None:
             conditions.append(f"event_number <= {int(until_event_number)}")
+        if role:
+            # Mirrors :func:`event_matches_role` in SQL: ``role``,
+            # ``instrument_role``, and the ``channel_id`` prefix all
+            # qualify. All three columns are promoted typed columns
+            # so the daemon plans an index/columnar scan on each
+            # branch — no per-row Python parse.
+            r = _sql_escape(role)
+            conditions.append(
+                f"(role = '{r}' OR instrument_role = '{r}' OR channel_id LIKE '{r}.%')"
+            )
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # Narrow projection — the typed payload columns exist purely
+        # to push down WHERE filters; their values are duplicates of
+        # fields inside ``json``, and parsing JSON reconstitutes the
+        # full event. ``SELECT *`` would ship every typed column
+        # back over Flight (mostly NULL) and inflate row size by 22
+        # extra strings. Envelope-only keeps the network payload
+        # constant regardless of how many typed columns we add later.
+        projection = (
+            "id, event_type, event_number, occurred_at, received_at, session_id, run_id, json"
+        )
 
         # Latest-N pushdown: SQL sorts received_at DESC under the
         # LIMIT (cheap with the index on received_at), then re-sorts
@@ -327,7 +348,7 @@ class EventStore:
         if limit is not None and limit > 0:
             sql = f"""
                 SELECT * FROM (
-                    SELECT *
+                    SELECT {projection}
                     FROM events
                     {where}
                     ORDER BY received_at DESC
@@ -337,20 +358,14 @@ class EventStore:
             """
         else:
             sql = f"""
-                SELECT *
+                SELECT {projection}
                 FROM events
                 {where}
                 ORDER BY received_at ASC
             """
         rows = self._flight_query(sql)
 
-        db_events: list[dict] = [_parse_event_row(row) for row in rows]
-
-        # Apply role filter (can't be done in SQL — needs event field inspection)
-        if role:
-            db_events = [e for e in db_events if event_matches_role(e, role)]
-
-        return db_events
+        return [_parse_event_row(row) for row in rows]
 
     def sessions(self) -> list[dict]:
         """List known sessions with metadata from SessionStarted events."""
@@ -399,8 +414,10 @@ class EventStore:
         if until_event_number is not None:
             clauses.append(f"event_number <= {int(until_event_number)}")
         where_extra = (" AND " + " AND ".join(clauses)) if clauses else ""
+        # Envelope-only projection — see ``events()`` for the rationale.
         sql = f"""
-            SELECT *
+            SELECT id, event_type, event_number, occurred_at, received_at,
+                   session_id, run_id, json
             FROM events
             WHERE run_id IS NOT NULL
               AND run_id IN (
