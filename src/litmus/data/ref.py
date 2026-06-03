@@ -12,8 +12,39 @@ dispatch on retrieval.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 from urllib.parse import parse_qs, quote, unquote, urlencode
+
+
+@runtime_checkable
+class Latchable(Protocol):
+    """Structural type for handle objects observe() can latch on.
+
+    Per design doc §4: ``observe(name, ref)`` should stamp the
+    existing URI without re-writing when ``ref`` is a handle to data
+    already in a store. Handles (channel sinks, file streaming sinks,
+    anything else with a stable ``.uri`` for the data it represents)
+    expose this property; observe checks for it via ``isinstance``
+    against this Protocol.
+
+    ``uri`` must be a ``channel://`` or ``file://`` reference string
+    pointing at the data the handle wraps — the same string the store
+    would have returned from a write() call.
+    """
+
+    @property
+    def uri(self) -> str: ...
+
+
+def is_uri(value: Any) -> bool:
+    """Return True if ``value`` is a string in the ``channel://`` or
+    ``file://`` reference URI shape.
+
+    Used by :class:`Context.observe` to detect URI-string latching
+    (passing an already-known URI from a prior write — stamp it
+    without re-writing).
+    """
+    return isinstance(value, str) and value.startswith(("channel://", "file://"))
 
 
 def classify_value(value: Any) -> Literal["scalar", "numeric_array", "channel", "blob"]:

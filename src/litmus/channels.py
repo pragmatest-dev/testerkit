@@ -110,6 +110,24 @@ class _ChannelSink:
         """The resolved channel_id this sink writes to."""
         return self._channel_id
 
+    @property
+    def uri(self) -> str:
+        """The ``channel://`` URI for this sink's channel.
+
+        Satisfies the :class:`~litmus.data.ref.Latchable` protocol —
+        :meth:`Context.observe` checks for this property and stamps
+        the URI without re-writing when handed a sink:
+
+        ::
+
+            with channels.stream("scope.ch1") as sink:
+                sink.write(sample)
+                observe("capture", sink)   # latches sink.uri on out_*
+        """
+        from litmus.data.ref import make_channel_uri  # noqa: PLC0415
+
+        return make_channel_uri(self._channel_id, str(self._store.session_id))
+
     def write(self, sample: Any) -> str:
         """Append one sample to this sink's channel. Returns the URI."""
         if self._closed:

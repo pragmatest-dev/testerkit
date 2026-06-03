@@ -220,6 +220,24 @@ class _BaseSink:
     def byte_offset(self) -> int:
         return self._byte_offset
 
+    @property
+    def uri(self) -> str:
+        """The ``file://`` URI for this stream's artifact.
+
+        Stable from open through close — the path is allocated when
+        the sink is constructed, so the URI is known immediately.
+        Satisfies the :class:`~litmus.data.ref.Latchable` protocol —
+        :meth:`Context.observe` checks for this property and stamps
+        the URI without re-writing when handed a sink:
+
+        ::
+
+            with litmus.files.stream("capture", format="raw") as sink:
+                sink.write(chunk)
+                observe("daq", sink)   # latches sink.uri on out_*
+        """
+        return f"file://{self._session_id_str}/{self._path.name}"
+
     def __enter__(self) -> _BaseSink:
         return self
 
