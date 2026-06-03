@@ -1066,10 +1066,10 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 15 | `XYData` model + complex-array round-trip coverage | C8 | ✅ DONE | (this PR) |
 | 16 | Optional `namespace=` kwarg on observe/verify/stream (observe + verify shipped; stream lands with C3b/item 7) | C3a | 🚧 PARTIAL | (this PR) |
 | 17 | Rename metadata fields → `attributes` across schemas | C2 | ✅ DONE | #18 |
-| 18 | Live waveform plot on channels detail page | C10 | ⏳ PENDING | — |
-| 19 | Byte-aware flush + end-to-end Flight bench | C10 | ⏳ PENDING | — |
+| 18 | Live waveform plot on channels detail page | C10 | ✅ DONE | #34 |
+| 19 | Payload-filter perf baselines (item 21 baseline) | C11 | ✅ DONE | #37 |
 | 20 | Consumer SDK (`litmus.live`) | C10 | ⏳ PENDING | — |
-| 21 | Typed Arrow event payloads | C11 | ⏳ PENDING | — |
+| 21 | Typed Arrow event payloads (22 ids/names promoted to typed DuckDB columns; outcome filter 2.74×, role filter 3.7× via projection narrowing) | C11 | ✅ DONE | #39 |
 | 22 | Local shared-memory transport | C11 | ⏳ PENDING | — |
 | 23 | Hardware video encoder option (also lands PyAV `mp4` + soundfile `wav` formats) | C5 follow-up | ⏳ PENDING | — |
 | 24 | (TBD per design doc growth) | C5 | ⏳ PENDING | — |
