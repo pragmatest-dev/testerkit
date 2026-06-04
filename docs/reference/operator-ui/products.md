@@ -9,22 +9,32 @@ project's `products/` directory.
 
 ## List — `/products`
 
-A table with one row per product. Columns:
+A table with one row per product that is either configured in the project
+(a YAML file exists) or has been observed in run history (no YAML file,
+only referenced by past runs). Columns:
 
 | Column | What it shows |
 |---|---|
+| Status | **Configured** chip (grey) — a YAML file exists. **Observed** chip (amber) — appears in run history but has no YAML file. |
 | ID | Product identifier |
 | Name | Human-readable name |
 | Rev | Revision string (when set) |
-| Chars | Count of characteristics defined on the product |
+| Chars | Count of characteristics defined on the product; `—` for Observed rows |
 | Runs | Total runs that have tested this product |
 | Passed | Run count with outcome `passed` |
 | Failed | Run count with outcome `failed` |
 | Last Run | Most recent run start timestamp, browser-local time |
 
-Click a row to open `/products/{id}` (detail). When no products
-exist, the table is replaced with a card hinting at the `products/`
-directory and the `New Product` button.
+Above the table, a filter card with **All / Configured / Observed** buttons
+narrows the view. The active filter is mirrored into the URL so the view is
+bookmarkable.
+
+A **New Product** button at the top right jumps to `/products/new`.
+Clicking a Configured row jumps to the detail view at `/products/{id}`.
+Observed rows are not clickable — no YAML exists to display.
+
+When no products are configured or observed, the table is replaced with an
+empty-state card explaining the entity and offering a New Product button.
 
 ## Detail — `/products/{id}`
 

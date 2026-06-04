@@ -13,23 +13,33 @@ edit time.
 
 ## List — `/fixtures`
 
-A table with one row per fixture. Columns:
+A table with one row per fixture that is either configured in the project
+(a YAML file exists) or has been observed in run history (no YAML file,
+only referenced by past runs). Columns:
 
 | Column | What it shows |
 |---|---|
+| Status | **Configured** chip (grey) — a YAML file exists. **Observed** chip (amber) — appears in run history but has no YAML file. |
 | ID | Fixture identifier |
 | Name | Human-readable name |
 | Product | Product name (falls back to the bound product ID when the product name isn't resolvable) |
 | Rev | Revision string (when set) |
-| Connections | Count of pin → channel connections defined |
+| Connections | Count of pin → channel connections defined; `—` for Observed rows |
 | Runs | Total runs that have used this fixture |
 | Passed | Run count with outcome `passed` |
 | Failed | Run count with outcome `failed` |
-| Last Run | Most recent run start timestamp |
+| Last Run | Most recent run start timestamp, browser-local time |
 
-Click a row to open `/fixtures/{id}` (detail). When no fixtures
-exist, the table is replaced with a card offering a Create Fixture
-button.
+Above the table, a filter card with **All / Configured / Observed** buttons
+narrows the view. The active filter is mirrored into the URL so the view is
+bookmarkable.
+
+A **New Fixture** button at the top right jumps to `/fixtures/new`.
+Clicking a Configured row jumps to the detail view at `/fixtures/{id}`.
+Observed rows are not clickable — no YAML exists to display.
+
+When no fixtures are configured or observed, the table is replaced with an
+empty-state card explaining the entity and offering a Create Fixture button.
 
 ## Detail — `/fixtures/{id}`
 

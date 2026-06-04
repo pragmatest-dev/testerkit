@@ -26,20 +26,32 @@ table is replaced with a card offering a Create Instrument button.
 
 ### Inventory tab
 
-A table with one row per physical instrument asset file.
+A table with one row per physical instrument that is either configured
+in the project (an asset YAML file exists) or has been observed in run
+history (no YAML file, only referenced by past runs). Columns:
 
 | Column | What it shows |
 |---|---|
+| Status | **Configured** chip (grey) — an asset YAML file exists. **Observed** chip (amber) — appears in run history but has no asset YAML file. |
 | ID | Asset identifier |
-| Driver | Driver identifier from the asset YAML (often blank on auto-discovered assets) |
+| Driver | Driver identifier from the asset YAML |
 | Manufacturer / Model | Identity stamp from the asset YAML |
 | Serial | Hardware serial number |
 | Cal Due | Calibration due date, ISO 8601 |
 | Cal Lab | Calibration lab name |
+| Runs | Total runs that have used this instrument |
+| Last Run | Most recent run start timestamp, browser-local time |
 
-When no asset files exist, the tab shows a blue hint card pointing
-at `litmus station init` to discover instruments and create asset
-files.
+Above the table, a filter card with **All / Configured / Observed** buttons
+narrows the view. The active filter is mirrored into the URL so the view is
+bookmarkable.
+
+Clicking a Configured row jumps to the asset detail view at `/instruments/{id}`.
+Observed rows are not clickable — no YAML file exists to display.
+
+When no instrument assets are configured or observed, the tab shows a blue
+hint card pointing at `litmus station init` to discover instruments and create
+asset files.
 
 ## Detail — `/instruments/{id}`
 
