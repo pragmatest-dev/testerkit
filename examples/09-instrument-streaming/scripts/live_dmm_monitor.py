@@ -23,10 +23,17 @@ stay on the timeline (ChannelStore is persisted, not just live).
 
 from __future__ import annotations
 
+import sys
 import time
+from pathlib import Path
 
-import litmus.channels
-from litmus.connect import connect
+# Make ``drivers/`` (sibling of ``scripts/``) importable so the station
+# YAML's ``driver: drivers.DMM`` resolves. ``uv run python scripts/foo.py``
+# puts ``scripts/`` on sys.path, not the example root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import litmus.channels  # noqa: E402
+from litmus.connect import connect  # noqa: E402
 
 RATE_HZ = 50.0
 DURATION_S = 60.0
