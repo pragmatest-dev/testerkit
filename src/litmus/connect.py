@@ -69,7 +69,7 @@ class StationConnection:
         self._started = False
 
     def start(self) -> None:
-        """Create EventLog, emit SessionStarted."""
+        """Create EventLog, emit SessionStarted, wire session-level ContextVars."""
         if self._started:
             return
 
@@ -86,6 +86,17 @@ class StationConnection:
             event_log=self._event_log,
         )
         self._channel_store.open()
+
+        # Wire the session-level ContextVars so module-level surfaces
+        # (``litmus.channels.stream``, ``litmus.files.write``, etc.)
+        # resolve to this session's stores. Same shape as the pytest
+        # plugin's session setup — without this, interactive code that
+        # calls ``channels.stream(name)`` raises "no active
+        # ChannelStore" even though the connection just opened one.
+        from litmus.execution._state import set_channel_store, set_event_store
+
+        set_event_store(self._event_store)
+        set_channel_store(self._channel_store)
 
         self._pool = InstrumentPool(
             session_id=self._session_id,
@@ -211,6 +222,14 @@ class StationConnection:
             self._event_store.close()
             self._event_store = None
         self._event_log = None
+
+        # Clear the session-level ContextVars wired in ``start()``.
+        # Mirrors the pytest plugin's teardown — without this, a later
+        # call to ``litmus.channels.stream`` would target a closed store.
+        from litmus.execution._state import set_channel_store, set_event_store
+
+        set_event_store(None)
+        set_channel_store(None)
 
         deregister_cleanup(str(self._session_id))
         self._started = False
