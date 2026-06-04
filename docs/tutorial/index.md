@@ -17,6 +17,7 @@ Welcome to Litmus! This tutorial takes you from your first test to a production-
 | [8. Capability Matching](08-capabilities.md) | Find compatible [stations](../concepts/configuration/stations.md) | [direction flip, matching API](../concepts/configuration/capabilities.md) |
 | [9. Production Ready](09-production.md) | Full [traceability](../how-to/execution/traceability.md) | [fixtures](../concepts/configuration/fixtures.md), test classes, sidecar |
 | [10. Live Monitoring](10-live-monitoring.md) | Monitor in real time | [sessions](../concepts/data/sessions.md), [events](../concepts/data/event-log.md), [channels](../concepts/data/three-stores.md) |
+| [11. Waveforms and Evidence](11-waveforms-and-evidence.md) | Capture a scope waveform and judge derived scalars | [three verbs](../concepts/data/three-verbs.md), `observe`, ChannelStore |
 
 ## Prerequisites
 
