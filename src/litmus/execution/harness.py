@@ -280,26 +280,16 @@ class Context:
             # Item 6: Waveform routes to ChannelStore via verb-layer
             # unpack. classify_value reports Waveform as ``blob`` (no
             # ``tolist``); the design doc §4 says channel-shaped, so we
-            # route directly and emit a RuntimeWarning when ``t0`` /
-            # ``attributes`` would be lost (per §15 open item).
+            # route directly. Y → value; dt → sample_interval; t0 →
+            # sampled_at; attributes → channel descriptor attributes.
             if isinstance(value, Waveform):
                 if self._channel_store is not None:
-                    if value.t0 != 0.0 or value.attributes:
-                        import warnings  # noqa: PLC0415
-
-                        warnings.warn(
-                            f"observe({full_key!r}, Waveform): t0={value.t0!r} and "
-                            f"attributes={value.attributes!r} cannot be preserved on a "
-                            "ChannelStore array row in today's schema (open per design "
-                            "doc §15). Y + dt are preserved; t0/attributes dropped. Use "
-                            "filestore.write(name, wf) if you need everything preserved.",
-                            RuntimeWarning,
-                            stacklevel=2,
-                        )
                     uri = self._channel_store.write(
                         full_key,
                         value.Y,
                         sample_interval=value.dt,
+                        sampled_at=value.t0,
+                        attributes=value.attributes or None,
                         source="observe",
                         run_id=self._current_run_id(),
                     )

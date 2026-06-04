@@ -15,6 +15,8 @@ After item 14: leaf types preserve through to the column dtype.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pyarrow as pa
 import pytest
 
@@ -222,7 +224,7 @@ def test_channel_descriptor_data_type_default_carries_leaf() -> None:
 def test_waveform_field_renamed_to_attributes() -> None:
     from litmus.data.models import Waveform
 
-    wf = Waveform(t0=0.0, dt=1e-6, Y=[1.0, 2.0])
+    wf = Waveform(t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC), dt=1e-6, Y=[1.0, 2.0])
     assert hasattr(wf, "attributes")
     assert not hasattr(wf, "attrs")
 
@@ -230,5 +232,10 @@ def test_waveform_field_renamed_to_attributes() -> None:
 def test_waveform_attributes_settable_via_kwarg() -> None:
     from litmus.data.models import Waveform
 
-    wf = Waveform(t0=0.0, dt=1e-6, Y=[1.0], attributes={"units": "V"})
+    wf = Waveform(
+        t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC),
+        dt=1e-6,
+        Y=[1.0],
+        attributes={"units": "V"},
+    )
     assert wf.attributes == {"units": "V"}

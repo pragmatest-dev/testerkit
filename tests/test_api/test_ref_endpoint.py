@@ -29,10 +29,11 @@ class TestSerializeRef:
     """Type-dispatch logic for ref payloads."""
 
     def test_waveform_returns_model_dump(self) -> None:
-        wfm = Waveform(t0=0.0, dt=0.001, Y=[1.0, 2.0, 3.0], attributes={"units": "V"})
+        t0 = datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC)
+        wfm = Waveform(t0=t0, dt=0.001, Y=[1.0, 2.0, 3.0], attributes={"units": "V"})
         result = _serialize_ref(wfm)
         assert result == {
-            "t0": 0.0,
+            "t0": t0,
             "dt": 0.001,
             "Y": [1.0, 2.0, 3.0],
             "attributes": {"units": "V"},
@@ -125,7 +126,11 @@ def app_with_run():
                     TestVector(
                         outcome=Outcome.PASSED,
                         observations={
-                            "scope": Waveform(t0=0.0, dt=0.001, Y=[1.0, 2.0, 3.0]),
+                            "scope": Waveform(
+                                t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC),
+                                dt=0.001,
+                                Y=[1.0, 2.0, 3.0],
+                            ),
                             "screenshot": b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR",
                         },
                         measurements=[
@@ -181,7 +186,8 @@ class TestRefEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["Y"] == [1.0, 2.0, 3.0]
-        assert body["t0"] == 0.0
+        # t0 was constructed as 2026-06-03 12:00:00 UTC above; serializes to ISO-8601
+        assert body["t0"] == "2026-06-03T12:00:00+00:00"
         assert body["dt"] == 0.001
 
     def test_png_bytes_return_image_content_type(self, app_with_run) -> None:

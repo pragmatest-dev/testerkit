@@ -811,9 +811,14 @@ def load_file(parquet_path: Path | None, ref: str) -> Any:
             # Check if this looks like a Waveform
             if "Y" in data and "t0" in data and "dt" in data:
                 attributes = {k: v for k, v in data.items() if k not in ("Y", "t0", "dt")}
+                # t0 is stored as ISO-8601 string by the serializer
+                # (datetime can't go into np.savez directly). Empty
+                # string means "unknown", parses back to None.
+                t0_str = str(data["t0"])
+                t0_val = datetime.fromisoformat(t0_str) if t0_str else None
                 return Waveform(
                     Y=data["Y"].tolist(),
-                    t0=float(data["t0"]),
+                    t0=t0_val,
                     dt=float(data["dt"]),
                     attributes=attributes,
                 )

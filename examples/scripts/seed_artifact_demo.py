@@ -109,10 +109,10 @@ def _sine_waveform(freq_hz: float = 100.0, sample_rate_hz: float = 100_000.0) ->
     n = int(sample_rate_hz / freq_hz) * 4  # four cycles
     omega = 2 * math.pi * freq_hz
     return Waveform(
-        t0=0.0,
+        t0=datetime.now(UTC),
         dt=dt,
         Y=[math.sin(omega * i * dt) for i in range(n)],
-        attrs={"units": "V", "channel": "scope1"},
+        attributes={"units": "V", "channel": "scope1"},
     )
 
 

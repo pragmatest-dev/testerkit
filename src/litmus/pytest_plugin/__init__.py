@@ -972,9 +972,29 @@ from litmus.execution.vectors import Vector  # noqa: E402
 
 
 @pytest.fixture
-def context() -> Context:
-    """Context exposed to tests for ``context.get_param("...")`` / ``.changed()``."""
-    return Context()
+def context(logger: TestRunLogger | None) -> Context:
+    """Context exposed to tests for ``context.get_param("...")`` / ``.changed()``.
+
+    Wires the active ChannelStore + session_id from the pytest plugin's
+    session setup so the ``observe`` fixture (which routes through this
+    context) can dispatch typed-array values (``Waveform``, ndarray,
+    list-of-scalars) to ChannelStore and blob values to FileStore.
+    Without this wiring, a bare ``Context()`` has no channel store, so
+    every Waveform falls through to the FileStore blob path and then
+    fails on the session_id guard.
+
+    ``logger`` is annotated as ``TestRunLogger | None`` because some
+    pytester subtests deliberately override the ``logger`` autouse
+    fixture to yield ``None`` (neutralizes the duckdb dependency in
+    child processes). Falls back to a bare ``Context()`` when logger
+    is unwired — matches the pre-wiring behaviour for that case.
+    """
+    if logger is None:
+        return Context()
+    return Context(
+        channel_store=get_channel_store(),
+        session_id=logger._session_id,
+    )
 
 
 @pytest.fixture

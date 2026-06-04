@@ -1129,7 +1129,7 @@ Time-series waveform data with metadata.
 
 | Field | Type | Default |
 |---|---|---|
-| `t0` | `float` | `0.0` |
+| `t0` | `datetime \| None` | `None` |
 | `dt` | `float` | *required* |
 | `Y` | `list[float]` | *required* |
 | `attributes` | `dict[str, Any]` | `{}` |

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
@@ -485,20 +485,26 @@ class TestRun(BaseModel):
 class Waveform(BaseModel):
     """Time-series waveform data with metadata.
 
-    Uses compressed representation where time axis is reconstructed
-    from t0 + i*dt instead of storing paired timestamps.
+    Uses compressed representation where the time axis is reconstructed
+    from ``t0 + i * dt`` instead of storing paired timestamps.
 
     Attributes:
-        t0: Start time (seconds from trigger)
-        dt: Sample interval (seconds)
-        Y: Sample values (voltage, current, etc.)
-        attributes: Metadata (units, channel, coupling, etc.). Renamed
-            from ``attrs`` in build item 17 for cross-schema vocabulary
-            consistency (matches FileArtifactMetadata.attributes and
+        t0: Absolute UTC timestamp of the first sample. ``None`` when
+            the producer doesn't know the wall-clock time (e.g. a
+            synthesized or hardware-trigger-relative capture). For
+            scope captures where samples are relative to a trigger,
+            store the trigger offset in ``attributes`` and set ``t0``
+            to the trigger's absolute time.
+        dt: Sample interval (seconds).
+        Y: Sample values (voltage, current, etc.).
+        attributes: Metadata (units, channel, coupling, trigger
+            offset, etc.). Renamed from ``attrs`` in build item 17 for
+            cross-schema vocabulary consistency (matches
+            FileArtifactMetadata.attributes and
             ChannelDescriptor.attributes).
     """
 
-    t0: float = 0.0
+    t0: datetime | None = None
     dt: float
     Y: list[float]  # Sample values
     attributes: dict[str, Any] = Field(default_factory=dict)
@@ -513,9 +519,20 @@ class Waveform(BaseModel):
         """Total duration in seconds."""
         return self.num_samples * self.dt
 
-    def time_axis(self) -> list[float]:
-        """Reconstruct time axis: t = t0 + i*dt."""
-        return [self.t0 + i * self.dt for i in range(self.num_samples)]
+    def time_axis(self) -> list[datetime]:
+        """Reconstruct the absolute time axis: ``t0 + i * dt`` for each sample.
+
+        Raises ``ValueError`` if ``t0`` is None — without an anchor,
+        the absolute axis can't be reconstructed. Callers that only
+        need relative time should compute ``[i * dt for i in
+        range(num_samples)]`` directly.
+        """
+        if self.t0 is None:
+            raise ValueError(
+                "Waveform.time_axis() requires t0 to be set. "
+                "For relative-only time, use [i * dt for i in range(num_samples)]."
+            )
+        return [self.t0 + timedelta(seconds=i * self.dt) for i in range(self.num_samples)]
 
 
 class XYData(BaseModel):

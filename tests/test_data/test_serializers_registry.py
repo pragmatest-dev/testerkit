@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import pickle as _pickle
 import warnings
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -67,7 +68,7 @@ class TestBuiltInHandlers:
         assert s.extension == ".bin"  # default; caller overrides for actual suffix
 
     def test_waveform_serializer_uses_npz_with_numpy(self) -> None:
-        wf = Waveform(t0=0.0, dt=1e-6, Y=[1.0, 2.0])
+        wf = Waveform(t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC), dt=1e-6, Y=[1.0, 2.0])
         s = find_serializer(wf)
         assert s.extension == ".npz"
         assert s.mime == "application/x-numpy-npz"
