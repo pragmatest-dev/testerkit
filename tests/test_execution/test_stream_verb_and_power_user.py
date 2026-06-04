@@ -197,9 +197,21 @@ class TestFilesWrite:
         assert uri.startswith(f"file://{ctx._session_id}/")
 
     def test_write_without_session_raises(self) -> None:
-        """No session_id arg + no active Context = clear error."""
-        with pytest.raises(RuntimeError, match="no active session_id"):
-            files.write("artifact", b"hello")
+        """No session_id arg + no active Context = clear error.
+
+        The pytest ``context`` fixture (pulled in autouse via
+        ``_litmus_push_params``) pushes a Context onto the
+        ContextVar — so to exercise the "no context" error path we
+        explicitly clear the var for the duration of the assertion.
+        """
+        from litmus.execution._state import _current_context_var  # noqa: PLC0415
+
+        token = _current_context_var.set(None)
+        try:
+            with pytest.raises(RuntimeError, match="no active session_id"):
+                files.write("artifact", b"hello")
+        finally:
+            _current_context_var.reset(token)
 
 
 class TestFilesStreamSignature:

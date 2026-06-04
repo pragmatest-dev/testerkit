@@ -972,7 +972,7 @@ from litmus.execution.vectors import Vector  # noqa: E402
 
 
 @pytest.fixture
-def context(logger: TestRunLogger | None) -> Context:
+def context(logger: TestRunLogger | None) -> Generator[Context, None, None]:
     """Context exposed to tests for ``context.get_param("...")`` / ``.changed()``.
 
     Wires the active ChannelStore + session_id from the pytest plugin's
@@ -983,18 +983,37 @@ def context(logger: TestRunLogger | None) -> Context:
     every Waveform falls through to the FileStore blob path and then
     fails on the session_id guard.
 
+    Also pushes the constructed Context onto the
+    ``_current_context_var`` ContextVar so module-level surfaces that
+    resolve session via that var (``litmus.files.write``,
+    ``litmus.files.stream``, ``litmus.channels.stream`` indirectly)
+    find the active session. The push is per-test (no leakage between
+    tests); the token-based reset restores the prior context on
+    teardown.
+
     ``logger`` is annotated as ``TestRunLogger | None`` because some
     pytester subtests deliberately override the ``logger`` autouse
     fixture to yield ``None`` (neutralizes the duckdb dependency in
     child processes). Falls back to a bare ``Context()`` when logger
     is unwired — matches the pre-wiring behaviour for that case.
     """
-    if logger is None:
-        return Context()
-    return Context(
-        channel_store=get_channel_store(),
-        session_id=logger._session_id,
+    from litmus.execution._state import (  # noqa: PLC0415
+        push_current_context,
+        reset_current_context,
     )
+
+    if logger is None:
+        ctx = Context()
+    else:
+        ctx = Context(
+            channel_store=get_channel_store(),
+            session_id=logger._session_id,
+        )
+    token = push_current_context(ctx)
+    try:
+        yield ctx
+    finally:
+        reset_current_context(token)
 
 
 @pytest.fixture

@@ -18,6 +18,7 @@ members = [
     "litmus-example-06-station-catalog",
     "litmus-example-07-profiles",
     "litmus-example-08-waveform-evidence",
+    "litmus-example-10-artifacts-and-byte-streams",
     "litmus-test",
 ]
 
@@ -1693,6 +1694,25 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "litmus-test", editable = "." },
+    { name = "pytest" },
+]
+
+[[package]]
+name = "litmus-example-10-artifacts-and-byte-streams"
+version = "0.0.0"
+source = { editable = "examples/10-artifacts-and-byte-streams" }
+dependencies = [
+    { name = "litmus-test" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "litmus-test", editable = "." },
+    { name = "pillow" },
+    { name = "pydantic" },
     { name = "pytest" },
 ]
 
