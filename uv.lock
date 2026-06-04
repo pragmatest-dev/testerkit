@@ -17,6 +17,7 @@ members = [
     "litmus-example-05-product-spec",
     "litmus-example-06-station-catalog",
     "litmus-example-07-profiles",
+    "litmus-example-08-waveform-evidence",
     "litmus-test",
 ]
 
@@ -1669,6 +1670,21 @@ requires-dist = [
 name = "litmus-example-07-profiles"
 version = "0.0.0"
 source = { editable = "examples/07-profiles" }
+dependencies = [
+    { name = "litmus-test" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "litmus-test", editable = "." },
+    { name = "pytest" },
+]
+
+[[package]]
+name = "litmus-example-08-waveform-evidence"
+version = "0.0.0"
+source = { editable = "examples/08-waveform-evidence" }
 dependencies = [
     { name = "litmus-test" },
     { name = "pytest" },
