@@ -1070,7 +1070,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 19 | Payload-filter perf baselines (item 21 baseline) | C11 | ✅ DONE | #37 |
 | 20 | Consumer SDK (`litmus.live`) | C10 | ⏳ PENDING | — |
 | 21 | Typed Arrow event payloads (22 ids/names promoted to typed DuckDB columns; outcome filter 2.74×, role filter 3.7× via projection narrowing) | C11 | ✅ DONE | #39 |
-| 22 | Local shared-memory transport | C11 | ⏳ PENDING | — |
+| 22 | Local shared-memory transport (DEFERRED 2026-06-03 — PoC at `.tmp/shm_perf_poc/` showed 2× per-batch latency ceiling, not the 3–10× / GB/s estimated in §2/§3. Flight on loopback is faster than the original estimate (175 µs p50, 284 MB/s) and the remaining 40+ µs/batch on shm is dominated by Arrow IPC serialize/deserialize. Cost/benefit doesn't justify the multi-week Transport abstraction + lifetime/crash engineering for a 2× win when no user has reported lag. Revisit only on symptoms: UI lag pinned to transport, sustained >10 kHz capture saturating Flight, or many-subscriber fan-out scaling.) | C11 | ⏸️ DEFERRED | — |
 | 23 | Hardware video encoder option (also lands PyAV `mp4` + soundfile `wav` formats) | C5 follow-up | ⏳ PENDING | — |
 | 24 | (TBD per design doc growth) | C5 | ⏳ PENDING | — |
 
