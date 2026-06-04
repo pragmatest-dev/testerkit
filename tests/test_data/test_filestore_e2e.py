@@ -88,7 +88,12 @@ class TestObserveToFileStore:
 
     def test_observe_waveform_lands_as_npz(self, session: tuple[Context, UUID]) -> None:
         ctx, session_id = session
-        wf = Waveform(t0=0.0, dt=1e-6, Y=[1.0, 2.0, 3.0], attributes={"units": "V"})
+        wf = Waveform(
+            t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC),
+            dt=1e-6,
+            Y=[1.0, 2.0, 3.0],
+            attributes={"units": "V"},
+        )
         ctx.observe("scope.waveform", wf)
 
         uri = ctx._observations["scope.waveform"]

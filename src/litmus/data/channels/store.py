@@ -272,6 +272,7 @@ class ChannelStore:
         instrument_role: str = "",
         resource: str = "",
         sampled_at: datetime | None = None,
+        attributes: dict[str, Any] | None = None,
         run_id: UUID | None = None,
     ) -> str:
         """Write a value directly to a channel.
@@ -299,6 +300,14 @@ class ChannelStore:
                 write time so analytics has a fallback. Most scope /
                 DAQ acquisitions carry a hardware timestamp; simple
                 DMM measure calls don't.
+            attributes: Channel-level metadata dict (units string is
+                redundant if also passed via ``units=``; richer fields
+                like coupling, channel name, trigger offset live
+                here). Stamped on the registry descriptor on first
+                write; subsequent writes' attributes are ignored (the
+                channel's identity is fixed once registered). Use the
+                first-write site to declare the channel's metadata
+                fully.
 
         Returns:
             ``channel://`` URI pointing to this data in the store.
@@ -340,6 +349,7 @@ class ChannelStore:
                 units=units,
                 instrument_role=instrument_role,
                 resource=resource,
+                attributes=dict(attributes) if attributes else {},
                 first_seen=now,
             )
             # Position 2 (item 4b): emit ChannelStarted exactly once per

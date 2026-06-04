@@ -27,7 +27,6 @@ uuid4 session_ids for per-test isolation.
 
 from __future__ import annotations
 
-import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -106,7 +105,7 @@ class TestClassifyValueLoosened:
 class TestObserveWaveformRoutesToChannelStore:
     def test_simple_waveform_writes_channel_array(self, context_with_channel_store) -> None:
         ctx, store = context_with_channel_store
-        wf = Waveform(t0=0.0, dt=1e-6, Y=[1.0, 2.0, 3.0])
+        wf = Waveform(dt=1e-6, Y=[1.0, 2.0, 3.0])
 
         ctx.observe("scope.cap", wf)
 
@@ -117,44 +116,41 @@ class TestObserveWaveformRoutesToChannelStore:
         assert result.column("value")[0].as_py() == [1.0, 2.0, 3.0]
         assert result.column("sample_interval")[0].as_py() == 1e-6
 
-    def test_waveform_with_nonzero_t0_emits_warning(self, context_with_channel_store) -> None:
-        """Per design doc §15 open item: t0 has no row-level home today."""
-        ctx, _ = context_with_channel_store
-        wf = Waveform(t0=0.005, dt=1e-6, Y=[1.0, 2.0])
+    def test_waveform_with_t0_round_trips_to_sampled_at(self, context_with_channel_store) -> None:
+        """Waveform.t0 → ChannelStore row's ``sampled_at`` column (no data loss)."""
+        from datetime import UTC, datetime  # noqa: PLC0415
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            ctx.observe("scope.cap", wf)
+        ctx, store = context_with_channel_store
+        t0 = datetime(2026, 6, 3, 12, 34, 56, tzinfo=UTC)
+        wf = Waveform(t0=t0, dt=1e-6, Y=[1.0, 2.0])
 
-        runtime = [w for w in caught if issubclass(w.category, RuntimeWarning)]
-        assert len(runtime) == 1
-        assert "t0" in str(runtime[0].message)
+        ctx.observe("scope.cap", wf)
 
-    def test_waveform_with_attributes_emits_warning(self, context_with_channel_store) -> None:
-        ctx, _ = context_with_channel_store
-        wf = Waveform(t0=0.0, dt=1e-6, Y=[1.0], attributes={"units": "V"})
+        result = store.query("scope.cap")
+        assert result.column("sampled_at")[0].as_py() == t0
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            ctx.observe("scope.cap", wf)
-
-        runtime = [w for w in caught if issubclass(w.category, RuntimeWarning)]
-        assert len(runtime) == 1
-        assert "attributes" in str(runtime[0].message)
-
-    def test_waveform_with_default_t0_and_no_attributes_no_warning(
+    def test_waveform_with_attributes_round_trips_to_channel_descriptor(
         self, context_with_channel_store
     ) -> None:
-        """Bare ``Waveform(dt=..., Y=[...])`` is the no-data-loss case."""
-        ctx, _ = context_with_channel_store
-        wf = Waveform(t0=0.0, dt=1e-6, Y=[1.0, 2.0])
+        """Waveform.attributes → ChannelDescriptor.attributes (no data loss)."""
+        ctx, store = context_with_channel_store
+        wf = Waveform(dt=1e-6, Y=[1.0], attributes={"units": "V", "channel": "ch1"})
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            ctx.observe("scope.cap", wf)
+        ctx.observe("scope.cap", wf)
 
-        runtime = [w for w in caught if issubclass(w.category, RuntimeWarning)]
-        assert runtime == []
+        descriptor = store._registry["scope.cap"]
+        assert descriptor.attributes == {"units": "V", "channel": "ch1"}
+
+    def test_waveform_with_default_t0_and_no_attributes(self, context_with_channel_store) -> None:
+        """Bare ``Waveform(dt=..., Y=[...])`` writes with sampled_at=None and empty attributes."""
+        ctx, store = context_with_channel_store
+        wf = Waveform(dt=1e-6, Y=[1.0, 2.0])
+
+        ctx.observe("scope.cap", wf)
+
+        result = store.query("scope.cap")
+        assert result.column("sampled_at")[0].as_py() is None
+        assert store._registry["scope.cap"].attributes == {}
 
 
 # --------------------------------------------------------------------- #

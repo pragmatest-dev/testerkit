@@ -103,9 +103,10 @@ def test_put_bytes_writes_bin(store: FileStore) -> None:
 
 def test_put_waveform_writes_npz_with_t0_dt_attrs(store: FileStore) -> None:
     sid = _session_id()
+    t0 = datetime(2026, 6, 3, 12, 34, 56, tzinfo=UTC)
     wf = Waveform(
         Y=[1.0, 2.0, 3.0, 4.0],
-        t0=0.1,
+        t0=t0,
         dt=1e-6,
         attributes={"units": "V", "channel": "scope.ch1"},
     )
@@ -116,11 +117,78 @@ def test_put_waveform_writes_npz_with_t0_dt_attrs(store: FileStore) -> None:
     assert filename.endswith(".npz")
     npz = np.load(_expected_session_dir(store, sid) / filename)
     assert list(npz["Y"]) == [1.0, 2.0, 3.0, 4.0]
-    assert float(npz["t0"]) == pytest.approx(0.1)
+    # t0 is stored as ISO-8601 string (np.savez can't take a datetime
+    # directly). Round-trip back to datetime via fromisoformat to
+    # confirm the wire shape is consumable.
+    assert str(npz["t0"]) == t0.isoformat()
+    assert datetime.fromisoformat(str(npz["t0"])) == t0
     assert float(npz["dt"]) == pytest.approx(1e-6)
     # attrs get inlined as keys in the npz
     assert str(npz["units"]) == "V"
     assert str(npz["channel"]) == "scope.ch1"
+
+
+def test_put_waveform_with_t0_none_writes_empty_iso_string(store: FileStore) -> None:
+    """When the producer doesn't know the wall-clock time (t0=None), the
+    npz stores an empty string for t0 — the parquet read-back parses
+    that back to None.
+    """
+    sid = _session_id()
+    wf = Waveform(Y=[1.0, 2.0, 3.0], dt=1e-6)  # t0 defaults to None
+
+    uri = store.write("scope.capture", wf, session_id=sid)
+
+    _, filename = _parse_uri(uri)
+    npz = np.load(_expected_session_dir(store, sid) / filename)
+    assert str(npz["t0"]) == ""
+
+
+def test_waveform_round_trip_through_load_file_preserves_t0_and_attributes(
+    store: FileStore,
+) -> None:
+    """End-to-end: write a Waveform with t0 + attributes → read it back
+    via ``load_file`` → fields match. Exercises both the np.savez
+    ISO-string serialization and the ``datetime.fromisoformat`` parse
+    in ``parquet.py:_load_file``.
+    """
+    from litmus.data.backends.parquet import load_file  # noqa: PLC0415
+
+    sid = _session_id()
+    t0 = datetime(2026, 6, 3, 12, 34, 56, tzinfo=UTC)
+    wf = Waveform(
+        Y=[1.0, 2.0, 3.0, 4.0],
+        t0=t0,
+        dt=1e-6,
+        attributes={"units": "V", "channel": "scope.ch1"},
+    )
+
+    uri = store.write("scope.capture", wf, session_id=sid)
+    loaded = load_file(parquet_path=None, ref=uri)
+
+    assert isinstance(loaded, Waveform)
+    assert loaded.t0 == t0
+    assert loaded.dt == pytest.approx(1e-6)
+    assert loaded.Y == [1.0, 2.0, 3.0, 4.0]
+    assert loaded.attributes["units"] == "V"
+    assert loaded.attributes["channel"] == "scope.ch1"
+
+
+def test_waveform_round_trip_with_t0_none_preserves_none(store: FileStore) -> None:
+    """Round-trip of a Waveform without t0 → load_file returns t0=None
+    (the empty ISO string in the npz parses cleanly to None).
+    """
+    from litmus.data.backends.parquet import load_file  # noqa: PLC0415
+
+    sid = _session_id()
+    wf = Waveform(Y=[1.0, 2.0], dt=1e-6)
+
+    uri = store.write("scope.capture", wf, session_id=sid)
+    loaded = load_file(parquet_path=None, ref=uri)
+
+    assert isinstance(loaded, Waveform)
+    assert loaded.t0 is None
+    assert loaded.dt == pytest.approx(1e-6)
+    assert loaded.Y == [1.0, 2.0]
 
 
 def test_put_pydantic_model_writes_json(store: FileStore) -> None:

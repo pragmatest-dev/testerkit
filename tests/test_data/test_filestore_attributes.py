@@ -19,6 +19,7 @@ absent), so the store walks date directories to resolve.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -98,7 +99,7 @@ class TestMIMETableRoundTrip:
 
     def test_waveform_lands_as_npz(self, store: FileStore) -> None:
         sid = _session_id()
-        wf = Waveform(t0=0.0, dt=1e-6, Y=[1.0, 2.0, 3.0])
+        wf = Waveform(t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC), dt=1e-6, Y=[1.0, 2.0, 3.0])
         uri = store.write("scope.cap", wf, session_id=sid)
         meta = store.read_attributes(uri)
         assert meta is not None

@@ -106,7 +106,12 @@ def _write_waveform(value: Waveform, dest: Path) -> None:
     if HAS_NUMPY:
         import numpy as np
 
-        np.savez(dest, Y=value.Y, t0=value.t0, dt=value.dt, **value.attributes)
+        # t0 is a datetime (or None). np.savez can't store datetimes
+        # directly — serialize as an ISO-8601 string when set, empty
+        # string when None. Readers must round-trip through
+        # ``datetime.fromisoformat``.
+        t0_iso = value.t0.isoformat() if value.t0 is not None else ""
+        np.savez(dest, Y=value.Y, t0=t0_iso, dt=value.dt, **value.attributes)
     else:
         dest.write_text(value.model_dump_json())
 

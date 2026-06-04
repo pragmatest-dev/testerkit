@@ -413,7 +413,7 @@ class TestSaveRefToDir:
         ref_dir = tmp_path / "_ref"
         ref_dir.mkdir()
 
-        wfm = Waveform(t0=0.0, dt=0.001, Y=[1.0, 2.0, 3.0])
+        wfm = Waveform(t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC), dt=0.001, Y=[1.0, 2.0, 3.0])
         ref = save_ref_to_dir(ref_dir, "abc", "wfm", wfm)
         # npz if numpy available, json otherwise — either is valid
         assert ref.startswith("file://_ref/abc_wfm.")
