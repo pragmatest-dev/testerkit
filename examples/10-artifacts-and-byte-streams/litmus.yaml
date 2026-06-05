@@ -1,0 +1,3 @@
+name: 10-artifacts-and-byte-streams
+data_dir: data
+default_station: bench_01

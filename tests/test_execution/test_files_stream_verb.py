@@ -108,9 +108,18 @@ class TestSessionIdResolution:
             reset_current_context(token)
 
     def test_raises_without_session_or_context(self, _isolated_filestore: None) -> None:
-        with pytest.raises(RuntimeError, match="no active session_id"):
-            with litmus.files.stream("orphan", format="raw") as _:
-                pass
+        # Pytest's ``context`` fixture pushes a Context onto the
+        # ContextVar via the autouse ``_litmus_push_params``. Clear
+        # the var explicitly to exercise the "no context" error path.
+        from litmus.execution._state import _current_context_var  # noqa: PLC0415
+
+        token = _current_context_var.set(None)
+        try:
+            with pytest.raises(RuntimeError, match="no active session_id"):
+                with litmus.files.stream("orphan", format="raw") as _:
+                    pass
+        finally:
+            _current_context_var.reset(token)
 
 
 # --------------------------------------------------------------------- #

@@ -1,0 +1,9 @@
+id: bench_01
+name: Bench 01 (artifacts demo)
+station_type: bench
+description: Single-PSU bench for the FileStore artifacts + byte-stream example.
+instruments:
+  psu:
+    type: psu
+    driver: drivers.PSU
+    resource: TCPIP::192.168.1.101::INSTR
