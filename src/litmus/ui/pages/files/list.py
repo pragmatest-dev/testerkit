@@ -37,7 +37,8 @@ def _row_for_artifact(entry: dict[str, Any]) -> dict[str, Any]:
         "size": _format_size(entry["size_bytes"]),
         "created_at": format_datetime(entry["created_at"]),
         "uri": entry["uri"],
-        "download_url": f"/files-static/{entry['session_id']}/{entry['filename']}",
+        "detail_url": f"/files/{entry['session_id']}/{entry['filename']}",
+        "download_url": f"/files-static/{entry['session_id']}/{entry['filename']}?download=1",
     }
 
 
@@ -91,6 +92,7 @@ def _build_table(rows: list[dict[str, Any]]) -> ui.table:
         {"name": "mime", "label": "Type", "field": "mime", "align": "left"},
         {"name": "size", "label": "Size", "field": "size", "align": "right"},
         {"name": "created_at", "label": "Created", "field": "created_at", "align": "left"},
+        {"name": "actions", "label": "", "field": "actions", "align": "right"},
     ]
     table = data_table(
         columns=columns,
@@ -98,13 +100,21 @@ def _build_table(rows: list[dict[str, Any]]) -> ui.table:
         row_key="uri",
         time_columns=["created_at"],
     )
-    # Make the filename cell a download link to the static route.
+    # Filename cell links to the detail page (metadata + inline viewer).
     table.add_slot(
         "body-cell-filename",
         '<q-td :props="props">'
-        '<a :href="props.row.download_url" target="_blank" '
+        '<a :href="props.row.detail_url" '
         'class="text-blue-600 hover:underline font-mono text-xs">'
         "{{ props.value }}</a>"
+        "</q-td>",
+    )
+    # Actions cell offers a direct download link bypassing the viewer.
+    table.add_slot(
+        "body-cell-actions",
+        '<q-td :props="props">'
+        '<a :href="props.row.download_url" '
+        'class="text-blue-600 hover:underline text-xs">Download</a>'
         "</q-td>",
     )
     return table
@@ -121,16 +131,23 @@ def _show_empty_state(slot: ui.column) -> None:
 
 
 @app.get("/files-static/{session_id}/{filename}")
-def serve_file_artifact(session_id: str, filename: str) -> FileResponse:
+def serve_file_artifact(session_id: str, filename: str, download: int = 0) -> FileResponse:
     """Serve an artifact file by its ``file://{session_id}/{filename}`` URI.
 
     Resolves through ``FileStore._resolve_uri`` so the date-partitioned
     on-disk layout stays an implementation detail. 404 when the URI
     doesn't match anything on disk.
+
+    Pass ``?download=1`` to force ``Content-Disposition: attachment`` so
+    the browser saves the file regardless of mime (otherwise the
+    browser uses its own rules — inline for images/JSON/text, download
+    for octet-stream).
     """
     path = resolve_file_uri(session_id, filename)
     if path is None or not path.exists():
         from fastapi import HTTPException
 
         raise HTTPException(status_code=404, detail=f"file://{session_id}/{filename}")
+    if download:
+        return FileResponse(path, filename=filename)
     return FileResponse(path)
