@@ -11,6 +11,7 @@ from litmus.ui.pages import (
     duts,  # noqa: F401
     events,  # noqa: F401
     explore,  # noqa: F401
+    files,  # noqa: F401
     fixtures,  # noqa: F401
     instruments,  # noqa: F401
     launch,  # noqa: F401

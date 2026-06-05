@@ -3,7 +3,7 @@
 NO direct yaml.safe_load or Path I/O here — all persistence goes through litmus.store.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -1638,6 +1638,83 @@ def query_channel(
         max_points=max_points,
         data_dir=_resolve_data_dir(),
     )
+
+
+# -----------------------------------------------------------------------------
+# FileStore Services
+# -----------------------------------------------------------------------------
+
+
+def list_recent_files(*, limit: int = 200) -> list[dict[str, Any]]:
+    """Walk the FileStore on-disk layout and return artifact descriptors.
+
+    Each descriptor: ``{"uri", "session_id", "filename", "mime",
+    "extension", "size_bytes", "created_at", "attributes"}``. Returns
+    up to ``limit`` most-recently-modified artifacts, newest first.
+    Skips sidecar files. Returns an empty list when no FileStore data
+    exists.
+    """
+    from litmus.data.data_dir import resolve_data_dir
+    from litmus.data.files.models import FileArtifactMetadata
+
+    project_dir = _resolve_data_dir()
+    files_dir = resolve_data_dir(project_dir) / "files"
+    if not files_dir.exists():
+        return []
+
+    sidecar_suffix = ".meta.json"
+    entries: list[dict[str, Any]] = []
+    for path in files_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.name.endswith(sidecar_suffix):
+            continue
+        # Layout: {files_dir}/{date}/{session_id}/{filename}
+        try:
+            session_id = path.parent.name
+        except IndexError:
+            continue
+        mime = ""
+        extension = path.suffix
+        size_bytes = path.stat().st_size
+        attributes: dict[str, Any] = {}
+        sidecar = path.with_name(path.name + sidecar_suffix)
+        if sidecar.exists():
+            try:
+                meta = FileArtifactMetadata.model_validate_json(sidecar.read_text())
+                mime = meta.mime
+                extension = meta.extension or extension
+                size_bytes = meta.size_bytes
+                attributes = dict(meta.attributes or {})
+            except (OSError, ValueError):
+                pass
+        entries.append(
+            {
+                "uri": f"file://{session_id}/{path.name}",
+                "session_id": session_id,
+                "filename": path.name,
+                "mime": mime,
+                "extension": extension,
+                "size_bytes": size_bytes,
+                "created_at": datetime.fromtimestamp(path.stat().st_mtime, tz=UTC),
+                "attributes": attributes,
+            }
+        )
+
+    entries.sort(key=lambda e: e["created_at"], reverse=True)
+    return entries[:limit]
+
+
+def resolve_file_uri(session_id: str, filename: str) -> Path | None:
+    """Resolve a ``file://{session_id}/{filename}`` URI to an on-disk Path.
+
+    Returns ``None`` if the file does not exist. Used by the
+    ``/files-static/...`` HTTP route to serve artifact bytes.
+    """
+    from litmus.data.files import get_filestore
+
+    store = get_filestore()
+    return store._resolve_uri(f"file://{session_id}/{filename}")
 
 
 # -----------------------------------------------------------------------------

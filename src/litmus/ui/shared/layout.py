@@ -129,6 +129,7 @@ def create_sidebar():
 
             _nav_item("/events", "notifications", "Events")
             _nav_item("/channels", "signal_cellular_alt", "Channels")
+            _nav_item("/files", "folder", "Files")
 
             ui.separator().classes("bg-slate-700 my-2")
             ui.label("CONFIGURATION").classes("text-xs text-slate-500 px-3 pt-2")
