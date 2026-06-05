@@ -1,0 +1,7 @@
+name: 09-instrument-streaming
+data_dir: data
+default_station: bench_01
+# Note: not mock_instruments: true — drivers/dmm.py is self-simulating,
+# so the real-driver path instantiates it directly. Swap in PyMeasure /
+# PyVISA when a real bench is attached; the rest of the example works
+# unchanged.

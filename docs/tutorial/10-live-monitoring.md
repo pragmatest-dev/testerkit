@@ -135,6 +135,8 @@ Query channel data:
 curl "http://localhost:8000/api/channels/scope.ch1?max_points=500"
 ```
 
+See also: [Step 12: Continuous Monitoring](12-continuous-monitoring.md) — streaming into ChannelStore directly from an interactive script using `litmus.channels.stream`.
+
 ## What's Happening Under the Hood
 
 1. `connect()` creates an `EventStore` and `EventLog` for the session

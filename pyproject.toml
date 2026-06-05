@@ -192,6 +192,7 @@ members = [
     "examples/06-station-catalog",
     "examples/07-profiles",
     "examples/08-waveform-evidence",
+    "examples/09-instrument-streaming",
     "examples/11-querying-data",
 ]
 
@@ -204,6 +205,7 @@ litmus-example-05-product-spec = { workspace = true }
 litmus-example-06-station-catalog = { workspace = true }
 litmus-example-07-profiles = { workspace = true }
 litmus-example-08-waveform-evidence = { workspace = true }
+litmus-example-09-instrument-streaming = { workspace = true }
 litmus-example-11-querying-data = { workspace = true }
 
 [tool.ruff]
