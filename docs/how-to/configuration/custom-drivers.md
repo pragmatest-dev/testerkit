@@ -12,9 +12,9 @@ The instrument package (`litmus.instruments.*`) gives you two base classes and o
 |---|---|---|
 | `Instrument` | `from litmus.instruments.base import Instrument` | Any protocol you handle yourself — serial, DAQmx, USB, HID, proprietary RPC |
 | `VisaInstrument` | `from litmus.instruments.visa import VisaInstrument` | SCPI / IEEE 488.2 instruments — wraps PyVISA, adds `query()` / `write()` / `*IDN?` parsing, generates a `pyvisa-sim` config when `simulate=True` |
-| `Mock` | `from litmus.instruments.mocks import Mock` | Substitute for a driver class in tests. Returns a `class MockClass(cls)` instance so `isinstance(mock, MyDMM)` passes, `connect()`/`disconnect()` are auto-wired no-ops, and only explicitly-configured methods return values. The platform calls this for you from station YAML's `mock_config:`; you import it directly only for bringup-tier conftest fixtures. |
+| `Mock` | `from litmus import Mock` | Substitute for a driver class in tests. Returns a `class MockClass(cls)` instance so `isinstance(mock, MyDMM)` passes, `connect()`/`disconnect()` are auto-wired no-ops, and only explicitly-configured methods return values. The platform calls this for you from station YAML's `mock_config:`; you import it directly only for bringup-tier conftest fixtures. |
 
-The package's `__init__.py` is documentation-only — import from the submodules directly. `from litmus.instruments import Instrument` does not work.
+`Mock` is re-exported at the top level (`from litmus import Mock`). `Instrument` and `VisaInstrument` live one level deeper because they're driver-author surfaces, not test-author surfaces — `from litmus.instruments import Instrument` does not work; the deep `.base` / `.visa` paths are intentional.
 
 ```
 Instrument (ABC, in base.py)
@@ -392,7 +392,7 @@ Before you have a station YAML, write the fixture yourself in `conftest.py`. The
 # tests/conftest.py
 import pytest
 
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 from my_pkg.drivers import MyDMM
 
 
@@ -435,7 +435,7 @@ If your driver needs methods the auto-sim doesn't cover (resistance, frequency, 
 When in doubt for driver-level tests, use `Mock` directly — it doesn't depend on any simulation infrastructure being present:
 
 ```python
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 
 from my_pkg.drivers import MyDMM
 

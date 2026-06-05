@@ -24,7 +24,7 @@ See [The Three Test-Author Verbs](../concepts/data/three-verbs.md) for the model
 # tests/test_psu_step_response.py
 
 from litmus import Limit
-from litmus.data.models import Waveform
+from litmus import Waveform
 
 
 def compute_rise_time_us(wf: Waveform, *, v_final: float, low: float = 0.1, high: float = 0.9) -> float:
@@ -108,7 +108,7 @@ def synthesize_psu_step_response() -> Waveform:
 ```python
 # conftest.py
 
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 
 @pytest.fixture(scope="session")
 def scope(mock_instruments) -> Scope:

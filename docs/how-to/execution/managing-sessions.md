@@ -7,7 +7,7 @@ Sessions track the connect-to-disconnect lifecycle of instrument usage. This gui
 ### With `connect()` (scripts, notebooks)
 
 ```python
-from litmus.connect import connect
+from litmus import connect
 
 with connect("cell-7") as station:
     dmm = station.instrument("dmm")
@@ -54,7 +54,7 @@ curl http://localhost:8000/api/sessions/abc12345-1234-5678-abcd-1234567890ab
 ### Python
 
 ```python
-from litmus.data.event_store import EventStore
+from litmus.queries import EventStore
 
 store = EventStore()
 try:

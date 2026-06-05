@@ -9,7 +9,7 @@
 `TestHarness` writes through a `TestRunLogger`. The logger only persists events to disk when it has an `EventLog` attached. The pytest plugin wires this up automatically; outside pytest you do it yourself:
 
 ```python
-from litmus.data.event_store import EventStore
+from litmus.queries import EventStore
 from litmus.data.events import RunStarted, SessionStarted
 from litmus.execution.harness import TestHarness
 from litmus.execution.logger import TestRunLogger

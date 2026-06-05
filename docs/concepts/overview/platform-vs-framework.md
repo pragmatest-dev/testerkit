@@ -58,7 +58,7 @@ def test_output_voltage(context, psu, dmm, verify):
 For any test source that isn't pytest — LabVIEW shelling out, TestStand step calling Python, an ad-hoc characterization script:
 
 ```python
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 client = LitmusClient()
 

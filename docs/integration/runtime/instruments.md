@@ -101,7 +101,7 @@ For testing without hardware, Litmus provides a `Mock` factory that works with a
 
 ```python
 from pymeasure.instruments.keithley import Keithley2400
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 
 # Create mock that passes isinstance checks
 smu = Mock(Keithley2400, voltage=5.0, current=1.5e-6)
@@ -115,7 +115,7 @@ assert smu.voltage == 5.0
 Mock supports three value types:
 
 ```python
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 
 # Simple values - always returned
 dmm = Mock(object, measure_voltage=3.31)
@@ -222,7 +222,7 @@ def psu(instruments):
 ```python
 #!/usr/bin/env python3
 import pyvisa
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 
 def measure_voltage(resource: str, mock: bool = False) -> float:
     if mock:

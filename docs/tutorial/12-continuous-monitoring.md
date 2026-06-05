@@ -32,7 +32,7 @@ The store-direct surface is the same ChannelStore underneath. What it skips is t
 import time
 
 import litmus.channels
-from litmus.connect import connect
+from litmus import connect
 
 RATE_HZ = 50.0
 DURATION_S = 60.0
@@ -70,7 +70,7 @@ Two calls do all the work:
 
 ## The interactive entry point
 
-`from litmus.connect import connect` is the non-pytest on-ramp. The pytest plugin opens and closes a session for you around each run; here you own the lifecycle directly.
+`from litmus import connect` is the non-pytest on-ramp. The pytest plugin opens and closes a session for you around each run; here you own the lifecycle directly.
 
 ```python
 with connect("bench_01") as station:

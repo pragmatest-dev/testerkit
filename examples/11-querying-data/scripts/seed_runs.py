@@ -18,7 +18,7 @@ from __future__ import annotations
 import random
 import time
 
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 
 def main() -> None:

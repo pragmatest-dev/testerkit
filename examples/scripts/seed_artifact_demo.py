@@ -37,15 +37,19 @@ import math
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from litmus import Outcome, Waveform
 from litmus.data.backends.parquet import ParquetBackend
+
+# DUT / Measurement / TestRun / TestStep / TestVector are framework
+# internals — this demo script is the only user code that constructs
+# them directly. Real test code uses the top-level verbs (observe,
+# verify) and never touches these classes.
 from litmus.data.models import (
     DUT,
     Measurement,
-    Outcome,
     TestRun,
     TestStep,
     TestVector,
-    Waveform,
 )
 
 # --- Demo artifacts -----------------------------------------------------------

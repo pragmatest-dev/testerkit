@@ -131,7 +131,7 @@ Use this for any test you're writing fresh. See [writing tests](../../how-to/exe
 For tests where rewriting the assertion to use `verify` isn't worth it but you still want measurements landing in parquet:
 
 ```python
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 client = LitmusClient()
 run = client.start_run(dut_serial="SN001", station_id="bench_1", test_phase="production")
