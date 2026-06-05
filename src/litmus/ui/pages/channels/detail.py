@@ -8,7 +8,13 @@ from typing import Any
 from nicegui import ui
 
 from litmus.data.channels.models import ChannelSample
-from litmus.ui.shared.components import data_table, format_datetime, info_field, push_url_state
+from litmus.ui.shared.components import (
+    data_table,
+    format_datetime,
+    info_field,
+    push_url_state,
+    session_filter_banner,
+)
 from litmus.ui.shared.event_binding import ui_channel_data
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import list_channels, query_channel
@@ -49,16 +55,14 @@ def channel_detail_page(
 
         _render_descriptor_card(descriptor)
 
-        # Discover which sessions actually wrote to this channel so
-        # the operator picks from a labeled list instead of typing a
-        # UUID. We query unfiltered upfront; refresh() applies the
-        # selected filters to the same in-memory data.
-        all_rows = query_channel(channel_id).get("data") or []
-        session_options = _build_session_options(all_rows)
-        filters = _Filters(session_options=session_options)
-        # URL-driven session selection — fall back to the wildcard
-        # if the URL points at a session that no longer has data.
-        initial_session = session if session in session_options else "(any)"
+        # Session scoping is URL-only — no widget. The param is set
+        # by deep-links from pages that already know the session
+        # (e.g. /results/{run_id} → /channels/{id}?session=...).
+        # The banner is the only affordance to clear; there is no
+        # add/change picker. UUIDs never appear in the UI.
+        session_filter_banner(session, clear_path=f"/channels/{channel_id}")
+
+        filters = _Filters()
 
         # Forward-declared so refresh() can guard against early fires.
         # bind_value on date pickers propagates the initial input value
@@ -77,14 +81,16 @@ def channel_detail_page(
             push_url_state(
                 f"/channels/{channel_id}",
                 {
-                    "session": filters.session_id(),
+                    # session is URL-only — preserved across refresh
+                    # via the page-level param, not the filter widgets.
+                    "session": session,
                     "since": filters.since(),
                     "until": filters.until(),
                 },
             )
             payload = query_channel(
                 channel_id,
-                session_id=filters.session_id() or None,
+                session_id=session or None,
                 since=filters.since() or None,
                 until=filters.until() or None,
                 max_points=1000,  # LTTB decimation for chart-friendly response
@@ -99,7 +105,7 @@ def channel_detail_page(
                 channel_id,
                 data,
                 descriptor,
-                session_filter=filters.session_id() or None,
+                session_filter=session or None,
             )
             if live_unsub is not None:
                 live_unsub_holder.append(live_unsub)
@@ -108,13 +114,6 @@ def channel_detail_page(
         # Filters first (above chart + data) so the page reads top-down.
         with ui.card().classes("w-full"):
             with ui.row().classes("items-end gap-3 flex-wrap p-2"):
-                filters.session_select = ui.select(
-                    options=session_options,
-                    value=initial_session,
-                    label="Session",
-                    on_change=lambda _: refresh(),
-                ).classes("w-72")
-
                 with ui.input("Since", value=since).classes("w-44") as since_input:
                     with since_input.add_slot("append"):
                         ui.icon("event").on("click", lambda: since_menu.open()).classes(
@@ -147,44 +146,13 @@ def channel_detail_page(
         refresh()
 
 
-def _build_session_options(rows: list[dict[str, Any]]) -> dict[str, str]:
-    """Return ``{session_id_or_(any): label}`` for the session dropdown.
-
-    Operators identify a session by "what was running when" —
-    timestamp + client (pytest / jupyter / connect.py). The label
-    is built from the canonical SessionStarted-event metadata via
-    :func:`format_session_label` so this page agrees with the
-    Events page's session filter. Sessions order most-recent-first
-    (by last-write to this channel — operators remember "what I
-    just ran").
-    """
-    from litmus.ui.shared.components import format_session_label
-    from litmus.ui.shared.services import query_sessions
-
-    last_seen: dict[str, str] = {}
-    for row in rows:
-        sid = row.get("session_id")
-        if sid is None:
-            continue
-        sid = str(sid)
-        ts = str(row.get("received_at") or "")
-        if sid not in last_seen or ts > last_seen[sid]:
-            last_seen[sid] = ts
-
-    session_events = query_sessions().get("sessions") or []
-    session_label_by_id: dict[str, str] = {
-        str(s["session_id"]): format_session_label(s) for s in session_events if s.get("session_id")
-    }
-
-    options: dict[str, str] = {"(any)": "All sessions"}
-    for sid in sorted(last_seen, key=lambda s: last_seen[s], reverse=True):
-        options[sid] = session_label_by_id.get(sid) or f"(unknown) {sid[:8]}"
-    return options
-
-
 def _clear_filters(filters: _Filters, refresh: Callable[[], None]) -> None:
-    """Reset all filter widgets to defaults and re-render."""
-    filters.session_select.set_value("(any)")
+    """Reset the date-window filters to defaults and re-render.
+
+    The ``?session=`` URL param is intentionally NOT cleared here —
+    its only affordance is the session banner's Clear button (which
+    navigates to a URL without the param).
+    """
     filters.since_input.set_value("")
     filters.until_input.set_value("")
     refresh()
@@ -528,21 +496,13 @@ def _render_data_table(card: ui.card, rows: list[dict[str, Any]]) -> None:
 class _Filters:
     """Lazy-read filter values from the input widgets.
 
-    ``session_select`` carries either ``"(any)"`` (the wildcard
-    option) or a real session UUID; ``session_id`` returns ``""`` for
-    the wildcard so callers can pass ``or None`` straight through.
+    ``session_id`` is intentionally NOT here — it's URL-only and
+    flows through the page-level ``session`` parameter, never via
+    a filter widget (see :func:`session_filter_banner`).
     """
 
-    session_select: ui.select
     since_input: ui.input
     until_input: ui.input
-
-    def __init__(self, *, session_options: dict[str, str]) -> None:
-        self._session_options = session_options
-
-    def session_id(self) -> str:
-        v = (self.session_select.value or "").strip()
-        return "" if v in ("", "(any)") else v
 
     def since(self) -> str:
         return (self.since_input.value or "").strip()
