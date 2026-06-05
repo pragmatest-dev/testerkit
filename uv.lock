@@ -18,6 +18,7 @@ members = [
     "litmus-example-06-station-catalog",
     "litmus-example-07-profiles",
     "litmus-example-08-waveform-evidence",
+    "litmus-example-09-instrument-streaming",
     "litmus-example-10-artifacts-and-byte-streams",
     "litmus-test",
 ]
@@ -1696,6 +1697,17 @@ requires-dist = [
     { name = "litmus-test", editable = "." },
     { name = "pytest" },
 ]
+
+[[package]]
+name = "litmus-example-09-instrument-streaming"
+version = "0.0.0"
+source = { editable = "examples/09-instrument-streaming" }
+dependencies = [
+    { name = "litmus-test" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "litmus-test", editable = "." }]
 
 [[package]]
 name = "litmus-example-10-artifacts-and-byte-streams"
