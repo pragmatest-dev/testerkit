@@ -194,6 +194,7 @@ members = [
     "examples/08-waveform-evidence",
     "examples/09-instrument-streaming",
     "examples/10-artifacts-and-byte-streams",
+    "examples/11-querying-data",
 ]
 
 [tool.uv.sources]
@@ -207,6 +208,7 @@ litmus-example-07-profiles = { workspace = true }
 litmus-example-08-waveform-evidence = { workspace = true }
 litmus-example-09-instrument-streaming = { workspace = true }
 litmus-example-10-artifacts-and-byte-streams = { workspace = true }
+litmus-example-11-querying-data = { workspace = true }
 
 [tool.ruff]
 line-length = 100
