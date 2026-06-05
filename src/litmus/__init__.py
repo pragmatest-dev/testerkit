@@ -36,6 +36,7 @@ from litmus.data.models import Outcome, Waveform, XYData
 from litmus.expand import arange, geomspace, linspace, logspace, repeat
 from litmus.instruments.mocks import Mock
 from litmus.models.test_config import Limit
+from litmus.verbs import observe, stream, verify
 
 try:
     # Single source of truth — read from the installed wheel's metadata
@@ -59,5 +60,8 @@ __all__ = [
     "geomspace",
     "linspace",
     "logspace",
+    "observe",
     "repeat",
+    "stream",
+    "verify",
 ]
