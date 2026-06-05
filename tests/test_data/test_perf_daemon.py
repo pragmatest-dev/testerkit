@@ -23,6 +23,8 @@ import json
 import os
 import signal
 import time
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 
@@ -198,6 +200,26 @@ def test_measurements_yield_summary(benchmark, warm_daemon):
 # ---------------------------------------------------------------------------
 
 
+def _sample_min_ms(query_fn: Callable[[], Any], rounds: int = 11) -> float:
+    """Take ``rounds`` warm samples; return the MIN in ms.
+
+    Single-shot timers (one warmup + one measure) flake under suite
+    load — GC, scheduler, IO contention from concurrent daemons all
+    spike a single call past the hard cap even when steady-state
+    performance is fine. The minimum across N samples filters those
+    transient spikes out: the floor reflects the actual work, the
+    spikes don't pull it up. Same sampling discipline the
+    ``benchmark`` fixture uses below, hand-rolled here because we
+    want a hard-cap assertion rather than a benchmark report.
+    """
+    samples: list[float] = []
+    for _ in range(rounds):
+        t0 = time.perf_counter()
+        query_fn()
+        samples.append((time.perf_counter() - t0) * 1000)
+    return min(samples)
+
+
 def test_warm_runs_query_under_100ms():
     """Warm RunsQuery must respond in < 100ms.
 
@@ -208,13 +230,14 @@ def test_warm_runs_query_under_100ms():
     with RunsQuery() as q:
         q.count_by_outcome()  # warm
 
-    t0 = time.perf_counter()
-    with RunsQuery() as q:
-        q.count_by_outcome()
-    ms = (time.perf_counter() - t0) * 1000
+    def _query() -> None:
+        with RunsQuery() as q:
+            q.count_by_outcome()
+
+    ms = _sample_min_ms(_query)
 
     assert ms < 100, (
-        f"Warm RunsQuery took {ms:.1f}ms — exceeds 100ms hard cap. "
+        f"Warm RunsQuery min over 11 samples was {ms:.1f}ms — exceeds 100ms hard cap. "
         "Likely a parquet-glob regression on runs/steps view."
     )
 
@@ -230,13 +253,14 @@ def test_warm_measurements_query_under_200ms():
     with MeasurementsQuery() as q:
         q.summary_counts()  # warm
 
-    t0 = time.perf_counter()
-    with MeasurementsQuery() as q:
-        q.summary_counts()
-    ms = (time.perf_counter() - t0) * 1000
+    def _query() -> None:
+        with MeasurementsQuery() as q:
+            q.summary_counts()
+
+    ms = _sample_min_ms(_query)
 
     assert ms < 200, (
-        f"Warm MeasurementsQuery took {ms:.1f}ms — exceeds 200ms hard cap. "
+        f"Warm MeasurementsQuery min over 11 samples was {ms:.1f}ms — exceeds 200ms hard cap. "
         "Likely regression: measurements view querying parquet glob instead of TABLE. "
         "Pre-fix baseline: 150-479ms; post-fix baseline: ~5ms."
     )

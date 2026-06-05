@@ -268,13 +268,10 @@ class Context:
             from litmus.data.ref import Latchable, is_uri  # noqa: PLC0415
 
             if is_uri(value):
-                self._observations[full_key] = value
-                self._emit_observation(full_key, value)
+                self._stamp_observation(full_key, value)
                 return
             if isinstance(value, Latchable):
-                uri = value.uri
-                self._observations[full_key] = uri
-                self._emit_observation(full_key, uri)
+                self._stamp_observation(full_key, value.uri)
                 return
 
             # Item 6: Waveform routes to ChannelStore via verb-layer
@@ -293,8 +290,7 @@ class Context:
                         source="observe",
                         run_id=self._current_run_id(),
                     )
-                    self._observations[full_key] = uri
-                    self._emit_observation(full_key, uri)
+                    self._stamp_observation(full_key, uri)
                     return
                 # No channel store wired (bare Context test): fall through
                 # to the FileStore path; Waveform becomes a .npz blob.
@@ -304,8 +300,7 @@ class Context:
                 uri = self._channel_store.write(
                     full_key, value, source="observe", run_id=self._current_run_id()
                 )
-                self._observations[full_key] = uri
-                self._emit_observation(full_key, uri)
+                self._stamp_observation(full_key, uri)
                 return
             if vtype == "blob":
                 # Item 3a — fixes half of the image-drop. Route blobs through
@@ -328,12 +323,34 @@ class Context:
                     value=value,
                     session_id=str(self._session_id),
                 )
-                self._observations[full_key] = uri
-                self._emit_observation(full_key, uri)
+                self._stamp_observation(full_key, uri)
                 return
 
-        self._observations[full_key] = value
-        self._emit_observation(full_key, value)
+        self._stamp_observation(full_key, value)
+
+    def _stamp_observation(self, key: str, value: Any) -> None:
+        """Persist an observation to ``_observations`` AND mirror to the active vector.
+
+        The mirror is what makes ``out_*`` columns land on the parquet
+        ``record_type='measurement'`` row at row-build time.
+        ``build_output_columns`` (in ``_row_helpers``) reads from
+        ``vector.observations``, not ``Context._observations``; without
+        the mirror, every ``out_*`` column was empty when a measurement
+        was emitted in the middle of a test body (before vector teardown
+        could snapshot from the context). Skipped when no vector is
+        active — interactive ``Context()`` use outside a test/harness
+        flow keeps observations on the Context only.
+        """
+        self._observations[key] = value
+        vec = get_current_vector()
+        # Defensive ``getattr``: production paths always push TestVector
+        # (logger.start_step, harness.run_vector, _VectorIterator) so the
+        # mirror lands; the guard tolerates duck-typed test fakes that
+        # only expose ``index``/``retry`` for the emit_observation event.
+        vec_obs = getattr(vec, "observations", None)
+        if isinstance(vec_obs, dict):
+            vec_obs[key] = value
+        self._emit_observation(key, value)
 
     def _current_run_id(self) -> UUID | None:
         """Pull the active run_id from the active TestRunLogger ContextVar.
