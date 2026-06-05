@@ -1,0 +1,9 @@
+id: bench_01
+name: Bench 01 (streaming demo)
+station_type: bench
+description: Single-DMM bench used to demo continuous streaming + live UI.
+instruments:
+  dmm:
+    type: dmm
+    driver: drivers.DMM
+    resource: TCPIP::192.168.1.102::INSTR
