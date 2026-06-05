@@ -70,6 +70,63 @@ def format_session_label(session_event: dict) -> str:
     return f"{ts_label} • {client}"
 
 
+def session_filter_banner(session_id: str, clear_path: str) -> None:
+    """Render the "filtered to session X" status banner.
+
+    Used by pages that accept ``?session=<id>`` as a URL-only
+    navigation filter — the session is reached via a deep-link from
+    another page that already knows it (e.g.
+    ``/results/{run_id}`` → ``/events?session=...``), NEVER by an
+    operator picking from a dropdown or typing a UUID. The banner is
+    the only affordance for clearing the scoping; there is no
+    add/change widget. Renders nothing when ``session_id`` is empty
+    so the page reads clean in its default state.
+
+    The label is built from the canonical SessionStarted-event
+    metadata via :func:`format_session_label` (timestamp + client)
+    plus the DUT serial when available — operators recognize the
+    run by what was being tested, not by UUID. The UUID never
+    appears in the rendered banner.
+
+    Args:
+        session_id: The active session UUID (from the URL param).
+            Empty string renders nothing.
+        clear_path: The path to navigate to when "Clear" is clicked.
+            Typically the same page without the ``?session=`` param.
+    """
+    if not session_id:
+        return
+    from litmus.ui.shared.services import query_sessions
+
+    label = "(unknown session)"
+    try:
+        for s in query_sessions().get("sessions") or []:
+            if str(s.get("session_id")) == session_id:
+                base = format_session_label(s)
+                dut = s.get("dut_serial") or ""
+                label = f"{dut} · {base}" if dut else base
+                break
+    except (OSError, RuntimeError):
+        pass
+
+    from nicegui import ui
+
+    with (
+        ui.card()
+        .classes("w-full bg-blue-50 border border-blue-200")
+        .props('data-testid="session-filter-banner"')
+    ):
+        with ui.row().classes("items-center justify-between w-full p-2"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("link").classes("text-blue-700")
+                ui.label(f"Filtered to run: {label}").classes("text-sm text-blue-900")
+            ui.button(
+                "Clear",
+                icon="close",
+                on_click=lambda: ui.navigate.to(clear_path),
+            ).props("flat dense color=primary")
+
+
 def local_time_init_script() -> str:
     """Return the JS that converts every ``.litmus-time`` span on the
     page to browser-local-time.
