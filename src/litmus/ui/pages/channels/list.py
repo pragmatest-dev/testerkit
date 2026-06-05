@@ -12,6 +12,7 @@ from litmus.ui.shared.components import (
     page_header,
     page_layout,
     push_url_state,
+    session_filter_banner,
 )
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import list_channels_recent
@@ -34,6 +35,7 @@ def channels_page(
     name: str = "",
     data_type: str = "",
     instrument: str = "",
+    session: str = "",
     since: str = "",
     until: str = "",
 ) -> None:
@@ -63,6 +65,11 @@ def channels_page(
             "scope traces, PSU readback, sensor logs. Sparklines show the "
             "last 50 samples; values update live."
         ).classes("text-sm text-slate-500")
+
+        # Session scoping is URL-only — no widget. Set by deep-links
+        # from /results/{run_id} → /channels?session=...; banner is
+        # the only affordance to clear. Same shape as /events.
+        session_filter_banner(session, clear_path="/channels")
 
         # Filter card renders FIRST (above table) per the operator-UI
         # consistency rule. ``Type`` options are seeded with "(any)";
@@ -207,7 +214,7 @@ def channels_page(
             table = state["table"]
             if table is None:
                 with table_holder:
-                    state["table"] = _build_table(filtered)
+                    state["table"] = _build_table(filtered, session=session)
                 state["fingerprint"] = _row_fingerprint(filtered)
                 return
 
@@ -353,7 +360,7 @@ def _row_fingerprint(rows: list[dict[str, Any]]) -> str:
     return "|".join(f"{r['channel_id']}:{r['latest']}:{r['spark']}" for r in rows)
 
 
-def _build_table(rows: list[dict[str, Any]]) -> ui.table:
+def _build_table(rows: list[dict[str, Any]], *, session: str = "") -> ui.table:
     """Construct the channels table once. Later ticks mutate ``.rows``."""
     columns = [
         {"name": "channel_id", "label": "Channel ID", "field": "channel_id", "align": "left"},
@@ -377,7 +384,9 @@ def _build_table(rows: list[dict[str, Any]]) -> ui.table:
         columns=columns,
         rows=rows,
         row_key="channel_id",
-        on_row_click=lambda r: ui.navigate.to(f"/channels/{r['channel_id']}"),
+        on_row_click=lambda r: ui.navigate.to(
+            f"/channels/{r['channel_id']}" + (f"?session={session}" if session else "")
+        ),
         time_columns=["last_updated"],
     )
     # ``latest`` and ``spark`` cells carry HTML strings (number with
