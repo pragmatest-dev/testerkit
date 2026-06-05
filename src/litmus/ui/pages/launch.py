@@ -9,6 +9,7 @@ from litmus.api.runner import get_runner
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
+    discover_profiles,
     discover_stations,
     discover_tests,
     get_compatible_stations_for_product,
@@ -18,12 +19,15 @@ logger = logging.getLogger(__name__)
 
 
 @ui.page("/launch")
-def launch_page(product: str = "", station: str = "", mock: str = ""):
+def launch_page(product: str = "", station: str = "", test_profile: str = "", mock: str = ""):
     """Test launch page.
 
     Args:
         product: Pre-fill product ID from query param
         station: Pre-fill station ID from query param
+        test_profile: Pre-fill profile name from query param. Set by the
+            ``/profiles/{name}`` Launch button so a profile-driven run
+            opens with the right profile already chosen.
         mock: Pre-fill mock checkbox ("1" = checked)
     """
     create_layout("Launch Test")
@@ -31,6 +35,7 @@ def launch_page(product: str = "", station: str = "", mock: str = ""):
     products = discover_products()
     all_stations = discover_stations()
     tests = discover_tests()
+    profiles = discover_profiles()
 
     # Form state - use dict for NiceGUI binding
     # Pre-fill from query params if provided
@@ -39,6 +44,7 @@ def launch_page(product: str = "", station: str = "", mock: str = ""):
         "dut_serial": "",
         "test_path": "",
         "station_id": station,
+        "test_profile": test_profile,
         "operator": "",
         "mock": mock == "1",
     }
@@ -96,6 +102,7 @@ def launch_page(product: str = "", station: str = "", mock: str = ""):
             dut_serial=form["dut_serial"],
             station_id=form["station_id"],
             test_path=form["test_path"] or "tests",
+            test_profile=form["test_profile"] or None,
             operator=form["operator"] or None,
             mock_instruments=form["mock"],
         )
@@ -157,14 +164,33 @@ def launch_page(product: str = "", station: str = "", mock: str = ""):
                         "Showing all stations. Select a product to filter."
                     ).classes("text-xs text-slate-500")
 
-                # 5. Simulate checkbox
+                # 5. Profile (optional) — selects a litmus.yaml profile
+                # for limit / fixture / sweep overrides. Empty = no
+                # profile (use the test's own defaults). Pre-filled from
+                # ?test_profile=<name> when navigated from /profiles/{name}.
+                with ui.column().classes("gap-1"):
+                    ui.label("Profile (optional)").classes("text-sm font-medium text-slate-700")
+                    profile_options = {"": "(none)"}
+                    for p in profiles:
+                        profile_options[p.name] = p.name
+                    # If the URL specifies a profile not in the discovered
+                    # set, still allow it to round-trip as the form value
+                    # — the run will fail visibly at pytest time instead
+                    # of silently dropping the param.
+                    if test_profile and test_profile not in profile_options:
+                        profile_options[test_profile] = f"{test_profile} (unknown)"
+                    ui.select(options=profile_options).bind_value(form, "test_profile").classes(
+                        "w-full"
+                    ).props("outlined dense clearable")
+
+                # 6. Simulate checkbox
                 with ui.row().classes("items-center gap-2 mt-2"):
                     ui.checkbox("Mock Hardware").bind_value(form, "mock")
                     ui.label("Run without real instruments").classes("text-xs text-slate-500")
 
                 ui.separator().classes("my-2")
 
-                # 6. Operator (optional)
+                # 7. Operator (optional)
                 _labeled_input(form, "operator", "Operator (optional)", "Your name")
 
             with ui.card_actions().classes("justify-end"):
