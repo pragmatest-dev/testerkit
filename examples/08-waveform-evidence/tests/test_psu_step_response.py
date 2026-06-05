@@ -18,8 +18,7 @@ from __future__ import annotations
 
 import math
 
-from litmus import Limit
-from litmus.data.models import Waveform
+from litmus import Limit, Waveform
 
 
 def compute_rise_time_us(

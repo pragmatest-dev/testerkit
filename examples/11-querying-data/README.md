@@ -56,7 +56,7 @@ The same data is reachable two ways. This example shows the
 programmatic half:
 
 ```python
-from litmus.analysis.runs_query import RunsQuery
+from litmus.queries import RunsQuery
 
 with RunsQuery(_data_dir="data") as q:
     for run in q.list_recent(limit=20):
@@ -86,10 +86,10 @@ constructs like `Limit` and the sweep value builders), interactive
 and data-mover code uses deep imports:
 
 ```python
-from litmus.analysis.runs_query import RunsQuery
-from litmus.analysis.measurements_query import MeasurementsQuery
-from litmus.data.event_store import EventStore
-from litmus.client import LitmusClient
+from litmus.queries import RunsQuery
+from litmus.queries import MeasurementsQuery
+from litmus.queries import EventStore
+from litmus import LitmusClient
 ```
 
 The verbosity signals "store-direct layer." Full API-surface

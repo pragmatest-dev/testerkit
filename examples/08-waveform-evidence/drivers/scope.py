@@ -20,7 +20,7 @@ import math
 import random
 from datetime import UTC, datetime, timedelta
 
-from litmus.data.models import Waveform
+from litmus import Waveform
 
 
 class Scope:

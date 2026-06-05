@@ -5,13 +5,13 @@ The `LitmusClient` provides a simple API for submitting test results from extern
 ## Installation
 
 ```python
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 ```
 
 ## Basic Usage
 
 ```python
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 # Create client (results saved to ./results by default)
 client = LitmusClient()
@@ -150,7 +150,7 @@ with run.step("voltage_sweep") as step:
 ## Complete Example
 
 ```python
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 def run_production_test(serial_number: str):
     client = LitmusClient(data_dir="./test_results")
@@ -189,7 +189,7 @@ API in a small helper:
 
 ```python
 # litmus_labview.py
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 def submit_labview_run(serial, station, measurements):
     """measurements: list of dicts with name, value, low, high, units."""
@@ -210,7 +210,7 @@ Use TestStand's Python adapter or call via subprocess:
 ```python
 # wrapper.py - called from TestStand
 import sys
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 def submit_teststand_results(serial, station, results_json):
     import json
@@ -236,7 +236,7 @@ def submit_teststand_results(serial, station, results_json):
 ```python
 #!/usr/bin/env python3
 import sys
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 serial = sys.argv[1]
 voltage = float(sys.argv[2])

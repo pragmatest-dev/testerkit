@@ -7,7 +7,7 @@ Source: `src/litmus/connect.py`.
 ## Function signature
 
 ```python
-from litmus.connect import connect
+from litmus import connect
 
 connect(
     station: str | None = None,
@@ -28,7 +28,7 @@ Returns a `StationConnection`. Usable as a context manager (`with connect(...) a
 ## Quick start
 
 ```python
-from litmus.connect import connect
+from litmus import connect
 
 # Context-manager form — typical for scripts
 with connect("cell-7", mock=True) as station:

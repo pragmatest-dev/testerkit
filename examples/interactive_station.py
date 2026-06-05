@@ -2,7 +2,7 @@
 
 Canonical example of a Litmus station UI. Demonstrates:
 
-- **Channel data** via ``ui_channel_data`` — PSU readback, DMM readings,
+- **Channel data** via ``channel_data`` — PSU readback, DMM readings,
   scope waveforms all update live from any process (this UI, pytest, scripts).
 - **Session events** via ``ui_subscribe`` — instrument activity log and
   session table stream cross-process events from the shared EventStore.
@@ -30,14 +30,15 @@ from nicegui import app, ui
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import litmus
+
+# ``connect()`` returns a ``StationConnection`` context manager; the
+# type is reached via ``litmus.connect.StationConnection`` only when a
+# script needs an explicit type annotation.
 from litmus.connect import StationConnection
 from litmus.data.channels.models import ChannelSample
+from litmus.ui import bind_channel_store, channel_data
 from litmus.ui.components import create_instrument_activity, create_session_table
 from litmus.ui.shared.components import InstrumentToggle
-from litmus.ui.shared.event_binding import (
-    bind_channel_store,
-    ui_channel_data,
-)
 
 # ---------------------------------------------------------------------------
 # UI channel definitions — what the user wants to show, per instrument type.
@@ -220,7 +221,7 @@ def _build_readback_card(
             )
 
         for ch in layout.reads:
-            ui_channel_data(f"{role}.{ch.channel}").subscribe(_on_sample)
+            channel_data(f"{role}.{ch.channel}").subscribe(_on_sample)
 
         ui.separator()
 
@@ -329,7 +330,7 @@ def _build_scope_card(
                 add="text-indigo-700",
             )
 
-        ui_channel_data(f"{role}.waveform").subscribe(_on_waveform)
+        channel_data(f"{role}.waveform").subscribe(_on_waveform)
 
         running = {"active": False, "task": None}
 

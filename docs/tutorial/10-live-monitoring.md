@@ -12,7 +12,7 @@
 Open a Python script or Jupyter notebook:
 
 ```python
-from litmus.connect import connect
+from litmus import connect
 
 # Connect to your station (mock mode for this tutorial)
 with connect("bench_1", mock=True) as station:

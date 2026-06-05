@@ -10,7 +10,7 @@ Your driver class must return `Waveform` from its acquisition method. `Waveform`
 
 ```python
 # drivers/scope.py
-from litmus.data.models import Waveform
+from litmus import Waveform
 
 class Scope:
     """Oscilloscope interface — block-mode capture only."""
@@ -31,7 +31,7 @@ For a mock, pass a zero-argument callable to `Mock` — the callable runs on eve
 ```python
 # conftest.py
 import pytest
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 from drivers import Scope, synthesize_psu_step_response
 
 @pytest.fixture(scope="session")
@@ -59,7 +59,7 @@ Write pure functions that work on `wf.Y` and `wf.dt`, then pass each result to `
 ```python
 import math
 from litmus import Limit
-from litmus.data.models import Waveform
+from litmus import Waveform
 
 
 def compute_rise_time_us(wf: Waveform, *, v_final: float, low: float = 0.1, high: float = 0.9) -> float:

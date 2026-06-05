@@ -73,7 +73,7 @@ files keep storage segmented for retention.
 
 ```python
 import litmus.channels
-from litmus.connect import connect
+from litmus import connect
 ```
 
 Not test code — no pytest fixtures, no `verify`/`observe` verbs. Outside

@@ -103,7 +103,7 @@ Three signals to check before you trust a mock-mode result:
 
 2. **The run record's `test_phase` is `"development"`** — `--mock-instruments` (or `mock: true` on any instrument) auto-demotes the phase. Read it from the parquet row, or via:
    ```python
-   from litmus.analysis.runs_query import RunsQuery
+   from litmus.queries import RunsQuery
    with RunsQuery() as q:
        row = q.get(run_id)
        assert row.test_phase == "development"
@@ -111,7 +111,7 @@ Three signals to check before you trust a mock-mode result:
 
 3. **`fixture.instrument_connected` events carry `mocked: true`** — each instrument logs whether it came up real or mocked:
    ```python
-   from litmus.data.event_store import EventStore
+   from litmus.queries import EventStore
    store = EventStore()
    try:
        for ev in store.events(session_id=session_id, event_type="fixture.instrument_connected"):

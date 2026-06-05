@@ -13,7 +13,7 @@ Three classes, one per materialized table. Every call goes through the runs Duck
 Open one with no args to read the active project's data dir — resolution is `_data_dir=<path>` arg → project `litmus.yaml` `data_dir:` → `LITMUS_HOME` env var → platform default. Pass `_data_dir=<path>` to point elsewhere. Always close it (the daemon ref-counts open clients):
 
 ```python
-from litmus.analysis.runs_query import RunsQuery
+from litmus.queries import RunsQuery
 
 with RunsQuery() as q:
     recent = q.list_recent(limit=20, outcome="failed")
@@ -30,7 +30,7 @@ For low-level DuckDB queries against the parquet files directly, see [Querying e
 
 Read-only client over the runs daemon's ``runs`` table.
 
-Source: `litmus.analysis.runs_query`. Import: `from litmus.analysis.runs_query import RunsQuery`.
+Source: `litmus.analysis.runs_query`. Import: `from litmus.queries import RunsQuery`.
 
 ### `RunsQuery.close` {#runsquery-close}
 
@@ -96,7 +96,7 @@ Return the ``runs`` table's columns: ``[{name, type}, ...]``.
 
 Read-only client over the runs daemon's ``steps`` table.
 
-Source: `litmus.analysis.steps_query`. Import: `from litmus.analysis.steps_query import StepsQuery`.
+Source: `litmus.analysis.steps_query`. Import: `from litmus.queries import StepsQuery`.
 
 ### `StepsQuery.close` {#stepsquery-close}
 
@@ -138,7 +138,7 @@ Return the ``steps`` table's columns: ``[{name, type}, ...]``.
 
 Read-only client over the runs DuckDB daemon's ``measurements`` view.
 
-Source: `litmus.analysis.measurements_query`. Import: `from litmus.analysis.measurements_query import MeasurementsQuery`.
+Source: `litmus.analysis.measurements_query`. Import: `from litmus.queries import MeasurementsQuery`.
 
 ### `MeasurementsQuery.close` {#measurementsquery-close}
 

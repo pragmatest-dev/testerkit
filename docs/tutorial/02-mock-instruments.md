@@ -12,7 +12,7 @@ Your `conftest.py` already returns driver instances. Wrap them in `litmus.instru
 # tests/conftest.py
 import pytest
 from drivers import DMM, PSU
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 
 
 @pytest.fixture(scope="session")

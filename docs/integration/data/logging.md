@@ -20,7 +20,7 @@ Attach a `logging.Handler` that turns log records into step failures on the acti
 
 ```python
 import logging
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 class LitmusHandler(logging.Handler):
     """Forward warnings/errors to the active run as step failures."""
@@ -49,7 +49,7 @@ logging.getLogger("my_test").addHandler(handler)
 After a run finishes, push its summary + measurement rows into a SQL database:
 
 ```python
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 def sync_to_database(run_id: str, db_connection):
     """Mirror one Litmus run's summary + measurements into an external DB."""
@@ -77,7 +77,7 @@ Each run's parquet file is self-contained. Upload it as a single object:
 
 ```python
 import boto3
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 def upload_results(run_id: str, bucket: str):
     """Upload the sealed run parquet to S3."""

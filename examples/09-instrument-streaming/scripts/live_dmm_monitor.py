@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import litmus.channels  # noqa: E402
-from litmus.connect import connect  # noqa: E402
+from litmus import connect  # noqa: E402
 
 RATE_HZ = 50.0
 DURATION_S = 60.0

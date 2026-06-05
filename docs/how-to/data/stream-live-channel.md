@@ -7,7 +7,7 @@ Stream continuous instrument readings from a Python script or REPL into a named 
 ## Step 1: Connect to the station
 
 ```python
-from litmus.connect import connect
+from litmus import connect
 
 with connect("bench_01") as station:
     ...
@@ -33,7 +33,7 @@ with litmus.channels.stream("dmm.voltage") as sink:
 ```python
 import time
 import litmus.channels
-from litmus.connect import connect
+from litmus import connect
 
 RATE_HZ = 50.0
 DURATION_S = 60.0

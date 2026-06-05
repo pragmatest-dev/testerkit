@@ -25,9 +25,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from litmus.analysis.measurements_query import MeasurementsQuery
-from litmus.analysis.runs_query import RunsQuery
-from litmus.data.event_store import EventStore
+from litmus.queries import EventStore, MeasurementsQuery, RunsQuery
 
 
 def _hr() -> None:

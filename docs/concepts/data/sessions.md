@@ -47,7 +47,7 @@ Sessions solve three problems:
 ## The `connect()` API
 
 ```python
-from litmus.connect import connect
+from litmus import connect
 
 # Context manager (scripts, notebooks)
 with connect("cell-7", mock=True) as station:

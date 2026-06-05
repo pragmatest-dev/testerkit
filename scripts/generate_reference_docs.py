@@ -973,7 +973,11 @@ def _generate_query_api(*, check: bool) -> bool:
         if blurb:
             parts.append(blurb)
             parts.append("")
-        parts.append(f"Source: `{module_name}`. Import: `from {module_name} import {cls_name}`.\n")
+        # The three Query classes are re-exported from ``litmus.queries`` —
+        # show the shallow user-facing path in the Import: line, not the
+        # implementation module. The source-module is still surfaced so
+        # contributors know where the implementation lives.
+        parts.append(f"Source: `{module_name}`. Import: `from litmus.queries import {cls_name}`.\n")
 
         for name, method in _public_methods(cls):
             sig = _render_method_signature(name, method)
