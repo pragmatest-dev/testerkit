@@ -19,6 +19,7 @@ members = [
     "litmus-example-07-profiles",
     "litmus-example-08-waveform-evidence",
     "litmus-example-09-instrument-streaming",
+    "litmus-example-10-artifacts-and-byte-streams",
     "litmus-example-11-querying-data",
     "litmus-test",
 ]
@@ -1708,6 +1709,25 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "litmus-test", editable = "." }]
+
+[[package]]
+name = "litmus-example-10-artifacts-and-byte-streams"
+version = "0.0.0"
+source = { editable = "examples/10-artifacts-and-byte-streams" }
+dependencies = [
+    { name = "litmus-test" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "litmus-test", editable = "." },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pytest" },
+]
 
 [[package]]
 name = "litmus-example-11-querying-data"
