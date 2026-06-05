@@ -1203,6 +1203,7 @@ Request to launch a test run.
 | `dut_serial` | `str` | *required* |
 | `station_id` | `str` | *required* |
 | `test_path` | `str` | `'tests'` |
+| `test_profile` | `str \| None` | `None` |
 | `operator` | `str \| None` | `None` |
 | `mock_instruments` | `bool` | `False` |
 

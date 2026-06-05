@@ -14,6 +14,7 @@ class LaunchRequest(BaseModel):
     dut_serial: str
     station_id: str
     test_path: str = "tests"  # pytest target — directory or node-id list
+    test_profile: str | None = None  # Profile name from litmus.yaml; passed as --test-profile
     operator: str | None = None
     mock_instruments: bool = False  # Use mock instruments instead of real hardware
 

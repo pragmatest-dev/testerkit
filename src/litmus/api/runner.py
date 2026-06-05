@@ -76,6 +76,8 @@ class TestRunner:
             cmd.append(f"--operator={req.operator}")
         if req.product_id:
             cmd.append(f"--product={req.product_id}")
+        if req.test_profile:
+            cmd.append(f"--test-profile={req.test_profile}")
 
         # Set up environment for subprocess
         env = os.environ.copy()
