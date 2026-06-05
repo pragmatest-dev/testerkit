@@ -55,6 +55,35 @@ gains entity-observed-view across inventory pages, two new pages
   per-test panels, run history, and an "Observed in history" section
   for orphaned step paths. Detail page at `/tests/{path}` with Code +
   Sidecar YAML tabs.
+- **`/files` operator page** at the DATA STORES nav — list every
+  FileStore artifact with mime / size / session filters. Per-artifact
+  detail page with mime-switched viewers (image, JSON pretty-print,
+  JSONL table, CSV table, NPZ Waveform chart, NPY stats, hex
+  download). `?download=1` forces Content-Disposition save.
+- **`/channels` list filters** — Channel ID contains / Type /
+  Instrument / Since-Until, URL-mirrored. Live-poll + in-place row
+  mutation pattern preserved.
+- **`/launch?test_profile=<name>`** — query param now wires through
+  to `LaunchRequest.test_profile` and `--test-profile=` on the pytest
+  cmdline. New "Profile" dropdown on the launch form.
+- **User-facing API surface re-organization.** 22 names promoted
+  across `litmus` top-level + new `litmus.queries` submodule + new
+  `litmus.ui` helpers:
+  - `from litmus import connect, observe, verify, stream, Mock, Waveform, XYData, Outcome, LitmusClient`
+  - `from litmus.queries import RunsQuery, StepsQuery, MeasurementsQuery, EventStore`
+  - `from litmus.ui import page_layout, data_table, subscribe, channel_data, bind_channel_store, ...`
+
+  Deep paths still work; docs / examples / tutorials swept (47
+  files) to use the shallow paths. Verbs (`observe` / `verify` /
+  `stream`) are now importable functions in addition to the pytest
+  fixture form.
+- **Examples 08–11** ship four end-to-end demos of the data
+  architecture: waveform evidence (`observe(Waveform)` + `verify`
+  derived scalars), continuous monitoring (`channels.stream` + live
+  UI), artifacts + byte streams (`observe` PIL/bytes/Pydantic +
+  `files.stream`), querying data (consumer-side via
+  `RunsQuery` / `MeasurementsQuery` / `EventStore`). New tutorial
+  steps 11–12 + four how-to pages teach the pattern.
 
 ### Changed
 
@@ -87,6 +116,17 @@ gains entity-observed-view across inventory pages, two new pages
   (only the observer path did). All writer paths now emit it.
 - `/live/{run_id}` Streams panel showed streams from all runs;
   subscription now scopes by `run_id`.
+- **`observe()` URIs reach parquet `out_*` columns.** Before this
+  fix, `context.observe("dut_photo", img)` wrote the file to
+  FileStore but the URI lived only on `Context._observations` —
+  `logger.log_measurement` projected `out_*` from
+  `vector.observations` (empty), so the operator UI's Measurements
+  tab showed no artifacts. Now `observe` mirrors to the active
+  vector at write time.
+- **Warm-query perf gates stabilized.** The two single-shot timers
+  in `test_perf_daemon.py` flaked under suite load (~30% of full
+  runs). Hard caps (100ms / 200ms) unchanged; sampling now takes the
+  min over 11 calls so transient spikes don't trip the gate.
 
 ### Deferred to v0.3.0
 
