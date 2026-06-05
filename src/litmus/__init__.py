@@ -1,20 +1,40 @@
 """Litmus - Hardware test platform for the AI-assisted era.
 
-Import directly from the submodule that owns the type:
+User-facing surface. Everything in this module is part of the public
+API contract that test writers, interactive users, custom UI builders,
+and data-mover scripts should reach for.
 
-    from litmus.execution.harness import TestHarness
-    from litmus.client import LitmusClient
-    from litmus.connect import connect
+Three import shapes — pick the shape that matches your use:
 
-Inline list-builders for ``litmus_sweeps``:
+**Top-level names** — frequently-typed surfaces, available directly::
 
-    from litmus.expand import linspace, arange, logspace, geomspace, repeat
+    from litmus import (
+        connect, verify, observe, stream,
+        Limit, Waveform, XYData, Outcome,
+        arange, linspace, logspace, geomspace, repeat,
+        Mock, LitmusClient,
+    )
+
+**Grouped submodules** — related surfaces under a single namespace::
+
+    import litmus.channels   # channels.write, channels.stream
+    import litmus.files      # files.write, files.stream
+    import litmus.queries    # queries.RunsQuery, queries.MeasurementsQuery, ...
+
+**Deep paths** — internals for Litmus contributors only. If you find
+yourself reaching for one of these in a test, example, doc, or
+external script, file an issue — the user-facing surface is missing
+a re-export.
 """
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
+from litmus.client import LitmusClient
+from litmus.connect import connect
+from litmus.data.models import Outcome, Waveform, XYData
 from litmus.expand import arange, geomspace, linspace, logspace, repeat
+from litmus.instruments.mocks import Mock
 from litmus.models.test_config import Limit
 
 try:
@@ -29,7 +49,13 @@ except PackageNotFoundError:
 __all__ = [
     "__version__",
     "Limit",
+    "LitmusClient",
+    "Mock",
+    "Outcome",
+    "Waveform",
+    "XYData",
     "arange",
+    "connect",
     "geomspace",
     "linspace",
     "logspace",
