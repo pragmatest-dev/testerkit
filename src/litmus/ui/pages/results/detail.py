@@ -165,6 +165,27 @@ async def result_detail_page(run_id: str, tab: str = ""):
                             state, "ended_text"
                         ).classes("font-semibold")
 
+            # Cross-store navigation — link out to the EventStore and
+            # ChannelStore views scoped to this run's session. Operators
+            # never type a UUID; the deep-link sets the URL param, the
+            # target page shows its session-filter banner. Renders only
+            # when this run has a session_id (every real run does).
+            if run_obj.session_id:
+                _sid = str(run_obj.session_id)
+                with ui.card_section().classes("py-2 px-3 border-t border-slate-100"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.label("View this run's").classes("text-xs text-slate-500 uppercase")
+                        ui.button(
+                            "Events",
+                            icon="notifications",
+                            on_click=lambda sid=_sid: ui.navigate.to(f"/events?session_id={sid}"),
+                        ).props('flat dense color=primary data-testid="run-detail-view-events"')
+                        ui.button(
+                            "Channels",
+                            icon="signal_cellular_alt",
+                            on_click=lambda sid=_sid: ui.navigate.to(f"/channels?session={sid}"),
+                        ).props('flat dense color=primary data-testid="run-detail-view-channels"')
+
         has_slots = any(m.get("slot_id") for m in measurements)
         session_id = run_obj.session_id
 
