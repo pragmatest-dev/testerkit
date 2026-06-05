@@ -62,8 +62,12 @@ def test_dut_burn_in(observe, verify, psu) -> None:
     # Open a streaming JSONL log for the run — every operational
     # event the test wants to record, one JSON object per line.
     # files.stream(format="jsonl") returns a sink whose .write()
-    # accepts JSON-serializable values directly.
+    # accepts JSON-serializable values directly. Latching the sink
+    # via ``observe("burn_log", log)`` stamps the sink's ``file://``
+    # URI onto the active vector so ``out_burn_log`` lands on the
+    # verify row alongside the other artifacts.
     with litmus.files.stream("burn_log", format="jsonl") as log:
+        observe("burn_log", log)
         log.write({"ts": datetime.now(UTC).isoformat(), "event": "psu_on", "voltage_set": 5.0})
         psu.set_voltage(5.0)
 
