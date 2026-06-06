@@ -15,6 +15,7 @@ from litmus.ui.shared.components import (
     page_header,
     page_layout,
     push_url_state,
+    render_no_data_card,
     session_filter_banner,
 )
 from litmus.ui.shared.layout import create_layout
@@ -183,8 +184,11 @@ def _render_table(slot: ui.column, payload: dict[str, Any]) -> None:
         ui.label(f"{count} event(s)").classes("text-sm text-slate-600 px-2 py-1")
 
         if not events:
-            ui.label("No events match the current filters.").classes(
-                "text-slate-500 italic px-2 py-2"
+            render_no_data_card(
+                ui.column().classes("w-full"),
+                title="No events match the current filters.",
+                reason="Clear the filters above (or widen the time window) to see more events.",
+                icon="notifications_off",
             )
             return
 

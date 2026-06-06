@@ -14,6 +14,7 @@ from litmus.ui.shared.components import (
     page_header,
     page_layout,
     push_url_state,
+    render_no_data_card,
     session_filter_banner,
     subscribe_with_refresh,
 )
@@ -63,11 +64,6 @@ def channels_page(
 
     with page_layout():
         page_header("Channels")
-        ui.label(
-            "Streaming numeric / array signals captured during test runs — "
-            "scope traces, PSU readback, sensor logs. Sparklines show the "
-            "last 50 samples; values update live."
-        ).classes("text-sm text-slate-500")
 
         # Session scoping is URL-only — no widget. Set by deep-links
         # from /results/{run_id} → /channels?session_id=...; banner
@@ -130,7 +126,15 @@ def channels_page(
         # also remember the last-rendered HTML per cell and skip
         # ``table.update()`` entirely when nothing changed — that's
         # what was making the table flash every tick.
-        state: dict[str, Any] = {"table": None, "fingerprint": ""}
+        # ``had_data`` remembers whether the page has EVER seen rows
+        # since this view was opened. The per-tick ``all_rows`` snapshot
+        # is racy when a refresh fires concurrently with a filter change;
+        # using ``has_data=bool(all_rows)`` alone would flash "No
+        # channels recorded yet" mid-toggle. ``had_data`` is set True on
+        # the first non-empty refresh and never reset for the page's
+        # lifetime, so the "filtered out" copy persists once any data
+        # has been seen.
+        state: dict[str, Any] = {"table": None, "fingerprint": "", "had_data": False}
 
         def refresh() -> None:
             try:
@@ -176,6 +180,8 @@ def channels_page(
                 _row_for_channel(cid, descriptor) for cid, descriptor in sorted(channels.items())
             ]
             state["total"] = len(channels)
+            if channels:
+                state["had_data"] = True
             _render_filtered()
 
         def _render_filtered() -> None:
@@ -214,7 +220,7 @@ def channels_page(
                     state["table"].rows.clear()
                     state["table"].update()
                     state["fingerprint"] = ""
-                _show_empty_state(empty_state, has_data=bool(all_rows))
+                _show_empty_state(empty_state, has_data=state["had_data"])
                 return
 
             empty_state.clear()
@@ -408,19 +414,23 @@ def _build_table(rows: list[dict[str, Any]], *, session_id: str = "") -> ui.tabl
 def _show_empty_state(slot: ui.column, *, has_data: bool = False) -> None:
     """Render the empty-state card. Distinguishes "no data" from "filtered out"."""
     slot.clear()
-    with slot, ui.card().classes("w-full"), ui.card_section():
-        if has_data:
-            ui.label("No channels match the current filters.").classes("text-slate-500 italic")
-            ui.label("Clear the filters above to see all channels.").classes(
-                "text-xs text-slate-400"
-            )
-            return
-        ui.label("No channels recorded yet.").classes("text-slate-500 italic")
-        ui.label(
+    if has_data:
+        render_no_data_card(
+            slot,
+            title="No channels match the current filters.",
+            reason="Clear the filters above to see all channels.",
+            icon="signal_cellular_off",
+        )
+        return
+    render_no_data_card(
+        slot,
+        title="No channels recorded yet.",
+        reason=(
             "Channels appear once a test writes to ChannelStore "
-            "(e.g. ``context.observe('scope', ndarray)`` or "
-            "instrument observers)."
-        ).classes("text-xs text-slate-400")
+            "(e.g. ``context.observe('scope', ndarray)`` or instrument observers)."
+        ),
+        icon="signal_cellular_off",
+    )
 
 
 def _row_for_channel(channel_id: str, descriptor: dict[str, Any]) -> dict[str, Any]:

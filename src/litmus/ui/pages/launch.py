@@ -6,6 +6,7 @@ from nicegui import ui
 
 from litmus.api.models import LaunchRequest
 from litmus.api.runner import get_runner
+from litmus.ui.shared.components import push_url_state
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_products,
@@ -58,16 +59,20 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
         """Update station dropdown based on selected product."""
         nonlocal station_options
         compatible: list | None = None
+        # Display label rule: friendly name only (operator-facing). The
+        # internal station_id stays as the form value so the backend
+        # can identify the target station; it is NOT shown in the
+        # dropdown text per the "no station_id in operator UI" rule.
         if form["product_id"]:
             compatible = get_compatible_stations_for_product(form["product_id"])
             if compatible:
-                station_options = {s["id"]: f"{s['name']} ({s['id']})" for s in compatible}
+                station_options = {s["id"]: s["name"] or s["id"] for s in compatible}
             else:
                 # No compatible stations - show all with warning
-                station_options = {s.id: f"{s.name or s.id} ({s.id})" for s in all_stations}
+                station_options = {s.id: s.name or s.id for s in all_stations}
         else:
             # No product selected - show all stations
-            station_options = {s.id: f"{s.name or s.id} ({s.id})" for s in all_stations}
+            station_options = {s.id: s.name or s.id for s in all_stations}
 
         if station_select:
             station_select.options = station_options
@@ -88,6 +93,25 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
 
     # Initialize station options
     update_station_options()
+
+    def _mirror_to_url() -> None:
+        """Mirror the current form's URL-shareable fields back to the URL.
+
+        Lets an operator open `/launch?test_profile=smoke`, change the
+        dropdown, and share the resulting URL — same bookmarkability
+        rule the filter pages follow. Form-only fields (DUT serial,
+        operator name) are intentionally NOT mirrored: they belong to
+        the run instance, not the launch configuration.
+        """
+        push_url_state(
+            "/launch",
+            {
+                "product": form["product_id"],
+                "station": form["station_id"],
+                "test_profile": form["test_profile"],
+                "mock": "1" if form["mock"] else "",
+            },
+        )
 
     async def submit_launch():
         if not form["dut_serial"] or not form["station_id"]:
@@ -131,7 +155,7 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
                     ui.select(
                         options={p["id"]: p["name"] for p in products},
                     ).bind_value(form, "product_id").on_value_change(
-                        lambda _: update_station_options()
+                        lambda _: (update_station_options(), _mirror_to_url())
                     ).classes("w-full").props("outlined dense clearable")
 
                 # 2. DUT Serial
@@ -157,6 +181,7 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
                             options=station_options,
                         )
                         .bind_value(form, "station_id")
+                        .on_value_change(lambda _: _mirror_to_url())
                         .classes("w-full")
                         .props("outlined dense")
                     )
@@ -179,13 +204,17 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
                     # of silently dropping the param.
                     if test_profile and test_profile not in profile_options:
                         profile_options[test_profile] = f"{test_profile} (unknown)"
-                    ui.select(options=profile_options).bind_value(form, "test_profile").classes(
-                        "w-full"
-                    ).props("outlined dense clearable")
+                    ui.select(options=profile_options).bind_value(
+                        form, "test_profile"
+                    ).on_value_change(lambda _: _mirror_to_url()).classes("w-full").props(
+                        "outlined dense clearable"
+                    )
 
                 # 6. Simulate checkbox
                 with ui.row().classes("items-center gap-2 mt-2"):
-                    ui.checkbox("Mock Hardware").bind_value(form, "mock")
+                    ui.checkbox("Mock Hardware").bind_value(form, "mock").on_value_change(
+                        lambda _: _mirror_to_url()
+                    )
                     ui.label("Run without real instruments").classes("text-xs text-slate-500")
 
                 ui.separator().classes("my-2")

@@ -244,6 +244,55 @@ def info_field(label: str, value: str) -> None:
         ui.html(value or "", sanitize=False).classes("font-semibold")
 
 
+def render_no_data_card(
+    container: Any,
+    *,
+    title: str,
+    reason: str = "",
+    icon: str | None = None,
+    emphasis: str = "default",
+) -> None:
+    """Render a standardized empty-state card.
+
+    Every list page that may have zero rows uses this so the empty
+    state reads the same everywhere: a title (italic, slate by
+    default; amber when ``emphasis="warning"``), an optional small
+    icon, and an optional one- or two-sentence ``reason`` line in
+    smaller muted text below.
+
+    Replaces the per-page hand-rolled empty-state cards (each had
+    slightly different padding, font weights, or label classes) so
+    operators see one visual idiom across /channels, /events, /files,
+    /duts, /results.
+
+    Args:
+        container: The NiceGUI container (column / card / row) the
+            card renders into. The caller is responsible for entering
+            ``with`` the container if needed; this function uses it
+            via ``with container:``.
+        title: One-line title. Italic and slate-500 by default,
+            amber-700 when ``emphasis="warning"`` (used for missing-
+            directory / lost-data states distinct from "empty").
+        reason: Optional supporting copy explaining the cause and a
+            concrete next step. Rendered as text-xs slate-400 below
+            the title. Empty string skips the line.
+        icon: Optional Quasar icon name (e.g. ``"memory"``,
+            ``"folder"``). Rendered above the title in slate-300.
+        emphasis: ``"default"`` (slate) or ``"warning"`` (amber).
+            Warning emphasis distinguishes "data may have been lost"
+            from "nothing has been recorded yet".
+    """
+    title_classes = (
+        "text-amber-700 italic font-medium" if emphasis == "warning" else ("text-slate-500 italic")
+    )
+    with container, ui.card().classes("w-full p-6 text-center"):
+        if icon:
+            ui.icon(icon).classes("text-4xl text-slate-300")
+        ui.label(title).classes(title_classes + (" mt-2" if icon else ""))
+        if reason:
+            ui.label(reason).classes("text-sm text-slate-400")
+
+
 def page_header(
     title: str,
     *,

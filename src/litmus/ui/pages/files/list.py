@@ -14,6 +14,7 @@ from litmus.ui.shared.components import (
     page_header,
     page_layout,
     push_url_state,
+    render_no_data_card,
     session_filter_banner,
 )
 from litmus.ui.shared.layout import create_layout
@@ -288,29 +289,39 @@ def _show_empty_state(slot: ui.column, *, has_data: bool, dir_exists: bool) -> N
     Different copy from "no files yet (directory present)" so an
     operator looking at a long-running project notices the difference.
     """
-    with slot, ui.card().classes("w-full"), ui.card_section():
-        if has_data:
-            ui.label("No files match the current filters.").classes("text-slate-500 italic")
-            ui.label("Clear the filters above to see all artifacts.").classes(
-                "text-xs text-slate-400"
-            )
-            return
-        if not dir_exists:
-            ui.label("FileStore directory not found.").classes("text-amber-700 italic font-medium")
-            ui.label(
+    if has_data:
+        render_no_data_card(
+            slot,
+            title="No files match the current filters.",
+            reason="Clear the filters above to see all artifacts.",
+            icon="folder_off",
+        )
+        return
+    if not dir_exists:
+        render_no_data_card(
+            slot,
+            title="FileStore directory not found.",
+            reason=(
                 "Either the project has never written a FileStore artifact, or the "
                 "``files/`` directory under the project's data_dir has been removed. "
                 "If this is a long-running project, check whether the data directory "
                 "moved or was wiped. The directory is created on the first "
                 "``context.observe(name, value)`` or ``files.write(...)`` call."
-            ).classes("text-xs text-slate-500")
-            return
-        ui.label("No artifact files yet.").classes("text-slate-500 italic")
-        ui.label(
+            ),
+            icon="folder_off",
+            emphasis="warning",
+        )
+        return
+    render_no_data_card(
+        slot,
+        title="No artifact files yet.",
+        reason=(
             "Files appear once a test calls ``context.observe(name, value)`` with a "
             "blob value (PIL.Image / bytes / Pydantic model) or opens a "
             "``files.stream(name, format=...)`` sink."
-        ).classes("text-xs text-slate-400")
+        ),
+        icon="folder",
+    )
 
 
 @app.get("/files-static/{session_id}/{filename}")

@@ -8,7 +8,12 @@ by definition.
 
 from nicegui import ui
 
-from litmus.ui.shared.components import data_table, format_datetime, page_layout
+from litmus.ui.shared.components import (
+    data_table,
+    format_datetime,
+    page_layout,
+    render_no_data_card,
+)
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import duts_from_runs
 
@@ -32,14 +37,16 @@ def duts_page():
                 ui.badge(f"{len(rows_data)} observed").props("outline")
 
         if not rows_data:
-            with ui.card().classes("w-full p-6 text-center"):
-                ui.icon("memory").classes("text-4xl text-slate-300")
-                ui.label("No DUTs observed yet.").classes("text-slate-500 mt-2")
-                ui.label(
+            render_no_data_card(
+                ui.column().classes("w-full"),
+                title="No DUTs observed yet.",
+                reason=(
                     "Run a test against a station to populate this list. "
                     "Every distinct DUT serial that appears in run history "
                     "shows up here."
-                ).classes("text-sm text-slate-400")
+                ),
+                icon="memory",
+            )
             return
 
         columns = [
