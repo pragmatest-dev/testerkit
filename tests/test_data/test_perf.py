@@ -421,3 +421,247 @@ class TestChannelStorePerf:
 
         benchmark(write_arrays)
         store.close()
+
+
+# ===========================================================================
+# FileStore — write/read throughput by value shape and size
+# ===========================================================================
+
+
+class TestFileStorePerf:
+    """FileStore write / read latency across value shapes and sizes.
+
+    Surfaces the typical T&M shapes: small bytes / Pydantic / ndarray /
+    PIL.Image / DataFrame, then sizes (1 KB → 10 MB) so a release-prep
+    audit can see where the sustained-write rate breaks.
+    """
+
+    @pytest.mark.benchmark(group="filestore-write")
+    @pytest.mark.parametrize("size_kb", [1, 100, 1024, 10240])
+    def test_write_bytes(self, tmp_path: Path, benchmark, size_kb: int):
+        """Write raw bytes blobs. Lower bound on FileStore throughput —
+        no serialization cost beyond the disk write + sidecar metadata."""
+        from litmus.data.files.store import FileStore
+
+        store = FileStore(data_dir=tmp_path)
+        sid = str(uuid4())
+        payload = b"x" * (size_kb * 1024)
+
+        def write_one() -> None:
+            store.write(f"blob_{uuid4().hex[:8]}", payload, session_id=sid)
+
+        benchmark(write_one)
+
+    @pytest.mark.benchmark(group="filestore-write")
+    @pytest.mark.parametrize("size_kb", [1, 100, 1024])
+    def test_write_ndarray(self, tmp_path: Path, benchmark, size_kb: int):
+        """Write a numpy ndarray (float64). Exercises the .npy serializer
+        + sidecar metadata + atomic file write."""
+        import numpy as np  # noqa: PLC0415
+
+        from litmus.data.files.store import FileStore
+
+        store = FileStore(data_dir=tmp_path)
+        sid = str(uuid4())
+        n_floats = (size_kb * 1024) // 8  # float64 = 8 bytes
+        arr = np.random.default_rng(0).normal(size=n_floats)
+
+        def write_one() -> None:
+            store.write(f"arr_{uuid4().hex[:8]}", arr, session_id=sid)
+
+        benchmark(write_one)
+
+    @pytest.mark.benchmark(group="filestore-write")
+    def test_write_waveform(self, tmp_path: Path, benchmark):
+        """Write a Waveform — exercises the .npz serializer with the
+        canonical Y / dt / t0 / attributes shape used by example 08."""
+        import numpy as np  # noqa: PLC0415
+
+        from litmus.data.files.store import FileStore
+        from litmus.data.models import Waveform
+
+        store = FileStore(data_dir=tmp_path)
+        sid = str(uuid4())
+        y = np.random.default_rng(0).normal(size=10_000)
+        wf = Waveform(Y=y.tolist(), dt=1e-6)
+
+        def write_one() -> None:
+            store.write(f"wf_{uuid4().hex[:8]}", wf, session_id=sid)
+
+        benchmark(write_one)
+
+    @pytest.mark.benchmark(group="filestore-read")
+    @pytest.mark.parametrize("size_kb", [1, 100, 1024])
+    def test_read_bytes(self, tmp_path: Path, benchmark, size_kb: int):
+        """Read a previously-written bytes blob via FileStore.resolve_uri
+        + file open. Models the operator UI / RunsQuery hot path."""
+        from litmus.data.files.store import FileStore
+
+        store = FileStore(data_dir=tmp_path)
+        sid = str(uuid4())
+        payload = b"y" * (size_kb * 1024)
+        uri = store.write("readme", payload, session_id=sid)
+
+        def read_one() -> None:
+            path = store.resolve_uri(uri)
+            assert path is not None
+            with path.open("rb") as fh:
+                _ = fh.read()
+
+        benchmark(read_one)
+
+    @pytest.mark.benchmark(group="filestore-resolve")
+    def test_resolve_uri_warm(self, tmp_path: Path, benchmark):
+        """Pure ``resolve_uri`` cost. Models the worst-case for retention
+        / pruning passes that resolve many URIs in a tight loop."""
+        from litmus.data.files.store import FileStore
+
+        store = FileStore(data_dir=tmp_path)
+        sid = str(uuid4())
+        uri = store.write("zzz", b"k", session_id=sid)
+
+        def resolve_one() -> None:
+            _ = store.resolve_uri(uri)
+
+        benchmark(resolve_one)
+
+
+# ===========================================================================
+# Streaming — sustained throughput per format × chunk size
+# ===========================================================================
+
+
+class TestFileStreamPerf:
+    """Sustained-write rate of ``files.stream(format=...)`` for each
+    built-in format. Measures total time to write ``n_chunks`` of a given
+    size; the OPS column reports chunks/s and the per-test reason carries
+    the implied bytes/s.
+
+    Tests are scoped to one format × one chunk size so the regression
+    surface is clear. Pick the dial that matters per format.
+    """
+
+    @pytest.mark.benchmark(group="filestream-raw", warmup=True, min_rounds=10)
+    @pytest.mark.parametrize("chunk_kb", [1, 64, 1024])
+    def test_stream_raw(self, tmp_path: Path, benchmark, chunk_kb: int):
+        """Raw byte stream — lowest-level streaming path. Bound on the
+        platform's sustained byte rate before format overhead."""
+        from litmus.data.files.store import FileStore
+
+        store = FileStore(data_dir=tmp_path)
+        sid = str(uuid4())
+        chunk = b"a" * (chunk_kb * 1024)
+        n_chunks = 64
+
+        def stream_one() -> None:
+            sink = store.open_stream(name=f"raw_{uuid4().hex[:8]}", format="raw", session_id=sid)
+            for _ in range(n_chunks):
+                sink.write(chunk)
+            sink.close()
+
+        benchmark(stream_one)
+
+    @pytest.mark.benchmark(group="filestream-jsonl", warmup=True, min_rounds=10)
+    @pytest.mark.parametrize("rows_per_chunk", [10, 100, 1000])
+    def test_stream_jsonl(self, tmp_path: Path, benchmark, rows_per_chunk: int):
+        """JSONL stream — typical pattern for accumulating typed event
+        rows or per-vector measurement dumps."""
+        from litmus.data.files.store import FileStore
+
+        store = FileStore(data_dir=tmp_path)
+        sid = str(uuid4())
+        row = {"t": 1.23, "v": 4.56, "label": "scope_ch1", "ok": True}
+        chunk = [row] * rows_per_chunk
+        n_chunks = 32
+
+        def stream_one() -> None:
+            sink = store.open_stream(
+                name=f"jsonl_{uuid4().hex[:8]}", format="jsonl", session_id=sid
+            )
+            for _ in range(n_chunks):
+                sink.write(chunk)
+            sink.close()
+
+        benchmark(stream_one)
+
+    @pytest.mark.benchmark(group="filestream-tdms", warmup=True, min_rounds=10)
+    def test_stream_tdms(self, tmp_path: Path, benchmark):
+        """TDMS stream — NI-shape acquisition. Skipped when nptdms isn't
+        installed (optional extra)."""
+        nptdms = pytest.importorskip("nptdms")
+        import numpy as np  # noqa: PLC0415
+
+        from litmus.data.files.store import FileStore
+
+        store = FileStore(data_dir=tmp_path)
+        sid = str(uuid4())
+        data = np.random.default_rng(0).normal(size=10_000)
+        n_chunks = 16
+
+        def stream_one() -> None:
+            sink = store.open_stream(name=f"tdms_{uuid4().hex[:8]}", format="tdms", session_id=sid)
+            for _ in range(n_chunks):
+                sink.write(nptdms.ChannelObject("daq", "voltage", data))
+            sink.close()
+
+        benchmark(stream_one)
+
+    @pytest.mark.benchmark(group="filestream-h5", warmup=True, min_rounds=10)
+    def test_stream_h5(self, tmp_path: Path, benchmark):
+        """HDF5 stream — long-term archival shape. Skipped when h5py
+        isn't installed (optional extra)."""
+        h5py = pytest.importorskip("h5py")
+        del h5py
+        import numpy as np  # noqa: PLC0415
+
+        from litmus.data.files.store import FileStore
+
+        store = FileStore(data_dir=tmp_path)
+        sid = str(uuid4())
+        chunk = {"voltage": np.random.default_rng(0).normal(size=10_000)}
+        n_chunks = 16
+
+        def stream_one() -> None:
+            sink = store.open_stream(name=f"h5_{uuid4().hex[:8]}", format="h5", session_id=sid)
+            for _ in range(n_chunks):
+                sink.write(chunk)
+            sink.close()
+
+        benchmark(stream_one)
+
+
+class TestChannelStreamPerf:
+    """Sustained-write rate of ``channels.stream`` interactive sample
+    push. The single-write call latency is already covered by
+    ``test_write_scalars`` above; this measures the sink-context-
+    managed shape used by ``examples/09-instrument-streaming``."""
+
+    @pytest.mark.benchmark(group="channelstream", warmup=True, min_rounds=10)
+    @pytest.mark.parametrize("n_samples", [100, 1_000, 10_000])
+    def test_stream_scalars(self, tmp_path: Path, benchmark, n_samples: int):
+        """Same total samples as ``test_write_scalars`` but via the
+        ``with channels.stream(name) as sink: sink.write(v)`` shape, so
+        the comparison surfaces context-manager overhead per write."""
+        import random
+
+        from litmus.data.channels.store import ChannelStore
+        from litmus.execution._state import set_channel_store
+
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=50)
+        store.open()
+        # Wire the ContextVar so litmus.channels.stream finds the store.
+        set_channel_store(store)
+        try:
+            import litmus.channels as channels_mod  # noqa: PLC0415
+
+            samples = [random.gauss(0, 1) for _ in range(n_samples)]
+
+            def stream_one() -> None:
+                with channels_mod.stream("dmm.voltage") as sink:
+                    for v in samples:
+                        sink.write(v)
+
+            benchmark(stream_one)
+        finally:
+            set_channel_store(None)
+            store.close()
