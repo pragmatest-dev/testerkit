@@ -6,6 +6,8 @@ from typing import Any
 
 from nicegui import ui
 
+from litmus.data.data_dir import resolve_data_dir
+from litmus.data.event_store import EventStore
 from litmus.ui.shared.components import (
     data_table,
     format_datetime,
@@ -13,6 +15,7 @@ from litmus.ui.shared.components import (
     page_layout,
     push_url_state,
     session_filter_banner,
+    subscribe_with_refresh,
 )
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import list_channels_recent
@@ -270,10 +273,6 @@ def channels_page(
         # the legacy ``ui.timer(2.0, refresh)`` polling pattern;
         # the in-place row mutation + fingerprint skip stay
         # exactly as they were.
-        from litmus.data.data_dir import resolve_data_dir
-        from litmus.data.event_store import EventStore
-        from litmus.ui.shared.components import subscribe_with_refresh
-
         try:
             event_store = EventStore.get_shared(resolve_data_dir())
             subscribe_with_refresh(
