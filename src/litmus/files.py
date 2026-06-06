@@ -73,6 +73,7 @@ def write(
     name: str,
     value: Any,
     *,
+    namespace: str | None = None,
     session_id: str | None = None,
     vector_id: str | None = None,
     attributes: dict[str, Any] | None = None,
@@ -96,6 +97,14 @@ def write(
         value: The value to write (any registry-typed value — see
             :mod:`litmus.data.files.serializers` for the dispatch
             table and the ``litmus_serialize`` protocol).
+        namespace: Optional prefix sugar; effective artifact name
+            becomes ``"{namespace}.{name}"``. Mirrors the
+            ``namespace`` parameter on :meth:`Context.observe` and
+            on :func:`litmus.channels.write` — the three power-user
+            surfaces share one prefix discipline so an artifact
+            recorded via ``observe(name, value, namespace="psu")``
+            and one recorded via ``files.write(name, value,
+            namespace="psu")`` land at the same effective name.
         session_id: Session this artifact belongs to. ``None``
             resolves from the active Context.
         vector_id: Optional vector context — first 8 chars prefix
@@ -110,9 +119,10 @@ def write(
     # when files.write actually runs.
     from litmus.data.files import get_filestore  # noqa: PLC0415
 
+    full_name = f"{namespace}.{name}" if namespace else name
     sid = _resolve_session_id(session_id)
     return get_filestore().write(
-        name=name,
+        name=full_name,
         value=value,
         session_id=sid,
         vector_id=vector_id,
@@ -141,6 +151,7 @@ def stream(
     name: str,
     *,
     format: str,
+    namespace: str | None = None,
     session_id: str | None = None,
     vector_id: str | None = None,
     attributes: dict[str, Any] | None = None,
@@ -164,6 +175,11 @@ def stream(
         format: Streaming format — one of ``"raw"``, ``"jsonl"``,
             ``"tdms"``, ``"h5"`` in v0.2.0. See
             :func:`litmus.data.files.streaming.registered_formats`.
+        namespace: Optional prefix sugar; effective artifact name
+            becomes ``"{namespace}.{name}"``. Mirrors
+            ``Context.observe`` and :func:`litmus.channels.stream`
+            so the three power-user surfaces share one prefix
+            discipline.
         session_id: Session the stream belongs to. ``None`` resolves
             from the active Context.
         vector_id: Optional vector context; first 8 chars prefix the
@@ -188,10 +204,11 @@ def stream(
     # Lazy: see write() — same data.files heavy chain.
     from litmus.data.files import get_filestore  # noqa: PLC0415
 
+    full_name = f"{namespace}.{name}" if namespace else name
     sid = _resolve_session_id(session_id)
     event_log, run_id = _resolve_event_log_and_run_id()
     sink = get_filestore().open_stream(
-        name=name,
+        name=full_name,
         format=format,
         session_id=sid,
         vector_id=vector_id,
