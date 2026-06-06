@@ -12,6 +12,7 @@ from litmus.ui.shared.components import (
     format_datetime,
     page_header,
     page_layout,
+    render_no_data_card,
     stat_card,
     status_chip_classes,
     subscribe_with_refresh,
@@ -71,13 +72,21 @@ async def results_page() -> None:
                 if table is None:
                     _render_stats(stats_holder, [], 0)
                     empty_holder.clear()
-                    with empty_holder, ui.card().classes("w-full p-6 text-center"):
-                        ui.label("No test results found.").classes("text-slate-500")
+                    render_no_data_card(
+                        empty_holder,
+                        title="No test results found.",
+                        reason="Launch a test to populate this list.",
+                        icon="history",
+                    )
+                    # Convenience action — operators on the empty page
+                    # often want to launch a test next; the inline
+                    # button is faster than the sidebar.
+                    with empty_holder, ui.row().classes("w-full justify-center"):
                         ui.button(
                             "Launch a Test",
                             icon="play_arrow",
                             on_click=lambda: ui.navigate.to("/launch"),
-                        ).classes("mt-4")
+                        ).classes("mt-2")
                 return
 
             _render_stats(stats_holder, new_rows, total)
