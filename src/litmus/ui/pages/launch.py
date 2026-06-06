@@ -63,16 +63,22 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
         # internal station_id stays as the form value so the backend
         # can identify the target station; it is NOT shown in the
         # dropdown text per the "no station_id in operator UI" rule.
+        #
+        # ``get_compatible_stations_for_product`` returns ``list[dict]``;
+        # ``discover_stations`` returns ``list[StationConfig]``. The
+        # local ``_id_name`` helper normalizes both shapes to ``(id,
+        # name)`` so the three branches below build station_options the
+        # same way regardless of source.
         if form["product_id"]:
             compatible = get_compatible_stations_for_product(form["product_id"])
             if compatible:
-                station_options = {s["id"]: s["name"] or s["id"] for s in compatible}
+                station_options = dict(_id_name(s) for s in compatible)
             else:
                 # No compatible stations - show all with warning
-                station_options = {s.id: s.name or s.id for s in all_stations}
+                station_options = dict(_id_name(s) for s in all_stations)
         else:
             # No product selected - show all stations
-            station_options = {s.id: s.name or s.id for s in all_stations}
+            station_options = dict(_id_name(s) for s in all_stations)
 
         if station_select:
             station_select.options = station_options
@@ -235,3 +241,21 @@ def _labeled_input(form: dict, key: str, label: str, placeholder: str):
         ui.input(placeholder=placeholder).bind_value(form, key).classes("w-full").props(
             "outlined dense"
         )
+
+
+def _id_name(station) -> tuple[str, str]:
+    """Normalize a station to ``(id, name)`` regardless of source shape.
+
+    ``get_compatible_stations_for_product`` returns dicts (FastAPI/JSON
+    surface), while ``discover_stations`` returns ``StationConfig``
+    Pydantic objects (the YAML store surface). The /launch page
+    consumes both. This helper folds the two access patterns into
+    one so call-sites don't repeat the dict-vs-object branching.
+
+    Falls back to ``id`` for ``name`` when the latter is empty so the
+    dropdown still shows a label rather than a blank entry.
+    """
+    if isinstance(station, dict):
+        sid = station["id"]
+        return sid, station.get("name") or sid
+    return station.id, station.name or station.id

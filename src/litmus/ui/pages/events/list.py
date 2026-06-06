@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 from typing import Any
 
@@ -226,11 +227,9 @@ def _show_detail_dialog(event: dict[str, Any]) -> None:
             content = json.dumps(event, indent=2, default=str)
         except (TypeError, ValueError):
             content = repr(event)
-        import html as _html
-
         ui.html(
             f'<pre class="text-xs whitespace-pre-wrap break-all" '
-            f'style="max-height:60vh;overflow:auto">{_html.escape(content)}</pre>',
+            f'style="max-height:60vh;overflow:auto">{html.escape(content)}</pre>',
             sanitize=False,
         )
         with ui.row().classes("w-full justify-end mt-2"):
