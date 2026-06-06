@@ -6,8 +6,9 @@ data analysts, and custom dashboards reach for this module instead
 of digging into ``litmus.analysis.*`` or ``litmus.data.*`` deep
 paths.
 
-Each class manages its own connection lifecycle — use as a context
-manager so the daemon connection releases promptly::
+The three ``*Query`` classes manage their own Flight connection
+lifecycle and should be used as context managers so the daemon
+connection releases promptly::
 
     from litmus import queries
 
@@ -18,8 +19,13 @@ manager so the daemon connection releases promptly::
     with queries.MeasurementsQuery() as q:
         yields = q.yield_summary(group_by="dut_part_number")
 
-    with queries.EventStore.open() as store:
-        events = list(store.events(limit=100))
+``EventStore`` is the odd one out: it's a process-shared singleton
+keyed by ``data_dir``, so there's no ``with`` — get the shared
+instance and use it directly. The daemon stays open for the rest
+of the process::
+
+    store = queries.EventStore.get_shared()
+    events = list(store.events(limit=100))
 
 See:
 

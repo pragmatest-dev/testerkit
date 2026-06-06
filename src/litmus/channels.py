@@ -173,3 +173,6 @@ def stream(name: str, *, namespace: str | None = None) -> Iterator[_ChannelSink]
         yield sink
     finally:
         sink.close()
+
+
+__all__ = ["stream", "write"]
