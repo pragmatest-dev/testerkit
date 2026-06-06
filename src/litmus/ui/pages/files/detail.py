@@ -17,6 +17,7 @@ from litmus.ui.shared.components import (
     format_datetime,
     format_file_size,
     info_field,
+    lookup_session_label,
     page_header,
     page_layout,
 )
@@ -130,9 +131,7 @@ def _render_metadata_card(
             # (``<dut_serial> · <YYYY-MM-DD HH:MM:SS>``) rather than
             # leaking the raw UUID. Same convention as the session
             # filter banner on /events / /channels / /files.
-            from litmus.ui.shared.components import _lookup_session_label
-
-            session_label, _found = _lookup_session_label(session_id)
+            session_label, _found = lookup_session_label(session_id)
             info_field("Session", session_label)
             ui.button(
                 "Download",
@@ -231,24 +230,35 @@ def _render_jsonl_viewer(path: Path) -> None:
     browser. Truncation is reported in the header so operators see
     "showing first N of M" rather than silently missing rows. The
     full file is always available via the Download button.
+
+    Three counters are tracked separately so the header copy doesn't
+    overlap:
+
+    * ``rows`` (= ``len(rows)``) — successful parses actually rendered.
+    * ``total_parsed`` — successful parses observed across the whole
+      file (may exceed ``len(rows)`` when truncation kicks in).
+    * ``parse_errors`` — full-file count of lines that failed
+      ``json.loads`` (counted before the row cap so the operator
+      sees the true count, not just the count of errors before
+      truncation).
     """
     rows: list[dict[str, Any]] = []
     parse_errors = 0
-    total_seen = 0
+    total_parsed = 0
     truncated = False
     try:
         with path.open("r", encoding="utf-8") as fh:
             for line in fh:
                 if not line.strip():
                     continue
-                total_seen += 1
-                if len(rows) >= _JSONL_ROW_CAP:
-                    truncated = True
-                    continue
                 try:
                     obj = json.loads(line)
                 except ValueError:
                     parse_errors += 1
+                    continue
+                total_parsed += 1
+                if len(rows) >= _JSONL_ROW_CAP:
+                    truncated = True
                     continue
                 if isinstance(obj, dict):
                     rows.append(obj)
@@ -268,11 +278,19 @@ def _render_jsonl_viewer(path: Path) -> None:
                 keys.append(k)
 
     with ui.card().classes("w-full p-4"):
-        header = f"JSONL · {len(rows)} entries"
+        # Header counts are non-overlapping: ``rows shown`` and
+        # ``total_parsed`` are the same category (successful parses),
+        # ``parse_errors`` is its own category. Truncation only
+        # affects how many successful parses landed in the table.
         if truncated:
-            header += f" (showing first {_JSONL_ROW_CAP} of {total_seen} — Download for full file)"
+            header = (
+                f"JSONL · showing first {_JSONL_ROW_CAP} of "
+                f"{total_parsed} successful entries — Download for full file"
+            )
+        else:
+            header = f"JSONL · {len(rows)} entries"
         if parse_errors:
-            header += f" ({parse_errors} unparseable)"
+            header += f" ({parse_errors} unparseable, file-wide)"
         ui.label(header).classes("text-sm font-medium text-slate-600 uppercase mb-2")
         if not rows:
             ui.label("(no entries)").classes("text-slate-500 italic")
@@ -337,11 +355,11 @@ def _render_npz_waveform_viewer(path: Path) -> None:
     via ``np.savez``. Falls back to a stats card when no numeric array
     is found.
     """
-    # Lazy: defer ~150ms numpy import to first .npz file open. This
-    # page module is imported at NiceGUI startup; a top-level numpy
-    # import would slow every operator-UI cold start, even when the
-    # user never opens an .npz file.
-    import numpy as np  # noqa: PLC0415  — defer ~150ms numpy load to first .npz open
+    # Defer ~150ms numpy import to first .npz file open. This page
+    # module is imported at NiceGUI startup; a top-level numpy import
+    # would slow every operator-UI cold start, even when the user
+    # never opens an .npz file.
+    import numpy as np  # noqa: PLC0415
 
     try:
         with np.load(path, allow_pickle=True) as archive:
@@ -389,9 +407,9 @@ def _render_npz_waveform_viewer(path: Path) -> None:
 
 def _render_npy_viewer(path: Path) -> None:
     """Show ndarray stats + first 100 flat values inline."""
-    # Lazy: defer ~150ms numpy import to first .npy file open. Same
+    # Defer ~150ms numpy import to first .npy file open. Same
     # module-load avoidance as _render_npz_waveform_viewer.
-    import numpy as np  # noqa: PLC0415  — defer ~150ms numpy load to first .npy open
+    import numpy as np  # noqa: PLC0415
 
     try:
         arr = np.load(path, allow_pickle=False)

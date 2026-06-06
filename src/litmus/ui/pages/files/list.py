@@ -17,7 +17,7 @@ from litmus.ui.shared.components import (
     session_filter_banner,
 )
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import list_recent_files, resolve_file_uri
+from litmus.ui.shared.services import files_dir_exists, list_recent_files, resolve_file_uri
 
 # Walk depth cap. The on-disk layout is unbounded as a glob; this
 # limits memory + render time on huge projects. Past the cap, older
@@ -88,9 +88,18 @@ def _mime_options_from_entries(entries: list[dict[str, Any]]) -> dict[str, str]:
 class _Filters:
     """Lazy filter-value accessors so callbacks read the live widget state.
 
-    ``session_id`` is intentionally NOT here — it's URL-only and
-    flows through the page-level parameter, never via a filter
-    widget. Same shape as ``/events`` / ``/channels``.
+    The widget attributes are declared at class scope but populated
+    on the INSTANCE after the widgets are constructed inside
+    ``files_page``. An instance is not usable until each attribute
+    has been assigned — the page guarantees this by construction
+    (build the widgets, then call the getters). Do not type the
+    attributes as ``ui.select | None`` to make this safer; the
+    accessor methods would then need defensive ``None`` checks
+    that obscure the actual access pattern.
+
+    ``session_id`` is intentionally NOT a filter widget — it's
+    URL-only and flows through the page-level parameter. Same
+    shape as ``/events`` / ``/channels``.
     """
 
     mime_select: ui.select
@@ -224,7 +233,11 @@ def files_page(
             table_holder.clear()
             empty_state.clear()
             if not filtered:
-                _show_empty_state(empty_state, has_data=bool(all_entries))
+                _show_empty_state(
+                    empty_state,
+                    has_data=bool(all_entries),
+                    dir_exists=files_dir_exists(),
+                )
                 return
             rows = [_row_for_artifact(e) for e in filtered]
             with table_holder:
@@ -267,14 +280,30 @@ def _build_table(rows: list[dict[str, Any]]) -> ui.table:
     return table
 
 
-def _show_empty_state(slot: ui.column, *, has_data: bool) -> None:
-    """Distinguish 'no files at all' from 'filters matched nothing'."""
+def _show_empty_state(slot: ui.column, *, has_data: bool, dir_exists: bool) -> None:
+    """Distinguish three empty causes: filtered-empty, no-data, no-dir.
+
+    ``dir_exists=False`` signals a missing FileStore directory — either
+    a fresh project that has never written a file, or a data wipe.
+    Different copy from "no files yet (directory present)" so an
+    operator looking at a long-running project notices the difference.
+    """
     with slot, ui.card().classes("w-full"), ui.card_section():
         if has_data:
             ui.label("No files match the current filters.").classes("text-slate-500 italic")
             ui.label("Clear the filters above to see all artifacts.").classes(
                 "text-xs text-slate-400"
             )
+            return
+        if not dir_exists:
+            ui.label("FileStore directory not found.").classes("text-amber-700 italic font-medium")
+            ui.label(
+                "Either the project has never written a FileStore artifact, or the "
+                "``files/`` directory under the project's data_dir has been removed. "
+                "If this is a long-running project, check whether the data directory "
+                "moved or was wiped. The directory is created on the first "
+                "``context.observe(name, value)`` or ``files.write(...)`` call."
+            ).classes("text-xs text-slate-500")
             return
         ui.label("No artifact files yet.").classes("text-slate-500 italic")
         ui.label(

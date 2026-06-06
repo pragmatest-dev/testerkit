@@ -1645,6 +1645,21 @@ def query_channel(
 # -----------------------------------------------------------------------------
 
 
+def files_dir_exists() -> bool:
+    """Return True if the FileStore on-disk directory exists.
+
+    Lets the operator UI distinguish "no artifacts written yet"
+    (directory exists, empty walk) from "files directory not found"
+    (directory missing — possible data wipe, misconfigured data_dir,
+    or fresh project that has never written a FileStore artifact).
+    The two surfaces want different empty-state copy.
+    """
+    from litmus.data.data_dir import resolve_data_dir
+
+    project_dir = _resolve_data_dir()
+    return (resolve_data_dir(project_dir) / "files").exists()
+
+
 def list_recent_files(*, limit: int = 200) -> list[dict[str, Any]]:
     """Walk the FileStore on-disk layout and return artifact descriptors.
 
@@ -1652,7 +1667,8 @@ def list_recent_files(*, limit: int = 200) -> list[dict[str, Any]]:
     "extension", "size_bytes", "created_at", "attributes"}``. Returns
     up to ``limit`` most-recently-modified artifacts, newest first.
     Skips sidecar files. Returns an empty list when no FileStore data
-    exists.
+    exists OR the FileStore directory itself is absent — call
+    :func:`files_dir_exists` to distinguish the two cases.
     """
     from litmus.data.data_dir import resolve_data_dir
     from litmus.data.files.models import FileArtifactMetadata

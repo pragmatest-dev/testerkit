@@ -114,7 +114,7 @@ def session_filter_banner(session_id: str, clear_path: str) -> None:
     """
     if not session_id:
         return
-    label, found = _lookup_session_label(session_id)
+    label, found = lookup_session_label(session_id)
 
     from nicegui import ui
 
@@ -151,7 +151,7 @@ def session_filter_banner(session_id: str, clear_path: str) -> None:
 
 
 @lru_cache(maxsize=256)
-def _lookup_session_label(session_id: str) -> tuple[str, bool]:
+def lookup_session_label(session_id: str) -> tuple[str, bool]:
     """Look up the operator-readable label for ``session_id``.
 
     Returns ``(label, found)``. SessionStarted events are immutable
@@ -162,6 +162,18 @@ def _lookup_session_label(session_id: str) -> tuple[str, bool]:
     ``found=False`` means the session_id wasn't in the sessions index
     — the caller renders a distinct "session not found" banner so
     operators can tell stale bookmarks apart from empty filters.
+
+    **Cache invariants** (public contract — relied on by every page
+    that surfaces a session label):
+
+    * ``SessionStarted`` is immutable once written, so a ``found=True``
+      result is correct for the lifetime of the server process.
+    * A ``found=False`` result is sticky for the same lifetime — if a
+      session_id starts as unknown and later appears in the sessions
+      index (e.g. delayed materialization), the cache will not refresh.
+      Acceptable because the materialization race is bounded and
+      operators reload the page rarely. Restart the server (or call
+      ``lookup_session_label.cache_clear()``) to flush.
     """
     from litmus.ui.shared.services import query_sessions
 
@@ -516,7 +528,15 @@ def render_skeleton(container: Any, height: str = "h-32") -> None:
 
 
 # Sentinel values that mean "no filter active" — these never get
-# written to the URL even when the widget holds them.
+# written to the URL even when the widget holds them. Both ``0`` (int)
+# and ``"0"`` (str) are listed because filter widgets vary: ``ui.input``
+# returns str, ``ui.number`` / ``ui.select`` may return int. Treating
+# both as the same "no limit / default" sentinel keeps the URL clean
+# regardless of which widget the filter is wired to. NB: this means
+# operators cannot filter on a literal value of zero — fine for every
+# filter shipped today (limits are 1..10000, no zero-valued IDs are
+# user-facing), but worth re-evaluating if a future page introduces a
+# meaningful zero filter.
 _URL_STATE_OMIT_VALUES: tuple[Any, ...] = (None, "", "(any)", "All", 0, "0")
 
 
