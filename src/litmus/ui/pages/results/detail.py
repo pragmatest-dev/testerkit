@@ -183,7 +183,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
                         ui.button(
                             "Channels",
                             icon="signal_cellular_alt",
-                            on_click=lambda sid=_sid: ui.navigate.to(f"/channels?session={sid}"),
+                            on_click=lambda sid=_sid: ui.navigate.to(f"/channels?session_id={sid}"),
                         ).props('flat dense color=primary data-testid="run-detail-view-channels"')
 
         has_slots = any(m.get("slot_id") for m in measurements)

@@ -35,7 +35,7 @@ def channels_page(
     name: str = "",
     data_type: str = "",
     instrument: str = "",
-    session: str = "",
+    session_id: str = "",
     since: str = "",
     until: str = "",
 ) -> None:
@@ -67,9 +67,10 @@ def channels_page(
         ).classes("text-sm text-slate-500")
 
         # Session scoping is URL-only — no widget. Set by deep-links
-        # from /results/{run_id} → /channels?session=...; banner is
-        # the only affordance to clear. Same shape as /events.
-        session_filter_banner(session, clear_path="/channels")
+        # from /results/{run_id} → /channels?session_id=...; banner
+        # is the only affordance to clear. Same shape as /events /
+        # /files. UUIDs never appear in widgets.
+        session_filter_banner(session_id, clear_path="/channels")
 
         # Filter card renders FIRST (above table) per the operator-UI
         # consistency rule. ``Type`` options are seeded with "(any)";
@@ -179,6 +180,9 @@ def channels_page(
             push_url_state(
                 "/channels",
                 {
+                    # session_id is URL-only — preserved across filter
+                    # changes via the page-level param, not a widget.
+                    "session_id": session_id,
                     "name": filters.name(),
                     "data_type": filters.data_type(),
                     "instrument": filters.instrument(),
@@ -214,7 +218,7 @@ def channels_page(
             table = state["table"]
             if table is None:
                 with table_holder:
-                    state["table"] = _build_table(filtered, session=session)
+                    state["table"] = _build_table(filtered, session_id=session_id)
                 state["fingerprint"] = _row_fingerprint(filtered)
                 return
 
@@ -360,7 +364,7 @@ def _row_fingerprint(rows: list[dict[str, Any]]) -> str:
     return "|".join(f"{r['channel_id']}:{r['latest']}:{r['spark']}" for r in rows)
 
 
-def _build_table(rows: list[dict[str, Any]], *, session: str = "") -> ui.table:
+def _build_table(rows: list[dict[str, Any]], *, session_id: str = "") -> ui.table:
     """Construct the channels table once. Later ticks mutate ``.rows``."""
     columns = [
         {"name": "channel_id", "label": "Channel ID", "field": "channel_id", "align": "left"},
@@ -385,7 +389,7 @@ def _build_table(rows: list[dict[str, Any]], *, session: str = "") -> ui.table:
         rows=rows,
         row_key="channel_id",
         on_row_click=lambda r: ui.navigate.to(
-            f"/channels/{r['channel_id']}" + (f"?session={session}" if session else "")
+            f"/channels/{r['channel_id']}" + (f"?session_id={session_id}" if session_id else "")
         ),
         time_columns=["last_updated"],
     )

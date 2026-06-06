@@ -82,7 +82,7 @@ class TestObserveToFileStore:
         uri = ctx._observations["scope.cap"]
         assert uri.startswith(f"file://{session_id}/")
         # FileStore can resolve + read back
-        path = get_filestore()._resolve_uri(uri)
+        path = get_filestore().resolve_uri(uri)
         assert path is not None
         assert path.read_bytes() == png
 
@@ -283,7 +283,7 @@ class TestFailureModes:
         uri = ctx._observations["victim"]
 
         # Delete the artifact from disk
-        path = get_filestore()._resolve_uri(uri)
+        path = get_filestore().resolve_uri(uri)
         assert path is not None
         path.unlink()
 

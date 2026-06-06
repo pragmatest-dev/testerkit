@@ -1710,11 +1710,14 @@ def resolve_file_uri(session_id: str, filename: str) -> Path | None:
 
     Returns ``None`` if the file does not exist. Used by the
     ``/files-static/...`` HTTP route to serve artifact bytes.
+    Delegates to :meth:`FileStore.resolve_uri` — the on-disk
+    date-partitioned layout is an implementation detail handled
+    entirely by FileStore.
     """
     from litmus.data.files import get_filestore
 
     store = get_filestore()
-    return store._resolve_uri(f"file://{session_id}/{filename}")
+    return store.resolve_uri(f"file://{session_id}/{filename}")
 
 
 # -----------------------------------------------------------------------------

@@ -266,7 +266,7 @@ class FileStore:
             uri: A ``file://{session_id}/{filename}`` URI returned
                 by :meth:`put`.
         """
-        artifact_path = self._resolve_uri(uri)
+        artifact_path = self.resolve_uri(uri)
         if artifact_path is None:
             return None
         sidecar_path = artifact_path.with_name(artifact_path.name + _SIDECAR_SUFFIX)
@@ -274,14 +274,16 @@ class FileStore:
             return None
         return FileArtifactMetadata.model_validate_json(sidecar_path.read_text())
 
-    def _resolve_uri(self, uri: str) -> Path | None:
+    def resolve_uri(self, uri: str) -> Path | None:
         """Walk date directories to find the on-disk path for a URI.
 
-        URIs are logical references (``file://{session_id}/{filename}``)
-        — date is intentionally absent so a backend swap or a manual
-        date-dir reorganization stays transparent. Resolution walks
-        ``{files_dir}/*/{session_id}/{filename}`` and returns the
-        first match. ``None`` when nothing matches.
+        Public — callers in the operator UI, materializer, and HTTP
+        ``/files-static`` route reach for this to map a logical
+        ``file://{session_id}/{filename}`` URI to its current on-disk
+        location. Date is intentionally absent from the URI so a backend
+        swap or a manual date-dir reorganization stays transparent.
+        Resolution walks ``{files_dir}/*/{session_id}/{filename}`` and
+        returns the first match. ``None`` when nothing matches.
         """
         if not uri.startswith("file://"):
             return None

@@ -6,6 +6,7 @@ import csv
 import html
 import io
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from nicegui import ui
 
 from litmus.ui.shared.components import (
     format_datetime,
+    format_file_size,
     info_field,
     page_header,
     page_layout,
@@ -21,11 +23,19 @@ from litmus.ui.shared.components import (
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import resolve_file_uri
 
+_log = logging.getLogger(__name__)
+
 # Hard cap on in-memory viewer payload size. Files larger than this
 # render as a metadata card + Download button only; the browser never
 # loads them. Tuned at 2 MB — bigger than any realistic JSON / JSONL
 # log, small enough to keep the page responsive on a slow link.
 _VIEWER_SIZE_CAP_BYTES = 2 * 1024 * 1024
+
+# Hard cap on JSONL row count. A 2 MB JSONL with ~50-byte lines is
+# ~40k rows — q-table can render it but the browser lags. The cap
+# truncates with a "showing first N of M" note; the operator can
+# Download to get the full file.
+_JSONL_ROW_CAP = 5_000
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 _VIDEO_EXTS = {".mp4", ".webm"}
@@ -69,7 +79,15 @@ def file_detail_page(session_id: str, filename: str) -> None:
 
 
 def _load_metadata(path: Path) -> dict[str, Any]:
-    """Read the sidecar ``.meta.json`` next to ``path``. Missing → defaults."""
+    """Read the sidecar ``.meta.json`` next to ``path``. Missing → defaults.
+
+    A malformed sidecar (truncated write, partial JSON, encoding error)
+    falls back to the extension-derived defaults so the page still
+    renders something. The fallback is logged at WARNING so the
+    information loss is visible to operators tailing the server log —
+    silent fallback hides crash artifacts (incomplete sidecar writes,
+    corrupted disk metadata) that would otherwise be invisible.
+    """
     sidecar = path.with_name(path.name + ".meta.json")
     if not sidecar.exists():
         return {
@@ -80,7 +98,14 @@ def _load_metadata(path: Path) -> dict[str, Any]:
         }
     try:
         return json.loads(sidecar.read_text())
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
+        _log.warning(
+            "Sidecar %s could not be loaded (%s) — falling back to file "
+            "extension. The artifact may have been written during a crash "
+            "or its metadata may be corrupt.",
+            sidecar.name,
+            exc,
+        )
         return {
             "mime": "",
             "extension": path.suffix,
@@ -96,12 +121,19 @@ def _render_metadata_card(
         with ui.row().classes("w-full justify-between items-start gap-4 p-4 flex-wrap"):
             info_field("MIME", meta.get("mime") or "—")
             info_field("Extension", meta.get("extension") or path.suffix or "—")
-            info_field("Size", _format_size(int(meta.get("size_bytes", path.stat().st_size))))
+            info_field("Size", format_file_size(int(meta.get("size_bytes", path.stat().st_size))))
             info_field(
                 "Modified",
                 format_datetime(datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)),
             )
-            info_field("Session", session_id)
+            # Resolve session_id to an operator-readable label
+            # (``<dut_serial> · <YYYY-MM-DD HH:MM:SS>``) rather than
+            # leaking the raw UUID. Same convention as the session
+            # filter banner on /events / /channels / /files.
+            from litmus.ui.shared.components import _lookup_session_label
+
+            session_label, _found = _lookup_session_label(session_id)
+            info_field("Session", session_label)
             ui.button(
                 "Download",
                 icon="download",
@@ -128,8 +160,8 @@ def _render_viewer(path: Path, view_url: str) -> None:
     if size > _VIEWER_SIZE_CAP_BYTES:
         with ui.card().classes("w-full p-6"):
             ui.label(
-                f"File is {_format_size(size)} — too large for in-page viewer "
-                f"(cap {_format_size(_VIEWER_SIZE_CAP_BYTES)}). Use Download."
+                f"File is {format_file_size(size)} — too large for in-page viewer "
+                f"(cap {format_file_size(_VIEWER_SIZE_CAP_BYTES)}). Use Download."
             ).classes("text-slate-600")
         return
 
@@ -192,28 +224,40 @@ def _render_json_viewer(path: Path) -> None:
 
 
 def _render_jsonl_viewer(path: Path) -> None:
-    """Render each JSONL line as a row in a table. Columns = union of keys."""
+    """Render each JSONL line as a row in a table. Columns = union of keys.
+
+    Streams line-by-line and stops at ``_JSONL_ROW_CAP`` rows so a
+    JSONL file with tens of thousands of small lines doesn't lag the
+    browser. Truncation is reported in the header so operators see
+    "showing first N of M" rather than silently missing rows. The
+    full file is always available via the Download button.
+    """
+    rows: list[dict[str, Any]] = []
+    parse_errors = 0
+    total_seen = 0
+    truncated = False
     try:
-        lines = path.read_text().splitlines()
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                total_seen += 1
+                if len(rows) >= _JSONL_ROW_CAP:
+                    truncated = True
+                    continue
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    parse_errors += 1
+                    continue
+                if isinstance(obj, dict):
+                    rows.append(obj)
+                else:
+                    rows.append({"value": obj})
     except OSError as exc:
         with ui.card().classes("w-full p-4"):
             ui.label(f"Could not read file: {exc}").classes("text-red-600")
         return
-
-    rows: list[dict[str, Any]] = []
-    parse_errors = 0
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            obj = json.loads(line)
-        except ValueError:
-            parse_errors += 1
-            continue
-        if isinstance(obj, dict):
-            rows.append(obj)
-        else:
-            rows.append({"value": obj})
 
     keys: list[str] = []
     seen: set[str] = set()
@@ -225,6 +269,8 @@ def _render_jsonl_viewer(path: Path) -> None:
 
     with ui.card().classes("w-full p-4"):
         header = f"JSONL · {len(rows)} entries"
+        if truncated:
+            header += f" (showing first {_JSONL_ROW_CAP} of {total_seen} — Download for full file)"
         if parse_errors:
             header += f" ({parse_errors} unparseable)"
         ui.label(header).classes("text-sm font-medium text-slate-600 uppercase mb-2")
@@ -291,10 +337,11 @@ def _render_npz_waveform_viewer(path: Path) -> None:
     via ``np.savez``. Falls back to a stats card when no numeric array
     is found.
     """
-    # Lazy: numpy is heavy (~150ms). This page module is imported at
-    # NiceGUI startup; loading numpy here would slow every operator-UI
-    # cold start, even when the user never opens an .npz file.
-    import numpy as np  # noqa: PLC0415
+    # Lazy: defer ~150ms numpy import to first .npz file open. This
+    # page module is imported at NiceGUI startup; a top-level numpy
+    # import would slow every operator-UI cold start, even when the
+    # user never opens an .npz file.
+    import numpy as np  # noqa: PLC0415  — defer ~150ms numpy load to first .npz open
 
     try:
         with np.load(path, allow_pickle=True) as archive:
@@ -342,9 +389,9 @@ def _render_npz_waveform_viewer(path: Path) -> None:
 
 def _render_npy_viewer(path: Path) -> None:
     """Show ndarray stats + first 100 flat values inline."""
-    # Lazy: see _render_npz_waveform_viewer's note — same module-load
-    # avoidance for operator-UI cold start.
-    import numpy as np  # noqa: PLC0415
+    # Lazy: defer ~150ms numpy import to first .npy file open. Same
+    # module-load avoidance as _render_npz_waveform_viewer.
+    import numpy as np  # noqa: PLC0415  — defer ~150ms numpy load to first .npy open
 
     try:
         arr = np.load(path, allow_pickle=False)
@@ -382,11 +429,3 @@ def _render_text_viewer(path: Path) -> None:
             f'style="max-height:60vh;overflow:auto">{html.escape(text)}</pre>',
             sanitize=False,
         )
-
-
-def _format_size(size_bytes: int) -> str:
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    if size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    return f"{size_bytes / (1024 * 1024):.2f} MB"

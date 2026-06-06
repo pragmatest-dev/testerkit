@@ -332,7 +332,7 @@ def create_api_router() -> APIRouter:
 
         if not uri.startswith("file://"):
             raise HTTPException(status_code=400, detail=f"Not a file:// URI: {uri!r}")
-        path = get_filestore()._resolve_uri(uri)
+        path = get_filestore().resolve_uri(uri)
         if path is None or not path.exists():
             raise HTTPException(status_code=404, detail=f"Not found: {uri}")
 

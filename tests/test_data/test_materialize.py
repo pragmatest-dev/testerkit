@@ -160,7 +160,7 @@ def test_materialize_rewrites_parquet(results_tree: _ResultsTree) -> None:
     # Verify the .arrow file landed in FileStore and contains correct data
     from litmus.data.files import get_filestore
 
-    artifact_path = get_filestore()._resolve_uri(new_uri)
+    artifact_path = get_filestore().resolve_uri(new_uri)
     assert artifact_path is not None
     assert artifact_path.exists()
 

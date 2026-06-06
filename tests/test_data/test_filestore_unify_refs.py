@@ -74,7 +74,7 @@ class TestArrowTableSerializer:
         assert uri.startswith(f"file://{sid}/")
         assert uri.endswith(".arrow")
 
-        path = filestore._resolve_uri(uri)
+        path = filestore.resolve_uri(uri)
         assert path is not None
         loaded = ipc.open_stream(pa.OSFile(str(path), "rb")).read_all()
         assert loaded.num_rows == 3

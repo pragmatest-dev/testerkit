@@ -255,7 +255,7 @@ class TestObserveBlobWithNamespace:
         uri = ctx._observations["scope_a.screenshot"]
         assert uri.startswith("file://")
         # The artifact name in FileStore reflects the namespaced name
-        path = get_filestore()._resolve_uri(uri)
+        path = get_filestore().resolve_uri(uri)
         assert path is not None
         assert "scope_a.screenshot" in path.name
 
@@ -304,7 +304,7 @@ class TestVerifyNamespaceKwargAccepted:
 
 
 # --------------------------------------------------------------------- #
-# Convenience: _resolve_uri helper for inspection                        #
+# Convenience: resolve_uri helper for inspection                         #
 # --------------------------------------------------------------------- #
 
 

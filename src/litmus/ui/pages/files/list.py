@@ -10,9 +10,11 @@ from nicegui import app, ui
 from litmus.ui.shared.components import (
     data_table,
     format_datetime,
+    format_file_size,
     page_header,
     page_layout,
     push_url_state,
+    session_filter_banner,
 )
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import list_recent_files, resolve_file_uri
@@ -27,22 +29,11 @@ _WALK_LIMIT = 1000
 _PAGE_LIMIT = 200
 
 
-def _format_size(size_bytes: int) -> str:
-    """Render byte count as KB / MB for the table cell."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    if size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    return f"{size_bytes / (1024 * 1024):.2f} MB"
-
-
 def _row_for_artifact(entry: dict[str, Any]) -> dict[str, Any]:
     return {
         "filename": entry["filename"],
-        "session_id": entry["session_id"][:12],
-        "session_full": entry["session_id"],
         "mime": entry["mime"] or entry["extension"].lstrip("."),
-        "size": _format_size(entry["size_bytes"]),
+        "size": format_file_size(entry["size_bytes"]),
         "created_at": format_datetime(entry["created_at"]),
         "uri": entry["uri"],
         "detail_url": f"/files/{entry['session_id']}/{entry['filename']}",
@@ -59,7 +50,7 @@ def _apply_filters(
     since: str,
     until: str,
 ) -> list[dict[str, Any]]:
-    """Filter entries by session_id, mime, filename substring, and date window.
+    """Filter entries by session_id (URL-only), mime, filename substring, and date window.
 
     Empty strings are wildcards. Date comparisons use the ISO
     representation, which sorts correctly for the format
@@ -84,31 +75,28 @@ def _apply_filters(
     return out
 
 
-def _options_from_entries(entries: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, str]]:
-    """Build (session_options, mime_options) dropdowns from observed entries."""
-    sessions: dict[str, str] = {"": "(any)"}
+def _mime_options_from_entries(entries: list[dict[str, Any]]) -> dict[str, str]:
+    """Build the mime/extension dropdown values from observed entries."""
     mimes: dict[str, str] = {"": "(any)"}
     for e in entries:
-        sid = e["session_id"]
-        if sid not in sessions:
-            sessions[sid] = f"{sid[:12]} …"
         mime_or_ext = e["mime"] or e["extension"].lstrip(".")
         if mime_or_ext and mime_or_ext not in mimes:
             mimes[mime_or_ext] = mime_or_ext
-    return sessions, mimes
+    return mimes
 
 
 class _Filters:
-    """Lazy filter-value accessors so callbacks read the live widget state."""
+    """Lazy filter-value accessors so callbacks read the live widget state.
 
-    session_select: ui.select
+    ``session_id`` is intentionally NOT here — it's URL-only and
+    flows through the page-level parameter, never via a filter
+    widget. Same shape as ``/events`` / ``/channels``.
+    """
+
     mime_select: ui.select
     name_input: ui.input
     since_input: ui.input
     until_input: ui.input
-
-    def session_id(self) -> str:
-        return (str(self.session_select.value) if self.session_select.value else "").strip()
 
     def mime(self) -> str:
         return (str(self.mime_select.value) if self.mime_select.value else "").strip()
@@ -135,7 +123,12 @@ def files_page(
 
     Filter state is mirrored into the URL via ``history.replaceState``
     so views are bookmarkable and shareable. Same pattern as
-    ``/events`` / ``/metrics`` / ``/explore``.
+    ``/events`` / ``/channels`` / ``/metrics`` / ``/explore``.
+
+    Session scoping is URL-only — set by deep-links from pages that
+    already know the session (e.g. ``/results/{run_id}`` →
+    ``/files?session_id=...``). The :func:`session_filter_banner` is
+    the only affordance to clear it; UUIDs never appear in widgets.
     """
     create_layout("Files")
 
@@ -143,8 +136,7 @@ def files_page(
     # Refresh button re-walks the disk so newly-written artifacts
     # appear without a page reload.
     all_entries = list_recent_files(limit=_WALK_LIMIT)
-    session_options, mime_options = _options_from_entries(all_entries)
-    initial_session = session_id if session_id in session_options else ""
+    mime_options = _mime_options_from_entries(all_entries)
     initial_mime = mime if mime in mime_options else ""
 
     with page_layout():
@@ -155,22 +147,17 @@ def files_page(
             "byte streams. Click the filename to open or download."
         ).classes("text-sm text-slate-500")
 
+        # Session scoping is URL-only — same shape as /events,
+        # /channels. The banner is the only affordance to clear.
+        session_filter_banner(session_id, clear_path="/files")
+
         filters = _Filters()
 
         # Filter card renders FIRST (above table) per the operator-UI
         # consistency rule: filters must always appear above the data
-        # they filter. The widgets are wired up to a refresh callback
-        # defined below; the table/empty-state holders come after so
-        # they render in the natural top-down read order.
+        # they filter.
         with ui.card().classes("w-full").props('data-testid="files-filters"'):
             with ui.row().classes("items-end gap-3 flex-wrap p-2"):
-                filters.session_select = ui.select(
-                    session_options,
-                    value=initial_session,
-                    label="Session",
-                    with_input=True,
-                    on_change=lambda _: _apply_and_render(),
-                ).classes("w-72")
                 filters.mime_select = ui.select(
                     mime_options,
                     value=initial_mime,
@@ -199,14 +186,12 @@ def files_page(
 
         def refresh() -> None:
             # Re-walk in case new artifacts landed since the last render;
-            # rebuild option dropdowns so newly-seen sessions / mimes
-            # become selectable.
-            nonlocal all_entries, session_options, mime_options
+            # rebuild option dropdowns so newly-seen mimes become
+            # selectable.
+            nonlocal all_entries, mime_options
             all_entries = list_recent_files(limit=_WALK_LIMIT)
-            session_options, mime_options = _options_from_entries(all_entries)
-            filters.session_select.options = session_options
+            mime_options = _mime_options_from_entries(all_entries)
             filters.mime_select.options = mime_options
-            filters.session_select.update()
             filters.mime_select.update()
             _apply_and_render()
 
@@ -214,7 +199,9 @@ def files_page(
             push_url_state(
                 "/files",
                 {
-                    "session_id": filters.session_id(),
+                    # session_id is URL-only — preserved across refresh
+                    # via the page-level param, not the filter widgets.
+                    "session_id": session_id,
                     "mime": filters.mime(),
                     "name": filters.name(),
                     "since": filters.since(),
@@ -223,7 +210,7 @@ def files_page(
             )
             filtered = _apply_filters(
                 all_entries,
-                session_id=filters.session_id(),
+                session_id=session_id,
                 mime=filters.mime(),
                 name=filters.name(),
                 since=filters.since(),
@@ -249,7 +236,6 @@ def files_page(
 def _build_table(rows: list[dict[str, Any]]) -> ui.table:
     columns = [
         {"name": "filename", "label": "Filename", "field": "filename", "align": "left"},
-        {"name": "session_id", "label": "Session", "field": "session_id", "align": "left"},
         {"name": "mime", "label": "Type", "field": "mime", "align": "left"},
         {"name": "size", "label": "Size", "field": "size", "align": "right"},
         {"name": "created_at", "label": "Created", "field": "created_at", "align": "left"},
@@ -302,7 +288,7 @@ def _show_empty_state(slot: ui.column, *, has_data: bool) -> None:
 def serve_file_artifact(session_id: str, filename: str, download: int = 0) -> FileResponse:
     """Serve an artifact file by its ``file://{session_id}/{filename}`` URI.
 
-    Resolves through ``FileStore._resolve_uri`` so the date-partitioned
+    Resolves through ``FileStore.resolve_uri`` so the date-partitioned
     on-disk layout stays an implementation detail. 404 when the URI
     doesn't match anything on disk.
 

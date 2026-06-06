@@ -24,7 +24,7 @@ from litmus.ui.shared.timestamps import format_time_short
 @ui.page("/channels/{channel_id}")
 def channel_detail_page(
     channel_id: str,
-    session: str = "",
+    session_id: str = "",
     since: str = "",
     until: str = "",
 ) -> None:
@@ -57,10 +57,10 @@ def channel_detail_page(
 
         # Session scoping is URL-only — no widget. The param is set
         # by deep-links from pages that already know the session
-        # (e.g. /results/{run_id} → /channels/{id}?session=...).
+        # (e.g. /results/{run_id} → /channels/{id}?session_id=...).
         # The banner is the only affordance to clear; there is no
         # add/change picker. UUIDs never appear in the UI.
-        session_filter_banner(session, clear_path=f"/channels/{channel_id}")
+        session_filter_banner(session_id, clear_path=f"/channels/{channel_id}")
 
         filters = _Filters()
 
@@ -81,16 +81,16 @@ def channel_detail_page(
             push_url_state(
                 f"/channels/{channel_id}",
                 {
-                    # session is URL-only — preserved across refresh
+                    # session_id is URL-only — preserved across refresh
                     # via the page-level param, not the filter widgets.
-                    "session": session,
+                    "session_id": session_id,
                     "since": filters.since(),
                     "until": filters.until(),
                 },
             )
             payload = query_channel(
                 channel_id,
-                session_id=session or None,
+                session_id=session_id or None,
                 since=filters.since() or None,
                 until=filters.until() or None,
                 max_points=1000,  # LTTB decimation for chart-friendly response
@@ -105,7 +105,7 @@ def channel_detail_page(
                 channel_id,
                 data,
                 descriptor,
-                session_filter=session or None,
+                session_filter=session_id or None,
             )
             if live_unsub is not None:
                 live_unsub_holder.append(live_unsub)
@@ -149,7 +149,7 @@ def channel_detail_page(
 def _clear_filters(filters: _Filters, refresh: Callable[[], None]) -> None:
     """Reset the date-window filters to defaults and re-render.
 
-    The ``?session=`` URL param is intentionally NOT cleared here —
+    The ``?session_id=`` URL param is intentionally NOT cleared here —
     its only affordance is the session banner's Clear button (which
     navigates to a URL without the param).
     """

@@ -9,6 +9,7 @@ import inspect
 import re
 from collections.abc import Callable
 from datetime import datetime
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
@@ -46,6 +47,23 @@ def format_datetime(dt: datetime | str | None) -> str:
     # the JS converter runs (e.g. in non-JS contexts like reports).
     fallback = iso[:19].replace("T", " ")
     return f'<span class="litmus-time" data-utc="{iso}">{fallback}</span>'
+
+
+def format_file_size(size_bytes: int) -> str:
+    """Render a byte count as a short human-readable string (B / KB / MB / GB).
+
+    Shared across the ``/files`` list and detail pages so the same
+    threshold logic and precision applies wherever a file size is
+    rendered. Sub-KB stays as integer bytes; KB and MB use one and
+    two decimal places respectively; GB stays at two decimals.
+    """
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    if size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.2f} MB"
+    return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
 
 def format_session_label(session_event: dict) -> str:
@@ -96,35 +114,67 @@ def session_filter_banner(session_id: str, clear_path: str) -> None:
     """
     if not session_id:
         return
+    label, found = _lookup_session_label(session_id)
+
+    from nicegui import ui
+
+    # Banner styling diverges by lookup outcome: known sessions get the
+    # neutral blue "filtered to run" card; an unknown session_id (stale
+    # bookmark, deleted session, typo in the URL) gets an amber "session
+    # not found" card with explicit copy so operators can tell
+    # "filtered, no rows match" apart from "filter targets a session
+    # that doesn't exist."
+    if found:
+        card_classes = "w-full bg-blue-50 border border-blue-200"
+        icon_classes = "text-blue-700"
+        label_classes = "text-sm text-blue-900"
+        text = f"Filtered to run: {label}"
+    else:
+        card_classes = "w-full bg-amber-50 border border-amber-200"
+        icon_classes = "text-amber-700"
+        label_classes = "text-sm text-amber-900"
+        text = (
+            "Session not found — the filtered session may have been removed. "
+            "Clear the filter to see all rows."
+        )
+
+    with ui.card().classes(card_classes).props('data-testid="session-filter-banner"'):
+        with ui.row().classes("items-center justify-between w-full p-2"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("link").classes(icon_classes)
+                ui.label(text).classes(label_classes)
+            ui.button(
+                "Clear",
+                icon="close",
+                on_click=lambda: ui.navigate.to(clear_path),
+            ).props("flat dense color=primary")
+
+
+@lru_cache(maxsize=256)
+def _lookup_session_label(session_id: str) -> tuple[str, bool]:
+    """Look up the operator-readable label for ``session_id``.
+
+    Returns ``(label, found)``. SessionStarted events are immutable
+    once written; caching by session_id keeps live-refresh pages
+    (``/channels`` ticks every 2 s) from hammering ``query_sessions``
+    on every render. Cache miss only hits the daemon once per session.
+
+    ``found=False`` means the session_id wasn't in the sessions index
+    — the caller renders a distinct "session not found" banner so
+    operators can tell stale bookmarks apart from empty filters.
+    """
     from litmus.ui.shared.services import query_sessions
 
-    label = "(unknown session)"
     try:
         for s in query_sessions().get("sessions") or []:
             if str(s.get("session_id")) == session_id:
                 base = format_session_label(s)
                 dut = s.get("dut_serial") or ""
                 label = f"{dut} · {base}" if dut else base
-                break
+                return label, True
     except (OSError, RuntimeError):
         pass
-
-    from nicegui import ui
-
-    with (
-        ui.card()
-        .classes("w-full bg-blue-50 border border-blue-200")
-        .props('data-testid="session-filter-banner"')
-    ):
-        with ui.row().classes("items-center justify-between w-full p-2"):
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("link").classes("text-blue-700")
-                ui.label(f"Filtered to run: {label}").classes("text-sm text-blue-900")
-            ui.button(
-                "Clear",
-                icon="close",
-                on_click=lambda: ui.navigate.to(clear_path),
-            ).props("flat dense color=primary")
+    return "(unknown)", False
 
 
 def local_time_init_script() -> str:

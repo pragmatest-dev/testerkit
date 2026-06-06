@@ -762,13 +762,13 @@ def _resolve_ref_to_path(parquet_path: Path | None, ref: str) -> Path | None:
     # New (item 1d): logical FileStore reference ``{session_id}/{filename}``.
     # Resolve via FileStore — file lives under
     # ``{data_dir}/files/{date}/{session_id}/{filename}`` and the
-    # date is walked by FileStore._resolve_uri.
+    # date is walked by FileStore.resolve_uri.
     if "/" in raw and ref.startswith("file://"):
         # Lazy: data.files pulls PIL / serializer chain only needed
         # for blob reads, not for the common non-blob ref path.
         from litmus.data.files import get_filestore  # noqa: PLC0415
 
-        return get_filestore()._resolve_uri(ref)
+        return get_filestore().resolve_uri(ref)
 
     return None
 
