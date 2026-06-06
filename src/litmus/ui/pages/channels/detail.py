@@ -12,6 +12,7 @@ from litmus.ui.shared.components import (
     data_table,
     format_datetime,
     info_field,
+    lookup_session_label,
     push_url_state,
     session_filter_banner,
 )
@@ -266,14 +267,22 @@ def _render_chart(
             y_data = [_extract_scalar(r) for r in rows]
             x_axis_label = "received"
 
+        # Scalar channels with multiple sessions get a legend that
+        # names each session (operator-readable label via
+        # ``lookup_session_label``). Waveform overlays and
+        # single-session scalar views stay legend-off — they have
+        # no meaningful series names.
+        scalar_session_ids = {
+            str(r.get("session_id") or "") for r in rows if not isinstance(r.get("value"), list)
+        }
+        show_legend = (not isinstance(last_values, list) or not last_values) and len(
+            scalar_session_ids
+        ) > 1
+
         chart = ui.echart(
             {
                 "tooltip": {"trigger": "axis"},
-                # Legend off — multi-series waveform overlays don't have
-                # meaningful series names (each is a capture timestamp);
-                # the styling — blue solid for the latest, gray faded
-                # for older — already conveys ordering.
-                "legend": {"show": False},
+                "legend": {"show": show_legend, "top": 30} if show_legend else {"show": False},
                 "title": {
                     "text": channel_id,
                     "textStyle": {"fontSize": 14, "fontWeight": "normal"},
@@ -414,6 +423,16 @@ def _wire_live_subscription(  # noqa: PLR0913
             # Scalar — append (x, y) to the trailing series.
             if not series:
                 return
+            # Skip live-tail in the multi-session-grouped view: live
+            # samples from ChannelStore don't carry session_id, so we
+            # can't route them to the right per-session series.
+            # Appending to series[0] would visually attach the live
+            # point to whichever session happened to land first (a
+            # misleading color attribution). The operator can still
+            # see the new sample by clicking Refresh, which re-queries
+            # historical data with the new sample included.
+            if len(series) > 1:
+                return
             primary = series[0]
             data_list = list(primary.get("data") or [])
             data_list.append(value)
@@ -475,13 +494,25 @@ def _render_data_table(card: ui.card, rows: list[dict[str, Any]]) -> None:
                 "align": "left",
             },
         ]
+
+        # Session column shows the operator-readable label (DUT serial
+        # + start time) rather than the raw UUID prefix. Matches the
+        # no-synthetic-IDs-in-operator-UI rule and the chart legend
+        # rendered by item 18b.
+        def _session_cell(r: dict[str, Any]) -> str:
+            sid = str(r.get("session_id") or "")
+            if not sid:
+                return ""
+            label, _found = lookup_session_label(sid)
+            return label
+
         table_rows = [
             {
                 "id": str(idx),
                 "received_at": format_datetime(r.get("received_at")),
                 "value": _value_summary(r),
                 "source": r.get("source_method") or "",
-                "session": (str(r.get("session_id"))[:8] if r.get("session_id") else ""),
+                "session": _session_cell(r),
             }
             for idx, r in enumerate(reversed(rows))
         ]
@@ -575,20 +606,17 @@ def _build_chart_series(
     capture stays opaque so it's identifiable. Capped at 50 captures
     to keep the render cheap.
 
-    For scalar channels the series is a single line.
+    For scalar channels with more than one session represented in
+    the rows, build one series per session so each session's points
+    get a distinct color and a legend entry (operator-readable
+    label via :func:`lookup_session_label`). A scalar channel with
+    only one session keeps the existing single-line shape.
     """
     # Scalar channel (or empty array): plot the scalar series from y_data.
     # ``last_values`` for scalar channels is a single float — guard with
     # isinstance before treating it as iterable.
     if not isinstance(last_values, list) or not last_values:
-        return [
-            {
-                "type": "line",
-                "data": y_data,
-                "showSymbol": False,
-                "smooth": False,
-            }
-        ]
+        return _build_scalar_series(rows, y_data)
 
     waveform_rows = [r for r in rows if isinstance(r.get("value"), list) and r.get("value")]
     if len(waveform_rows) <= 1:
@@ -602,6 +630,61 @@ def _build_chart_series(
         ]
 
     return _build_waveform_series(waveform_rows)
+
+
+def _build_scalar_series(
+    rows: list[dict[str, Any]],
+    y_data: list[Any],
+) -> list[dict[str, Any]]:
+    """Build the scalar-channel series array.
+
+    Groups by ``session_id`` so multiple runs' points get distinct
+    colors. When only one session is present (the common case with a
+    session-scoped deep-link, or a channel that has only ever been
+    written from one session), returns a single unnamed series matching
+    the prior behaviour. When two or more sessions are present, returns
+    one named series per session (operator-readable label) so the
+    legend identifies which color is which run.
+    """
+    session_ids = {str(r.get("session_id") or "") for r in rows}
+    if len(session_ids) <= 1:
+        return [
+            {
+                "type": "line",
+                "data": y_data,
+                "showSymbol": False,
+                "smooth": False,
+            }
+        ]
+
+    # Multi-session view: bucket rows by session_id, build one series
+    # per bucket. Each data point carries its own [tick, value] so the
+    # x-axis can be a category (existing behaviour) and missing-from-
+    # this-session ticks render as a gap rather than zero. Order
+    # preserved by the row sequence (which is server-side sorted by
+    # received_at).
+    by_session: dict[str, list[list[Any]]] = {}
+    for r in rows:
+        sid = str(r.get("session_id") or "")
+        tick = _axis_tick(r.get("received_at"))
+        value = _extract_scalar(r)
+        if value is None:
+            continue
+        by_session.setdefault(sid, []).append([tick, value])
+
+    series: list[dict[str, Any]] = []
+    for sid, points in by_session.items():
+        label, _found = lookup_session_label(sid) if sid else ("(no session)", True)
+        series.append(
+            {
+                "type": "line",
+                "name": label,
+                "data": points,
+                "showSymbol": False,
+                "smooth": False,
+            }
+        )
+    return series
 
 
 # Captures shown as full per-trace lines fading from bold blue (newest)
