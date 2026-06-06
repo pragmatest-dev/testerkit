@@ -100,12 +100,16 @@ def _load_metadata(path: Path) -> dict[str, Any]:
     try:
         return json.loads(sidecar.read_text())
     except (OSError, ValueError) as exc:
+        # Log the exception TYPE, not the message: OSError messages
+        # routinely embed absolute filesystem paths (e.g. ``[Errno 13]
+        # Permission denied: '/home/.../files/2026-06-05/...'``) which
+        # would leak the on-disk layout into the server log.
         _log.warning(
             "Sidecar %s could not be loaded (%s) — falling back to file "
             "extension. The artifact may have been written during a crash "
             "or its metadata may be corrupt.",
             sidecar.name,
-            exc,
+            type(exc).__name__,
         )
         return {
             "mime": "",
@@ -131,8 +135,19 @@ def _render_metadata_card(
             # (``<dut_serial> · <YYYY-MM-DD HH:MM:SS>``) rather than
             # leaking the raw UUID. Same convention as the session
             # filter banner on /events / /channels / /files.
-            session_label, _found = lookup_session_label(session_id)
-            info_field("Session", session_label)
+            # When the session is unknown (stale bookmark, deleted
+            # session, typo), emphasize the field amber so the
+            # asymmetry with a regular "(unknown)" string is visible,
+            # matching ``session_filter_banner``'s found/not-found
+            # state distinction.
+            session_label, session_found = lookup_session_label(session_id)
+            if session_found:
+                info_field("Session", session_label)
+            else:
+                info_field(
+                    "Session",
+                    f'<span class="text-amber-700">{session_label} (session not found)</span>',
+                )
             ui.button(
                 "Download",
                 icon="download",

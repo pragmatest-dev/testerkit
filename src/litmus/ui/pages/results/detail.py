@@ -185,6 +185,11 @@ async def result_detail_page(run_id: str, tab: str = ""):
                             icon="signal_cellular_alt",
                             on_click=lambda sid=_sid: ui.navigate.to(f"/channels?session_id={sid}"),
                         ).props('flat dense color=primary data-testid="run-detail-view-channels"')
+                        ui.button(
+                            "Files",
+                            icon="folder",
+                            on_click=lambda sid=_sid: ui.navigate.to(f"/files?session_id={sid}"),
+                        ).props('flat dense color=primary data-testid="run-detail-view-files"')
 
         has_slots = any(m.get("slot_id") for m in measurements)
         session_id = run_obj.session_id
