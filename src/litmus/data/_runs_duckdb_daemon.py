@@ -1437,6 +1437,22 @@ def daemon_run(runs_dir: Path) -> None:
         acc = pool.get(run_id)
         if acc is None:
             return
+        # Diagnostic instrumentation for task #211 (intermittent partial
+        # step materialization). When ``LITMUS_RUNS_DAEMON_DEBUG=1``, log
+        # the accumulator's step-end count at materialize time + the
+        # post-ingest steps_materialized row count, so a discrepancy is
+        # visible in the server log if the race fires again. Zero cost
+        # in the default path.
+        debug_211 = os.environ.get("LITMUS_RUNS_DAEMON_DEBUG") == "1"
+        if debug_211:
+            logger.warning(
+                "[211] materialize start run_id=%s step_ends_in_acc=%d "
+                "measurements_in_acc=%d outcome=%s",
+                run_id,
+                len(acc._step_ends),
+                len(acc._measurement_events),
+                outcome,
+            )
         try:
             parquet_path = materialize_run_to_parquet(acc, runs_dir, outcome=outcome)
         except Exception as exc:  # noqa: BLE001
@@ -1477,6 +1493,22 @@ def daemon_run(runs_dir: Path) -> None:
             try:
                 _ingest_one_file(conn, parquet_path, stat)
                 _bulk_insert_measurement_rows(conn, str(parquet_path))
+                if debug_211:
+                    try:
+                        row = conn.execute(
+                            "SELECT COUNT(*) FROM steps_materialized WHERE run_id = ?",
+                            [run_id],
+                        ).fetchone()
+                        steps_in_db = row[0] if row is not None else -1
+                        logger.warning(
+                            "[211] materialize done run_id=%s steps_in_db=%d "
+                            "(accumulator had %d step_ends — discrepancy = bug)",
+                            run_id,
+                            steps_in_db,
+                            len(acc._step_ends),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("[211] post-ingest count query failed: %s", exc)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Ingest failed for %s: %s", parquet_path, exc)
                 return

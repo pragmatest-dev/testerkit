@@ -63,6 +63,14 @@ gains entity-observed-view across inventory pages, two new pages
 - **`/channels` list filters** — Channel ID contains / Type /
   Instrument / Since-Until, URL-mirrored. Live-poll + in-place row
   mutation pattern preserved.
+- **`/channels/{id}` chart groups by session** — scalar channels with
+  samples from multiple runs render one series per session, distinct
+  color per session, legend labelled `<dut_serial> · <YYYY-MM-DD
+  HH:MM:SS>`. Single-session views unchanged. Waveform overlays
+  unchanged.
+- **`/results/{run_id}` "View this run's" card** — Events, Channels,
+  and Files deep-link buttons all carry the run's session into the
+  target page (URL-only scoping via `session_filter_banner`).
 - **`/launch?test_profile=<name>`** — query param now wires through
   to `LaunchRequest.test_profile` and `--test-profile=` on the pytest
   cmdline. New "Profile" dropdown on the launch form.
@@ -87,6 +95,28 @@ gains entity-observed-view across inventory pages, two new pages
 
 ### Changed
 
+- **Operator-readable session labels everywhere.** Pages that displayed
+  session UUID prefixes now resolve to `<dut_serial> · <YYYY-MM-DD
+  HH:MM:SS>` via a shared lookup helper (`/channels` data tab,
+  `/files` detail Session field, the session filter banner on
+  `/events` / `/channels` / `/files`). Banner distinguishes the
+  filter-active state (blue) from the session-not-found state (amber)
+  so stale bookmarks have explicit copy.
+- **Session URL param standardized to `?session_id=`** across
+  `/channels`, `/channels/{id}`, `/files`, `/events`, `/results/{run_id}`
+  deep-links. Bookmarks using the prior `?session=` form on `/channels`
+  no longer carry; deep-link from a fresh `/results/{run_id}` to
+  rebuild.
+- **`namespace=` parameter parity.** `files.write` and `files.stream`
+  now accept `namespace=` matching the existing `channels.write` /
+  `channels.stream` / `observe` / `verify` / `stream` surfaces. An
+  artifact recorded via `observe(name, value, namespace="psu")` and
+  one recorded via `files.write(name, value, namespace="psu")` land at
+  the same effective name.
+- **`FileStore.resolve_uri` is public** (renamed from
+  `_resolve_uri`). Maps a `file://{session_id}/{filename}` URI to its
+  current on-disk path. UI service, materializer, `/files-static`
+  route, and HTTP API all use the public name.
 - Channel detail Sequences tab renamed to Capabilities (the tab's
   content was always station capabilities; sequences are deferred).
 - ChannelStore schema: `timestamp` → `received_at` (store-side, always

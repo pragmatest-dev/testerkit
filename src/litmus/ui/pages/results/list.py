@@ -17,7 +17,7 @@ from litmus.ui.shared.components import (
     status_chip_classes,
     subscribe_with_refresh,
 )
-from litmus.ui.shared.layout import create_layout
+from litmus.ui.shared.layout import create_layout, get_dialog_counts_by_run
 from litmus.ui.shared.services import count_recent_runs, get_recent_runs
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,8 @@ async def results_page() -> None:
             offset = (page - 1) * per_page
             rows = get_recent_runs(limit=per_page, offset=offset, include_incomplete=True)
             total = count_recent_runs(include_incomplete=True)
-            return [_row_for_run(r) for r in rows], total
+            counts = get_dialog_counts_by_run()
+            return [_row_for_run(r, counts) for r in rows], total
 
         async def refresh() -> None:
             table = state["table"]
@@ -111,6 +112,31 @@ async def results_page() -> None:
         except (OSError, RuntimeError) as exc:
             logger.warning("Live updates unavailable: %s", exc)
 
+        def _patch_dialog_counts() -> None:
+            """Update each row's ``dialog_count`` in place every 1 s.
+
+            Matches the sidebar Active Tests refresh cadence so the
+            row-level bell badge stays in sync with the global tray
+            without re-running the parquet query. Cheap — only the
+            ``dialog_count`` field changes; q-table re-renders only
+            the Outcome cell's bell span.
+            """
+            table = state.get("table")
+            if table is None:
+                return
+            counts = get_dialog_counts_by_run()
+            changed = False
+            for row in table.rows:
+                rid = row.get("full_run_id") or ""
+                new_count = counts.get(rid, 0)
+                if row.get("dialog_count") != new_count:
+                    row["dialog_count"] = new_count
+                    changed = True
+            if changed:
+                table.update()
+
+        ui.timer(1.0, _patch_dialog_counts)
+
 
 def _render_stats(slot: ui.column, runs: list, total: int) -> None:
     slot.clear()
@@ -134,14 +160,15 @@ def _render_stats(slot: ui.column, runs: list, total: int) -> None:
                 stat_card(last_started, "Latest")
 
 
-def _row_for_run(r: Any) -> dict[str, Any]:
+def _row_for_run(r: Any, dialog_count_by_run: dict[str, int]) -> dict[str, Any]:
     status = display_status(
         started_at=r.started_at,
         ended_at=r.ended_at,
         outcome=r.outcome,
     )
+    run_id = r.test_run_id or ""
     return {
-        "full_run_id": r.test_run_id or "",
+        "full_run_id": run_id,
         "outcome": status,
         "outcome_class": status_chip_classes(status),
         "serial": r.dut_serial or "",
@@ -153,6 +180,10 @@ def _row_for_run(r: Any) -> dict[str, Any]:
         "ended": format_datetime(r.ended_at),
         "steps": r.total_steps,
         "measurements": r.total_measurements,
+        # Bell + amber count badge render in the Outcome cell when
+        # this run has 1+ pending operator dialogs. ``with_dialog_
+        # badge=True`` on attach_status_chip(...) below reads this.
+        "dialog_count": dialog_count_by_run.get(run_id, 0),
     }
 
 
@@ -195,5 +226,5 @@ def _build_table(
         total_rows=total,
         fetch_page=fetch_page,
     )
-    attach_status_chip(table, "outcome")
+    attach_status_chip(table, "outcome", with_dialog_badge=True)
     return table

@@ -156,9 +156,9 @@ Use this when you've got an existing pytest suite you don't want to touch, or wh
 The lowest-level run-tracking primitive. Same machinery the pytest plugin sits on, but you own the lifecycle.
 
 ```python
+from litmus import Limit
 from litmus.execution.harness import TestHarness
 from litmus.execution.logger import TestRunLogger
-from litmus.models.test_config import Limit
 
 logger = TestRunLogger(dut_serial="SN001", station_id="bench_1")
 harness = TestHarness(logger=logger)

@@ -189,6 +189,37 @@ def lookup_session_label(session_id: str) -> tuple[str, bool]:
     return "(unknown)", False
 
 
+@lru_cache(maxsize=256)
+def lookup_run_label(run_id: str) -> tuple[str, bool]:
+    """Look up an operator-readable label for ``run_id``.
+
+    Returns ``(label, found)``. The label combines ``dut_serial`` and
+    the run's start time so a pending-dialog list reads as e.g.
+    ``"DUT001 · 2026-06-06 07:42:13"`` instead of an opaque UUID
+    prefix. Same cache-invariant story as :func:`lookup_session_label`
+    — runs are immutable once started, so a ``found=True`` result is
+    correct for the process lifetime and a ``found=False`` result is
+    sticky (restart the server or call ``cache_clear()`` to flush).
+    """
+    from litmus.ui.shared.services import get_recent_runs
+
+    try:
+        # ``get_recent_runs`` is the cheapest path that surfaces the
+        # operator-readable fields we want; querying by run_id alone
+        # would need a separate RunsQuery roundtrip per call. A small
+        # recent-window scan is fine — the bell only fires on runs that
+        # are still in flight, which are by definition recent.
+        for r in get_recent_runs(limit=200, include_incomplete=True):
+            if (r.test_run_id or "") == run_id:
+                dut = r.dut_serial or ""
+                ts = format_session_label({"occurred_at": r.started_at, "client": ""}).rstrip(" •?")
+                label = f"{dut} · {ts}" if dut else ts
+                return label, True
+    except (OSError, RuntimeError):
+        pass
+    return run_id[:8], False
+
+
 def local_time_init_script() -> str:
     """Return the JS that converts every ``.litmus-time`` span on the
     page to browser-local-time.
@@ -1042,7 +1073,12 @@ def litmus_table(
     )
 
 
-def attach_status_chip(table: ui.table, column: str = "status") -> None:
+def attach_status_chip(
+    table: ui.table,
+    column: str = "status",
+    *,
+    with_dialog_badge: bool = False,
+) -> None:
     """Render a colored chip for any table column whose value is a
     display status (``passed``, ``running``, ``waiting``, …).
 
@@ -1054,19 +1090,44 @@ def attach_status_chip(table: ui.table, column: str = "status") -> None:
       :func:`status_chip_classes`
 
     Use :func:`status_row_fields` to build both at once.
+
+    When ``with_dialog_badge=True``, the cell also renders an amber
+    bell + numeric badge to the right of the chip whenever the row
+    carries ``dialog_count > 0``. The bell is clickable: it navigates
+    straight to ``/live/{full_run_id}`` so the operator can answer
+    the prompt in one click without first opening the run detail
+    page. Adds a fourth required row field:
+
+    * ``full_run_id`` — the UUID of the run, used for the ``Go``
+      target. Bell renders only when the row also has ``dialog_count
+      > 0``; a row with ``dialog_count == 0`` keeps the original
+      chip-only layout.
     """
     # Vue's mustache ``{{ ... }}`` collides with ``str.format``'s
     # placeholder syntax — ``.format()`` would collapse the doubles
     # to single braces and Vue would never interpolate. Build the
     # template via concat so the mustaches reach Vue intact.
-    template = (
-        '<q-td :props="props">'
+    chip = (
         f'<span :class="props.row.{column}_class" '
         'class="px-2 py-0.5 rounded text-xs font-medium">'
         "{{ props.value }}"
         "</span>"
-        "</q-td>"
     )
+    if with_dialog_badge:
+        badge = (
+            '<a v-if="props.row.dialog_count > 0" '
+            ':href="`/live/${props.row.full_run_id}`" '
+            'class="inline-flex items-center gap-1 ml-2 text-amber-600 '
+            'hover:text-amber-700 cursor-pointer" '
+            'title="Operator dialog waiting — click to answer">'
+            '<q-icon name="notification_important" size="xs"/>'
+            '<span v-if="props.row.dialog_count > 1" '
+            'class="text-xs font-medium">{{ props.row.dialog_count }}</span>'
+            "</a>"
+        )
+        template = f'<q-td :props="props">{chip}{badge}</q-td>'
+    else:
+        template = f'<q-td :props="props">{chip}</q-td>'
     table.add_slot(f"body-cell-{column}", template)
 
 
