@@ -31,11 +31,21 @@ All three shapes route through the same underlying
 identical regardless of which shape your code reaches for.
 
 Resolution chain: the top-level verbs read the active context from
-:func:`litmus.execution._state.get_current_context` (set by the
-pytest ``context`` fixture and by
-:meth:`~litmus.connect.StationConnection.start`). Calling a verb
-outside an active context raises ``RuntimeError`` with a hint about
-which fixture / connection initialiser populates the context.
+:func:`litmus.execution._state.get_current_context`. The pytest
+``context`` fixture pushes a Context onto that ContextVar; calling
+a verb outside a pytest test (notebooks, scripts, custom UIs)
+raises ``RuntimeError``.
+
+**Interactive ``connect()`` mode does NOT populate the active
+Context.** ``StationConnection.start`` wires the channel store and
+event store ContextVars so that :func:`litmus.channels.write` /
+:func:`litmus.channels.stream` / :func:`litmus.files.write` /
+:func:`litmus.files.stream` work — but it deliberately does not
+push a Context, because there is no test vector to anchor
+observations and verifications to in interactive mode. Reach for
+the store-direct surfaces (``channels.*`` / ``files.*``) in
+notebooks, the operator UI, and bringup scripts. The test-author
+verbs are test-author verbs.
 """
 
 from __future__ import annotations
@@ -50,11 +60,15 @@ def _active_context() -> Any:
     ctx = get_current_context()
     if ctx is None:
         raise RuntimeError(
-            "No active Litmus context. Top-level verbs (observe / verify / "
-            "stream) require an active Context, which is set by either the "
-            "pytest ``context`` fixture or by ``connect(...)``'s "
-            "``StationConnection`` enter. Use the verb's pytest fixture "
-            "form, or wrap your code in ``with connect(...) as station: ...``."
+            "No active Litmus context. The top-level verbs (observe / "
+            "verify / stream) are test-author verbs — they require the "
+            "pytest ``context`` fixture, which pushes a Context for the "
+            "duration of the test. Outside a pytest test (notebooks, "
+            "scripts, custom UIs), use the store-direct surfaces instead: "
+            "``litmus.channels.write`` / ``litmus.channels.stream`` for "
+            "channels, ``litmus.files.write`` / ``litmus.files.stream`` "
+            "for artifacts. Those work inside a ``connect(...)`` block "
+            "and don't require an active test context."
         )
     return ctx
 

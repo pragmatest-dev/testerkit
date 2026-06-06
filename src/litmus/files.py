@@ -54,6 +54,14 @@ def _resolve_session_id(session_id: str | None) -> str:
     that stringifies the result and raises a consistent error when
     nothing is resolvable. Single resolution rule shared with
     ``Context.__init__`` so adding a new source updates one place.
+
+    ``fallback_to_active=True`` is the deliberate opposite of
+    ``Context.__init__``. ``files.write`` is a module-level surface
+    that users call from inside tests / fixtures / connect blocks; the
+    documented contract is "find the active session and write there."
+    Without the fallback, callers would have to thread ``session_id=``
+    through every helper. ``Context.__init__`` defaults to OFF for the
+    opposite reason — fresh Contexts should not inherit ambient state.
     """
     resolved = resolve_session_id(session_id, fallback_to_active=True)
     if resolved is None:

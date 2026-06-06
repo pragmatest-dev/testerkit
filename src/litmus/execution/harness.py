@@ -179,6 +179,16 @@ class Context:
         # ``litmus.execution._state.resolve_session_id`` so harness /
         # files.py / future call sites all share one precedence order
         # (explicit > harness > parent > active ContextVar).
+        #
+        # ``fallback_to_active`` is OFF here (the default). A freshly
+        # constructed Context with no parent/harness/explicit session_id
+        # MUST NOT silently inherit the ambient ContextVar — bare-Context
+        # unit tests should resolve to None, not to whatever session the
+        # surrounding pytest run happens to have wired. The opt-in path
+        # is in ``litmus.files.py:_resolve_session_id``, where
+        # ``fallback_to_active=True`` is correct because ``files.write``
+        # is a user-facing module-level surface and reading from the
+        # active ContextVar is the documented contract there.
         resolved = resolve_session_id(session_id, harness=harness, parent=parent)
         self._session_id: UUID | None = resolved  # type: ignore[assignment]
         # Surface a debug log if the Context is fully unwired (no
@@ -354,7 +364,20 @@ class Context:
                 # to the FileStore path; Waveform becomes a .npz blob.
 
             vtype = classify_value(value)
-            if vtype in ("numeric_array", "channel") and self._channel_store is not None:
+            if vtype in ("numeric_array", "channel"):
+                if self._channel_store is None:
+                    # Exhaustiveness: array/channel values without a
+                    # ChannelStore would land in ``_observations`` as a
+                    # raw list/ndarray and break parquet serialization
+                    # at row-build time. Fail loud at the call site
+                    # instead of writing garbage to ``out_*``.
+                    raise RuntimeError(
+                        f"observe({full_key!r}): value classified as "
+                        f"{vtype!r} but no ChannelStore is wired on this "
+                        "Context. Construct Context with a ``channel_store=``, "
+                        "or run inside a pytest session / ``connect(...)`` "
+                        "block that wires the ChannelStore ContextVar."
+                    )
                 uri = self._channel_store.write(
                     full_key, value, source="observe", run_id=self._current_run_id()
                 )

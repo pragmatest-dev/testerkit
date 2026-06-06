@@ -1147,70 +1147,51 @@ class _VectorIterator:
     def __init__(self, matrix: list[Vector], ctx: Context) -> None:
         self._matrix = matrix
         self._ctx = ctx
-        self._i = 0
         self._consumed = 0
-        self._prev_snapshot: Context | None = None
-        # Token from the previous iteration's ``push_current_vector`` so
-        # the next iteration can reset it before pushing its own — the
-        # ContextVar reset stack only accepts the most-recent token,
-        # so leaking pushes across iterations means subsequent resets
-        # restore to the wrong baseline and ``get_current_vector()``
-        # in ``Context._stamp_observation`` lands the mirror on a
-        # stale vector. ``finally`` in the ``vectors`` fixture resets
-        # the last surviving token.
-        self._prev_vector_token: Any | None = None
-
-    def __iter__(self) -> _VectorIterator:
-        return self
 
     def __len__(self) -> int:
         return len(self._matrix)
 
-    def __next__(self) -> Vector:
-        if self._i >= len(self._matrix):
-            raise StopIteration
+    def __iter__(self) -> Iterator[Vector]:
+        # Generator: each yield wraps push_current_vector in its own
+        # try/finally so the token's lifetime is exactly the iteration
+        # body. No tokens are held across iterations and no out-of-band
+        # cleanup is needed — ContextVar push/reset symmetry is preserved
+        # naturally by the generator frame.
+        prev_snapshot: Context | None = None
+        for i, vec in enumerate(self._matrix):
+            params = vec.params()
 
-        vec = self._matrix[self._i]
-        params = vec.params()
+            set_active_vector_params(dict(params))
+            set_active_vector_index(i)
 
-        set_active_vector_params(dict(params))
-        set_active_vector_index(self._i)
+            # Chain prev-context for ``context.changed()`` / ``.last()``.
+            if prev_snapshot is not None:
+                self._ctx._prev = prev_snapshot
+            self._ctx._params.clear()
+            self._ctx._params.update(params)
 
-        # Chain prev-context for ``context.changed()`` / ``.last()``.
-        if self._prev_snapshot is not None:
-            self._ctx._prev = self._prev_snapshot
-        self._ctx._params.clear()
-        self._ctx._params.update(params)
+            snapshot = Context(channel_store=self._ctx._channel_store)
+            snapshot._params = dict(params)
+            prev_snapshot = snapshot
 
-        snapshot = Context(channel_store=self._ctx._channel_store)
-        snapshot._params = dict(params)
-        self._prev_snapshot = snapshot
-
-        # Reset the prior iteration's vector token BEFORE pushing the
-        # next one. ContextVar's reset stack is LIFO; without this,
-        # subsequent ``reset()`` calls restore to a wrong baseline.
-        if self._prev_vector_token is not None:
-            reset_current_vector(self._prev_vector_token)
-            self._prev_vector_token = None
-
-        # Fresh TestVector per iteration so vector_index / params stamp
-        # distinctly. Only do this if a step already exists (logger may
-        # still auto-create the first one lazily on measure).
-        step = get_current_step()
-        if step is not None:
-            new_vector = TestVector(index=self._i, params=dict(params))
-            step.vectors.append(new_vector)
-            self._prev_vector_token = push_current_vector(new_vector)
-
-        self._i += 1
-        self._consumed += 1
-        return vec
-
-    def cleanup(self) -> None:
-        """Reset the last surviving vector token; called by ``vectors`` fixture teardown."""
-        if self._prev_vector_token is not None:
-            reset_current_vector(self._prev_vector_token)
-            self._prev_vector_token = None
+            # Fresh TestVector per iteration so vector_index / params
+            # stamp distinctly. Only push when a step already exists
+            # (logger may still auto-create the first one lazily on
+            # measure).
+            step = get_current_step()
+            if step is not None:
+                new_vector = TestVector(index=i, params=dict(params))
+                step.vectors.append(new_vector)
+                token = push_current_vector(new_vector)
+                self._consumed += 1
+                try:
+                    yield vec
+                finally:
+                    reset_current_vector(token)
+            else:
+                self._consumed += 1
+                yield vec
 
     @property
     def consumed(self) -> int:
@@ -1248,7 +1229,6 @@ def vectors(request: pytest.FixtureRequest) -> Iterator[_VectorIterator]:
     try:
         yield it
     finally:
-        it.cleanup()
         set_active_vector_params({})
         try:
             _active_vector_index_var.set(0)
