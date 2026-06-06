@@ -27,6 +27,13 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+from litmus.data.ref import make_channel_uri
+from litmus.execution._state import (
+    get_channel_store,
+    get_current_logger,
+    no_active_resource_error,
+)
+
 if TYPE_CHECKING:
     from uuid import UUID
 
@@ -39,8 +46,6 @@ def _resolve_run_id() -> UUID | None:
     channel writes). ChannelStore tolerates ``None`` — channel-lifecycle
     events stay valid without run context.
     """
-    from litmus.execution._state import get_current_logger  # noqa: PLC0415
-
     logger = get_current_logger()
     return getattr(getattr(logger, "test_run", None), "id", None)
 
@@ -52,15 +57,9 @@ def _resolve_store() -> Any:
     session (TestHarness + ChannelStore constructed) or via the
     pytest plugin which sets the ContextVar during test setup.
     """
-    from litmus.execution._state import get_channel_store  # noqa: PLC0415
-
     store = get_channel_store()
     if store is None:
-        raise RuntimeError(
-            "litmus.channels: no active ChannelStore. "
-            "Call inside an active Litmus session, or construct a "
-            "TestHarness with a wired ChannelStore explicitly."
-        )
+        raise no_active_resource_error("ChannelStore")
     return store
 
 
@@ -124,8 +123,6 @@ class _ChannelSink:
                 sink.write(sample)
                 observe("capture", sink)   # latches sink.uri on out_*
         """
-        from litmus.data.ref import make_channel_uri  # noqa: PLC0415
-
         return make_channel_uri(self._channel_id, str(self._store.session_id))
 
     def write(self, sample: Any) -> str:

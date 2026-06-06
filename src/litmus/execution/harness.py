@@ -8,7 +8,9 @@ the pytest plugin fixtures.
 from __future__ import annotations
 
 import importlib
+import logging
 import time
+import warnings
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
@@ -24,7 +26,7 @@ from litmus.data.models import (
     _utcnow,
     escalate_outcome,
 )
-from litmus.data.ref import classify_value
+from litmus.data.ref import Latchable, classify_value, is_uri
 from litmus.execution._state import (
     get_active_characteristic,
     get_active_limits,
@@ -35,16 +37,21 @@ from litmus.execution._state import (
     get_current_logger,
     get_current_step,
     get_current_vector,
+    no_active_resource_error,
     push_current_context,
     push_current_step,
     push_current_vector,
     reset_current_context,
     reset_current_step,
     reset_current_vector,
+    resolve_session_id,
 )
 from litmus.execution.vectors import Vector, expand_vectors
+from litmus.execution.verify import _perform_verify
 from litmus.models.test_config import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
 from litmus.prompts import ask
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from litmus.data.models import TestRun
@@ -168,13 +175,23 @@ class Context:
         self._prev = prev
         self._harness = harness
         self._channel_store = channel_store
-        # session_id: pull from harness if not explicit (so subcontexts inherit
-        # without callers having to thread it through every time).
-        if session_id is None and harness is not None:
-            session_id = getattr(harness, "_session_id", None)
-        elif session_id is None and parent is not None:
-            session_id = parent._session_id
-        self._session_id: UUID | None = session_id
+        # session_id: single resolution rule lives in
+        # ``litmus.execution._state.resolve_session_id`` so harness /
+        # files.py / future call sites all share one precedence order
+        # (explicit > harness > parent > active ContextVar).
+        resolved = resolve_session_id(session_id, harness=harness, parent=parent)
+        self._session_id: UUID | None = resolved  # type: ignore[assignment]
+        # Surface a debug log if the Context is fully unwired (no
+        # session_id, no harness, no parent) — the only blob path
+        # available is then raising RuntimeError at first observe(blob).
+        # Production paths always populate session_id; this trips
+        # only in bare-Context unit tests.
+        if self._session_id is None and harness is None and parent is None:
+            _log.debug(
+                "Context constructed with session_id=None and no harness/parent. "
+                "Blob observations (PIL.Image / bytes / Pydantic / ...) will raise "
+                "at runtime. Pass session_id= explicitly to enable the blob path."
+            )
         self._params: dict[str, Any] = {}
         self._observations: dict[str, Any] = {}
         # ``connections`` iterates :class:`FixtureConnection` objects the
@@ -189,6 +206,21 @@ class Context:
 
     def child(self) -> Context:
         """Create a child context that inherits from this one.
+
+        Inherits ``harness``, ``channel_store``, and ``session_id``
+        from the parent. Does NOT capture the current vector —
+        observations called on the child use the active vector from
+        ``get_current_vector()`` (the ContextVar) at observe-time.
+
+        **Caveat for nested-context patterns**: if a child Context
+        outlives a vector iteration (e.g., created inside a self-loop
+        body and used after ``__next__`` rolls to the next vector),
+        observations on the child mirror to whichever vector is
+        currently on the ContextVar — which may be a different vector
+        than the one the child was created in. For most patterns
+        (child created and used within the same vector scope) this
+        is fine. Cross-iteration child contexts are rare and the
+        caller is responsible for ensuring vector scope matches.
 
         Returns:
             New Context with this context as parent.
@@ -246,11 +278,19 @@ class Context:
         Args:
             key: Observation name (e.g., "temperature", "scope.waveform").
             value: The observed value (any of the four shapes above).
-            namespace: Item 16 — optional prefix for grouping. When
-                set, the effective name becomes ``"{namespace}.{key}"``
+            namespace: Item 16 — optional prefix sugar. When set, the
+                effective name becomes ``"{namespace}.{key}"``
                 (e.g., ``observe("voltage", v, namespace="psu_under_test")``
                 → effective name ``"psu_under_test.voltage"``). Pure
-                opt-in convenience; nothing automatic.
+                opt-in; nothing automatic.
+
+                **Scope (same on observe / verify / stream):** the
+                prefix applies uniformly to (1) the effective key
+                used for store resolution, (2) the channel_id
+                (ChannelStore writes) or file artifact name (FileStore
+                writes), and (3) the event payload's ``name``. It
+                does NOT affect vector parameters, limit lookup keys,
+                run-context fields, or any other namespace.
         """
         # Item 16: namespace= prefix sugar. Applies uniformly to the
         # observations dict key, the channel_id (when written to
@@ -265,12 +305,30 @@ class Context:
             # re-writing. Checked BEFORE shape dispatch so a ``str``
             # URI doesn't fall through to the scalar-stash path and a
             # sink handle doesn't get pickled as a blob.
-            from litmus.data.ref import Latchable, is_uri  # noqa: PLC0415
-
             if is_uri(value):
                 self._stamp_observation(full_key, value)
                 return
             if isinstance(value, Latchable):
+                # Closed-sink check: a Latchable's ``.uri`` is stable
+                # before / during / after the sink's write window, so
+                # nothing prevents ``observe(name, sink)`` after the
+                # sink has been ``.close()``d. The URI is technically
+                # valid (file is on disk) but the sequencing is odd —
+                # latching a closed sink usually means the test code
+                # is shaped wrong (observe should usually come during
+                # the write window, before close). Warn instead of
+                # raising so a working pattern still works; lets
+                # operators discover the issue without breaking flows.
+                if getattr(value, "_closed", False):
+                    warnings.warn(
+                        f"observe({full_key!r}, sink): sink is already "
+                        f"closed. The URI ({value.uri!r}) is still valid, "
+                        "but latching a closed sink usually means observe() "
+                        "was called after the ``with`` block exited — "
+                        "consider moving observe() inside the with-block.",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
                 self._stamp_observation(full_key, value.uri)
                 return
 
@@ -310,12 +368,12 @@ class Context:
                 # _ref path (and the latter only when run materialization
                 # actually ran — blobs were lost on crash).
                 if self._session_id is None:
-                    raise RuntimeError(
-                        f"Cannot observe blob ({type(value).__name__}) for {full_key!r}: "
-                        "Context has no session_id. Production paths plumb session_id "
-                        "via TestHarness; tests that exercise the blob path must "
-                        "pass session_id explicitly."
+                    raise no_active_resource_error(
+                        f"session_id (observing blob {full_key!r} of type {type(value).__name__})",
+                        explicit_arg="session_id",
                     )
+                # Lazy: data.files chain pulls PIL / serializers; only
+                # paid when this blob path actually runs.
                 from litmus.data.files import get_filestore  # noqa: PLC0415
 
                 uri = get_filestore().write(
@@ -337,9 +395,22 @@ class Context:
         ``vector.observations``, not ``Context._observations``; without
         the mirror, every ``out_*`` column was empty when a measurement
         was emitted in the middle of a test body (before vector teardown
-        could snapshot from the context). Skipped when no vector is
-        active — interactive ``Context()`` use outside a test/harness
-        flow keeps observations on the Context only.
+        could snapshot from the context).
+
+        **Mirror caveat — observations outside a vector scope are
+        parquet-invisible.** This method reads ``get_current_vector()``
+        from the ContextVar. When that returns ``None`` (called before
+        ``pytest_runtest_call`` opens a step, in a session-scoped
+        helper that runs before any test body, or interactively
+        without a TestHarness vector pushed), the observation is
+        stashed on ``self._observations`` but NEVER lands on a
+        ``TestVector.observations`` dict — and so never reaches the
+        parquet ``out_*`` columns. Production pytest tests and
+        ``TestHarness.run_vector(...)`` are inside a vector scope by
+        construction; non-standard test patterns (observations in
+        autouse fixtures, helpers called before the step opens) lose
+        observations silently. Document this in any test helper that
+        wraps observations.
         """
         self._observations[key] = value
         vec = get_current_vector()
@@ -377,12 +448,27 @@ class Context:
         Skips emit silently when there's no active logger /
         event_log / session — observe() should still work outside
         an event-logged context (e.g., bare unit tests of Context).
+        Emits a debug log so the no-emit case is visible to anyone
+        debugging "I called observe() but nothing appeared on the
+        timeline."
         """
         if self._session_id is None:
+            _log.debug(
+                "Observation %r not emitted: Context.session_id is None "
+                "(value still stashed in Context._observations and mirrored to "
+                "active vector). Construct Context inside a session "
+                "(pytest fixture or connect()) for event-timeline visibility.",
+                key,
+            )
             return
         logger = get_current_logger()
         event_log = getattr(logger, "event_log", None) if logger is not None else None
         if event_log is None:
+            _log.debug(
+                "Observation %r not emitted: no active TestRunLogger / event_log. "
+                "Run inside a logger context to land observations on the event timeline.",
+                key,
+            )
             return
 
         # Pull step/vector context from active ContextVars; defaults
@@ -439,7 +525,12 @@ class Context:
                 at the ChannelStore gate; use ``filestore.write`` for
                 blobs.
             namespace: Optional prefix sugar — effective channel_id
-                is ``"{namespace}.{name}"``.
+                is ``"{namespace}.{name}"``. Scope rules are shared
+                across observe / verify / stream: prefix applies to
+                (1) the effective key (here: channel_id), (2) the
+                event payload's ``name``. See
+                :meth:`observe` docstring for the canonical
+                description.
 
         Returns:
             The ``channel://`` URI for this sample's channel.
@@ -491,6 +582,9 @@ class Context:
             namespace: Item 16 — optional prefix sugar. When set, the
                 effective name becomes ``"{namespace}.{name}"`` for
                 limit lookup, measurement row, and event payload.
+                Same scope rule across observe / verify / stream —
+                see :meth:`observe` docstring for the canonical
+                description.
 
         Returns:
             The recorded :class:`Measurement`.
@@ -500,8 +594,6 @@ class Context:
             MissingLimitError: When no limit is configured and the
                 active profile requires one.
         """
-        from litmus.execution.verify import _perform_verify  # noqa: PLC0415
-
         return _perform_verify(
             name,
             value,

@@ -32,3 +32,12 @@ class FileArtifactMetadata(BaseModel):
     extension: str
     size_bytes: int
     attributes: dict[str, Any] = Field(default_factory=dict)
+    # Optional provenance — populated when a Waveform / channel-shaped
+    # value falls through to FileStore (no ChannelStore wired). Without
+    # these, the FileStore fallback path silently loses the instrument
+    # context that the ChannelStore descriptor would have captured
+    # (first-write provenance). Consumers joining back to the run
+    # record can use these to reconstruct the same context that the
+    # ChannelStore path would have provided.
+    instrument_role: str = ""
+    resource: str = ""

@@ -559,6 +559,9 @@ class TestRunLogger:
         goes to FileStore so the run + its blobs share one
         session-keyed dir under ``files/``.
         """
+        # Lazy: data.files transitively imports PIL / serializer
+        # chain that's only needed at ref-save time. Keeps logger
+        # module-load fast for the common no-blob measurement path.
         from litmus.data.files import get_filestore  # noqa: PLC0415
 
         filestore = get_filestore()

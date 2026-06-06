@@ -43,9 +43,36 @@ import io
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
 import orjson
+
+from litmus.data.events import StreamEnded, StreamStarted
+
+# Optional-extra deps: nptdms (TDMS) and h5py (HDF5) are gated behind
+# install extras (``pip install litmus-test[tdms,hdf5]``). The top-level
+# try/except lets the module load cleanly without the extra; the
+# corresponding sink subclass checks the sentinel and raises a useful
+# install hint at construction time. Annotated as ``Any`` so pyright
+# doesn't reason about Optional in the success branch.
+ChannelObject: Any = None
+TdmsWriter: Any = None
+_HAS_TDMS = False
+try:
+    from nptdms import ChannelObject, TdmsWriter  # type: ignore[no-redef]
+
+    _HAS_TDMS = True
+except ImportError:
+    pass
+
+h5py: Any = None
+_HAS_HDF5 = False
+try:
+    import h5py  # type: ignore[no-redef]
+
+    _HAS_HDF5 = True
+except ImportError:
+    pass
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -207,6 +234,13 @@ class _BaseSink:
         self._stream_id = uuid4()
         self._byte_offset = 0
         self._closed = False
+        # Emit StreamStarted at construction (NOT at first write) so
+        # the ``.uri`` property — valid from construction onward — is
+        # never returned for a stream that hasn't announced itself to
+        # the event log. Without this, ``observe(name, sink)`` could
+        # latch a URI to the vector before any StreamStarted event
+        # fired, breaking timeline ordering for subscribers.
+        self._emit_started()
 
     @property
     def stream_id(self) -> UUID:
@@ -266,15 +300,11 @@ class _BaseSink:
         try:
             return UUID(self._session_id_str)
         except ValueError:
-            from uuid import NAMESPACE_OID, uuid5  # noqa: PLC0415
-
             return uuid5(NAMESPACE_OID, f"litmus-session-stub:{self._session_id_str}")
 
     def _emit_started(self) -> None:
         if self._event_log is None:
             return
-        from litmus.data.events import StreamStarted  # noqa: PLC0415
-
         self._event_log.emit(
             StreamStarted(
                 session_id=self._session_uuid(),
@@ -293,8 +323,6 @@ class _BaseSink:
     def _emit_ended(self, uri: str) -> None:
         if self._event_log is None:
             return
-        from litmus.data.events import StreamEnded  # noqa: PLC0415
-
         size_bytes = self._byte_offset if self._byte_offset > 0 else None
         # If we never tracked bytes per-write (TDMS / HDF5), stat the file
         if size_bytes is None and self._path.exists():
@@ -347,7 +375,6 @@ class _RawByteSink(_BaseSink):
         )
         self._file: io.BufferedWriter | None = path.open("ab")
         self._finalizer = finalizer
-        self._emit_started()
 
     def write(self, chunk: Any) -> int:
         if self._closed or self._file is None:
@@ -423,7 +450,6 @@ class _JsonlSink(_BaseSink):
         )
         self._file: io.BufferedWriter | None = path.open("ab")
         self._finalizer = finalizer
-        self._emit_started()
 
     def write(self, chunk: Any) -> int:
         if self._closed or self._file is None:
@@ -482,13 +508,11 @@ class _TdmsSink(_BaseSink):
         run_id: UUID | None = None,
         finalizer: Callable[[], None] | None = None,
     ) -> None:
-        try:
-            from nptdms import TdmsWriter  # noqa: PLC0415
-        except ImportError as e:
+        if not _HAS_TDMS:
             raise ImportError(
                 "litmus.files.stream(format='tdms') requires the `npTDMS` "
                 "package. Install with: pip install litmus-test[tdms]"
-            ) from e
+            )
 
         super().__init__(
             path=path,
@@ -501,16 +525,13 @@ class _TdmsSink(_BaseSink):
         # TdmsWriter is a context manager but we drive its lifecycle
         # manually (the sink IS the context). Use __enter__/__exit__
         # ourselves to match the library's pattern.
-        self._writer: TdmsWriter | None = TdmsWriter(str(path))
+        self._writer: Any = TdmsWriter(str(path))
         self._writer.__enter__()
         self._finalizer = finalizer
-        self._emit_started()
 
     def write(self, chunk: Any) -> int:
         if self._closed or self._writer is None:
             raise RuntimeError("StreamingSink is closed")
-        from nptdms import ChannelObject  # noqa: PLC0415
-
         # Accept one ChannelObject or a list of them
         objects = chunk if isinstance(chunk, list | tuple) else [chunk]
         for obj in objects:
@@ -577,13 +598,11 @@ class _H5Sink(_BaseSink):
         run_id: UUID | None = None,
         finalizer: Callable[[], None] | None = None,
     ) -> None:
-        try:
-            import h5py  # noqa: PLC0415
-        except ImportError as e:
+        if not _HAS_HDF5:
             raise ImportError(
                 "litmus.files.stream(format='h5') requires the `h5py` "
                 "package. Install with: pip install litmus-test[hdf5]"
-            ) from e
+            )
 
         super().__init__(
             path=path,
@@ -596,7 +615,6 @@ class _H5Sink(_BaseSink):
         self._h5py = h5py
         self._file: Any = h5py.File(str(path), "w")
         self._finalizer = finalizer
-        self._emit_started()
 
     def write(self, chunk: Any) -> int:
         if self._closed or self._file is None:
@@ -606,6 +624,8 @@ class _H5Sink(_BaseSink):
                 "litmus.files.stream(format='h5'): chunk must be a dict "
                 f"of {{dataset_name: array}}. Got {type(chunk).__name__}."
             )
+        # numpy import deferred — adds ~150ms to module load otherwise,
+        # and h5py write is the only consumer in this file.
         import numpy as np  # noqa: PLC0415
 
         for dataset_name, value in chunk.items():

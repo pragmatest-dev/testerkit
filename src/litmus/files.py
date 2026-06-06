@@ -37,6 +37,12 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from litmus.execution._state import (
+    get_current_logger,
+    no_active_resource_error,
+    resolve_session_id,
+)
+
 if TYPE_CHECKING:
     from litmus.data.files.streaming import EventEmitter, StreamingSink
 
@@ -44,22 +50,15 @@ if TYPE_CHECKING:
 def _resolve_session_id(session_id: str | None) -> str:
     """Return the session_id to use for a FileStore write.
 
-    Explicit ``session_id`` arg wins. Otherwise resolve from the
-    active Context's ``_session_id`` via the ContextVar chain.
-    Raises if neither is available.
+    Thin wrapper around :func:`litmus.execution._state.resolve_session_id`
+    that stringifies the result and raises a consistent error when
+    nothing is resolvable. Single resolution rule shared with
+    ``Context.__init__`` so adding a new source updates one place.
     """
-    if session_id is not None:
-        return session_id
-    from litmus.execution._state import get_current_context  # noqa: PLC0415
-
-    ctx = get_current_context()
-    if ctx is None or getattr(ctx, "_session_id", None) is None:
-        raise RuntimeError(
-            "litmus.files: no active session_id. Call inside an active "
-            "Litmus session (a TestHarness has pushed the Context), or pass "
-            "session_id=... explicitly."
-        )
-    return str(ctx._session_id)
+    resolved = resolve_session_id(session_id, fallback_to_active=True)
+    if resolved is None:
+        raise no_active_resource_error("session_id", explicit_arg="session_id")
+    return str(resolved)
 
 
 def write(
@@ -99,6 +98,8 @@ def write(
     Returns:
         ``file://{session_id}/{filename}`` URI.
     """
+    # Lazy: data.files chain pulls PIL / serializers; only loaded
+    # when files.write actually runs.
     from litmus.data.files import get_filestore  # noqa: PLC0415
 
     sid = _resolve_session_id(session_id)
@@ -119,8 +120,6 @@ def _resolve_event_log_and_run_id() -> tuple[EventEmitter | None, UUID | None]:
     (the sink emits silently when no event_log is available; useful
     for bare unit tests).
     """
-    from litmus.execution._state import get_current_logger  # noqa: PLC0415
-
     logger = get_current_logger()
     if logger is None:
         return None, None
@@ -178,6 +177,7 @@ def stream(
                 sink.write(chunk)
         # sink closed; URI emitted via StreamEnded event
     """
+    # Lazy: see write() — same data.files heavy chain.
     from litmus.data.files import get_filestore  # noqa: PLC0415
 
     sid = _resolve_session_id(session_id)

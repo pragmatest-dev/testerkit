@@ -30,6 +30,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from litmus.data.models import CollectedItem
 from litmus.models.instrument import InstrumentRecord
@@ -569,3 +570,91 @@ def get_active_slot_runner() -> Any:
 def set_active_slot_runner(value: Any) -> None:
     """Set the active slot runner. Returns None."""
     _active_slot_runner_var.set(value)
+
+
+# -----------------------------------------------------------------------------
+# Error message factory — consistent "no active X" RuntimeError text
+# -----------------------------------------------------------------------------
+
+
+def resolve_session_id(
+    explicit: UUID | str | None,
+    *,
+    context: Any = None,
+    harness: Any = None,
+    parent: Any = None,
+    fallback_to_active: bool = False,
+) -> UUID | str | None:
+    """Resolve a session_id from the active sources, in precedence order.
+
+    Single resolution rule used by every code path that needs to find
+    "the current session" without forcing the caller to thread it
+    explicitly. Order is fixed and documented here so additions stay
+    consistent:
+
+    1. ``explicit`` argument (if non-None — caller knows best)
+    2. ``context._session_id`` (a Context object already in scope)
+    3. ``harness._session_id`` (a TestHarness was passed in)
+    4. ``parent._session_id`` (a parent Context inherited from)
+    5. *(only when ``fallback_to_active=True``)*
+       ``get_current_context()._session_id`` (the active ContextVar
+       set by pytest's ``context`` fixture or ``connect()``)
+    6. ``None`` (no session available — caller decides whether that's
+       an error)
+
+    ``fallback_to_active`` is OFF by default so call sites that
+    construct a fresh Context with no parent do NOT silently inherit
+    the surrounding test's session_id. Callers that DO want the
+    inheritance (the ``litmus.files.write`` user-facing surface, for
+    example) opt in explicitly.
+
+    Callers that need an error on miss should use
+    :func:`no_active_resource_error` after this returns ``None``.
+    """
+    if explicit is not None:
+        return explicit
+    for source in (context, harness, parent):
+        if source is not None:
+            sid = getattr(source, "_session_id", None)
+            if sid is not None:
+                return sid
+    if fallback_to_active:
+        ctx = get_current_context()
+        if ctx is not None:
+            return getattr(ctx, "_session_id", None)
+    return None
+
+
+def no_active_resource_error(resource: str, *, explicit_arg: str = "") -> RuntimeError:
+    """Build a consistent ``RuntimeError`` for "no active X" code paths.
+
+    Used by the four sites that resolve a session-scoped resource
+    from a ContextVar and fail when nothing is wired:
+
+    - ``Context.observe(blob)`` when ``session_id is None``
+    - ``Context.stream()`` when no ``ChannelStore`` wired
+    - ``channels.write/stream`` when ``get_channel_store()`` returns None
+    - ``files.write/stream`` when no active session_id resolvable
+
+    Standardizing the message means operators recognize the pattern
+    (always "no active X. Wire one by ..." with the same three
+    remedies) and find the right fix faster.
+
+    Args:
+        resource: Human label for the missing resource — e.g.
+            ``"ChannelStore"``, ``"session_id"``, ``"Litmus context"``.
+        explicit_arg: Optional name of an explicit kwarg the caller
+            could pass to bypass the lookup (e.g. ``"session_id"``,
+            ``"channel_store"``). Empty string omits the third bullet.
+
+    Returns:
+        ``RuntimeError`` with a uniformly-formatted message ready to
+        ``raise`` from the call site.
+    """
+    bullets = [
+        "  - Run inside a pytest session (the ``context`` fixture wires it).",
+        "  - Open a connection: ``with connect(<station>) as station: ...``.",
+    ]
+    if explicit_arg:
+        bullets.append(f"  - Pass an explicit ``{explicit_arg}=`` argument.")
+    return RuntimeError(f"No active {resource}.\n" + "\n".join(bullets))

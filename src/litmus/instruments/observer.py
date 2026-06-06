@@ -18,6 +18,7 @@ from litmus.data.event_log import EventLog
 from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
 from litmus.data.files import get_filestore
 from litmus.data.ref import classify_value
+from litmus.execution._state import get_current_context
 
 logger = logging.getLogger(__name__)
 
@@ -164,8 +165,6 @@ class EventEmitter:
 
         # Stamp active vector's out_<channel> on first write per
         # (vector, channel). Idempotent via setdefault.
-        from litmus.execution._state import get_current_context  # noqa: PLC0415
-
         ctx = get_current_context()
         if ctx is not None and isinstance(stored_value, str):
             # Only stamp when we have a URI (channel store wrote and

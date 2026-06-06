@@ -291,9 +291,12 @@ def _render_npz_waveform_viewer(path: Path) -> None:
     via ``np.savez``. Falls back to a stats card when no numeric array
     is found.
     """
-    try:
-        import numpy as np  # noqa: PLC0415
+    # Lazy: numpy is heavy (~150ms). This page module is imported at
+    # NiceGUI startup; loading numpy here would slow every operator-UI
+    # cold start, even when the user never opens an .npz file.
+    import numpy as np  # noqa: PLC0415
 
+    try:
         with np.load(path, allow_pickle=True) as archive:
             arrays = {k: archive[k] for k in archive.files}
     except (OSError, ValueError) as exc:
@@ -339,9 +342,11 @@ def _render_npz_waveform_viewer(path: Path) -> None:
 
 def _render_npy_viewer(path: Path) -> None:
     """Show ndarray stats + first 100 flat values inline."""
-    try:
-        import numpy as np  # noqa: PLC0415
+    # Lazy: see _render_npz_waveform_viewer's note — same module-load
+    # avoidance for operator-UI cold start.
+    import numpy as np  # noqa: PLC0415
 
+    try:
         arr = np.load(path, allow_pickle=False)
     except (OSError, ValueError) as exc:
         with ui.card().classes("w-full p-4"):

@@ -324,6 +324,9 @@ class ParquetBackend:
         # home for all blobs) instead of the per-parquet sibling
         # ``{stem}_ref/``. The vector_id-shortened prefix on the
         # FileStore filename preserves the audit trail.
+        # Lazy import: data.files transitively pulls PIL / serializers
+        # that are only needed when this writer runs. Top-level would
+        # add load cost to every consumer that imports ParquetBackend.
         from litmus.data.files import get_filestore  # noqa: PLC0415
 
         filestore = get_filestore()
@@ -761,6 +764,8 @@ def _resolve_ref_to_path(parquet_path: Path | None, ref: str) -> Path | None:
     # ``{data_dir}/files/{date}/{session_id}/{filename}`` and the
     # date is walked by FileStore._resolve_uri.
     if "/" in raw and ref.startswith("file://"):
+        # Lazy: data.files pulls PIL / serializer chain only needed
+        # for blob reads, not for the common non-blob ref path.
         from litmus.data.files import get_filestore  # noqa: PLC0415
 
         return get_filestore()._resolve_uri(ref)
@@ -805,6 +810,12 @@ def load_file(parquet_path: Path | None, ref: str) -> Any:
         if ext == ".npz":
             if not HAS_NUMPY:
                 return path
+
+            # numpy import is deliberately deferred — top-level numpy
+            # imports add ~150ms to every consumer of this module
+            # (RunsQuery, MeasurementsQuery, the runs daemon). load_file
+            # is on the cold reader path; readers that never touch .npz
+            # blobs should not pay the numpy import cost.
             import numpy as np  # noqa: PLC0415
 
             data = dict(np.load(path, allow_pickle=True))
@@ -827,6 +838,9 @@ def load_file(parquet_path: Path | None, ref: str) -> Any:
         elif ext == ".npy":
             if not HAS_NUMPY:
                 return path
+
+            # numpy import deferred for the same perf reason as the
+            # .npz branch above — see that comment.
             import numpy as np  # noqa: PLC0415
 
             return np.load(path)

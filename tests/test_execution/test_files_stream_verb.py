@@ -115,7 +115,7 @@ class TestSessionIdResolution:
 
         token = _current_context_var.set(None)
         try:
-            with pytest.raises(RuntimeError, match="no active session_id"):
+            with pytest.raises(RuntimeError, match="No active session_id"):
                 with litmus.files.stream("orphan", format="raw") as _:
                     pass
         finally:

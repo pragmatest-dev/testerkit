@@ -336,8 +336,6 @@ def create_api_router() -> APIRouter:
         if path is None or not path.exists():
             raise HTTPException(status_code=404, detail=f"Not found: {uri}")
 
-        from litmus.api._mime import sniff_mime  # noqa: PLC0415
-
         data = path.read_bytes()
         content_type = sniff_mime(data[:64])
         return Response(content=data, media_type=content_type)

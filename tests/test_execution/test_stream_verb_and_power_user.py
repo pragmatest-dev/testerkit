@@ -142,7 +142,7 @@ class TestChannelsWrite:
 
     def test_channels_write_without_store_raises(self) -> None:
         """No active store → clear runtime error pointing at session setup."""
-        with pytest.raises(RuntimeError, match="no active ChannelStore"):
+        with pytest.raises(RuntimeError, match="No active ChannelStore"):
             channels.write("voltage", 3.31)
 
 
@@ -208,7 +208,7 @@ class TestFilesWrite:
 
         token = _current_context_var.set(None)
         try:
-            with pytest.raises(RuntimeError, match="no active session_id"):
+            with pytest.raises(RuntimeError, match="No active session_id"):
                 files.write("artifact", b"hello")
         finally:
             _current_context_var.reset(token)

@@ -23,7 +23,10 @@ from litmus.execution._state import (
     get_event_store,
     get_instrument_records,
     get_session_inputs,
+    push_current_context,
     push_current_vector,
+    reset_current_context,
+    reset_current_vector,
     set_active_instruments,
     set_active_product_context,
     set_active_vector_index,
@@ -997,11 +1000,6 @@ def context(logger: TestRunLogger | None) -> Generator[Context, None, None]:
     child processes). Falls back to a bare ``Context()`` when logger
     is unwired — matches the pre-wiring behaviour for that case.
     """
-    from litmus.execution._state import (  # noqa: PLC0415
-        push_current_context,
-        reset_current_context,
-    )
-
     if logger is None:
         ctx = Context()
     else:
@@ -1152,6 +1150,15 @@ class _VectorIterator:
         self._i = 0
         self._consumed = 0
         self._prev_snapshot: Context | None = None
+        # Token from the previous iteration's ``push_current_vector`` so
+        # the next iteration can reset it before pushing its own — the
+        # ContextVar reset stack only accepts the most-recent token,
+        # so leaking pushes across iterations means subsequent resets
+        # restore to the wrong baseline and ``get_current_vector()``
+        # in ``Context._stamp_observation`` lands the mirror on a
+        # stale vector. ``finally`` in the ``vectors`` fixture resets
+        # the last surviving token.
+        self._prev_vector_token: Any | None = None
 
     def __iter__(self) -> _VectorIterator:
         return self
@@ -1179,6 +1186,13 @@ class _VectorIterator:
         snapshot._params = dict(params)
         self._prev_snapshot = snapshot
 
+        # Reset the prior iteration's vector token BEFORE pushing the
+        # next one. ContextVar's reset stack is LIFO; without this,
+        # subsequent ``reset()`` calls restore to a wrong baseline.
+        if self._prev_vector_token is not None:
+            reset_current_vector(self._prev_vector_token)
+            self._prev_vector_token = None
+
         # Fresh TestVector per iteration so vector_index / params stamp
         # distinctly. Only do this if a step already exists (logger may
         # still auto-create the first one lazily on measure).
@@ -1186,11 +1200,17 @@ class _VectorIterator:
         if step is not None:
             new_vector = TestVector(index=self._i, params=dict(params))
             step.vectors.append(new_vector)
-            push_current_vector(new_vector)
+            self._prev_vector_token = push_current_vector(new_vector)
 
         self._i += 1
         self._consumed += 1
         return vec
+
+    def cleanup(self) -> None:
+        """Reset the last surviving vector token; called by ``vectors`` fixture teardown."""
+        if self._prev_vector_token is not None:
+            reset_current_vector(self._prev_vector_token)
+            self._prev_vector_token = None
 
     @property
     def consumed(self) -> int:
@@ -1228,6 +1248,7 @@ def vectors(request: pytest.FixtureRequest) -> Iterator[_VectorIterator]:
     try:
         yield it
     finally:
+        it.cleanup()
         set_active_vector_params({})
         try:
             _active_vector_index_var.set(0)

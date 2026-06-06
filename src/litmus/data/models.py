@@ -239,6 +239,9 @@ class Measurement(BaseModel):
         * ``PASSED`` / ``FAILED`` — value evaluated against the
           reconstructed limit per its comparator.
         """
+        # Lazy: pulling Limit at module load adds to daemon spawn /
+        # consumer-side startup time — see f4232ac. Limit is only
+        # needed when check_limit runs at measurement time.
         from litmus.models.test_config import Limit  # noqa: PLC0415
 
         if self.value is None:

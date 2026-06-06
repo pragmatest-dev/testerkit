@@ -81,6 +81,8 @@ class FileStore:
         session_id: str,
         vector_id: str | None = None,
         attributes: dict[str, Any] | None = None,
+        instrument_role: str = "",
+        resource: str = "",
     ) -> str:
         """Write ``value`` to FileStore; return its ``file://`` URI.
 
@@ -106,6 +108,17 @@ class FileStore:
                 sidecar (item 1c). ``None`` writes an empty
                 attributes dict. The bag is round-trippable via
                 :meth:`read_attributes`.
+            instrument_role: Optional provenance — the station-config
+                instrument role (e.g. ``"scope"``, ``"psu"``) that
+                produced this artifact. Populated when a Waveform /
+                channel-shaped value falls through to FileStore from
+                ``Context.observe`` because no ChannelStore was wired
+                (bare-Context bringup tests). Without this the FileStore
+                fallback path would silently lose the provenance the
+                ChannelStore descriptor would have captured.
+            resource: Optional provenance — VISA / network resource
+                string for the instrument (paired with
+                ``instrument_role``). Same population path as above.
 
         Returns:
             URI of the form ``file://{session_id}/{filename}``.
@@ -136,14 +149,26 @@ class FileStore:
         # Item 1c: write the sidecar metadata file. size_bytes is read
         # after the write so it reflects the actual on-disk size,
         # whatever the serializer produced.
+        #
+        # Atomicity: the sidecar pairs the artifact one-to-one (mime,
+        # size, attributes). A crash between artifact-write and
+        # sidecar-write would leave an artifact with no metadata,
+        # silently breaking the audit trail (read_attributes() returns
+        # None, every downstream consumer sees a metadata-less file).
+        # Write to a tmp path then atomic rename so the sidecar
+        # either lands fully or not at all.
         metadata = FileArtifactMetadata(
             mime=serializer.mime,
             extension=ext,
             size_bytes=dest.stat().st_size,
             attributes=dict(attributes or {}),
+            instrument_role=instrument_role,
+            resource=resource,
         )
         sidecar_path = dest.with_name(dest.name + _SIDECAR_SUFFIX)
-        sidecar_path.write_text(metadata.model_dump_json())
+        sidecar_tmp = sidecar_path.with_suffix(sidecar_path.suffix + ".tmp")
+        sidecar_tmp.write_text(metadata.model_dump_json())
+        sidecar_tmp.replace(sidecar_path)
 
         return f"file://{session_id}/{filename}"
 

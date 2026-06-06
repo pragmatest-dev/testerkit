@@ -31,6 +31,7 @@ from litmus.data.channels.models import (
     _infer_schema,
     sample_to_batch,
 )
+from litmus.data.events import ChannelClosed, ChannelStarted
 from litmus.data.ref import classify_value, make_channel_uri
 
 _WRITE_ERRORS = (OSError, pa.ArrowException)  # type: ignore[attr-defined]
@@ -359,8 +360,6 @@ class ChannelStore:
             # context.
             self._channel_run_ids[channel_id] = run_id
             if self._event_log is not None:
-                from litmus.data.events import ChannelStarted  # noqa: PLC0415
-
                 self._event_log.emit(
                     ChannelStarted(
                         session_id=self._session_id,
@@ -760,8 +759,6 @@ class ChannelStore:
         # event log captures the lifecycle marker while the event log
         # is still live.
         if not self._closed and self._event_log is not None:
-            from litmus.data.events import ChannelClosed  # noqa: PLC0415
-
             for channel_id in list(self._registry):
                 self._event_log.emit(
                     ChannelClosed(
