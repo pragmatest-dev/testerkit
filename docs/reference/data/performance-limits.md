@@ -146,6 +146,66 @@ benchmarks plus a "many concurrent producers" sustained-rate test for
 ChannelStore. Neither is in v0.2.0 scope; the producer side is the
 scoped surface for this release.
 
+## Concurrency — multi-process scaling
+
+All three stores hold up under N concurrent writers. Numbers below
+measured at N = 1, 2, 4 spawned subprocesses (the `multiprocessing`
+`spawn` start method, see the **fork-deadlock pitfall** below). Each
+worker writes its own session / channel / artifact bucket so the
+benchmarks model the multi-DUT pytest case where N workers run
+concurrently against the canonical data dir.
+
+| Store | N=1 wall | N=2 wall | N=4 wall | N=2 efficiency | N=4 efficiency |
+|---|---|---|---|---|---|
+| EventStore (500 events / worker) | 2.89 s | 5.21 s | 10.30 s | 89 % | 89 % |
+| ChannelStore (500 samples / worker, distinct channels) | 296 ms | 304 ms | 370 ms | 97 % | 80 % |
+| FileStore (100 × 10 KB / worker) | 328 ms | 333 ms | 426 ms | 98 % | 77 % |
+
+(Efficiency = ideal-parallel-wall / observed-wall × 100. 100 % = perfect
+linear scaling; 50 % at N=4 = pretending 4 workers run as 2.)
+
+**Reading these:**
+
+* No singleton catastrophe. The EventStore daemon serves N writers
+  without going serial; total throughput climbs ~3.9× from N=1 to N=4.
+* Constant per-process cost on EventStore (~89 % efficiency at all N
+  ≥ 2) is the Flight RPC handshake — not the daemon's DuckDB write
+  path. Adding more workers gives you more total work done; it doesn't
+  speed up any one worker.
+* ChannelStore + FileStore lose ~20 % efficiency at N=4 — ext4 dirent
+  contention on the atomic rename pair dominates. Stddev climbs
+  sharply at N=4 on both. Below N=4 it's free.
+
+### ⚠ Fork-deadlock pitfall — must use `spawn`, not `fork`
+
+The EventStore daemon is multi-threaded (Flight RPC threads + ingest
+thread). Python's default `multiprocessing.Pool()` uses `fork()` on
+Linux, which copies the parent's mutex state but **not** the threads
+holding those mutexes. Child processes deadlock on the first
+`event_store.emit(...)` call.
+
+**Symptom:** workers spawn, then hang indefinitely. The parent never
+sees output from the children. `pstack` on a child shows it waiting
+on a mutex no other thread in the child holds.
+
+**Fix:** use `multiprocessing.get_context("spawn").Pool(...)` instead
+of `Pool(...)`. Slower spawn (each child re-imports Python + libs)
+but no shared mutex state. The concurrency benchmarks above use
+`spawn` for this reason.
+
+**Production implication:** any code that calls `os.fork()` or
+`multiprocessing.Process()` after the EventStore singleton is alive
+in the parent will deadlock the children. The slot-runner mode is
+safe because each pytest worker is spawned by pytest itself before
+the parent imports Litmus heavily; ad-hoc helpers in test code that
+fork their own subprocesses **after** emitting any events must
+opt in to `spawn` explicitly.
+
+This is the single most important concurrency caveat in v0.2.0. It
+is not a Litmus bug — it is the standard Python `fork` + threads
+hazard — but the v0.2.0 docs surface it here because Litmus's
+singleton stores make it easy to hit.
+
 ## Hardware envelope used to produce these numbers
 
 WSL2 on Windows, ext4 on the WSL VHDX. Single producer per benchmark.

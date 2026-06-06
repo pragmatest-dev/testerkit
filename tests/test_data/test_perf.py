@@ -665,3 +665,177 @@ class TestChannelStreamPerf:
         finally:
             set_channel_store(None)
             store.close()
+
+
+# ===========================================================================
+# Concurrency — does the singleton daemon path scale with N writers?
+# ===========================================================================
+
+
+def _writer_event_worker(n_events: int, seed: int) -> tuple[float, int]:
+    """One process's worth of event writes against the canonical EventStore.
+
+    Returns (wall_seconds, ok_count). Spawned via multiprocessing.Process
+    so the worker hits the real daemon RPC path the way pytest workers
+    in multi-slot mode would.
+    """
+    import time
+    from uuid import uuid4
+
+    from litmus.data.event_store import EventStore
+    from litmus.data.events import MeasurementRecorded
+
+    store = EventStore()
+    sid = uuid4()
+    ok = 0
+    t0 = time.monotonic()
+    try:
+        for i in range(n_events):
+            store.emit(
+                MeasurementRecorded(
+                    session_id=sid,
+                    step_name=f"step_{i % 10}",
+                    step_index=i % 10,
+                    measurement_name=f"voltage_{seed}_{i}",
+                    value=3.3 + ((seed * 1000 + i) % 100) * 0.01,
+                    units="V",
+                    outcome="passed",
+                    limit_low=3.0,
+                    limit_high=3.6,
+                )
+            )
+            ok += 1
+    finally:
+        store.close()
+    return time.monotonic() - t0, ok
+
+
+def _writer_channel_worker(n_samples: int, seed: int) -> tuple[float, int]:
+    """One process writing ``n_samples`` scalars to a per-worker channel.
+
+    Channel name carries ``seed`` so writers don't collide on the same
+    channel descriptor — measures pure RPC + per-channel-buffer
+    contention, not first-write-registry-pinning contention.
+    """
+    import tempfile
+    import time
+    from pathlib import Path
+    from uuid import uuid4
+
+    from litmus.data.channels.store import ChannelStore
+
+    store_dir = Path(tempfile.mkdtemp(prefix="litmus_perf_ch_"))
+    store = ChannelStore(store_dir, uuid4(), flush_threshold=50)
+    store.open()
+    ok = 0
+    t0 = time.monotonic()
+    try:
+        for i in range(n_samples):
+            store.write(f"dmm.voltage_w{seed}", 3.3 + (i % 100) * 0.01)
+            ok += 1
+    finally:
+        store.close()
+    return time.monotonic() - t0, ok
+
+
+def _writer_filestore_worker(n_artifacts: int, payload_kb: int, seed: int) -> tuple[float, int]:
+    """One process writing ``n_artifacts`` blobs through the per-process FileStore."""
+    import time
+    from uuid import uuid4
+
+    from litmus.data.files.store import FileStore
+
+    store = FileStore()
+    sid = str(uuid4())
+    payload = (f"w{seed}-".encode() * (payload_kb * 1024 // 8))[: payload_kb * 1024]
+    ok = 0
+    t0 = time.monotonic()
+    for i in range(n_artifacts):
+        store.write(f"art_{seed}_{i:04d}", payload, session_id=sid)
+        ok += 1
+    return time.monotonic() - t0, ok
+
+
+class TestConcurrencyPerf:
+    """Multi-process scaling tests for each store.
+
+    Each test spawns ``n_writers`` subprocesses and measures the total
+    wall-clock time. The OPS column shows total writes / total wall —
+    so linear scaling shows up as a flat OPS vs n_writers curve, and
+    mutex contention shows up as OPS dropping with n_writers.
+
+    Numbers feed the v0.2.0 performance-limits doc's "where does the
+    singleton daemon start to bite?" section.
+    """
+
+    @pytest.mark.benchmark(group="concurrent-event-emit", warmup=False, min_rounds=3)
+    @pytest.mark.parametrize("n_writers", [1, 2, 4])
+    def test_n_writers_event_emit(self, benchmark, n_writers: int) -> None:
+        """N processes each emit 500 MeasurementRecorded events.
+
+        Total = n_writers × 500. Singleton EventStore daemon serves all
+        of them; the Flight server is the contention point. Linear OPS
+        across n_writers means the daemon is RPC-bound, not lock-bound.
+        """
+        from multiprocessing import get_context
+
+        n_per = 500
+
+        def run_concurrent() -> int:
+            with get_context("spawn").Pool(n_writers) as pool:
+                results = pool.starmap(_writer_event_worker, [(n_per, w) for w in range(n_writers)])
+            ok_total = sum(ok for _, ok in results)
+            assert ok_total == n_writers * n_per
+            return ok_total
+
+        benchmark(run_concurrent)
+
+    @pytest.mark.benchmark(group="concurrent-channel-write", warmup=False, min_rounds=3)
+    @pytest.mark.parametrize("n_writers", [1, 2, 4])
+    def test_n_writers_channel_scalars(self, benchmark, n_writers: int) -> None:
+        """N processes each write 500 scalar samples to their own channel.
+
+        Per-channel buffers; the ChannelStore Flight server fan-in is the
+        contention point. Per-worker channel names so no first-write
+        descriptor-pinning race.
+        """
+        from multiprocessing import get_context
+
+        n_per = 500
+
+        def run_concurrent() -> int:
+            with get_context("spawn").Pool(n_writers) as pool:
+                results = pool.starmap(
+                    _writer_channel_worker, [(n_per, w) for w in range(n_writers)]
+                )
+            ok_total = sum(ok for _, ok in results)
+            assert ok_total == n_writers * n_per
+            return ok_total
+
+        benchmark(run_concurrent)
+
+    @pytest.mark.benchmark(group="concurrent-file-write", warmup=False, min_rounds=3)
+    @pytest.mark.parametrize("n_writers", [1, 2, 4])
+    def test_n_writers_filestore(self, benchmark, n_writers: int) -> None:
+        """N processes each write 100 × 10 KB blobs.
+
+        FileStore has no daemon — pure OS file-system contention on the
+        sidecar atomic rename + ext4 dirent updates. OPS scaling here
+        measures the FS path, not RPC.
+        """
+        from multiprocessing import get_context
+
+        n_per = 100
+        payload_kb = 10
+
+        def run_concurrent() -> int:
+            with get_context("spawn").Pool(n_writers) as pool:
+                results = pool.starmap(
+                    _writer_filestore_worker,
+                    [(n_per, payload_kb, w) for w in range(n_writers)],
+                )
+            ok_total = sum(ok for _, ok in results)
+            assert ok_total == n_writers * n_per
+            return ok_total
+
+        benchmark(run_concurrent)
