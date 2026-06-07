@@ -2814,6 +2814,61 @@ def daemon_stop(targets: tuple[str, ...], all_flag: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Benchmark
+# ---------------------------------------------------------------------------
+
+
+@main.command("benchmark")
+@click.option("--full", is_flag=True, help="Run the full scale sweep (slower, more rounds)")
+@click.option(
+    "--concurrency",
+    default=2,
+    show_default=True,
+    help="Parallel writers in the concurrency probe (fast tier)",
+)
+@click.option("--rounds", default=None, type=int, help="Timed rounds per workload (override)")
+@click.option(
+    "-o", "--output", default=".benchmarks", help="Directory for the result JSON", show_default=True
+)
+@click.option("--no-save", is_flag=True, help="Print the summary but don't write a JSON file")
+def benchmark(full: bool, concurrency: int, rounds: int | None, output: str, no_save: bool) -> None:
+    """Measure this machine's per-store performance ceiling.
+
+    Runs the data-store workloads (events / runs / channels / files)
+    against a throwaway temp directory and prints a summary. By default
+    it also writes a self-describing result file to
+    ``.benchmarks/<date>.json`` — hardware, library versions, the options
+    you ran, the numbers, and the run's RAM / CPU footprint. Send that
+    file to the Litmus maintainers when reporting a performance issue.
+
+    Nothing is sent anywhere automatically; the temp directory and its
+    daemons are removed when the run finishes.
+    """
+    from litmus.benchmark import BenchmarkOptions, run_benchmark, write_report
+    from litmus.benchmark.runner import format_summary
+
+    tier = "full" if full else "fast"
+    opts = BenchmarkOptions(tier=tier, concurrency=concurrency)
+    if rounds is not None:
+        opts.rounds = rounds
+    elif tier == "full":
+        opts.rounds = max(opts.rounds, 10)
+
+    click.echo(f"Running litmus benchmark ({tier} tier) — temp dir, auto-cleaned…")
+    report = run_benchmark(opts, on_progress=lambda m: click.echo(f"  {m}", err=True))
+    click.echo("")
+    click.echo(format_summary(report))
+    if not no_save:
+        run_dir = write_report(report, output)
+        click.echo("")
+        click.echo(f"Wrote {run_dir}/  (report.md + report.json)")
+        click.echo(
+            "Paste report.md into a GitHub issue (renders as tables), or attach "
+            "report.json, when reporting a performance issue."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Grafana dashboards
 # ---------------------------------------------------------------------------
 

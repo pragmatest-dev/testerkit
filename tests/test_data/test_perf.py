@@ -17,9 +17,13 @@ from uuid import uuid4
 
 import pytest
 
+from litmus.benchmark.core import BenchContext
+from litmus.benchmark.workloads import build_run as _build_run
+from litmus.benchmark.workloads import fast_workloads
+from litmus.benchmark.workloads import make_measurement as _make_measurement
 from litmus.data.channels.store import ChannelStore
 from litmus.data.event_store import EventStore
-from litmus.data.events import MeasurementRecorded, SessionStarted
+from litmus.data.events import SessionStarted
 
 # ---------------------------------------------------------------------------
 # Fixtures — ONE daemon per module
@@ -49,18 +53,11 @@ def channel_store(tmp_path: Path) -> Generator[ChannelStore]:
     s.close()
 
 
-def _make_measurement(session_id, i: int) -> MeasurementRecorded:
-    return MeasurementRecorded(
-        session_id=session_id,
-        step_name=f"step_{i % 10}",
-        step_index=i % 10,
-        measurement_name=f"voltage_{i}",
-        value=3.3 + (i % 100) * 0.01,
-        units="V",
-        outcome="passed",
-        limit_low=3.0,
-        limit_high=3.6,
-    )
+# ``_make_measurement`` and ``_build_run`` are imported from
+# ``litmus.benchmark.workloads`` (above) — the SAME builders the
+# ``litmus benchmark`` CLI uses, so CI numbers and user-reported numbers
+# can never drift. The registry-driven ``TestSharedWorkloads`` below
+# exercises every shipped workload through that single definition.
 
 
 # ---------------------------------------------------------------------------
@@ -884,50 +881,6 @@ class TestConcurrencyPerf:
 # ---------------------------------------------------------------------------
 
 
-def _build_run(seed: int, *, n_steps: int = 10, n_meas: int = 5):
-    """A finalized TestRun with ``n_steps`` steps × ``n_meas`` measurements."""
-    from datetime import UTC, datetime
-
-    from litmus.data.models import (
-        DUT,
-        Measurement,
-        Outcome,
-        TestRun,
-        TestStep,
-        TestVector,
-    )
-
-    return TestRun(
-        id=uuid4(),
-        started_at=datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC),
-        ended_at=datetime(2026, 6, 1, 12, 1, 0, tzinfo=UTC),
-        dut=DUT(serial=f"SN-{seed:06d}"),
-        outcome=Outcome.PASSED,
-        steps=[
-            TestStep(
-                name=f"step_{s}",
-                outcome=Outcome.PASSED,
-                started_at=datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC),
-                ended_at=datetime(2026, 6, 1, 12, 0, 30, tzinfo=UTC),
-                vectors=[
-                    TestVector(
-                        outcome=Outcome.PASSED,
-                        measurements=[
-                            Measurement(
-                                name=f"m_{m}",
-                                value=3.3 + m * 0.01,
-                                outcome=Outcome.PASSED,
-                            )
-                            for m in range(n_meas)
-                        ],
-                    )
-                ],
-            )
-            for s in range(n_steps)
-        ],
-    )
-
-
 @pytest.fixture(scope="module")
 def populated_runs() -> list[str]:
     """Save + index 100 runs on the canonical store once, for query latency."""
@@ -1102,3 +1055,35 @@ class TestFilesCatalogQueryPerf:
             assert len(benchmark(listing)) >= 1
         finally:
             release(files_dir)
+
+
+# ---------------------------------------------------------------------------
+# Shared workloads — the SAME definitions ``litmus benchmark`` runs
+#
+# These prove the shipped CLI workloads stay green and that the test
+# suite and the CLI share one definition (no drift). Each runs against
+# the canonical store (the daemon paths the CLI exercises in its temp
+# dir), driven through ``litmus.benchmark.workloads``.
+# ---------------------------------------------------------------------------
+
+
+class TestSharedWorkloads:
+    """Run every shipped (fast-tier) workload through its single definition."""
+
+    @pytest.mark.benchmark(group="shared-workloads", warmup=False, min_rounds=3)
+    @pytest.mark.parametrize("workload", fast_workloads(), ids=lambda w: w.key)
+    def test_workload(self, benchmark, workload) -> None:
+        """Every shipped workload runs green via its single definition.
+
+        Write/save workloads return ``None``; query workloads return a
+        result. The test asserts the workload executes without error —
+        that the shared definition the CLI ships still works.
+        """
+        from litmus.data.data_dir import resolve_data_dir
+
+        ctx = BenchContext(resolve_data_dir())
+        try:
+            fn = workload.setup(ctx)
+            benchmark(fn)
+        finally:
+            ctx.close()

@@ -158,6 +158,11 @@ _CHANNELSTORE_ALLOWED = {
     "src/litmus/data/channels/_flight_daemon.py",
     "src/litmus/data/channels/store.py",
     "src/litmus/data/materialize.py",
+    # The benchmark's write/stream workloads are serve=True producers;
+    # its channel QUERY workload reads through the daemon (ChannelClient),
+    # never a globbing store.
+    "src/litmus/benchmark/workloads.py",
+    "src/litmus/benchmark/concurrency.py",
 }
 
 

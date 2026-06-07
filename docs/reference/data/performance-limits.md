@@ -20,6 +20,13 @@ regression gates (`tests/test_data/test_perf_daemon.py`) gives more
 stable numbers than the means below — if you want a *gate*, copy that
 pattern, not the means here.
 
+To measure these numbers on **your own** machine — and get a result
+file you can send in when you hit a performance problem — run
+[`litmus benchmark`](../../how-to/data/benchmarking.md). It runs the
+same store workloads against a throwaway directory and reports durable
+throughput per store, parallel-writer scaling, and the run's RAM/CPU
+footprint.
+
 ## EventStore
 
 | What | Scale | Median | Notes |
@@ -175,6 +182,16 @@ linear scaling; 50 % at N=4 = pretending 4 workers run as 2.)
 * ChannelStore + FileStore lose ~20 % efficiency at N=4 — ext4 dirent
   contention on the atomic rename pair dominates. Stddev climbs
   sharply at N=4 on both. Below N=4 it's free.
+* RunStore barely parallelizes (~1.3× from N=1 to N=4): each
+  `save_test_run` writes a parquet file and materializes the run, which
+  is heavy per-op and serializes more than the log/segment/blob writers.
+  Concurrent run materialization is the weakest scaling of the four
+  stores — size accordingly if many stations finalize runs at once.
+
+To reproduce all of this on your own machine, run
+[`litmus benchmark --full`](../../how-to/data/benchmarking.md): it runs
+the same 1/2/4 writer sweep per store and reports the speedup, plus the
+single-writer throughput and the run's RAM/CPU footprint.
 
 ### ⚠ Fork-deadlock pitfall — must use `spawn`, not `fork`
 

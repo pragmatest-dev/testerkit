@@ -84,6 +84,9 @@ grafana = [
     "buenavista>=0.5.0",
     "duckdb>=1.0",
 ]
+# Richer `litmus benchmark` capture (peak RAM + CPU %). Without it the
+# benchmark still runs and reports throughput; the resource block is omitted.
+benchmark = ["psutil>=5.9"]
 # Bundles
 all-exporters = ["litmus-test[stdf,hdf5,tdms,mdf4]"]
 
@@ -115,6 +118,7 @@ dev = [
     "cyclonedx-python-lib>=11.0",
     "zeroconf>=0.80",
     "pytest-rerunfailures>=16.1",
+    "psutil>=5.9",
 ]
 
 # PyPI renders README.md without the rest of the repo, so relative

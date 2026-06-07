@@ -13,6 +13,7 @@ Pull data out of the runtime. Query the event log and channel store, debug failu
 - [Query runs and metrics via MCP](mcp-query-runs.md) — `litmus_runs` / `litmus_steps` / `litmus_metrics` recipes
 - [Debug failures via MCP](mcp-debug-failures.md) — chained investigative workflow when a run fails
 - [Grafana dashboards](grafana-dashboards.md) — pre-built dashboards for results, events, channels
+- [Benchmark your machine](benchmarking.md) — `litmus benchmark` measures per-store throughput and writes a sendable result file
 
 ## See also
 

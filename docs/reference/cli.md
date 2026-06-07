@@ -20,6 +20,18 @@ After install, `litmus` is on `$PATH`. The `litmus` entry point is registered by
 ## Commands
 
 <!-- GENERATED:cli-commands:start -->
+### `litmus benchmark` {#cli-benchmark}
+
+Measure this machine's per-store performance ceiling.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--full` | `flag` | Run the full scale sweep (slower, more rounds) |
+| `--concurrency` | `integer` | Parallel writers in the concurrency probe (fast tier)  *(default: `2`)* |
+| `--rounds` | `integer` | Timed rounds per workload (override) |
+| `-o`/`--output` | `text` | Directory for the result JSON  *(default: `.benchmarks`)* |
+| `--no-save` | `flag` | Print the summary but don't write a JSON file |
+
 ### `litmus catalog` (group) {#cli-catalog}
 
 Catalog commands.
