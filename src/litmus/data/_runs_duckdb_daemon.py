@@ -183,6 +183,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             markers VARCHAR,
             dut_serial VARCHAR,
             station_id VARCHAR,
+            dynamic_attrs MAP(VARCHAR, VARCHAR),
             PRIMARY KEY (run_id, step_path, vector_index)
         )
     """)
@@ -394,6 +395,7 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("markers", "VARCHAR"),
     ("dut_serial", "VARCHAR"),
     ("station_id", "VARCHAR"),
+    ("dynamic_attrs", "MAP(VARCHAR, VARCHAR)"),
 )
 
 _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -897,6 +899,16 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
     ``duration_s``).
     """
     flist = _file_list_sql(parquet_paths)
+    available: set[str] = set()
+    for p in parquet_paths:
+        available |= _parquet_columns(conn, p)
+    dynamic = sorted(c for c in available if c.startswith(("in_", "out_", "custom_")))
+    if dynamic:
+        keys = ", ".join(f"'{_sql_escape(c)}'" for c in dynamic)
+        vals = ", ".join(f"ANY_VALUE(TRY_CAST({c} AS VARCHAR))" for c in dynamic)
+        map_expr = f"MAP([{keys}], [{vals}])"
+    else:
+        map_expr = "MAP(ARRAY[]::VARCHAR[], ARRAY[]::VARCHAR[])"
     conn.execute(f"""
         INSERT INTO steps_materialized BY NAME
         SELECT
@@ -928,7 +940,8 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             ) AS retry_count,
             step_markers AS markers,
             dut_serial,
-            station_id
+            station_id,
+            {map_expr} AS dynamic_attrs
         FROM read_parquet({flist}, filename=true, union_by_name=true)
         WHERE run_id IS NOT NULL
         GROUP BY
@@ -955,7 +968,8 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             retry_count = excluded.retry_count,
             markers = excluded.markers,
             dut_serial = excluded.dut_serial,
-            station_id = excluded.station_id
+            station_id = excluded.station_id,
+            dynamic_attrs = excluded.dynamic_attrs
     """)
 
 
