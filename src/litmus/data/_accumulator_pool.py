@@ -366,6 +366,7 @@ INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
         ("instrument_name", pa.string()),
         ("instrument_resource", pa.string()),
         ("instrument_channel", pa.string()),
+        ("dynamic_attrs", pa.map_(pa.string(), pa.string())),
     ]
 )
 

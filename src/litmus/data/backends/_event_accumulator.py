@@ -238,16 +238,24 @@ class EventAccumulator:
         return rows
 
     def snapshot_measurement_rows(self) -> list[dict[str, Any]]:
-        """Return measurement rows matching the parquet measurements shape."""
+        """Return measurement rows matching the parquet measurements shape.
+
+        Includes promoted DONE rows for verify-less vectors (same as the
+        materialized path) and packs in_*/out_*/custom_* into dynamic_attrs.
+        """
         if not self._run_started:
             return []
         ended_at = self._run_ended.occurred_at if self._run_ended else None
         outcome = self._run_ended.outcome if self._run_ended else None
+        built = [self._build_row(e) for e in self._measurement_events]
+        built.extend(self._build_promoted_rows())
         rows: list[dict[str, Any]] = []
-        for event in self._measurement_events:
-            row = self._build_row(event)
+        for row in built:
             row["run_ended_at"] = ended_at
             row["run_outcome"] = outcome
+            row["dynamic_attrs"] = {
+                k: _safe_str(v) for k, v in row.items() if k.startswith(("in_", "out_", "custom_"))
+            }
             rows.append(row)
         return rows
 

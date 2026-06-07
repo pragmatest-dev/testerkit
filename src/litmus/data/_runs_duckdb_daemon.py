@@ -1204,7 +1204,8 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             measurement_units, measurement_timestamp,
             limit_low, limit_high, limit_nominal, limit_comparator,
             characteristic_id, spec_ref, dut_pin, fixture_connection,
-            instrument_name, instrument_resource, instrument_channel
+            instrument_name, instrument_resource, instrument_channel,
+            dynamic_attrs
         FROM inflight_measurements
         WHERE run_id NOT IN (
             SELECT DISTINCT run_id FROM measurements_materialized
