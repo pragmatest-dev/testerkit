@@ -877,3 +877,228 @@ class TestConcurrencyPerf:
             return ok_total
 
         benchmark(run_concurrent)
+
+
+# ---------------------------------------------------------------------------
+# RunStore / Query benchmarks — the materialized view of events
+# ---------------------------------------------------------------------------
+
+
+def _build_run(seed: int, *, n_steps: int = 10, n_meas: int = 5):
+    """A finalized TestRun with ``n_steps`` steps × ``n_meas`` measurements."""
+    from datetime import UTC, datetime
+
+    from litmus.data.models import (
+        DUT,
+        Measurement,
+        Outcome,
+        TestRun,
+        TestStep,
+        TestVector,
+    )
+
+    return TestRun(
+        id=uuid4(),
+        started_at=datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC),
+        ended_at=datetime(2026, 6, 1, 12, 1, 0, tzinfo=UTC),
+        dut=DUT(serial=f"SN-{seed:06d}"),
+        outcome=Outcome.PASSED,
+        steps=[
+            TestStep(
+                name=f"step_{s}",
+                outcome=Outcome.PASSED,
+                started_at=datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC),
+                ended_at=datetime(2026, 6, 1, 12, 0, 30, tzinfo=UTC),
+                vectors=[
+                    TestVector(
+                        outcome=Outcome.PASSED,
+                        measurements=[
+                            Measurement(
+                                name=f"m_{m}",
+                                value=3.3 + m * 0.01,
+                                outcome=Outcome.PASSED,
+                            )
+                            for m in range(n_meas)
+                        ],
+                    )
+                ],
+            )
+            for s in range(n_steps)
+        ],
+    )
+
+
+@pytest.fixture(scope="module")
+def populated_runs() -> list[str]:
+    """Save + index 100 runs on the canonical store once, for query latency."""
+    from litmus.data.backends.parquet import ParquetBackend
+    from litmus.data.data_dir import resolve_data_dir
+    from litmus.data.run_store import RunStore
+
+    backend = ParquetBackend(data_dir=resolve_data_dir())
+    store = RunStore()
+    ids: list[str] = []
+    try:
+        for i in range(100):
+            run = _build_run(i)
+            store.notify_new_run(backend.save_test_run(run))
+            ids.append(str(run.id))
+    finally:
+        store.close()
+    return ids
+
+
+class TestRunsPerf:
+    """Runs = the materialized view of events. Throughput = save+index
+    rate; latency = warm-index reads (list page, steps tree, yield rollup).
+    Runs write PARALLELISM rides the events write path — gated separately
+    by ``test_event_writes_scale_sublinearly`` — plus the concurrent
+    materialize path in :class:`TestRunsConcurrencyPerf`.
+    """
+
+    @pytest.mark.benchmark(group="runs-write")
+    def test_save_and_index_throughput(self, benchmark) -> None:
+        from litmus.data.backends.parquet import ParquetBackend
+        from litmus.data.data_dir import resolve_data_dir
+        from litmus.data.run_store import RunStore
+
+        backend = ParquetBackend(data_dir=resolve_data_dir())
+        store = RunStore()
+
+        def save_one() -> None:
+            store.notify_new_run(backend.save_test_run(_build_run(uuid4().int % 1_000_000)))
+
+        try:
+            benchmark(save_one)
+        finally:
+            store.close()
+
+    @pytest.mark.benchmark(group="runs-query", warmup=True, min_rounds=30, disable_gc=True)
+    def test_list_recent_latency(self, populated_runs: list[str], benchmark) -> None:
+        from litmus.analysis.runs_query import RunsQuery
+
+        def list_page():
+            with RunsQuery() as q:
+                return q.list_recent(limit=50)
+
+        rows = benchmark(list_page)
+        assert len(rows) >= 1
+
+    @pytest.mark.benchmark(group="runs-query", warmup=True, min_rounds=30, disable_gc=True)
+    def test_steps_for_run_latency(self, populated_runs: list[str], benchmark) -> None:
+        from litmus.analysis.steps_query import StepsQuery
+
+        run_id = populated_runs[0]
+
+        def steps():
+            with StepsQuery() as q:
+                return q.list_for_run(run_id)
+
+        rows = benchmark(steps)
+        assert len(rows) >= 1
+
+    @pytest.mark.benchmark(group="runs-query", warmup=True, min_rounds=30, disable_gc=True)
+    def test_yield_summary_latency(self, populated_runs: list[str], benchmark) -> None:
+        from litmus.analysis.measurements_query import MeasurementsQuery
+
+        def rollup():
+            with MeasurementsQuery() as q:
+                return q.yield_summary()
+
+        benchmark(rollup)
+
+
+def _writer_runs_worker(n_runs: int, seed: int) -> tuple[float, int]:
+    """Save + index ``n_runs`` runs; return (wall_seconds, ok_count)."""
+    import time
+
+    from litmus.data.backends.parquet import ParquetBackend
+    from litmus.data.data_dir import resolve_data_dir
+    from litmus.data.run_store import RunStore
+
+    backend = ParquetBackend(data_dir=resolve_data_dir())
+    store = RunStore()
+    ok = 0
+    t0 = time.perf_counter()
+    try:
+        for i in range(n_runs):
+            store.notify_new_run(backend.save_test_run(_build_run(seed * 100_000 + i)))
+            ok += 1
+    finally:
+        store.close()
+    return time.perf_counter() - t0, ok
+
+
+class TestRunsConcurrencyPerf:
+    """Concurrent run materialization — N processes each save+index runs
+    through the singleton runs daemon. Flat OPS vs n_writers = the daemon
+    indexes in parallel; dropping OPS = a serialization point.
+    """
+
+    @pytest.mark.benchmark(group="concurrent-run-write", warmup=False, min_rounds=3)
+    @pytest.mark.parametrize("n_writers", [1, 2, 4])
+    def test_n_writers_runs(self, benchmark, n_writers: int) -> None:
+        from multiprocessing import get_context
+
+        n_per = 25
+
+        def run_concurrent() -> int:
+            with get_context("spawn").Pool(n_writers) as pool:
+                results = pool.starmap(_writer_runs_worker, [(n_per, w) for w in range(n_writers)])
+            ok_total = sum(ok for _, ok in results)
+            assert ok_total == n_writers * n_per
+            return ok_total
+
+        benchmark(run_concurrent)
+
+
+# ---------------------------------------------------------------------------
+# Warm-daemon query latency — the Phase C/D additions
+# ---------------------------------------------------------------------------
+
+
+class TestFilesCatalogQueryPerf:
+    """Files catalog daemon (Phase D): resolve/list served from the warm
+    DuckDB catalog instead of a date-dir / whole-tree walk.
+    """
+
+    @pytest.mark.benchmark(group="files-catalog-query", warmup=True, min_rounds=30, disable_gc=True)
+    def test_catalog_resolve_latency(self, benchmark) -> None:
+        from litmus.data.data_dir import resolve_data_dir
+        from litmus.data.files.catalog_manager import acquire, release, resolve_uri
+        from litmus.data.files.store import FileStore
+
+        files_dir = resolve_data_dir() / "files"
+        acquire(files_dir)
+        try:
+            store = FileStore()
+            sid = uuid4().hex
+            uri = store.write(f"perf.cat.{uuid4().hex[:8]}", b"x" * 256, session_id=sid)
+
+            def resolve():
+                return resolve_uri(files_dir, uri)
+
+            assert benchmark(resolve) is not None
+        finally:
+            release(files_dir)
+
+    @pytest.mark.benchmark(group="files-catalog-query", warmup=True, min_rounds=30, disable_gc=True)
+    def test_catalog_list_recent_latency(self, benchmark) -> None:
+        from litmus.data.data_dir import resolve_data_dir
+        from litmus.data.files.catalog_manager import acquire, list_recent, release
+        from litmus.data.files.store import FileStore
+
+        files_dir = resolve_data_dir() / "files"
+        acquire(files_dir)
+        try:
+            store = FileStore()
+            sid = uuid4().hex
+            for i in range(20):
+                store.write(f"perf.list.{i}.{uuid4().hex[:6]}", b"y" * 128, session_id=sid)
+
+            def listing():
+                return list_recent(files_dir, 50)
+
+            assert len(benchmark(listing)) >= 1
+        finally:
+            release(files_dir)
