@@ -76,6 +76,7 @@ class Workload:
     writers: int = 1
     setup: Callable[[BenchContext], Callable[[], object]] | None = None
     tier: str = "fast"
+    bytes_per_unit: int | None = None  # set for byte-heavy ops → enables bytes/s
 
     @property
     def key(self) -> str:
@@ -101,6 +102,7 @@ class WorkloadResult:
     # the result-set size for queries (``None`` until measured -> falls
     # back to ``scale``).
     records: int | None = None
+    bytes_per_unit: int | None = None
     peak_rss_mb: float | None = None
     cpu_pct_mean: float | None = None
     cpu_pct_max: float | None = None
@@ -114,6 +116,14 @@ class WorkloadResult:
         """Aggregate records per second across all writers."""
         total = self.records_per_call * self.writers
         return (total / self.min_s) if self.min_s > 0 else 0.0
+
+    @property
+    def bytes_per_s(self) -> float | None:
+        """Aggregate bytes per second, or None when the op isn't byte-sized."""
+        if self.bytes_per_unit is None:
+            return None
+        total_bytes = self.records_per_call * self.writers * self.bytes_per_unit
+        return (total_bytes / self.min_s) if self.min_s > 0 else 0.0
 
     @property
     def per_unit_us(self) -> float:
@@ -136,6 +146,7 @@ class WorkloadResult:
             "max_ms": round(self.max_s * 1000, 4),
             "per_unit_us": round(self.per_unit_us, 3),
             "throughput_per_s": round(self.throughput, 1),
+            "bytes_per_s": round(self.bytes_per_s, 1) if self.bytes_per_s is not None else None,
             "peak_rss_mb": self.peak_rss_mb,
             "cpu_pct_mean": self.cpu_pct_mean,
             "cpu_pct_max": self.cpu_pct_max,
@@ -202,26 +213,27 @@ def time_workload(fn: Callable[[], object], *, rounds: int, warmup: int) -> tupl
     )
 
 
-def fit_cost_model(points: list[tuple[int, float]]) -> tuple[float, float]:
-    """Least-squares fit of ``best_seconds = overhead + per_unit * units``.
+def cost_anchors(points: list[tuple[int, float]]) -> tuple[int, float, float]:
+    """Two measured anchors from a 1-writer scale sweep.
 
-    ``points`` is ``[(units, best_seconds), ...]`` from the 1-writer scale
-    sweep of one operation. Returns ``(overhead_seconds, per_unit_seconds)``
-    — the fixed per-call cost and the marginal per-record cost. With one
-    point, per_unit is 0 and overhead is that point's time.
+    ``points`` is ``[(units, best_seconds), ...]``. Returns
+    ``(floor_units, floor_seconds, marginal_seconds_per_unit)`` where:
+
+    - **floor** is the directly-measured best time at the SMALLEST scale —
+      the per-call cost dominated by fixed overhead (RPC + plan + commit).
+      Reported as a real measurement, not extrapolated to a y-intercept
+      (a 2-point least-squares fit produced untrustworthy ~0/negative
+      intercepts).
+    - **marginal** is the slope between the smallest and largest scale:
+      ``(best_max - best_min) / (units_max - units_min)`` — the cost of
+      one more record once you're past the fixed floor.
+
+    With one point, marginal is 0 and the floor is that point.
     """
-    n = len(points)
-    if n == 0:
-        return (0.0, 0.0)
-    if n == 1:
-        return (points[0][1], 0.0)
-    sx = sum(x for x, _ in points)
-    sy = sum(y for _, y in points)
-    sxx = sum(x * x for x, _ in points)
-    sxy = sum(x * y for x, y in points)
-    denom = n * sxx - sx * sx
-    if denom == 0:
-        return (sy / n, 0.0)
-    slope = (n * sxy - sx * sy) / denom
-    intercept = (sy - slope * sx) / n
-    return (intercept, slope)
+    pts = sorted(points)
+    lo_u, lo_t = pts[0]
+    hi_u, hi_t = pts[-1]
+    if hi_u == lo_u:
+        return (lo_u, lo_t, 0.0)
+    marginal = (hi_t - lo_t) / (hi_u - lo_u)
+    return (lo_u, lo_t, max(0.0, marginal))

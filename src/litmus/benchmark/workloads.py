@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import NamedTuple
 from uuid import UUID, uuid4
 
 from litmus.benchmark.core import BenchContext, Workload
@@ -365,43 +366,72 @@ def _setup_files_stream_raw(scale: int) -> Callable[[BenchContext], Callable[[],
     return setup
 
 
+def _setup_channels_block(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
+    """The high-rate channel path: one array (waveform block) per write —
+    one RPC carries ``scale`` points, vs one RPC per scalar in ``channels.write``."""
+
+    def setup(ctx: BenchContext) -> Callable[[], object]:
+        from litmus.data.channels.store import ChannelStore
+
+        store = ChannelStore(ctx.data_dir, uuid4(), flush_threshold=100, serve=True)
+        store.open()
+        ctx.track(store)
+        block = [25.0 + (i % 100) * 0.01 for i in range(scale)]
+
+        def write_block() -> None:
+            store.write("scope.ch1", block, sample_interval=1e-6)
+
+        return write_block
+
+    return setup
+
+
 # ---------------------------------------------------------------------------
 # Case registry — sweep scales (units) and writers (concurrency)
 # ---------------------------------------------------------------------------
 
-# Per-operation: (store, unit, setup-factory, fast-scales, full-scales).
-# A row is emitted for every scale at 1 writer.
-_OPS: dict[str, tuple] = {
-    "events.emit": ("events", "events", _setup_events_emit, [100, 1000], [100, 1000, 10000]),
-    "events.query": ("events", "events", _setup_events_query, [100, 1000], [100, 1000, 10000]),
-    "channels.write": (
-        "channels",
-        "samples",
-        _setup_channels_write,
-        [100, 1000],
-        [100, 1000, 10000],
+
+class _Op(NamedTuple):
+    store: str
+    unit: str
+    factory: Callable[[int], Callable[[BenchContext], Callable[[], object]]]
+    fast_scales: list[int]
+    full_scales: list[int]
+    bytes_per_unit: int | None  # set for byte-heavy ops → enables bytes/s
+
+
+# Write ops include a ``scale=1`` floor anchor so the per-call overhead is
+# measured directly (not extrapolated). bytes_per_unit is set only where a
+# record has a fixed byte size (channels samples, file blobs/chunks) — for
+# those, the report shows bytes/s, which is the real throughput axis.
+_OPS: dict[str, _Op] = {
+    "events.emit": _Op(
+        "events", "events", _setup_events_emit, [1, 1000], [1, 100, 1000, 10000], None
     ),
-    "channels.query": (
-        "channels",
-        "samples",
-        _setup_channels_query,
-        [100, 1000],
-        [100, 1000, 10000],
+    "events.query": _Op(
+        "events", "events", _setup_events_query, [100, 1000], [100, 1000, 10000], None
     ),
-    "channels.stream": (
-        "channels",
-        "samples",
-        _setup_channels_stream,
-        [100, 1000],
-        [100, 1000, 10000],
+    "channels.write": _Op(
+        "channels", "samples", _setup_channels_write, [1, 1000], [1, 100, 1000, 10000], 8
     ),
-    "runs.save": ("runs", "runs", _setup_runs_save, [1, 10], [1, 10, 100]),
-    "runs.list": ("runs", "runs", _setup_runs_list, [10, 100], [10, 100, 1000]),
-    "runs.steps": ("runs", "runs", _setup_runs_steps, [10, 100], [10, 100, 1000]),
-    "files.write": ("files", "artifacts", _setup_files_write, [1, 10], [1, 10, 100]),
-    "files.resolve": ("files", "files", _setup_files_resolve, [1], [1]),
-    "files.list": ("files", "files", _setup_files_list, [10, 100], [10, 100, 1000]),
-    "files.stream_raw": ("files", "chunks", _setup_files_stream_raw, [16, 64], [16, 64, 256]),
+    "channels.block": _Op(
+        "channels", "points", _setup_channels_block, [1000, 10000], [1000, 10000, 100000], 8
+    ),
+    "channels.query": _Op(
+        "channels", "samples", _setup_channels_query, [100, 1000], [100, 1000, 10000], 8
+    ),
+    "channels.stream": _Op(
+        "channels", "samples", _setup_channels_stream, [1, 1000], [1, 100, 1000, 10000], 8
+    ),
+    "runs.save": _Op("runs", "runs", _setup_runs_save, [1, 10], [1, 10, 100], None),
+    "runs.list": _Op("runs", "runs", _setup_runs_list, [10, 100], [10, 100, 1000], None),
+    "runs.steps": _Op("runs", "runs", _setup_runs_steps, [10, 100], [10, 100, 1000], None),
+    "files.write": _Op("files", "artifacts", _setup_files_write, [1, 10], [1, 10, 100], 100 * 1024),
+    "files.resolve": _Op("files", "files", _setup_files_resolve, [1], [1], None),
+    "files.list": _Op("files", "files", _setup_files_list, [10, 100], [10, 100, 1000], None),
+    "files.stream_raw": _Op(
+        "files", "chunks", _setup_files_stream_raw, [1, 64], [1, 64, 256], 64 * 1024
+    ),
 }
 
 # Write ops get a concurrency sweep at one representative scale (which is
@@ -419,15 +449,34 @@ def build_cases(tier: str = "fast") -> list[Workload]:
     full = tier == "full"
     writer_counts = [2, 4] if full else [2]
     cases: list[Workload] = []
-    for op, (store, unit, factory, fast_scales, full_scales) in _OPS.items():
-        scales = full_scales if full else fast_scales
+    for op, spec in _OPS.items():
+        scales = spec.full_scales if full else spec.fast_scales
         for scale in scales:
             cases.append(
-                Workload(op, store, unit, scale, writers=1, setup=factory(scale), tier=tier)
+                Workload(
+                    op,
+                    spec.store,
+                    spec.unit,
+                    scale,
+                    writers=1,
+                    setup=spec.factory(scale),
+                    tier=tier,
+                    bytes_per_unit=spec.bytes_per_unit,
+                )
             )
     for op, rep_scale in _CONCURRENCY.items():
-        store = _OPS[op][0]
-        unit = _OPS[op][1]
+        spec = _OPS[op]
         for w in writer_counts:
-            cases.append(Workload(op, store, unit, rep_scale, writers=w, setup=None, tier=tier))
+            cases.append(
+                Workload(
+                    op,
+                    spec.store,
+                    spec.unit,
+                    rep_scale,
+                    writers=w,
+                    setup=None,
+                    tier=tier,
+                    bytes_per_unit=spec.bytes_per_unit,
+                )
+            )
     return cases

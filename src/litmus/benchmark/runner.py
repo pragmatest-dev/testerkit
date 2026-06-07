@@ -19,12 +19,13 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 
 from litmus.benchmark.core import (
     BenchContext,
     BenchmarkReport,
     WorkloadResult,
-    fit_cost_model,
+    cost_anchors,
     time_workload,
 )
 from litmus.benchmark.system import (
@@ -146,6 +147,7 @@ def run_benchmark(
                         median_s=median,
                         max_s=mx,
                         records=records,
+                        bytes_per_unit=case.bytes_per_unit,
                         peak_rss_mb=load["peak_rss_mb"],  # type: ignore[arg-type]
                         cpu_pct_mean=load["cpu_pct_mean"],  # type: ignore[arg-type]
                         cpu_pct_max=load["cpu_pct_max"],  # type: ignore[arg-type]
@@ -189,8 +191,23 @@ def _ordered(results: list[WorkloadResult]) -> list[WorkloadResult]:
     return sorted(results, key=lambda r: (ops.index(r.op), r.writers, r.scale))
 
 
-def _cost_models(results: list[WorkloadResult]) -> list[tuple[str, str, float, float]]:
-    """Per-op (op, unit, overhead_ms, per_unit_us) from 1-writer rows."""
+class _Cost(NamedTuple):
+    op: str
+    unit: str
+    floor_units: int
+    floor_ms: float  # measured best time at the smallest scale
+    marginal_us: float  # per-unit time (slope), µs
+    marginal_per_s: float  # per-unit rate (1/slope), records/s
+    marginal_bytes_per_s: float | None  # per-unit byte rate, if byte-sized
+
+
+def _cost_models(results: list[WorkloadResult]) -> list[_Cost]:
+    """Per-op cost from 1-writer rows: a measured floor + a marginal slope.
+
+    Both come from real anchors (smallest-scale best time, and the
+    smallest→largest slope) — see ``cost_anchors``. No least-squares
+    intercept (it produced untrustworthy ~0/negative overheads).
+    """
     by_op: dict[str, list[WorkloadResult]] = {}
     order: list[str] = []
     for r in results:
@@ -199,18 +216,16 @@ def _cost_models(results: list[WorkloadResult]) -> list[tuple[str, str, float, f
         by_op.setdefault(r.op, []).append(r)
         if r.op not in order:
             order.append(r.op)
-    models: list[tuple[str, str, float, float]] = []
+    models: list[_Cost] = []
     for op in order:
         rows = by_op[op]
-        # Fit best-time vs UNITS ATTEMPTED (the size knob), not rows
-        # returned — for queries the returned page is constant, so a
-        # records fit would read 0 per-unit and miss the index-size curve.
-        points = [(r.scale, r.min_s) for r in rows]
-        overhead_s, per_unit_s = fit_cost_model(points)
-        # Floor both at 0: a negative intercept/slope is a fit artifact of
-        # noisy flat-latency queries (esp. fast tier's 2 points), not a
-        # real negative cost. 0 reads as "no measurable per-unit cost".
-        models.append((op, rows[0].unit, max(0.0, overhead_s) * 1000, max(0.0, per_unit_s) * 1e6))
+        floor_units, floor_s, marginal_s = cost_anchors([(r.scale, r.min_s) for r in rows])
+        rate = (1.0 / marginal_s) if marginal_s > 0 else 0.0
+        bpu = rows[0].bytes_per_unit
+        byte_rate = (bpu / marginal_s) if (bpu is not None and marginal_s > 0) else None
+        models.append(
+            _Cost(op, rows[0].unit, floor_units, floor_s * 1000, marginal_s * 1e6, rate, byte_rate)
+        )
     return models
 
 
@@ -242,6 +257,16 @@ def _methodology(report: BenchmarkReport) -> str:
     )
 
 
+def _fmt_bytes_s(bps: float | None) -> str:
+    """Bytes/second as B/s, KB/s, MB/s, or GB/s; '—' when not byte-sized."""
+    if bps is None:
+        return "—"
+    for unit, scale in (("GB/s", 1024**3), ("MB/s", 1024**2), ("KB/s", 1024)):
+        if bps >= scale:
+            return f"{bps / scale:,.1f} {unit}"
+    return f"{bps:,.0f} B/s"
+
+
 def format_markdown(report: BenchmarkReport) -> str:
     hw, ver, opts = report.hardware, report.versions, report.options
     out: list[str] = ["# Litmus benchmark", ""]
@@ -263,15 +288,17 @@ def format_markdown(report: BenchmarkReport) -> str:
     out.append("## Results (one row per case)")
     out.append("")
     out.append(
-        "| Operation | Units | Writers | Best (ms) | Mean (ms) | Throughput | Peak RSS | CPU% |"
+        "| Operation | Units | Writers | Best (ms) | Mean (ms) | Throughput | "
+        "Bytes/s | Peak RSS | CPU% |"
     )
-    out.append("|---|--:|--:|--:|--:|--:|--:|--:|")
+    out.append("|---|--:|--:|--:|--:|--:|--:|--:|--:|")
     for r in _ordered(report.results):
         rss = f"{r.peak_rss_mb:,.0f} MB" if r.peak_rss_mb is not None else "—"
         cpu = f"{r.cpu_pct_max:.0f}%" if r.cpu_pct_max is not None else "—"
+        bps = _fmt_bytes_s(r.bytes_per_s)
         out.append(
             f"| `{r.op}` | {r.scale:,} | {r.writers} | {r.min_s * 1000:.3f} | "
-            f"{r.mean_s * 1000:.3f} | {r.throughput:,.0f} {r.unit}/s | {rss} | {cpu} |"
+            f"{r.mean_s * 1000:.3f} | {r.throughput:,.0f} {r.unit}/s | {bps} | {rss} | {cpu} |"
         )
     out.append("")
 
@@ -282,11 +309,20 @@ def format_markdown(report: BenchmarkReport) -> str:
     out.append("")
     out.append("### Per-operation cost (1 writer)")
     out.append("")
-    out.append("| Operation | Fixed overhead | Per-unit |")
-    out.append("|---|--:|--:|")
-    for op, unit, overhead_ms, per_unit_us in _cost_models(report.results):
-        pu = f"{per_unit_us:.2f} µs/{unit[:-1] if unit.endswith('s') else unit}"
-        out.append(f"| `{op}` | {overhead_ms:.3f} ms | {pu} |")
+    out.append(
+        "| Operation | Per-call floor | Marginal (records/s) "
+        "| Marginal (time) | Marginal (bytes/s) |"
+    )
+    out.append("|---|--:|--:|--:|--:|")
+    for c in _cost_models(report.results):
+        u = c.unit[:-1] if c.unit.endswith("s") else c.unit
+        rate = f"{c.marginal_per_s:,.0f} {c.unit}/s" if c.marginal_per_s else "—"
+        per = f"{c.marginal_us:.2f} µs/{u}" if c.marginal_us else "—"
+        byr = _fmt_bytes_s(c.marginal_bytes_per_s)
+        out.append(
+            f"| `{c.op}` | {c.floor_ms:.3f} ms @ {c.floor_units:,} {c.unit} "
+            f"| {rate} | {per} | {byr} |"
+        )
     out.append("")
 
     scaling = _scaling(report.results)
@@ -333,7 +369,7 @@ def format_summary(report: BenchmarkReport) -> str:
     lines.append("  Results — one row per case (operation x units x writers):")
     hdr = (
         f"  {'operation':<18} {'units':>8} {'wrtrs':>6} {'best ms':>10} "
-        f"{'mean ms':>10} {'throughput':>18} {'RSS':>9} {'CPU':>6}"
+        f"{'throughput':>18} {'bytes/s':>11} {'RSS':>8} {'CPU':>6}"
     )
     lines.append(hdr)
     lines.append("  " + "-" * (len(hdr) - 2))
@@ -343,16 +379,23 @@ def format_summary(report: BenchmarkReport) -> str:
         thr = f"{r.throughput:,.0f} {r.unit}/s"
         lines.append(
             f"  {r.op:<18} {r.scale:>8,} {r.writers:>6} {r.min_s * 1000:>10.3f} "
-            f"{r.mean_s * 1000:>10.3f} {thr:>18} {rss:>9} {cpu:>6}"
+            f"{thr:>18} {_fmt_bytes_s(r.bytes_per_s):>11} {rss:>8} {cpu:>6}"
         )
 
     lines.append("")
-    lines.append("  Cost model (1 writer): fixed per-call overhead + marginal per-unit")
-    lines.append(f"  {'operation':<18} {'overhead':>12} {'per-unit':>16}")
-    lines.append("  " + "-" * 48)
-    for op, unit, overhead_ms, per_unit_us in _cost_models(report.results):
-        u = unit[:-1] if unit.endswith("s") else unit
-        lines.append(f"  {op:<18} {overhead_ms:>9.3f} ms {per_unit_us:>10.2f} µs/{u}")
+    lines.append("  Cost model (1 writer): measured per-call floor + marginal per unit")
+    lines.append(
+        f"  {'operation':<18} {'floor':>16} {'marginal (rec/s)':>18} "
+        f"{'(time)':>13} {'(bytes/s)':>11}"
+    )
+    lines.append("  " + "-" * 78)
+    for c in _cost_models(report.results):
+        u = c.unit[:-1] if c.unit.endswith("s") else c.unit
+        floor = f"{c.floor_ms:.2f}ms@{c.floor_units:,}"
+        rate = f"{c.marginal_per_s:,.0f}/s" if c.marginal_per_s else "—"
+        per = f"{c.marginal_us:.2f}µs/{u}" if c.marginal_us else "—"
+        byr = _fmt_bytes_s(c.marginal_bytes_per_s)
+        lines.append(f"  {c.op:<18} {floor:>16} {rate:>18} {per:>13} {byr:>11}")
 
     scaling = _scaling(report.results)
     if scaling:
