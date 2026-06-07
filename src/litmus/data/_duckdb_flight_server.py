@@ -168,7 +168,7 @@ class DuckDBFlightServer(flight.FlightServerBase):
         # transaction lands. See the invariants doc, rule E1 vs R1.
         self._parallel = parallel
         self._tls = threading.local()
-        self._put_hooks: dict[str, Callable[[pa.Table], None]] = {}
+        self._put_hooks: dict[str, Callable[[pa.Table], pa.Table | None]] = {}
         self._pre_query_hooks: dict[str, Callable[[duckdb.DuckDBPyConnection], None]] = {}
         # Live push: per-db subscriber queues + the Arrow schema each
         # subscription stream yields. A ``do_get`` with the
@@ -180,19 +180,50 @@ class DuckDBFlightServer(flight.FlightServerBase):
         self._sub_lock = threading.Lock()
         self._subscribers: dict[str, list[queue.Queue[pa.RecordBatch | None]]] = {}
         self._subscribe_schemas: dict[str, pa.Schema] = {}
+        # Optional per-db replay SQL with a ``{cursor}`` placeholder. When
+        # set, a new subscriber first receives every row past its cursor
+        # from the warm index (gap-free catch-up) before live rows — so
+        # push is lossless across the subscribe boundary.
+        self._subscribe_replay: dict[str, str] = {}
 
     def register(self, name: str, conn: duckdb.DuckDBPyConnection) -> None:
         """Register a named DuckDB connection."""
         self._databases[name] = conn
 
-    def register_subscribe_schema(self, db_name: str, schema: pa.Schema) -> None:
+    def register_subscribe_schema(
+        self,
+        db_name: str,
+        schema: pa.Schema,
+        *,
+        replay_sql: str | None = None,
+    ) -> None:
         """Enable live push subscriptions for ``db_name``.
 
-        The schema is what a ``do_get`` subscription stream yields.
-        Without it, a ``__SUBSCRIBE__`` ticket for ``db_name`` is
-        rejected — query-only databases simply don't call this.
+        ``schema`` is what a ``do_get`` subscription stream yields — it
+        must match both the replayed rows and the rows handed to
+        :meth:`publish`. Without it, a ``__SUBSCRIBE__`` ticket for
+        ``db_name`` is rejected (query-only databases don't call this).
+
+        ``replay_sql`` is an optional template with a single ``{cursor}``
+        placeholder (an integer). On subscribe the server runs it to
+        stream the backlog past the caller's cursor before live rows.
         """
         self._subscribe_schemas[db_name] = schema
+        if replay_sql is not None:
+            self._subscribe_replay[db_name] = replay_sql
+
+    def has_subscribers(self, db_name: str) -> bool:
+        """True if at least one live subscriber is attached to ``db_name``.
+
+        Lets a put-hook skip the cost of building canonical rows to
+        publish when nobody is listening.
+        """
+        with self._sub_lock:
+            return bool(self._subscribers.get(db_name))
+
+    def publish(self, db_name: str, table: pa.Table) -> None:
+        """Public entry point for :meth:`_publish` (fan rows to subscribers)."""
+        self._publish(db_name, table)
 
     def _publish(self, db_name: str, table: pa.Table) -> None:
         """Fan newly-inserted rows out to live subscribers of ``db_name``.
@@ -217,12 +248,17 @@ class DuckDBFlightServer(flight.FlightServerBase):
             for q in dead:
                 subs.remove(q)
 
-    def register_put_hook(self, db_name: str, hook: Callable[[pa.Table], None]) -> None:
+    def register_put_hook(self, db_name: str, hook: Callable[[pa.Table], pa.Table | None]) -> None:
         """Register a custom do_put handler for a database name.
 
         The hook receives the Arrow table and is responsible for inserting
         it into DuckDB. Used by the runs daemon to read parquet files
         from paths sent via do_put.
+
+        It may RETURN an Arrow table of canonical rows to fan out to live
+        subscribers (e.g. the events hook returns the just-inserted rows
+        stamped with ``event_number``); returning ``None`` publishes
+        nothing. For the no-hook path, the inserted batch is published as-is.
         """
         self._put_hooks[db_name] = hook
 
@@ -277,8 +313,15 @@ class DuckDBFlightServer(flight.FlightServerBase):
                 f"Invalid ticket format — expected 'db_name\\0SQL', got: {raw[:80]}"
             )
         db_name, sql = raw.split("\0", 1)
-        if sql == _SUBSCRIBE:
-            return self._do_subscribe(db_name)
+        if sql == _SUBSCRIBE or sql.startswith(_SUBSCRIBE + "\0"):
+            cursor = 0
+            if "\0" in sql:
+                _, cur_str = sql.split("\0", 1)
+                try:
+                    cursor = int(cur_str)
+                except ValueError:
+                    cursor = 0
+            return self._do_subscribe(db_name, cursor)
 
         conn = self._databases.get(db_name)
         if conn is None:
@@ -314,13 +357,21 @@ class DuckDBFlightServer(flight.FlightServerBase):
 
             logging.getLogger(__name__).warning("pre_query_hook for %s failed: %s", db_name, exc)
 
-    def _do_subscribe(self, db_name: str) -> flight.GeneratorStream:
+    def _do_subscribe(self, db_name: str, cursor: int = 0) -> flight.GeneratorStream:
         """Open a held-open push stream for ``db_name`` (no polling).
 
-        Registers a bounded queue; ``_publish`` (from ``do_put``) fans
-        new batches into it; the generator blocks on the queue and
-        yields them to the client until the stream is cancelled or the
-        subscriber falls too far behind and is dropped.
+        Lossless catch-up + live, in one stream:
+
+        1. Register the queue FIRST, so any row committed from here on is
+           captured live (no gap).
+        2. If the db has a replay template, stream the backlog past
+           ``cursor`` from the warm index.
+        3. Then block on the queue and yield live rows as ``publish`` fans
+           them in.
+
+        A row committed between the snapshot and registration appears in
+        both the replay and the live queue — the client dedups by id, so
+        delivery is at-least-once and gap-free.
         """
         schema = self._subscribe_schemas.get(db_name)
         if schema is None:
@@ -328,9 +379,26 @@ class DuckDBFlightServer(flight.FlightServerBase):
         q: queue.Queue[pa.RecordBatch | None] = queue.Queue(maxsize=_SUB_QUEUE_MAX)
         with self._sub_lock:
             self._subscribers.setdefault(db_name, []).append(q)
+        replay_sql = self._subscribe_replay.get(db_name)
+        conn = self._databases.get(db_name)
 
         def _generate():  # type: ignore[no-untyped-def]
             try:
+                if replay_sql is not None and conn is not None:
+                    try:
+                        sql = replay_sql.format(cursor=int(cursor))
+                        if self._parallel:
+                            table = self._cursor_for(conn).execute(sql).fetch_arrow_table()
+                        else:
+                            with self._lock:
+                                table = conn.execute(sql).fetch_arrow_table()
+                        yield from table.to_batches()
+                    except Exception as exc:  # noqa: BLE001 — replay failure must not kill live
+                        import logging
+
+                        logging.getLogger(__name__).warning(
+                            "subscribe replay for %s failed: %s", db_name, exc
+                        )
                 while True:
                     try:
                         batch = q.get(timeout=1.0)
@@ -390,19 +458,23 @@ class DuckDBFlightServer(flight.FlightServerBase):
                 break
 
             table = pa.Table.from_batches([batch])
+            published: pa.Table | None = None
             with self._lock:
                 if hook is not None:
-                    hook(table)
+                    # The hook returns canonical rows to fan out (e.g. the
+                    # events rows stamped with event_number) or None.
+                    published = hook(table)
                 elif conn is not None:
                     conn.register("_put_batch", table)
                     conn.execute(f"INSERT INTO {table_name} BY NAME SELECT * FROM _put_batch")
                     conn.unregister("_put_batch")
+                    published = table
 
             # Push the just-committed rows to any live subscribers.
             # No-op unless someone holds a __SUBSCRIBE__ stream for this
             # db. Outside the DB lock so fan-out never blocks writes.
-            if self._subscribers.get(db_name):
-                self._publish(db_name, table)
+            if published is not None and self._subscribers.get(db_name):
+                self._publish(db_name, published)
 
             # Ack: batch committed, safe to query
             writer.write(pa.py_buffer(_ACK))

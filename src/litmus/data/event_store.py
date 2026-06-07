@@ -33,6 +33,7 @@ from typing import Any
 from uuid import UUID
 
 import pyarrow as pa
+import pyarrow.flight as flight
 
 from litmus.data import duckdb_manager
 from litmus.data._duckdb_flight_server import FlightPutStream
@@ -595,80 +596,77 @@ class EventStore:
         self._watcher_thread.start()
 
     def _watch_loop(self, initial_cursor: int = 0) -> None:
-        """Poll for new events from other processes using Flight queries.
+        """Receive cross-process events via a held-open push stream (no poll).
 
-        Skips events already delivered in-process (via ``_notify_subscribers``).
-        Parses the ``json`` column so subscribers get full event dicts.
+        Opens a ``__SUBSCRIBE__`` do_get on the events daemon: the server
+        replays every row past the cursor from the warm index, then pushes
+        each new row as it lands — the blocking iterator is woken by the
+        server, so there is no 500ms floor.
 
-        Wraps each Flight query *and* each subscriber dispatch in a
-        try/except so a transient failure (events daemon
-        mid-restart, schema not yet created, a single dispatcher
-        UPSERT raising) doesn't kill the watcher thread silently.
-        Without that guard the thread dies on the first bad
-        dispatch, every later cross-process event is dropped, and
-        the live UPSERT path looks broken with no log trace.
+        Each delivered row carries ``event_number``; the highest seen is
+        the reconnection cursor. If the daemon dies or restarts, the
+        reader re-acquires the daemon location and re-subscribes from that
+        cursor — the server's replay fills the downtime gap, so delivery
+        is lossless across restarts (overlap deduped by ``_delivered_ids``).
+
+        ``initial_cursor`` is the ``on_event`` snapshot: history at or
+        below it is delivered by the background replay there; this stream
+        carries everything strictly past it.
         """
-        # If the caller seeded a cursor via ``on_event``, use it — that's
-        # the event_number of the boundary between replay and live.
-        # Anything ``event_number > cursor`` is fetched.
-        #
-        # No seed (cold-start watcher attach without a preceding replay):
-        # initialize the cursor to the latest event already in the DB so the
-        # first poll doesn't pull and dispatch the entire historical event log
-        # (potentially hundreds of thousands of rows after a long-running test
-        # environment).
+        # Ticket: ``events\0__SUBSCRIBE__\0<cursor>`` — see DuckDBFlightServer.
         last_event_number: int = initial_cursor
-        if last_event_number == 0:
-            try:
-                rows = self._flight_query("SELECT MAX(event_number) AS m FROM events")
-                last_event_number = int(rows[0]["m"]) if rows and rows[0].get("m") else 0
-            except Exception as exc:  # noqa: BLE001 — fall back to 0 on probe failure
-                logger.debug("Watcher cursor init failed (will fetch all): %s", exc)
-                last_event_number = 0
-
+        location = self._location
+        backoff = 0.1
         while not self._watcher_stop.is_set():
-            query = f"""
-                SELECT *
-                FROM events
-                WHERE event_number > {int(last_event_number)}
-                ORDER BY event_number ASC
-            """
+            client: flight.FlightClient | None = None
             try:
-                rows = self._flight_query(query)
-            except Exception as exc:  # noqa: BLE001 — log and retry on next tick
-                logger.debug("Watcher poll failed (will retry): %s", exc)
-                self._watcher_stop.wait(timeout=0.5)
-                continue
-            # Advance the cursor only past rows we successfully
-            # dispatched. If a dispatch raises (transient daemon
-            # contention, locked DuckDB conn, etc.) the next poll
-            # re-fetches that row and retries — at-least-once
-            # delivery, deduped by ``_delivered_ids``.
-            for row in rows:
-                # Parse the full event from the json column
-                evt = _parse_event_row(row)
-
-                # Skip events already delivered in-process
-                event_id = str(evt.get("id") or row.get("id", ""))
+                client = flight.connect(location)
+                ticket = flight.Ticket(f"events\0__SUBSCRIBE__\0{int(last_event_number)}".encode())
+                reader = client.do_get(ticket)
+                backoff = 0.1  # connected — reset backoff
+                for chunk in reader:
+                    if self._watcher_stop.is_set():
+                        break
+                    for row in chunk.data.to_pylist():
+                        last_event_number = self._deliver_watched_row(row, last_event_number)
+            except Exception as exc:  # noqa: BLE001 — reconnect on any stream error
+                if self._watcher_stop.is_set():
+                    break
+                logger.debug("Event subscription dropped (will reconnect): %s", exc)
                 try:
-                    with self._lock:
-                        if event_id not in self._delivered_ids:
-                            self._delivered_ids[event_id] = None
-                            while len(self._delivered_ids) > self._delivered_ids_max:
-                                self._delivered_ids.popitem(last=False)
-                            self._dispatch_to_subscribers(evt)
-                except Exception as exc:  # noqa: BLE001 — never let one bad dispatch kill the watcher
-                    logger.debug(
-                        "Watcher dispatch failed for event id=%s: %s",
-                        event_id,
-                        exc,
-                    )
+                    location = duckdb_manager.acquire(self._events_dir)
+                except Exception as racq:  # noqa: BLE001 — keep old location, retry
+                    logger.debug("Re-acquire events daemon failed: %s", racq)
+                self._watcher_stop.wait(timeout=backoff)
+                backoff = min(backoff * 2, 5.0)
+            finally:
+                if client is not None:
+                    try:
+                        client.close()
+                    except Exception:  # noqa: BLE001 — best-effort close
+                        pass
 
-                row_event_number = row.get("event_number")
-                if row_event_number is not None:
-                    last_event_number = int(row_event_number)
+    def _deliver_watched_row(self, row: dict, last_event_number: int) -> int:
+        """Dispatch one pushed/replayed event row; return the advanced cursor.
 
-            self._watcher_stop.wait(timeout=0.5)
+        Deduped against in-process delivery (``_notify_subscribers``) and
+        replay by event id, so each event reaches subscribers once.
+        """
+        evt = _parse_event_row(row)
+        event_id = str(evt.get("id") or row.get("id", ""))
+        try:
+            with self._lock:
+                if event_id not in self._delivered_ids:
+                    self._delivered_ids[event_id] = None
+                    while len(self._delivered_ids) > self._delivered_ids_max:
+                        self._delivered_ids.popitem(last=False)
+                    self._dispatch_to_subscribers(evt)
+        except Exception as exc:  # noqa: BLE001 — never let one bad dispatch kill the watcher
+            logger.debug("Watcher dispatch failed for event id=%s: %s", event_id, exc)
+        en = row.get("event_number")
+        if en is not None:
+            return max(last_event_number, int(en))
+        return last_event_number
 
     # -- Lifecycle -----------------------------------------------------------
 

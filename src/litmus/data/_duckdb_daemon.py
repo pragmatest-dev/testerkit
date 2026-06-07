@@ -23,6 +23,7 @@ import duckdb
 import pyarrow as pa
 
 from litmus.data._duckdb_flight_server import (
+    DuckDBFlightServer,
     shutdown_flight_server_in_daemon,
     start_flight_server_in_daemon,
 )
@@ -331,12 +332,28 @@ def daemon_run(events_dir: Path) -> None:
     # internally and one batch = one atomic ``executemany`` (invariants
     # rule E1 — no multi-statement atomicity to protect).
     write_lock = threading.Lock()
+    srv_cell: dict[str, DuckDBFlightServer] = {}
 
-    def _events_put_hook(table: pa.Table) -> None:
+    def _events_put_hook(table: pa.Table) -> pa.Table | None:
         # Runs under the Flight server's write lock (= write_lock).
         # Tuple-bind path: safe with large strings (register+INSERT segfaults).
         rows = _table_to_rows(table)
+        srv = srv_cell.get("s")
+        if srv is None or not srv.has_subscribers("events"):
+            conn.executemany(_INSERT_SQL, rows)
+            return None
+        # A live subscriber is attached: return the just-inserted rows
+        # stamped with their server-side event_number so push is gap-free.
+        # event_number is monotonic with INSERT order under write_lock, so
+        # everything > the pre-insert max is exactly this batch (rows lost
+        # to ON CONFLICT keep their seq gap but never appear here).
+        max_row = conn.execute("SELECT COALESCE(MAX(event_number), 0) AS m FROM events").fetchone()
+        before = max_row[0] if max_row else 0
         conn.executemany(_INSERT_SQL, rows)
+        return conn.execute(
+            "SELECT * FROM events WHERE event_number > ? ORDER BY event_number",
+            [before],
+        ).fetch_arrow_table()
 
     server, port_file, _location = start_flight_server_in_daemon(
         mgr=mgr,
@@ -348,6 +365,17 @@ def daemon_run(events_dir: Path) -> None:
         thread_name="duckdb-flight",
         lock=write_lock,
         parallel=True,
+    )
+    srv_cell["s"] = server
+
+    # Enable lossless push: a __SUBSCRIBE__ stream replays every events
+    # row past the caller's event_number cursor, then streams live rows
+    # (handed in by _events_put_hook). Schema = the events table.
+    _sub_schema = conn.execute("SELECT * FROM events LIMIT 0").fetch_arrow_table().schema
+    server.register_subscribe_schema(
+        "events",
+        _sub_schema,
+        replay_sql="SELECT * FROM events WHERE event_number > {cursor} ORDER BY event_number",
     )
 
     # Ingest IPC files that aren't yet in the index via a background
