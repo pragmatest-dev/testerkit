@@ -32,7 +32,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.files.catalog import catalog_row
@@ -153,8 +153,14 @@ class FileStore:
         filename = self._unique_filename(session_dir, f"{prefix}{name}", ext)
         dest = session_dir / filename
 
-        # Write via the registered handler.
-        serializer.write(value, dest)
+        # Write the blob atomically: serialize to a sibling temp with the
+        # extension preserved (suffix-sensitive writers like np.savez
+        # rename themselves otherwise), then atomic-replace into place. A
+        # crash mid-serialize leaves the temp, never a partial artifact
+        # the catalog could point at.
+        blob_tmp = dest.with_name(f"{dest.stem}.part-{uuid4().hex[:8]}{dest.suffix}")
+        serializer.write(value, blob_tmp)
+        blob_tmp.replace(dest)
 
         # Item 1c: write the sidecar metadata file. size_bytes is read
         # after the write so it reflects the actual on-disk size,

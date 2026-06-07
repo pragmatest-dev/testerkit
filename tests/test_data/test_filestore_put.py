@@ -398,3 +398,40 @@ def test_attributes_argument_persisted_to_sidecar(store: FileStore) -> None:
     metadata = store.read_attributes(uri)
     assert metadata is not None
     assert metadata.attributes == user_attrs
+
+
+# --------------------------------------------------------------------- #
+# atomic write (D2): no partial artifact on serializer failure          #
+# --------------------------------------------------------------------- #
+
+
+def test_write_atomic_no_partial_on_serializer_failure(store: FileStore, monkeypatch) -> None:
+    """A serializer that raises mid-write leaves no artifact at the dest.
+
+    The blob is serialized to a sibling temp and atomic-replaced, so a
+    crash mid-serialize leaves (at most) a stray ``.part-`` temp, never a
+    partial file the catalog could point at.
+    """
+    from litmus.data.files.serializers import Serializer
+
+    def _boom_write(value: object, dest: Path) -> None:
+        dest.write_bytes(b"partial-bytes")  # land bytes in the temp...
+        raise RuntimeError("boom mid-serialize")  # ...then fail
+
+    monkeypatch.setattr(
+        "litmus.data.files.store.find_serializer",
+        lambda _v: Serializer(extension=".bin", mime="application/octet-stream", write=_boom_write),
+    )
+
+    sid = _session_id()
+    with pytest.raises(RuntimeError, match="boom"):
+        store.write("boom", object(), session_id=sid)
+
+    session_dir = _expected_session_dir(store, sid)
+    if session_dir.exists():
+        finals = [
+            p.name
+            for p in session_dir.iterdir()
+            if not p.name.endswith(".meta.json") and ".part-" not in p.name
+        ]
+        assert finals == [], f"partial artifact landed: {finals}"
