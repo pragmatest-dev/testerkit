@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 import warnings
 from pathlib import Path
 
@@ -111,6 +112,30 @@ def _table_to_rows(table: pa.Table) -> list[tuple]:
     """
     cols = [table.column(c).to_pylist() for c in _PUT_HOOK_COLUMNS]
     return list(zip(*cols))
+
+
+def _insert_events(
+    cur: duckdb.DuckDBPyConnection, rows: list[tuple], *, attempts: int = 25
+) -> None:
+    """``executemany(_INSERT_SQL)`` with retry on write-write conflicts.
+
+    Lock-free writes (the put-hook on a per-Flight-thread cursor and the
+    ingest thread on its own cursor) append to ``events`` concurrently
+    under DuckDB's MVCC; the loser of a concurrent commit raises
+    ``TransactionException``. Retry is safe and idempotent —
+    ``_INSERT_SQL`` is ``ON CONFLICT (id) DO NOTHING``, so re-running rows
+    already committed by the prior attempt is a no-op (it only burns
+    ``event_seq`` values; gaps in ``event_number`` are fine — only
+    monotonicity matters, not density).
+    """
+    for i in range(attempts):
+        try:
+            cur.executemany(_INSERT_SQL, rows)
+            return
+        except duckdb.TransactionException:
+            if i == attempts - 1:
+                raise
+            time.sleep(0.002 * (i + 1))
 
 
 # ── Schema management ────────────────────────────────────────────────
@@ -291,7 +316,7 @@ def _ingest_one_file(
 
     try:
         rows = _table_to_rows(table)
-        conn.executemany(_INSERT_SQL, rows)
+        _insert_events(conn, rows)
         _mark("ok", row_count=len(rows))
     except (duckdb.Error, UnicodeDecodeError, pa.ArrowException, ValueError) as exc:
         # ``UnicodeDecodeError`` happens when an IPC file has a torn /
@@ -324,36 +349,43 @@ def daemon_run(events_dir: Path) -> None:
     index_path = events_dir / "_index.duckdb"
     conn = _open_index(index_path)
 
-    # Single shared lock serializes the WRITE path (do_put put-hook +
-    # ingest thread) on the main connection. Reads go lock-free:
-    # ``parallel=True`` makes the Flight server run each do_get on a
-    # per-thread cursor (MVCC snapshot), so a query never waits behind a
-    # write. Writes stay serialized because DuckDB serializes writers
-    # internally and one batch = one atomic ``executemany`` (invariants
-    # rule E1 — no multi-statement atomicity to protect).
-    write_lock = threading.Lock()
+    # Fully lock-free (``parallel=True``): reads AND writes run on
+    # per-thread cursors under DuckDB MVCC, no Python mutex. Events
+    # qualify because one batch = one atomic ``executemany`` (invariants
+    # rule E1) — there is no multi-statement unit to protect. Concurrent
+    # appends from sibling cursors are reconciled by ``_insert_events``'s
+    # ``TransactionException`` retry.
     srv_cell: dict[str, DuckDBFlightServer] = {}
+    _put_tls = threading.local()
+
+    def _events_cursor() -> duckdb.DuckDBPyConnection:
+        # One write cursor per Flight handler thread, reused across calls.
+        cur = getattr(_put_tls, "cur", None)
+        if cur is None:
+            cur = conn.cursor()
+            _put_tls.cur = cur
+        return cur
 
     def _events_put_hook(table: pa.Table) -> pa.Table | None:
-        # Runs under the Flight server's write lock (= write_lock).
         # Tuple-bind path: safe with large strings (register+INSERT segfaults).
+        cur = _events_cursor()
         rows = _table_to_rows(table)
+        _insert_events(cur, rows)
         srv = srv_cell.get("s")
         if srv is None or not srv.has_subscribers("events"):
-            conn.executemany(_INSERT_SQL, rows)
             return None
-        # A live subscriber is attached: return the just-inserted rows
-        # stamped with their server-side event_number so push is gap-free.
-        # event_number is monotonic with INSERT order under write_lock, so
-        # everything > the pre-insert max is exactly this batch (rows lost
-        # to ON CONFLICT keep their seq gap but never appear here).
-        max_row = conn.execute("SELECT COALESCE(MAX(event_number), 0) AS m FROM events").fetchone()
-        before = max_row[0] if max_row else 0
-        conn.executemany(_INSERT_SQL, rows)
-        return conn.execute(
-            "SELECT * FROM events WHERE event_number > ? ORDER BY event_number",
-            [before],
+        # A live subscriber is attached: fan out exactly THIS batch's rows
+        # (selected by id, robust against concurrent writers on sibling
+        # cursors) stamped with their server-side event_number, so push is
+        # gap-free and the client's reconnect cursor advances.
+        view = f"_pub_ids_{threading.get_ident()}"
+        cur.register(view, table.select(["id"]))
+        canonical = cur.execute(
+            f"SELECT e.* FROM events e WHERE e.id IN (SELECT id FROM {view}) "
+            "ORDER BY e.event_number"
         ).fetch_arrow_table()
+        cur.unregister(view)
+        return canonical
 
     server, port_file, _location = start_flight_server_in_daemon(
         mgr=mgr,
@@ -363,7 +395,6 @@ def daemon_run(events_dir: Path) -> None:
         put_hook=_events_put_hook,
         port_file_name="_duckdb_flight_port",
         thread_name="duckdb-flight",
-        lock=write_lock,
         parallel=True,
     )
     srv_cell["s"] = server
@@ -379,11 +410,12 @@ def daemon_run(events_dir: Path) -> None:
     )
 
     # Ingest IPC files that aren't yet in the index via a background
-    # thread, sharing write_lock so its appends serialize against the
-    # put-hook on the main connection.
+    # thread on its OWN cursor (concurrent with the put-hook cursors;
+    # _insert_events retry reconciles append conflicts). The lock is a
+    # private, uncontended guard for ingest's own sequential ops.
     threading.Thread(
         target=_ingest_ipc_files,
-        args=(conn, events_dir, write_lock),
+        args=(conn.cursor(), events_dir, threading.Lock()),
         daemon=True,
         name="duckdb-ingest",
     ).start()

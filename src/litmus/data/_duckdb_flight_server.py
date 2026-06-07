@@ -444,13 +444,18 @@ class DuckDBFlightServer(flight.FlightServerBase):
         if hook is None and conn is None:
             raise flight.FlightServerError(f"Unknown database: {db_name!r}")
 
-        # Writes stay serialized under ``self._lock`` even in parallel
-        # mode. DuckDB serializes writers internally anyway; holding one
-        # Python lock for the write path keeps the catalog ``register``
-        # name and the daemon's ingest thread coordinated, and avoids
-        # write-write transaction conflicts. Parallelism is on the READ
-        # path (``do_get`` runs lock-free on a per-thread cursor) — that
-        # is where the contention was: readers blocked behind writers.
+        # In ``parallel`` mode the write path is lock-free: each Flight
+        # handler thread inserts on its own cursor so concurrent writers
+        # interleave under DuckDB's MVCC instead of one Python mutex. The
+        # hook owns its own thread-local cursor (and the conflict-retry it
+        # needs); the no-hook fall-through uses this thread's cursor and a
+        # per-thread view name so ``register`` doesn't clobber across
+        # threads. Locked mode (runs) keeps the shared conn + lock until
+        # its per-run transaction lands.
+        parallel = self._parallel
+        reg_target = self._cursor_for(conn) if (parallel and conn is not None) else conn
+        view_name = f"_put_batch_{threading.get_ident()}" if parallel else "_put_batch"
+
         while True:
             try:
                 batch, _ = reader.read_chunk()
@@ -459,16 +464,28 @@ class DuckDBFlightServer(flight.FlightServerBase):
 
             table = pa.Table.from_batches([batch])
             published: pa.Table | None = None
-            with self._lock:
+            if parallel:
                 if hook is not None:
-                    # The hook returns canonical rows to fan out (e.g. the
-                    # events rows stamped with event_number) or None.
+                    # Hook returns canonical rows to fan out (events rows
+                    # stamped with event_number) or None. It manages its
+                    # own thread-local cursor + retry — no lock here.
                     published = hook(table)
-                elif conn is not None:
-                    conn.register("_put_batch", table)
-                    conn.execute(f"INSERT INTO {table_name} BY NAME SELECT * FROM _put_batch")
-                    conn.unregister("_put_batch")
+                elif reg_target is not None:
+                    reg_target.register(view_name, table)
+                    reg_target.execute(
+                        f"INSERT INTO {table_name} BY NAME SELECT * FROM {view_name}"
+                    )
+                    reg_target.unregister(view_name)
                     published = table
+            else:
+                with self._lock:
+                    if hook is not None:
+                        published = hook(table)
+                    elif conn is not None:
+                        conn.register("_put_batch", table)
+                        conn.execute(f"INSERT INTO {table_name} BY NAME SELECT * FROM _put_batch")
+                        conn.unregister("_put_batch")
+                        published = table
 
             # Push the just-committed rows to any live subscribers.
             # No-op unless someone holds a __SUBSCRIBE__ stream for this
