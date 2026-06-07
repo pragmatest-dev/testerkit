@@ -293,6 +293,8 @@ INFLIGHT_STEPS_SCHEMA = pa.schema(
         ("slot_id", pa.string()),
         ("step_name", pa.string()),
         ("step_path", pa.string()),
+        ("parent_path", pa.string()),
+        ("vector_index", pa.int64()),
         ("outcome", pa.string()),
         ("started_at", pa.timestamp("us", tz="UTC")),
         ("ended_at", pa.timestamp("us", tz="UTC")),
@@ -303,6 +305,7 @@ INFLIGHT_STEPS_SCHEMA = pa.schema(
         ("markers", pa.string()),
         ("dut_serial", pa.string()),
         ("station_id", pa.string()),
+        ("dynamic_attrs", pa.map_(pa.string(), pa.string())),
     ]
 )
 

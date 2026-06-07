@@ -211,6 +211,8 @@ class EventAccumulator:
                     "slot_id": s.slot_id,
                     "step_name": entry.get("name"),
                     "step_path": entry.get("step_path"),
+                    "parent_path": entry.get("parent_path"),
+                    "vector_index": entry.get("vector_index", 0),
                     "outcome": entry.get("outcome"),
                     "started_at": started_at,
                     "ended_at": entry_ended_at,
@@ -224,6 +226,13 @@ class EventAccumulator:
                     "file_path": None,
                     "run_outcome": outcome,
                     "run_ended_at": ended_at,
+                    "dynamic_attrs": {
+                        **{f"in_{k}": _safe_str(v) for k, v in (entry.get("inputs") or {}).items()},
+                        **{
+                            f"out_{k}": _safe_str(v)
+                            for k, v in (entry.get("outputs") or {}).items()
+                        },
+                    },
                 }
             )
         return rows

@@ -1241,14 +1241,15 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         SELECT
             run_id,
             COALESCE(step_path, '') AS step_path,
-            CAST(0 AS BIGINT) AS vector_index,
+            vector_index,
             step_index, file_path, session_id, slot_id,
             step_name,
-            CAST(NULL AS VARCHAR) AS parent_path,
+            parent_path,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
             duration_s, has_measurements, measurement_count, vector_count,
-            markers, dut_serial, station_id
+            markers, dut_serial, station_id,
+            dynamic_attrs
         FROM inflight_steps
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
     """)
