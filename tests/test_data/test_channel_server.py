@@ -36,11 +36,16 @@ _CANONICAL_RESULTS = resolve_data_dir()
 
 
 def _make_store(data_dir: Path, *, serve: bool = False) -> ChannelStore:
+    # ``index = not serve``: a serve=False store here is wrapped in an
+    # in-process server (it plays the daemon → owns the warm index);
+    # a serve=True store is a producer connecting to the real daemon
+    # (which owns the index), so it must NOT build its own (Opt 1).
     store = ChannelStore(
         data_dir,
         uuid4(),
         flush_threshold=10,
         serve=serve,
+        index=not serve,
     )
     store.open()
     return store

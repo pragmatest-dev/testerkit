@@ -1,8 +1,8 @@
 """Arrow Flight server for cross-process channel streaming.
 
 Wraps a ChannelStore instance. Handles:
-- do_put: remote writes → store.write() → persist + fan-out
-- do_get: subscribe → stream batches as they arrive
+- do_put: remote writes → store.ingest_batch() → warm index + fan-out
+- do_get: subscribe → stream batches as they arrive; or at-rest query
 - list_flights: enumerate active channels
 - get_flight_info: channel schema + metadata
 """
@@ -21,7 +21,6 @@ import pyarrow.flight as flight
 
 from litmus.data.channels.models import (
     ChannelSample,
-    batch_row_to_sample,
     sample_schema,
     sample_to_batch,
 )
@@ -78,7 +77,7 @@ class ChannelFlightServer(flight.FlightServerBase):
         for chunk in reader:
             batch = chunk.data
             try:
-                _write_batch_to_store(self._store, channel_id, batch)
+                self._store.ingest_batch(channel_id, batch)
             except (OSError, ValueError, pa.ArrowException) as exc:
                 warnings.warn(
                     f"Flight do_put failed for '{channel_id}': {exc}",
@@ -202,28 +201,6 @@ class ChannelFlightServer(flight.FlightServerBase):
             self._flight_subscribers.clear()
         self._unsub()
         super().shutdown()
-
-
-def _write_batch_to_store(
-    store: ChannelStore,
-    channel_id: str,
-    batch: pa.RecordBatch,
-) -> None:
-    """Write a Flight batch into the store, row by row.
-
-    Channel id comes from the descriptor (caller), not the batch — a
-    remote producer addresses one channel per do_put. Per-row metadata
-    (units, sample_interval, source_method) flows through the shared
-    :func:`batch_row_to_sample` helper.
-    """
-    for i in range(batch.num_rows):
-        sample = batch_row_to_sample(batch, i)
-        kwargs: dict[str, object] = {"source": sample.source_method}
-        if sample.units is not None:
-            kwargs["units"] = sample.units
-        if sample.sample_interval is not None:
-            kwargs["sample_interval"] = sample.sample_interval
-        store.write(channel_id, sample.value, **kwargs)  # type: ignore[arg-type]
 
 
 def start_server_background(

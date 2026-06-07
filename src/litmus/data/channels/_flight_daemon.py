@@ -27,7 +27,10 @@ def daemon_run(channels_dir: Path, host: str, port: int) -> None:
     """Entry point for the daemon process. Blocks until idle timeout."""
     mgr = FlightDaemonManager(channels_dir, host, port)
 
-    store = ChannelStore(channels_dir.parent, UUID(int=0))
+    # index=True: the daemon owns the warm at-rest index and serves
+    # query from it. Opt 1 — it indexes producer files + live do_put
+    # rows; it does NOT persist its own segment copy.
+    store = ChannelStore(channels_dir.parent, UUID(int=0), index=True)
     store.open()
 
     location = f"grpc://{host}:{port}"

@@ -44,12 +44,14 @@ class ChannelClient:
         units: str | None = None,
         sample_interval: float | None = None,
         sampled_at: datetime | None = None,
+        session_id: str | None = None,
     ) -> None:
         """Write a value to a remote channel via do_put.
 
         ``sampled_at`` (build item 11) is the optional hardware-side
         acquisition timestamp; ``None`` when the remote producer
-        doesn't know.
+        doesn't know. ``session_id`` attributes the sample to a session
+        in the daemon's index; ``None`` for sessionless writes.
         """
         value_str = encode_value(value)
         schema = sample_schema()
@@ -62,6 +64,7 @@ class ChannelClient:
                 "source_method": [source],
                 "units": [units or ""],
                 "sample_interval": [sample_interval],
+                "session_id": [session_id],
             },
             schema=schema,
         )

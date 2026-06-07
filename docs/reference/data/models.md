@@ -1190,6 +1190,7 @@ A single channel data point delivered to subscribers.
 | `units` | `str \| None` | `None` |
 | `sample_interval` | `float \| None` | `None` |
 | `source_method` | `str` | `''` |
+| `session_id` | `str \| None` | `None` |
 
 ### HTTP API request shapes — `litmus.api.models`
 

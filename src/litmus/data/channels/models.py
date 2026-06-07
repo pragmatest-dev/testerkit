@@ -60,6 +60,7 @@ class ChannelSample(BaseModel):
     units: str | None = None
     sample_interval: float | None = None
     source_method: str = ""
+    session_id: str | None = None
 
 
 # Arrow schemas — minimal columns, no per-row metadata duplication.
@@ -271,6 +272,7 @@ def sample_schema() -> pa.Schema:
             pa.field("source_method", pa.utf8()),
             pa.field("units", pa.utf8()),
             pa.field("sample_interval", pa.float64()),
+            pa.field("session_id", pa.utf8()),
         ]
     )
 
@@ -287,6 +289,7 @@ def sample_to_batch(sample: ChannelSample) -> pa.RecordBatch:
             "source_method": [sample.source_method],
             "units": [sample.units or ""],
             "sample_interval": [sample.sample_interval],
+            "session_id": [sample.session_id],
         },
         schema=sample_schema(),
     )
@@ -326,6 +329,10 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
     if "sampled_at" in columns:
         sampled_at = batch.column("sampled_at")[i].as_py()
 
+    session_id: str | None = None
+    if "session_id" in columns:
+        session_id = batch.column("session_id")[i].as_py() or None
+
     return ChannelSample(
         channel_id=batch.column("channel_id")[i].as_py(),
         received_at=batch.column("received_at")[i].as_py(),
@@ -334,4 +341,5 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
         units=units,
         sample_interval=sample_interval,
         source_method=source_method,
+        session_id=session_id,
     )

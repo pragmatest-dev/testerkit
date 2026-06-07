@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import warnings
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
 
+import duckdb
 import pyarrow as pa
 import pyarrow.flight as flight
 import pyarrow.ipc as ipc
@@ -29,6 +31,8 @@ from litmus.data.channels.models import (
     ChannelSample,
     _data_type_for,
     _infer_schema,
+    batch_row_to_sample,
+    encode_value,
     sample_to_batch,
 )
 from litmus.data.events import ChannelClosed, ChannelStarted
@@ -206,6 +210,7 @@ class ChannelStore:
         host: str = "127.0.0.1",
         port: int = 0,
         event_log: ChannelEventEmitter | None = None,
+        index: bool = False,
     ) -> None:
         # Parent-only convention — caller passes the results parent
         # (containing ``runs/``, ``channels/``, ``events/`` …); the
@@ -239,8 +244,25 @@ class ChannelStore:
         self._channel_run_ids: dict[str, UUID | None] = {}
         self._closed = False
 
+        # Warm DuckDB index — daemon-only (Opt 1: the daemon indexes
+        # producer files and serves at-rest query from the index; it no
+        # longer persists its own segment copy). The index is a derived
+        # cache: producer IPC files are the durable truth, so it is built
+        # in-memory and rebuilt by scanning closed segments on open().
+        # Producers (serve=True writers) never set ``index`` — they only
+        # persist + push.
+        self._index_enabled = index
+        self._index_db: duckdb.DuckDBPyConnection | None = None
+        self._index_local = threading.local()
+        self._index_lock = threading.Lock()
+        self._pending: list[dict[str, Any]] = []
+        self._pending_lock = threading.Lock()
+        self._pending_threshold = 100
+
     def open(self) -> None:
         self._channels_dir.mkdir(parents=True, exist_ok=True)
+        if self._index_enabled:
+            self._index_open()
         if self._serve:
             self._connect_or_serve()
 
@@ -393,6 +415,10 @@ class ChannelStore:
             self._notify(channel_id, sample)
             # Push to Flight daemon so cross-process subscribers see it
             self._flight_push(channel_id, sample)
+            # Keep an index-enabled store consistent on any write path
+            # (the daemon never calls write(), but in-process index stores do).
+            if self._index_enabled:
+                self._pending_extend([self._index_row(channel_id, sample)])
 
         return make_channel_uri(channel_id, str(self._session_id))
 
@@ -498,6 +524,7 @@ class ChannelStore:
             units=units,
             sample_interval=sample_interval,
             source_method=source,
+            session_id=sid,
         )
         return data_type, row, sample
 
@@ -586,6 +613,16 @@ class ChannelStore:
                 for faithful visual representation. Applied after all other
                 filters. Requires a ``value`` or ``samples`` column.
         """
+        if self._index_enabled:
+            return self._query_index(
+                channel_id,
+                session_id=session_id,
+                start=start,
+                end=end,
+                last_n=last_n,
+                max_points=max_points,
+            )
+
         session_short = session_id[:8] if session_id else None
         writer = self._writers.get(channel_id)
 
@@ -664,6 +701,236 @@ class ChannelStore:
             result = _decimate_table(result, max_points)
 
         return result
+
+    # ---- Warm DuckDB index (daemon-only; Opt 1) ----
+
+    _INDEX_ENVELOPE = frozenset(
+        {"received_at", "sampled_at", "source_method", "session_id", "sample_interval"}
+    )
+    _INDEX_ARROW_SCHEMA = pa.schema(
+        [
+            ("channel_id", pa.utf8()),
+            ("session_id", pa.utf8()),
+            ("received_at", pa.timestamp("us", tz="UTC")),
+            ("sampled_at", pa.timestamp("us", tz="UTC")),
+            ("source_method", pa.utf8()),
+            ("sample_interval", pa.float64()),
+            ("value", pa.utf8()),
+        ]
+    )
+
+    def _index_open(self) -> None:
+        """Create the in-memory index and rebuild it from closed segments.
+
+        The index is a derived cache; producer IPC files are the durable
+        truth, so it is rebuilt from disk on every daemon start.
+        """
+        self._index_db = duckdb.connect(":memory:")
+        self._index_db.execute(
+            """
+            CREATE TABLE channel_index (
+                channel_id VARCHAR,
+                session_id VARCHAR,
+                received_at TIMESTAMPTZ,
+                sampled_at TIMESTAMPTZ,
+                source_method VARCHAR,
+                sample_interval DOUBLE,
+                value VARCHAR
+            )
+            """
+        )
+        self._scan_disk()
+
+    def _index_cursor(self) -> duckdb.DuckDBPyConnection:
+        """Thread-local read cursor over the shared in-memory index."""
+        cur = getattr(self._index_local, "cur", None)
+        if cur is None:
+            assert self._index_db is not None
+            cur = self._index_db.cursor()
+            self._index_local.cur = cur
+        return cur
+
+    def _scan_disk(self) -> None:
+        """Ingest every closed producer segment into the index (rebuild)."""
+        pattern = re.compile(r"^(.+)_([0-9a-f]{8})(?:_\d+)?$")
+        rows: list[dict[str, Any]] = []
+        for arrow_file in sorted(self._channels_dir.glob("*/*.arrow")):
+            m = pattern.match(arrow_file.stem)
+            if not m:
+                continue
+            try:
+                reader = ipc.open_stream(pa.OSFile(str(arrow_file), "rb"))
+                table = reader.read_all()
+            except (pa.ArrowInvalid, OSError):
+                continue
+            rows.extend(self._segment_rows_to_index(m.group(1), table))
+        if rows:
+            self._insert_index_rows(rows)
+
+    @classmethod
+    def _segment_rows_to_index(cls, channel_id: str, table: pa.Table) -> list[dict[str, Any]]:
+        """Convert a typed segment table to index rows (``value`` JSON-encoded).
+
+        ``channel_id`` comes from the filename (segments don't store it);
+        ``session_id`` from the row column. Scalar/array rows carry a
+        ``value`` column; dict/struct rows fold their non-envelope columns
+        back into one JSON object.
+        """
+        out: list[dict[str, Any]] = []
+        for r in table.to_pylist():
+            if "value" in r:
+                payload = r["value"]
+            else:
+                payload = {k: v for k, v in r.items() if k not in cls._INDEX_ENVELOPE}
+            out.append(
+                {
+                    "channel_id": channel_id,
+                    "session_id": r.get("session_id"),
+                    "received_at": r.get("received_at"),
+                    "sampled_at": r.get("sampled_at"),
+                    "source_method": r.get("source_method") or "",
+                    "sample_interval": r.get("sample_interval"),
+                    "value": encode_value(payload),
+                }
+            )
+        return out
+
+    def _insert_index_rows(self, rows: list[dict[str, Any]]) -> None:
+        """Insert index rows under the write lock (single writer)."""
+        if not rows or self._index_db is None:
+            return
+        tbl = pa.Table.from_pylist(rows, schema=self._INDEX_ARROW_SCHEMA)
+        with self._index_lock:
+            self._index_db.register("_incoming", tbl)
+            self._index_db.execute("INSERT INTO channel_index SELECT * FROM _incoming")
+            self._index_db.unregister("_incoming")
+
+    @staticmethod
+    def _payload_and_interval(sample: ChannelSample) -> tuple[Any, float | None]:
+        """Split an array sample's ``{value, sample_interval}`` envelope.
+
+        ``_normalize_value`` folds arrays into ``{"value": [...],
+        "sample_interval": dt}``, which is what rides on the live sample.
+        Segments store the array in the ``value`` column with
+        ``sample_interval`` alongside, so the index must too — otherwise a
+        live-ingested array would encode differently from a disk-scanned one.
+        """
+        v = sample.value
+        if (
+            isinstance(v, dict)
+            and set(v.keys()) == {"value", "sample_interval"}
+            and isinstance(v.get("value"), list)
+        ):
+            return v["value"], v["sample_interval"]
+        return v, sample.sample_interval
+
+    def _index_row(self, channel_id: str, sample: ChannelSample) -> dict[str, Any]:
+        """Build one index row from a sample (``value`` JSON-encoded)."""
+        payload, interval = self._payload_and_interval(sample)
+        return {
+            "channel_id": channel_id,
+            "session_id": sample.session_id,
+            "received_at": sample.received_at,
+            "sampled_at": sample.sampled_at,
+            "source_method": sample.source_method or "",
+            "sample_interval": interval,
+            "value": encode_value(payload),
+        }
+
+    def _pending_extend(self, rows: list[dict[str, Any]]) -> None:
+        """Append index rows to the pending buffer; flush past the threshold."""
+        if not rows:
+            return
+        with self._pending_lock:
+            self._pending.extend(rows)
+            overflowed = len(self._pending) >= self._pending_threshold
+        if overflowed:
+            self._flush_pending()
+
+    def ingest_batch(self, channel_id: str, batch: pa.RecordBatch) -> None:
+        """Daemon do_put path: index live samples + fan out (no segment persist).
+
+        Replaces ``store.write`` on the daemon side (Opt 1: the daemon
+        does not persist a second segment copy). Live rows reach the index
+        only via the pending buffer flush — never via the disk scan — so
+        there is no overlap to dedup.
+        """
+        rows: list[dict[str, Any]] = []
+        for i in range(batch.num_rows):
+            sample = batch_row_to_sample(batch, i)
+            rows.append(self._index_row(channel_id, sample))
+            self._notify(channel_id, sample)
+        self._pending_extend(rows)
+
+    def _flush_pending(self) -> None:
+        """Move pending live rows into the index."""
+        with self._pending_lock:
+            if not self._pending:
+                return
+            pending = self._pending
+            self._pending = []
+        self._insert_index_rows(pending)
+
+    def _query_index(
+        self,
+        channel_id: str,
+        *,
+        session_id: str | None,
+        start: datetime | None,
+        end: datetime | None,
+        last_n: int | None,
+        max_points: int | None,
+    ) -> pa.Table:
+        """At-rest query served from the warm index (∪ pending buffer)."""
+        self._flush_pending()
+        cur = self._index_cursor()
+        sql = [
+            "SELECT received_at, sampled_at, value, source_method, "
+            "session_id, sample_interval FROM channel_index WHERE channel_id = ?"
+        ]
+        params: list[Any] = [channel_id]
+        if session_id:
+            sql.append("AND left(session_id, 8) = left(?, 8)")
+            params.append(session_id)
+        start_utc = _to_utc(start)
+        end_utc = _to_utc(end)
+        if start_utc is not None:
+            sql.append("AND received_at >= ?")
+            params.append(start_utc)
+        if end_utc is not None:
+            sql.append("AND received_at <= ?")
+            params.append(end_utc)
+        sql.append("ORDER BY received_at")
+        table = cur.execute(" ".join(sql), params).arrow().read_all()
+
+        if last_n is not None and table.num_rows > last_n:
+            table = table.slice(table.num_rows - last_n)
+        table = self._decode_value_column(table)
+        if max_points is not None and table.num_rows > max_points:
+            table = _decimate_table(table, max_points)
+        return table
+
+    @staticmethod
+    def _decode_value_column(table: pa.Table) -> pa.Table:
+        """JSON-decode the VARCHAR ``value`` column back to typed values.
+
+        Inverse of ``encode_value``: non-JSON strings pass through (matches
+        ``batch_row_to_sample``). Values within one channel are homogeneous,
+        so Arrow infers a single column type.
+        """
+        if "value" not in table.column_names or table.num_rows == 0:
+            return table
+        decoded: list[Any] = []
+        for v in table.column("value").to_pylist():
+            if v is None:
+                decoded.append(None)
+                continue
+            try:
+                decoded.append(json.loads(v))
+            except (json.JSONDecodeError, TypeError):
+                decoded.append(v)
+        idx = table.column_names.index("value")
+        return table.set_column(idx, "value", pa.array(decoded))
 
     def _connect_or_serve(self) -> None:
         """Acquire a ref-counted Flight server daemon.
@@ -807,6 +1074,12 @@ class ChannelStore:
                         f"ChannelStore failed to write registry: {exc}",
                         stacklevel=2,
                     )
+            if self._index_db is not None:
+                try:
+                    self._index_db.close()
+                except (OSError, duckdb.Error):
+                    pass
+                self._index_db = None
         finally:
             self._writers.clear()
             self._subscribers.clear()
