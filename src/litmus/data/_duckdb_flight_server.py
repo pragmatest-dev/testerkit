@@ -14,6 +14,7 @@ do_put descriptor format: ``db_name\0table_name``
 
 from __future__ import annotations
 
+import queue
 import threading
 import warnings
 from collections.abc import Callable
@@ -28,6 +29,16 @@ if TYPE_CHECKING:
     from litmus.data._daemon_lifecycle import DaemonManager
 
 _ACK = b"\x01"
+
+# do_get ticket marker (in the SQL slot) that requests a live push
+# subscription instead of a one-shot query: ``db_name\0__SUBSCRIBE__``.
+# A real SQL query never equals this sentinel.
+_SUBSCRIBE = "__SUBSCRIBE__"
+
+# Bounded per-subscriber queue. A subscriber that can't keep up is
+# dropped (its stream ends) rather than blocking the publisher — same
+# back-pressure policy as the channel Flight server.
+_SUB_QUEUE_MAX = 10_000
 
 
 # ---------------------------------------------------------------------------
@@ -147,10 +158,52 @@ class DuckDBFlightServer(flight.FlightServerBase):
         self._lock = lock if lock is not None else threading.Lock()
         self._put_hooks: dict[str, Callable[[pa.Table], None]] = {}
         self._pre_query_hooks: dict[str, Callable[[duckdb.DuckDBPyConnection], None]] = {}
+        # Live push: per-db subscriber queues + the Arrow schema each
+        # subscription stream yields. A ``do_get`` with the
+        # ``__SUBSCRIBE__`` ticket registers a queue here; ``_publish``
+        # (called from ``do_put`` after each insert) fans new rows out
+        # to them. No polling — the subscriber's generator blocks on its
+        # queue. Guarded by its own lock, independent of the DB lock, so
+        # fan-out never holds up DuckDB access.
+        self._sub_lock = threading.Lock()
+        self._subscribers: dict[str, list[queue.Queue[pa.RecordBatch | None]]] = {}
+        self._subscribe_schemas: dict[str, pa.Schema] = {}
 
     def register(self, name: str, conn: duckdb.DuckDBPyConnection) -> None:
         """Register a named DuckDB connection."""
         self._databases[name] = conn
+
+    def register_subscribe_schema(self, db_name: str, schema: pa.Schema) -> None:
+        """Enable live push subscriptions for ``db_name``.
+
+        The schema is what a ``do_get`` subscription stream yields.
+        Without it, a ``__SUBSCRIBE__`` ticket for ``db_name`` is
+        rejected — query-only databases simply don't call this.
+        """
+        self._subscribe_schemas[db_name] = schema
+
+    def _publish(self, db_name: str, table: pa.Table) -> None:
+        """Fan newly-inserted rows out to live subscribers of ``db_name``.
+
+        Called from ``do_put`` after each batch commits. Non-blocking
+        ``put_nowait`` with drop-on-full back-pressure: a subscriber
+        that can't keep up is removed and its stream ends, rather than
+        stalling the writer. No-op when nobody is subscribed.
+        """
+        with self._sub_lock:
+            subs = self._subscribers.get(db_name)
+            if not subs:
+                return
+            batches = table.to_batches()
+            dead: list[queue.Queue[pa.RecordBatch | None]] = []
+            for q in subs:
+                try:
+                    for b in batches:
+                        q.put_nowait(b)
+                except queue.Full:
+                    dead.append(q)
+            for q in dead:
+                subs.remove(q)
 
     def register_put_hook(self, db_name: str, hook: Callable[[pa.Table], None]) -> None:
         """Register a custom do_put handler for a database name.
@@ -181,9 +234,12 @@ class DuckDBFlightServer(flight.FlightServerBase):
         context: flight.ServerCallContext,
         ticket: flight.Ticket,
     ) -> flight.RecordBatchStream:
-        """Execute SQL query from ticket, return Arrow stream.
+        """Execute SQL query from ticket, OR open a live push subscription.
 
-        Ticket format: ``db_name\\0SQL``
+        Ticket formats:
+          * ``db_name\\0SQL`` — one-shot query, returns the result.
+          * ``db_name\\0__SUBSCRIBE__`` — held-open stream; the server
+            pushes each newly-inserted batch as it lands (no polling).
         """
         raw = ticket.ticket.decode("utf-8")
         if "\0" not in raw:
@@ -191,6 +247,9 @@ class DuckDBFlightServer(flight.FlightServerBase):
                 f"Invalid ticket format — expected 'db_name\\0SQL', got: {raw[:80]}"
             )
         db_name, sql = raw.split("\0", 1)
+        if sql == _SUBSCRIBE:
+            return self._do_subscribe(db_name)
+
         conn = self._databases.get(db_name)
         if conn is None:
             raise flight.FlightServerError(f"Unknown database: {db_name!r}")
@@ -209,6 +268,41 @@ class DuckDBFlightServer(flight.FlightServerBase):
             result = conn.execute(sql).fetch_arrow_table()
 
         return flight.RecordBatchStream(result)
+
+    def _do_subscribe(self, db_name: str) -> flight.GeneratorStream:
+        """Open a held-open push stream for ``db_name`` (no polling).
+
+        Registers a bounded queue; ``_publish`` (from ``do_put``) fans
+        new batches into it; the generator blocks on the queue and
+        yields them to the client until the stream is cancelled or the
+        subscriber falls too far behind and is dropped.
+        """
+        schema = self._subscribe_schemas.get(db_name)
+        if schema is None:
+            raise flight.FlightServerError(f"Database {db_name!r} does not support subscriptions")
+        q: queue.Queue[pa.RecordBatch | None] = queue.Queue(maxsize=_SUB_QUEUE_MAX)
+        with self._sub_lock:
+            self._subscribers.setdefault(db_name, []).append(q)
+
+        def _generate():  # type: ignore[no-untyped-def]
+            try:
+                while True:
+                    try:
+                        batch = q.get(timeout=1.0)
+                    except queue.Empty:
+                        continue
+                    if batch is None:
+                        break
+                    yield batch
+            finally:
+                with self._sub_lock:
+                    subs = self._subscribers.get(db_name, [])
+                    try:
+                        subs.remove(q)
+                    except ValueError:
+                        pass
+
+        return flight.GeneratorStream(schema, _generate())
 
     def do_put(
         self,
@@ -253,8 +347,33 @@ class DuckDBFlightServer(flight.FlightServerBase):
                     conn.execute(f"INSERT INTO {table_name} BY NAME SELECT * FROM _put_batch")
                     conn.unregister("_put_batch")
 
+            # Push the just-committed rows to any live subscribers.
+            # No-op unless someone holds a __SUBSCRIBE__ stream for this
+            # db. Outside the DB lock so fan-out never blocks writes.
+            if self._subscribers.get(db_name):
+                self._publish(db_name, table)
+
             # Ack: batch committed, safe to query
             writer.write(pa.py_buffer(_ACK))
+
+    def shutdown(self) -> None:
+        """Stop the server, ending any live subscription streams first.
+
+        Each open subscription holds a generator blocked on its queue;
+        ``FlightServerBase.shutdown()`` would wait on those in-flight
+        ``do_get`` RPCs forever. Push a ``None`` sentinel into every
+        subscriber queue so the generators break and the streams close,
+        then shut the server down.
+        """
+        with self._sub_lock:
+            for subs in self._subscribers.values():
+                for q in subs:
+                    try:
+                        q.put_nowait(None)
+                    except queue.Full:
+                        pass
+            self._subscribers.clear()
+        super().shutdown()
 
 
 # ---------------------------------------------------------------------------
