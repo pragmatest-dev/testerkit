@@ -33,6 +33,8 @@ def _write_events(path: Path, events: list[dict]) -> None:
                 "received_at": [evt.get("received_at", datetime(2026, 1, 1, tzinfo=UTC))],
                 "session_id": [evt.get("session_id", "sid")],
                 "run_id": [evt.get("run_id")],
+                "writer_key": [evt.get("writer_key", "test-writer")],
+                "event_offset": [evt.get("event_offset", 0)],
                 "json": [json.dumps(evt)],
             }
             # Typed payload columns — read from the input dict so tests

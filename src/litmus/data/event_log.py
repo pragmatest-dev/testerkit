@@ -11,6 +11,7 @@ Storage: ``results/events/{date}/{session_id}-{pid}[_{segment}].arrow``
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import warnings
@@ -18,7 +19,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pyarrow as pa
 
@@ -44,6 +45,17 @@ _IPC_SCHEMA = pa.schema(
         ("received_at", pa.timestamp("us", tz="UTC")),
         ("session_id", pa.string()),
         ("run_id", pa.string()),
+        # Emit order, stamped by the writer (the emitting client) at append.
+        # A writer is one EventLog instance; writer_key (uuid, per instance)
+        # keeps concurrent writers of the same session from colliding,
+        # event_offset is that writer's monotonic position. Consumers order by
+        # (session_id, writer_key, event_offset) — order lives in the DATA, so
+        # it's immune to the do_put/ingest insert race (#228) and survives a
+        # backend swap. event_number (daemon nextval) stays the insert-order
+        # resume cursor, never an emit-order key. Provenance (which station /
+        # slot) is the existing typed columns, not this key.
+        ("writer_key", pa.string()),
+        ("event_offset", pa.int64()),
         ("json", pa.string()),
         *((col, pa.string()) for col in TYPED_PAYLOAD_COLUMNS),
     ]
@@ -190,6 +202,13 @@ class EventLog:
         )
         self._subscribers: list[EventSubscriber] = []
         self._failed: set[EventSubscriber] = set()
+        # This EventLog is one writer of its session. writer_key (uuid, per
+        # instance) disambiguates concurrent writers of the same session;
+        # event_offset is this writer's monotonic emit position. next() on an
+        # itertools.count is atomic in CPython, so concurrent emits get
+        # distinct, ordered offsets without a lock.
+        self._writer_key = str(uuid4())
+        self._offset_counter = itertools.count()
         # Item 1d: events no longer own a ref dir. Pre-Position-2 events
         # held raw blob payloads and ``save_ref`` wrote them under
         # ``events/{date}/{session_id}_ref/``. Under Position 2 + C-3b
@@ -217,6 +236,8 @@ class EventLog:
             "received_at": event.received_at,
             "session_id": str(event.session_id),
             "run_id": str(event.run_id) if event.run_id else None,
+            "writer_key": self._writer_key,
+            "event_offset": next(self._offset_counter),
             "json": event.model_dump_json(),
         }
         row.update(event.typed_payload_values())

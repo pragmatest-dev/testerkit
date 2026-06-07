@@ -387,12 +387,17 @@ class DuckDBFlightServer(flight.FlightServerBase):
                 if replay_sql is not None and conn is not None:
                     try:
                         sql = replay_sql.format(cursor=int(cursor))
-                        if self._parallel:
-                            table = self._cursor_for(conn).execute(sql).fetch_arrow_table()
-                        else:
-                            with self._lock:
-                                table = conn.execute(sql).fetch_arrow_table()
-                        yield from table.to_batches()
+                        # Stream the backlog in bounded chunks via a
+                        # RecordBatchReader instead of materializing the
+                        # whole result — replay memory stays flat no matter
+                        # how far behind the cursor is (scale-to-full-disk).
+                        rcur = self._cursor_for(conn) if self._parallel else conn
+                        reader = rcur.execute(sql).fetch_record_batch()
+                        while True:
+                            try:
+                                yield reader.read_next_batch()
+                            except StopIteration:
+                                break
                     except Exception as exc:  # noqa: BLE001 — replay failure must not kill live
                         import logging
 

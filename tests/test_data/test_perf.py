@@ -790,6 +790,44 @@ class TestConcurrencyPerf:
 
         benchmark(run_concurrent)
 
+    @pytest.mark.benchmark(group="concurrent-event-emit")
+    def test_event_writes_scale_sublinearly(self) -> None:
+        """GATE (design goal #4): events writes PARALLELIZE, not serialize.
+
+        Lock-free cursor-per-thread writes let 4 writers beat 1 on
+        aggregate emit throughput (measured ~2.4x). If the daemon's write
+        path ever regresses to serialized (e.g. a reintroduced global
+        write lock — exactly the 2a regression that shipped uncaught),
+        4-writer throughput collapses to ~1-writer and this FAILS. The
+        1.5x bar sits well below the ~2.4x measurement, so it gates the
+        regression without flaking on noise. Best-of-3 sheds cold-spawn /
+        scheduler outliers. This is the guard whose absence let goal #4
+        silently regress before.
+        """
+        from multiprocessing import get_context
+
+        n_per = 500
+
+        def best_throughput(n_writers: int) -> float:
+            best = 0.0
+            for _ in range(3):
+                with get_context("spawn").Pool(n_writers) as pool:
+                    results = pool.starmap(
+                        _writer_event_worker, [(n_per, w) for w in range(n_writers)]
+                    )
+                assert sum(ok for _, ok in results) == n_writers * n_per
+                wall = max(w for w, _ in results)  # concurrent run → slowest worker = wall
+                best = max(best, (n_writers * n_per) / wall)
+            return best
+
+        t1 = best_throughput(1)
+        t4 = best_throughput(4)
+        ratio = (t4 / t1) if t1 else 0.0
+        assert ratio >= 1.5, (
+            f"events writes not parallel: 1w={t1:.0f} ev/s, 4w={t4:.0f} ev/s "
+            f"(ratio {ratio:.2f}x, need >=1.5x — did a global write lock regress in?)"
+        )
+
     @pytest.mark.benchmark(group="concurrent-channel-write", warmup=False, min_rounds=3)
     @pytest.mark.parametrize("n_writers", [1, 2, 4])
     def test_n_writers_channel_scalars(self, benchmark, n_writers: int) -> None:

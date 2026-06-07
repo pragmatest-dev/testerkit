@@ -17,7 +17,7 @@ Design contract (see ``project_followup_parametrized_step_nesting``):
 
 Each test spawns a pytest subprocess with ``_LITMUS_SESSION_ID`` set so
 queries scope precisely to this run's events. Event ordering assertions
-read the events table (chronological via ``event_number``); structural
+read the events table (emit order via ``(writer_key, event_offset)``); structural
 assertions read the materialized steps table via :class:`StepsQuery`.
 """
 
@@ -94,7 +94,10 @@ def _read_step_events(session_id: str) -> list[dict[str, Any]]:
     sess_uuid = UUID(session_id)
     started = store.events(session_id=sess_uuid, event_type="test.step_started")
     ended = store.events(session_id=sess_uuid, event_type="test.step_ended")
-    merged = sorted(started + ended, key=lambda e: e.get("event_number", 0))
+    merged = sorted(
+        started + ended,
+        key=lambda e: (e.get("writer_key", ""), e.get("event_offset", 0)),
+    )
     return merged
 
 

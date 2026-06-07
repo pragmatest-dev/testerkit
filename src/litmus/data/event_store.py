@@ -48,11 +48,21 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_event_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Return the parsed event dict from a DB row, falling back to the raw row."""
+    """Return the parsed event dict from a DB row, falling back to the raw row.
+
+    ``writer_key`` and ``event_offset`` are column-level (the writer stamps
+    them at append; they are not inside the JSON payload), so merge them onto
+    the parsed event. Consumers order by ``(writer_key, event_offset)`` for
+    emit order — the order survives the do_put/ingest insert race.
+    """
     json_str = row.get("json")
     if json_str:
         try:
-            return json_mod.loads(json_str)
+            parsed = json_mod.loads(json_str)
+            for col in ("writer_key", "event_offset"):
+                if col in row:
+                    parsed[col] = row[col]
+            return parsed
         except (json_mod.JSONDecodeError, TypeError):
             pass
     return row
@@ -338,7 +348,8 @@ class EventStore:
         # extra strings. Envelope-only keeps the network payload
         # constant regardless of how many typed columns we add later.
         projection = (
-            "id, event_type, event_number, occurred_at, received_at, session_id, run_id, json"
+            "id, event_type, event_number, occurred_at, received_at, "
+            "session_id, run_id, writer_key, event_offset, json"
         )
 
         # Latest-N pushdown: SQL sorts received_at DESC under the
@@ -418,7 +429,7 @@ class EventStore:
         # Envelope-only projection — see ``events()`` for the rationale.
         sql = f"""
             SELECT id, event_type, event_number, occurred_at, received_at,
-                   session_id, run_id, json
+                   session_id, run_id, writer_key, event_offset, json
             FROM events
             WHERE run_id IS NOT NULL
               AND run_id IN (
@@ -426,7 +437,7 @@ class EventStore:
                 EXCEPT
                 SELECT DISTINCT run_id FROM events WHERE event_type = 'run.materialized'
               ){where_extra}
-            ORDER BY event_number ASC
+            ORDER BY writer_key, event_offset
         """
         rows = self._flight_query(sql)
         return [_parse_event_row(row) for row in rows]

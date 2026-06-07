@@ -43,6 +43,8 @@ _PUT_HOOK_COLUMNS: list[str] = [
     "occurred_at",
     "session_id",
     "run_id",
+    "writer_key",
+    "event_offset",
     "json",
     *TYPED_PAYLOAD_COLUMNS,
 ]
@@ -60,6 +62,8 @@ _EVENT_COLUMNS_FROM_IPC: list[str] = [
     "received_at",
     "session_id",
     "run_id",
+    "writer_key",
+    "event_offset",
     "json",
     *TYPED_PAYLOAD_COLUMNS,
 ]
@@ -95,8 +99,9 @@ _TYPED_COLS_PLACEHOLDERS = ", ".join("?" for _ in TYPED_PAYLOAD_COLUMNS)
 _INSERT_SQL = (
     "INSERT INTO events "
     "(id, event_type, occurred_at, received_at, event_number, "
-    f"session_id, run_id, json, {_TYPED_COLS_SQL}) "
-    f"VALUES (?, ?, ?, now(), nextval('event_seq'), ?, ?, ?, {_TYPED_COLS_PLACEHOLDERS}) "
+    f"session_id, run_id, writer_key, event_offset, json, {_TYPED_COLS_SQL}) "
+    "VALUES (?, ?, ?, now(), nextval('event_seq'), "
+    f"?, ?, ?, ?, ?, {_TYPED_COLS_PLACEHOLDERS}) "
     "ON CONFLICT (id) DO NOTHING"
 )
 
@@ -172,6 +177,8 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             received_at TIMESTAMPTZ,
             session_id VARCHAR,
             run_id VARCHAR,
+            writer_key VARCHAR,
+            event_offset BIGINT,
             json VARCHAR
         )
     """)
@@ -233,6 +240,8 @@ _EVENTS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("event_number", "BIGINT"),
     ("session_id", "VARCHAR"),
     ("run_id", "VARCHAR"),
+    ("writer_key", "VARCHAR"),
+    ("event_offset", "BIGINT"),
     ("json", "VARCHAR"),
     *((col, "VARCHAR") for col in TYPED_PAYLOAD_COLUMNS),
 )
