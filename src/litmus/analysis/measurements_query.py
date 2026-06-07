@@ -1,13 +1,10 @@
 """Read-only query client over the runs DuckDB daemon.
 
-Test runs write raw measurement parquet files; the runs daemon
-exposes them as a single ``measurements`` view via DuckDB
-``read_parquet(glob, union_by_name=true)``. Each ``MeasurementsQuery``
-method sends a SQL query to the daemon over Arrow Flight and returns
-typed rows (long-format, aggregated, or schema descriptions).
-
-The view always reflects current parquet on disk — no separate
-DuckDB connection to keep in sync.
+Each method sends SQL to the daemon over Arrow Flight against the
+``measurements`` view (the ``measurements_materialized`` table plus the
+in-flight overlay). Dynamic in_*/out_*/custom_* columns are read from the
+``dynamic_attrs`` MAP. Returns typed rows (long-format, aggregated, or
+schema descriptions).
 """
 
 from __future__ import annotations

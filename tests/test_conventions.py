@@ -123,3 +123,27 @@ def test_no_hardcoded_platformdirs_paths():
             'hardcoded ``platformdirs.user_data_dir("litmus")``:\n'
             f"{msg}"
         )
+
+
+def test_query_clients_read_daemon_not_parquet():
+    """Query clients read the daemon index — never re-read parquet.
+
+    A client-side ``read_parquet`` (the old ``StepsQuery._enrich_io``)
+    bypasses the daemon's warm index, races the materialize write, and
+    breaks the backend swap (a remote backend has no local parquet
+    path). Per-vector inputs/outputs live in the index as
+    ``dynamic_attrs``; clients read them from the daemon, not the files.
+    """
+    offenders: list[tuple[Path, int, str]] = []
+    for path in sorted((_REPO_ROOT / "src" / "litmus" / "analysis").glob("*_query.py")):
+        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+            if _is_doc_line(line):
+                continue
+            if "read_parquet" in line:
+                offenders.append((path.relative_to(_REPO_ROOT), lineno, line.strip()))
+    if offenders:
+        msg = "\n".join(f"  {p}:{n}  {line}" for p, n, line in offenders)
+        pytest.fail(
+            "Query clients must read the daemon index, not re-read parquet "
+            "(req-2 / req-6, and the #228 projection drift):\n" + msg
+        )
