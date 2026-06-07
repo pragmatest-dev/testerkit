@@ -323,12 +323,18 @@ def daemon_run(events_dir: Path) -> None:
     index_path = events_dir / "_index.duckdb"
     conn = _open_index(index_path)
 
-    # Single shared lock for all DuckDB ops on this connection.
+    # Single shared lock serializes the WRITE path (do_put put-hook +
+    # ingest thread) on the main connection. Reads go lock-free:
+    # ``parallel=True`` makes the Flight server run each do_get on a
+    # per-thread cursor (MVCC snapshot), so a query never waits behind a
+    # write. Writes stay serialized because DuckDB serializes writers
+    # internally and one batch = one atomic ``executemany`` (invariants
+    # rule E1 — no multi-statement atomicity to protect).
     write_lock = threading.Lock()
 
     def _events_put_hook(table: pa.Table) -> None:
+        # Runs under the Flight server's write lock (= write_lock).
         # Tuple-bind path: safe with large strings (register+INSERT segfaults).
-        # Already runs under the Flight server's lock (= write_lock).
         rows = _table_to_rows(table)
         conn.executemany(_INSERT_SQL, rows)
 
@@ -341,9 +347,12 @@ def daemon_run(events_dir: Path) -> None:
         port_file_name="_duckdb_flight_port",
         thread_name="duckdb-flight",
         lock=write_lock,
+        parallel=True,
     )
 
-    # Ingest IPC files that aren't yet in the index via a background thread.
+    # Ingest IPC files that aren't yet in the index via a background
+    # thread, sharing write_lock so its appends serialize against the
+    # put-hook on the main connection.
     threading.Thread(
         target=_ingest_ipc_files,
         args=(conn, events_dir, write_lock),
