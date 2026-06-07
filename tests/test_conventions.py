@@ -149,6 +149,47 @@ def test_query_clients_read_daemon_not_parquet():
         )
 
 
+_CHANNELSTORE_ALLOWED = {
+    # Producers (write their own segments + push) and the daemon /
+    # batch-materialize (server-side disk readers) legitimately
+    # construct a ChannelStore. Everyone else queries via the daemon.
+    "src/litmus/connect.py",
+    "src/litmus/pytest_plugin/__init__.py",
+    "src/litmus/data/channels/_flight_daemon.py",
+    "src/litmus/data/channels/store.py",
+    "src/litmus/data/materialize.py",
+}
+
+
+def test_channel_reads_go_through_daemon_not_globbing_store():
+    """Channel read paths query the daemon — never build a globbing store.
+
+    An ephemeral ``ChannelStore(base, uuid4())`` re-globs every segment
+    per call: a client-side disk re-index (req 2) that also can't reach a
+    remote backend (req 6). Reads go through ``channel_query_client`` →
+    the daemon's warm index. Only producers, the daemon, and batch
+    materialize may construct a ChannelStore.
+    """
+    src = _REPO_ROOT / "src" / "litmus"
+    pattern = re.compile(r"\bChannelStore\(")
+    offenders: list[tuple[str, int, str]] = []
+    for path in src.rglob("*.py"):
+        rel = path.relative_to(_REPO_ROOT).as_posix()
+        if rel in _CHANNELSTORE_ALLOWED:
+            continue
+        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+            if _is_doc_line(line):
+                continue
+            if pattern.search(line):
+                offenders.append((rel, lineno, line.strip()))
+    if offenders:
+        msg = "\n".join(f"  {p}:{n}  {line}" for p, n, line in offenders)
+        pytest.fail(
+            "Channel reads must go through the daemon (``channel_query_client``), "
+            "not a per-call globbing ChannelStore (req-2 / req-6):\n" + msg
+        )
+
+
 def test_inflight_schemas_carry_materialized_data_columns():
     """Inflight overlay must carry the same data columns as the materialized
     tables, so a live run renders identically to a finalized one.

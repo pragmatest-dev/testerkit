@@ -204,6 +204,38 @@ class TestInProcessServer:
 # ---------------------------------------------------------------------------
 
 
+class TestIndexNoDrift:
+    """The warm index must read the same whether a sample arrived live
+    (do_put → pending buffer) or was scanned from a closed segment on a
+    fresh daemon start. A live row and a disk-scanned row of the same
+    data must query identically — the channels analog of Phase B's
+    inflight==materialized no-drift guard.
+    """
+
+    def test_live_ingest_matches_disk_scan(self, tmp_path: Path) -> None:
+        # Store A indexes via the write→index hook (live/pending path)
+        # and persists segments to disk.
+        store_a = ChannelStore(tmp_path, uuid4(), flush_threshold=10, index=True)
+        store_a.open()
+        store_a.write("nd.scalar", 1.5)
+        store_a.write("nd.scalar", 2.5)
+        store_a.write("nd.arr", [1.0, 2.0, 3.0])
+        live_scalar = store_a.query("nd.scalar").column("value").to_pylist()
+        live_arr = store_a.query("nd.arr").column("value").to_pylist()
+        store_a.close()  # flush remaining segments to disk
+
+        # Store B rebuilds the index purely from the disk scan.
+        store_b = ChannelStore(tmp_path, uuid4(), index=True)
+        store_b.open()
+        disk_scalar = store_b.query("nd.scalar").column("value").to_pylist()
+        disk_arr = store_b.query("nd.arr").column("value").to_pylist()
+        store_b.close()
+
+        # Live path and disk-scan path agree, and types round-trip.
+        assert live_scalar == disk_scalar == [1.5, 2.5]
+        assert live_arr == disk_arr == [[1.0, 2.0, 3.0]]
+
+
 class TestDaemonLifecycle:
     """Test the flight_manager acquire/release and daemon spawning.
 
