@@ -1,0 +1,144 @@
+"""Files catalog daemon manager + client helpers.
+
+Subclasses ``DaemonManager`` for the files catalog DuckDB daemon and
+provides the client-side query/push/discovery helpers consumers use to
+reach the daemon's warm catalog (req 2) instead of walking the tree.
+
+Blobs + ``.meta.json`` sidecars are the durable truth; the in-memory
+catalog is rebuilt from them on every daemon start.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+import warnings
+from pathlib import Path
+from typing import Any
+
+import pyarrow as pa
+import pyarrow.flight as flight
+
+from litmus.data._daemon_lifecycle import DaemonManager, _pid_alive
+from litmus.data._flight_query import (
+    FlightQueryClient,
+    _drop_pooled_client,
+    _get_pooled_client,
+)
+from litmus.data.files.catalog import CATALOG_ARROW_SCHEMA
+
+
+class FilesCatalogManager(DaemonManager):
+    """Manages the files catalog DuckDB daemon."""
+
+    _state_name = "_files_catalog.json"
+    _lock_name = "_files_catalog.lock"
+    _ready_name = "_files_catalog_ready"
+    _pid_name = "_files_catalog_pid"
+    _daemon_module = "litmus.data.files._catalog_daemon"
+    _port_file = "_files_catalog_flight_port"
+
+
+def acquire(files_dir: Path) -> str:
+    """Acquire a ref to the catalog daemon, starting it if needed.
+
+    Returns the gRPC location string for Flight queries.
+    """
+    mgr = FilesCatalogManager(files_dir)
+    mgr.acquire()
+    deadline = time.monotonic() + 5.0
+    while True:
+        location = mgr.read_state().get("location")
+        if location:
+            return location
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"files catalog daemon started but no location in state after 5s: {files_dir}"
+            )
+        time.sleep(0.05)
+
+
+def release(files_dir: Path) -> None:
+    """Release our reference to the catalog daemon."""
+    FilesCatalogManager(files_dir).release()
+
+
+def is_running(files_dir: Path) -> bool:
+    """Return True iff a live catalog daemon is serving ``files_dir``.
+
+    Inspection only — never spawns. Consumers use this to prefer the
+    warm catalog when a daemon is up, and fall back to the local walk
+    otherwise (so unit tests with throwaway data dirs don't spawn a
+    per-test daemon). Phase E removes the walk fallback entirely.
+    """
+    state = files_dir / FilesCatalogManager._state_name
+    if not state.exists():
+        return False
+    try:
+        data = json.loads(state.read_text())
+        pid = data.get("pid")
+    except (json.JSONDecodeError, OSError):
+        return False
+    return isinstance(pid, int) and _pid_alive(pid)
+
+
+def _sql_str(value: str) -> str:
+    return value.replace("'", "''")
+
+
+def query_catalog(files_dir: Path, sql: str) -> list[dict[str, Any]]:
+    """Run a catalog SQL query against the daemon (acquires + releases)."""
+    location = acquire(files_dir)
+    try:
+        client = FlightQueryClient(
+            location,
+            "files",
+            reacquire=lambda: acquire(files_dir),
+            label="FileCatalog",
+        )
+        return client.query(sql)
+    finally:
+        release(files_dir)
+
+
+def resolve_uri(files_dir: Path, uri: str) -> str | None:
+    """Resolve a ``file://`` URI to its on-disk path via the warm catalog."""
+    rows = query_catalog(
+        files_dir,
+        f"SELECT path FROM file_catalog WHERE uri = '{_sql_str(uri)}' LIMIT 1",
+    )
+    return rows[0]["path"] if rows else None
+
+
+def list_recent(files_dir: Path, limit: int) -> list[dict[str, Any]]:
+    """Return the ``limit`` most-recent catalog rows, newest first."""
+    return query_catalog(
+        files_dir,
+        f"SELECT * FROM file_catalog ORDER BY created_at DESC LIMIT {int(limit)}",
+    )
+
+
+def push_artifact(files_dir: Path, row: dict[str, Any]) -> None:
+    """Push one catalog row to the daemon (best-effort, non-fatal).
+
+    Called by ``FileStore.write`` after the blob + sidecar land durably.
+    Non-fatal: the sidecar is the durable truth, so a failed push just
+    means the artifact isn't in the warm catalog until the next daemon
+    restart rescans it. Skips silently when no daemon is running, so
+    plain writes never spawn one.
+    """
+    if not is_running(files_dir):
+        return
+    location = acquire(files_dir)
+    try:
+        client = _get_pooled_client(location)
+        tbl = pa.Table.from_pylist([row], schema=CATALOG_ARROW_SCHEMA)
+        descriptor = flight.FlightDescriptor.for_command(b"files\0file_catalog")
+        writer, _ = client.do_put(descriptor, tbl.schema)
+        writer.write_table(tbl)
+        writer.close()
+    except (OSError, RuntimeError, pa.ArrowException) as exc:
+        _drop_pooled_client(location)
+        warnings.warn(f"Files catalog push failed (non-fatal): {exc}", stacklevel=2)
+    finally:
+        release(files_dir)

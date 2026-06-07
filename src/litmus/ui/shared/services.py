@@ -1672,13 +1672,33 @@ def list_recent_files(*, limit: int = 200) -> list[dict[str, Any]]:
     exists OR the FileStore directory itself is absent — call
     :func:`files_dir_exists` to distinguish the two cases.
     """
+    import json
+
     from litmus.data.data_dir import resolve_data_dir
+    from litmus.data.files.catalog_manager import is_running, list_recent
     from litmus.data.files.models import FileArtifactMetadata
 
     project_dir = _resolve_data_dir()
     files_dir = resolve_data_dir(project_dir) / "files"
     if not files_dir.exists():
         return []
+
+    # Prefer the daemon's warm catalog (req 2); fall back to the tree
+    # walk when no daemon is running. Phase E removes the walk.
+    if is_running(files_dir):
+        return [
+            {
+                "uri": r["uri"],
+                "session_id": r["session_id"],
+                "filename": r["name"],
+                "mime": r["mime"],
+                "extension": r["extension"],
+                "size_bytes": r["size_bytes"],
+                "created_at": r["created_at"],
+                "attributes": json.loads(r["attributes"]) if r["attributes"] else {},
+            }
+            for r in list_recent(files_dir, limit)
+        ]
 
     sidecar_suffix = ".meta.json"
     entries: list[dict[str, Any]] = []

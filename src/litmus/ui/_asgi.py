@@ -165,14 +165,17 @@ def _hold_serve_level_daemon_refs() -> None:
     from litmus.data import runs_duckdb_manager as _runs_mgr
     from litmus.data.channels import flight_manager as _channels_mgr
     from litmus.data.data_dir import resolve_data_dir
+    from litmus.data.files import catalog_manager as _files_mgr
 
     results = Path(resolve_data_dir())
     runs_dir = results / "runs"
     events_dir = results / "events"
     channels_dir = results / "channels"
+    files_dir = results / "files"
     runs_dir.mkdir(parents=True, exist_ok=True)
     events_dir.mkdir(parents=True, exist_ok=True)
     channels_dir.mkdir(parents=True, exist_ok=True)
+    files_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         _runs_mgr.acquire(runs_dir)
@@ -187,6 +190,10 @@ def _hold_serve_level_daemon_refs() -> None:
         channels_location = _channels_mgr.acquire(channels_dir)
     except Exception as exc:  # noqa: BLE001
         _log(f"[ASGI] channels daemon eager acquire failed: {exc}")
+    try:
+        _files_mgr.acquire(files_dir)
+    except Exception as exc:  # noqa: BLE001
+        _log(f"[ASGI] files catalog daemon eager acquire failed: {exc}")
 
     # Bridge the channels daemon's Flight server into NiceGUI Event
     # signals so live-channel pages (channel detail chart, /live

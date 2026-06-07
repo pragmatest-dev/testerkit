@@ -35,6 +35,16 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from litmus.data.data_dir import resolve_data_dir
+from litmus.data.files.catalog import catalog_row
+from litmus.data.files.catalog_manager import (
+    is_running as _catalog_running,
+)
+from litmus.data.files.catalog_manager import (
+    push_artifact as _catalog_push,
+)
+from litmus.data.files.catalog_manager import (
+    resolve_uri as _catalog_resolve,
+)
 from litmus.data.files.models import FileArtifactMetadata
 from litmus.data.files.serializers import find_serializer
 from litmus.data.files.streaming import StreamingSink, get_format
@@ -170,7 +180,22 @@ class FileStore:
         sidecar_tmp.write_text(metadata.model_dump_json())
         sidecar_tmp.replace(sidecar_path)
 
-        return f"file://{session_id}/{filename}"
+        uri = f"file://{session_id}/{filename}"
+        # Keep the daemon's warm catalog current (req 2). Best-effort and
+        # non-spawning: skips silently if no daemon is running, and the
+        # sidecar on disk is the durable truth a restart rebuilds from.
+        _catalog_push(
+            self._files_dir,
+            catalog_row(
+                uri=uri,
+                session_id=session_id,
+                name=filename,
+                path=dest,
+                meta=metadata,
+                created_at=datetime.now(UTC),
+            ),
+        )
+        return uri
 
     def open_stream(
         self,
@@ -298,6 +323,14 @@ class FileStore:
         # artifact.
         if filename.endswith(_SIDECAR_SUFFIX):
             return None
+        # Prefer the daemon's warm catalog (req 2). Fall through to the
+        # date-dir walk when no daemon is running (tests, offline) or the
+        # catalog hasn't caught up to a just-written file. Phase E removes
+        # the walk fallback once the backend swap requires it.
+        if _catalog_running(self._files_dir):
+            hit = _catalog_resolve(self._files_dir, uri)
+            if hit is not None:
+                return Path(hit)
         for date_dir in self._files_dir.glob("*"):
             candidate = date_dir / session_id / filename
             if candidate.exists():
