@@ -32,29 +32,11 @@ from litmus.data._ipc_writer import read_ipc_batches
 from litmus.data.duckdb_manager import DuckDBDaemonManager
 from litmus.data.events import TYPED_PAYLOAD_COLUMNS
 
-# Columns the daemon binds from each row when inserting into ``events``.
-# ``received_at`` is deliberately EXCLUDED — server-stamped via ``now()``
-# in ``_INSERT_SQL`` (see comment there). All other columns in the IPC
-# schema (envelope + every typed payload column) bind by position to
-# the ``?`` placeholders in ``_INSERT_SQL``.
-_PUT_HOOK_COLUMNS: list[str] = [
-    "id",
-    "event_type",
-    "occurred_at",
-    "session_id",
-    "run_id",
-    "writer_key",
-    "event_offset",
-    "json",
-    *TYPED_PAYLOAD_COLUMNS,
-]
-
-# Columns to narrow an IPC-loaded Arrow table to before binding. The IPC
-# file's schema may be wider than what we INSERT — this narrows it to
-# only the columns the daemon's events table cares about, then
-# ``_table_to_rows`` extracts ``_PUT_HOOK_COLUMNS`` for the bind. The
-# extra ``received_at`` column in the loaded table is read but
-# discarded (the daemon's ``now()`` overrides on insert).
+# Columns to narrow an IPC-loaded Arrow table to before inserting. The
+# IPC file's schema may be wider than what we INSERT — this narrows it to
+# only the columns the daemon's events table cares about. The extra
+# ``received_at`` column in the loaded table is carried but unreferenced
+# (the daemon's ``now()`` overrides it on insert).
 _EVENT_COLUMNS_FROM_IPC: list[str] = [
     "id",
     "event_type",
@@ -89,53 +71,58 @@ _EVENT_COLUMNS_FROM_IPC: list[str] = [
 #   timestamp) has subtle wall-clock ordering issues across concurrent
 #   put-hook batches even with the server lock, while ``nextval``
 #   advances under the same lock as the INSERT and is bulletproof.
-# The bind order matches ``_PUT_HOOK_COLUMNS`` exactly:
-#   id, event_type, occurred_at, session_id, run_id, json, *TYPED_PAYLOAD_COLUMNS
-# ``received_at`` and ``event_number`` are server-stamped (now() + nextval)
-# so they don't take bind placeholders. The typed payload columns trail
-# the envelope; adding one is a single edit in ``events.py``.
+# Vectorized insert: register the Arrow batch as a view and
+# ``INSERT ... SELECT`` it in ONE columnar statement. DuckDB is a
+# columnar engine — row-by-row ``executemany`` against the VARCHAR
+# primary-key index runs ~800x slower (measured 763 vs 617k rows/s on
+# the same batch). ``received_at`` / ``event_number`` are server-stamped
+# in the SELECT (now() + nextval); ``ON CONFLICT (id) DO NOTHING`` keeps
+# re-ingest idempotent. Columns are referenced by name, so a wider IPC
+# table (it also carries ``received_at``) is fine — the extra column is
+# unreferenced. The typed payload columns trail the envelope; adding one
+# is a single edit in ``events.py``.
 _TYPED_COLS_SQL = ", ".join(TYPED_PAYLOAD_COLUMNS)
-_TYPED_COLS_PLACEHOLDERS = ", ".join("?" for _ in TYPED_PAYLOAD_COLUMNS)
-_INSERT_SQL = (
-    "INSERT INTO events "
-    "(id, event_type, occurred_at, received_at, event_number, "
-    f"session_id, run_id, writer_key, event_offset, json, {_TYPED_COLS_SQL}) "
-    "VALUES (?, ?, ?, now(), nextval('event_seq'), "
-    f"?, ?, ?, ?, ?, {_TYPED_COLS_PLACEHOLDERS}) "
-    "ON CONFLICT (id) DO NOTHING"
+_INSERT_COLUMNS = (
+    "id, event_type, occurred_at, received_at, event_number, "
+    f"session_id, run_id, writer_key, event_offset, json, {_TYPED_COLS_SQL}"
+)
+_SELECT_EXPRS = (
+    "id, event_type, occurred_at, now(), nextval('event_seq'), "
+    f"session_id, run_id, writer_key, event_offset, json, {_TYPED_COLS_SQL}"
 )
 
 
-def _table_to_rows(table: pa.Table) -> list[tuple]:
-    """Convert Arrow table to tuples for SQL bind on both live and IPC paths.
-
-    DuckDB segfaults when inserting Arrow tables with large strings via
-    the register/INSERT path. SQL parameter binding works fine.
-
-    Skips ``received_at`` — server-stamped via ``now()`` in
-    ``_INSERT_SQL``. The 6 columns bind to the 6 ``?`` placeholders.
-    """
-    cols = [table.column(c).to_pylist() for c in _PUT_HOOK_COLUMNS]
-    return list(zip(*cols))
+def _insert_sql(view: str) -> str:
+    """Vectorized ``INSERT INTO events SELECT ... FROM <view>`` statement."""
+    return (
+        f"INSERT INTO events ({_INSERT_COLUMNS}) "
+        f"SELECT {_SELECT_EXPRS} FROM {view} "
+        "ON CONFLICT (id) DO NOTHING"
+    )
 
 
-def _insert_events(
-    cur: duckdb.DuckDBPyConnection, rows: list[tuple], *, attempts: int = 25
-) -> None:
-    """``executemany(_INSERT_SQL)`` with retry on write-write conflicts.
+def _insert_events(cur: duckdb.DuckDBPyConnection, table: pa.Table, *, attempts: int = 25) -> None:
+    """Register ``table`` and insert it vectorized, retrying on conflicts.
 
     Lock-free writes (the put-hook on a per-Flight-thread cursor and the
     ingest thread on its own cursor) append to ``events`` concurrently
     under DuckDB's MVCC; the loser of a concurrent commit raises
-    ``TransactionException``. Retry is safe and idempotent —
-    ``_INSERT_SQL`` is ``ON CONFLICT (id) DO NOTHING``, so re-running rows
-    already committed by the prior attempt is a no-op (it only burns
-    ``event_seq`` values; gaps in ``event_number`` are fine — only
-    monotonicity matters, not density).
+    ``TransactionException``. Retry is safe and idempotent — the INSERT
+    is ``ON CONFLICT (id) DO NOTHING``, so re-running rows already
+    committed by the prior attempt is a no-op (it only burns ``event_seq``
+    values; gaps in ``event_number`` are fine — only monotonicity matters,
+    not density). The view name carries the thread id so concurrent
+    cursors never clobber each other's registration.
     """
+    view = f"_ins_{threading.get_ident()}"
+    sql = _insert_sql(view)
     for i in range(attempts):
         try:
-            cur.executemany(_INSERT_SQL, rows)
+            cur.register(view, table)
+            try:
+                cur.execute(sql)
+            finally:
+                cur.unregister(view)
             return
         except duckdb.TransactionException:
             if i == attempts - 1:
@@ -324,9 +311,8 @@ def _ingest_one_file(
         return
 
     try:
-        rows = _table_to_rows(table)
-        _insert_events(conn, rows)
-        _mark("ok", row_count=len(rows))
+        _insert_events(conn, table)
+        _mark("ok", row_count=table.num_rows)
     except (duckdb.Error, UnicodeDecodeError, pa.ArrowException, ValueError) as exc:
         # ``UnicodeDecodeError`` happens when an IPC file has a torn /
         # partial string buffer (mid-write crash, FS bit-flip).
@@ -376,10 +362,11 @@ def daemon_run(events_dir: Path) -> None:
         return cur
 
     def _events_put_hook(table: pa.Table) -> pa.Table | None:
-        # Tuple-bind path: safe with large strings (register+INSERT segfaults).
+        # Vectorized register + INSERT ... SELECT (columnar, ~800x faster
+        # than the old row-by-row executemany; no large-string segfault in
+        # DuckDB >= 1.5).
         cur = _events_cursor()
-        rows = _table_to_rows(table)
-        _insert_events(cur, rows)
+        _insert_events(cur, table)
         srv = srv_cell.get("s")
         if srv is None or not srv.has_subscribers("events"):
             return None
