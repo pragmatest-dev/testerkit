@@ -120,6 +120,10 @@ class TestFormatRegistry:
                 self.byte_offset = 0
                 self.stream_id = uuid4()
 
+            @property
+            def uri(self) -> str:
+                return f"file://{self._sid}/{self.path.name}"
+
             def write(self, chunk: bytes) -> int:
                 n = self._file.write(chunk.upper())
                 self.byte_offset += n

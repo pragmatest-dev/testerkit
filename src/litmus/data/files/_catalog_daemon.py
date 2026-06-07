@@ -23,7 +23,12 @@ from litmus.data._duckdb_flight_server import (
     shutdown_flight_server_in_daemon,
     start_flight_server_in_daemon,
 )
-from litmus.data.files.catalog import ensure_schema, scan_sidecars
+from litmus.data.files.catalog import (
+    FRAME_ARROW_SCHEMA,
+    FRAMES_DB,
+    ensure_schema,
+    scan_sidecars,
+)
 from litmus.data.files.catalog_manager import FilesCatalogManager
 
 
@@ -46,6 +51,14 @@ def daemon_run(files_dir: Path) -> None:
         thread_name="files-catalog-flight",
         lock=write_lock,
     )
+
+    # Ephemeral stream-frame fan-out: a hook-only db that publishes each
+    # do_put frame to live subscribers without persisting it (the durable
+    # record stays the on-disk artifact; the EventStore stays
+    # lifecycle-only). Lets consumers range-read a growing artifact
+    # push-style (req 5) instead of polling its size.
+    server.register_put_hook(FRAMES_DB, lambda table: table)
+    server.register_subscribe_schema(FRAMES_DB, FRAME_ARROW_SCHEMA)
 
     mgr.monitor_refs()
 

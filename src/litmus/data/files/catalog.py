@@ -59,6 +59,23 @@ CATALOG_ARROW_SCHEMA = pa.schema(
 )
 
 
+# Ephemeral live-stream frame notifications. NOT a durable event (the
+# committed design keeps stream events lifecycle-only — StreamStarted /
+# StreamEnded — to avoid flooding the EventStore at kHz/30 fps rates).
+# Frames ride a fan-out-only Flight db so live consumers get a no-poll
+# signal to range-read the new byte window of a still-growing artifact.
+FRAMES_DB = "file_frames"
+
+FRAME_ARROW_SCHEMA = pa.schema(
+    [
+        ("stream_id", pa.utf8()),
+        ("uri", pa.utf8()),
+        ("byte_offset", pa.int64()),
+        ("length", pa.int64()),
+    ]
+)
+
+
 def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(CATALOG_DDL)
 

@@ -11,8 +11,10 @@ catalog is rebuilt from them on every daemon start.
 from __future__ import annotations
 
 import json
+import threading
 import time
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +27,11 @@ from litmus.data._flight_query import (
     _drop_pooled_client,
     _get_pooled_client,
 )
-from litmus.data.files.catalog import CATALOG_ARROW_SCHEMA
+from litmus.data.files.catalog import (
+    CATALOG_ARROW_SCHEMA,
+    FRAME_ARROW_SCHEMA,
+    FRAMES_DB,
+)
 
 
 class FilesCatalogManager(DaemonManager):
@@ -142,3 +148,88 @@ def push_artifact(files_dir: Path, row: dict[str, Any]) -> None:
         warnings.warn(f"Files catalog push failed (non-fatal): {exc}", stacklevel=2)
     finally:
         release(files_dir)
+
+
+def publish_frame(
+    files_dir: Path,
+    *,
+    stream_id: str,
+    uri: str,
+    byte_offset: int,
+    length: int,
+) -> None:
+    """Publish one ephemeral stream-frame notification (best-effort).
+
+    Called by a streaming sink after each ``write``. Fans out to live
+    subscribers so they range-read ``[byte_offset, byte_offset+length)``
+    of the growing artifact (req 5: no poll). NOT persisted — the on-disk
+    artifact is the durable record. Skips silently when no daemon runs,
+    so plain streaming never spawns one.
+    """
+    if not is_running(files_dir):
+        return
+    location = acquire(files_dir)
+    try:
+        client = _get_pooled_client(location)
+        tbl = pa.Table.from_pylist(
+            [
+                {
+                    "stream_id": stream_id,
+                    "uri": uri,
+                    "byte_offset": byte_offset,
+                    "length": length,
+                }
+            ],
+            schema=FRAME_ARROW_SCHEMA,
+        )
+        descriptor = flight.FlightDescriptor.for_command(f"{FRAMES_DB}\0frames".encode())
+        writer, _ = client.do_put(descriptor, tbl.schema)
+        writer.write_table(tbl)
+        writer.close()
+    except (OSError, RuntimeError, pa.ArrowException) as exc:
+        _drop_pooled_client(location)
+        warnings.warn(f"Files frame publish failed (non-fatal): {exc}", stacklevel=2)
+    finally:
+        release(files_dir)
+
+
+def subscribe_frames(
+    files_dir: Path,
+    callback: Callable[[dict[str, Any]], None],
+) -> Callable[[], None]:
+    """Subscribe to live stream-frame notifications. Returns an unsub callable.
+
+    Spawns a reader thread that calls ``callback`` with each frame dict
+    (``stream_id``/``uri``/``byte_offset``/``length``). Holds a daemon
+    ref for the subscription's lifetime; ``unsub`` closes the stream and
+    releases it. Uses a dedicated client so closing it cleanly interrupts
+    the held-open ``do_get``.
+    """
+    location = acquire(files_dir)
+    client = flight.connect(location)
+    stop = threading.Event()
+
+    def _run() -> None:
+        try:
+            reader = client.do_get(flight.Ticket(f"{FRAMES_DB}\0__SUBSCRIBE__".encode()))
+            for chunk in reader:
+                if stop.is_set():
+                    break
+                batch = chunk.data
+                for i in range(batch.num_rows):
+                    callback({c: batch.column(c)[i].as_py() for c in batch.schema.names})
+        except (OSError, pa.ArrowException):
+            pass
+
+    thread = threading.Thread(target=_run, daemon=True, name="files-frame-sub")
+    thread.start()
+
+    def unsub() -> None:
+        stop.set()
+        try:
+            client.close()
+        except (OSError, RuntimeError, pa.ArrowException):
+            pass
+        release(files_dir)
+
+    return unsub

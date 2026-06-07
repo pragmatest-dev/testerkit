@@ -1,8 +1,11 @@
 """FileStore streaming sinks — build item 2 (C5).
 
 Streaming sinks open one file, accept chunks over time, finalize on
-close, and emit :class:`StreamStarted` / :class:`StreamFrameIndex` /
-:class:`StreamEnded` events around the lifecycle (build item 1b).
+close, and emit :class:`StreamStarted` / :class:`StreamEnded` lifecycle
+events around it (build item 1b). The durable event log stays
+lifecycle-only; per-chunk **frames** fan out ephemerally through the
+files catalog daemon (not the event log) so live consumers range-read
+the new byte window push-style without flooding the EventStore.
 
 Two write surfaces share this module:
 
@@ -48,6 +51,7 @@ from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 import orjson
 
 from litmus.data.events import StreamEnded, StreamStarted
+from litmus.data.files.catalog_manager import publish_frame
 
 # Optional-extra deps: nptdms (TDMS) and h5py (HDF5) are gated behind
 # install extras (``pip install litmus-test[tdms,hdf5]``). The top-level
@@ -100,7 +104,8 @@ class StreamingSink(Protocol):
     Implementations:
 
     - own the open file handle (or its library equivalent)
-    - emit :class:`StreamFrameIndex` per :meth:`write`
+    - publish an ephemeral frame notification per :meth:`write` (via the
+      files daemon, not the event log)
     - emit :class:`StreamEnded` exactly once on :meth:`close` (and
       tolerate repeated :meth:`close` calls — idempotent)
 
@@ -116,13 +121,18 @@ class StreamingSink(Protocol):
     def path(self) -> Path: ...
 
     @property
+    def uri(self) -> str:
+        """The ``file://`` URI for this stream's artifact (stable from open)."""
+        ...
+
+    @property
     def byte_offset(self) -> int:
         """Total bytes appended so far. Live consumers range-read
-        ``[prev_offset, byte_offset)`` after each ``frame_index`` event."""
+        ``[prev_offset, byte_offset)`` after each frame notification."""
         ...
 
     def write(self, chunk: Any) -> int:
-        """Append ``chunk`` and emit :class:`StreamFrameIndex`.
+        """Append ``chunk`` and publish an ephemeral frame notification.
 
         Returns the number of bytes written (or 0 if the underlying
         library tracks size internally and the sink can't measure it
@@ -317,8 +327,24 @@ class _BaseSink:
         )
 
     def _track_bytes(self, bytes_written: int) -> None:
-        """Track total bytes written; no event emission (lifecycle-only)."""
+        """Track total bytes written + publish an ephemeral frame.
+
+        The durable event log stays lifecycle-only (StreamStarted /
+        StreamEnded) — no per-chunk event. Instead each chunk fans out a
+        non-persisted frame notification via the files daemon so live
+        consumers range-read ``[prev, prev+written)`` push-style (req 5).
+        Best-effort + non-spawning: a no-op when no daemon runs.
+        """
+        prev = self._byte_offset
         self._byte_offset += bytes_written
+        if bytes_written > 0:
+            publish_frame(
+                self._path.parents[2],
+                stream_id=str(self._stream_id),
+                uri=self.uri,
+                byte_offset=prev,
+                length=bytes_written,
+            )
 
     def _emit_ended(self, uri: str) -> None:
         if self._event_log is None:

@@ -223,15 +223,16 @@ class FileStore:
         - allocates the on-disk path (collision-safe via the same
           ``_unique_filename`` scheme as :meth:`write`)
         - emits :class:`StreamStarted` on open (carries absolute path)
-        - emits :class:`StreamFrameIndex` after every :meth:`write` call
-          (carries ``byte_offset`` for HTTP range-read)
+        - publishes an ephemeral frame notification after every
+          :meth:`write` (via the files daemon, not the event log) so
+          consumers HTTP range-read the new byte window
         - emits :class:`StreamEnded` on :meth:`close` (carries final
           ``file://`` URI + total size)
         - writes the item-1c sidecar metadata on close
 
         Live consumers learn the path from :class:`StreamStarted`,
-        range-read the new byte window on each :class:`StreamFrameIndex`,
-        and reach the final URI in :class:`StreamEnded`. See the
+        range-read the new byte window on each frame notification, and
+        reach the final URI in :class:`StreamEnded`. See the
         :mod:`litmus.data.files.streaming` module docstring for format
         coverage + caveats per format on partial-decode-during-write.
 

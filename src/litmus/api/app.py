@@ -315,7 +315,7 @@ def create_api_router() -> APIRouter:
         return _serialize_ref(result)
 
     @router.get("/files")
-    def get_file(uri: str) -> Response:
+    def get_file(uri: str, request: Request) -> Response:
         """Serve a FileStore artifact directly by ``file://`` URI.
 
         Companion to :func:`get_ref` for the case where there's no
@@ -323,10 +323,11 @@ def create_api_router() -> APIRouter:
         FileStore artifact reachable by URI alone.
 
         ``uri`` must be ``file://{session_id}/{filename}``; the endpoint
-        resolves through :class:`FileStore` (which walks date-partitioned
-        session dirs) and serves the bytes with a magic-byte-sniffed
-        ``Content-Type``. Supports HTTP range reads so live consumers
-        can range-read a still-growing stream artifact.
+        resolves through the FileStore (daemon catalog when warm, else a
+        date-dir walk) and serves the bytes with a magic-byte-sniffed
+        ``Content-Type``. Honors HTTP ``Range`` (``206 Partial Content``)
+        so a consumer can range-read a still-growing stream artifact
+        without re-fetching the whole file.
         """
         from litmus.data.files import get_filestore
 
@@ -336,9 +337,51 @@ def create_api_router() -> APIRouter:
         if path is None or not path.exists():
             raise HTTPException(status_code=404, detail=f"Not found: {uri}")
 
-        data = path.read_bytes()
-        content_type = sniff_mime(data[:64])
-        return Response(content=data, media_type=content_type)
+        file_size = path.stat().st_size
+        with path.open("rb") as fh:
+            content_type = sniff_mime(fh.read(64))
+
+        range_header = request.headers.get("range")
+        if not range_header:
+            return Response(
+                content=path.read_bytes(),
+                media_type=content_type,
+                headers={"Accept-Ranges": "bytes", "Content-Length": str(file_size)},
+            )
+
+        # Parse a single ``bytes=start-end`` range (open-ended ends ok).
+        try:
+            unit, _, spec = range_header.partition("=")
+            start_s, _, end_s = spec.partition("-")
+            if unit.strip() != "bytes":
+                raise ValueError(f"unsupported range unit: {unit!r}")
+            start = int(start_s) if start_s else 0
+            end = int(end_s) if end_s else file_size - 1
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Bad Range: {range_header!r} ({exc})"
+            ) from exc
+
+        if start < 0 or start >= file_size or start > end:
+            raise HTTPException(
+                status_code=416,
+                detail="Requested Range Not Satisfiable",
+                headers={"Content-Range": f"bytes */{file_size}"},
+            )
+        end = min(end, file_size - 1)
+        with path.open("rb") as fh:
+            fh.seek(start)
+            chunk = fh.read(end - start + 1)
+        return Response(
+            content=chunk,
+            status_code=206,
+            media_type=content_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(len(chunk)),
+            },
+        )
 
     @router.post("/runs", response_model=RunLaunchResponse)
     async def start_run(request: LaunchRequest):
