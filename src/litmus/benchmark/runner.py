@@ -101,11 +101,12 @@ def run_benchmark(
         options=options.as_dict(),
     )
 
+    total = len(cases)
     try:
         with ResourceSampler() as sampler:
-            for case in cases:
+            for i, case in enumerate(cases, 1):
                 label = case.key
-                progress(f"{label} ...")
+                progress(f"[{i}/{total}] {i * 100 // total:>3}%  {label} ...")
                 sampler.mark(label)
                 records: int | None = None
                 if case.writers == 1 and case.setup is not None:
@@ -133,7 +134,7 @@ def run_benchmark(
                         max(walls),
                     )
                 sampler.mark(None)
-                load = sampler.case(label)
+                load = sampler.case(label, case.store)
                 report.results.append(
                     WorkloadResult(
                         op=case.op,
@@ -148,12 +149,12 @@ def run_benchmark(
                         max_s=mx,
                         records=records,
                         bytes_per_unit=case.bytes_per_unit,
-                        peak_rss_mb=load["peak_rss_mb"],  # type: ignore[arg-type]
-                        cpu_pct_mean=load["cpu_pct_mean"],  # type: ignore[arg-type]
-                        cpu_pct_max=load["cpu_pct_max"],  # type: ignore[arg-type]
+                        daemon_rss_mb=load["rss_mb"],  # type: ignore[arg-type]
+                        daemon_cores_mean=load["cores_mean"],  # type: ignore[arg-type]
+                        daemon_cores_peak=load["cores_peak"],  # type: ignore[arg-type]
                     )
                 )
-            report.resources = sampler.overall()
+            report.resources = sampler.per_store()
     finally:
         _kill_daemons(data_dir)
         shutil.rmtree(data_dir, ignore_errors=True)
@@ -267,38 +268,73 @@ def _fmt_bytes_s(bps: float | None) -> str:
     return f"{bps:,.0f} B/s"
 
 
-def format_markdown(report: BenchmarkReport) -> str:
+def _short_os(platform_str: object) -> str:
+    """'Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-...' -> 'Linux 6.6 (WSL2)'."""
+    s = str(platform_str)
+    parts = s.split("-")
+    sys_name = parts[0] if parts else s
+    ver = parts[1].rsplit(".", 1)[0] if len(parts) > 1 else ""
+    wsl = " (WSL2)" if "WSL2" in s or "microsoft" in s.lower() else ""
+    return f"{sys_name} {ver}{wsl}".strip()
+
+
+def _meta_groups(report: BenchmarkReport) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Header facts grouped as ``[(group, [(field, value), ...]), ...]``."""
     hw, ver, opts = report.hardware, report.versions, report.options
+    return [
+        (
+            "Run",
+            [
+                ("Tier", str(opts.get("tier"))),
+                ("Cases", str(len(report.results))),
+                ("Duration", f"{report.duration_s:.0f} s"),
+            ],
+        ),
+        (
+            "Machine",
+            [
+                ("CPU", f"{hw.get('cpu_count')} × {hw.get('machine')}"),
+                ("RAM", f"{hw.get('ram_gb')} GB"),
+                ("OS", _short_os(hw.get("platform"))),
+            ],
+        ),
+        (
+            "Versions",
+            [
+                ("litmus", str(ver.get("litmus"))),
+                ("Python", str(ver.get("python"))),
+                ("pyarrow", str(ver.get("pyarrow"))),
+                ("duckdb", str(ver.get("duckdb"))),
+            ],
+        ),
+    ]
+
+
+def format_markdown(report: BenchmarkReport) -> str:
     out: list[str] = ["# Litmus benchmark", ""]
-    out.append(
-        f"- **Machine:** {hw.get('cpu_model')} x{hw.get('cpu_count')}, "
-        f"{hw.get('ram_gb')} GB RAM, {hw.get('platform')}"
-    )
-    out.append(
-        f"- **Versions:** litmus {ver.get('litmus')}, Python {ver.get('python')}, "
-        f"pyarrow {ver.get('pyarrow')}, duckdb {ver.get('duckdb')}"
-    )
-    out.append(
-        f"- **Run:** {opts.get('tier')} tier, {len(report.results)} cases, "
-        f"{report.duration_s:.1f} s"
-    )
+    out.append("| Group | Field | Value |")
+    out.append("|---|---|---|")
+    for group, fields in _meta_groups(report):
+        for idx, (field, value) in enumerate(fields):
+            label = f"**{group}**" if idx == 0 else ""
+            out.append(f"| {label} | {field} | {value} |")
     out.append("")
 
     # Raw results — one row per (operation x units x writers).
     out.append("## Results (one row per case)")
     out.append("")
     out.append(
-        "| Operation | Units | Writers | Best (ms) | Mean (ms) | Throughput | "
-        "Bytes/s | Peak RSS | CPU% |"
+        "| Operation | Units | Writers | Best (ms) | Throughput | Bytes/s "
+        "| Daemon RSS | Daemon CPU |"
     )
-    out.append("|---|--:|--:|--:|--:|--:|--:|--:|--:|")
+    out.append("|---|--:|--:|--:|--:|--:|--:|--:|")
     for r in _ordered(report.results):
-        rss = f"{r.peak_rss_mb:,.0f} MB" if r.peak_rss_mb is not None else "—"
-        cpu = f"{r.cpu_pct_max:.0f}%" if r.cpu_pct_max is not None else "—"
+        rss = f"{r.daemon_rss_mb:,.0f} MB" if r.daemon_rss_mb is not None else "—"
+        cores = f"{r.daemon_cores_mean:.2f} cores" if r.daemon_cores_mean is not None else "—"
         bps = _fmt_bytes_s(r.bytes_per_s)
         out.append(
             f"| `{r.op}` | {r.scale:,} | {r.writers} | {r.min_s * 1000:.3f} | "
-            f"{r.mean_s * 1000:.3f} | {r.throughput:,.0f} {r.unit}/s | {bps} | {rss} | {cpu} |"
+            f"{r.throughput:,.0f} {r.unit}/s | {bps} | {rss} | {cores} |"
         )
     out.append("")
 
@@ -316,9 +352,12 @@ def format_markdown(report: BenchmarkReport) -> str:
     out.append("|---|--:|--:|--:|--:|")
     for c in _cost_models(report.results):
         u = c.unit[:-1] if c.unit.endswith("s") else c.unit
-        rate = f"{c.marginal_per_s:,.0f} {c.unit}/s" if c.marginal_per_s else "—"
-        per = f"{c.marginal_us:.2f} µs/{u}" if c.marginal_us else "—"
-        byr = _fmt_bytes_s(c.marginal_bytes_per_s)
+        flat = c.marginal_us < 0.05  # below measurement resolution → no per-unit cost
+        rate = (
+            "flat" if flat else (f"{c.marginal_per_s:,.0f} {c.unit}/s" if c.marginal_per_s else "—")
+        )
+        per = "≈0 (flat)" if flat else f"{c.marginal_us:.2f} µs/{u}"
+        byr = "—" if flat else _fmt_bytes_s(c.marginal_bytes_per_s)
         out.append(
             f"| `{c.op}` | {c.floor_ms:.3f} ms @ {c.floor_units:,} {c.unit} "
             f"| {rate} | {per} | {byr} |"
@@ -340,46 +379,44 @@ def format_markdown(report: BenchmarkReport) -> str:
             out.append(f"| `{op}` | " + " | ".join(cells) + f" | {sp} |")
         out.append("")
 
-    if report.resources is not None:
-        res = report.resources
-        out.append("### Footprint (whole run)")
+    if report.resources:
+        out.append("### Per-store daemon footprint (whole run)")
         out.append("")
-        out.append(f"- Peak RSS {res.get('peak_rss_mb')} MB")
-        out.append(
-            f"- CPU {res.get('cpu_pct_mean')}% mean / {res.get('cpu_pct_max')}% max "
-            "(process tree: main + daemons + workers)"
-        )
+        out.append("CPU in cores (1.0 = one core fully used); the harness/pytest is excluded.")
+        out.append("")
+        out.append("| Store daemon | Peak RSS | Peak CPU | Mean CPU |")
+        out.append("|---|--:|--:|--:|")
+        for store, d in report.resources.items():
+            rss = f"{d.get('rss_mb'):,.0f} MB" if d.get("rss_mb") is not None else "—"
+            peak = f"{d.get('cores_peak')} cores" if d.get("cores_peak") is not None else "—"
+            mean = f"{d.get('cores_mean')} cores" if d.get("cores_mean") is not None else "—"
+            out.append(f"| {store} | {rss} | {peak} | {mean} |")
         out.append("")
     return "\n".join(out)
 
 
 def format_summary(report: BenchmarkReport) -> str:
     """Terminal summary — the same raw rows + cost model, ASCII-aligned."""
-    hw, opts = report.hardware, report.options
-    lines: list[str] = []
-    lines.append(
-        f"Litmus benchmark — {opts.get('tier')} tier, {len(report.results)} cases, "
-        f"{report.duration_s:.1f} s"
-    )
-    lines.append(
-        f"  {hw.get('cpu_model')} x{hw.get('cpu_count')}  |  "
-        f"{hw.get('ram_gb')} GB RAM  |  {hw.get('platform')}"
-    )
+    lines: list[str] = ["Litmus benchmark", ""]
+    for group, fields in _meta_groups(report):
+        for idx, (field, value) in enumerate(fields):
+            grp = group if idx == 0 else ""
+            lines.append(f"  {grp:<10} {field:<10} {value}")
     lines.append("")
     lines.append("  Results — one row per case (operation x units x writers):")
     hdr = (
         f"  {'operation':<18} {'units':>8} {'wrtrs':>6} {'best ms':>10} "
-        f"{'throughput':>18} {'bytes/s':>11} {'RSS':>8} {'CPU':>6}"
+        f"{'throughput':>18} {'bytes/s':>11} {'dmn RSS':>9} {'dmn CPU':>9}"
     )
     lines.append(hdr)
     lines.append("  " + "-" * (len(hdr) - 2))
     for r in _ordered(report.results):
-        rss = f"{r.peak_rss_mb:,.0f}MB" if r.peak_rss_mb is not None else "—"
-        cpu = f"{r.cpu_pct_max:.0f}%" if r.cpu_pct_max is not None else "—"
+        rss = f"{r.daemon_rss_mb:,.0f}MB" if r.daemon_rss_mb is not None else "—"
+        cores = f"{r.daemon_cores_mean:.2f}c" if r.daemon_cores_mean is not None else "—"
         thr = f"{r.throughput:,.0f} {r.unit}/s"
         lines.append(
             f"  {r.op:<18} {r.scale:>8,} {r.writers:>6} {r.min_s * 1000:>10.3f} "
-            f"{thr:>18} {_fmt_bytes_s(r.bytes_per_s):>11} {rss:>8} {cpu:>6}"
+            f"{thr:>18} {_fmt_bytes_s(r.bytes_per_s):>11} {rss:>9} {cores:>9}"
         )
 
     lines.append("")
@@ -392,9 +429,10 @@ def format_summary(report: BenchmarkReport) -> str:
     for c in _cost_models(report.results):
         u = c.unit[:-1] if c.unit.endswith("s") else c.unit
         floor = f"{c.floor_ms:.2f}ms@{c.floor_units:,}"
-        rate = f"{c.marginal_per_s:,.0f}/s" if c.marginal_per_s else "—"
-        per = f"{c.marginal_us:.2f}µs/{u}" if c.marginal_us else "—"
-        byr = _fmt_bytes_s(c.marginal_bytes_per_s)
+        flat = c.marginal_us < 0.05
+        rate = "flat" if flat else (f"{c.marginal_per_s:,.0f}/s" if c.marginal_per_s else "—")
+        per = "≈0" if flat else f"{c.marginal_us:.2f}µs/{u}"
+        byr = "—" if flat else _fmt_bytes_s(c.marginal_bytes_per_s)
         lines.append(f"  {c.op:<18} {floor:>16} {rate:>18} {per:>13} {byr:>11}")
 
     scaling = _scaling(report.results)
@@ -409,12 +447,14 @@ def format_summary(report: BenchmarkReport) -> str:
             lines.append(f"    {op:<18} {parts}{sp}")
 
     lines.append("")
-    if report.resources is not None:
-        res = report.resources
-        lines.append(
-            f"  Footprint (whole run): peak RSS {res.get('peak_rss_mb')} MB  |  "
-            f"CPU {res.get('cpu_pct_mean')}% mean / {res.get('cpu_pct_max')}% max"
-        )
+    if report.resources:
+        lines.append("  Per-store daemon footprint (CPU in cores; harness excluded):")
+        lines.append(f"    {'store':<10} {'peak RSS':>10} {'peak CPU':>10} {'mean CPU':>10}")
+        for store, d in report.resources.items():
+            rss = f"{d.get('rss_mb'):,.0f} MB" if d.get("rss_mb") is not None else "—"
+            peak = f"{d.get('cores_peak')}c" if d.get("cores_peak") is not None else "—"
+            mean = f"{d.get('cores_mean')}c" if d.get("cores_mean") is not None else "—"
+            lines.append(f"    {store:<10} {rss:>10} {peak:>10} {mean:>10}")
     else:
         lines.append("  Footprint: unavailable (install litmus-test[benchmark] for psutil)")
     lines.append("")

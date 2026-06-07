@@ -103,9 +103,11 @@ class WorkloadResult:
     # back to ``scale``).
     records: int | None = None
     bytes_per_unit: int | None = None
-    peak_rss_mb: float | None = None
-    cpu_pct_mean: float | None = None
-    cpu_pct_max: float | None = None
+    # The case's STORE DAEMON footprint (server-side, not the harness):
+    # RSS in MB, CPU in cores (1.0 = one core fully used).
+    daemon_rss_mb: float | None = None
+    daemon_cores_mean: float | None = None
+    daemon_cores_peak: float | None = None
 
     @property
     def records_per_call(self) -> int:
@@ -147,9 +149,9 @@ class WorkloadResult:
             "per_unit_us": round(self.per_unit_us, 3),
             "throughput_per_s": round(self.throughput, 1),
             "bytes_per_s": round(self.bytes_per_s, 1) if self.bytes_per_s is not None else None,
-            "peak_rss_mb": self.peak_rss_mb,
-            "cpu_pct_mean": self.cpu_pct_mean,
-            "cpu_pct_max": self.cpu_pct_max,
+            "daemon_rss_mb": self.daemon_rss_mb,
+            "daemon_cores_mean": self.daemon_cores_mean,
+            "daemon_cores_peak": self.daemon_cores_peak,
         }
 
 
@@ -161,7 +163,8 @@ class BenchmarkReport:
     versions: dict[str, object]
     options: dict[str, object]
     results: list[WorkloadResult] = field(default_factory=list)
-    resources: dict[str, object] | None = None
+    # Per-store daemon footprint: {store: {rss_mb, cores_mean, cores_peak}}.
+    resources: dict[str, dict[str, object | None]] | None = None
     duration_s: float = 0.0
 
     def as_dict(self) -> dict[str, object]:

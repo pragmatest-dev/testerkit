@@ -74,9 +74,12 @@ def collect_versions() -> dict[str, object]:
 class ResourceSampler:
     """Background sampler over the process tree, bucketed per case.
 
-    ``mark(label)`` switches the bucket; the thread tags each sample with
-    the active label. :meth:`case` returns one case's peak RSS + CPU%.
-    No-op when ``psutil`` is absent.
+    Each sampled process is attributed to the store whose **daemon** it is
+    (by cmdline); the benchmark harness, pytest, and concurrency workers
+    are ignored — we report each store's own server-side footprint, not
+    ours. CPU is reported in **cores** (one fully-used core = 1.0), the
+    cgroups/k8s/`time` convention, so the number is interpretable without
+    knowing the machine's core count. No-op when ``psutil`` is absent.
     """
 
     def __init__(self, interval: float = 0.05) -> None:
@@ -85,10 +88,9 @@ class ResourceSampler:
         self._thread: threading.Thread | None = None
         self._label: str | None = None
         self._lock = threading.Lock()
-        # label -> {"rss_peak": float, "cpu": [float, ...]}
-        self._by_label: dict[str, dict] = {}
-        self._rss_peak_all = 0.0
-        self._cpu_all: list[float] = []
+        # (case_label | "*", store) -> {"rss_peak": bytes, "cores": [float,...]}
+        self._by: dict[tuple[str, str], dict] = {}
+        self._store_by_pid: dict[int, str | None] = {}
 
     def mark(self, label: str | None) -> None:
         with self._lock:
@@ -104,6 +106,24 @@ class ResourceSampler:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
+
+    def _store_of(self, proc) -> str | None:
+        """Which store's daemon is this process? Cached by pid; None = harness."""
+        assert psutil is not None
+        pid = proc.pid
+        if pid in self._store_by_pid:
+            return self._store_by_pid[pid]
+        store: str | None = None
+        try:
+            cmd = " ".join(proc.cmdline())
+            for needle, name in _DAEMON_MODULES:
+                if needle in cmd:
+                    store = name
+                    break
+        except psutil.Error:
+            store = None
+        self._store_by_pid[pid] = store
+        return store
 
     def _tree(self) -> list:
         assert psutil is not None
@@ -128,43 +148,53 @@ class ResourceSampler:
                 procs = self._tree()
                 last_refresh = time.monotonic()
                 continue
-            rss = 0.0
-            cpu = 0.0
             for p in procs:
+                store = self._store_of(p)
+                if store is None:  # harness / pytest / workers — not a store daemon
+                    continue
                 try:
-                    rss += p.memory_info().rss
-                    cpu += p.cpu_percent(None)
+                    rss = p.memory_info().rss
+                    cores = p.cpu_percent(None) / 100.0
                 except psutil.Error:
                     continue
-            with self._lock:
-                label = self._label
-                self._rss_peak_all = max(self._rss_peak_all, rss)
-                self._cpu_all.append(cpu)
-                if label is not None:
-                    b = self._by_label.setdefault(label, {"rss_peak": 0.0, "cpu": []})
-                    b["rss_peak"] = max(b["rss_peak"], rss)
-                    b["cpu"].append(cpu)
+                with self._lock:
+                    label = self._label
+                    for key in (("*", store), *(((label, store),) if label else ())):
+                        b = self._by.setdefault(key, {"rss_peak": 0.0, "cores": []})
+                        b["rss_peak"] = max(b["rss_peak"], rss)
+                        b["cores"].append(cores)
 
-    def case(self, label: str) -> dict[str, object | None]:
-        """Peak RSS (MB) + CPU% mean/max for one case, or Nones if unsampled."""
-        with self._lock:
-            b = self._by_label.get(label)
-        if not b or not b["cpu"]:
-            return {"peak_rss_mb": None, "cpu_pct_mean": None, "cpu_pct_max": None}
-        cpu = b["cpu"]
+    @staticmethod
+    def _summarize(b: dict | None) -> dict[str, object | None]:
+        if not b or not b["cores"]:
+            return {"rss_mb": None, "cores_mean": None, "cores_peak": None}
+        c = b["cores"]
         return {
-            "peak_rss_mb": round(b["rss_peak"] / (1024**2), 1),
-            "cpu_pct_mean": round(sum(cpu) / len(cpu), 1),
-            "cpu_pct_max": round(max(cpu), 1),
+            "rss_mb": round(b["rss_peak"] / (1024**2), 1),
+            "cores_mean": round(sum(c) / len(c), 2),
+            "cores_peak": round(max(c), 2),
         }
 
-    def overall(self) -> dict[str, object] | None:
+    def case(self, label: str, store: str) -> dict[str, object | None]:
+        """The ``store`` daemon's RSS (MB) + CPU (cores) during one case."""
+        with self._lock:
+            b = self._by.get((label, store))
+        return self._summarize(b)
+
+    def per_store(self) -> dict[str, dict[str, object | None]] | None:
+        """Whole-run footprint per store daemon, or None without psutil."""
         if psutil is None:
             return None
-        cpu = self._cpu_all
-        return {
-            "peak_rss_mb": round(self._rss_peak_all / (1024**2), 1),
-            "cpu_pct_max": round(max(cpu), 1) if cpu else None,
-            "cpu_pct_mean": round(sum(cpu) / len(cpu), 1) if cpu else None,
-            "samples": len(cpu),
-        }
+        with self._lock:
+            stores = sorted({s for (lbl, s) in self._by if lbl == "*"})
+            return {s: self._summarize(self._by.get(("*", s))) for s in stores}
+
+
+# Daemon module → store. Order matters: check the runs daemon before the
+# events one (their module names share the ``duckdb_daemon`` suffix).
+_DAEMON_MODULES: list[tuple[str, str]] = [
+    ("litmus.data._runs_duckdb_daemon", "runs"),
+    ("litmus.data.channels._flight_daemon", "channels"),
+    ("litmus.data.files._catalog_daemon", "files"),
+    ("litmus.data._duckdb_daemon", "events"),
+]
