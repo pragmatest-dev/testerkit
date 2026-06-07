@@ -147,3 +147,49 @@ def test_query_clients_read_daemon_not_parquet():
             "Query clients must read the daemon index, not re-read parquet "
             "(req-2 / req-6, and the #228 projection drift):\n" + msg
         )
+
+
+def test_inflight_schemas_carry_materialized_data_columns():
+    """Inflight overlay must carry the same data columns as the materialized
+    tables, so a live run renders identically to a finalized one.
+
+    Removing ``dynamic_attrs`` / ``vector_index`` / ``parent_path`` from
+    either the inflight schema or the materialized table is the #228
+    projection-drift bug — caught here against the real schema.
+    """
+    import duckdb
+
+    from litmus.data._accumulator_pool import (
+        INFLIGHT_MEASUREMENTS_SCHEMA,
+        INFLIGHT_STEPS_SCHEMA,
+    )
+    from litmus.data._runs_duckdb_daemon import _ensure_schema
+
+    conn = duckdb.connect(":memory:")
+    _ensure_schema(conn)
+
+    def mat_cols(table: str) -> set[str]:
+        return {row[0] for row in conn.execute(f"DESCRIBE {table}").fetchall()}
+
+    checks = (
+        (
+            "steps_materialized",
+            INFLIGHT_STEPS_SCHEMA,
+            ("vector_index", "parent_path", "dynamic_attrs"),
+        ),
+        ("measurements_materialized", INFLIGHT_MEASUREMENTS_SCHEMA, ("dynamic_attrs",)),
+    )
+    problems: list[str] = []
+    for table, schema, must_have in checks:
+        mat = mat_cols(table)
+        inflight = set(schema.names)
+        for col in must_have:
+            if col not in mat:
+                problems.append(f"{table} (materialized) is missing {col!r}")
+            if col not in inflight:
+                problems.append(f"{table} inflight schema is missing {col!r} (#228 drift)")
+    if problems:
+        pytest.fail(
+            "Inflight overlay drifted from the materialized tables — a live "
+            "run would render differently from a finalized one:\n  " + "\n  ".join(problems)
+        )
