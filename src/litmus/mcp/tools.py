@@ -16,7 +16,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from litmus.utils.enum_meta import lookup_enum as _lookup_enum_fn
 from litmus.utils.enum_meta import render_enum_reference as _render_enum_reference_fn
@@ -1310,24 +1310,24 @@ def channels_query(
 
     Shared implementation for HTTP API and MCP tool.
     """
-    from litmus.data.channels.store import ChannelStore
+    from litmus.data.channels.client import channel_query_client
     from litmus.data.data_dir import resolve_data_dir
 
     base = data_dir if data_dir else resolve_data_dir()
     if not (base / "channels").exists():
         return {"channel_id": channel_id, "data": []}
 
-    store = ChannelStore(base, uuid4())
     since_dt = datetime.fromisoformat(since) if since else None
     until_dt = datetime.fromisoformat(until) if until else None
-    table = store.query(
-        channel_id,
-        session_id=session_id,
-        start=since_dt,
-        end=until_dt,
-        last_n=last_n,
-        max_points=max_points,
-    )
+    with channel_query_client(base / "channels") as client:
+        table = client.query(
+            channel_id,
+            session_id=session_id,
+            start=since_dt,
+            end=until_dt,
+            last_n=last_n,
+            max_points=max_points,
+        )
     return {"channel_id": channel_id, "data": table.to_pylist()}
 
 
@@ -1362,7 +1362,7 @@ def channels_recent_query(
     ``samples`` as the per-capture-time scalar series (one point per
     capture; the array contents themselves aren't sparkline-friendly).
     """
-    from litmus.data.channels.store import ChannelStore
+    from litmus.data.channels.client import channel_query_client
     from litmus.data.data_dir import resolve_data_dir
 
     base = data_dir if data_dir else resolve_data_dir()
@@ -1371,29 +1371,29 @@ def channels_recent_query(
         return {"channels": {}}
 
     registry: dict[str, dict[str, Any]] = json.loads(registry_path.read_text())
-    store = ChannelStore(base, uuid4())
 
     out: dict[str, dict[str, Any]] = {}
-    for channel_id, descriptor in registry.items():
-        try:
-            table = store.query(channel_id, last_n=last_n)
-            rows = table.to_pylist()
-        except (OSError, ValueError, RuntimeError):
-            rows = []
+    with channel_query_client(base / "channels") as client:
+        for channel_id, descriptor in registry.items():
+            try:
+                table = client.query(channel_id, last_n=last_n)
+                rows = table.to_pylist()
+            except (OSError, ValueError, RuntimeError):
+                rows = []
 
-        samples, latest = _build_recent_series(rows)
-        last_updated = (
-            str(rows[-1]["received_at"]) if rows and rows[-1].get("received_at") else None
-        )
+            samples, latest = _build_recent_series(rows)
+            last_updated = (
+                str(rows[-1]["received_at"]) if rows and rows[-1].get("received_at") else None
+            )
 
-        out[channel_id] = {
-            **descriptor,
-            "recent": {
-                "latest": latest,
-                "samples": samples,
-                "last_updated": last_updated,
-            },
-        }
+            out[channel_id] = {
+                **descriptor,
+                "recent": {
+                    "latest": latest,
+                    "samples": samples,
+                    "last_updated": last_updated,
+                },
+            }
     return {"channels": out}
 
 

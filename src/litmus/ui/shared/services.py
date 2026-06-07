@@ -1410,7 +1410,6 @@ def load_artifact_ref(run_id: str, uri: str):
     Python process as the API.
     """
     from pathlib import Path
-    from uuid import uuid4
 
     from litmus.data.backends.parquet import load_ref
 
@@ -1419,13 +1418,16 @@ def load_artifact_ref(run_id: str, uri: str):
     if run is None or not run.file_path:
         raise FileNotFoundError(f"Run {run_id!r} has no parquet file")
 
-    channel_store = None
+    parquet_path = Path(run.file_path)
     if uri.startswith("channel://"):
-        from litmus.data.channels.store import ChannelStore
+        from litmus.data.channels.client import channel_query_client
 
-        channel_store = ChannelStore(backend.data_dir, uuid4())
-
-    return load_ref(uri, parquet_path=Path(run.file_path), channel_store=channel_store)
+        # Resolve channel refs through the daemon's warm index, not an
+        # ephemeral globbing store (req 2). ChannelClient.query matches
+        # the channel_store.query() shape load_ref calls.
+        with channel_query_client(backend.data_dir / "channels") as client:
+            return load_ref(uri, parquet_path=parquet_path, channel_store=client)
+    return load_ref(uri, parquet_path=parquet_path, channel_store=None)
 
 
 def get_session_steps(session_id: str):

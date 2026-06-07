@@ -6,13 +6,16 @@ Provides the same write/subscribe API as ChannelStore but over Flight RPC.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import quote
 
 import pyarrow as pa
 import pyarrow.flight as flight
 
+from litmus.data.channels import flight_manager
 from litmus.data.channels.models import (
     ChannelDescriptor,
     ChannelSample,
@@ -159,3 +162,22 @@ class ChannelClient:
             t.join(timeout=2.0)
         self._reader_threads.clear()
         self._client.close()
+
+
+@contextmanager
+def channel_query_client(channels_dir: Path) -> Iterator[ChannelClient]:
+    """Connect to the channels daemon for at-rest query (req 2: no client reglob).
+
+    Acquires (spawning if needed) the singleton channels daemon — which
+    owns the warm index — and yields a client bound to it. Releases the
+    daemon ref on exit. Use this instead of constructing an ephemeral
+    globbing ``ChannelStore`` for reads: query goes through the daemon's
+    index, never a per-call disk walk.
+    """
+    location = flight_manager.acquire(channels_dir)
+    client = ChannelClient(location)
+    try:
+        yield client
+    finally:
+        client.close()
+        flight_manager.release(channels_dir)

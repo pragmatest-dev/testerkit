@@ -293,17 +293,17 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=500, detail="Run has no parquet path")
         parquet_path = Path(run.file_path)
 
-        channel_store = None
-        if uri.startswith("channel://"):
-            from uuid import uuid4
-
-            from litmus.data.channels.store import ChannelStore
-
-            parent = data_dir if data_dir else Path("results")
-            channel_store = ChannelStore(parent, uuid4())
-
+        parent = data_dir if data_dir else Path("results")
         try:
-            result = load_ref(uri, parquet_path=parquet_path, channel_store=channel_store)
+            if uri.startswith("channel://"):
+                # Resolve channel refs through the daemon's warm index,
+                # not an ephemeral globbing store (req 2).
+                from litmus.data.channels.client import channel_query_client
+
+                with channel_query_client(parent / "channels") as client:
+                    result = load_ref(uri, parquet_path=parquet_path, channel_store=client)
+            else:
+                result = load_ref(uri, parquet_path=parquet_path, channel_store=None)
         except Exception as exc:  # noqa: BLE001 — surface load failures uniformly
             raise HTTPException(status_code=502, detail=f"Failed to load ref: {exc}") from exc
 
