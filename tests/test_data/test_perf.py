@@ -18,8 +18,8 @@ from uuid import uuid4
 import pytest
 
 from litmus.benchmark.core import BenchContext
+from litmus.benchmark.workloads import build_cases
 from litmus.benchmark.workloads import build_run as _build_run
-from litmus.benchmark.workloads import fast_workloads
 from litmus.benchmark.workloads import make_measurement as _make_measurement
 from litmus.data.channels.store import ChannelStore
 from litmus.data.event_store import EventStore
@@ -1067,23 +1067,26 @@ class TestFilesCatalogQueryPerf:
 # ---------------------------------------------------------------------------
 
 
+_SHARED_CASES = [c for c in build_cases("fast") if c.writers == 1 and c.setup is not None]
+
+
 class TestSharedWorkloads:
-    """Run every shipped (fast-tier) workload through its single definition."""
+    """Run every shipped (1-writer) benchmark case through its single definition."""
 
     @pytest.mark.benchmark(group="shared-workloads", warmup=False, min_rounds=3)
-    @pytest.mark.parametrize("workload", fast_workloads(), ids=lambda w: w.key)
-    def test_workload(self, benchmark, workload) -> None:
-        """Every shipped workload runs green via its single definition.
+    @pytest.mark.parametrize("case", _SHARED_CASES, ids=lambda c: c.key)
+    def test_case(self, benchmark, case) -> None:
+        """Every shipped case runs green via the single definition the CLI uses.
 
-        Write/save workloads return ``None``; query workloads return a
-        result. The test asserts the workload executes without error —
-        that the shared definition the CLI ships still works.
+        Write cases return ``None``; query cases return a result. The test
+        asserts the case executes without error — that the shared workload
+        definition still works (no drift between CLI and CI).
         """
         from litmus.data.data_dir import resolve_data_dir
 
         ctx = BenchContext(resolve_data_dir())
         try:
-            fn = workload.setup(ctx)
+            fn = case.setup(ctx)
             benchmark(fn)
         finally:
             ctx.close()

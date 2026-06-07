@@ -1,14 +1,16 @@
 """Store workloads — the single definition of what we measure.
 
-Both ``litmus benchmark`` (via :mod:`litmus.benchmark.runner`) and the
-perf test suite (``tests/test_data/test_perf.py``) build their work from
-this module, so the numbers a user reports and the numbers CI gates on
-come from identical code paths.
+Both ``litmus benchmark`` and the perf test suite build their cases from
+this module, so user numbers and CI numbers come from identical code.
 
-Every workload here measures the SHIPPED path — the one a real install
-uses. Channel queries route through the channels daemon (not a disk
-glob); file resolves route through the catalog daemon (not a date-dir
-walk). A user's number therefore matches what they actually experience.
+Each operation is swept across a list of ``scales`` (units of work) and,
+for writes, a list of ``writers`` (concurrency) — every combination is a
+separate :class:`Workload` case, hence a separate row in the report.
+
+Every workload measures the SHIPPED path: channel queries route through
+the channels daemon (not a disk glob); file resolves route through the
+catalog daemon (not a date-dir walk). A user's number matches what they
+actually experience.
 """
 
 from __future__ import annotations
@@ -53,7 +55,7 @@ def make_measurement(session_id: UUID, i: int):
 
 
 def build_run(seed: int, *, n_steps: int = 10, n_meas: int = 5):
-    """A finalized TestRun with ``n_steps`` steps × ``n_meas`` measurements."""
+    """A finalized TestRun with ``n_steps`` steps x ``n_meas`` measurements."""
     from litmus.data.models import (
         DUT,
         Measurement,
@@ -79,11 +81,7 @@ def build_run(seed: int, *, n_steps: int = 10, n_meas: int = 5):
                     TestVector(
                         outcome=Outcome.PASSED,
                         measurements=[
-                            Measurement(
-                                name=f"m_{m}",
-                                value=3.3 + m * 0.01,
-                                outcome=Outcome.PASSED,
-                            )
+                            Measurement(name=f"m_{m}", value=3.3 + m * 0.01, outcome=Outcome.PASSED)
                             for m in range(n_meas)
                         ],
                     )
@@ -99,20 +97,18 @@ def build_run(seed: int, *, n_steps: int = 10, n_meas: int = 5):
 # ---------------------------------------------------------------------------
 
 
-def _setup_events_emit(n: int) -> Callable[[BenchContext], Callable[[], object]]:
+def _setup_events_emit(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
     def setup(ctx: BenchContext) -> Callable[[], object]:
         from litmus.data.event_store import EventStore
 
         es: EventStore = ctx.track(EventStore(_data_dir=ctx.data_dir))  # type: ignore[assignment]
 
         def emit_all() -> None:
-            # Fresh session per call + flush() so the timed work is the
-            # DURABLE path (events written to disk AND acked by the
-            # daemon), not just an in-memory batch fill. This is the
-            # number that compares apples-to-apples with the concurrency
-            # probe and reflects what a station actually sustains.
+            # Fresh session + flush() per call so the timed work is the
+            # DURABLE path (written to disk AND acked by the daemon), not
+            # an in-memory batch fill.
             sid = uuid4()
-            for i in range(n):
+            for i in range(scale):
                 es.emit(make_measurement(sid, i))
             es.flush()
 
@@ -121,13 +117,13 @@ def _setup_events_emit(n: int) -> Callable[[BenchContext], Callable[[], object]]
     return setup
 
 
-def _setup_events_query(n: int) -> Callable[[BenchContext], Callable[[], object]]:
+def _setup_events_query(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
     def setup(ctx: BenchContext) -> Callable[[], object]:
         from litmus.data.event_store import EventStore
 
         es: EventStore = ctx.track(EventStore(_data_dir=ctx.data_dir))  # type: ignore[assignment]
         sid = uuid4()
-        for i in range(n):
+        for i in range(scale):
             es.emit(make_measurement(sid, i))
 
         def query_all() -> object:
@@ -143,17 +139,21 @@ def _setup_events_query(n: int) -> Callable[[BenchContext], Callable[[], object]
 # ---------------------------------------------------------------------------
 
 
-def _setup_runs_save(ctx: BenchContext) -> Callable[[], object]:
-    from litmus.data.backends.parquet import ParquetBackend
-    from litmus.data.run_store import RunStore
+def _setup_runs_save(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
+    def setup(ctx: BenchContext) -> Callable[[], object]:
+        from litmus.data.backends.parquet import ParquetBackend
+        from litmus.data.run_store import RunStore
 
-    backend = ParquetBackend(data_dir=ctx.data_dir)
-    store = ctx.track(RunStore(_data_dir=ctx.data_dir))
+        backend = ParquetBackend(data_dir=ctx.data_dir)
+        store = ctx.track(RunStore(_data_dir=ctx.data_dir))
 
-    def save_one() -> None:
-        store.notify_new_run(backend.save_test_run(build_run(uuid4().int % 1_000_000)))  # type: ignore[union-attr]
+        def save_n() -> None:
+            for _ in range(scale):
+                store.notify_new_run(backend.save_test_run(build_run(uuid4().int % 1_000_000)))  # type: ignore[union-attr]
 
-    return save_one
+        return save_n
+
+    return setup
 
 
 def _populate_runs(ctx: BenchContext, n: int) -> None:
@@ -169,11 +169,11 @@ def _populate_runs(ctx: BenchContext, n: int) -> None:
         store.close()
 
 
-def _setup_runs_list(populate: int) -> Callable[[BenchContext], Callable[[], object]]:
+def _setup_runs_list(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
     def setup(ctx: BenchContext) -> Callable[[], object]:
         from litmus.analysis.runs_query import RunsQuery
 
-        _populate_runs(ctx, populate)
+        _populate_runs(ctx, scale)
 
         def list_page() -> object:
             with RunsQuery(_data_dir=ctx.data_dir) as q:
@@ -184,12 +184,12 @@ def _setup_runs_list(populate: int) -> Callable[[BenchContext], Callable[[], obj
     return setup
 
 
-def _setup_runs_steps(populate: int) -> Callable[[BenchContext], Callable[[], object]]:
+def _setup_runs_steps(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
     def setup(ctx: BenchContext) -> Callable[[], object]:
         from litmus.analysis.runs_query import RunsQuery
         from litmus.analysis.steps_query import StepsQuery
 
-        _populate_runs(ctx, populate)
+        _populate_runs(ctx, scale)
         with RunsQuery(_data_dir=ctx.data_dir) as q:
             rows = q.list_recent(limit=1)
         run_id = str(rows[0].run_id) if rows else ""
@@ -204,11 +204,11 @@ def _setup_runs_steps(populate: int) -> Callable[[BenchContext], Callable[[], ob
 
 
 # ---------------------------------------------------------------------------
-# Channels (time-series) — write through a serve producer, query the daemon
+# Channels — write through a serve producer, query the daemon
 # ---------------------------------------------------------------------------
 
 
-def _setup_channels_write(n: int) -> Callable[[BenchContext], Callable[[], object]]:
+def _setup_channels_write(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
     def setup(ctx: BenchContext) -> Callable[[], object]:
         from litmus.data.channels.store import ChannelStore
 
@@ -217,25 +217,29 @@ def _setup_channels_write(n: int) -> Callable[[BenchContext], Callable[[], objec
         ctx.track(store)
 
         def write_all() -> None:
-            for i in range(n):
-                store.write("sensor.temp", 25.0 + i * 0.01, units="°C")
+            for i in range(scale):
+                store.write("sensor.temp", 25.0 + i * 0.01, units="C")
 
         return write_all
 
     return setup
 
 
-def _setup_channels_query(populate: int) -> Callable[[BenchContext], Callable[[], object]]:
+def _setup_channels_query(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
     def setup(ctx: BenchContext) -> Callable[[], object]:
         from litmus.data.channels import flight_manager
         from litmus.data.channels.client import ChannelClient
         from litmus.data.channels.store import ChannelStore
 
+        # Unique channel per case — all channel cases share the temp dir's
+        # one daemon/index, so a fixed name would let this query count
+        # samples written by other cases (polluting the row count).
+        channel_id = f"bench.{uuid4().hex[:8]}"
         producer = ChannelStore(ctx.data_dir, uuid4(), flush_threshold=100, serve=True)
         producer.open()
         ctx.track(producer)
-        for i in range(populate):
-            producer.write("sensor.temp", 25.0 + i * 0.01, units="°C")
+        for i in range(scale):
+            producer.write(channel_id, 25.0 + i * 0.01, units="C")
 
         channels_dir = ctx.data_dir / "channels"
         location = flight_manager.acquire(channels_dir)
@@ -244,14 +248,14 @@ def _setup_channels_query(populate: int) -> Callable[[BenchContext], Callable[[]
         ctx.track(_Releaser(lambda: flight_manager.release(channels_dir)))
 
         def query() -> object:
-            return client.query("sensor.temp")
+            return client.query(channel_id)
 
         return query
 
     return setup
 
 
-def _setup_channels_stream(n: int) -> Callable[[BenchContext], Callable[[], object]]:
+def _setup_channels_stream(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
     def setup(ctx: BenchContext) -> Callable[[], object]:
         import litmus.channels as channels_mod
         from litmus.data.channels.store import ChannelStore
@@ -262,7 +266,7 @@ def _setup_channels_stream(n: int) -> Callable[[BenchContext], Callable[[], obje
         ctx.track(store)
         set_channel_store(store)
         ctx.track(_Releaser(lambda: set_channel_store(None)))
-        values = [25.0 + (i % 100) * 0.01 for i in range(n)]
+        values = [25.0 + (i % 100) * 0.01 for i in range(scale)]
 
         def stream_one() -> None:
             with channels_mod.stream("dmm.voltage") as sink:
@@ -275,55 +279,55 @@ def _setup_channels_stream(n: int) -> Callable[[BenchContext], Callable[[], obje
 
 
 # ---------------------------------------------------------------------------
-# Files (object store + catalog daemon)
+# Files — object store + catalog daemon
 # ---------------------------------------------------------------------------
-
-
-def _files_dir(ctx: BenchContext):
-    return ctx.data_dir / "files"
 
 
 def _acquire_catalog(ctx: BenchContext):
     from litmus.data.files.catalog_manager import acquire, release
 
-    files_dir = _files_dir(ctx)
+    files_dir = ctx.data_dir / "files"
     acquire(files_dir)
     ctx.track(_Releaser(lambda: release(files_dir)))
     return files_dir
 
 
-def _setup_files_write(size_kb: int) -> Callable[[BenchContext], Callable[[], object]]:
+def _setup_files_write(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
     def setup(ctx: BenchContext) -> Callable[[], object]:
         from litmus.data.files.store import FileStore
 
         _acquire_catalog(ctx)
         store = FileStore(data_dir=ctx.data_dir)
         sid = uuid4().hex
-        payload = b"x" * (size_kb * 1024)
+        payload = b"x" * (100 * 1024)  # 100 KB blobs
 
-        def write_one() -> None:
-            store.write(f"blob_{uuid4().hex[:8]}", payload, session_id=sid)
+        def write_n() -> None:
+            for _ in range(scale):
+                store.write(f"blob_{uuid4().hex[:8]}", payload, session_id=sid)
 
-        return write_one
+        return write_n
 
     return setup
 
 
-def _setup_files_resolve(ctx: BenchContext) -> Callable[[], object]:
-    from litmus.data.files.catalog_manager import resolve_uri
-    from litmus.data.files.store import FileStore
+def _setup_files_resolve(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
+    def setup(ctx: BenchContext) -> Callable[[], object]:
+        from litmus.data.files.catalog_manager import resolve_uri
+        from litmus.data.files.store import FileStore
 
-    files_dir = _acquire_catalog(ctx)
-    store = FileStore(data_dir=ctx.data_dir)
-    uri = store.write("resolveme", b"x" * 256, session_id=uuid4().hex)
+        files_dir = _acquire_catalog(ctx)
+        store = FileStore(data_dir=ctx.data_dir)
+        uri = store.write("resolveme", b"x" * 256, session_id=uuid4().hex)
 
-    def resolve() -> object:
-        return resolve_uri(files_dir, uri)
+        def resolve() -> object:
+            return resolve_uri(files_dir, uri)
 
-    return resolve
+        return resolve
+
+    return setup
 
 
-def _setup_files_list(populate: int) -> Callable[[BenchContext], Callable[[], object]]:
+def _setup_files_list(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
     def setup(ctx: BenchContext) -> Callable[[], object]:
         from litmus.data.files.catalog_manager import list_recent
         from litmus.data.files.store import FileStore
@@ -331,7 +335,7 @@ def _setup_files_list(populate: int) -> Callable[[BenchContext], Callable[[], ob
         files_dir = _acquire_catalog(ctx)
         store = FileStore(data_dir=ctx.data_dir)
         sid = uuid4().hex
-        for i in range(populate):
+        for i in range(scale):
             store.write(f"list_{i}_{uuid4().hex[:6]}", b"y" * 128, session_id=sid)
 
         def listing() -> object:
@@ -342,19 +346,17 @@ def _setup_files_list(populate: int) -> Callable[[BenchContext], Callable[[], ob
     return setup
 
 
-def _setup_files_stream_raw(
-    chunk_kb: int, n_chunks: int
-) -> Callable[[BenchContext], Callable[[], object]]:
+def _setup_files_stream_raw(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
     def setup(ctx: BenchContext) -> Callable[[], object]:
         from litmus.data.files.store import FileStore
 
         store = FileStore(data_dir=ctx.data_dir)
         sid = uuid4().hex
-        chunk = b"a" * (chunk_kb * 1024)
+        chunk = b"a" * (64 * 1024)  # 64 KB chunks
 
         def stream_one() -> None:
             sink = store.open_stream(name=f"raw_{uuid4().hex[:8]}", format="raw", session_id=sid)
-            for _ in range(n_chunks):
+            for _ in range(scale):
                 sink.write(chunk)
             sink.close()
 
@@ -364,98 +366,68 @@ def _setup_files_stream_raw(
 
 
 # ---------------------------------------------------------------------------
-# Registry
+# Case registry — sweep scales (units) and writers (concurrency)
 # ---------------------------------------------------------------------------
 
+# Per-operation: (store, unit, setup-factory, fast-scales, full-scales).
+# A row is emitted for every scale at 1 writer.
+_OPS: dict[str, tuple] = {
+    "events.emit": ("events", "events", _setup_events_emit, [100, 1000], [100, 1000, 10000]),
+    "events.query": ("events", "events", _setup_events_query, [100, 1000], [100, 1000, 10000]),
+    "channels.write": (
+        "channels",
+        "samples",
+        _setup_channels_write,
+        [100, 1000],
+        [100, 1000, 10000],
+    ),
+    "channels.query": (
+        "channels",
+        "samples",
+        _setup_channels_query,
+        [100, 1000],
+        [100, 1000, 10000],
+    ),
+    "channels.stream": (
+        "channels",
+        "samples",
+        _setup_channels_stream,
+        [100, 1000],
+        [100, 1000, 10000],
+    ),
+    "runs.save": ("runs", "runs", _setup_runs_save, [1, 10], [1, 10, 100]),
+    "runs.list": ("runs", "runs", _setup_runs_list, [10, 100], [10, 100, 1000]),
+    "runs.steps": ("runs", "runs", _setup_runs_steps, [10, 100], [10, 100, 1000]),
+    "files.write": ("files", "artifacts", _setup_files_write, [1, 10], [1, 10, 100]),
+    "files.resolve": ("files", "files", _setup_files_resolve, [1], [1]),
+    "files.list": ("files", "files", _setup_files_list, [10, 100], [10, 100, 1000]),
+    "files.stream_raw": ("files", "chunks", _setup_files_stream_raw, [16, 64], [16, 64, 256]),
+}
 
-def all_workloads() -> list[Workload]:
-    """Every workload, fast and full tier."""
-    return [
-        # Events
-        Workload(
-            "events.emit",
-            "events",
-            "Emit + flush measurement events",
-            "events",
-            300,
-            _setup_events_emit(300),
-        ),
-        Workload(
-            "events.query",
-            "events",
-            "Query 1k events by session",
-            "queries",
-            1,
-            _setup_events_query(1_000),
-        ),
-        # Runs
-        Workload(
-            "runs.save",
-            "runs",
-            "Save + index a run (10 steps × 5 meas)",
-            "runs",
-            1,
-            _setup_runs_save,
-        ),
-        Workload("runs.list", "runs", "List 50 recent runs", "queries", 1, _setup_runs_list(25)),
-        Workload(
-            "runs.steps", "runs", "Steps tree for one run", "queries", 1, _setup_runs_steps(25)
-        ),
-        # Channels
-        Workload(
-            "channels.write",
-            "channels",
-            "Write scalar samples (producer)",
-            "samples",
-            500,
-            _setup_channels_write(500),
-        ),
-        Workload(
-            "channels.query",
-            "channels",
-            "Query a channel (daemon index)",
-            "queries",
-            1,
-            _setup_channels_query(1000),
-        ),
-        Workload(
-            "channels.stream",
-            "channels",
-            "Stream samples via sink",
-            "samples",
-            500,
-            _setup_channels_stream(500),
-        ),
-        # Files
-        Workload(
-            "files.write", "files", "Write a 100 KB blob", "artifacts", 1, _setup_files_write(100)
-        ),
-        Workload(
-            "files.resolve",
-            "files",
-            "Resolve a URI (daemon catalog)",
-            "queries",
-            1,
-            _setup_files_resolve,
-        ),
-        Workload(
-            "files.list",
-            "files",
-            "List recent files (daemon catalog)",
-            "queries",
-            1,
-            _setup_files_list(20),
-        ),
-        Workload(
-            "files.stream_raw",
-            "files",
-            "Stream raw bytes (64 × 64 KB)",
-            "chunks",
-            64,
-            _setup_files_stream_raw(64, 64),
-        ),
-    ]
+# Write ops get a concurrency sweep at one representative scale (which is
+# also present in the 1-writer scale sweep, so speedup has a baseline).
+_CONCURRENCY: dict[str, int] = {
+    "events.emit": 1000,
+    "channels.write": 1000,
+    "files.write": 10,
+    "runs.save": 10,
+}
 
 
-def fast_workloads() -> list[Workload]:
-    return [w for w in all_workloads() if w.tier == "fast"]
+def build_cases(tier: str = "fast") -> list[Workload]:
+    """All cases for ``tier``: scale sweep (1 writer) + concurrency sweep."""
+    full = tier == "full"
+    writer_counts = [2, 4] if full else [2]
+    cases: list[Workload] = []
+    for op, (store, unit, factory, fast_scales, full_scales) in _OPS.items():
+        scales = full_scales if full else fast_scales
+        for scale in scales:
+            cases.append(
+                Workload(op, store, unit, scale, writers=1, setup=factory(scale), tier=tier)
+            )
+    for op, rep_scale in _CONCURRENCY.items():
+        store = _OPS[op][0]
+        unit = _OPS[op][1]
+        for w in writer_counts:
+            cases.append(Workload(op, store, unit, rep_scale, writers=w, setup=None, tier=tier))
+    return cases

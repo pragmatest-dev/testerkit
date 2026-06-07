@@ -2819,27 +2819,26 @@ def daemon_stop(targets: tuple[str, ...], all_flag: bool) -> None:
 
 
 @main.command("benchmark")
-@click.option("--full", is_flag=True, help="Run the full scale sweep (slower, more rounds)")
+@click.option("--full", is_flag=True, help="Run the full sweep (100/1k/10k units, 1/2/4 writers)")
+@click.option("--rounds", default=None, type=int, help="Timed rounds per case (override)")
 @click.option(
-    "--concurrency",
-    default=2,
+    "-o",
+    "--output",
+    default=".benchmarks",
+    help="Directory for the result folder",
     show_default=True,
-    help="Parallel writers in the concurrency probe (fast tier)",
 )
-@click.option("--rounds", default=None, type=int, help="Timed rounds per workload (override)")
-@click.option(
-    "-o", "--output", default=".benchmarks", help="Directory for the result JSON", show_default=True
-)
-@click.option("--no-save", is_flag=True, help="Print the summary but don't write a JSON file")
-def benchmark(full: bool, concurrency: int, rounds: int | None, output: str, no_save: bool) -> None:
-    """Measure this machine's per-store performance ceiling.
+@click.option("--no-save", is_flag=True, help="Print the summary but don't write a result folder")
+def benchmark(full: bool, rounds: int | None, output: str, no_save: bool) -> None:
+    """Measure this machine's per-store performance.
 
-    Runs the data-store workloads (events / runs / channels / files)
-    against a throwaway temp directory and prints a summary. By default
-    it also writes a self-describing result file to
-    ``.benchmarks/<date>.json`` — hardware, library versions, the options
-    you ran, the numbers, and the run's RAM / CPU footprint. Send that
-    file to the Litmus maintainers when reporting a performance issue.
+    Runs the data-store operations (events / runs / channels / files) at a
+    sweep of unit counts and writer counts against a throwaway temp
+    directory — one measured row per case — and prints a results table
+    plus a cost-model summary. By default it also writes a self-describing
+    result folder ``.benchmarks/<date>/`` (report.md + report.json) with
+    hardware, versions, options, every row, and the run's RAM/CPU
+    footprint. Send it to the maintainers when reporting a perf issue.
 
     Nothing is sent anywhere automatically; the temp directory and its
     daemons are removed when the run finishes.
@@ -2848,11 +2847,11 @@ def benchmark(full: bool, concurrency: int, rounds: int | None, output: str, no_
     from litmus.benchmark.runner import format_summary
 
     tier = "full" if full else "fast"
-    opts = BenchmarkOptions(tier=tier, concurrency=concurrency)
+    opts = BenchmarkOptions(tier=tier)
     if rounds is not None:
         opts.rounds = rounds
     elif tier == "full":
-        opts.rounds = max(opts.rounds, 10)
+        opts.rounds = 5
 
     click.echo(f"Running litmus benchmark ({tier} tier) — temp dir, auto-cleaned…")
     report = run_benchmark(opts, on_progress=lambda m: click.echo(f"  {m}", err=True))

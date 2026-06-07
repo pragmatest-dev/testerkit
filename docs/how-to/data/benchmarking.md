@@ -18,70 +18,77 @@ measures a database. It is not a generic command timer.
 litmus benchmark
 ```
 
-The fast tier takes well under a minute on a typical laptop. You'll see
-each workload tick past as it runs, then a summary:
+The fast tier takes about half a minute on a typical laptop. Each
+operation runs at a sweep of **unit counts** and, for writes, a sweep of
+**writer counts** — every combination is its own row. You'll see each
+case tick past, then a results table and a summary:
 
 ```
-Litmus benchmark — fast tier, concurrency 2, 5 rounds
-  Intel(R) Core(TM) i7 ×24  |  15.34 GB RAM  |  Linux-6.6-x86_64
-  12 workloads · 5 timed rounds each · finished in 36.2 s
+Litmus benchmark — fast tier, 27 cases, 35.0 s
+  Intel(R) Core(TM) i7 x24  |  15.34 GB RAM  |  Linux-6.6-x86_64
 
-  workload                n/call  best (ms)  mean (ms)   per unit       throughput
-  events.emit                300   1279.443   1295.315   4.265 ms     234 events/s
-  events.query                 1     13.611     15.222  13.611 ms      73 queries/s
-  runs.save                    1     39.374     41.443  39.374 ms        25 runs/s
-  channels.write             500    212.018    216.481   424.0 µs   2,358 samples/s
-  files.write                  1      3.093     14.093   3.093 ms     323 artifacts/s
+  Results — one row per case (operation x units x writers):
+  operation             units  wrtrs    best ms    mean ms         throughput       RSS    CPU
+  events.emit             100      1     19.183     20.604     5,213 events/s     396MB  1967%
+  events.emit           1,000      1    146.721    151.925     6,816 events/s     470MB   278%
+  events.emit           1,000      2    266.007    272.393     7,519 events/s   1,504MB   377%
+  events.query          1,000      1     13.700     14.071    72,995 events/s     498MB   198%
+  channels.write        1,000      1    432.763    434.345    2,311 samples/s     481MB   159%
+  channels.write        1,000      2    458.778    462.298    4,359 samples/s   1,512MB  1934%
+  runs.save                10      1    428.371    436.018          23 runs/s     936MB   178%
   ...
 
-  Parallel writers — aggregate ops/s by writer count:
-  store               1w          2w   speedup
-  events             215         347     1.62×
-  channels         2,140       4,235     1.98×
-  files              380         579     1.53×
-  runs                21          23     1.11×
-    each writer writes: 300 events, 500 channels, 100 files, 15 runs
+  Cost model (1 writer): fixed per-call overhead + marginal per-unit
+  operation              overhead         per-unit
+  events.emit            5.012 ms     141.71 µs/event
+  channels.write         0.000 ms     434.72 µs/sample
+  runs.save              0.000 ms   42945.01 µs/run
+  runs.list              4.475 ms       4.14 µs/run
+  ...
 
-  Footprint: peak RSS 1,414 MB  |  CPU 0–1399% (mean 148%)
+  Parallel scaling (writes), throughput by writers:
+    channels.write     1w=2,311  2w=4,359  (1.89x at 2w)
+    events.emit        1w=6,816  2w=7,519  (1.10x at 2w)
+
+  Footprint (whole run): peak RSS 1541 MB  |  CPU 158% mean / 2397% max
 ```
 
 ## Read the numbers
 
-The line under the machine fingerprint says how much work ran and how
-long it took — e.g. `12 workloads · 5 timed rounds each · finished in
-36.2 s`. Then the per-workload table:
+**Each row is one real measurement** — not an average across sizes. An
+operation appears once per unit count, and writes appear again per writer
+count, so you can see how cost grows with both.
 
-- **throughput** — the headline. Every write workload measures the
-  *durable* path: data written to disk **and** indexed so a query can
-  see it. That's the rate a test station actually sustains, not a
-  buffered illusion. Query workloads report queries per second.
-- **n/call** — how many units one timed round does (300 events, 500
-  samples, 1 query). Throughput is `n/call ÷ best`.
-- **best / mean (ms)** — per-round wall time. Best-of-N is the stable
-  number (it sheds scheduler hiccups); a `mean` far above `best` means a
-  noisy workload.
-- **per unit** — the cost of a *single* event / sample / query (best ÷
-  n/call). This is the per-sample timing — 4.3 ms to durably write one
-  event, 424 µs per channel sample.
-- **Parallel writers** — the same write workload run by 1, then N
-  processes at once (default N=2). The table pivots so you read scaling
-  left-to-right; **speedup** is the N-writer rate over the 1-writer
-  baseline. Near the writer count means it parallelizes; near `1.00×`
-  means you've found a contention point.
-- **Footprint** — peak RAM and CPU% across the whole run, including the
-  background daemons that do the indexing. Use it to answer "did this
-  fit in memory / saturate a core?" (Requires the `psutil` extra — see
-  below.)
+- **units** — how much work that row attempted: events emitted, samples
+  written, runs in the index, files in the index, chunks streamed.
+- **writers** — how many processes ran the write concurrently (1 for the
+  size sweep; 2 and 4 for the concurrency rows).
+- **best / mean (ms)** — wall time for that case. Best-of-N is the stable
+  figure; a `mean` well above `best` flags a noisy case.
+- **throughput** — records moved per second (`units ÷ best`, times
+  writers). Writes measure the *durable* path — data on disk **and**
+  indexed so a query sees it — so it's the rate a station actually
+  sustains, not a buffered illusion.
+- **RSS / CPU** — peak memory and CPU% sampled across the process tree
+  *during that case* (the store's daemon does the work in a separate
+  process). `—` when the case was too quick to sample. Needs `psutil`.
+
+The **Cost model** summary fits each operation's best-time against units
+(at 1 writer) into a **fixed overhead** (the per-call floor — RPC + query
+plan + commit) and a **per-unit** marginal cost. A near-zero per-unit on
+a query (e.g. `runs.list`) means the index size barely affects it — the
+warm index is doing its job. **Parallel scaling** shows write throughput
+by writer count and the speedup over one writer; near the writer count
+means it parallelizes, near `1.0x` means a contention point.
 
 ## Flags
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--full` | off | Runs the scale sweep and a 1/2/4 concurrency sweep. Several minutes. |
-| `--concurrency N` | `2` | Parallel writers in the fast-tier probe. Most setups never run four stations at once; bump it if yours does. |
-| `--rounds N` | `5` | Timed rounds per workload. |
-| `-o, --output DIR` | `.benchmarks` | Where the result JSON is written. |
-| `--no-save` | off | Print the summary only; write no file. |
+| `--full` | off | Full sweep: units 100 / 1k / 10k and writers 1 / 2 / 4. A few minutes. |
+| `--rounds N` | `3` (fast), `5` (full) | Timed rounds per case. |
+| `-o, --output DIR` | `.benchmarks` | Where the result folder is written. |
+| `--no-save` | off | Print the summary only; write no folder. |
 
 ## Where the result lands
 

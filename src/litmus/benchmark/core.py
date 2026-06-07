@@ -1,18 +1,19 @@
-"""Core benchmark primitives — the workload contract and the timing loop.
+"""Core benchmark primitives — the case contract and the timing loop.
 
-A :class:`Workload` is a single measurable unit of store work. Its
-``setup`` opens whatever store it needs against a :class:`BenchContext`
-(which carries the data directory) and returns the callable to time.
-The SAME workloads drive both ``litmus benchmark`` and the perf test
-suite (``tests/test_data/test_perf.py``) — one definition, two callers,
-so a user's numbers and CI's numbers can never drift.
+A :class:`Workload` is ONE measurable case: an operation at a specific
+number of ``units`` of work and a specific number of concurrent
+``writers``. The benchmark sweeps units (100 / 1k / 10k …) and writers
+(1 / 2 / 4) by emitting a *separate case per combination*, so every row
+in the report is a distinct, real measurement — not a collapsed average.
 
-The timing loop here is deliberately small (no pytest-benchmark at
-runtime): warm up, then take ``rounds`` samples with the garbage
-collector paused, and report best/mean. ``min`` is the stable statistic
-(best-of-N sheds scheduler jitter); ``units_per_s`` divides the work
-done per call by the best time so throughput is comparable across
-machines.
+The same cases drive both ``litmus benchmark`` and the perf test suite
+(``tests/test_data/test_perf.py``): one definition, two callers, so a
+user's numbers and CI's numbers can't drift.
+
+The timing loop is deliberately small (no pytest-benchmark at runtime):
+warm up, then take ``rounds`` samples with the garbage collector paused,
+and report best / mean / median. ``min`` (best-of-N) is the stable
+statistic; throughput divides the work done by the best time.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ class BenchContext:
 
     Workload ``setup`` functions open stores against ``data_dir`` and
     register them with :meth:`track`; both the CLI runner and the perf
-    tests call :meth:`close` when the workload is done. The CLI points
+    tests call :meth:`close` when the case is done. The CLI points
     ``data_dir`` at a throwaway OS temp dir; the perf tests point it at
     the canonical store.
     """
@@ -60,92 +61,95 @@ class BenchContext:
 
 @dataclass(frozen=True)
 class Workload:
-    """One measurable store operation.
+    """One measurable case: ``op`` at ``scale`` units with ``writers`` writers.
 
-    ``setup`` receives a :class:`BenchContext` and returns the callable
-    to time. The returned callable performs ``n`` units of work per
-    invocation (``n`` events emitted, samples written, bytes streamed,
-    or ``1`` for a single query), so throughput is ``n / best_time``.
+    ``writers == 1`` runs in-process via ``setup`` (which returns the
+    callable to time, performing ``scale`` units of work per call).
+    ``writers > 1`` runs ``scale`` units in each of N subprocesses via the
+    concurrency runner (``setup`` is unused there).
     """
 
-    key: str
-    store: str
-    label: str
-    unit: str
-    n: int
-    setup: Callable[[BenchContext], Callable[[], object]]
+    op: str  # e.g. "events.emit"
+    store: str  # "events" | "runs" | "channels" | "files"
+    unit: str  # "events" | "samples" | "runs" | "files" | "queries" | ...
+    scale: int  # units of work attempted (per writer)
+    writers: int = 1
+    setup: Callable[[BenchContext], Callable[[], object]] | None = None
     tier: str = "fast"
+
+    @property
+    def key(self) -> str:
+        w = f" x{self.writers}" if self.writers > 1 else ""
+        return f"{self.op} @ {_human(self.scale)}{w}"
 
 
 @dataclass
 class WorkloadResult:
-    """Timing outcome for one workload."""
+    """Timing + load for one case (one row in the report)."""
 
-    key: str
+    op: str
     store: str
-    label: str
     unit: str
-    n: int
+    scale: int  # units attempted per writer
+    writers: int
     rounds: int
     min_s: float
     mean_s: float
     median_s: float
     max_s: float
+    # Records actually moved per call by ONE writer: ``scale`` for writes,
+    # the result-set size for queries (``None`` until measured -> falls
+    # back to ``scale``).
+    records: int | None = None
+    peak_rss_mb: float | None = None
+    cpu_pct_mean: float | None = None
+    cpu_pct_max: float | None = None
 
     @property
-    def units_per_s(self) -> float:
-        return (self.n / self.min_s) if self.min_s > 0 else 0.0
+    def records_per_call(self) -> int:
+        return self.records if self.records is not None else self.scale
+
+    @property
+    def throughput(self) -> float:
+        """Aggregate records per second across all writers."""
+        total = self.records_per_call * self.writers
+        return (total / self.min_s) if self.min_s > 0 else 0.0
+
+    @property
+    def per_unit_us(self) -> float:
+        """Microseconds per single record (one writer's view)."""
+        rpc = self.records_per_call
+        return (self.min_s * 1e6 / rpc) if rpc else 0.0
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "key": self.key,
+            "op": self.op,
             "store": self.store,
-            "label": self.label,
             "unit": self.unit,
-            "n_per_call": self.n,
+            "units_attempted": self.scale,
+            "writers": self.writers,
+            "records_per_call": self.records_per_call,
             "rounds": self.rounds,
-            "min_ms": round(self.min_s * 1000, 4),
+            "best_ms": round(self.min_s * 1000, 4),
             "mean_ms": round(self.mean_s * 1000, 4),
             "median_ms": round(self.median_s * 1000, 4),
             "max_ms": round(self.max_s * 1000, 4),
-            "units_per_s": round(self.units_per_s, 1),
-        }
-
-
-@dataclass
-class ConcurrencyResult:
-    """Aggregate throughput of a parallel-writer probe."""
-
-    store: str
-    n_writers: int
-    n_per_writer: int
-    total_ops: int
-    wall_s: float
-
-    @property
-    def ops_per_s(self) -> float:
-        return (self.total_ops / self.wall_s) if self.wall_s > 0 else 0.0
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "store": self.store,
-            "n_writers": self.n_writers,
-            "n_per_writer": self.n_per_writer,
-            "total_ops": self.total_ops,
-            "wall_s": round(self.wall_s, 4),
-            "ops_per_s": round(self.ops_per_s, 1),
+            "per_unit_us": round(self.per_unit_us, 3),
+            "throughput_per_s": round(self.throughput, 1),
+            "peak_rss_mb": self.peak_rss_mb,
+            "cpu_pct_mean": self.cpu_pct_mean,
+            "cpu_pct_max": self.cpu_pct_max,
         }
 
 
 @dataclass
 class BenchmarkReport:
-    """The full result of a benchmark run — serialized to JSON."""
+    """The full result of a benchmark run — serialized to JSON + Markdown."""
 
     hardware: dict[str, object]
     versions: dict[str, object]
     options: dict[str, object]
     results: list[WorkloadResult] = field(default_factory=list)
-    concurrency: list[ConcurrencyResult] = field(default_factory=list)
     resources: dict[str, object] | None = None
     duration_s: float = 0.0
 
@@ -156,11 +160,19 @@ class BenchmarkReport:
             "options": self.options,
             "duration_s": round(self.duration_s, 2),
             "results": [r.as_dict() for r in self.results],
-            "concurrency": [c.as_dict() for c in self.concurrency],
         }
         if self.resources is not None:
             out["resources"] = self.resources
         return out
+
+
+def _human(n: int) -> str:
+    """Compact unit count: 100, 1k, 10k, 1.5M."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:g}M"
+    if n >= 1_000:
+        return f"{n / 1_000:g}k"
+    return str(n)
 
 
 def time_workload(fn: Callable[[], object], *, rounds: int, warmup: int) -> tuple[float, ...]:
@@ -188,3 +200,28 @@ def time_workload(fn: Callable[[], object], *, rounds: int, warmup: int) -> tupl
         statistics.median(samples),
         max(samples),
     )
+
+
+def fit_cost_model(points: list[tuple[int, float]]) -> tuple[float, float]:
+    """Least-squares fit of ``best_seconds = overhead + per_unit * units``.
+
+    ``points`` is ``[(units, best_seconds), ...]`` from the 1-writer scale
+    sweep of one operation. Returns ``(overhead_seconds, per_unit_seconds)``
+    — the fixed per-call cost and the marginal per-record cost. With one
+    point, per_unit is 0 and overhead is that point's time.
+    """
+    n = len(points)
+    if n == 0:
+        return (0.0, 0.0)
+    if n == 1:
+        return (points[0][1], 0.0)
+    sx = sum(x for x, _ in points)
+    sy = sum(y for _, y in points)
+    sxx = sum(x * x for x, _ in points)
+    sxy = sum(x * y for x, y in points)
+    denom = n * sxx - sx * sx
+    if denom == 0:
+        return (sy / n, 0.0)
+    slope = (n * sxy - sx * sy) / denom
+    intercept = (sy - slope * sx) / n
+    return (intercept, slope)
