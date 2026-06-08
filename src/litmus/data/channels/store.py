@@ -228,6 +228,13 @@ class ChannelStore:
         self._flight_port = port
         self._flight_location: str | None = None
         self._flight_client: flight.FlightClient | None = None
+        # Persistent per-channel do_put writers — held open across samples so a
+        # high-rate scalar producer pays the Flight stream handshake once per
+        # channel, not once per sample. The batch schema is the fixed
+        # ``sample_schema()`` (value is always JSON utf8), so a held stream
+        # accepts every later sample. Assumes one producer thread per store
+        # (the existing single-writer model); not shared across threads.
+        self._flight_writers: dict[str, flight.FlightStreamWriter] = {}
         # Position 2 (item 4b): ChannelStore owns ChannelStarted /
         # ChannelClosed emission because per-(channel, session)
         # tracking lives here naturally — the registry already records
@@ -965,15 +972,33 @@ class ChannelStore:
                 client = flight.connect(location)
                 self._flight_client = client
             batch = sample_to_batch(sample)
-            descriptor = flight.FlightDescriptor.for_command(
-                channel_id.encode("utf-8"),
-            )
-            writer, _ = client.do_put(descriptor, batch.schema)
+            writer = self._flight_writers.get(channel_id)
+            if writer is None:
+                descriptor = flight.FlightDescriptor.for_command(
+                    channel_id.encode("utf-8"),
+                )
+                writer, _ = client.do_put(descriptor, batch.schema)
+                self._flight_writers[channel_id] = writer
+            # write_batch on the held stream flushes per batch (gRPC client
+            # streaming sends each message), so cross-process subscribers see
+            # the sample immediately — the stream stays open, not closed.
             writer.write_batch(batch)
-            writer.close()
         except (OSError, RuntimeError, pa.ArrowException) as exc:
             warnings.warn(f"Channel Flight push failed (non-fatal): {exc}", stacklevel=2)
-            self._flight_client = None
+            self._reset_flight()
+
+    def _reset_flight(self) -> None:
+        """Tear down the Flight client + all held writers after an error, so
+        the next push reconnects and reopens streams (the broken stream can't
+        be reused). Data is durable in IPC files; the daemon rebuilds on
+        restart, so a dropped push is non-fatal."""
+        for writer in self._flight_writers.values():
+            try:
+                writer.close()
+            except (OSError, RuntimeError, pa.ArrowException):
+                pass
+        self._flight_writers.clear()
+        self._flight_client = None
 
     @property
     def flight_location(self) -> str | None:
@@ -1036,6 +1061,15 @@ class ChannelStore:
                     )
                 )
         self._closed = True
+
+        # Close held do_put writers (flushes any in-flight batch) before the
+        # client and server ref.
+        for writer in self._flight_writers.values():
+            try:
+                writer.close()
+            except (OSError, RuntimeError, pa.ArrowException):
+                pass
+        self._flight_writers.clear()
 
         # Close Flight client and release server ref
         if self._flight_client is not None:
