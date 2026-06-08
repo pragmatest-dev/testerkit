@@ -15,6 +15,7 @@ from urllib.parse import quote
 import pyarrow as pa
 import pyarrow.flight as flight
 
+from litmus.data._flight_query import call_options
 from litmus.data.channels import flight_manager
 from litmus.data.channels.models import (
     ChannelDescriptor,
@@ -72,7 +73,7 @@ class ChannelClient:
             schema=schema,
         )
         descriptor = flight.FlightDescriptor.for_command(channel_id.encode("utf-8"))
-        writer, _ = self._client.do_put(descriptor, schema)
+        writer, _ = self._client.do_put(descriptor, schema, options=call_options())
         writer.write_batch(batch)
         writer.close()
 
@@ -144,7 +145,7 @@ class ChannelClient:
         # Always include "?" so server distinguishes historical from live
         ticket_str = channel_id + "?" + "&".join(params)
         ticket = flight.Ticket(ticket_str.encode("utf-8"))
-        reader = self._client.do_get(ticket)
+        reader = self._client.do_get(ticket, options=call_options())
         return reader.read_all()
 
     def channels(self) -> list[ChannelDescriptor]:

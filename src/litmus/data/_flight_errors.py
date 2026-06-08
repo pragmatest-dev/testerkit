@@ -142,6 +142,17 @@ def classify(exc: Exception) -> FlightErrorKind:
     if isinstance(exc, OSError):
         return FlightErrorKind.TRANSIENT
 
+    # Typed connection-level Flight errors — a client-set deadline firing on a
+    # wedged/dead daemon, an unavailable channel, or a cancelled call. Check by
+    # TYPE before message-substring matching: it's more reliable than parsing
+    # the serialized string, and it's what makes the client timeout recoverable
+    # (the deadline raises FlightTimedOutError → TRANSIENT → with_retry).
+    if isinstance(
+        exc,
+        flight.FlightTimedOutError | flight.FlightUnavailableError | flight.FlightCancelledError,
+    ):
+        return FlightErrorKind.TRANSIENT
+
     if isinstance(exc, flight.FlightError):
         msg = str(exc).lower()
 

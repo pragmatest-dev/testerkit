@@ -94,11 +94,17 @@ def _flight_probe(location: str) -> bool:
     Flight thread still fails the do_get; the dropped client is removed
     from the pool so the next caller reconnects.
     """
-    from litmus.data._flight_query import _drop_pooled_client, _get_pooled_client
+    from litmus.data._flight_query import (
+        _drop_pooled_client,
+        _get_pooled_client,
+        call_options,
+    )
 
     try:
         client = _get_pooled_client(location)
-        client.do_get(flight.Ticket(b"runs\x00SELECT 1")).read_all()
+        # Short deadline: a healthy SELECT 1 is sub-ms; a wedged daemon must
+        # fail the probe fast so acquire respawns it instead of hanging.
+        client.do_get(flight.Ticket(b"runs\x00SELECT 1"), options=call_options(5.0)).read_all()
         return True
     except Exception:  # noqa: BLE001
         _drop_pooled_client(location)

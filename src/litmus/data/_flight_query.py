@@ -45,6 +45,22 @@ from litmus.data._flight_errors import (
 )
 from litmus.data._flight_retry import with_retry
 
+# Default deadline for one-shot request/response Flight calls (queries +
+# one-shot puts). Local calls are milliseconds, so this only ever fires on a
+# wedged or dead daemon — converting an otherwise-infinite hang into a
+# FlightTimedOutError that ``with_retry`` classifies TRANSIENT and recovers
+# from. NOT applied to long-lived streams (subscriptions, the channels held
+# do_put writer), where a deadline would wrongly tear the stream down.
+# Client-side by necessity: a wedged server can't enforce its own timeout.
+# Phase F (remote backend) will source this from ProjectConfig per deployment.
+DEFAULT_DAEMON_TIMEOUT_S = 30.0
+
+
+def call_options(timeout_s: float = DEFAULT_DAEMON_TIMEOUT_S) -> flight.FlightCallOptions:
+    """FlightCallOptions carrying a client deadline for one-shot calls."""
+    return flight.FlightCallOptions(timeout=timeout_s)
+
+
 # Process-wide pool: one ``FlightClient`` per ``location``.
 # Reused across every ``FlightQueryClient`` that targets the same
 # daemon. Lock guards both the dict and the "client is alive"
@@ -127,7 +143,7 @@ class FlightQueryClient:
         def _do_query() -> list[dict[str, Any]]:
             client = _get_pooled_client(self._location)
             ticket = flight.Ticket(f"{self._ticket_prefix}\0{sql}".encode())
-            reader = client.do_get(ticket)
+            reader = client.do_get(ticket, options=call_options())
             return reader.read_all().to_pylist()
 
         def _drop() -> None:

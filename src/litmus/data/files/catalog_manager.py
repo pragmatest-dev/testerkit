@@ -26,6 +26,7 @@ from litmus.data._flight_query import (
     FlightQueryClient,
     _drop_pooled_client,
     _get_pooled_client,
+    call_options,
 )
 from litmus.data.files.catalog import (
     CATALOG_ARROW_SCHEMA,
@@ -140,7 +141,7 @@ def push_artifact(files_dir: Path, row: dict[str, Any]) -> None:
         client = _get_pooled_client(location)
         tbl = pa.Table.from_pylist([row], schema=CATALOG_ARROW_SCHEMA)
         descriptor = flight.FlightDescriptor.for_command(b"files\0file_catalog")
-        writer, _ = client.do_put(descriptor, tbl.schema)
+        writer, _ = client.do_put(descriptor, tbl.schema, options=call_options())
         writer.write_table(tbl)
         writer.close()
     except (OSError, RuntimeError, pa.ArrowException) as exc:
@@ -183,7 +184,7 @@ def publish_frame(
             schema=FRAME_ARROW_SCHEMA,
         )
         descriptor = flight.FlightDescriptor.for_command(f"{FRAMES_DB}\0frames".encode())
-        writer, _ = client.do_put(descriptor, tbl.schema)
+        writer, _ = client.do_put(descriptor, tbl.schema, options=call_options())
         writer.write_table(tbl)
         writer.close()
     except (OSError, RuntimeError, pa.ArrowException) as exc:

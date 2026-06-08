@@ -18,7 +18,7 @@ import pyarrow.flight as flight
 import pyarrow.parquet as pq
 
 from litmus.data import runs_duckdb_manager
-from litmus.data._flight_query import FlightQueryClient
+from litmus.data._flight_query import FlightQueryClient, call_options
 from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import RunSummary
@@ -337,7 +337,7 @@ class RunStore:
             descriptor = flight.FlightDescriptor.for_command(b"runs\0runs")
             table = pa.table({"file_path": paths})
             batches = table.to_batches()
-            writer, reader = client.do_put(descriptor, table.schema)
+            writer, reader = client.do_put(descriptor, table.schema, options=call_options())
             for batch in batches:
                 writer.write_batch(batch)
             # Drain ACKs — each ACK confirms the server committed one batch,
