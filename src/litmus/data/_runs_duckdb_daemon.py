@@ -1539,7 +1539,6 @@ def daemon_run(runs_dir: Path) -> None:
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[211] post-ingest count query failed: %s", exc)
-            _create_views(conn)
 
         # Emit RunMaterialized. The in-process subscriber (this daemon)
         # will receive it via ``_on_event`` and evict the pool entry.
@@ -1758,7 +1757,6 @@ def daemon_run(runs_dir: Path) -> None:
                 _bulk_insert_measurement_rows(conn, fpath)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("measurement row insert failed for %s: %s", fpath, exc)
-        _create_views(conn)
 
     server, port_file, *_ = start_flight_server_in_daemon(
         mgr=mgr,
