@@ -27,6 +27,7 @@ from litmus.data._flight_query import (
     _drop_pooled_client,
     _get_pooled_client,
     call_options,
+    probe_sql,
 )
 from litmus.data.files.catalog import (
     CATALOG_ARROW_SCHEMA,
@@ -46,13 +47,8 @@ class FilesCatalogManager(DaemonManager):
     _port_file = "_files_catalog_flight_port"
 
 
-def acquire(files_dir: Path) -> str:
-    """Acquire a ref to the catalog daemon, starting it if needed.
-
-    Returns the gRPC location string for Flight queries.
-    """
-    mgr = FilesCatalogManager(files_dir)
-    mgr.acquire()
+def _wait_for_location(mgr: FilesCatalogManager, files_dir: Path) -> str:
+    """Poll the state file until the daemon writes its Flight location (up to 5s)."""
     deadline = time.monotonic() + 5.0
     while True:
         location = mgr.read_state().get("location")
@@ -63,6 +59,27 @@ def acquire(files_dir: Path) -> str:
                 f"files catalog daemon started but no location in state after 5s: {files_dir}"
             )
         time.sleep(0.05)
+
+
+def acquire(files_dir: Path) -> str:
+    """Acquire a ref to the catalog daemon, starting it if needed.
+
+    Returns the gRPC location string for Flight queries. Probes the daemon
+    after acquiring: a wedged or dead Flight thread (PID alive but not
+    responding) is killed and respawned so callers get a working connection.
+    """
+    mgr = FilesCatalogManager(files_dir)
+    mgr.acquire()
+    location = _wait_for_location(mgr, files_dir)
+    if not probe_sql(location, "files"):
+        warnings.warn(
+            f"Files catalog daemon at {location} is not responding — killing and respawning.",
+            stacklevel=2,
+        )
+        mgr.force_restart()
+        mgr.acquire()
+        location = _wait_for_location(mgr, files_dir)
+    return location
 
 
 def release(files_dir: Path) -> None:

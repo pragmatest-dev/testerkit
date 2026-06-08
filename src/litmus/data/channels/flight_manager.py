@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import sys
 import time
+import warnings
 from pathlib import Path
 
 from litmus.data._daemon_lifecycle import DaemonManager
+from litmus.data._flight_query import probe_flights
 
 
 class FlightDaemonManager(DaemonManager):
@@ -47,15 +49,13 @@ class FlightDaemonManager(DaemonManager):
         port_file = self._dir / self._ready_name
         return {"location": port_file.read_text().strip()}
 
-    def acquire_location(self) -> str:
-        """Acquire a reference and return the gRPC location string.
+    def _wait_for_location(self) -> str:
+        """Poll the state file until the daemon writes its location (up to 5s).
 
         Reuse-path acquires can land before the daemon has written its
         location into state on slow CI runners — poll briefly so the
-        transient case doesn't leak as a RuntimeError. Mirrors the
-        same retry on :func:`litmus.data.runs_duckdb_manager.acquire`.
+        transient case doesn't leak as a RuntimeError.
         """
-        super().acquire()
         deadline = time.monotonic() + 5.0
         while True:
             location = self.read_state().get("location")
@@ -66,6 +66,25 @@ class FlightDaemonManager(DaemonManager):
                     f"Flight daemon started but no location in state after 5s: {self._dir}"
                 )
             time.sleep(0.05)
+
+    def acquire_location(self) -> str:
+        """Acquire a reference and return the gRPC location string.
+
+        Probes the daemon after acquiring (via ``list_flights`` — empty is
+        alive, only an exception is dead): a wedged or dead Flight thread is
+        killed and respawned so callers get a working connection.
+        """
+        super().acquire()
+        location = self._wait_for_location()
+        if not probe_flights(location):
+            warnings.warn(
+                f"Channels Flight daemon at {location} is not responding — killing and respawning.",
+                stacklevel=2,
+            )
+            self.force_restart()
+            super().acquire()
+            location = self._wait_for_location()
+        return location
 
 
 # Module-level convenience API

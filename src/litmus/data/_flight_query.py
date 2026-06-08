@@ -79,6 +79,43 @@ def _get_pooled_client(location: str) -> flight.FlightClient:
         return client
 
 
+def probe_sql(location: str, db_name: str, timeout_s: float = 5.0) -> bool:
+    """Liveness probe for a DuckDBFlightServer daemon (events / runs / files).
+
+    Runs a literal ``SELECT 1`` (no FROM) so it tests CONNECTIVITY, not data —
+    it returns a row even on a cold daemon with no tables yet, and an empty or
+    any result counts as alive. Only an exception (dead Flight thread, deadline
+    on a wedged daemon) marks it down; the broken client is dropped so the next
+    caller reconnects. Short deadline so a wedged daemon fails fast.
+    """
+    try:
+        client = _get_pooled_client(location)
+        client.do_get(
+            flight.Ticket(f"{db_name}\0SELECT 1".encode()), options=call_options(timeout_s)
+        ).read_all()
+        return True
+    except Exception:  # noqa: BLE001 — any failure means "respawn it"
+        _drop_pooled_client(location)
+        return False
+
+
+def probe_flights(location: str, timeout_s: float = 5.0) -> bool:
+    """Liveness probe for a ChannelFlightServer daemon (no SQL surface).
+
+    Uses ``list_flights`` — a server-level call that responds even when the
+    daemon holds zero channels. An EMPTY list is alive (the server answered);
+    only an exception marks it down. (A "non-empty only" check would falsely
+    kill a brand-new daemon on every acquire.)
+    """
+    try:
+        client = _get_pooled_client(location)
+        list(client.list_flights(options=call_options(timeout_s)))
+        return True
+    except Exception:  # noqa: BLE001 — any failure means "respawn it"
+        _drop_pooled_client(location)
+        return False
+
+
 def _drop_pooled_client(location: str) -> None:
     """Remove a pooled client (e.g. after a transient gRPC failure).
 
