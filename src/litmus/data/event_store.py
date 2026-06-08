@@ -159,8 +159,16 @@ class EventStore:
             label="EventStore",
         )
 
-        # Persistent do_put stream (for writes)
-        self._put_stream = FlightPutStream(self._location, "events", "events")
+        # Persistent do_put stream (for writes). Same reacquire as the query
+        # client so the write path self-heals across a daemon restart: the
+        # stream reacquires a fresh daemon and resends un-acked batches
+        # (idempotent — the events insert is ON CONFLICT (id) DO NOTHING).
+        self._put_stream = FlightPutStream(
+            self._location,
+            "events",
+            "events",
+            reacquire=lambda: duckdb_manager.acquire(self._events_dir),
+        )
 
         # Internal writer per session (created lazily via get_event_log)
         self._event_logs: dict[UUID, EventLog] = {}
@@ -631,9 +639,10 @@ class EventStore:
         while not self._watcher_stop.is_set():
             client: flight.FlightClient | None = None
             try:
-                client = flight.connect(location)
+                conn = flight.connect(location)
+                client = conn  # retained for the finally-block close
                 ticket = flight.Ticket(f"events\0__SUBSCRIBE__\0{int(last_event_number)}".encode())
-                reader = client.do_get(ticket)
+                reader = conn.do_get(ticket)
                 backoff = 0.1  # connected — reset backoff
                 for chunk in reader:
                     if self._watcher_stop.is_set():

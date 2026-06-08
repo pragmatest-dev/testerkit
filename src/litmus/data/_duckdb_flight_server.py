@@ -14,6 +14,7 @@ do_put descriptor format: ``db_name\0table_name``
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import warnings
@@ -46,8 +47,15 @@ _SUB_QUEUE_MAX = 10_000
 # ---------------------------------------------------------------------------
 
 
+# Cap on the held un-acked resend buffer. Past this the oldest batch is
+# dropped from the buffer — it is already durable in the writer's IPC file,
+# so the daemon's startup sweep re-ingests it; this only bounds the
+# in-memory resend window, it never loses data.
+_MAX_UNACKED_BATCHES = 256
+
+
 class FlightPutStream:
-    """Persistent do_put stream with deferred delivery guarantees.
+    """Persistent do_put stream with deferred delivery + self-healing writes.
 
     Keeps a single gRPC/HTTP2 stream open across writes, avoiding
     ~1.6ms per-call setup overhead. ``write()`` sends a batch without
@@ -55,35 +63,57 @@ class FlightPutStream:
     all pending INSERTs via the metadata ack channel — call before
     querying for read-after-write consistency.
 
+    Resilience (only on the failure path — the normal write/drain flow is
+    untouched): if the daemon is killed mid-stream (e.g. an upgrade where a
+    newer client restarts an older daemon), ``write``/``drain`` reacquire a
+    fresh daemon via ``reacquire`` and **resend** the un-acked batches. The
+    resend is safe because the events insert is ``ON CONFLICT (id) DO
+    NOTHING`` — rows the dead daemon already committed are no-ops. This is
+    the writer-side mirror of the query client's reacquire-and-retry.
+
     Thread-safe via internal lock.
     """
 
-    def __init__(self, location: str, db_name: str, table_name: str) -> None:
+    def __init__(
+        self,
+        location: str,
+        db_name: str,
+        table_name: str,
+        *,
+        reacquire: Callable[[], str] | None = None,
+    ) -> None:
         self._location = location
         self._command = f"{db_name}\0{table_name}".encode()
+        self._reacquire = reacquire
         self._client: flight.FlightClient | None = None
         self._writer: flight.FlightStreamWriter | None = None
         self._reader: flight.FlightMetadataReader | None = None
+        self._schema: pa.Schema | None = None
         self._pending_acks: int = 0
+        # Batches written since the last successful drain, kept ONLY for the
+        # failure path: resend them to a fresh daemon after a kill. Capped;
+        # dropped-oldest entries stay durable in the IPC file.
+        self._unacked: list[pa.RecordBatch] = []
         self._lock = threading.Lock()
 
     def write(self, batch: pa.RecordBatch) -> None:
         """Write a batch to the persistent stream. Does not wait for ack."""
         with self._lock:
+            if self._schema is None:
+                self._schema = batch.schema
+            self._unacked.append(batch)
+            if len(self._unacked) > _MAX_UNACKED_BATCHES:
+                del self._unacked[0]  # oldest is durable in IPC; bound memory
             try:
-                writer = self._writer
-                if writer is None:
-                    client = flight.connect(self._location)
-                    self._client = client
-                    descriptor = flight.FlightDescriptor.for_command(self._command)
-                    writer, reader = client.do_put(descriptor, batch.schema)
-                    self._writer = writer
-                    self._reader = reader
-                writer.write_batch(batch)
-                self._pending_acks += 1
+                self._ensure_open_locked()
+                if self._writer is not None:
+                    self._writer.write_batch(batch)
+                    self._pending_acks += 1
             except (OSError, flight.FlightError, pa.ArrowException):
-                self._reset()
-                raise
+                # Daemon may be gone — reacquire a fresh one and resend the
+                # un-acked window so this batch isn't stranded in IPC-only.
+                if not self._recover_locked():
+                    raise
 
     def drain(self) -> None:
         """Block until all pending writes are confirmed by the server."""
@@ -94,7 +124,18 @@ class FlightPutStream:
                 for _ in range(self._pending_acks):
                     self._reader.read()
                 self._pending_acks = 0
+                self._unacked.clear()
             except (OSError, flight.FlightError, pa.ArrowException):
+                # Daemon died mid-drain — reacquire, resend, confirm once more.
+                if self._recover_locked():
+                    try:
+                        for _ in range(self._pending_acks):
+                            self._reader.read()
+                        self._pending_acks = 0
+                        self._unacked.clear()
+                        return
+                    except (OSError, flight.FlightError, pa.ArrowException):
+                        pass
                 self._reset()
                 raise
 
@@ -108,14 +149,56 @@ class FlightPutStream:
                     self._pending_acks = 0
                 except (OSError, flight.FlightError, pa.ArrowException):
                     pass
+            self._unacked.clear()
             self._reset()
 
+    # -- internals (caller holds self._lock) --------------------------------
+
+    def _ensure_open_locked(self) -> None:
+        """Open the stream against the current location if not already open."""
+        if self._writer is not None or self._schema is None:
+            return
+        client = flight.connect(self._location)
+        self._client = client
+        descriptor = flight.FlightDescriptor.for_command(self._command)
+        self._writer, self._reader = client.do_put(descriptor, self._schema)
+
+    def _recover_locked(self) -> bool:
+        """Reacquire a fresh daemon and resend the un-acked window.
+
+        Returns ``True`` if the resend landed on a live daemon (acks now
+        pending), ``False`` if recovery isn't possible (no reacquire
+        callback, or the fresh daemon is also unreachable) — the caller
+        then falls back to IPC durability.
+        """
+        if self._reacquire is None:
+            self._reset()
+            return False
+        self._reset()  # drop the broken stream; KEEP _unacked for resend
+        try:
+            self._location = self._reacquire()
+            self._ensure_open_locked()
+            if self._writer is None:
+                return False
+            for b in self._unacked:
+                self._writer.write_batch(b)
+            self._pending_acks = len(self._unacked)
+            return True
+        except (OSError, flight.FlightError, pa.ArrowException):
+            self._reset()
+            return False
+
     def _reset(self) -> None:
+        """Drop the broken stream/client. Keeps ``_unacked`` for resend.
+
+        Close failures are expected here (``_reset`` runs when the stream is
+        already broken), so they log at debug rather than warn.
+        """
         if self._writer is not None:
             try:
                 self._writer.close()
             except Exception as exc:  # noqa: BLE001 — cleanup: drop the broken stream regardless
-                warnings.warn(f"FlightPutStream: failed to close writer: {exc}", stacklevel=2)
+                logging.getLogger(__name__).debug("FlightPutStream: close writer failed: %s", exc)
             self._writer = None
         self._reader = None
         self._pending_acks = 0
@@ -123,7 +206,7 @@ class FlightPutStream:
             try:
                 self._client.close()
             except Exception as exc:  # noqa: BLE001 — cleanup: drop the broken client regardless
-                warnings.warn(f"FlightPutStream: failed to close client: {exc}", stacklevel=2)
+                logging.getLogger(__name__).debug("FlightPutStream: close client failed: %s", exc)
             self._client = None
 
 
