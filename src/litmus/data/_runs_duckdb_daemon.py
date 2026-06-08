@@ -1164,24 +1164,35 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
 
 
 def _create_inflight_tables(conn: duckdb.DuckDBPyConnection) -> None:
-    """Create the empty inflight overlay tables from the Arrow schemas.
+    """Create the inflight overlay tables in an attached in-memory database.
 
     The live-runs overlay used to be per-connection ``register()`` temp
     views — which child cursors can't see, forcing every reader onto one
-    locked connection (a read convoy). These are real catalog tables
-    visible to ALL cursors, so reads run as lock-free parallel SELECTs and
-    a single gated refresh keeps them current. Recreated empty on each
-    spawn: the overlay is rebuilt from the events replay into the
-    in-memory pool, never restored from persisted rows.
+    locked connection (a read convoy). It needs to be real catalog tables
+    (visible to ALL cursors → lock-free parallel reads), but it is also
+    purely EPHEMERAL: a projection of the in-memory accumulator pool, which
+    is itself rebuilt from the events replay (``unmaterialized_runs``) on
+    every daemon start. So it lives in an attached ``:memory:`` database —
+    fresh and empty each launch, never written to ``_index.duckdb``, yet
+    shared across the connection's cursors. No persistence means no
+    restart drop/recreate dance and no stale rows surviving a restart.
+
+    Migration: earlier builds persisted ``inflight_*`` as MAIN tables (and
+    the views depended on them). Drop the views, then those orphaned
+    tables, so the on-disk catalog is clean; ``_create_views`` rebuilds the
+    views against the overlay schema right after.
     """
+    for view in ("runs", "steps", "measurements"):
+        conn.execute(f"DROP VIEW IF EXISTS {view}")
+    for name in ("inflight_runs", "inflight_steps", "inflight_measurements"):
+        conn.execute(f"DROP TABLE IF EXISTS {name}")
+    conn.execute("ATTACH ':memory:' AS overlay")
     for name, empty in (
         ("inflight_runs", EMPTY_INFLIGHT_RUNS),
         ("inflight_steps", EMPTY_INFLIGHT_STEPS),
         ("inflight_measurements", EMPTY_INFLIGHT_MEASUREMENTS),
     ):
-        conn.execute(f"DROP VIEW IF EXISTS {name}")
-        conn.execute(f"DROP TABLE IF EXISTS {name}")
-        conn.from_arrow(empty).create(name)
+        conn.from_arrow(empty).create(f"overlay.{name}")
 
 
 def _replace_inflight(
@@ -1241,7 +1252,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             characteristic_id, spec_ref, dut_pin, fixture_connection,
             instrument_name, instrument_resource, instrument_channel,
             dynamic_attrs
-        FROM inflight_measurements
+        FROM overlay.inflight_measurements
         WHERE run_id NOT IN (
             SELECT DISTINCT run_id FROM measurements_materialized
             WHERE run_id IS NOT NULL
@@ -1267,7 +1278,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             started_at, ended_at,
             num_measurements, num_steps, test_phase, product_id,
             operator_id, project_name
-        FROM inflight_runs
+        FROM overlay.inflight_runs
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
     """)
     conn.execute("""
@@ -1286,7 +1297,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             duration_s, has_measurements, measurement_count, vector_count,
             markers, dut_serial, station_id,
             dynamic_attrs
-        FROM inflight_steps
+        FROM overlay.inflight_steps
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
     """)
 
@@ -1459,10 +1470,10 @@ def daemon_run(runs_dir: Path) -> None:
             gen, run_rows, step_rows, meas_rows = snapshot
             c.execute("BEGIN")
             try:
-                _replace_inflight(c, "inflight_runs", run_rows, INFLIGHT_RUNS_SCHEMA)
-                _replace_inflight(c, "inflight_steps", step_rows, INFLIGHT_STEPS_SCHEMA)
+                _replace_inflight(c, "overlay.inflight_runs", run_rows, INFLIGHT_RUNS_SCHEMA)
+                _replace_inflight(c, "overlay.inflight_steps", step_rows, INFLIGHT_STEPS_SCHEMA)
                 _replace_inflight(
-                    c, "inflight_measurements", meas_rows, INFLIGHT_MEASUREMENTS_SCHEMA
+                    c, "overlay.inflight_measurements", meas_rows, INFLIGHT_MEASUREMENTS_SCHEMA
                 )
                 c.execute("COMMIT")
             except Exception:
