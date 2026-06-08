@@ -404,31 +404,56 @@ class _Op(NamedTuple):
 # measured directly (not extrapolated). bytes_per_unit is set only where a
 # record has a fixed byte size (channels samples, file blobs/chunks) — for
 # those, the report shows bytes/s, which is the real throughput axis.
+# Bytes per record, so every op reports a real byte rate. Events/runs are
+# measured from a serialized sample; the rest are known fixed sizes.
+_EVENT_BYTES = len(make_measurement(uuid4(), 0).model_dump_json().encode())
+_RUN_BYTES = len(build_run(0).model_dump_json().encode())
+_SCALAR_BYTES = 8  # one float sample / point
+_ROW_BYTES = 256  # one summary/metadata row from a query
+
+# Each scale is its own row; the smallest (often 1) is the single-call case
+# — its rate is overhead-bound but a valid data point. Call overhead is the
+# line's intercept; per-record is the slope.
 _OPS: dict[str, _Op] = {
     "events.emit": _Op(
-        "events", "events", _setup_events_emit, [1, 1000], [1, 100, 1000, 10000], None
+        "events", "events", _setup_events_emit, [1, 1000], [1, 100, 1000, 10000], _EVENT_BYTES
     ),
     "events.query": _Op(
-        "events", "events", _setup_events_query, [100, 1000], [100, 1000, 10000], None
+        "events", "events", _setup_events_query, [100, 1000], [100, 1000, 10000], _EVENT_BYTES
     ),
     "channels.write": _Op(
-        "channels", "samples", _setup_channels_write, [1, 1000], [1, 100, 1000, 10000], 8
+        "channels",
+        "samples",
+        _setup_channels_write,
+        [1, 1000],
+        [1, 100, 1000, 10000],
+        _SCALAR_BYTES,
     ),
     "channels.block": _Op(
-        "channels", "points", _setup_channels_block, [1000, 10000], [1000, 10000, 100000], 8
+        "channels",
+        "points",
+        _setup_channels_block,
+        [1000, 10000],
+        [1000, 10000, 100000],
+        _SCALAR_BYTES,
     ),
     "channels.query": _Op(
-        "channels", "samples", _setup_channels_query, [100, 1000], [100, 1000, 10000], 8
+        "channels", "samples", _setup_channels_query, [100, 1000], [100, 1000, 10000], _SCALAR_BYTES
     ),
     "channels.stream": _Op(
-        "channels", "samples", _setup_channels_stream, [1, 1000], [1, 100, 1000, 10000], 8
+        "channels",
+        "samples",
+        _setup_channels_stream,
+        [1, 1000],
+        [1, 100, 1000, 10000],
+        _SCALAR_BYTES,
     ),
-    "runs.save": _Op("runs", "runs", _setup_runs_save, [1, 10], [1, 10, 100], None),
-    "runs.list": _Op("runs", "runs", _setup_runs_list, [10, 100], [10, 100, 1000], None),
-    "runs.steps": _Op("runs", "runs", _setup_runs_steps, [10, 100], [10, 100, 1000], None),
+    "runs.save": _Op("runs", "runs", _setup_runs_save, [1, 10], [1, 10, 100], _RUN_BYTES),
+    "runs.list": _Op("runs", "runs", _setup_runs_list, [10, 100], [10, 100, 1000], _ROW_BYTES),
+    "runs.steps": _Op("runs", "runs", _setup_runs_steps, [10, 100], [10, 100, 1000], _ROW_BYTES),
     "files.write": _Op("files", "artifacts", _setup_files_write, [1, 10], [1, 10, 100], 100 * 1024),
-    "files.resolve": _Op("files", "files", _setup_files_resolve, [1], [1], None),
-    "files.list": _Op("files", "files", _setup_files_list, [10, 100], [10, 100, 1000], None),
+    "files.resolve": _Op("files", "files", _setup_files_resolve, [1], [1], _ROW_BYTES),
+    "files.list": _Op("files", "files", _setup_files_list, [10, 100], [10, 100, 1000], _ROW_BYTES),
     "files.stream_raw": _Op(
         "files", "chunks", _setup_files_stream_raw, [1, 64], [1, 64, 256], 64 * 1024
     ),

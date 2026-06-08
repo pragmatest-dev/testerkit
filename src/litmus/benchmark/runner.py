@@ -1,10 +1,10 @@
 """Benchmark orchestration — case execution, teardown, and report output.
 
-Runs every case from :func:`build_cases` (one per operation x units x
-writers), records latency + throughput + per-case load, and renders two
-things: a RAW table (every case is a row, with Units and Writers as
-columns) and a SUMMARY (methodology + a fixed-overhead / per-unit cost
-model fitted from the scale sweep).
+Runs every case from :func:`build_cases` (one per operation x size x
+writers) and records latency + throughput + per-case load. The human report
+(:func:`format_markdown` / :func:`format_summary`) leads with a *derived*
+verdict — does Litmus keep up with a busy test station? — and a curated
+"what you do" table. The full raw per-case detail goes to ``report.json``.
 
 The run is hermetic: a fresh OS temp dir, store daemons spawned there,
 killed and the dir wiped on teardown — even on error.
@@ -19,14 +19,21 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import NamedTuple
 
 from litmus.benchmark.core import (
     BenchContext,
     BenchmarkReport,
     WorkloadResult,
-    cost_anchors,
     time_workload,
+)
+from litmus.benchmark.scenario import (
+    PROFILES,
+    ConcurrencyPoint,
+    ConcurrencySweep,
+    StorageFootprint,
+    channel_capacity,
+    derive_capacity,
+    extract_coefficients,
 )
 from litmus.benchmark.system import (
     ResourceSampler,
@@ -79,6 +86,85 @@ def _kill_daemons(data_dir: Path) -> None:
             pass
 
 
+def _prewarm(data_dir: Path) -> None:
+    """Start every store's background service before timing, so its one-time
+    spawn CPU/RAM burst isn't charged to the first measured case."""
+    from uuid import uuid4
+
+    from litmus.data.channels.store import ChannelStore
+    from litmus.data.event_store import EventStore
+    from litmus.data.files.catalog_manager import acquire, release
+    from litmus.data.run_store import RunStore
+
+    try:
+        EventStore(_data_dir=data_dir).close()
+        RunStore(_data_dir=data_dir).close()
+        ch = ChannelStore(data_dir, uuid4(), serve=True)
+        ch.open()
+        ch.close()
+        files_dir = data_dir / "files"
+        acquire(files_dir)
+        release(files_dir)
+    except Exception:  # noqa: BLE001 — best-effort warmup
+        pass
+
+
+def _dir_bytes(p: Path) -> int:
+    return sum(f.stat().st_size for f in p.rglob("*") if f.is_file()) if p.exists() else 0
+
+
+def _measure_storage(data_dir: Path) -> StorageFootprint | None:
+    """On-disk bytes per record per store — a controlled write + dir-size delta,
+    so storage capacity uses the real (compressed) footprint, not raw sizes."""
+    from uuid import uuid4
+
+    from litmus.benchmark.workloads import build_run, make_measurement
+    from litmus.data.backends.parquet import ParquetBackend
+    from litmus.data.channels.store import ChannelStore
+    from litmus.data.event_store import EventStore
+    from litmus.data.files.store import FileStore
+    from litmus.data.run_store import RunStore
+
+    try:
+        ev = data_dir / "events"
+        b0 = _dir_bytes(ev)
+        es = EventStore(_data_dir=data_dir)
+        sid = uuid4()
+        for i in range(2000):
+            es.emit(make_measurement(sid, i))
+        es.flush()
+        es.close()
+        measurement_bytes = max(0, _dir_bytes(ev) - b0) / 2000
+
+        ch_dir = data_dir / "channels"
+        b0 = _dir_bytes(ch_dir)
+        ch = ChannelStore(data_dir, uuid4(), flush_threshold=100, serve=True)
+        ch.open()
+        wf = [25.0 + (i % 100) * 0.01 for i in range(100_000)]
+        ch.write("scope.ch1", wf, sample_interval=1e-6)
+        ch.close()
+        point_bytes = max(0, _dir_bytes(ch_dir) - b0) / 100_000
+
+        runs_dir = data_dir / "runs"
+        b0 = _dir_bytes(runs_dir)
+        backend = ParquetBackend(data_dir=data_dir)
+        rs = RunStore(_data_dir=data_dir)
+        for _ in range(10):
+            rs.notify_new_run(backend.save_test_run(build_run(uuid4().int % 1_000_000)))  # type: ignore[union-attr]
+        rs.close()
+        run_bytes = max(0, _dir_bytes(runs_dir) - b0) / 10
+
+        f_dir = data_dir / "files"
+        b0 = _dir_bytes(f_dir)
+        fs = FileStore(data_dir=data_dir)
+        size = 1024 * 1024
+        fs.write(f"store_probe_{uuid4().hex[:8]}", b"a" * size, session_id=uuid4().hex)
+        file_byte_ratio = max(1.0, _dir_bytes(f_dir) - b0) / size
+    except Exception:  # noqa: BLE001 — best-effort; coefficients fall back to raw bytes
+        return None
+    return StorageFootprint(measurement_bytes, point_bytes, run_bytes, file_byte_ratio)
+
+
 def run_benchmark(
     options: BenchmarkOptions,
     *,
@@ -101,64 +187,71 @@ def run_benchmark(
         options=options.as_dict(),
     )
 
+    import statistics
+
+    from litmus.benchmark.concurrency import run_concurrency
+
     total = len(cases)
     try:
-        with ResourceSampler() as sampler:
-            for i, case in enumerate(cases, 1):
-                label = case.key
-                progress(f"[{i}/{total}] {i * 100 // total:>3}%  {label} ...")
-                sampler.mark(label)
-                records: int | None = None
-                if case.writers == 1 and case.setup is not None:
-                    ctx = BenchContext(data_dir)
-                    try:
-                        fn = case.setup(ctx)
-                        mn, mean, median, mx = time_workload(
-                            fn, rounds=options.rounds, warmup=options.warmup
-                        )
-                        records = _result_size(fn())  # one extra call to size the result
-                    finally:
-                        ctx.close()
-                else:
-                    from litmus.benchmark.concurrency import run_concurrency
-
-                    walls = run_concurrency(
-                        data_dir, case.op, case.scale, case.writers, rounds=conc_rounds
+        progress("starting store services ...")
+        _prewarm(data_dir)
+        sampler = ResourceSampler(data_dir).start()
+        for i, case in enumerate(cases, 1):
+            progress(f"[{i}/{total}] {i * 100 // total:>3}%  {case.key} ...")
+            records: int | None = None
+            case_rounds = case.rounds or options.rounds
+            if case.writers == 1 and case.setup is not None:
+                ctx = BenchContext(data_dir)
+                try:
+                    fn = case.setup(ctx)
+                    mn, mean, median, mx = time_workload(
+                        fn, rounds=case_rounds, warmup=options.warmup
                     )
-                    import statistics
-
-                    mn, mean, median, mx = (
-                        min(walls),
-                        statistics.fmean(walls),
-                        statistics.median(walls),
-                        max(walls),
-                    )
-                sampler.mark(None)
-                load = sampler.case(label, case.store)
-                report.results.append(
-                    WorkloadResult(
-                        op=case.op,
-                        store=case.store,
-                        unit=case.unit,
-                        scale=case.scale,
-                        writers=case.writers,
-                        rounds=options.rounds if case.writers == 1 else conc_rounds,
-                        min_s=mn,
-                        mean_s=mean,
-                        median_s=median,
-                        max_s=mx,
-                        records=records,
-                        bytes_per_unit=case.bytes_per_unit,
-                        daemon_rss_mb=load["rss_mb"],  # type: ignore[arg-type]
-                        daemon_cores_mean=load["cores_mean"],  # type: ignore[arg-type]
-                        daemon_cores_peak=load["cores_peak"],  # type: ignore[arg-type]
-                    )
+                    records = _result_size(fn())  # one extra call to size the result
+                finally:
+                    ctx.close()
+            else:
+                walls = run_concurrency(
+                    data_dir, case.op, case.scale, case.writers, rounds=conc_rounds
                 )
-            report.resources = sampler.per_store()
+                mn, mean, median, mx = (
+                    min(walls),
+                    statistics.fmean(walls),
+                    statistics.median(walls),
+                    max(walls),
+                )
+            report.results.append(
+                WorkloadResult(
+                    op=case.op,
+                    store=case.store,
+                    unit=case.unit,
+                    scale=case.scale,
+                    writers=case.writers,
+                    rounds=case_rounds if case.writers == 1 else conc_rounds,
+                    min_s=mn,
+                    mean_s=mean,
+                    median_s=median,
+                    max_s=mx,
+                    records=records,
+                    bytes_per_unit=case.bytes_per_unit,
+                )
+            )
+        progress("measuring on-disk footprint ...")
+        report.storage = _measure_storage(data_dir)
+        progress("measuring concurrent-run capacity ...")
+        writer_counts = [1, 2, 4, 8] if options.tier == "full" else [1, 2, 4]
+        points: list[ConcurrencyPoint] = []
+        for w in writer_counts:
+            walls = run_concurrency(data_dir, "representative.production", 2, w, rounds=2)
+            wall = min(walls) if walls else 0.0
+            points.append(ConcurrencyPoint(w, (w * 2) / wall if wall > 0 else 0.0))
+        report.concurrency = ConcurrencySweep(points)
+        report.footprint = sampler.stop()
     finally:
         _kill_daemons(data_dir)
         shutil.rmtree(data_dir, ignore_errors=True)
 
+    report.coefficients = extract_coefficients(report.results, report.storage, report.concurrency)
     report.duration_s = time.perf_counter() - started
     return report
 
@@ -180,92 +273,43 @@ def write_report(report: BenchmarkReport, output_dir: Path | str = ".benchmarks"
 
 # ---------------------------------------------------------------------------
 # Rendering
+#
+# The human report answers ONE question — does Litmus keep up with a test
+# station, or get in the way? It leads with a verdict DERIVED from the run
+# (never hardcoded), then a curated table with a HEADROOM column (sustained
+# rate ÷ what a busy station produces). Full per-case detail lives in
+# report.json via WorkloadResult.as_dict, so the human page stays confident
+# and scannable rather than a profiler dump.
 # ---------------------------------------------------------------------------
 
 
-def _ordered(results: list[WorkloadResult]) -> list[WorkloadResult]:
-    """Group by operation, then 1-writer scale sweep, then concurrency rows."""
-    ops: list[str] = []
-    for r in results:
-        if r.op not in ops:
-            ops.append(r.op)
-    return sorted(results, key=lambda r: (ops.index(r.op), r.writers, r.scale))
+def _si(n: float | None) -> str:
+    """Number with an SI prefix and 3 significant figures: 3.64M, 78.4k, 82."""
+    if n is None:
+        return "0"
+    n = float(n)
+    for suffix, div in (("G", 1e9), ("M", 1e6), ("k", 1e3)):
+        if abs(n) >= div:
+            return f"{n / div:.3g}{suffix}"
+    return str(int(n)) if n == int(n) else f"{n:.3g}"
 
 
-class _Cost(NamedTuple):
-    op: str
-    unit: str
-    floor_units: int
-    floor_ms: float  # measured best time at the smallest scale
-    marginal_us: float  # per-unit time (slope), µs
-    marginal_per_s: float  # per-unit rate (1/slope), records/s
-    marginal_bytes_per_s: float | None  # per-unit byte rate, if byte-sized
-
-
-def _cost_models(results: list[WorkloadResult]) -> list[_Cost]:
-    """Per-op cost from 1-writer rows: a measured floor + a marginal slope.
-
-    Both come from real anchors (smallest-scale best time, and the
-    smallest→largest slope) — see ``cost_anchors``. No least-squares
-    intercept (it produced untrustworthy ~0/negative overheads).
-    """
-    by_op: dict[str, list[WorkloadResult]] = {}
-    order: list[str] = []
-    for r in results:
-        if r.writers != 1:
-            continue
-        by_op.setdefault(r.op, []).append(r)
-        if r.op not in order:
-            order.append(r.op)
-    models: list[_Cost] = []
-    for op in order:
-        rows = by_op[op]
-        floor_units, floor_s, marginal_s = cost_anchors([(r.scale, r.min_s) for r in rows])
-        rate = (1.0 / marginal_s) if marginal_s > 0 else 0.0
-        bpu = rows[0].bytes_per_unit
-        byte_rate = (bpu / marginal_s) if (bpu is not None and marginal_s > 0) else None
-        models.append(
-            _Cost(op, rows[0].unit, floor_units, floor_s * 1000, marginal_s * 1e6, rate, byte_rate)
-        )
-    return models
-
-
-def _scaling(results: list[WorkloadResult]) -> list[tuple[str, dict[int, float]]]:
-    """Per concurrency op: {writers -> throughput} including the 1-writer baseline."""
-    conc_ops = sorted({r.op for r in results if r.writers > 1})
-    out: list[tuple[str, dict[int, float]]] = []
-    for op in conc_ops:
-        rep = min(r.scale for r in results if r.op == op and r.writers > 1)
-        series = {
-            r.writers: r.throughput
-            for r in results
-            if r.op == op and (r.writers > 1 or r.scale == rep)
-        }
-        out.append((op, series))
-    return out
-
-
-def _methodology(report: BenchmarkReport) -> str:
-    o = report.options
-    return (
-        f"Methodology: each operation is run at several **unit counts** "
-        f"(one row each) and, for writes, several **writer counts** (separate "
-        f"processes). Each row is best-of-{o.get('rounds')} timed rounds "
-        f"(GC paused, {o.get('warmup')} warmup). Throughput = records moved / "
-        f"best time. The cost model fits best-time vs units over the 1-writer "
-        f"rows: **fixed overhead** is the per-call floor (RPC + plan + commit), "
-        f"**per-unit** is the marginal cost of one more record."
-    )
-
-
-def _fmt_bytes_s(bps: float | None) -> str:
-    """Bytes/second as B/s, KB/s, MB/s, or GB/s; '—' when not byte-sized."""
+def _mbps(bps: float | None) -> str:
+    """Bytes/second as a bare MB/s number (3 significant figures)."""
     if bps is None:
-        return "—"
-    for unit, scale in (("GB/s", 1024**3), ("MB/s", 1024**2), ("KB/s", 1024)):
-        if bps >= scale:
-            return f"{bps / scale:,.1f} {unit}"
-    return f"{bps:,.0f} B/s"
+        return "0"
+    return f"{bps / (1024**2):.3g}"
+
+
+def _ms(time_ms: float) -> str:
+    """Readable time: 0.21 ms · 2.4 ms · 76 ms · 5.8 s (no scientific notation)."""
+    if time_ms >= 1000:
+        return f"{time_ms / 1000:.1f} s"
+    if time_ms >= 10:
+        return f"{time_ms:.0f} ms"
+    if time_ms >= 1:
+        return f"{time_ms:.1f} ms"
+    return f"{time_ms:.2g} ms"
 
 
 def _short_os(platform_str: object) -> str:
@@ -278,185 +322,201 @@ def _short_os(platform_str: object) -> str:
     return f"{sys_name} {ver}{wsl}".strip()
 
 
-def _meta_groups(report: BenchmarkReport) -> list[tuple[str, list[tuple[str, str]]]]:
-    """Header facts grouped as ``[(group, [(field, value), ...]), ...]``."""
-    hw, ver, opts = report.hardware, report.versions, report.options
-    return [
-        (
-            "Run",
-            [
-                ("Tier", str(opts.get("tier"))),
-                ("Cases", str(len(report.results))),
-                ("Duration", f"{report.duration_s:.0f} s"),
-            ],
-        ),
-        (
-            "Machine",
-            [
-                ("CPU", f"{hw.get('cpu_count')} × {hw.get('machine')}"),
-                ("RAM", f"{hw.get('ram_gb')} GB"),
-                ("OS", _short_os(hw.get("platform"))),
-            ],
-        ),
-        (
-            "Versions",
-            [
-                ("litmus", str(ver.get("litmus"))),
-                ("Python", str(ver.get("python"))),
-                ("pyarrow", str(ver.get("pyarrow"))),
-                ("duckdb", str(ver.get("duckdb"))),
-            ],
-        ),
+# Curated friendly names + how to read each op's cost (NO "headroom").
+#   write  -> per-record time + sustained units/s
+#   query  -> call latency + sustained units/s
+#   block  -> per-block latency + points/s
+#   stream -> per-chunk latency + MB/s
+_OP_LABELS: list[tuple[str, str, str]] = [
+    ("Log a measurement", "events.emit", "write"),
+    ("Read recent measurements", "events.query", "query"),
+    ("Write a sensor sample", "channels.write", "write"),
+    ("Write a waveform block", "channels.block", "block"),
+    ("Read channel data", "channels.query", "query"),
+    ("Store a file artifact", "files.write", "write"),
+    ("Stream raw file data", "files.stream_raw", "stream"),
+    ("Save a finished run", "runs.save", "write"),
+    ("Read run history", "runs.list", "query"),
+    ("Read a run's steps", "runs.steps", "query"),
+    ("Locate a file", "files.resolve", "query"),
+]
+
+# Representative per-product test cycle used only to express the "in parallel"
+# figure (sustained runs/s × cycle). Stated in the report so it's interpretable.
+_CYCLE_S = 10.0
+
+
+def _op_rate(results: list[WorkloadResult], op: str, kind: str) -> tuple[float, str] | None:
+    """(latency_ms, sustained-rate string) for one op — no headroom."""
+    rows = sorted((r for r in results if r.op == op and r.writers == 1), key=lambda r: r.scale)
+    if not rows:
+        return None
+    small, big = rows[0], rows[-1]
+    if kind == "write":
+        return big.min_s / max(1, big.records_per_call) * 1000, f"{_si(big.throughput)}/s"
+    if kind == "block":
+        return small.min_s * 1000, f"{_si(big.throughput)} points/s"
+    if kind == "stream":
+        return small.min_s * 1000, f"{_mbps(big.bytes_per_s)} MB/s"
+    return small.min_s * 1000, f"{_si(big.throughput)}/s"
+
+
+def _composition(sc: object) -> str:
+    """Reader-facing description of a phase scenario's data footprint."""
+    parts = [f"{sc.measurements:,} measurements"]  # type: ignore[attr-defined]
+    if sc.waveform_captures:  # type: ignore[attr-defined]
+        mb = sc.total_points * 8 / (1024**2)  # type: ignore[attr-defined]
+        parts.append(
+            f"{sc.waveform_captures}×{_si(sc.waveform_points)}-pt waveforms ({mb:.0f} MB)"  # type: ignore[attr-defined]
+        )
+    else:
+        parts.append("no raw waveforms")
+    if sc.files:  # type: ignore[attr-defined]
+        parts.append(f"{sc.files} files")  # type: ignore[attr-defined]
+    return " · ".join(parts)
+
+
+def _machine_line(report: BenchmarkReport) -> str:
+    hw, ver = report.hardware, report.versions
+    parts = [
+        f"**{hw.get('cpu_model')}**",
+        f"{hw.get('cpu_count')} cores",
+        f"{hw.get('ram_gb')} GB RAM",
+        _short_os(hw.get("platform")),
+        f"litmus {ver.get('litmus')}",
+        f"duckdb {ver.get('duckdb')}",
+        f"pyarrow {ver.get('pyarrow')}",
+        f"{report.options.get('tier')} tier · {report.duration_s:.0f}s",
     ]
+    return " · ".join(parts)
+
+
+def _free_disk(report: BenchmarkReport) -> int:
+    v = report.hardware.get("free_disk_bytes")
+    return int(v) if isinstance(v, (int, float)) else 0
+
+
+def _verdict(report: BenchmarkReport) -> str:
+    """Derived takeaway in capacity terms (production scenario), not headroom."""
+    coef = report.coefficients
+    if coef is None:
+        return "No capacity was measured."
+    free = _free_disk(report)
+    prod = next(p for p in PROFILES if p.name == "production")
+    cap = derive_capacity(coef, prod, free_disk_bytes=free, sweep=report.concurrency)
+    return (
+        f"Recording a production test run costs ~{_ms(cap.per_run_s * 1000)} and "
+        f"~{cap.storage_gb_per_run * 1024:.1f} MB. This machine finalizes "
+        f"~{cap.sustained_runs_per_s:.0f} runs/s (≈{cap.parallel_products(_CYCLE_S)} products in "
+        f"parallel at a {_CYCLE_S:.0f}s cycle) and can hold ~{_si(cap.storage_runs)} runs. "
+        "Litmus stays out of your test's way."
+    )
+
+
+def _footprint_line(report: BenchmarkReport) -> str | None:
+    """Task-Manager view: the data layer's share of the whole machine."""
+    fp = report.footprint
+    if fp is None:
+        return None
+    cpu = f"{fp.cpu_pct_of_machine:.1f}%" if fp.cpu_pct_of_machine >= 0.1 else "<0.1%"
+    return (
+        f"Under load it uses ~{cpu} of this machine's CPU and ~{fp.ram_gb:.1f} GB "
+        f"({fp.ram_pct_of_machine:.0f}% of RAM) — the rest stays free for your test "
+        "code and other apps."
+    )
 
 
 def format_markdown(report: BenchmarkReport) -> str:
-    out: list[str] = ["# Litmus benchmark", ""]
-    out.append("| Group | Field | Value |")
-    out.append("|---|---|---|")
-    for group, fields in _meta_groups(report):
-        for idx, (field, value) in enumerate(fields):
-            label = f"**{group}**" if idx == 0 else ""
-            out.append(f"| {label} | {field} | {value} |")
+    out: list[str] = ["# Litmus performance on this machine", ""]
+    out.append(_machine_line(report))
+    out.append("")
+    out.append(_verdict(report))
+    fpl = _footprint_line(report)
+    if fpl:
+        out.append("")
+        out.append(fpl)
     out.append("")
 
-    # Raw results — one row per (operation x units x writers).
-    out.append("## Results (one row per case)")
+    coef = report.coefficients
+    free = _free_disk(report)
+
+    out.append("## Recording test runs (by phase)")
+    out.append("")
+    out.append("| Test phase | What it records | Time / run | On disk / run | Runs that fit |")
+    out.append("|---|---|--:|--:|--:|")
+    if coef is not None:
+        for sc in PROFILES:
+            cap = derive_capacity(coef, sc, free_disk_bytes=free, sweep=report.concurrency)
+            out.append(
+                f"| {sc.name.capitalize()} | {_composition(sc)} | {_ms(cap.per_run_s * 1000)} "
+                f"| {cap.storage_gb_per_run * 1024:.1f} MB | {_si(cap.storage_runs)} |"
+            )
     out.append("")
     out.append(
-        "| Operation | Units | Writers | Best (ms) | Throughput | Bytes/s "
-        "| Daemon RSS | Daemon CPU |"
+        '_Compositions are illustrative, tunable. "Products in parallel" = the data layer\'s '
+        "sustained run rate × your test cycle — at a multi-second cycle that's hundreds._"
     )
-    out.append("|---|--:|--:|--:|--:|--:|--:|--:|")
-    for r in _ordered(report.results):
-        rss = f"{r.daemon_rss_mb:,.0f} MB" if r.daemon_rss_mb is not None else "—"
-        cores = f"{r.daemon_cores_mean:.2f} cores" if r.daemon_cores_mean is not None else "—"
-        bps = _fmt_bytes_s(r.bytes_per_s)
+    out.append("")
+
+    out.append("## Capturing instrument data (channels)")
+    out.append("")
+    if coef is not None:
+        for rate_hz, label in ((1_000, "1 kS/s"), (10_000, "10 kS/s")):
+            cc = channel_capacity(coef, channels=1, sample_rate_hz=rate_hz, free_disk_bytes=free)
+            out.append(f"- Log up to **{_si(cc.max_channels_at_rate)} channels at {label}** each.")
+        cc = channel_capacity(coef, channels=32, sample_rate_hz=10_000, free_disk_bytes=free)
         out.append(
-            f"| `{r.op}` | {r.scale:,} | {r.writers} | {r.min_s * 1000:.3f} | "
-            f"{r.throughput:,.0f} {r.unit}/s | {bps} | {rss} | {cores} |"
+            f"- Ingest ceiling ~{_si(cc.ingest_ceiling_per_s)} points/s; a 32-channel × 10 kS/s "
+            f"capture fills your free disk in ~{cc.max_seconds_on_disk / 3600:,.0f} hours."
         )
     out.append("")
 
-    # Summary — cost model.
-    out.append("## Summary")
+    out.append("## Per-operation rates")
     out.append("")
-    out.append(_methodology(report))
-    out.append("")
-    out.append("### Per-operation cost (1 writer)")
+    out.append("| Operation | Latency | Sustained rate |")
+    out.append("|---|--:|--:|")
+    for label, op, kind in _OP_LABELS:
+        r = _op_rate(report.results, op, kind)
+        if r is not None:
+            out.append(f"| {label} | {_ms(r[0])} | {r[1]} |")
     out.append("")
     out.append(
-        "| Operation | Per-call floor | Marginal (records/s) "
-        "| Marginal (time) | Marginal (bytes/s) |"
+        "_Full per-size, parallel-scaling, coefficient, and storage detail is in `report.json`._"
     )
-    out.append("|---|--:|--:|--:|--:|")
-    for c in _cost_models(report.results):
-        u = c.unit[:-1] if c.unit.endswith("s") else c.unit
-        flat = c.marginal_us < 0.05  # below measurement resolution → no per-unit cost
-        rate = (
-            "flat" if flat else (f"{c.marginal_per_s:,.0f} {c.unit}/s" if c.marginal_per_s else "—")
-        )
-        per = "≈0 (flat)" if flat else f"{c.marginal_us:.2f} µs/{u}"
-        byr = "—" if flat else _fmt_bytes_s(c.marginal_bytes_per_s)
-        out.append(
-            f"| `{c.op}` | {c.floor_ms:.3f} ms @ {c.floor_units:,} {c.unit} "
-            f"| {rate} | {per} | {byr} |"
-        )
-    out.append("")
-
-    scaling = _scaling(report.results)
-    if scaling:
-        out.append("### Parallel scaling (writes)")
-        out.append("")
-        wset = sorted({w for _, s in scaling for w in s})
-        out.append("| Operation | " + " | ".join(f"{w}w" for w in wset) + " | Speedup |")
-        out.append("|---|" + "--:|" * (len(wset) + 1))
-        for op, series in scaling:
-            cells = [f"{series[w]:,.0f}" if w in series else "—" for w in wset]
-            base = series.get(1)
-            best = max(series.values()) if series else 0.0
-            sp = f"{best / base:.2f}×" if base else "—"
-            out.append(f"| `{op}` | " + " | ".join(cells) + f" | {sp} |")
-        out.append("")
-
-    if report.resources:
-        out.append("### Per-store daemon footprint (whole run)")
-        out.append("")
-        out.append("CPU in cores (1.0 = one core fully used); the harness/pytest is excluded.")
-        out.append("")
-        out.append("| Store daemon | Peak RSS | Peak CPU | Mean CPU |")
-        out.append("|---|--:|--:|--:|")
-        for store, d in report.resources.items():
-            rss = f"{d.get('rss_mb'):,.0f} MB" if d.get("rss_mb") is not None else "—"
-            peak = f"{d.get('cores_peak')} cores" if d.get("cores_peak") is not None else "—"
-            mean = f"{d.get('cores_mean')} cores" if d.get("cores_mean") is not None else "—"
-            out.append(f"| {store} | {rss} | {peak} | {mean} |")
-        out.append("")
     return "\n".join(out)
 
 
 def format_summary(report: BenchmarkReport) -> str:
-    """Terminal summary — the same raw rows + cost model, ASCII-aligned."""
-    lines: list[str] = ["Litmus benchmark", ""]
-    for group, fields in _meta_groups(report):
-        for idx, (field, value) in enumerate(fields):
-            grp = group if idx == 0 else ""
-            lines.append(f"  {grp:<10} {field:<10} {value}")
+    """Terminal summary — the capacity report, ASCII-aligned."""
+    lines: list[str] = ["Litmus performance on this machine", ""]
+    lines.append(f"  {_machine_line(report).replace('**', '')}")
     lines.append("")
-    lines.append("  Results — one row per case (operation x units x writers):")
-    hdr = (
-        f"  {'operation':<18} {'units':>8} {'wrtrs':>6} {'best ms':>10} "
-        f"{'throughput':>18} {'bytes/s':>11} {'dmn RSS':>9} {'dmn CPU':>9}"
-    )
-    lines.append(hdr)
-    lines.append("  " + "-" * (len(hdr) - 2))
-    for r in _ordered(report.results):
-        rss = f"{r.daemon_rss_mb:,.0f}MB" if r.daemon_rss_mb is not None else "—"
-        cores = f"{r.daemon_cores_mean:.2f}c" if r.daemon_cores_mean is not None else "—"
-        thr = f"{r.throughput:,.0f} {r.unit}/s"
-        lines.append(
-            f"  {r.op:<18} {r.scale:>8,} {r.writers:>6} {r.min_s * 1000:>10.3f} "
-            f"{thr:>18} {_fmt_bytes_s(r.bytes_per_s):>11} {rss:>9} {cores:>9}"
-        )
+    lines.append(f"  {_verdict(report)}")
+    fpl = _footprint_line(report)
+    if fpl:
+        lines.append(f"  {fpl}")
+    lines.append("")
 
-    lines.append("")
-    lines.append("  Cost model (1 writer): measured per-call floor + marginal per unit")
-    lines.append(
-        f"  {'operation':<18} {'floor':>16} {'marginal (rec/s)':>18} "
-        f"{'(time)':>13} {'(bytes/s)':>11}"
-    )
-    lines.append("  " + "-" * 78)
-    for c in _cost_models(report.results):
-        u = c.unit[:-1] if c.unit.endswith("s") else c.unit
-        floor = f"{c.floor_ms:.2f}ms@{c.floor_units:,}"
-        flat = c.marginal_us < 0.05
-        rate = "flat" if flat else (f"{c.marginal_per_s:,.0f}/s" if c.marginal_per_s else "—")
-        per = "≈0" if flat else f"{c.marginal_us:.2f}µs/{u}"
-        byr = "—" if flat else _fmt_bytes_s(c.marginal_bytes_per_s)
-        lines.append(f"  {c.op:<18} {floor:>16} {rate:>18} {per:>13} {byr:>11}")
+    coef = report.coefficients
+    free = _free_disk(report)
 
-    scaling = _scaling(report.results)
-    if scaling:
-        lines.append("")
-        lines.append("  Parallel scaling (writes), throughput by writers:")
-        for op, series in scaling:
-            parts = "  ".join(f"{w}w={series[w]:,.0f}" for w in sorted(series))
-            base = series.get(1)
-            best = max(series.values()) if series else 0.0
-            sp = f"  ({best / base:.2f}× at {max(series)}w)" if base else ""
-            lines.append(f"    {op:<18} {parts}{sp}")
+    lines.append("  Recording test runs (by phase):")
+    lines.append(f"    {'phase':<16} {'time/run':>10} {'on disk':>10} {'runs fit':>12}")
+    if coef is not None:
+        for sc in PROFILES:
+            cap = derive_capacity(coef, sc, free_disk_bytes=free, sweep=report.concurrency)
+            lines.append(
+                f"    {sc.name:<16} {_ms(cap.per_run_s * 1000):>10} "
+                f"{cap.storage_gb_per_run * 1024:>8.1f}MB {_si(cap.storage_runs):>12}"
+            )
+    lines.append("")
 
+    lines.append("  Per-operation rates:")
+    lines.append(f"    {'operation':<26} {'latency':>9} {'sustained rate':>16}")
+    for label, op, kind in _OP_LABELS:
+        r = _op_rate(report.results, op, kind)
+        if r is not None:
+            lines.append(f"    {label:<26} {_ms(r[0]):>9} {r[1]:>16}")
     lines.append("")
-    if report.resources:
-        lines.append("  Per-store daemon footprint (CPU in cores; harness excluded):")
-        lines.append(f"    {'store':<10} {'peak RSS':>10} {'peak CPU':>10} {'mean CPU':>10}")
-        for store, d in report.resources.items():
-            rss = f"{d.get('rss_mb'):,.0f} MB" if d.get("rss_mb") is not None else "—"
-            peak = f"{d.get('cores_peak')}c" if d.get("cores_peak") is not None else "—"
-            mean = f"{d.get('cores_mean')}c" if d.get("cores_mean") is not None else "—"
-            lines.append(f"    {store:<10} {rss:>10} {peak:>10} {mean:>10}")
-    else:
-        lines.append("  Footprint: unavailable (install litmus-test[benchmark] for psutil)")
-    lines.append("")
-    lines.append("  Each row is a real measurement. Throughput = records moved / best time.")
+    lines.append("  Full detail (coefficients, per-size, scaling, storage) is in report.json.")
     return "\n".join(lines)

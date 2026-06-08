@@ -88,11 +88,40 @@ def _runs_worker(data_dir: str, scale: int, seed: int) -> float:
     return time.perf_counter() - t0
 
 
+def _representative_worker(data_dir: str, scale: int, seed: int) -> float:
+    """Record ``scale`` PRODUCTION-profile runs (lean: measurements + run save,
+    no waveforms/files) — the unit for the 'how many runs at once' sweep."""
+    from litmus.benchmark.scenario import PROFILES
+    from litmus.benchmark.workloads import build_run, make_measurement
+    from litmus.data.backends.parquet import ParquetBackend
+    from litmus.data.event_store import EventStore
+    from litmus.data.run_store import RunStore
+
+    prof = next(p for p in PROFILES if p.name == "production")
+    es = EventStore(_data_dir=Path(data_dir))
+    backend = ParquetBackend(data_dir=Path(data_dir))
+    store = RunStore(_data_dir=Path(data_dir))
+    t0 = time.perf_counter()
+    try:
+        for r in range(scale):
+            sid = uuid4()
+            for i in range(prof.measurements):
+                es.emit(make_measurement(sid, i))
+            es.flush()
+            run = build_run(seed * 100_000 + r, n_steps=prof.steps)
+            store.notify_new_run(backend.save_test_run(run))
+    finally:
+        es.close()
+        store.close()
+    return time.perf_counter() - t0
+
+
 _WORKERS = {
     "events.emit": _event_worker,
     "channels.write": _channel_worker,
     "files.write": _file_worker,
     "runs.save": _runs_worker,
+    "representative.production": _representative_worker,
 }
 
 

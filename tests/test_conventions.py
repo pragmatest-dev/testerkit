@@ -160,9 +160,11 @@ _CHANNELSTORE_ALLOWED = {
     "src/litmus/data/materialize.py",
     # The benchmark's write/stream workloads are serve=True producers;
     # its channel QUERY workload reads through the daemon (ChannelClient),
-    # never a globbing store.
+    # never a globbing store. runner.py pre-warms the channels daemon the
+    # same way (serve=True producer) before timing.
     "src/litmus/benchmark/workloads.py",
     "src/litmus/benchmark/concurrency.py",
+    "src/litmus/benchmark/runner.py",
 }
 
 

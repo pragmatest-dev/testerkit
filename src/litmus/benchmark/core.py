@@ -22,8 +22,13 @@ import gc
 import statistics
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from litmus.benchmark.scenario import Coefficients, ConcurrencySweep, StorageFootprint
+    from litmus.benchmark.system import ResourceFootprint
 
 
 class BenchContext:
@@ -77,6 +82,7 @@ class Workload:
     setup: Callable[[BenchContext], Callable[[], object]] | None = None
     tier: str = "fast"
     bytes_per_unit: int | None = None  # set for byte-heavy ops → enables bytes/s
+    rounds: int | None = None  # per-case round override (None → use the tier default)
 
     @property
     def key(self) -> str:
@@ -103,11 +109,6 @@ class WorkloadResult:
     # back to ``scale``).
     records: int | None = None
     bytes_per_unit: int | None = None
-    # The case's STORE DAEMON footprint (server-side, not the harness):
-    # RSS in MB, CPU in cores (1.0 = one core fully used).
-    daemon_rss_mb: float | None = None
-    daemon_cores_mean: float | None = None
-    daemon_cores_peak: float | None = None
 
     @property
     def records_per_call(self) -> int:
@@ -149,9 +150,6 @@ class WorkloadResult:
             "per_unit_us": round(self.per_unit_us, 3),
             "throughput_per_s": round(self.throughput, 1),
             "bytes_per_s": round(self.bytes_per_s, 1) if self.bytes_per_s is not None else None,
-            "daemon_rss_mb": self.daemon_rss_mb,
-            "daemon_cores_mean": self.daemon_cores_mean,
-            "daemon_cores_peak": self.daemon_cores_peak,
         }
 
 
@@ -163,8 +161,15 @@ class BenchmarkReport:
     versions: dict[str, object]
     options: dict[str, object]
     results: list[WorkloadResult] = field(default_factory=list)
-    # Per-store daemon footprint: {store: {rss_mb, cores_mean, cores_peak}}.
-    resources: dict[str, dict[str, object | None]] | None = None
+    # Data layer's footprint under load — % of the machine's CPU and RAM
+    # (Task-Manager view: "how much is it pulling from my other processes?").
+    footprint: ResourceFootprint | None = None
+    # Measured on-disk bytes/record per store (the calculator's storage input).
+    storage: StorageFootprint | None = None
+    # Production-run concurrency sweep (the "run X at once" input).
+    concurrency: ConcurrencySweep | None = None
+    # The capacity-calculator coefficient block.
+    coefficients: Coefficients | None = None
     duration_s: float = 0.0
 
     def as_dict(self) -> dict[str, object]:
@@ -175,8 +180,14 @@ class BenchmarkReport:
             "duration_s": round(self.duration_s, 2),
             "results": [r.as_dict() for r in self.results],
         }
-        if self.resources is not None:
-            out["resources"] = self.resources
+        if self.footprint is not None:
+            out["footprint_under_load"] = asdict(self.footprint)
+        if self.storage is not None:
+            out["storage_bytes_per_record"] = asdict(self.storage)
+        if self.concurrency is not None:
+            out["concurrency_sweep"] = asdict(self.concurrency)
+        if self.coefficients is not None:
+            out["coefficients"] = asdict(self.coefficients)
         return out
 
 
@@ -214,29 +225,3 @@ def time_workload(fn: Callable[[], object], *, rounds: int, warmup: int) -> tupl
         statistics.median(samples),
         max(samples),
     )
-
-
-def cost_anchors(points: list[tuple[int, float]]) -> tuple[int, float, float]:
-    """Two measured anchors from a 1-writer scale sweep.
-
-    ``points`` is ``[(units, best_seconds), ...]``. Returns
-    ``(floor_units, floor_seconds, marginal_seconds_per_unit)`` where:
-
-    - **floor** is the directly-measured best time at the SMALLEST scale —
-      the per-call cost dominated by fixed overhead (RPC + plan + commit).
-      Reported as a real measurement, not extrapolated to a y-intercept
-      (a 2-point least-squares fit produced untrustworthy ~0/negative
-      intercepts).
-    - **marginal** is the slope between the smallest and largest scale:
-      ``(best_max - best_min) / (units_max - units_min)`` — the cost of
-      one more record once you're past the fixed floor.
-
-    With one point, marginal is 0 and the floor is that point.
-    """
-    pts = sorted(points)
-    lo_u, lo_t = pts[0]
-    hi_u, hi_t = pts[-1]
-    if hi_u == lo_u:
-        return (lo_u, lo_t, 0.0)
-    marginal = (hi_t - lo_t) / (hi_u - lo_u)
-    return (lo_u, lo_t, max(0.0, marginal))

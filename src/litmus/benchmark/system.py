@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import os
 import platform
+import subprocess
 import threading
-import time
+from dataclasses import dataclass
 
 try:
     import psutil
@@ -30,27 +31,49 @@ def have_psutil() -> bool:
 
 
 def _cpu_model() -> str:
-    name = platform.processor()
-    if name:
-        return name
-    if platform.system() == "Linux":
+    """Full CPU brand + generation, e.g. 'Intel(R) Core(TM) i9-13900K' or
+    'Apple M3 Pro'. ``platform.processor()`` returns the bare arch on Linux,
+    so read the real model from the OS; never fall back to the arch (that's
+    captured separately as ``machine``)."""
+    system = platform.system()
+    if system == "Linux":
         try:
             for line in open("/proc/cpuinfo"):
                 if line.startswith("model name"):
                     return line.split(":", 1)[1].strip()
         except OSError:
             pass
-    return platform.machine() or "unknown"
+    elif system == "Darwin":
+        try:
+            out = subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if out.returncode == 0 and out.stdout.strip():
+                return out.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    name = platform.processor()  # Windows gives a real brand string here
+    if name and name != platform.machine():
+        return name
+    return "unknown"
 
 
 def collect_hardware() -> dict[str, object]:
+    import shutil
+
     ram_gb: float | None = None
     if psutil is not None:
         ram_gb = round(psutil.virtual_memory().total / (1024**3), 2)
+    free_bytes = shutil.disk_usage(os.getcwd()).free
     return {
         "cpu_model": _cpu_model(),
         "cpu_count": os.cpu_count(),
         "ram_gb": ram_gb,
+        "free_disk_bytes": free_bytes,
+        "free_disk_gb": round(free_bytes / (1024**3), 1),
         "platform": platform.platform(),
         "machine": platform.machine(),
     }
@@ -71,130 +94,98 @@ def collect_versions() -> dict[str, object]:
     return versions
 
 
-class ResourceSampler:
-    """Background sampler over the process tree, bucketed per case.
+@dataclass(frozen=True)
+class ResourceFootprint:
+    """The store daemons' footprint as a share of the WHOLE machine — the
+    Task-Manager view ("how much is the data layer pulling from my other
+    processes?"). A local scaling constraint: each machine has different totals."""
 
-    Each sampled process is attributed to the store whose **daemon** it is
-    (by cmdline); the benchmark harness, pytest, and concurrency workers
-    are ignored — we report each store's own server-side footprint, not
-    ours. CPU is reported in **cores** (one fully-used core = 1.0), the
-    cgroups/k8s/`time` convention, so the number is interpretable without
-    knowing the machine's core count. No-op when ``psutil`` is absent.
+    cpu_pct_of_machine: float  # peak total daemon CPU, % of all cores
+    ram_gb: float  # peak total daemon RSS
+    ram_pct_of_machine: float  # peak total daemon RSS, % of total RAM
+
+
+class ResourceSampler:
+    """Background sampler of the store DAEMONS' footprint as a share of the
+    whole machine: peak CPU as **% of all cores** and peak RAM as **GB + % of
+    total** — like glancing at Task Manager while it's under load. The harness,
+    pytest, and concurrency workers are excluded. No-op without ``psutil``.
     """
 
-    def __init__(self, interval: float = 0.05) -> None:
+    def __init__(self, data_dir: object, interval: float = 0.1) -> None:
+        self._data_dir = str(data_dir)
         self._interval = interval
+        self._cores = os.cpu_count() or 1
+        self._ram = psutil.virtual_memory().total if psutil is not None else 1
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._label: str | None = None
-        self._lock = threading.Lock()
-        # (case_label | "*", store) -> {"rss_peak": bytes, "cores": [float,...]}
-        self._by: dict[tuple[str, str], dict] = {}
-        self._store_by_pid: dict[int, str | None] = {}
+        self._peak_cpu_pct = 0.0  # % of machine
+        self._peak_rss = 0.0  # bytes
 
-    def mark(self, label: str | None) -> None:
-        with self._lock:
-            self._label = label
-
-    def __enter__(self) -> ResourceSampler:
+    def start(self) -> ResourceSampler:
         if psutil is not None:
-            self._thread = threading.Thread(target=self._run, daemon=True, name="bench-sampler")
+            self._thread = threading.Thread(target=self._run, daemon=True, name="bench-footprint")
             self._thread.start()
         return self
 
-    def __exit__(self, *exc: object) -> None:
+    def stop(self) -> ResourceFootprint | None:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
+        return self.footprint()
 
-    def _store_of(self, proc) -> str | None:
-        """Which store's daemon is this process? Cached by pid; None = harness."""
+    def _daemons(self) -> list:
         assert psutil is not None
-        pid = proc.pid
-        if pid in self._store_by_pid:
-            return self._store_by_pid[pid]
-        store: str | None = None
-        try:
-            cmd = " ".join(proc.cmdline())
-            for needle, name in _DAEMON_MODULES:
-                if needle in cmd:
-                    store = name
-                    break
-        except psutil.Error:
-            store = None
-        self._store_by_pid[pid] = store
-        return store
-
-    def _tree(self) -> list:
-        assert psutil is not None
+        needles = tuple(_DAEMON_MODULES)
+        out = []
         try:
             me = psutil.Process(os.getpid())
-            procs = [me, *me.children(recursive=True)]
+            for child in me.children(recursive=True):
+                try:
+                    cmd = " ".join(child.cmdline())
+                except psutil.Error:
+                    continue
+                if self._data_dir in cmd and any(n in cmd for n in needles):
+                    out.append(child)
         except psutil.Error:
-            return []
-        for p in procs:
-            try:
-                p.cpu_percent(None)
-            except psutil.Error:
-                pass
-        return procs
+            pass
+        return out
 
     def _run(self) -> None:
         assert psutil is not None
-        procs = self._tree()
-        last_refresh = time.monotonic()
+        primed: dict[int, object] = {}
         while not self._stop.wait(self._interval):
-            if time.monotonic() - last_refresh > 0.5:
-                procs = self._tree()
-                last_refresh = time.monotonic()
-                continue
-            for p in procs:
-                store = self._store_of(p)
-                if store is None:  # harness / pytest / workers — not a store daemon
-                    continue
+            cpu_pct = 0.0
+            rss = 0.0
+            for p in self._daemons():
+                if p.pid not in primed:
+                    try:
+                        p.cpu_percent(None)  # prime; first call is meaningless
+                    except psutil.Error:
+                        continue
+                    primed[p.pid] = p
                 try:
-                    rss = p.memory_info().rss
-                    cores = p.cpu_percent(None) / 100.0
+                    cpu_pct += p.cpu_percent(None)  # % where 100 = one core
+                    rss += p.memory_info().rss
                 except psutil.Error:
-                    continue
-                with self._lock:
-                    label = self._label
-                    for key in (("*", store), *(((label, store),) if label else ())):
-                        b = self._by.setdefault(key, {"rss_peak": 0.0, "cores": []})
-                        b["rss_peak"] = max(b["rss_peak"], rss)
-                        b["cores"].append(cores)
+                    primed.pop(p.pid, None)
+            self._peak_cpu_pct = max(self._peak_cpu_pct, cpu_pct / self._cores)
+            self._peak_rss = max(self._peak_rss, rss)
 
-    @staticmethod
-    def _summarize(b: dict | None) -> dict[str, object | None]:
-        if not b or not b["cores"]:
-            return {"rss_mb": None, "cores_mean": None, "cores_peak": None}
-        c = b["cores"]
-        return {
-            "rss_mb": round(b["rss_peak"] / (1024**2), 1),
-            "cores_mean": round(sum(c) / len(c), 2),
-            "cores_peak": round(max(c), 2),
-        }
-
-    def case(self, label: str, store: str) -> dict[str, object | None]:
-        """The ``store`` daemon's RSS (MB) + CPU (cores) during one case."""
-        with self._lock:
-            b = self._by.get((label, store))
-        return self._summarize(b)
-
-    def per_store(self) -> dict[str, dict[str, object | None]] | None:
-        """Whole-run footprint per store daemon, or None without psutil."""
-        if psutil is None:
+    def footprint(self) -> ResourceFootprint | None:
+        if psutil is None or self._peak_rss == 0:
             return None
-        with self._lock:
-            stores = sorted({s for (lbl, s) in self._by if lbl == "*"})
-            return {s: self._summarize(self._by.get(("*", s))) for s in stores}
+        return ResourceFootprint(
+            cpu_pct_of_machine=round(self._peak_cpu_pct, 1),
+            ram_gb=round(self._peak_rss / (1024**3), 2),
+            ram_pct_of_machine=round(self._peak_rss / self._ram * 100, 1),
+        )
 
 
-# Daemon module → store. Order matters: check the runs daemon before the
-# events one (their module names share the ``duckdb_daemon`` suffix).
-_DAEMON_MODULES: list[tuple[str, str]] = [
-    ("litmus.data._runs_duckdb_daemon", "runs"),
-    ("litmus.data.channels._flight_daemon", "channels"),
-    ("litmus.data.files._catalog_daemon", "files"),
-    ("litmus.data._duckdb_daemon", "events"),
-]
+# Daemon module markers (cmdline) used to find the store daemon processes.
+_DAEMON_MODULES: tuple[str, ...] = (
+    "litmus.data._runs_duckdb_daemon",
+    "litmus.data.channels._flight_daemon",
+    "litmus.data.files._catalog_daemon",
+    "litmus.data._duckdb_daemon",
+)
