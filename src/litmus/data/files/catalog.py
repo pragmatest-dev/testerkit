@@ -28,7 +28,7 @@ _SIDECAR_SUFFIX = ".meta.json"
 
 CATALOG_DDL = """
 CREATE TABLE IF NOT EXISTS file_catalog (
-    uri VARCHAR,
+    uri VARCHAR PRIMARY KEY,
     session_id VARCHAR,
     name VARCHAR,
     path VARCHAR,
@@ -41,6 +41,31 @@ CREATE TABLE IF NOT EXISTS file_catalog (
     attributes VARCHAR
 )
 """
+
+# ``uri`` is the natural key (``file://{session}/{name}`` is 1:1 with a
+# blob), so the catalog is its own ingest ledger: the startup scan skips
+# any sidecar whose uri is already present (incremental — no rebuild from
+# every sidecar), and the live ``do_put`` from ``FileStore.write`` upserts.
+# A file rewritten under the same uri refreshes its row instead of
+# duplicating it (the old plain INSERT double-counted).
+_CATALOG_COLUMNS = (
+    "uri",
+    "session_id",
+    "name",
+    "path",
+    "mime",
+    "extension",
+    "size_bytes",
+    "instrument_role",
+    "resource",
+    "created_at",
+    "attributes",
+)
+_UPSERT_SQL = (
+    "INSERT INTO file_catalog SELECT * FROM {src} "
+    "ON CONFLICT (uri) DO UPDATE SET "
+    + ", ".join(f"{c}=excluded.{c}" for c in _CATALOG_COLUMNS if c != "uri")
+)
 
 CATALOG_ARROW_SCHEMA = pa.schema(
     [
@@ -77,7 +102,18 @@ FRAME_ARROW_SCHEMA = pa.schema(
 
 
 def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    """Idempotently align the on-disk catalog schema (additive open)."""
     conn.execute(CATALOG_DDL)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_file_catalog_created ON file_catalog(created_at)")
+
+
+def upsert_rows(conn: duckdb.DuckDBPyConnection, table: pa.Table) -> None:
+    """Upsert catalog rows by ``uri`` (idempotent for scan + live do_put)."""
+    if table.num_rows == 0:
+        return
+    conn.register("_upsert", table)
+    conn.execute(_UPSERT_SQL.format(src="_upsert"))
+    conn.unregister("_upsert")
 
 
 def catalog_row(
@@ -106,26 +142,33 @@ def catalog_row(
 
 
 def scan_sidecars(conn: duckdb.DuckDBPyConnection, files_dir: Path) -> int:
-    """Rebuild the catalog by scanning every sidecar under ``files_dir``.
+    """Fold sidecars not yet cataloged into the (persistent) catalog.
 
     Layout: ``{files_dir}/{date}/{session_id}/{filename}`` with a
-    ``{filename}.meta.json`` sidecar alongside. Returns the row count.
+    ``{filename}.meta.json`` sidecar alongside. **Incremental**: a sidecar
+    whose uri is already in the catalog is skipped, so a daemon restart
+    reads only new sidecars rather than rebuilding from every one. Returns
+    the count of newly-ingested rows.
     """
+    known = {row[0] for row in conn.execute("SELECT uri FROM file_catalog").fetchall()}
     rows: list[dict[str, Any]] = []
     for sidecar in files_dir.glob(f"*/*/*{_SIDECAR_SUFFIX}"):
         blob = sidecar.with_name(sidecar.name[: -len(_SIDECAR_SUFFIX)])
         if not blob.exists():
+            continue
+        session_id = blob.parent.name
+        name = blob.name
+        uri = f"file://{session_id}/{name}"
+        if uri in known:
             continue
         try:
             meta = FileArtifactMetadata.model_validate_json(sidecar.read_text())
             created_at = datetime.fromtimestamp(blob.stat().st_mtime, tz=UTC)
         except (OSError, ValueError):
             continue
-        session_id = blob.parent.name
-        name = blob.name
         rows.append(
             catalog_row(
-                uri=f"file://{session_id}/{name}",
+                uri=uri,
                 session_id=session_id,
                 name=name,
                 path=blob,
@@ -134,8 +177,5 @@ def scan_sidecars(conn: duckdb.DuckDBPyConnection, files_dir: Path) -> int:
             )
         )
     if rows:
-        tbl = pa.Table.from_pylist(rows, schema=CATALOG_ARROW_SCHEMA)
-        conn.register("_scan", tbl)
-        conn.execute("INSERT INTO file_catalog SELECT * FROM _scan")
-        conn.unregister("_scan")
+        upsert_rows(conn, pa.Table.from_pylist(rows, schema=CATALOG_ARROW_SCHEMA))
     return len(rows)

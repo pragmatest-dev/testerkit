@@ -727,15 +727,43 @@ class ChannelStore:
     )
 
     def _index_open(self) -> None:
-        """Create the in-memory index and rebuild it from closed segments.
+        """Open the on-disk index and fold in segments closed since last run.
 
-        The index is a derived cache; producer IPC files are the durable
-        truth, so it is rebuilt from disk on every daemon start.
+        The index is a persistent derived cache (``_index.duckdb`` in the
+        channels dir): it survives a daemon restart and is brought current
+        by an **incremental** scan — only segments not already in the
+        ``_ingested`` ledger are read (vs. the old wipe-and-rebuild-from-all
+        on every start). Producer IPC files remain the durable truth.
+
+        Live ``do_put`` rows ride a separate attached ``:memory:`` overlay
+        (``live.channel_live``): they are ephemeral (lost on restart, then
+        re-derived from their now-closed segments by the incremental scan),
+        so they never collide with a segment-scanned row. Mirrors the runs
+        daemon's persistent-index + in-memory-overlay split.
         """
-        self._index_db = duckdb.connect(":memory:")
+        index_path = self._channels_dir / "_index.duckdb"
+        self._index_db = duckdb.connect(str(index_path))
+        self._ensure_index_schema(self._index_db)
+        # Ephemeral live overlay: attached :memory: so it's visible to every
+        # child read cursor (a register()'d temp view would not be), yet not
+        # persisted — it's a projection of in-flight samples, re-derived from
+        # segments on restart.
+        self._index_db.execute("ATTACH ':memory:' AS live")
         self._index_db.execute(
+            "CREATE TABLE live.channel_live AS SELECT * FROM channel_index LIMIT 0"
+        )
+        self._scan_disk()
+
+    @staticmethod
+    def _ensure_index_schema(conn: duckdb.DuckDBPyConnection) -> None:
+        """Idempotently align the on-disk index schema (additive open).
+
+        ``CREATE TABLE IF NOT EXISTS`` so a new column auto-migrates an
+        existing DB on next spawn — no version bump, no re-ingest.
+        """
+        conn.execute(
             """
-            CREATE TABLE channel_index (
+            CREATE TABLE IF NOT EXISTS channel_index (
                 channel_id VARCHAR,
                 session_id VARCHAR,
                 received_at TIMESTAMPTZ,
@@ -746,7 +774,18 @@ class ChannelStore:
             )
             """
         )
-        self._scan_disk()
+        # Ledger of ingested segments — keyed on path alone. A channel
+        # segment is written exactly once (one batch, then closed
+        # immutable), so a path that's already recorded never needs
+        # re-reading. (Events key on (path, mtime, size) because its IPC
+        # files grow; channel segments don't.)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS _ingested (path VARCHAR PRIMARY KEY, row_count BIGINT)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_channel_index_cid_recv "
+            "ON channel_index(channel_id, received_at)"
+        )
 
     def _index_cursor(self) -> duckdb.DuckDBPyConnection:
         """Thread-local read cursor over the shared in-memory index."""
@@ -758,10 +797,23 @@ class ChannelStore:
         return cur
 
     def _scan_disk(self) -> None:
-        """Ingest every closed producer segment into the index (rebuild)."""
+        """Fold segments closed since last run into the persistent index.
+
+        Incremental: a segment already in the ``_ingested`` ledger is
+        skipped, so a daemon restart only reads new files rather than
+        rebuilding the whole index from every segment.
+        """
+        if self._index_db is None:
+            return
         pattern = re.compile(r"^(.+)_([0-9a-f]{8})(?:_\d+)?$")
-        rows: list[dict[str, Any]] = []
+        with self._index_lock:
+            ingested = {
+                row[0] for row in self._index_db.execute("SELECT path FROM _ingested").fetchall()
+            }
         for arrow_file in sorted(self._channels_dir.glob("*/*.arrow")):
+            path_str = str(arrow_file)
+            if path_str in ingested:
+                continue
             m = pattern.match(arrow_file.stem)
             if not m:
                 continue
@@ -769,10 +821,11 @@ class ChannelStore:
                 reader = ipc.open_stream(pa.OSFile(str(arrow_file), "rb"))
                 table = reader.read_all()
             except (pa.ArrowInvalid, OSError):
+                # Torn / still-open segment — leave it out of the ledger so
+                # the next restart re-reads it once it's a complete file.
                 continue
-            rows.extend(self._segment_rows_to_index(m.group(1), table))
-        if rows:
-            self._insert_index_rows(rows)
+            rows = self._segment_rows_to_index(m.group(1), table)
+            self._insert_index_rows(rows, "channel_index", ledger_path=path_str)
 
     @classmethod
     def _segment_rows_to_index(cls, channel_id: str, table: pa.Table) -> list[dict[str, Any]]:
@@ -802,15 +855,42 @@ class ChannelStore:
             )
         return out
 
-    def _insert_index_rows(self, rows: list[dict[str, Any]]) -> None:
-        """Insert index rows under the write lock (single writer)."""
-        if not rows or self._index_db is None:
+    def _insert_index_rows(
+        self,
+        rows: list[dict[str, Any]],
+        table: str,
+        *,
+        ledger_path: str | None = None,
+    ) -> None:
+        """Insert index rows under the write lock (single writer).
+
+        ``table`` is ``channel_index`` (durable, segment-scanned) or
+        ``live.channel_live`` (ephemeral overlay). ``ledger_path``, when
+        given, records the source segment in ``_ingested`` in the SAME
+        transaction as the insert, so a crash can't half-record a segment.
+        """
+        if self._index_db is None:
+            return
+        if not rows:
+            # An empty segment still needs its ledger mark so it isn't
+            # re-read on every restart.
+            if ledger_path is not None:
+                with self._index_lock:
+                    self._index_db.execute(
+                        "INSERT OR IGNORE INTO _ingested (path, row_count) VALUES (?, 0)",
+                        [ledger_path],
+                    )
             return
         tbl = pa.Table.from_pylist(rows, schema=self._INDEX_ARROW_SCHEMA)
         with self._index_lock:
             self._index_db.register("_incoming", tbl)
-            self._index_db.execute("INSERT INTO channel_index SELECT * FROM _incoming")
+            self._index_db.execute(f"INSERT INTO {table} SELECT * FROM _incoming")
             self._index_db.unregister("_incoming")
+            if ledger_path is not None:
+                self._index_db.execute(
+                    "INSERT OR IGNORE INTO _ingested (path, row_count) VALUES (?, ?)",
+                    [ledger_path, len(rows)],
+                )
 
     @staticmethod
     def _payload_and_interval(sample: ChannelSample) -> tuple[Any, float | None]:
@@ -876,7 +956,10 @@ class ChannelStore:
                 return
             pending = self._pending
             self._pending = []
-        self._insert_index_rows(pending)
+        # Live rows land in the ephemeral overlay, NOT the durable index:
+        # their durable copy is the producer segment, folded into
+        # channel_index by the incremental scan on the next restart.
+        self._insert_index_rows(pending, "live.channel_live")
 
     def _query_index(
         self,
@@ -891,9 +974,14 @@ class ChannelStore:
         """At-rest query served from the warm index (∪ pending buffer)."""
         self._flush_pending()
         cur = self._index_cursor()
+        # Union the durable index with the live overlay (same columns); a
+        # sample is in exactly one of them — overlay until its segment is
+        # scanned on the next restart, channel_index after.
         sql = [
             "SELECT received_at, sampled_at, value, source_method, "
-            "session_id, sample_interval FROM channel_index WHERE channel_id = ?"
+            "session_id, sample_interval FROM ("
+            "SELECT * FROM channel_index UNION ALL SELECT * FROM live.channel_live"
+            ") WHERE channel_id = ?"
         ]
         params: list[Any] = [channel_id]
         if session_id:

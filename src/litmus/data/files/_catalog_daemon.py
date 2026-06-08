@@ -28,6 +28,7 @@ from litmus.data.files.catalog import (
     FRAMES_DB,
     ensure_schema,
     scan_sidecars,
+    upsert_rows,
 )
 from litmus.data.files.catalog_manager import FilesCatalogManager
 
@@ -36,10 +37,18 @@ def daemon_run(files_dir: Path) -> None:
     """Entry point for the catalog daemon process. Blocks until idle timeout."""
     mgr = FilesCatalogManager(files_dir)
 
-    conn = duckdb.connect(":memory:")
+    # Persistent catalog (``_index.duckdb``): survives a restart and is
+    # brought current by an incremental sidecar scan, vs. the old in-memory
+    # rebuild-from-every-sidecar. Blobs + sidecars stay the durable truth.
+    conn = duckdb.connect(str(files_dir / "_index.duckdb"))
     ensure_schema(conn)
     scan_sidecars(conn, files_dir)
     write_lock = threading.Lock()
+
+    def _catalog_put_hook(table: object) -> None:
+        # Live ``FileStore.write`` do_put: upsert by uri so a re-pushed
+        # (or rescanned) uri refreshes rather than conflicting with the PK.
+        upsert_rows(conn, table)  # type: ignore[arg-type]
 
     def _register_frames(server: object) -> None:
         # Ephemeral stream-frame fan-out: a hook-only db that publishes each
@@ -57,7 +66,7 @@ def daemon_run(files_dir: Path) -> None:
         daemon_dir=files_dir,
         db_name="files",
         conn=conn,
-        put_hook=None,
+        put_hook=_catalog_put_hook,
         port_file_name="_files_catalog_flight_port",
         thread_name="files-catalog-flight",
         extra_setup=_register_frames,
