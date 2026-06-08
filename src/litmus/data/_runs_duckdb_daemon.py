@@ -1506,28 +1506,39 @@ def daemon_run(runs_dir: Path) -> None:
             if already is not None:
                 pool.evict(run_id)
                 return
+            # One atomic transaction per run: the six ingest statements
+            # (runs / steps / measurements / io+refs / measurement-rows) commit
+            # together, so a concurrent reader never sees a half-materialized
+            # run (no partial-steps drift), and the daemon pays one commit
+            # instead of six. Rolled back as a unit on any failure.
             try:
+                conn.execute("BEGIN")
                 _ingest_one_file(conn, parquet_path, stat)
                 _bulk_insert_measurement_rows(conn, str(parquet_path))
-                if debug_211:
-                    try:
-                        row = conn.execute(
-                            "SELECT COUNT(*) FROM steps_materialized WHERE run_id = ?",
-                            [run_id],
-                        ).fetchone()
-                        steps_in_db = row[0] if row is not None else -1
-                        logger.warning(
-                            "[211] materialize done run_id=%s steps_in_db=%d "
-                            "(accumulator had %d step_ends — discrepancy = bug)",
-                            run_id,
-                            steps_in_db,
-                            len(acc._step_ends),
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("[211] post-ingest count query failed: %s", exc)
+                conn.execute("COMMIT")
             except Exception as exc:  # noqa: BLE001
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception as rb:  # noqa: BLE001
+                    logger.debug("Rollback after failed ingest also failed: %s", rb)
                 logger.warning("Ingest failed for %s: %s", parquet_path, exc)
                 return
+            if debug_211:
+                try:
+                    row = conn.execute(
+                        "SELECT COUNT(*) FROM steps_materialized WHERE run_id = ?",
+                        [run_id],
+                    ).fetchone()
+                    steps_in_db = row[0] if row is not None else -1
+                    logger.warning(
+                        "[211] materialize done run_id=%s steps_in_db=%d "
+                        "(accumulator had %d step_ends — discrepancy = bug)",
+                        run_id,
+                        steps_in_db,
+                        len(acc._step_ends),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[211] post-ingest count query failed: %s", exc)
             _create_views(conn)
 
         # Emit RunMaterialized. The in-process subscriber (this daemon)
