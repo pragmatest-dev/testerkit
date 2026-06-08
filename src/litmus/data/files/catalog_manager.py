@@ -141,8 +141,13 @@ def push_artifact(files_dir: Path, row: dict[str, Any]) -> None:
         client = _get_pooled_client(location)
         tbl = pa.Table.from_pylist([row], schema=CATALOG_ARROW_SCHEMA)
         descriptor = flight.FlightDescriptor.for_command(b"files\0file_catalog")
-        writer, _ = client.do_put(descriptor, tbl.schema, options=call_options())
+        writer, reader = client.do_put(descriptor, tbl.schema, options=call_options())
         writer.write_table(tbl)
+        # Drain the server ACK(s) before returning: each ACK confirms the daemon
+        # committed one batch, so a resolve_uri right after write() is guaranteed
+        # to see the row (read-after-write) instead of racing the insert.
+        for _ in tbl.to_batches():
+            reader.read()
         writer.close()
     except (OSError, RuntimeError, pa.ArrowException) as exc:
         _drop_pooled_client(location)
