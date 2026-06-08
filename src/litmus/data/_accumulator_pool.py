@@ -231,6 +231,15 @@ class AccumulatorPool:
             meas_rows = [r for a in self._accs.values() for r in a.snapshot_measurement_rows()]
             return gen, run_rows, step_rows, meas_rows
 
+    def generation(self) -> int:
+        """Current monotonic generation — bumps on every pool state change.
+
+        A cheap read for the lock-free fast path of the inflight refresh:
+        compare against the last-refreshed value and skip the snapshot
+        build entirely when nothing has changed.
+        """
+        return self._generation
+
     def has(self, run_id: str) -> bool:
         """Whether the pool currently holds an accumulator for ``run_id``."""
         with self._lock:

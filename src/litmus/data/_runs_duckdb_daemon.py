@@ -44,7 +44,6 @@ from litmus.data._accumulator_pool import (
     INFLIGHT_RUNS_SCHEMA,
     INFLIGHT_STEPS_SCHEMA,
     AccumulatorPool,
-    register_empty_inflight,
 )
 from litmus.data._daemon_lifecycle import _pid_alive
 from litmus.data._duckdb_flight_server import (
@@ -1161,6 +1160,42 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
         return str(exc)
 
 
+# ── Inflight overlay — shared tables, lock-free parallel reads ───────
+
+
+def _create_inflight_tables(conn: duckdb.DuckDBPyConnection) -> None:
+    """Create the empty inflight overlay tables from the Arrow schemas.
+
+    The live-runs overlay used to be per-connection ``register()`` temp
+    views — which child cursors can't see, forcing every reader onto one
+    locked connection (a read convoy). These are real catalog tables
+    visible to ALL cursors, so reads run as lock-free parallel SELECTs and
+    a single gated refresh keeps them current. Recreated empty on each
+    spawn: the overlay is rebuilt from the events replay into the
+    in-memory pool, never restored from persisted rows.
+    """
+    for name, empty in (
+        ("inflight_runs", EMPTY_INFLIGHT_RUNS),
+        ("inflight_steps", EMPTY_INFLIGHT_STEPS),
+        ("inflight_measurements", EMPTY_INFLIGHT_MEASUREMENTS),
+    ):
+        conn.execute(f"DROP VIEW IF EXISTS {name}")
+        conn.execute(f"DROP TABLE IF EXISTS {name}")
+        conn.from_arrow(empty).create(name)
+
+
+def _replace_inflight(
+    cur: duckdb.DuckDBPyConnection,
+    table: str,
+    rows: list[dict[str, Any]],
+    schema: pa.Schema,
+) -> None:
+    """Full-replace one inflight table's rows (caller holds an open txn)."""
+    cur.execute(f"DELETE FROM {table}")
+    if rows:
+        cur.from_arrow(pa.Table.from_pylist(rows, schema=schema)).insert_into(table)
+
+
 # ── Read-side views over parquet ────────────────────────────────────
 
 
@@ -1354,21 +1389,27 @@ def daemon_run(runs_dir: Path) -> None:
     index_path = runs_dir / "_index.duckdb"
     conn, _ = _open_index(index_path)
 
-    # Single shared lock — serializes all DuckDB operations on the
-    # daemon's main connection (Flight queries, materialize ingest,
-    # background recovery, pre_query_hook conn.register). Eliminates
-    # the catalog-lock deadlock that occurred when the background
-    # ingest opened its own connection and competed with the Flight
-    # server's pre_query_hook on DuckDB's global catalog under GIL
-    # contention.
+    # Writer lock — serializes the index WRITERS (materialize ingest,
+    # do_put, background recovery) against each other on the daemon's
+    # main connection. Reads do NOT take it: with ``parallel=True`` the
+    # Flight server serves ``do_get`` lock-free on per-thread cursors
+    # (MVCC snapshots), so concurrent queries never convoy behind a
+    # writer or behind each other. (DuckDB serializes write COMMITs
+    # internally anyway, so serializing the writers here costs nothing
+    # and avoids a multi-writer conflict-retry storm.)
     write_lock = threading.Lock()
+
+    # Refresh lock — coalesces the inflight-overlay refresh so the shared
+    # ``inflight_*`` tables are rebuilt ONCE per pool generation, not once
+    # per query cursor. Independent of ``write_lock``: the overlay tables
+    # are disjoint from the ``*_materialized`` tables, so a refresh and a
+    # materialize never write-conflict.
+    refresh_lock = threading.Lock()
 
     # ── Materializer state ──────────────────────────────────────────
     pool = AccumulatorPool()
-    # Generation of the pool that the pre-query hook last registered as
-    # Arrow tables. Starts at -1 so the first refresh runs even if the
-    # pool is empty (registers the empty Arrow tables; UNION views need
-    # the registration to compile).
+    # Pool generation the inflight overlay was last refreshed to. Starts
+    # at -1 so the first query refreshes even against an empty pool.
     last_refreshed_generation = [-1]
     stop_event = threading.Event()
     event_store_box: list[Any] = [None]  # set when the attach loop succeeds
@@ -1385,50 +1426,52 @@ def daemon_run(runs_dir: Path) -> None:
 
     materialize_queue: _queue.Queue[tuple[str, str | None]] = _queue.Queue()
 
-    # Bind ``inflight_runs`` / ``inflight_steps`` / ``inflight_measurements``
-    # to empty Arrow tables so the UNION views in ``_create_views`` can compile.
-    register_empty_inflight(conn)
+    # Real shared inflight overlay tables (NOT per-connection temp views),
+    # so the UNION views in ``_create_views`` resolve on every cursor and
+    # reads need no per-query registration.
+    _create_inflight_tables(conn)
     _create_views(conn)
 
-    # ── Pre-query hook: refresh inflight Arrow tables from pool ─────
-    def _pre_query_refresh(c: duckdb.DuckDBPyConnection) -> None:
-        """Re-bind inflight Arrow tables when pool state has changed.
+    # ── Pre-query hook: refresh the shared inflight tables from pool ─
+    def _maybe_refresh_inflight(c: duckdb.DuckDBPyConnection) -> None:
+        """Refresh the shared inflight tables if the pool changed.
 
-        Flight server's pre-query hook calls this on every ``do_get``.
-        Uses :meth:`AccumulatorPool.snapshot_if_changed` which compares
-        the pool's monotonic generation against the last-refreshed
-        value, under the pool's lock. The atomic check-and-snapshot
-        closes the race where a separate dirty-flag could be set
-        AFTER the dispatch released its lock — a query that landed
-        in that window would skip refresh and serve stale inflight
-        tables. Now: generation advances under the same lock as the
-        state change, so any reader that sees a newer generation is
-        guaranteed to see the corresponding pool state.
+        Flight's pre-query hook, run lock-free on the calling thread's
+        cursor. The overlay is a set of SHARED catalog tables, so it's
+        rebuilt ONCE per pool generation — globally coalesced via
+        ``refresh_lock`` + a double-checked generation — not once per
+        cursor. Reads then run as pure parallel SELECTs against the
+        shared tables: no per-query catalog mutation, no read lock.
+
+        Read-after-write holds: the refresh runs synchronously and is
+        committed before the SELECT, so a client that emits an event then
+        queries sees the new inflight state — either this cursor refreshed
+        it, or another cursor already did for this generation and this
+        cursor's snapshot sees that committed write.
         """
-        snapshot = pool.snapshot_if_changed(last_refreshed_generation[0])
-        if snapshot is None:
+        # Fast path: cheap generation compare, no lock, no snapshot build.
+        if pool.generation() == last_refreshed_generation[0]:
             return
-        gen, run_rows, step_rows, meas_rows = snapshot
-        last_refreshed_generation[0] = gen
-
-        c.register(
-            "inflight_runs",
-            pa.Table.from_pylist(run_rows, schema=INFLIGHT_RUNS_SCHEMA)
-            if run_rows
-            else EMPTY_INFLIGHT_RUNS,
-        )
-        c.register(
-            "inflight_steps",
-            pa.Table.from_pylist(step_rows, schema=INFLIGHT_STEPS_SCHEMA)
-            if step_rows
-            else EMPTY_INFLIGHT_STEPS,
-        )
-        c.register(
-            "inflight_measurements",
-            pa.Table.from_pylist(meas_rows, schema=INFLIGHT_MEASUREMENTS_SCHEMA)
-            if meas_rows
-            else EMPTY_INFLIGHT_MEASUREMENTS,
-        )
+        with refresh_lock:
+            snapshot = pool.snapshot_if_changed(last_refreshed_generation[0])
+            if snapshot is None:
+                return  # another cursor already refreshed this generation
+            gen, run_rows, step_rows, meas_rows = snapshot
+            c.execute("BEGIN")
+            try:
+                _replace_inflight(c, "inflight_runs", run_rows, INFLIGHT_RUNS_SCHEMA)
+                _replace_inflight(c, "inflight_steps", step_rows, INFLIGHT_STEPS_SCHEMA)
+                _replace_inflight(
+                    c, "inflight_measurements", meas_rows, INFLIGHT_MEASUREMENTS_SCHEMA
+                )
+                c.execute("COMMIT")
+            except Exception:
+                try:
+                    c.execute("ROLLBACK")
+                except duckdb.Error:
+                    pass
+                raise
+            last_refreshed_generation[0] = gen
 
     # ── Materialize one run from the pool ───────────────────────────
     def _materialize_and_emit(run_id: str, outcome: str | None) -> None:
@@ -1741,22 +1784,24 @@ def daemon_run(runs_dir: Path) -> None:
         * **External tooling** that may want to inject a parquet into
           the daemon's index (no current consumer).
 
-        Already runs under the Flight server's lock (which IS our
-        ``write_lock``), so direct conn access is safe.
+        Takes ``write_lock`` explicitly: with ``parallel=True`` the Flight
+        server no longer wraps ``do_put`` in its own lock, so the writers
+        serialize among themselves here while reads stay lock-free.
         """
-        for row in table.to_pylist():
-            fpath = row.get("file_path", "")
-            if not fpath:
-                continue
-            try:
-                stat = Path(fpath).stat()
-            except OSError:
-                continue
-            _ingest_one_file(conn, Path(fpath), stat)
-            try:
-                _bulk_insert_measurement_rows(conn, fpath)
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("measurement row insert failed for %s: %s", fpath, exc)
+        with write_lock:
+            for row in table.to_pylist():
+                fpath = row.get("file_path", "")
+                if not fpath:
+                    continue
+                try:
+                    stat = Path(fpath).stat()
+                except OSError:
+                    continue
+                _ingest_one_file(conn, Path(fpath), stat)
+                try:
+                    _bulk_insert_measurement_rows(conn, fpath)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("measurement row insert failed for %s: %s", fpath, exc)
 
     server, port_file, *_ = start_flight_server_in_daemon(
         mgr=mgr,
@@ -1767,8 +1812,8 @@ def daemon_run(runs_dir: Path) -> None:
         port_file_name="_runs_duckdb_flight_port",
         thread_name="runs-duckdb-flight",
         pre_ready=None,
-        pre_query_hook=_pre_query_refresh,
-        lock=write_lock,
+        pre_query_hook=_maybe_refresh_inflight,
+        parallel=True,
     )
 
     # Background sweep — picks up parquets that exist on disk but
