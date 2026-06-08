@@ -383,6 +383,20 @@ def daemon_run(events_dir: Path) -> None:
         cur.unregister(view)
         return canonical
 
+    def _register_events_sub(server: DuckDBFlightServer) -> None:
+        # Enable lossless push: a __SUBSCRIBE__ stream replays every events
+        # row past the caller's event_number cursor, then streams live rows
+        # (handed in by _events_put_hook). Schema = the events table.
+        # Registered via extra_setup so the subscribe surface is live BEFORE
+        # the daemon accepts connections — a subscriber that connects the
+        # instant it's ready must not race the registration.
+        sub_schema = conn.execute("SELECT * FROM events LIMIT 0").fetch_arrow_table().schema
+        server.register_subscribe_schema(
+            "events",
+            sub_schema,
+            replay_sql="SELECT * FROM events WHERE event_number > {cursor} ORDER BY event_number",
+        )
+
     server, port_file, _location = start_flight_server_in_daemon(
         mgr=mgr,
         daemon_dir=events_dir,
@@ -391,19 +405,10 @@ def daemon_run(events_dir: Path) -> None:
         put_hook=_events_put_hook,
         port_file_name="_duckdb_flight_port",
         thread_name="duckdb-flight",
+        extra_setup=_register_events_sub,
         parallel=True,
     )
     srv_cell["s"] = server
-
-    # Enable lossless push: a __SUBSCRIBE__ stream replays every events
-    # row past the caller's event_number cursor, then streams live rows
-    # (handed in by _events_put_hook). Schema = the events table.
-    _sub_schema = conn.execute("SELECT * FROM events LIMIT 0").fetch_arrow_table().schema
-    server.register_subscribe_schema(
-        "events",
-        _sub_schema,
-        replay_sql="SELECT * FROM events WHERE event_number > {cursor} ORDER BY event_number",
-    )
 
     # Ingest IPC files that aren't yet in the index via a background
     # thread on its OWN cursor (concurrent with the put-hook cursors;

@@ -41,6 +41,17 @@ def daemon_run(files_dir: Path) -> None:
     scan_sidecars(conn, files_dir)
     write_lock = threading.Lock()
 
+    def _register_frames(server: object) -> None:
+        # Ephemeral stream-frame fan-out: a hook-only db that publishes each
+        # do_put frame to live subscribers without persisting it (the durable
+        # record stays the on-disk artifact; the EventStore stays
+        # lifecycle-only). Registered via ``extra_setup`` so it is live BEFORE
+        # the daemon accepts connections — otherwise a client that streams the
+        # instant the daemon is ready races the registration and its frame
+        # do_put hits an "Unknown database".
+        server.register_put_hook(FRAMES_DB, lambda table: table)  # type: ignore[attr-defined]
+        server.register_subscribe_schema(FRAMES_DB, FRAME_ARROW_SCHEMA)  # type: ignore[attr-defined]
+
     server, port_file, _ = start_flight_server_in_daemon(
         mgr=mgr,
         daemon_dir=files_dir,
@@ -49,16 +60,9 @@ def daemon_run(files_dir: Path) -> None:
         put_hook=None,
         port_file_name="_files_catalog_flight_port",
         thread_name="files-catalog-flight",
+        extra_setup=_register_frames,
         lock=write_lock,
     )
-
-    # Ephemeral stream-frame fan-out: a hook-only db that publishes each
-    # do_put frame to live subscribers without persisting it (the durable
-    # record stays the on-disk artifact; the EventStore stays
-    # lifecycle-only). Lets consumers range-read a growing artifact
-    # push-style (req 5) instead of polling its size.
-    server.register_put_hook(FRAMES_DB, lambda table: table)
-    server.register_subscribe_schema(FRAMES_DB, FRAME_ARROW_SCHEMA)
 
     mgr.monitor_refs()
 

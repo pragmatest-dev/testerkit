@@ -447,7 +447,10 @@ class DuckDBFlightServer(flight.FlightServerBase):
         hook = self._put_hooks.get(db_name)
         conn = self._databases.get(db_name) if hook is None else None
         if hook is None and conn is None:
-            raise flight.FlightServerError(f"Unknown database: {db_name!r}")
+            raise flight.FlightServerError(
+                f"Unknown database: {db_name!r} "
+                f"(registered hooks={sorted(self._put_hooks)}, dbs={sorted(self._databases)})"
+            )
 
         # In ``parallel`` mode the write path is lock-free: each Flight
         # handler thread inserts on its own cursor so concurrent writers
@@ -535,6 +538,7 @@ def start_flight_server_in_daemon(
     put_hook: Callable[[pa.Table], None] | None,
     port_file_name: str,
     thread_name: str,
+    extra_setup: Callable[[DuckDBFlightServer], None] | None = None,
     pre_ready: Callable[[], None] | None = None,
     pre_query_hook: Callable[[duckdb.DuckDBPyConnection], None] | None = None,
     lock: threading.Lock | None = None,
@@ -566,6 +570,13 @@ def start_flight_server_in_daemon(
         server.register_put_hook(db_name, put_hook)
     if pre_query_hook is not None:
         server.register_pre_query_hook(db_name, pre_query_hook)
+    # Register every extra db / hook (e.g. the files frames fan-out) BEFORE the
+    # serve thread starts and ``write_ready`` fires — otherwise a client that
+    # connects the instant the daemon is "ready" can do_put to a not-yet-
+    # registered db and get "Unknown database". The server must never accept
+    # connections in a half-configured state.
+    if extra_setup is not None:
+        extra_setup(server)
 
     location = f"grpc://127.0.0.1:{server.port}"
     port_file = daemon_dir / port_file_name
