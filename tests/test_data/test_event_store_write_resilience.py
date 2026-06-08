@@ -1,12 +1,18 @@
-"""Write-path resilience for the events store (#242).
+"""Daemon-kill resilience for the events store (#242 write, #237 subscribe).
 
 Reads already self-heal across a daemon restart (``FlightQueryClient``
-reacquires a fresh daemon and re-runs). Writes must too: if the daemon is
-killed mid-stream (e.g. an upgrade where a newer client restarts an older
-daemon), ``FlightPutStream`` reacquires and **resends** the un-acked
-batches. The resend is safe because the events insert is
-``ON CONFLICT (id) DO NOTHING`` — rows the dead daemon already committed
-are no-ops.
+reacquires a fresh daemon and re-runs). The other two paths must too:
+
+* **Write (#242):** if the daemon is killed mid-stream (e.g. an upgrade
+  where a newer client restarts an older daemon), ``FlightPutStream``
+  reacquires and **resends** the un-acked batches. The resend is safe
+  because the events insert is ``ON CONFLICT (id) DO NOTHING`` — rows the
+  dead daemon already committed are no-ops.
+* **Subscribe (#237):** a consumer resumes from its ``event_number``
+  cursor after a kill — the daemon replays ``event_number > cursor``, so
+  every event past the cursor is delivered exactly once (no loss, no dup).
+  This is the consumer-offset-resume behind ``EventStore.on_event``'s
+  watcher, which preserves its cursor across reconnects and reacquires.
 
 Isolation: this uses its own tmp events daemon (like
 ``test_fresh_daemon_spawns_within_timeout``) so the kill never disturbs the
@@ -118,6 +124,71 @@ def test_write_path_resends_after_daemon_kill(tmp_path: Path) -> None:
         # an unbalanced refcount would leave the daemon running for the whole
         # session (~100 threads), starving later daemon spawns. The tmp dir
         # is discarded, so killing outright is clean.
+        put.close()
+        try:
+            _kill_daemon(events_dir)
+        except (FileNotFoundError, KeyError, ProcessLookupError):
+            pass
+
+
+def _subscribe_collect(location: str, cursor: int, want: int) -> list[dict]:
+    """Open a ``__SUBSCRIBE__`` stream from ``cursor``; collect ``want`` rows.
+
+    The subscribe stream replays the backlog (``event_number > cursor``)
+    first, then blocks for live rows — so reading exactly ``want`` replayed
+    rows and breaking never blocks on the live tail.
+    """
+    client = flight.connect(location)
+    try:
+        ticket = flight.Ticket(f"events\0__SUBSCRIBE__\0{cursor}".encode())
+        reader = client.do_get(ticket)
+        out: list[dict] = []
+        for chunk in reader:
+            out.extend(chunk.data.to_pylist())
+            if len(out) >= want:
+                break
+        return out
+    finally:
+        client.close()
+
+
+def test_subscription_resumes_from_cursor_after_daemon_kill(tmp_path: Path) -> None:
+    """Kill the daemon mid-subscription, resubscribe from the last cursor:
+    every event past the cursor is delivered (no loss) and already-seen
+    events are NOT redelivered (no dup)."""
+    events_dir = tmp_path / "events"
+    events_dir.mkdir(parents=True)
+    sid = str(uuid4())
+
+    location = duckdb_manager.acquire(events_dir)
+    put = FlightPutStream(
+        location,
+        "events",
+        "events",
+        reacquire=lambda: duckdb_manager.acquire(events_dir),
+    )
+    try:
+        # First batch lands + is durable in the persistent index.
+        for i in range(3):
+            put.write(_events_batch(f"pre-{i}", sid))
+        put.drain()
+        first = _subscribe_collect(location, 0, want=3)
+        assert {r["id"] for r in first} == {"pre-0", "pre-1", "pre-2"}
+        cursor = max(int(r["event_number"]) for r in first)
+
+        # Daemon dies; #242 resend lands the next batch on the respawn.
+        _kill_daemon(events_dir)
+        for i in range(3):
+            put.write(_events_batch(f"post-{i}", sid))
+        put.drain()
+
+        # Resubscribe from the cursor: only the post-kill events, none of
+        # the pre-kill ones — no loss, no dup, and event_number stayed
+        # monotonic across the restart (the resume cursor stays valid).
+        new_location = duckdb_manager.acquire(events_dir)
+        resumed = _subscribe_collect(new_location, cursor, want=3)
+        assert {r["id"] for r in resumed} == {"post-0", "post-1", "post-2"}
+    finally:
         put.close()
         try:
             _kill_daemon(events_dir)
