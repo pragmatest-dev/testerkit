@@ -121,16 +121,22 @@ def catalog_row(
     uri: str,
     session_id: str,
     name: str,
-    path: Path,
+    key: str,
     meta: FileArtifactMetadata,
     created_at: datetime,
 ) -> dict[str, Any]:
-    """Build one catalog row from sidecar metadata + on-disk location."""
+    """Build one catalog row from sidecar metadata + backend key.
+
+    ``key`` is the backend-relative physical locator
+    (``{date}/{session_id}/{filename}``) — NOT an absolute path — so the
+    catalog stays backend-agnostic and a resolve hands back a key the
+    blob backend (local or remote) can read.
+    """
     return {
         "uri": uri,
         "session_id": session_id,
         "name": name,
-        "path": str(path),
+        "path": key,
         "mime": meta.mime,
         "extension": meta.extension,
         "size_bytes": meta.size_bytes,
@@ -171,7 +177,7 @@ def scan_sidecars(conn: duckdb.DuckDBPyConnection, files_dir: Path) -> int:
                 uri=uri,
                 session_id=session_id,
                 name=name,
-                path=blob,
+                key=f"{blob.parent.parent.name}/{session_id}/{name}",
                 meta=meta,
                 created_at=created_at,
             )

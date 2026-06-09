@@ -82,9 +82,7 @@ class TestObserveToFileStore:
         uri = ctx._observations["scope.cap"]
         assert uri.startswith(f"file://{session_id}/")
         # FileStore can resolve + read back
-        path = get_filestore().resolve_uri(uri)
-        assert path is not None
-        assert path.read_bytes() == png
+        assert get_filestore().read(uri) == png
 
     def test_observe_waveform_lands_as_npz(self, session: tuple[Context, UUID]) -> None:
         ctx, session_id = session
@@ -282,10 +280,8 @@ class TestFailureModes:
         ctx.observe("victim", b"will-be-deleted")
         uri = ctx._observations["victim"]
 
-        # Delete the artifact from disk
-        path = get_filestore().resolve_uri(uri)
-        assert path is not None
-        path.unlink()
+        # Delete the artifact
+        get_filestore().delete(uri)
 
         loaded = load_ref(uri, parquet_path=None)
         assert loaded == uri  # unchanged → caller knows nothing resolved

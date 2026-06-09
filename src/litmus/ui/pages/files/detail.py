@@ -6,13 +6,14 @@ import csv
 import html
 import io
 import json
-import logging
-from datetime import UTC, datetime
-from pathlib import Path
+from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Any
 
 from nicegui import ui
 
+from litmus.data.files import get_filestore
+from litmus.data.files.models import FileArtifactMetadata
 from litmus.ui.shared.components import (
     format_datetime,
     format_file_size,
@@ -22,9 +23,6 @@ from litmus.ui.shared.components import (
     page_layout,
 )
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import resolve_file_uri
-
-_log = logging.getLogger(__name__)
 
 # Hard cap on in-memory viewer payload size. Files larger than this
 # render as a metadata card + Download button only; the browser never
@@ -53,8 +51,9 @@ def file_detail_page(session_id: str, filename: str) -> None:
     types or files larger than the viewer cap.
     """
     create_layout("File")
-
-    path = resolve_file_uri(session_id, filename)
+    store = get_filestore()
+    uri = f"file://{session_id}/{filename}"
+    size = store.size(uri)
 
     with page_layout():
         with ui.row().classes("items-center justify-between w-full"):
@@ -63,7 +62,7 @@ def file_detail_page(session_id: str, filename: str) -> None:
                 "flat"
             )
 
-        if path is None or not path.exists():
+        if size is None:
             with ui.card().classes("w-full p-6"):
                 ui.label(f"File not found: file://{session_id}/{filename}").classes(
                     "text-slate-600"
@@ -71,66 +70,33 @@ def file_detail_page(session_id: str, filename: str) -> None:
                 ui.link("← Back to Files", "/files").classes("text-blue-600 hover:underline")
             return
 
-        meta = _load_metadata(path)
+        # Extension drives the viewer (cheapest reliable signal — the sidecar
+        # mime can be missing). PurePosixPath does string-only suffix parsing,
+        # never a filesystem touch.
+        ext = PurePosixPath(filename).suffix.lower()
+        meta = store.read_attributes(uri) or FileArtifactMetadata(
+            mime="", extension=ext, size_bytes=size, attributes={}
+        )
         download_url = f"/files-static/{session_id}/{filename}?download=1"
         view_url = f"/files-static/{session_id}/{filename}"
 
-        _render_metadata_card(session_id, path, meta, download_url)
-        _render_viewer(path, view_url)
-
-
-def _load_metadata(path: Path) -> dict[str, Any]:
-    """Read the sidecar ``.meta.json`` next to ``path``. Missing → defaults.
-
-    A malformed sidecar (truncated write, partial JSON, encoding error)
-    falls back to the extension-derived defaults so the page still
-    renders something. The fallback is logged at WARNING so the
-    information loss is visible to operators tailing the server log —
-    silent fallback hides crash artifacts (incomplete sidecar writes,
-    corrupted disk metadata) that would otherwise be invisible.
-    """
-    sidecar = path.with_name(path.name + ".meta.json")
-    if not sidecar.exists():
-        return {
-            "mime": "",
-            "extension": path.suffix,
-            "size_bytes": path.stat().st_size,
-            "attributes": {},
-        }
-    try:
-        return json.loads(sidecar.read_text())
-    except (OSError, ValueError) as exc:
-        # Log the exception TYPE, not the message: OSError messages
-        # routinely embed absolute filesystem paths (e.g. ``[Errno 13]
-        # Permission denied: '/home/.../files/2026-06-05/...'``) which
-        # would leak the on-disk layout into the server log.
-        _log.warning(
-            "Sidecar %s could not be loaded (%s) — falling back to file "
-            "extension. The artifact may have been written during a crash "
-            "or its metadata may be corrupt.",
-            sidecar.name,
-            type(exc).__name__,
-        )
-        return {
-            "mime": "",
-            "extension": path.suffix,
-            "size_bytes": path.stat().st_size,
-            "attributes": {},
-        }
+        _render_metadata_card(session_id, meta, store.modified_at(uri), download_url)
+        _render_viewer(store, uri, ext, size, view_url)
 
 
 def _render_metadata_card(
-    session_id: str, path: Path, meta: dict[str, Any], download_url: str
+    session_id: str,
+    meta: FileArtifactMetadata,
+    modified: datetime | None,
+    download_url: str,
 ) -> None:
     with ui.card().classes("w-full"):
         with ui.row().classes("w-full justify-between items-start gap-4 p-4 flex-wrap"):
-            info_field("MIME", meta.get("mime") or "—")
-            info_field("Extension", meta.get("extension") or path.suffix or "—")
-            info_field("Size", format_file_size(int(meta.get("size_bytes", path.stat().st_size))))
-            info_field(
-                "Modified",
-                format_datetime(datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)),
-            )
+            info_field("MIME", meta.mime or "—")
+            info_field("Extension", meta.extension or "—")
+            info_field("Size", format_file_size(meta.size_bytes))
+            if modified is not None:
+                info_field("Modified", format_datetime(modified))
             # Resolve session_id to an operator-readable label
             # (``<dut_serial> · <YYYY-MM-DD HH:MM:SS>``) rather than
             # leaking the raw UUID. Same convention as the session
@@ -154,7 +120,7 @@ def _render_metadata_card(
                 on_click=lambda: ui.navigate.to(download_url),
             ).props("color=primary")
 
-        attributes = meta.get("attributes") or {}
+        attributes = meta.attributes or {}
         if attributes:
             ui.separator()
             with ui.column().classes("w-full p-4 gap-2"):
@@ -166,11 +132,14 @@ def _render_metadata_card(
                             ui.label(str(value)).classes("text-sm font-mono")
 
 
-def _render_viewer(path: Path, view_url: str) -> None:
-    """Pick a viewer based on file extension. Caps oversized files."""
-    ext = path.suffix.lower()
-    size = path.stat().st_size
+def _render_viewer(store: Any, uri: str, ext: str, size: int, view_url: str) -> None:
+    """Pick a viewer based on file extension. Caps oversized files.
 
+    Image/video stream through the ``view_url`` HTTP route (the browser
+    fetches them). Content viewers (json/csv/npz/…) parse the whole
+    artifact in-process, so they pull the bytes through the store — never
+    the filesystem, so a remote backend serves them the same way.
+    """
     if size > _VIEWER_SIZE_CAP_BYTES:
         with ui.card().classes("w-full p-6"):
             ui.label(
@@ -189,42 +158,35 @@ def _render_viewer(path: Path, view_url: str) -> None:
             ui.video(view_url, controls=True).classes("w-full")
         return
 
-    if ext == ".json":
-        _render_json_viewer(path)
+    content_viewers = {
+        ".json": _render_json_viewer,
+        ".jsonl": _render_jsonl_viewer,
+        ".ndjson": _render_jsonl_viewer,
+        ".csv": _render_csv_viewer,
+        ".npz": _render_npz_waveform_viewer,
+        ".npy": _render_npy_viewer,
+    }
+    viewer = content_viewers.get(ext) or (_render_text_viewer if ext in _TEXT_EXTS else None)
+    if viewer is None:
+        with ui.card().classes("w-full p-6"):
+            ui.label(
+                f"No inline viewer for {ext or 'unknown'} files — use Download to open externally."
+            ).classes("text-slate-600")
         return
 
-    if ext == ".jsonl" or ext == ".ndjson":
-        _render_jsonl_viewer(path)
+    data = store.read(uri)
+    if data is None:
+        with ui.card().classes("w-full p-4"):
+            ui.label("Could not read file contents.").classes("text-red-600")
         return
-
-    if ext == ".csv":
-        _render_csv_viewer(path)
-        return
-
-    if ext == ".npz":
-        _render_npz_waveform_viewer(path)
-        return
-
-    if ext == ".npy":
-        _render_npy_viewer(path)
-        return
-
-    if ext in _TEXT_EXTS:
-        _render_text_viewer(path)
-        return
-
-    with ui.card().classes("w-full p-6"):
-        ui.label(
-            f"No inline viewer for {ext or 'unknown'} files — use Download to open externally."
-        ).classes("text-slate-600")
+    viewer(data)
 
 
-def _render_json_viewer(path: Path) -> None:
+def _render_json_viewer(data: bytes) -> None:
     try:
-        text = path.read_text()
-        data = json.loads(text)
-        pretty = json.dumps(data, indent=2, default=str)
-    except (OSError, ValueError) as exc:
+        parsed = json.loads(data.decode("utf-8"))
+        pretty = json.dumps(parsed, indent=2, default=str)
+    except (UnicodeDecodeError, ValueError) as exc:
         with ui.card().classes("w-full p-4"):
             ui.label(f"Could not parse JSON: {exc}").classes("text-red-600")
         return
@@ -237,7 +199,7 @@ def _render_json_viewer(path: Path) -> None:
         )
 
 
-def _render_jsonl_viewer(path: Path) -> None:
+def _render_jsonl_viewer(data: bytes) -> None:
     """Render each JSONL line as a row in a table. Columns = union of keys.
 
     Streams line-by-line and stops at ``_JSONL_ROW_CAP`` rows so a
@@ -262,27 +224,27 @@ def _render_jsonl_viewer(path: Path) -> None:
     total_parsed = 0
     truncated = False
     try:
-        with path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                if not line.strip():
-                    continue
-                try:
-                    obj = json.loads(line)
-                except ValueError:
-                    parse_errors += 1
-                    continue
-                total_parsed += 1
-                if len(rows) >= _JSONL_ROW_CAP:
-                    truncated = True
-                    continue
-                if isinstance(obj, dict):
-                    rows.append(obj)
-                else:
-                    rows.append({"value": obj})
-    except OSError as exc:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
         with ui.card().classes("w-full p-4"):
             ui.label(f"Could not read file: {exc}").classes("text-red-600")
         return
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            parse_errors += 1
+            continue
+        total_parsed += 1
+        if len(rows) >= _JSONL_ROW_CAP:
+            truncated = True
+            continue
+        if isinstance(obj, dict):
+            rows.append(obj)
+        else:
+            rows.append({"value": obj})
 
     keys: list[str] = []
     seen: set[str] = set()
@@ -327,11 +289,11 @@ def _format_jsonl_cell(value: Any) -> str:
     return str(value)
 
 
-def _render_csv_viewer(path: Path) -> None:
+def _render_csv_viewer(data: bytes) -> None:
     """Parse CSV and render as a q-table. First row is treated as header."""
     try:
-        text = path.read_text()
-    except (OSError, UnicodeDecodeError) as exc:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
         with ui.card().classes("w-full p-4"):
             ui.label(f"Could not read CSV: {exc}").classes("text-red-600")
         return
@@ -362,7 +324,7 @@ def _render_csv_viewer(path: Path) -> None:
         ui.table(columns=columns, rows=rows, row_key="_idx").classes("w-full")
 
 
-def _render_npz_waveform_viewer(path: Path) -> None:
+def _render_npz_waveform_viewer(data: bytes) -> None:
     """Load .npz arrays and plot the first numeric array as a line chart.
 
     Matches the FileStore Waveform serializer which writes ``y`` (the
@@ -377,7 +339,7 @@ def _render_npz_waveform_viewer(path: Path) -> None:
     import numpy as np  # noqa: PLC0415
 
     try:
-        with np.load(path, allow_pickle=True) as archive:
+        with np.load(io.BytesIO(data), allow_pickle=True) as archive:
             arrays = {k: archive[k] for k in archive.files}
     except (OSError, ValueError) as exc:
         with ui.card().classes("w-full p-4"):
@@ -420,14 +382,14 @@ def _render_npz_waveform_viewer(path: Path) -> None:
         ).classes("w-full h-96")
 
 
-def _render_npy_viewer(path: Path) -> None:
+def _render_npy_viewer(data: bytes) -> None:
     """Show ndarray stats + first 100 flat values inline."""
     # Defer ~150ms numpy import to first .npy file open. Same
     # module-load avoidance as _render_npz_waveform_viewer.
     import numpy as np  # noqa: PLC0415
 
     try:
-        arr = np.load(path, allow_pickle=False)
+        arr = np.load(io.BytesIO(data), allow_pickle=False)
     except (OSError, ValueError) as exc:
         with ui.card().classes("w-full p-4"):
             ui.label(f"Could not load .npy: {exc}").classes("text-red-600")
@@ -449,10 +411,10 @@ def _render_npy_viewer(path: Path) -> None:
         )
 
 
-def _render_text_viewer(path: Path) -> None:
+def _render_text_viewer(data: bytes) -> None:
     try:
-        text = path.read_text()
-    except (OSError, UnicodeDecodeError) as exc:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
         with ui.card().classes("w-full p-4"):
             ui.label(f"Could not read as text: {exc}").classes("text-red-600")
         return

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -10,7 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import HTMLResponse, ORJSONResponse, Response
+from fastapi.responses import HTMLResponse, ORJSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from litmus import __version__ as _litmus_version_str
@@ -51,6 +52,10 @@ from litmus.models.catalog import InstrumentCatalogEntry
 from litmus.models.instrument_asset import InstrumentAssetFile
 from litmus.models.product import Product
 from litmus.models.station import StationConfig
+
+# Chunk size for streaming a file artifact body out of the blob backend —
+# big enough to amortize per-read overhead, small enough to bound memory.
+_FILE_STREAM_CHUNK = 1 << 20  # 1 MiB
 
 
 def _serialize_ref(result: object) -> Response | dict:
@@ -323,8 +328,10 @@ def create_api_router() -> APIRouter:
         FileStore artifact reachable by URI alone.
 
         ``uri`` must be ``file://{session_id}/{filename}``; the endpoint
-        resolves through the FileStore (daemon catalog when warm, else a
-        date-dir walk) and serves the bytes with a magic-byte-sniffed
+        serves the artifact through the FileStore — which reads it from the
+        blob backend (local disk or a remote object store), never touching
+        the filesystem here. The body is **streamed** from the backend in
+        chunks (never buffered whole), with a magic-byte-sniffed
         ``Content-Type``. Honors HTTP ``Range`` (``206 Partial Content``)
         so a consumer can range-read a still-growing stream artifact
         without re-fetching the whole file.
@@ -333,18 +340,28 @@ def create_api_router() -> APIRouter:
 
         if not uri.startswith("file://"):
             raise HTTPException(status_code=400, detail=f"Not a file:// URI: {uri!r}")
-        path = get_filestore().resolve_uri(uri)
-        if path is None or not path.exists():
+        store = get_filestore()
+        file_size = store.size(uri)
+        if file_size is None:
             raise HTTPException(status_code=404, detail=f"Not found: {uri}")
 
-        file_size = path.stat().st_size
-        with path.open("rb") as fh:
-            content_type = sniff_mime(fh.read(64))
+        content_type = sniff_mime(store.read_range(uri, offset=0, length=64) or b"")
 
         range_header = request.headers.get("range")
         if not range_header:
-            return Response(
-                content=path.read_bytes(),
+            handle = store.open_input(uri)
+            if handle is None:
+                raise HTTPException(status_code=404, detail=f"Not found: {uri}")
+
+            def _body() -> Iterator[bytes]:
+                try:
+                    while chunk := handle.read(_FILE_STREAM_CHUNK):
+                        yield chunk
+                finally:
+                    handle.close()
+
+            return StreamingResponse(
+                _body(),
                 media_type=content_type,
                 headers={"Accept-Ranges": "bytes", "Content-Length": str(file_size)},
             )
@@ -369,9 +386,7 @@ def create_api_router() -> APIRouter:
                 headers={"Content-Range": f"bytes */{file_size}"},
             )
         end = min(end, file_size - 1)
-        with path.open("rb") as fh:
-            fh.seek(start)
-            chunk = fh.read(end - start + 1)
+        chunk = store.read_range(uri, offset=start, length=end - start + 1) or b""
         return Response(
             content=chunk,
             status_code=206,

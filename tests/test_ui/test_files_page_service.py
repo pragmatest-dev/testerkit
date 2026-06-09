@@ -1,7 +1,7 @@
 """Service-layer tests for the ``/files`` operator UI page.
 
 The page itself (``litmus.ui.pages.files.list``) is a thin wrapper
-around ``list_recent_files`` + ``resolve_file_uri`` + the
+around ``list_recent_files`` + the FileStore byte API + the
 ``/files-static/...`` route. These tests exercise the service
 functions against a synthesized FileStore layout on disk so the
 contract that powers the table cells is locked.
@@ -101,19 +101,16 @@ def test_list_recent_files_caps_at_limit(isolated_filestore: FileStore) -> None:
     assert len(entries) == 3
 
 
-def test_resolve_file_uri_returns_path_for_existing(isolated_filestore: FileStore) -> None:
+def test_store_reads_back_existing_artifact(isolated_filestore: FileStore) -> None:
     sid = str(uuid4())
     uri = isolated_filestore.write("art", b"x", session_id=sid)
-    filename = uri.rsplit("/", 1)[-1]
 
-    path = services.resolve_file_uri(sid, filename)
-    assert path is not None
-    assert path.exists()
-    assert path.read_bytes() == b"x"
+    assert isolated_filestore.size(uri) is not None
+    assert isolated_filestore.read(uri) == b"x"
 
 
-def test_resolve_file_uri_returns_none_for_missing(isolated_filestore: FileStore) -> None:
-    assert services.resolve_file_uri("nonexistent-session", "ghost.bin") is None
+def test_store_returns_none_for_missing(isolated_filestore: FileStore) -> None:
+    assert isolated_filestore.read(f"file://{uuid4()}/ghost.bin") is None
 
 
 def test_list_recent_files_carries_mime_from_sidecar(isolated_filestore: FileStore) -> None:

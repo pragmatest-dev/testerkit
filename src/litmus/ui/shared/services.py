@@ -1743,21 +1743,6 @@ def list_recent_files(*, limit: int = 200) -> list[dict[str, Any]]:
     return entries[:limit]
 
 
-def resolve_file_uri(session_id: str, filename: str) -> Path | None:
-    """Resolve a ``file://{session_id}/{filename}`` URI to an on-disk Path.
-
-    Returns ``None`` if the file does not exist. Used by the
-    ``/files-static/...`` HTTP route to serve artifact bytes.
-    Delegates to :meth:`FileStore.resolve_uri` — the on-disk
-    date-partitioned layout is an implementation detail handled
-    entirely by FileStore.
-    """
-    from litmus.data.files import get_filestore
-
-    store = get_filestore()
-    return store.resolve_uri(f"file://{session_id}/{filename}")
-
-
 # -----------------------------------------------------------------------------
 # Yield Services
 # -----------------------------------------------------------------------------

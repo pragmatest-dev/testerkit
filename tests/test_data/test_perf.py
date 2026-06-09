@@ -500,27 +500,25 @@ class TestFileStorePerf:
         uri = store.write("readme", payload, session_id=sid)
 
         def read_one() -> None:
-            path = store.resolve_uri(uri)
-            assert path is not None
-            with path.open("rb") as fh:
-                _ = fh.read()
+            assert store.read(uri) is not None
 
         benchmark(read_one)
 
     @pytest.mark.benchmark(group="filestore-resolve")
-    def test_resolve_uri_warm(self, tmp_path: Path, benchmark):
-        """Pure ``resolve_uri`` cost. Models the worst-case for retention
-        / pruning passes that resolve many URIs in a tight loop."""
+    def test_locate_uri_warm(self, tmp_path: Path, benchmark):
+        """Pure locate cost (resolve key + size, no byte read). Models the
+        worst-case for retention / pruning passes that locate many URIs in a
+        tight loop."""
         from litmus.data.files.store import FileStore
 
         store = FileStore(data_dir=tmp_path)
         sid = str(uuid4())
         uri = store.write("zzz", b"k", session_id=sid)
 
-        def resolve_one() -> None:
-            _ = store.resolve_uri(uri)
+        def locate_one() -> None:
+            _ = store.size(uri)
 
-        benchmark(resolve_one)
+        benchmark(locate_one)
 
 
 # ===========================================================================

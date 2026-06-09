@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import pyarrow.fs as pafs
@@ -160,9 +161,26 @@ class BlobBackend:
         except (FileNotFoundError, OSError):
             return None
 
+    def open_input(self, key: str) -> pafs.NativeFile | None:
+        """Open a streaming read handle for ``key`` (caller closes it), or None.
+
+        A random-access ``NativeFile`` — sequential reads on a remote backend
+        are ranged GETs under the hood. Lets a consumer stream a large blob in
+        chunks instead of buffering the whole thing in memory.
+        """
+        try:
+            return self._fs.open_input_file(self._full(key))
+        except (FileNotFoundError, OSError):
+            return None
+
     def size(self, key: str) -> int | None:
         info = self._fs.get_file_info(self._full(key))
         return info.size if info.type == pafs.FileType.File else None
+
+    def modified_at(self, key: str) -> datetime | None:
+        """Last-modified time of ``key`` — local mtime / object LastModified."""
+        info = self._fs.get_file_info(self._full(key))
+        return info.mtime if info.type == pafs.FileType.File else None
 
     def exists(self, key: str) -> bool:
         return self._fs.get_file_info(self._full(key)).type != pafs.FileType.NotFound

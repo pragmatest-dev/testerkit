@@ -160,11 +160,10 @@ def test_materialize_rewrites_parquet(results_tree: _ResultsTree) -> None:
     # Verify the .arrow file landed in FileStore and contains correct data
     from litmus.data.files import get_filestore
 
-    artifact_path = get_filestore().resolve_uri(new_uri)
-    assert artifact_path is not None
-    assert artifact_path.exists()
+    data = get_filestore().read(new_uri)
+    assert data is not None
 
-    saved = ipc.open_stream(pa.OSFile(str(artifact_path), "rb")).read_all()
+    saved = ipc.open_stream(pa.py_buffer(data)).read_all()
     assert saved.num_rows == 3
     assert saved.column("value").to_pylist() == [1.0, 2.0, 3.0]
 

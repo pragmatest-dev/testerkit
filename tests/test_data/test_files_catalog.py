@@ -9,7 +9,6 @@ isolation is by unique artifact names + session ids.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from uuid import uuid4
 
 from litmus.data.data_dir import resolve_data_dir
@@ -35,11 +34,13 @@ class TestFilesCatalogDaemon:
             name = f"cat.resolve.{uuid4().hex[:8]}"
             uri = store.write(name, b"hello-bytes", session_id=sid)
 
-            # The live write pushed into the warm catalog; resolve hits it.
-            path = resolve_uri(files_dir, uri)
-            assert path is not None
-            assert Path(path).exists()
-            assert Path(path).read_bytes() == b"hello-bytes"
+            # The live write pushed into the warm catalog; resolve returns the
+            # backend key, which under the local backend lives at files_dir/key.
+            key = resolve_uri(files_dir, uri)
+            assert key is not None
+            blob = files_dir / key
+            assert blob.exists()
+            assert blob.read_bytes() == b"hello-bytes"
         finally:
             release(files_dir)
 

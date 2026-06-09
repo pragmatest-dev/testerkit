@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
-from fastapi.responses import FileResponse
+from fastapi.responses import Response, StreamingResponse
 from nicegui import app, ui
 
 from litmus.ui.shared.components import (
@@ -18,7 +19,7 @@ from litmus.ui.shared.components import (
     session_filter_banner,
 )
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import files_dir_exists, list_recent_files, resolve_file_uri
+from litmus.ui.shared.services import files_dir_exists, list_recent_files
 
 # Walk depth cap. The on-disk layout is unbounded as a glob; this
 # limits memory + render time on huge projects. Past the cap, older
@@ -325,23 +326,39 @@ def _show_empty_state(slot: ui.column, *, has_data: bool, dir_exists: bool) -> N
 
 
 @app.get("/files-static/{session_id}/{filename}")
-def serve_file_artifact(session_id: str, filename: str, download: int = 0) -> FileResponse:
-    """Serve an artifact file by its ``file://{session_id}/{filename}`` URI.
+def serve_file_artifact(session_id: str, filename: str, download: int = 0) -> Response:
+    """Serve an artifact by its ``file://{session_id}/{filename}`` URI.
 
-    Resolves through ``FileStore.resolve_uri`` so the date-partitioned
-    on-disk layout stays an implementation detail. 404 when the URI
-    doesn't match anything on disk.
+    Streams the bytes through the FileStore (blob backend) — the on-disk /
+    object-store layout stays an implementation detail and the body is
+    never buffered whole. 404 when the URI resolves to nothing.
 
     Pass ``?download=1`` to force ``Content-Disposition: attachment`` so
     the browser saves the file regardless of mime (otherwise the
     browser uses its own rules — inline for images/JSON/text, download
     for octet-stream).
     """
-    path = resolve_file_uri(session_id, filename)
-    if path is None or not path.exists():
-        from fastapi import HTTPException
+    from fastapi import HTTPException
 
-        raise HTTPException(status_code=404, detail=f"file://{session_id}/{filename}")
+    from litmus.api._mime import sniff_mime
+    from litmus.data.files import get_filestore
+
+    uri = f"file://{session_id}/{filename}"
+    store = get_filestore()
+    size = store.size(uri)
+    handle = store.open_input(uri)
+    if size is None or handle is None:
+        raise HTTPException(status_code=404, detail=uri)
+    media_type = sniff_mime(store.read_range(uri, offset=0, length=64) or b"")
+
+    def _body() -> Iterator[bytes]:
+        try:
+            while chunk := handle.read(1 << 20):
+                yield chunk
+        finally:
+            handle.close()
+
+    headers = {"Accept-Ranges": "bytes", "Content-Length": str(size)}
     if download:
-        return FileResponse(path, filename=filename)
-    return FileResponse(path)
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return StreamingResponse(_body(), media_type=media_type, headers=headers)

@@ -21,15 +21,16 @@ Schema design:
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import pickle
 from collections import defaultdict
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePosixPath
+from typing import Any, BinaryIO
 from uuid import UUID
 
 import pyarrow as pa
@@ -759,17 +760,9 @@ def _resolve_ref_to_path(parquet_path: Path | None, ref: str) -> Path | None:
         filename = raw[len(REF_PATH_PREFIX) :]
         return parquet_path.parent / (parquet_path.stem + "_ref") / filename
 
-    # New (item 1d): logical FileStore reference ``{session_id}/{filename}``.
-    # Resolve via FileStore — file lives under
-    # ``{data_dir}/files/{date}/{session_id}/{filename}`` and the
-    # date is walked by FileStore.resolve_uri.
-    if "/" in raw and ref.startswith("file://"):
-        # Lazy: data.files pulls PIL / serializer chain only needed
-        # for blob reads, not for the common non-blob ref path.
-        from litmus.data.files import get_filestore  # noqa: PLC0415
-
-        return get_filestore().resolve_uri(ref)
-
+    # New (item 1d) FileStore refs (``file://{session_id}/{filename}``) are
+    # NOT path-resolved here — ``load_file`` reads them as bytes through the
+    # blob backend (the store owns where they live; no path crosses out).
     return None
 
 
@@ -799,32 +792,61 @@ def load_file(parquet_path: Path | None, ref: str) -> Any:
         - .pkl → pickled object
         - Other → raw file path
     """
-    path = _resolve_ref_to_path(parquet_path, ref)
-    if path is None:
-        return ref  # Not a file reference or unresolved
-    if not path.exists():
-        return ref  # File not found, return reference
-    ext = path.suffix.lower()
+    # FileStore artifact ref → read the bytes through the backend (the store
+    # owns where they live: local disk or a remote object store). Legacy
+    # ``file://_ref/`` / bare ``_ref/`` refs predate FileStore and stay
+    # path-based (a per-parquet sibling dir).
+    raw = ref[len("file://") :] if ref.startswith("file://") else ref
+    if ref.startswith("file://") and not raw.startswith(REF_PATH_PREFIX):
+        from litmus.data.files import get_filestore  # noqa: PLC0415
 
+        payload = get_filestore().read(ref)
+        if payload is None:
+            return ref  # Unresolved / missing artifact
+        return _deserialize_ref(
+            PurePosixPath(raw).suffix.lower(),
+            lambda: io.BytesIO(payload),
+            ref,
+            fallback=payload,
+        )
+
+    path = _resolve_ref_to_path(parquet_path, ref)
+    if path is None or not path.exists():
+        return ref  # Not a file reference, unresolved, or missing
+    return _deserialize_ref(path.suffix.lower(), lambda: path.open("rb"), ref, fallback=path)
+
+
+def _deserialize_ref(
+    ext: str,
+    open_stream: Callable[[], BinaryIO],
+    ref: str,
+    *,
+    fallback: Any,
+) -> Any:
+    """Deserialize a file ref by extension from a binary stream.
+
+    Source-agnostic: ``open_stream`` yields a fresh readable for either a
+    FileStore artifact (``io.BytesIO`` over backend bytes) or a legacy
+    on-disk ref (the file handle). ``fallback`` is returned for unknown
+    extensions or when numpy is absent (the raw bytes for a FileStore ref,
+    the on-disk path for a legacy ref); a decode error returns ``ref``.
+    """
     try:
         if ext == ".npz":
             if not HAS_NUMPY:
-                return path
-
-            # numpy import is deliberately deferred — top-level numpy
-            # imports add ~150ms to every consumer of this module
-            # (RunsQuery, MeasurementsQuery, the runs daemon). load_file
-            # is on the cold reader path; readers that never touch .npz
-            # blobs should not pay the numpy import cost.
+                return fallback
+            # numpy import is deliberately deferred — top-level numpy imports
+            # add ~150ms to every consumer of this module (RunsQuery,
+            # MeasurementsQuery, the runs daemon). Readers that never touch
+            # .npz blobs should not pay it.
             import numpy as np  # noqa: PLC0415
 
-            data = dict(np.load(path, allow_pickle=True))
-            # Check if this looks like a Waveform
+            with open_stream() as f:
+                data = dict(np.load(f, allow_pickle=True))
             if "Y" in data and "t0" in data and "dt" in data:
                 attributes = {k: v for k, v in data.items() if k not in ("Y", "t0", "dt")}
-                # t0 is stored as ISO-8601 string by the serializer
-                # (datetime can't go into np.savez directly). Empty
-                # string means "unknown", parses back to None.
+                # t0 is stored as ISO-8601 string by the serializer (datetime
+                # can't go into np.savez directly). Empty string = "unknown".
                 t0_str = str(data["t0"])
                 t0_val = datetime.fromisoformat(t0_str) if t0_str else None
                 return Waveform(
@@ -834,33 +856,27 @@ def load_file(parquet_path: Path | None, ref: str) -> Any:
                     attributes=attributes,
                 )
             return data
-
         elif ext == ".npy":
             if not HAS_NUMPY:
-                return path
-
-            # numpy import deferred for the same perf reason as the
-            # .npz branch above — see that comment.
+                return fallback
             import numpy as np  # noqa: PLC0415
 
-            return np.load(path)
-
+            with open_stream() as f:
+                return np.load(f)
         elif ext == ".json":
-            return json.loads(path.read_text())
-
+            with open_stream() as f:
+                return json.loads(f.read())
         elif ext == ".bin":
-            return path.read_bytes()
-
+            with open_stream() as f:
+                return f.read()
         elif ext == ".arrow":
-            return ipc.open_file(path).read_all()
-
+            with open_stream() as f:
+                return ipc.open_file(f).read_all()
         elif ext == ".pkl":
-            with open(path, "rb") as f:
+            with open_stream() as f:
                 return pickle.load(f)
-
         else:
-            # Return path for other file types
-            return path
+            return fallback
     except (
         OSError,
         ValueError,
@@ -869,7 +885,7 @@ def load_file(parquet_path: Path | None, ref: str) -> Any:
         EOFError,
         pa.ArrowInvalid,
     ) as exc:
-        logger.warning("Failed to load reference %s: %s", path, exc)
+        logger.warning("Failed to load reference %s: %s", ref, exc)
         return ref
 
 

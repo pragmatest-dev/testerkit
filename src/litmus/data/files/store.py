@@ -193,16 +193,16 @@ class FileStore:
         uri = f"file://{session_id}/{filename}"
         # Keep the daemon's warm catalog current (req 2). Best-effort and
         # non-spawning: skips silently if no daemon is running, and the
-        # sidecar is the durable truth a restart rebuilds from. ``path`` is
-        # the backend's physical locator (the local path today).
-        dest = self._backend.local_path(key)
+        # sidecar is the durable truth a restart rebuilds from. The catalog
+        # stores the backend ``key`` (not an absolute path) so resolution
+        # stays backend-agnostic.
         _catalog_push(
             self._files_dir,
             catalog_row(
                 uri=uri,
                 session_id=session_id,
                 name=filename,
-                path=dest if dest is not None else Path(key),
+                key=key,
                 meta=metadata,
                 created_at=datetime.now(UTC),
             ),
@@ -293,61 +293,108 @@ class FileStore:
             finalizer=_finalize,
         )
 
+    def read(self, uri: str) -> bytes | None:
+        """Return the full bytes of the artifact at ``uri``, or ``None``.
+
+        The store serves the file — callers never touch the filesystem
+        or know where the bytes live. Goes through the blob backend, so
+        a remote (S3/GCS) backend serves the same way as local disk.
+        """
+        key = self._resolve_key(uri)
+        return None if key is None else self._backend.read_bytes(key)
+
+    def read_range(self, uri: str, *, offset: int = 0, length: int | None = None) -> bytes | None:
+        """Range-read ``[offset, offset+length)`` of ``uri`` (HTTP Range)."""
+        key = self._resolve_key(uri)
+        return None if key is None else self._backend.read_range(key, offset=offset, length=length)
+
+    def size(self, uri: str) -> int | None:
+        """Stored byte size of the artifact at ``uri``, or ``None``."""
+        key = self._resolve_key(uri)
+        return None if key is None else self._backend.size(key)
+
+    def modified_at(self, uri: str) -> datetime | None:
+        """Last-modified time of the artifact at ``uri``, or ``None``.
+
+        Backend-portable (local mtime / object-store LastModified). For an
+        immutable write-once artifact this is effectively its creation time.
+        """
+        key = self._resolve_key(uri)
+        return None if key is None else self._backend.modified_at(key)
+
+    def open_input(self, uri: str) -> Any:
+        """Open a streaming read handle for ``uri`` (caller closes it), or ``None``.
+
+        Returns a random-access ``pyarrow.NativeFile`` so a consumer can stream
+        a large artifact in chunks rather than buffering it whole — sequential
+        reads become ranged GETs on a remote backend.
+        """
+        key = self._resolve_key(uri)
+        return None if key is None else self._backend.open_input(key)
+
     def read_attributes(self, uri: str) -> FileArtifactMetadata | None:
         """Return the :class:`FileArtifactMetadata` for ``uri``, or None.
 
-        ``None`` when the URI doesn't resolve to a FileStore artifact
-        on disk, or when its sidecar is missing (e.g. an artifact put
-        before item 1c landed).
+        ``None`` when the URI doesn't resolve to a FileStore artifact, or
+        when its sidecar is missing (e.g. an artifact put before item 1c
+        landed). The sidecar is read through the backend like any blob.
 
         Args:
             uri: A ``file://{session_id}/{filename}`` URI returned
                 by :meth:`put`.
         """
-        artifact_path = self.resolve_uri(uri)
-        if artifact_path is None:
+        key = self._resolve_key(uri)
+        if key is None:
             return None
-        sidecar_path = artifact_path.with_name(artifact_path.name + _SIDECAR_SUFFIX)
-        if not sidecar_path.exists():
+        raw = self._backend.read_bytes(f"{key}{_SIDECAR_SUFFIX}")
+        if raw is None:
             return None
-        return FileArtifactMetadata.model_validate_json(sidecar_path.read_text())
+        return FileArtifactMetadata.model_validate_json(raw)
 
-    def resolve_uri(self, uri: str) -> Path | None:
-        """Walk date directories to find the on-disk path for a URI.
+    def delete(self, uri: str) -> None:
+        """Delete the artifact at ``uri`` and its sidecar (best-effort).
 
-        Public — callers in the operator UI, materializer, and HTTP
-        ``/files-static`` route reach for this to map a logical
-        ``file://{session_id}/{filename}`` URI to its current on-disk
-        location. Date is intentionally absent from the URI so a backend
-        swap or a manual date-dir reorganization stays transparent.
-        Resolution walks ``{files_dir}/*/{session_id}/{filename}`` and
-        returns the first match. ``None`` when nothing matches.
+        A no-op when the URI doesn't resolve. Removes the blob bytes through
+        the backend; the catalog row, if any, clears when the daemon next
+        rescans (the sidecar — its durable source — is gone).
+        """
+        key = self._resolve_key(uri)
+        if key is None:
+            return
+        self._backend.delete(key)
+        self._backend.delete(f"{key}{_SIDECAR_SUFFIX}")
+
+    def _resolve_key(self, uri: str) -> str | None:
+        """Map a ``file://{session_id}/{filename}`` URI to its backend key.
+
+        Private — the URI→location mapping is the store's business; no
+        ``Path`` or layout knowledge crosses the boundary. The key is
+        ``{date}/{session_id}/{filename}`` relative to the backend root;
+        date is absent from the URI so a backend swap or a date-dir
+        reorg stays transparent.
+
+        Prefers the warm catalog (req 2). Falls back to a local date-dir
+        scan only when no daemon is running (tests, offline) — an
+        internal detail, never a client FS touch. ``None`` when nothing
+        matches or the URI is malformed / names a sidecar.
         """
         if not uri.startswith("file://"):
             return None
         rest = uri[len("file://") :]
-        if "/" not in rest:
-            return None
         session_id, _, filename = rest.partition("/")
         if not session_id or not filename:
             return None
-        # Sidecars themselves end with .meta.json — refuse to resolve
-        # them so callers can't accidentally read a sidecar as its own
-        # artifact.
+        # Refuse sidecars so a caller can't read one as its own artifact.
         if filename.endswith(_SIDECAR_SUFFIX):
             return None
-        # Prefer the daemon's warm catalog (req 2). Fall through to the
-        # date-dir walk when no daemon is running (tests, offline) or the
-        # catalog hasn't caught up to a just-written file. Phase E removes
-        # the walk fallback once the backend swap requires it.
         if _catalog_running(self._files_dir):
             hit = _catalog_resolve(self._files_dir, uri)
             if hit is not None:
-                return Path(hit)
+                return hit
         for date_dir in self._files_dir.glob("*"):
             candidate = date_dir / session_id / filename
             if candidate.exists():
-                return candidate
+                return f"{date_dir.name}/{session_id}/{filename}"
         return None
 
     # ----- internals -------------------------------------------------

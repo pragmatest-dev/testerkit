@@ -74,9 +74,9 @@ class TestArrowTableSerializer:
         assert uri.startswith(f"file://{sid}/")
         assert uri.endswith(".arrow")
 
-        path = filestore.resolve_uri(uri)
-        assert path is not None
-        loaded = ipc.open_stream(pa.OSFile(str(path), "rb")).read_all()
+        data = filestore.read(uri)
+        assert data is not None
+        loaded = ipc.open_stream(pa.py_buffer(data)).read_all()
         assert loaded.num_rows == 3
         assert loaded.column("value").to_pylist() == [1.0, 2.0, 3.0]
 
@@ -154,12 +154,13 @@ class TestResolveRefToPath:
         assert path is not None
         assert path.name == "blob.bin"
 
-    def test_resolves_filestore_uri_via_filestore(self, filestore: FileStore) -> None:
+    def test_filestore_uri_read_as_bytes_not_path(self, filestore: FileStore) -> None:
+        # FileStore refs are no longer path-resolved (no layout Path crosses
+        # out) — load_file reads them as bytes through the blob backend.
         sid = _sid()
         uri = filestore.write("x", b"y", session_id=sid)
-        path = _resolve_ref_to_path(None, uri)
-        assert path is not None
-        assert path.read_bytes() == b"y"
+        assert _resolve_ref_to_path(None, uri) is None
+        assert load_file(None, uri) == b"y"
 
     def test_returns_none_for_non_file_ref(self) -> None:
         assert _resolve_ref_to_path(None, "channel://x?session=abc") is None
