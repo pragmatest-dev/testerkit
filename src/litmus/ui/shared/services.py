@@ -3,7 +3,7 @@
 NO direct yaml.safe_load or Path I/O here — all persistence goes through litmus.store.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -1663,84 +1663,37 @@ def files_dir_exists() -> bool:
 
 
 def list_recent_files(*, limit: int = 200) -> list[dict[str, Any]]:
-    """Walk the FileStore on-disk layout and return artifact descriptors.
+    """Return artifact descriptors from the files catalog daemon, newest first.
 
     Each descriptor: ``{"uri", "session_id", "filename", "mime",
-    "extension", "size_bytes", "created_at", "attributes"}``. Returns
-    up to ``limit`` most-recently-modified artifacts, newest first.
-    Skips sidecar files. Returns an empty list when no FileStore data
-    exists OR the FileStore directory itself is absent — call
-    :func:`files_dir_exists` to distinguish the two cases.
+    "extension", "size_bytes", "created_at", "attributes"}``, up to
+    ``limit`` most-recent artifacts. Reads through the daemon's warm
+    catalog (req 2) — never a directory walk — so it works identically
+    against a local or remote blob backend. Returns an empty list when
+    the files dir doesn't exist yet (nothing has been written).
     """
     import json
 
     from litmus.data.data_dir import resolve_data_dir
-    from litmus.data.files.catalog_manager import is_running, list_recent
-    from litmus.data.files.models import FileArtifactMetadata
+    from litmus.data.files.catalog_manager import list_recent
 
     project_dir = _resolve_data_dir()
     files_dir = resolve_data_dir(project_dir) / "files"
     if not files_dir.exists():
         return []
-
-    # Prefer the daemon's warm catalog (req 2); fall back to the tree
-    # walk when no daemon is running. Phase E removes the walk.
-    if is_running(files_dir):
-        return [
-            {
-                "uri": r["uri"],
-                "session_id": r["session_id"],
-                "filename": r["name"],
-                "mime": r["mime"],
-                "extension": r["extension"],
-                "size_bytes": r["size_bytes"],
-                "created_at": r["created_at"],
-                "attributes": json.loads(r["attributes"]) if r["attributes"] else {},
-            }
-            for r in list_recent(files_dir, limit)
-        ]
-
-    sidecar_suffix = ".meta.json"
-    entries: list[dict[str, Any]] = []
-    for path in files_dir.rglob("*"):
-        if not path.is_file():
-            continue
-        if path.name.endswith(sidecar_suffix):
-            continue
-        # Layout: {files_dir}/{date}/{session_id}/{filename}
-        try:
-            session_id = path.parent.name
-        except IndexError:
-            continue
-        mime = ""
-        extension = path.suffix
-        size_bytes = path.stat().st_size
-        attributes: dict[str, Any] = {}
-        sidecar = path.with_name(path.name + sidecar_suffix)
-        if sidecar.exists():
-            try:
-                meta = FileArtifactMetadata.model_validate_json(sidecar.read_text())
-                mime = meta.mime
-                extension = meta.extension or extension
-                size_bytes = meta.size_bytes
-                attributes = dict(meta.attributes or {})
-            except (OSError, ValueError):
-                pass
-        entries.append(
-            {
-                "uri": f"file://{session_id}/{path.name}",
-                "session_id": session_id,
-                "filename": path.name,
-                "mime": mime,
-                "extension": extension,
-                "size_bytes": size_bytes,
-                "created_at": datetime.fromtimestamp(path.stat().st_mtime, tz=UTC),
-                "attributes": attributes,
-            }
-        )
-
-    entries.sort(key=lambda e: e["created_at"], reverse=True)
-    return entries[:limit]
+    return [
+        {
+            "uri": r["uri"],
+            "session_id": r["session_id"],
+            "filename": r["name"],
+            "mime": r["mime"],
+            "extension": r["extension"],
+            "size_bytes": r["size_bytes"],
+            "created_at": r["created_at"],
+            "attributes": json.loads(r["attributes"]) if r["attributes"] else {},
+        }
+        for r in list_recent(files_dir, limit)
+    ]
 
 
 # -----------------------------------------------------------------------------

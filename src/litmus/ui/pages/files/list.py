@@ -24,7 +24,7 @@ from litmus.ui.shared.services import files_dir_exists, list_recent_files
 # Walk depth cap. The on-disk layout is unbounded as a glob; this
 # limits memory + render time on huge projects. Past the cap, older
 # artifacts need a date-window filter to reach.
-_WALK_LIMIT = 1000
+_LIST_LIMIT = 1000
 
 # What the table shows after filters are applied. Tuned for a single
 # screen of rows on a typical viewport.
@@ -146,7 +146,7 @@ def files_page(
     # Walk once; filters apply in-memory against this snapshot. A
     # Refresh button re-walks the disk so newly-written artifacts
     # appear without a page reload.
-    all_entries = list_recent_files(limit=_WALK_LIMIT)
+    all_entries = list_recent_files(limit=_LIST_LIMIT)
     mime_options = _mime_options_from_entries(all_entries)
     initial_mime = mime if mime in mime_options else ""
 
@@ -200,7 +200,7 @@ def files_page(
             # rebuild option dropdowns so newly-seen mimes become
             # selectable.
             nonlocal all_entries, mime_options
-            all_entries = list_recent_files(limit=_WALK_LIMIT)
+            all_entries = list_recent_files(limit=_LIST_LIMIT)
             mime_options = _mime_options_from_entries(all_entries)
             filters.mime_select.options = mime_options
             filters.mime_select.update()
@@ -229,7 +229,7 @@ def files_page(
             )[:_PAGE_LIMIT]
 
             count_label.text = f"{len(filtered)} of {len(all_entries)} file(s)" + (
-                f" (walked first {_WALK_LIMIT})" if len(all_entries) >= _WALK_LIMIT else ""
+                f" (first {_LIST_LIMIT})" if len(all_entries) >= _LIST_LIMIT else ""
             )
 
             table_holder.clear()
