@@ -32,9 +32,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from litmus.data.data_dir import resolve_data_dir
+from litmus.data.files._backend import BlobBackend, resolve_files_backend
 from litmus.data.files.catalog import catalog_row
 from litmus.data.files.catalog_manager import (
     is_running as _catalog_running,
@@ -79,9 +80,19 @@ class FileStore:
     user attributes). Read it back with :meth:`read_attributes`.
     """
 
-    def __init__(self, data_dir: Path | None = None) -> None:
+    def __init__(self, data_dir: Path | None = None, *, backend_uri: str | None = None) -> None:
         self._data_dir = resolve_data_dir(data_dir)
         self._files_dir = self._data_dir / "files"
+        # Blob bytes flow through this backend (local disk by default; an
+        # object store by config — the only thing that changes for a swap).
+        # Default root is self._files_dir so it tracks whatever resolved the
+        # data dir (incl. test monkeypatches); env/config override only when
+        # no explicit data_dir was given.
+        self._backend = BlobBackend.from_uri(
+            resolve_files_backend(
+                self._files_dir, allow_override=data_dir is None, backend_uri=backend_uri
+            )
+        )
 
     def write(
         self,
@@ -149,54 +160,49 @@ class FileStore:
         session_dir = self._session_dir(session_id)
         session_dir.mkdir(parents=True, exist_ok=True)
 
-        # Resolve a unique filename within the session dir.
+        # Resolve a unique filename within the session dir; the backend key
+        # is that filename under {date}/{session_id}.
         filename = self._unique_filename(session_dir, f"{prefix}{name}", ext)
-        dest = session_dir / filename
+        date = session_dir.parent.name
+        key = f"{date}/{session_id}/{filename}"
 
-        # Write the blob atomically: serialize to a sibling temp with the
-        # extension preserved (suffix-sensitive writers like np.savez
-        # rename themselves otherwise), then atomic-replace into place. A
-        # crash mid-serialize leaves the temp, never a partial artifact
-        # the catalog could point at.
-        blob_tmp = dest.with_name(f"{dest.stem}.part-{uuid4().hex[:8]}{dest.suffix}")
-        serializer.write(value, blob_tmp)
-        blob_tmp.replace(dest)
+        # Serialize to a local staging path (suffix preserved — writers like
+        # np.savez rename themselves otherwise), then publish atomically to
+        # the blob backend: a same-fs rename locally, an upload remotely. A
+        # crash mid-serialize leaves the staging temp, never a published
+        # artifact the catalog could point at.
+        staged = self._backend.stage_path(key)
+        serializer.write(value, staged)
+        self._backend.publish_atomic(staged, key)
 
-        # Item 1c: write the sidecar metadata file. size_bytes is read
-        # after the write so it reflects the actual on-disk size,
-        # whatever the serializer produced.
-        #
-        # Atomicity: the sidecar pairs the artifact one-to-one (mime,
-        # size, attributes). A crash between artifact-write and
-        # sidecar-write would leave an artifact with no metadata,
-        # silently breaking the audit trail (read_attributes() returns
-        # None, every downstream consumer sees a metadata-less file).
-        # Write to a tmp path then atomic rename so the sidecar
-        # either lands fully or not at all.
+        # Item 1c: write the sidecar metadata. size_bytes is read back from
+        # the backend after publish so it reflects the actual stored size.
+        # The sidecar pairs the artifact one-to-one (mime, size, attributes);
+        # backend.write_bytes is atomic (temp+rename local, single PUT remote)
+        # so it either lands fully or not at all.
         metadata = FileArtifactMetadata(
             mime=serializer.mime,
             extension=ext,
-            size_bytes=dest.stat().st_size,
+            size_bytes=self._backend.size(key) or 0,
             attributes=dict(attributes or {}),
             instrument_role=instrument_role,
             resource=resource,
         )
-        sidecar_path = dest.with_name(dest.name + _SIDECAR_SUFFIX)
-        sidecar_tmp = sidecar_path.with_suffix(sidecar_path.suffix + ".tmp")
-        sidecar_tmp.write_text(metadata.model_dump_json())
-        sidecar_tmp.replace(sidecar_path)
+        self._backend.write_bytes(f"{key}{_SIDECAR_SUFFIX}", metadata.model_dump_json().encode())
 
         uri = f"file://{session_id}/{filename}"
         # Keep the daemon's warm catalog current (req 2). Best-effort and
         # non-spawning: skips silently if no daemon is running, and the
-        # sidecar on disk is the durable truth a restart rebuilds from.
+        # sidecar is the durable truth a restart rebuilds from. ``path`` is
+        # the backend's physical locator (the local path today).
+        dest = self._backend.local_path(key)
         _catalog_push(
             self._files_dir,
             catalog_row(
                 uri=uri,
                 session_id=session_id,
                 name=filename,
-                path=dest,
+                path=dest if dest is not None else Path(key),
                 meta=metadata,
                 created_at=datetime.now(UTC),
             ),

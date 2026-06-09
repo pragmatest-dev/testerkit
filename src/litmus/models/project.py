@@ -84,6 +84,10 @@ class ProjectConfig(BaseModel):
 
     name: str
     data_dir: str | None = None
+    # Blob-backend root URI for FileStore artifacts. Default (unset) keeps
+    # blobs under ``{data_dir}/files``. Set to an ``s3://`` / ``gcs://`` URI
+    # to store artifacts in an object store — only this changes; no code does.
+    files_backend: str | None = None
     # Optional fallback station id when no ``--station`` is passed
     # and hostname auto-match doesn't fire.
     # Set this to a real station id in your project; leaving it

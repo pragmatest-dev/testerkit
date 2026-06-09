@@ -280,6 +280,7 @@ Schema for litmus.yaml project config files — all fields at root.
 |---|---|---|
 | `name` | `str` | *required* |
 | `data_dir` | `str \| None` | `None` |
+| `files_backend` | `str \| None` | `None` |
 | `default_station` | `str \| None` | `None` |
 | `default_fixture` | `str \| None` | `None` |
 | `default_profile` | `str \| None` | `None` |
