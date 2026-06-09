@@ -65,7 +65,9 @@ def test_list_recent_files_returns_written_artifact(canonical_files: FileStore) 
     assert len(mine) == 1
     entry = mine[0]
     assert entry["filename"].startswith("vendor_blob")
-    assert entry["uri"] == f"file://{sid}/{entry['filename']}"
+    assert entry["uri"].startswith("file://") and entry["uri"].endswith(
+        f"/{sid}/{entry['filename']}"
+    )
     assert entry["size_bytes"] == len(b"raw bytes payload")
     assert isinstance(entry["created_at"], datetime)
 

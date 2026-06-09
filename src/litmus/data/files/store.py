@@ -38,13 +38,7 @@ from litmus.data.data_dir import resolve_data_dir
 from litmus.data.files._backend import BlobBackend, resolve_files_backend
 from litmus.data.files.catalog import catalog_row
 from litmus.data.files.catalog_manager import (
-    is_running as _catalog_running,
-)
-from litmus.data.files.catalog_manager import (
     push_artifact as _catalog_push,
-)
-from litmus.data.files.catalog_manager import (
-    resolve_uri as _catalog_resolve,
 )
 from litmus.data.files.models import FileArtifactMetadata
 from litmus.data.files.serializers import find_serializer
@@ -190,7 +184,7 @@ class FileStore:
         )
         self._backend.write_bytes(f"{key}{_SIDECAR_SUFFIX}", metadata.model_dump_json().encode())
 
-        uri = f"file://{session_id}/{filename}"
+        uri = f"file://{key}"
         # Keep the daemon's warm catalog current (req 2). Best-effort and
         # non-spawning: skips silently if no daemon is running, and the
         # sidecar is the durable truth a restart rebuilds from. The catalog
@@ -270,7 +264,7 @@ class FileStore:
         filename = self._unique_filename(session_dir, f"{prefix}{name}", fmt.extension)
         date = session_dir.parent.name
         key = f"{date}/{session_id}/{filename}"
-        uri = f"file://{session_id}/{filename}"
+        uri = f"file://{key}"
 
         # Capture for sidecar write at close
         attrs_for_sidecar = dict(attributes or {})
@@ -392,37 +386,23 @@ class FileStore:
         self._backend.delete(f"{key}{_SIDECAR_SUFFIX}")
 
     def _resolve_key(self, uri: str) -> str | None:
-        """Map a ``file://{session_id}/{filename}`` URI to its backend key.
+        """Map a ``file://`` URI to its backend-relative key — pure parsing.
 
-        Private — the URI→location mapping is the store's business; no
-        ``Path`` or layout knowledge crosses the boundary. The key is
-        ``{date}/{session_id}/{filename}`` relative to the backend root;
-        date is absent from the URI so a backend swap or a date-dir
-        reorg stays transparent.
-
-        Prefers the warm catalog (req 2). Falls back to a local date-dir
-        scan only when no daemon is running (tests, offline) — an
-        internal detail, never a client FS touch. ``None`` when nothing
-        matches or the URI is malformed / names a sidecar.
+        The URI carries the full key (``{date}/{session_id}/{filename}``), so
+        resolution is a string strip: no catalog lookup, no disk scan, no
+        daemon. The key is identical across backends; the backend root is
+        config, so a local→remote swap is transparent and a point read needs
+        no index (the catalog daemon serves queries/discovery, not point
+        resolution). ``None`` for a non-``file://`` URI, an empty key, or one
+        that names a sidecar.
         """
         if not uri.startswith("file://"):
             return None
-        rest = uri[len("file://") :]
-        session_id, _, filename = rest.partition("/")
-        if not session_id or not filename:
+        key = uri[len("file://") :]
+        # Refuse empty keys + sidecars (so a caller can't read one as an artifact).
+        if not key or key.endswith(_SIDECAR_SUFFIX):
             return None
-        # Refuse sidecars so a caller can't read one as its own artifact.
-        if filename.endswith(_SIDECAR_SUFFIX):
-            return None
-        if _catalog_running(self._files_dir):
-            hit = _catalog_resolve(self._files_dir, uri)
-            if hit is not None:
-                return hit
-        for date_dir in self._files_dir.glob("*"):
-            candidate = date_dir / session_id / filename
-            if candidate.exists():
-                return f"{date_dir.name}/{session_id}/{filename}"
-        return None
+        return key
 
     # ----- internals -------------------------------------------------
 

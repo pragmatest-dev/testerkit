@@ -50,17 +50,13 @@ def context_without_session() -> Context:
 
 
 def _resolve_uri(uri: str) -> Path:
-    """Resolve a ``file://{session_id}/{filename}`` URI to its on-disk path."""
+    """Resolve a ``file://{date}/{session}/{filename}`` URI to its on-disk path.
+
+    The URI now carries the full backend-relative key, so the local path is
+    just ``{data_dir}/files/{key}`` — no date-partition scan needed.
+    """
     assert uri.startswith("file://"), uri
-    rel = uri[len("file://") :]
-    session_id, filename = rel.split("/", 1)
-    # Find the date partition by scanning (FileStore picks today's UTC date)
-    files_root = resolve_data_dir() / "files"
-    for date_dir in files_root.iterdir():
-        candidate = date_dir / session_id / filename
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(f"URI did not resolve: {uri}")
+    return resolve_data_dir() / "files" / uri[len("file://") :]
 
 
 # --------------------------------------------------------------------- #

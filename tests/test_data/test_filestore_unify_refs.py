@@ -71,7 +71,7 @@ class TestArrowTableSerializer:
         tbl = pa.table({"timestamp": [1, 2, 3], "value": [1.0, 2.0, 3.0]})
 
         uri = filestore.write("scope.ch1.waveform", tbl, session_id=sid)
-        assert uri.startswith(f"file://{sid}/")
+        assert f"/{sid}/" in uri and uri.startswith("file://")
         assert uri.endswith(".arrow")
 
         data = filestore.read(uri)

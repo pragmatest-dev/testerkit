@@ -102,7 +102,7 @@ class TestLatchableProtocol:
         ) as sink:
             assert isinstance(sink, Latchable)
             assert isinstance(sink.uri, str)
-            assert sink.uri == f"file://{session.session_id}/daq_capture.bin"
+            assert sink.uri.endswith(f"/{session.session_id}/daq_capture.bin")
 
     def test_plain_scalar_does_not_satisfy_protocol(self) -> None:
         assert not isinstance(3.31, Latchable)
@@ -206,7 +206,7 @@ class TestStreamSinkLatching:
             session.ctx.observe("capture", sink)
 
         observed = session.ctx._observations["capture"]
-        assert observed == f"file://{session.session_id}/daq_capture.bin"
+        assert observed.endswith(f"/{session.session_id}/daq_capture.bin")
 
     def test_observe_stream_sink_does_not_re_write_artifact(self, session: Any) -> None:
         """A second copy of the artifact would land at e.g. capture_2.bin

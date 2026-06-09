@@ -197,6 +197,48 @@ def test_channel_reads_go_through_daemon_not_globbing_store():
         )
 
 
+# Files-store source allowed to touch the on-disk blob layout directly: the
+# backend (which IS the filesystem adapter) and the catalog daemon's index
+# rebuild — a store reading its OWN data to build its OWN index, the one
+# legitimate place (feedback_store_boundary_is_api_boundary). Everything else
+# reads bytes through the BlobBackend, so the backend swap (req 6) holds.
+_FILES_BLOB_GLOB_ALLOWED = {
+    "src/litmus/data/files/_backend.py",
+    "src/litmus/data/files/catalog.py",
+}
+
+
+def test_filestore_reads_dont_glob_the_blob_layout():
+    """FileStore reads go through the BlobBackend / catalog — never a disk walk.
+
+    A ``glob``/``rglob``/``OSFile`` over the blob layout is the three-hatted
+    defect: it re-indexes disk per call (req 1), can't reach a remote backend
+    (req 6), and reaches past the store's API into its physical layout
+    (encapsulation). The ``file://{date}/{session}/{filename}`` URI carries the
+    full backend key, so a point read is pure parsing; the only legitimate disk
+    scan is the catalog daemon rebuilding its own index from sidecars.
+    """
+    files = _REPO_ROOT / "src" / "litmus" / "data" / "files"
+    pattern = re.compile(r"\.r?glob\(|\bOSFile\(")
+    offenders: list[tuple[str, int, str]] = []
+    for path in files.rglob("*.py"):
+        rel = path.relative_to(_REPO_ROOT).as_posix()
+        if rel in _FILES_BLOB_GLOB_ALLOWED:
+            continue
+        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+            if _is_doc_line(line):
+                continue
+            if pattern.search(line):
+                offenders.append((rel, lineno, line.strip()))
+    if offenders:
+        msg = "\n".join(f"  {p}:{n}  {line}" for p, n, line in offenders)
+        pytest.fail(
+            "FileStore reads must go through the BlobBackend / catalog, not a disk "
+            "walk (req-1 / req-6 / store encapsulation). Only the backend and the "
+            "catalog daemon's index rebuild may touch the blob layout:\n" + msg
+        )
+
+
 def test_inflight_schemas_carry_materialized_data_columns():
     """Inflight overlay must carry the same data columns as the materialized
     tables, so a live run renders identically to a finalized one.

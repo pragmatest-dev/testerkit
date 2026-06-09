@@ -43,7 +43,8 @@ def _session_dir(store: FileStore, sid: str) -> Path:
 
 
 def _filename_from_uri(uri: str, sid: str) -> str:
-    return uri[len(f"file://{sid}/") :]
+    del sid  # filename is the last path segment of file://{date}/{session}/{filename}
+    return uri.rsplit("/", 1)[-1]
 
 
 @pytest.fixture

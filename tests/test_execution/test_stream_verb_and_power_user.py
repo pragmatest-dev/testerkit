@@ -185,7 +185,7 @@ class TestFilesWrite:
         _reset_for_tests()
         try:
             uri = files.write("artifact", b"hello", session_id="sid-1234")
-            assert uri == "file://sid-1234/artifact.bin"
+            assert uri.endswith("/sid-1234/artifact.bin") and uri.startswith("file://")
         finally:
             store_module.resolve_data_dir = original  # type: ignore[assignment]
             _reset_for_tests()
@@ -194,7 +194,7 @@ class TestFilesWrite:
         """session_id=None falls back to the active Context's session."""
         ctx, _ = context_with_store
         uri = files.write("artifact", b"hello")
-        assert uri.startswith(f"file://{ctx._session_id}/")
+        assert f"/{ctx._session_id}/" in uri and uri.startswith("file://")
 
     def test_write_without_session_raises(self) -> None:
         """No session_id arg + no active Context = clear error.

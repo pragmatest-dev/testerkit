@@ -51,7 +51,7 @@ class TestSidecarShape:
         uri = store.write("x", b"abc", session_id=sid)
 
         # URI shape: file://{sid}/{filename}
-        filename = uri[len(f"file://{sid}/") :]
+        filename = uri.rsplit("/", 1)[-1]
         from datetime import UTC, datetime
 
         today = datetime.now(UTC).date().isoformat()
@@ -224,7 +224,7 @@ class TestReadAttributes:
 
         today = datetime.now(UTC).date().isoformat()
         session_dir = store._files_dir / today / sid
-        filename = uri[len(f"file://{sid}/") :]
+        filename = uri.rsplit("/", 1)[-1]
         (session_dir / f"{filename}.meta.json").unlink()
 
         assert store.read_attributes(uri) is None

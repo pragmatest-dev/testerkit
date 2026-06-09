@@ -150,11 +150,11 @@ def test_bytes_blob_lands_in_filestore_and_uri_in_channel_store() -> None:
     channel_id, written_value, source = store.writes[0]
     assert channel_id == "scope.screenshot"
     assert isinstance(written_value, str)
-    assert written_value.startswith(f"file://{sid}/")
+    assert f"/{sid}/" in written_value and written_value.startswith("file://")
     assert source == "screenshot"
 
     # URI resolves to the actual bytes on disk
-    filename = written_value[len(f"file://{sid}/") :]
+    filename = written_value.rsplit("/", 1)[-1]
     landed = _expected_file_dir(sid) / filename
     assert landed.read_bytes() == png_bytes
 
@@ -190,7 +190,7 @@ def test_each_blob_write_creates_a_distinct_file() -> None:
     session_dir = _expected_file_dir(sid)
     for uri in uris:
         assert isinstance(uri, str)
-        filename = uri[len(f"file://{sid}/") :]
+        filename = uri.rsplit("/", 1)[-1]
         assert (session_dir / filename).exists()
 
 
@@ -212,7 +212,7 @@ def test_path_blob_routes_through_filestore(tmp_path: Path) -> None:
     assert len(store.writes) == 1
     uri = store.writes[0][1]
     assert isinstance(uri, str)
-    assert uri.startswith(f"file://{sid}/")
+    assert f"/{sid}/" in uri and uri.startswith("file://")
     # Path's suffix preserved through FileStore.write
     assert uri.endswith(".tdms")
 
@@ -238,7 +238,7 @@ def test_pydantic_blob_routes_through_filestore() -> None:
     assert len(store.writes) == 1
     uri = store.writes[0][1]
     assert isinstance(uri, str)
-    assert uri.startswith(f"file://{sid}/")
+    assert f"/{sid}/" in uri and uri.startswith("file://")
     assert uri.endswith(".json")
 
 
@@ -323,7 +323,7 @@ def test_blob_uri_stamps_active_vectors_out_column() -> None:
         assert "scope.screenshot" in ctx._observations
         uri = ctx._observations["scope.screenshot"]
         assert isinstance(uri, str)
-        assert uri.startswith(f"file://{sid}/")
+        assert f"/{sid}/" in uri and uri.startswith("file://")
     finally:
         reset_current_context(token)
 

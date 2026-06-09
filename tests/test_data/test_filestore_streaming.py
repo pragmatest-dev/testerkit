@@ -184,7 +184,7 @@ class TestRawSink:
         sink.write(b"defg")
         uri = sink.close()
 
-        assert uri == f"file://{sid}/daq.bin"
+        assert uri.startswith("file://") and uri.endswith(f"/{sid}/daq.bin")
         files = list(store._files_dir.glob(f"*/{sid}/daq.bin"))
         assert len(files) == 1
         assert files[0].read_bytes() == b"abcdefg"
@@ -218,7 +218,7 @@ class TestRawSink:
         ended = log.events[1]
         assert isinstance(ended, StreamEnded)
         assert ended.stream_id == sink.stream_id
-        assert ended.uri == f"file://{sid}/daq.bin"
+        assert ended.uri is not None and ended.uri.endswith(f"/{sid}/daq.bin")
         assert ended.size_bytes == len(b"abc" + b"defg" + b"more" + b"chunks")
 
     def test_byte_offset_property_tracks_per_write(
@@ -293,8 +293,8 @@ class TestRawSink:
         sink2 = store.open_stream("daq", format="raw", session_id=sid, event_log=log)
         try:
             assert sink1.uri != sink2.uri
-            assert sink1.uri == f"file://{sid}/daq.bin"
-            assert sink2.uri == f"file://{sid}/daq_2.bin"
+            assert sink1.uri.endswith(f"/{sid}/daq.bin")
+            assert sink2.uri.endswith(f"/{sid}/daq_2.bin")
         finally:
             sink1.close()
             sink2.close()
@@ -409,7 +409,7 @@ class TestTdmsSink:
         ended = log.events[1]
         assert isinstance(ended, StreamEnded)
         assert ended.stream_id == sink.stream_id
-        assert ended.uri == f"file://{sid}/capture.tdms"
+        assert ended.uri is not None and ended.uri.endswith(f"/{sid}/capture.tdms")
         assert ended.size_bytes is not None and ended.size_bytes > 0
 
     def test_non_channel_object_rejected(self, store: FileStore, log: CollectingLog) -> None:
@@ -481,7 +481,7 @@ class TestStreamingSidecar:
         with store.open_stream("daq", format="raw", session_id=sid, event_log=log) as sink:
             sink.write(b"abcdef")
 
-        meta = store.read_attributes(f"file://{sid}/daq.bin")
+        meta = store.read_attributes(sink.uri)
         assert meta is not None
         assert meta.mime == "application/octet-stream"
         assert meta.extension == ".bin"
@@ -499,7 +499,7 @@ class TestStreamingSidecar:
         ) as sink:
             sink.write(b"x")
 
-        meta = store.read_attributes(f"file://{sid}/daq.bin")
+        meta = store.read_attributes(sink.uri)
         assert meta is not None
         assert meta.attributes == {"sample_rate_hz": 48000, "channel_label": "Ch1"}
 
@@ -508,7 +508,7 @@ class TestStreamingSidecar:
         with store.open_stream("events", format="jsonl", session_id=sid, event_log=log) as sink:
             sink.write({"v": 1})
 
-        meta = store.read_attributes(f"file://{sid}/events.jsonl")
+        meta = store.read_attributes(sink.uri)
         assert meta is not None
         assert meta.mime == "application/x-ndjson"
         assert meta.extension == ".jsonl"

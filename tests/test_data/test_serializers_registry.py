@@ -121,11 +121,8 @@ class TestOpportunisticHandlers:
         assert uri.endswith(".png")
 
         # Verify the file is actually a PNG (magic bytes)
-        sid, _, filename = uri.partition("file://")[2].partition("/")
-        from datetime import UTC, datetime
-
-        today = datetime.now(UTC).date().isoformat()
-        landed = tmp_path / "files" / today / sid / filename
+        # The URI body is the full backend key ({date}/{session}/{filename}).
+        landed = tmp_path / "files" / uri.partition("file://")[2]
         assert landed.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
     def test_pandas_dataframe_writes_actual_parquet(self, tmp_path: Path) -> None:
@@ -136,11 +133,8 @@ class TestOpportunisticHandlers:
         uri = store.write("export", df, session_id="testsess2")
         assert uri.endswith(".parquet")
 
-        sid, _, filename = uri.partition("file://")[2].partition("/")
-        from datetime import UTC, datetime
-
-        today = datetime.now(UTC).date().isoformat()
-        landed = tmp_path / "files" / today / sid / filename
+        # The URI body is the full backend key ({date}/{session}/{filename}).
+        landed = tmp_path / "files" / uri.partition("file://")[2]
         round_trip = pq.read_table(landed).to_pandas()
         assert list(round_trip.columns) == ["a", "b"]
         assert list(round_trip["a"]) == [1, 2, 3]
@@ -236,11 +230,8 @@ class TestLitmusSerializeProtocol:
         uri = store.write("artifact", MyArtifact(), session_id="testsess4")
         assert uri.endswith(".myz")
 
-        sid, _, filename = uri.partition("file://")[2].partition("/")
-        from datetime import UTC, datetime
-
-        today = datetime.now(UTC).date().isoformat()
-        landed = tmp_path / "files" / today / sid / filename
+        # The URI body is the full backend key ({date}/{session}/{filename}).
+        landed = tmp_path / "files" / uri.partition("file://")[2]
         assert landed.read_text() == "MYZ:custom-format"
 
     def test_protocol_defaults_when_attributes_omitted(self) -> None:
@@ -289,11 +280,8 @@ class TestPickleFallback:
             uri = store.write("custom", val, session_id="testsess5")
 
         assert uri.endswith(".pkl")
-        sid, _, filename = uri.partition("file://")[2].partition("/")
-        from datetime import UTC, datetime
-
-        today = datetime.now(UTC).date().isoformat()
-        landed = tmp_path / "files" / today / sid / filename
+        # The URI body is the full backend key ({date}/{session}/{filename}).
+        landed = tmp_path / "files" / uri.partition("file://")[2]
         with open(landed, "rb") as f:
             loaded = _pickle.load(f)
         assert loaded == val

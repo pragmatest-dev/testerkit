@@ -80,7 +80,7 @@ class TestObserveToFileStore:
         ctx.observe("scope.cap", png)
 
         uri = ctx._observations["scope.cap"]
-        assert uri.startswith(f"file://{session_id}/")
+        assert f"/{session_id}/" in uri and uri.startswith("file://")
         # FileStore can resolve + read back
         assert get_filestore().read(uri) == png
 
@@ -95,7 +95,7 @@ class TestObserveToFileStore:
         ctx.observe("scope.waveform", wf)
 
         uri = ctx._observations["scope.waveform"]
-        assert uri.startswith(f"file://{session_id}/")
+        assert f"/{session_id}/" in uri and uri.startswith("file://")
         assert uri.endswith(".npz")
         # Sidecar carries the right MIME (item 13 convention + item 1c persistence)
         meta = get_filestore().read_attributes(uri)
@@ -194,7 +194,7 @@ class TestMaterializeAndLoadBack:
         # ParquetBackend's ref_saver picked it up and routed through
         # FileStore (item 1d) — URI is in the new shape.
         new_uri = rows[0]["out_raw_blob"]
-        assert new_uri.startswith(f"file://{session_id}/")
+        assert f"/{session_id}/" in new_uri and new_uri.startswith("file://")
 
         # Bytes resolve back through load_ref.
         loaded = load_ref(new_uri, parquet_path=parquet_path)

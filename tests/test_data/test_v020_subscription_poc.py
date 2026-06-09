@@ -230,7 +230,7 @@ class TestEventSubscriptionPoC:
         assert observations[0].name == "capture"
         uri = observations[0].value
         assert isinstance(uri, str)
-        assert uri.startswith(f"file://{session.session_id}/")
+        assert f"/{session.session_id}/" in uri and uri.startswith("file://")
 
     def test_stream_lifecycle_lands_in_subscriber(self, session: Any) -> None:
         """litmus.files.stream() emits StreamStarted + StreamEnded only."""
@@ -252,7 +252,9 @@ class TestEventSubscriptionPoC:
 
         assert isinstance(stream_events[1], StreamEnded)
         assert stream_events[1].stream_id == stream_events[0].stream_id
-        assert stream_events[1].uri == (f"file://{session.session_id}/daq_capture.bin")
+        assert stream_events[1].uri is not None and stream_events[1].uri.endswith(
+            f"/{session.session_id}/daq_capture.bin"
+        )
         assert stream_events[1].size_bytes == len(b"chunk-1chunk-2chunk-3")
 
     def test_full_session_drives_every_v020_event(self, session: Any) -> None:

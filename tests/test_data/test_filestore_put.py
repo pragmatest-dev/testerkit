@@ -48,11 +48,14 @@ def _expected_session_dir(store: FileStore, session_id: str) -> Path:
 
 
 def _parse_uri(uri: str) -> tuple[str, str]:
-    """Return (session_id, filename) for a ``file://`` URI."""
+    """Return (session_id, filename) for a ``file://{date}/{session}/{filename}`` URI.
+
+    The URI carries the full backend key (date included) so it self-locates.
+    """
     assert uri.startswith("file://"), uri
-    parts = uri[len("file://") :].split("/", 1)
-    assert len(parts) == 2, uri
-    return parts[0], parts[1]
+    parts = uri[len("file://") :].split("/")
+    assert len(parts) == 3, uri  # date / session_id / filename
+    return parts[1], parts[2]
 
 
 @pytest.fixture
@@ -258,14 +261,20 @@ def test_put_unrecognized_value_falls_back_to_pickle(store: FileStore) -> None:
 # --------------------------------------------------------------------- #
 
 
-def test_uri_shape_session_id_then_filename(store: FileStore) -> None:
-    """URI is ``file://{session_id}/{filename}`` — Option A logical reference."""
+def test_uri_shape_is_date_session_filename(store: FileStore) -> None:
+    """URI is ``file://{date}/{session_id}/{filename}`` — the full backend key.
+
+    The reference carries the whole key (date included), so it self-locates:
+    a point read parses it straight to the backend key, no catalog/scan/daemon.
+    """
     sid = _session_id()
     uri = store.write("name", b"x", session_id=sid)
 
-    assert uri.startswith(f"file://{sid}/")
-    after_sid = uri[len(f"file://{sid}/") :]
-    assert "/" not in after_sid, f"filename should not contain slash: {after_sid!r}"
+    assert uri.startswith("file://")
+    date, parsed_sid, filename = uri[len("file://") :].split("/")
+    assert date == datetime.now(UTC).date().isoformat()
+    assert parsed_sid == sid
+    assert filename == "name.bin"
 
 
 def test_vector_id_prefix_in_filename(store: FileStore) -> None:
