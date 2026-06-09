@@ -407,7 +407,6 @@ Emitted when a FileStore streaming sink opens.
 | `stream_id` | `UUID` | *required* |
 | `name` | `str` | `''` |
 | `format` | `str` | `''` |
-| `path` | `str \| None` | `None` |
 
 ### `stream.ended` — `StreamEnded`
 

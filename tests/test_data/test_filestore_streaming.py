@@ -10,8 +10,9 @@ Tests:
 - Context-manager exit calls close exactly once (idempotent ``close``).
 - Sidecar metadata (item 1c) lands at close with correct MIME / size.
 - Per format: raw, jsonl, tdms, h5.
-- Live-read-during-write — consumer subscribes to the file directly,
-  using only :class:`StreamStarted` for discovery (the path).
+- The streamed artifact reads back through the store; live consumers
+  receive each chunk push-style via ephemeral frames (the durable event
+  log stays lifecycle-only).
 
 Per CLAUDE.md test conventions: uses ``tmp_path``-backed FileStore
 (FileStore writes don't spawn daemons).
@@ -98,12 +99,18 @@ class TestFormatRegistry:
         """User code can register a format and FileStore picks it up."""
 
         class _UpperBytesSink:
-            """Trivial sink that upper-cases bytes — for registry test."""
+            """Trivial sink that upper-cases bytes — for registry test.
+
+            A ``needs_local_path`` format: it stages to a local path and the
+            store's finalizer publishes it to the backend on close.
+            """
 
             def __init__(
                 self,
                 *,
                 path: Path,
+                uri: str,
+                files_dir: Path,
                 name: str,
                 format_name: str,
                 session_id: str,
@@ -111,9 +118,8 @@ class TestFormatRegistry:
                 run_id: Any = None,
                 finalizer: Any = None,
             ) -> None:
-                del name, format_name, run_id, event_log
-                self.path = path  # exposed per StreamingSink protocol
-                self._sid = session_id
+                del name, format_name, session_id, event_log, files_dir, run_id
+                self._uri = uri
                 self._file = path.open("ab")
                 self._closed = False
                 self._finalizer = finalizer
@@ -122,7 +128,7 @@ class TestFormatRegistry:
 
             @property
             def uri(self) -> str:
-                return f"file://{self._sid}/{self.path.name}"
+                return self._uri
 
             def write(self, chunk: bytes) -> int:
                 n = self._file.write(chunk.upper())
@@ -135,7 +141,7 @@ class TestFormatRegistry:
                     self._closed = True
                     if self._finalizer is not None:
                         self._finalizer()
-                return f"file://{self._sid}/{self.path.name}"
+                return self._uri
 
             def __enter__(self) -> _UpperBytesSink:
                 return self
@@ -146,7 +152,12 @@ class TestFormatRegistry:
 
         register_format(
             "upper",
-            StreamFormat(extension=".upper", mime="text/x-upper", open=_UpperBytesSink),
+            StreamFormat(
+                extension=".upper",
+                mime="text/x-upper",
+                open=_UpperBytesSink,
+                needs_local_path=True,
+            ),
         )
 
         sid = _sid()
@@ -203,8 +214,6 @@ class TestRawSink:
         assert started.stream_id == sink.stream_id
         assert started.name == "daq"
         assert started.format == "raw"
-        assert started.path is not None
-        assert started.path.endswith("daq.bin")
 
         ended = log.events[1]
         assert isinstance(ended, StreamEnded)
@@ -283,9 +292,9 @@ class TestRawSink:
         sink1 = store.open_stream("daq", format="raw", session_id=sid, event_log=log)
         sink2 = store.open_stream("daq", format="raw", session_id=sid, event_log=log)
         try:
-            assert sink1.path != sink2.path
-            assert sink1.path.name == "daq.bin"
-            assert sink2.path.name == "daq_2.bin"
+            assert sink1.uri != sink2.uri
+            assert sink1.uri == f"file://{sid}/daq.bin"
+            assert sink2.uri == f"file://{sid}/daq_2.bin"
         finally:
             sink1.close()
             sink2.close()
@@ -510,53 +519,32 @@ class TestStreamingSidecar:
 # --------------------------------------------------------------------- #
 
 
-class TestLiveReadDuringWrite:
-    """A consumer can range-read the file while the producer is still writing.
+class TestStreamReadbackAndEventModel:
+    """The streamed artifact reads back through the store, and the durable
+    event log stays lifecycle-only.
 
-    Lifecycle-only event model: the producer emits StreamStarted with the
-    on-disk path; the consumer subscribes to the stream **directly**
-    (range-read the file, stat its size, decode via the format library).
-    EventStore is used for *discovery* only — the consumer reads
-    StreamStarted to learn the path, then deals with the file.
-
-    This test exercises that pattern with the raw format (the simplest
-    case for range-read) — pin the protocol so it can't silently
-    regress to per-chunk events.
+    Live consumers receive each chunk push-style via ephemeral frames (the
+    files daemon, not the event log) — exercised with a real daemon in
+    ``test_files_catalog.TestStreamFramePush``. Here, with a daemon-free
+    ``tmp_path`` store, we pin two contracts: the closed artifact reads back
+    whole via the backend, and no per-chunk *durable* events are emitted.
     """
 
-    def test_consumer_can_read_file_while_producer_is_writing(
+    def test_artifact_reads_back_and_events_are_lifecycle_only(
         self, store: FileStore, log: CollectingLog
     ) -> None:
         sid = _sid()
-        sink = store.open_stream("stream", format="raw", session_id=sid, event_log=log)
+        with store.open_stream("stream", format="raw", session_id=sid, event_log=log) as sink:
+            sink.write(b"hello-")
+            sink.write(b"world")
+            uri = sink.uri
 
-        # Consumer learns path from StreamStarted — the one event we emit at open.
-        started = next(e for e in log.events if isinstance(e, StreamStarted))
-        assert started.path is not None
-        consumer_path = Path(started.path)
+        # The published artifact reads back whole through the store (backend).
+        assert store.read(uri) == b"hello-world"
 
-        # First chunk lands; consumer stat()s the file size and range-reads
-        # the new window. No per-chunk event needed.
-        prev_offset = 0
-        sink.write(b"hello-")
-        size = consumer_path.stat().st_size
-        with consumer_path.open("rb") as f:
-            f.seek(prev_offset)
-            assert f.read(size - prev_offset) == b"hello-"
-        prev_offset = size
-
-        # Second chunk; same protocol — consumer polls + range-reads.
-        sink.write(b"world")
-        size = consumer_path.stat().st_size
-        with consumer_path.open("rb") as f:
-            f.seek(prev_offset)
-            assert f.read(size - prev_offset) == b"world"
-
-        # No StreamFrameIndex events were emitted (lifecycle-only).
+        # Only lifecycle events — frames are ephemeral, never durable events.
         non_lifecycle = [e for e in log.events if not isinstance(e, StreamStarted | StreamEnded)]
         assert non_lifecycle == []
-
-        sink.close()
 
 
 # --------------------------------------------------------------------- #

@@ -248,8 +248,6 @@ class TestEventSubscriptionPoC:
         assert isinstance(stream_events[0], StreamStarted)
         assert stream_events[0].name == "daq_capture"
         assert stream_events[0].format == "raw"
-        assert stream_events[0].path is not None
-        assert stream_events[0].path.endswith("daq_capture.bin")
         assert stream_events[0].run_id == session.run_id
 
         assert isinstance(stream_events[1], StreamEnded)

@@ -22,6 +22,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+import pyarrow as pa
 import pyarrow.fs as pafs
 
 _ENV_BACKEND = "LITMUS_FILES_BACKEND"
@@ -161,7 +162,7 @@ class BlobBackend:
         except (FileNotFoundError, OSError):
             return None
 
-    def open_input(self, key: str) -> pafs.NativeFile | None:
+    def open_input(self, key: str) -> pa.NativeFile | None:
         """Open a streaming read handle for ``key`` (caller closes it), or None.
 
         A random-access ``NativeFile`` — sequential reads on a remote backend
@@ -172,6 +173,20 @@ class BlobBackend:
             return self._fs.open_input_file(self._full(key))
         except (FileNotFoundError, OSError):
             return None
+
+    def open_output_stream(self, key: str) -> pa.NativeFile:
+        """Open a streaming WRITE handle for ``key`` (caller writes + closes).
+
+        Local backend: a truncating file write. Remote backend: a multipart
+        upload that completes on ``close`` — so the object appears atomically
+        when the caller closes the stream, never as a partial blob. This is
+        the streaming-write path for append-only sinks (raw / jsonl); format
+        writers that need a seekable local path (TDMS / HDF5) stage locally
+        and :meth:`publish_atomic` instead.
+        """
+        full = self._full(key)
+        self._mkparent(full)
+        return self._fs.open_output_stream(full)
 
     def size(self, key: str) -> int | None:
         info = self._fs.get_file_info(self._full(key))

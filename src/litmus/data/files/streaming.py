@@ -42,7 +42,6 @@ help. See :func:`StreamingSink.byte_offset` for the post-chunk size.
 
 from __future__ import annotations
 
-import io
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -118,9 +117,6 @@ class StreamingSink(Protocol):
     def stream_id(self) -> UUID: ...
 
     @property
-    def path(self) -> Path: ...
-
-    @property
     def uri(self) -> str:
         """The ``file://`` URI for this stream's artifact (stable from open)."""
         ...
@@ -167,6 +163,10 @@ class StreamFormat:
     extension: str
     mime: str
     open: Callable[..., StreamingSink]
+    # True for format writers that need a seekable local file (TDMS/HDF5):
+    # they stage locally and publish on close. False (raw/jsonl) writes
+    # straight to the backend output stream (local file / S3 multipart).
+    needs_local_path: bool = False
 
 
 _FORMAT_REGISTRY: dict[str, StreamFormat] = {}
@@ -228,14 +228,16 @@ class _BaseSink:
     def __init__(
         self,
         *,
-        path: Path,
+        uri: str,
+        files_dir: Path,
         name: str,
         format_name: str,
         session_id: str,
         event_log: EventEmitter | None,
         run_id: UUID | None = None,
     ) -> None:
-        self._path = path
+        self._uri = uri
+        self._files_dir = files_dir
         self._name = name
         self._format_name = format_name
         self._session_id_str = session_id
@@ -257,10 +259,6 @@ class _BaseSink:
         return self._stream_id
 
     @property
-    def path(self) -> Path:
-        return self._path
-
-    @property
     def byte_offset(self) -> int:
         return self._byte_offset
 
@@ -268,8 +266,8 @@ class _BaseSink:
     def uri(self) -> str:
         """The ``file://`` URI for this stream's artifact.
 
-        Stable from open through close — the path is allocated when
-        the sink is constructed, so the URI is known immediately.
+        Stable from open through close — the sink is constructed with its
+        final (collision-resolved) URI, so it's known immediately.
         Satisfies the :class:`~litmus.data.ref.Latchable` protocol —
         :meth:`Context.observe` checks for this property and stamps
         the URI without re-writing when handed a sink:
@@ -280,7 +278,7 @@ class _BaseSink:
                 sink.write(chunk)
                 observe("daq", sink)   # latches sink.uri on out_*
         """
-        return f"file://{self._session_id_str}/{self._path.name}"
+        return self._uri
 
     def __enter__(self) -> _BaseSink:
         return self
@@ -322,37 +320,38 @@ class _BaseSink:
                 stream_id=self._stream_id,
                 name=self._name,
                 format=self._format_name,
-                path=str(self._path),
             )
         )
 
-    def _track_bytes(self, bytes_written: int) -> None:
-        """Track total bytes written + publish an ephemeral frame.
+    def _track_bytes(self, length: int, payload: bytes | None = None) -> None:
+        """Advance the byte offset + push an ephemeral frame to subscribers.
 
         The durable event log stays lifecycle-only (StreamStarted /
-        StreamEnded) — no per-chunk event. Instead each chunk fans out a
-        non-persisted frame notification via the files daemon so live
-        consumers range-read ``[prev, prev+written)`` push-style (req 5).
-        Best-effort + non-spawning: a no-op when no daemon runs.
+        StreamEnded) — no per-chunk event. Each chunk instead fans out a
+        non-persisted frame via the files daemon carrying the new bytes
+        (``payload``) so a live consumer receives them push-style (req 5) —
+        never range-reading a still-growing object, which a remote backend
+        cannot serve. Best-effort + non-spawning: a no-op when no daemon
+        runs. ``payload`` is ``None`` for format sinks (tdms/h5) whose bytes
+        aren't decodable mid-container; a subscriber reloads at the boundary.
         """
+        if length <= 0:
+            return
         prev = self._byte_offset
-        self._byte_offset += bytes_written
-        if bytes_written > 0:
-            publish_frame(
-                self._path.parents[2],
-                stream_id=str(self._stream_id),
-                uri=self.uri,
-                byte_offset=prev,
-                length=bytes_written,
-            )
+        self._byte_offset += length
+        publish_frame(
+            self._files_dir,
+            stream_id=str(self._stream_id),
+            uri=self._uri,
+            byte_offset=prev,
+            length=length,
+            payload=payload,
+        )
 
     def _emit_ended(self, uri: str) -> None:
         if self._event_log is None:
             return
         size_bytes = self._byte_offset if self._byte_offset > 0 else None
-        # If we never tracked bytes per-write (TDMS / HDF5), stat the file
-        if size_bytes is None and self._path.exists():
-            size_bytes = self._path.stat().st_size
         self._event_log.emit(
             StreamEnded(
                 session_id=self._session_uuid(),
@@ -383,7 +382,9 @@ class _RawByteSink(_BaseSink):
     def __init__(
         self,
         *,
-        path: Path,
+        stream: Any,
+        uri: str,
+        files_dir: Path,
         name: str,
         format_name: str,
         session_id: str,
@@ -392,14 +393,16 @@ class _RawByteSink(_BaseSink):
         finalizer: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
-            path=path,
+            uri=uri,
+            files_dir=files_dir,
             name=name,
             format_name=format_name,
             session_id=session_id,
             event_log=event_log,
             run_id=run_id,
         )
-        self._file: io.BufferedWriter | None = path.open("ab")
+        # Backend output stream (local file / S3 multipart); close publishes.
+        self._file: Any = stream
         self._finalizer = finalizer
 
     def write(self, chunk: Any) -> int:
@@ -417,26 +420,25 @@ class _RawByteSink(_BaseSink):
                 f"litmus.files.stream(format='raw'): chunk must be bytes/"
                 f"bytearray/memoryview, got {type(chunk).__name__}."
             )
-        n = self._file.write(chunk)
+        data = bytes(chunk)
+        self._file.write(data)
         self._file.flush()
-        self._track_bytes(n)
-        return n
+        self._track_bytes(len(data), payload=data)
+        return len(data)
 
     def close(self) -> str:
         if self._closed:
-            return self._uri()
+            return self.uri
         if self._file is not None:
+            # Closing the backend stream publishes the object (S3 multipart
+            # completes here) — must precede the finalizer's sidecar + catalog.
             self._file.close()
             self._file = None
         self._closed = True
         if self._finalizer is not None:
             self._finalizer()
-        uri = self._uri()
-        self._emit_ended(uri)
-        return uri
-
-    def _uri(self) -> str:
-        return f"file://{self._session_id_str}/{self._path.name}"
+        self._emit_ended(self.uri)
+        return self.uri
 
 
 # --------------------------------------------------------------------- #
@@ -458,7 +460,9 @@ class _JsonlSink(_BaseSink):
     def __init__(
         self,
         *,
-        path: Path,
+        stream: Any,
+        uri: str,
+        files_dir: Path,
         name: str,
         format_name: str,
         session_id: str,
@@ -467,14 +471,16 @@ class _JsonlSink(_BaseSink):
         finalizer: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
-            path=path,
+            uri=uri,
+            files_dir=files_dir,
             name=name,
             format_name=format_name,
             session_id=session_id,
             event_log=event_log,
             run_id=run_id,
         )
-        self._file: io.BufferedWriter | None = path.open("ab")
+        # Backend output stream (local file / S3 multipart); close publishes.
+        self._file: Any = stream
         self._finalizer = finalizer
 
     def write(self, chunk: Any) -> int:
@@ -484,26 +490,22 @@ class _JsonlSink(_BaseSink):
             line = chunk.encode("utf-8") + b"\n"
         else:
             line = orjson.dumps(chunk) + b"\n"
-        n = self._file.write(line)
+        self._file.write(line)
         self._file.flush()
-        self._track_bytes(n)
-        return n
+        self._track_bytes(len(line), payload=line)
+        return len(line)
 
     def close(self) -> str:
         if self._closed:
-            return self._uri()
+            return self.uri
         if self._file is not None:
             self._file.close()
             self._file = None
         self._closed = True
         if self._finalizer is not None:
             self._finalizer()
-        uri = self._uri()
-        self._emit_ended(uri)
-        return uri
-
-    def _uri(self) -> str:
-        return f"file://{self._session_id_str}/{self._path.name}"
+        self._emit_ended(self.uri)
+        return self.uri
 
 
 # --------------------------------------------------------------------- #
@@ -527,6 +529,8 @@ class _TdmsSink(_BaseSink):
         self,
         *,
         path: Path,
+        uri: str,
+        files_dir: Path,
         name: str,
         format_name: str,
         session_id: str,
@@ -541,16 +545,18 @@ class _TdmsSink(_BaseSink):
             )
 
         super().__init__(
-            path=path,
+            uri=uri,
+            files_dir=files_dir,
             name=name,
             format_name=format_name,
             session_id=session_id,
             event_log=event_log,
             run_id=run_id,
         )
-        # TdmsWriter is a context manager but we drive its lifecycle
-        # manually (the sink IS the context). Use __enter__/__exit__
-        # ourselves to match the library's pattern.
+        # nptdms needs a seekable local path; we write to the backend staging
+        # path and publish on close (the finalizer). TdmsWriter is a context
+        # manager but we drive its lifecycle manually (the sink IS the context).
+        self._path = path
         self._writer: Any = TdmsWriter(str(path))
         self._writer.__enter__()
         self._finalizer = finalizer
@@ -570,29 +576,25 @@ class _TdmsSink(_BaseSink):
                 )
         self._writer.write_segment(list(objects))
         # Per-chunk byte size: re-stat after write (nptdms doesn't surface it).
-        # Direct assign (not _track_bytes) because the writer's first-segment
-        # file-init overhead would make a per-call delta look bigger than
-        # the chunk; stat() gives ground truth.
+        # The frame reports the [prev, size_after) range; payload is None
+        # (a partial TDMS container isn't decodable by raw byte slice — a
+        # subscriber reloads via nptdms at the segment boundary).
         size_after = self._path.stat().st_size if self._path.exists() else 0
         delta = size_after - self._byte_offset
-        self._byte_offset = size_after
+        self._track_bytes(delta, payload=None)
         return max(delta, 0)
 
     def close(self) -> str:
         if self._closed:
-            return self._uri()
+            return self.uri
         if self._writer is not None:
             self._writer.__exit__(None, None, None)
             self._writer = None
         self._closed = True
         if self._finalizer is not None:
             self._finalizer()
-        uri = self._uri()
-        self._emit_ended(uri)
-        return uri
-
-    def _uri(self) -> str:
-        return f"file://{self._session_id_str}/{self._path.name}"
+        self._emit_ended(self.uri)
+        return self.uri
 
 
 # --------------------------------------------------------------------- #
@@ -617,6 +619,8 @@ class _H5Sink(_BaseSink):
         self,
         *,
         path: Path,
+        uri: str,
+        files_dir: Path,
         name: str,
         format_name: str,
         session_id: str,
@@ -631,13 +635,17 @@ class _H5Sink(_BaseSink):
             )
 
         super().__init__(
-            path=path,
+            uri=uri,
+            files_dir=files_dir,
             name=name,
             format_name=format_name,
             session_id=session_id,
             event_log=event_log,
             run_id=run_id,
         )
+        # h5py needs a seekable local path (random access); write to the
+        # backend staging path and publish on close (the finalizer).
+        self._path = path
         self._h5py = h5py
         self._file: Any = h5py.File(str(path), "w")
         self._finalizer = finalizer
@@ -673,28 +681,25 @@ class _H5Sink(_BaseSink):
                 ds[old_len:new_len] = arr
 
         self._file.flush()
-        # Direct stat assignment (h5py buffers; per-write deltas can be
-        # negative on early flushes when nothing's been emitted yet).
+        # h5py buffers; re-stat for the appended-byte range. payload is None
+        # (a partial HDF5 file isn't decodable by raw slice — a subscriber
+        # reloads via h5py at the boundary).
         size_after = self._path.stat().st_size if self._path.exists() else 0
         delta = size_after - self._byte_offset
-        self._byte_offset = size_after
+        self._track_bytes(delta, payload=None)
         return max(delta, 0)
 
     def close(self) -> str:
         if self._closed:
-            return self._uri()
+            return self.uri
         if self._file is not None:
             self._file.close()
             self._file = None
         self._closed = True
         if self._finalizer is not None:
             self._finalizer()
-        uri = self._uri()
-        self._emit_ended(uri)
-        return uri
-
-    def _uri(self) -> str:
-        return f"file://{self._session_id_str}/{self._path.name}"
+        self._emit_ended(self.uri)
+        return self.uri
 
 
 # --------------------------------------------------------------------- #
@@ -726,6 +731,7 @@ register_format(
         extension=".tdms",
         mime="application/vnd.ni.tdms",
         open=_TdmsSink,
+        needs_local_path=True,
     ),
 )
 
@@ -735,5 +741,6 @@ register_format(
         extension=".h5",
         mime="application/x-hdf5",
         open=_H5Sink,
+        needs_local_path=True,
     ),
 )

@@ -226,19 +226,19 @@ class FileStore:
         bytes arrive over time rather than all-at-once (continuous DAQ,
         video capture, line-delimited logs). The sink:
 
-        - allocates the on-disk path (collision-safe via the same
-          ``_unique_filename`` scheme as :meth:`write`)
-        - emits :class:`StreamStarted` on open (carries absolute path)
-        - publishes an ephemeral frame notification after every
+        - allocates the artifact's backend key (collision-safe via the
+          same ``_unique_filename`` scheme as :meth:`write`)
+        - emits :class:`StreamStarted` on open
+        - pushes the new bytes as an ephemeral frame after every
           :meth:`write` (via the files daemon, not the event log) so
-          consumers HTTP range-read the new byte window
+          live consumers receive them push-style, no poll
         - emits :class:`StreamEnded` on :meth:`close` (carries final
           ``file://`` URI + total size)
-        - writes the item-1c sidecar metadata on close
+        - writes the item-1c sidecar metadata + catalog row on close
 
-        Live consumers learn the path from :class:`StreamStarted`,
-        range-read the new byte window on each frame notification, and
-        reach the final URI in :class:`StreamEnded`. See the
+        Live consumers subscribe to the stream's frames and receive each
+        new chunk push-style; the final URI arrives in
+        :class:`StreamEnded`. See the
         :mod:`litmus.data.files.streaming` module docstring for format
         coverage + caveats per format on partial-decode-during-write.
 
@@ -268,30 +268,57 @@ class FileStore:
         session_dir = self._session_dir(session_id)
         session_dir.mkdir(parents=True, exist_ok=True)
         filename = self._unique_filename(session_dir, f"{prefix}{name}", fmt.extension)
-        dest = session_dir / filename
+        date = session_dir.parent.name
+        key = f"{date}/{session_id}/{filename}"
+        uri = f"file://{session_id}/{filename}"
 
         # Capture for sidecar write at close
         attrs_for_sidecar = dict(attributes or {})
 
-        def _finalize() -> None:
+        def _finalize(staged: Path | None) -> None:
+            # Format sinks (tdms/h5) staged to a local path → publish it now;
+            # raw/jsonl already published by closing the backend output stream.
+            # Then the sidecar + catalog row — the same durable tail write() runs.
+            if staged is not None:
+                self._backend.publish_atomic(staged, key)
             metadata = FileArtifactMetadata(
                 mime=fmt.mime,
                 extension=fmt.extension,
-                size_bytes=dest.stat().st_size if dest.exists() else 0,
+                size_bytes=self._backend.size(key) or 0,
                 attributes=attrs_for_sidecar,
             )
-            sidecar_path = dest.with_name(dest.name + _SIDECAR_SUFFIX)
-            sidecar_path.write_text(metadata.model_dump_json())
+            self._backend.write_bytes(
+                f"{key}{_SIDECAR_SUFFIX}", metadata.model_dump_json().encode()
+            )
+            _catalog_push(
+                self._files_dir,
+                catalog_row(
+                    uri=uri,
+                    session_id=session_id,
+                    name=filename,
+                    key=key,
+                    meta=metadata,
+                    created_at=datetime.now(UTC),
+                ),
+            )
 
-        return fmt.open(
-            path=dest,
-            name=name,
-            format_name=format,
-            session_id=session_id,
-            event_log=event_log,
-            run_id=run_id,
-            finalizer=_finalize,
-        )
+        common: dict[str, Any] = {
+            "uri": uri,
+            "files_dir": self._files_dir,
+            "name": name,
+            "format_name": format,
+            "session_id": session_id,
+            "event_log": event_log,
+            "run_id": run_id,
+        }
+        if fmt.needs_local_path:
+            # nptdms / h5py need a seekable local file; stage there, publish on close.
+            staged = self._backend.stage_path(key)
+            return fmt.open(path=staged, finalizer=lambda: _finalize(staged), **common)
+        # raw/jsonl write straight to the backend output stream (local file /
+        # S3 multipart) — completes on close, so no separate publish step.
+        stream = self._backend.open_output_stream(key)
+        return fmt.open(stream=stream, finalizer=lambda: _finalize(None), **common)
 
     def read(self, uri: str) -> bytes | None:
         """Return the full bytes of the artifact at ``uri``, or ``None``.

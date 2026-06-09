@@ -180,14 +180,18 @@ def publish_frame(
     uri: str,
     byte_offset: int,
     length: int,
+    payload: bytes | None = None,
 ) -> None:
-    """Publish one ephemeral stream-frame notification (best-effort).
+    """Publish one ephemeral stream-frame (best-effort).
 
     Called by a streaming sink after each ``write``. Fans out to live
-    subscribers so they range-read ``[byte_offset, byte_offset+length)``
-    of the growing artifact (req 5: no poll). NOT persisted — the on-disk
-    artifact is the durable record. Skips silently when no daemon runs,
-    so plain streaming never spawns one.
+    subscribers push-style (req 5: no poll). The frame carries the chunk
+    ``payload`` so a consumer receives the new bytes directly — never
+    range-reading a still-growing object (an object-store backend can't
+    serve one). raw/jsonl pass the bytes; format sinks (tdms/h5) pass
+    ``None`` and a subscriber rejoins via a library reload at the next
+    boundary. NOT persisted — the on-disk artifact is the durable record.
+    Skips silently when no daemon runs, so plain streaming never spawns one.
     """
     if not is_running(files_dir):
         return
@@ -201,6 +205,7 @@ def publish_frame(
                     "uri": uri,
                     "byte_offset": byte_offset,
                     "length": length,
+                    "payload": payload,
                 }
             ],
             schema=FRAME_ARROW_SCHEMA,

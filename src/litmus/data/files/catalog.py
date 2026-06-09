@@ -84,11 +84,16 @@ CATALOG_ARROW_SCHEMA = pa.schema(
 )
 
 
-# Ephemeral live-stream frame notifications. NOT a durable event (the
-# committed design keeps stream events lifecycle-only — StreamStarted /
-# StreamEnded — to avoid flooding the EventStore at kHz/30 fps rates).
-# Frames ride a fan-out-only Flight db so live consumers get a no-poll
-# signal to range-read the new byte window of a still-growing artifact.
+# Ephemeral live-stream frames. NOT a durable event (the committed design
+# keeps stream events lifecycle-only — StreamStarted / StreamEnded — to
+# avoid flooding the EventStore at kHz/30 fps rates). Frames ride a
+# fan-out-only Flight db so live consumers get the new bytes push-style, no
+# poll. The frame carries the chunk PAYLOAD (like channels push the sample
+# value) so a live consumer never has to read a still-growing object — which
+# an object-store backend cannot serve anyway. ``payload`` is nullable:
+# raw/jsonl fill it; format sinks (tdms/h5) leave it null and a subscriber
+# rejoins via a library reload at the next boundary (byte-drop can't decode
+# mid-container). ``byte_offset``/``length`` stay for ordering + at-rest seek.
 FRAMES_DB = "file_frames"
 
 FRAME_ARROW_SCHEMA = pa.schema(
@@ -97,6 +102,7 @@ FRAME_ARROW_SCHEMA = pa.schema(
         ("uri", pa.utf8()),
         ("byte_offset", pa.int64()),
         ("length", pa.int64()),
+        ("payload", pa.binary()),
     ]
 )
 

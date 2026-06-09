@@ -98,6 +98,9 @@ class TestStreamFramePush:
                 assert frame["length"] == 4
                 assert frame["uri"] == sink.uri
                 assert frame["byte_offset"] >= 0
+                # The frame carries the chunk bytes push-style (req 5) so a
+                # consumer never range-reads a still-growing object.
+                assert frame["payload"] == b"xxxx"
         finally:
             unsub()
             release(files_dir)

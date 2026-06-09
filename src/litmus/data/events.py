@@ -693,27 +693,23 @@ class InstrumentConfigure(EventBase):
 class StreamStarted(EventBase):
     """Emitted when a FileStore streaming sink opens.
 
-    Once per ``stream_id``. Carries the on-disk path so live consumers
-    can begin a range-read or library-decode against the still-growing
-    file before any chunks land. ``path`` is the absolute filesystem
-    path; the final ``file://`` URI is announced via :class:`StreamEnded`
-    at close (it can't be known until the sink resolves a collision-free
-    name).
+    Once per ``stream_id``. Announces an open stream for discovery
+    ("what streams are open / done"); the final ``file://`` URI is
+    announced via :class:`StreamEnded` at close (it can't be known until
+    the sink resolves a collision-free name).
 
     **Stream events are lifecycle-only** (the FileStore parallel of
     Position 2 for channels). Per-chunk events would flood the
     EventStore at high write rates (kHz captures, 30 fps video, etc.)
-    for no real subscriber gain. Live consumers subscribe to the
-    stream directly — range-read the file, decode via the format
-    library, or watch the underlying transport — using EventStore only
-    for discovery ("what streams are open / done").
+    for no real subscriber gain. Live consumers receive each chunk
+    push-style via ephemeral frames (the files daemon, not the event
+    log); they use EventStore only for discovery.
     """
 
     event_type: Literal["stream.started"] = "stream.started"
     stream_id: UUID
     name: str = ""
     format: str = ""
-    path: str | None = None
 
 
 class StreamEnded(EventBase):

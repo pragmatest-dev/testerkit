@@ -28,8 +28,8 @@ import orjson
 import pytest
 
 import litmus.files
-from litmus.data.events import StreamEnded, StreamStarted
-from litmus.data.files import _reset_for_tests
+from litmus.data.events import StreamEnded
+from litmus.data.files import _reset_for_tests, get_filestore
 from litmus.execution._state import (
     get_current_logger,
     push_current_context,
@@ -94,7 +94,7 @@ class TestSessionIdResolution:
         sid = str(uuid4())
         with litmus.files.stream("explicit", format="raw", session_id=sid) as sink:
             sink.write(b"x")
-        assert str(sid) in str(sink.path)
+        assert sid in sink.uri
 
     def test_resolves_from_active_context(self, _isolated_filestore: None) -> None:
         sid = str(uuid4())
@@ -103,7 +103,7 @@ class TestSessionIdResolution:
         try:
             with litmus.files.stream("from_ctx", format="raw") as sink:
                 sink.write(b"x")
-            assert sid in str(sink.path)
+            assert sid in sink.uri
         finally:
             reset_current_context(token)
 
@@ -155,9 +155,8 @@ class TestEventLogResolution:
         # Make sure no logger is active by NOT pushing one
         with litmus.files.stream("silent", format="raw", session_id=sid) as sink:
             sink.write(b"abc")
-        # Sink path exists with content
-        assert sink.path.exists()
-        assert sink.path.read_bytes() == b"abc"
+        # The artifact reads back through the store.
+        assert get_filestore().read(sink.uri) == b"abc"
 
 
 # --------------------------------------------------------------------- #
@@ -171,18 +170,18 @@ class TestFormatsViaVerb:
         with litmus.files.stream("daq", format="raw", session_id=sid) as sink:
             sink.write(b"hello")
             sink.write(b"-world")
-        assert sink.path.read_bytes() == b"hello-world"
+        assert get_filestore().read(sink.uri) == b"hello-world"
 
     def test_jsonl(self, _isolated_filestore: None) -> None:
         sid = str(uuid4())
         with litmus.files.stream("events", format="jsonl", session_id=sid) as sink:
             sink.write({"a": 1})
             sink.write({"b": 2})
-        lines = sink.path.read_bytes().splitlines()
+        lines = (get_filestore().read(sink.uri) or b"").splitlines()
         assert orjson.loads(lines[0]) == {"a": 1}
         assert orjson.loads(lines[1]) == {"b": 2}
 
-    def test_tdms(self, _isolated_filestore: None) -> None:
+    def test_tdms(self, _isolated_filestore: None, tmp_path: Path) -> None:
         nptdms = pytest.importorskip("nptdms")
         np = pytest.importorskip("numpy")
 
@@ -190,10 +189,13 @@ class TestFormatsViaVerb:
         with litmus.files.stream("capture", format="tdms", session_id=sid) as sink:
             sink.write(nptdms.ChannelObject("daq", "ch1", np.array([1.0, 2.0])))
 
-        with nptdms.TdmsFile.open(str(sink.path)) as tf:
+        # tdms needs a seekable local path; the local backend published it there.
+        files = list(tmp_path.glob(f"files/*/{sid}/capture.tdms"))
+        assert len(files) == 1
+        with nptdms.TdmsFile.open(str(files[0])) as tf:
             assert list(tf["daq"]["ch1"][:]) == [1.0, 2.0]
 
-    def test_h5(self, _isolated_filestore: None) -> None:
+    def test_h5(self, _isolated_filestore: None, tmp_path: Path) -> None:
         h5py = pytest.importorskip("h5py")
         np = pytest.importorskip("numpy")
 
@@ -201,7 +203,9 @@ class TestFormatsViaVerb:
         with litmus.files.stream("capture", format="h5", session_id=sid) as sink:
             sink.write({"v": np.array([1.0, 2.0, 3.0])})
 
-        with h5py.File(str(sink.path), "r") as f:
+        files = list(tmp_path.glob(f"files/*/{sid}/capture.h5"))
+        assert len(files) == 1
+        with h5py.File(str(files[0]), "r") as f:
             assert list(f["v"][:]) == [1.0, 2.0, 3.0]
 
 
@@ -228,8 +232,8 @@ class TestCloseOnContextExit:
         # Sink still got closed → StreamEnded emitted
         ended = [e for e in log.events if isinstance(e, StreamEnded)]
         assert len(ended) == 1
-        # And the file holds the partial bytes
-        assert captured_sink.path.read_bytes() == b"partial"
+        # And the published artifact holds the partial bytes
+        assert get_filestore().read(captured_sink.uri) == b"partial"
 
     def test_double_exit_does_not_emit_twice(
         self, _isolated_filestore: None, _logger_slot: None
@@ -252,13 +256,13 @@ class TestCloseOnContextExit:
 # --------------------------------------------------------------------- #
 
 
-class TestLiveReadViaDirectFileAccess:
-    """Lifecycle-only event model: consumer learns path from
-    :class:`StreamStarted` and subscribes to the file directly. No
-    per-chunk events; live UIs poll the file size or stat the
-    artifact."""
+class TestStreamReadbackAndLifecycle:
+    """Lifecycle-only event model: the durable log carries exactly
+    StreamStarted + StreamEnded; live consumers receive each chunk
+    push-style via ephemeral frames (the files daemon, not the event
+    log). The closed artifact reads back whole through the store."""
 
-    def test_consumer_reads_file_using_started_path_only(
+    def test_artifact_reads_back_and_events_are_lifecycle_only(
         self, _isolated_filestore: None, _logger_slot: None
     ) -> None:
         sid = str(uuid4())
@@ -271,11 +275,7 @@ class TestLiveReadViaDirectFileAccess:
             sink.write(b"second-")
             sink.write(b"third")
 
-        # Discovery via the single lifecycle-open event
-        started = next(e for e in log.events if isinstance(e, StreamStarted))
-        assert started.path is not None
-        on_disk = Path(started.path)
-        assert on_disk.read_bytes() == b"first-second-third"
+        assert get_filestore().read(sink.uri) == b"first-second-third"
 
         # Lifecycle-only — exactly two events, no per-chunk noise
         types = [type(e).__name__ for e in log.events]
