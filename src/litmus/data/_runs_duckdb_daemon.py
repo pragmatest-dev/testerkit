@@ -1195,18 +1195,6 @@ def _create_inflight_tables(conn: duckdb.DuckDBPyConnection) -> None:
         conn.from_arrow(empty).create(f"overlay.{name}")
 
 
-def _replace_inflight(
-    cur: duckdb.DuckDBPyConnection,
-    table: str,
-    rows: list[dict[str, Any]],
-    schema: pa.Schema,
-) -> None:
-    """Full-replace one inflight table's rows (caller holds an open txn)."""
-    cur.execute(f"DELETE FROM {table}")
-    if rows:
-        cur.from_arrow(pa.Table.from_pylist(rows, schema=schema)).insert_into(table)
-
-
 # ── Read-side views over parquet ────────────────────────────────────
 
 
@@ -1410,18 +1398,8 @@ def daemon_run(runs_dir: Path) -> None:
     # and avoids a multi-writer conflict-retry storm.)
     write_lock = threading.Lock()
 
-    # Refresh lock — coalesces the inflight-overlay refresh so the shared
-    # ``inflight_*`` tables are rebuilt ONCE per pool generation, not once
-    # per query cursor. Independent of ``write_lock``: the overlay tables
-    # are disjoint from the ``*_materialized`` tables, so a refresh and a
-    # materialize never write-conflict.
-    refresh_lock = threading.Lock()
-
     # ── Materializer state ──────────────────────────────────────────
     pool = AccumulatorPool()
-    # Pool generation the inflight overlay was last refreshed to. Starts
-    # at -1 so the first query refreshes even against an empty pool.
-    last_refreshed_generation = [-1]
     stop_event = threading.Event()
     event_store_box: list[Any] = [None]  # set when the attach loop succeeds
     unsubscribe_box: list[Callable[[], None] | None] = [None]
@@ -1443,46 +1421,62 @@ def daemon_run(runs_dir: Path) -> None:
     _create_inflight_tables(conn)
     _create_views(conn)
 
-    # ── Pre-query hook: refresh the shared inflight tables from pool ─
-    def _maybe_refresh_inflight(c: duckdb.DuckDBPyConnection) -> None:
-        """Refresh the shared inflight tables if the pool changed.
+    # ── Inflight overlay sync — write-driven, incremental, OFF the read path ─
+    # Queries never refresh the overlay (no pre-query hook), so a slow sync
+    # can never block a query or a connection probe. ONE background thread is
+    # the sole overlay writer: it drains the pool's per-run delta on change
+    # and rewrites only the affected runs' rows — O(changed runs), not O(pool).
+    overlay_wake = threading.Event()
 
-        Flight's pre-query hook, run lock-free on the calling thread's
-        cursor. The overlay is a set of SHARED catalog tables, so it's
-        rebuilt ONCE per pool generation — globally coalesced via
-        ``refresh_lock`` + a double-checked generation — not once per
-        cursor. Reads then run as pure parallel SELECTs against the
-        shared tables: no per-query catalog mutation, no read lock.
-
-        Read-after-write holds: the refresh runs synchronously and is
-        committed before the SELECT, so a client that emits an event then
-        queries sees the new inflight state — either this cursor refreshed
-        it, or another cursor already did for this generation and this
-        cursor's snapshot sees that committed write.
-        """
-        # Fast path: cheap generation compare, no lock, no snapshot build.
-        if pool.generation() == last_refreshed_generation[0]:
+    def _overlay_sync_once(cur: duckdb.DuckDBPyConnection) -> None:
+        """Apply one pool delta to the inflight overlay (sole writer)."""
+        delta = pool.take_delta()
+        if delta is None:
             return
-        with refresh_lock:
-            snapshot = pool.snapshot_if_changed(last_refreshed_generation[0])
-            if snapshot is None:
-                return  # another cursor already refreshed this generation
-            gen, run_rows, step_rows, meas_rows = snapshot
-            c.execute("BEGIN")
+        touched, run_rows, step_rows, meas_rows = delta
+        cur.execute("BEGIN")
+        try:
+            if touched:
+                # Clear the touched runs' rows (covers both re-inserted dirty
+                # runs and removed evicted runs) via a registered id set, so a
+                # large cold-spawn delta doesn't build a giant IN-list.
+                cur.register("_touched", pa.table({"run_id": list(touched)}))
+                for tbl in (
+                    "overlay.inflight_runs",
+                    "overlay.inflight_steps",
+                    "overlay.inflight_measurements",
+                ):
+                    cur.execute(f"DELETE FROM {tbl} WHERE run_id IN (SELECT run_id FROM _touched)")
+                cur.unregister("_touched")
+            for rows, schema, tbl in (
+                (run_rows, INFLIGHT_RUNS_SCHEMA, "overlay.inflight_runs"),
+                (step_rows, INFLIGHT_STEPS_SCHEMA, "overlay.inflight_steps"),
+                (meas_rows, INFLIGHT_MEASUREMENTS_SCHEMA, "overlay.inflight_measurements"),
+            ):
+                if rows:
+                    cur.from_arrow(pa.Table.from_pylist(rows, schema=schema)).insert_into(tbl)
+            cur.execute("COMMIT")
+        except Exception:
             try:
-                _replace_inflight(c, "overlay.inflight_runs", run_rows, INFLIGHT_RUNS_SCHEMA)
-                _replace_inflight(c, "overlay.inflight_steps", step_rows, INFLIGHT_STEPS_SCHEMA)
-                _replace_inflight(
-                    c, "overlay.inflight_measurements", meas_rows, INFLIGHT_MEASUREMENTS_SCHEMA
-                )
-                c.execute("COMMIT")
-            except Exception:
-                try:
-                    c.execute("ROLLBACK")
-                except duckdb.Error:
-                    pass
-                raise
-            last_refreshed_generation[0] = gen
+                cur.execute("ROLLBACK")
+            except duckdb.Error:
+                pass
+            raise
+
+    def _overlay_sync_loop() -> None:
+        """Sole writer of the inflight overlay; drains the pool delta on change.
+
+        Woken by ``overlay_wake`` (set after a pool mutation) with a short
+        fallback poll so evicts the wake misses are still applied promptly.
+        """
+        cur = conn.cursor()
+        while not stop_event.is_set():
+            overlay_wake.wait(timeout=0.05)
+            overlay_wake.clear()
+            try:
+                _overlay_sync_once(cur)
+            except Exception as exc:  # noqa: BLE001 — never kill the sync thread
+                logger.warning("overlay sync failed: %s", exc)
 
     # ── Materialize one run from the pool ───────────────────────────
     def _materialize_and_emit(run_id: str, outcome: str | None) -> None:
@@ -1639,6 +1633,7 @@ def daemon_run(runs_dir: Path) -> None:
             rid = evt.get("run_id")
             if rid:
                 pool.evict(str(rid))
+                overlay_wake.set()  # remove this run's inflight overlay rows
             return
 
         try:
@@ -1646,6 +1641,7 @@ def daemon_run(runs_dir: Path) -> None:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Pool dispatch failed for %s: %s", et, exc)
             return
+        overlay_wake.set()  # the pool changed — sync this run's overlay rows
 
         # Order-independent materialize trigger: any event for a run
         # whose accumulator now has both ``_run_started`` and
@@ -1823,7 +1819,7 @@ def daemon_run(runs_dir: Path) -> None:
         port_file_name="_runs_duckdb_flight_port",
         thread_name="runs-duckdb-flight",
         pre_ready=None,
-        pre_query_hook=_maybe_refresh_inflight,
+        pre_query_hook=None,
         parallel=True,
     )
 
@@ -1842,6 +1838,7 @@ def daemon_run(runs_dir: Path) -> None:
     threading.Thread(target=_attach_loop, daemon=True, name="runs-events-attach").start()
     threading.Thread(target=_sweep_loop, daemon=True, name="runs-orphan-sweep").start()
     threading.Thread(target=_materialize_worker, daemon=True, name="runs-materialize").start()
+    threading.Thread(target=_overlay_sync_loop, daemon=True, name="runs-overlay-sync").start()
 
     mgr.monitor_refs()
 

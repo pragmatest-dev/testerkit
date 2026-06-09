@@ -88,16 +88,17 @@ class AccumulatorPool:
         # session_id per run_id, so the orphan sweep can resolve a
         # run_id back to its producer pid.
         self._run_session: dict[str, str] = {}
-        # Monotonic generation counter — incremented under ``_lock`` on
-        # every state change (dispatch / evict). Readers (the runs
-        # daemon's pre-query hook) compare against their last-observed
-        # generation to decide whether to re-snapshot the pool. Using a
-        # counter, not a boolean, closes the dirty-flag race where a
-        # query lands in the microsecond window between
-        # ``pool.dispatch`` releasing its lock and a separate dirty
-        # flag being set — that window dropped one refresh per dispatch
-        # under bursty load and caused live runs to surface late.
+        # Monotonic generation counter — bumped under ``_lock`` on every
+        # state change (dispatch / evict). The overlay-sync thread uses it
+        # only as a cheap "has anything changed?" wake/idle signal.
         self._generation = 0
+        # Per-run delta since the last ``take_delta`` drain. The overlay is
+        # maintained incrementally by ONE background sync thread off the
+        # read path (no per-query refresh): ``dispatch`` dirties a run,
+        # ``evict`` evicts it. The sync thread drains this and rewrites only
+        # the affected runs' overlay rows — O(changed runs), not O(pool).
+        self._dirty: set[str] = set()
+        self._evicted: set[str] = set()
 
     # ------------------------------------------------------------------
     # Write path — fed by the events-daemon subscription
@@ -146,11 +147,10 @@ class AccumulatorPool:
             self._last_event_at[run_id] = datetime.now(UTC)
             if session_id:
                 self._run_session[run_id] = session_id
-            # Bump generation under the same lock as the state change so
-            # any reader that subsequently observes a generation > its
-            # last-seen value is guaranteed to see this event in the
-            # pool. Atomic with the dispatch — closes the race where a
-            # separate dirty flag could be set after the lock released.
+            # Mark this run dirty + bump generation under the same lock as
+            # the state change, so the sync thread's next drain snapshots
+            # this event. Atomic with the dispatch.
+            self._dirty.add(run_id)
             self._generation += 1
 
     # ------------------------------------------------------------------
@@ -201,35 +201,51 @@ class AccumulatorPool:
             self._run_session.pop(run_id, None)
             acc = self._accs.pop(run_id, None)
             if acc is not None:
+                # Evicted runs must have their overlay rows removed; drop
+                # any pending dirty mark (the run is gone, not changed).
+                self._dirty.discard(run_id)
+                self._evicted.add(run_id)
                 self._generation += 1
             return acc
 
-    def snapshot_if_changed(
-        self, last_seen_generation: int
-    ) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None:
-        """Atomic snapshot-if-pool-changed-since-last-seen.
+    def take_delta(
+        self,
+    ) -> tuple[set[str], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None:
+        """Drain the per-run delta since the last call; ``None`` if nothing changed.
 
-        Returns ``(new_generation, run_rows, step_rows, meas_rows)``
-        when the pool's generation has advanced past
-        ``last_seen_generation``, else ``None``. The check, generation
-        read, and snapshot all happen under the pool's lock so the
-        caller observes a consistent view: anything that was in the
-        pool when the new generation was assigned is included in the
-        returned rows.
+        Returns ``(touched_run_ids, run_rows, step_rows, meas_rows)``:
 
-        Used by the runs daemon's pre-query hook to gate the
-        ``conn.register("inflight_*", ...)`` calls — refresh only
-        when the pool has changed since last refresh, atomically
-        with the dispatch that changed it.
+        * ``touched_run_ids`` — every run whose overlay rows must be cleared
+          (dirty runs to be re-inserted + evicted runs to be removed).
+        * ``run_rows`` / ``step_rows`` / ``meas_rows`` — the fresh snapshot
+          rows for the still-present dirty runs (flattened, each carries
+          ``run_id``). Evicted / not-yet-started runs contribute no rows, so
+          a clear-then-reinsert leaves them gone.
+
+        Snapshot + clear happen under the pool lock, so a run that changes
+        after the drain is simply re-dirtied for the next drain — never lost.
+        The overlay-sync thread is the sole caller; queries never refresh.
         """
         with self._lock:
-            if self._generation == last_seen_generation:
+            if not self._dirty and not self._evicted:
                 return None
-            gen = self._generation
-            run_rows = [r for a in self._accs.values() if (r := a.snapshot_run_row())]
-            step_rows = [r for a in self._accs.values() for r in a.snapshot_step_rows()]
-            meas_rows = [r for a in self._accs.values() for r in a.snapshot_measurement_rows()]
-            return gen, run_rows, step_rows, meas_rows
+            dirty = self._dirty
+            evicted = self._evicted
+            self._dirty = set()
+            self._evicted = set()
+            run_rows: list[dict[str, Any]] = []
+            step_rows: list[dict[str, Any]] = []
+            meas_rows: list[dict[str, Any]] = []
+            for rid in dirty:
+                acc = self._accs.get(rid)
+                if acc is None:
+                    evicted.add(rid)  # vanished between dispatch and drain
+                    continue
+                if rr := acc.snapshot_run_row():
+                    run_rows.append(rr)
+                step_rows.extend(acc.snapshot_step_rows())
+                meas_rows.extend(acc.snapshot_measurement_rows())
+            return dirty | evicted, run_rows, step_rows, meas_rows
 
     def generation(self) -> int:
         """Current monotonic generation — bumps on every pool state change.
