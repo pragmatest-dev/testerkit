@@ -1025,45 +1025,24 @@ def _ingest_parquet_files(
         reverse=True,  # newest first so operators see recent runs fast
     )
 
-    # Per-file ingest — release the lock between files so Flight
-    # queries can interleave (~30ms slots per file).
-    # _ingest_one_file populates runs / steps / measurement_stats /
-    # measurement_io_schema / measurement_refs from the unified
-    # parquet; raw measurement rows go into measurements_materialized
-    # via the batch insert below to keep per-file lock holds short.
-    new_files: list[str] = []
+    # Batched ingest — one ``read_parquet([...])`` per table per batch (runs,
+    # steps, measurement_stats, raw measurement rows), instead of opening each
+    # parquet ~4× per file. One lock hold per batch; reads stay lock-free
+    # (parallel=True) so a longer write hold never blocks a query. A batch
+    # that hits a corrupt file rolls back and retries per-file to isolate it.
+    _BATCH = 100
     new_run_ids: list[str] = []
-    for path_str, _, _, stat in needs_ingest:
+    for i in range(0, len(needs_ingest), _BATCH):
+        batch = needs_ingest[i : i + _BATCH]
         with lock:
-            _ingest_one_file(conn, Path(path_str), stat)
-            try:
-                rows = conn.execute(
-                    "SELECT run_id FROM runs_materialized WHERE file_path = ?",
-                    [path_str],
-                ).fetchall()
-                new_run_ids.extend(str(r[0]) for r in rows if r[0])
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("run_id lookup after ingest failed: %s", exc)
-        new_files.append(path_str)
+            new_run_ids.extend(
+                _ingest_file_batch(conn, batch, collect_run_ids=on_ingested is not None)
+            )
     if on_ingested is not None and new_run_ids:
         try:
             on_ingested(new_run_ids)
         except Exception as exc:  # noqa: BLE001
             logger.debug("on_ingested callback failed: %s", exc)
-
-    # Batch insert raw measurement rows — one lock hold per 100 files
-    # instead of N × (read parquet + insert) per file. Empty in steady
-    # state → no-op. Each file's WHERE record_type = 'measurement'
-    # filter inside _bulk_insert_measurement_rows skips step-summary
-    # rows (which have measurement_name NULL).
-    _MEAS_BATCH = 100
-    for i in range(0, len(new_files), _MEAS_BATCH):
-        batch = new_files[i : i + _MEAS_BATCH]
-        try:
-            with lock:
-                _batch_insert_measurement_rows(conn, batch)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Batch measurement insert failed (%d files): %s", len(batch), exc)
 
     # Cascade-delete rows whose source parquet is gone from disk.
     disk_paths = {e[0] for e in disk_entries}
@@ -1158,6 +1137,66 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
     except Exception as exc:  # noqa: BLE001 — per-file ingest tolerance: warn + skip
         warnings.warn(_quarantine_message(fkey, exc), stacklevel=2)
         return str(exc)
+
+
+def _ingest_file_batch(
+    conn: duckdb.DuckDBPyConnection,
+    batch: list[tuple[str, float, int, os.stat_result]],
+    *,
+    collect_run_ids: bool,
+) -> list[str]:
+    """Bulk-ingest a batch of NEW parquets — one ``read_parquet([...])`` per
+    table for the whole batch instead of per file (the per-file path opened
+    each parquet ~4×). On a batch read error (one corrupt file in the set),
+    roll back and fall back to per-file ingest so the bad file is isolated +
+    quarantined and the good ones still land.
+
+    Caller holds the write lock; all rows for the batch commit atomically.
+    Returns the ingested run_ids when ``collect_run_ids`` (else ``[]``).
+    """
+    paths = [e[0] for e in batch]
+    try:
+        conn.execute("BEGIN")
+        _bulk_insert_runs(conn, paths)
+        _bulk_insert_steps(conn, paths)
+        _bulk_insert_measurements(conn, paths)
+        _batch_insert_measurement_rows(conn, paths)
+        for fkey in paths:
+            io_error = _index_io_and_refs(conn, fkey)
+            if io_error:
+                warnings.warn(f"io/refs indexing partial for {fkey}: {io_error}", stacklevel=2)
+        for path_str, _mtime, _size, stat in batch:
+            _mark_ingested(conn, path_str, stat, "ok", None)
+        conn.execute("COMMIT")
+    except Exception as exc:  # noqa: BLE001 — a corrupt file in the set: isolate per-file
+        try:
+            conn.execute("ROLLBACK")
+        except duckdb.Error:
+            pass
+        logger.warning(
+            "Batch ingest of %d files failed (%s); retrying per-file to isolate", len(paths), exc
+        )
+        for path_str, _mtime, _size, stat in batch:
+            _ingest_one_file(conn, Path(path_str), stat)
+            try:
+                _bulk_insert_measurement_rows(conn, path_str)
+            except Exception as exc2:  # noqa: BLE001
+                logger.debug("per-file raw-measurement insert failed for %s: %s", path_str, exc2)
+
+    if not collect_run_ids:
+        return []
+    placeholders = ", ".join("?" * len(paths))
+    try:
+        return [
+            str(r[0])
+            for r in conn.execute(
+                f"SELECT run_id FROM runs_materialized WHERE file_path IN ({placeholders})", paths
+            ).fetchall()
+            if r[0]
+        ]
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("run_id lookup after batch ingest failed: %s", exc)
+        return []
 
 
 # ── Inflight overlay — shared tables, lock-free parallel reads ───────
