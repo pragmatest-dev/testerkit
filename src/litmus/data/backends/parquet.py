@@ -952,8 +952,15 @@ def load_ref(
     if scheme == "channel":
         if channel_store is None:
             return value
-        channel_id, session_id = parse_channel_uri(value)
-        return channel_store.query(channel_id, session_id=session_id or None)
+        try:
+            channel_id, session_id = parse_channel_uri(value)
+            return channel_store.query(channel_id, session_id=session_id or None)
+        except Exception:  # noqa: BLE001
+            # A dangling or unreachable channel degrades to "unavailable" (return
+            # the URI) — never crash the caller/UI. Mirrors load_file's missing-
+            # artifact behaviour: a clean failure surfaced, not silent corruption.
+            logger.debug("Channel ref %r could not be resolved (unavailable)", value)
+            return value
 
     # Unknown scheme — return as-is
     return value
