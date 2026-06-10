@@ -150,14 +150,13 @@ def test_query_clients_read_daemon_not_parquet():
 
 
 _CHANNELSTORE_ALLOWED = {
-    # Producers (write their own segments + push) and the daemon /
-    # batch-materialize (server-side disk readers) legitimately
-    # construct a ChannelStore. Everyone else queries via the daemon.
+    # Producers (write their own segments + push) and the daemon
+    # legitimately construct a ChannelStore. Everyone else queries
+    # via the daemon.
     "src/litmus/connect.py",
     "src/litmus/pytest_plugin/__init__.py",
     "src/litmus/data/channels/_flight_daemon.py",
     "src/litmus/data/channels/store.py",
-    "src/litmus/data/materialize.py",
     # The benchmark's write/stream workloads are serve=True producers;
     # its channel QUERY workload reads through the daemon (ChannelClient),
     # never a globbing store. runner.py pre-warms the channels daemon the

@@ -2453,9 +2453,9 @@ def data_prune(
     if total == 0:
         click.echo("Nothing to prune.")
     elif dry_run:
-        click.echo(f"\n{total} directories would be removed.")
+        click.echo(f"\n{total} items would be removed.")
     else:
-        click.echo(f"\n{total} directories removed.")
+        click.echo(f"\n{total} items removed.")
 
 
 # Starter sentinels — runs whose product / station / serial / fixture

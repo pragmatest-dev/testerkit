@@ -85,26 +85,54 @@ class TestPruneAll:
         monkeypatch.chdir(tmp_path)
         return tmp_path / "data"
 
-    def test_prunes_all_subdirs(self, project_dir: Path):
+    def _seg(self, channels_dir: Path, date_str: str, channel_id: str, sess: str) -> Path:
+        d = channels_dir / date_str
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / f"{channel_id}_{sess}.arrow"
+        p.write_bytes(b"seg")
+        return p
+
+    def test_prunes_unreferenced_channels_and_event_dirs(self, project_dir: Path):
         old = (date.today() - timedelta(days=60)).isoformat()
-        for sub in ("channels", "events"):
-            (project_dir / sub / old).mkdir(parents=True)
+        # No runs/ dir → nothing is referenced → the old segment ages out.
+        seg = self._seg(project_dir / "channels", old, "scope.ch1", "abcdef12")
+        (project_dir / "events" / old).mkdir(parents=True)
 
         result = prune_all(project_dir, "30d")
-        for sub in ("channels", "events"):
-            assert len(result[sub]) == 1
-            assert not (project_dir / sub / old).exists()
+        # channel segment pruned (unreferenced); its now-empty date dir cleaned up
+        assert seg in result["channels"]
+        assert not seg.exists()
+        assert not (project_dir / "channels" / old).exists()
+        # event date dir pruned (whole-dir, as before)
+        assert len(result["events"]) == 1
+        assert not (project_dir / "events" / old).exists()
 
-    def test_prunes_specific_types(self, project_dir: Path):
+    def test_ref_aware_pins_referenced_channel(
+        self, project_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         old = (date.today() - timedelta(days=60)).isoformat()
-        for sub in ("channels", "events"):
-            (project_dir / sub / old).mkdir(parents=True)
+        ch = project_dir / "channels"
+        kept = self._seg(ch, old, "scope.ch1", "aaaaaaaa")  # referenced → pinned
+        gone = self._seg(ch, old, "scope.ch2", "bbbbbbbb")  # unreferenced → pruned
 
+        # A run references (scope.ch1, aaaaaaaa): it's evidence, must be kept.
+        monkeypatch.setattr(
+            "litmus.data.retention._referenced_pairs",
+            lambda *_a: {("scope.ch1", "aaaaaaaa")},
+        )
         result = prune_all(project_dir, "30d", data_types=("channels",))
-        assert len(result) == 1
-        assert len(result["channels"]) == 1
-        # events untouched
-        assert (project_dir / "events" / old).exists()
+
+        assert kept.exists()  # pinned — no copy, the channel:// ref stays valid
+        assert not gone.exists()  # unreferenced — aged out
+        assert gone in result["channels"] and kept not in result["channels"]
+        assert (ch / old).exists()  # date dir retained (still holds the pinned slice)
+
+    def test_recent_channels_untouched(self, project_dir: Path):
+        recent = (date.today() - timedelta(days=5)).isoformat()
+        seg = self._seg(project_dir / "channels", recent, "scope.ch1", "abcdef12")
+        result = prune_all(project_dir, "30d", data_types=("channels",))
+        assert seg.exists()
+        assert result["channels"] == []
 
     def test_refuses_unowned_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """Pruning a dir not owned by any project should fail."""
