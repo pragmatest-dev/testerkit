@@ -8,7 +8,6 @@ ParquetBackend keeps the write path; RunStore owns reads + ref management.
 from __future__ import annotations
 
 import logging
-import os
 import warnings
 from pathlib import Path
 from typing import Any
@@ -291,38 +290,6 @@ class RunStore:
                 "Failed to read measurement %r from %s: %s", measurement_name, pq_file, exc
             )
             return []
-
-    def rewrite_refs(self, file_path: Path, replacements: dict[str, dict[int, str]]) -> None:
-        """Atomic parquet column rewrite. Reads, replaces URIs, write-tmp, os.replace."""
-        if not replacements:
-            return
-
-        table = pq.read_table(file_path)
-        arrays: dict[str, list[object]] = {}
-        for col_name, row_map in replacements.items():
-            col = table.column(col_name)
-            new_values = [v.as_py() for v in col]
-            for row_idx, new_uri in row_map.items():
-                new_values[row_idx] = new_uri
-            arrays[col_name] = new_values
-
-        new_columns = []
-        for name in table.column_names:
-            if name in arrays:
-                new_columns.append(pa.array(arrays[name], type=pa.string()))
-            else:
-                new_columns.append(table.column(name))
-
-        new_table = pa.table({name: col for name, col in zip(table.column_names, new_columns)})
-
-        # Preserve parquet file-level metadata
-        orig_meta = pq.read_metadata(file_path)
-        if orig_meta.metadata:
-            new_table = new_table.replace_schema_metadata(orig_meta.metadata)
-
-        tmp_path = file_path.with_suffix(".tmp.parquet")
-        pq.write_table(new_table, tmp_path)
-        os.replace(tmp_path, file_path)
 
     @staticmethod
     def ref_dir_for(file_path: Path) -> Path:
