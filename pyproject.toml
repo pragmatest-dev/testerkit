@@ -45,6 +45,7 @@ dependencies = [
     "pyvisa-sim>=0.6",
     "pyarrow>=14.0",
     "numpy>=1.24",
+    "tsdownsample>=0.1.5",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "python-multipart>=0.0.9",

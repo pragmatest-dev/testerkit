@@ -56,8 +56,9 @@ def _to_utc(dt: datetime | None) -> datetime | None:
 def _lttb_indices(values: Sequence[float], n_out: int) -> list[int]:
     """Largest Triangle Three Buckets downsampling — return selected indices.
 
-    Visually lossless: preserves peaks, valleys, and shape better than
-    naive stride decimation. O(n) time, no dependencies.
+    Visually lossless: preserves peaks, valleys, and shape better than naive
+    stride decimation. Delegates to ``tsdownsample`` (compiled LTTB); first and
+    last points are always kept.
 
     Reference: Sveinn Steinarsson, "Downsampling Time Series for Visual
     Representation", MSc thesis, University of Iceland, 2013.
@@ -65,41 +66,13 @@ def _lttb_indices(values: Sequence[float], n_out: int) -> list[int]:
     n = len(values)
     if n <= n_out or n_out < 3:
         return list(range(n))
+    # Heavy deps deferred off the module import path — only the decimation
+    # (query w/ max_points) path pays numpy/tsdownsample's load.
+    import numpy as np  # noqa: PLC0415
+    from tsdownsample import LTTBDownsampler  # noqa: PLC0415
 
-    selected: list[int] = [0]  # always keep first
-    bucket_size = (n - 2) / (n_out - 2)
-
-    prev_idx = 0
-    for i in range(1, n_out - 1):
-        # Bucket boundaries
-        b_start = int((i - 1) * bucket_size) + 1
-        b_end = int(i * bucket_size) + 1
-        # Next bucket average (for triangle area calculation)
-        nb_start = int(i * bucket_size) + 1
-        nb_end = min(int((i + 1) * bucket_size) + 1, n)
-        avg_x = (nb_start + nb_end - 1) / 2.0
-        avg_y = sum(values[nb_start:nb_end]) / max(nb_end - nb_start, 1)
-
-        # Pick point in current bucket with largest triangle area
-        best_idx = b_start
-        best_area = -1.0
-        px, py = float(prev_idx), values[prev_idx]
-        for j in range(b_start, min(b_end, n)):
-            area = abs((float(j) - px) * (avg_y - py) - (avg_x - px) * (values[j] - py))
-            if area > best_area:
-                best_area = area
-                best_idx = j
-        # Ensure strictly increasing indices for flat signals, but
-        # clamp to the current bucket so monotonicity-driven picks
-        # don't drift into the next bucket's range.
-        if best_idx <= prev_idx:
-            bucket_max = min(b_end, n) - 1
-            best_idx = min(prev_idx + 1, bucket_max)
-        selected.append(best_idx)
-        prev_idx = best_idx
-
-    selected.append(n - 1)  # always keep last
-    return selected
+    indices = LTTBDownsampler().downsample(np.asarray(values, dtype=float), n_out=n_out)
+    return [int(i) for i in indices]
 
 
 def _decimate_table(table: pa.Table, max_points: int) -> pa.Table:
