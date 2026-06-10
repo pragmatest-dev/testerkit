@@ -175,19 +175,88 @@ def _prune_channels_ref_aware(data_dir: Path, cutoff: date, *, dry_run: bool) ->
     return removed
 
 
+_SIDECAR_SUFFIX = ".meta.json"  # matches FileStore's per-blob sidecar
+
+
+def _referenced_file_keys(data_dir: Path) -> set[str]:
+    """``file://`` keys any run references — scanned from the run parquets.
+
+    Files have no daemon ref index (``measurement_refs`` is channel-only), so
+    retention reads the runs directly. It's a periodic maintenance op, off the
+    hot path, so the O(runs) parquet scan is fine.
+    """
+    runs_root = data_dir / "runs" / "runs"
+    if not runs_root.is_dir():
+        return set()
+    from litmus.data.backends.parquet import extract_refs
+
+    keys: set[str] = set()
+    for pq_file in runs_root.glob("*/*.parquet"):
+        _, files = extract_refs(pq_file)
+        keys |= files
+    return keys
+
+
+def _prune_files_ref_aware(data_dir: Path, cutoff: date, *, dry_run: bool) -> list[Path]:
+    """Prune *unreferenced* files older than *cutoff*; pin referenced ones.
+
+    Reference-aware retention for the files store (mirrors channels): a file a run
+    references is evidence and is kept (its ``file://`` ref stays valid — no copy);
+    unreferenced files (orphan streams, runless sessions) age out. The ``.meta.json``
+    sidecar is removed with its blob. Returns the files removed.
+    """
+    files_dir = data_dir / "files"
+    if not _is_project_owned(files_dir):
+        raise PermissionError(
+            f"Refusing to prune: {files_dir}\n"
+            "Only project-owned directories can be pruned (data_dir in litmus.yaml "
+            "or under the project repo folder)."
+        )
+    removed: list[Path] = []
+    if not files_dir.is_dir():
+        return removed
+    referenced = _referenced_file_keys(data_dir)
+
+    for date_dir in sorted(files_dir.iterdir()):
+        if not date_dir.is_dir():
+            continue
+        try:
+            if date.fromisoformat(date_dir.name) >= cutoff:
+                continue
+        except ValueError:
+            continue
+        for blob in sorted(date_dir.rglob("*")):
+            if not blob.is_file() or blob.name.endswith(_SIDECAR_SUFFIX):
+                continue
+            key = blob.relative_to(files_dir).as_posix()
+            if key in referenced:
+                continue  # pinned — a run references this file (evidence)
+            removed.append(blob)
+            if not dry_run:
+                blob.unlink(missing_ok=True)
+                blob.with_name(blob.name + _SIDECAR_SUFFIX).unlink(missing_ok=True)
+        if not dry_run:  # clean up now-empty session + date dirs
+            for sub in sorted(date_dir.glob("*"), reverse=True):
+                if sub.is_dir() and not any(sub.iterdir()):
+                    sub.rmdir()
+            if date_dir.is_dir() and not any(date_dir.iterdir()):
+                date_dir.rmdir()
+    return removed
+
+
 def prune_all(
     data_dir: Path,
     older_than: str,
     *,
-    data_types: tuple[str, ...] = ("channels", "events"),
+    data_types: tuple[str, ...] = ("channels", "files", "events"),
     dry_run: bool = False,
 ) -> dict[str, list[Path]]:
-    """Prune date-partitioned data under *data_dir*, reference-aware for channels.
+    """Prune date-partitioned data under *data_dir*, reference-aware for channels + files.
 
-    Channels use reference-aware retention: a channel slice a run references is
-    pinned (kept; its ``channel://`` ref stays valid — no copy), unreferenced
-    slices age out. Other data types (events) prune whole date dirs older than the
-    cutoff. Runs are never pruned here — they are the durable record.
+    Channels and files use reference-aware retention: a slice/file a run references
+    is pinned (kept; its ``channel://``/``file://`` ref stays valid — no copy),
+    unreferenced data ages out. Events prune whole date dirs older than the cutoff.
+    Runs are never pruned here — they are the durable record.
 
     Args:
         data_dir: Root results directory.
@@ -213,6 +282,8 @@ def prune_all(
     for subdir in data_types:
         if subdir == "channels":
             result["channels"] = _prune_channels_ref_aware(data_dir, cutoff, dry_run=dry_run)
+        elif subdir == "files":
+            result["files"] = _prune_files_ref_aware(data_dir, cutoff, dry_run=dry_run)
         else:
             result[subdir] = prune_date_dirs(data_dir / subdir, cutoff, dry_run=dry_run)
     return result

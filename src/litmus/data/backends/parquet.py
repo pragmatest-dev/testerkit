@@ -970,6 +970,35 @@ def is_file_reference(value: Any) -> bool:
     return False
 
 
+def extract_refs(parquet_path: Path) -> tuple[set[tuple[str, str]], set[str]]:
+    """Channel ``(channel_id, session_id)`` pairs + ``file://`` keys a run references.
+
+    Scans the run's string columns (``out_*`` etc.) for ``channel://`` / ``file://``
+    URIs — the run's full reachable set, both schemes. Used by promote (carry a
+    run's data) and retention (reference-aware file pruning).
+    """
+    channels: set[tuple[str, str]] = set()
+    files: set[str] = set()
+    try:
+        table = pq.read_table(parquet_path)
+    except (OSError, pa.ArrowException):
+        return channels, files
+    for name in table.column_names:
+        col = table.column(name)
+        if not (pa.types.is_string(col.type) or pa.types.is_large_string(col.type)):
+            continue
+        for v in col.to_pylist():
+            if not is_ref(v):
+                continue
+            if v.startswith("channel://"):
+                cid, sid = parse_channel_uri(v)
+                if cid and sid:
+                    channels.add((cid, sid))
+            else:  # file://
+                files.add(v[len("file://") :])
+    return channels, files
+
+
 def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
     """Reconstruct a TestRun model from a Parquet file.
 

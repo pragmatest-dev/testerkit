@@ -12,7 +12,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from litmus.cli import _copy_run_references, _extract_parquet_refs
+from litmus.cli import _copy_run_references
+from litmus.data.backends.parquet import extract_refs
 
 _SID = "abcdef1234567890"  # session_id; short = abcdef12
 _DATE = "2026-01-01"
@@ -50,7 +51,7 @@ def _build_src(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_extract_parquet_refs_finds_both_schemes(tmp_path: Path) -> None:
     _, parquet = _build_src(tmp_path)
-    channels, files = _extract_parquet_refs(parquet)
+    channels, files = extract_refs(parquet)
     assert channels == {("scope.ch1", _SID)}
     assert files == {f"{_DATE}/{_SID}/capture.bin"}
 

@@ -94,7 +94,7 @@ Delete date-partitioned data older than the specified period.
 | Argument / option | Type | Description |
 |---|---|---|
 | `--older-than` | `text` | Retention period (e.g. 30d, 90d) |
-| `--type` | `text` | Data types to prune (e.g. channels, events) |
+| `--type` | `text` | Data types to prune (e.g. channels, files, events) |
 | `--data-dir` | `text` | Results directory |
 | `--dry-run` | `flag` | Show what would be deleted |
 

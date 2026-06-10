@@ -145,3 +145,53 @@ class TestPruneAll:
         target.mkdir()
         with pytest.raises(PermissionError, match="project-owned"):
             prune_all(target, "30d")
+
+
+class TestFilesRefAware:
+    @pytest.fixture()
+    def project_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        (tmp_path / "litmus.yaml").write_text(f"name: test\ndata_dir: {tmp_path / 'data'}\n")
+        monkeypatch.chdir(tmp_path)
+        return tmp_path / "data"
+
+    def test_pins_referenced_prunes_orphan(self, project_dir: Path) -> None:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        old = (date.today() - timedelta(days=60)).isoformat()
+        sid = "abcdef1234567890"
+
+        # A run parquet referencing files/{old}/{sid}/kept.bin.
+        runs = project_dir / "runs" / "runs" / old
+        runs.mkdir(parents=True)
+        pq.write_table(
+            pa.table({"out_x": [f"file://{old}/{sid}/kept.bin"]}),
+            runs / "120000_DUT.parquet",
+        )
+
+        fdir = project_dir / "files" / old / sid
+        fdir.mkdir(parents=True)
+        kept = fdir / "kept.bin"
+        kept.write_bytes(b"keep")
+        (fdir / "kept.bin.meta.json").write_text("{}")
+        orphan = fdir / "orphan.bin"
+        orphan.write_bytes(b"gone")
+        (fdir / "orphan.bin.meta.json").write_text("{}")
+
+        result = prune_all(project_dir, "30d", data_types=("files",))
+
+        assert kept.exists()  # pinned — a run references it (no copy)
+        assert (fdir / "kept.bin.meta.json").exists()
+        assert not orphan.exists()  # unreferenced orphan aged out
+        assert not (fdir / "orphan.bin.meta.json").exists()  # sidecar went with it
+        assert orphan in result["files"]
+
+    def test_recent_files_untouched(self, project_dir: Path) -> None:
+        recent = (date.today() - timedelta(days=5)).isoformat()
+        fdir = project_dir / "files" / recent / "sess"
+        fdir.mkdir(parents=True)
+        f = fdir / "x.bin"
+        f.write_bytes(b"x")
+        result = prune_all(project_dir, "30d", data_types=("files",))
+        assert f.exists()
+        assert result["files"] == []

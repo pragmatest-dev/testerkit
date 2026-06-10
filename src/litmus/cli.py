@@ -2423,7 +2423,7 @@ def data():
     "--type",
     "data_types",
     multiple=True,
-    help="Data types to prune (e.g. channels, events)",
+    help="Data types to prune (e.g. channels, files, events)",
 )
 @click.option("--data-dir", default=None, help="Results directory")
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted")
@@ -2438,7 +2438,7 @@ def data_prune(
 
     data_dir_path = Path(_get_data_dir(data_dir))
 
-    types = data_types or ("channels", "events")
+    types = data_types or ("channels", "files", "events")
     try:
         result = prune_all(data_dir_path, older_than, data_types=types, dry_run=dry_run)
     except ValueError as e:
@@ -2493,39 +2493,6 @@ def _is_starter_parquet(parquet_path: Path) -> bool:
     return False
 
 
-def _extract_parquet_refs(parquet_path: Path) -> tuple[set[tuple[str, str]], set[str]]:
-    """Channel ``(channel_id, session_id)`` pairs + ``file://`` keys a run references.
-
-    Scans the run's string columns (``out_*`` etc.) for ``channel://`` / ``file://``
-    URIs — the run's full reachable set, both schemes.
-    """
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    from litmus.data.ref import is_ref, parse_channel_uri
-
-    channels: set[tuple[str, str]] = set()
-    files: set[str] = set()
-    try:
-        table = pq.read_table(parquet_path)
-    except (OSError, pa.ArrowException):
-        return channels, files
-    for name in table.column_names:
-        col = table.column(name)
-        if not (pa.types.is_string(col.type) or pa.types.is_large_string(col.type)):
-            continue
-        for v in col.to_pylist():
-            if not is_ref(v):
-                continue
-            if v.startswith("channel://"):
-                cid, sid = parse_channel_uri(v)
-                if cid and sid:
-                    channels.add((cid, sid))
-            else:  # file://
-                files.add(v[len("file://") :])
-    return channels, files
-
-
 def _copy_run_references(
     src_parquet: Path, src_data: Path, dst_data: Path, *, with_events: bool
 ) -> tuple[int, int]:
@@ -2538,7 +2505,9 @@ def _copy_run_references(
     """
     import shutil
 
-    channels, files = _extract_parquet_refs(src_parquet)
+    from litmus.data.backends.parquet import extract_refs
+
+    channels, files = extract_refs(src_parquet)
     sessions = {sid for _, sid in channels}
 
     def _copy(rel: Path) -> bool:
