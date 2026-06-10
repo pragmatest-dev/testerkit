@@ -197,13 +197,17 @@ def _referenced_file_keys(data_dir: Path) -> set[str]:
     return keys
 
 
-def _prune_files_ref_aware(data_dir: Path, cutoff: date, *, dry_run: bool) -> list[Path]:
+def _prune_files_ref_aware(
+    data_dir: Path, cutoff: date, *, dry_run: bool, exts: frozenset[str] | None = None
+) -> list[Path]:
     """Prune *unreferenced* files older than *cutoff*; pin referenced ones.
 
     Reference-aware retention for the files store (mirrors channels): a file a run
     references is evidence and is kept (its ``file://`` ref stays valid — no copy);
     unreferenced files (orphan streams, runless sessions) age out. The ``.meta.json``
-    sidecar is removed with its blob. Returns the files removed.
+    sidecar is removed with its blob. ``exts`` (lowercase, no dot) restricts pruning to
+    those file types — tiered retention (e.g. age out ``tdms`` raw, keep ``png`` evidence).
+    Returns the files removed.
     """
     files_dir = data_dir / "files"
     if not _is_project_owned(files_dir):
@@ -228,6 +232,8 @@ def _prune_files_ref_aware(data_dir: Path, cutoff: date, *, dry_run: bool) -> li
         for blob in sorted(date_dir.rglob("*")):
             if not blob.is_file() or blob.name.endswith(_SIDECAR_SUFFIX):
                 continue
+            if exts is not None and blob.suffix.lstrip(".").lower() not in exts:
+                continue  # type filter — keep other file types (tiered retention)
             key = blob.relative_to(files_dir).as_posix()
             if key in referenced:
                 continue  # pinned — a run references this file (evidence)
@@ -250,6 +256,7 @@ def prune_all(
     *,
     data_types: tuple[str, ...] = ("channels", "files", "events"),
     dry_run: bool = False,
+    exts: frozenset[str] | None = None,
 ) -> dict[str, list[Path]]:
     """Prune date-partitioned data under *data_dir*, reference-aware for channels + files.
 
@@ -283,7 +290,7 @@ def prune_all(
         if subdir == "channels":
             result["channels"] = _prune_channels_ref_aware(data_dir, cutoff, dry_run=dry_run)
         elif subdir == "files":
-            result["files"] = _prune_files_ref_aware(data_dir, cutoff, dry_run=dry_run)
+            result["files"] = _prune_files_ref_aware(data_dir, cutoff, dry_run=dry_run, exts=exts)
         else:
             result[subdir] = prune_date_dirs(data_dir / subdir, cutoff, dry_run=dry_run)
     return result

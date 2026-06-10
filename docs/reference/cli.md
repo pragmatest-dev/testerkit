@@ -106,6 +106,7 @@ Delete date-partitioned data older than the specified period.
 | `--type` | `text` | Data types to prune (e.g. channels, files, events) |
 | `--data-dir` | `text` | Results directory |
 | `--dry-run` | `flag` | Show what would be deleted |
+| `--ext` | `text` | Only prune files with these extensions (tiered retention, e.g. --ext tdms). Files only. |
 
 #### `litmus data reindex` {#cli-data-reindex}
 

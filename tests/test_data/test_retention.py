@@ -195,3 +195,18 @@ class TestFilesRefAware:
         result = prune_all(project_dir, "30d", data_types=("files",))
         assert f.exists()
         assert result["files"] == []
+
+    def test_ext_filter_prunes_only_matching_type(self, project_dir: Path) -> None:
+        old = (date.today() - timedelta(days=60)).isoformat()
+        fdir = project_dir / "files" / old / "sess"
+        fdir.mkdir(parents=True)
+        tdms = fdir / "raw.tdms"
+        tdms.write_bytes(b"raw")
+        png = fdir / "shot.png"
+        png.write_bytes(b"img")
+
+        # No runs/ → both unreferenced; --ext tdms ages out the raw, keeps the image.
+        result = prune_all(project_dir, "30d", data_types=("files",), exts=frozenset({"tdms"}))
+        assert not tdms.exists()  # matched the type filter → pruned
+        assert png.exists()  # other type → kept (tiered retention)
+        assert tdms in result["files"]

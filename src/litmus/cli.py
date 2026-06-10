@@ -2427,20 +2427,34 @@ def data():
 )
 @click.option("--data-dir", default=None, help="Results directory")
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted")
+@click.option(
+    "--ext",
+    "exts",
+    multiple=True,
+    help="Only prune files with these extensions (tiered retention, e.g. --ext tdms). Files only.",
+)
 def data_prune(
     older_than: str,
     data_types: tuple[str, ...],
     data_dir: str | None,
     dry_run: bool,
+    exts: tuple[str, ...],
 ) -> None:
-    """Delete date-partitioned data older than the specified period."""
+    """Delete date-partitioned data older than the specified period.
+
+    Channels and files prune reference-aware (data a run references is kept);
+    ``--ext`` further limits file pruning to specific types.
+    """
     from litmus.data.retention import prune_all
 
     data_dir_path = Path(_get_data_dir(data_dir))
 
     types = data_types or ("channels", "files", "events")
+    ext_filter = frozenset(e.lower().lstrip(".") for e in exts) or None
     try:
-        result = prune_all(data_dir_path, older_than, data_types=types, dry_run=dry_run)
+        result = prune_all(
+            data_dir_path, older_than, data_types=types, dry_run=dry_run, exts=ext_filter
+        )
     except ValueError as e:
         raise click.BadParameter(str(e), param_hint="'--older-than'") from e
 
