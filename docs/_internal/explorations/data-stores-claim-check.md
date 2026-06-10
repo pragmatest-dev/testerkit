@@ -158,6 +158,10 @@ rides from the observation into the `InstrumentRead` event and the parquet
 `out_*` column. So a run "has" a channel by *referencing its
 session-scoped URI*, not by tagging the channel with a run id.
 
+> **Superseded 2026-06-09 — see "The federation model" below.** Copy-on-prune is
+> dropped in favor of reference-aware retention. This paragraph is kept for context
+> on what `materialize` did and why it's a lateral no-op.
+
 **Materialization is session-keyed and copy-on-prune** (not RunEnded).
 `materialize_channel_refs` (`materialize.py`) runs *before channel
 pruning* (retention): it collects `(channel_id, session_short)` pairs,
@@ -536,6 +540,158 @@ This isn't video-specific — it's how any **continuous-artifact ↔ time-bounde
 The platform commits to one clock (the event log's `received_at`); everything else is subtraction. No per-artifact sync protocol; no synchronized-clock machinery beyond "all events written to the same log."
 
 **Frame-accurate sync** (deferred). For cases where ±33ms isn't tight enough (high-speed diagnostic capture, slow-mo failure recordings), `StreamFrameIndex` can carry `pts_seconds` per frame. A measurement timestamp joins to the nearest `StreamFrameIndex` by `received_at` proximity → exact frame index. Same mechanism, higher granularity. Not MVP.
+
+---
+
+## The federation model: ownership, retention, portability (ref-vs-copy resolution, 2026-06-09)
+
+A design session — grounded in lakehouse / TSDB / ML-platform prior art — resolved how
+cross-store references, retention, and archival actually work, and concluded the eager
+**copy** (`materialize_channel_refs`) is the wrong mechanism. This supersedes the
+copy-on-prune description above.
+
+### The stores are a federation, not a relational database
+
+The four stores reference each other by URI (`channel://`, `file://`) but they are **not
+related tables in one engine**: separate stores, separate daemons, separate files,
+separate retention, no cross-store transaction, no enforced foreign keys. This is
+unsettling only against an RDBMS mental model. The correct model is the **data-lake /
+metadata-store split**, the dominant pattern wherever heavy data is separated from
+metadata:
+
+- **MLflow** — backend store (metadata DB) + artifact store (S3); a run references
+  artifacts by URI; the metadata DB neither holds the bytes nor enforces the link.
+  One-to-one with events/runs (metadata) ↔ channels/files (heavy data).
+- **Iceberg / Delta Lake** — a catalog/manifest + data files in object storage; the
+  "table" is a list of **relative** file paths; no engine prevents deleting a referenced
+  file — "missing/orphan file" is a *handled* state, not an impossibility.
+
+So "they know about each other but aren't one database" is the defining property of a
+lakehouse, not a smell.
+
+### Two coordination seams (the only places the stores touch)
+
+Both are plain API calls — never a shared transaction, never reaching into another
+store's files:
+
+1. **Read-resolution** — a consumer follows a `channel://` / `file://` URI by calling the
+   *owning* store's API (`channel_query_client(...).query(...)`), never by reading files.
+   (Store boundary = API boundary.)
+2. **Retention-reachability** — before pruning, a store asks "who references this?" via
+   `run_store.find_channel_refs(...)`. Referenced → kept; unreferenced → pruned.
+
+### Reference-aware retention — don't copy, pin the referenced
+
+**Decision: do not copy referenced data. Keep it in place; prune only the unreferenced.**
+The lakehouse `VACUUM` model: Delta removes files "no longer referenced *and* older than
+the threshold" (referenced files are never vacuumed); Iceberg removes files "not
+referenced by any current snapshot" (data lives while reachable).
+
+The reachability query **already exists** — `materialize` calls
+`run_store.find_channel_refs(session_shorts)`. Reference-aware retention is the *same
+query, opposite action*: instead of *"copy what it returns"*, *"prune everything **except**
+what it returns."* No copy, no cross-store glob, **no redundant large-file duplication**.
+Channel data **no run references** ages out normally (the TSDB pattern: raw is transient;
+TimescaleDB/Influx age-out + downsample + tier).
+
+**`materialize`-on-prune is a lateral no-op and is dropped.** It copies a slice from the
+channel store into the *file* store and rewrites `channel://` → `file://` — changing
+*which* store owns the bytes without making the run self-sufficient (it still points
+outward, now at FileStore). It pays an export's duplication cost with none of an export's
+portability benefit. Reference-aware retention replaces it.
+
+### Lifecycle-dependent ownership
+
+Ownership changes with lifecycle stage, exactly as in MLflow/lakehouses:
+
+| Stage | Who owns the bytes | Precedent |
+|---|---|---|
+| Operating (bench / central server) | the **store** owns its data; runs hold federation pointers | lakehouse table ↔ data files; MLflow run ↔ artifacts |
+| Archiving (hand-off / backup / audit) | a **sealed bundle** owns a copy of everything | Iceberg clone; MLflow export dir; OpenHTF `result.json` |
+
+A run is **not** expected to be self-sufficient while it lives in the system — it becomes
+self-sufficient when it *leaves*, via an explicit seal/export. Self-sufficiency is a
+property of the boundary, not the live store.
+
+### Two portable grains — and they are different tools
+
+Because **the data files are the source of truth, every index is a derived cache rebuilt
+from them, and every reference is relative** (`file://` is a backend-root-relative key;
+`channel://` is channel-id + session — never an absolute path):
+
+- **Coarse — whole `data_dir`:** `cp` / `rsync` / **merge** two dirs; first daemon access
+  rebuilds the index from the (possibly unioned) files. Safe because identities are uuid4
+  (no collisions) and refs never cross a `data_dir`. The lakehouse superpower (copy the
+  table dir, the catalog recomputes) — impossible with an RDBMS. The **backup/relocate**
+  tool.
+- **Fine — selected runs + what they reference:** the run parquet + *only* the
+  `channel://`/`file://` slices it points at (reachability via `find_channel_refs`),
+  daemon-free. The **promote / seal / hand-off** tool. Matches MLflow export (run + its
+  artifacts) and OpenHTF `result.json` (record + attachments) — "record + what it
+  references," never "everything."
+
+**Gotcha (coarse grain):** the *data* relocates cleanly; the *daemon state files*
+(`_*.json` / `_*_pid` / `_*.lock` / `_ready` / port files) are machine-specific and must
+be cleared on copy/merge so daemons cleanly respawn + rebuild — a tooling job
+(`litmus import` / `merge` / `relocate`).
+
+### The integrity contract — tooling, not engine constraints
+
+There is no constraint engine, so **the tooling is the integrity layer**: reference-aware
+retention, emit-ref-only-after-durable (atomic publish), import/merge/relocate.
+
+- **Through the tooling → the system's responsibility.** Referenced data is never pruned;
+  refs are never emitted before bytes are durable; relocation rebuilds cleanly.
+- **Outside the tooling (manual file surgery) → the user's responsibility.** Nothing can
+  stop a manual `rm` of referenced data or a bad hand-merge; the user owns that outcome.
+  Verbatim the lakehouse contract ("don't manually delete data files; use `VACUUM`").
+- **The system's guarantee in return: fail loud, never silent.** A dangling reference
+  resolves to a clean "not found" and is **surfaced** (flagged in the index, shown to the
+  operator — #263), never silently corrupted. The same no-hide-data rule applied
+  everywhere: a missing reference is an operator-visible signal.
+
+### `litmus data promote` is the first cross-federation tool — and today it's broken
+
+`litmus data promote` (`cli.py:2511`) copies **only** `runs/runs/*.parquet` to the global
+store and suggests `rm -rf {src_data}` afterward. Under the federation model that dangles
+every `channel://`/`file://` ref the promoted parquet holds **and** discards the events
+spine (the *source* the parquet is merely a derived view of). It promotes one store, not
+the run's reachable set.
+
+Fix: promote the **fine grain** — runs + their referenced channel slices + referenced
+files (reachability via `find_channel_refs`). **Default = runs + references**; the parquet
+already denormalizes serial/spec/station/cal/operator/conditions per row, so it's
+audit-ish without the raw timeline. **`--with-events`** adds the session event trail for
+compliance-grade archives. Unreferenced channels are *not* carried (transient monitoring —
+what retention prunes). Promote and reference-aware retention share the same reachability
+machinery.
+
+### Work items
+
+1. **Reference-aware retention** — flip `find_channel_refs` from copy-what's-referenced to
+   prune-all-but-referenced; delete `materialize_channel_refs`'s copy + the cross-store
+   channel glob. Unreferenced channel data ages out (configurable; TSDB default).
+2. **Run seal/export** — explicit op producing a self-contained, daemon-free bundle
+   (manifest + referenced channel slices + files; `--with-events` optional). OpenHTF
+   output-callback / MLflow-export shape. Net-new.
+3. **Fix `litmus data promote`** — carry runs + references (reachability-scoped), not just
+   `runs/`; never suggest `rm -rf` the source while refs are unresolved. Shares (2)'s
+   machinery.
+4. **Dangling-reference resilience** (#263) — the safety net for manual surgery: a missing
+   ref reads as a clean, surfaced "not found," never silent corruption.
+5. **Relocation tooling** — `litmus import` / `merge` clears stale daemon state + triggers
+   rebuild (vs. relying on the incremental scan).
+
+### Prior art
+
+- Reference-aware GC: [Delta VACUUM](https://docs.delta.io/latest/delta-utility.html),
+  [Iceberg VACUUM TABLE](https://www.dremio.com/blog/apache-iceberg-table-storage-management-with-dremios-vacuum-table/)
+- Time-series age-out + downsample + tier:
+  [TimescaleDB downsampling](https://www.tigerdata.com/blog/how-to-proactively-manage-long-term-data-storage-with-downsampling)
+- Self-contained export: [OpenHTF output callbacks](https://www.openhtf.com/output-callbacks),
+  [mlflow-export-import](https://github.com/mlflow/mlflow-export-import)
+- Metadata-store + artifact-store federation:
+  [MLflow Artifact Stores](https://mlflow.org/docs/latest/self-hosting/architecture/artifact-store/)
 
 ---
 
