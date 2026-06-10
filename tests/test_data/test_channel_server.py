@@ -82,6 +82,23 @@ class TestInProcessServer:
         server.shutdown()
         store.close()
 
+    def test_channels_carry_full_descriptor(self, tmp_path: Path) -> None:
+        """list_flights serves the full descriptor (units/role) via app_metadata."""
+        store = _make_store(tmp_path)
+        store.write("dmm.voltage", 3.3, units="V", instrument_role="dmm")
+        server, location = start_server_background(store)
+
+        client = ChannelClient(location)
+        (desc,) = client.channels()
+        assert desc.channel_id == "dmm.voltage"
+        assert desc.units == "V"
+        assert desc.instrument_role == "dmm"
+        assert desc.data_type == "scalar:float"
+
+        client.close()
+        server.shutdown()
+        store.close()
+
     def test_remote_write_persists(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
         server, location = start_server_background(store)

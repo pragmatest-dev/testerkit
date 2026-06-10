@@ -8,7 +8,6 @@ Tools:
 - litmus_open: Get browser URL
 """
 
-import json
 import logging
 import subprocess
 import sys
@@ -1332,17 +1331,20 @@ def channels_query(
 
 
 def channels_list_query(*, data_dir: Path | None = None) -> dict[str, Any]:
-    """List known channels from the channel registry.
+    """List known channels with their descriptors, served by the daemon.
 
-    Shared implementation for HTTP API and MCP tool.
+    Shared implementation for HTTP API and MCP tool. Reads the daemon's
+    descriptor map (Flight ``list_flights``), never the channel store's files.
     """
+    from litmus.data.channels.client import channel_query_client
     from litmus.data.data_dir import resolve_data_dir
 
     base = data_dir if data_dir else resolve_data_dir()
-    registry_path = base / "channels" / "_registry.json"
-    if not registry_path.exists():
+    if not (base / "channels").exists():
         return {"channels": {}}
-    return {"channels": json.loads(registry_path.read_text())}
+    with channel_query_client(base / "channels") as client:
+        descriptors = client.channels()
+    return {"channels": {d.channel_id: d.model_dump(mode="json") for d in descriptors}}
 
 
 def channels_recent_query(
@@ -1366,14 +1368,12 @@ def channels_recent_query(
     from litmus.data.data_dir import resolve_data_dir
 
     base = data_dir if data_dir else resolve_data_dir()
-    registry_path = base / "channels" / "_registry.json"
-    if not (base / "channels").exists() or not registry_path.exists():
+    if not (base / "channels").exists():
         return {"channels": {}}
-
-    registry: dict[str, dict[str, Any]] = json.loads(registry_path.read_text())
 
     out: dict[str, dict[str, Any]] = {}
     with channel_query_client(base / "channels") as client:
+        registry = {d.channel_id: d.model_dump(mode="json") for d in client.channels()}
         for channel_id, descriptor in registry.items():
             try:
                 table = client.query(channel_id, last_n=last_n)

@@ -99,20 +99,33 @@ class TestMultipleChannels:
         assert len(arrow_files) == 2
 
 
-class TestRegistry:
-    def test_registry_written_on_close(self, tmp_path: Path):
-        import json
+class TestDescriptor:
+    def test_descriptor_rides_on_segment_schema_metadata(self, tmp_path: Path):
+        import pyarrow as pa
+        import pyarrow.ipc as ipc
+
+        from litmus.data.channels.models import ChannelDescriptor
 
         store = _make_store(tmp_path)
         store.write("dmm.dc_voltage", 3.3)
         store.close()
 
-        registry_path = tmp_path / "channels" / "_registry.json"
-        assert registry_path.exists()
-        data = json.loads(registry_path.read_text())
-        assert "dmm.dc_voltage" in data
+        # The descriptor rides on each segment's Arrow schema metadata — the
+        # daemon reads + serves it from there (and the do_put stream).
+        segments = list((tmp_path / "channels").glob("*/*.arrow"))
+        assert segments
+        meta = ipc.open_stream(pa.OSFile(str(segments[0]), "rb")).schema.metadata
+        assert meta and b"litmus.channel_descriptor" in meta
+        desc = ChannelDescriptor.model_validate_json(meta[b"litmus.channel_descriptor"])
+        assert desc.channel_id == "dmm.dc_voltage"
         # Build item 14: typed leaf — ``3.3`` is ``float`` → ``"scalar:float"``.
-        assert data["dmm.dc_voltage"]["data_type"] == "scalar:float"
+        assert desc.data_type == "scalar:float"
+
+    def test_no_registry_json_written(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        store.write("dmm.dc_voltage", 3.3)
+        store.close()
+        assert not (tmp_path / "channels" / "_registry.json").exists()
 
 
 class TestStreaming:

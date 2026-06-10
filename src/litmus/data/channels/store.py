@@ -22,7 +22,6 @@ import pyarrow as pa
 import pyarrow.flight as flight
 import pyarrow.ipc as ipc
 
-from litmus.data._atomic import atomic_write_text
 from litmus.data._ipc_writer import BufferedIPCWriter
 from litmus.data.channels import flight_manager
 from litmus.data.channels.models import (
@@ -195,7 +194,7 @@ class ChannelStore:
     Features:
     - Flexible per-channel schemas (inferred from first write)
     - Streaming writes (flush every N rows)
-    - Channel registry (JSON metadata)
+    - Per-channel descriptors (units, role) on the segment schema metadata
     - Live in-process subscriptions via on_channel()
     - Mid-session query() merging flushed files + in-memory buffer
     """
@@ -404,6 +403,15 @@ class ChannelStore:
         # Get or create writer (schema inferred from first value)
         if channel_id not in self._writers:
             schema = _infer_schema(self._normalize_value(value, sample_interval))
+            # Descriptor rides on the segment's Arrow schema metadata (the
+            # daemon reads + serves it); it is metadata, never an indexed column.
+            schema = schema.with_metadata(
+                {
+                    b"litmus.channel_descriptor": self._registry[channel_id]
+                    .model_dump_json()
+                    .encode()
+                }
+            )
             session_short = str(self._session_id)[:8]
             today = date.today().isoformat()
             path = self._channels_dir / today / f"{channel_id}_{session_short}.arrow"
@@ -824,8 +832,22 @@ class ChannelStore:
                 # Torn / still-open segment — leave it out of the ledger so
                 # the next restart re-reads it once it's a complete file.
                 continue
+            self._absorb_descriptor(m.group(1), table.schema)
             rows = self._segment_rows_to_index(m.group(1), table)
             self._insert_index_rows(rows, "channel_index", ledger_path=path_str)
+
+    def _absorb_descriptor(self, channel_id: str, schema: pa.Schema) -> None:
+        """Populate the served descriptor map from a segment's schema metadata.
+
+        Producers stamp the ``ChannelDescriptor`` as Arrow schema metadata on
+        every segment; the daemon (which never calls ``write()``) reads it here
+        so ``list_channel_info`` can serve it.
+        """
+        if channel_id in self._registry:
+            return
+        meta = (schema.metadata or {}).get(b"litmus.channel_descriptor")
+        if meta:
+            self._registry[channel_id] = ChannelDescriptor.model_validate_json(meta)
 
     @classmethod
     def _segment_rows_to_index(cls, channel_id: str, table: pa.Table) -> list[dict[str, Any]]:
@@ -1065,7 +1087,17 @@ class ChannelStore:
                 descriptor = flight.FlightDescriptor.for_command(
                     channel_id.encode("utf-8"),
                 )
-                writer, _ = client.do_put(descriptor, batch.schema)
+                # Stamp the descriptor on the persistent stream schema so the
+                # daemon absorbs it on stream-open — live channels are served
+                # their full descriptor before any segment closes (same
+                # Arrow-native carrier as the segments).
+                put_schema = batch.schema
+                desc_obj = self._registry.get(channel_id)
+                if desc_obj is not None:
+                    put_schema = put_schema.with_metadata(
+                        {b"litmus.channel_descriptor": desc_obj.model_dump_json().encode()}
+                    )
+                writer, _ = client.do_put(descriptor, put_schema)
                 self._flight_writers[channel_id] = writer
             # write_batch on the held stream flushes per batch (gRPC client
             # streaming sends each message), so cross-process subscribers see
@@ -1180,22 +1212,6 @@ class ChannelStore:
                         stacklevel=2,
                     )
 
-            # Write channel registry
-            if self._registry:
-                try:
-                    registry_path = self._channels_dir / "_registry.json"
-                    # Merge with existing registry
-                    existing: dict[str, dict] = {}
-                    if registry_path.exists():
-                        existing = json.loads(registry_path.read_text())
-                    for cid, desc in self._registry.items():
-                        existing[cid] = desc.model_dump(mode="json")
-                    atomic_write_text(json.dumps(existing, indent=2), registry_path)
-                except _WRITE_ERRORS as exc:
-                    warnings.warn(
-                        f"ChannelStore failed to write registry: {exc}",
-                        stacklevel=2,
-                    )
             if self._index_db is not None:
                 try:
                     self._index_db.close()

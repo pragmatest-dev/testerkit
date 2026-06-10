@@ -197,6 +197,26 @@ def test_channel_reads_go_through_daemon_not_globbing_store():
         )
 
 
+def test_no_channel_registry_file():
+    """No ``_registry.json`` — the channel descriptor rides on each segment's
+    Arrow schema metadata and is served by the daemon. A client-side registry
+    file would be a disk re-index (req 2) the backend swap (req 6) can't reach.
+    """
+    src = _REPO_ROOT / "src" / "litmus"
+    offenders: list[tuple[str, int, str]] = []
+    for path in src.rglob("*.py"):
+        rel = path.relative_to(_REPO_ROOT).as_posix()
+        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+            if "_registry.json" in line:
+                offenders.append((rel, lineno, line.strip()))
+    if offenders:
+        msg = "\n".join(f"  {p}:{n}  {line}" for p, n, line in offenders)
+        pytest.fail(
+            "The channel _registry.json file is gone — descriptors ride the "
+            "segment Arrow schema metadata, served by the daemon:\n" + msg
+        )
+
+
 # Files-store source allowed to touch the on-disk blob layout directly: the
 # backend (which IS the filesystem adapter) and the catalog daemon's index
 # rebuild — a store reading its OWN data to build its OWN index, the one

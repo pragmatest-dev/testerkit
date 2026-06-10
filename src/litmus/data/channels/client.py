@@ -149,11 +149,19 @@ class ChannelClient:
         return reader.read_all()
 
     def channels(self) -> list[ChannelDescriptor]:
-        """List available channels via list_flights."""
+        """List available channels with their descriptors via list_flights.
+
+        The daemon serves the full ``ChannelDescriptor`` (units, role, …) as
+        ``FlightInfo.app_metadata``.
+        """
         result = []
         for fi in self._client.list_flights():
-            cid = fi.descriptor.command.decode("utf-8")
-            result.append(ChannelDescriptor(channel_id=cid))
+            meta = fi.app_metadata
+            if meta:
+                result.append(ChannelDescriptor.model_validate_json(meta))
+            else:
+                cid = fi.descriptor.command.decode("utf-8")
+                result.append(ChannelDescriptor(channel_id=cid))
         return result
 
     def close(self) -> None:

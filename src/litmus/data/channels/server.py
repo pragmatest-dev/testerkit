@@ -74,6 +74,10 @@ class ChannelFlightServer(flight.FlightServerBase):
     ) -> None:
         """Remote producer writes data to a channel."""
         channel_id = descriptor.command.decode("utf-8")
+        # Absorb the descriptor from the stream schema metadata (stamped by the
+        # producer on do_put open) so live channels are served their full
+        # descriptor before any segment closes.
+        self._store._absorb_descriptor(channel_id, reader.schema)
         for chunk in reader:
             batch = chunk.data
             try:
@@ -166,6 +170,7 @@ class ChannelFlightServer(flight.FlightServerBase):
                 [],
                 -1,
                 -1,
+                app_metadata=desc.model_dump_json().encode(),
             )
             result.append(fi)
         return result
