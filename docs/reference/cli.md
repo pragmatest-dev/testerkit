@@ -77,6 +77,15 @@ Stop selected daemons without respawning.
 
 Data retention and management.
 
+#### `litmus data import` {#cli-data-import}
+
+Merge another ``data_dir`` into this one; the store daemons rebuild from the files.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `SOURCE` | `directory` |  |
+| `--data-dir` | `text` | Destination results dir (default: configured). |
+
 #### `litmus data promote` {#cli-data-promote}
 
 Move a starter project's local runs + their referenced data to the global store.

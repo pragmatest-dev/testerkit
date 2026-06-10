@@ -2735,6 +2735,74 @@ def data_reindex(data_dir: str | None) -> None:
     click.echo("Index daemons stopped. Index will rebuild on next query.")
 
 
+def _merge_data_dir(src: Path, dst: Path) -> int:
+    """Copy src's store subdirs into dst, skipping collisions. Returns files copied.
+
+    Identities are unique (uuid4 sessions, ts+serial run files) so a plain union is
+    safe; an already-present file is skipped, making re-runs idempotent.
+    """
+    import shutil
+
+    copied = 0
+    for sub in ("runs", "events", "channels", "files"):
+        s = src / sub
+        if not s.is_dir():
+            continue
+        for item in s.rglob("*"):
+            if not item.is_file():
+                continue
+            d = dst / item.relative_to(src)
+            if d.exists():
+                continue
+            d.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, d)
+            copied += 1
+    return copied
+
+
+@data.command("import")
+@click.argument("source", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--data-dir", default=None, help="Destination results dir (default: configured).")
+def data_import(source: Path, data_dir: str | None) -> None:
+    """Merge another ``data_dir`` into this one; the store daemons rebuild from the files.
+
+    Copies SOURCE's runs / events / channels / files into the destination store
+    (skipping collisions — identities are unique), then restarts the store daemons
+    so they rebuild their warm indexes from the merged files. Use after copying a
+    ``data_dir`` from another machine, or merging two stores: the data files are the
+    source of truth, so the daemons reconcile by rebuilding — but their state files
+    (pids/ports from the other machine) are stale and must be cleared.
+    """
+    from litmus.data.channels.flight_manager import FlightDaemonManager
+    from litmus.data.duckdb_manager import DuckDBDaemonManager
+    from litmus.data.files.catalog_manager import FilesCatalogManager
+    from litmus.data.runs_duckdb_manager import RunsDuckDBManager
+
+    src = source.resolve()
+    dst = Path(_get_data_dir(data_dir)).resolve()
+    if src == dst:
+        raise click.ClickException(f"Source and destination are the same: {src}")
+
+    copied = _merge_data_dir(src, dst)
+    click.echo(f"Merged {copied} file(s) from {src} into {dst}.")
+
+    # Restart the store daemons: clear their now-stale state files + rebuild from
+    # the merged data on next access (events/runs also drop the persisted index).
+    for sub, mgr_cls in [
+        ("events", DuckDBDaemonManager),
+        ("runs", RunsDuckDBManager),
+        ("channels", FlightDaemonManager),
+        ("files", FilesCatalogManager),
+    ]:
+        d = dst / sub
+        if d.exists():
+            mgr_cls(d).force_restart()
+            idx = d / "_index.duckdb"
+            if idx.exists():
+                idx.unlink()
+    click.echo("Store daemons restarted; warm indexes rebuild on next access.")
+
+
 # ---------------------------------------------------------------------------
 # Daemon lifecycle
 # ---------------------------------------------------------------------------
