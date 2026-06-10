@@ -79,12 +79,13 @@ Data retention and management.
 
 #### `litmus data promote` {#cli-data-promote}
 
-Move a starter project's local runs to the global store.
+Move a starter project's local runs + their referenced data to the global store.
 
 | Argument / option | Type | Description |
 |---|---|---|
 | `--include-starter` | `flag` | Also promote runs that match starter sentinels (example_product / starter_station / STARTER001 / etc.). Default skips these as throwaway learning runs. |
 | `--dry-run` | `flag` | Show what would be promoted; write nothing. |
+| `--with-events` | `flag` | Also carry each run's session event timeline (audit-grade archive). |
 
 #### `litmus data prune` {#cli-data-prune}
 

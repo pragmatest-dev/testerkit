@@ -2493,6 +2493,88 @@ def _is_starter_parquet(parquet_path: Path) -> bool:
     return False
 
 
+def _extract_parquet_refs(parquet_path: Path) -> tuple[set[tuple[str, str]], set[str]]:
+    """Channel ``(channel_id, session_id)`` pairs + ``file://`` keys a run references.
+
+    Scans the run's string columns (``out_*`` etc.) for ``channel://`` / ``file://``
+    URIs — the run's full reachable set, both schemes.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from litmus.data.ref import is_ref, parse_channel_uri
+
+    channels: set[tuple[str, str]] = set()
+    files: set[str] = set()
+    try:
+        table = pq.read_table(parquet_path)
+    except (OSError, pa.ArrowException):
+        return channels, files
+    for name in table.column_names:
+        col = table.column(name)
+        if not (pa.types.is_string(col.type) or pa.types.is_large_string(col.type)):
+            continue
+        for v in col.to_pylist():
+            if not is_ref(v):
+                continue
+            if v.startswith("channel://"):
+                cid, sid = parse_channel_uri(v)
+                if cid and sid:
+                    channels.add((cid, sid))
+            else:  # file://
+                files.add(v[len("file://") :])
+    return channels, files
+
+
+def _copy_run_references(
+    src_parquet: Path, src_data: Path, dst_data: Path, *, with_events: bool
+) -> tuple[int, int]:
+    """Copy the channel slices + files a run references into the destination store.
+
+    Keeps the run whole in the global store (no dangling refs). ``file://`` keys
+    copy by exact path (+ ``.meta.json`` sidecar so the catalog rebuilds); channel
+    slices copy every matching segment. ``with_events`` also carries each session's
+    event timeline. Returns ``(channel_segments_copied, files_copied)``.
+    """
+    import shutil
+
+    channels, files = _extract_parquet_refs(src_parquet)
+    sessions = {sid for _, sid in channels}
+
+    def _copy(rel: Path) -> bool:
+        s, d = src_data / rel, dst_data / rel
+        if not s.exists() or d.exists():
+            return False
+        d.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(s, d)
+        return True
+
+    n_files = 0
+    for key in files:
+        if _copy(Path("files") / key):
+            n_files += 1
+        _copy(Path("files") / f"{key}.meta.json")  # sidecar → catalog rebuild
+        parts = key.split("/")
+        if len(parts) >= 2:
+            sessions.add(parts[1])  # file://{date}/{session}/{filename}
+
+    n_chan = 0
+    chan_root = src_data / "channels"
+    if chan_root.is_dir():
+        for cid, sid in channels:
+            for seg in chan_root.glob(f"*/{cid}_{sid[:8]}*.arrow"):
+                if _copy(seg.relative_to(src_data)):
+                    n_chan += 1
+
+    if with_events:
+        ev_root = src_data / "events"
+        if ev_root.is_dir():
+            for sid in sessions:
+                for ev in ev_root.glob(f"*/{sid}-*.arrow"):
+                    _copy(ev.relative_to(src_data))
+    return n_chan, n_files
+
+
 def _global_data_dir() -> Path:
     """Resolve the platformdirs global data directory.
 
@@ -2517,15 +2599,22 @@ def _global_data_dir() -> Path:
     "Default skips these as throwaway learning runs.",
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be promoted; write nothing.")
-def data_promote(include_starter: bool, dry_run: bool) -> None:
-    """Move a starter project's local runs to the global store.
+@click.option(
+    "--with-events",
+    is_flag=True,
+    help="Also carry each run's session event timeline (audit-grade archive).",
+)
+def data_promote(include_starter: bool, dry_run: bool, with_events: bool) -> None:
+    """Move a starter project's local runs + their referenced data to the global store.
 
     Starter projects ship with ``data_dir: data`` in litmus.yaml so
     learning runs (mock instruments, example_product, STARTER001, etc.)
     don't pollute the platformdirs global store shared across projects
     on this machine. When you're ready to share data across projects,
-    `litmus data promote` copies non-starter runs into the global store
-    and removes the ``data_dir`` override from your litmus.yaml.
+    `litmus data promote` copies non-starter runs **plus the channel/file
+    data they reference** into the global store (the runs stay whole — no
+    dangling refs), and removes the ``data_dir`` override from your
+    litmus.yaml. ``--with-events`` also carries each run's session events.
 
     Idempotent. Re-running promote after adding the flag picks up
     anything previously skipped.
@@ -2603,12 +2692,23 @@ def data_promote(include_starter: bool, dry_run: bool) -> None:
         click.echo("\nNothing to promote. litmus.yaml unchanged.")
         return
 
-    # Copy parquets. Each is independent — failures don't roll back, but
-    # files are skipped on collision so re-running is safe.
+    # Copy each run parquet + the channel/file data it references, so the run
+    # stays whole in the global store (no dangling refs). Each is independent —
+    # failures don't roll back, but files are skipped on collision so re-running
+    # is safe.
+    total_chan = total_files = 0
     for src, dst in to_copy:
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
-    click.echo(f"\nCopied {len(to_copy)} run parquet(s) to {dst_data / 'runs' / 'runs'}/")
+        nc, nf = _copy_run_references(src, src_data, dst_data, with_events=with_events)
+        total_chan += nc
+        total_files += nf
+    click.echo(
+        f"\nCopied {len(to_copy)} run parquet(s) + {total_chan} channel segment(s) "
+        f"+ {total_files} file(s) to {dst_data}/"
+    )
+    if with_events:
+        click.echo("Carried each run's session event timeline (--with-events).")
 
     # Update litmus.yaml — drop the data_dir override so future runs
     # and queries from this project use the global store. Uses ruamel
@@ -2630,8 +2730,14 @@ def data_promote(include_starter: bool, dry_run: bool) -> None:
 
     click.echo("")
     click.echo("Future runs and `litmus runs` queries from this project now use the global store.")
-    click.echo(f"The local {src_data} directory still has the unpromoted runs.")
-    click.echo(f"To clean up once you're sure:  rm -rf {src_data}")
+    click.echo(
+        "The global store now holds the promoted runs + their referenced "
+        "channel/file data, so they resolve there."
+    )
+    click.echo(
+        f"The local {src_data} still has unpromoted/starter runs; remove it once "
+        f"you've verified the global store:  rm -rf {src_data}"
+    )
 
 
 @data.command("reindex")
