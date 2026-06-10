@@ -94,3 +94,48 @@ Honest limits: single-node → distributed is more than a swap (partitioning
 across nodes); each backend needs a thin protocol adapter under the verb
 API; we provide at-least-once + id-dedup (forward-compatible with brokers'
 exactly-once).
+
+## req-6 serving-tier swap — proven recipe (deferred until a real server)
+
+Contract #5 (config-driven connection) is the **serving-tier** half of req 6:
+point a client at a *remote* daemon instead of spawning a local one. This was
+built and tested green on 2026-06-09, then **reverted** — until a real remote
+daemon exists the hook is four dead env vars nobody points at, so we don't ship
+it. It's recorded here because the proof is the deliverable: req 6's gate is
+"architecture *proven* swap-ready," not "hook shipped."
+
+**Why deferring is safe (not the FileStore trap).** Every store's client already
+resolves its daemon via `<store>_manager.acquire(dir) -> opaque grpc:// location`,
+then `FlightQueryClient(location)`. The location is *already opaque* — clients
+connect by address, never knowing local vs remote. So the hook is purely
+**additive inside `acquire()`**, not a rewrite. (Contrast FileStore's old bespoke
+local I/O, which leaked a `Path` and would have forced a rewrite for S3.)
+
+**Recipe** (≈ one helper + four one-line hooks + a test):
+
+1. `src/litmus/data/_daemon_lifecycle.py`:
+   ```python
+   def configured_remote_location(env_key: str) -> str | None:
+       loc = os.environ.get(env_key, "").strip()
+       return loc or None
+   ```
+2. At the top of each module `acquire(dir)`, before `mgr = ...; mgr.acquire()`:
+   ```python
+   remote = configured_remote_location("LITMUS_<STORE>_DAEMON")
+   if remote:
+       return remote
+   ```
+
+   | store | module | env var |
+   |---|---|---|
+   | events | `duckdb_manager.py` | `LITMUS_EVENTS_DAEMON` |
+   | runs | `runs_duckdb_manager.py` | `LITMUS_RUNS_DAEMON` |
+   | channels | `channels/flight_manager.py` | `LITMUS_CHANNELS_DAEMON` |
+   | files | `files/catalog_manager.py` | `LITMUS_FILES_DAEMON` |
+3. Proof `tests/test_data/test_daemon_swap_seam.py`: parametrize over the four
+   `acquire` functions — env set → the address is returned and **no local daemon
+   is spawned** (`not list(dir.iterdir())`); unset/empty → `None` (local path).
+4. Landing for real also gets a `litmus.yaml` / `ProjectConfig` field (mirroring
+   F1's `files_backend` + `LITMUS_FILES_BACKEND`) and one end-to-end test against
+   an actual remote daemon. The remote daemon is externally managed — the client
+   connects, it does not spawn or supervise it.
