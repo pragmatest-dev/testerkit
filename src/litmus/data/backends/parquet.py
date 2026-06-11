@@ -396,20 +396,25 @@ class ParquetBackend:
                 for measurement in vector.measurements:
                     rows.append(_build(measurement, step, step_idx, vector, step_arrays))
 
-                # Item 9: auto-promote observations in verify-less vectors
-                # to DONE rows. Each observation produces one row carrying
-                # value=None + outcome=DONE; the obs value itself rides
-                # along as out_<name> via the existing column projection.
-                if not vector.measurements and vector.observations:
-                    for obs_name in vector.observations:
-                        if obs_name.startswith("_"):
-                            continue
-                        promoted = Measurement(
-                            name=obs_name,
-                            value=None,
-                            outcome=Outcome.DONE,
-                        )
-                        rows.append(_build(promoted, step, step_idx, vector, step_arrays))
+                # Item 9: auto-promote a verify-less vector to ONE DONE
+                # placeholder row. An observation is not a measurement, so
+                # the row carries measurement_name=NULL / value=NULL /
+                # outcome=DONE; every observation rides along as out_<name>
+                # via the vector's existing out_* column projection.
+                non_underscore_obs = any(
+                    not obs_name.startswith("_") for obs_name in vector.observations
+                )
+                if not vector.measurements and non_underscore_obs:
+                    placeholder = Measurement(
+                        name="",
+                        value=None,
+                        outcome=Outcome.DONE,
+                    )
+                    promoted_row = _build(placeholder, step, step_idx, vector, step_arrays)
+                    promoted_row["measurement_name"] = None
+                    promoted_row["measurement_value"] = None
+                    promoted_row["measurement_outcome"] = Outcome.DONE.value
+                    rows.append(promoted_row)
         return rows
 
     def _build_run_row(

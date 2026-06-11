@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import queue
 import sys
 import threading
 import warnings
@@ -635,8 +636,8 @@ def _delete_file_rows(conn: duckdb.DuckDBPyConnection, path_str: str) -> None:
 _OPTIONAL_MEAS_LIMITS = ("measurement_units", "limit_low", "limit_high", "limit_nominal")
 
 # Fixed column names that go directly into measurements_materialized as
-# named columns. Any parquet column NOT in this set and not in
-# _MEAS_SKIP_COLS gets packed into the dynamic_attrs MAP(VARCHAR,VARCHAR).
+# named columns. Dynamic columns (in_*/out_*/custom_*) are packed into the
+# dynamic_attrs MAP(VARCHAR,VARCHAR); everything else is dropped.
 _MEAS_FIXED_COLS: frozenset[str] = frozenset(
     {
         "record_type",
@@ -694,26 +695,6 @@ _MEAS_FIXED_COLS: frozenset[str] = frozenset(
         "instrument_name",
         "instrument_resource",
         "instrument_channel",
-    }
-)
-# Instrument array columns — complex multi-valued types not stored in
-# the MAP (they're available via steps/runs for instrument detail queries).
-_MEAS_SKIP_COLS: frozenset[str] = frozenset(
-    {
-        "step_instruments_cal_certificate",
-        "step_instruments_cal_due",
-        "step_instruments_cal_lab",
-        "step_instruments_cal_last",
-        "step_instruments_driver",
-        "step_instruments_firmware",
-        "step_instruments_id",
-        "step_instruments_manufacturer",
-        "step_instruments_mocked",
-        "step_instruments_model",
-        "step_instruments_name",
-        "step_instruments_protocol",
-        "step_instruments_resource",
-        "step_instruments_serial",
     }
 )
 
@@ -790,12 +771,11 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
     planning).
     """
     available = _parquet_columns(conn, fkey)
-    # Any column not in the fixed schema and not in the skip set goes
-    # into the MAP — this captures in_*/out_*/custom_* prefixed columns
-    # AND non-prefixed custom columns (e.g. "value", "units", "nominal").
-    dynamic_present = sorted(
-        c for c in available if c not in _MEAS_FIXED_COLS and c not in _MEAS_SKIP_COLS
-    )
+    # Only in_*/out_*/custom_* columns go into dynamic_attrs — the same
+    # rule the in-flight overlay (EventAccumulator.snapshot_measurement_rows)
+    # uses, so the two projections produce an identical MAP. First-class
+    # step-identity columns (step_node_id, step_file, …) are NOT swept in.
+    dynamic_present = sorted(c for c in available if c.startswith(("in_", "out_", "custom_")))
 
     if dynamic_present:
         keys_sql = ", ".join(f"'{_sql_escape(c)}'" for c in dynamic_present)
@@ -850,7 +830,9 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             run_outcome AS outcome,
             run_started_at AS started_at,
             run_ended_at AS ended_at,
-            CAST(COUNT(*) FILTER (WHERE record_type = 'measurement') AS INTEGER)
+            CAST(COUNT(*) FILTER (
+                WHERE record_type = 'measurement' AND measurement_name IS NOT NULL
+            ) AS INTEGER)
                 AS num_measurements,
             CAST(COUNT(*) FILTER (WHERE record_type = 'step') AS INTEGER)
                 AS num_steps,
@@ -928,9 +910,13 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 THEN EPOCH(step_ended_at) - EPOCH(step_started_at)
                 ELSE NULL
             END AS duration_s,
-            CAST(COUNT(*) FILTER (WHERE record_type = 'measurement') AS INTEGER)
+            CAST(COUNT(*) FILTER (
+                WHERE record_type = 'measurement' AND measurement_name IS NOT NULL
+            ) AS INTEGER)
                 AS measurement_count,
-            (COUNT(*) FILTER (WHERE record_type = 'measurement') > 0)
+            (COUNT(*) FILTER (
+                WHERE record_type = 'measurement' AND measurement_name IS NOT NULL
+            ) > 0)
                 AS has_measurements,
             CAST(step_vector_count AS INTEGER) AS vector_count,
             CAST(
@@ -942,7 +928,10 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             station_id,
             {map_expr} AS dynamic_attrs
         FROM read_parquet({flist}, filename=true, union_by_name=true)
-        WHERE run_id IS NOT NULL
+        -- Exclude the run record (record_type='run', step_path=''): steps
+        -- are aggregated from 'step' + 'measurement' rows only. Without this
+        -- the run record forms a phantom ('', 0) step group.
+        WHERE run_id IS NOT NULL AND record_type <> 'run'
         GROUP BY
             filename, run_id,
             step_path, vector_index, step_index,
@@ -1255,13 +1244,14 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
     # measurements: persistent TABLE + inflight live snapshot.
     # UNION BY NAME matches columns by name rather than position, so the
     # inflight schema doesn't need to list columns in exactly the same order
-    # as measurements_materialized. Columns absent from the inflight side
-    # (file_path, dynamic_attrs) are automatically NULL.
+    # as measurements_materialized. file_path is the only column absent from
+    # the inflight side (no parquet file yet) — automatically NULL.
     conn.execute("""
         CREATE OR REPLACE VIEW measurements AS
         SELECT * FROM measurements_materialized
         UNION BY NAME
         SELECT
+            record_type,
             run_id, session_id, slot_id,
             run_started_at, run_ended_at, run_outcome,
             dut_serial, dut_part_number, dut_revision, dut_lot_number,
@@ -1321,7 +1311,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             parent_path,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
-            duration_s, has_measurements, measurement_count, vector_count,
+            duration_s, has_measurements, measurement_count, vector_count, retry_count,
             markers, dut_serial, station_id,
             dynamic_attrs
         FROM overlay.inflight_steps
@@ -1366,9 +1356,9 @@ def _batch_insert_measurement_rows(
             f"DESCRIBE (SELECT * FROM read_parquet({flist}, union_by_name=true) LIMIT 0)"
         ).fetchall()
     }
-    dynamic_cols = sorted(
-        c for c in available if c not in _MEAS_FIXED_COLS and c not in _MEAS_SKIP_COLS
-    )
+    # Only in_*/out_*/custom_* columns go into dynamic_attrs — matches the
+    # in-flight overlay's MAP rule so the two projections never diverge.
+    dynamic_cols = sorted(c for c in available if c.startswith(("in_", "out_", "custom_")))
 
     # Fixed columns listed explicitly so INSERT BY NAME has a stable
     # ordering. ``union_by_name=true`` on read_parquet pads any column
@@ -1450,9 +1440,7 @@ def daemon_run(runs_dir: Path) -> None:
     # watcher loop and letting the events backlog grow under bursty
     # load. Live-runs UI would lag by seconds when many runs finish
     # in close succession.
-    import queue as _queue
-
-    materialize_queue: _queue.Queue[tuple[str, str | None]] = _queue.Queue()
+    materialize_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
 
     # Real shared inflight overlay tables (NOT per-connection temp views),
     # so the UNION views in ``_create_views`` resolve on every cursor and
@@ -1707,7 +1695,7 @@ def daemon_run(runs_dir: Path) -> None:
         while not stop_event.is_set():
             try:
                 item = materialize_queue.get(timeout=0.5)
-            except _queue.Empty:
+            except queue.Empty:
                 continue
             try:
                 run_id, outcome = item

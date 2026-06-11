@@ -329,6 +329,7 @@ INFLIGHT_STEPS_SCHEMA = pa.schema(
         ("has_measurements", pa.bool_()),
         ("measurement_count", pa.int32()),
         ("vector_count", pa.int32()),
+        ("retry_count", pa.int32()),
         ("markers", pa.string()),
         ("dut_serial", pa.string()),
         ("station_id", pa.string()),

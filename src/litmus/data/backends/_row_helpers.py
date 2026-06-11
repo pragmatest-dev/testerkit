@@ -902,6 +902,7 @@ def step_entry_dict(
     has_measurements: bool,
     measurement_count: int,
     vector_count: int,
+    retry_count: int = 0,
 ) -> dict[str, Any]:
     """Single source of truth for one step manifest entry's shape.
 
@@ -942,6 +943,7 @@ def step_entry_dict(
         "has_measurements": has_measurements,
         "measurement_count": measurement_count,
         "vector_count": vector_count,
+        "retry_count": retry_count,
     }
 
 

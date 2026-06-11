@@ -14,7 +14,7 @@ Item 9 (auto-promotion): per vector at materialization —
 | Vector contained | Row emission |
 |---|---|
 | ≥1 verify | verify rows only; observations ride as ``out_*`` |
-| 0 verify, ≥1 observe | each observation → DONE row (value=NULL, outcome=DONE) |
+| 0 verify, ≥1 observe | ONE DONE row (name/value=NULL); each observation rides as ``out_*`` |
 | 0 of either | no row |
 
 Item 10 (kind stability): the first observation of a name pins
@@ -100,8 +100,9 @@ def _read_measurement_rows(parquet_path: Path) -> list[dict]:
 
 
 class TestAutoPromotionOffline:
-    def test_observation_only_vector_promotes_each_observation(self, tmp_path: Path) -> None:
-        """Per spec §7: 0 verify + ≥1 observe → each observation → DONE row."""
+    def test_observation_only_vector_promotes_to_one_done_row(self, tmp_path: Path) -> None:
+        """Per spec §7: 0 verify + ≥1 observe → ONE nameless DONE row per
+        vector, with every observation carried as out_*."""
         run = _run_with_vector(
             observations={"temperature": 23.5, "humidity": 45.0},
         )
@@ -109,20 +110,17 @@ class TestAutoPromotionOffline:
         parquet_path = backend.save_test_run(run)
 
         rows = _read_measurement_rows(parquet_path)
-        assert len(rows) == 2
+        # An observation is not a measurement → one placeholder row, not one
+        # per observation.
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["measurement_name"] is None
+        assert row["measurement_value"] is None
+        assert row["measurement_outcome"] == "done"
 
-        names = sorted(r["measurement_name"] for r in rows)
-        assert names == ["humidity", "temperature"]
-
-        # Each promoted row: value=None, outcome=DONE
-        for r in rows:
-            assert r["measurement_value"] is None
-            assert r["measurement_outcome"] == "done"
-
-        # And the observation values ride as out_* on each row
-        out_keys = {k for r in rows for k in r if k.startswith("out_")}
-        assert "out_temperature" in out_keys
-        assert "out_humidity" in out_keys
+        # Both observation values ride as out_* on the single row
+        assert row["out_temperature"] == 23.5
+        assert row["out_humidity"] == 45.0
 
     def test_verify_present_no_done_promotion(self, tmp_path: Path) -> None:
         """≥1 verify → verify rows only; observations ride along."""
@@ -153,7 +151,8 @@ class TestAutoPromotionOffline:
         assert rows == []
 
     def test_underscore_observation_keys_skipped(self, tmp_path: Path) -> None:
-        """Internal keys (``_started_at`` etc.) don't promote to DONE rows."""
+        """Internal keys (``_started_at`` etc.) don't ride as out_* and don't
+        on their own trigger a DONE row."""
         run = _run_with_vector(
             observations={"_internal": "skip me", "temperature": 23.5},
         )
@@ -162,7 +161,11 @@ class TestAutoPromotionOffline:
 
         rows = _read_measurement_rows(parquet_path)
         assert len(rows) == 1
-        assert rows[0]["measurement_name"] == "temperature"
+        row = rows[0]
+        assert row["measurement_name"] is None
+        assert row["measurement_outcome"] == "done"
+        assert row["out_temperature"] == 23.5
+        assert "out__internal" not in row
 
 
 # --------------------------------------------------------------------- #
@@ -309,7 +312,8 @@ def _finalize(acc: EventAccumulator, ctx: dict, outputs: dict | None = None) -> 
 
 class TestAutoPromotionLive:
     def test_observation_only_vector_promotes_to_done_row(self, tmp_path: Path) -> None:
-        """Live path mirrors offline: observation-only vector → DONE rows."""
+        """Live path mirrors offline: observation-only vector → ONE nameless
+        DONE row carrying the observation as out_*."""
         acc, ctx = _seeded_accumulator()
         acc.on_event(
             Observation(
@@ -331,7 +335,7 @@ class TestAutoPromotionLive:
 
         assert len(rows) == 1
         row = rows[0]
-        assert row["measurement_name"] == "temperature"
+        assert row["measurement_name"] is None
         assert row["measurement_value"] is None
         assert row["measurement_outcome"] == "done"
         # observation value rides as out_temperature
@@ -379,8 +383,9 @@ class TestAutoPromotionLive:
         # observation still rides as out_*
         assert rows[0]["out_temperature"] == 23.5
 
-    def test_multiple_observations_each_promote_to_own_row(self, tmp_path: Path) -> None:
-        """Two observations in a verify-less vector → two DONE rows."""
+    def test_multiple_observations_promote_to_one_row(self, tmp_path: Path) -> None:
+        """Two observations in a verify-less vector → ONE DONE row carrying
+        both as out_* (an observation is not a measurement)."""
         acc, ctx = _seeded_accumulator()
         for name, value, micros in (
             ("temperature", 23.5, 300000),
@@ -404,14 +409,12 @@ class TestAutoPromotionLive:
         assert parquet_path is not None
         rows = _read_measurement_rows(parquet_path)
 
-        assert len(rows) == 2
-        names = sorted(r["measurement_name"] for r in rows)
-        assert names == ["humidity", "temperature"]
-        # Each DONE row carries both observations in out_*
-        for r in rows:
-            assert r["out_temperature"] == 23.5
-            assert r["out_humidity"] == 45.0
-            assert r["measurement_outcome"] == "done"
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["measurement_name"] is None
+        assert row["measurement_outcome"] == "done"
+        assert row["out_temperature"] == 23.5
+        assert row["out_humidity"] == 45.0
 
 
 # --------------------------------------------------------------------- #
