@@ -13,7 +13,6 @@ import pytest
 
 from litmus.data.models import TestVector
 from litmus.execution._state import (
-    _active_vector_index_var,
     get_active_facets,
     get_active_limits,
     get_active_profile,
@@ -1230,10 +1229,7 @@ def vectors(request: pytest.FixtureRequest) -> Iterator[_VectorIterator]:
         yield it
     finally:
         set_active_vector_params({})
-        try:
-            _active_vector_index_var.set(0)
-        except LookupError:
-            pass
+        set_active_vector_index(0)
         if len(matrix) > 0 and it.consumed == 0:
             pytest.fail(
                 f"{request.node.nodeid}: ``vectors`` fixture was not iterated "

@@ -2229,14 +2229,17 @@ def metrics_pareto(data_dir, phase, since, until_date, product, station, top_n, 
         header = "Product (dut_part_number)"
     else:  # measurement (historical)
         store = _measurements_query(data_dir)
-        raw = store.pareto(
-            product=product,
-            station=station,
-            phase=phase,
-            since=since,
-            until=until_date,
-            top_n=top_n,
-        )
+        try:
+            raw = store.pareto(
+                product=product,
+                station=station,
+                phase=phase,
+                since=since,
+                until=until_date,
+                top_n=top_n,
+            )
+        finally:
+            store.close()
         rows = [
             {
                 "bucket": f"{r.get('step_name', '')}: {r.get('measurement_name', '')}",
