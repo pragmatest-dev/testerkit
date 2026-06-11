@@ -68,10 +68,10 @@ vanilla pytest
     → litmus_limits marker
       → sidecar markers
         → station + catalog
-          → product + fixture connections
+          → part + fixture connections
             → profiles + extends
 ```
 
 Every layer you add is optional. A real project can sit at stage 4
 forever if the DUT never grows; stage 7 unlocks scenario variation
-when the product actually needs it.
+when the part actually needs it.

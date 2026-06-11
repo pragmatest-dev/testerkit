@@ -10,7 +10,7 @@ Sessions are broader than test runs. A single session might contain multiple tes
 
 ## Session Metadata
 
-`SessionStarted` (see [event-log](event-log.md) for the event-type taxonomy) captures session-wide context — the *who/where/how* of the process holding the connection. Per-run context (DUT, product, test phase, git, environment) lives on `RunStarted`, emitted once per test run within the session.
+`SessionStarted` (see [event-log](event-log.md) for the event-type taxonomy) captures session-wide context — the *who/where/how* of the process holding the connection. Per-run context (DUT, part, test phase, git, environment) lives on `RunStarted`, emitted once per test run within the session.
 
 | Category | Fields |
 |----------|--------|
@@ -25,14 +25,14 @@ Sessions are broader than test runs. A single session might contain multiple tes
 | Category | Fields |
 |----------|--------|
 | **DUT** | `dut_serial`, `dut_part_number`, `dut_revision`, `dut_lot_number` |
-| **Product** | `product_id`, `product_name`, `product_revision` |
+| **Part** | `part_id`, `part_name`, `part_revision` |
 | **Slot** | `slot_id`, `slot_index` |
 | **Test context** | `fixture_id`, `test_phase`, `project_name` |
 | **Git** | `git_commit`, `git_branch`, `git_remote` |
 | **Environment** | `environment_json` (Python version, litmus version, top-level deps, lockfile hash) |
 | **Custom** | `custom_metadata` dict, `channel_refs` list |
 
-Config files (station, fixture, product spec) are tracked via git — the `git_commit` field on each `RunStarted` identifies the exact code and config state.
+Config files (station, fixture, part spec) are tracked via git — the `git_commit` field on each `RunStarted` identifies the exact code and config state.
 
 ## Why Sessions Exist
 

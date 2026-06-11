@@ -183,7 +183,7 @@ class EventAccumulator:
             ),
             "num_steps": len(set(self._step_starts) | set(self._step_ends)),
             "test_phase": s.test_phase,
-            "product_id": s.product_id,
+            "part_id": s.part_id,
             "operator_id": s.operator_id,
             "project_name": s.project_name,
             "file_path": None,

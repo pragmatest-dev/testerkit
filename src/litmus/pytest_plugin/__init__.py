@@ -27,7 +27,7 @@ from litmus.execution._state import (
     reset_current_context,
     reset_current_vector,
     set_active_instruments,
-    set_active_product_context,
+    set_active_part_context,
     set_active_vector_index,
     set_active_vector_params,
     set_channel_store,
@@ -53,7 +53,7 @@ from litmus.instruments.route_manager import RouteManager
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.station import StationConfig
 from litmus.models.test_config import FixtureConfig, PromptConfig
-from litmus.products.context import ProductContext
+from litmus.parts.context import PartContext
 from litmus.prompts import ask as ask_prompt
 
 # Pytest discovers fixtures by attribute lookup on the plugin module —
@@ -205,7 +205,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         station_id=_resolve_station_id(request.config),
         station_config=station_config,
         fixture_config=fixture_config,
-        product_context=_safe_get_session_fixture(request, "product_context"),
+        part_context=_safe_get_session_fixture(request, "part_context"),
         operator_id=request.config.getoption("--operator"),
         project_dir=request.config.rootpath,
         data_dir=request.config.getoption("--data-dir"),
@@ -302,9 +302,9 @@ def _emit_session_start_events(logger: TestRunLogger) -> None:
             dut_part_number=logger.test_run.dut.part_number,
             dut_revision=logger.test_run.dut.revision,
             dut_lot_number=logger.test_run.dut.lot_number,
-            product_id=logger.test_run.product_id,
-            product_name=logger.test_run.product_name,
-            product_revision=logger.test_run.product_revision,
+            part_id=logger.test_run.part_id,
+            part_name=logger.test_run.part_name,
+            part_revision=logger.test_run.part_revision,
             operator_id=logger.test_run.operator_id,
             operator_name=logger.test_run.operator_name,
             fixture_id=logger.test_run.fixture_id,
@@ -437,72 +437,72 @@ def run_context(logger) -> RunContext:
 
 
 @pytest.fixture(scope="session")
-def product_context(request) -> ProductContext | None:
-    """Provide product context for spec-driven testing.
+def part_context(request) -> PartContext | None:
+    """Provide part context for spec-driven testing.
 
     Resolution chain (first match wins):
 
-    1. ``--product <id-or-path>`` — bare id looks up
-       ``products/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml``
+    1. ``--part <id-or-path>`` — bare id looks up
+       ``parts/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml``
        is used as an explicit path. Mirrors ``--station``/``--fixture``
        resolution shape.
     2. ``--dut-part-number <pn>`` — content match against
-       ``product.part_number:`` across ``products/*.yaml``.
-    3. Single-file fallback when ``products/`` holds exactly one file.
-    4. ``None`` — bringup tier without a product YAML.
+       ``part.part_number:`` across ``parts/*.yaml``.
+    3. Single-file fallback when ``parts/`` holds exactly one file.
+    4. ``None`` — bringup tier without a part YAML.
 
     Usage in tests:
-        def test_voltage(product_context, dmm):
-            limit = product_context.get_limit("output_voltage", temperature=25)
+        def test_voltage(part_context, dmm):
+            limit = part_context.get_limit("output_voltage", temperature=25)
             value = dmm.measure_dc_voltage()
             # Use limit for validation...
 
     Returns:
-        :class:`ProductContext`, or ``None`` if no product YAML is loaded.
+        :class:`PartContext`, or ``None`` if no part YAML is loaded.
     """
     from litmus.pytest_plugin.helpers import is_yaml_path
 
-    product_value = request.config.getoption("--product")
+    part_value = request.config.getoption("--part")
     guardband = float(request.config.getoption("--guardband"))
     part_number = request.config.getoption("--dut-part-number")
 
     ctx = None
 
-    if product_value:
-        if is_yaml_path(product_value):
-            ctx = ProductContext.from_file(product_value, guardband_pct=guardband)
+    if part_value:
+        if is_yaml_path(part_value):
+            ctx = PartContext.from_file(part_value, guardband_pct=guardband)
         else:
-            product_path = _find_yaml_in_subdir(request.config, "products", f"{product_value}.yaml")
-            if product_path is None:
+            part_path = _find_yaml_in_subdir(request.config, "parts", f"{part_value}.yaml")
+            if part_path is None:
                 raise pytest.UsageError(
-                    f"--product={product_value!r} did not find "
-                    f"products/{product_value}.yaml. Pass an explicit path "
-                    "(e.g. --product=path/to/foo.yaml) for files outside "
-                    "the project's ``products/`` directory."
+                    f"--part={part_value!r} did not find "
+                    f"parts/{part_value}.yaml. Pass an explicit path "
+                    "(e.g. --part=path/to/foo.yaml) for files outside "
+                    "the project's ``parts/`` directory."
                 )
-            ctx = ProductContext.from_file(product_path, guardband_pct=guardband)
+            ctx = PartContext.from_file(part_path, guardband_pct=guardband)
     else:
-        ctx = _autodiscover_product(request.config, guardband, part_number)
+        ctx = _autodiscover_part(request.config, guardband, part_number)
 
-    set_active_product_context(ctx)
+    set_active_part_context(ctx)
     return ctx
 
 
-def _autodiscover_product(
+def _autodiscover_part(
     config: pytest.Config,
     guardband: float,
     part_number: str | None,
-) -> ProductContext | None:
-    """Pick a product YAML from ``products/`` in the project or cwd.
+) -> PartContext | None:
+    """Pick a part YAML from ``parts/`` in the project or cwd.
 
     Selection rules:
-    1. If ``--dut-part-number`` is set and exactly one product's
+    1. If ``--dut-part-number`` is set and exactly one part's
        ``part_number:`` matches (case-insensitive), use it.
     2. If ``--dut-part-number`` is set but no file matches, raise
        ``pytest.UsageError`` — a typo in the selector is worse than a
-       silent wrong-product pick.
-    3. Otherwise, take the first sorted ``products/*.yaml`` file. If
-       the directory holds multiple products and ``--dut-part-number``
+       silent wrong-part pick.
+    3. Otherwise, take the first sorted ``parts/*.yaml`` file. If
+       the directory holds multiple parts and ``--dut-part-number``
        was not provided, raise ``pytest.UsageError`` — Rev-B flows
        need an explicit selector.
     """
@@ -511,51 +511,49 @@ def _autodiscover_product(
         Path(config.invocation_params.dir),
     ]
 
-    product_files: list[Path] = []
+    part_files: list[Path] = []
     for root in search_roots:
-        products_dir = root / "products"
-        if not products_dir.exists():
+        parts_dir = root / "parts"
+        if not parts_dir.exists():
             continue
-        product_files = [
-            p for p in sorted(products_dir.rglob("*.yaml")) if not p.name.startswith("_")
-        ]
-        if product_files:
+        part_files = [p for p in sorted(parts_dir.rglob("*.yaml")) if not p.name.startswith("_")]
+        if part_files:
             break
 
-    if not product_files:
+    if not part_files:
         return None
 
     if part_number:
         matches: list[Path] = []
         pn_lower = part_number.lower()
-        for yaml_file in product_files:
+        for yaml_file in part_files:
             try:
-                loaded = ProductContext.from_file(yaml_file, guardband_pct=guardband)
+                loaded = PartContext.from_file(yaml_file, guardband_pct=guardband)
             except (ValueError, OSError):
                 continue
-            if (loaded.product.part_number or "").lower() == pn_lower:
+            if (loaded.part.part_number or "").lower() == pn_lower:
                 matches.append(yaml_file)
         if len(matches) == 1:
-            return ProductContext.from_file(matches[0], guardband_pct=guardband)
+            return PartContext.from_file(matches[0], guardband_pct=guardband)
         if not matches:
             raise pytest.UsageError(
-                f"--dut-part-number={part_number!r} did not match any product in "
-                f"products/. Available: " + ", ".join(sorted(p.stem for p in product_files))
+                f"--dut-part-number={part_number!r} did not match any part in "
+                f"parts/. Available: " + ", ".join(sorted(p.stem for p in part_files))
             )
         raise pytest.UsageError(
-            f"--dut-part-number={part_number!r} matched multiple products: "
+            f"--dut-part-number={part_number!r} matched multiple parts: "
             + ", ".join(sorted(str(m.relative_to(m.parents[1])) for m in matches))
-            + ". Use --product=<path> to disambiguate."
+            + ". Use --part=<path> to disambiguate."
         )
 
-    if len(product_files) > 1:
+    if len(part_files) > 1:
         raise pytest.UsageError(
-            f"products/ has {len(product_files)} YAML files "
-            f"({', '.join(p.stem for p in product_files)}); "
-            "pass --product <id-or-path> or --dut-part-number <pn> to choose one."
+            f"parts/ has {len(part_files)} YAML files "
+            f"({', '.join(p.stem for p in part_files)}); "
+            "pass --part <id-or-path> or --dut-part-number <pn> to choose one."
         )
 
-    return ProductContext.from_file(product_files[0], guardband_pct=guardband)
+    return PartContext.from_file(part_files[0], guardband_pct=guardband)
 
 
 @pytest.fixture(scope="session")
@@ -635,9 +633,9 @@ def fixture_config(request) -> FixtureConfig | None:
                 id=fc.id,
                 name=fc.name,
                 description=fc.description,
-                product_id=fc.product_id,
-                product_family=fc.product_family,
-                product_revision=fc.product_revision,
+                part_id=fc.part_id,
+                part_family=fc.part_family,
+                part_revision=fc.part_revision,
                 connections=slot.connections,
                 dut_resource=slot.dut_resource,
             )
@@ -777,13 +775,13 @@ def instrument(instruments, instrument_records) -> InstrumentAccessor:
 
 @pytest.fixture(scope="session")
 def dut(
-    product_context,
+    part_context,
     fixture_config,
     mock_instruments,
 ) -> Generator[Any, None, None]:
     """Instantiate and yield the DUT communication driver.
 
-    Resolves the driver class from ``Product.driver`` (loaded via product_context)
+    Resolves the driver class from ``Part.driver`` (loaded via part_context)
     and connects using ``FixtureConfig.dut_resource``. Follows the same pattern
     as instrument fixtures — session-scoped, auto-disconnected at teardown.
 
@@ -792,18 +790,18 @@ def dut(
             assert dut.get_version().startswith("2.")
 
     Returns:
-        Connected DUT driver instance, or None if product has no driver.
+        Connected DUT driver instance, or None if part has no driver.
     """
-    if not product_context or not product_context.product.driver:
+    if not part_context or not part_context.part.driver:
         yield None
         return
 
-    from litmus.products.loader import load_product_driver
+    from litmus.parts.loader import load_part_driver
 
-    driver_class = load_product_driver(product_context.product)
+    driver_class = load_part_driver(part_context.part)
     if driver_class is None:
         warnings.warn(
-            f"DUT driver {product_context.product.driver!r} could not be imported",
+            f"DUT driver {part_context.part.driver!r} could not be imported",
             UserWarning,
             stacklevel=2,
         )

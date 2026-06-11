@@ -20,7 +20,7 @@ def audit_traceability(logger_inst: Any, *, strict: bool, spec_active: bool) -> 
     * ``step_path`` — always required (populated by the runner's step
       wrapper).
     * ``spec_ref`` OR ``dut_pin`` — required only when ``spec_active``
-      is True (i.e. a product spec is loaded for the session). Runs
+      is True (i.e. a part spec is loaded for the session). Runs
       without a spec exercise the graceful-degradation path and are
       not penalized for lacking pin/spec references.
 

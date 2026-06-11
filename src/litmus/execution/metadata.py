@@ -1,7 +1,7 @@
 """Runner-neutral run-metadata assembly.
 
 :class:`TestRunLogger` takes a fat kwargs dict — DUT serial, station
-identity, product identity, fixture id, environment capture, project
+identity, part identity, fixture id, environment capture, project
 name, profile name + facets, session inputs, instrument records, etc.
 The dict is the same regardless of which runner is driving; only the
 *sources* differ (pytest reads CLI options + session fixtures, OpenHTF
@@ -31,7 +31,7 @@ def build_run_metadata(
     station_id: str | None = None,
     station_config: Any | None = None,
     fixture_config: Any | None = None,
-    product_context: Any | None = None,
+    part_context: Any | None = None,
     operator_id: str | None = None,
     project_dir: Path,
     data_dir: str | None = None,
@@ -43,18 +43,18 @@ def build_run_metadata(
 ) -> dict[str, Any]:
     """Build the kwargs dict :class:`TestRunLogger` expects.
 
-    Resolves derived fields (product info from ``product_context``,
+    Resolves derived fields (part info from ``part_context``,
     station fields from ``station_config``, environment capture, git
     project name) so the runner's plugin doesn't have to. ``dut_part_number``
-    and ``dut_revision`` fall back to the active product when not
+    and ``dut_revision`` fall back to the active part when not
     supplied explicitly.
     """
-    # Product info from product_context
-    product_id = product_name = product_revision = None
-    if product_context is not None:
-        product_id = product_context.product.id
-        product_name = product_context.product.name
-        product_revision = product_context.product.revision
+    # Part info from part_context
+    part_id = part_name = part_revision = None
+    if part_context is not None:
+        part_id = part_context.part.id
+        part_name = part_context.part.name
+        part_revision = part_context.part.revision
 
     # Fixture id
     fixture_id = None
@@ -70,11 +70,11 @@ def build_run_metadata(
         )
         station_location = station_config.location
 
-    # DUT defaults from product spec
-    if dut_part_number is None and product_context is not None:
-        dut_part_number = product_context.product.part_number
-    if dut_revision is None and product_context is not None:
-        dut_revision = product_context.product.revision
+    # DUT defaults from part spec
+    if dut_part_number is None and part_context is not None:
+        dut_part_number = part_context.part.part_number
+    if dut_revision is None and part_context is not None:
+        dut_revision = part_context.part.revision
 
     return {
         "dut_serial": dut_serial,
@@ -86,9 +86,9 @@ def build_run_metadata(
         "station_type": station_type,
         "station_location": station_location,
         "operator_id": operator_id,
-        "product_id": product_id,
-        "product_name": product_name,
-        "product_revision": product_revision,
+        "part_id": part_id,
+        "part_name": part_name,
+        "part_revision": part_revision,
         "fixture_id": fixture_id,
         "project_name": get_project_name(project_dir),
         "project_dir": project_dir,

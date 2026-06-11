@@ -8,14 +8,14 @@ A **fixture** in Litmus is a YAML file at `fixtures/<name>.yaml` that maps DUT p
 
 Three things have to line up before a test can measure anything:
 
-1. The **product** declares pins (`VIN`, `VOUT`, `GND`) and their measurable characteristics (output voltage, current draw, etc.).
+1. The **part** declares pins (`VIN`, `VOUT`, `GND`) and their measurable characteristics (output voltage, current draw, etc.).
 2. The **station** declares instruments by role (`dmm`, `psu`, `eload`) and where each is physically connected (a VISA address, a serial port).
-3. The **fixture** declares which station instrument (and channel) is currently wired to which product pin.
+3. The **fixture** declares which station instrument (and channel) is currently wired to which part pin.
 
 ```mermaid
 %%{init: {'flowchart': {'curve': 'stepBefore'}}}%%
 flowchart LR
-    subgraph Product
+    subgraph Part
         VIN[VIN]
         VOUT[VOUT]
     end
@@ -36,7 +36,7 @@ flowchart LR
     F_VOUT --- DMM
 ```
 
-The fixture is the only piece that changes when you move a board from one bench to another. The product stays the same (it's the device). The station stays the same (it's the bench). The fixture re-maps which pins are on which channels — and every test runs unchanged.
+The fixture is the only piece that changes when you move a board from one bench to another. The part stays the same (it's the device). The station stays the same (it's the bench). The fixture re-maps which pins are on which channels — and every test runs unchanged.
 
 This is also what makes a measurement traceable: every value flows through a named fixture connection (`VOUT`, not `dmm channel 1`), and the recorded measurement row carries the DUT-side name. Six months later you can ask "which board's `VOUT` was reading 3.5 V?" — the connection name is the join key.
 
@@ -45,7 +45,7 @@ This is also what makes a measurement traceable: every value flows through a nam
 | Setup | Fixture? |
 |---|---|
 | One DUT, one bench, you remember which instrument is on which pin | Optional — the `dmm` / `psu` per-role pytest fixtures from your station YAML are enough |
-| Multiple products on the same bench, or one product across multiple benches | Required — the pin-map is what lets the test code stay portable |
+| Multiple parts on the same bench, or one part across multiple benches | Required — the pin-map is what lets the test code stay portable |
 | Multiple DUTs running in parallel | Required — see [Multi-DUT scaling](#multi-dut-scaling-slots-shared-instruments-switching) |
 | Production traceability — every measurement records its DUT-side pin | Required — `dut_pin` is the connection field that flows into the parquet row |
 
@@ -66,9 +66,9 @@ Both share the same `FixtureConnection` shape underneath.
 |---|---|
 | `id` | Unique fixture identifier |
 | `name` | Optional display name |
-| `product_id` | Specific product this fixture is wired for (preferred) |
-| `product_family` | Or product family — for fixtures that work for multiple products in a line |
-| `product_revision` | Optional — for fixtures that differ by board revision |
+| `part_id` | Specific part this fixture is wired for (preferred) |
+| `part_family` | Or part family — for fixtures that work for multiple parts in a line |
+| `part_revision` | Optional — for fixtures that differ by board revision |
 | `station_types` | Optional — abstract station-type layouts this fixture can wire against. Validated at session start against the active profile's `station_type`. Empty list = "any station". |
 | `dut_resource` | Optional DUT-side connection string (a COM port, USB serial number, etc.) for tests that talk to the DUT directly |
 | `connections` | DUT-pin ↔ instrument-channel pairings. Single-DUT shape. |
@@ -87,7 +87,7 @@ A connection is the addressable unit — a name that identifies one DUT-side sig
 | `instrument` | Station role (must match a key in `station.instruments`) |
 | `instrument_channel` | Channel on the instrument (`"1"`, `"CH2"`, `"ai0"`) |
 | `instrument_terminal` | Physical terminal on the channel (`hi`, `lo`, `sense_hi`, `sense_lo`, `signal`). Optional. |
-| `dut_pin` | Product pin this connection is wired to (must match a `pins.<name>` key in the product spec) |
+| `dut_pin` | Part pin this connection is wired to (must match a `pins.<name>` key in the part spec) |
 | `net` | Schematic net name. Alternative to `dut_pin` when matching by net rather than physical pin. |
 | `function` | Optional [`MeasurementFunction`](capabilities.md#measurementfunction) the connection is for. When set, the resolver matches by `(dut_pin, function)` — see [Function as a routing dimension](#function-as-a-routing-dimension). |
 | `route` | Optional `SwitchRoute` for switched signal paths — see [Switched routing](#switched-routing). |
@@ -101,7 +101,7 @@ The simplest fixture: each DUT pin gets one connection, one instrument, one chan
 # fixtures/power_board_fixture.yaml
 id: power_board_fixture
 name: "Power Board Test Fixture"
-product_id: power_board
+part_id: power_board
 
 connections:
   VIN:
@@ -179,7 +179,7 @@ When the bench has multiple identical positions and you test them in parallel, u
 ```yaml
 # fixtures/dual_board_fixture.yaml
 id: dual_board_fixture
-product_family: power_board
+part_family: power_board
 
 slots:
   slot_1:
@@ -240,14 +240,14 @@ pytest tests/ \
   --dut-serial=SN001
 ```
 
-The fixture's `product_id` / `product_family` are scoping fields — the resolver uses them to pick the right fixture when multiple are present, but the plugin does not currently cross-check them against the active product spec.
+The fixture's `part_id` / `part_family` are scoping fields — the resolver uses them to pick the right fixture when multiple are present, but the plugin does not currently cross-check them against the active part spec.
 
 ## Worked example
 
 A complete single-DUT setup, four files:
 
 ```yaml
-# products/power_board.yaml
+# parts/power_board.yaml
 id: power_board
 pins:
   VIN:  {name: "J1.1", role: power}
@@ -281,7 +281,7 @@ instruments:
 ```yaml
 # fixtures/power_board_fixture.yaml
 id: power_board_fixture
-product_id: power_board
+part_id: power_board
 connections:
   VIN:
     name: VIN
@@ -311,7 +311,7 @@ Run it:
 
 ```bash
 pytest tests/ \
-  --product=products/power_board.yaml \
+  --part=parts/power_board.yaml \
   --station=stations/bench_1.yaml \
   --fixture=fixtures/power_board_fixture.yaml \
   --dut-serial=SN001
@@ -321,7 +321,7 @@ The recorded measurement row carries `dut_pin=VOUT`, `instrument_name=dmm`, `cha
 
 ## See also
 
-- [Products](products.md) — what pins and characteristics get declared on the DUT side
+- [Parts](parts.md) — what pins and characteristics get declared on the DUT side
 - [Stations](stations.md) — what instruments and roles get declared on the bench side
 - [Capabilities](capabilities.md) — the function / direction / signal model that drives matching (and the `function:` field on connections)
 - [Tutorial step 9 — Production ready](../../tutorial/09-production.md) — first hands-on with fixtures + sidecar config

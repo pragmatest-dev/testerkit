@@ -39,7 +39,7 @@ def find_yaml_in_subdir(config, subdir: str, filename: str) -> Path | None:
 def is_yaml_path(value: str) -> bool:
     """Return True if ``value`` looks like a path to a YAML file.
 
-    Used by the unified ``--station`` / ``--fixture`` / ``--product``
+    Used by the unified ``--station`` / ``--fixture`` / ``--part``
     flags to dispatch between "look up ``<subdir>/<id>.yaml``" and "use
     this string as a path verbatim." A real ID never contains ``/`` or
     a ``.yaml`` / ``.yml`` extension, so the heuristic is safe.

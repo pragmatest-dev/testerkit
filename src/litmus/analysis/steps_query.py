@@ -184,7 +184,7 @@ class StepsQuery:
         *,
         top_n: int = 10,
         phase: str | list[str] | None = None,
-        product: str | list[str] | None = None,
+        part: str | list[str] | None = None,
         station: str | list[str] | None = None,
         since: str | None = None,
         until: str | None = None,
@@ -199,12 +199,12 @@ class StepsQuery:
         test.
 
         ``failed_count`` includes ``failed`` + ``errored`` outcomes.
-        Optional filters scope to product / phase / station / time
+        Optional filters scope to part / phase / station / time
         window — same shape the rest of the metrics tabs use.
 
         Note: filters apply to the runs context (joined via
         ``run_id``), not to the steps directly, so a "production
-        phase / product PN-100" view shows only the failures from
+        phase / part PN-100" view shows only the failures from
         runs matching those facets.
         """
         run_filters = ["runs.ended_at IS NOT NULL"]
@@ -215,7 +215,7 @@ class StepsQuery:
             multi_filter_clauses(
                 {
                     "runs.test_phase": phase,
-                    "runs.dut_part_number": product,
+                    "runs.dut_part_number": part,
                     "runs.station_hostname": station,
                 }
             )

@@ -76,7 +76,7 @@
       <dt>ID</dt><dd>{{ data.station_id or '—' }}</dd>
       {% if data.station_type %}<dt>Type</dt><dd>{{ data.station_type }}</dd>{% endif %}
       {% if data.station_location %}<dt>Location</dt><dd>{{ data.station_location }}</dd>{% endif %}
-      {% if data.product_id %}<dt>Product</dt><dd>{{ data.product_id }}{% if data.product_name %} — {{ data.product_name }}{% endif %}</dd>{% endif %}
+      {% if data.part_id %}<dt>Part</dt><dd>{{ data.part_id }}{% if data.part_name %} — {{ data.part_name }}{% endif %}</dd>{% endif %}
       {% if data.fixture_id %}<dt>Fixture</dt><dd>{{ data.fixture_id }}</dd>{% endif %}
     </dl>
   </div>

@@ -45,7 +45,7 @@ gains entity-observed-view across inventory pages, two new pages
   samples arrive.
 - **`XYData` model** for paired-array data (IV curves, eye diagrams,
   S-parameter sweeps).
-- **Entity-observed-view across operator UI** — stations, products,
+- **Entity-observed-view across operator UI** — stations, parts,
   fixtures, instruments list pages merge YAML-configured + observed-
   in-runs entities with a Configured/Observed chip and filter.
 - **New `/duts` page** — one row per distinct DUT serial in run history.
@@ -183,7 +183,7 @@ predictable `<quadrant>/<category>/<topic>.md` cell, with cross-quadrant
 - **16 per-screen reference pages** under `docs/reference/operator-ui/`
   — every NiceGUI page (Dashboard, Launch Test, Live monitor, Results
   list/detail, Metrics, Measurements, Events, Channels list/detail,
-  System Designer, Stations, Products, Fixtures, Instruments, Tests)
+  System Designer, Stations, Parts, Fixtures, Instruments, Tests)
   documented from the running source. Each carries a cropped
   testid-anchored screenshot.
 - **Cropped UI screenshots** via new `scripts/regenerate-ui-screenshots.py`
@@ -284,7 +284,7 @@ Initial public release on PyPI as `litmus-test`.
 
 - `@litmus_test` decorator for pytest-native hardware tests with vector
   expansion, limit checking, measurement recording, retries, and mock injection
-- Station / fixture / product / sequence YAML configuration, loaded through a
+- Station / fixture / part / sequence YAML configuration, loaded through a
   single store layer with Pydantic validation
 - Instrument fixtures resolved from station config (no `conftest.py`
   boilerplate required)

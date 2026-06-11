@@ -23,7 +23,7 @@ def test_x(...): ...
 
 ## `litmus_limits`
 
-Pin a `Limit` per measurement name. Both `verify(name, value)` and `logger.measure(name, value)` record the measurement row and resolve the limit against this marker (or the sidecar's `limits:` block, or the active product spec, in resolution order); the only difference is `verify` raises `AssertionError` on FAIL where `logger.measure` doesn't.
+Pin a `Limit` per measurement name. Both `verify(name, value)` and `logger.measure(name, value)` record the measurement row and resolve the limit against this marker (or the sidecar's `limits:` block, or the active part spec, in resolution order); the only difference is `verify` raises `AssertionError` on FAIL where `logger.measure` doesn't.
 
 **Signature:** `@pytest.mark.litmus_limits(**by_name)` — one keyword per measurement name; each value is a dict matching `MeasurementLimitConfig`.
 
@@ -112,7 +112,7 @@ The target is `"<fixture>.<attr>"` — the pytest fixture name plus the attribut
 
 ## `litmus_characteristics`
 
-Iterate the test body over a subset of the product spec's `characteristics`. Combined with `litmus_connections` to select which signal-path connections to bind. Used by [spec-driven testing](../../how-to/execution/spec-driven-testing.md).
+Iterate the test body over a subset of the part spec's `characteristics`. Combined with `litmus_connections` to select which signal-path connections to bind. Used by [spec-driven testing](../../how-to/execution/spec-driven-testing.md).
 
 **Signature:** `@pytest.mark.litmus_characteristics([ids])` — list of characteristic IDs.
 

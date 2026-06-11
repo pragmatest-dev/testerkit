@@ -498,7 +498,7 @@ class ParquetBackend:
                     "started_at": m.get("vector_started_at"),
                     "ended_at": m.get("vector_ended_at"),
                     "dut_serial": m.get("dut_serial"),
-                    "product_id": m.get("product_id"),
+                    "part_id": m.get("part_id"),
                     "station_id": m.get("station_id"),
                 }
                 vector_info["params"] = {k[3:]: v for k, v in m.items() if _is_param_column(k)}
@@ -1218,9 +1218,9 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
             revision=first.get("dut_revision"),
             lot_number=first.get("dut_lot_number"),
         ),
-        product_id=first.get("product_id"),
-        product_name=first.get("product_name"),
-        product_revision=first.get("product_revision"),
+        part_id=first.get("part_id"),
+        part_name=first.get("part_name"),
+        part_revision=first.get("part_revision"),
         station_id=first.get("station_id"),
         station_name=first.get("station_name"),
         station_type=first.get("station_type"),

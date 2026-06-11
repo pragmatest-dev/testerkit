@@ -21,7 +21,7 @@ from litmus.models.capability import (
     SpecBand,
 )
 from litmus.models.enums import Direction, MatchDepth, MeasurementFunction
-from litmus.models.product import ProductCharacteristic
+from litmus.models.part import PartCharacteristic
 
 
 def _spec_with_units(cond: object) -> RangeSpec | PointSpec | ListSpec:
@@ -153,7 +153,7 @@ def test_capability_satisfies_with_accuracy_depth():
         instrument_name="dmm1",
     )
     req = CapabilityRequirement(
-        capability=ProductCharacteristic(
+        capability=PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             signals={
@@ -188,7 +188,7 @@ def test_backward_compat_no_specs():
         instrument_name="dmm1",
     )
     req = CapabilityRequirement(
-        capability=ProductCharacteristic(
+        capability=PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             signals={

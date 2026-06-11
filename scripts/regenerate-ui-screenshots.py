@@ -39,9 +39,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ASSET_ROOT = REPO_ROOT / "docs" / "_assets" / "operator-ui"
 
 # Screenshots run against examples/07-profiles — the canonical fully-
-# featured example (catalog + stations + products + fixtures + profiles +
+# featured example (catalog + stations + parts + fixtures + profiles +
 # real test history). Running against the repo root means CONFIGURATION
-# entity pages (/stations, /products, /fixtures, /instruments, /tests)
+# entity pages (/stations, /parts, /fixtures, /instruments, /tests)
 # all render empty because the litmus repo doesn't ship those YAMLs.
 #
 # To re-seed history data: ``cd examples/07-profiles && pytest`` then
@@ -211,9 +211,9 @@ MANIFEST: list[Shot] = [
         output_path="tour/stations.png",
     ),
     Shot(
-        url="/products",
-        selector="[data-testid='products-table']",
-        output_path="tour/products.png",
+        url="/parts",
+        selector="[data-testid='parts-table']",
+        output_path="tour/parts.png",
     ),
     Shot(
         url="/fixtures",

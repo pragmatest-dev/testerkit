@@ -14,7 +14,7 @@ Litmus is a Python-native hardware test **platform** for the AI-assisted era. It
 2. **Integrate, don't reinvent** — Use popular libraries (pytest, Pydantic, FastAPI, PyVISA) that LLMs know deeply
 3. **Configuration as source of truth** — Non-developers can modify test behavior without touching code
 4. **AI-ready, not AI-dependent** — Expose MCP tools and HTTP APIs for external agents; platform does NOT call LLMs
-5. **Starts simple, grows with you** — After install, `pytest` passes on any machine — no server, no account, no hardware needed to begin. Add what you need as you need it: measurement logging, station config, product specs, capability matching — in whatever order fits your project.
+5. **Starts simple, grows with you** — After install, `pytest` passes on any machine — no server, no account, no hardware needed to begin. Add what you need as you need it: measurement logging, station config, part specs, capability matching — in whatever order fits your project.
 
 ## Common Commands
 
@@ -36,7 +36,7 @@ litmus mcp serve               # Start MCP server
 ## Folder Convention
 
 Entity-aligned folders contain YAML configuration files. Code folders contain Python scripts.
-- **YAML config**: `catalog/`, `instruments/`, `stations/`, `products/`, `fixtures/`, `sequences/`
+- **YAML config**: `catalog/`, `instruments/`, `stations/`, `parts/`, `fixtures/`, `sequences/`
 - **Python code**: `drivers/`, `tests/`
 
 ## Test Storage Convention
@@ -44,7 +44,7 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 Tests in this repo write to the project-local data dir
 (`<repo>/data/`, scoped by the repo's `litmus.yaml`). Per-test
 isolation is by **identifier** (uuid4 `run_id`, `session_id`,
-unique `dut_serial` / `product_id`), NEVER by `tmp_path` for any
+unique `dut_serial` / `part_id`), NEVER by `tmp_path` for any
 constructor that spawns a daemon.
 
 **Forbidden** (each spawns a per-test daemon, ~100 gRPC threads;

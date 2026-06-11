@@ -53,7 +53,7 @@ def main():
     default=None,
     help=(
         "Scaffold tier. 'bringup' = Tier 0/1 (MagicMock fixtures, one test, "
-        "one sidecar, no station/product YAML). 'bench' = Tier 2 starter "
+        "one sidecar, no station/part YAML). 'bench' = Tier 2 starter "
         "(equivalent to --starter). 'factory' = Tier 3/4 (bench + profiles)."
     ),
 )
@@ -417,7 +417,7 @@ def _discover_instruments(interactive: bool = True) -> dict[str, dict[str, dict[
     type=click.Choice(
         [
             "catalog",
-            "product",
+            "part",
             "station",
             "sequence",
             "fixture",
@@ -432,7 +432,7 @@ def _discover_instruments(interactive: bool = True) -> dict[str, dict[str, dict[
 def validate(paths, file_type, as_json):
     """Validate YAML configuration files.
 
-    Checks catalog, product, station, sequence, fixture, instrument, and
+    Checks catalog, part, station, sequence, fixture, instrument, and
     project YAML files against their Pydantic schemas and reports errors
     with field paths.
 
@@ -459,7 +459,7 @@ def validate(paths, file_type, as_json):
         # Auto-scan standard directories
         scan_dirs = [
             "catalog",
-            "products",
+            "parts",
             "stations",
             "sequences",
             "fixtures",
@@ -921,7 +921,7 @@ def schema_export(output_dir: str):
 
     Generates .schema.json files that enable editor validation and
     autocomplete for every Litmus YAML type — sidecar, profile,
-    project, station, fixture, product, catalog, instrument_asset.
+    project, station, fixture, part, catalog, instrument_asset.
 
     Example:
         litmus schema export
@@ -998,7 +998,7 @@ def mcp_serve(transport: str):
     """Start the MCP server for AI agents.
 
     The MCP server exposes tools for:
-    - Reading product specs, stations, instruments
+    - Reading part specs, stations, instruments
     - Capability matching
     - Saving new specs, sequences, tests
     - Running tests
@@ -1471,15 +1471,15 @@ def setup_show():
     click.echo("Transport: stdio")
     click.echo()
     click.echo("Available tools:")
-    click.echo("  - list_products: List all product specifications")
-    click.echo("  - get_product_spec: Get a product specification by ID")
+    click.echo("  - list_parts: List all part specifications")
+    click.echo("  - get_part_spec: Get a part specification by ID")
     click.echo("  - list_stations: List all test stations")
     click.echo("  - get_station_config: Get a station configuration by ID")
-    click.echo("  - find_compatible_stations: Find stations for a product")
-    click.echo("  - check_station_compatibility: Check if station can test product")
+    click.echo("  - find_compatible_stations: Find stations for a part")
+    click.echo("  - check_station_compatibility: Check if station can test part")
     click.echo("  - derive_required_capabilities: Get capability requirements")
     click.echo("  - get_instrument_library: Get instrument definitions")
-    click.echo("  - save_product_spec: Save a new product specification")
+    click.echo("  - save_part_spec: Save a new part specification")
 
 
 # -----------------------------------------------------------------------------
@@ -2107,7 +2107,7 @@ def _base_filters(func):
     func = click.option("--phase", default=None, help="Test phase (or 'all')")(func)
     func = click.option("--since", default=None, help="Start date (ISO format)")(func)
     func = click.option("--until", "until_date", default=None, help="End date (ISO format)")(func)
-    func = click.option("--product", default=None, help="Product ID")(func)
+    func = click.option("--part", default=None, help="Part ID")(func)
     func = click.option("--station", default=None, help="Station ID")(func)
     func = click.option("--json", "as_json", is_flag=True, help="Output as JSON")(func)
     return func
@@ -2136,11 +2136,11 @@ def metrics_group():
 @metrics_group.command("summary")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_summary(data_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_summary(data_dir, phase, since, until_date, part, station, period, as_json):
     """Yield summary: FPY, final yield, run counts, duration stats."""
     with _measurements_query(data_dir) as store:
         rows = store.yield_summary(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -2157,7 +2157,7 @@ def metrics_summary(data_dir, phase, since, until_date, product, station, period
             return
 
         click.echo(
-            f"{'Period':<12} {'Product':<16} {'Station':<16} {'Runs':>5} "
+            f"{'Period':<12} {'Part':<16} {'Station':<16} {'Runs':>5} "
             f"{'Pass':>5} {'Fail':>5} {'FPY':>6} {'Final':>6} {'Avg(s)':>7}"
         )
         click.echo("-" * 96)
@@ -2171,7 +2171,7 @@ def metrics_summary(data_dir, phase, since, until_date, product, station, period
             avg_d = r.get("avg_duration_s")
             avg = f"{avg_d:.1f}" if avg_d is not None else "N/A"
             click.echo(
-                f"{str(r.get('period', '')):<12} {str(r.get('product', '')):<16} "
+                f"{str(r.get('period', '')):<12} {str(r.get('part', '')):<16} "
                 f"{str(r.get('station', '')):<16} {r.get('total_runs', 0):>5} "
                 f"{r.get('passed', 0):>5} {r.get('failed', 0):>5} "
                 f"{fpy:>6} {final:>6} {avg:>7}"
@@ -2183,17 +2183,17 @@ def metrics_summary(data_dir, phase, since, until_date, product, station, period
 @click.option("--top", "top_n", default=10, help="Number of top failures")
 @click.option(
     "--group-by",
-    type=click.Choice(["product", "step", "measurement"]),
-    default="product",
+    type=click.Choice(["part", "step", "measurement"]),
+    default="part",
     help=(
-        "Lens for the pareto: ``product`` groups runs by ``dut_part_number`` "
+        "Lens for the pareto: ``part`` groups runs by ``dut_part_number`` "
         "(most-failing SKUs); ``step`` groups steps by ``step_path`` "
         "(most-failing tests); ``measurement`` groups limit-bearing "
         "measurements by name (the historical default)."
     ),
 )
-def metrics_pareto(data_dir, phase, since, until_date, product, station, top_n, group_by, as_json):
-    """Top failures (Pareto). Group by product / step / measurement."""
+def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, group_by, as_json):
+    """Top failures (Pareto). Group by part / step / measurement."""
     if group_by == "step":
         from litmus.analysis.steps_query import StepsQuery
 
@@ -2202,7 +2202,7 @@ def metrics_pareto(data_dir, phase, since, until_date, product, station, top_n, 
             rows = store.failure_pareto(
                 top_n=top_n,
                 phase=phase,
-                product=product,
+                part=part,
                 station=station,
                 since=since,
                 until=until_date,
@@ -2210,7 +2210,7 @@ def metrics_pareto(data_dir, phase, since, until_date, product, station, top_n, 
         finally:
             store.close()
         header = "Step (step_path)"
-    elif group_by == "product":
+    elif group_by == "part":
         from litmus.analysis.runs_query import RunsQuery
 
         store = RunsQuery(_data_dir=data_dir or None)
@@ -2219,19 +2219,19 @@ def metrics_pareto(data_dir, phase, since, until_date, product, station, top_n, 
                 group_by="dut_part_number",
                 top_n=top_n,
                 phase=phase,
-                product=product,
+                part=part,
                 station=station,
                 since=since,
                 until=until_date,
             )
         finally:
             store.close()
-        header = "Product (dut_part_number)"
+        header = "Part (dut_part_number)"
     else:  # measurement (historical)
         store = _measurements_query(data_dir)
         try:
             raw = store.pareto(
-                product=product,
+                part=part,
                 station=station,
                 phase=phase,
                 since=since,
@@ -2275,11 +2275,11 @@ def metrics_pareto(data_dir, phase, since, until_date, product, station, top_n, 
 @metrics_group.command("cpk")
 @_base_filters
 @click.option("--min-samples", default=10, help="Minimum sample count")
-def metrics_cpk(data_dir, phase, since, until_date, product, station, min_samples, as_json):
+def metrics_cpk(data_dir, phase, since, until_date, part, station, min_samples, as_json):
     """Process capability (Cpk/Cp) per measurement."""
     with _measurements_query(data_dir) as store:
         rows = store.cpk(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -2312,11 +2312,11 @@ def metrics_cpk(data_dir, phase, since, until_date, product, station, min_sample
 @metrics_group.command("trend")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_trend(data_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_trend(data_dir, phase, since, until_date, part, station, period, as_json):
     """Yield trend over time."""
     with _measurements_query(data_dir) as store:
         rows = store.trend(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -2344,11 +2344,11 @@ def metrics_trend(data_dir, phase, since, until_date, product, station, period, 
 @metrics_group.command("retest")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_retest(data_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_retest(data_dir, phase, since, until_date, part, station, period, as_json):
     """Retest rates: how often DUTs are retried."""
     with _measurements_query(data_dir) as store:
         rows = store.retest(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -2377,11 +2377,11 @@ def metrics_retest(data_dir, phase, since, until_date, product, station, period,
 @metrics_group.command("time-loss")
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
-def metrics_time_loss(data_dir, phase, since, until_date, product, station, period, as_json):
+def metrics_time_loss(data_dir, phase, since, until_date, part, station, period, as_json):
     """Time lost to failures and errors."""
     with _measurements_query(data_dir) as store:
         rows = store.time_loss(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -2477,10 +2477,10 @@ def data_prune(
         click.echo(f"\n{total} items removed.")
 
 
-# Starter sentinels — runs whose product / station / serial / fixture
+# Starter sentinels — runs whose part / station / serial / fixture
 # matches any of these are scaffold/example runs, skipped by default.
 # The user can opt them in with --include-starter.
-_STARTER_PRODUCT_IDS = {"example_product"}
+_STARTER_PART_IDS = {"example_part"}
 _STARTER_STATION_IDS = {"starter_station"}
 _STARTER_FIXTURE_IDS = {"example_fixture"}
 _STARTER_DUT_SERIALS = {"STARTER001", "SMOKE001"}
@@ -2493,7 +2493,7 @@ def _is_starter_parquet(parquet_path: Path) -> bool:
     """
     import pyarrow.parquet as pq
 
-    cols = ["product_id", "station_id", "dut_serial", "fixture_id"]
+    cols = ["part_id", "station_id", "dut_serial", "fixture_id"]
     try:
         t = pq.read_table(parquet_path, columns=cols)
     except (FileNotFoundError, OSError, KeyError):
@@ -2501,7 +2501,7 @@ def _is_starter_parquet(parquet_path: Path) -> bool:
     if t.num_rows == 0:
         return False
     row0 = {c: t[c][0].as_py() for c in cols if c in t.column_names}
-    if row0.get("product_id") in _STARTER_PRODUCT_IDS:
+    if row0.get("part_id") in _STARTER_PART_IDS:
         return True
     if row0.get("station_id") in _STARTER_STATION_IDS:
         return True
@@ -2583,7 +2583,7 @@ def _global_data_dir() -> Path:
     "--include-starter",
     is_flag=True,
     help="Also promote runs that match starter sentinels "
-    "(example_product / starter_station / STARTER001 / etc.). "
+    "(example_part / starter_station / STARTER001 / etc.). "
     "Default skips these as throwaway learning runs.",
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be promoted; write nothing.")
@@ -2596,7 +2596,7 @@ def data_promote(include_starter: bool, dry_run: bool, with_events: bool) -> Non
     """Move a starter project's local runs + their referenced data to the global store.
 
     Starter projects ship with ``data_dir: data`` in litmus.yaml so
-    learning runs (mock instruments, example_product, STARTER001, etc.)
+    learning runs (mock instruments, example_part, STARTER001, etc.)
     don't pollute the platformdirs global store shared across projects
     on this machine. When you're ready to share data across projects,
     `litmus data promote` copies non-starter runs **plus the channel/file

@@ -45,10 +45,10 @@ class TestVector:
         assert "_prev" not in params
 
 
-class TestExpandProduct:
+class TestExpandPart:
     """Tests for expand_product function (Cartesian product)."""
 
-    def test_basic_product(self):
+    def test_basic_part(self):
         result = expand_product(voltage=[3.3, 5.0], current=[0.1, 0.5])
         assert len(result) == 4  # 2 x 2
 
@@ -62,7 +62,7 @@ class TestExpandProduct:
         assert result[3]["voltage"] == 5.0
         assert result[3]["current"] == 0.5
 
-    def test_three_way_product(self):
+    def test_three_way_part(self):
         result = expand_product(a=[1, 2], b=[3, 4], c=[5, 6])
         assert len(result) == 8  # 2 x 2 x 2
 
@@ -82,7 +82,7 @@ class TestExpandProduct:
             assert v["_index"] == i
         assert result[2]["_prev"] is result[1]
 
-    def test_range_strings_in_product(self):
+    def test_range_strings_in_part(self):
         """expand_product should expand string range values."""
         result = expand_product(voltage="3.0:3.2:0.1", load=[0.1, 0.5])
         assert len(result) == 6  # 3 voltages x 2 loads
@@ -129,7 +129,7 @@ class TestExpandZip:
 class TestExpandVectors:
     """Tests for expand_vectors function (config-based dispatch)."""
 
-    def test_simple_product(self):
+    def test_simple_part(self):
         config = {
             "expand": "product",
             "voltage": [3.3, 5.0],
@@ -147,8 +147,8 @@ class TestExpandVectors:
         result = expand_vectors(config)
         assert len(result) == 2
 
-    def test_range_strings_in_product(self):
-        """Product mode should handle string ranges."""
+    def test_range_strings_in_part(self):
+        """Part mode should handle string ranges."""
         config = {
             "expand": "product",
             "temperature": "-40:85:125",  # -40, 85 (step 125 gives 2 values)
@@ -157,8 +157,8 @@ class TestExpandVectors:
         result = expand_vectors(config)
         assert len(result) == 4  # 2 temps x 2 voltages
 
-    def test_recursive_product_with_zip_sub_block(self):
-        """Product with a vectors sub-block (zip inside)."""
+    def test_recursive_part_with_zip_sub_block(self):
+        """Part with a vectors sub-block (zip inside)."""
         config = {
             "expand": "product",
             "temperature": [-40, 25, 85],
@@ -233,8 +233,8 @@ class TestExpandVectors:
         assert result[1]["_prev"] is result[0]
         assert result[3]["_prev"] is result[2]
 
-    def test_changed_detection_in_product(self):
-        """Verify .changed() correctly detects outer loop transitions in product."""
+    def test_changed_detection_in_part(self):
+        """Verify .changed() correctly detects outer loop transitions in part."""
         result = expand_vectors(
             {
                 "expand": "product",

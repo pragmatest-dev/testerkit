@@ -16,7 +16,7 @@ the public API:
 
 - **`RunsQuery`** — list recent runs, filter by DUT serial, count
   outcomes
-- **`MeasurementsQuery`** — yield summary by `(product, station,
+- **`MeasurementsQuery`** — yield summary by `(part, station,
   phase)`, distinct DUT serials, parametric queries
 - **`EventStore`** — replay the lifecycle event timeline
 

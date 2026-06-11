@@ -19,7 +19,7 @@ margin distributed for `iq` across all DUTs?".
 
 A row of facet widgets, each populated from values actually present
 in the index. Changing any facet re-fetches all the others' options
-(so the Product list only shows products that exist under your other
+(so the Part list only shows parts that exist under your other
 current filters).
 
 | Facet | Filters by | Widget |
@@ -27,7 +27,7 @@ current filters).
 | Run outcome | The run's overall outcome (`passed`, `failed`, ...) | Multi-select enum |
 | Measurement outcome | The measurement row's own outcome | Multi-select enum |
 | Limit comparator | How the measurement is checked (`GELE`, `LE`, ...) | Multi-select enum |
-| Product | DUT part number | Multi-select |
+| Part | DUT part number | Multi-select |
 | Station | Station hostname or identifier | Multi-select |
 | Test phase | The free-form `test_phase` value stamped on the run. The conventional values are `validation`, `production`, and `characterization`, but any string a project chooses to use will appear here. | Multi-select |
 | Step | The test/step name the measurement belongs to | Multi-select |
@@ -90,7 +90,7 @@ captures the exact view:
 
 | Parameter | Meaning |
 |---|---|
-| Per-facet | Each multi-value facet repeats its column name as a query key (e.g. `?product=PN-100&product=PN-200`) |
+| Per-facet | Each multi-value facet repeats its column name as a query key (e.g. `?part=PN-100&part=PN-200`) |
 | `since`, `until` | Date range, `YYYY-MM-DD` (omitted when blank) |
 | `y`, `x` | Selected axes (omitted when blank, and `x` is omitted on histogram charts where it's ignored) |
 | `chart_type` | `scatter` (default — omitted), `line`, `bar`, or `histogram` |

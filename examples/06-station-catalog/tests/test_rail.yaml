@@ -1,7 +1,7 @@
 # Spec-driven limits + bench wiring.
 #
 # - ``characteristic + tolerance_pct`` reads the band from
-#   products/buck_3v3.yaml (introduced in stage 5).
+#   parts/buck_3v3.yaml (introduced in stage 5).
 # - ``characteristics: [rail_3v3]`` declares which spec each test
 #   binds to; auto-derives connections from the loaded fixture.
 # - ``v_overvoltage`` keeps a raw band so the OVP fault-injection

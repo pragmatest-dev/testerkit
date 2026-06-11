@@ -49,7 +49,7 @@ class ProfileConfig(TestEntry):
     fixture: str | None = None
     # When unset / True (default), ``verify(name, value)`` raises
     # ``MissingLimitError`` if no limit resolves from any source
-    # (inline / marker / sidecar / profile / product spec). Set to
+    # (inline / marker / sidecar / profile / part spec). Set to
     # ``False`` on a characterization-style profile to record values
     # without judging — verify() with no resolved limit falls back to
     # ``logger.measure`` semantics (Outcome.DONE). Affects ``verify``

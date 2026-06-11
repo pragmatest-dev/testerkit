@@ -55,7 +55,7 @@ class TestFixtureManager:
         """Fixture providing a test fixture configuration."""
         return FixtureConfig(
             id="test_fixture",
-            product_family="test_product",
+            part_family="test_part",
             connections={
                 "vout_measure": FixtureConnection(
                     name="vout_measure",
@@ -145,7 +145,7 @@ class TestPinAccessor:
         """Fixture providing a PinAccessor with mock instruments."""
         fc = FixtureConfig(
             id="test_fixture",
-            product_family="test_product",
+            part_family="test_part",
             connections={
                 "vout_measure": FixtureConnection(
                     name="vout_measure",

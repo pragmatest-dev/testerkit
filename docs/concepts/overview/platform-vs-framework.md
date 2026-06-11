@@ -10,9 +10,9 @@ A test framework's job ends at "run the test." A test platform's job is everythi
 
 The infrastructure pieces a hardware-test team needs whether they're running pytest, a hand-written loop, or a bridge from a non-Python runner:
 
-- **Configuration** — `litmus.yaml` (project), `stations/*.yaml` (benches), `fixtures/*.yaml` (DUT routing), `products/*.yaml` (specs), `catalog/*.yaml` (instrument capabilities). All YAML, all Pydantic-validated, all editable without touching test code.
+- **Configuration** — `litmus.yaml` (project), `stations/*.yaml` (benches), `fixtures/*.yaml` (DUT routing), `parts/*.yaml` (specs), `catalog/*.yaml` (instrument capabilities). All YAML, all Pydantic-validated, all editable without touching test code.
 - **Instrument plumbing** — auto-fixtures from station YAML, the `Mock` substitution for hardware-free tests, switch-route activation through fixture connections. Drivers themselves are user-supplied (PyMeasure, PyVISA, vendor SDK).
-- **Capability matching** — does this station have what this product needs? See [capabilities](../configuration/capabilities.md).
+- **Capability matching** — does this station have what this part needs? See [capabilities](../configuration/capabilities.md).
 - **Results storage** — three stores feeding one queryable surface: the [event log](../data/event-log.md), the parquet runs store, and the channel store for time-series. See [three stores](../data/three-stores.md) for the layout and tradeoffs.
 - **Operator surface** — NiceGUI web UI, operator prompts during a test, real-time dashboards.
 - **AI surface** — MCP server exposing tools an agent can drive: discovery, matching, run launching, results query. Platform never calls an LLM itself.
@@ -120,7 +120,7 @@ flowchart TB
         match["Matching"]
         results["Results"]
         dialogs["Dialogs"]
-        products["Products"]
+        parts["Parts"]
     end
 
     subgraph Storage["STORAGE LAYER"]

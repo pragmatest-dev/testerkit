@@ -121,7 +121,7 @@ When using the pytest-native `context` fixture, you get a fully-populated `Conte
 
 The `TestHarness` class (`litmus/execution/harness.py`) is the core orchestration engine. It:
 
-1. **Expands vectors** from config (product, zip, nested, range)
+1. **Expands vectors** from config (part, zip, nested, range)
 2. **Manages iteration** with `changed()` tracking across vectors
 3. **Handles retries** at the vector level
 4. **Resolves limits** from config, spec references, or callables
@@ -160,16 +160,16 @@ as a set of fixtures. A test function's signature declares which it wants:
 
 - `context` — current-vector `Context` (params, observations, change tracking)
 - `verify` — `verify(name, value)` shortcut that resolves a limit from sidecar
-  YAML / product spec and records a checked measurement
+  YAML / part spec and records a checked measurement
 - `logger` — `TestRunLogger` for `measure(name, value, limit=...)` and
   `record(...)` when you need full control
-- `spec` — `SpecContext` bound to the session's product, for
-  `spec.check(char_name, value)` against product characteristics
+- `spec` — `SpecContext` bound to the session's part, for
+  `spec.check(char_name, value)` against part characteristics
 
 Vector expansion is driven by `@pytest.mark.parametrize` and/or sidecar
 `vectors:` blocks in `test_<name>.yaml`. Limit resolution chain is:
 explicit `limit=` → sidecar `limits:` entry (flat or condition-indexed
-via `when:`) → active product spec → unchecked.
+via `when:`) → active part spec → unchecked.
 
 ### Data Models
 
@@ -231,11 +231,11 @@ limits:
 
 ### SpecContext (Spec-Driven Testing)
 
-`SpecContext` (`litmus/products/context.py`) bridges product specifications and test execution:
+`SpecContext` (`litmus/parts/context.py`) bridges part specifications and test execution:
 
 ```python
 class SpecContext:
-    product: Product              # Loaded product spec
+    part: Part              # Loaded part spec
     fixture: FixtureConfig|None   # Fixture routing
     default_guardband_pct: float  # Default tightening
 
@@ -262,14 +262,14 @@ class SpecContext:
 2. Session starts
    ├── logger fixture creates TestRunLogger
    ├── instruments fixture connects to hardware (or mocks)
-   └── spec_context fixture loads product spec
+   └── spec_context fixture loads part spec
 
 3. Each parametrize case / vector
    ├── pytest_runtest_call opens a logger step
    ├── context / verify / logger / spec fixtures resolve
    ├── Active vector params pushed into ContextVars
    ├── Test body runs — verify(name, value) calls:
-   │   ├── Resolve limit (sidecar → product spec → unchecked)
+   │   ├── Resolve limit (sidecar → part spec → unchecked)
    │   ├── logger.measure() creates Measurement
    │   ├── measurement.check_limit()
    │   └── Append to current TestVector
@@ -333,7 +333,7 @@ The core test execution engine.
 |------|---------|
 | `plugin.py` | pytest plugin - fixtures, hooks, CLI options |
 | `harness.py` | TestHarness + Context classes |
-| `vectors.py` | Vector expansion (product, zip, nested, range) |
+| `vectors.py` | Vector expansion (part, zip, nested, range) |
 | `decorators.py` | @measure decorator + current-logger ContextVar helpers |
 | `logger.py` | TestRunLogger for accumulating results |
 | `runner.py` | Async subprocess runner for UI |
@@ -379,15 +379,15 @@ Instrument drivers and mocks.
 
 **Mock system**: `Mock(DMM, measure_voltage=3.3)` creates a mock that inherits from DMM, passes isinstance checks, and returns configured values.
 
-### litmus/products/
+### litmus/parts/
 
-Product specification system.
+Part specification system.
 
 | File | Purpose |
 |------|---------|
-| `models.py` | Product, Characteristic, Pin, TestRequirement |
+| `models.py` | Part, Characteristic, Pin, TestRequirement |
 | `context.py` | SpecContext for spec-driven testing |
-| `loader.py` | YAML loading for product specs |
+| `loader.py` | YAML loading for part specs |
 | `limits.py` | derive_limit() function |
 
 ### litmus/mcp/

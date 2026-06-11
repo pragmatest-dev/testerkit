@@ -4,7 +4,7 @@ Keeps every example chapter honest: if any of them stop passing under
 ``--mock-instruments`` (and ``LITMUS_AUTO_CONFIRM=1`` for the
 prompts chapters), the suite fails. They run from inside the example
 directory so pytest discovers the local
-``stations/`` / ``products/`` / ``fixtures/`` folders.
+``stations/`` / ``parts/`` / ``fixtures/`` folders.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ CHAPTERS: tuple[str, ...] = (
     "02-verify",
     "03-inline-limits",
     "04-sidecar-markers",
-    "05-product-spec",
+    "05-part-spec",
     "06-station-catalog",
     "07-profiles",
 )

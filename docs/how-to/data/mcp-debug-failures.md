@@ -15,7 +15,7 @@ workflow — "the run failed, why?"
 
 | Tool | What it surfaces |
 |---|---|
-| `litmus_runs(action="get", run_id=...)` | Run-level summary — outcome, station, product, started / ended timestamps |
+| `litmus_runs(action="get", run_id=...)` | Run-level summary — outcome, station, part, started / ended timestamps |
 | `litmus_steps(run_id=..., action="list")` | Every step the run executed, in order, with outcome + measurement count |
 | `litmus_steps(run_id=..., action="tree")` | Same data as a step_path hierarchy (better for cluster / parametrize layouts) |
 | `litmus_events(session_id=..., event_type=..., role=..., since=..., limit=...)` | Events around the failure — dialogs, instrument connects, errors |
@@ -30,7 +30,7 @@ workflow — "the run failed, why?"
 > Show me run a4f8b201.
 
 Assistant calls `litmus_runs(action="get", run_id="a4f8b201")`
-and reports outcome, station, product, started time. If
+and reports outcome, station, part, started time. If
 outcome != `failed`, redirect — Litmus distinguishes `failed`
 (measurement crossed a limit or assertion failed), `errored`
 (exception during the step), `terminated` (operator or harness

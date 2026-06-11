@@ -83,10 +83,10 @@ RUN_ROW_SCHEMA = pa.schema(
         ("dut_part_number", pa.string()),
         ("dut_revision", pa.string()),
         ("dut_lot_number", pa.string()),
-        # Product
-        ("product_id", pa.string()),
-        ("product_name", pa.string()),
-        ("product_revision", pa.string()),
+        # Part
+        ("part_id", pa.string()),
+        ("part_name", pa.string()),
+        ("part_revision", pa.string()),
         # Station
         ("station_id", pa.string()),
         ("station_name", pa.string()),

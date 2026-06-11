@@ -34,10 +34,10 @@ class ReportData:
     dut_revision: str = ""
     dut_lot_number: str = ""
 
-    # Product
-    product_id: str = ""
-    product_name: str = ""
-    product_revision: str = ""
+    # Part
+    part_id: str = ""
+    part_name: str = ""
+    part_revision: str = ""
 
     # Station
     station_id: str = ""
@@ -76,7 +76,7 @@ def load_run_data(run_id: str, data_dir: str = "results") -> ReportData:
 
     Structure (run / steps / measurements) comes from
     :func:`load_run_view`. Extra report-only fields not in
-    ``RunView`` (``dut_revision``, ``product_name``,
+    ``RunView`` (``dut_revision``, ``part_name``,
     ``git_commit``, etc.) are sniffed from the first measurement
     row when available and default to "" otherwise — typical for
     measurement-less runs.
@@ -133,9 +133,9 @@ def load_run_data(run_id: str, data_dir: str = "results") -> ReportData:
         dut_part_number=run_view.dut_part_number or "",
         dut_revision=extras.get("dut_revision", ""),
         dut_lot_number=extras.get("dut_lot_number", ""),
-        product_id=run_view.product_id or "",
-        product_name=extras.get("product_name", ""),
-        product_revision=extras.get("product_revision", ""),
+        part_id=run_view.part_id or "",
+        part_name=extras.get("part_name", ""),
+        part_revision=extras.get("part_revision", ""),
         station_id=run_view.station_id or "",
         station_type=extras.get("station_type", ""),
         station_location=extras.get("station_location", ""),
@@ -162,7 +162,7 @@ def _load_extras_from_parquet(run_id: str, data_dir: str) -> dict[str, str]:
     """Sniff report-only fields from the first measurement row.
 
     The runs table doesn't denormalize every column the unified row schema carries
-    (``dut_revision``, ``product_name``, ``git_commit``, …). Query the
+    (``dut_revision``, ``part_name``, ``git_commit``, …). Query the
     daemon's ``measurements`` view (parquet glob with ``union_by_name``)
     for one row matching this run; predicate pushdown on ``run_id``
     finds it without reading other files. Returns empty dict for
@@ -187,8 +187,8 @@ def _load_extras_from_parquet(run_id: str, data_dir: str) -> dict[str, str]:
         for k in (
             "dut_revision",
             "dut_lot_number",
-            "product_name",
-            "product_revision",
+            "part_name",
+            "part_revision",
             "station_type",
             "station_location",
             "fixture_id",
@@ -268,10 +268,10 @@ def _write_json(data: ReportData, output: Path) -> None:
             "revision": data.dut_revision,
             "lot_number": data.dut_lot_number,
         },
-        "product": {
-            "id": data.product_id,
-            "name": data.product_name,
-            "revision": data.product_revision,
+        "part": {
+            "id": data.part_id,
+            "name": data.part_name,
+            "revision": data.part_revision,
         },
         "station": {
             "id": data.station_id,

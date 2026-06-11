@@ -107,12 +107,12 @@ logger = logging.getLogger(__name__)
 
 def _build_filter_clauses(
     *,
-    product: str | list[str] | None = None,
+    part: str | list[str] | None = None,
     station: str | list[str] | None = None,
     phase: str | list[str] | None = None,
     since: str | None = None,
     until: str | None = None,
-    product_expr: str = "product",
+    part_expr: str = "part",
     station_expr: str = "station",
     phase_expr: str = "phase",
     date_expr: str = "period_day",
@@ -145,9 +145,9 @@ def _build_filter_clauses(
     else:
         # Default: hide development phase from analytics
         clauses.append(f"{phase_expr} != 'development'")
-    product_values = _coerce_filter_values(product)
-    if product_values:
-        clauses.append(_in_or_eq(product_expr, product_values))
+    part_values = _coerce_filter_values(part)
+    if part_values:
+        clauses.append(_in_or_eq(part_expr, part_values))
     station_values = _coerce_filter_values(station)
     if station_values:
         clauses.append(_in_or_eq(station_expr, station_values))
@@ -186,7 +186,7 @@ def _in_or_eq(column_expr: str, values: list[str]) -> str:
 
 def _build_where(
     *,
-    product: str | list[str] | None = None,
+    part: str | list[str] | None = None,
     station: str | list[str] | None = None,
     phase: str | list[str] | None = None,
     since: str | None = None,
@@ -194,10 +194,10 @@ def _build_where(
 ) -> str:
     """Build a SQL ``WHERE`` clause for subquery-based queries.
 
-    Uses aliased column names (product, station, phase, period_day).
+    Uses aliased column names (part, station, phase, period_day).
     """
     clauses = _build_filter_clauses(
-        product=product,
+        part=part,
         station=station,
         phase=phase,
         since=since,
@@ -208,7 +208,7 @@ def _build_where(
 
 def _build_and_clauses(
     *,
-    product: str | list[str] | None = None,
+    part: str | list[str] | None = None,
     station: str | list[str] | None = None,
     phase: str | list[str] | None = None,
     since: str | None = None,
@@ -219,12 +219,12 @@ def _build_and_clauses(
     Uses raw measurement column names with COALESCE wrappers.
     """
     clauses = _build_filter_clauses(
-        product=product,
+        part=part,
         station=station,
         phase=phase,
         since=since,
         until=until,
-        product_expr="COALESCE(dut_part_number, product_id, 'unknown')",
+        part_expr="COALESCE(dut_part_number, part_id, 'unknown')",
         # Match the same column the operator's dropdown is built
         # from (``station_hostname`` first; see ``get_yield_filter_options``
         # in ``ui/shared/services.py``). ``station_name`` is admin-
@@ -253,7 +253,7 @@ _YIELD_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(dut_part_number, product_id, 'unknown') AS product,
+        COALESCE(dut_part_number, part_id, 'unknown') AS part,
         COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         dut_serial,
@@ -267,7 +267,7 @@ WITH runs AS (
 first_runs AS (
     SELECT *,
         ROW_NUMBER() OVER (
-            PARTITION BY dut_serial, product, station, phase
+            PARTITION BY dut_serial, part, station, phase
             ORDER BY run_started_at
         ) AS rn
     FROM runs
@@ -275,13 +275,13 @@ first_runs AS (
 last_runs AS (
     SELECT *,
         ROW_NUMBER() OVER (
-            PARTITION BY dut_serial, product, station, phase
+            PARTITION BY dut_serial, part, station, phase
             ORDER BY run_started_at DESC
         ) AS rn
     FROM runs
 )
 SELECT
-    product,
+    part,
     station,
     phase,
     period_day AS period,
@@ -304,13 +304,13 @@ SELECT
         AS p95_duration_s
 FROM runs
 {where}
-GROUP BY product, station, phase, period_day
+GROUP BY part, station, phase, period_day
 ORDER BY period_day
 """
 
 _PARETO_SQL = """
 SELECT
-    COALESCE(dut_part_number, product_id, 'unknown') AS product,
+    COALESCE(dut_part_number, part_id, 'unknown') AS part,
     COALESCE(station_hostname, station_id, 'unknown') AS station,
     step_name,
     measurement_name,
@@ -321,7 +321,7 @@ SELECT
 FROM measurements
 WHERE record_type = 'measurement'
     {and_clauses}
-GROUP BY product, station, step_name, measurement_name
+GROUP BY part, station, step_name, measurement_name
 HAVING COUNT(*) FILTER (WHERE measurement_outcome = 'failed') > 0
 ORDER BY fail_count DESC
 LIMIT {top_n}
@@ -329,7 +329,7 @@ LIMIT {top_n}
 
 _CPK_SQL = """
 SELECT
-    COALESCE(dut_part_number, product_id, 'unknown') AS product,
+    COALESCE(dut_part_number, part_id, 'unknown') AS part,
     COALESCE(station_hostname, station_id, 'unknown') AS station,
     measurement_name,
     COUNT(*) AS n,
@@ -354,7 +354,7 @@ SELECT
 FROM measurements
 WHERE record_type = 'measurement' AND measurement_value IS NOT NULL
     {and_clauses}
-GROUP BY product, station, measurement_name
+GROUP BY part, station, measurement_name
 HAVING COUNT(*) >= {min_samples}
 ORDER BY cpk ASC NULLS LAST
 """
@@ -363,7 +363,7 @@ _TREND_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(dut_part_number, product_id, 'unknown') AS product,
+        COALESCE(dut_part_number, part_id, 'unknown') AS part,
         COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         run_outcome,
@@ -372,7 +372,7 @@ WITH runs AS (
     ORDER BY run_id
 )
 SELECT
-    product,
+    part,
     station,
     phase,
     period_day AS period,
@@ -382,7 +382,7 @@ SELECT
           / NULLIF(COUNT(*), 0), 1) AS yield_pct
 FROM runs
 {where}
-GROUP BY product, station, phase, period_day
+GROUP BY part, station, phase, period_day
 ORDER BY period_day
 """
 
@@ -390,7 +390,7 @@ _RETEST_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(dut_part_number, product_id, 'unknown') AS product,
+        COALESCE(dut_part_number, part_id, 'unknown') AS part,
         COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         dut_serial,
@@ -399,14 +399,14 @@ WITH runs AS (
     ORDER BY run_id
 ),
 serial_counts AS (
-    SELECT product, station, phase, period_day,
+    SELECT part, station, phase, period_day,
            dut_serial, COUNT(*) AS executions
     FROM runs
     WHERE dut_serial IS NOT NULL
-    GROUP BY product, station, phase, period_day, dut_serial
+    GROUP BY part, station, phase, period_day, dut_serial
 )
 SELECT
-    product,
+    part,
     station,
     phase,
     period_day AS period,
@@ -417,7 +417,7 @@ SELECT
     ROUND(AVG(executions - 1), 2) AS avg_retries
 FROM serial_counts
 {where}
-GROUP BY product, station, phase, period_day
+GROUP BY part, station, phase, period_day
 ORDER BY period_day
 """
 
@@ -425,7 +425,7 @@ _TIME_LOSS_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(dut_part_number, product_id, 'unknown') AS product,
+        COALESCE(dut_part_number, part_id, 'unknown') AS part,
         COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         run_outcome,
@@ -436,7 +436,7 @@ WITH runs AS (
     ORDER BY run_id
 )
 SELECT
-    product,
+    part,
     station,
     phase,
     period_day AS period,
@@ -446,7 +446,7 @@ SELECT
     ROUND(SUM(duration_s) FILTER (WHERE run_outcome = 'errored'), 2) AS error_time_s
 FROM runs
 {where}
-GROUP BY product, station, phase, period_day
+GROUP BY part, station, phase, period_day
 ORDER BY period_day
 """
 
@@ -466,7 +466,7 @@ class MeasurementsQuery:
     Usage::
 
         q = MeasurementsQuery()
-        rows = q.yield_summary(product="PN-123", period="week")
+        rows = q.yield_summary(part="PN-123", period="week")
         q.close()
     """
 
@@ -501,7 +501,7 @@ class MeasurementsQuery:
     def yield_summary(
         self,
         *,
-        product: str | list[str] | None = None,
+        part: str | list[str] | None = None,
         station: str | list[str] | None = None,
         phase: str | list[str] | None = None,
         since: str | None = None,
@@ -510,10 +510,10 @@ class MeasurementsQuery:
     ) -> list[dict[str, Any]]:
         """Yield summary: FPY, final yield, run counts, duration stats.
 
-        Returns one row per (product, station, phase, period).
+        Returns one row per (part, station, phase, period).
         """
         where = _build_where(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -528,7 +528,7 @@ class MeasurementsQuery:
     def pareto(
         self,
         *,
-        product: str | list[str] | None = None,
+        part: str | list[str] | None = None,
         station: str | list[str] | None = None,
         phase: str | list[str] | None = None,
         since: str | None = None,
@@ -537,11 +537,11 @@ class MeasurementsQuery:
     ) -> list[dict[str, Any]]:
         """Pareto analysis: top failure modes by count.
 
-        Returns one row per (product, station, step, measurement).
+        Returns one row per (part, station, step, measurement).
         """
         sql = _PARETO_SQL.format(
             and_clauses=_build_and_clauses(
-                product=product,
+                part=part,
                 station=station,
                 phase=phase,
                 since=since,
@@ -554,7 +554,7 @@ class MeasurementsQuery:
     def cpk(
         self,
         *,
-        product: str | list[str] | None = None,
+        part: str | list[str] | None = None,
         station: str | list[str] | None = None,
         phase: str | list[str] | None = None,
         since: str | None = None,
@@ -563,11 +563,11 @@ class MeasurementsQuery:
     ) -> list[dict[str, Any]]:
         """Process capability (Cpk/Cp) per measurement.
 
-        Returns one row per (product, station, measurement_name).
+        Returns one row per (part, station, measurement_name).
         """
         sql = _CPK_SQL.format(
             and_clauses=_build_and_clauses(
-                product=product,
+                part=part,
                 station=station,
                 phase=phase,
                 since=since,
@@ -580,7 +580,7 @@ class MeasurementsQuery:
     def trend(
         self,
         *,
-        product: str | list[str] | None = None,
+        part: str | list[str] | None = None,
         station: str | list[str] | None = None,
         phase: str | list[str] | None = None,
         since: str | None = None,
@@ -589,10 +589,10 @@ class MeasurementsQuery:
     ) -> list[dict[str, Any]]:
         """Yield trend over time.
 
-        Returns one row per (product, station, phase, period).
+        Returns one row per (part, station, phase, period).
         """
         where = _build_where(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -607,7 +607,7 @@ class MeasurementsQuery:
     def retest(
         self,
         *,
-        product: str | list[str] | None = None,
+        part: str | list[str] | None = None,
         station: str | list[str] | None = None,
         phase: str | list[str] | None = None,
         since: str | None = None,
@@ -616,10 +616,10 @@ class MeasurementsQuery:
     ) -> list[dict[str, Any]]:
         """Retest rates: how often DUTs require multiple attempts.
 
-        Returns one row per (product, station, phase, period).
+        Returns one row per (part, station, phase, period).
         """
         where = _build_where(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -634,7 +634,7 @@ class MeasurementsQuery:
     def time_loss(
         self,
         *,
-        product: str | list[str] | None = None,
+        part: str | list[str] | None = None,
         station: str | list[str] | None = None,
         phase: str | list[str] | None = None,
         since: str | None = None,
@@ -643,10 +643,10 @@ class MeasurementsQuery:
     ) -> list[dict[str, Any]]:
         """Time lost to failures and errors.
 
-        Returns one row per (product, station, phase, period).
+        Returns one row per (part, station, phase, period).
         """
         where = _build_where(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -830,7 +830,7 @@ class MeasurementsQuery:
             COUNT(*) AS total_rows,
             COUNT(DISTINCT run_id) AS distinct_runs,
             COUNT(DISTINCT measurement_name) AS distinct_measurements,
-            COUNT(DISTINCT COALESCE(dut_part_number, product_id, 'unknown')) AS distinct_products
+            COUNT(DISTINCT COALESCE(dut_part_number, part_id, 'unknown')) AS distinct_parts
         FROM measurements{where}
         """
         rows = self._query_dicts(sql)
@@ -839,6 +839,6 @@ class MeasurementsQuery:
                 total_rows=0,
                 distinct_runs=0,
                 distinct_measurements=0,
-                distinct_products=0,
+                distinct_parts=0,
             )
         return SummaryCounts(**rows[0])

@@ -34,8 +34,8 @@ def sample_run():
         ended_at=datetime(2026, 2, 7, 12, 5, 0, tzinfo=UTC),
         dut=DUT(serial="SN-001", part_number="PN-100", revision="A"),
         station_id="bench_01",
-        product_id="widget_v1",
-        product_name="Widget",
+        part_id="widget_v1",
+        part_name="Widget",
         operator_id="test_op",
         test_phase="development",
         git_commit="abc123",
@@ -123,7 +123,7 @@ class TestLoadRunData:
         assert data.run_id == run_id
         assert data.dut_serial == "SN-001"
         assert data.station_id == "bench_01"
-        assert data.product_id == "widget_v1"
+        assert data.part_id == "widget_v1"
         assert data.operator_id == "test_op"
         assert data.git_commit == "abc123"
 

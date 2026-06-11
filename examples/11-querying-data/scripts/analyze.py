@@ -80,21 +80,19 @@ def main() -> None:
         for outcome, n in sorted(counts.items(), key=lambda kv: -kv[1]):
             print(f"  {outcome or 'in_flight':<10}  {n:>3}")
 
-    # 4. Yield summary — one row per (product, station, phase, period)
+    # 4. Yield summary — one row per (part, station, phase, period)
     _hr()
     with MeasurementsQuery(_data_dir=data_dir) as m_q:
         try:
             yield_rows = m_q.yield_summary()
-            print(f"\nYield summary — {len(yield_rows)} (product, station, phase) groupings:")
+            print(f"\nYield summary — {len(yield_rows)} (part, station, phase) groupings:")
             for row in yield_rows[:8]:
-                product = row.get("product", "?")
+                part = row.get("part", "?")
                 station = row.get("station", "?")
                 total = row.get("total_runs", 0)
                 passed = row.get("passed_runs", 0)
                 pct = (passed / total * 100) if total else 0
-                print(
-                    f"  {product:<18}  {station:<10}  {passed:>3}/{total:<3} passed  ({pct:5.1f} %)"
-                )
+                print(f"  {part:<18}  {station:<10}  {passed:>3}/{total:<3} passed  ({pct:5.1f} %)")
         except Exception as exc:  # noqa: BLE001
             print(f"\nyield_summary() unavailable for this dataset: {exc}")
 

@@ -43,7 +43,7 @@ class CLIDUTProvider:
     - Positional per-slot: ``--dut-serials SN001,SN002`` (maps to slots in order)
 
     Part number, revision, and lot number are shared across all slots
-    (they come from the same product).
+    (they come from the same part).
     """
 
     def __init__(

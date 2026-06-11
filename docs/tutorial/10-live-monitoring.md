@@ -80,14 +80,14 @@ and [Operator UI → Results — detail](../reference/operator-ui/results/detail
 
 After a few runs accumulate, the
 [`/metrics`](http://localhost:8000/metrics) page becomes the
-go-to "is the bench healthy" view. A filter bar (Phase / Product /
+go-to "is the bench healthy" view. A filter bar (Phase / Part /
 Station / Lot / Since / Until) sits above a tab strip with six
 analytical lenses:
 
 | Tab | What it shows |
 |---|---|
 | Yield | First-pass yield, final yield, run / failure counts, a yield trend chart, and time stats |
-| Pareto | Failure counts grouped by Product, Step, or Measurement (the group-by is a control on the tab) |
+| Pareto | Failure counts grouped by Part, Step, or Measurement (the group-by is a control on the tab) |
 | Cpk | Per-measurement process capability, ranked worst-first |
 | Retest | Time-bucketed retest rate — how many serials needed more than one attempt that period |
 | Time loss | Wall-clock time spent on failed / errored runs per period |

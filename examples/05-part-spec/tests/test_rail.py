@@ -1,9 +1,9 @@
-"""Limits derive from the product datasheet — no fixture YAML yet.
+"""Limits derive from the part datasheet — no fixture YAML yet.
 
-The product spec (``products/buck_3v3.yaml``) declares each
+The part spec (``parts/buck_3v3.yaml``) declares each
 characteristic's nominal value and units once. Sidecar limits point
 at a characteristic and add a ``tolerance_pct``; the resolver reads
-the band from the product at measurement time. Each row carries
+the band from the part at measurement time. Each row carries
 ``characteristic_id`` for spec traceability without the test code
 typing the nominal anywhere.
 
@@ -21,7 +21,7 @@ import pytest
 
 
 def test_rail_within_spec(verify, psu, dmm) -> None:
-    """5 V in → 3.3 V out; limit = rail_3v3 ± 2% from product spec."""
+    """5 V in → 3.3 V out; limit = rail_3v3 ± 2% from part spec."""
     psu.set_voltage(5.0)
     psu.enable_output()
     verify("v_rail", dmm.measure_dc_voltage())

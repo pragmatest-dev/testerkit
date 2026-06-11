@@ -1,10 +1,10 @@
 """Capability matching service.
 
-Provides deterministic matching between product requirements and station capabilities.
+Provides deterministic matching between part requirements and station capabilities.
 This is the core service layer that the UI, API, and MCP tools all use.
 
 Key concepts:
-- Products define characteristics (ProductCharacteristic extends Capability)
+- Parts define characteristics (PartCharacteristic extends Capability)
 - Instruments define capabilities (InstrumentCapability extends Capability)
 - Both share the same base: function + direction + parameters + specs
 - Direction pairing happens here: DUT OUTPUT ↔ Instrument INPUT
@@ -37,9 +37,9 @@ from litmus.models.capability import (
     band_matches,
 )
 from litmus.models.enums import Direction, MatchDepth, MeasurementFunction
-from litmus.models.product import Product, ProductCharacteristic
+from litmus.models.part import Part, PartCharacteristic
 from litmus.store import (
-    get_product,
+    get_part,
     get_station,
     list_stations,
     resolve_catalog_ref,
@@ -49,10 +49,10 @@ logger = logging.getLogger(__name__)
 
 
 class CapabilityRequirement(BaseModel):
-    """A required instrument capability derived from a product characteristic."""
+    """A required instrument capability derived from a part characteristic."""
 
-    capability: ProductCharacteristic
-    characteristic_name: str  # Which product characteristic this came from
+    capability: PartCharacteristic
+    characteristic_name: str  # Which part characteristic this came from
     pins: list[str] = Field(default_factory=list)  # DUT pins for traceability
 
     # Convenience accessors
@@ -137,7 +137,7 @@ class MatchResult(BaseModel):
 
 
 class StationMatch(BaseModel):
-    """Summary of a station's compatibility with a product."""
+    """Summary of a station's compatibility with a part."""
 
     station_id: str
     station_name: str
@@ -146,7 +146,7 @@ class StationMatch(BaseModel):
 
 
 class PartialStationMatch(BaseModel):
-    """Summary of a station's partial compatibility with a product.
+    """Summary of a station's partial compatibility with a part.
 
     Used for procurement planning - shows what's available and what's missing.
     """
@@ -161,13 +161,13 @@ class PartialStationMatch(BaseModel):
 
 
 # -----------------------------------------------------------------------------
-# Product/Station listing for API (summary dicts)
+# Part/Station listing for API (summary dicts)
 # -----------------------------------------------------------------------------
 
 
-def list_products_summary() -> list[dict[str, Any]]:
-    """List all available products as summary dicts (for API compatibility)."""
-    from litmus.store import list_products
+def list_parts_summary() -> list[dict[str, Any]]:
+    """List all available parts as summary dicts (for API compatibility)."""
+    from litmus.store import list_parts
 
     return [
         {
@@ -177,7 +177,7 @@ def list_products_summary() -> list[dict[str, Any]]:
             "revision": p.revision,
             "characteristics_count": len(p.characteristics),
         }
-        for p in list_products()
+        for p in list_parts()
     ]
 
 
@@ -196,37 +196,37 @@ def _directions_compatible_direct(required_dir: Direction, instrument_dir: Direc
     return required_dir == instrument_dir
 
 
-def _directions_compatible(product_dir: Direction, instrument_dir: Direction) -> bool:
-    """Check if product and instrument directions are compatible for matching.
+def _directions_compatible(part_dir: Direction, instrument_dir: Direction) -> bool:
+    """Check if part and instrument directions are compatible for matching.
 
     Direction pairing rules:
     - DUT OUTPUT → Instrument INPUT (measure what DUT provides)
     - DUT INPUT → Instrument OUTPUT (source what DUT needs)
     - DUT BIDIR → Instrument BIDIR only
-    - Instrument BIDIR satisfies any product direction
+    - Instrument BIDIR satisfies any part direction
     """
     if instrument_dir == Direction.BIDIR:
         return True
-    if product_dir == Direction.OUTPUT:
+    if part_dir == Direction.OUTPUT:
         return instrument_dir == Direction.INPUT
-    if product_dir == Direction.INPUT:
+    if part_dir == Direction.INPUT:
         return instrument_dir == Direction.OUTPUT
-    if product_dir == Direction.BIDIR:
+    if part_dir == Direction.BIDIR:
         return instrument_dir == Direction.BIDIR
-    if product_dir == Direction.TRANSFORM:
+    if part_dir == Direction.TRANSFORM:
         return instrument_dir == Direction.TRANSFORM
     return False
 
 
-def get_required_capabilities(product: Product) -> list[CapabilityRequirement]:
-    """Derive required instrument capabilities from product characteristics.
+def get_required_capabilities(part: Part) -> list[CapabilityRequirement]:
+    """Derive required instrument capabilities from part characteristics.
 
-    Wraps each ProductCharacteristic directly — no lossy conversion.
+    Wraps each PartCharacteristic directly — no lossy conversion.
     Direction pairing happens in capability_satisfies() via _directions_compatible().
     """
     requirements = []
 
-    for char_name, char in product.characteristics.items():
+    for char_name, char in part.characteristics.items():
         requirements.append(
             CapabilityRequirement(
                 capability=char,
@@ -334,7 +334,7 @@ def capability_satisfies(
     Args:
         direct_direction: If True, requirement specifies the instrument
             capability directly (e.g. "I need an input instrument" matches
-            input instruments). If False (default), uses product↔instrument
+            input instruments). If False (default), uses part↔instrument
             pairing (OUTPUT↔INPUT, etc.).
     """
     # Tier 1: Function must match
@@ -350,7 +350,7 @@ def capability_satisfies(
         if not _directions_compatible_direct(required.direction, station_cap.direction):
             return False
     else:
-        # Product↔instrument pairing (OUTPUT↔INPUT, etc.)
+        # Part↔instrument pairing (OUTPUT↔INPUT, etc.)
         if not _directions_compatible(required.direction, station_cap.direction):
             return False
     if depth == MatchDepth.DIRECTION:
@@ -616,12 +616,12 @@ def match_capabilities(
     )
 
 
-def find_compatible_stations(product: Product) -> list[StationMatch]:
-    """Find all stations that can test the given product.
+def find_compatible_stations(part: Part) -> list[StationMatch]:
+    """Find all stations that can test the given part.
 
     Returns a list of StationMatch objects with compatibility details.
     """
-    required = get_required_capabilities(product)
+    required = get_required_capabilities(part)
     stations_list = list_stations()
     results = []
 
@@ -647,28 +647,28 @@ def find_compatible_stations(product: Product) -> list[StationMatch]:
 
 
 def check_station_compatibility(
-    product_id: str,
+    part_id: str,
     station_id: str,
     project: str | Path | None = None,
 ) -> dict[str, Any] | None:
-    """Check if a specific station can test a specific product.
+    """Check if a specific station can test a specific part.
 
-    Returns detailed match report or None if product/station not found.
+    Returns detailed match report or None if part/station not found.
     """
-    product = get_product(product_id)
-    if not product:
+    part = get_part(part_id)
+    if not part:
         return None
 
     station_config = get_station(station_id)
     if not station_config:
         return None
 
-    required = get_required_capabilities(product)
+    required = get_required_capabilities(part)
     available = get_station_capabilities(station_config)
     match_result = match_capabilities(required, available)
 
     return {
-        "product_id": product_id,
+        "part_id": part_id,
         "station_id": station_id,
         "compatible": match_result.compatible,
         "requirements_count": len(required),
@@ -725,13 +725,13 @@ def _evaluate_stations(
     return results
 
 
-def find_partial_stations(product: Product) -> list[PartialStationMatch]:
-    """Find stations with partial capability coverage for a product.
+def find_partial_stations(part: Part) -> list[PartialStationMatch]:
+    """Find stations with partial capability coverage for a part.
 
     Returns stations that have some but not all required capabilities.
     Useful for procurement planning - shows what's available and what to order.
     """
-    required = get_required_capabilities(product)
+    required = get_required_capabilities(part)
     if not required:
         return []
 
@@ -899,8 +899,8 @@ def _parse_requirements(
             for cond_name, cond_spec in r["conditions"].items():
                 conditions[cond_name] = Condition(range=RangeSpec(**cond_spec))
 
-        # Build a synthetic ProductCharacteristic for the wrapper
-        char = ProductCharacteristic(
+        # Build a synthetic PartCharacteristic for the wrapper
+        char = PartCharacteristic(
             function=function,
             direction=direction,
             signals=signals,
@@ -927,7 +927,7 @@ def _catalog_entry_to_capabilities(entry: InstrumentCatalogEntry) -> list[Statio
     return caps
 
 
-def find_all_station_matches(product: Product) -> dict[str, list[dict[str, Any]]]:
+def find_all_station_matches(part: Part) -> dict[str, list[dict[str, Any]]]:
     """Find all stations categorized by compatibility level.
 
     Returns:
@@ -936,7 +936,7 @@ def find_all_station_matches(product: Product) -> dict[str, list[dict[str, Any]]
         - "partial": Partially compatible stations (0 < coverage < 100%)
         - "incompatible": Stations with 0% coverage
     """
-    required = get_required_capabilities(product)
+    required = get_required_capabilities(part)
     if not required:
         return {"compatible": [], "partial": [], "incompatible": []}
 

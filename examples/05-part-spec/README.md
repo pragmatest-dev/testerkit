@@ -1,18 +1,18 @@
-# Stage 5 — Product YAML drives spec-aware limits
+# Stage 5 — Part YAML drives spec-aware limits
 
-The product is a first-class artifact: characteristics declare each
+The part is a first-class artifact: characteristics declare each
 parameter's nominal value once (`rail_3v3 = 3.3 V`), and sidecar
 limits reference the characteristic plus a tolerance. The resolver
-reads the band from the product at measurement time.
+reads the band from the part at measurement time.
 
 The bench is still the conftest from stages 2-4. This chapter shows
-the **spec layer in isolation** — change `rail_3v3` in the product
+the **spec layer in isolation** — change `rail_3v3` in the part
 YAML and every test recomputes its limit band, no station YAML, no
 fixture YAML, no connection iteration. Stage 6 introduces those.
 
 ## Diff from stage 4
 
-- Added `products/buck_3v3.yaml` — characteristics (`rail_3v3`,
+- Added `parts/buck_3v3.yaml` — characteristics (`rail_3v3`,
   `input_voltage`, `idle_current`) + the DUT pin map.
 - Replaced raw `low: / high:` limits in the sidecar with
   `characteristic: rail_3v3, tolerance_pct: 2`.
@@ -25,17 +25,17 @@ arrive in stage 6.
 ## Run it
 
 ```bash
-cd examples/05-product-spec
+cd examples/05-part-spec
 uv run pytest -v
 ```
 
-## Why reference the product spec
+## Why reference the part spec
 
-Pointing each test at a product characteristic gives every measurement
+Pointing each test at a part characteristic gives every measurement
 row two things it couldn't have with absolute `low/high` numbers:
 
 1. **Single source of truth for the value.** Change `rail_3v3`'s
-   nominal in `products/buck_3v3.yaml` and every test recomputes its
+   nominal in `parts/buck_3v3.yaml` and every test recomputes its
    limit band. No hunting through test files to update numbers.
 2. **Traceable rows.** Each Parquet row carries `characteristic_id`.
    Queries can aggregate by characteristic across many runs; reports

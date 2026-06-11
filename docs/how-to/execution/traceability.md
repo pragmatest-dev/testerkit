@@ -49,8 +49,8 @@ Every measurement can be traced from result back to source:
 ```mermaid
 flowchart LR
     meas["Measurement Output"]
-    spec["Product Spec<br/>(products/id.yaml)<br/><sub>Characteristic ID from datasheet</sub>"]
-    pin["Product Pin Definition<br/><sub>Physical location: J1.3, net: VOUT</sub>"]
+    spec["Part Spec<br/>(parts/id.yaml)<br/><sub>Characteristic ID from datasheet</sub>"]
+    pin["Part Pin Definition<br/><sub>Physical location: J1.3, net: VOUT</sub>"]
     fix["Fixture Config<br/>(fixture.yaml)<br/><sub>Maps DUT pin to instrument</sub>"]
     sta["Station Config<br/>(station.yaml)<br/><sub>Logical name: dmm_main</sub>"]
     res["Physical Connection<br/><sub>VISA: TCPIP::192.168.1.100::INSTR</sub>"]
@@ -86,7 +86,7 @@ When you use the `pins` fixture, traceability is captured automatically:
 ```python
 def test_output_voltage(pins, logger):
     # pins["VOUT"] knows:
-    # - dut_pin (from product spec)
+    # - dut_pin (from part spec)
     # - instrument_name (from fixture)
     # - instrument_resource (from station)
     # - instrument_channel (from fixture)
@@ -110,14 +110,14 @@ def test_output_voltage(dmm, logger):
     )
 ```
 
-### Using ProductContext
+### Using PartContext
 
 For spec-driven traceability:
 
 ```python
 def test_output_voltage(dmm, verify):
     # verify resolves the limit and traceability from the active
-    # ProductContext (configured via --product=products/power_board.yaml)
+    # PartContext (configured via --part=parts/power_board.yaml)
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
@@ -295,7 +295,7 @@ Example compliance report structure:
 Test Report: SN12345
 ──────────────────────────────────────────────────────
 Requirement: output_voltage
-  Source: products/power_board.yaml
+  Source: parts/power_board.yaml
   DUT Pin: J1.3 (VOUT_3V3)
   Instrument: dmm_main (Keithley 2000)
   Resource: TCPIP::192.168.1.100::INSTR
@@ -327,13 +327,13 @@ Requirement: output_voltage
 
 ## Best Practices
 
-1. **Let the framework capture traceability** — Most fields are auto-captured when using fixtures and ProductContext
+1. **Let the framework capture traceability** — Most fields are auto-captured when using fixtures and PartContext
 
 2. **Use `run_context` for custom fields** — Add organization-specific metadata that becomes queryable columns
 
 3. **Use fixtures for complex routing** — Let the framework handle signal path traceability automatically
 
-4. **Use meaningful DUT pin names** — Match your schematic/PCB designators in product spec
+4. **Use meaningful DUT pin names** — Match your schematic/PCB designators in part spec
 
 5. **Query with DuckDB for big data** — Use glob patterns to analyze across all runs:
    ```sql

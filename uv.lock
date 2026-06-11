@@ -14,7 +14,7 @@ members = [
     "litmus-example-02-verify",
     "litmus-example-03-inline-limits",
     "litmus-example-04-sidecar-markers",
-    "litmus-example-05-product-spec",
+    "litmus-example-05-part-spec",
     "litmus-example-06-station-catalog",
     "litmus-example-07-profiles",
     "litmus-example-08-waveform-evidence",
@@ -1640,9 +1640,9 @@ requires-dist = [
 ]
 
 [[package]]
-name = "litmus-example-05-product-spec"
+name = "litmus-example-05-part-spec"
 version = "0.0.0"
-source = { editable = "examples/05-product-spec" }
+source = { editable = "examples/05-part-spec" }
 dependencies = [
     { name = "litmus-test" },
     { name = "pytest" },

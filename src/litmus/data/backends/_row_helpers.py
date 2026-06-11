@@ -130,10 +130,10 @@ class MeasurementRow(BaseModel):
     dut_revision: str | None = None
     dut_lot_number: str | None = None
 
-    # Product
-    product_id: str | None = None
-    product_name: str | None = None
-    product_revision: str | None = None
+    # Part
+    part_id: str | None = None
+    part_name: str | None = None
+    part_revision: str | None = None
 
     # Station — id is None for bringup tier (no station YAML loaded)
     station_id: str | None = None
@@ -256,10 +256,10 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
         "dut_part_number": test_run.dut.part_number,
         "dut_revision": test_run.dut.revision,
         "dut_lot_number": test_run.dut.lot_number,
-        # Product
-        "product_id": test_run.product_id,
-        "product_name": test_run.product_name,
-        "product_revision": test_run.product_revision,
+        # Part
+        "part_id": test_run.part_id,
+        "part_name": test_run.part_name,
+        "part_revision": test_run.part_revision,
         # Station
         "station_id": test_run.station_id,
         "station_name": test_run.station_name,
@@ -328,9 +328,9 @@ def run_context_from_run_started(
             "dut_part_number": None,
             "dut_revision": None,
             "dut_lot_number": None,
-            "product_id": None,
-            "product_name": None,
-            "product_revision": None,
+            "part_id": None,
+            "part_name": None,
+            "part_revision": None,
             "station_id": "unknown",
             "station_name": None,
             "station_type": None,
@@ -356,9 +356,9 @@ def run_context_from_run_started(
             "dut_part_number": run_started.dut_part_number,
             "dut_revision": run_started.dut_revision,
             "dut_lot_number": run_started.dut_lot_number,
-            "product_id": run_started.product_id,
-            "product_name": run_started.product_name,
-            "product_revision": run_started.product_revision,
+            "part_id": run_started.part_id,
+            "part_name": run_started.part_name,
+            "part_revision": run_started.part_revision,
             "station_id": run_started.station_id,
             "station_name": run_started.station_name,
             "station_type": run_started.station_type,

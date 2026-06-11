@@ -211,7 +211,7 @@ def _init_project(
         "next_steps": [
             "Run 'uv sync' to install dependencies",
             "Use litmus_project(action='read', path='template:test') to see test pattern",
-            "Create a product with litmus_project(action='save', type='product', ...)",
+            "Create a part with litmus_project(action='save', type='part', ...)",
         ],
     }
 
@@ -222,7 +222,7 @@ def _init_project(
 
 ENTITY_TYPES = [
     "station",
-    "product",
+    "part",
     "fixture",
     "catalog",
     "instrument_asset",
@@ -231,7 +231,7 @@ ENTITY_TYPES = [
 # Everything except "run" (read-only test results) can be saved.
 SAVEABLE_TYPES = [
     "station",
-    "product",
+    "part",
     "fixture",
     "catalog",
     "instrument_asset",
@@ -246,7 +246,7 @@ def _list_entities(entity_type: str, project: str) -> dict[str, Any]:
 
     handlers = {
         "station": _list_stations,
-        "product": _list_products,
+        "part": _list_parts,
         "fixture": _list_fixtures,
         "catalog": _list_catalog_entries,
         "instrument_asset": _list_instrument_assets,
@@ -303,9 +303,9 @@ def _list_stations(project: str) -> list[dict[str, Any]]:
     )
 
 
-def _list_products(project: str) -> list[dict[str, Any]]:
-    """List all product specifications from products/ directory."""
-    from litmus.store import list_products
+def _list_parts(project: str) -> list[dict[str, Any]]:
+    """List all part specifications from parts/ directory."""
+    from litmus.store import list_parts
 
     root = get_project_root(project)
     return [
@@ -316,7 +316,7 @@ def _list_products(project: str) -> list[dict[str, Any]]:
             "revision": p.revision,
             "characteristics_count": len(p.characteristics),
         }
-        for p in list_products(project_root=root)
+        for p in list_parts(project_root=root)
     ]
 
 
@@ -331,7 +331,7 @@ def _list_fixtures(project: str) -> list[dict[str, Any]]:
         lambda f, yf: {
             "id": f.id,
             "name": f.name or yf.stem,
-            "product_id": f.product_id,
+            "part_id": f.part_id,
             "point_count": len(f.points),
         },
     )
@@ -381,7 +381,7 @@ def _get_entity(entity_type: str, id: str, project: str) -> dict[str, Any]:
 
     handlers = {
         "station": _get_station,
-        "product": _get_product,
+        "part": _get_part,
         "fixture": _get_fixture,
         "catalog": _get_catalog_entry,
         "instrument_asset": _get_instrument_asset,
@@ -424,16 +424,16 @@ def _get_station(station_id: str, project: str) -> dict[str, Any]:
     return _get_yaml_entity(station_id, project, "stations", "Station", load_station)
 
 
-def _get_product(product_id: str, project: str) -> dict[str, Any]:
-    """Get product specification from products/{product_id}.yaml."""
-    from litmus.store import get_product
+def _get_part(part_id: str, project: str) -> dict[str, Any]:
+    """Get part specification from parts/{part_id}.yaml."""
+    from litmus.store import get_part
 
     root = get_project_root(project)
-    product = get_product(product_id, project_root=root)
+    part = get_part(part_id, project_root=root)
 
-    if product is None:
-        return {"error": f"Product '{product_id}' not found in products/"}
-    return product.model_dump()
+    if part is None:
+        return {"error": f"Part '{part_id}' not found in parts/"}
+    return part.model_dump()
 
 
 def _get_fixture(fixture_id: str, project: str) -> dict[str, Any]:
@@ -567,11 +567,11 @@ def _save_entity(
             res["warnings"] = type_warnings
         return res
 
-    if entity_type == "product":
-        from litmus.models.product import Product
-        from litmus.store import save_product
+    if entity_type == "part":
+        from litmus.models.part import Part
+        from litmus.store import save_part
 
-        return _save_generic_yaml(Product, save_product, "products", id, content, project)
+        return _save_generic_yaml(Part, save_part, "parts", id, content, project)
 
     if entity_type == "fixture":
         from litmus.models.test_config import FixtureConfig
@@ -610,7 +610,7 @@ def _save_test(path: str, content: dict[str, Any], project: str) -> dict[str, An
     root = get_project_root(project)
 
     # Support both absolute-ish paths and relative paths
-    if path.startswith("products/") or path.startswith("tests/"):
+    if path.startswith("parts/") or path.startswith("tests/"):
         filepath = root / path
     else:
         filepath = root / "tests" / path
@@ -633,13 +633,13 @@ def _save_test(path: str, content: dict[str, Any], project: str) -> dict[str, An
 
 TEST_TEMPLATE = '''
 ================================================================================
-FILE 1: tests/test_{product_id}.py
+FILE 1: tests/test_{part_id}.py
 ================================================================================
 
-"""Tests for {product_name}.
+"""Tests for {part_name}.
 
 Tests are plain pytest functions. Vectors, limits, and mocks live in
-the sidecar YAML next to this file (``test_{product_id}.yaml``). The
+the sidecar YAML next to this file (``test_{part_id}.yaml``). The
 ``context`` and ``verify`` fixtures come from the Litmus pytest plugin.
 """
 
@@ -675,7 +675,7 @@ def test_load_regulation(context, psu, dmm, eload, verify) -> None:
 
 
 ================================================================================
-FILE 2: tests/test_{product_id}.yaml
+FILE 2: tests/test_{part_id}.yaml
 ================================================================================
 
 # Sidecar: vectors/limits/mocks keyed by test function name.
@@ -707,7 +707,7 @@ NOTES
 - Vectors: use ``@pytest.mark.parametrize`` or sidecar ``vectors:``.
   Sidecar overrides decorator at collection time.
 - Limits: declared per-measurement in sidecar; use ``ref:`` to derive
-  from a product characteristic, or inline ``low/high`` for direct
+  from a part characteristic, or inline ``low/high`` for direct
   bounds. Condition-indexed bands (``when:``) also supported.
 - Mocks: sidecar ``mocks:`` installs per-test. Use
   ``--mock-instruments`` to run without hardware.
@@ -808,7 +808,7 @@ def _read_file(path: str, project: str) -> dict[str, Any]:
         return {
             "type": "template",
             "name": "test",
-            "content": TEST_TEMPLATE.format(product_name="ProductName", product_id="product_id"),
+            "content": TEST_TEMPLATE.format(part_name="PartName", part_id="part_id"),
             "notes": [
                 "Tests are plain pytest functions; use context/verify fixtures",
                 "Vectors, limits, and mocks live in the sidecar YAML next to the test",
@@ -957,16 +957,16 @@ def discover_tool(protocols: list[str] | None = None) -> dict[str, Any]:
 
 
 def match_tool(
-    product_id: str | None = None,
+    part_id: str | None = None,
     station_id: str | None = None,
     fixture_id: str | None = None,
     requirements: list[dict[str, Any]] | None = None,
     project: str | None = None,
 ) -> dict[str, Any]:
-    """Check compatibility between products, stations, and fixtures.
+    """Check compatibility between parts, stations, and fixtures.
 
     Args:
-        product_id: Product ID to check compatibility for
+        part_id: Part ID to check compatibility for
         station_id: Station ID for detailed check
         fixture_id: Fixture ID to find compatible stations
         requirements: Ad-hoc capability requirements for catalog recommendations
@@ -977,7 +977,7 @@ def match_tool(
         find_compatible_stations,
         get_required_capabilities,
     )
-    from litmus.store import get_product
+    from litmus.store import get_part
 
     # Requirements mode: recommend catalog instruments
     if requirements is not None:
@@ -986,14 +986,14 @@ def match_tool(
         project_path = get_project_root(project) if project else None
         return recommend_from_catalog(requirements, project_path)
 
-    # Just product_id: find compatible stations
-    if product_id and not station_id and not fixture_id:
+    # Just part_id: find compatible stations
+    if part_id and not station_id and not fixture_id:
         root = get_project_root(project) if project else None
-        product = get_product(product_id, project_root=root)
-        if not product:
-            return {"error": f"Product '{product_id}' not found"}
+        part = get_part(part_id, project_root=root)
+        if not part:
+            return {"error": f"Part '{part_id}' not found"}
 
-        cap_reqs = get_required_capabilities(product)
+        cap_reqs = get_required_capabilities(part)
         req_list = [
             {
                 "characteristic": req.characteristic_name,
@@ -1003,7 +1003,7 @@ def match_tool(
             for req in cap_reqs
         ]
 
-        matches = find_compatible_stations(product)
+        matches = find_compatible_stations(part)
         stations = [
             {
                 "station_id": m.station_id,
@@ -1014,17 +1014,17 @@ def match_tool(
         ]
 
         return {
-            "product_id": product_id,
+            "part_id": part_id,
             "required_capabilities": req_list,
             "compatible_stations": stations,
         }
 
-    # Product + station: detailed check
-    if product_id and station_id:
+    # Part + station: detailed check
+    if part_id and station_id:
         project_root = get_project_root(project) if project else None
-        result = check_station_compatibility(product_id, station_id, project_root)
+        result = check_station_compatibility(part_id, station_id, project_root)
         if not result:
-            return {"error": "Product or station not found"}
+            return {"error": "Part or station not found"}
         return result
 
     # Fixture: find stations with required instruments
@@ -1067,7 +1067,7 @@ def match_tool(
             "stations": compatible,
         }
 
-    return {"error": "Provide product_id, product_id+station_id, or fixture_id"}
+    return {"error": "Provide part_id, part_id+station_id, or fixture_id"}
 
 
 # =============================================================================
@@ -1101,7 +1101,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
         # Try to find test file
         possible_paths = [
             root / "tests" / f"test_{test}.py",
-            root / "products" / test / "tests" / f"test_{test}.py",
+            root / "parts" / test / "tests" / f"test_{test}.py",
         ]
         test_targets = []
         for p in possible_paths:
@@ -1185,7 +1185,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
 def open_tool(entity_type: str, id: str, base_url: str = "http://localhost:8000") -> dict[str, Any]:
     """Get URL to open entity in browser UI."""
     routes = {
-        "product": f"/products/{id}",
+        "part": f"/parts/{id}",
         "station": f"/stations/{id}",
         "run": f"/results/{id}",
         "fixture": f"/fixtures/{id}",
@@ -1560,7 +1560,7 @@ def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
     before saving it.
 
     Args:
-        yaml_type: A file type from SCHEMA_MAP (e.g. catalog, product,
+        yaml_type: A file type from SCHEMA_MAP (e.g. catalog, part,
             station, fixture, instrument_asset, project).
             If None, returns the list of available types.
 
@@ -1604,7 +1604,7 @@ _METRICS_ACTIONS: tuple[MetricsAction, ...] = (
 
 def metrics_tool(
     action: str,
-    product: str | None = None,
+    part: str | None = None,
     station: str | None = None,
     phase: str | None = None,
     since: str | None = None,
@@ -1618,7 +1618,7 @@ def metrics_tool(
 
     Args:
         action: One of: summary, pareto, cpk, trend, retest, time_loss.
-        product: Filter by product/part number.
+        part: Filter by part/part number.
         station: Filter by station name.
         phase: Filter by test phase (default: exclude development, 'all' = no filter).
         since: Start date (ISO format, inclusive).
@@ -1636,7 +1636,7 @@ def metrics_tool(
     data_dir = _resolve_data_dir(project)
 
     kwargs: dict[str, Any] = {
-        "product": product,
+        "part": part,
         "station": station,
         "phase": phase,
         "since": since,

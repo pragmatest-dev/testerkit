@@ -1,7 +1,7 @@
 """ECharts graph builder for the system designer.
 
 Transforms DesignerState into an ECharts graph series option with:
-- Product pins as nodes on the left
+- Part pins as nodes on the left
 - Instrument channels as nodes on the right
 - Connections as edges between them
 - Color coding by capability and selection state
@@ -106,17 +106,17 @@ def build_graph_option(state: DesignerState) -> dict:
 
 
 def build_nodes(state: DesignerState) -> list[dict]:
-    """Build graph nodes for product pins and instrument channels."""
+    """Build graph nodes for part pins and instrument channels."""
     nodes: list[dict] = []
     y = 20
 
-    # --- Product side (left) ---
+    # --- Part side (left) ---
     groups = _group_pins_by_connector(state.dut_pins)
     for group_type, pin_keys in groups.items():
         # Group header
         nodes.append(
             {
-                "name": f"__header_product_{group_type}",
+                "name": f"__header_part_{group_type}",
                 "x": LEFT_X,
                 "y": y,
                 "category": CAT_HEADER,
@@ -130,7 +130,7 @@ def build_nodes(state: DesignerState) -> list[dict]:
                     "color": "#64748b",
                 },
                 "itemStyle": {"color": "transparent", "borderWidth": 0},
-                "side": "product",
+                "side": "part",
                 "node_type": "header",
                 "interactive": False,
             }
@@ -173,7 +173,7 @@ def build_nodes(state: DesignerState) -> list[dict]:
                     "color": "#1e293b" if is_selected else "#334155",
                     "fontWeight": "bold" if is_selected else "normal",
                 },
-                "side": "product",
+                "side": "part",
                 "node_type": "pin",
                 "interactive": True,
                 "pin_key": pin_key,

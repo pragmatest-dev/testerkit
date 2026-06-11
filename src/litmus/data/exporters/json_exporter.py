@@ -191,8 +191,8 @@ class JsonSubscriber(EventSubscriber):
             data["operator_name"] = s.operator_name
         if s.station_name:
             data["station_name"] = s.station_name
-        if s.product_id:
-            data["product_id"] = s.product_id
+        if s.part_id:
+            data["part_id"] = s.part_id
         if s.custom_metadata:
             data["custom_metadata"] = dict(s.custom_metadata)
 

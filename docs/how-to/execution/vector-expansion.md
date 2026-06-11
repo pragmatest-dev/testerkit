@@ -258,7 +258,7 @@ sweeps:
 ```
 
 The dict-form generators work anywhere a list is expected — station
-channel arrays, fixture pin arrays, product spec conditions — not
+channel arrays, fixture pin arrays, part spec conditions — not
 just inside `litmus_sweeps`.
 
 ### Generated paired values

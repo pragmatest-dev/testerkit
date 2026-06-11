@@ -6,7 +6,7 @@ Why Litmus is built the way it is. Concepts are grouped by what you're trying to
 
 [Overview index →](overview/index.md). The framework's mental model from above — what Litmus is, what it isn't, and why pytest sits underneath.
 
-- [Architecture](overview/architecture.md) — system-level view of products, stations, fixtures, and runs
+- [Architecture](overview/architecture.md) — system-level view of parts, stations, fixtures, and runs
 - [Platform vs framework](overview/platform-vs-framework.md) — what the platform owns vs what the runner owns
 - [pytest](overview/pytest.md) — why a hardware-test platform rides on pytest instead of its own runner
 - [AI integration](overview/ai-integration.md) — what the MCP surface buys you and where it draws the line
@@ -15,9 +15,9 @@ Why Litmus is built the way it is. Concepts are grouped by what you're trying to
 
 [Configuration index →](configuration/index.md). The DUT-to-instrument model — the YAML entities you author once and re-use across runs.
 
-- [Products](configuration/products.md) — what you're testing
+- [Parts](configuration/parts.md) — what you're testing
 - [Stations](configuration/stations.md) — where you test
-- [Capabilities](configuration/capabilities.md) — what instruments can do, how matching pairs them with product characteristics
+- [Capabilities](configuration/capabilities.md) — what instruments can do, how matching pairs them with part characteristics
 - [Fixtures](configuration/fixtures.md) — pin-to-instrument mapping
 
 ## Execution

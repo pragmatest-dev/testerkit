@@ -2,8 +2,8 @@
 
 **URL:** `/designer`
 
-The System Designer is the visual surface for wiring a product's
-DUT pins to a station's instrument channels. Pick a product, pick
+The System Designer is the visual surface for wiring a part's
+DUT pins to a station's instrument channels. Pick a part, pick
 a station, click a pin, click an instrument channel — the page
 draws the wire and auto-saves a fixture YAML to disk.
 
@@ -14,9 +14,9 @@ YAML Preview) that always reflect the current graph state.
 
 | Control | Purpose |
 |---|---|
-| Product | Dropdown of every product in the project's `products/` directory. Picking one loads the product's pin map onto the design surface and, if a matching fixture YAML already exists for the auto-generated fixture ID, loads its connections too. |
+| Part | Dropdown of every part in the project's `parts/` directory. Picking one loads the part's pin map onto the design surface and, if a matching fixture YAML already exists for the auto-generated fixture ID, loads its connections too. |
 | Station | Dropdown of every station in the project's `stations/` directory. Picking one loads the station's instruments + channels into the right-side pool of wiring targets. |
-| Load Fixture | Opens a dialog listing every fixture in `fixtures/`. Pick one and the designer overlays its connections onto the current product. |
+| Load Fixture | Opens a dialog listing every fixture in `fixtures/`. Pick one and the designer overlays its connections onto the current part. |
 | Add Instrument | Opens a dialog to add an instrument to the current station definition. Fields: Instrument Type (optional dropdown from the project catalog — selecting one pre-fills channel names from the type's capability spec), Role Name (e.g. `dmm`, `psu`), Driver (e.g. `examples.drivers.DMM`), Channels (comma-separated). |
 
 ## ID bar
@@ -49,7 +49,7 @@ A row of counters and toggles, just above the design surface:
 
 | Indicator | Meaning |
 |---|---|
-| `N / M pins wired` | How many of the product's pins are connected, and the total. |
+| `N / M pins wired` | How many of the part's pins are connected, and the total. |
 | `N available` | How many pins are still unconnected. |
 | `N instruments` | Instruments currently in the station. |
 | Wiring: \<pin\> | When a pin is selected and waiting for a channel click, the status bar shows it in a blue chip. |
@@ -72,8 +72,8 @@ between connected nodes. Three interactions:
   Terminal) as read-only inputs with a Delete Connection button —
   it's a remove-or-leave-alone affordance, not an edit form.
 
-When no product is selected and no instruments are loaded, the
-graph is replaced with a hint: "Select a product and load a station
+When no part is selected and no instruments are loaded, the
+graph is replaced with a hint: "Select a part and load a station
 to begin."
 
 ## Bottom tabs
@@ -88,7 +88,7 @@ A table of every current wire on the fixture.
 | Column | What it shows |
 |---|---|
 | Point | The connection point name — auto-generated from pin + role at wire time and not user-editable |
-| DUT Pin | The pin on the product side |
+| DUT Pin | The pin on the part side |
 | Net | Net / signal name (optional, free-text) |
 | Instrument | The station instrument the wire terminates on |
 | Channel | The channel / terminal on that instrument |
@@ -128,29 +128,29 @@ the current state is bookmarkable.
 
 | Parameter | Pre-fills |
 |---|---|
-| `product` | The Product dropdown — `?product=<id>` |
+| `part` | The Part dropdown — `?part=<id>` |
 | `station` | The Station dropdown — `?station=<id>` |
 | `fixture` | Loads an existing fixture by ID — `?fixture=<id>` |
 
 ## Underlying data
 
-- Products come from `products/`.
+- Parts come from `parts/`.
 - Stations come from `stations/`.
 - Fixtures (loaded and saved) live in `fixtures/`.
 - Auto-Match uses the same
   [capability matching](../../concepts/configuration/capabilities.md) machinery
-  used elsewhere to find a station-channel that satisfies a product
+  used elsewhere to find a station-channel that satisfies a part
   pin's required signal direction.
 
 ## Common tasks
 
-- **Wire a fresh fixture from scratch** — pick Product + Station,
+- **Wire a fresh fixture from scratch** — pick Part + Station,
   set Fixture ID, click pins → click channels. Save happens
   automatically.
 - **Iterate on an existing fixture** — open the designer with
   `?fixture=<id>` (or pick it from Load Fixture), make changes,
   watch the YAML Preview tab confirm the shape.
-- **Generate a draft fixture quickly** — load Product + Station,
+- **Generate a draft fixture quickly** — load Part + Station,
   click Auto-Match, then refine the suggestions by clicking
   individual wires.
 
@@ -160,4 +160,4 @@ the current state is bookmarkable.
 - [Configuration reference → Fixture YAML](../configuration.md#fixture-yaml) — the schema the designer writes
 - [Concepts → Capabilities](../../concepts/configuration/capabilities.md) — how Auto-Match decides what fits
 - [Stations](stations.md) — the station whose instruments populate the channel side
-- [Products](products.md) — the product whose pins populate the DUT side
+- [Parts](parts.md) — the part whose pins populate the DUT side

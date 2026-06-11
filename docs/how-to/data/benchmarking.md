@@ -24,7 +24,7 @@ Litmus performance on this machine
   Intel(R) Core(TM) Ultra 9 275HX · 24 cores · 15.34 GB RAM · Linux 6.6 (WSL2) · litmus 0.1.3 · fast tier · 58s
 
   Recording a production test run costs ~74 ms and ~0.4 MB. This machine
-  finalizes ~18 runs/s (≈180 products in parallel at a 10s cycle) and can hold
+  finalizes ~18 runs/s (≈180 parts in parallel at a 10s cycle) and can hold
   ~2.18M runs. Litmus stays out of your test's way.
   Under load it uses ~<0.1% of this machine's CPU and ~1.9 GB (12% of RAM) —
   the rest stays free for your test code and other apps.
@@ -49,7 +49,7 @@ below it is "measured on *this* machine," not a guarantee.
 
 - **The verdict** is computed from this run, not hardcoded. It states what
   recording one production run costs, how many runs/s the machine finalizes
-  (and the products-in-parallel that implies at a stated test cycle), and how
+  (and the parts-in-parallel that implies at a stated test cycle), and how
   many runs fit before the disk fills.
 - **Footprint under load** is the Task-Manager view: the share of your machine's
   CPU and RAM the store services use while working — so you know how much is

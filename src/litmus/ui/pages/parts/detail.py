@@ -1,4 +1,4 @@
-"""Product detail page."""
+"""Part detail page."""
 
 from nicegui import ui
 
@@ -10,64 +10,64 @@ from litmus.ui.shared.components import (
 )
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
-    discover_products,
-    get_compatible_stations_for_product,
+    discover_parts,
+    get_compatible_stations_for_part,
     get_required_capabilities,
-    load_product_model,
+    load_part_model,
 )
 
 
-@ui.page("/products/{product_id}")
-def product_detail_page(product_id: str):
-    """Product detail page with tabbed interface."""
-    products = discover_products()
-    product = next((p for p in products if p["id"] == product_id), None)
+@ui.page("/parts/{part_id}")
+def part_detail_page(part_id: str):
+    """Part detail page with tabbed interface."""
+    parts = discover_parts()
+    part = next((p for p in parts if p["id"] == part_id), None)
 
-    if product:
-        create_layout(product["name"])
+    if part:
+        create_layout(part["name"])
     else:
-        create_layout("Product Not Found")
+        create_layout("Part Not Found")
 
     with ui.column().classes("w-full p-6 gap-6"):
-        if product:
-            _render_product_detail(product_id, product)
+        if part:
+            _render_part_detail(part_id, part)
         else:
             _render_not_found()
 
 
-def _render_product_detail(product_id: str, product: dict):
-    """Render the product detail view."""
-    # Product info card
+def _render_part_detail(part_id: str, part: dict):
+    """Render the part detail view."""
+    # Part info card
     with ui.card().classes("w-full"):
         with ui.card_section():
             with ui.row().classes("items-center justify-between w-full"):
                 with ui.row().classes("items-center gap-4"):
-                    ui.label("Product Information").classes("text-lg font-semibold")
-                    if product.get("revision"):
-                        ui.badge(f"Rev {product['revision']}").props("outline")
+                    ui.label("Part Information").classes("text-lg font-semibold")
+                    if part.get("revision"):
+                        ui.badge(f"Rev {part['revision']}").props("outline")
                 with ui.row().classes("gap-2"):
                     ui.button(
                         "Back",
                         icon="arrow_back",
-                        on_click=lambda: ui.navigate.to("/products"),
+                        on_click=lambda: ui.navigate.to("/parts"),
                     ).props("flat")
                     ui.button(
                         "Edit",
                         icon="edit",
-                        on_click=lambda: ui.navigate.to(f"/products/{product_id}/edit"),
+                        on_click=lambda: ui.navigate.to(f"/parts/{part_id}/edit"),
                     ).props("flat color=primary")
 
         with ui.card_section():
             with ui.grid(columns=2).classes("gap-6"):
-                info_field("Product ID", product["id"])
-                info_field("Name", product["name"])
+                info_field("Part ID", part["id"])
+                info_field("Name", part["name"])
                 with ui.column().classes("gap-1 col-span-2"):
                     ui.label("Description").classes("text-xs text-slate-500 uppercase")
-                    ui.label(product.get("description", "")).classes("font-semibold")
+                    ui.label(part.get("description", "")).classes("font-semibold")
 
     # Tabbed content
-    characteristics = product.get("characteristics", {}) or {}
-    pins = product.get("pins", []) or []
+    characteristics = part.get("characteristics", {}) or {}
+    pins = part.get("pins", []) or []
 
     with ui.tabs().classes("w-full") as tabs:
         pins_tab = ui.tab("Pins", icon="memory")
@@ -84,9 +84,9 @@ def _render_product_detail(product_id: str, product: dict):
             _render_characteristics_tab(characteristics)
 
         with ui.tab_panel(stations_tab):
-            _render_stations_tab(product_id)
+            _render_stations_tab(part_id)
 
-    ui.link("← Back to Products", "/products").classes("text-blue-600 hover:underline mt-4")
+    ui.link("← Back to Parts", "/parts").classes("text-blue-600 hover:underline mt-4")
 
 
 def _render_pins_tab(pins: list):
@@ -132,21 +132,19 @@ def _render_characteristics_tab(characteristics: dict):
         ui.label("No characteristics defined.").classes("text-slate-500 italic")
 
 
-def _render_stations_tab(product_id: str):
+def _render_stations_tab(part_id: str):
     """Render the stations tab with required capabilities and compatible stations."""
-    product_model = load_product_model(product_id)
-    if not product_model:
-        ui.label("Product details unavailable.").classes("text-slate-500 italic")
+    part_model = load_part_model(part_id)
+    if not part_model:
+        ui.label("Part details unavailable.").classes("text-slate-500 italic")
         return
 
-    required_caps = get_required_capabilities(product_model)
+    required_caps = get_required_capabilities(part_model)
     if required_caps:
         with ui.card().classes("w-full mb-4"):
             with ui.card_section():
                 ui.label("Required Instrument Capabilities").classes("font-semibold")
-                ui.label("Instruments needed to test this product").classes(
-                    "text-xs text-slate-500"
-                )
+                ui.label("Instruments needed to test this part").classes("text-xs text-slate-500")
             with ui.card_section():
                 columns = [
                     {
@@ -170,7 +168,7 @@ def _render_stations_tab(product_id: str):
                 ]
                 data_table(columns=columns, rows=rows, row_key="char")
 
-    compatible_stations = get_compatible_stations_for_product(product_id)
+    compatible_stations = get_compatible_stations_for_part(part_id)
     with ui.row().classes("items-center gap-2 mt-4 mb-2"):
         ui.icon("memory").classes("text-slate-600")
         ui.label("Compatible Stations").classes("font-semibold text-slate-700")
@@ -198,7 +196,7 @@ def _render_stations_tab(product_id: str):
 
 
 def _render_not_found():
-    """Render product not found message."""
+    """Render part not found message."""
     with ui.card().classes("w-full p-6 text-center"):
-        ui.label("Product not found.").classes("text-xl text-slate-600")
-        ui.link("← Back to Products", "/products").classes("text-blue-600 hover:underline")
+        ui.label("Part not found.").classes("text-xl text-slate-600")
+        ui.link("← Back to Parts", "/parts").classes("text-blue-600 hover:underline")

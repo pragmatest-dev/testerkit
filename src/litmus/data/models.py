@@ -400,7 +400,7 @@ class RunSummary(BaseModel):
     ended_at: datetime | None = None
     dut_serial: str | None = None
     dut_part_number: str | None = None
-    product_id: str | None = None
+    part_id: str | None = None
     station_id: str | None = None
     station_name: str | None = None
     station_type: str | None = None
@@ -428,10 +428,10 @@ class TestRun(BaseModel):
     # DUT identification
     dut: DUT
 
-    # Product traceability
-    product_id: str | None = None
-    product_name: str | None = None
-    product_revision: str | None = None
+    # Part traceability
+    part_id: str | None = None
+    part_name: str | None = None
+    part_revision: str | None = None
 
     # Station traceability — ``station_id`` is None for bringup tier
     # runs (no station YAML on disk; tests use conftest-defined

@@ -74,7 +74,7 @@ class TestHdf5Subscriber:
             assert f.attrs["dut_part_number"] == "PN-200"
             assert f.attrs["test_phase"] == "qualification"
             assert f.attrs["operator_id"] == "OP-42"
-            assert f.attrs["product_id"] == "PROD-100"
+            assert f.attrs["part_id"] == "PROD-100"
 
     def test_custom_metadata(
         self,

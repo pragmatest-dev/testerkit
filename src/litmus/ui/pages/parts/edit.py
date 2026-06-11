@@ -1,4 +1,4 @@
-"""Product edit page."""
+"""Part edit page."""
 
 from collections.abc import Callable
 
@@ -12,43 +12,43 @@ from litmus.ui.shared.components import (
     setup_hash_sync_for_tabs,
 )
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import discover_products, save_product
+from litmus.ui.shared.services import discover_parts, save_part
 
 
-@ui.page("/products/{product_id}/edit")
-def product_edit_page(product_id: str):
-    """Product edit page with form interface."""
-    products = discover_products()
-    product = next((p for p in products if p["id"] == product_id), None)
+@ui.page("/parts/{part_id}/edit")
+def part_edit_page(part_id: str):
+    """Part edit page with form interface."""
+    parts = discover_parts()
+    part = next((p for p in parts if p["id"] == part_id), None)
 
-    create_layout(f"Edit {product['name']}" if product else "Edit Product")
+    create_layout(f"Edit {part['name']}" if part else "Edit Part")
 
-    if not product:
+    if not part:
         with ui.column().classes("w-full p-6"):
-            ui.label("Product not found.").classes("text-xl text-slate-600")
-            ui.link("← Back to Products", "/products").classes("text-blue-600 hover:underline")
+            ui.label("Part not found.").classes("text-xl text-slate-600")
+            ui.link("← Back to Parts", "/parts").classes("text-blue-600 hover:underline")
         return
 
     # Mutable form data
     form_data = {
-        "name": product.get("name", ""),
-        "description": product.get("description", ""),
-        "revision": product.get("revision", ""),
-        "pins": list(product.get("pins") or []),
-        "characteristics": dict(product.get("characteristics") or {}),
+        "name": part.get("name", ""),
+        "description": part.get("description", ""),
+        "revision": part.get("revision", ""),
+        "pins": list(part.get("pins") or []),
+        "characteristics": dict(part.get("characteristics") or {}),
     }
 
     # Auto-save
     def do_save():
         updated = {
-            "id": product_id,
+            "id": part_id,
             "name": form_data["name"],
             "description": form_data["description"],
             "revision": form_data["revision"],
             "characteristics": form_data["characteristics"],
             "pins": form_data["pins"],
         }
-        save_product(product_id, updated)
+        save_part(part_id, updated)
 
     saver = AutoSaver(do_save, delay=1.0)
 
@@ -57,7 +57,7 @@ def product_edit_page(product_id: str):
         with ui.row().classes("w-full items-center justify-between"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("edit").classes("text-slate-600")
-                ui.label(f"Edit Product: {product['name']}").classes(
+                ui.label(f"Edit Part: {part['name']}").classes(
                     "text-lg font-semibold text-slate-700"
                 )
 
@@ -66,7 +66,7 @@ def product_edit_page(product_id: str):
                 ui.button(
                     "Back",
                     icon="arrow_back",
-                    on_click=lambda: ui.navigate.to(f"/products/{product_id}"),
+                    on_click=lambda: ui.navigate.to(f"/parts/{part_id}"),
                 ).props("flat")
 
         # Tabs
@@ -79,7 +79,7 @@ def product_edit_page(product_id: str):
 
         with ui.tab_panels(tabs, value=info_tab).classes("w-full"):
             with ui.tab_panel(info_tab):
-                _render_info_tab(product_id, form_data, saver)
+                _render_info_tab(part_id, form_data, saver)
 
             with ui.tab_panel(pins_tab):
                 _render_pins_tab(form_data, saver)
@@ -87,18 +87,16 @@ def product_edit_page(product_id: str):
             with ui.tab_panel(chars_tab):
                 _render_characteristics_tab(form_data, saver)
 
-        ui.link("← Back to Product", f"/products/{product_id}").classes(
-            "text-blue-600 hover:underline mt-4"
-        )
+        ui.link("← Back to Part", f"/parts/{part_id}").classes("text-blue-600 hover:underline mt-4")
 
 
-def _render_info_tab(product_id: str, form_data: dict, saver: AutoSaver):
+def _render_info_tab(part_id: str, form_data: dict, saver: AutoSaver):
     """Render the info edit tab."""
     with ui.card().classes("w-full"):
         with ui.card_section():
             ui.label("Basic Information").classes("font-semibold mb-4")
             with ui.column().classes("gap-4 w-full max-w-xl"):
-                labeled_input("Product ID", product_id, readonly=True)
+                labeled_input("Part ID", part_id, readonly=True)
                 labeled_input(
                     "Name",
                     form_data["name"],

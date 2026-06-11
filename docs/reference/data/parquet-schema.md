@@ -76,17 +76,17 @@ To list steps: `WHERE record_type = 'step'`. To list measurements: `WHERE record
 | Column | Type | Description |
 |--------|------|-------------|
 | `dut_serial` | string | From `--dut-serial` |
-| `dut_part_number` | string | Operator-facing product identifier (NOT `product_id`) |
+| `dut_part_number` | string | Operator-facing part identifier (NOT `part_id`) |
 | `dut_revision` | string | Hardware revision |
 | `dut_lot_number` | string | Manufacturing lot |
 
-## What — product spec
+## What — part spec
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `product_id` | string | Internal product identifier from the product YAML |
-| `product_name` | string | Human-readable product name |
-| `product_revision` | string | Spec revision |
+| `part_id` | string | Internal part identifier from the part YAML |
+| `part_name` | string | Human-readable part name |
+| `part_revision` | string | Spec revision |
 
 ## Where — station
 
@@ -221,16 +221,16 @@ if is_file_reference(column_value):
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `characteristic_id` | string | Characteristic ID from the product YAML (e.g. `"output_voltage"`) |
+| `characteristic_id` | string | Characteristic ID from the part YAML (e.g. `"output_voltage"`) |
 | `spec_ref` | string | Human-readable reference with conditions (e.g. `"Table 4.2 @ temp=25"`) |
 
 ```sql
--- Yield by characteristic across all products
-SELECT characteristic_id, product_id,
+-- Yield by characteristic across all parts
+SELECT characteristic_id, part_id,
        AVG(CASE WHEN measurement_outcome='passed' THEN 1.0 ELSE 0.0 END) AS yield
 FROM read_parquet('data/runs/**/*.parquet')
 WHERE record_type = 'measurement'
-GROUP BY characteristic_id, product_id;
+GROUP BY characteristic_id, part_id;
 ```
 
 ## Measurement signal path
@@ -359,7 +359,7 @@ print(failures[["step_name", "measurement_name", "measurement_value",
 
 ```sql
 SELECT
-    product_id,
+    part_id,
     station_id,
     measurement_name,
     COUNT(*) AS total,

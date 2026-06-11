@@ -5,25 +5,25 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from litmus.models.product import Product
+    from litmus.models.part import Part
 
 
 class DesignerState:
     """Holds all mutable state for the system designer.
 
-    Manages product pins, instruments, connections (fixture points),
+    Manages part pins, instruments, connections (fixture points),
     and UI selection state. Provides CRUD methods and serialization
     to fixture/station-type YAML formats.
     """
 
     def __init__(self) -> None:
         # --- Identifiers ---
-        self.product_id: str | None = None
+        self.part_id: str | None = None
         self.system_id: str = ""
         self.fixture_id: str = ""
 
-        # --- Product side ---
-        self.product: Product | None = None
+        # --- Part side ---
+        self.part: Part | None = None
         self.dut_pins: dict[str, dict] = {}  # pin_key -> {name, net, type, description}
         self.char_by_pin: dict[str, list[str]] = {}  # pin_key -> [characteristic names]
 
@@ -205,7 +205,7 @@ class DesignerState:
         """Select a pin and compute compatible channels."""
         self.selected_pin = pin_key
         # compatible_channels is set externally by matching.py
-        # since it needs product + instrument data
+        # since it needs part + instrument data
 
     def clear_selection(self) -> None:
         """Clear all selection state."""
@@ -275,9 +275,9 @@ class DesignerState:
         from litmus.models.enums import Direction
 
         char_names = self.char_by_pin.get(pin_key, [])
-        if char_names and self.product:
+        if char_names and self.part:
             for char_name in char_names:
-                char = self.product.characteristics.get(char_name)
+                char = self.part.characteristics.get(char_name)
                 if char and hasattr(char, "direction"):
                     if char.direction == Direction.OUTPUT:
                         return True
@@ -346,8 +346,8 @@ class DesignerState:
             "id": self.fixture_id,
             "name": self.fixture_id.replace("_", " ").replace("-", " ").title(),
         }
-        if self.product_id:
-            fixture["product_id"] = self.product_id
+        if self.part_id:
+            fixture["part_id"] = self.part_id
 
         connections = {}
         for connection_name, conn in self.connections.items():
@@ -370,7 +370,7 @@ class DesignerState:
         """Serialize to StationType YAML format."""
         station_type = {
             "id": self.system_id,
-            "description": f"Station type for {self.product_id or 'system'}",
+            "description": f"Station type for {self.part_id or 'system'}",
             "instruments": {},
         }
 
@@ -384,8 +384,8 @@ class DesignerState:
 
         return {"station_type": station_type}
 
-    def to_product_pins_patch(self) -> dict:
-        """Generate pin updates for product spec YAML."""
+    def to_part_pins_patch(self) -> dict:
+        """Generate pin updates for part spec YAML."""
         pins = {}
         for key, pin in self.dut_pins.items():
             pin_data: dict[str, str] = {"name": pin["name"]}
@@ -398,19 +398,19 @@ class DesignerState:
             pins[key] = pin_data
         return pins
 
-    def load_product(self, product: Any) -> None:
-        """Load product data into state.
+    def load_part(self, part: Any) -> None:
+        """Load part data into state.
 
         Args:
-            product: Product model with pins and characteristics.
+            part: Part model with pins and characteristics.
         """
-        self.product = product
-        self.product_id = product.id
+        self.part = part
+        self.part_id = part.id
 
         # Load pins
         self.dut_pins = {}
-        if hasattr(product, "pins") and product.pins:
-            for key, pin in product.pins.items():
+        if hasattr(part, "pins") and part.pins:
+            for key, pin in part.pins.items():
                 self.dut_pins[key] = {
                     "name": pin.name,
                     "net": pin.net or "",
@@ -420,18 +420,18 @@ class DesignerState:
 
         # Build pin -> characteristics reverse map
         self.char_by_pin = {}
-        if hasattr(product, "characteristics"):
-            for char_name, char in product.characteristics.items():
+        if hasattr(part, "characteristics"):
+            for char_name, char in part.characteristics.items():
                 for pin_key in char.resolved_pins:
                     if pin_key not in self.char_by_pin:
                         self.char_by_pin[pin_key] = []
                     self.char_by_pin[pin_key].append(char_name)
 
-        # Default IDs from product
+        # Default IDs from part
         if not self.system_id:
-            self.system_id = f"{product.id}_system"
+            self.system_id = f"{part.id}_system"
         if not self.fixture_id:
-            self.fixture_id = f"{product.id}_fixture_v1"
+            self.fixture_id = f"{part.id}_fixture_v1"
 
     def load_fixture(self, fixture_config: Any) -> None:
         """Load existing fixture data into connections."""

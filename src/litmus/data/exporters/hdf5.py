@@ -112,8 +112,8 @@ class Hdf5Subscriber(EventSubscriber):
                 f.attrs["station_name"] = s.station_name
             if s.operator_id:
                 f.attrs["operator_id"] = s.operator_id
-            if s.product_id:
-                f.attrs["product_id"] = s.product_id
+            if s.part_id:
+                f.attrs["part_id"] = s.part_id
             for key, val in s.custom_metadata.items():
                 f.attrs[f"custom_{key}"] = val
 

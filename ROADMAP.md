@@ -334,7 +334,7 @@ parquet glob directly: every query opens every file's footer
 
 Compaction job (background sweep, daily / weekly):
 - Group "completed" runs (older than some grace window so streaming
-  writes have finished) by some bucket — date, product, station
+  writes have finished) by some bucket — date, part, station
 - Read all parquets in a bucket, write a single combined parquet,
   attach provenance metadata
 - Same for ``_steps.parquet`` sidecars
@@ -486,7 +486,7 @@ mistakes before hitting hardware.
 ### Facet prompt fallback — `pytest` interactive on a TTY when facets are absent
 
 Today, profile selection requires the operator to know which facet
-flags to pass: `pytest --test-phase=production --product=tps54302`.
+flags to pass: `pytest --test-phase=production --part=tps54302`.
 Forget one and you get a `UsageError` listing the available facet
 combinations — workable for a developer, friction for a lab tech.
 
@@ -502,7 +502,7 @@ start, walk the declared keys and resolve each via a three-step chain:
 
 Extend the same chain to **facets**: the auto-registered
 `--<facet>` flags (`hooks.py:450-458`) already gate step 1; add env
-var lookup (`LITMUS_TEST_PHASE`, `LITMUS_PRODUCT`, …) as step 2; then
+var lookup (`LITMUS_TEST_PHASE`, `LITMUS_PART`, …) as step 2; then
 prompt the operator with the union of declared values across the
 profile catalog as the choice list as step 3. Only invoke the prompt
 when no flag and no env var supplied a value — CI runs and explicit
@@ -543,7 +543,7 @@ Split into:
 Layout: `packages/pytest-litmus/` + `packages/litmus-test/` under a
 uv workspace. Shared tests stay at repo root (or split per-package
 for independent CI). Watch for circular imports — models
-(`TestConfig`, `SpecContext`, `Limit`, `ProductCharacteristic`) must
+(`TestConfig`, `SpecContext`, `Limit`, `PartCharacteristic`) must
 live in `litmus-test`; the plugin is strictly a consumer.
 
 Two steps — low-risk first:
@@ -662,7 +662,7 @@ multi-char relax means this can be added cleanly without reshaping
 ### Sequences for fine-grained execution control
 
 Profiles (config overlay) and pytest classes (test grouping) cover
-v1's "validate product X" use case. What they don't cover:
+v1's "validate part X" use case. What they don't cover:
 operator-pickable, ordered bundles with step-level dependencies —
 "run smoke, then load only if smoke passed, with a dialog before
 load." Today the curriculum has zero examples that need this; v1
@@ -686,7 +686,7 @@ under the active profile.
 
 **Why:** profile and sequence are orthogonal axes — profile is the
 config lens, sequence is the execution plan. Same profile (config
-for product X) supports multiple sequences (smoke / full /
+for part X) supports multiple sequences (smoke / full /
 characterization) without duplicating limits or mocks. Worth
 rebuilding when there's a real operator-bundle requirement; not
 worth carrying dead model surface in the meantime.
@@ -820,7 +820,7 @@ typical-only specs (informational, not warranted).
 
 What needs to land: capability matching at session start should
 honor this. When checking whether an instrument's ``signals[v].range``
-covers a product's required range, treat ``guaranteed`` qualifiers
+covers a part's required range, treat ``guaranteed`` qualifiers
 as warranted (must satisfy with margin) and ``typical`` qualifiers
 as advisory (warn but don't block). The matcher in
 ``litmus.matching`` ignores ``qualifier`` today; when a station has
@@ -1122,7 +1122,7 @@ histogram) shipped 2026-05-02. Outstanding work:
 
 - **Range filters and facet pickers.** Today filters are a JSON
   textarea — equality only. Add dedicated `since`/`until` inputs and
-  multi-select pickers for `station_id` / `product_id` / `test_phase`
+  multi-select pickers for `station_id` / `part_id` / `test_phase`
   / `outcome` so the common filters don't require typing JSON.
 - **Derived metrics for Y.** Pure column queries today — no yield
   rate, Cpk per group, or sigma. Decide where these live: keep them

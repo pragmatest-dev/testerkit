@@ -35,7 +35,7 @@ Litmus defines events across 11 categories.
 ### Run (3 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
-| `RunStarted` | `run.started` | Full run context: DUT, product, operator, config snapshots |
+| `RunStarted` | `run.started` | Full run context: DUT, part, operator, config snapshots |
 | `RunEnded` | `run.ended` | Run outcome |
 | `RunMaterialized` | `run.materialized` | Parquet file written; ready for downstream consumers (defined but not currently in the `Event` discriminated union). |
 
@@ -107,7 +107,7 @@ A typical test session emits events in this order:
 
 ```
 SessionStarted          # Session-wide metadata (station, operator)
-├── RunStarted          # Run context (DUT, product, config snapshots)
+├── RunStarted          # Run context (DUT, part, config snapshots)
 ├── InstrumentConnected # One per instrument role
 ├── IdentityVerified    # Optional identity check
 ├── StepsDiscovered     # Full list of collected test items

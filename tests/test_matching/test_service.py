@@ -11,7 +11,7 @@ from litmus.matching.service import (
 )
 from litmus.models.capability import AccuracySpec, InstrumentCapability, RangeSpec, Signal, SpecBand
 from litmus.models.enums import Direction, MeasurementFunction
-from litmus.models.product import Product, ProductCharacteristic
+from litmus.models.part import Part, PartCharacteristic
 
 # ---------------------------------------------------------------------------
 # Helpers to build test objects with new wrapper API
@@ -50,7 +50,7 @@ def _make_req(
     units="V",
 ) -> CapabilityRequirement:
     return CapabilityRequirement(
-        capability=ProductCharacteristic(
+        capability=PartCharacteristic(
             function=function,
             direction=direction,
             signals=signals or {},
@@ -81,7 +81,7 @@ class TestDirectionsCompatible:
         assert _directions_compatible(Direction.INPUT, Direction.BIDIR) is True
         assert _directions_compatible(Direction.BIDIR, Direction.BIDIR) is True
 
-    def test_bidir_product_requires_bidir_instrument(self):
+    def test_bidir_part_requires_bidir_instrument(self):
         assert _directions_compatible(Direction.BIDIR, Direction.INPUT) is False
         assert _directions_compatible(Direction.BIDIR, Direction.OUTPUT) is False
 
@@ -399,11 +399,11 @@ class TestGetRequiredCapabilities:
 
     def test_preserves_direction(self):
         """DUT OUTPUT characteristic preserves direction in requirement."""
-        product = Product(
-            id="test_product",
-            name="Test Product",
+        part = Part(
+            id="test_part",
+            name="Test Part",
             characteristics={
-                "rail_3v3": ProductCharacteristic(
+                "rail_3v3": PartCharacteristic(
                     function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
                     units="V",
@@ -418,7 +418,7 @@ class TestGetRequiredCapabilities:
             },
         )
 
-        requirements = get_required_capabilities(product)
+        requirements = get_required_capabilities(part)
 
         assert len(requirements) == 1
         req = requirements[0]
@@ -429,23 +429,23 @@ class TestGetRequiredCapabilities:
 
     def test_multiple_characteristics(self):
         """Multiple characteristics generate multiple requirements."""
-        product = Product(
-            id="test_product",
-            name="Test Product",
+        part = Part(
+            id="test_part",
+            name="Test Part",
             characteristics={
-                "rail_3v3": ProductCharacteristic(
+                "rail_3v3": PartCharacteristic(
                     function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
                     units="V",
                     pin="VOUT_3V3",
                 ),
-                "rail_5v": ProductCharacteristic(
+                "rail_5v": PartCharacteristic(
                     function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
                     units="V",
                     pin="VOUT_5V",
                 ),
-                "input_current": ProductCharacteristic(
+                "input_current": PartCharacteristic(
                     function=MeasurementFunction.DC_CURRENT,
                     direction=Direction.INPUT,
                     units="A",
@@ -454,7 +454,7 @@ class TestGetRequiredCapabilities:
             },
         )
 
-        requirements = get_required_capabilities(product)
+        requirements = get_required_capabilities(part)
 
         assert len(requirements) == 3
         char_names = [r.characteristic_name for r in requirements]

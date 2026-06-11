@@ -59,7 +59,7 @@ This creates the datasource, a "Litmus" folder, and imports all 10 dashboards.
 ## Dashboards
 
 ### Yield Overview
-Overall yield gauge, pass/fail/error counts, first-pass yield over time, outcome breakdown pie chart, and volume bar chart. Filter by phase, product, and station.
+Overall yield gauge, pass/fail/error counts, first-pass yield over time, outcome breakdown pie chart, and volume bar chart. Filter by phase, part, and station.
 
 ### Failure Pareto
 Top failing step + measurement pairs ranked by failure count with failure rate percentages. Identifies the most impactful test failures.

@@ -13,10 +13,10 @@ All three are available on every test run — no station, no sidecar, no sweep r
 | Fixture  | What it gives the test                                 | Verbs                                            |
 |----------|--------------------------------------------------------|--------------------------------------------------|
 | `logger` | Per-measurement event-log writer                       | `measure(name, value, ...)`, `record`            |
-| `verify` | Records the row, resolves a limit, raises on FAIL      | `verify(name, value, limit=..., characteristic=...)` (`characteristic` = a named measurable property on the product spec — covered in step 6 / [concepts/capabilities](../concepts/configuration/capabilities.md)) |
-| `context`| Ambient run / DUT / station / vector state             | `get_param`, `changed`, `last`, `observe`, `.product`, `.station`, `.run` |
+| `verify` | Records the row, resolves a limit, raises on FAIL      | `verify(name, value, limit=..., characteristic=...)` (`characteristic` = a named measurable property on the part spec — covered in step 6 / [concepts/capabilities](../concepts/configuration/capabilities.md)) |
+| `context`| Ambient run / DUT / station / vector state             | `get_param`, `changed`, `last`, `observe`, `.part`, `.station`, `.run` |
 
-These are the common per-test entry points. The plugin exposes 17 others (hardware accessors like `pins` / `instruments` / `dut`, configuration accessors like `product_context` / `station_config`, special modes like `vectors` / `sync`) — see the [Litmus fixtures reference](../reference/pytest/fixtures.md) for the full set.
+These are the common per-test entry points. The plugin exposes 17 others (hardware accessors like `pins` / `instruments` / `dut`, configuration accessors like `part_context` / `station_config`, special modes like `vectors` / `sync`) — see the [Litmus fixtures reference](../reference/pytest/fixtures.md) for the full set.
 
 ## From assert to logger.measure
 
@@ -55,7 +55,7 @@ def test_output_voltage(psu, dmm, verify):
            limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
-For one-off tests, passing `limit=` inline is fine. The cleaner home for limits is the product spec or the sidecar YAML — both arrive in later steps.
+For one-off tests, passing `limit=` inline is fine. The cleaner home for limits is the part spec or the sidecar YAML — both arrive in later steps.
 
 ## Classes group related tests
 

@@ -423,7 +423,7 @@ class FixtureConnection(BaseModel):
     description: str | None = None
 
     # DUT-side mapping (ATML: signal routing)
-    dut_pin: str | None = None  # Reference to Product.pins key
+    dut_pin: str | None = None  # Reference to Part.pins key
     net: str | None = None  # Match by schematic net name
 
     # Measurement function this connection serves (e.g. dc_voltage,
@@ -467,11 +467,11 @@ class FixtureSlot(BaseModel):
 class FixtureConfig(BaseModel):
     """Test fixture definition (DUT interface).
 
-    Fixtures define how product pins connect to station instruments.
+    Fixtures define how part pins connect to station instruments.
     They can be scoped to:
-    - A specific product (product_id)
-    - A product family (product_family) - for shared fixtures
-    - A specific revision (product_revision) - optional refinement
+    - A specific part (part_id)
+    - A part family (part_family) - for shared fixtures
+    - A specific revision (part_revision) - optional refinement
 
     Single-DUT fixtures use ``connections`` directly. Multi-DUT fixtures
     use ``slots``, where each slot has its own ``connections`` dict mapping
@@ -487,10 +487,10 @@ class FixtureConfig(BaseModel):
     id: str
     name: str | None = None
 
-    # Product scope - use one or both
-    product_id: str | None = None  # Specific product (preferred)
-    product_family: str | None = None  # Product family (for shared fixtures)
-    product_revision: str | None = None  # Optional: specific revision
+    # Part scope - use one or both
+    part_id: str | None = None  # Specific part (preferred)
+    part_family: str | None = None  # Part family (for shared fixtures)
+    part_revision: str | None = None  # Optional: specific revision
 
     # StationType compatibility — names the abstract station-type
     # layouts this fixture can wire against. Empty list = "any
@@ -628,7 +628,7 @@ class MeasurementLimitConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # Condition match (list-of-bands shape). Empty = always matches.
-    # Mirrors :class:`SpecBand.when` on product characteristics.
+    # Mirrors :class:`SpecBand.when` on part characteristics.
     when: dict[str, Any] = Field(default_factory=dict)
 
     # Nested ordered bands; checked first when present. If none match,
@@ -645,8 +645,8 @@ class MeasurementLimitConfig(BaseModel):
     characteristic_id: str | None = None
     spec_ref: str | None = None
 
-    # Reference to a ProductCharacteristic id on the active product.
-    # When set, the resolver reads product.characteristics[characteristic]
+    # Reference to a PartCharacteristic id on the active part.
+    # When set, the resolver reads part.characteristics[characteristic]
     # .get_spec_at(active_vector_params) → SpecBand, using .value as the
     # nominal against which tolerance_pct / tolerance_abs / guardband_pct
     # are applied. Overrides the test-level characteristic only if the

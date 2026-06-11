@@ -1,41 +1,41 @@
-"""Product station compatibility page."""
+"""Part station compatibility page."""
 
 from nicegui import ui
 
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
-    discover_products,
-    get_all_station_matches_for_product,
-    load_product_model,
+    discover_parts,
+    get_all_station_matches_for_part,
+    load_part_model,
 )
 
 
-@ui.page("/products/{product_id}/stations")
-def product_stations_page(product_id: str):
-    """View station compatibility for this product.
+@ui.page("/parts/{part_id}/stations")
+def part_stations_page(part_id: str):
+    """View station compatibility for this part.
 
-    Shows which stations can fully or partially test this product.
+    Shows which stations can fully or partially test this part.
     Helps with procurement planning and test execution decisions.
     """
-    products = discover_products()
-    product = next((p for p in products if p["id"] == product_id), None)
+    parts = discover_parts()
+    part = next((p for p in parts if p["id"] == part_id), None)
 
-    if product:
-        create_layout(f"{product['name']} - Station Compatibility")
+    if part:
+        create_layout(f"{part['name']} - Station Compatibility")
     else:
-        create_layout("Product Not Found")
+        create_layout("Part Not Found")
 
     with ui.column().classes("w-full p-6 gap-6"):
-        if product:
-            _render_station_compatibility(product_id, product)
+        if part:
+            _render_station_compatibility(part_id, part)
         else:
             _render_not_found()
 
 
-def _render_station_compatibility(product_id: str, product: dict):
+def _render_station_compatibility(part_id: str, part: dict):
     """Render the station compatibility view."""
-    product_model = load_product_model(product_id)
-    station_matches = get_all_station_matches_for_product(product_id)
+    part_model = load_part_model(part_id)
+    station_matches = get_all_station_matches_for_part(part_id)
 
     compatible = station_matches.get("compatible", [])
     partial = station_matches.get("partial", [])
@@ -43,18 +43,14 @@ def _render_station_compatibility(product_id: str, product: dict):
 
     # Header with back link
     with ui.row().classes("items-center gap-4 mb-4"):
-        ui.link(f"← {product['name']}", f"/products/{product_id}").classes(
-            "text-blue-600 hover:underline"
-        )
+        ui.link(f"← {part['name']}", f"/parts/{part_id}").classes("text-blue-600 hover:underline")
 
     # Summary card
     with ui.card().classes("w-full"):
         with ui.card_section():
-            ui.label(f"Station Compatibility for {product['name']}").classes(
-                "text-lg font-semibold"
-            )
-            if product_model:
-                char_count = len(product_model.characteristics)
+            ui.label(f"Station Compatibility for {part['name']}").classes("text-lg font-semibold")
+            if part_model:
+                char_count = len(part_model.characteristics)
                 ui.label(f"Matching stations against {char_count} characteristic(s)").classes(
                     "text-sm text-slate-500"
                 )
@@ -84,7 +80,7 @@ def _render_station_compatibility(product_id: str, product: dict):
 
             with ui.card_section():
                 for station in compatible:
-                    _render_compatible_station(product_id, station)
+                    _render_compatible_station(part_id, station)
 
     # Partially compatible stations
     if partial:
@@ -101,7 +97,7 @@ def _render_station_compatibility(product_id: str, product: dict):
 
             with ui.card_section():
                 for station in partial:
-                    _render_partial_station(product_id, station)
+                    _render_partial_station(part_id, station)
 
     # Incompatible stations (if any exist)
     if incompatible:
@@ -135,23 +131,23 @@ def _render_station_compatibility(product_id: str, product: dict):
         ui.button(
             "View Requirements",
             icon="list_alt",
-            on_click=lambda: ui.navigate.to(f"/products/{product_id}/requirements"),
+            on_click=lambda: ui.navigate.to(f"/parts/{part_id}/requirements"),
         ).props("outline")
         if compatible:
             ui.button(
                 "Launch Tests",
                 icon="play_arrow",
-                on_click=lambda: ui.navigate.to(f"/launch?product={product_id}"),
+                on_click=lambda: ui.navigate.to(f"/launch?part={part_id}"),
             ).props("color=primary")
         else:
             ui.button(
                 "Launch with Mocks",
                 icon="play_arrow",
-                on_click=lambda: ui.navigate.to(f"/launch?product={product_id}&mock=1"),
+                on_click=lambda: ui.navigate.to(f"/launch?part={part_id}&mock=1"),
             ).props("color=primary")
 
 
-def _render_compatible_station(product_id: str, station: dict):
+def _render_compatible_station(part_id: str, station: dict):
     """Render a fully compatible station row."""
     with ui.row().classes("items-center justify-between py-3 border-b border-slate-100 w-full"):
         with ui.column().classes("flex-1"):
@@ -164,12 +160,12 @@ def _render_compatible_station(product_id: str, station: dict):
                 "Launch",
                 icon="play_arrow",
                 on_click=lambda _, s=station: ui.navigate.to(
-                    f"/launch?product={product_id}&station={s['id']}"
+                    f"/launch?part={part_id}&station={s['id']}"
                 ),
             ).props("flat dense")
 
 
-def _render_partial_station(product_id: str, station: dict):
+def _render_partial_station(part_id: str, station: dict):
     """Render a partially compatible station row."""
     with ui.row().classes("items-center justify-between py-3 border-b border-slate-100 w-full"):
         with ui.column().classes("flex-1"):
@@ -191,13 +187,13 @@ def _render_partial_station(product_id: str, station: dict):
                 "Mock",
                 icon="play_arrow",
                 on_click=lambda _, s=station: ui.navigate.to(
-                    f"/launch?product={product_id}&station={s['id']}&mock=1"
+                    f"/launch?part={part_id}&station={s['id']}&mock=1"
                 ),
             ).props("flat dense outline")
 
 
 def _render_not_found():
-    """Render product not found message."""
+    """Render part not found message."""
     with ui.card().classes("w-full p-6 text-center"):
-        ui.label("Product not found.").classes("text-xl text-slate-600")
-        ui.link("← Back to Products", "/products").classes("text-blue-600 hover:underline")
+        ui.label("Part not found.").classes("text-xl text-slate-600")
+        ui.link("← Back to Parts", "/parts").classes("text-blue-600 hover:underline")

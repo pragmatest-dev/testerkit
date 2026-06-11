@@ -34,7 +34,7 @@ Read ONLY the pages listed above (overview, connector, general spec pages). Read
 From the overview pages, extract:
 - Manufacturer name
 - Model number and variants
-- Product description (1-2 sentences)
+- Part description (1-2 sentences)
 
 From the connector/I/O pages, extract:
 - Every physical connector: name, type, terminal configuration, ground topology

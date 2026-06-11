@@ -40,7 +40,7 @@ def _step_row(
     dut_serial: str = "SN001",
     station_id: str = "STA-01",
     test_phase: str = "production",
-    product_id: str = "PN-100",
+    part_id: str = "PN-100",
 ) -> dict:
     """Build one ``record_type='step'`` row in unified RUN_ROW_SCHEMA shape.
 
@@ -70,7 +70,7 @@ def _step_row(
             "dut_serial": dut_serial,
             "station_id": station_id,
             "test_phase": test_phase,
-            "product_id": product_id,
+            "part_id": part_id,
         }
     )
     return populated
@@ -116,7 +116,7 @@ def _measurement_row(
             "dut_serial": dut_serial,
             "station_id": "STA-01",
             "test_phase": "production",
-            "product_id": "PN-100",
+            "part_id": "PN-100",
         }
     )
     return populated

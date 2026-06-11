@@ -4,7 +4,7 @@ A **profile** is a named set of pytest overrides that applies across a
 session. You select one per run: validation on Monday, production on
 Tuesday, a quick debug profile for bench work. Profiles live as one file
 per scenario under `profiles/*.yaml` (or inline under `litmus.yaml`) and
-are selected by **facets** — `--test-phase=production --product=tps54302`
+are selected by **facets** — `--test-phase=production --part=tps54302`
 picks exactly one profile whose declared facets match.
 
 Profiles speak the **same language as sidecars**: Litmus marker
@@ -37,7 +37,7 @@ Profiles declare facets; CLI flags query facets.
 
 ```bash
 pytest --test-phase=validation                   # one facet
-pytest --test-phase=production --product=tps54302   # two facets
+pytest --test-phase=production --part=tps54302   # two facets
 pytest --test-phase=production --mock-instruments   # facet + other flags
 pytest                                           # no facets → baseline
 pytest --test-profile=validation               # name-based escape hatch
@@ -113,7 +113,7 @@ project/
 │   ├── production-tps54302.yaml       # extends: power_family
 │   ├── production-tps54303.yaml       # extends: power_family
 │   └── characterization.yaml          # standalone
-├── products/
+├── parts/
 ├── stations/
 └── tests/
 ```
@@ -146,7 +146,7 @@ tests:
 
 ```yaml
 # profiles/production-tps54302.yaml
-facets: {test_phase: production, product: tps54302}
+facets: {test_phase: production, part: tps54302}
 extends: power_family
 tests:
   TestRails.test_rail:
@@ -155,7 +155,7 @@ tests:
 
 ```yaml
 # profiles/production-tps54303.yaml
-facets: {test_phase: production, product: tps54303}
+facets: {test_phase: production, part: tps54303}
 extends: power_family
 # inherits family limits; no per-variant trim
 ```
@@ -172,7 +172,7 @@ tests:
 
 `verify_requires_limit: false` flips `verify()` to record-only when no limit resolves from any source — the same test bodies that judge in `production` record values in `characterization` without raising `MissingLimitError`. Default is to require a limit.
 
-`pytest --test-phase=production --product=tps54302` resolves:
+`pytest --test-phase=production --part=tps54302` resolves:
 
 - Single match: `production-tps54302`.
 - Chain walked parent-first: `power_family` → `production-tps54302`.
@@ -290,7 +290,7 @@ the same facet flags and the same profile chain resolves.
 ## Non-goals (today)
 
 - Wildcards / globs on facet values. Exact-match only. Family sharing
-  goes through `extends:`, not `product: "tps5430*"`.
+  goes through `extends:`, not `part: "tps5430*"`.
 - Multi-parent `extends:`. Single parent per profile; chains are linear.
 - Multi-match facet composition. Exactly one profile must match the
   query. Ambiguous = `UsageError`.

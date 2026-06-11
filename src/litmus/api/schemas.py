@@ -95,7 +95,7 @@ class StepView(BaseModel):
 
 
 class RequirementSummary(BaseModel):
-    """Flat HTTP shape for a product capability requirement."""
+    """Flat HTTP shape for a part capability requirement."""
 
     function: str
     direction: str
@@ -124,7 +124,7 @@ class RunView(BaseModel):
     station_id: str | None = None
     dut_serial: str | None = None
     dut_part_number: str | None = None
-    product_id: str | None = None
+    part_id: str | None = None
     test_phase: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
@@ -301,7 +301,7 @@ def build_run_view(
         station_id=run.station_id,
         dut_serial=run.dut_serial,
         dut_part_number=run.dut_part_number,
-        product_id=run.product_id,
+        part_id=run.part_id,
         test_phase=run.test_phase,
         started_at=run.started_at,
         ended_at=run.ended_at,

@@ -29,13 +29,13 @@
         }
       },
       {
-        "name": "product",
+        "name": "part",
         "type": "query",
         "datasource": {
           "type": "grafana-postgresql-datasource",
           "uid": "${DS_LITMUS}"
         },
-        "query": "SELECT DISTINCT product_id FROM measurements WHERE product_id IS NOT NULL ORDER BY product_id",
+        "query": "SELECT DISTINCT part_id FROM measurements WHERE part_id IS NOT NULL ORDER BY part_id",
         "includeAll": true,
         "allValue": "%",
         "current": {
@@ -62,7 +62,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT step_name || ' / ' || measurement_name AS measurement, count(*) FILTER (WHERE outcome = 'failed') AS failures FROM measurements WHERE measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' AND (test_phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') GROUP BY 1 HAVING failures > 0 ORDER BY failures DESC LIMIT 20",
+          "rawSql": "SELECT step_name || ' / ' || measurement_name AS measurement, count(*) FILTER (WHERE outcome = 'failed') AS failures FROM measurements WHERE measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' AND (test_phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') GROUP BY 1 HAVING failures > 0 ORDER BY failures DESC LIMIT 20",
           "format": "table"
         }
       ],
@@ -94,7 +94,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT step_name, measurement_name, count(*) FILTER (WHERE outcome = 'failed') AS fail_count, count(*) AS total, round(100.0 * count(*) FILTER (WHERE outcome = 'failed') / count(*), 1) AS fail_pct FROM measurements WHERE measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' AND (test_phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') GROUP BY 1, 2 HAVING fail_count > 0 ORDER BY fail_count DESC LIMIT 50",
+          "rawSql": "SELECT step_name, measurement_name, count(*) FILTER (WHERE outcome = 'failed') AS fail_count, count(*) AS total, round(100.0 * count(*) FILTER (WHERE outcome = 'failed') / count(*), 1) AS fail_pct FROM measurements WHERE measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' AND (test_phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') GROUP BY 1, 2 HAVING fail_count > 0 ORDER BY fail_count DESC LIMIT 50",
           "format": "table"
         }
       ]

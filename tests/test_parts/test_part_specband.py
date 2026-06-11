@@ -1,4 +1,4 @@
-"""Tests for SpecBand matching in product characteristics.
+"""Tests for SpecBand matching in part characteristics.
 
 Covers PointSpec and ListSpec when-clauses in band_matches().
 """
@@ -13,7 +13,7 @@ from litmus.models.capability import (
 )
 
 
-class TestBandMatchesProductPointSpec:
+class TestBandMatchesPartPointSpec:
     """PointSpec when-clauses match by exact value."""
 
     def test_point_spec_matches_exact(self):
@@ -38,7 +38,7 @@ class TestBandMatchesProductPointSpec:
         assert not band_matches(band, {"temperature": 25})
 
 
-class TestBandMatchesProductListSpec:
+class TestBandMatchesPartListSpec:
     """ListSpec when-clauses match by membership."""
 
     def test_list_spec_matches_member(self):
@@ -65,7 +65,7 @@ class TestBandMatchesProductListSpec:
         assert not band_matches(band, {"coupling": "GND"})
 
 
-class TestBandMatchesProductMixed:
+class TestBandMatchesPartMixed:
     """Mixed when-clauses with multiple spec types."""
 
     def test_range_and_point_combined(self):

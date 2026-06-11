@@ -25,7 +25,7 @@ from litmus.data._collection_indices import StepKey, assign_indices
 from litmus.data.models import CollectedItem, Outcome, escalate_outcome, retry_aware_rollup
 from litmus.execution._state import (
     get_active_instruments,
-    get_active_product_context,
+    get_active_part_context,
     get_active_profile,
     get_active_profile_name,
     get_active_slot_runner,
@@ -205,7 +205,7 @@ def pytest_configure(config):
         "class names to retry on (default: any exception).",
         "litmus_limits(**kwargs): Inject limits by measurement name (merges with sidecar limits:)",
         "litmus_characteristics([<characteristic_id>, ...]): Bind the test to one "
-        "or more product characteristics; provides spec-relative limit "
+        "or more part characteristics; provides spec-relative limit "
         "context and auto-derives fixture connections from the "
         "characteristic's pins. v1 supports one binding per test (single "
         "iteration scope); multi-binding semantics may relax in future.",
@@ -937,10 +937,10 @@ def pytest_addoption(parser):
         help="Directory for Parquet results (default: platform data dir)",
     )
     group.addoption(
-        "--product",
+        "--part",
         default=None,
-        help="Product ID or YAML path. Bare id looks up "
-        "``products/<id>.yaml``; a value with ``/`` or ``.yaml``/"
+        help="Part ID or YAML path. Bare id looks up "
+        "``parts/<id>.yaml``; a value with ``/`` or ``.yaml``/"
         "``.yml`` is used as an explicit path.",
     )
     group.addoption("--guardband", default="0", help="Default guardband percentage")
@@ -1450,11 +1450,11 @@ def pytest_keyboard_interrupt(excinfo: Any) -> None:
 
 
 def _audit_traceability(logger_inst: Any, *, strict: bool) -> None:
-    """Pytest adapter — read ``--strict-traceability`` + product context, delegate."""
+    """Pytest adapter — read ``--strict-traceability`` + part context, delegate."""
     audit_traceability(
         logger_inst,
         strict=strict,
-        spec_active=get_active_product_context() is not None,
+        spec_active=get_active_part_context() is not None,
     )
 
 
@@ -1504,7 +1504,7 @@ def _entries_from_marks(marks: list[pytest.Mark]) -> list[SweepEntry]:
     """Translate a list of ``litmus_sweeps`` marks into ``SweepEntry`` objects.
 
     Caller controls ordering — pass marks in the order they should
-    cross-product (top decorator = outer = slowest-changing).
+    cross-part (top decorator = outer = slowest-changing).
     """
     out: list[SweepEntry] = []
     for mark in marks:
@@ -1629,7 +1629,7 @@ def _normalize_parametrize_argvalues(argvalues: list[Any]) -> list[Any]:
 def _consume_parametrize_markers(metafunc: pytest.Metafunc) -> list[dict[str, Any]]:
     """Extract function-level parametrize markers and remove them from the node.
 
-    Returns a cross-product list of row dicts across every consumed
+    Returns a cross-part list of row dicts across every consumed
     marker (so ``@parametrize("vin", [...])`` + ``@parametrize("load",
     [...])`` yields ``{vin, load}`` rows). Mutates
     ``metafunc.definition.own_markers`` in place to drop the consumed

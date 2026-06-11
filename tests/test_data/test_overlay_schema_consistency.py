@@ -91,7 +91,7 @@ def _build_accumulator() -> EventAccumulator:
             dut_lot_number="LOT-9",
             fixture_id="fix1",
             test_phase="production",
-            product_id="prod-1",
+            part_id="prod-1",
             operator_id="op-1",
             project_name="proj-1",
             occurred_at=_T0,

@@ -1,4 +1,4 @@
-"""Product list page — table view with merged YAML + observed-from-runs rows."""
+"""Part list page — table view with merged YAML + observed-from-runs rows."""
 
 from typing import Any
 
@@ -11,9 +11,9 @@ from litmus.ui.shared.components import (
     push_url_state,
 )
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import products_with_provenance
+from litmus.ui.shared.services import parts_with_provenance
 
-# Filter chip vocabulary — keep in lockstep with ProductRow.provenance.
+# Filter chip vocabulary — keep in lockstep with PartRow.provenance.
 # The Runs column already conveys "has activity", so the chip stays
 # binary: Configured (YAML exists) vs Observed (orphan).
 _FILTER_OPTIONS = ["All", "Configured", "Observed"]
@@ -23,35 +23,35 @@ _FILTER_TO_PROVENANCE = {
 }
 
 
-@ui.page("/products")
-def products_page(filter: str = "All"):
-    """Products list — one row per YAML product OR observed product id.
+@ui.page("/parts")
+def parts_page(filter: str = "All"):
+    """Parts list — one row per YAML part OR observed part id.
 
     Each row carries a Configured / Observed status chip (Observed =
     appears in run history without a YAML file). The filter chip row
     above the table narrows the view;
     filter selection is mirrored into the URL via ``push_url_state``.
     """
-    create_layout("Products")
+    create_layout("Parts")
 
-    rows_data = products_with_provenance()
+    rows_data = parts_with_provenance()
     active_filter = filter if filter in _FILTER_OPTIONS else "All"
 
     with page_layout():
         with ui.row().classes("items-center justify-between w-full"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("inventory_2").classes("text-slate-600")
-                ui.label("Product Specifications").classes("text-lg font-semibold text-slate-700")
+                ui.label("Part Specifications").classes("text-lg font-semibold text-slate-700")
             ui.button(
-                "New Product",
+                "New Part",
                 icon="add",
-                on_click=lambda: ui.navigate.to("/products/new"),
+                on_click=lambda: ui.navigate.to("/parts/new"),
             ).props("color=primary")
 
         if not rows_data:
             with ui.card().classes("w-full p-6 text-center"):
-                ui.label("No products configured or observed.").classes("text-slate-500")
-                ui.label("Create product folders in products/ directory.").classes(
+                ui.label("No parts configured or observed.").classes("text-slate-500")
+                ui.label("Create part folders in parts/ directory.").classes(
                     "text-sm text-slate-400"
                 )
             return
@@ -118,9 +118,9 @@ def products_page(filter: str = "All"):
                     btn.props("outline color=primary")
             table.rows = _filtered(selected)
             table.update()
-            push_url_state("/products", {"filter": selected})
+            push_url_state("/parts", {"filter": selected})
 
-        with ui.card().classes("w-full").props('data-testid="products-filters"'):
+        with ui.card().classes("w-full").props('data-testid="parts-filters"'):
             with ui.row().classes("items-center gap-2"):
                 ui.label("Show").classes("text-sm font-medium text-slate-600 mr-2")
                 for opt in _FILTER_OPTIONS:
@@ -138,13 +138,13 @@ def products_page(filter: str = "All"):
             rows=_filtered(active_filter),
             row_key="id",
             on_row_click=lambda r: (
-                ui.navigate.to(f"/products/{r['id']}")
+                ui.navigate.to(f"/parts/{r['id']}")
                 if r.get("provenance") != "observed_only"
                 else None
             ),
             time_columns=["last_run"],
         )
-        table.props('data-testid="products-table"')
+        table.props('data-testid="parts-table"')
 
         table.add_slot(
             "body-cell-provenance",

@@ -18,10 +18,10 @@
         "multi": true
       },
       {
-        "name": "product",
+        "name": "part",
         "type": "query",
         "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
-        "query": "SELECT DISTINCT product_id FROM runs WHERE product_id IS NOT NULL ORDER BY product_id",
+        "query": "SELECT DISTINCT part_id FROM runs WHERE part_id IS NOT NULL ORDER BY part_id",
         "includeAll": true, "allValue": "%",
         "current": { "text": "All", "value": "$__all" },
         "multi": true
@@ -46,7 +46,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE outcome = 'passed') / count(*), 1) AS yield_pct FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE outcome = 'passed') / count(*), 1) AS yield_pct FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
           "format": "table"
         }
       ],
@@ -69,7 +69,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT count(*) AS total FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
+          "rawSql": "SELECT count(*) AS total FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
           "format": "table"
         }
       ]
@@ -82,7 +82,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT count(*) AS passed FROM runs WHERE outcome = 'passed' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
+          "rawSql": "SELECT count(*) AS passed FROM runs WHERE outcome = 'passed' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
           "format": "table"
         }
       ],
@@ -96,7 +96,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT count(*) AS failed FROM runs WHERE outcome = 'failed' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
+          "rawSql": "SELECT count(*) AS failed FROM runs WHERE outcome = 'failed' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
           "format": "table"
         }
       ],
@@ -110,7 +110,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT count(*) AS errors FROM runs WHERE outcome = 'errored' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
+          "rawSql": "SELECT count(*) AS errors FROM runs WHERE outcome = 'errored' AND started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%')",
           "format": "table"
         }
       ],
@@ -124,7 +124,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT outcome, count(*) AS cnt FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%') GROUP BY outcome",
+          "rawSql": "SELECT outcome, count(*) AS cnt FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%') GROUP BY outcome",
           "format": "table"
         }
       ],
@@ -144,7 +144,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT date_trunc('hour', started_at) AS time, round(100.0 * count(*) FILTER (WHERE outcome = 'passed') / count(*), 1) AS fpy FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%') GROUP BY 1 ORDER BY 1",
+          "rawSql": "SELECT date_trunc('hour', started_at) AS time, round(100.0 * count(*) FILTER (WHERE outcome = 'passed') / count(*), 1) AS fpy FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%') GROUP BY 1 ORDER BY 1",
           "format": "table"
         }
       ],
@@ -158,7 +158,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT date_trunc('hour', started_at) AS time, count(*) FILTER (WHERE outcome = 'passed') AS pass, count(*) FILTER (WHERE outcome = 'failed') AS fail, count(*) FILTER (WHERE outcome = 'errored') AS error FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (product_id LIKE '${product}' OR '${product}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%') GROUP BY 1 ORDER BY 1",
+          "rawSql": "SELECT date_trunc('hour', started_at) AS time, count(*) FILTER (WHERE outcome = 'passed') AS pass, count(*) FILTER (WHERE outcome = 'failed') AS fail, count(*) FILTER (WHERE outcome = 'errored') AS error FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' AND (phase LIKE '${phase}' OR '${phase}' = '%') AND (part_id LIKE '${part}' OR '${part}' = '%') AND (station_id LIKE '${station}' OR '${station}' = '%') GROUP BY 1 ORDER BY 1",
           "format": "table"
         }
       ],

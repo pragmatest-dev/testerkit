@@ -148,14 +148,14 @@ def _per_char_pins(characteristics: Sequence[str], spec_ctx: Any) -> dict[str, l
     if spec_ctx is None:
         raise ConnectionResolutionError(
             f"litmus_characteristics({list(characteristics)!r}) "
-            "requires a product (load via --product=<id-or-path> / products/ auto-discovery)."
+            "requires a part (load via --part=<id-or-path> / parts/ auto-discovery)."
         )
     out: dict[str, list[str]] = {}
     for char_id in characteristics:
-        char = spec_ctx.product.characteristics.get(char_id)
+        char = spec_ctx.part.characteristics.get(char_id)
         if char is None:
             raise ConnectionResolutionError(
-                f"Characteristic {char_id!r} not found in product {spec_ctx.product.id!r}."
+                f"Characteristic {char_id!r} not found in part {spec_ctx.part.id!r}."
             )
         out[char_id] = list(char.resolved_pins)
     return out
@@ -225,11 +225,11 @@ def _resolve_chars_to_connections(
     conn_to_char: dict[str, str] = {}
     seen_names: set[str] = set()
     for char_id in characteristics:
-        char = spec_ctx.product.characteristics.get(char_id)
+        char = spec_ctx.part.characteristics.get(char_id)
         if char is None:
             continue
         for pin_id in char.resolved_pins:
-            pin = spec_ctx.product.pins.get(pin_id)
+            pin = spec_ctx.part.pins.get(pin_id)
             net = pin.net if pin else None
             conn = _pick_connection_for_pin(pin_id, char.function, net, fixture_cfg)
             if conn is None or conn.name in seen_names:
@@ -478,7 +478,7 @@ def _connections_to_char_map(
     for conn in connections:
         pin_id = conn.dut_pin
         if pin_id is None and spec_ctx is not None and conn.net is not None:
-            net_pins = spec_ctx.product.get_pins_by_net(conn.net)
+            net_pins = spec_ctx.part.get_pins_by_net(conn.net)
             pin_id = net_pins[0] if net_pins else None
         if pin_id is None:
             continue

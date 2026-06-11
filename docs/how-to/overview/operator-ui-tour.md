@@ -28,7 +28,7 @@ results, inspect metrics, plot measurements.
 The landing page. Shows every station on the bench as a clickable
 card (clicking opens `/launch?station=<id>` pre-filled to that
 station) above a "Recent Runs" table of the last few runs across
-the project. No product-based filtering happens here — every
+the project. No part-based filtering happens here — every
 station card is shown unconditionally.
 
 → [Dashboard reference](../../reference/operator-ui/dashboard.md)
@@ -36,9 +36,9 @@ station card is shown unconditionally.
 ### Launch Test — `/launch`
 
 A single-form view for starting a test from the browser instead of
-the CLI. Fields in order: Product, DUT Serial, Test Path, Station,
+the CLI. Fields in order: Part, DUT Serial, Test Path, Station,
 Mock Hardware, Operator. Click Start Test to redirect to the live
-monitor at `/live/<run_id>`. Pre-fill via `?product=&station=&mock=1`
+monitor at `/live/<run_id>`. Pre-fill via `?part=&station=&mock=1`
 URL parameters.
 
 → [Launch Test reference](../../reference/operator-ui/launch.md)
@@ -46,7 +46,7 @@ URL parameters.
 ### Results — `/results`
 
 The run-history table. One row per run with filters above:
-date range, product, station, outcome. Click any row to drill into
+date range, part, station, outcome. Click any row to drill into
 the detail view at `/results/<run_id>` (overview card, step tree,
 measurements table).
 
@@ -96,13 +96,13 @@ run" view.
 
 ## CONFIGURATION
 
-The entities Litmus tests against — stations, products, fixtures,
+The entities Litmus tests against — stations, parts, fixtures,
 instruments, tests, plus the visual designer that wires them
 together.
 
 ### System Designer — `/designer`
 
-The interactive fixture-wiring surface. Pick a product, pick a
+The interactive fixture-wiring surface. Pick a part, pick a
 station, click a pin, click a channel — wire saved to disk. The
 fastest way to author or refine a fixture YAML without touching
 the file directly.
@@ -122,22 +122,22 @@ seen in run history but doesn't have YAML for — tagged with a
 
 → [Stations reference](../../reference/operator-ui/stations.md)
 
-### Products — `/products`
+### Parts — `/parts`
 
-Browse, edit, and create products. One product = one DUT type
+Browse, edit, and create parts. One part = one DUT type
 (part number + revision) with its pin map and characteristics.
 Same `Configured` / `Observed` treatment as Stations — a part
 number that appears in run history with no YAML shows up tagged
 `Observed`.
 
-![Products](../../_assets/operator-ui/tour/products.png)
+![Parts](../../_assets/operator-ui/tour/parts.png)
 
-→ [Products reference](../../reference/operator-ui/products.md)
+→ [Parts reference](../../reference/operator-ui/parts.md)
 
 ### Fixtures — `/fixtures`
 
 Browse, edit, and create fixtures. One fixture = the wiring
-between a product's pins and a station's instrument channels. The
+between a part's pins and a station's instrument channels. The
 detail view's Diagram tab renders the connection map as Mermaid.
 
 ![Fixtures](../../_assets/operator-ui/tour/fixtures.png)
@@ -209,11 +209,11 @@ where the diagrams would be.
   the failing run, drill into Steps. [Find flaky tests](../data/find-flaky-tests.md)
   walks the deeper diagnostic flow.
 - **"Is yield trending down?"** → Metrics → Yield tab, filter by
-  product or station.
+  part or station.
 - **"What did this channel look like during the failure?"** →
   Channels, click the channel, scroll to the run time-range.
 - **"I need to wire up a new fixture"** → System Designer, pick
-  product + station, click pins → click channels.
+  part + station, click pins → click channels.
 
 ## See also
 

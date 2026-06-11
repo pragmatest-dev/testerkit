@@ -91,7 +91,7 @@ Litmus adds the flags below. The table is generated from `pytest_addoption` in `
 | `--station` | `text` |  | Station ID or YAML path. Bare id looks up ``stations/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml`` is used as an explicit path. When unset, the resolver tries hostname auto-match against stations/*.yaml ``hostname:`` fields, then falls back to ``ProjectConfig.default_station``. |
 | `--operator` | `text` |  | Operator name |
 | `--data-dir` | `text` | *resolved at runtime* | Directory for Parquet results (default: platform data dir) |
-| `--product` | `text` |  | Product ID or YAML path. Bare id looks up ``products/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml`` is used as an explicit path. |
+| `--part` | `text` |  | Part ID or YAML path. Bare id looks up ``parts/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml`` is used as an explicit path. |
 | `--guardband` | `text` | `'0'` | Default guardband percentage |
 | `--mock-instruments` | `flag` | `False` | Use mock instruments instead of real hardware. Resolution: this flag > LITMUS_MOCK_INSTRUMENTS env var > litmus.yaml `mock_instruments:` > false. |
 | `--no-mock-instruments` | `flag` (inverse) | `True` | Use real hardware (overrides LITMUS_MOCK_INSTRUMENTS env and litmus.yaml `mock_instruments: true`). |
@@ -118,7 +118,7 @@ Plus dynamic flags generated from `litmus.yaml`: every `profiles[*].facets:` key
 Two things to keep separate:
 
 - **Discovery** is pytest's: what `tests/test_*.py` files match, what items they expose. Litmus has no opinion here.
-- **Activation** is Litmus's: which station, product, fixture, profile is loaded for the session. Driven by the CLI flags above (or by `default_station:` / `default_profile:` in `litmus.yaml`).
+- **Activation** is Litmus's: which station, part, fixture, profile is loaded for the session. Driven by the CLI flags above (or by `default_station:` / `default_profile:` in `litmus.yaml`).
 
 A test that runs on a bringup tier with no station YAML and a test that runs on a factory tier with full traceability are **collected identically**. The activation context decides what fixtures resolve to and what limits `verify` finds.
 

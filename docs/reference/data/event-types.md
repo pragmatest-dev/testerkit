@@ -75,9 +75,9 @@ Emitted once per test run. Contains full run context.
 | `dut_part_number` | `str \| None` | `None` |
 | `dut_revision` | `str \| None` | `None` |
 | `dut_lot_number` | `str \| None` | `None` |
-| `product_id` | `str \| None` | `None` |
-| `product_name` | `str \| None` | `None` |
-| `product_revision` | `str \| None` | `None` |
+| `part_id` | `str \| None` | `None` |
+| `part_name` | `str \| None` | `None` |
+| `part_revision` | `str \| None` | `None` |
 | `operator_id` | `str \| None` | `None` |
 | `operator_name` | `str \| None` | `None` |
 | `fixture_id` | `str \| None` | `None` |

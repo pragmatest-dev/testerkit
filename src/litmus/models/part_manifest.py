@@ -1,6 +1,6 @@
-"""Product folder manifest model.
+"""Part folder manifest model.
 
-The manifest tracks workflow position for a product folder.
+The manifest tracks workflow position for a part folder.
 Git handles provenance (who/when/what changed).
 """
 
@@ -31,7 +31,7 @@ WORKFLOW_STEP_ORDER = [
 
 
 class FileReferences(BaseModel):
-    """References to files in the product folder."""
+    """References to files in the part folder."""
 
     model_config = {"extra": "forbid"}
 
@@ -42,13 +42,13 @@ class FileReferences(BaseModel):
     tests: str | None = None  # Relative path to test directory or file
 
 
-class ProductManifest(BaseModel):
-    """Manifest for a product folder.
+class PartManifest(BaseModel):
+    """Manifest for a part folder.
 
-    Stored as `products/{product_id}/manifest.yaml`.
+    Stored as `parts/{part_id}/manifest.yaml`.
 
     Example:
-        product_id: tps54302
+        part_id: tps54302
         name: "TPS54302 3A Buck Converter"
         current_step: derive_requirements
         completed_steps:
@@ -61,7 +61,7 @@ class ProductManifest(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    product_id: str
+    part_id: str
     name: str
     description: str | None = None
     current_step: WorkflowStep | None = None

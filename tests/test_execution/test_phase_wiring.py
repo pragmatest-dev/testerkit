@@ -50,7 +50,7 @@ def _fixture(station_types: list[str] | None = None) -> FixtureConfig:
     """Build a minimal fixture with optional station_types."""
     return FixtureConfig(
         id="fix",
-        product_id="prod",
+        part_id="prod",
         station_types=station_types or [],
         connections={},
     )

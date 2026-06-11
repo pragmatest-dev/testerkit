@@ -1,7 +1,7 @@
 id: buck_3v3_bench
 name: Buck 3.3 V Bench Fixture
 description: Direct-wire bench fixture — PSU on VIN, DMM on VOUT.
-product_id: buck_3v3
+part_id: buck_3v3
 connections:
   vin_source:
     name: vin_source

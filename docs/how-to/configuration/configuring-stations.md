@@ -67,7 +67,7 @@ resource: "GPIB1::12::INSTR"  # Board 1, address 12
 
 ```yaml
 resource: "USB0::0x2A8D::0x0101::MY12345::INSTR"
-# Format: USB{board}::{vendor}::{product}::{serial}::INSTR
+# Format: USB{board}::{vendor}::{part}::{serial}::INSTR
 ```
 
 ### Serial
@@ -235,7 +235,7 @@ pytest tests/ --station=stations/ci_station.yaml --mock-instruments --dut-serial
 
 ## Selecting a fixture at run time
 
-Stations don't pin a fixture themselves. The active fixture is selected by `--fixture=...` on the pytest command line (or by a profile that sets it). The plugin validates that the fixture's `product_id` / `product_family` matches the active product spec before any test runs.
+Stations don't pin a fixture themselves. The active fixture is selected by `--fixture=...` on the pytest command line (or by a profile that sets it). The plugin validates that the fixture's `part_id` / `part_family` matches the active part spec before any test runs.
 
 ```bash
 pytest tests/ \

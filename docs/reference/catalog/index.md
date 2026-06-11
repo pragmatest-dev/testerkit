@@ -7,5 +7,5 @@ The instrument catalog schema. Catalog entries are shared across projects, one e
 
 ## See also
 
-- [Concepts → Capabilities](../../concepts/configuration/capabilities.md) — how catalog capabilities pair with product characteristics for matching
+- [Concepts → Capabilities](../../concepts/configuration/capabilities.md) — how catalog capabilities pair with part characteristics for matching
 - [How-to → Datasheet → tests](../../how-to/catalog/datasheet-to-test.md) — AI-assisted workflow that produces catalog YAML from a datasheet PDF

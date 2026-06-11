@@ -25,8 +25,8 @@ On the [Results detail](../../reference/operator-ui/results/detail.md)
 page, both tabs show the same shape — overview card, step tree,
 measurements table. Quickly scan:
 
-- **Overview**: Outcome, started_at, duration, station, product
-  revision. If the runs ran on different stations or product
+- **Overview**: Outcome, started_at, duration, station, part
+  revision. If the runs ran on different stations or part
   revisions, that's your difference.
 - **Step tree**: which step has a different outcome? Click into the
   step on each tab to see the per-attempt measurements.

@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 # Step/vector — stack-like, push/pop with token. Used by logger.py + harness.py.
 _current_step_var: ContextVar[Any] = ContextVar("current_step", default=None)
 _current_vector_var: ContextVar[Any] = ContextVar("current_vector", default=None)
-# The active ``Context`` (harness.Context, not to be confused with ProductContext).
+# The active ``Context`` (harness.Context, not to be confused with PartContext).
 # Pushed by the harness around vector execution; consumed by ``observer.read`` to
 # stamp channel URIs onto the active vector's ``out_*`` columns (item 5).
 _current_context_var: ContextVar[Any] = ContextVar("current_context", default=None)
@@ -56,7 +56,7 @@ _active_instruments_var: ContextVar[dict[str, Any]] = ContextVar("_active_instru
 _instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_instrument_records")
 _current_step_aliases_var: ContextVar[dict[str, str]] = ContextVar("_current_step_aliases")
 _current_step_config_var: ContextVar[dict[str, Any]] = ContextVar("_current_step_config")
-_active_product_context_var: ContextVar[Any] = ContextVar("_active_product_context")
+_active_part_context_var: ContextVar[Any] = ContextVar("_active_part_context")
 _active_station_config_var: ContextVar[Any] = ContextVar("_active_station_config")
 _test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_test_node_aliases")
 _test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
@@ -144,10 +144,10 @@ def get_current_step_config() -> dict[str, Any]:
         return {}
 
 
-def get_active_product_context() -> Any:
+def get_active_part_context() -> Any:
     """Return None if not set."""
     try:
-        return _active_product_context_var.get()
+        return _active_part_context_var.get()
     except LookupError:
         return None
 
@@ -241,9 +241,9 @@ def set_current_step_config(value: dict[str, Any]) -> None:
     _current_step_config_var.set(value)
 
 
-def set_active_product_context(value: Any) -> None:
+def set_active_part_context(value: Any) -> None:
     """Set value. Returns None."""
-    _active_product_context_var.set(value)
+    _active_part_context_var.set(value)
 
 
 def set_active_station_config(value: StationConfig | None) -> None:

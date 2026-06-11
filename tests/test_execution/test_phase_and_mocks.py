@@ -267,11 +267,11 @@ class TestProfileFacetsStamping:
             session_id=uuid4(),
             dut=DUT(serial="DUT001"),
             station_id="s",
-            profile_facets={"test_phase": "production", "product": "tps54302"},
+            profile_facets={"test_phase": "production", "part": "tps54302"},
         )
         assert run.profile_facets == {
             "test_phase": "production",
-            "product": "tps54302",
+            "part": "tps54302",
         }
 
     def test_parquet_metadata_uses_profile_facets_json_key(self) -> None:
@@ -279,7 +279,7 @@ class TestProfileFacetsStamping:
         from litmus.data.backends.parquet import _build_parquet_metadata
 
         meta = _build_parquet_metadata(
-            profile_facets={"test_phase": "production", "product": "tps54302"}
+            profile_facets={"test_phase": "production", "part": "tps54302"}
         )
         assert b"profile_facets_json" in meta
         assert b"facets_json" not in meta

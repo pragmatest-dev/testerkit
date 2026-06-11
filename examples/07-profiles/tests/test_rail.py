@@ -1,4 +1,4 @@
-"""Test bodies shrink further — limits derive from the product spec.
+"""Test bodies shrink further — limits derive from the part spec.
 
 The sidecar binds each test to a characteristic (``rail_3v3``,
 ``idle_current``). The body iterates ``context.connections`` so each

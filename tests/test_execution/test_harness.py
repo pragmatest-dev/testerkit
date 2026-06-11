@@ -58,7 +58,7 @@ class TestHarnessInit:
         assert len(harness.vectors) == 3
         assert harness.vectors[0]["voltage"] == 3.3
 
-    def test_init_with_product_expansion(self):
+    def test_init_with_part_expansion(self):
         config = {
             "vectors": {
                 "expand": "product",

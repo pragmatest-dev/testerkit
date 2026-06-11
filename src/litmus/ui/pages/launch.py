@@ -9,22 +9,22 @@ from litmus.api.runner import get_runner
 from litmus.ui.shared.components import push_url_state
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
-    discover_products,
+    discover_parts,
     discover_profiles,
     discover_stations,
     discover_tests,
-    get_compatible_stations_for_product,
+    get_compatible_stations_for_part,
 )
 
 logger = logging.getLogger(__name__)
 
 
 @ui.page("/launch")
-def launch_page(product: str = "", station: str = "", test_profile: str = "", mock: str = ""):
+def launch_page(part: str = "", station: str = "", test_profile: str = "", mock: str = ""):
     """Test launch page.
 
     Args:
-        product: Pre-fill product ID from query param
+        part: Pre-fill part ID from query param
         station: Pre-fill station ID from query param
         test_profile: Pre-fill profile name from query param. Set by the
             ``/profiles/{name}`` Launch button so a profile-driven run
@@ -33,7 +33,7 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
     """
     create_layout("Launch Test")
 
-    products = discover_products()
+    parts = discover_parts()
     all_stations = discover_stations()
     tests = discover_tests()
     profiles = discover_profiles()
@@ -41,7 +41,7 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
     # Form state - use dict for NiceGUI binding
     # Pre-fill from query params if provided
     form = {
-        "product_id": product,
+        "part_id": part,
         "dut_serial": "",
         "test_path": "",
         "station_id": station,
@@ -56,7 +56,7 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
     station_hint = None
 
     def update_station_options():
-        """Update station dropdown based on selected product."""
+        """Update station dropdown based on selected part."""
         nonlocal station_options
         compatible: list | None = None
         # Display label rule: friendly name only (operator-facing). The
@@ -64,20 +64,20 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
         # can identify the target station; it is NOT shown in the
         # dropdown text per the "no station_id in operator UI" rule.
         #
-        # ``get_compatible_stations_for_product`` returns ``list[dict]``;
+        # ``get_compatible_stations_for_part`` returns ``list[dict]``;
         # ``discover_stations`` returns ``list[StationConfig]``. The
         # local ``_id_name`` helper normalizes both shapes to ``(id,
         # name)`` so the three branches below build station_options the
         # same way regardless of source.
-        if form["product_id"]:
-            compatible = get_compatible_stations_for_product(form["product_id"])
+        if form["part_id"]:
+            compatible = get_compatible_stations_for_part(form["part_id"])
             if compatible:
                 station_options = dict(_id_name(s) for s in compatible)
             else:
                 # No compatible stations - show all with warning
                 station_options = dict(_id_name(s) for s in all_stations)
         else:
-            # No product selected - show all stations
+            # No part selected - show all stations
             station_options = dict(_id_name(s) for s in all_stations)
 
         if station_select:
@@ -86,8 +86,8 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
 
         # Update hint
         if station_hint:
-            if not form["product_id"]:
-                station_hint.text = "Showing all stations. Select a product to filter."
+            if not form["part_id"]:
+                station_hint.text = "Showing all stations. Select a part to filter."
                 station_hint.classes(replace="text-xs text-slate-500")
             elif compatible:
                 station_hint.text = f"{len(compatible)} compatible station(s)"
@@ -112,7 +112,7 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
         push_url_state(
             "/launch",
             {
-                "product": form["product_id"],
+                "part": form["part_id"],
                 "station": form["station_id"],
                 "test_profile": form["test_profile"],
                 "mock": "1" if form["mock"] else "",
@@ -128,7 +128,7 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
             return
 
         request = LaunchRequest(
-            product_id=form["product_id"] or None,
+            part_id=form["part_id"] or None,
             dut_serial=form["dut_serial"],
             station_id=form["station_id"],
             test_path=form["test_path"] or "tests",
@@ -155,12 +155,12 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
                 ui.label("Test Configuration").classes("text-lg font-semibold")
 
             with ui.card_section().classes("flex flex-col gap-4"):
-                # 1. Product selection (first)
+                # 1. Part selection (first)
                 with ui.column().classes("gap-1"):
-                    ui.label("Product").classes("text-sm font-medium text-slate-700")
+                    ui.label("Part").classes("text-sm font-medium text-slate-700")
                     ui.select(
-                        options={p["id"]: p["name"] for p in products},
-                    ).bind_value(form, "product_id").on_value_change(
+                        options={p["id"]: p["name"] for p in parts},
+                    ).bind_value(form, "part_id").on_value_change(
                         lambda _: (update_station_options(), _mirror_to_url())
                     ).classes("w-full").props("outlined dense clearable")
 
@@ -179,7 +179,7 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
 
                 ui.separator().classes("my-2")
 
-                # 4. Station (filtered by product)
+                # 4. Station (filtered by part)
                 with ui.column().classes("gap-1"):
                     ui.label("Station").classes("text-sm font-medium text-slate-700")
                     station_select = (
@@ -192,7 +192,7 @@ def launch_page(product: str = "", station: str = "", test_profile: str = "", mo
                         .props("outlined dense")
                     )
                     station_hint = ui.label(
-                        "Showing all stations. Select a product to filter."
+                        "Showing all stations. Select a part to filter."
                     ).classes("text-xs text-slate-500")
 
                 # 5. Profile (optional) — selects a litmus.yaml profile
@@ -246,7 +246,7 @@ def _labeled_input(form: dict, key: str, label: str, placeholder: str):
 def _id_name(station) -> tuple[str, str]:
     """Normalize a station to ``(id, name)`` regardless of source shape.
 
-    ``get_compatible_stations_for_product`` returns dicts (FastAPI/JSON
+    ``get_compatible_stations_for_part`` returns dicts (FastAPI/JSON
     surface), while ``discover_stations`` returns ``StationConfig``
     Pydantic objects (the YAML store surface). The /launch page
     consumes both. This helper folds the two access patterns into

@@ -63,7 +63,7 @@ def _step_row(
             "dut_serial": dut_serial,
             "station_id": "test-station",
             "test_phase": "production",
-            "product_id": "PN-100",
+            "part_id": "PN-100",
         }
     )
     return populated

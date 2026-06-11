@@ -178,7 +178,7 @@ def _render_capabilities_tab(station_id: str, config):
     """Render the capabilities tab — what this station's instruments can do.
 
     `station_id` is unused today; kept on the signature for symmetry with
-    the sibling renderers and so a future "compatible products/tests"
+    the sibling renderers and so a future "compatible parts/tests"
     panel can be added without a churn-y signature change.
     """
     _ = station_id

@@ -16,7 +16,7 @@ Two new markers also land here, each shown inline and in the sidecar:
 
 The conftest from earlier stages is gone — instrument fixtures
 (``psu``, ``dmm``) are auto-registered from
-``stations/bench_01.yaml``. Limits flow from the product spec
+``stations/bench_01.yaml``. Limits flow from the part spec
 introduced in stage 5; the fixture YAML wires DUT pins through the
 station instruments.
 """

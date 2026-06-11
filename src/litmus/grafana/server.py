@@ -83,7 +83,7 @@ def create_connection(data_dir: Path) -> duckdb.DuckDBPyConnection:
         "first(run_outcome) AS outcome, first(dut_serial) AS dut_serial, "
         "first(dut_part_number) AS part_number, first(dut_lot_number) AS lot, "
         "first(station_id) AS station_id, first(station_name) AS station_name, "
-        "first(product_id) AS product_id, first(product_name) AS product_name, "
+        "first(part_id) AS part_id, first(part_name) AS part_name, "
         "first(test_phase) AS phase, count(*) AS num_measurements "
         "FROM measurements GROUP BY run_id"
     )

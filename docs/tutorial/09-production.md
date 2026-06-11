@@ -14,7 +14,7 @@ A production-ready test class with:
 
 ```
 my_project/
-├── products/                       # WHAT you're testing
+├── parts/                       # WHAT you're testing
 │   └── power_board.yaml
 ├── stations/                       # WHERE you test
 │   └── bench_1.yaml
@@ -35,12 +35,12 @@ A fixture maps DUT pins to station instruments:
 # fixtures/power_board_fixture.yaml
 id: power_board_fixture
 name: "Power Board Test Fixture"
-product_id: power_board
+part_id: power_board
 
 connections:
   vin_supply:
     name: vin_supply          # Required — matches the dict key
-    dut_pin: VIN              # From product spec
+    dut_pin: VIN              # From part spec
     instrument: psu           # From station config
     instrument_channel: "1"
 
@@ -58,7 +58,7 @@ connections:
 
 ## The pins Fixture
 
-With a fixture config, you can access instruments via pin names. The [`pins`](../reference/pytest/fixtures.md#pins-session) *fixture* is a dict keyed by product-pin name returning the instrument routed to that pin by the active fixture YAML — distinct from the `pins:` block in the product YAML, which declares the pin set itself ([concepts/products](../concepts/configuration/products.md)):
+With a fixture config, you can access instruments via pin names. The [`pins`](../reference/pytest/fixtures.md#pins-session) *fixture* is a dict keyed by part-pin name returning the instrument routed to that pin by the active fixture YAML — distinct from the `pins:` block in the part YAML, which declares the pin set itself ([concepts/parts](../concepts/configuration/parts.md)):
 
 ```python
 def test_output_voltage(pins, logger):
@@ -179,7 +179,7 @@ A test class runs its methods in definition order. To order tests across multipl
 
 ## Complete Example
 
-**products/power_board.yaml:**
+**parts/power_board.yaml:**
 ```yaml
 id: power_board
 name: "5V to 3.3V Converter"
@@ -221,7 +221,7 @@ instruments:
 **fixtures/power_board_fixture.yaml:**
 ```yaml
 id: power_board_fixture
-product_id: power_board
+part_id: power_board
 
 connections:
   vin_supply:
@@ -320,7 +320,7 @@ Spec: output_voltage @ tolerance=5%
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| Product spec | `products/power_board.yaml` | What to test |
+| Part spec | `parts/power_board.yaml` | What to test |
 | Station | `stations/bench_1.yaml` | Where to test |
 | Fixture | `fixtures/power_board_fixture.yaml` | Pin-to-instrument mapping |
 | Test class | `tests/test_power_board.py` | Test code, methods run in definition order |
@@ -347,7 +347,7 @@ litmus data promote
 This:
 
 - Walks your project-local `data/runs/runs/*.parquet`
-- **Skips** runs that match starter sentinels (`product_id: example_product`, `dut_serial: STARTER001`, etc.) — the throwaway scaffolding you ran while learning
+- **Skips** runs that match starter sentinels (`part_id: example_part`, `dut_serial: STARTER001`, etc.) — the throwaway scaffolding you ran while learning
 - Copies the rest into the global store (`~/.local/share/litmus/data/` on Linux; platformdirs equivalents on Mac/Windows)
 - Removes the `data_dir:` override from your `litmus.yaml` so future runs go straight to the global store
 

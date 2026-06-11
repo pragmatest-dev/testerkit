@@ -9,7 +9,7 @@ Two responsibilities live here:
 * **Limit resolution** (:func:`resolve_limit`).
   Walk a merged ``limits`` mapping (typed :class:`MeasurementLimitConfig`
   per measurement) and turn each entry into a concrete :class:`Limit`
-  against the active product context + vector params, including
+  against the active part context + vector params, including
   condition-indexed ``bands:`` with sibling-as-catch-all fallback.
 
 The schema is fully Pydantic-validated at YAML load — no hand-rolled
@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from litmus.execution._state import (
-    get_active_product_context,
+    get_active_part_context,
     get_active_profile,
     get_active_vector_params,
 )
@@ -175,9 +175,9 @@ def _resolve_single(
 
     * ``characteristic:`` (or fall back to the test-level binding) +
       ``tolerance_pct`` / ``tolerance_abs`` → derive a band from the
-      product characteristic's nominal at the active vector params.
+      part characteristic's nominal at the active vector params.
     * ``characteristic:`` alone (no tolerance) → look up the
-      characteristic's spec band on the active product context, applying
+      characteristic's spec band on the active part context, applying
       ``guardband_pct``.
     * Direct ``low`` / ``high`` / ``nominal`` → return as-is.
     * Anything else (no policy declared) → ``None`` so the measurement
@@ -202,7 +202,7 @@ def _resolve_single(
     if char_id is not None and (cfg.tolerance_pct is not None or cfg.tolerance_abs is not None):
         if spec_ctx is None:
             return None
-        char = spec_ctx.product.characteristics.get(char_id)
+        char = spec_ctx.part.characteristics.get(char_id)
         if char is None:
             return None
         band = char.get_spec_at(dict(params))
@@ -252,7 +252,7 @@ def resolve_limit(
     """
     from litmus.models.capability import SpecBand, band_matches
 
-    spec_ctx = get_active_product_context()
+    spec_ctx = get_active_part_context()
     profile = get_active_profile()
     guardband_pct = float(getattr(profile, "guardband_pct", 0.0) or 0.0) if profile else 0.0
     params = get_active_vector_params()

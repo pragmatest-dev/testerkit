@@ -14,10 +14,10 @@ from litmus.data.models import RunSummary
 from litmus.instruments.loader import resolve_station_instruments
 from litmus.matching import service as matching_service
 from litmus.models.catalog import InstrumentCatalogEntry
-from litmus.models.product import Product
+from litmus.models.part import Part
 from litmus.models.station import StationConfig, StationType
 from litmus.models.test_config import FixtureConfig
-from litmus.products.folder import ProductFolder
+from litmus.parts.folder import PartFolder
 from litmus.store import (
     create_catalog_entry as store_create_catalog_entry,
 )
@@ -25,7 +25,7 @@ from litmus.store import (
     create_fixture as store_create_fixture,
 )
 from litmus.store import (
-    create_product as store_create_product,
+    create_part as store_create_part,
 )
 from litmus.store import (
     create_station as store_create_station,
@@ -34,7 +34,7 @@ from litmus.store import (
     find_catalog_dirs,
     load_catalog_from_directory,
     load_instrument_files,
-    load_product,
+    load_part,
     load_project_config,
     normalize_and_check_instrument_types,
 )
@@ -48,7 +48,7 @@ from litmus.store import (
     get_instrument_asset as store_get_instrument_asset,
 )
 from litmus.store import (
-    get_product as store_get_product,
+    get_part as store_get_part,
 )
 from litmus.store import (
     get_station as store_get_station,
@@ -72,7 +72,7 @@ from litmus.store import (
     save_fixture as store_save_fixture,
 )
 from litmus.store import (
-    save_product as store_save_product,
+    save_part as store_save_part,
 )
 from litmus.store import (
     save_station as store_save_station,
@@ -83,36 +83,36 @@ from litmus.store import (
 from litmus.utils.paths import get_instrument_paths
 
 # -----------------------------------------------------------------------------
-# Product Services
+# Part Services
 # -----------------------------------------------------------------------------
 
 
-def discover_products() -> list[dict]:
-    """Discover products from the products/ directory.
+def discover_parts() -> list[dict]:
+    """Discover parts from the parts/ directory.
 
-    Flat files (products/id.yaml) are the canonical convention.
+    Flat files (parts/id.yaml) are the canonical convention.
     Manifest-based folders and other nested layouts are also supported via rglob.
     """
-    products = []
+    parts = []
     seen_ids: set[str] = set()
 
-    products_dirs = [Path.cwd() / "products"]
+    parts_dirs = [Path.cwd() / "parts"]
 
-    for products_dir in products_dirs:
-        if not products_dir.exists():
+    for parts_dir in parts_dirs:
+        if not parts_dir.exists():
             continue
 
         # 1. Check manifest-based folders (full workflow with tracking)
-        for folder in ProductFolder.list_all(products_dir):
+        for folder in PartFolder.list_all(parts_dir):
             spec = folder.load_spec()
-            product_id = folder.product_id
+            part_id = folder.part_id
 
-            if product_id in seen_ids:
+            if part_id in seen_ids:
                 continue
-            seen_ids.add(product_id)
+            seen_ids.add(part_id)
 
             if spec:
-                products.append(
+                parts.append(
                     {
                         "id": spec.id,
                         "name": spec.name,
@@ -134,9 +134,9 @@ def discover_products() -> list[dict]:
                     }
                 )
             else:
-                products.append(
+                parts.append(
                     {
-                        "id": product_id,
+                        "id": part_id,
                         "name": folder.name,
                         "description": folder.manifest.description or "",
                         "revision": "",
@@ -151,17 +151,17 @@ def discover_products() -> list[dict]:
                 )
 
         # 2. Discover all YAML files (flat and nested, no manifest required)
-        for yaml_file in sorted(products_dir.rglob("*.yaml")):
+        for yaml_file in sorted(parts_dir.rglob("*.yaml")):
             if yaml_file.name.startswith("_"):
                 continue
             try:
-                p = load_product(yaml_file)
+                p = load_part(yaml_file)
             except (OSError, ValueError, KeyError):
                 continue
             if p.id in seen_ids:
                 continue
             seen_ids.add(p.id)
-            products.append(
+            parts.append(
                 {
                     "id": p.id,
                     "name": p.name,
@@ -179,11 +179,11 @@ def discover_products() -> list[dict]:
                 }
             )
 
-    return products
+    return parts
 
 
-class ProductRow(BaseModel):
-    """One row in the merged products list (YAML-configured + parquet-observed).
+class PartRow(BaseModel):
+    """One row in the merged parts list (YAML-configured + parquet-observed).
 
     Mirrors :class:`StationRow`'s shape (provenance values + run counts)
     so the entity-observed-view pages stay structurally identical.
@@ -202,27 +202,27 @@ class ProductRow(BaseModel):
     provenance: Literal["configured", "observed_only"]
 
 
-def products_with_provenance() -> list[ProductRow]:
-    """Union of YAML-configured products and products observed in runs.
+def parts_with_provenance() -> list[PartRow]:
+    """Union of YAML-configured parts and parts observed in runs.
 
-    Two passes: every YAML product becomes a row tagged ``configured``
+    Two passes: every YAML part becomes a row tagged ``configured``
     or ``in_use`` depending on whether any runs reference its id; any
-    ``product_id`` present in run history without a matching YAML file
+    ``part_id`` present in run history without a matching YAML file
     becomes an ``observed_only`` row.
     """
-    configured = {p["id"]: p for p in discover_products()}
-    usage = usage_stats_by("product_id")
+    configured = {p["id"]: p for p in discover_parts()}
+    usage = usage_stats_by("part_id")
 
-    rows: list[ProductRow] = []
-    for product_id, product in configured.items():
-        stats = usage.get(product_id, {})
+    rows: list[PartRow] = []
+    for part_id, part in configured.items():
+        stats = usage.get(part_id, {})
         runs = stats.get("runs", 0)
         rows.append(
-            ProductRow(
-                id=product_id,
-                name=product.get("name", "") or "",
-                revision=product.get("revision", "") or "",
-                characteristics=len(product.get("characteristics", {}) or {}),
+            PartRow(
+                id=part_id,
+                name=part.get("name", "") or "",
+                revision=part.get("revision", "") or "",
+                characteristics=len(part.get("characteristics", {}) or {}),
                 runs=runs,
                 passed=stats.get("passed", 0),
                 failed=stats.get("failed", 0),
@@ -231,12 +231,12 @@ def products_with_provenance() -> list[ProductRow]:
             )
         )
 
-    for product_id, stats in usage.items():
-        if product_id in configured:
+    for part_id, stats in usage.items():
+        if part_id in configured:
             continue
         rows.append(
-            ProductRow(
-                id=product_id,
+            PartRow(
+                id=part_id,
                 runs=stats.get("runs", 0),
                 passed=stats.get("passed", 0),
                 failed=stats.get("failed", 0),
@@ -248,37 +248,37 @@ def products_with_provenance() -> list[ProductRow]:
     return rows
 
 
-def load_product_model(product_id: str):
-    """Load a Product model by ID."""
-    return store_get_product(product_id)
+def load_part_model(part_id: str):
+    """Load a Part model by ID."""
+    return store_get_part(part_id)
 
 
-def create_product(product_id: str, name: str, description: str = "") -> dict | None:
-    """Create a new product folder.
+def create_part(part_id: str, name: str, description: str = "") -> dict | None:
+    """Create a new part folder.
 
-    Returns dict with product info if successful, None if product already exists.
+    Returns dict with part info if successful, None if part already exists.
     """
-    product = store_create_product(product_id, name, description)
-    if product is None:
+    part = store_create_part(part_id, name, description)
+    if part is None:
         return None
 
-    products_dir = Path.cwd() / "products"
-    folder_path = products_dir / product_id
+    parts_dir = Path.cwd() / "parts"
+    folder_path = parts_dir / part_id
     return {
-        "id": product.id,
-        "name": product.name,
-        "description": product.description or "",
+        "id": part.id,
+        "name": part.name,
+        "description": part.description or "",
         "folder_path": str(folder_path),
     }
 
 
-def get_required_capabilities(product) -> list[dict]:
-    """Get required instrument capabilities for a product."""
-    if not product:
+def get_required_capabilities(part) -> list[dict]:
+    """Get required instrument capabilities for a part."""
+    if not part:
         return []
 
     capabilities = []
-    for char_name, char in product.characteristics.items():
+    for char_name, char in part.characteristics.items():
         capabilities.append(
             {
                 "characteristic": char_name,
@@ -290,13 +290,13 @@ def get_required_capabilities(product) -> list[dict]:
     return capabilities
 
 
-def get_compatible_stations_for_product(product_id: str) -> list[dict]:
-    """Get stations that have instruments satisfying product requirements."""
-    product = store_get_product(product_id)
-    if not product:
+def get_compatible_stations_for_part(part_id: str) -> list[dict]:
+    """Get stations that have instruments satisfying part requirements."""
+    part = store_get_part(part_id)
+    if not part:
         return []
 
-    matches = matching_service.find_compatible_stations(product)
+    matches = matching_service.find_compatible_stations(part)
     return [
         {"id": m.station_id, "name": m.station_name, "location": m.station_name}
         for m in matches
@@ -304,13 +304,13 @@ def get_compatible_stations_for_product(product_id: str) -> list[dict]:
     ]
 
 
-def get_partial_stations_for_product(product_id: str) -> list[dict]:
-    """Get stations with partial capability coverage for a product."""
-    product = store_get_product(product_id)
-    if not product:
+def get_partial_stations_for_part(part_id: str) -> list[dict]:
+    """Get stations with partial capability coverage for a part."""
+    part = store_get_part(part_id)
+    if not part:
         return []
 
-    partial_matches = matching_service.find_partial_stations(product)
+    partial_matches = matching_service.find_partial_stations(part)
     return [
         {
             "id": m.station_id,
@@ -323,30 +323,30 @@ def get_partial_stations_for_product(product_id: str) -> list[dict]:
     ]
 
 
-def get_all_station_matches_for_product(product_id: str) -> dict[str, list]:
+def get_all_station_matches_for_part(part_id: str) -> dict[str, list]:
     """Get all stations categorized by compatibility level."""
-    product = store_get_product(product_id)
-    if not product:
+    part = store_get_part(part_id)
+    if not part:
         return {"compatible": [], "partial": [], "incompatible": []}
 
-    return matching_service.find_all_station_matches(product)
+    return matching_service.find_all_station_matches(part)
 
 
-def save_product(product_id: str, product_data: dict) -> None:
-    """Save product specification to YAML file."""
-    product_dict = {
-        "id": product_data.get("id", product_id),
-        "name": product_data.get("name", ""),
-        "description": product_data.get("description", ""),
-        "characteristics": product_data.get("characteristics", {}),
+def save_part(part_id: str, part_data: dict) -> None:
+    """Save part specification to YAML file."""
+    part_dict = {
+        "id": part_data.get("id", part_id),
+        "name": part_data.get("name", ""),
+        "description": part_data.get("description", ""),
+        "characteristics": part_data.get("characteristics", {}),
     }
-    if product_data.get("revision"):
-        product_dict["revision"] = product_data["revision"]
-    if product_data.get("pins"):
-        product_dict["pins"] = product_data["pins"]
+    if part_data.get("revision"):
+        part_dict["revision"] = part_data["revision"]
+    if part_data.get("pins"):
+        part_dict["pins"] = part_data["pins"]
 
-    product = Product.model_validate(product_dict)
-    store_save_product(product)
+    part = Part.model_validate(part_dict)
+    store_save_part(part)
 
 
 # -----------------------------------------------------------------------------
@@ -462,11 +462,11 @@ def get_station_capabilities(config):
     return matching_service.get_station_capabilities(config)
 
 
-def station_compatible_with_product(station_config, product) -> bool:
-    """Check if a station is compatible with a product."""
-    if not station_config or not product:
+def station_compatible_with_part(station_config, part) -> bool:
+    """Check if a station is compatible with a part."""
+    if not station_config or not part:
         return False
-    result = matching_service.check_station_compatibility(product.id, station_config.id)
+    result = matching_service.check_station_compatibility(part.id, station_config.id)
     return result.get("compatible", False) if result else False
 
 
@@ -632,7 +632,7 @@ def _instrument_id_usage_stats() -> dict[str, dict[str, Any]]:
 class InstrumentAssetRow(BaseModel):
     """One row in the merged instrument-inventory list.
 
-    Mirrors :class:`StationRow` / :class:`ProductRow` / :class:`FixtureRow`.
+    Mirrors :class:`StationRow` / :class:`PartRow` / :class:`FixtureRow`.
     ``identity`` is the joined manufacturer + model display string from
     the asset YAML (empty for observed-only rows).
     """
@@ -819,7 +819,7 @@ def _estimate_vector_count(node: Any) -> int:
 
     ``@pytest.mark.parametrize("x", [1, 2, 3])`` → 3.
     ``@pytest.mark.litmus_sweeps([{"vin": [3.3, 5.0]}])`` →
-    sums the inner-list lengths for a rough cross-product upper bound.
+    sums the inner-list lengths for a rough cross-part upper bound.
 
     Returns ``0`` when the decorator shape isn't recognised — the
     overview is a sanity gauge, not a contract.
@@ -835,17 +835,17 @@ def _estimate_vector_count(node: Any) -> int:
             return len(node.args[1].elts)
         return 0
     if name in ("litmus_sweeps", "litmus_mocks", "litmus_characteristics"):
-        # list-of-dicts form: each dict's values are lists; product across keys
+        # list-of-dicts form: each dict's values are lists; part across keys
         first = node.args[0]
         if isinstance(first, (ast.List, ast.Tuple)):
             count = 0
             for elt in first.elts:
                 if isinstance(elt, ast.Dict):
-                    product = 1
+                    part = 1
                     for v in elt.values:
                         if isinstance(v, (ast.List, ast.Tuple)):
-                            product *= max(len(v.elts), 1)
-                    count += product
+                            part *= max(len(v.elts), 1)
+                    count += part
             return count
     return 0
 
@@ -1088,9 +1088,9 @@ def load_profile_config(name: str):
 class FixtureRow(BaseModel):
     """One row in the merged fixtures list (YAML-configured + parquet-observed).
 
-    Mirrors :class:`StationRow` / :class:`ProductRow`. The optional
-    ``product`` label is the display name of the fixture's product
-    family (resolved via ``discover_products``); observed-only rows
+    Mirrors :class:`StationRow` / :class:`PartRow`. The optional
+    ``part`` label is the display name of the fixture's part
+    family (resolved via ``discover_parts``); observed-only rows
     leave it empty.
     """
 
@@ -1098,7 +1098,7 @@ class FixtureRow(BaseModel):
 
     id: str
     name: str = ""
-    product: str = ""
+    part: str = ""
     revision: str = ""
     connections: int = 0
     runs: int = 0
@@ -1112,25 +1112,25 @@ def fixtures_with_provenance() -> list[FixtureRow]:
     """Union of YAML-configured fixtures and fixtures observed in runs.
 
     Two passes mirroring :func:`stations_with_provenance`. The display
-    ``product`` label is resolved against ``discover_products`` so the
-    operator sees the product name, not just the id.
+    ``part`` label is resolved against ``discover_parts`` so the
+    operator sees the part name, not just the id.
     """
     configured = {f.id: f for f in discover_fixtures()}
-    products = {p["id"]: p for p in discover_products()}
+    parts = {p["id"]: p for p in discover_parts()}
     usage = usage_stats_by("fixture_id")
 
     rows: list[FixtureRow] = []
     for fixture_id, fixture in configured.items():
         stats = usage.get(fixture_id, {})
         runs = stats.get("runs", 0)
-        product_id = fixture.product_id or fixture.product_family or ""
-        product_label = (products.get(product_id) or {}).get("name") or product_id
+        part_id = fixture.part_id or fixture.part_family or ""
+        part_label = (parts.get(part_id) or {}).get("name") or part_id
         rows.append(
             FixtureRow(
                 id=fixture_id,
                 name=fixture.name or "",
-                product=product_label,
-                revision=fixture.product_revision or "",
+                part=part_label,
+                revision=fixture.part_revision or "",
                 connections=len(fixture.connections or {}),
                 runs=runs,
                 passed=stats.get("passed", 0),
@@ -1165,12 +1165,12 @@ def load_fixture_config(fixture_id: str):
 def create_fixture(
     fixture_id: str,
     name: str,
-    product_id: str = "",
-    product_revision: str = "",
+    part_id: str = "",
+    part_revision: str = "",
     description: str = "",
 ):
     """Create a new fixture configuration file."""
-    return store_create_fixture(fixture_id, name, product_id, product_revision, description)
+    return store_create_fixture(fixture_id, name, part_id, part_revision, description)
 
 
 def save_fixture(_fixture_id: str, fixture_data: dict, connections_data: dict) -> None:
@@ -1205,10 +1205,10 @@ def get_instrument_channels_from_library(instrument_type: str) -> list[str]:
     return ["1"]
 
 
-def get_fixtures_for_product(product_family: str):
-    """Get all fixtures for a product family."""
+def get_fixtures_for_part(part_family: str):
+    """Get all fixtures for a part family."""
     all_fixtures = discover_fixtures()
-    return [f for f in all_fixtures if (f.product_family or "") == product_family]
+    return [f for f in all_fixtures if (f.part_family or "") == part_family]
 
 
 def get_compatible_stations_for_fixture(fixture_id: str):
@@ -1247,7 +1247,7 @@ def get_recent_runs(
     offset: int = 0,
     include_incomplete: bool = False,
     phase: str | list[str] | None = None,
-    product: str | list[str] | None = None,
+    part: str | list[str] | None = None,
     station: str | list[str] | None = None,
     lot: str | list[str] | None = None,
     outcome: str | list[str] | None = None,
@@ -1259,7 +1259,7 @@ def get_recent_runs(
     Same RunsQuery → RunSummary adapter as :func:`list_all_runs`.
     ``offset`` paginates per the Quasar server-side contract:
     ``offset = (page - 1) * rows_per_page``. Filter args narrow
-    by phase / product / station / lot / outcome / since / until.
+    by phase / part / station / lot / outcome / since / until.
 
     ``include_incomplete=True`` surfaces in-flight runs (no
     ``ended_at``) — UI list pages opt in so operators see what's
@@ -1271,7 +1271,7 @@ def get_recent_runs(
         offset=offset,
         include_incomplete=include_incomplete,
         phase=phase,
-        product=product,
+        part=part,
         station=station,
         lot=lot,
         outcome=outcome,
@@ -1284,7 +1284,7 @@ def count_recent_runs(
     *,
     include_incomplete: bool = False,
     phase: str | list[str] | None = None,
-    product: str | list[str] | None = None,
+    part: str | list[str] | None = None,
     station: str | list[str] | None = None,
     lot: str | list[str] | None = None,
     outcome: str | list[str] | None = None,
@@ -1304,7 +1304,7 @@ def count_recent_runs(
         return q.count(
             include_incomplete=include_incomplete,
             phase=phase,
-            product=product,
+            part=part,
             station=station,
             lot=lot,
             outcome=outcome,
@@ -1350,7 +1350,7 @@ def _run_row_to_summary(row: Any) -> RunSummary:
         ended_at=row.ended_at,
         dut_serial=row.dut_serial,
         dut_part_number=row.dut_part_number,
-        product_id=row.product_id,
+        part_id=row.part_id,
         station_id=row.station_id,
         station_name=row.station_name,
         station_hostname=row.station_hostname,
@@ -1444,7 +1444,7 @@ def list_all_runs(
     offset: int = 0,
     include_incomplete: bool = False,
     phase: str | list[str] | None = None,
-    product: str | list[str] | None = None,
+    part: str | list[str] | None = None,
     station: str | list[str] | None = None,
     lot: str | list[str] | None = None,
     outcome: str | list[str] | None = None,
@@ -1459,7 +1459,7 @@ def list_all_runs(
 
     ``offset`` skips that many rows before returning ``limit``;
     used by Quasar's server-side pagination. Filter args
-    (``phase`` / ``product`` / ``station`` / ``lot`` / ``outcome`` /
+    (``phase`` / ``part`` / ``station`` / ``lot`` / ``outcome`` /
     ``since`` / ``until``) pass through to :meth:`RunsQuery.list_recent`.
     """
     from litmus.analysis.runs_query import RunsQuery
@@ -1470,7 +1470,7 @@ def list_all_runs(
             offset=offset,
             include_incomplete=include_incomplete,
             phase=phase,
-            product=product,
+            part=part,
             station=station,
             lot=lot,
             outcome=outcome,
@@ -1483,7 +1483,7 @@ def list_all_runs(
 def usage_stats_by(field: str) -> dict[str, dict[str, Any]]:
     """Aggregate run stats grouped by a ``RunRow`` field.
 
-    Used by the configuration list pages (Stations, Products,
+    Used by the configuration list pages (Stations, Parts,
     Fixtures, Instruments, Tests) to show "how busy is this entity"
     columns next to each row. Returns
     ``{value: {runs, passed, failed, last_run}}`` keyed by the

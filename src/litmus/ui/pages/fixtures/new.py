@@ -7,7 +7,7 @@ from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     create_fixture,
     discover_fixtures,
-    discover_products,
+    discover_parts,
 )
 
 
@@ -19,17 +19,17 @@ def new_fixture_page():
     # Get existing fixture IDs to check for duplicates
     existing_ids = {f.id for f in discover_fixtures()}
 
-    # Get available products
-    products = discover_products()
-    product_options = {"": "-- Select Product --"}
-    product_options.update({p["id"]: p.get("name", p["id"]) for p in products})
+    # Get available parts
+    parts = discover_parts()
+    part_options = {"": "-- Select Part --"}
+    part_options.update({p["id"]: p.get("name", p["id"]) for p in parts})
 
     # Form state
     form = {
         "fixture_id": "",
         "name": "",
-        "product_id": "",
-        "product_revision": "",
+        "part_id": "",
+        "part_revision": "",
         "description": "",
     }
     validation = {
@@ -100,25 +100,25 @@ def new_fixture_page():
 
                         name_input.on("change", validate_name)
 
-                    # Product selection
+                    # Part selection
                     with ui.column().classes("gap-1 w-full"):
-                        ui.label("Product").classes("text-sm font-medium text-slate-700")
-                        ui.label("Associate this fixture with a product (optional)").classes(
+                        ui.label("Part").classes("text-sm font-medium text-slate-700")
+                        ui.label("Associate this fixture with a part (optional)").classes(
                             "text-xs text-slate-400"
                         )
                         ui.select(
-                            options=product_options,
+                            options=part_options,
                             value="",
-                            on_change=lambda e: form.update({"product_id": e.value}),
+                            on_change=lambda e: form.update({"part_id": e.value}),
                         ).props("outlined dense").classes("w-full")
 
-                    # Product revision
+                    # Part revision
                     with ui.column().classes("gap-1 w-full"):
-                        ui.label("Product Revision").classes("text-sm font-medium text-slate-700")
+                        ui.label("Part Revision").classes("text-sm font-medium text-slate-700")
                         ui.label("Optional").classes("text-xs text-slate-400")
                         ui.input(
                             placeholder="e.g., Rev A, v1.0",
-                            on_change=lambda e: form.update({"product_revision": e.value.strip()}),
+                            on_change=lambda e: form.update({"part_revision": e.value.strip()}),
                         ).props("outlined dense").classes("w-full")
 
                     # Description
@@ -152,8 +152,8 @@ def new_fixture_page():
                     result = create_fixture(
                         fixture_id=form["fixture_id"],
                         name=form["name"],
-                        product_id=form["product_id"],
-                        product_revision=form["product_revision"],
+                        part_id=form["part_id"],
+                        part_revision=form["part_revision"],
                         description=form["description"],
                     )
 

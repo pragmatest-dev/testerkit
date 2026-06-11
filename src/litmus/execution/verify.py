@@ -266,7 +266,7 @@ def _perform_verify(
             raise MissingLimitError(
                 f"verify({name!r}, ...) has no limit to judge against. "
                 "Pass limit=Limit(...), configure a limit via "
-                "@pytest.mark.litmus_limits / sidecar / profile / product spec, "
+                "@pytest.mark.litmus_limits / sidecar / profile / part spec, "
                 "use logger.measure() to record without judging, or "
                 "set ``verify_requires_limit: false`` on the active profile."
             )

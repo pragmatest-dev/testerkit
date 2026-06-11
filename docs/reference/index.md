@@ -13,7 +13,7 @@ The foundational pages — pytest mechanics every Litmus test uses, plus the inv
 
 The YAML schemas every entity validates against, plus the catalog (its own thing because the catalog is shared across projects).
 
-- [Configuration](configuration.md) — `litmus.yaml`, station YAML, fixture YAML, product YAML, sidecar YAML, profile YAML — all schemas the fixtures and markers read from (generated from the Pydantic models).
+- [Configuration](configuration.md) — `litmus.yaml`, station YAML, fixture YAML, part YAML, sidecar YAML, profile YAML — all schemas the fixtures and markers read from (generated from the Pydantic models).
 - [Catalog → schema](catalog/schema.md) — every field in a `catalog/<vendor>/<model>.yaml` entry, the rules, the "what goes WHERE" decision tree.
 - [Catalog → cookbook](catalog/cookbook.md) — worked recipes for the recurring datasheet shapes (accuracy bands, dual-unit values, shared controls, conditional attributes, etc.).
 
@@ -58,7 +58,7 @@ Per-screen reference for the browser surface. For orientation, see the [Tour of 
 - [Channels — detail](operator-ui/channels/detail.md) — `/channels/{channel}`
 - [System Designer](operator-ui/designer.md) — `/designer`
 - [Stations](operator-ui/stations.md) — `/stations`
-- [Products](operator-ui/products.md) — `/products`
+- [Parts](operator-ui/parts.md) — `/parts`
 - [Fixtures](operator-ui/fixtures.md) — `/fixtures`
 - [Instruments](operator-ui/instruments.md) — `/instruments`
 - [Tests](operator-ui/tests.md) — `/tests`

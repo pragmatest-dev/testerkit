@@ -1,8 +1,8 @@
 # Per-test spec-driven limits.
 #
-# Each limit names a characteristic from products/buck_3v3.yaml and a
-# tolerance. The resolver reads the band off the product at
-# measurement time — change rail_3v3's nominal in the product YAML
+# Each limit names a characteristic from parts/buck_3v3.yaml and a
+# tolerance. The resolver reads the band off the part at
+# measurement time — change rail_3v3's nominal in the part YAML
 # and every test recomputes its limit band.
 #
 # This chapter has no station YAML and no fixture YAML; instruments

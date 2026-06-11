@@ -29,7 +29,7 @@ Tools shipped (12 + 1 prompt):
 - ``litmus_project`` — Unified project CRUD (init, list, get,
   save, read, lookup_enum, enum_reference)
 - ``litmus_discover`` — Scan for VISA instruments
-- ``litmus_match`` — Check compatibility between products /
+- ``litmus_match`` — Check compatibility between parts /
   stations / fixtures
 - ``litmus_run`` — Execute tests and return results
 - ``litmus_open`` — Get URL to view/edit in browser
@@ -99,8 +99,8 @@ def _build_instructions() -> str:
     - Behavioral rules are literal strings
     """
     # Get enum values from the schema so instructions stay current
-    product_schema = SCHEMA_MAP["product"].model_json_schema()
-    defs = product_schema.get("$defs", {})
+    part_schema = SCHEMA_MAP["part"].model_json_schema()
+    defs = part_schema.get("$defs", {})
 
     # Extract MeasurementFunction enum values
     mf = defs.get("MeasurementFunction", {})
@@ -115,7 +115,7 @@ def _build_instructions() -> str:
     role_values = pin_role.get("enum", [])
 
     # Load examples from examples/ files (single source of truth)
-    product_example = _load_example_snippet("products/power_board.yaml", max_lines=50)
+    part_example = _load_example_snippet("parts/power_board.yaml", max_lines=50)
     station_example = _load_example_snippet("stations/demo_station_001.yaml", max_lines=30)
 
     return f"""\
@@ -132,7 +132,7 @@ Use the most interactive/clear method available in your client:
 Approval gates (stop at each):
 0. Before init — ask user where to create the project
 1. After datasheet parsing — approve extracted characteristics
-2. After product spec — approve before saving
+2. After part spec — approve before saving
 3. After instrument recommendations — choose instruments
 4. After station config — approve instruments and mock values
 5. After test generation — approve test code and config
@@ -144,8 +144,8 @@ Approval gates (stop at each):
 
 ```
 1. Ask user where to create the project → litmus_project(action="init", path="...")
-2. litmus_schema(yaml_type="product") → Get exact product schema
-3. Extract specs from datasheet → Show to user → Ask approval → Save product
+2. litmus_schema(yaml_type="part") → Get exact part schema
+3. Extract specs from datasheet → Show to user → Ask approval → Save part
 4. litmus_schema(yaml_type="station") → Get exact station schema
 5. litmus_discover() → Show station config → Ask approval → Save station
 6. litmus_schema(yaml_type="sequence") → Get sequence schema (if needed)
@@ -164,15 +164,15 @@ Do NOT guess field names — if the schema doesn't have it, don't use it.
 ## Key Values (from schema)
 
 - **MeasurementFunction** enum: `{", ".join(mf_values[:10])}`, ...
-  (call `litmus_schema(yaml_type="product")` for full list)
+  (call `litmus_schema(yaml_type="part")` for full list)
 - **Direction** enum: `{", ".join(dir_values)}`
 - **Pin roles**: `{", ".join(role_values) if role_values else "power, ground, signal, reference"}`
 
 ## Examples (from examples/)
 
-### Product Spec:
+### Part Spec:
 ```yaml
-{product_example}
+{part_example}
 ```
 
 ### Station Config:
@@ -183,16 +183,16 @@ Do NOT guess field names — if the schema doesn't have it, don't use it.
 ## Tools
 
 - `litmus_project(action="init", path="~/project")` — Initialize, returns project_root
-- `litmus_project(action="save", type="product|station|test", id="...",
+- `litmus_project(action="save", type="part|station|test", id="...",
    content={{...}}, project=...)`
 - `litmus_project(action="read", path="template:test", project=...)` — Get templates
-- `litmus_schema(yaml_type="product|station|catalog|sequence|fixture")` — **Call FIRST**
+- `litmus_schema(yaml_type="part|station|catalog|sequence|fixture")` — **Call FIRST**
 - `litmus_discover()` — Scan for connected instruments
 - `litmus_match(requirements=[...], project=...)` — Recommend catalog instruments
 - `litmus_run(test="tests/test_x.py", station="...", serial="...", project=...)`
 - `litmus_project(action="lookup_enum", id="FRES")` — Resolve datasheet abbreviation
 - `litmus_project(action="enum_reference")` — Full enum abbreviation table
-- `litmus_open(type="product|station|run", id="...")` — Get UI URL
+- `litmus_open(type="part|station|run", id="...")` — Get UI URL
 
 ## Key Rules
 
@@ -214,7 +214,7 @@ def _build_workflow_prompt() -> str:
     return """\
 # Datasheet to Test Workflow
 
-You are helping create hardware tests from a product datasheet.
+You are helping create hardware tests from a part datasheet.
 This is COLLABORATIVE — propose and wait for approval at each step.
 
 ## Workflow Steps
@@ -223,15 +223,15 @@ This is COLLABORATIVE — propose and wait for approval at each step.
    Then: `litmus_project(action="init", path="<user's chosen path>")`
    - Returns `project_root` — USE THIS in all subsequent calls
 
-2. **Get Product Schema**: `litmus_schema(yaml_type="product")`
-   - Read the schema carefully. Product YAML has three top-level keys:
-     `product:` (header), `pins:` (physical interface), `characteristics:` (specs)
+2. **Get Part Schema**: `litmus_schema(yaml_type="part")`
+   - Read the schema carefully. Part YAML has three top-level keys:
+     `part:` (header), `pins:` (physical interface), `characteristics:` (specs)
    - Characteristics use `function` (MeasurementFunction enum), `direction`,
      `units`, `pin`/`pins`, and `specs` (list of SpecBand)
    - SpecBand has: `value`, `accuracy` (pct_reading/pct_range/absolute), `when` (dict of RangeSpec)
 
-3. **Extract & Save Product Spec**: Parse datasheet, propose characteristics,
-   ask approval, save with `litmus_project(action="save", type="product", ...)`
+3. **Extract & Save Part Spec**: Parse datasheet, propose characteristics,
+   ask approval, save with `litmus_project(action="save", type="part", ...)`
 
 4. **Get Station Schema**: `litmus_schema(yaml_type="station")`
    - Run `litmus_discover()` first. Use real addresses if instruments found,
@@ -297,17 +297,17 @@ def create_mcp_server() -> FastMCP:
           litmus_project(action="init", path="~/my-project")
 
         - list: List entities of a type
-          litmus_project(action="list", type="product", project="/path/to/project")
+          litmus_project(action="list", type="part", project="/path/to/project")
 
         - get: Get entity details
-          litmus_project(action="get", type="product", id="tps54302", project="/path/to/project")
+          litmus_project(action="get", type="part", id="tps54302", project="/path/to/project")
 
         - save: Create/update entity
-          litmus_project(action="save", type="product", id="tps54302",
+          litmus_project(action="save", type="part", id="tps54302",
                  content={...}, project="/path/to/project")
 
         - read: Read project file or template
-          litmus_project(action="read", path="products/x.yaml", project="/path/to/project")
+          litmus_project(action="read", path="parts/x.yaml", project="/path/to/project")
           litmus_project(action="read", path="template:test", project="/path/to/project")
 
         - lookup_enum: Resolve datasheet abbreviations to enum values
@@ -320,7 +320,7 @@ def create_mcp_server() -> FastMCP:
         Args:
             action: One of: init, list, get, save, read
             type: Entity type for list/get/save
-                (product, station, fixture, sequence, catalog, instrument_asset, run, test)
+                (part, station, fixture, sequence, catalog, instrument_asset, run, test)
             id: Entity ID for get/save
             path: Path for init/read actions
             content: Content dict for save action
@@ -360,18 +360,18 @@ def create_mcp_server() -> FastMCP:
 
     @mcp.tool(name="litmus_match")
     def match(
-        product_id: str | None = None,
+        part_id: str | None = None,
         station_id: str | None = None,
         fixture_id: str | None = None,
         requirements: list[dict[str, Any]] | None = None,
         project: str | None = None,
     ) -> dict[str, Any]:
-        """Check compatibility between products, stations, and fixtures.
+        """Check compatibility between parts, stations, and fixtures.
 
         Usage patterns:
         - match(requirements=[...], project="...") → Recommend catalog instruments
-        - match(product_id="...") → Find compatible stations, derive requirements
-        - match(product_id="...", station_id="...") → Detailed compatibility check
+        - match(part_id="...") → Find compatible stations, derive requirements
+        - match(part_id="...", station_id="...") → Detailed compatibility check
         - match(fixture_id="...", project="...") → Find stations with required instruments
 
         Requirements format (for catalog recommendations):
@@ -389,8 +389,8 @@ def create_mcp_server() -> FastMCP:
         ```
 
         Args:
-            product_id: Product ID to check compatibility for
-            station_id: Station ID for detailed check (requires product_id)
+            part_id: Part ID to check compatibility for
+            station_id: Station ID for detailed check (requires part_id)
             fixture_id: Fixture ID to find compatible stations
             requirements: Ad-hoc capability requirements for catalog instrument
                 recommendations. Each dict: function (required), direction (required),
@@ -403,7 +403,7 @@ def create_mcp_server() -> FastMCP:
         Returns:
             Compatibility results with requirements and matches.
         """
-        return match_tool(product_id, station_id, fixture_id, requirements, project)
+        return match_tool(part_id, station_id, fixture_id, requirements, project)
 
     # -------------------------------------------------------------------------
     # Tool 4: litmus_run
@@ -438,7 +438,7 @@ def create_mcp_server() -> FastMCP:
         Use this when detailed viewing or visual editing is needed.
 
         Args:
-            type: Entity type (product, station, run, fixture, sequence)
+            type: Entity type (part, station, run, fixture, sequence)
             id: Entity ID
             base_url: UI server URL (default: http://localhost:8000)
 
@@ -459,7 +459,7 @@ def create_mcp_server() -> FastMCP:
         source of truth for field names, types, enums, and structure.
 
         Args:
-            yaml_type: A file type (e.g. catalog, product, station, sequence,
+            yaml_type: A file type (e.g. catalog, part, station, sequence,
                 fixture, instrument_asset, project). Omit to list available types.
 
         Returns:
@@ -537,7 +537,7 @@ def create_mcp_server() -> FastMCP:
     @mcp.tool(name="litmus_metrics")
     def query_metrics(
         action: str,
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
@@ -559,7 +559,7 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             action: One of: summary, pareto, cpk, trend, retest, time_loss.
-            product: Filter by product/part number.
+            part: Filter by part/part number.
             station: Filter by station name.
             phase: Test phase (default: exclude development, 'all' = no filter).
             since: Start date (ISO format, inclusive).
@@ -571,7 +571,7 @@ def create_mcp_server() -> FastMCP:
         """
         return metrics_tool(
             action,
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,

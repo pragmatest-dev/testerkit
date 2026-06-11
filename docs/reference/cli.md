@@ -92,7 +92,7 @@ Move a starter project's local runs + their referenced data to the global store.
 
 | Argument / option | Type | Description |
 |---|---|---|
-| `--include-starter` | `flag` | Also promote runs that match starter sentinels (example_product / starter_station / STARTER001 / etc.). Default skips these as throwaway learning runs. |
+| `--include-starter` | `flag` | Also promote runs that match starter sentinels (example_part / starter_station / STARTER001 / etc.). Default skips these as throwaway learning runs. |
 | `--dry-run` | `flag` | Show what would be promoted; write nothing. |
 | `--with-events` | `flag` | Also carry each run's session event timeline (audit-grade archive). |
 
@@ -188,7 +188,7 @@ Initialize a new Litmus project.
 | `--no-git` | `flag` | Skip git initialization |
 | `--discover` | `flag` | Auto-discover instruments and create station file |
 | `--starter`/`--no-starter` | `flag` | Generate starter example files (prompts if not specified) |
-| `--tier` | `{bringup, bench, factory}` | Scaffold tier. 'bringup' = Tier 0/1 (MagicMock fixtures, one test, one sidecar, no station/product YAML). 'bench' = Tier 2 starter (equivalent to --starter). 'factory' = Tier 3/4 (bench + profiles). |
+| `--tier` | `{bringup, bench, factory}` | Scaffold tier. 'bringup' = Tier 0/1 (MagicMock fixtures, one test, one sidecar, no station/part YAML). 'bench' = Tier 2 starter (equivalent to --starter). 'factory' = Tier 3/4 (bench + profiles). |
 | `--ai` | `{claude-code, claude-desktop, copilot}` | Set up AI tool integration (MCP server + project instructions) |
 | `--name` | `text` | Project name (overrides auto-detect) |
 
@@ -249,7 +249,7 @@ Process capability (Cpk/Cp) per measurement.
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
 | `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
+| `--part` | `text` | Part ID |
 | `--until` | `text` | End date (ISO format) |
 | `--since` | `text` | Start date (ISO format) |
 | `--phase` | `text` | Test phase (or 'all') |
@@ -258,19 +258,19 @@ Process capability (Cpk/Cp) per measurement.
 
 #### `litmus metrics pareto` {#cli-metrics-pareto}
 
-Top failures (Pareto). Group by product / step / measurement.
+Top failures (Pareto). Group by part / step / measurement.
 
 | Argument / option | Type | Description |
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
 | `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
+| `--part` | `text` | Part ID |
 | `--until` | `text` | End date (ISO format) |
 | `--since` | `text` | Start date (ISO format) |
 | `--phase` | `text` | Test phase (or 'all') |
 | `--data-dir` | `text` | Results directory |
 | `--top` | `integer` | Number of top failures  *(default: `10`)* |
-| `--group-by` | `{product, step, measurement}` | Lens for the pareto: ``product`` groups runs by ``dut_part_number`` (most-failing SKUs); ``step`` groups steps by ``step_path`` (most-failing tests); ``measurement`` groups limit-bearing measurements by name (the historical default).  *(default: `product`)* |
+| `--group-by` | `{part, step, measurement}` | Lens for the pareto: ``part`` groups runs by ``dut_part_number`` (most-failing SKUs); ``step`` groups steps by ``step_path`` (most-failing tests); ``measurement`` groups limit-bearing measurements by name (the historical default).  *(default: `part`)* |
 
 #### `litmus metrics retest` {#cli-metrics-retest}
 
@@ -280,7 +280,7 @@ Retest rates: how often DUTs are retried.
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
 | `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
+| `--part` | `text` | Part ID |
 | `--until` | `text` | End date (ISO format) |
 | `--since` | `text` | Start date (ISO format) |
 | `--phase` | `text` | Test phase (or 'all') |
@@ -295,7 +295,7 @@ Yield summary: FPY, final yield, run counts, duration stats.
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
 | `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
+| `--part` | `text` | Part ID |
 | `--until` | `text` | End date (ISO format) |
 | `--since` | `text` | Start date (ISO format) |
 | `--phase` | `text` | Test phase (or 'all') |
@@ -310,7 +310,7 @@ Time lost to failures and errors.
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
 | `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
+| `--part` | `text` | Part ID |
 | `--until` | `text` | End date (ISO format) |
 | `--since` | `text` | Start date (ISO format) |
 | `--phase` | `text` | Test phase (or 'all') |
@@ -325,7 +325,7 @@ Yield trend over time.
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
 | `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
+| `--part` | `text` | Part ID |
 | `--until` | `text` | End date (ISO format) |
 | `--since` | `text` | Start date (ISO format) |
 | `--phase` | `text` | Test phase (or 'all') |
@@ -510,7 +510,7 @@ Validate YAML configuration files.
 | Argument / option | Type | Description |
 |---|---|---|
 | `PATHS`... | `path` |  |
-| `--type`/`-t` | `{catalog, product, station, sequence, fixture, instrument_asset, project}` | Explicit file type (skips auto-detection). |
+| `--type`/`-t` | `{catalog, part, station, sequence, fixture, instrument_asset, project}` | Explicit file type (skips auto-detection). |
 | `--json` | `flag` | Output as JSON |
 <!-- GENERATED:cli-commands:end -->
 

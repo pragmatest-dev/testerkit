@@ -1,6 +1,6 @@
 # Read and write the test context
 
-The `context` fixture is the test's view of what's active right now: the run record, the station, the product, the current sweep iteration's params, the resolved limits, and the active fixture connections. It also has two writer methods — `configure()` for stimulus values and `observe()` for environmental readings — that stash data on the same context object so the next sweep iteration can read it back via `last()`.
+The `context` fixture is the test's view of what's active right now: the run record, the station, the part, the current sweep iteration's params, the resolved limits, and the active fixture connections. It also has two writer methods — `configure()` for stimulus values and `observe()` for environmental readings — that stash data on the same context object so the next sweep iteration can read it back via `last()`.
 
 Take `context` as a test argument when you need any of that. If a test only takes a single measurement against a single setpoint and never sweeps, you can skip it.
 
@@ -53,7 +53,7 @@ You can also take the param as a regular pytest argument (`def test_rails(self, 
 
 `context.get_param(name, default)` returns the default if no sweep / parametrize was declared. `context.params[name]` raises `KeyError` instead — pick by whether a missing param is an error or just absent.
 
-## Read run, station, and product
+## Read run, station, and part
 
 Three properties surface the entities that are active for this test.
 
@@ -67,11 +67,11 @@ def test_serial_stamp(self, context, verify):
 |-------------------|----------------------------|--------------------------|
 | `context.run`     | `TestRun \| None`          | (no fixture — read here) |
 | `context.station` | `StationConfig \| None`    | `station_config`         |
-| `context.product` | `ProductContext \| None`   | `product_context`        |
+| `context.part` | `PartContext \| None`   | `part_context`        |
 
-Each returns `None` when the corresponding tier is absent. Bringup tests (no `stations/` YAML) get `context.station is None`; tests that don't load a product get `context.product is None`. Guard with `if context.station:` before reaching for fields, or take the typed fixture (`station_config`) when the test only runs with a station present — pytest will skip it otherwise.
+Each returns `None` when the corresponding tier is absent. Bringup tests (no `stations/` YAML) get `context.station is None`; tests that don't load a part get `context.part is None`. Guard with `if context.station:` before reaching for fields, or take the typed fixture (`station_config`) when the test only runs with a station present — pytest will skip it otherwise.
 
-See [Stations](../../concepts/configuration/stations.md) and [Products](../../concepts/configuration/products.md) for the underlying entities.
+See [Stations](../../concepts/configuration/stations.md) and [Parts](../../concepts/configuration/parts.md) for the underlying entities.
 
 ## Record stimulus inputs with `configure()`
 
@@ -139,7 +139,7 @@ def test_adaptive(self, context, dmm, verify):
 
 The `Limit` object exposes `low` / `high` / `nominal` / `units` / `comparator` plus traceability fields — see [`Limit` in the models reference](../../reference/data/models.md#model-limit) for the full surface. `get_limit` returns `None` when no limit is defined for that name. For *applying* a limit to a measurement, just pass `limit=...` to `verify` — the resolver runs there automatically.
 
-See [Limits](limits.md) for limit resolution order and [Spec-driven testing](spec-driven-testing.md) for how product specs feed in.
+See [Limits](limits.md) for limit resolution order and [Spec-driven testing](spec-driven-testing.md) for how part specs feed in.
 
 ## Iterate active fixture connections
 

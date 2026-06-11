@@ -17,7 +17,7 @@ verify(
     name: str,
     value: float | int | None,
     limit: Limit | dict | None = None,        # inline limit; optional
-    characteristic: str | None = None,        # ProductContext key
+    characteristic: str | None = None,        # PartContext key
 ) -> Measurement
 ```
 
@@ -41,7 +41,7 @@ verify("v_rail", v, limit={"low": 3.135, "high": 3.465, "units": "V"})
 | `high` | `float \| None` | no | Upper bound (inclusive by default) |
 | `nominal` | `float \| None` | no | Target value; required for `EQ` / `NE` |
 | `comparator` | `str` enum | no | `GELE` (default), `GELT`, `GTLE`, `GTLT`, `EQ`, `NE`, `GE`, `GT`, `LE`, `LT` |
-| `characteristic_id` | `str \| None` | no | For product-spec traceability |
+| `characteristic_id` | `str \| None` | no | For part-spec traceability |
 | `spec_ref` | `str \| None` | no | Human-readable spec citation (e.g. `"Table 4.2 @ 25°C"`) |
 
 `extra="forbid"` — unknown keys raise validation errors.
@@ -62,27 +62,27 @@ V_RAIL = Limit(low=3.135, high=3.465, units="V")
 2. `@pytest.mark.litmus_limits(name={...})` on the test / class / module
 3. `<test_file>.yaml` sidecar `limits: {<name>: {...}}` entry
 4. Active profile's `limits:` block
-5. Active `ProductContext` characteristic matching `name` (or `characteristic:` override)
+5. Active `PartContext` characteristic matching `name` (or `characteristic:` override)
 6. `None` → `MissingLimitError` (unless the active profile sets `verify_requires_limit: false`)
 
 ## Sidecar `limits:` schema
 
 ```yaml
-# <test_file>.yaml — same shape as the dict form, plus product-spec helpers
+# <test_file>.yaml — same shape as the dict form, plus part-spec helpers
 limits:
   v_rail:
     low: 3.135
     high: 3.465
     units: V
   output_voltage:
-    characteristic: rail_3v3      # delegate to ProductContext['rail_3v3']
+    characteristic: rail_3v3      # delegate to PartContext['rail_3v3']
     tolerance_pct: 5.0            # ±5 % around the spec's nominal
 ```
 
 Three resolution shapes live under one key:
 
 - **Absolute bounds:** `{low, high, units}` (and optionally `nominal`, `comparator`)
-- **Product delegate:** `{characteristic: <id>}` — copies the characteristic's `low/high/units/nominal/spec_ref`
+- **Part delegate:** `{characteristic: <id>}` — copies the characteristic's `low/high/units/nominal/spec_ref`
 - **Tolerance band:** `{characteristic: <id>, tolerance_pct: N}` — derives `low`/`high` from the spec's `nominal` ± `N %`
 
 ## Outcomes

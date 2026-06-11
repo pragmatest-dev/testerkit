@@ -1,23 +1,23 @@
-"""New product creation page."""
+"""New part creation page."""
 
 from nicegui import ui
 
 from litmus.ui.shared.components import validate_resource_id
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import create_product, discover_products
+from litmus.ui.shared.services import create_part, discover_parts
 
 
-@ui.page("/products/new")
-def new_product_page():
-    """Create a new product."""
-    create_layout("New Product")
+@ui.page("/parts/new")
+def new_part_page():
+    """Create a new part."""
+    create_layout("New Part")
 
-    # Get existing product IDs to check for duplicates
-    existing_ids = {p["id"] for p in discover_products()}
+    # Get existing part IDs to check for duplicates
+    existing_ids = {p["id"] for p in discover_parts()}
 
     # Form state
     form = {
-        "product_id": "",
+        "part_id": "",
         "name": "",
         "description": "",
     }
@@ -30,17 +30,17 @@ def new_product_page():
         # Header
         with ui.row().classes("items-center gap-2"):
             ui.icon("add_circle").classes("text-slate-600")
-            ui.label("Create New Product").classes("text-lg font-semibold text-slate-700")
+            ui.label("Create New Part").classes("text-lg font-semibold text-slate-700")
 
         # Form card
         with ui.card().classes("w-full max-w-xl"):
             with ui.card_section():
-                ui.label("Product Information").classes("font-semibold mb-4")
+                ui.label("Part Information").classes("font-semibold mb-4")
 
                 with ui.column().classes("gap-4 w-full"):
-                    # Product ID
+                    # Part ID
                     with ui.column().classes("gap-1 w-full"):
-                        ui.label("Product ID").classes("text-sm font-medium text-slate-700")
+                        ui.label("Part ID").classes("text-sm font-medium text-slate-700")
                         ui.label(
                             "Unique identifier (lowercase, letters/numbers/hyphens only)"
                         ).classes("text-xs text-slate-400")
@@ -57,10 +57,10 @@ def new_product_page():
 
                         def validate_id(e):
                             value = e.value.lower().strip()
-                            form["product_id"] = value
+                            form["part_id"] = value
                             id_input.value = value
                             validation["id_error"] = validate_resource_id(
-                                value, existing_ids, "Product ID"
+                                value, existing_ids, "Part ID"
                             )
 
                         id_input.on("change", validate_id)
@@ -96,7 +96,7 @@ def new_product_page():
                         ui.label("Optional").classes("text-xs text-slate-400")
                         desc_input = (
                             ui.textarea(
-                                placeholder="Brief description of the product...",
+                                placeholder="Brief description of the part...",
                             )
                             .props("outlined dense")
                             .classes("w-full")
@@ -112,13 +112,13 @@ def new_product_page():
                 ui.button(
                     "Cancel",
                     icon="close",
-                    on_click=lambda: ui.navigate.to("/products"),
+                    on_click=lambda: ui.navigate.to("/parts"),
                 ).props("flat")
 
                 def create():
                     # Validate
-                    if not form["product_id"]:
-                        validation["id_error"] = "Product ID is required"
+                    if not form["part_id"]:
+                        validation["id_error"] = "Part ID is required"
                         return
                     if not form["name"]:
                         validation["name_error"] = "Name is required"
@@ -127,27 +127,27 @@ def new_product_page():
                         ui.notify("Please fix validation errors", type="warning")
                         return
 
-                    # Create product
-                    result = create_product(
-                        product_id=form["product_id"],
+                    # Create part
+                    result = create_part(
+                        part_id=form["part_id"],
                         name=form["name"],
                         description=form["description"],
                     )
 
                     if result:
                         ui.notify(
-                            f"Product '{result['name']}' created successfully",
+                            f"Part '{result['name']}' created successfully",
                             type="positive",
                         )
-                        ui.navigate.to(f"/products/{result['id']}/edit")
+                        ui.navigate.to(f"/parts/{result['id']}/edit")
                     else:
                         ui.notify(
-                            "Product ID already exists",
+                            "Part ID already exists",
                             type="negative",
                         )
 
                 ui.button(
-                    "Create Product",
+                    "Create Part",
                     icon="add",
                     on_click=create,
                 ).props("color=primary")
@@ -160,11 +160,11 @@ def new_product_page():
                     with ui.column().classes("gap-1"):
                         ui.label("What happens next?").classes("font-medium text-blue-700")
                         ui.label(
-                            "After creating the product, you'll be taken to the edit page "
+                            "After creating the part, you'll be taken to the edit page "
                             "where you can add characteristics, test requirements, and more."
                         ).classes("text-sm text-blue-600")
                         ui.label(
                             "You can also upload a datasheet to help extract specifications."
                         ).classes("text-sm text-blue-600")
 
-        ui.link("← Back to Products", "/products").classes("text-blue-600 hover:underline")
+        ui.link("← Back to Parts", "/parts").classes("text-blue-600 hover:underline")

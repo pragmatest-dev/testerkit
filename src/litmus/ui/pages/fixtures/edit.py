@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from litmus.ui.shared.components import AutoSaver, labeled_input, labeled_textarea
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
-    discover_products,
+    discover_parts,
     discover_stations,
     load_fixture_config,
     save_fixture,
@@ -27,8 +27,8 @@ def fixture_edit_page(fixture_id: str):
             "id": "",
             "name": "",
             "description": "",
-            "product_id": "",
-            "product_revision": "",
+            "part_id": "",
+            "part_revision": "",
         }
         connections_data = {}
     elif config:
@@ -37,8 +37,8 @@ def fixture_edit_page(fixture_id: str):
             "id": config.id or fixture_id,
             "name": config.name or "",
             "description": config.description or "",
-            "product_id": config.product_id or config.product_family or "",
-            "product_revision": config.product_revision or "",
+            "part_id": config.part_id or config.part_family or "",
+            "part_revision": config.part_revision or "",
         }
         connections_data = (
             {k: v.model_dump() for k, v in config.connections.items()} if config.connections else {}
@@ -50,9 +50,9 @@ def fixture_edit_page(fixture_id: str):
             ui.link("← Back to Fixtures", "/fixtures").classes("text-blue-600 hover:underline")
         return
 
-    # Get available products and stations for dropdowns
-    products = discover_products()
-    product_options = {p["id"]: p.get("name", p["id"]) for p in products}
+    # Get available parts and stations for dropdowns
+    parts = discover_parts()
+    part_options = {p["id"]: p.get("name", p["id"]) for p in parts}
 
     stations = discover_stations()
     # Collect all instrument names across all stations
@@ -102,20 +102,20 @@ def fixture_edit_page(fixture_id: str):
 
                 with ui.row().classes("gap-4 w-full"):
                     with ui.column().classes("gap-1 flex-1"):
-                        ui.label("Product").classes("text-sm font-medium text-slate-700")
+                        ui.label("Part").classes("text-sm font-medium text-slate-700")
                         ui.select(
-                            options=product_options,
-                            value=form_data["fixture"]["product_id"],
+                            options=part_options,
+                            value=form_data["fixture"]["part_id"],
                             on_change=lambda e: (
-                                form_data["fixture"].update({"product_id": e.value}),
+                                form_data["fixture"].update({"part_id": e.value}),
                                 saver.trigger() if saver else None,
                             ),
                         ).props("outlined dense").classes("w-full")
                     labeled_input(
                         "Revision (optional)",
-                        form_data["fixture"]["product_revision"],
+                        form_data["fixture"]["part_revision"],
                         on_change=lambda e: (
-                            form_data["fixture"].update({"product_revision": e.value}),
+                            form_data["fixture"].update({"part_revision": e.value}),
                             saver.trigger() if saver else None,
                         ),
                     )

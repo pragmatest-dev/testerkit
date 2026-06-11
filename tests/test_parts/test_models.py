@@ -1,19 +1,19 @@
-"""Tests for product specification models."""
+"""Tests for part specification models."""
 
 from litmus.models.capability import AccuracySpec, RangeSpec, SpecBand
 from litmus.models.enums import Direction, MeasurementFunction
-from litmus.models.product import (
-    Product,
-    ProductCharacteristic,
+from litmus.models.part import (
+    Part,
+    PartCharacteristic,
 )
 
 
-class TestProductCharacteristic:
-    """Tests for ProductCharacteristic model."""
+class TestPartCharacteristic:
+    """Tests for PartCharacteristic model."""
 
     def test_basic_characteristic(self):
         """Test creating a basic characteristic with function."""
-        char = ProductCharacteristic(
+        char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -25,7 +25,7 @@ class TestProductCharacteristic:
 
     def test_characteristic_with_specs(self):
         """Test characteristic with SpecBand list."""
-        char = ProductCharacteristic(
+        char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -47,7 +47,7 @@ class TestProductCharacteristic:
 
     def test_get_spec_at_match(self):
         """Test finding a spec band by parameters."""
-        char = ProductCharacteristic(
+        char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -71,7 +71,7 @@ class TestProductCharacteristic:
 
     def test_get_spec_at_no_match(self):
         """Test that no match returns None."""
-        char = ProductCharacteristic(
+        char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -88,7 +88,7 @@ class TestProductCharacteristic:
 
     def test_get_spec_at_unconditional(self):
         """Test that empty conditions matches anything."""
-        char = ProductCharacteristic(
+        char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -106,7 +106,7 @@ class TestProductCharacteristic:
         import pytest
 
         with pytest.raises(ValueError, match="physical interface"):
-            ProductCharacteristic(
+            PartCharacteristic(
                 function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.OUTPUT,
                 units="V",
@@ -114,7 +114,7 @@ class TestProductCharacteristic:
 
     def test_net_satisfies_physical_interface(self):
         """Test that net alone satisfies physical interface requirement."""
-        char = ProductCharacteristic(
+        char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             units="V",
@@ -124,7 +124,7 @@ class TestProductCharacteristic:
 
     def test_signal_group_satisfies_physical_interface(self):
         """Test that signal_group alone satisfies physical interface requirement."""
-        char = ProductCharacteristic(
+        char = PartCharacteristic(
             function=MeasurementFunction.DIGITAL_IO,
             direction=Direction.BIDIR,
             units="V",
@@ -133,27 +133,27 @@ class TestProductCharacteristic:
         assert char.signal_group == "i2c_main"
 
 
-class TestProduct:
-    """Tests for Product model."""
+class TestPart:
+    """Tests for Part model."""
 
-    def test_basic_product(self):
-        """Test creating a basic product."""
-        product = Product(
+    def test_basic_part(self):
+        """Test creating a basic part."""
+        part = Part(
             id="power_board_v1",
             name="DC-DC Power Board Rev A",
             description="5V to 3.3V buck converter",
             revision="A",
         )
-        assert product.id == "power_board_v1"
-        assert product.name == "DC-DC Power Board Rev A"
+        assert part.id == "power_board_v1"
+        assert part.name == "DC-DC Power Board Rev A"
 
-    def test_product_with_characteristics(self):
-        """Test product with characteristics."""
-        product = Product(
+    def test_part_with_characteristics(self):
+        """Test part with characteristics."""
+        part = Part(
             id="power_board_v1",
             name="Power Board",
             characteristics={
-                "rail_3v3_output": ProductCharacteristic(
+                "rail_3v3_output": PartCharacteristic(
                     function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
                     units="V",
@@ -172,4 +172,4 @@ class TestProduct:
                 ),
             },
         )
-        assert "rail_3v3_output" in product.characteristics
+        assert "rail_3v3_output" in part.characteristics

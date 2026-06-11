@@ -239,6 +239,6 @@ pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SI
 
 ## Continue
 
-How does Litmus know which station can test which product?
+How does Litmus know which station can test which part?
 
-← [Step 6: Product Specifications](06-specifications.md)  |  [Step 8: Capability Matching →](08-capabilities.md)
+← [Step 6: Part Specifications](06-specifications.md)  |  [Step 8: Capability Matching →](08-capabilities.md)

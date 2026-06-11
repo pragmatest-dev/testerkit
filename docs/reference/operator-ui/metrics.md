@@ -13,7 +13,7 @@ Retest, Time loss, Assets.
 | Control | What it filters | Notes |
 |---|---|---|
 | Phase | Test phase (`development`, `validation`, `characterization`, `production`) | Multi-select. Defaults to "all phases except `development`" — set it explicitly to include dev runs. |
-| Product | DUT part number | Multi-select. Populated from runs in the index. |
+| Part | DUT part number | Multi-select. Populated from runs in the index. |
 | Station | Station hostname | Multi-select. Populated from runs in the index. |
 | Lot (optional) | Lot identifier | Free-text. Leave blank for all. |
 | Since (optional) | Earliest run start, `YYYY-MM-DD` | Date picker, or type the date directly. |
@@ -64,7 +64,7 @@ parameter: `pareto_group`):
 
 | Group | Bars show |
 |---|---|
-| Product | Most-failing DUT part numbers |
+| Part | Most-failing DUT part numbers |
 | Step | Most-failing test / step names across the filtered runs |
 | Measurement | Top 15 measurements with the most failures. Limited to limit-bearing measurements. Bars are labelled `step_name: measurement_name` so the same measurement name under different steps shows as distinct bars. |
 
@@ -125,7 +125,7 @@ error.
 ### Assets
 
 Per-instrument utilization across the selected date window. Phase /
-Product / Station filters don't apply here — instruments are keyed
+Part / Station filters don't apply here — instruments are keyed
 by role + resource, not by run context.
 
 | Column | What it shows |
@@ -150,12 +150,12 @@ URL captures the exact view:
 | Parameter | Meaning |
 |---|---|
 | `phase` | Repeat for each selected phase: `?phase=production&phase=validation` |
-| `product` | Repeat per selected product |
+| `part` | Repeat per selected part |
 | `station` | Repeat per selected station |
 | `lot` | Lot filter value |
 | `since`, `until` | Date range, `YYYY-MM-DD` |
 | `tab` | `Yield` (default), `Pareto`, `Cpk`, `Retest`, `Time loss`, or `Assets` |
-| `pareto_group` | `product`, `step`, or `measurement` (only meaningful on the Pareto tab) |
+| `pareto_group` | `part`, `step`, or `measurement` (only meaningful on the Pareto tab) |
 
 Sharing a Cpk URL with the Pareto group set has no effect — irrelevant
 parameters are ignored by tabs that don't use them.
@@ -169,7 +169,7 @@ picks up the new data automatically (it watches for `run.ended`) —
 no Refresh needed.
 
 CLI equivalents per tab, all accepting the same filter flags
-(`--phase`, `--product`, `--station`, `--since`, `--until`, `--lot`)
+(`--phase`, `--part`, `--station`, `--since`, `--until`, `--lot`)
 and `--json` for machine-readable output:
 
 | Tab | CLI |

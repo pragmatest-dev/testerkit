@@ -254,10 +254,10 @@ class RunStarted(EventBase):
     dut_revision: str | None = None
     dut_lot_number: str | None = None
 
-    # Product
-    product_id: str | None = None
-    product_name: str | None = None
-    product_revision: str | None = None
+    # Part
+    part_id: str | None = None
+    part_name: str | None = None
+    part_revision: str | None = None
 
     # Operator
     operator_id: str | None = None

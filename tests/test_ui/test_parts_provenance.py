@@ -1,7 +1,7 @@
-"""Behavior contract for ``products_with_provenance``.
+"""Behavior contract for ``parts_with_provenance``.
 
 Mirrors ``test_stations_provenance`` — same merged-with-badge pattern,
-different entity. Monkeypatches ``discover_products`` (dict-returning)
+different entity. Monkeypatches ``discover_parts`` (dict-returning)
 and ``usage_stats_by`` and asserts the union + classification.
 """
 
@@ -12,10 +12,10 @@ from datetime import datetime
 from litmus.ui.shared import services
 
 
-def _fake_product(product_id: str, name: str = "", revision: str = "", n_chars: int = 0):
-    """Shape matching what discover_products() returns (a dict, not a model)."""
+def _fake_part(part_id: str, name: str = "", revision: str = "", n_chars: int = 0):
+    """Shape matching what discover_parts() returns (a dict, not a model)."""
     return {
-        "id": product_id,
+        "id": part_id,
         "name": name,
         "revision": revision,
         "characteristics": {f"c{i}": object() for i in range(n_chars)},
@@ -23,21 +23,21 @@ def _fake_product(product_id: str, name: str = "", revision: str = "", n_chars: 
 
 
 def test_configured_no_runs(monkeypatch):
-    monkeypatch.setattr(services, "discover_products", lambda: [_fake_product("tps54302")])
+    monkeypatch.setattr(services, "discover_parts", lambda: [_fake_part("tps54302")])
     monkeypatch.setattr(services, "usage_stats_by", lambda _field: {})
 
-    rows = services.products_with_provenance()
+    rows = services.parts_with_provenance()
     assert len(rows) == 1
     assert rows[0].id == "tps54302"
     assert rows[0].provenance == "configured"
 
 
 def test_configured_with_runs_stays_configured(monkeypatch):
-    """YAML product with runs stays 'Configured' — chip is binary."""
+    """YAML part with runs stays 'Configured' — chip is binary."""
     monkeypatch.setattr(
         services,
-        "discover_products",
-        lambda: [_fake_product("tps54302", name="3A Buck", revision="A", n_chars=4)],
+        "discover_parts",
+        lambda: [_fake_part("tps54302", name="3A Buck", revision="A", n_chars=4)],
     )
     monkeypatch.setattr(
         services,
@@ -52,7 +52,7 @@ def test_configured_with_runs_stays_configured(monkeypatch):
         },
     )
 
-    rows = services.products_with_provenance()
+    rows = services.parts_with_provenance()
     assert len(rows) == 1
     r = rows[0]
     assert r.provenance == "configured"
@@ -63,15 +63,15 @@ def test_configured_with_runs_stays_configured(monkeypatch):
 
 
 def test_observed_only(monkeypatch):
-    """Product id appears in runs with no YAML — observed_only row."""
-    monkeypatch.setattr(services, "discover_products", lambda: [])
+    """Part id appears in runs with no YAML — observed_only row."""
+    monkeypatch.setattr(services, "discover_parts", lambda: [])
     monkeypatch.setattr(
         services,
         "usage_stats_by",
         lambda _field: {"mystery-part-99": {"runs": 2, "passed": 1, "failed": 1, "last_run": None}},
     )
 
-    rows = services.products_with_provenance()
+    rows = services.parts_with_provenance()
     assert len(rows) == 1
     r = rows[0]
     assert r.id == "mystery-part-99"
@@ -85,10 +85,10 @@ def test_observed_only(monkeypatch):
 def test_mixed_configured_and_observed(monkeypatch):
     monkeypatch.setattr(
         services,
-        "discover_products",
+        "discover_parts",
         lambda: [
-            _fake_product("tps54302", name="One"),
-            _fake_product("lm317", name="Two"),
+            _fake_part("tps54302", name="One"),
+            _fake_part("lm317", name="Two"),
         ],
     )
     monkeypatch.setattr(
@@ -100,7 +100,7 @@ def test_mixed_configured_and_observed(monkeypatch):
         },
     )
 
-    rows = services.products_with_provenance()
+    rows = services.parts_with_provenance()
     by_id = {r.id: r for r in rows}
     assert by_id["tps54302"].provenance == "configured"
     assert by_id["lm317"].provenance == "configured"  # YAML wins

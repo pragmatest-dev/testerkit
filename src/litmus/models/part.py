@@ -1,6 +1,6 @@
-"""Pydantic models for product specifications.
+"""Pydantic models for part specifications.
 
-This module defines the information model for products (DUTs) such that specs
+This module defines the information model for parts (DUTs) such that specs
 flow down to:
 1. Required capabilities (what instruments are needed)
 2. Station config (which instruments at which addresses)
@@ -8,7 +8,7 @@ flow down to:
 4. Test code (what to measure, what limits to apply)
 5. Results (full traceability back to specs)
 
-Key design principle: Product characteristics and instrument capabilities share
+Key design principle: Part characteristics and instrument capabilities share
 the same base model (Capability) with MeasurementFunction, Direction,
 and typed parameter dicts (signals, conditions, controls, attributes).
 This enables direct capability matching without lossy conversion — direction
@@ -118,10 +118,10 @@ class SignalGroup(BaseModel):
     description: str | None = None
 
 
-class ProductCharacteristic(Capability):
-    """Product capability + physical interface + traceability (ATML: UUT Characteristic).
+class PartCharacteristic(Capability):
+    """Part capability + physical interface + traceability (ATML: UUT Characteristic).
 
-    Extends Capability with product-specific fields: physical pin mapping,
+    Extends Capability with part-specific fields: physical pin mapping,
     net names, signal groups, and datasheet references.
 
     The direction indicates whether the DUT provides (OUTPUT) or consumes (INPUT)
@@ -150,10 +150,10 @@ class ProductCharacteristic(Capability):
     """
 
     # Physical interface - AT LEAST ONE REQUIRED
-    pin: str | None = None  # Single pin reference (Product.pins key)
+    pin: str | None = None  # Single pin reference (Part.pins key)
     pins: str | list[str] = Field(default_factory=list)  # Multiple pins (range: "GPIO[0:7]")
     net: str | None = None  # Schematic net name (matches fixture routing)
-    signal_group: str | None = None  # Reference to Product.signal_groups key
+    signal_group: str | None = None  # Reference to Part.signal_groups key
 
     # Traceability
     datasheet_ref: str | None = None
@@ -221,16 +221,16 @@ class ProductCharacteristic(Capability):
         return None
 
 
-class Product(BaseModel):
-    """Product definition (ATML: UUT Description).
+class Part(BaseModel):
+    """Part definition (ATML: UUT Description).
 
     Top-level model that ties together:
-    - Product identification (id, name, revision)
+    - Part identification (id, name, revision)
     - Documentation references (datasheet, schematic)
     - Characteristics with condition matrices
 
     Example YAML:
-        product:
+        part:
           id: power_board_v1
           name: "DC-DC Power Board Rev A"
           revision: "A"
@@ -264,7 +264,7 @@ class Product(BaseModel):
     signal_groups: dict[str, SignalGroup] = Field(default_factory=dict)
 
     # Electrical characteristics
-    characteristics: dict[str, ProductCharacteristic] = Field(default_factory=dict)
+    characteristics: dict[str, PartCharacteristic] = Field(default_factory=dict)
 
     def get_pins_by_net(self, net: str) -> list[str]:
         """Return pin IDs whose net matches the given name."""

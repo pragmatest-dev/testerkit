@@ -12,7 +12,7 @@ measurement_name:
   units: V
   comparator: GELE    # default; see table below
   spec_ref: "..."          # optional traceability pointer
-  characteristic: "..."    # delegate to a product-spec characteristic
+  characteristic: "..."    # delegate to a part-spec characteristic
 ```
 
 A limit needs at least one policy field that tells `verify` what to check. The flat-scalar shape above (`low` / `high` / `nominal` / `characteristic`) is the common case; the [Condition-indexed bands](#condition-indexed-bands) section below covers the `bands:` shape. Other policy fields — `tolerance_pct` / `tolerance_abs` (around a characteristic nominal), `expr` (a Python expression), `lookup` (a table keyed by sweep params), `steps` (multi-stage criteria), `callable` (a dotted path to a Python function) — work in the same place a `low` / `high` would go; combine with `bands:` for condition-indexed variants.
@@ -25,7 +25,7 @@ A limit needs at least one policy field that tells `verify` what to check. The f
 | `units`          |          | Unit of measure (for reporting)                 |
 | `comparator`     |          | Comparison type (default `GELE`)                |
 | `spec_ref`       |          | Traceability annotation (free-form string)      |
-| `characteristic` |          | Delegate to `product.<char_name>` (inherits limits, units) |
+| `characteristic` |          | Delegate to `part.<char_name>` (inherits limits, units) |
 
 ## Where limits come from
 
@@ -33,7 +33,7 @@ Both `verify(name, value)` and `logger.measure(name, value)` go through the same
 
 1. **Explicit `limit=`** — `verify("v", val, limit={"low": ..., "high": ..., "units": "V"})` or `logger.measure(...)` with the same kwarg. The kwarg accepts either a dict literal or a `Limit(...)` model. Short-circuits everything below.
 2. **Active limits entry for `name`** — populated from the sidecar / marker / profile cascade (merged into one entry per measurement name at test setup; details below).
-3. **Active product spec** — if the cascade has nothing and `verify` is in play, the resolver tries the active `ProductContext` for a characteristic named `name`. This works for unconditional characteristics; condition-indexed bands need the explicit `characteristic:` delegation in step 2 to forward sweep params correctly (see [Spec-driven testing](spec-driven-testing.md#condition-indexed-example-when-accuracy-varies-with-operating-point)).
+3. **Active part spec** — if the cascade has nothing and `verify` is in play, the resolver tries the active `PartContext` for a characteristic named `name`. This works for unconditional characteristics; condition-indexed bands need the explicit `characteristic:` delegation in step 2 to forward sweep params correctly (see [Spec-driven testing](spec-driven-testing.md#condition-indexed-example-when-accuracy-varies-with-operating-point)).
 4. **None** — characterization mode. `logger.measure` records the value with `outcome = DONE`. `verify` raises `MissingLimitError` — judgment-bearing calls don't silently fall through unless the active profile sets `verify_requires_limit: false`, which routes `verify` to the same record-only fallback.
 
 The cascade inside step 2 stacks marker sources in this order, with later entries overriding earlier ones key-by-key per measurement name:
@@ -56,7 +56,7 @@ import pytest
 
 @pytest.mark.litmus_limits(
     output_voltage={"low": 3.234, "high": 3.366, "units": "V"},
-    efficiency={"characteristic": "efficiency"},    # delegate to product spec
+    efficiency={"characteristic": "efficiency"},    # delegate to part spec
     startup_current={"high": 50, "comparator": "LE", "units": "mA"},
 )
 def test_rails(context, logger, dmm):
@@ -81,7 +81,7 @@ class TestPowerBoard:
 # tests/test_power_board.yaml
 limits:
   output_voltage:  {low: 3.135, high: 3.465, units: V}
-  efficiency:      {characteristic: efficiency}   # product-spec delegation
+  efficiency:      {characteristic: efficiency}   # part-spec delegation
   startup_current: {high: 50, comparator: LE, units: mA}
 ```
 
@@ -119,12 +119,12 @@ Matching rules:
 
 The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and Litmus sweeps — every iteration re-resolves against the active row.
 
-The default cascade keeps repetition out of the YAML. Common fields (`units`, `characteristic`) live once at the top; bands carry only what changes. Bands can use any policy field a flat limit supports, including `tolerance_pct` against a product characteristic:
+The default cascade keeps repetition out of the YAML. Common fields (`units`, `characteristic`) live once at the top; bands carry only what changes. Bands can use any policy field a flat limit supports, including `tolerance_pct` against a part characteristic:
 
 ```yaml
 limits:
   output_voltage:
-    characteristic: output_voltage              # nominal from product spec — shared
+    characteristic: output_voltage              # nominal from part spec — shared
     bands:
       - {when: {vin: 5.0}, tolerance_pct: 2.0}     # ±2% at vin=5.0
       - {when: {vin: 3.3}, tolerance_pct: 5.0}     # looser at vin=3.3
@@ -140,17 +140,17 @@ logger.measure("v", val, limit={"low": 3.2, "high": 3.4, "units": "V"})
 
 Same shape works on `verify(name, value, limit={...})`. Need the model object for type-checking or as a shared constant? Import from the top-level package: `from litmus import Limit`.
 
-## Product-spec delegation (`characteristic:`)
+## Part-spec delegation (`characteristic:`)
 
-`characteristic: "<char_name>"` looks up the characteristic on the active `ProductContext` and inherits its limits and units. Works in markers and sidecar:
+`characteristic: "<char_name>"` looks up the characteristic on the active `PartContext` and inherits its limits and units. Works in markers and sidecar:
 
 ```python
-# product selected via --product=power_board_v1 or litmus.yaml / profile
+# part selected via --part=power_board_v1 or litmus.yaml / profile
 @pytest.mark.litmus_limits(output_voltage={"characteristic": "output_voltage"})
 def test_rails(...): ...
 ```
 
-Use this when the product YAML is the source of truth and tests are thin wrappers.
+Use this when the part YAML is the source of truth and tests are thin wrappers.
 
 ## Comparators
 
@@ -179,17 +179,17 @@ Values show up in the parquet output for post-hoc analysis.
 
 ### `MissingLimitError` — why `verify` won't fall through to "unchecked"
 
-`verify` is judgment-bearing — calling it with no resolvable limit raises `MissingLimitError` (importable from `litmus.execution.verify`) rather than silently recording the value. The error names every source the resolver checked — `limit=` kwarg, sidecar / marker / profile cascade, and the active product spec — so the missing source is obvious.
+`verify` is judgment-bearing — calling it with no resolvable limit raises `MissingLimitError` (importable from `litmus.execution.verify`) rather than silently recording the value. The error names every source the resolver checked — `limit=` kwarg, sidecar / marker / profile cascade, and the active part spec — so the missing source is obvious.
 
 If you genuinely want to record without judging, use `logger.measure(name, value)` instead — it records the value with `outcome = DONE` and never raises on missing limits. The two methods divide cleanly: `verify` if a pass/fail decision belongs on the row, `logger.measure` if not.
 
 ## Best practices
 
-1. **Prefer `verify(name, v)`** when a product spec exists — limits, DUT pin, and `spec_ref` all flow automatically
-2. **Use `characteristic:`** to delegate to product-spec characteristics instead of duplicating values
+1. **Prefer `verify(name, v)`** when a part spec exists — limits, DUT pin, and `spec_ref` all flow automatically
+2. **Use `characteristic:`** to delegate to part-spec characteristics instead of duplicating values
 3. **Keep operator-tuned values in a sidecar `limits:` field** so non-developers can edit them
 4. **Match names** — the first argument to `verify` / `logger.measure` must match the limit key
-5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use `limits` (sidecar / profile) or `@pytest.mark.litmus_limits` (inline) or the product spec
+5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use `limits` (sidecar / profile) or `@pytest.mark.litmus_limits` (inline) or the part spec
 
 
 ## See also

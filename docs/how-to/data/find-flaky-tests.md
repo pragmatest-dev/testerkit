@@ -22,9 +22,9 @@ period. The table below shows Period / Serials / Retested / Rate /
 Avg retries.
 
 High retest rates flag flaky tests OR marginal hardware. To narrow
-to "is it the test", filter the same Metrics view by product or
+to "is it the test", filter the same Metrics view by part or
 station with the filter bar above the tabs and see whether the
-spike follows the test, the station, or the product.
+spike follows the test, the station, or the part.
 
 ## 2. Pin the test that's flaking
 

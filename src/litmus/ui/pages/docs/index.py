@@ -35,7 +35,7 @@ def docs_index():
                 "concepts",
                 "lightbulb",
                 "Concepts",
-                "Products, stations, capabilities, fixtures, and matching",
+                "Parts, stations, capabilities, fixtures, and matching",
             ),
             (
                 "reference",

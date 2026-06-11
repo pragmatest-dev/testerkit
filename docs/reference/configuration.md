@@ -13,7 +13,7 @@ For the full field-by-field reference of each model, see [models.md](models.md).
 | `stations/<id>.yaml` | [`StationConfig`](models.md#model-stationconfig) | Concrete station deployment — instruments, drivers, resources. |
 | `stations/types/<id>.yaml` | [`StationType`](models.md#model-stationtype) | Abstract station-type template — required roles, capabilities. |
 | `fixtures/<id>.yaml` | [`FixtureConfig`](models.md#model-fixtureconfig) | DUT-pin ↔ instrument-channel routing (single-DUT) or per-slot routing (multi-DUT). |
-| `products/<id>.yaml` | [`Product`](models.md#model-product) | Product specification — pins, signal groups, characteristics. |
+| `parts/<id>.yaml` | [`Part`](models.md#model-part) | Part specification — pins, signal groups, characteristics. |
 | `tests/test_<name>.yaml` | [`SidecarConfig`](models.md#model-sidecarconfig) | Sidecar test config co-located with `tests/test_<name>.py` — sweeps, limits, mocks, retry, prompts. |
 | `catalog/<vendor>/<model>.yaml` | [`InstrumentCatalogEntry`](models.md#model-instrumentcatalogentry) | Instrument capability catalog — see [catalog-schema.md](catalog-schema.md) for the full reference. |
 <!-- GENERATED:configuration-file-index:end -->
@@ -151,9 +151,9 @@ Single-DUT — top-level `connections:`:
 ```yaml
 id: power_board_fix
 name: "Power Board Test Fixture"
-product_id: power_board                # specific product (preferred)
-product_family: power_boards           # OR product family for shared fixtures
-product_revision: rev_a                # optional — refinement
+part_id: power_board                   # specific part (preferred)
+part_family: power_boards              # OR part family for shared fixtures
+part_revision: rev_a                   # optional — refinement
 station_types: [thermal_bench, rf_bench]  # which StationType templates this can wire against
 dut_resource: "/dev/ttyUSB0"           # optional — DUT control connection
 description: "Standard 4-rail board fixture"
@@ -164,7 +164,7 @@ connections:                           # dict[name, FixtureConnection]
     instrument: dmm                    # role name on the station
     instrument_channel: "1"
     instrument_terminal: hi            # optional — hi / lo / sense_hi / sense_lo / signal / …
-    dut_pin: VOUT                      # reference into Product.pins
+    dut_pin: VOUT                      # reference into Part.pins
     net: VOUT_3V3                      # optional — schematic net name
     function: dc_voltage               # optional — per-function disambiguation (DMM for DC, scope for AC)
     description: "Direct-wired DMM probe on VOUT"
@@ -185,7 +185,7 @@ Multi-DUT — top-level `slots:` instead of `connections:`:
 ```yaml
 id: multi_slot_fix
 name: "Quad Power Board Fixture"
-product_id: power_board
+part_id: power_board
 station_types: [bench_4ch]
 slots:                                 # dict[slot_name, FixtureSlot]
   slot_1:
@@ -212,15 +212,15 @@ slots:                                 # dict[slot_name, FixtureSlot]
 
 See [concepts/fixtures.md](../concepts/configuration/fixtures.md) for the design rationale, [how-to/multi-dut-testing.md](../how-to/execution/multi-dut-testing.md) for slot workflow.
 
-## Product — `products/<id>.yaml` {#product-yaml}
+## Part — `parts/<id>.yaml` {#part-yaml}
 
-Product specification. Validated by [`Product`](models.md#model-product). Filename stem must equal `id:`.
+Part specification. Validated by [`Part`](models.md#model-part). Filename stem must equal `id:`.
 
 ```yaml
 id: power_board                       # required — matches filename stem
 name: "DC-DC Power Board"             # required
 part_number: PWR-CONV-001             # optional — operator-facing dut_part_number
-base: power_board_base                # optional — inherits from another product (see Variants)
+base: power_board_base                # optional — inherits from another part (see Variants)
 revision: rev_a
 description: "5 V → 3.3 V buck converter"
 datasheet: "docs/DS-power-board-001.pdf"
@@ -252,7 +252,7 @@ signal_groups:                        # dict[name, SignalGroup] — bus interfac
     parameters:
       frequency: 100000
 
-characteristics:                      # dict[name, ProductCharacteristic]
+characteristics:                      # dict[name, PartCharacteristic]
   rail_3v3_output:
     function: dc_voltage              # MeasurementFunction enum
     direction: output                 # input | output | bidir | transform
@@ -269,9 +269,9 @@ characteristics:                      # dict[name, ProductCharacteristic]
         accuracy: {pct_reading: 2.0}
 ```
 
-- `bands:` lives inside each characteristic. There is no top-level `bands:` on `Product`.
-- `ProductCharacteristic` fields: `function`, `direction`, `units`, `pin`, `pins`, `net`, `signal_group`, `datasheet_ref`, plus the inherited `signals`/`conditions`/`controls`/`attributes`/`bands` from `Capability`. There is no `channel:` / `channels:` / `schematic_ref:` on characteristics — the loader rejects unknown keys.
-- `base:` lets a product inherit from another. The loader searches the products directory for a file whose stem matches the `base:` value first, then scans every product YAML for an `id:` match. Circular and missing-base references raise an error at load time.
+- `bands:` lives inside each characteristic. There is no top-level `bands:` on `Part`.
+- `PartCharacteristic` fields: `function`, `direction`, `units`, `pin`, `pins`, `net`, `signal_group`, `datasheet_ref`, plus the inherited `signals`/`conditions`/`controls`/`attributes`/`bands` from `Capability`. There is no `channel:` / `channels:` / `schematic_ref:` on characteristics — the loader rejects unknown keys.
+- `base:` lets a part inherit from another. The loader searches the parts directory for a file whose stem matches the `base:` value first, then scans every part YAML for an `id:` match. Circular and missing-base references raise an error at load time.
 
 See [tutorial/06-specifications.md](../tutorial/06-specifications.md) for the workflow and [how-to/spec-driven-testing.md](../how-to/execution/spec-driven-testing.md) for spec-driven verify.
 
@@ -294,7 +294,7 @@ mocks:                                # list[MockEntry] — installed via patch.
   - target: dmm.measure_dc_voltage
     return_value: 3.31
 
-characteristics: [rail_3v3_output]    # bind tests to product characteristics
+characteristics: [rail_3v3_output]    # bind tests to part characteristics
 
 connections: ["vout_measure"]         # constrain to a subset of fixture connections
 
@@ -372,7 +372,7 @@ Most loaders live in `litmus.store`:
 from pathlib import Path
 from litmus.store import (
     load_project, load_station, load_station_type,
-    load_fixture, load_product, load_catalog_entry,
+    load_fixture, load_part, load_catalog_entry,
 )
 
 project = load_project(Path("litmus.yaml"))

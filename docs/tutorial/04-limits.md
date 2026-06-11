@@ -115,7 +115,7 @@ def test_voltage(dmm, logger):
     logger.measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`verify` is judgment-bearing: calling it with no limit (no inline `limit=`, no marker, no sidecar, no product spec) raises `MissingLimitError`. For a wide characterization sweep where you want the same `verify()` test code to record values without judging, set `verify_requires_limit: false` on a [profile](../how-to/execution/profiles.md) — `verify` then falls back to `logger.measure` semantics for that session.
+`verify` is judgment-bearing: calling it with no limit (no inline `limit=`, no marker, no sidecar, no part spec) raises `MissingLimitError`. For a wide characterization sweep where you want the same `verify()` test code to record values without judging, set `verify_requires_limit: false` on a [profile](../how-to/execution/profiles.md) — `verify` then falls back to `logger.measure` semantics for that session.
 
 ## What's missing — and what step 5 fixes
 

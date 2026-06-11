@@ -119,7 +119,7 @@ signals:
 | `range` | `RangeSpec` |
 | `accuracy` | `AccuracySpec` |
 | `resolution` | `ResolutionSpec` |
-| `value` | `float` (product-side scalar — instruments use `range`) |
+| `value` | `float` (part-side scalar — instruments use `range`) |
 | `units` | `str` |
 | `bands` | `list[SpecBand]` |
 | `qualifier` | `SpecQualifier` |

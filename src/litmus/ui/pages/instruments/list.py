@@ -1,7 +1,7 @@
 """Instrument library list page — Catalog + Inventory as tabs.
 
 The Inventory tab uses the merged-with-badge pattern (Configured /
-In use / Observed) — same shape as ``/stations``, ``/products``,
+In use / Observed) — same shape as ``/stations``, ``/parts``,
 and ``/fixtures``. The Catalog tab lists instrument *types* (templates,
 not physical things); the observed side doesn't fit cleanly there and
 is intentionally not surfaced.

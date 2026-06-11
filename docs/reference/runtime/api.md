@@ -68,8 +68,8 @@ Twelve tools, all prefixed `litmus_`. Each tool's parameter shape and full docst
 | `litmus_channels` | `channel_id`, `session_id`, `last_n`, `max_points`, `project` | Query channel data from the streaming channel store. |
 | `litmus_discover` | `protocols` | Scan for connected instruments across all protocols. |
 | `litmus_events` | `session_id`, `event_type`, `role`, `since`, `limit`, `project` | Query events from the event store. |
-| `litmus_match` | `product_id`, `station_id`, `fixture_id`, `requirements`, `project` | Check compatibility between products, stations, and fixtures. |
-| `litmus_metrics` | `action`, `product`, `station`, `phase`, `since`, `until`, `period`, `top_n`, `min_samples`, `project` | Query manufacturing-test analytics (DuckDB SQL aggregated from parquet rows). |
+| `litmus_match` | `part_id`, `station_id`, `fixture_id`, `requirements`, `project` | Check compatibility between parts, stations, and fixtures. |
+| `litmus_metrics` | `action`, `part`, `station`, `phase`, `since`, `until`, `period`, `top_n`, `min_samples`, `project` | Query manufacturing-test analytics (DuckDB SQL aggregated from parquet rows). |
 | `litmus_open` | `type`, `id`, `base_url` | Get URL to view/edit an entity in the browser UI. |
 | `litmus_project` | `action`, `type`, `id`, `path`, `content`, `create`, `scaffold`, `project` | Unified Litmus operations: init, list, get, save, read. |
 | `litmus_run` | `test`, `station`, `serial`, `project` | Execute tests and return results. |
@@ -152,13 +152,13 @@ Every route is mounted under the `/api/` prefix. Field shapes for request / resp
 | `GET` | `/api/channels/_recent` | `GenericObjectResponse` | Channel registry + recent samples per channel. |
 | `GET` | `/api/channels/{channel_id}` | `GenericObjectResponse` | Query channel data. |
 
-### Products
+### Parts
 
 | Method | Path | Response model | Summary |
 |---|---|---|---|
-| `GET` | `/api/products` | `ProductsListResponse` | List all available product specifications. |
-| `GET` | `/api/products/{product_id}` | `Product` | Get a product specification by ID. |
-| `GET` | `/api/products/{product_id}/requirements` | `ProductRequirementsResponse` | Get required capabilities for a product. |
+| `GET` | `/api/parts` | `PartsListResponse` | List all available part specifications. |
+| `GET` | `/api/parts/{part_id}` | `Part` | Get a part specification by ID. |
+| `GET` | `/api/parts/{part_id}/requirements` | `PartRequirementsResponse` | Get required capabilities for a part. |
 
 ### Stations
 
@@ -172,7 +172,7 @@ Every route is mounted under the `/api/` prefix. Field shapes for request / resp
 
 | Method | Path | Response model | Summary |
 |---|---|---|---|
-| `GET` | `/api/match` | `MatchSingleResponse` \| `MatchAllResponse` | Match product requirements to station capabilities. |
+| `GET` | `/api/match` | `MatchSingleResponse` \| `MatchAllResponse` | Match part requirements to station capabilities. |
 
 ### Instruments
 
@@ -201,7 +201,7 @@ Every route is mounted under the `/api/` prefix. Field shapes for request / resp
 | `GET` | `/api/discover` | `GenericObjectResponse` | Scan for connected instruments across all protocols. |
 | `GET` | `/api/open` | `GenericObjectResponse` | Get URL to view/edit an entity in the browser UI. |
 | `GET` | `/api/schema/{yaml_type}` | `GenericObjectResponse` | Get JSON Schema for a Litmus YAML file type. |
-| `POST` | `/api/save/{entity_type}/{entity_id}` | `GenericObjectResponse` | Create or update an entity (station, product, sequence, fixture, etc.). |
+| `POST` | `/api/save/{entity_type}/{entity_id}` | `GenericObjectResponse` | Create or update an entity (station, part, sequence, fixture, etc.). |
 | `GET` | `/api/read` | `GenericObjectResponse` | Read a project file or template. |
 | `GET` | `/api/enum/{abbrev}` | `GenericObjectResponse` | Resolve a datasheet abbreviation to its MeasurementFunction enum value(s). |
 | `GET` | `/api/enum-reference` | `GenericObjectResponse` | Get the full abbreviation-to-enum reference table as markdown. |

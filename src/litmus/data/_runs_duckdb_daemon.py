@@ -150,7 +150,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             num_measurements INTEGER,
             num_steps INTEGER,
             test_phase VARCHAR,
-            product_id VARCHAR,
+            part_id VARCHAR,
             operator_id VARCHAR,
             project_name VARCHAR
         )
@@ -269,7 +269,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             dut_part_number       VARCHAR,
             dut_revision          VARCHAR,
             dut_lot_number        VARCHAR,
-            product_id            VARCHAR,
+            part_id            VARCHAR,
             station_id            VARCHAR,
             station_hostname      VARCHAR,
             fixture_id            VARCHAR,
@@ -307,8 +307,8 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             python_version        VARCHAR,
             litmus_version        VARCHAR,
             env_fingerprint       VARCHAR,
-            product_name          VARCHAR,
-            product_revision      VARCHAR,
+            part_name          VARCHAR,
+            part_revision      VARCHAR,
             station_name          VARCHAR,
             station_type          VARCHAR,
             station_location      VARCHAR,
@@ -365,7 +365,7 @@ _RUNS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("num_measurements", "INTEGER"),
     ("num_steps", "INTEGER"),
     ("test_phase", "VARCHAR"),
-    ("product_id", "VARCHAR"),
+    ("part_id", "VARCHAR"),
     ("operator_id", "VARCHAR"),
     ("project_name", "VARCHAR"),
 )
@@ -410,9 +410,9 @@ _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("dut_part_number", "VARCHAR"),
     ("dut_revision", "VARCHAR"),
     ("dut_lot_number", "VARCHAR"),
-    ("product_id", "VARCHAR"),
-    ("product_name", "VARCHAR"),
-    ("product_revision", "VARCHAR"),
+    ("part_id", "VARCHAR"),
+    ("part_name", "VARCHAR"),
+    ("part_revision", "VARCHAR"),
     ("station_id", "VARCHAR"),
     ("station_name", "VARCHAR"),
     ("station_hostname", "VARCHAR"),
@@ -651,9 +651,9 @@ _MEAS_FIXED_COLS: frozenset[str] = frozenset(
         "dut_part_number",
         "dut_revision",
         "dut_lot_number",
-        "product_id",
-        "product_name",
-        "product_revision",
+        "part_id",
+        "part_name",
+        "part_revision",
         "station_id",
         "station_name",
         "station_hostname",
@@ -836,7 +836,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
                 AS num_measurements,
             CAST(COUNT(*) FILTER (WHERE record_type = 'step') AS INTEGER)
                 AS num_steps,
-            test_phase, product_id, operator_id, project_name
+            test_phase, part_id, operator_id, project_name
         FROM read_parquet({flist}, filename=true, union_by_name=true)
         WHERE run_id IS NOT NULL
         GROUP BY
@@ -845,7 +845,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             station_id, station_name, station_hostname,
             fixture_id,
             run_outcome, run_started_at, run_ended_at,
-            test_phase, product_id, operator_id, project_name
+            test_phase, part_id, operator_id, project_name
         ON CONFLICT (run_id) DO UPDATE SET
             file_path = excluded.file_path,
             session_id = excluded.session_id,
@@ -863,7 +863,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             num_measurements = excluded.num_measurements,
             num_steps = excluded.num_steps,
             test_phase = excluded.test_phase,
-            product_id = excluded.product_id,
+            part_id = excluded.part_id,
             operator_id = excluded.operator_id,
             project_name = excluded.project_name
     """)
@@ -1255,7 +1255,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             run_id, session_id, slot_id,
             run_started_at, run_ended_at, run_outcome,
             dut_serial, dut_part_number, dut_revision, dut_lot_number,
-            product_id, product_name, product_revision,
+            part_id, part_name, part_revision,
             station_id, station_name, station_hostname, station_type, station_location,
             fixture_id, test_phase, project_name, operator_id, operator_name,
             git_commit, git_branch, git_remote,
@@ -1293,7 +1293,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             station_hostname, fixture_id,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
-            num_measurements, num_steps, test_phase, product_id,
+            num_measurements, num_steps, test_phase, part_id,
             operator_id, project_name
         FROM overlay.inflight_runs
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)

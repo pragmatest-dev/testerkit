@@ -17,7 +17,7 @@ bears responsibility**, and it has to serve four jobs at once, for a long
 time. Every store/claim/index decision below traces back to one of these:
 
 1. **Disposition (the gate).** Did *this* unit meet spec? Pass/fail, bin,
-   ship-or-scrap — per-unit, against limits derived from the product spec.
+   ship-or-scrap — per-unit, against limits derived from the part spec.
 2. **Traceability & provenance (the defense).** A durable, reconstructable
    record tying a **serial** → the **spec/limits** judged against → the
    **instruments + calibration** that measured it → **station, operator,
@@ -506,7 +506,7 @@ Every meaningful operation emits an event; each carries data inline (when small)
 
 **Phase 2 — Materialization (at `RunEnded`).** The materializer walks the event log for the run and builds the parquet measurement table. Measurement events → rows. Observation events in the same vector → `out_*` columns denormalized onto every measurement row in that vector. The auto-promotion rule decides whether observations also become DONE rows. Claim URIs flow through as-is into the parquet columns. `materialize_channel_refs` does its session-keyed copy-on-prune step when channel retention triggers (separate, retention-driven, not at RunEnded).
 
-**Phase 3 — At rest (post-run).** Two query surfaces, two purposes. **Parquet** is the analytical surface — `SELECT … FROM measurements WHERE …` by name / value / outcome. `out_*` columns hold scalar snapshots or claim URIs. Joins to product / station / spec for SPC. **Event log** stays queryable for replay / audit / "what exactly happened in this vector." Filter by `event_type`, `run_id`, `session_id`, `event_number`. **Following a URI** is the raw-data drill-down — `file://…` resolves via FileStore (artifact viewer renders or serves bytes); `channel://…` resolves via ChannelStore (rows for the session, plot or compute).
+**Phase 3 — At rest (post-run).** Two query surfaces, two purposes. **Parquet** is the analytical surface — `SELECT … FROM measurements WHERE …` by name / value / outcome. `out_*` columns hold scalar snapshots or claim URIs. Joins to part / station / spec for SPC. **Event log** stays queryable for replay / audit / "what exactly happened in this vector." Filter by `event_type`, `run_id`, `session_id`, `event_number`. **Following a URI** is the raw-data drill-down — `file://…` resolves via FileStore (artifact viewer renders or serves bytes); `channel://…` resolves via ChannelStore (rows for the session, plot or compute).
 
 ### Why events aren't the search surface
 

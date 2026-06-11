@@ -31,9 +31,9 @@ User-invocable. Multi-step. STOP at every approval gate.
 | | |
 |---|---|
 | Source | [`workflow/datasheet-to-test.md`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/workflow/datasheet-to-test.md) |
-| Input | A product datasheet PDF |
-| Output | `products/<id>.yaml`, `stations/<id>.yaml`, `tests/test_<id>.py`, `tests/test_<id>.yaml` |
-| Phases | Parse datasheet → save product spec → recommend instruments → create station config → generate tests → execute |
+| Input | A part datasheet PDF |
+| Output | `parts/<id>.yaml`, `stations/<id>.yaml`, `tests/test_<id>.py`, `tests/test_<id>.yaml` |
+| Phases | Parse datasheet → save part spec → recommend instruments → create station config → generate tests → execute |
 | MCP tools used | `litmus_project` (init, save, read), `litmus_match`, `litmus_run`, `litmus_open`, `litmus_discover` |
 
 Approval gates at every phase. The user reviews extracted specs, picked instruments, station wiring, and the generated test before the agent moves on.

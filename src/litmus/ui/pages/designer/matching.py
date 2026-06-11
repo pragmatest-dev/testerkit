@@ -18,17 +18,17 @@ from litmus.models.capability import Capability, InstrumentCapability, Signal
 from litmus.models.enums import Direction, MeasurementFunction
 
 if TYPE_CHECKING:
-    from litmus.models.product import Product
+    from litmus.models.part import Part
 
 
-def build_pin_characteristic_map(product: Product) -> dict[str, list[str]]:
+def build_pin_characteristic_map(part: Part) -> dict[str, list[str]]:
     """Build reverse map: pin_key -> [characteristic names that reference it].
 
     This is used to look up which characteristics apply to a given pin,
     enabling capability matching when the user selects a pin.
     """
     result: dict[str, list[str]] = {}
-    for char_name, char in product.characteristics.items():
+    for char_name, char in part.characteristics.items():
         for pin_key in char.resolved_pins:
             if pin_key not in result:
                 result[pin_key] = []
@@ -40,7 +40,7 @@ def build_pin_characteristic_map(product: Product) -> dict[str, list[str]]:
 def get_compatible_channels_for_pin(
     pin_key: str,
     char_by_pin: dict[str, list[str]],
-    product: Product | None,
+    part: Part | None,
     instruments: dict[str, dict],
     dut_pins: dict[str, dict] | None = None,
     *,
@@ -52,7 +52,7 @@ def get_compatible_channels_for_pin(
 def get_compatible_channels_for_pin(
     pin_key: str,
     char_by_pin: dict[str, list[str]],
-    product: Product | None,
+    part: Part | None,
     instruments: dict[str, dict],
     dut_pins: dict[str, dict] | None = None,
     *,
@@ -63,7 +63,7 @@ def get_compatible_channels_for_pin(
 def get_compatible_channels_for_pin(
     pin_key: str,
     char_by_pin: dict[str, list[str]],
-    product: Product | None,
+    part: Part | None,
     instruments: dict[str, dict],
     dut_pins: dict[str, dict] | None = None,
     *,
@@ -84,7 +84,7 @@ def get_compatible_channels_for_pin(
     Args:
         pin_key: The selected pin key.
         char_by_pin: Reverse map from build_pin_characteristic_map().
-        product: Product model (may be None).
+        part: Part model (may be None).
         instruments: Dict of role -> {type, driver, capabilities, channels}.
         dut_pins: Dict of pin_key -> pin data (with role field).
         include_direction: If True, return dict mapping channel to Direction.
@@ -110,7 +110,7 @@ def get_compatible_channels_for_pin(
 
     # If no characteristics for this pin, all channels are compatible
     char_names = char_by_pin.get(pin_key, [])
-    if not char_names or not product:
+    if not char_names or not part:
         if include_direction:
             # No direction info available — default to INPUT (exclusive)
             return {ch: Direction.INPUT for ch in all_channels}
@@ -119,7 +119,7 @@ def get_compatible_channels_for_pin(
     # Get required capabilities from characteristics
     requirements: list[Capability] = []
     for char_name in char_names:
-        char = product.characteristics.get(char_name)
+        char = part.characteristics.get(char_name)
         if char:
             requirements.append(char)
 
@@ -172,7 +172,7 @@ def _get_pin_role(pin_key: str, dut_pins: dict[str, dict] | None) -> str:
 def _get_pin_direction(
     pin_key: str,
     char_by_pin: dict[str, list[str]],
-    product: Product | None,
+    part: Part | None,
 ) -> Direction | None:
     """Get the primary direction of a pin from its characteristics.
 
@@ -180,11 +180,11 @@ def _get_pin_direction(
     no characteristics exist for this pin.
     """
     char_names = char_by_pin.get(pin_key, [])
-    if not char_names or not product:
+    if not char_names or not part:
         return None
 
     for char_name in char_names:
-        char = product.characteristics.get(char_name)
+        char = part.characteristics.get(char_name)
         if char and hasattr(char, "direction"):
             return char.direction
     return None
@@ -443,7 +443,7 @@ def resolve_instrument_capabilities(station_config) -> dict:
 def auto_suggest_connections(
     dut_pins: dict[str, dict],
     char_by_pin: dict[str, list[str]],
-    product: Product | None,
+    part: Part | None,
     instruments: dict[str, dict],
     existing: dict[str, dict],
 ) -> list[dict]:
@@ -456,7 +456,7 @@ def auto_suggest_connections(
     Args:
         dut_pins: Pin key -> pin data dict (includes 'role' field).
         char_by_pin: Pin key -> characteristic names.
-        product: Product model.
+        part: Part model.
         instruments: Role -> instrument data dict.
         existing: Existing connections (point_name -> connection dict).
 
@@ -491,7 +491,7 @@ def auto_suggest_connections(
         compatible = get_compatible_channels_for_pin(
             pin_key,
             char_by_pin,
-            product,
+            part,
             instruments,
             dut_pins,
             include_direction=True,
@@ -505,7 +505,7 @@ def auto_suggest_connections(
 
     for pin_key, pin_data, compatible in pin_candidates:
         # Get the pin's required direction from its characteristics
-        pin_direction = _get_pin_direction(pin_key, char_by_pin, product)
+        pin_direction = _get_pin_direction(pin_key, char_by_pin, part)
 
         # Sort channels by preference:
         # - For INPUT pins: prefer OUTPUT channels (power sources)

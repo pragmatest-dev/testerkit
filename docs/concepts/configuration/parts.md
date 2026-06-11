@@ -1,13 +1,13 @@
-# Products
+# Parts
 
-A **Product** is what you're testing — a PCB, module, or device. Product specs define the physical interface and electrical characteristics that need to be tested.
+A **Part** is what you're testing — a PCB, module, or device. Part specs define the physical interface and electrical characteristics that need to be tested.
 
-## Product Specification
+## Part Specification
 
-Product specs are defined in YAML files, in `products/{product_id}.yaml`:
+Part specs are defined in YAML files, in `parts/{part_id}.yaml`:
 
 ```yaml
-# products/power_board.yaml
+# parts/power_board.yaml
 id: power_board
 name: "5V to 3.3V Converter"
 part_number: "DPB-001"
@@ -75,7 +75,7 @@ pins:
 
 ## Characteristics
 
-**Characteristics** are measurable properties of the product. Each characteristic has:
+**Characteristics** are measurable properties of the part. Each characteristic has:
 
 - **Direction** — Does the DUT provide or receive this?
 - **Domain** — What physical quantity? (voltage, current, etc.)
@@ -210,7 +210,7 @@ characteristics:
 
 ## Part Numbers
 
-The `part_number` field maps a product to its manufacturing part number. When present, it automatically populates `dut_part_number` in test results (`dut_part_number` is the operator-facing identifier — the printed/scanned part number — as opposed to the internal `product_id`; see [how-to/traceability](../../how-to/execution/traceability.md)). Overridable via `--dut-part-number` on the CLI. This enables yield analytics filtering by part number.
+The `part_number` field maps a part to its manufacturing part number. When present, it automatically populates `dut_part_number` in test results (`dut_part_number` is the operator-facing identifier — the printed/scanned part number — as opposed to the internal `part_id`; see [how-to/traceability](../../how-to/execution/traceability.md)). Overridable via `--dut-part-number` on the CLI. This enables yield analytics filtering by part number.
 
 ```yaml
 id: power_board
@@ -220,12 +220,12 @@ name: "5V to 3.3V Converter"
 
 ## Variant Inheritance
 
-Product families can share specs using the `base` field. A variant inherits all fields from its base product and overrides specific sections:
+Part families can share specs using the `base` field. A variant inherits all fields from its base part and overrides specific sections:
 
 ```yaml
-# products/power_board_industrial.yaml
+# parts/power_board_industrial.yaml
 id: power_board_industrial
-base: power_board              # Inherits from products/power_board.yaml
+base: power_board              # Inherits from parts/power_board.yaml
 part_number: "DPB-001-IND"
 name: "5V to 3.3V Converter (Industrial)"
 
@@ -249,18 +249,18 @@ Inheritance rules:
 - `id` and `base` always come from the variant
 - Max inheritance depth: 5 levels. Circular references raise an error.
 
-## Loading Products
+## Loading Parts
 
 In Python:
 
 ```python
-from litmus.store import load_product
+from litmus.store import load_part
 
-product = load_product("products/power_board.yaml")
-print(product.id)
+part = load_part("parts/power_board.yaml")
+print(part.id)
 # Nominal lives on each SpecBand, not on the characteristic itself.
 # Resolve the right band for the current operating point:
-char = product.characteristics["output_voltage"]
+char = part.characteristics["output_voltage"]
 band = char.get_spec_at({"temperature": 25, "load": 0.5})
 if band is not None:
     print(band.value)
