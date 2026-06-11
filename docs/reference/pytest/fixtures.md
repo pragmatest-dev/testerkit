@@ -11,7 +11,7 @@ Grouped by what you reach for the fixture **for**:
 | Group | What you'd reach for it for | Fixtures |
 |---|---|---|
 | Recording measurements | Write a measurement row, resolve a limit, raise on FAIL, prompt the operator | `verify`, `logger`, `limits`, `prompt` |
-| Talking to instruments | Get a driver instance, route a signal, hit a DUT pin | `instruments`, `instrument`, `instrument_records`, `dut`, `pins`, `routes`, `fixture_manager` |
+| Talking to instruments | Get a driver instance, route a signal, hit a UUT pin | `instruments`, `instrument`, `instrument_records`, `uut`, `pins`, `routes`, `fixture_manager` |
 | Reading per-test state | Active sweep params, observations, the connection currently being iterated | `context`, `connections` |
 | Reading loaded configuration | The typed YAML / CLI that shaped this run | `part_context`, `station_config`, `fixture_config`, `run_context`, `mock_instruments` |
 | Flow control | Drive the test body's iteration / synchronization | `vectors`, `sync` |
@@ -116,18 +116,18 @@ def test_all(instrument):
 
 Returns `dict[role_name, InstrumentRecord]` — the resolved instrument metadata (driver class, resource string, calibration cert, mocked flag) before connection. Useful for tests that need identity or calibration info without taking the live driver.
 
-### `dut` — session
+### `uut` — session
 
-Yields the connected DUT driver (resolved from `Part.driver` + `FixtureConfig.dut_resource`), or `None` when the part has no driver. Mocked when `--mock-instruments` is on.
+Yields the connected UUT driver (resolved from `Part.driver` + `FixtureConfig.uut_resource`), or `None` when the part has no driver. Mocked when `--mock-instruments` is on.
 
 ```python
-def test_firmware(dut):
-    assert dut.get_version().startswith("2.")
+def test_firmware(uut):
+    assert uut.get_version().startswith("2.")
 ```
 
 ### `pins` — session
 
-Returns a `PinAccessor` for UUT-centric pin access. Looks up the instrument that the fixture YAML maps to each DUT pin, transparently activates the route if any switch is in the path.
+Returns a `PinAccessor` for UUT-centric pin access. Looks up the instrument that the fixture YAML maps to each UUT pin, transparently activates the route if any switch is in the path.
 
 ```python
 def test_output(pins):
@@ -168,7 +168,7 @@ The active vector's params, observations, and currently-bound connection.
 
 ### `context` — function
 
-Returns a `Context` exposing the run / DUT / station / vector state for the active test. Resolves on every test, with empty defaults when there's nothing to expose.
+Returns a `Context` exposing the run / UUT / station / vector state for the active test. Resolves on every test, with empty defaults when there's nothing to expose.
 
 | Method | Returns | Purpose |
 |---|---|---|
@@ -212,7 +212,7 @@ Returns a `PartContext` loaded from `parts/*.yaml`, or `None` if no `parts/` dir
 
 Resolution chain (first match wins):
 1. `--part <id-or-path>` — `<id>` looks up `parts/<id>.yaml`; `<path>` is used directly.
-2. `--dut-part-number <pn>` — content match against `part.part_number:` across `parts/*.yaml`.
+2. `--uut-part-number <pn>` — content match against `part.part_number:` across `parts/*.yaml`.
 3. Single-file fallback when `parts/` holds exactly one part file.
 4. `None`.
 
@@ -229,7 +229,7 @@ Returns the `StationConfig` resolved from `--station` / `stations/*.yaml`, or `N
 
 ### `fixture_config` — session
 
-Returns the `FixtureConfig` resolved from `--fixture` / `fixtures/*.yaml`, or `None`. In worker mode (multi-slot), extracts just this slot's `connections` and `dut_resource`.
+Returns the `FixtureConfig` resolved from `--fixture` / `fixtures/*.yaml`, or `None`. In worker mode (multi-slot), extracts just this slot's `connections` and `uut_resource`.
 
 ### `run_context` — session
 
@@ -270,7 +270,7 @@ Choose self-loop mode when an outer setup (thermal soak, supply ramp) shouldn't 
 
 ### `sync` — session
 
-Yields a `SyncPoint` for multi-DUT coordination when running in worker mode (`_LITMUS_SLOT_ID` is set), or `None` in single-slot mode. `sync.wait(name, timeout=...)` blocks until every slot reaches the same name:
+Yields a `SyncPoint` for multi-UUT coordination when running in worker mode (`_LITMUS_SLOT_ID` is set), or `None` in single-slot mode. `sync.wait(name, timeout=...)` blocks until every slot reaches the same name:
 
 ```python
 def test_measure_hot(dmm, sync):

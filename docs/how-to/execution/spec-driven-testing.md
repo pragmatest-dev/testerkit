@@ -1,8 +1,8 @@
 # Spec-Driven Testing
 
-Derive test limits and [traceability](traceability.md) from the [part specification](../../concepts/configuration/parts.md). The `verify` fixture resolves the limit, DUT pin, and spec reference automatically from the active `part_context` (a [`PartContext`](../../concepts/configuration/parts.md) — the loaded-part container exposed to tests) — you just call `verify(name, value)`.
+Derive test limits and [traceability](traceability.md) from the [part specification](../../concepts/configuration/parts.md). The `verify` fixture resolves the limit, UUT pin, and spec reference automatically from the active `part_context` (a [`PartContext`](../../concepts/configuration/parts.md) — the loaded-part container exposed to tests) — you just call `verify(name, value)`.
 
-> **Prerequisites.** A `parts/<id>.yaml` file with at least one characteristic (see [tutorial step 6](../../tutorial/06-specifications.md)). The part context must be active — pass `--part=<id>` / `--part=<path>`, or `--dut-part-number=<pn>` to look it up by part number, or rely on single-file autodiscovery when there's exactly one part YAML in `parts/`. Limits also flow from sidecar YAML / markers / profiles — this page focuses on the part-spec path.
+> **Prerequisites.** A `parts/<id>.yaml` file with at least one characteristic (see [tutorial step 6](../../tutorial/06-specifications.md)). The part context must be active — pass `--part=<id>` / `--part=<path>`, or `--uut-part-number=<pn>` to look it up by part number, or rely on single-file autodiscovery when there's exactly one part YAML in `parts/`. Limits also flow from sidecar YAML / markers / profiles — this page focuses on the part-spec path.
 
 ## The workflow
 
@@ -42,7 +42,7 @@ def test_output_voltage(dmm, verify):
 
 `verify` resolves the limit (3.3 V ± 5 % → 3.135..3.465), records the row, and raises `LimitFailure` on fail. The recorded fields:
 
-- `dut_pin = "J1.3"` — copied from the pin's `name:` field (the human designator), not from the dict key (`VOUT`) you reference it by.
+- `uut_pin = "J1.3"` — copied from the pin's `name:` field (the human designator), not from the dict key (`VOUT`) you reference it by.
 - `spec_ref = "Section 7.2"` — built from the characteristic's `datasheet_ref:`. When `datasheet_ref:` is absent, the literal string `"spec"` is used instead.
 - `characteristic_id = "output_voltage"` — the dict key under `characteristics:`.
 
@@ -147,7 +147,7 @@ Every `verify` records:
 | `limit_low` / `limit_high` / `limit_nominal` / `measurement_units` | spec characteristic + tolerance |
 | `measurement_outcome` | `passed` / `failed` (lowercase enum value)        |
 | `spec_ref`       | e.g. `"Section 7.2 @ load=0.5, temperature=25"` (`datasheet_ref` or `"spec"` + conditions sorted alphabetically) |
-| `dut_pin`        | `Part.pins[primary_pin_id].name` (the human pin designator, e.g. `"J1.3"`) |
+| `uut_pin`        | `Part.pins[primary_pin_id].name` (the human pin designator, e.g. `"J1.3"`) |
 | `fixture_connection`  | from the active fixture YAML                          |
 | `instrument_*`   | ambient ContextVars from the driver layer             |
 

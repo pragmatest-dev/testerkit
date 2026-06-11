@@ -17,7 +17,7 @@ connection releases promptly::
         outcomes = q.count_by_outcome()
 
     with queries.MeasurementsQuery() as q:
-        yields = q.yield_summary(group_by="dut_part_number")
+        yields = q.yield_summary(group_by="uut_part_number")
 
 ``EventStore`` is the odd one out: it's a process-shared singleton
 keyed by ``data_dir``, so there's no ``with`` — get the shared
@@ -29,7 +29,7 @@ of the process::
 
 See:
 
-- :class:`RunsQuery` — run-level queries (recent / by-dut / outcome
+- :class:`RunsQuery` — run-level queries (recent / by-uut / outcome
   distribution)
 - :class:`StepsQuery` — step-level queries (by-run / step paths /
   per-step measurements)

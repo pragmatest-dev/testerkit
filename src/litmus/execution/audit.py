@@ -19,7 +19,7 @@ def audit_traceability(logger_inst: Any, *, strict: bool, spec_active: bool) -> 
 
     * ``step_path`` — always required (populated by the runner's step
       wrapper).
-    * ``spec_ref`` OR ``dut_pin`` — required only when ``spec_active``
+    * ``spec_ref`` OR ``uut_pin`` — required only when ``spec_active``
       is True (i.e. a part spec is loaded for the session). Runs
       without a spec exercise the graceful-degradation path and are
       not penalized for lacking pin/spec references.
@@ -39,8 +39,8 @@ def audit_traceability(logger_inst: Any, *, strict: bool, spec_active: bool) -> 
             missing: list[str] = []
             if not m.step_path:
                 missing.append("step_path")
-            if spec_active and not m.spec_ref and not m.dut_pin:
-                missing.append("spec_ref/dut_pin")
+            if spec_active and not m.spec_ref and not m.uut_pin:
+                missing.append("spec_ref/uut_pin")
             if missing:
                 incomplete.append(f"{m.name}: missing {', '.join(missing)}")
 

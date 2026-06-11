@@ -1081,7 +1081,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
     Args:
         test: Test file path relative to project root
         station: Station ID
-        serial: DUT serial number
+        serial: UUT serial number
         project: Project root path (required)
     """
     if not project:
@@ -1120,7 +1120,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
     cmd = [
         str(pytest_path),
         *test_targets,
-        f"--dut-serial={serial}",
+        f"--uut-serial={serial}",
         f"--station={station}",
         "--data-dir=results",
         "-v",

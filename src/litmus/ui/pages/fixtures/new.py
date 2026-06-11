@@ -184,7 +184,7 @@ def new_fixture_page():
                     with ui.column().classes("gap-1"):
                         ui.label("What is a Fixture?").classes("font-medium text-blue-700")
                         ui.label(
-                            "A fixture maps DUT (Device Under Test) pins to instrument "
+                            "A fixture maps UUT (Device Under Test) pins to instrument "
                             "channels. This lets the test code reference logical pins "
                             "instead of specific hardware connections."
                         ).classes("text-sm text-blue-600")

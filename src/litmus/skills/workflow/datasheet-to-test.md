@@ -132,7 +132,7 @@ Emit: <gate-result phase="2" action="approved|revised" />
 Goal: Find catalog instruments that can measure/source the extracted characteristics.
 
 <step id="2b.1">
-Consider passive components first: Not every DUT pin needs a programmable instrument.
+Consider passive components first: Not every UUT pin needs a programmable instrument.
 A power resistor or voltage divider may suffice for fixed operating points.
 Only recommend programmable instruments when the test needs dynamic control.
 </step>
@@ -225,10 +225,10 @@ import pytest
 class TestRails:
     @pytest.mark.parametrize("load", [0.1, 0.4])
     @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
-    def test_output_voltage(self, vin, load, context, verify, psu, dmm, dut_load):
+    def test_output_voltage(self, vin, load, context, verify, psu, dmm, uut_load):
         if context.changed("vin"):
             psu.set_voltage(vin)
-        dut_load.set(load)
+        uut_load.set(load)
         verify("output_voltage", dmm.measure_dc_voltage())
 ```
 

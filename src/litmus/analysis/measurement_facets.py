@@ -9,7 +9,7 @@ date ranges.
 Closed sets (``Outcome``, ``Comparator``) come straight from the
 Pydantic models in ``litmus.data.models`` / ``litmus.models.enums`` —
 no DB query needed; the universe is known at import time. Open sets
-(``part_id``, ``station_id``, ``dut_serial``, ``step_name``,
+(``part_id``, ``station_id``, ``uut_serial``, ``step_name``,
 ``measurement_name``, ``test_phase``) require a ``SELECT DISTINCT``
 against the current filter set so the dropdowns reflect what the user
 can actually pick from given their other selections.
@@ -218,7 +218,7 @@ MEASUREMENT_FACETS: list[FacetSpec] = [
         column="part_id",
         kind=FacetKind.STRING,
         label="Part",
-        description="Which part the DUT is (e.g. PN-100)",
+        description="Which part the UUT is (e.g. PN-100)",
     ),
     FacetSpec(
         column="station_id",
@@ -245,9 +245,9 @@ MEASUREMENT_FACETS: list[FacetSpec] = [
         description="Named measurement (e.g. vout)",
     ),
     FacetSpec(
-        column="dut_serial",
+        column="uut_serial",
         kind=FacetKind.STRING,
-        label="DUT serial",
+        label="UUT serial",
         description="Specific unit",
     ),
     FacetSpec(

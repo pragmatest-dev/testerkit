@@ -1,6 +1,6 @@
 """System Designer page — interactive test system architect.
 
-Assembles parts (DUT pins), instruments, and fixture wiring
+Assembles parts (UUT pins), instruments, and fixture wiring
 using an ECharts interactive graph as the design surface.
 """
 
@@ -250,7 +250,7 @@ def _rebuild_chart(
 ) -> None:
     """Rebuild the ECharts graph."""
     container.clear()
-    if not state.dut_pins and not state.instruments:
+    if not state.uut_pins and not state.instruments:
         with container:
             with ui.column().classes("w-full items-center py-12"):
                 ui.icon("design_services").classes("text-6xl text-slate-300")
@@ -353,7 +353,7 @@ def _handle_chart_click(event, state, drawer, rebuild) -> None:
                 else:
                     # Create connection (allow any wiring for now)
                     pin = state.selected_pin
-                    net = state.dut_pins.get(pin, {}).get("net", "")
+                    net = state.uut_pins.get(pin, {}).get("net", "")
                     term_suffix = f"_{terminal}" if terminal else ""
                     point_name = f"{pin.lower()}_{role}_ch{channel}{term_suffix}"
                     state.add_connection(point_name, pin, role, channel, net, terminal)
@@ -397,7 +397,7 @@ def _rebuild_connections_tab(state, container, drawer, rebuild) -> None:
 
         columns = [
             {"name": "point", "label": "Point", "field": "point", "align": "left"},
-            {"name": "pin", "label": "DUT Pin", "field": "pin", "align": "left"},
+            {"name": "pin", "label": "UUT Pin", "field": "pin", "align": "left"},
             {"name": "net", "label": "Net", "field": "net", "align": "left"},
             {
                 "name": "instrument",
@@ -417,7 +417,7 @@ def _rebuild_connections_tab(state, container, drawer, rebuild) -> None:
             rows.append(
                 {
                     "point": point_name,
-                    "pin": conn.get("dut_pin", ""),
+                    "pin": conn.get("uut_pin", ""),
                     "net": conn.get("net", ""),
                     "instrument": conn.get("instrument", ""),
                     "channel": conn.get("channel", ""),
@@ -484,13 +484,13 @@ def _on_part_change(part_id, state, rebuild) -> None:
                 return
 
         rebuild()
-        ui.notify(f"Loaded {part.name} ({len(state.dut_pins)} pins)", type="info")
+        ui.notify(f"Loaded {part.name} ({len(state.uut_pins)} pins)", type="info")
 
 
 def _auto_match(state, rebuild) -> None:
     """Auto-suggest connections for unconnected pins."""
     suggestions = auto_suggest_connections(
-        state.dut_pins,
+        state.uut_pins,
         state.char_by_pin,
         state.part,
         state.instruments,
@@ -503,7 +503,7 @@ def _auto_match(state, rebuild) -> None:
     for s in suggestions:
         state.add_connection(
             s["point_name"],
-            s["dut_pin"],
+            s["uut_pin"],
             s["instrument"],
             s["channel"],
             s.get("net"),

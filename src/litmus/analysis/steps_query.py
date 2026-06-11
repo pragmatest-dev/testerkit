@@ -75,7 +75,7 @@ class StepRow(BaseModel):
     # finds anything that retried.
     retry_count: int | None = None
     markers: str | None = None
-    dut_serial: str | None = None
+    uut_serial: str | None = None
     station_id: str | None = None
     # Per-vector commanded inputs (in_*) and recorded outputs (out_*) —
     # populated by the daemon by aggregating the unified parquet's
@@ -215,7 +215,7 @@ class StepsQuery:
             multi_filter_clauses(
                 {
                     "runs.test_phase": phase,
-                    "runs.dut_part_number": part,
+                    "runs.uut_part_number": part,
                     "runs.station_hostname": station,
                 }
             )

@@ -12,19 +12,19 @@ from pydantic import BaseModel
 
 
 class Report(BaseModel):
-    dut_serial: str
+    uut_serial: str
     pass_rate: float
 
 
 def test_thing(observe, verify, ...):
     # PIL image → FileStore PNG
-    observe("dut_photo", Image.open("snap.png"))
+    observe("uut_photo", Image.open("snap.png"))
 
     # raw bytes → FileStore .bin
     observe("vendor_capture", vendor_driver.fetch_blob())
 
     # Pydantic model → FileStore JSON
-    observe("report", Report(dut_serial="SN001", pass_rate=0.99))
+    observe("report", Report(uut_serial="SN001", pass_rate=0.99))
 ```
 
 The platform routes by value shape: scalars/arrays → ChannelStore, blobs → FileStore. Each call stamps `out_<name>` on the active vector with the resulting `file://...` URI. The verify row reached from `/results/{run_id}` shows all four `out_*` columns; clicking any opens the artifact.
@@ -60,7 +60,7 @@ In code:
 ```python
 from litmus.data.backends.parquet import load_file
 
-artifact = load_file(parquet_path=None, ref="file://abc.../dut_photo.png")
+artifact = load_file(parquet_path=None, ref="file://abc.../uut_photo.png")
 # → PIL.Image (PNG decoded via the serializer registry's PIL handler)
 ```
 

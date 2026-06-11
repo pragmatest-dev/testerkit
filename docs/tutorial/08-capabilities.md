@@ -30,14 +30,14 @@ The key insight: **directions flip** between parts and instruments.
 
 | Part Direction | Instrument Direction | Why |
 |-------------------|---------------------|-----|
-| OUTPUT (DUT provides) | INPUT (measure) | Need to measure what DUT outputs |
-| INPUT (DUT receives) | OUTPUT (source) | Need to source what DUT needs |
+| OUTPUT (UUT provides) | INPUT (measure) | Need to measure what UUT outputs |
+| INPUT (UUT receives) | OUTPUT (source) | Need to source what UUT needs |
 
 ### Example
 
 A power converter:
-- **input_voltage** (direction: INPUT) → DUT receives power → need PSU with dc_voltage OUTPUT
-- **output_voltage** (direction: OUTPUT) → DUT provides voltage → need DMM with dc_voltage INPUT
+- **input_voltage** (direction: INPUT) → UUT receives power → need PSU with dc_voltage OUTPUT
+- **output_voltage** (direction: OUTPUT) → UUT provides voltage → need DMM with dc_voltage INPUT
 
 ## How Matching Works
 
@@ -47,12 +47,12 @@ A power converter:
 characteristics:
   input_voltage:
     function: dc_voltage
-    direction: input       # DUT needs input voltage
+    direction: input       # UUT needs input voltage
     units: V
 
   output_voltage:
     function: dc_voltage
-    direction: output      # DUT outputs voltage
+    direction: output      # UUT outputs voltage
     units: V
 ```
 

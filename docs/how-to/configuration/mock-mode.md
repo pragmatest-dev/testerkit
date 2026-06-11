@@ -7,14 +7,14 @@ Run tests without hardware. Litmus mocks instruments at the driver layer so your
 Pass `--mock-instruments` to substitute mock instruments for every real driver the active station declares:
 
 ```bash
-pytest tests/ --station=bench_1 --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=bench_1 --mock-instruments --uut-serial=SIM001
 ```
 
 Or set the env var:
 
 ```bash
 export LITMUS_MOCK_INSTRUMENTS=1
-pytest tests/ --station=bench_1 --dut-serial=SIM001
+pytest tests/ --station=bench_1 --uut-serial=SIM001
 ```
 
 Or set `mock_instruments: true` in your project's `litmus.yaml` so every run mocks by default; override per-run with `--no-mock-instruments`.
@@ -284,7 +284,7 @@ instruments:
 Run **without** `--mock-instruments`:
 
 ```bash
-pytest tests/ --station=mixed_bench --dut-serial=SN001
+pytest tests/ --station=mixed_bench --uut-serial=SN001
 ```
 
 `psu` and `eload` connect to real hardware; `dmm` is mocked. With `--mock-instruments` (or the env var, or `mock_instruments: true` in `litmus.yaml`), every instrument is mocked regardless of per-instrument `mock:` flags — the per-instrument flag is OR'd with the session-wide flag.
@@ -306,7 +306,7 @@ Mock-only CI is the canonical path for the green/red check on every PR:
     pytest tests/ \
       --station=ci_station \
       --mock-instruments \
-      --dut-serial=CI-TEST \
+      --uut-serial=CI-TEST \
       --test-phase=development
 ```
 

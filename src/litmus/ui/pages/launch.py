@@ -42,7 +42,7 @@ def launch_page(part: str = "", station: str = "", test_profile: str = "", mock:
     # Pre-fill from query params if provided
     form = {
         "part_id": part,
-        "dut_serial": "",
+        "uut_serial": "",
         "test_path": "",
         "station_id": station,
         "test_profile": test_profile,
@@ -105,7 +105,7 @@ def launch_page(part: str = "", station: str = "", test_profile: str = "", mock:
 
         Lets an operator open `/launch?test_profile=smoke`, change the
         dropdown, and share the resulting URL — same bookmarkability
-        rule the filter pages follow. Form-only fields (DUT serial,
+        rule the filter pages follow. Form-only fields (UUT serial,
         operator name) are intentionally NOT mirrored: they belong to
         the run instance, not the launch configuration.
         """
@@ -120,7 +120,7 @@ def launch_page(part: str = "", station: str = "", test_profile: str = "", mock:
         )
 
     async def submit_launch():
-        if not form["dut_serial"] or not form["station_id"]:
+        if not form["uut_serial"] or not form["station_id"]:
             ui.notify("Please fill in required fields", type="warning")
             return
         if not form["test_path"]:
@@ -129,7 +129,7 @@ def launch_page(part: str = "", station: str = "", test_profile: str = "", mock:
 
         request = LaunchRequest(
             part_id=form["part_id"] or None,
-            dut_serial=form["dut_serial"],
+            uut_serial=form["uut_serial"],
             station_id=form["station_id"],
             test_path=form["test_path"] or "tests",
             test_profile=form["test_profile"] or None,
@@ -164,8 +164,8 @@ def launch_page(part: str = "", station: str = "", test_profile: str = "", mock:
                         lambda _: (update_station_options(), _mirror_to_url())
                     ).classes("w-full").props("outlined dense clearable")
 
-                # 2. DUT Serial
-                _labeled_input(form, "dut_serial", "DUT Serial Number", "e.g., DPB001-0001")
+                # 2. UUT Serial
+                _labeled_input(form, "uut_serial", "UUT Serial Number", "e.g., DPB001-0001")
 
                 # 3. Test path
                 ui.separator().classes("my-2")

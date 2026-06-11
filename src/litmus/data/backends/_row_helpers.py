@@ -92,7 +92,7 @@ class MeasurementRow(BaseModel):
     discriminator:
 
     * ``record_type = 'run'`` — one row per run; carries run-level
-      identity / DUT / station / fixture / environment context. Step
+      identity / UUT / station / fixture / environment context. Step
       and measurement columns are NULL. Provides an addressable
       "runs table" within the unified per-run parquet (lakehouse
       adopters can ``WHERE record_type = 'run'`` for clean ingest).
@@ -124,11 +124,11 @@ class MeasurementRow(BaseModel):
     operator_id: str | None = None
     operator_name: str | None = None
 
-    # DUT
-    dut_serial: str
-    dut_part_number: str | None = None
-    dut_revision: str | None = None
-    dut_lot_number: str | None = None
+    # UUT
+    uut_serial: str
+    uut_part_number: str | None = None
+    uut_revision: str | None = None
+    uut_lot_number: str | None = None
 
     # Part
     part_id: str | None = None
@@ -191,7 +191,7 @@ class MeasurementRow(BaseModel):
     limit_comparator: str | None = None
     characteristic_id: str | None = None
     spec_ref: str | None = None
-    dut_pin: str | None = None
+    uut_pin: str | None = None
     fixture_connection: str | None = None
     instrument_name: str | None = None
     instrument_resource: str | None = None
@@ -251,11 +251,11 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
         # WHO
         "operator_id": test_run.operator_id,
         "operator_name": test_run.operator_name,
-        # DUT
-        "dut_serial": test_run.dut.serial,
-        "dut_part_number": test_run.dut.part_number,
-        "dut_revision": test_run.dut.revision,
-        "dut_lot_number": test_run.dut.lot_number,
+        # UUT
+        "uut_serial": test_run.uut.serial,
+        "uut_part_number": test_run.uut.part_number,
+        "uut_revision": test_run.uut.revision,
+        "uut_lot_number": test_run.uut.lot_number,
         # Part
         "part_id": test_run.part_id,
         "part_name": test_run.part_name,
@@ -324,10 +324,10 @@ def run_context_from_run_started(
             "run_ended_at": None,
             "operator_id": None,
             "operator_name": None,
-            "dut_serial": "unknown",
-            "dut_part_number": None,
-            "dut_revision": None,
-            "dut_lot_number": None,
+            "uut_serial": "unknown",
+            "uut_part_number": None,
+            "uut_revision": None,
+            "uut_lot_number": None,
             "part_id": None,
             "part_name": None,
             "part_revision": None,
@@ -352,10 +352,10 @@ def run_context_from_run_started(
             "run_ended_at": None,
             "operator_id": run_started.operator_id,
             "operator_name": run_started.operator_name,
-            "dut_serial": run_started.dut_serial,
-            "dut_part_number": run_started.dut_part_number,
-            "dut_revision": run_started.dut_revision,
-            "dut_lot_number": run_started.dut_lot_number,
+            "uut_serial": run_started.uut_serial,
+            "uut_part_number": run_started.uut_part_number,
+            "uut_revision": run_started.uut_revision,
+            "uut_lot_number": run_started.uut_lot_number,
             "part_id": run_started.part_id,
             "part_name": run_started.part_name,
             "part_revision": run_started.part_revision,
@@ -396,7 +396,7 @@ def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
         "characteristic_id": measurement.characteristic_id,
         "spec_ref": measurement.spec_ref,
         # Signal path
-        "dut_pin": measurement.dut_pin,
+        "uut_pin": measurement.uut_pin,
         "fixture_connection": measurement.fixture_connection,
         "instrument_name": measurement.instrument_name,
         "instrument_resource": measurement.instrument_resource,
@@ -426,8 +426,8 @@ def build_input_columns(vector: TestVector) -> dict[str, Any]:
             cols[f"{param}_resource"] = stim.resource
         if stim.channel:
             cols[f"{param}_channel"] = stim.channel
-        if stim.dut_pin:
-            cols[f"{param}_dut_pin"] = stim.dut_pin
+        if stim.uut_pin:
+            cols[f"{param}_uut_pin"] = stim.uut_pin
         if stim.fixture_connection:
             cols[f"{param}_fixture_connection"] = stim.fixture_connection
 
@@ -650,7 +650,7 @@ def iter_rows(test_run: TestRun) -> Iterator[MeasurementRow]:
     """Yield denormalized :class:`MeasurementRow` for each measurement
     in ``test_run``.
 
-    Joins run-level context (DUT, station, operator, etc.) onto each
+    Joins run-level context (UUT, station, operator, etc.) onto each
     measurement, producing the same flat view used by streaming and
     Parquet. Intended for analysis and ad-hoc denormalization (CSV
     export, DataFrames). No ``ref_saver`` is used, so non-serializable
@@ -695,7 +695,7 @@ def build_run_row(
 ) -> dict[str, Any]:
     """Build the single ``record_type = 'run'`` row for a parquet.
 
-    Carries run-level identity / DUT / station / fixture / environment
+    Carries run-level identity / UUT / station / fixture / environment
     columns plus run-level ``custom_metadata`` (flattened to
     ``custom_*``). Step and measurement columns stay NULL. Provides an
     addressable run-row inside the unified per-run parquet so lakehouse

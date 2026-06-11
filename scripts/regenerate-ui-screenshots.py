@@ -230,9 +230,9 @@ MANIFEST: list[Shot] = [
     # doesn't yet support a pre-shot tab-click. Tracked in
     # project_followup_entity_observed_view.md.
     Shot(
-        url="/duts",
-        selector="[data-testid='duts-table']",
-        output_path="tour/duts.png",
+        url="/uuts",
+        selector="[data-testid='uuts-table']",
+        output_path="tour/uuts.png",
     ),
     Shot(
         url="/tests",

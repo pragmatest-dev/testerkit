@@ -36,7 +36,7 @@ station card is shown unconditionally.
 ### Launch Test — `/launch`
 
 A single-form view for starting a test from the browser instead of
-the CLI. Fields in order: Part, DUT Serial, Test Path, Station,
+the CLI. Fields in order: Part, UUT Serial, Test Path, Station,
 Mock Hardware, Operator. Click Start Test to redirect to the live
 monitor at `/live/<run_id>`. Pre-fill via `?part=&station=&mock=1`
 URL parameters.
@@ -124,7 +124,7 @@ seen in run history but doesn't have YAML for — tagged with a
 
 ### Parts — `/parts`
 
-Browse, edit, and create parts. One part = one DUT type
+Browse, edit, and create parts. One part = one UUT type
 (part number + revision) with its pin map and characteristics.
 Same `Configured` / `Observed` treatment as Stations — a part
 number that appears in run history with no YAML shows up tagged
@@ -157,15 +157,15 @@ arrays without an asset YAML shows up as `Observed`.
 
 → [Instruments reference](../../reference/operator-ui/instruments.md)
 
-### DUTs — `/duts`
+### UUTs — `/uuts`
 
-The list of every DUT serial Litmus has seen in run history. DUTs
+The list of every UUT serial Litmus has seen in run history. UUTs
 are never declared in YAML by design (the unit-under-test is
 identified at runtime), so every row is observation-derived — no
 `Configured` / `Observed` chip is needed. Columns: serial, part
 number, lot, runs, passed, failed, last run.
 
-![DUTs](../../_assets/operator-ui/tour/duts.png)
+![UUTs](../../_assets/operator-ui/tour/uuts.png)
 
 ### Tests — `/tests`
 

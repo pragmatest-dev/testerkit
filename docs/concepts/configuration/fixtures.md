@@ -1,6 +1,6 @@
 # Fixtures
 
-A **fixture** in Litmus is a YAML file at `fixtures/<name>.yaml` that maps DUT pins to station instruments. It's the bridge that lets a test say "measure the voltage at pin `VOUT`" without knowing which DMM channel `VOUT` happens to be wired to on this particular bench.
+A **fixture** in Litmus is a YAML file at `fixtures/<name>.yaml` that maps UUT pins to station instruments. It's the bridge that lets a test say "measure the voltage at pin `VOUT`" without knowing which DMM channel `VOUT` happens to be wired to on this particular bench.
 
 > **Naming collision.** "Fixture" overloads. Throughout this page, "fixture" means **hardware test fixture** — the YAML pin-map. When the test signature has `def test_x(pins, dmm, verify): ...`, the names `pins`, `dmm`, `verify` are **pytest fixtures** — Python objects the [pytest plugin](../../reference/pytest/fixtures.md) synthesizes (in part from your hardware fixture YAML). When this page needs the pytest sense it says "pytest fixture".
 
@@ -38,16 +38,16 @@ flowchart LR
 
 The fixture is the only piece that changes when you move a board from one bench to another. The part stays the same (it's the device). The station stays the same (it's the bench). The fixture re-maps which pins are on which channels — and every test runs unchanged.
 
-This is also what makes a measurement traceable: every value flows through a named fixture connection (`VOUT`, not `dmm channel 1`), and the recorded measurement row carries the DUT-side name. Six months later you can ask "which board's `VOUT` was reading 3.5 V?" — the connection name is the join key.
+This is also what makes a measurement traceable: every value flows through a named fixture connection (`VOUT`, not `dmm channel 1`), and the recorded measurement row carries the UUT-side name. Six months later you can ask "which board's `VOUT` was reading 3.5 V?" — the connection name is the join key.
 
 ## When you need a fixture
 
 | Setup | Fixture? |
 |---|---|
-| One DUT, one bench, you remember which instrument is on which pin | Optional — the `dmm` / `psu` per-role pytest fixtures from your station YAML are enough |
+| One UUT, one bench, you remember which instrument is on which pin | Optional — the `dmm` / `psu` per-role pytest fixtures from your station YAML are enough |
 | Multiple parts on the same bench, or one part across multiple benches | Required — the pin-map is what lets the test code stay portable |
-| Multiple DUTs running in parallel | Required — see [Multi-DUT scaling](#multi-dut-scaling-slots-shared-instruments-switching) |
-| Production traceability — every measurement records its DUT-side pin | Required — `dut_pin` is the connection field that flows into the parquet row |
+| Multiple UUTs running in parallel | Required — see [Multi-UUT scaling](#multi-uut-scaling-slots-shared-instruments-switching) |
+| Production traceability — every measurement records its UUT-side pin | Required — `uut_pin` is the connection field that flows into the parquet row |
 
 For development without any fixture, see [Mock mode](../../how-to/configuration/mock-mode.md) and the per-role auto-fixtures in [Litmus fixtures](../../reference/pytest/fixtures.md#per-role-auto-fixtures).
 
@@ -55,8 +55,8 @@ For development without any fixture, see [Mock mode](../../how-to/configuration/
 
 A fixture YAML loads into a `FixtureConfig` (in `src/litmus/models/test_config.py`). Two top-level shapes:
 
-- **Single-DUT** — fields directly on the fixture
-- **Multi-DUT** — `slots:` with one `FixtureSlot` per DUT position
+- **Single-UUT** — fields directly on the fixture
+- **Multi-UUT** — `slots:` with one `FixtureSlot` per UUT position
 
 Both share the same `FixtureConnection` shape underneath.
 
@@ -70,16 +70,16 @@ Both share the same `FixtureConnection` shape underneath.
 | `part_family` | Or part family — for fixtures that work for multiple parts in a line |
 | `part_revision` | Optional — for fixtures that differ by board revision |
 | `station_types` | Optional — abstract station-type layouts this fixture can wire against. Validated at session start against the active profile's `station_type`. Empty list = "any station". |
-| `dut_resource` | Optional DUT-side connection string (a COM port, USB serial number, etc.) for tests that talk to the DUT directly |
-| `connections` | DUT-pin ↔ instrument-channel pairings. Single-DUT shape. |
-| `slots` | Per-DUT-position connections for multi-DUT fixtures. Multi-DUT shape. |
+| `uut_resource` | Optional UUT-side connection string (a COM port, USB serial number, etc.) for tests that talk to the UUT directly |
+| `connections` | UUT-pin ↔ instrument-channel pairings. Single-UUT shape. |
+| `slots` | Per-UUT-position connections for multi-UUT fixtures. Multi-UUT shape. |
 | `description` | Free-form documentation |
 
 `connections` and `slots` are mutually exclusive — the validator (`extra="forbid"`) **rejects** fixtures that set both.
 
 ### `FixtureConnection` fields
 
-A connection is the addressable unit — a name that identifies one DUT-side signal path:
+A connection is the addressable unit — a name that identifies one UUT-side signal path:
 
 | Field | Description |
 |---|---|
@@ -87,15 +87,15 @@ A connection is the addressable unit — a name that identifies one DUT-side sig
 | `instrument` | Station role (must match a key in `station.instruments`) |
 | `instrument_channel` | Channel on the instrument (`"1"`, `"CH2"`, `"ai0"`) |
 | `instrument_terminal` | Physical terminal on the channel (`hi`, `lo`, `sense_hi`, `sense_lo`, `signal`). Optional. |
-| `dut_pin` | Part pin this connection is wired to (must match a `pins.<name>` key in the part spec) |
-| `net` | Schematic net name. Alternative to `dut_pin` when matching by net rather than physical pin. |
-| `function` | Optional [`MeasurementFunction`](capabilities.md#measurementfunction) the connection is for. When set, the resolver matches by `(dut_pin, function)` — see [Function as a routing dimension](#function-as-a-routing-dimension). |
+| `uut_pin` | Part pin this connection is wired to (must match a `pins.<name>` key in the part spec) |
+| `net` | Schematic net name. Alternative to `uut_pin` when matching by net rather than physical pin. |
+| `function` | Optional [`MeasurementFunction`](capabilities.md#measurementfunction) the connection is for. When set, the resolver matches by `(uut_pin, function)` — see [Function as a routing dimension](#function-as-a-routing-dimension). |
 | `route` | Optional `SwitchRoute` for switched signal paths — see [Switched routing](#switched-routing). |
 | `description` | Free-form documentation |
 
-## Single-DUT shape
+## Single-UUT shape
 
-The simplest fixture: each DUT pin gets one connection, one instrument, one channel.
+The simplest fixture: each UUT pin gets one connection, one instrument, one channel.
 
 ```yaml
 # fixtures/power_board_fixture.yaml
@@ -106,25 +106,25 @@ part_id: power_board
 connections:
   VIN:
     name: VIN
-    dut_pin: VIN
+    uut_pin: VIN
     net: VIN_5V
     instrument: psu
     instrument_channel: "1"
     instrument_terminal: hi
   VOUT:
     name: VOUT
-    dut_pin: VOUT
+    uut_pin: VOUT
     net: VOUT_3V3
     instrument: dmm
     instrument_channel: "CH1"
   GND:
     name: GND
-    dut_pin: GND
+    uut_pin: GND
     instrument: psu
     instrument_channel: "GND"
 ```
 
-A test addresses each connection by its `dut_pin` through the `pins` [pytest fixture](../../reference/pytest/fixtures.md#pins-session):
+A test addresses each connection by its `uut_pin` through the `pins` [pytest fixture](../../reference/pytest/fixtures.md#pins-session):
 
 ```python
 def test_output_voltage(pins, verify):
@@ -133,7 +133,7 @@ def test_output_voltage(pins, verify):
     verify("output_voltage", pins["VOUT"].measure_voltage())
 ```
 
-`pins["VIN"]` resolves to the connected `psu` instrument (because the fixture says `VIN → psu`). The measurement row records `dut_pin=VIN`, the connection's `instrument_channel`, and the resolved instrument identity — the test body never sees those details.
+`pins["VIN"]` resolves to the connected `psu` instrument (because the fixture says `VIN → psu`). The measurement row records `uut_pin=VIN`, the connection's `instrument_channel`, and the resolved instrument identity — the test body never sees those details.
 
 ## How a measurement reaches the row
 
@@ -141,24 +141,24 @@ When `verify("output_voltage", pins["VOUT"].measure_voltage())` runs:
 
 1. `pins["VOUT"]` looks up the fixture connection named `VOUT` → finds `{instrument: dmm, instrument_channel: "CH1"}`.
 2. The proxy resolves `dmm` from the connected station instruments and dispatches `measure_voltage()` against the right channel.
-3. `verify()` records the measurement row. Because the active connection is `VOUT`, the row carries `dut_pin=VOUT`, `instrument_channel=CH1`, and the resolved `instrument_name` / `instrument_resource` automatically.
+3. `verify()` records the measurement row. Because the active connection is `VOUT`, the row carries `uut_pin=VOUT`, `instrument_channel=CH1`, and the resolved `instrument_name` / `instrument_resource` automatically.
 
 That auto-population is the traceability payoff: tests stay clean, parquet rows know exactly which signal path each measurement came through.
 
 ## Function as a routing dimension
 
-One DUT pin can route to different instruments for different measurement functions. Set `function:` on each connection and the resolver matches `(dut_pin, function)` instead of `dut_pin` alone:
+One UUT pin can route to different instruments for different measurement functions. Set `function:` on each connection and the resolver matches `(uut_pin, function)` instead of `uut_pin` alone:
 
 ```yaml
 connections:
   vout_dc:
     name: vout_dc
-    dut_pin: VOUT
+    uut_pin: VOUT
     function: dc_voltage      # DMM measures the DC level
     instrument: dmm
   vout_ac:
     name: vout_ac
-    dut_pin: VOUT
+    uut_pin: VOUT
     function: ac_voltage      # Scope captures the ripple
     instrument: scope
     instrument_channel: "1"
@@ -168,11 +168,11 @@ A test asking for `VOUT` with no function context falls back to first-match by p
 
 When unset, the resolver uses the first connection for that pin — backward-compatible for fixtures that don't need per-function routing.
 
-## Multi-DUT scaling: slots, shared instruments, switching
+## Multi-UUT scaling: slots, shared instruments, switching
 
-Three orthogonal mechanisms scale the single-DUT shape:
+Three orthogonal mechanisms scale the single-UUT shape:
 
-### Slots — parallel DUT positions
+### Slots — parallel UUT positions
 
 When the bench has multiple identical positions and you test them in parallel, use `slots` instead of `connections`. Each slot has its own `FixtureConnection` map:
 
@@ -184,25 +184,25 @@ part_family: power_board
 slots:
   slot_1:
     description: Left-side board
-    dut_resource: /dev/ttyUSB0
+    uut_resource: /dev/ttyUSB0
     connections:
       vout_measure:
         name: vout_measure
-        dut_pin: VOUT
+        uut_pin: VOUT
         instrument: dmm
         instrument_channel: "1"
   slot_2:
     description: Right-side board
-    dut_resource: /dev/ttyUSB1
+    uut_resource: /dev/ttyUSB1
     connections:
       vout_measure:
         name: vout_measure
-        dut_pin: VOUT
+        uut_pin: VOUT
         instrument: dmm
         instrument_channel: "2"
 ```
 
-The orchestrator spawns a worker per slot. Each worker sees a flat fixture with just its slot's connections. Per-slot `dut_resource` overrides the fixture-level value. See [Multi-DUT testing](../../how-to/execution/multi-dut-testing.md) for the operational guide.
+The orchestrator spawns a worker per slot. Each worker sees a flat fixture with just its slot's connections. Per-slot `uut_resource` overrides the fixture-level value. See [Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) for the operational guide.
 
 ### Shared instruments
 
@@ -212,14 +212,14 @@ Locking is per **resource** (the VISA address, COM port, or other connection ide
 
 ### Switched routing
 
-For a single instrument fanned out to multiple DUT positions through a relay matrix, add a `SwitchRoute` to the connection. The platform closes the listed switch channels before activating the instrument, waits the settling time, then runs the measurement:
+For a single instrument fanned out to multiple UUT positions through a relay matrix, add a `SwitchRoute` to the connection. The platform closes the listed switch channels before activating the instrument, waits the settling time, then runs the measurement:
 
 ```yaml
 slot_1:
   connections:
     vout_measure:
       name: vout_measure
-      dut_pin: VOUT
+      uut_pin: VOUT
       instrument: dmm
       route:
         switch: matrix          # role of the switch instrument
@@ -237,14 +237,14 @@ Stations do not pin a fixture themselves. The active fixture is chosen per sessi
 pytest tests/ \
   --station=bench_1 \
   --fixture=fixtures/power_board_fixture.yaml \
-  --dut-serial=SN001
+  --uut-serial=SN001
 ```
 
 The fixture's `part_id` / `part_family` are scoping fields — the resolver uses them to pick the right fixture when multiple are present, but the plugin does not currently cross-check them against the active part spec.
 
 ## Worked example
 
-A complete single-DUT setup, four files:
+A complete single-UUT setup, four files:
 
 ```yaml
 # parts/power_board.yaml
@@ -285,16 +285,16 @@ part_id: power_board
 connections:
   VIN:
     name: VIN
-    dut_pin: VIN
+    uut_pin: VIN
     instrument: psu
     instrument_channel: "1"
   VOUT:
     name: VOUT
-    dut_pin: VOUT
+    uut_pin: VOUT
     instrument: dmm
   GND:
     name: GND
-    dut_pin: GND
+    uut_pin: GND
     instrument: psu
     instrument_channel: "GND"
 ```
@@ -314,18 +314,18 @@ pytest tests/ \
   --part=parts/power_board.yaml \
   --station=stations/bench_1.yaml \
   --fixture=fixtures/power_board_fixture.yaml \
-  --dut-serial=SN001
+  --uut-serial=SN001
 ```
 
-The recorded measurement row carries `dut_pin=VOUT`, `instrument_name=dmm`, `characteristic_id=output_voltage` — all pulled through the fixture connection automatically.
+The recorded measurement row carries `uut_pin=VOUT`, `instrument_name=dmm`, `characteristic_id=output_voltage` — all pulled through the fixture connection automatically.
 
 ## See also
 
-- [Parts](parts.md) — what pins and characteristics get declared on the DUT side
+- [Parts](parts.md) — what pins and characteristics get declared on the UUT side
 - [Stations](stations.md) — what instruments and roles get declared on the bench side
 - [Capabilities](capabilities.md) — the function / direction / signal model that drives matching (and the `function:` field on connections)
 - [Tutorial step 9 — Production ready](../../tutorial/09-production.md) — first hands-on with fixtures + sidecar config
 - [How-to — Configuring stations](../../how-to/configuration/configuring-stations.md) — the station YAML reference
-- [How-to — Multi-DUT testing](../../how-to/execution/multi-dut-testing.md) — slots, shared instruments, parallel workers in practice
+- [How-to — Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) — slots, shared instruments, parallel workers in practice
 - [Litmus fixtures](../../reference/pytest/fixtures.md) — the `pins`, `instruments`, `instrument`, `fixture_manager`, `connections` pytest fixtures that read this YAML
 - [Configuration reference](../../reference/configuration.md) — fixture YAML schema field-by-field

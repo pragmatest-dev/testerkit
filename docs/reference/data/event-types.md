@@ -71,10 +71,10 @@ Emitted once per test run. Contains full run context.
 | `slot_index` | `int \| None` | `None` |
 | `pid` | `int \| None` | `None` |
 | `client` | `str` | *via* `_detect_client()` |
-| `dut_serial` | `str` | `''` |
-| `dut_part_number` | `str \| None` | `None` |
-| `dut_revision` | `str \| None` | `None` |
-| `dut_lot_number` | `str \| None` | `None` |
+| `uut_serial` | `str` | `''` |
+| `uut_part_number` | `str \| None` | `None` |
+| `uut_revision` | `str \| None` | `None` |
+| `uut_lot_number` | `str \| None` | `None` |
 | `part_id` | `str \| None` | `None` |
 | `part_name` | `str \| None` | `None` |
 | `part_revision` | `str \| None` | `None` |
@@ -108,20 +108,20 @@ Emitted by a materializer after a run's state has been written to a durable, que
 | `materialized_at` | `datetime` | *via* `_utcnow()` |
 | `row_counts` | `dict[str, int] \| None` | `None` |
 
-## Slot (multi-DUT) events
+## Slot (multi-UUT) events
 
 ### `slot.started` — `SlotStarted`
 
-Emitted when a DUT slot begins execution.
+Emitted when a UUT slot begins execution.
 
 | Field | Type | Default |
 |---|---|---|
 | `slot_id` | `str` | *required* |
-| `dut_serial` | `str` | *required* |
+| `uut_serial` | `str` | *required* |
 
 ### `slot.completed` — `SlotCompleted`
 
-Emitted when a DUT slot finishes execution.
+Emitted when a UUT slot finishes execution.
 
 | Field | Type | Default |
 |---|---|---|
@@ -188,11 +188,11 @@ Emitted when an instrument is connected and identified.
 | `days_until_due` | `int \| None` | `None` |
 | `message` | `str` | `''` |
 
-### `fixture.dut_scanned` — `DutScanned`
+### `fixture.uut_scanned` — `UutScanned`
 
 | Field | Type | Default |
 |---|---|---|
-| `dut_serial` | `str` | *required* |
+| `uut_serial` | `str` | *required* |
 | `scan_source` | `str \| None` | `None` |
 
 ### `fixture.instrument_disconnected` — `InstrumentDisconnected`
@@ -264,7 +264,7 @@ A single measurement. Normalized: carries only measurement-specific fields.
 | `limit_comparator` | `str \| None` | `None` |
 | `characteristic_id` | `str \| None` | `None` |
 | `spec_ref` | `str \| None` | `None` |
-| `dut_pin` | `str \| None` | `None` |
+| `uut_pin` | `str \| None` | `None` |
 | `fixture_connection` | `str \| None` | `None` |
 | `instrument_name` | `str \| None` | `None` |
 | `instrument_resource` | `str \| None` | `None` |

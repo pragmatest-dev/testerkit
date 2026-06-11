@@ -2,7 +2,7 @@
 
 The sidecar binds each test to a characteristic (``rail_3v3``,
 ``idle_current``). The body iterates ``context.connections`` so each
-measurement row stamps ``characteristic_id`` / ``spec_ref`` / ``dut_pin``.
+measurement row stamps ``characteristic_id`` / ``spec_ref`` / ``uut_pin``.
 Single-pin characteristics iterate once; multi-pin ones iterate
 per-pin — same loop shape either way.
 """

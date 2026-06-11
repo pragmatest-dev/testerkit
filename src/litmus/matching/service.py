@@ -7,7 +7,7 @@ Key concepts:
 - Parts define characteristics (PartCharacteristic extends Capability)
 - Instruments define capabilities (InstrumentCapability extends Capability)
 - Both share the same base: function + direction + parameters + specs
-- Direction pairing happens here: DUT OUTPUT ↔ Instrument INPUT
+- Direction pairing happens here: UUT OUTPUT ↔ Instrument INPUT
 - Matching is multi-tier: function → direction → range → accuracy → resolution
 """
 
@@ -53,7 +53,7 @@ class CapabilityRequirement(BaseModel):
 
     capability: PartCharacteristic
     characteristic_name: str  # Which part characteristic this came from
-    pins: list[str] = Field(default_factory=list)  # DUT pins for traceability
+    pins: list[str] = Field(default_factory=list)  # UUT pins for traceability
 
     # Convenience accessors
     @property
@@ -200,9 +200,9 @@ def _directions_compatible(part_dir: Direction, instrument_dir: Direction) -> bo
     """Check if part and instrument directions are compatible for matching.
 
     Direction pairing rules:
-    - DUT OUTPUT → Instrument INPUT (measure what DUT provides)
-    - DUT INPUT → Instrument OUTPUT (source what DUT needs)
-    - DUT BIDIR → Instrument BIDIR only
+    - UUT OUTPUT → Instrument INPUT (measure what UUT provides)
+    - UUT INPUT → Instrument OUTPUT (source what UUT needs)
+    - UUT BIDIR → Instrument BIDIR only
     - Instrument BIDIR satisfies any part direction
     """
     if instrument_dir == Direction.BIDIR:

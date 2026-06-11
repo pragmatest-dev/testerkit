@@ -56,7 +56,7 @@ def fixtures_page(filter: str = "All"):
                     "text-xl text-slate-600 mt-4"
                 )
                 ui.label(
-                    "Fixtures define how DUT pins connect to station instruments. "
+                    "Fixtures define how UUT pins connect to station instruments. "
                     "Each fixture is tied to a part family and maps pin names to "
                     "instrument names."
                 ).classes("text-slate-500 mt-2")

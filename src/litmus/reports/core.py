@@ -28,11 +28,11 @@ class ReportData:
     ended_at: str = ""
     outcome: str = ""
 
-    # DUT
-    dut_serial: str = ""
-    dut_part_number: str = ""
-    dut_revision: str = ""
-    dut_lot_number: str = ""
+    # UUT
+    uut_serial: str = ""
+    uut_part_number: str = ""
+    uut_revision: str = ""
+    uut_lot_number: str = ""
 
     # Part
     part_id: str = ""
@@ -76,7 +76,7 @@ def load_run_data(run_id: str, data_dir: str = "results") -> ReportData:
 
     Structure (run / steps / measurements) comes from
     :func:`load_run_view`. Extra report-only fields not in
-    ``RunView`` (``dut_revision``, ``part_name``,
+    ``RunView`` (``uut_revision``, ``part_name``,
     ``git_commit``, etc.) are sniffed from the first measurement
     row when available and default to "" otherwise — typical for
     measurement-less runs.
@@ -129,10 +129,10 @@ def load_run_data(run_id: str, data_dir: str = "results") -> ReportData:
         started_at=_fmt_dt_raw(run_view.started_at),
         ended_at=_fmt_dt_raw(run_view.ended_at),
         outcome=run_view.outcome or "",
-        dut_serial=run_view.dut_serial or "",
-        dut_part_number=run_view.dut_part_number or "",
-        dut_revision=extras.get("dut_revision", ""),
-        dut_lot_number=extras.get("dut_lot_number", ""),
+        uut_serial=run_view.uut_serial or "",
+        uut_part_number=run_view.uut_part_number or "",
+        uut_revision=extras.get("uut_revision", ""),
+        uut_lot_number=extras.get("uut_lot_number", ""),
         part_id=run_view.part_id or "",
         part_name=extras.get("part_name", ""),
         part_revision=extras.get("part_revision", ""),
@@ -162,7 +162,7 @@ def _load_extras_from_parquet(run_id: str, data_dir: str) -> dict[str, str]:
     """Sniff report-only fields from the first measurement row.
 
     The runs table doesn't denormalize every column the unified row schema carries
-    (``dut_revision``, ``part_name``, ``git_commit``, …). Query the
+    (``uut_revision``, ``part_name``, ``git_commit``, …). Query the
     daemon's ``measurements`` view (parquet glob with ``union_by_name``)
     for one row matching this run; predicate pushdown on ``run_id``
     finds it without reading other files. Returns empty dict for
@@ -185,8 +185,8 @@ def _load_extras_from_parquet(run_id: str, data_dir: str) -> dict[str, str]:
     return {
         k: str(first.get(k) or "")
         for k in (
-            "dut_revision",
-            "dut_lot_number",
+            "uut_revision",
+            "uut_lot_number",
             "part_name",
             "part_revision",
             "station_type",
@@ -262,11 +262,11 @@ def _write_json(data: ReportData, output: Path) -> None:
         "started_at": data.started_at,
         "ended_at": data.ended_at,
         "outcome": data.outcome,
-        "dut": {
-            "serial": data.dut_serial,
-            "part_number": data.dut_part_number,
-            "revision": data.dut_revision,
-            "lot_number": data.dut_lot_number,
+        "uut": {
+            "serial": data.uut_serial,
+            "part_number": data.uut_part_number,
+            "revision": data.uut_revision,
+            "lot_number": data.uut_lot_number,
         },
         "part": {
             "id": data.part_id,
@@ -317,7 +317,7 @@ def _write_csv(data: ReportData, output: Path) -> None:
         "nominal",
         "outcome",
         "characteristic_id",
-        "dut_pin",
+        "uut_pin",
         "instrument_name",
     ]
 

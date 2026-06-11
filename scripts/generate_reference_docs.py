@@ -220,14 +220,14 @@ def _write_or_check(path: Path, new_content: str, *, check: bool) -> bool:
 _EVENT_CATEGORIES: list[tuple[str, list[str]]] = [
     ("Session", ["SessionStarted", "SessionEnded"]),
     ("Run", ["RunStarted", "RunEnded", "RunMaterialized"]),
-    ("Slot (multi-DUT)", ["SlotStarted", "SlotCompleted", "SyncArrived", "SyncRelease"]),
+    ("Slot (multi-UUT)", ["SlotStarted", "SlotCompleted", "SyncArrived", "SyncRelease"]),
     (
         "Fixture",
         [
             "InstrumentConnected",
             "IdentityVerified",
             "CalibrationWarning",
-            "DutScanned",
+            "UutScanned",
             "InstrumentDisconnected",
         ],
     ),
@@ -494,7 +494,7 @@ _CONFIG_FILES: list[tuple[str, str, str]] = [
     (
         "`fixtures/<id>.yaml`",
         "litmus.models.test_config.FixtureConfig",
-        "DUT-pin ↔ instrument-channel routing (single-DUT) or per-slot routing (multi-DUT).",
+        "UUT-pin ↔ instrument-channel routing (single-UUT) or per-slot routing (multi-UUT).",
     ),
     (
         "`parts/<id>.yaml`",

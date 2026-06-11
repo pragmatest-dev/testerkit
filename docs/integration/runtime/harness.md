@@ -15,7 +15,7 @@ from litmus.execution.harness import TestHarness
 from litmus.execution.logger import TestRunLogger
 
 logger = TestRunLogger(
-    dut_serial="SN12345",
+    uut_serial="SN12345",
     station_id="bench_1",
     test_phase="characterization",
     data_dir="data",
@@ -41,7 +41,7 @@ logger.event_log.emit(
         run_id=logger.test_run.id,
         station_id=logger.test_run.station_id,
         station_hostname=logger.test_run.station_hostname,
-        dut_serial=logger.test_run.dut.serial,
+        uut_serial=logger.test_run.uut.serial,
         test_phase=logger.test_run.test_phase,
     )
 )
@@ -61,7 +61,7 @@ logger.event_log.close()
 
 `finalize()` emits `RunEnded` and closes the open step but does NOT emit `SessionEnded`, does NOT close the event log, and does NOT close the channel store. Leaving any of these open from a long-running process leaks file handles and prevents the runs daemon from retiring the run's cohort. Emit `SessionEnded` and `.close()` the event log (and `channel_store.close()` if you wired one) before exiting.
 
-`TestRunLogger.__init__` takes the run-level metadata directly (`dut_serial`, `station_id`, `station_name`, `operator_id`, `test_phase`, `part_id`, `data_dir`, etc.). The logger constructs a `TestRun` and a `RunContext` (a plain class wrapping the run record, with a `.set(key, value)` method for custom metadata) for you; you don't construct either.
+`TestRunLogger.__init__` takes the run-level metadata directly (`uut_serial`, `station_id`, `station_name`, `operator_id`, `test_phase`, `part_id`, `data_dir`, etc.). The logger constructs a `TestRun` and a `RunContext` (a plain class wrapping the run record, with a `.set(key, value)` method for custom metadata) for you; you don't construct either.
 
 A harness whose logger has no `event_log` still runs, but **nothing is persisted** — every event the harness would emit silently no-ops. Useful for unit-testing the harness loop without writing to disk; not what you want for a real run. If your data dir stays empty, this is the first thing to check.
 
@@ -141,7 +141,7 @@ harness.measure(
     value=3.31,
     units="V",                  # optional — defaults to limit.units
     limit=Limit(low=3.135, high=3.465, units="V"),  # optional — explicit override
-    dut_pin="VOUT",             # optional — auto-resolved from part_context
+    uut_pin="VOUT",             # optional — auto-resolved from part_context
     instrument_channel="CH1",   # optional
     fixture_connection="vout_dmm",  # optional
 )

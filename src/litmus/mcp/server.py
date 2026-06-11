@@ -419,7 +419,7 @@ def create_mcp_server() -> FastMCP:
         Args:
             test: Test file or directory (e.g., "tests/test_x.py")
             station: Station ID to run on
-            serial: DUT serial number
+            serial: UUT serial number
             project: Project root path (from litmus action='init' response)
 
         Returns:

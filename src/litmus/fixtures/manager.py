@@ -1,6 +1,6 @@
-"""Fixture manager for DUT pin routing.
+"""Fixture manager for UUT pin routing.
 
-The FixtureManager provides runtime resolution from DUT pin names to
+The FixtureManager provides runtime resolution from UUT pin names to
 instrument instances. This enables UUT-centric test code:
 
     def test_output_voltage(pins):
@@ -26,12 +26,12 @@ from litmus.models.test_config import FixtureConfig, FixtureConnection
 
 
 class FixtureManager:
-    """Runtime fixture resolution from DUT pins to instruments.
+    """Runtime fixture resolution from UUT pins to instruments.
 
-    Resolves DUT pin names to instrument instances using fixture configuration.
+    Resolves UUT pin names to instrument instances using fixture configuration.
     Handles the mapping between:
-    - DUT pins (logical: VOUT, VIN, GND)
-    - Fixture connections (named DUT-pin ↔ instrument-channel pairings)
+    - UUT pins (logical: VOUT, VIN, GND)
+    - Fixture connections (named UUT-pin ↔ instrument-channel pairings)
     - Instrument instances (physical: DMM, PSU)
     - Instrument channels (for multi-channel instruments)
 
@@ -67,11 +67,11 @@ class FixtureManager:
         self.instruments = instruments
         self._route_manager = route_manager
 
-        # Build reverse lookup: dut_pin -> connection_name
+        # Build reverse lookup: uut_pin -> connection_name
         self._pin_to_connection: dict[str, str] = {}
         for connection_name, connection in fixture_config.connections.items():
-            if connection.dut_pin:
-                self._pin_to_connection[connection.dut_pin] = connection_name
+            if connection.uut_pin:
+                self._pin_to_connection[connection.uut_pin] = connection_name
 
         # Build reverse lookup: net -> connection_name
         self._net_to_connection: dict[str, str] = {}
@@ -96,10 +96,10 @@ class FixtureManager:
         return self.fixture_config.connections[name]
 
     def get_connection_for_pin(self, pin_name: str) -> FixtureConnection:
-        """Get fixture connection that connects to a DUT pin.
+        """Get fixture connection that connects to a UUT pin.
 
         Args:
-            pin_name: DUT pin name (e.g., "VOUT")
+            pin_name: UUT pin name (e.g., "VOUT")
 
         Returns:
             FixtureConnection configuration
@@ -108,7 +108,7 @@ class FixtureManager:
             KeyError: If no connection binds to this pin
         """
         if pin_name not in self._pin_to_connection:
-            raise KeyError(f"No fixture connection for DUT pin '{pin_name}'")
+            raise KeyError(f"No fixture connection for UUT pin '{pin_name}'")
         connection_name = self._pin_to_connection[pin_name]
         return self.fixture_config.connections[connection_name]
 
@@ -152,13 +152,13 @@ class FixtureManager:
         return pin_name in self._pin_to_connection
 
     def get_instrument_for_pin(self, pin_name: str) -> Instrument:
-        """Get instrument instance for a DUT pin.
+        """Get instrument instance for a UUT pin.
 
         If the connection has a switch route and a route_manager is available,
         returns a RoutedProxy that lazy-activates the route on first use.
 
         Args:
-            pin_name: DUT pin name (e.g., "VOUT")
+            pin_name: UUT pin name (e.g., "VOUT")
 
         Returns:
             Instrument instance (or RoutedProxy wrapping it)
@@ -167,7 +167,7 @@ class FixtureManager:
             KeyError: If pin or instrument not found (unless shared)
         """
         if pin_name not in self._pin_to_connection:
-            raise KeyError(f"No fixture connection for DUT pin '{pin_name}'")
+            raise KeyError(f"No fixture connection for UUT pin '{pin_name}'")
         connection_name = self._pin_to_connection[pin_name]
         connection = self.fixture_config.connections[connection_name]
         return self._resolve_instrument(connection_name, connection)
@@ -185,10 +185,10 @@ class FixtureManager:
         return connection.instrument_channel
 
     def get_channel_for_pin(self, pin_name: str) -> str | None:
-        """Get instrument channel for a DUT pin.
+        """Get instrument channel for a UUT pin.
 
         Args:
-            pin_name: DUT pin name
+            pin_name: UUT pin name
 
         Returns:
             Channel identifier, or None if not specified
@@ -197,10 +197,10 @@ class FixtureManager:
         return connection.instrument_channel
 
     def list_pins(self) -> list[str]:
-        """List all DUT pins with fixture connections.
+        """List all UUT pins with fixture connections.
 
         Returns:
-            List of DUT pin names
+            List of UUT pin names
         """
         return list(self._pin_to_connection.keys())
 
@@ -279,7 +279,7 @@ class FixtureManager:
 class PinAccessor:
     """Dictionary-like accessor for UUT-centric test code.
 
-    Provides syntactic sugar for accessing instruments via DUT pin names:
+    Provides syntactic sugar for accessing instruments via UUT pin names:
 
         pins["VOUT"].measure_voltage()
         pins["VIN"].set_voltage(5.0)
@@ -296,10 +296,10 @@ class PinAccessor:
         self._manager = manager
 
     def __getitem__(self, pin_name: str) -> Instrument:
-        """Get instrument for a DUT pin.
+        """Get instrument for a UUT pin.
 
         Args:
-            pin_name: DUT pin name (e.g., "VOUT")
+            pin_name: UUT pin name (e.g., "VOUT")
 
         Returns:
             Instrument instance connected to this pin
@@ -334,7 +334,7 @@ class PinAccessor:
         """Get instrument for a pin, with default.
 
         Args:
-            pin_name: DUT pin name
+            pin_name: UUT pin name
             default: Value to return if pin not found
 
         Returns:
@@ -349,7 +349,7 @@ class PinAccessor:
         """Get the instrument channel for a pin.
 
         Args:
-            pin_name: DUT pin name
+            pin_name: UUT pin name
 
         Returns:
             Channel identifier, or None if not specified

@@ -78,13 +78,13 @@ def test_observe_bytes_routes_to_filestore_and_stashes_uri(
 def test_observe_path_routes_to_filestore_with_suffix_preserved(
     context_with_session: Context, tmp_path: Path
 ) -> None:
-    src = tmp_path / "dut_capture.tdms"
+    src = tmp_path / "uut_capture.tdms"
     src.write_bytes(b"fake-tdms-bytes")
 
     ctx = context_with_session
-    ctx.observe("dut_capture", src)
+    ctx.observe("uut_capture", src)
 
-    uri = ctx._observations["dut_capture"]
+    uri = ctx._observations["uut_capture"]
     assert uri.startswith("file://"), uri
     landed = _resolve_uri(uri)
     assert landed.suffix == ".tdms"

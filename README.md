@@ -88,7 +88,7 @@ litmus runs                     # see results
 parts/*.yaml           → Part characteristics and tolerances
 catalog/*.yaml            → Instrument capabilities and accuracy
 stations/*.yaml           → Which instruments are at this bench
-fixtures/*.yaml           → How DUT pins connect to instruments
+fixtures/*.yaml           → How UUT pins connect to instruments
 sequences/*.yaml          → What to test and in what order
 tests/*.py                → Test code
 results/*.parquet         → Measurements with full traceability

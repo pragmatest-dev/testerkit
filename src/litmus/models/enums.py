@@ -15,8 +15,8 @@ from enum import StrEnum
 class Direction(StrEnum):
     """Direction of signal flow for a capability."""
 
-    INPUT = "input"  # Signal/sense from DUT
-    OUTPUT = "output"  # Source/drive to DUT
+    INPUT = "input"  # Signal/sense from UUT
+    OUTPUT = "output"  # Source/drive to UUT
     BIDIR = "bidir"  # Both (SMU, VNA)
     TRANSFORM = "transform"  # Signal-path component (amplifier, filter, mixer)
 

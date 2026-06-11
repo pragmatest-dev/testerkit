@@ -180,13 +180,13 @@ def _pick_connection_for_pin(
 
     Connections where both sides set ``function`` but the values differ
     are skipped — a wired-up DC connection isn't valid for an AC char.
-    Match by ``dut_pin`` first; falls back to net match when
-    ``dut_pin`` is unset on the connection.
+    Match by ``uut_pin`` first; falls back to net match when
+    ``uut_pin`` is unset on the connection.
     """
     exact_match: FixtureConnection | None = None
     pin_only_match: FixtureConnection | None = None
     for conn in fixture_cfg.connections.values():
-        pin_hit = conn.dut_pin == pin_id or (pin_net is not None and conn.net == pin_net)
+        pin_hit = conn.uut_pin == pin_id or (pin_net is not None and conn.net == pin_net)
         if not pin_hit:
             continue
         if target_function is not None and conn.function == target_function:
@@ -306,7 +306,7 @@ def _named_connections(
             )
         resolved.append(conn)
     if char_pins is not None:
-        invalid = [conn.name for conn in resolved if conn.dut_pin not in char_pins]
+        invalid = [conn.name for conn in resolved if conn.uut_pin not in char_pins]
         if invalid:
             raise ConnectionResolutionError(
                 f"litmus_connections names {invalid} resolve to pins outside "
@@ -326,7 +326,7 @@ def _channel_selectors(
     fixture connections; with ``char_pins`` set, every match must be in
     that pin set. Without a fixture, synthesizes minimal
     :class:`FixtureConnection` stubs from the (instrument, channel)
-    tuples — usable for early bringup where the DUT-pin mapping isn't
+    tuples — usable for early bringup where the UUT-pin mapping isn't
     yet captured.
     """
     if fixture_cfg is None:
@@ -378,7 +378,7 @@ def _channel_selectors(
         invalid = [
             f"{conn.instrument}/{conn.instrument_channel}"
             for conn in matched
-            if conn.dut_pin not in char_pins
+            if conn.uut_pin not in char_pins
         ]
         if invalid:
             raise ConnectionResolutionError(
@@ -408,7 +408,7 @@ def resolve_test_connections(
       chars' pin sets. Iteration order follows the user-listed
       connections; every selected connection must lie within the
       union pin set (or, for fixtureless ``instrument_channels``, no
-      DUT-pin validation is possible and the stubs pass through).
+      UUT-pin validation is possible and the stubs pass through).
 
     Returns a tuple of ``(connections, conn_to_char)`` where
     ``conn_to_char`` maps each connection's ``name`` to the char that
@@ -444,13 +444,13 @@ def resolve_test_connections(
         assert instrument_channels is not None
         # Tighten bug #15: chars in scope + fixtureless instrument_channels
         # would silently bypass the per-char pin-set cross-check (no
-        # dut_pin to validate against). That makes litmus_characteristics
+        # uut_pin to validate against). That makes litmus_characteristics
         # dead weight in this branch — flag it loud.
         if characteristics and fixture_cfg is None:
             raise ConnectionResolutionError(
                 f"litmus_characteristics({list(characteristics)!r}) cannot "
                 "validate fixtureless instrument_channels selectors — there "
-                "is no dut_pin to cross-check against. Drop "
+                "is no uut_pin to cross-check against. Drop "
                 "litmus_characteristics for pure bringup, or load a "
                 "fixture."
             )
@@ -468,7 +468,7 @@ def _connections_to_char_map(
     """Build the ``conn.name → char_id`` lookup for explicit ``litmus_connections`` paths.
 
     For each connection, pick the first char (in user-declared order)
-    whose pin set covers the connection's ``dut_pin``. Connections
+    whose pin set covers the connection's ``uut_pin``. Connections
     outside any char's pin set (only possible for fixtureless
     ``instrument_channels`` stubs without a spec) get no entry.
     """
@@ -476,7 +476,7 @@ def _connections_to_char_map(
         return {}
     out: dict[str, str] = {}
     for conn in connections:
-        pin_id = conn.dut_pin
+        pin_id = conn.uut_pin
         if pin_id is None and spec_ctx is not None and conn.net is not None:
             net_pins = spec_ctx.part.get_pins_by_net(conn.net)
             pin_id = net_pins[0] if net_pins else None

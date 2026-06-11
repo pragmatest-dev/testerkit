@@ -1,12 +1,12 @@
-# Multi-DUT Testing
+# Multi-UUT Testing
 
-Litmus supports parallel testing of multiple DUTs (Devices Under Test) using a subprocess-per-slot architecture. Each DUT slot runs in its own process with isolated environment, while shared instruments are served centrally so multiple slots can drive one physical instrument without colliding.
+Litmus supports parallel testing of multiple UUTs (Devices Under Test) using a subprocess-per-slot architecture. Each UUT slot runs in its own process with isolated environment, while shared instruments are served centrally so multiple slots can drive one physical instrument without colliding.
 
-> **Prerequisites.** Single-DUT tests already working against your station — multi-DUT is a layer on top, not a replacement (see [tutorial step 7](../../tutorial/07-real-instruments.md)). A fixture YAML defining at least two slots (template in this page). Instruments that can be channel-shared or one physical instrument per slot.
+> **Prerequisites.** Single-UUT tests already working against your station — multi-UUT is a layer on top, not a replacement (see [tutorial step 7](../../tutorial/07-real-instruments.md)). A fixture YAML defining at least two slots (template in this page). Instruments that can be channel-shared or one physical instrument per slot.
 
 ## Creating a Multi-Slot Fixture
 
-Define slots in your [fixture YAML](../../concepts/configuration/fixtures.md). Each slot represents one DUT position:
+Define slots in your [fixture YAML](../../concepts/configuration/fixtures.md). Each slot represents one UUT position:
 
 ```yaml
 # fixtures/dual_board.yaml
@@ -38,35 +38,35 @@ Every connection block needs a `name:` field — Litmus doesn't auto-fill it fro
 
 Slots are spawned in YAML order and **run in parallel**, one subprocess each. The instrument channel mappings route each slot to different physical channels on shared instruments.
 
-## Running Multi-DUT Tests
+## Running Multi-UUT Tests
 
-Pass `--fixture` to activate multi-DUT mode:
+Pass `--fixture` to activate multi-UUT mode:
 
 ```bash
 pytest tests/ \
   --fixture=fixtures/dual_board.yaml \
   --station=stations/my_station.yaml \
-  --dut-serials slot_1=SN001,slot_2=SN002
+  --uut-serials slot_1=SN001,slot_2=SN002
 ```
 
 ### CLI Options
 
 | Option | Description |
 |--------|-------------|
-| `--fixture` | Path to fixture YAML (triggers multi-DUT mode) |
-| `--dut-serial` | Single serial applied to all slots (with warning) |
-| `--dut-serials` | Per-slot assignment: `slot_1=SN001,slot_2=SN002` |
-| `--slot` | Run a single slot in a non-orchestrator process (e.g. for debugging one slot in isolation against the multi-DUT fixture). Supplying `--slot` and `--dut-serials` together is an error. |
+| `--fixture` | Path to fixture YAML (triggers multi-UUT mode) |
+| `--uut-serial` | Single serial applied to all slots (with warning) |
+| `--uut-serials` | Per-slot assignment: `slot_1=SN001,slot_2=SN002` |
+| `--slot` | Run a single slot in a non-orchestrator process (e.g. for debugging one slot in isolation against the multi-UUT fixture). Supplying `--slot` and `--uut-serials` together is an error. |
 | `--mock-instruments` | Use mock instruments (each slot gets independent mocks) |
 
 ## Serial Assignment
 
 **Per-slot (recommended):**
 ```bash
---dut-serials slot_1=SN001,slot_2=SN002
+--uut-serials slot_1=SN001,slot_2=SN002
 ```
 
-**Single serial:** Using `--dut-serial` with multiple slots applies the same serial to all slots and emits a warning. This is useful for development but not recommended for production.
+**Single serial:** Using `--uut-serial` with multiple slots applies the same serial to all slots and emits a warning. This is useful for development but not recommended for production.
 
 ## Shared Instruments and InstrumentServer
 
@@ -97,11 +97,11 @@ The `SyncCoordinator` (an internal helper that brokers `sync.wait()` rendezvous 
 
 ## Reading Per-Slot Results
 
-After a multi-DUT run, the terminal shows a per-slot summary:
+After a multi-UUT run, the terminal shows a per-slot summary:
 
 ```
 ============================================================
-Multi-DUT Results
+Multi-UUT Results
 ============================================================
   slot_1: PASS  1 passed in 2.34s
   slot_2: FAIL  1 failed in 2.51s
@@ -110,17 +110,17 @@ Multi-DUT Results
 
 ### Execution Timeline
 
-The results UI includes an "Execution Timeline" tab for multi-DUT runs, showing a Gantt chart of step execution across slots. This visualizes:
+The results UI includes an "Execution Timeline" tab for multi-UUT runs, showing a Gantt chart of step execution across slots. This visualizes:
 
 - Parallel execution across slots (time savings vs sequential)
 - Per-step duration and outcome
 - Speedup factor (sequential estimate / parallel time)
 
-Access via: `litmus serve` then navigate to a multi-DUT result detail page.
+Access via: `litmus serve` then navigate to a multi-UUT result detail page.
 
 ### Parquet Data
 
-Each measurement row includes a `slot_id` column for multi-DUT runs. Query with DuckDB:
+Each measurement row includes a `slot_id` column for multi-UUT runs. Query with DuckDB:
 
 ```sql
 SELECT slot_id, step_name, measurement_outcome, measurement_value
@@ -144,11 +144,11 @@ Each worker subprocess has these env vars for debugging:
 | `_LITMUS_SLOT_INDEX` | 0-based index of this slot in the orchestrator's spawn order |
 | `_LITMUS_SLOT_COUNT` | Total number of slots |
 | `_LITMUS_SESSION_ID` | Shared session ID across all slots |
-| `LITMUS_DUT_SERIAL` | DUT serial for this slot (orchestrator sets per-slot from `--dut-serials`) |
-| `LITMUS_DUT_PART_NUMBER` | DUT part number (shared across slots) |
-| `LITMUS_DUT_REVISION` | DUT revision (shared) |
-| `LITMUS_DUT_LOT_NUMBER` | DUT lot / batch (shared) |
-| `LITMUS_DUT_RESOURCE` | Per-slot DUT control connection (e.g. `/dev/ttyUSB0`) from the slot's `dut_resource:` field |
+| `LITMUS_UUT_SERIAL` | UUT serial for this slot (orchestrator sets per-slot from `--uut-serials`) |
+| `LITMUS_UUT_PART_NUMBER` | UUT part number (shared across slots) |
+| `LITMUS_UUT_REVISION` | UUT revision (shared) |
+| `LITMUS_UUT_LOT_NUMBER` | UUT lot / batch (shared) |
+| `LITMUS_UUT_RESOURCE` | Per-slot UUT control connection (e.g. `/dev/ttyUSB0`) from the slot's `uut_resource:` field |
 | `LITMUS_FIXTURE_SLOT` | JSON-serialized slot configuration |
 | `_LITMUS_INSTRUMENT_SERVER` | InstrumentServer address (if shared instruments) |
 | `_LITMUS_SHARED_ROLES` | Comma-separated shared instrument roles |
@@ -166,7 +166,7 @@ Worker stdout is prefixed with `[slot_id]` in the orchestrator's output:
 
 **Slots appear to hang:** Check if a sync point is waiting for a dead slot. The coordinator auto-unblocks after a slot dies, but custom timeouts in `sync.wait()` may need adjustment.
 
-**Same serial warning:** If you see "Single --dut-serial applied to all N slots", use `--dut-serials` for per-slot assignment.
+**Same serial warning:** If you see "Single --uut-serial applied to all N slots", use `--uut-serials` for per-slot assignment.
 
 **Shared instrument contention:** The InstrumentServer uses per-resource locking. If tests are slow, consider whether instrument access is the bottleneck (check the execution timeline).
 

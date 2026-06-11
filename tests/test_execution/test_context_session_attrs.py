@@ -5,9 +5,9 @@ read-only ambient roll-up tests use without taking ``logger`` /
 ``station_config`` / ``part_context`` as fixture arguments. Each
 delegates to a ContextVar getter in :mod:`litmus.execution._state`.
 
-DUT identity intentionally lives at ``context.run.dut`` — a top-level
-``context.dut`` would collide with the bare ``dut`` fixture (which is
-the live DUT driver). Same reasoning skips ``context.instruments``;
+UUT identity intentionally lives at ``context.run.uut`` — a top-level
+``context.uut`` would collide with the bare ``uut`` fixture (which is
+the live UUT driver). Same reasoning skips ``context.instruments``;
 take the ``instruments`` fixture as an argument.
 """
 
@@ -30,19 +30,19 @@ _INI = textwrap.dedent(
 
 
 def test_context_run_returns_active_test_run(pytester: pytest.Pytester) -> None:
-    """``context.run`` exposes the active :class:`TestRun`, including ``run.dut``."""
+    """``context.run`` exposes the active :class:`TestRun`, including ``run.uut``."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_run_attr=textwrap.dedent(
             """
             def test_run_exposes_record(context):
                 assert context.run is not None
-                assert context.run.dut is not None
-                assert context.run.dut.serial == "ABC123"
+                assert context.run.uut is not None
+                assert context.run.uut.serial == "ABC123"
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=ABC123")
+    result = pytester.runpytest("-v", "--uut-serial=ABC123")
     result.assert_outcomes(passed=1)
 
 
@@ -57,7 +57,7 @@ def test_context_station_none_in_bringup(pytester: pytest.Pytester) -> None:
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=test")
+    result = pytester.runpytest("-v", "--uut-serial=test")
     result.assert_outcomes(passed=1)
 
 
@@ -85,7 +85,7 @@ def test_context_station_resolves_when_loaded(pytester: pytest.Pytester) -> None
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=test", "--station=stations/alpha.yaml")
+    result = pytester.runpytest("-v", "--uut-serial=test", "--station=stations/alpha.yaml")
     result.assert_outcomes(passed=1)
 
 
@@ -100,7 +100,7 @@ def test_context_part_none_when_no_yaml(pytester: pytest.Pytester) -> None:
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=test")
+    result = pytester.runpytest("-v", "--uut-serial=test")
     result.assert_outcomes(passed=1)
 
 
@@ -137,5 +137,5 @@ def test_context_part_resolves_when_loaded(pytester: pytest.Pytester) -> None:
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=test", "--part=parts/widget.yaml")
+    result = pytester.runpytest("-v", "--uut-serial=test", "--part=parts/widget.yaml")
     result.assert_outcomes(passed=1)

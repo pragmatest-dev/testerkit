@@ -311,7 +311,7 @@ _MEASURE_CONFTEST = textwrap.dedent(
     def _active_logger():
         prev = get_current_logger()
         _logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         set_current_logger(_logger)

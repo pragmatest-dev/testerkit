@@ -178,7 +178,7 @@ The result hierarchy (`litmus/data/models.py`):
 ```
 TestRun
 ├── id, started_at, ended_at
-├── dut: DUT (serial, part_number, revision)
+├── uut: UUT (serial, part_number, revision)
 ├── station_id, operator_id, etc.
 ├── outcome: Outcome (PASS/FAIL/ERROR/SKIP)
 └── steps: list[TestStep]
@@ -206,7 +206,7 @@ class Measurement:
     nominal: float | None
     outcome: Outcome | None
     spec_ref: str | None      # Human-readable spec reference
-    dut_pin: str | None       # DUT pin measured
+    uut_pin: str | None       # UUT pin measured
     instrument_channel: str | None  # Instrument channel used
 
     def check_limit() -> Outcome  # Evaluates value against limits

@@ -76,7 +76,7 @@ class RunStore:
     def list_runs(self, limit: int = 50) -> list[RunSummary]:
         """List recent test runs, most recent first."""
         rows = self._flight_query(f"""
-            SELECT file_path, run_id, session_id, dut_serial, station_id,
+            SELECT file_path, run_id, session_id, uut_serial, station_id,
                    outcome, started_at, num_measurements,
                    test_phase, part_id, operator_id,
                    project_name
@@ -90,7 +90,7 @@ class RunStore:
                 test_run_id=r["run_id"],
                 session_id=r.get("session_id"),
                 started_at=r.get("started_at"),
-                dut_serial=r.get("dut_serial"),
+                uut_serial=r.get("uut_serial"),
                 station_id=r.get("station_id"),
                 outcome=r.get("outcome"),
                 total_measurements=r.get("num_measurements", 0),
@@ -149,8 +149,8 @@ class RunStore:
             session_id=r.get("session_id"),
             started_at=r.get("started_at"),
             ended_at=r.get("ended_at"),
-            dut_serial=r.get("dut_serial"),
-            dut_part_number=r.get("dut_part_number"),
+            uut_serial=r.get("uut_serial"),
+            uut_part_number=r.get("uut_part_number"),
             part_id=r.get("part_id"),
             station_id=r.get("station_id"),
             station_name=r.get("station_name"),

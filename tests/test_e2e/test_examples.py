@@ -37,7 +37,7 @@ def _run_pytest(cwd: Path) -> subprocess.CompletedProcess:
         "-m",
         "pytest",
         "--mock-instruments",
-        "--dut-serial=test",
+        "--uut-serial=test",
         "--no-cov",
         "-q",
         "--tb=short",

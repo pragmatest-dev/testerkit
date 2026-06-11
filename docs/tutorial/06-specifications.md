@@ -93,7 +93,7 @@ Measurable properties with expected values (each entry in `bands:` is a [`SpecBa
 ```yaml
 characteristics:
   output_voltage:
-    direction: output      # DUT outputs this
+    direction: output      # UUT outputs this
     function: dc_voltage   # DC voltage measurement
     units: V
     pins: [VOUT]           # Measured at this pin

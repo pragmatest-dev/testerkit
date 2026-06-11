@@ -10,7 +10,7 @@ def test_rails(self, context, psu, dmm, verify):
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-DUT identity is at `context.run.dut` — the bare `dut` fixture is a different thing (the live driver). See [Litmus fixtures](../../reference/pytest/fixtures.md) for the full per-test entry points.
+UUT identity is at `context.run.uut` — the bare `uut` fixture is a different thing (the live driver). See [Litmus fixtures](../../reference/pytest/fixtures.md) for the full per-test entry points.
 
 ## Skip expensive setup across a sweep
 
@@ -22,13 +22,13 @@ DUT identity is at `context.run.dut` — the bare `dut` fixture is a different t
     {"vin": [4.5, 5.0, 5.5]},          # middle
     {"load": [0.1, 0.4]},              # inner (fast)
 ])
-def test_rails(temperature, vin, load, context, psu, chamber, dut_load, dmm, verify):
+def test_rails(temperature, vin, load, context, psu, chamber, uut_load, dmm, verify):
     if context.changed("temperature"):
         chamber.set_temperature(temperature)
         chamber.wait_for_stable()      # 20 min — skipped when temperature unchanged
     if context.changed("vin"):
         psu.set_voltage(vin)
-    dut_load.set(load)
+    uut_load.set(load)
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
@@ -59,7 +59,7 @@ Three properties surface the entities that are active for this test.
 
 ```python
 def test_serial_stamp(self, context, verify):
-    serial = context.run.dut.serial            # str (DUT.serial is required); context.run itself is None outside a run
+    serial = context.run.uut.serial            # str (UUT.serial is required); context.run itself is None outside a run
     verify("serial_present", bool(serial))
 ```
 
@@ -143,18 +143,18 @@ See [Limits](limits.md) for limit resolution order and [Spec-driven testing](spe
 
 ## Iterate active fixture connections
 
-A fixture connection wires a single DUT pin (or net) to a specific instrument channel — and optionally through a switch route. When the test declares `@pytest.mark.litmus_characteristics([...])` or `@pytest.mark.litmus_connections(...)`, iterating `context.connections` is what *physically moves the bench* between measurements: each step of the loop closes the switch matrix to that connection's pin, so the same `dmm.measure_dc_voltage()` call lands on a different rail every time around. The platform also stamps the measurement row with the connection's `dut_pin` and the matching characteristic id, so the test body stays the same shape no matter how many rails you're walking.
+A fixture connection wires a single UUT pin (or net) to a specific instrument channel — and optionally through a switch route. When the test declares `@pytest.mark.litmus_characteristics([...])` or `@pytest.mark.litmus_connections(...)`, iterating `context.connections` is what *physically moves the bench* between measurements: each step of the loop closes the switch matrix to that connection's pin, so the same `dmm.measure_dc_voltage()` call lands on a different rail every time around. The platform also stamps the measurement row with the connection's `uut_pin` and the matching characteristic id, so the test body stays the same shape no matter how many rails you're walking.
 
 ```python
 @pytest.mark.litmus_characteristics(["rail_3v3", "rail_5v"])
 def test_all_rails(self, context, dmm, verify):
     for conn in context.connections:
-        # Switch matrix is now routed to conn.dut_pin; verify stamps the row
-        # with dut_pin + the matching characteristic_id automatically.
+        # Switch matrix is now routed to conn.uut_pin; verify stamps the row
+        # with uut_pin + the matching characteristic_id automatically.
         verify("voltage", dmm.measure_dc_voltage())
 ```
 
-The loop variable `conn` carries the connection's `dut_pin`, `instrument`, `instrument_channel`, and `instrument_terminal` if you need them for diagnostics or per-rail setup — but for the measurement itself, the platform handles routing and traceability stamping. Test code reads the same whether you have one rail or ten.
+The loop variable `conn` carries the connection's `uut_pin`, `instrument`, `instrument_channel`, and `instrument_terminal` if you need them for diagnostics or per-rail setup — but for the measurement itself, the platform handles routing and traceability stamping. Test code reads the same whether you have one rail or ten.
 
 To walk one characteristic at a time when several are in scope, scope the iteration with `for_characteristic`:
 
@@ -193,7 +193,7 @@ class TestPowerBoard:
 
 ## Common mistakes
 
-- **`context.dut` is an `AttributeError`.** DUT identity is at `context.run.dut`. The bare `dut` fixture is the live driver — a different concept.
+- **`context.uut` is an `AttributeError`.** UUT identity is at `context.run.uut`. The bare `uut` fixture is the live driver — a different concept.
 - **`context.changed("foo")` is `True` on the first iteration.** Use `context.last("foo") is not None` if you mean "from the second iteration onward."
 - **`context.last("output_voltage")` returns `None` when you `verify`d but didn't `configure`/`observe`.** It reads the prior context's `configure` / `observe` stash, not the measurement log.
 - **`context.limits["x"]` is the config, not the resolved limit.** Use `context.get_limit("x")` for `low` / `high` / `nominal`.

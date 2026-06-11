@@ -31,7 +31,7 @@ def _step(
     step_path: str | None = None,
     outcome: str = "passed",
     measurement_count: int = 1,
-    dut_serial: str = "SN001",
+    uut_serial: str = "SN001",
     station_id: str = "STA-01",
     slot_id: str | None = None,
 ) -> dict:
@@ -59,7 +59,7 @@ def _step(
             "run_started_at": started,
             "run_ended_at": ended,
             "run_outcome": outcome,
-            "dut_serial": dut_serial,
+            "uut_serial": uut_serial,
             "station_id": station_id,
         }
     )
@@ -237,7 +237,7 @@ class TestListForSession:
                 started=base,
                 step_index=0,
                 step_name="warmup",
-                dut_serial="SN002",
+                uut_serial="SN002",
             ),
         ]
         path_a = _write_steps_file(canonical_runs, run_a, slot_a_steps)

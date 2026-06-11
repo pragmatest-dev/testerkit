@@ -42,7 +42,7 @@ def get_compatible_channels_for_pin(
     char_by_pin: dict[str, list[str]],
     part: Part | None,
     instruments: dict[str, dict],
-    dut_pins: dict[str, dict] | None = None,
+    uut_pins: dict[str, dict] | None = None,
     *,
     include_direction: Literal[True],
 ) -> dict[str, Direction]: ...
@@ -54,7 +54,7 @@ def get_compatible_channels_for_pin(
     char_by_pin: dict[str, list[str]],
     part: Part | None,
     instruments: dict[str, dict],
-    dut_pins: dict[str, dict] | None = None,
+    uut_pins: dict[str, dict] | None = None,
     *,
     include_direction: Literal[False] = False,
 ) -> set[str]: ...
@@ -65,7 +65,7 @@ def get_compatible_channels_for_pin(
     char_by_pin: dict[str, list[str]],
     part: Part | None,
     instruments: dict[str, dict],
-    dut_pins: dict[str, dict] | None = None,
+    uut_pins: dict[str, dict] | None = None,
     *,
     include_direction: bool = False,
 ) -> set[str] | dict[str, Direction]:
@@ -86,7 +86,7 @@ def get_compatible_channels_for_pin(
         char_by_pin: Reverse map from build_pin_characteristic_map().
         part: Part model (may be None).
         instruments: Dict of role -> {type, driver, capabilities, channels}.
-        dut_pins: Dict of pin_key -> pin data (with role field).
+        uut_pins: Dict of pin_key -> pin data (with role field).
         include_direction: If True, return dict mapping channel to Direction.
 
     Returns:
@@ -94,7 +94,7 @@ def get_compatible_channels_for_pin(
         include_direction=True.
     """
     # Check if this is a ground pin
-    pin_role = _get_pin_role(pin_key, dut_pins)
+    pin_role = _get_pin_role(pin_key, uut_pins)
     if pin_role == "ground":
         lo_channels = _get_lo_channels(instruments)
         if include_direction:
@@ -162,10 +162,10 @@ def _get_lo_channels(instruments: dict[str, dict]) -> set[str]:
     return compatible
 
 
-def _get_pin_role(pin_key: str, dut_pins: dict[str, dict] | None) -> str:
-    """Get the role of a pin from the dut_pins dict."""
-    if dut_pins and pin_key in dut_pins:
-        return dut_pins[pin_key].get("role", "signal")
+def _get_pin_role(pin_key: str, uut_pins: dict[str, dict] | None) -> str:
+    """Get the role of a pin from the uut_pins dict."""
+    if uut_pins and pin_key in uut_pins:
+        return uut_pins[pin_key].get("role", "signal")
     return "signal"
 
 
@@ -227,8 +227,8 @@ def _get_channels_satisfying(
             continue
 
         # Directions must be complementary:
-        # - DUT input (receives) ↔ instrument output (sources)
-        # - DUT output (provides) ↔ instrument input (measures)
+        # - UUT input (receives) ↔ instrument output (sources)
+        # - UUT output (provides) ↔ instrument input (measures)
         # BIDIR instruments match either direction
         if cap_direction == Direction.BIDIR:
             pass  # BIDIR matches anything
@@ -441,7 +441,7 @@ def resolve_instrument_capabilities(station_config) -> dict:
 
 
 def auto_suggest_connections(
-    dut_pins: dict[str, dict],
+    uut_pins: dict[str, dict],
     char_by_pin: dict[str, list[str]],
     part: Part | None,
     instruments: dict[str, dict],
@@ -454,21 +454,21 @@ def auto_suggest_connections(
     Phase 3: Remaining pins reported as unmatched (no silent allocation)
 
     Args:
-        dut_pins: Pin key -> pin data dict (includes 'role' field).
+        uut_pins: Pin key -> pin data dict (includes 'role' field).
         char_by_pin: Pin key -> characteristic names.
         part: Part model.
         instruments: Role -> instrument data dict.
         existing: Existing connections (point_name -> connection dict).
 
     Returns:
-        List of dicts with keys: point_name, dut_pin, instrument, channel, terminal, net.
+        List of dicts with keys: point_name, uut_pin, instrument, channel, terminal, net.
     """
     # Track which channels are already used
     used_channels: set[str] = set()
     connected_pins: set[str] = set()
     for conn in existing.values():
         used_channels.add(f"{conn['instrument']}:{conn['channel']}")
-        connected_pins.add(conn["dut_pin"])
+        connected_pins.add(conn["uut_pin"])
 
     suggestions: list[dict] = []
 
@@ -477,7 +477,7 @@ def auto_suggest_connections(
     # compatible channels first so they don't get starved by pins with
     # many options.
     pin_candidates: list[tuple[str, dict, dict[str, Direction]]] = []
-    for pin_key, pin_data in dut_pins.items():
+    for pin_key, pin_data in uut_pins.items():
         if pin_key in connected_pins:
             continue
         pin_role = pin_data.get("role", "signal")
@@ -493,7 +493,7 @@ def auto_suggest_connections(
             char_by_pin,
             part,
             instruments,
-            dut_pins,
+            uut_pins,
             include_direction=True,
         )
         assert isinstance(compatible, dict)  # Type narrowing
@@ -539,14 +539,14 @@ def auto_suggest_connections(
             suggestions.append(
                 {
                     "point_name": point_name,
-                    "dut_pin": pin_key,
+                    "uut_pin": pin_key,
                     "instrument": role,
                     "channel": channel,
                     "terminal": "hi",
                     "net": pin_data.get("net", ""),
                 }
             )
-            # OUTPUT/BIDIR channels can fan-out to multiple DUT inputs,
+            # OUTPUT/BIDIR channels can fan-out to multiple UUT inputs,
             # only INPUT channels (DMM, scope) are exclusive
             if direction == Direction.INPUT:
                 used_channels.add(channel_key)
@@ -561,7 +561,7 @@ def auto_suggest_connections(
     for s in suggestions:
         allocated_channels.append(s)
 
-    for pin_key, pin_data in dut_pins.items():
+    for pin_key, pin_data in uut_pins.items():
         if pin_key in connected_pins:
             continue
         pin_role = pin_data.get("role", "signal")
@@ -571,14 +571,14 @@ def auto_suggest_connections(
         # Find instrument channels to wire GND to.
         # Strategy: wire to the LO terminal of each unique instrument
         # that has allocated channels (from phase 1 + existing connections).
-        gnd_targets = _find_ground_targets(pin_key, pin_data, allocated_channels, dut_pins)
+        gnd_targets = _find_ground_targets(pin_key, pin_data, allocated_channels, uut_pins)
 
         for role, channel in gnd_targets:
             point_name = _generate_point_name(pin_key, role, channel, terminal="lo")
             suggestions.append(
                 {
                     "point_name": point_name,
-                    "dut_pin": pin_key,
+                    "uut_pin": pin_key,
                     "instrument": role,
                     "channel": channel,
                     "terminal": "lo",
@@ -593,7 +593,7 @@ def _find_ground_targets(
     gnd_pin_key: str,
     gnd_pin_data: dict,
     allocated_channels: list[dict],
-    dut_pins: dict[str, dict],
+    uut_pins: dict[str, dict],
 ) -> list[tuple[str, str]]:
     """Find instrument channels that a ground pin should wire to.
 
@@ -610,8 +610,8 @@ def _find_ground_targets(
     seen: set[str] = set()
 
     for conn in allocated_channels:
-        conn_pin = conn.get("dut_pin", "")
-        conn_pin_data = dut_pins.get(conn_pin, {})
+        conn_pin = conn.get("uut_pin", "")
+        conn_pin_data = uut_pins.get(conn_pin, {})
         conn_role = conn.get("instrument", "")
         conn_channel = conn.get("channel", "")
         key = f"{conn_role}:{conn_channel}"

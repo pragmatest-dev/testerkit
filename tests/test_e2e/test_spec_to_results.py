@@ -4,7 +4,7 @@ This test verifies the complete datasheet-to-results workflow:
 1. Load part spec from YAML (pins, characteristics, conditions)
 2. Derive test limits from spec with guardband
 3. Execute tests with spec-driven limits
-4. Verify results include full traceability (spec_ref, dut_pin, etc.)
+4. Verify results include full traceability (spec_ref, uut_pin, etc.)
 
 These tests verify BEHAVIOR, not specific values from example specs.
 Example specs can change freely without breaking these tests.
@@ -100,7 +100,7 @@ class TestPartContext:
 
         # Should have traceability fields
         assert "pin" in pin_info or "pins" in pin_info
-        assert "dut_pin" in pin_info
+        assert "uut_pin" in pin_info
         assert "net" in pin_info
 
     def test_characteristics_reference_defined_pins(self):
@@ -150,20 +150,20 @@ class TestHarnessSpecIntegration:
                     if expected_limit.high:
                         assert m.limit_high == expected_limit.high
 
-    def test_harness_populates_dut_pin(self):
-        """Harness populates dut_pin from spec for traceability."""
+    def test_harness_populates_uut_pin(self):
+        """Harness populates uut_pin from spec for traceability."""
         spec = PartContext.from_file(SPEC_PATH)
 
         # Find characteristic with pin info
         char_id = None
         for cid, char in spec.part.characteristics.items():
             pin_info = spec.get_pin_info(cid)
-            if pin_info.get("dut_pin"):
+            if pin_info.get("uut_pin"):
                 char_id = cid
                 break
 
         if char_id is None:
-            pytest.fail("No characteristic with dut_pin found")
+            pytest.fail("No characteristic with uut_pin found")
 
         expected_pin_info = spec.get_pin_info(char_id)
         harness = TestHarness(step_name="test_pin", part_context=spec)
@@ -172,7 +172,7 @@ class TestHarnessSpecIntegration:
             for vector in harness.vectors:
                 with harness.run_vector(vector):
                     m = harness.measure(char_id, 1.0)
-                    assert m.dut_pin == expected_pin_info["dut_pin"]
+                    assert m.uut_pin == expected_pin_info["uut_pin"]
 
     def test_measurement_pass_when_in_spec(self):
         """Measurement inside limits results in PASS outcome."""

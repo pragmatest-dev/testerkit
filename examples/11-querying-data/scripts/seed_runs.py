@@ -1,7 +1,7 @@
 """Seed a small varied dataset for the querying example.
 
-Creates 8 runs across 3 DUTs and 2 stations with mixed outcomes —
-enough variety that yield queries, DUT-history queries, and trend
+Creates 8 runs across 3 UUTs and 2 stations with mixed outcomes —
+enough variety that yield queries, UUT-history queries, and trend
 analysis return meaningful results. Synthesized via LitmusClient
 (the programmatic run-building API for external data movers).
 
@@ -24,8 +24,8 @@ from litmus import LitmusClient
 def main() -> None:
     client = LitmusClient(data_dir="data")
 
-    # DUTs of two part numbers, mixed serials
-    dut_specs: list[tuple[str, str]] = [
+    # UUTs of two part numbers, mixed serials
+    uut_specs: list[tuple[str, str]] = [
         ("SN-001", "BUCK-3V3-RevA"),
         ("SN-002", "BUCK-3V3-RevA"),
         ("SN-003", "BUCK-5V0-RevB"),
@@ -38,11 +38,11 @@ def main() -> None:
     stations = ["bench_a", "bench_b"]
 
     n_runs = 0
-    for i, (serial, part_no) in enumerate(dut_specs):
+    for i, (serial, part_no) in enumerate(uut_specs):
         station = stations[i % len(stations)]
         run = client.start_run(
-            dut_serial=serial,
-            dut_part_number=part_no,
+            uut_serial=serial,
+            uut_part_number=part_no,
             station_id=station,
             test_phase="production",
             operator="bench_tech",
@@ -75,7 +75,7 @@ def main() -> None:
         run.finish()
         n_runs += 1
         # Small gap so each parquet filename's timestamp differs — the
-        # filename is ``{YYYYMMDDTHHMMSSZ}_{dut_serial}.parquet`` and
+        # filename is ``{YYYYMMDDTHHMMSSZ}_{uut_serial}.parquet`` and
         # same-second runs of the same serial would otherwise collide.
         time.sleep(1.1)
 

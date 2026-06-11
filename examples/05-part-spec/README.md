@@ -13,7 +13,7 @@ fixture YAML, no connection iteration. Stage 6 introduces those.
 ## Diff from stage 4
 
 - Added `parts/buck_3v3.yaml` — characteristics (`rail_3v3`,
-  `input_voltage`, `idle_current`) + the DUT pin map.
+  `input_voltage`, `idle_current`) + the UUT pin map.
 - Replaced raw `low: / high:` limits in the sidecar with
   `characteristic: rail_3v3, tolerance_pct: 2`.
 - Same `conftest.py` from stages 2-4 — `psu` / `dmm` fixtures are

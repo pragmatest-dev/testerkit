@@ -159,7 +159,7 @@ All three stores hold up under N concurrent writers. Numbers below
 measured at N = 1, 2, 4 spawned subprocesses (the `multiprocessing`
 `spawn` start method, see the **fork-deadlock pitfall** below). Each
 worker writes its own session / channel / artifact bucket so the
-benchmarks model the multi-DUT pytest case where N workers run
+benchmarks model the multi-UUT pytest case where N workers run
 concurrently against the canonical data dir.
 
 | Store | N=1 wall | N=2 wall | N=4 wall | N=2 efficiency | N=4 efficiency |

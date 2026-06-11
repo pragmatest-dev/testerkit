@@ -35,7 +35,7 @@ def _measurement_row(
     run_started_at: datetime,
     run_ended_at: datetime,
     run_outcome: str,
-    dut_serial: str,
+    uut_serial: str,
     station_id: str,
     step_name: str,
     step_index: int,
@@ -53,7 +53,7 @@ def _measurement_row(
             "run_started_at": run_started_at,
             "run_ended_at": run_ended_at,
             "run_outcome": run_outcome,
-            "dut_serial": dut_serial,
+            "uut_serial": uut_serial,
             "station_id": station_id,
             "step_name": step_name,
             "step_index": step_index,
@@ -120,7 +120,7 @@ def fixture_data() -> dict[str, str]:
             run_started_at=_dt("2026-03-01T10:00:00Z"),
             run_ended_at=_dt("2026-03-01T10:05:00Z"),
             run_outcome="passed",
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station-1",
             step_name="test_voltage",
             step_index=0,
@@ -140,7 +140,7 @@ def fixture_data() -> dict[str, str]:
             run_started_at=_dt("2026-03-01T11:00:00Z"),
             run_ended_at=_dt("2026-03-01T11:05:00Z"),
             run_outcome="failed",
-            dut_serial="SN002",
+            uut_serial="SN002",
             station_id="station-1",
             step_name="test_voltage",
             step_index=0,
@@ -178,7 +178,7 @@ def test_get_run(runs_store: RunStore, fixture_data: dict[str, str]) -> None:
     run = runs_store.get_run(fixture_data["run_001"][:8])
     assert run is not None
     assert run.test_run_id == fixture_data["run_001"]
-    assert run.dut_serial == "SN001"
+    assert run.uut_serial == "SN001"
     assert run.outcome == "passed"
 
 
@@ -242,7 +242,7 @@ def test_notify_new_run(runs_store: RunStore) -> None:
             run_started_at=_dt("2026-03-08T12:00:00Z"),
             run_ended_at=_dt("2026-03-08T12:01:00Z"),
             run_outcome="passed",
-            dut_serial="SN099",
+            uut_serial="SN099",
             station_id="station-2",
             step_name="test_current",
             step_index=0,
@@ -259,4 +259,4 @@ def test_notify_new_run(runs_store: RunStore) -> None:
     found = runs_store.get_run(run_id[:8])
     assert found is not None
     assert found.test_run_id == run_id
-    assert found.dut_serial == "SN099"
+    assert found.uut_serial == "SN099"

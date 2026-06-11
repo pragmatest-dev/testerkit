@@ -8,7 +8,7 @@ Single ``--part`` flag with path-or-id dispatch (matches
   ``stations/<id>.yaml``).
 * ``--part=<path>`` — values containing ``/`` or ending in
   ``.yaml``/``.yml`` are loaded as explicit paths.
-* ``--dut-part-number=<pn>`` — content match against
+* ``--uut-part-number=<pn>`` — content match against
   ``part.part_number:`` for auto-discovery.
 * Single-file fallback when ``parts/`` holds exactly one YAML.
 """

@@ -8,7 +8,6 @@ from litmus.ui.pages import (
     dashboard,  # noqa: F401
     designer,  # noqa: F401
     docs,  # noqa: F401
-    duts,  # noqa: F401
     events,  # noqa: F401
     explore,  # noqa: F401
     files,  # noqa: F401
@@ -22,4 +21,5 @@ from litmus.ui.pages import (
     results,  # noqa: F401
     stations,  # noqa: F401
     tests,  # noqa: F401
+    uuts,  # noqa: F401
 )

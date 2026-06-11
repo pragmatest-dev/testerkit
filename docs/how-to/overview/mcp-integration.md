@@ -159,13 +159,13 @@ After this, **you** (the human) need to drop to a terminal and run `uv sync` to 
 
 ### Step 1 — Create a part spec from the datasheet
 
-A part spec declares the DUT's pins and its [characteristics](../../concepts/configuration/capabilities.md) (measurable properties + their spec bands). The spec is what `verify(name, value)` resolves limits against later.
+A part spec declares the UUT's pins and its [characteristics](../../concepts/configuration/capabilities.md) (measurable properties + their spec bands). The spec is what `verify(name, value)` resolves limits against later.
 
 Key concepts in datasheet vocabulary:
 
 | Litmus term | Datasheet vocabulary | What it captures |
 |---|---|---|
-| Characteristic | An Electrical Characteristic table row | A measurable DUT property — output voltage, quiescent current, etc. |
+| Characteristic | An Electrical Characteristic table row | A measurable UUT property — output voltage, quiescent current, etc. |
 | SpecBand | One condition row in the EC table | A nominal value + tolerance at a specific operating point |
 | `when:` clause | The "Conditions" column entry for that row | The operating point this band applies at (temperature, load, frequency) |
 | `accuracy:` | The `±tol` and `(min, typ, max)` columns | How tight the band is around the nominal |

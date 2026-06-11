@@ -13,13 +13,13 @@ the design checklist.
 import pytest
 
 @pytest.mark.litmus_prompts(
-    insert_dut={"message": "Insert DUT, then click Confirm.", "prompt_type": "confirm"},
+    insert_uut={"message": "Insert UUT, then click Confirm.", "prompt_type": "confirm"},
     pick_bench={"message": "Which bench?", "prompt_type": "choice",
                 "choices": ["bench_01", "bench_02"]},
     chamber_temp={"message": "Set chamber temperature (°C):", "prompt_type": "input"},
 )
 def test_setup(prompt):
-    prompt("insert_dut")                # blocks until operator clicks Confirm
+    prompt("insert_uut")                # blocks until operator clicks Confirm
     bench = prompt("pick_bench")        # returns the selected choice (str)
     temp = prompt("chamber_temp")       # returns the typed input (str)
 ```
@@ -53,8 +53,8 @@ and the test fails — it does not auto-respond. Use this as a
 ### 1. Imperative, not interrogative
 
 The operator is in the middle of something. A statement-shaped
-prompt ("Insert DUT, then click Confirm.") is faster to act on
-than a question ("Have you inserted the DUT?"). Use the imperative
+prompt ("Insert UUT, then click Confirm.") is faster to act on
+than a question ("Have you inserted the UUT?"). Use the imperative
 when you can — questions for `choice` and `input`, statements for
 `confirm`.
 
@@ -62,7 +62,7 @@ when you can — questions for `choice` and `input`, statements for
 
 > ❌ `message="Begin verification protocol"`
 >
-> ✅ `message="Insert DUT serial 0001 into bench socket 3, then click Confirm."`
+> ✅ `message="Insert UUT serial 0001 into bench socket 3, then click Confirm."`
 
 The first reads like documentation. The second tells the operator
 exactly what to do. Include the concrete thing (serial number,
@@ -156,4 +156,4 @@ the production rollout.
 - [Reference → litmus_prompts marker](../../reference/pytest/markers.md#litmus_prompts)
 - [Concepts → Step hierarchy](../../concepts/execution/step-hierarchy.md) — where prompts sit in the run timeline
 - [Tour of the Operator UI](../overview/operator-ui-tour.md) — the ACTIVE TESTS sidebar block, which is your prompt-waiting signal
-- [Multi-DUT testing](multi-dut-testing.md) — prompts in subprocess-per-slot setups
+- [Multi-UUT testing](multi-uut-testing.md) — prompts in subprocess-per-slot setups

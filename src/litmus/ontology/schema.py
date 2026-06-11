@@ -49,15 +49,15 @@ class VerbKind(StrEnum):
 
     # Class / type-instance
     INHERITS_FROM = "inherits_from"  # Pydantic class inheritance
-    INSTANCE_OF = "instance_of"  # DUT instance_of Part
-    INSTANTIATED_AS = "instantiated_as"  # Part instantiated_as DUT (inverse)
+    INSTANCE_OF = "instance_of"  # UUT instance_of Part
+    INSTANTIATED_AS = "instantiated_as"  # Part instantiated_as UUT (inverse)
 
     # Naming pointers (FK by id) — used when no domain verb fits
     REFERENCES = "references"  # plain id pointer
     EXTENDS = "extends"  # YAML profile-chain merge (last-wins)
 
     # Execution semantics
-    TESTS = "tests"  # TestRun tests DUT
+    TESTS = "tests"  # TestRun tests UUT
     RUNS_ON = "runs_on"  # TestRun runs_on Station
     VALIDATES_AGAINST = "validates_against"  # StationConfig validates_against StationType
 

@@ -55,7 +55,7 @@ def test_output_voltage(psu, dmm, logger):
 
 Run with real hardware:
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --dut-serial=SN001
+pytest tests/ --station=stations/bench_1.yaml --uut-serial=SN001
 ```
 
 ## Running with Mock Instruments
@@ -63,7 +63,7 @@ pytest tests/ --station=stations/bench_1.yaml --dut-serial=SN001
 When hardware isn't available, add `--mock-instruments`:
 
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --uut-serial=SIM001
 ```
 
 The **same test code** works in both modes.
@@ -107,7 +107,7 @@ In CI, always run with `--mock-instruments`:
     pytest tests/ \
       --station=stations/bench_1.yaml \
       --mock-instruments \
-      --dut-serial=CI-TEST \
+      --uut-serial=CI-TEST \
       -v
 ```
 
@@ -221,12 +221,12 @@ def test_output_voltage(psu, dmm, logger):
 
 **Run with hardware:**
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --dut-serial=SN12345
+pytest tests/ --station=stations/bench_1.yaml --uut-serial=SN12345
 ```
 
 **Run with mocks:**
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --uut-serial=SIM001
 ```
 
 ## What You Learned

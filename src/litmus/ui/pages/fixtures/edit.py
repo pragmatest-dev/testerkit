@@ -232,11 +232,11 @@ def _render_connection_row(
         with ui.card_section():
             with ui.grid(columns=4).classes("gap-4"):
                 with ui.column().classes("gap-1"):
-                    ui.label("DUT Pin").classes("text-xs text-slate-500")
+                    ui.label("UUT Pin").classes("text-xs text-slate-500")
                     ui.input(
-                        value=connection_data.get("dut_pin", ""),
+                        value=connection_data.get("uut_pin", ""),
                         on_change=lambda e, cd=connection_data: (
-                            cd.update({"dut_pin": e.value}),
+                            cd.update({"uut_pin": e.value}),
                             saver.trigger() if saver else None,
                         ),
                     ).props("outlined dense").classes("w-full")
@@ -305,7 +305,7 @@ def _show_add_connection_dialog(instrument_options: list, on_add: Callable):
     """Show dialog to add a new fixture connection."""
     connection_form = {
         "name": "",
-        "dut_pin": "",
+        "uut_pin": "",
         "net": "",
         "instrument": instrument_options[0] if instrument_options else "",
         "instrument_channel": "",
@@ -324,10 +324,10 @@ def _show_add_connection_dialog(instrument_options: list, on_add: Callable):
                 ).props("outlined dense").classes("w-full")
 
             with ui.column().classes("gap-1"):
-                ui.label("DUT Pin").classes("text-sm font-medium text-slate-700")
+                ui.label("UUT Pin").classes("text-sm font-medium text-slate-700")
                 ui.input(
                     placeholder="e.g., VOUT, J1.3",
-                    on_change=lambda e: connection_form.update({"dut_pin": e.value}),
+                    on_change=lambda e: connection_form.update({"uut_pin": e.value}),
                 ).props("outlined dense").classes("w-full")
 
             with ui.column().classes("gap-1"):

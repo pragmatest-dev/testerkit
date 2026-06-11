@@ -72,7 +72,7 @@ async def metrics_page(
 
     # Indexed distincts — ~50ms, fast enough to do before chrome.
     filter_options = await run.io_bound(get_runs_filter_options)
-    parts = filter_options.get("dut_part_number", [])
+    parts = filter_options.get("uut_part_number", [])
     stations = filter_options.get("station_hostname", [])
 
     # ---------------------------------------------------------------------------
@@ -429,7 +429,7 @@ async def metrics_page(
             with ui.tab_panel(pareto_tab).props('data-testid="metrics-pareto"'):
                 pareto_group_select = ui.select(
                     options={
-                        "part": "Part (most-failing dut_part_number)",
+                        "part": "Part (most-failing uut_part_number)",
                         "step": "Step (most-failing step_path)",
                         "measurement": "Measurement (historical: limit-bearing measures)",
                     },
@@ -641,7 +641,7 @@ def _fetch_pareto_data(
         try:
             with RunsQuery(_data_dir=data_dir) as q:
                 rows = q.failure_pareto(
-                    group_by="dut_part_number",
+                    group_by="uut_part_number",
                     top_n=15,
                     phase=phase,
                     part=part,
@@ -654,7 +654,7 @@ def _fetch_pareto_data(
         return (
             rows,
             "Failing parts",
-            "Top 15 ``dut_part_number`` buckets with the most failed/errored runs.",
+            "Top 15 ``uut_part_number`` buckets with the most failed/errored runs.",
             "part",
         )
 
@@ -1027,7 +1027,7 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
         render_empty_card(
             container,
             "Retest rates",
-            "No retest data — record DUTs across multiple sessions to populate.",
+            "No retest data — record UUTs across multiple sessions to populate.",
         )
         return
 
@@ -1035,7 +1035,7 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
         with ui.card_section():
             ui.label("Retest rates").classes("font-semibold")
             ui.label(
-                "How often unique DUTs needed more than one attempt to clear "
+                "How often unique UUTs needed more than one attempt to clear "
                 "the same step. High retest rates flag flaky tests or marginal "
                 "hardware."
             ).classes("text-xs text-slate-500")

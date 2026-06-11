@@ -24,7 +24,7 @@ pins:
     role: signal
 characteristics:
   input_voltage:
-    direction: input       # DUT receives this
+    direction: input       # UUT receives this
     function: dc_voltage
     units: V
     pins: [VIN]
@@ -34,7 +34,7 @@ characteristics:
           pct_reading: 10  # ±10% tolerance
 
   output_voltage:
-    direction: output      # DUT provides this
+    direction: output      # UUT provides this
     function: dc_voltage
     units: V
     pins: [VOUT]
@@ -46,7 +46,7 @@ characteristics:
 
 ## Pins
 
-**Pins** represent physical connection points on the DUT — connectors, test points, or pads.
+**Pins** represent physical connection points on the UUT — connectors, test points, or pads.
 
 ```yaml
 pins:
@@ -77,20 +77,20 @@ pins:
 
 **Characteristics** are measurable properties of the part. Each characteristic has:
 
-- **Direction** — Does the DUT provide or receive this?
+- **Direction** — Does the UUT provide or receive this?
 - **Domain** — What physical quantity? (voltage, current, etc.)
 - **Signal types** — DC, AC, pulsed?
 - **Conditions** — Expected values and tolerances
 
 ### Direction Matters
 
-The `direction` field describes the DUT's perspective:
+The `direction` field describes the UUT's perspective:
 
 | Direction | Meaning | Instrument Needs |
 |-----------|---------|------------------|
-| `input` | DUT receives power/signal | Instrument must **source** |
-| `output` | DUT provides power/signal | Instrument must **measure** |
-| `bidir` | DUT both receives and provides | Instrument must do both |
+| `input` | UUT receives power/signal | Instrument must **source** |
+| `output` | UUT provides power/signal | Instrument must **measure** |
+| `bidir` | UUT both receives and provides | Instrument must do both |
 
 ### Multiple Characteristics Per Pin
 
@@ -210,7 +210,7 @@ characteristics:
 
 ## Part Numbers
 
-The `part_number` field maps a part to its manufacturing part number. When present, it automatically populates `dut_part_number` in test results (`dut_part_number` is the operator-facing identifier — the printed/scanned part number — as opposed to the internal `part_id`; see [how-to/traceability](../../how-to/execution/traceability.md)). Overridable via `--dut-part-number` on the CLI. This enables yield analytics filtering by part number.
+The `part_number` field maps a part to its manufacturing part number. When present, it automatically populates `uut_part_number` in test results (`uut_part_number` is the operator-facing identifier — the printed/scanned part number — as opposed to the internal `part_id`; see [how-to/traceability](../../how-to/execution/traceability.md)). Overridable via `--uut-part-number` on the CLI. This enables yield analytics filtering by part number.
 
 ```yaml
 id: power_board

@@ -184,7 +184,7 @@ jobs:
           cd /tmp/smoke_project
           uv run --project ${{ github.workspace }} pytest tests/ -q \
             --station=starter_station \
-            --mock-instruments --dut-serial=SMOKE001
+            --mock-instruments --uut-serial=SMOKE001
       - name: "Smoke: litmus runs"
         run: |
           cd /tmp/smoke_project
@@ -224,7 +224,7 @@ jobs:
             cd /tmp/upgrade_project
             uv run --project ${{ github.workspace }} pytest tests/ -q \
               --station=starter_station \
-              --mock-instruments --dut-serial=UPGRADE001 || true
+              --mock-instruments --uut-serial=UPGRADE001 || true
           fi
           git restore uv.lock
           git checkout "${GITHUB_REF_NAME}"

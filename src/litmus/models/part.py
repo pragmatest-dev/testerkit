@@ -1,6 +1,6 @@
 """Pydantic models for part specifications.
 
-This module defines the information model for parts (DUTs) such that specs
+This module defines the information model for parts (UUTs) such that specs
 flow down to:
 1. Required capabilities (what instruments are needed)
 2. Station config (which instruments at which addresses)
@@ -27,7 +27,7 @@ from litmus.utils.ranges import expand_range
 
 
 class PinRole(StrEnum):
-    """Role of a physical DUT pin in the test system.
+    """Role of a physical UUT pin in the test system.
 
     Distinguishes signal, ground, power, and reference pins so the
     auto-match algorithm can route them correctly (e.g., ground pins
@@ -42,7 +42,7 @@ class PinRole(StrEnum):
 
 
 class Pin(BaseModel):
-    """Physical pin/pad on the DUT (ATML: Port).
+    """Physical pin/pad on the UUT (ATML: Port).
 
     Represents a single connection point that can be routed through
     a fixture to an instrument. The ``role`` field classifies the pin's
@@ -124,8 +124,8 @@ class PartCharacteristic(Capability):
     Extends Capability with part-specific fields: physical pin mapping,
     net names, signal groups, and datasheet references.
 
-    The direction indicates whether the DUT provides (OUTPUT) or consumes (INPUT)
-    this signal. Direction pairing for matching (DUT OUTPUT → instrument INPUT)
+    The direction indicates whether the UUT provides (OUTPUT) or consumes (INPUT)
+    this signal. Direction pairing for matching (UUT OUTPUT → instrument INPUT)
     lives in the matching service, not here.
 
     REQUIRES physical interface: Every characteristic must be tied to at least one
@@ -179,7 +179,7 @@ class PartCharacteristic(Capability):
     def validate_physical_interface(self) -> Self:
         """Ensure characteristic is tied to a physical interface.
 
-        Every characteristic must specify WHERE on the DUT it applies.
+        Every characteristic must specify WHERE on the UUT it applies.
         Resolution order if multiple are set:
 
         1. ``pin``           — single explicit pin (highest priority)

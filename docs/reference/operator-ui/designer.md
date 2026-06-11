@@ -3,7 +3,7 @@
 **URL:** `/designer`
 
 The System Designer is the visual surface for wiring a part's
-DUT pins to a station's instrument channels. Pick a part, pick
+UUT pins to a station's instrument channels. Pick a part, pick
 a station, click a pin, click an instrument channel — the page
 draws the wire and auto-saves a fixture YAML to disk.
 
@@ -59,7 +59,7 @@ A row of counters and toggles, just above the design surface:
 
 ## Design Surface
 
-An [ECharts](https://echarts.apache.org/) graph showing DUT pins on
+An [ECharts](https://echarts.apache.org/) graph showing UUT pins on
 the left and instrument channels on the right, with wires drawn
 between connected nodes. Three interactions:
 
@@ -68,7 +68,7 @@ between connected nodes. Three interactions:
   connection and clears the selection.
 - **Click a wire** — opens the connection in the right-side
   properties drawer. The drawer shows the connection's fields
-  (Point Name, DUT Pin, Net, Instrument, Channel, optional
+  (Point Name, UUT Pin, Net, Instrument, Channel, optional
   Terminal) as read-only inputs with a Delete Connection button —
   it's a remove-or-leave-alone affordance, not an edit form.
 
@@ -88,7 +88,7 @@ A table of every current wire on the fixture.
 | Column | What it shows |
 |---|---|
 | Point | The connection point name — auto-generated from pin + role at wire time and not user-editable |
-| DUT Pin | The pin on the part side |
+| UUT Pin | The pin on the part side |
 | Net | Net / signal name (optional, free-text) |
 | Instrument | The station instrument the wire terminates on |
 | Channel | The channel / terminal on that instrument |
@@ -160,4 +160,4 @@ the current state is bookmarkable.
 - [Configuration reference → Fixture YAML](../configuration.md#fixture-yaml) — the schema the designer writes
 - [Concepts → Capabilities](../../concepts/configuration/capabilities.md) — how Auto-Match decides what fits
 - [Stations](stations.md) — the station whose instruments populate the channel side
-- [Parts](parts.md) — the part whose pins populate the DUT side
+- [Parts](parts.md) — the part whose pins populate the UUT side

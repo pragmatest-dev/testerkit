@@ -1,4 +1,4 @@
-"""Fixture management for DUT routing.
+"""Fixture management for UUT routing.
 
 Import directly from the submodule:
 

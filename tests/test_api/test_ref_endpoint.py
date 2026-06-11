@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from litmus.api.app import _serialize_ref, create_api_router
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import (
-    DUT,
+    UUT,
     Measurement,
     Outcome,
     TestRun,
@@ -116,7 +116,7 @@ def app_with_run():
         id=uuid4(),
         started_at=datetime(2026, 5, 2, 12, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 5, 2, 12, 1, 0, tzinfo=UTC),
-        dut=DUT(serial="SN-001"),
+        uut=UUT(serial="SN-001"),
         outcome=Outcome.PASSED,
         steps=[
             TestStep(

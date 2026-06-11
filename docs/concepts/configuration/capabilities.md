@@ -103,7 +103,7 @@ When a part **outputs** voltage, the instrument needs to **input** (measure) tha
 When a part **inputs** power, the instrument needs to **output** (source) that power.
 
 ```
-Part (DUT)                    Instrument
+Part (UUT)                    Instrument
 ────────────                     ──────────
 
 output_voltage ────signal───►    DMM (measures dc_voltage)
@@ -427,7 +427,7 @@ catalog_entry:
           accuracy: {pct_reading: 0.0035}
           resolution: {digits: 6.5}
 
-Part spec — what the DUT NEEDS tested
+Part spec — what the UUT NEEDS tested
 ────────────────────────────────────────
 id: power_board_v1
 pins:
@@ -455,6 +455,6 @@ Matching: dc_voltage OUTPUT ↔ dc_voltage INPUT
 
 ## Next Steps
 
-- [Fixtures](fixtures.md) — Mapping DUT pins to instruments
+- [Fixtures](fixtures.md) — Mapping UUT pins to instruments
 - [Architecture](../overview/architecture.md) — System data flow
 - [Custom drivers](../../how-to/configuration/custom-drivers.md) — Creating custom drivers

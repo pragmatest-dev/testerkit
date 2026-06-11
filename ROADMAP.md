@@ -46,7 +46,7 @@ Things that make Litmus *good* (not just shippable). Sorted by RICE.
 | SpecQualifier matching scoring | medium | 1.5 | 0.6 | 1.0 | medium |
 | Exporter row-level cascade outcomes | medium | 1 | 0.7 | 1.0 | medium |
 | Channel EventStore-bridging subscription | medium | 1 | 0.6 | 1.0 | medium |
-| CLI fallback for multi-DUT operator prompts | low-med | 1 | 0.7 | 1.0 | medium |
+| CLI fallback for multi-UUT operator prompts | low-med | 1 | 0.7 | 1.0 | medium |
 | HTTP support for ImageDialog | small | 0.5 | 0.7 | 0.5 | small |
 | Channel attribution (`instrument_role`/`resource`) | small | 0.5 | 0.9 | 0.3 | small |
 | Array channel empty-result schema | small | 0.5 | 0.9 | 0.2 | small |
@@ -558,21 +558,21 @@ the platform, not the platform itself. Matches the
 `pytest-django` / `pytest-asyncio` convention. Cheaper pre-1.0 than
 after users pin transitive deps.
 
-### CLI fallback for operator prompts (multi-DUT aware)
+### CLI fallback for operator prompts (multi-UUT aware)
 
 When running without the UI/server, operator prompts (e.g. "insert
-DUT", "press button X", "verify LED is green") should fall back to
+UUT", "press button X", "verify LED is green") should fall back to
 **terminal prompts** rather than being no-ops or silently blocking on
 a UI that isn't running.
 
-Multi-DUT scenarios require context in the prompt: the prompt must
-identify **which DUT** ("DUT-2 of 4: insert board into socket B") so
+Multi-UUT scenarios require context in the prompt: the prompt must
+identify **which UUT** ("UUT-2 of 4: insert board into socket B") so
 the operator doesn't act on the wrong unit. Resolution path:
 
 - Single source of truth for the prompt API — one `request_input()`
   surface that dispatches to UI (when the server is running) or CLI
   (when it isn't).
-- CLI renderer shows the active DUT slot / serial / position from the
+- CLI renderer shows the active UUT slot / serial / position from the
   current run manifest.
 - Non-interactive mode (CI, `--yes`, `--no-prompt`) returns a default
   or fails loudly — never blocks silently.
@@ -623,7 +623,7 @@ switch state needed to land the path:
 
 ```yaml
 TP_VOUT_dc:
-  dut_pin: TP_VOUT
+  uut_pin: TP_VOUT
   function: dc_voltage
   instrument: dmm
   instrument_channel: ch1
@@ -1041,7 +1041,7 @@ sidebar (poll-and-refresh tables, click-through detail). The
 remaining surfaces:
 
 - **Sessions page** — drill into a session and see all sibling slot
-  runs at once (multi-DUT view). Today subsumed by the events
+  runs at once (multi-UUT view). Today subsumed by the events
   ``session_id`` filter, but a dedicated page makes the multi-slot
   cohort obvious.
 - **Artifacts page** — search across every ref ever written, group

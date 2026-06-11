@@ -129,8 +129,8 @@ class JsonSubscriber(EventSubscriber):
                         md["limit_comparator"] = m.limit_comparator
                     if m.characteristic_id:
                         md["characteristic_id"] = m.characteristic_id
-                    if m.dut_pin:
-                        md["dut_pin"] = m.dut_pin
+                    if m.uut_pin:
+                        md["uut_pin"] = m.uut_pin
                     if m.instrument_name:
                         md["instrument_name"] = m.instrument_name
                     measurements.append(md)
@@ -173,11 +173,11 @@ class JsonSubscriber(EventSubscriber):
         data: dict[str, Any] = {
             "run_id": str(s.run_id) if s.run_id else None,
             "station_id": s.station_id,
-            "dut": {
-                "serial": s.dut_serial,
-                "part_number": s.dut_part_number,
-                "revision": s.dut_revision,
-                "lot_number": s.dut_lot_number,
+            "uut": {
+                "serial": s.uut_serial,
+                "part_number": s.uut_part_number,
+                "revision": s.uut_revision,
+                "lot_number": s.uut_lot_number,
             },
             "project_name": s.project_name,
             "test_phase": s.test_phase,

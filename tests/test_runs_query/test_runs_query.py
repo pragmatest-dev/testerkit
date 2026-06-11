@@ -37,7 +37,7 @@ def _step_row(
     step_ended_at: datetime | None,
     step_index: int = 0,
     step_name: str = "test_step",
-    dut_serial: str = "SN001",
+    uut_serial: str = "SN001",
     station_id: str = "STA-01",
     test_phase: str = "production",
     part_id: str = "PN-100",
@@ -67,7 +67,7 @@ def _step_row(
             "step_vector_count": 1,
             "vector_index": 0,
             "measurement_name": None,
-            "dut_serial": dut_serial,
+            "uut_serial": uut_serial,
             "station_id": station_id,
             "test_phase": test_phase,
             "part_id": part_id,
@@ -88,7 +88,7 @@ def _measurement_row(
     step_index: int,
     step_name: str,
     measurement_name: str,
-    dut_serial: str,
+    uut_serial: str,
 ) -> dict:
     """Build one ``record_type='measurement'`` row in unified RUN_ROW_SCHEMA shape."""
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
@@ -113,7 +113,7 @@ def _measurement_row(
             "measurement_name": measurement_name,
             "measurement_value": 1.0,
             "measurement_outcome": run_outcome,
-            "dut_serial": dut_serial,
+            "uut_serial": uut_serial,
             "station_id": "STA-01",
             "test_phase": "production",
             "part_id": "PN-100",
@@ -132,7 +132,7 @@ def _write_run(
     outcome: str,
     n_steps: int = 2,
     measurements_per_step: int = 10,
-    dut_serial: str = "SN001",
+    uut_serial: str = "SN001",
 ) -> None:
     """Write a unified per-run parquet (n_steps × measurements_per_step rows)
     and notify the daemon to ingest it."""
@@ -155,7 +155,7 @@ def _write_run(
                 step_ended_at=step_end,
                 step_index=step_i,
                 step_name=f"step_{step_i}",
-                dut_serial=dut_serial,
+                uut_serial=uut_serial,
             )
         )
         for meas_i in range(measurements_per_step):
@@ -171,7 +171,7 @@ def _write_run(
                     step_index=step_i,
                     step_name=f"step_{step_i}",
                     measurement_name=f"meas_{step_i}_{meas_i}",
-                    dut_serial=dut_serial,
+                    uut_serial=uut_serial,
                 )
             )
     cols = {f.name: [r[f.name] for r in rows] for f in RUN_ROW_SCHEMA}
@@ -204,7 +204,7 @@ def _write_in_flight_run(
         step_ended_at=None,
         step_index=0,
         step_name="in_flight_step",
-        dut_serial="SN-LIVE",
+        uut_serial="SN-LIVE",
     )
     cols = {f.name: [populated[f.name]] for f in RUN_ROW_SCHEMA}
     pq.write_table(
@@ -266,7 +266,7 @@ def fixture_data():
             started=base + timedelta(minutes=10),
             outcome="failed",
             n_steps=3,
-            dut_serial="SN002",
+            uut_serial="SN002",
         )
         _write_run(
             runs_dir,
@@ -367,7 +367,7 @@ def fixture_data_with_in_flight():
             started=base + timedelta(minutes=10),
             outcome="failed",
             n_steps=3,
-            dut_serial="SN002",
+            uut_serial="SN002",
         )
         _write_run(
             runs_dir,

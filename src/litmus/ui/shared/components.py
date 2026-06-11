@@ -102,7 +102,7 @@ def session_filter_banner(session_id: str, clear_path: str) -> None:
 
     The label is built from the canonical SessionStarted-event
     metadata via :func:`format_session_label` (timestamp + client)
-    plus the DUT serial when available — operators recognize the
+    plus the UUT serial when available — operators recognize the
     run by what was being tested, not by UUID. The UUID never
     appears in the rendered banner.
 
@@ -181,8 +181,8 @@ def lookup_session_label(session_id: str) -> tuple[str, bool]:
         for s in query_sessions().get("sessions") or []:
             if str(s.get("session_id")) == session_id:
                 base = format_session_label(s)
-                dut = s.get("dut_serial") or ""
-                label = f"{dut} · {base}" if dut else base
+                uut = s.get("uut_serial") or ""
+                label = f"{uut} · {base}" if uut else base
                 return label, True
     except (OSError, RuntimeError):
         pass
@@ -193,9 +193,9 @@ def lookup_session_label(session_id: str) -> tuple[str, bool]:
 def lookup_run_label(run_id: str) -> tuple[str, bool]:
     """Look up an operator-readable label for ``run_id``.
 
-    Returns ``(label, found)``. The label combines ``dut_serial`` and
+    Returns ``(label, found)``. The label combines ``uut_serial`` and
     the run's start time so a pending-dialog list reads as e.g.
-    ``"DUT001 · 2026-06-06 07:42:13"`` instead of an opaque UUID
+    ``"UUT001 · 2026-06-06 07:42:13"`` instead of an opaque UUID
     prefix. Same cache-invariant story as :func:`lookup_session_label`
     — runs are immutable once started, so a ``found=True`` result is
     correct for the process lifetime and a ``found=False`` result is
@@ -211,9 +211,9 @@ def lookup_run_label(run_id: str) -> tuple[str, bool]:
         # are still in flight, which are by definition recent.
         for r in get_recent_runs(limit=200, include_incomplete=True):
             if (r.test_run_id or "") == run_id:
-                dut = r.dut_serial or ""
+                uut = r.uut_serial or ""
                 ts = format_session_label({"occurred_at": r.started_at, "client": ""}).rstrip(" •?")
-                label = f"{dut} · {ts}" if dut else ts
+                label = f"{uut} · {ts}" if uut else ts
                 return label, True
     except (OSError, RuntimeError):
         pass
@@ -294,7 +294,7 @@ def render_no_data_card(
     Replaces the per-page hand-rolled empty-state cards (each had
     slightly different padding, font weights, or label classes) so
     operators see one visual idiom across /channels, /events, /files,
-    /duts, /results.
+    /uuts, /results.
 
     Args:
         container: The NiceGUI container (column / card / row) the

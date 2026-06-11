@@ -26,7 +26,7 @@ class _FakeEventLog:
 class TestLoggerRecord:
     def _make_logger(self) -> tuple[TestRunLogger, _FakeEventLog]:
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="st1",
         )
         fake_log = _FakeEventLog()
@@ -58,7 +58,7 @@ class TestLoggerRecord:
     def test_record_no_event_log(self):
         """record() is a no-op when no event log is wired."""
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="st1",
         )
         # Should not raise

@@ -553,7 +553,7 @@ class TestFixtureConnectionTerminal:
 
         fc = FixtureConnection(
             name="gnd_psu_lo",
-            dut_pin="J1_GND",
+            uut_pin="J1_GND",
             instrument="psu",
             instrument_channel="1",
             instrument_terminal="lo",
@@ -619,7 +619,7 @@ class TestDesignerAutoSuggest:
             char_by_pin={},
             part=None,
             instruments=instruments,
-            dut_pins={"TP_VOUT": {"name": "TP2", "net": "VOUT", "role": "signal"}},
+            uut_pins={"TP_VOUT": {"name": "TP2", "net": "VOUT", "role": "signal"}},
         )
         # Without characteristics, all channels are returned
         assert "psu:1" in compatible
@@ -636,7 +636,7 @@ class TestDesignerAutoSuggest:
             char_by_pin={},
             part=None,
             instruments=instruments,
-            dut_pins={"J1_GND": {"name": "J1.2", "net": "GND", "role": "ground"}},
+            uut_pins={"J1_GND": {"name": "J1.2", "net": "GND", "role": "ground"}},
         )
         assert "psu:1" in compatible
         assert "dmm:1" in compatible

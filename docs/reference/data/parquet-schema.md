@@ -2,9 +2,9 @@
 
 Each Litmus run produces **one Parquet file**. Every row carries an explicit `record_type` discriminator with one of three values:
 
-- `record_type = 'run'` — exactly one row per file. Carries run-level identity, timing, outcome, plus DUT / station / project / git / environment context.
+- `record_type = 'run'` — exactly one row per file. Carries run-level identity, timing, outcome, plus UUT / station / project / git / environment context.
 - `record_type = 'step'` — one row per `(step_path, vector_index)` execution. Step identity, timing, outcome, dynamic `in_*` / `out_*` columns. Measurement columns are NULL.
-- `record_type = 'measurement'` — one row per recorded measurement. Carries the measurement payload plus the same denormalized step + run + DUT + station + fixture context as the corresponding step row.
+- `record_type = 'measurement'` — one row per recorded measurement. Carries the measurement payload plus the same denormalized step + run + UUT + station + fixture context as the corresponding step row.
 
 Step and measurement rows share grain `(run_id, step_path, vector_index)`; measurement rows are further keyed by `measurement_name`. A step that records N measurements emits 1 step row + N measurement rows.
 
@@ -15,7 +15,7 @@ The canonical schema lives at `src/litmus/data/schemas.py` (`RUN_ROW_SCHEMA`); t
 ```
 <data_dir>/runs/{date}/
 ├── {timestamp}_{serial}.parquet           # Run row + all step + measurement rows for one run
-├── {timestamp}.parquet                    # Same shape, no DUT serial (dev runs)
+├── {timestamp}.parquet                    # Same shape, no UUT serial (dev runs)
 └── {timestamp}_{serial}_ref/              # Reference data (waveforms, images, files)
     ├── {vector_id}_scope_waveform.npz
     ├── {vector_id}_camera_image.png
@@ -31,7 +31,7 @@ Timestamps are UTC and sort naturally. DuckDB / Spark / Polars / Pandas all read
 | `record_type` | string | `'run'`, `'step'`, or `'measurement'` |
 
 Every query starts here. Three values:
-- `run` — one row per run carrying run-level metadata (start/end timestamps, DUT serial, station, outcome).
+- `run` — one row per run carrying run-level metadata (start/end timestamps, UUT serial, station, outcome).
 - `step` — one row per (step, vector) combination.
 - `measurement` — one row per measurement name within a (step, vector).
 
@@ -43,7 +43,7 @@ To list steps: `WHERE record_type = 'step'`. To list measurements: `WHERE record
 |--------|------|-------------|
 | `session_id` | string | Session UUID — groups runs that ran together in one `litmus serve` / `pytest` invocation |
 | `run_id` | string | Run UUID — primary key for the run |
-| `slot_id` | string | Multi-DUT slot ID (NULL for single-DUT runs) |
+| `slot_id` | string | Multi-UUT slot ID (NULL for single-UUT runs) |
 | `run_started_at` | timestamp[us, UTC] | When the run started |
 | `run_ended_at` | timestamp[us, UTC] | When the run ended |
 | `step_name` | string | Test function or class name |
@@ -71,14 +71,14 @@ To list steps: `WHERE record_type = 'step'`. To list measurements: `WHERE record
 | `operator_id` | string | From `--operator` or env var |
 | `operator_name` | string | Human-readable name |
 
-## What — DUT
+## What — UUT
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `dut_serial` | string | From `--dut-serial` |
-| `dut_part_number` | string | Operator-facing part identifier (NOT `part_id`) |
-| `dut_revision` | string | Hardware revision |
-| `dut_lot_number` | string | Manufacturing lot |
+| `uut_serial` | string | From `--uut-serial` |
+| `uut_part_number` | string | Operator-facing part identifier (NOT `part_id`) |
+| `uut_revision` | string | Hardware revision |
+| `uut_lot_number` | string | Manufacturing lot |
 
 ## What — part spec
 
@@ -158,7 +158,7 @@ For each parametrize axis or sidecar sweep parameter, the writer emits a column.
 | `in_{param}_instrument` | string | Instrument name |
 | `in_{param}_resource` | string | VISA address at test time |
 | `in_{param}_channel` | string | Channel on instrument |
-| `in_{param}_dut_pin` | string | DUT pin driven |
+| `in_{param}_uut_pin` | string | UUT pin driven |
 | `in_{param}_fixture_connection` | string | Fixture routing connection |
 
 **Naming convention:**
@@ -237,7 +237,7 @@ GROUP BY characteristic_id, part_id;
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `dut_pin` | string | DUT pin that was measured |
+| `uut_pin` | string | UUT pin that was measured |
 | `fixture_connection` | string | Fixture routing connection name |
 | `instrument_name` | string | Role name of the instrument that took the measurement |
 | `instrument_resource` | string | VISA address |
@@ -352,7 +352,7 @@ measurements = df[df["record_type"] == "measurement"]
 # Failures with full context
 failures = measurements[measurements["measurement_outcome"] == "failed"]
 print(failures[["step_name", "measurement_name", "measurement_value",
-                "limit_low", "limit_high", "dut_pin", "instrument_name"]])
+                "limit_low", "limit_high", "uut_pin", "instrument_name"]])
 ```
 
 ### Yield by station with DuckDB
@@ -407,10 +407,10 @@ ORDER BY avg_seconds DESC;
 | `record_type='step'` | `TestGroup` |
 | `vector_index` | (Conditions) |
 | `record_type='measurement'` | `Data` |
-| `DUT` (`dut_*`) | `UUT` |
+| `UUT` (`uut_*`) | `UUT` |
 | `measurement_outcome` | `OutcomeValue` |
 | `limit_comparator` | `Comparator` |
-| `dut_pin` | `uutPort` |
+| `uut_pin` | `uutPort` |
 | `instrument_channel` | `instrumentPort` |
 
 ## See also

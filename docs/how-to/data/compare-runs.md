@@ -112,4 +112,4 @@ the tool of your choice.
 - [Channels reference](../../reference/operator-ui/channels/list.md) — the channel views used in step 3
 - [Parquet schema](../../reference/data/parquet-schema.md) — the columns you can join on
 - [Three stores](../../concepts/data/three-stores.md) — where the parquet files live
-- [Find flaky tests](find-flaky-tests.md) — when the two runs are the same test on the same DUT
+- [Find flaky tests](find-flaky-tests.md) — when the two runs are the same test on the same UUT

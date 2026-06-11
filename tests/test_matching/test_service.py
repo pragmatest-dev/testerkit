@@ -101,7 +101,7 @@ class TestCapabilitySatisfies:
         )
         required = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.OUTPUT,  # DUT output → needs instrument input
+            direction=Direction.OUTPUT,  # UUT output → needs instrument input
             characteristic_name="rail_3v3",
         )
         assert capability_satisfies(station, required) is True
@@ -137,14 +137,14 @@ class TestCapabilitySatisfies:
         assert capability_satisfies(station, required) is True
 
     def test_direction_mismatch(self):
-        """Station INPUT does not satisfy DUT INPUT (both same direction)."""
+        """Station INPUT does not satisfy UUT INPUT (both same direction)."""
         station = _make_station_cap(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.INPUT,
         )
         required = _make_req(
             function=MeasurementFunction.DC_VOLTAGE,
-            direction=Direction.INPUT,  # DUT input → needs instrument output, not input
+            direction=Direction.INPUT,  # UUT input → needs instrument output, not input
             characteristic_name="input_voltage",
         )
         assert capability_satisfies(station, required) is False
@@ -398,7 +398,7 @@ class TestGetRequiredCapabilities:
     """Tests for the get_required_capabilities function."""
 
     def test_preserves_direction(self):
-        """DUT OUTPUT characteristic preserves direction in requirement."""
+        """UUT OUTPUT characteristic preserves direction in requirement."""
         part = Part(
             id="test_part",
             name="Test Part",

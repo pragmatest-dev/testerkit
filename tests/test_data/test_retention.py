@@ -166,7 +166,7 @@ class TestFilesRefAware:
         runs.mkdir(parents=True)
         pq.write_table(
             pa.table({"out_x": [f"file://{old}/{sid}/kept.bin"]}),
-            runs / "120000_DUT.parquet",
+            runs / "120000_UUT.parquet",
         )
 
         fdir = project_dir / "files" / old / sid

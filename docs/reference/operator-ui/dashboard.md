@@ -36,7 +36,7 @@ deliberately a quick-glance summary.
 
 | Column | What it shows |
 |---|---|
-| DUT | DUT serial number |
+| UUT | UUT serial number |
 | Station | Station hostname (the machine an operator recognizes), not the internal station id |
 | Started | Run start timestamp, browser-local time |
 | Outcome | Final outcome value |

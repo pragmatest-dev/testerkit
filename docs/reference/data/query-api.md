@@ -18,7 +18,7 @@ from litmus.queries import RunsQuery
 with RunsQuery() as q:
     recent = q.list_recent(limit=20, outcome="failed")
     for r in recent:
-        print(r.run_id, r.dut_serial, r.outcome)
+        print(r.run_id, r.uut_serial, r.outcome)
 ```
 
 Row records returned by these methods live in [models.md](models.md) — see `RunRow`, `StepRow`, `StepNode`. Filter shapes (`FilterSet`, `FacetSpec`, `FacetOption`) also have field tables there.
@@ -54,11 +54,11 @@ Return one run by id-prefix (8-char) or ``None`` if not found.
 
 `find_for_session(session_id: str, *, include_incomplete: bool = False) → list[RunRow]`
 
-Return all runs sharing a ``session_id`` (multi-DUT siblings).
+Return all runs sharing a ``session_id`` (multi-UUT siblings).
 
 ### `RunsQuery.failure_pareto` {#runsquery-failure_pareto}
 
-`failure_pareto(*, group_by: str = 'dut_part_number', top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
+`failure_pareto(*, group_by: str = 'uut_part_number', top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
 
 Pareto of failing runs grouped by ``group_by`` column.
 
@@ -174,7 +174,7 @@ Yield trend over time.
 
 `retest(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[dict[str, Any]]`
 
-Retest rates: how often DUTs require multiple attempts.
+Retest rates: how often UUTs require multiple attempts.
 
 ### `MeasurementsQuery.time_loss` {#measurementsquery-time_loss}
 

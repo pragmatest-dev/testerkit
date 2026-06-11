@@ -1,43 +1,43 @@
-# DUTs
+# UUTs
 
-**URLs:** `/duts`
+**URLs:** `/uuts`
 
-A DUT (device under test) is the physical unit a test run exercises. DUTs
+A UUT (device under test) is the physical unit a test run exercises. UUTs
 are never declared in YAML — they are identified at runtime by the serial
 number the operator (or automation) supplies when starting a run. Every
-distinct `dut_serial` that has ever appeared in run history gets one row
+distinct `uut_serial` that has ever appeared in run history gets one row
 on this page.
 
-## List — `/duts`
+## List — `/uuts`
 
-A table with one row per distinct DUT serial observed in run history.
+A table with one row per distinct UUT serial observed in run history.
 Rows are ordered by most-recent run first.
 
 | Column | What it shows |
 |---|---|
-| Serial | The `dut_serial` value recorded on the run |
-| Part Number | The `dut_part_number` recorded on the most recent run for this serial |
-| Lot | The `dut_lot_number` recorded on the most recent run for this serial |
+| Serial | The `uut_serial` value recorded on the run |
+| Part Number | The `uut_part_number` recorded on the most recent run for this serial |
+| Lot | The `uut_lot_number` recorded on the most recent run for this serial |
 | Runs | Total run count across all outcomes for this serial |
 | Passed | Run count with outcome `passed` |
 | Failed | Run count with outcome `failed` |
 | Last Run | Most recent run start timestamp, browser-local time |
 
-A badge in the page header shows the total count of observed DUTs.
+A badge in the page header shows the total count of observed UUTs.
 
 The table has no filter row. All rows are observed-only — there is no
-Configured / Observed distinction because DUTs have no backing YAML.
+Configured / Observed distinction because UUTs have no backing YAML.
 
-There is no detail page at `/duts/{serial}`. The list is the only view.
+There is no detail page at `/uuts/{serial}`. The list is the only view.
 
 ### Empty state
 
-When no runs with a non-empty `dut_serial` are present, the table is
+When no runs with a non-empty `uut_serial` are present, the table is
 replaced with a card:
 
-> No DUTs observed yet.
+> No UUTs observed yet.
 >
-> Run a test against a station to populate this list. Every distinct DUT
+> Run a test against a station to populate this list. Every distinct UUT
 > serial that appears in run history shows up here.
 
 ### Outcome columns
@@ -53,9 +53,9 @@ field in the run record:
 
 | Column | Run field |
 |---|---|
-| Serial | `dut_serial` |
-| Part Number | `dut_part_number` |
-| Lot | `dut_lot_number` |
+| Serial | `uut_serial` |
+| Part Number | `uut_part_number` |
+| Lot | `uut_lot_number` |
 
 For the full set of run fields, see
 [Parquet schema → Run columns](../data/parquet-schema.md).
@@ -65,9 +65,9 @@ For the query surface the UI reads through, see
 
 ## See also
 
-- [Parquet schema](../data/parquet-schema.md) — the `dut_serial`,
-  `dut_part_number`, and `dut_lot_number` run columns
+- [Parquet schema](../data/parquet-schema.md) — the `uut_serial`,
+  `uut_part_number`, and `uut_lot_number` run columns
 - [Results](results/index.md) — per-run view; filter by serial to see
-  the full history of one DUT
+  the full history of one UUT
 - [Launch Test](launch.md) — where the operator supplies the serial
   number that populates this page

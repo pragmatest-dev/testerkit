@@ -30,7 +30,7 @@ Author and run tests.
 - [Read and write the test context](execution/test-context.md) — what the `context` fixture knows and how to use it from inside a test
 - [Profiles — named config sets](execution/profiles.md) — select which tests run and how
 - [Managing sessions](execution/managing-sessions.md) — connect/disconnect lifecycle for instrument usage
-- [Multi-DUT testing](execution/multi-dut-testing.md) — subprocess-per-slot, shared instruments
+- [Multi-UUT testing](execution/multi-uut-testing.md) — subprocess-per-slot, shared instruments
 - [Measurement traceability](execution/traceability.md) — ATML / IEEE 1671 metadata captured automatically
 - [Operator prompts](execution/operator-prompts.md) — design guide for the `litmus_prompts` marker and the `prompt` fixture
 

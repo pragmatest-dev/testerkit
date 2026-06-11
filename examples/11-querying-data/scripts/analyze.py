@@ -4,8 +4,8 @@ The "I produced the data, now what?" half of the story. Demonstrates
 the public Query API surfaces a data analyst (or external tool, or
 custom UI) would reach for:
 
-* ``RunsQuery`` — list recent runs, filter by outcome / DUT / station
-* ``MeasurementsQuery`` — yield summary, distinct DUT serials,
+* ``RunsQuery`` — list recent runs, filter by outcome / UUT / station
+* ``MeasurementsQuery`` — yield summary, distinct UUT serials,
   parametric queries
 * ``EventStore`` — replay the timeline of events for a run
 
@@ -61,14 +61,14 @@ def main() -> None:
             outcome = r.outcome or "in_flight"
             started = r.started_at.isoformat(timespec="seconds") if r.started_at else "?"
             print(
-                f"  {r.dut_serial or '-':<10}  {r.dut_part_number or '-':<18}  "
+                f"  {r.uut_serial or '-':<10}  {r.uut_part_number or '-':<18}  "
                 f"{r.station_id or '-':<10}  {outcome:<8}  started {started}"
             )
 
-        # 2. Filter by DUT — every run on SN-001
+        # 2. Filter by UUT — every run on SN-001
         target_serial = "SN-001"
-        sn_runs = [r for r in runs if r.dut_serial == target_serial]
-        print(f"\nRuns for DUT {target_serial}: {len(sn_runs)}")
+        sn_runs = [r for r in runs if r.uut_serial == target_serial]
+        print(f"\nRuns for UUT {target_serial}: {len(sn_runs)}")
         for r in sn_runs:
             run_short = (r.run_id or "?")[:8]
             started = r.started_at.isoformat(timespec="seconds") if r.started_at else "?"
@@ -96,13 +96,13 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001
             print(f"\nyield_summary() unavailable for this dataset: {exc}")
 
-        # 5. Distinct DUTs seen — pure observability
+        # 5. Distinct UUTs seen — pure observability
         try:
-            duts = m_q.distinct_values("dut_serial")
-            values = sorted(d.value for d in duts if d.value is not None)
-            print(f"\nDistinct dut_serial values: {values}")
+            uuts = m_q.distinct_values("uut_serial")
+            values = sorted(d.value for d in uuts if d.value is not None)
+            print(f"\nDistinct uut_serial values: {values}")
         except Exception as exc:  # noqa: BLE001
-            print(f"distinct_values('dut_serial') unavailable: {exc}")
+            print(f"distinct_values('uut_serial') unavailable: {exc}")
 
     # 6. EventStore — timeline replay
     _hr()

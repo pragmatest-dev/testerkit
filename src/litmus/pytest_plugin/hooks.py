@@ -301,7 +301,7 @@ def pytest_report_header(config):
 
 
 def pytest_sessionstart(session):
-    """Wire prompt routing + validate DUT serial at session start."""
+    """Wire prompt routing + validate UUT serial at session start."""
     _install_termination_handler()
 
     # If we're a test subprocess launched by ``litmus serve``, bridge
@@ -316,10 +316,10 @@ def pytest_sessionstart(session):
     config = session.config
     _resolve_and_install_slot_id(config)
 
-    dut_serial = config.getoption("--dut-serial")
-    dut_serials = config.getoption("--dut-serials")
+    uut_serial = config.getoption("--uut-serial")
+    uut_serials = config.getoption("--uut-serials")
 
-    if dut_serials:
+    if uut_serials:
         return
 
     requested_phase = config.getoption("--test-phase") or os.environ.get("LITMUS_TEST_PHASE")
@@ -328,9 +328,9 @@ def pytest_sessionstart(session):
     if test_phase == "development":
         return
 
-    if dut_serial == "DUT001":
+    if uut_serial == "UUT001":
         serial = prompt_for_serial(test_phase)
-        config.option.dut_serial = serial
+        config.option.uut_serial = serial
 
 
 def _resolve_and_install_slot_id(config) -> None:
@@ -360,7 +360,7 @@ def _resolve_and_install_slot_id(config) -> None:
             raise pytest.UsageError(
                 "--slot is for single-process runs; this process was spawned "
                 "by the multi-slot orchestrator (saw _LITMUS_SLOT_ID env var). "
-                "Use --dut-serials at the orchestrator level instead."
+                "Use --uut-serials at the orchestrator level instead."
             )
         set_current_slot_id(env_slot_id)
         return
@@ -898,27 +898,27 @@ def pytest_addoption(parser):
     """Add Litmus command-line options."""
     project = load_project_defaults()
     group = parser.getgroup("litmus")
-    group.addoption("--dut-serial", default="DUT001", help="DUT serial number")
+    group.addoption("--uut-serial", default="UUT001", help="UUT serial number")
     group.addoption(
-        "--dut-serials",
+        "--uut-serials",
         default=None,
-        help="Per-slot DUT serials: slot_1=SN1,slot_2=SN2",
+        help="Per-slot UUT serials: slot_1=SN1,slot_2=SN2",
     )
     group.addoption(
         "--slot",
         default=None,
         help="Physical fixture slot for this single-process run "
         "(e.g. ``slot_1``, ``slot_2``). Use this when running a single "
-        "DUT against a specific position in a multi-slot fixture so the "
+        "UUT against a specific position in a multi-slot fixture so the "
         "run records which slot was exercised. Multi-slot orchestration "
-        "uses ``--dut-serials`` instead — supplying both is an error.",
+        "uses ``--uut-serials`` instead — supplying both is an error.",
     )
-    group.addoption("--dut-part-number", default=None, help="DUT part number")
-    group.addoption("--dut-revision", default=None, help="DUT revision")
+    group.addoption("--uut-part-number", default=None, help="UUT part number")
+    group.addoption("--uut-revision", default=None, help="UUT revision")
     group.addoption(
-        "--dut-lot-number",
+        "--uut-lot-number",
         default=None,
-        help="DUT lot/batch number (mirrors LITMUS_DUT_LOT_NUMBER env var)",
+        help="UUT lot/batch number (mirrors LITMUS_UUT_LOT_NUMBER env var)",
     )
     group.addoption(
         "--station",
@@ -982,7 +982,7 @@ def pytest_addoption(parser):
         action="store_true",
         default=False,
         help="Fail tests whose measurements lack required traceability fields "
-        "(run_id, step_name, and spec_ref/dut_pin when a spec is active).",
+        "(run_id, step_name, and spec_ref/uut_pin when a spec is active).",
     )
     group.addoption(
         "--test-profile",

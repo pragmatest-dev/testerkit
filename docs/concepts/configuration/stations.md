@@ -33,7 +33,7 @@ Each instrument has:
 | `type` | Instrument type (dmm, scope, psu, eload, etc.) |
 | `resource` | VISA address or connection string |
 | `mock_config` | Values for `--mock-instruments` mode |
-Instruments can be shared across multiple DUT slots in a multi-DUT fixture. When shared, the orchestrator connects them once and serves them to worker subprocesses via an `InstrumentServer` (an internal RPC server that lets multiple test workers share one physical instrument — TCP with per-resource locking). No special flags needed — sharing is detected automatically from the fixture topology. See [Configuring Stations](../../how-to/configuration/configuring-stations.md#shared-instruments-multi-dut) for details.
+Instruments can be shared across multiple UUT slots in a multi-UUT fixture. When shared, the orchestrator connects them once and serves them to worker subprocesses via an `InstrumentServer` (an internal RPC server that lets multiple test workers share one physical instrument — TCP with per-resource locking). No special flags needed — sharing is detected automatically from the fixture topology. See [Configuring Stations](../../how-to/configuration/configuring-stations.md#shared-instruments-multi-uut) for details.
 
 ### Common Instrument Types
 
@@ -50,7 +50,7 @@ Instruments can be shared across multiple DUT slots in a multi-DUT fixture. When
 For development without hardware, use `--mock-instruments`:
 
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --uut-serial=SIM001
 ```
 
 Configure mock values in the station:
@@ -125,7 +125,7 @@ Station configs define the physical instrument inventory. A sidecar YAML can opt
 ### Via pytest
 
 ```bash
-pytest tests/ --station=bench_1 --dut-serial=SN001
+pytest tests/ --station=bench_1 --uut-serial=SN001
 ```
 
 ### Via fixtures
@@ -202,11 +202,11 @@ instruments:
 
 Run in CI:
 ```bash
-pytest tests/ --station=stations/ci_station.yaml --mock-instruments --dut-serial=CI-TEST
+pytest tests/ --station=stations/ci_station.yaml --mock-instruments --uut-serial=CI-TEST
 ```
 
 ## Next Steps
 
 - [Capabilities](capabilities.md) — Understanding what stations can do
-- [Fixtures](fixtures.md) — Mapping DUT pins to instruments
+- [Fixtures](fixtures.md) — Mapping UUT pins to instruments
 - [Configuration Reference](../../reference/configuration.md) — YAML schema details

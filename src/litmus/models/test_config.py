@@ -381,15 +381,15 @@ class SwitchRoute(BaseModel):
 class FixtureConnection(BaseModel):
     """A named connection on a test fixture.
 
-    Maps a DUT pin to an instrument channel and terminal, enabling
+    Maps a UUT pin to an instrument channel and terminal, enabling
     complete signal routing traceability. Each named connection is the
     addressable unit; an instrument channel alone is ambiguous because
     channels span instruments.
 
     Terminology:
-    - Pin: Physical DUT connection point (J1.1, TP5)
+    - Pin: Physical UUT connection point (J1.1, TP5)
     - Net: Schematic signal name (VOUT_3V3)
-    - FixtureConnection: Named DUT-pin ↔ instrument-channel pairing (vout_measure)
+    - FixtureConnection: Named UUT-pin ↔ instrument-channel pairing (vout_measure)
     - InstrumentChannel: Physical channel on instrument (CH1, ai0)
     - InstrumentTerminal: Physical terminal (hi, lo, signal)
 
@@ -399,7 +399,7 @@ class FixtureConnection(BaseModel):
           instrument: dmm
           instrument_channel: "1"
           instrument_terminal: hi
-          dut_pin: VOUT
+          uut_pin: VOUT
           net: "VOUT_3V3"
 
     Example YAML (switched routing):
@@ -407,7 +407,7 @@ class FixtureConnection(BaseModel):
           name: vout_measure
           instrument: dmm
           instrument_channel: "1"
-          dut_pin: VOUT
+          uut_pin: VOUT
           route:
             switch: matrix
             channels: ["r0c0"]
@@ -422,13 +422,13 @@ class FixtureConnection(BaseModel):
     instrument_terminal: str | None = None  # "hi", "lo", "signal", etc.
     description: str | None = None
 
-    # DUT-side mapping (ATML: signal routing)
-    dut_pin: str | None = None  # Reference to Part.pins key
+    # UUT-side mapping (ATML: signal routing)
+    uut_pin: str | None = None  # Reference to Part.pins key
     net: str | None = None  # Match by schematic net name
 
     # Measurement function this connection serves (e.g. dc_voltage,
     # ac_voltage). Optional. When set, the resolver matches connections
-    # by (dut_pin, function) so a single pin can route to different
+    # by (uut_pin, function) so a single pin can route to different
     # instruments for different characteristics (e.g. DMM for DC,
     # Scope for AC ripple). When unset, falls back to first-match by
     # pin — backward-compatible for fixtures without per-function
@@ -440,32 +440,32 @@ class FixtureConnection(BaseModel):
 
 
 class FixtureSlot(BaseModel):
-    """A DUT slot within a multi-DUT fixture.
+    """A UUT slot within a multi-UUT fixture.
 
-    Each slot has its own FixtureConnection mappings that route DUT pins
+    Each slot has its own FixtureConnection mappings that route UUT pins
     to specific instrument channels. Slots share the same instrument
     roles but use different channels (or entirely different instruments).
 
     Example YAML:
         slot_1:
-          dut_resource: /dev/ttyUSB0
+          uut_resource: /dev/ttyUSB0
           connections:
             vout_measure:
               name: vout_measure
               instrument: dmm
               instrument_channel: "1"
-              dut_pin: VOUT
+              uut_pin: VOUT
     """
 
     model_config = {"extra": "forbid"}
 
     connections: dict[str, FixtureConnection] = Field(default_factory=dict)
-    dut_resource: str | None = None  # Per-slot DUT connection string
+    uut_resource: str | None = None  # Per-slot UUT connection string
     description: str | None = None
 
 
 class FixtureConfig(BaseModel):
-    """Test fixture definition (DUT interface).
+    """Test fixture definition (UUT interface).
 
     Fixtures define how part pins connect to station instruments.
     They can be scoped to:
@@ -473,9 +473,9 @@ class FixtureConfig(BaseModel):
     - A part family (part_family) - for shared fixtures
     - A specific revision (part_revision) - optional refinement
 
-    Single-DUT fixtures use ``connections`` directly. Multi-DUT fixtures
+    Single-UUT fixtures use ``connections`` directly. Multi-UUT fixtures
     use ``slots``, where each slot has its own ``connections`` dict mapping
-    DUT pins to instrument channels. The two are mutually exclusive.
+    UUT pins to instrument channels. The two are mutually exclusive.
 
     For simple setups without formal fixtures, tests can use:
     - Direct instrument access via fixtures (dmm, psu)
@@ -498,12 +498,12 @@ class FixtureConfig(BaseModel):
     # against the active profile's ``station_type``.
     station_types: list[str] = Field(default_factory=list)
 
-    # DUT connection string (e.g., COM3, /dev/ttyUSB0)
-    dut_resource: str | None = None
+    # UUT connection string (e.g., COM3, /dev/ttyUSB0)
+    uut_resource: str | None = None
 
-    # DUT-pin ↔ instrument-channel pairings (single-DUT)
+    # UUT-pin ↔ instrument-channel pairings (single-UUT)
     connections: dict[str, FixtureConnection] = Field(default_factory=dict)
-    # Multi-DUT slot mappings
+    # Multi-UUT slot mappings
     slots: dict[str, FixtureSlot] = Field(default_factory=dict)
 
     description: str | None = None
@@ -513,7 +513,7 @@ class FixtureConfig(BaseModel):
         if self.connections and self.slots:
             raise ValueError(
                 "FixtureConfig cannot have both 'connections' and 'slots'. "
-                "Use 'connections' for single-DUT fixtures or 'slots' for multi-DUT."
+                "Use 'connections' for single-UUT fixtures or 'slots' for multi-UUT."
             )
         for slot_id in self.slots:
             if not slot_id or not slot_id.strip():
@@ -522,12 +522,12 @@ class FixtureConfig(BaseModel):
 
     @property
     def slot_count(self) -> int:
-        """Number of DUT slots (1 for single-DUT fixtures)."""
+        """Number of UUT slots (1 for single-UUT fixtures)."""
         return len(self.slots) if self.slots else 1
 
     @property
     def is_multi_slot(self) -> bool:
-        """True if this fixture has multiple DUT slots."""
+        """True if this fixture has multiple UUT slots."""
         return len(self.slots) > 1
 
 

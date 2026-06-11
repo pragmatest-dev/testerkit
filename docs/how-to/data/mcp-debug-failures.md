@@ -83,7 +83,7 @@ DuckDB join you'd run.
 
 ### 5. Cross-check environment with channels
 
-If the measurement is wild but the DUT is fine, the cause is
+If the measurement is wild but the UUT is fine, the cause is
 usually environmental. Get the channel ids the run logged:
 
 > Show me the supply-rail channels from session <session_id> over

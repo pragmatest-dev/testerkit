@@ -35,7 +35,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -72,7 +72,7 @@ class TestMaterializer:
         assert meas_row["measurement_name"] == "vout"
         assert meas_row["measurement_value"] == 3.3
         assert meas_row["station_id"] == "st1"
-        assert meas_row["dut_serial"] == "SN001"
+        assert meas_row["uut_serial"] == "SN001"
         assert meas_row["run_outcome"] == "passed"
 
     def test_instruments_cached(self, tmp_path):
@@ -85,7 +85,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -130,7 +130,7 @@ class TestMaterializer:
             RunStarted(
                 run_id=run_id,
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -167,7 +167,7 @@ class TestMaterializer:
             RunStarted(
                 run_id=uuid4(),
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -182,7 +182,7 @@ class TestMaterializer:
         assert len(rows) == 1
         assert rows[0]["record_type"] == "run"
         assert rows[0]["station_id"] == "st1"
-        assert rows[0]["dut_serial"] == "SN001"
+        assert rows[0]["uut_serial"] == "SN001"
 
     def test_step_identity_columns(self, tmp_path):
         """Step code identity fields appear in Parquet rows."""
@@ -195,7 +195,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -259,7 +259,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -300,18 +300,18 @@ class TestMaterializer:
             StepStarted(
                 session_id=session_id,
                 run_id=run_id,
-                step_name="configure_dut",
+                step_name="configure_uut",
                 step_index=1,
-                node_id="tests/test_hw.py::configure_dut",
+                node_id="tests/test_hw.py::configure_uut",
                 file="tests/test_hw.py",
-                function="configure_dut",
+                function="configure_uut",
             )
         )
         acc.on_event(
             StepEnded(
                 session_id=session_id,
                 run_id=run_id,
-                step_name="configure_dut",
+                step_name="configure_uut",
                 step_index=1,
                 outcome="passed",
             )
@@ -329,10 +329,10 @@ class TestMaterializer:
         assert manifest[0]["name"] == "test_voltage"
         assert manifest[0]["has_measurements"] is True
         assert manifest[0]["measurement_count"] == 1
-        assert manifest[1]["name"] == "configure_dut"
+        assert manifest[1]["name"] == "configure_uut"
         assert manifest[1]["has_measurements"] is False
         assert manifest[1]["measurement_count"] == 0
-        assert manifest[1]["node_id"] == "tests/test_hw.py::configure_dut"
+        assert manifest[1]["node_id"] == "tests/test_hw.py::configure_uut"
 
     def test_measurement_before_run_started(self, tmp_path):
         """Graceful fallback when RunStarted never arrives.

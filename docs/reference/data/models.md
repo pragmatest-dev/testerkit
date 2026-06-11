@@ -23,8 +23,8 @@ Direction of signal flow for a capability.
 
 | Value | Description |
 |---|---|
-| `'input'` | Signal/sense from DUT |
-| `'output'` | Source/drive to DUT |
+| `'input'` | Signal/sense from UUT |
+| `'output'` | Source/drive to UUT |
 | `'bidir'` | Both (SMU, VNA) |
 | `'transform'` | Signal-path component (amplifier, filter, mixer) |
 
@@ -348,7 +348,7 @@ Abstract station-type template (``stations/types/*.yaml``).
 
 #### `Pin` {#model-pin}
 
-Physical pin/pad on the DUT (ATML: Port).
+Physical pin/pad on the UUT (ATML: Port).
 
 | Field | Type | Default |
 |---|---|---|
@@ -419,7 +419,7 @@ Part definition (ATML: UUT Description).
 
 #### `PinRole` {#enum-pinrole}
 
-Role of a physical DUT pin in the test system.
+Role of a physical UUT pin in the test system.
 
 | Value | Description |
 |---|---|
@@ -563,24 +563,24 @@ A named connection on a test fixture.
 | `instrument_channel` | `str \| None` | `None` |
 | `instrument_terminal` | `str \| None` | `None` |
 | `description` | `str \| None` | `None` |
-| `dut_pin` | `str \| None` | `None` |
+| `uut_pin` | `str \| None` | `None` |
 | `net` | `str \| None` | `None` |
 | `function` | `MeasurementFunction \| None` | `None` |
 | `route` | `SwitchRoute \| None` | `None` |
 
 #### `FixtureSlot` {#model-fixtureslot}
 
-A DUT slot within a multi-DUT fixture.
+A UUT slot within a multi-UUT fixture.
 
 | Field | Type | Default |
 |---|---|---|
 | `connections` | `dict[str, FixtureConnection]` | `{}` |
-| `dut_resource` | `str \| None` | `None` |
+| `uut_resource` | `str \| None` | `None` |
 | `description` | `str \| None` | `None` |
 
 #### `FixtureConfig` {#model-fixtureconfig}
 
-Test fixture definition (DUT interface).
+Test fixture definition (UUT interface).
 
 | Field | Type | Default |
 |---|---|---|
@@ -590,7 +590,7 @@ Test fixture definition (DUT interface).
 | `part_family` | `str \| None` | `None` |
 | `part_revision` | `str \| None` | `None` |
 | `station_types` | `list[str]` | `[]` |
-| `dut_resource` | `str \| None` | `None` |
+| `uut_resource` | `str \| None` | `None` |
 | `connections` | `dict[str, FixtureConnection]` | `{}` |
 | `slots` | `dict[str, FixtureSlot]` | `{}` |
 | `description` | `str \| None` | `None` |
@@ -961,7 +961,7 @@ Record of a stimulus applied during test execution.
 | `instrument` | `str \| None` | `None` |
 | `resource` | `str \| None` | `None` |
 | `channel` | `str \| None` | `None` |
-| `dut_pin` | `str \| None` | `None` |
+| `uut_pin` | `str \| None` | `None` |
 | `fixture_connection` | `str \| None` | `None` |
 
 #### `Measurement` {#model-measurement}
@@ -982,7 +982,7 @@ A single measurement with optional limit checking.
 | `spec_ref` | `str \| None` | `None` |
 | `limit_comparator` | `str \| None` | `None` |
 | `timestamp` | `datetime` | *via* `_utcnow()` |
-| `dut_pin` | `str \| None` | `None` |
+| `uut_pin` | `str \| None` | `None` |
 | `instrument_name` | `str \| None` | `None` |
 | `instrument_resource` | `str \| None` | `None` |
 | `instrument_channel` | `str \| None` | `None` |
@@ -1050,7 +1050,7 @@ A pytest item collected for execution (before any run).
 | `vector_index` | `int` | `0` |
 | `vector_count_planned` | `int` | `1` |
 
-#### `DUT` {#model-dut}
+#### `UUT` {#model-uut}
 
 Device under test identification.
 
@@ -1072,8 +1072,8 @@ Lightweight run header read from parquet index (no steps/measurements).
 | `slot_id` | `str \| None` | `None` |
 | `started_at` | `datetime \| None` | `None` |
 | `ended_at` | `datetime \| None` | `None` |
-| `dut_serial` | `str \| None` | `None` |
-| `dut_part_number` | `str \| None` | `None` |
+| `uut_serial` | `str \| None` | `None` |
+| `uut_part_number` | `str \| None` | `None` |
 | `part_id` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
 | `station_name` | `str \| None` | `None` |
@@ -1098,7 +1098,7 @@ A complete test run with steps and measurements.
 | `session_id` | `UUID` | *via* `uuid4()` |
 | `started_at` | `datetime` | *via* `_utcnow()` |
 | `ended_at` | `datetime \| None` | `None` |
-| `dut` | `DUT` | *required* |
+| `uut` | `UUT` | *required* |
 | `part_id` | `str \| None` | `None` |
 | `part_name` | `str \| None` | `None` |
 | `part_revision` | `str \| None` | `None` |
@@ -1202,7 +1202,7 @@ Request to launch a test run.
 | Field | Type | Default |
 |---|---|---|
 | `part_id` | `str \| None` | `None` |
-| `dut_serial` | `str` | *required* |
+| `uut_serial` | `str` | *required* |
 | `station_id` | `str` | *required* |
 | `test_path` | `str` | `'tests'` |
 | `test_profile` | `str \| None` | `None` |
@@ -1230,7 +1230,7 @@ Public summary of one currently-tracked run.
 | `status` | `Literal['pending', 'running', 'completed', 'failed']` | *required* |
 | `progress_pct` | `int` | `0` |
 | `current_step` | `str \| None` | `None` |
-| `dut_serial` | `str` | *required* |
+| `uut_serial` | `str` | *required* |
 | `station_id` | `str` | *required* |
 
 #### `DialogCreate` {#model-dialogcreate}
@@ -1446,9 +1446,9 @@ One row from the ``runs`` table — denormalized run-level summary.
 | `run_id` | `str \| None` | `None` |
 | `session_id` | `str \| None` | `None` |
 | `slot_id` | `str \| None` | `None` |
-| `dut_serial` | `str \| None` | `None` |
-| `dut_part_number` | `str \| None` | `None` |
-| `dut_lot_number` | `str \| None` | `None` |
+| `uut_serial` | `str \| None` | `None` |
+| `uut_part_number` | `str \| None` | `None` |
+| `uut_lot_number` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
 | `station_name` | `str \| None` | `None` |
 | `station_hostname` | `str \| None` | `None` |
@@ -1489,7 +1489,7 @@ One row from the ``steps`` table — full denormalized run + step context.
 | `vector_count` | `int \| None` | `None` |
 | `retry_count` | `int \| None` | `None` |
 | `markers` | `str \| None` | `None` |
-| `dut_serial` | `str \| None` | `None` |
+| `uut_serial` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `outputs` | `dict[str, Any]` | `{}` |
@@ -1787,7 +1787,7 @@ erDiagram
 
     FixtureConnection {
         name string PK
-        dut_pin string FK
+        uut_pin string FK
         net string
         instrument string FK
         instrument_channel string
@@ -1866,7 +1866,7 @@ erDiagram
         session_id uuid
         started_at datetime
         ended_at datetime
-        dut DUT
+        uut UUT
         part_id string
         station_id string FK
         station_hostname string
@@ -1877,7 +1877,7 @@ erDiagram
         steps list
     }
 
-    DUT {
+    UUT {
         serial string PK
         part_number string
         revision string
@@ -1911,7 +1911,7 @@ erDiagram
         instrument string
         resource string
         channel string
-        dut_pin string
+        uut_pin string
         fixture_connection string
     }
 
@@ -1924,7 +1924,7 @@ erDiagram
         limit_nominal float
         limit_comparator string
         outcome Outcome
-        dut_pin string
+        uut_pin string
         instrument_name string
         instrument_resource string
         instrument_channel string
@@ -1987,7 +1987,7 @@ erDiagram
     Limit }o--o| PartCharacteristic : "from"
 
     %% Test execution results
-    TestRun ||--|| DUT : "tests"
+    TestRun ||--|| UUT : "tests"
     TestRun }o--|| StationConfig : "on"
     TestRun ||--o{ TestStep : "contains"
     TestStep ||--o{ TestVector : "contains"
@@ -2005,7 +2005,7 @@ erDiagram
 # Part defines what it needs tested
 part.characteristics["output_voltage"]
     → function: dc_voltage
-    → direction: OUTPUT   # DUT provides voltage
+    → direction: OUTPUT   # UUT provides voltage
 
 # Station instruments provide capabilities
 station.instruments["dmm_main"]

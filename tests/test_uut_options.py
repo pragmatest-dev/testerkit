@@ -1,9 +1,9 @@
-"""Test --dut-part-number, --dut-revision, --dut-lot-number pytest options.
+"""Test --uut-part-number, --uut-revision, --uut-lot-number pytest options.
 
 Inner pytest invocations inherit our ``LITMUS_HOME`` (set in
 ``conftest.py``) so they write to the canonical singleton
 data_dir — no per-test ``--data-dir`` override. Per-test
-isolation is by unique ``--dut-serial``; we read back the
+isolation is by unique ``--uut-serial``; we read back the
 parquet by filtering on that.
 """
 
@@ -22,8 +22,8 @@ pytest_plugins = ["pytester"]
 _CANONICAL_RESULTS = resolve_data_dir()
 
 
-def _find_parquet_by_serial(dut_serial: str, *, timeout: float = 15.0) -> Path | None:
-    """Find the most recent run parquet under canonical for ``dut_serial``.
+def _find_parquet_by_serial(uut_serial: str, *, timeout: float = 15.0) -> Path | None:
+    """Find the most recent run parquet under canonical for ``uut_serial``.
 
     Polls because the runs daemon writes parquets asynchronously after
     receiving ``RunEnded`` from the test process. The subprocess exits
@@ -33,7 +33,7 @@ def _find_parquet_by_serial(dut_serial: str, *, timeout: float = 15.0) -> Path |
 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        matches = list(_CANONICAL_RESULTS.glob(f"runs/**/*_{dut_serial}.parquet"))
+        matches = list(_CANONICAL_RESULTS.glob(f"runs/**/*_{uut_serial}.parquet"))
         matches = [m for m in matches if not m.stem.endswith("_steps")]
         if matches:
             return max(matches, key=lambda p: p.stat().st_mtime)
@@ -88,14 +88,14 @@ def test_dummy(context, logger):
     return pytester
 
 
-def test_dut_options_land_in_parquet(pytester_with_test):
-    """DUT part-number, revision, and lot flow through to Parquet."""
+def test_uut_options_land_in_parquet(pytester_with_test):
+    """UUT part-number, revision, and lot flow through to Parquet."""
     serial = f"SN-{uuid4().hex[:8]}"
     result = pytester_with_test.runpytest_subprocess(
-        f"--dut-serial={serial}",
-        "--dut-part-number=WIDGET-200",
-        "--dut-revision=C",
-        "--dut-lot-number=LOT-42",
+        f"--uut-serial={serial}",
+        "--uut-part-number=WIDGET-200",
+        "--uut-revision=C",
+        "--uut-lot-number=LOT-42",
         "--mock-instruments",
         "-q",
     )
@@ -107,17 +107,17 @@ def test_dut_options_land_in_parquet(pytester_with_test):
     table = pq.read_table(parquet)
     row = table.to_pylist()[0]
 
-    assert row["dut_serial"] == serial
-    assert row["dut_part_number"] == "WIDGET-200"
-    assert row["dut_revision"] == "C"
-    assert row["dut_lot_number"] == "LOT-42"
+    assert row["uut_serial"] == serial
+    assert row["uut_part_number"] == "WIDGET-200"
+    assert row["uut_revision"] == "C"
+    assert row["uut_lot_number"] == "LOT-42"
 
 
-def test_dut_options_default_to_none(pytester_with_test):
-    """DUT options default to None when not provided."""
+def test_uut_options_default_to_none(pytester_with_test):
+    """UUT options default to None when not provided."""
     import time
 
-    # No ``--dut-serial`` override → exercises the default. Scope the
+    # No ``--uut-serial`` override → exercises the default. Scope the
     # parquet lookup by mtime since we can't filter on a known serial.
     start = time.time()
     result = pytester_with_test.runpytest_subprocess(
@@ -132,7 +132,7 @@ def test_dut_options_default_to_none(pytester_with_test):
     table = pq.read_table(parquet)
     row = table.to_pylist()[0]
 
-    assert row["dut_serial"] == "DUT001"  # default
-    assert row.get("dut_part_number") is None
-    assert row.get("dut_revision") is None
-    assert row.get("dut_lot_number") is None
+    assert row["uut_serial"] == "UUT001"  # default
+    assert row.get("uut_part_number") is None
+    assert row.get("uut_revision") is None
+    assert row.get("uut_lot_number") is None

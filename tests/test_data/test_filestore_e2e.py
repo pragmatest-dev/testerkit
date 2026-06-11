@@ -43,7 +43,7 @@ from litmus.data.backends.parquet import ParquetBackend, load_ref
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.files import _reset_for_tests, get_filestore
 from litmus.data.models import (
-    DUT,
+    UUT,
     Measurement,
     Outcome,
     TestRun,
@@ -115,7 +115,7 @@ def _make_run_with_observations(session_id, observations: dict) -> TestRun:
         session_id=session_id,
         started_at=datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 5, 31, 12, 0, 1, tzinfo=UTC),
-        dut=DUT(serial="SN-E2E-001"),
+        uut=UUT(serial="SN-E2E-001"),
         outcome=Outcome.PASSED,
         steps=[
             TestStep(

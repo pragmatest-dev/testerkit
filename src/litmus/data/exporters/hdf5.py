@@ -101,13 +101,13 @@ class Hdf5Subscriber(EventSubscriber):
             f.attrs["station_id"] = s.station_id
             f.attrs["project_name"] = s.project_name or ""
             f.attrs["test_phase"] = s.test_phase or ""
-            f.attrs["dut_serial"] = s.dut_serial
-            if s.dut_part_number:
-                f.attrs["dut_part_number"] = s.dut_part_number
-            if s.dut_revision:
-                f.attrs["dut_revision"] = s.dut_revision
-            if s.dut_lot_number:
-                f.attrs["dut_lot_number"] = s.dut_lot_number
+            f.attrs["uut_serial"] = s.uut_serial
+            if s.uut_part_number:
+                f.attrs["uut_part_number"] = s.uut_part_number
+            if s.uut_revision:
+                f.attrs["uut_revision"] = s.uut_revision
+            if s.uut_lot_number:
+                f.attrs["uut_lot_number"] = s.uut_lot_number
             if s.station_name:
                 f.attrs["station_name"] = s.station_name
             if s.operator_id:
@@ -210,8 +210,8 @@ class Hdf5Subscriber(EventSubscriber):
                     ds.attrs["outcome"] = m.outcome
                 if m.characteristic_id:
                     ds.attrs["characteristic_id"] = m.characteristic_id
-                if m.dut_pin:
-                    ds.attrs["dut_pin"] = m.dut_pin
+                if m.uut_pin:
+                    ds.attrs["uut_pin"] = m.uut_pin
                 if m.instrument_name:
                     ds.attrs["instrument_name"] = m.instrument_name
 

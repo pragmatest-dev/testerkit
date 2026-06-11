@@ -109,7 +109,7 @@ filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
 """
         elif starter:
             # Starter mode: include pytest defaults so users can just run "pytest"
-            addopts = "-v --station=starter_station --mock-instruments --dut-serial=STARTER001"
+            addopts = "-v --station=starter_station --mock-instruments --uut-serial=STARTER001"
             pytest_section = f'''[tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -196,7 +196,7 @@ For PIN-BASED fixtures with traceability (measurement -> pin -> instrument):
 
     @pytest.fixture(scope="session")
     def output_dmm(pins):
-        return pins.get("TP_VOUT")  # measurement includes dut_pin
+        return pins.get("TP_VOUT")  # measurement includes uut_pin
 """
 '''
         else:
@@ -214,7 +214,7 @@ No manual fixture definitions needed here.
 
 Run with --mock-instruments for hardware-free testing:
 
-    pytest tests/ --mock-instruments --dut-serial=TEST001
+    pytest tests/ --mock-instruments --uut-serial=TEST001
 """
 
 # Add project-specific fixtures below if needed.
@@ -519,12 +519,12 @@ def _create_starter_files(path: Path) -> list[str]:
         fixture_content = {
             "id": "example_fixture",
             "name": "Example Fixture",
-            "description": "Maps DUT pins to station instrument channels",
+            "description": "Maps UUT pins to station instrument channels",
             "part_id": "example_part",
             "connections": {
                 "vout_measure": {
                     "name": "vout_measure",
-                    "dut_pin": "TP_VOUT",
+                    "uut_pin": "TP_VOUT",
                     "instrument": "dmm",
                     "instrument_channel": "ch1",
                     "instrument_terminal": "hi",
@@ -534,8 +534,8 @@ def _create_starter_files(path: Path) -> list[str]:
             },
         }
         comment_header = (
-            "# Example fixture — wires DUT pins through station instrument\n"
-            "# channels. Each connection has a name, a dut_pin (matches a\n"
+            "# Example fixture — wires UUT pins through station instrument\n"
+            "# channels. Each connection has a name, a uut_pin (matches a\n"
             "# pin in the active part YAML), and an instrument role\n"
             "# (matches a key in the active station's instruments: dict).\n"
             "#\n"

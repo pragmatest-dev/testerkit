@@ -42,7 +42,7 @@ def test_output_voltage(context, psu, dmm, verify):
 Run directly with pytest:
 
 ```bash
-pytest tests/test_power.py::test_output_voltage -v --dut-serial=TEST001
+pytest tests/test_power.py::test_output_voltage -v --uut-serial=TEST001
 ```
 
 ## Inline Markers

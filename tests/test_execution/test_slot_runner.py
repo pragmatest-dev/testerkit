@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.models import DUT
+from litmus.data.models import UUT
 from litmus.execution.slot_runner import SlotRunner
 from litmus.execution.slots import ResolvedSlot, resolve_fixture_slots
 from litmus.models.test_config import FixtureConfig, FixtureConnection, FixtureSlot
@@ -39,10 +39,10 @@ def _make_slots() -> dict[str, ResolvedSlot]:
     return resolve_fixture_slots(fc)
 
 
-def _make_duts() -> dict[str, DUT]:
+def _make_uuts() -> dict[str, UUT]:
     return {
-        "slot_1": DUT(serial="SN001"),
-        "slot_2": DUT(serial="SN002"),
+        "slot_1": UUT(serial="SN001"),
+        "slot_2": UUT(serial="SN002"),
     }
 
 
@@ -51,8 +51,8 @@ class TestSlotRunnerExecution:
 
     def test_runs_both_slots(self):
         slots = _make_slots()
-        duts = _make_duts()
-        runner = SlotRunner(slots, duts)
+        uuts = _make_uuts()
+        runner = SlotRunner(slots, uuts)
 
         # Run a simple command that succeeds
         cmd = [sys.executable, "-c", "import os; print(os.environ.get('_LITMUS_SLOT_ID'))"]
@@ -64,14 +64,14 @@ class TestSlotRunnerExecution:
 
     def test_each_slot_gets_correct_env_vars(self):
         slots = _make_slots()
-        duts = _make_duts()
-        runner = SlotRunner(slots, duts)
+        uuts = _make_uuts()
+        runner = SlotRunner(slots, uuts)
 
         # Print env vars so we can verify
         script = (
             "import os, json; print(json.dumps({"
             "'slot': os.environ.get('_LITMUS_SLOT_ID'),"
-            "'serial': os.environ.get('LITMUS_DUT_SERIAL'),"
+            "'serial': os.environ.get('LITMUS_UUT_SERIAL'),"
             "'count': os.environ.get('_LITMUS_SLOT_COUNT'),"
             "'session': os.environ.get('_LITMUS_SESSION_ID')"
             "}))"
@@ -87,15 +87,15 @@ class TestSlotRunnerExecution:
             assert len(result.output_lines) >= 1
             data = json.loads(result.output_lines[0])
             assert data["slot"] == slot_id
-            assert data["serial"] == duts[slot_id].serial
+            assert data["serial"] == uuts[slot_id].serial
             assert data["count"] == "2"
             assert data["session"] == str(runner.session_id)
 
     def test_shared_session_id(self):
         slots = _make_slots()
-        duts = _make_duts()
+        uuts = _make_uuts()
         session_id = uuid4()
-        runner = SlotRunner(slots, duts, session_id=session_id)
+        runner = SlotRunner(slots, uuts, session_id=session_id)
 
         script = "import os; print(os.environ.get('_LITMUS_SESSION_ID'))"
         cmd = [sys.executable, "-c", script]
@@ -106,8 +106,8 @@ class TestSlotRunnerExecution:
 
     def test_pass_outcome_on_success(self):
         slots = _make_slots()
-        duts = _make_duts()
-        runner = SlotRunner(slots, duts)
+        uuts = _make_uuts()
+        runner = SlotRunner(slots, uuts)
 
         cmd = [sys.executable, "-c", "pass"]
         results = runner.run(cmd, sync=False)
@@ -117,8 +117,8 @@ class TestSlotRunnerExecution:
 
     def test_fail_outcome_on_error(self):
         slots = _make_slots()
-        duts = _make_duts()
-        runner = SlotRunner(slots, duts)
+        uuts = _make_uuts()
+        runner = SlotRunner(slots, uuts)
 
         # slot_2 exits with error
         script = (
@@ -133,8 +133,8 @@ class TestSlotRunnerExecution:
 
     def test_captures_stdout(self):
         slots = _make_slots()
-        duts = _make_duts()
-        runner = SlotRunner(slots, duts)
+        uuts = _make_uuts()
+        runner = SlotRunner(slots, uuts)
 
         cmd = [sys.executable, "-c", "print('hello from slot')"]
         results = runner.run(cmd, sync=False)
@@ -143,8 +143,8 @@ class TestSlotRunnerExecution:
 
     def test_fixture_slot_json_in_env(self):
         slots = _make_slots()
-        duts = _make_duts()
-        runner = SlotRunner(slots, duts)
+        uuts = _make_uuts()
+        runner = SlotRunner(slots, uuts)
 
         script = (
             "import os, json; "
@@ -165,18 +165,18 @@ class TestSlotRunnerValidation:
         with pytest.raises(ValueError, match="At least one slot"):
             SlotRunner({}, {})
 
-    def test_missing_dut_raises(self):
+    def test_missing_uut_raises(self):
         slots = _make_slots()
-        with pytest.raises(ValueError, match="Missing DUT identity"):
+        with pytest.raises(ValueError, match="Missing UUT identity"):
             SlotRunner(
                 slots,
-                {"slot_1": DUT(serial="SN001")},  # slot_2 missing
+                {"slot_1": UUT(serial="SN001")},  # slot_2 missing
             )
 
     def test_extra_env_vars_passed(self):
         slots = _make_slots()
-        duts = _make_duts()
-        runner = SlotRunner(slots, duts)
+        uuts = _make_uuts()
+        runner = SlotRunner(slots, uuts)
 
         script = "import os; print(os.environ.get('MY_CUSTOM_VAR', 'not_set'))"
         cmd = [sys.executable, "-c", script]

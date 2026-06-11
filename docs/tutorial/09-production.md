@@ -29,7 +29,7 @@ my_project/
 
 ## The Fixture: Pin-to-Instrument Mapping
 
-A fixture maps DUT pins to station instruments:
+A fixture maps UUT pins to station instruments:
 
 ```yaml
 # fixtures/power_board_fixture.yaml
@@ -40,18 +40,18 @@ part_id: power_board
 connections:
   vin_supply:
     name: vin_supply          # Required — matches the dict key
-    dut_pin: VIN              # From part spec
+    uut_pin: VIN              # From part spec
     instrument: psu           # From station config
     instrument_channel: "1"
 
   vout_measure:
     name: vout_measure
-    dut_pin: VOUT
+    uut_pin: VOUT
     instrument: dmm
 
   gnd_supply:
     name: gnd_supply
-    dut_pin: GND
+    uut_pin: GND
     instrument: psu
     instrument_channel: "GND"
 ```
@@ -62,7 +62,7 @@ With a fixture config, you can access instruments via pin names. The [`pins`](..
 
 ```python
 def test_output_voltage(pins, logger):
-    """Access instruments by DUT pin name."""
+    """Access instruments by UUT pin name."""
     pins["VIN"].set_voltage(5.0)
     pins["VIN"].enable_output()
 
@@ -76,14 +76,14 @@ Run with fixture config:
 pytest tests/ \
   --station=stations/bench_1.yaml \
   --fixture=fixtures/power_board_fixture.yaml \
-  --dut-serial=SN001
+  --uut-serial=SN001
 ```
 
 ## Why Use pins Instead of instruments?
 
 | `instruments["dmm"]` | `pins["VOUT"]` |
 |---------------------|----------------|
-| Station-centric | DUT-centric |
+| Station-centric | UUT-centric |
 | "Use the DMM" | "Measure VOUT" |
 | Changes if station changes | Stable across stations |
 | No traceability | Full traceability |
@@ -91,7 +91,7 @@ pytest tests/ \
 The `pins` approach provides:
 - **Abstraction** — Test code doesn't know which instrument measures VOUT
 - **Portability** — Same test works on stations with different instruments
-- **Traceability** — Measurements linked to DUT pins
+- **Traceability** — Measurements linked to UUT pins
 
 ## The Production Test Class
 
@@ -226,11 +226,11 @@ part_id: power_board
 connections:
   vin_supply:
     name: vin_supply
-    dut_pin: VIN
+    uut_pin: VIN
     instrument: psu
   vout_measure:
     name: vout_measure
-    dut_pin: VOUT
+    uut_pin: VOUT
     instrument: dmm
 ```
 
@@ -252,7 +252,7 @@ class TestPowerBoardProduction:
 pytest tests/ \
   --station=stations/bench_1.yaml \
   --fixture=fixtures/power_board_fixture.yaml \
-  --dut-serial=SN12345 \
+  --uut-serial=SN12345 \
   --operator="Jane Doe" \
   -v
 ```
@@ -263,7 +263,7 @@ pytest tests/ \
   --station=stations/bench_1.yaml \
   --fixture=fixtures/power_board_fixture.yaml \
   --mock-instruments \
-  --dut-serial=SIM001 \
+  --uut-serial=SIM001 \
   -v
 ```
 
@@ -303,7 +303,7 @@ Every measurement now traces back through the chain:
 ```
 Measurement: output_voltage = 3.31V PASS
     ↓
-DUT Pin: VOUT (from fixture)
+UUT Pin: VOUT (from fixture)
     ↓
 Fixture Point: vout_measure
     ↓
@@ -329,7 +329,7 @@ Spec: output_voltage @ tolerance=5%
 ## What You Learned
 
 - Fixture configuration for pin-to-instrument mapping
-- The `pins` fixture for DUT-centric testing
+- The `pins` fixture for UUT-centric testing
 - Pytest classes as the unit of ordered execution
 - Sidecar YAML for per-test limits, sweeps, mocks, and retries
 - Full traceability from spec to measurement
@@ -347,7 +347,7 @@ litmus data promote
 This:
 
 - Walks your project-local `data/runs/runs/*.parquet`
-- **Skips** runs that match starter sentinels (`part_id: example_part`, `dut_serial: STARTER001`, etc.) — the throwaway scaffolding you ran while learning
+- **Skips** runs that match starter sentinels (`part_id: example_part`, `uut_serial: STARTER001`, etc.) — the throwaway scaffolding you ran while learning
 - Copies the rest into the global store (`~/.local/share/litmus/data/` on Linux; platformdirs equivalents on Mac/Windows)
 - Removes the `data_dir:` override from your `litmus.yaml` so future runs go straight to the global store
 

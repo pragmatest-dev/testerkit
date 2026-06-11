@@ -205,4 +205,4 @@ class TestStdfSubscriber:
         )
         records = _read_records(result)
         prr = next(r for r in records if r.id == "PRR")
-        assert prr.get_value("PART_ID") == "DUT-001"
+        assert prr.get_value("PART_ID") == "UUT-001"

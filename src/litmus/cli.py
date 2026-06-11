@@ -216,7 +216,7 @@ def init(
     elif use_starter or tier_lower == "bench":
         click.echo("  pytest                # run tests with mock instruments")
     else:
-        click.echo("  pytest tests/ --mock-instruments --dut-serial=TEST001")
+        click.echo("  pytest tests/ --mock-instruments --uut-serial=TEST001")
     click.echo("  litmus serve          # open operator UI at localhost:8000")
 
 
@@ -585,16 +585,16 @@ def runs(data_dir: str | None, limit: int, as_json: bool):
         click.echo(json.dumps(runs_data, indent=2, default=str))
         return
 
-    click.echo(f"{'Run ID':<10} {'DUT Serial':<15} {'Project':<20} {'Station':<20} {'Outcome':<10}")
+    click.echo(f"{'Run ID':<10} {'UUT Serial':<15} {'Project':<20} {'Station':<20} {'Outcome':<10}")
     click.echo("-" * 80)
 
     for run in test_runs:
         run_id = (run.test_run_id or "")[:8]
-        dut = run.dut_serial or ""
+        uut = run.uut_serial or ""
         project = run.project_name or ""
         station = run.station_id or ""
         outcome = run.outcome or ""
-        click.echo(f"{run_id:<10} {dut:<15} {project:<20} {station:<20} {outcome:<10}")
+        click.echo(f"{run_id:<10} {uut:<15} {project:<20} {station:<20} {outcome:<10}")
 
 
 @main.command()
@@ -658,7 +658,7 @@ def show(
         return
 
     click.echo(f"Test Run: {data.run_id}")
-    click.echo(f"  DUT Serial: {data.dut_serial}")
+    click.echo(f"  UUT Serial: {data.uut_serial}")
     click.echo(f"  Station: {data.station_id}")
     click.echo(f"  Outcome: {data.outcome}")
     click.echo(f"  Started: {data.started_at}")
@@ -2186,7 +2186,7 @@ def metrics_summary(data_dir, phase, since, until_date, part, station, period, a
     type=click.Choice(["part", "step", "measurement"]),
     default="part",
     help=(
-        "Lens for the pareto: ``part`` groups runs by ``dut_part_number`` "
+        "Lens for the pareto: ``part`` groups runs by ``uut_part_number`` "
         "(most-failing SKUs); ``step`` groups steps by ``step_path`` "
         "(most-failing tests); ``measurement`` groups limit-bearing "
         "measurements by name (the historical default)."
@@ -2216,7 +2216,7 @@ def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, gro
         store = RunsQuery(_data_dir=data_dir or None)
         try:
             rows = store.failure_pareto(
-                group_by="dut_part_number",
+                group_by="uut_part_number",
                 top_n=top_n,
                 phase=phase,
                 part=part,
@@ -2226,7 +2226,7 @@ def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, gro
             )
         finally:
             store.close()
-        header = "Part (dut_part_number)"
+        header = "Part (uut_part_number)"
     else:  # measurement (historical)
         store = _measurements_query(data_dir)
         try:
@@ -2345,7 +2345,7 @@ def metrics_trend(data_dir, phase, since, until_date, part, station, period, as_
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_retest(data_dir, phase, since, until_date, part, station, period, as_json):
-    """Retest rates: how often DUTs are retried."""
+    """Retest rates: how often UUTs are retried."""
     with _measurements_query(data_dir) as store:
         rows = store.retest(
             part=part,
@@ -2483,7 +2483,7 @@ def data_prune(
 _STARTER_PART_IDS = {"example_part"}
 _STARTER_STATION_IDS = {"starter_station"}
 _STARTER_FIXTURE_IDS = {"example_fixture"}
-_STARTER_DUT_SERIALS = {"STARTER001", "SMOKE001"}
+_STARTER_UUT_SERIALS = {"STARTER001", "SMOKE001"}
 
 
 def _is_starter_parquet(parquet_path: Path) -> bool:
@@ -2493,7 +2493,7 @@ def _is_starter_parquet(parquet_path: Path) -> bool:
     """
     import pyarrow.parquet as pq
 
-    cols = ["part_id", "station_id", "dut_serial", "fixture_id"]
+    cols = ["part_id", "station_id", "uut_serial", "fixture_id"]
     try:
         t = pq.read_table(parquet_path, columns=cols)
     except (FileNotFoundError, OSError, KeyError):
@@ -2505,7 +2505,7 @@ def _is_starter_parquet(parquet_path: Path) -> bool:
         return True
     if row0.get("station_id") in _STARTER_STATION_IDS:
         return True
-    if row0.get("dut_serial") in _STARTER_DUT_SERIALS:
+    if row0.get("uut_serial") in _STARTER_UUT_SERIALS:
         return True
     if row0.get("fixture_id") in _STARTER_FIXTURE_IDS:
         return True

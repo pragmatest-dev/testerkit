@@ -1,6 +1,6 @@
 # Concepts — Configuration
 
-The DUT-to-instrument model. Parts and stations are YAML entities you author once; fixtures wire one part's pins to one station's instruments; capabilities are how the matcher pairs them up.
+The UUT-to-instrument model. Parts and stations are YAML entities you author once; fixtures wire one part's pins to one station's instruments; capabilities are how the matcher pairs them up.
 
 - [Parts](parts.md) — what you're testing: part number, revision, pins, characteristics, specs
 - [Stations](stations.md) — where you test: the instruments on a bench plus their roles

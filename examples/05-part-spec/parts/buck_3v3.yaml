@@ -4,7 +4,7 @@ name: Demo 3.3 V Buck Converter
 revision: A
 description: 5 V to 3.3 V buck converter, 500 mA max.
 
-# Pins exposed by the DUT. Each has a human-facing name (PCB label)
+# Pins exposed by the UUT. Each has a human-facing name (PCB label)
 # and a net the fixture can route.
 pins:
   TP_VIN:

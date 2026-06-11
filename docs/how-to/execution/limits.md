@@ -185,7 +185,7 @@ If you genuinely want to record without judging, use `logger.measure(name, value
 
 ## Best practices
 
-1. **Prefer `verify(name, v)`** when a part spec exists — limits, DUT pin, and `spec_ref` all flow automatically
+1. **Prefer `verify(name, v)`** when a part spec exists — limits, UUT pin, and `spec_ref` all flow automatically
 2. **Use `characteristic:`** to delegate to part-spec characteristics instead of duplicating values
 3. **Keep operator-tuned values in a sidecar `limits:` field** so non-developers can edit them
 4. **Match names** — the first argument to `verify` / `logger.measure` must match the limit key

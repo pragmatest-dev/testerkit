@@ -13,7 +13,7 @@ Why Litmus is built the way it is. Concepts are grouped by what you're trying to
 
 ## Configuration
 
-[Configuration index →](configuration/index.md). The DUT-to-instrument model — the YAML entities you author once and re-use across runs.
+[Configuration index →](configuration/index.md). The UUT-to-instrument model — the YAML entities you author once and re-use across runs.
 
 - [Parts](configuration/parts.md) — what you're testing
 - [Stations](configuration/stations.md) — where you test

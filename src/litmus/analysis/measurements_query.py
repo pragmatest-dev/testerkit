@@ -224,7 +224,7 @@ def _build_and_clauses(
         phase=phase,
         since=since,
         until=until,
-        part_expr="COALESCE(dut_part_number, part_id, 'unknown')",
+        part_expr="COALESCE(uut_part_number, part_id, 'unknown')",
         # Match the same column the operator's dropdown is built
         # from (``station_hostname`` first; see ``get_yield_filter_options``
         # in ``ui/shared/services.py``). ``station_name`` is admin-
@@ -253,10 +253,10 @@ _YIELD_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(dut_part_number, part_id, 'unknown') AS part,
+        COALESCE(uut_part_number, part_id, 'unknown') AS part,
         COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
-        dut_serial,
+        uut_serial,
         run_outcome,
         run_started_at,
         run_ended_at,
@@ -267,7 +267,7 @@ WITH runs AS (
 first_runs AS (
     SELECT *,
         ROW_NUMBER() OVER (
-            PARTITION BY dut_serial, part, station, phase
+            PARTITION BY uut_serial, part, station, phase
             ORDER BY run_started_at
         ) AS rn
     FROM runs
@@ -275,7 +275,7 @@ first_runs AS (
 last_runs AS (
     SELECT *,
         ROW_NUMBER() OVER (
-            PARTITION BY dut_serial, part, station, phase
+            PARTITION BY uut_serial, part, station, phase
             ORDER BY run_started_at DESC
         ) AS rn
     FROM runs
@@ -289,14 +289,14 @@ SELECT
     COUNT(*) FILTER (WHERE run_outcome = 'passed') AS passed,
     COUNT(*) FILTER (WHERE run_outcome = 'failed') AS failed,
     COUNT(*) FILTER (WHERE run_outcome = 'errored') AS errored,
-    COUNT(DISTINCT dut_serial) AS unique_serials,
-    COUNT(DISTINCT dut_serial) FILTER (
+    COUNT(DISTINCT uut_serial) AS unique_serials,
+    COUNT(DISTINCT uut_serial) FILTER (
         WHERE run_id IN (SELECT run_id FROM first_runs WHERE rn = 1)
     ) AS first_pass_total,
-    COUNT(DISTINCT dut_serial) FILTER (
+    COUNT(DISTINCT uut_serial) FILTER (
         WHERE run_id IN (SELECT run_id FROM first_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS first_pass_passed,
-    COUNT(DISTINCT dut_serial) FILTER (
+    COUNT(DISTINCT uut_serial) FILTER (
         WHERE run_id IN (SELECT run_id FROM last_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS final_passed,
     ROUND(AVG(EPOCH(run_ended_at::TIMESTAMP - run_started_at::TIMESTAMP)), 2) AS avg_duration_s,
@@ -310,7 +310,7 @@ ORDER BY period_day
 
 _PARETO_SQL = """
 SELECT
-    COALESCE(dut_part_number, part_id, 'unknown') AS part,
+    COALESCE(uut_part_number, part_id, 'unknown') AS part,
     COALESCE(station_hostname, station_id, 'unknown') AS station,
     step_name,
     measurement_name,
@@ -329,7 +329,7 @@ LIMIT {top_n}
 
 _CPK_SQL = """
 SELECT
-    COALESCE(dut_part_number, part_id, 'unknown') AS part,
+    COALESCE(uut_part_number, part_id, 'unknown') AS part,
     COALESCE(station_hostname, station_id, 'unknown') AS station,
     measurement_name,
     COUNT(*) AS n,
@@ -363,7 +363,7 @@ _TREND_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(dut_part_number, part_id, 'unknown') AS part,
+        COALESCE(uut_part_number, part_id, 'unknown') AS part,
         COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         run_outcome,
@@ -390,20 +390,20 @@ _RETEST_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(dut_part_number, part_id, 'unknown') AS part,
+        COALESCE(uut_part_number, part_id, 'unknown') AS part,
         COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
-        dut_serial,
+        uut_serial,
         {period_expr} AS period_day
     FROM measurements
     ORDER BY run_id
 ),
 serial_counts AS (
     SELECT part, station, phase, period_day,
-           dut_serial, COUNT(*) AS executions
+           uut_serial, COUNT(*) AS executions
     FROM runs
-    WHERE dut_serial IS NOT NULL
-    GROUP BY part, station, phase, period_day, dut_serial
+    WHERE uut_serial IS NOT NULL
+    GROUP BY part, station, phase, period_day, uut_serial
 )
 SELECT
     part,
@@ -425,7 +425,7 @@ _TIME_LOSS_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(dut_part_number, part_id, 'unknown') AS part,
+        COALESCE(uut_part_number, part_id, 'unknown') AS part,
         COALESCE(station_hostname, station_id, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         run_outcome,
@@ -614,7 +614,7 @@ class MeasurementsQuery:
         until: str | None = None,
         period: str = "day",
     ) -> list[dict[str, Any]]:
-        """Retest rates: how often DUTs require multiple attempts.
+        """Retest rates: how often UUTs require multiple attempts.
 
         Returns one row per (part, station, phase, period).
         """
@@ -830,7 +830,7 @@ class MeasurementsQuery:
             COUNT(*) AS total_rows,
             COUNT(DISTINCT run_id) AS distinct_runs,
             COUNT(DISTINCT measurement_name) AS distinct_measurements,
-            COUNT(DISTINCT COALESCE(dut_part_number, part_id, 'unknown')) AS distinct_parts
+            COUNT(DISTINCT COALESCE(uut_part_number, part_id, 'unknown')) AS distinct_parts
         FROM measurements{where}
         """
         rows = self._query_dicts(sql)

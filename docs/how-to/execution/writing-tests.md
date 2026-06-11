@@ -17,11 +17,11 @@ Rule of thumb: _would a fail here stop the line?_ → `verify`. Else → `logger
 
 | Fixture   | Role                                         | Typical verbs |
 |-----------|----------------------------------------------|---------------|
-| `context` | Ambient test context — run / DUT / station / vector params (when sweeping) / observations / fixture-connection state. Always available, whether the test is parametrized or not. | `get_param`, `changed`, `last`, `observe`, `configure` |
+| `context` | Ambient test context — run / UUT / station / vector params (when sweeping) / observations / fixture-connection state. Always available, whether the test is parametrized or not. | `get_param`, `changed`, `last`, `observe`, `configure` |
 | `verify`  | Limit check + record + raise on FAIL         | `verify(name, value, limit=..., characteristic=...)` |
 | `logger`  | Measurement/event sink                       | `measure(name, value, ...)`, `record(k, v)` |
 
-Data flow is one-way: `test → spec → logger`. Logger snapshots ambient [ContextVars](https://docs.python.org/3/library/contextvars.html) (Python's built-in async-safe scoped state — Litmus uses them for run id, station, DUT, active instruments) at write time.
+Data flow is one-way: `test → spec → logger`. Logger snapshots ambient [ContextVars](https://docs.python.org/3/library/contextvars.html) (Python's built-in async-safe scoped state — Litmus uses them for run id, station, UUT, active instruments) at write time.
 
 ## Minimum viable test
 
@@ -44,7 +44,7 @@ This matches the way TestStand (National Instruments' commercial test executive)
 ```python
 @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])      # class becomes the outer loop
 class TestPowerSequence:
-    def test_warmup(self, voltage, psu, dut):
+    def test_warmup(self, voltage, psu, uut):
         psu.set_voltage(voltage)
         ...
     def test_load_regulation(self, voltage, eload, dmm, verify):
@@ -114,13 +114,13 @@ Hardware reconfig dominates multi-parameter sweeps (PSU settle 500 ms, DMM range
     {"vin": [5.0, 5.5]},              # middle
     {"load": [0.1, 0.4]},             # inner
 ])
-def test_rails(temp, vin, load, context, psu, chamber, dut_load, dmm, verify):
+def test_rails(temp, vin, load, context, psu, chamber, uut_load, dmm, verify):
     if context.changed("temp"):
         chamber.set_temperature(temp)
         chamber.wait_for_soak()          # 20 min — skipped when temp unchanged
     if context.changed("vin"):
         psu.set_voltage(vin)
-    dut_load.set(load)
+    uut_load.set(load)
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
@@ -172,7 +172,7 @@ def test_rails(context, verify, logger, dmm):
 |-----------------------------------|---------------------------------------------------------------|
 | `litmus_sweeps([{argname: values, ...}, ...])` | Sweep one or more parameters across values (multiple keys in one dict = zipped; multiple dicts = cross-product) |
 | `litmus_limits(**by_name)`        | Limits by measurement name (supports `when:`-keyed bands)     |
-| `litmus_characteristics([<id>, ...])` | Bind the test to one or more part characteristics (limits + DUT pin auto-resolve) |
+| `litmus_characteristics([<id>, ...])` | Bind the test to one or more part characteristics (limits + UUT pin auto-resolve) |
 | `litmus_connections([name, ...])` or `litmus_connections(**by_instrument)` | Bind to fixture-connection names (positional list, like `litmus_characteristics`) OR to raw instrument channels (kwargs by instrument, like `litmus_limits`) |
 | `litmus_mocks([{target: ..., ...}, ...])` | Patch one or more methods for the test (uses `unittest.mock.patch.object`) |
 | `litmus_prompts(message=...)`      | Manual operator setup at a lifecycle point                    |
@@ -217,16 +217,16 @@ loaded for the run:
 | Case | `litmus_characteristics` | `litmus_connections` | Fixture loaded? | Result |
 |------|---------------|----------------------|-----------------|--------|
 | 1 | — | — | any | No markers → `ctx.connections` is `None`; test runs once with no connection context. |
-| 2 | `characteristic: X` | — | yes | Iterate every fixture connection whose `dut_pin` (or `net`) is in `X.resolved_pins`. Fixture-order. |
+| 2 | `characteristic: X` | — | yes | Iterate every fixture connection whose `uut_pin` (or `net`) is in `X.resolved_pins`. Fixture-order. |
 | 3 | `characteristic: X` | — | no | Empty iterator (no connections to bind to). Test still iterates `ctx.connections` and gets zero rounds. |
 | 4 | — | `[a, b, …]` (by name) | yes | Iterate the listed connections in user-listed order. Unknown name → `UsageError`. |
 | 5 | — | `[a, b, …]` (by name) | no | `UsageError` — connection names are nonsense without a fixture YAML. |
 | 6 | — | `{inst: [ch, …]}` (by channel) | yes | Match each `(inst, ch)` against fixture connections; user-listed order. No match → `UsageError`. `'all'` → all connections on that instrument. |
-| 7 | — | `{inst: [ch, …]}` (by channel) | no | Synthesize `FixtureConnection` stubs (`name=f"{inst}_ch{ch}"`, no `dut_pin`). Iterable for early bringup. `'all'` → `UsageError` (nothing to enumerate). |
-| 8 | `characteristic: X` | `[a, b, …]` (by name) | yes | Resolve as case 4, then validate every selected connection's `dut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
+| 7 | — | `{inst: [ch, …]}` (by channel) | no | Synthesize `FixtureConnection` stubs (`name=f"{inst}_ch{ch}"`, no `uut_pin`). Iterable for early bringup. `'all'` → `UsageError` (nothing to enumerate). |
+| 8 | `characteristic: X` | `[a, b, …]` (by name) | yes | Resolve as case 4, then validate every selected connection's `uut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
 | 9 | `characteristic: X` | `[a, b, …]` (by name) | no | `UsageError` (case 5 — fixture required for connection names). |
-| 10 | `characteristic: X` | `{inst: [ch, …]}` (by channel) | yes | Resolve as case 6, then validate every match's `dut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
-| 11 | `characteristic: X` | `{inst: [ch, …]}` (by channel) | no | Synthesize stubs (case 7). No `dut_pin` mapping exists, so spec membership cannot be enforced — stubs pass through. |
+| 10 | `characteristic: X` | `{inst: [ch, …]}` (by channel) | yes | Resolve as case 6, then validate every match's `uut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
+| 11 | `characteristic: X` | `{inst: [ch, …]}` (by channel) | no | Synthesize stubs (case 7). No `uut_pin` mapping exists, so spec membership cannot be enforced — stubs pass through. |
 
 Invariants across the matrix:
 
@@ -351,7 +351,7 @@ def test_a(psu, dmm, verify): ...
 def test_b(instrument):
     dmm = instrument("dmm")
 
-# By DUT pin (requires a fixture YAML)
+# By UUT pin (requires a fixture YAML)
 def test_c(pins, verify):
     pins["VIN"].set_voltage(5.0)
     verify("output_voltage", pins["VOUT"].measure_voltage())
@@ -361,7 +361,7 @@ def test_c(pins, verify):
 
 ```bash
 pytest tests/ \
-  --dut-serial=SN12345 \
+  --uut-serial=SN12345 \
   --station=bench_1 \
   --operator="Jane Doe" \
   --test-phase=production \
@@ -373,7 +373,7 @@ Everything else is standard pytest — see <https://docs.pytest.org/en/stable/re
 
 ## Best practices
 
-1. Prefer `verify(name, v)` when a part spec exists — limits, DUT pin, and spec ref resolve automatically
+1. Prefer `verify(name, v)` when a part spec exists — limits, UUT pin, and spec ref resolve automatically
 2. Use `logger.measure` with inline kwargs or a sidecar `litmus_limits` marker for procedure-only measurements
 3. Use `context.changed()` to skip expensive reconfig across sweep iterations
 4. Prefer inline `@pytest.mark.litmus_limits` for code-owned sweeps; sidecar YAML for operator-edited sweeps

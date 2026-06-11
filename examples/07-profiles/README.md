@@ -73,5 +73,5 @@ vanilla pytest
 ```
 
 Every layer you add is optional. A real project can sit at stage 4
-forever if the DUT never grows; stage 7 unlocks scenario variation
+forever if the UUT never grows; stage 7 unlocks scenario variation
 when the part actually needs it.

@@ -77,7 +77,7 @@ Yield and duration comparison across test stations. Identifies station-level per
 Average and P95 test duration over time, duration by step (identifies bottlenecks), and duration distribution histogram.
 
 ### Unit Traceability
-Full test history for a specific serial number — all runs and measurements. Select by DUT serial.
+Full test history for a specific serial number — all runs and measurements. Select by UUT serial.
 
 ### Event Log
 Event volume over time, event type breakdown, recent sessions with cross-store joins (event count + channel samples per session), instrument activity, and dialog events. Filter by event type.

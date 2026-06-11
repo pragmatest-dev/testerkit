@@ -145,7 +145,7 @@ class PartContext:
         result: dict[str, Any] = {
             "pin": char.pin or (all_pins[0] if all_pins else None),
             "pins": all_pins,
-            "dut_pin": None,
+            "uut_pin": None,
             "net": char.net,
             "fixture_connection": None,
             "instrument_channel": None,
@@ -155,13 +155,13 @@ class PartContext:
             primary_pin_id = all_pins[0]
             pin = self.part.pins.get(primary_pin_id)
             if pin:
-                result["dut_pin"] = pin.name
+                result["uut_pin"] = pin.name
                 if pin.net is not None:
                     result["net"] = pin.net
 
                 if self.fixture:
                     for fc_name, fc in self.fixture.connections.items():
-                        if fc.dut_pin == primary_pin_id or fc.net == pin.net:
+                        if fc.uut_pin == primary_pin_id or fc.net == pin.net:
                             result["fixture_connection"] = fc_name
                             result["instrument_channel"] = fc.instrument_channel
                             break

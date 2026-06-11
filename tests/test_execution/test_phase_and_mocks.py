@@ -182,7 +182,7 @@ class TestMethodMocksWarning:
             )
         )
         with patch("litmus.execution._git.is_git_clean", return_value=True):
-            result = pytester.runpytest("-v", "--test-phase=production", "--dut-serial=SN1")
+            result = pytester.runpytest("-v", "--test-phase=production", "--uut-serial=SN1")
         result.assert_outcomes(passed=1)
         result.stdout.fnmatch_lines(["*Method mocks active in test_phase='production'*"])
 
@@ -247,12 +247,12 @@ class TestProfileFacetsStamping:
     def test_testrun_default_profile_facets_is_empty_dict(self) -> None:
         from uuid import uuid4
 
-        from litmus.data.models import DUT, TestRun
+        from litmus.data.models import UUT, TestRun
 
         run = TestRun(
             id=uuid4(),
             session_id=uuid4(),
-            dut=DUT(serial="DUT001"),
+            uut=UUT(serial="UUT001"),
             station_id="s",
         )
         assert run.profile_facets == {}
@@ -260,12 +260,12 @@ class TestProfileFacetsStamping:
     def test_testrun_accepts_profile_facets_dict(self) -> None:
         from uuid import uuid4
 
-        from litmus.data.models import DUT, TestRun
+        from litmus.data.models import UUT, TestRun
 
         run = TestRun(
             id=uuid4(),
             session_id=uuid4(),
-            dut=DUT(serial="DUT001"),
+            uut=UUT(serial="UUT001"),
             station_id="s",
             profile_facets={"test_phase": "production", "part": "tps54302"},
         )

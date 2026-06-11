@@ -18,7 +18,7 @@ The event log captures every significant action as a typed event. It is the cano
 - **Read path:** SQL via Flight `do_get`, or direct IPC file reads
 - **Storage:** `<data_dir>/events/{date}/{session_id}.arrow`
 
-Events are normalized — `SessionStarted` carries session/station/operator metadata once (and must NOT carry `run_id`); `RunStarted` carries the run/DUT context per test run; `MeasurementRecorded` carries only measurement fields. Subscribers denormalize at write time.
+Events are normalized — `SessionStarted` carries session/station/operator metadata once (and must NOT carry `run_id`); `RunStarted` carries the run/UUT context per test run; `MeasurementRecorded` carries only measurement fields. Subscribers denormalize at write time.
 
 ## ChannelStore — Time-Series Data
 

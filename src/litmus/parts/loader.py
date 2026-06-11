@@ -1,6 +1,6 @@
 """Part driver resolution helpers.
 
-Resolves and loads driver classes for DUT communication handles
+Resolves and loads driver classes for UUT communication handles
 (serial port, I2C, debug probe, etc.) using the same import
 mechanism as instrument drivers.
 """

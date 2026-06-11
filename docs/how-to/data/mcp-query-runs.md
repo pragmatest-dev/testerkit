@@ -32,7 +32,7 @@ Ask your assistant:
 > List the last 20 runs.
 
 It calls `litmus_runs(action="list", limit=20)` and gets a JSON
-array of run summaries (run_id, started, outcome, DUT serial,
+array of run summaries (run_id, started, outcome, UUT serial,
 station, part). Then you can ask follow-ups like "filter to
 the ones that failed", and the assistant either re-queries or
 filters the in-memory list.
@@ -105,7 +105,7 @@ For a longer diagnostic, chain the tools:
 That's:
 
 1. `litmus_runs(action="list", limit=200)` — fetch recent runs
-2. Group client-side by `dut_serial`, find one with multiple
+2. Group client-side by `uut_serial`, find one with multiple
    failures on the same `step_path`
 3. `litmus_steps(run_id=<first>, action="list")` and again for the
    second

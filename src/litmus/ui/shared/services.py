@@ -518,11 +518,11 @@ def discover_instrument_assets():
     return store_list_instrument_assets()
 
 
-class DUTRow(BaseModel):
-    """One row in the DUTs list — purely observed from run history.
+class UUTRow(BaseModel):
+    """One row in the UUTs list — purely observed from run history.
 
-    DUTs are never declared in YAML by design (they're the unit under
-    test, identified at runtime by serial). The DUTs page is the only
+    UUTs are never declared in YAML by design (they're the unit under
+    test, identified at runtime by serial). The UUTs page is the only
     entity list whose rows are all observed-only; no provenance chip
     is rendered.
     """
@@ -538,10 +538,10 @@ class DUTRow(BaseModel):
     last_run: datetime | None = None
 
 
-def duts_from_runs() -> list[DUTRow]:
-    """Distinct DUTs observed in run history, with per-DUT run counts.
+def uuts_from_runs() -> list[UUTRow]:
+    """Distinct UUTs observed in run history, with per-UUT run counts.
 
-    Groups by ``dut_serial``; the part number and lot number are
+    Groups by ``uut_serial``; the part number and lot number are
     aggregated via ``MAX`` (expected constant per serial — taking ``MAX``
     is just a SQL-idiomatic way to surface one value when the GROUP BY
     key uniquely determines the row).
@@ -550,16 +550,16 @@ def duts_from_runs() -> list[DUTRow]:
 
     sql = """
         SELECT
-            dut_serial AS serial,
-            MAX(dut_part_number) AS part_number,
-            MAX(dut_lot_number) AS lot_number,
+            uut_serial AS serial,
+            MAX(uut_part_number) AS part_number,
+            MAX(uut_lot_number) AS lot_number,
             COUNT(*) AS runs,
             COUNT(*) FILTER (WHERE outcome = 'passed') AS passed,
             COUNT(*) FILTER (WHERE outcome = 'failed') AS failed,
             MAX(started_at) AS last_run
         FROM runs
-        WHERE dut_serial IS NOT NULL AND dut_serial <> ''
-        GROUP BY dut_serial
+        WHERE uut_serial IS NOT NULL AND uut_serial <> ''
+        GROUP BY uut_serial
         ORDER BY last_run DESC NULLS LAST
     """
     try:
@@ -569,7 +569,7 @@ def duts_from_runs() -> list[DUTRow]:
         return []
 
     return [
-        DUTRow(
+        UUTRow(
             serial=r["serial"],
             part_number=r.get("part_number") or "",
             lot_number=r.get("lot_number") or "",
@@ -1316,8 +1316,8 @@ def count_recent_runs(
 def get_runs_filter_options() -> dict[str, list[str]]:
     """Return distinct filter values for the /results filter strip.
 
-    Keys: ``test_phase``, ``dut_part_number``, ``station_hostname``,
-    ``dut_lot_number``. Each maps to the sorted distinct values
+    Keys: ``test_phase``, ``uut_part_number``, ``station_hostname``,
+    ``uut_lot_number``. Each maps to the sorted distinct values
     present in the runs table — so the dropdowns only show options
     that have at least one matching run.
 
@@ -1348,8 +1348,8 @@ def _run_row_to_summary(row: Any) -> RunSummary:
         slot_id=row.slot_id,
         started_at=row.started_at,
         ended_at=row.ended_at,
-        dut_serial=row.dut_serial,
-        dut_part_number=row.dut_part_number,
+        uut_serial=row.uut_serial,
+        uut_part_number=row.uut_part_number,
         part_id=row.part_id,
         station_id=row.station_id,
         station_name=row.station_name,
@@ -1451,7 +1451,7 @@ def list_all_runs(
     since: str | None = None,
     until: str | None = None,
 ) -> list[RunSummary]:
-    """List a page of runs for cross-run views (DUT history etc.).
+    """List a page of runs for cross-run views (UUT history etc.).
 
     Sources from ``RunsQuery`` (typed) and adapts each ``RunRow``
     to the legacy ``RunSummary`` shape the UI's run-list page

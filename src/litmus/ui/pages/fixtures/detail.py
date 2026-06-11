@@ -111,7 +111,7 @@ def _render_mappings_tab(connections: dict):
 
     columns = [
         {"name": "connection", "label": "Connection", "field": "connection", "align": "left"},
-        {"name": "dut_pin", "label": "DUT Pin", "field": "dut_pin", "align": "left"},
+        {"name": "uut_pin", "label": "UUT Pin", "field": "uut_pin", "align": "left"},
         {"name": "net", "label": "Net", "field": "net", "align": "left"},
         {
             "name": "instrument",
@@ -135,7 +135,7 @@ def _render_mappings_tab(connections: dict):
     rows = [
         {
             "connection": name,
-            "dut_pin": fc.dut_pin or "",
+            "uut_pin": fc.uut_pin or "",
             "net": fc.net or "",
             "instrument": fc.instrument or "",
             "channel": fc.instrument_channel or "",
@@ -223,7 +223,7 @@ def _render_diagram_tab(fixture, connections: dict):
             by_instrument[inst] = []
         by_instrument[inst].append((name, fc))
 
-    part_family = fixture.part_family or "DUT"
+    part_family = fixture.part_family or "UUT"
 
     # Build Mermaid diagram
     lines = [
@@ -232,13 +232,13 @@ def _render_diagram_tab(fixture, connections: dict):
         f"    subgraph Part[{part_family}]",
     ]
 
-    # Add DUT pins
+    # Add UUT pins
     pin_ids = []
     for name, fc in connections.items():
-        dut_pin = fc.dut_pin or name
+        uut_pin = fc.uut_pin or name
         pin_id = f"pin_{name.replace('-', '_')}"
         pin_ids.append((pin_id, name, fc))
-        lines.append(f"        {pin_id}[{dut_pin}]")
+        lines.append(f"        {pin_id}[{uut_pin}]")
     lines.append("    end")
 
     # Add fixture subgraph

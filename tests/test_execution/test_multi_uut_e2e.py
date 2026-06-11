@@ -1,4 +1,4 @@
-"""End-to-end tests for multi-DUT parallel execution.
+"""End-to-end tests for multi-UUT parallel execution.
 
 Tests the full orchestrator → workers → results path using
 subprocess-based slot execution with fixture YAML configs.
@@ -39,7 +39,7 @@ def _write_test_file(path, content: str) -> None:
     path.write_text(textwrap.dedent(content))
 
 
-class TestMultiDutE2E:
+class TestMultiUutE2E:
     """Full orchestrator → workers → results tests."""
 
     def test_two_slots_both_pass(self, tmp_path):
@@ -84,7 +84,7 @@ class TestMultiDutE2E:
             f"Expected pass but got rc={result.returncode}\n"
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
-        assert "Multi-DUT Results" in result.stdout
+        assert "Multi-UUT Results" in result.stdout
         assert "slot_1: PASS" in result.stdout
         assert "slot_2: PASS" in result.stdout
 
@@ -132,12 +132,12 @@ class TestMultiDutE2E:
         )
 
         assert result.returncode != 0
-        assert "Multi-DUT Results" in result.stdout
+        assert "Multi-UUT Results" in result.stdout
         assert "slot_1: PASS" in result.stdout
         assert "slot_2: FAIL" in result.stdout
 
     def test_single_serial_warning(self, tmp_path):
-        """Single --dut-serial with 2 slots emits warning."""
+        """Single --uut-serial with 2 slots emits warning."""
         fixture_path = tmp_path / "fixture.yaml"
         station_path = tmp_path / "station.yaml"
         test_file = tmp_path / "test_pass.py"
@@ -167,7 +167,7 @@ class TestMultiDutE2E:
                 f"--fixture={fixture_path}",
                 f"--station={station_path}",
                 "--mock-instruments",
-                "--dut-serial=SINGLE_SN",
+                "--uut-serial=SINGLE_SN",
                 "-v",
             ],
             capture_output=True,
@@ -176,4 +176,4 @@ class TestMultiDutE2E:
         )
 
         combined = result.stdout + result.stderr
-        assert "Single --dut-serial" in combined, f"Expected serial warning in output:\n{combined}"
+        assert "Single --uut-serial" in combined, f"Expected serial warning in output:\n{combined}"

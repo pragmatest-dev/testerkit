@@ -785,10 +785,10 @@ class Context:
     def run(self) -> TestRun | None:
         """Active :class:`TestRun` record, or ``None`` outside a run.
 
-        Carries run identity (id, started_at) plus DUT, station, fixture,
-        part, profile, operator, and git fields. ``ctx.run.dut.serial``
-        is the canonical path to DUT identity — there is intentionally no
-        ``ctx.dut`` attribute (the bare ``dut`` fixture is the live DUT
+        Carries run identity (id, started_at) plus UUT, station, fixture,
+        part, profile, operator, and git fields. ``ctx.run.uut.serial``
+        is the canonical path to UUT identity — there is intentionally no
+        ``ctx.uut`` attribute (the bare ``uut`` fixture is the live UUT
         driver, a different concept).
         """
         logger = get_current_logger()
@@ -855,7 +855,7 @@ class Context:
         value: float | None,
         units: str | None = None,
         limit: Limit | None = None,
-        dut_pin: str | None = None,
+        uut_pin: str | None = None,
         instrument_channel: str | None = None,
         fixture_connection: str | None = None,
     ) -> Measurement:
@@ -869,7 +869,7 @@ class Context:
             value: Measured value.
             units: Units (optional, uses limit.units if available).
             limit: Explicit limit (optional, overrides config lookup).
-            dut_pin: DUT pin being measured (optional).
+            uut_pin: UUT pin being measured (optional).
             instrument_channel: Instrument channel used (optional).
             fixture_connection: Named fixture connection used (optional).
 
@@ -888,7 +888,7 @@ class Context:
             value,
             units=units,
             limit=limit,
-            dut_pin=dut_pin,
+            uut_pin=uut_pin,
             instrument_channel=instrument_channel,
             fixture_connection=fixture_connection,
         )
@@ -1252,7 +1252,7 @@ class TestHarness:
         value: float | None,
         units: str | None = None,
         limit: Limit | None = None,
-        dut_pin: str | None = None,
+        uut_pin: str | None = None,
         instrument_channel: str | None = None,
         fixture_connection: str | None = None,
     ) -> Measurement:
@@ -1263,7 +1263,7 @@ class TestHarness:
             value: Measured value.
             units: Units (optional, uses limit.units if available).
             limit: Explicit limit (optional, overrides config lookup).
-            dut_pin: DUT pin being measured (optional, auto-resolved from spec).
+            uut_pin: UUT pin being measured (optional, auto-resolved from spec).
             instrument_channel: Instrument channel used (optional).
             fixture_connection: Named fixture connection used (optional).
 
@@ -1278,14 +1278,14 @@ class TestHarness:
         resolved_limit = limit or self._resolve_limit(name)
 
         # Resolve channel traceability from PartContext if not provided
-        resolved_dut_pin = dut_pin
+        resolved_uut_pin = uut_pin
         resolved_instrument_channel = instrument_channel
         resolved_fixture_connection = fixture_connection
 
-        if self._part_context and not all([dut_pin, instrument_channel, fixture_connection]):
+        if self._part_context and not all([uut_pin, instrument_channel, fixture_connection]):
             pin_info = self._part_context.get_pin_info(name)
             if pin_info:
-                resolved_dut_pin = resolved_dut_pin or pin_info.get("dut_pin")
+                resolved_uut_pin = resolved_uut_pin or pin_info.get("uut_pin")
                 resolved_instrument_channel = resolved_instrument_channel or pin_info.get(
                     "instrument_channel"
                 )
@@ -1304,7 +1304,7 @@ class TestHarness:
             limit_comparator=resolved_limit.comparator if resolved_limit else None,
             characteristic_id=resolved_limit.characteristic_id if resolved_limit else None,
             spec_ref=resolved_limit.spec_ref if resolved_limit else None,
-            dut_pin=resolved_dut_pin,
+            uut_pin=resolved_uut_pin,
             instrument_channel=resolved_instrument_channel,
             fixture_connection=resolved_fixture_connection,
         )

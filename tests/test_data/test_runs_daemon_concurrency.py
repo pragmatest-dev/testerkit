@@ -37,7 +37,7 @@ from litmus.data.schemas import RUN_ROW_SCHEMA
 
 
 def _step_row(
-    *, run_id: str, session_id: str, started: datetime, dut_serial: str = "SN001"
+    *, run_id: str, session_id: str, started: datetime, uut_serial: str = "SN001"
 ) -> dict:
     """Minimal ``record_type='step'`` row in unified RUN_ROW_SCHEMA shape."""
     ended = started + timedelta(seconds=1)
@@ -60,7 +60,7 @@ def _step_row(
             "run_started_at": started,
             "run_ended_at": ended,
             "run_outcome": "passed",
-            "dut_serial": dut_serial,
+            "uut_serial": uut_serial,
             "station_id": "test-station",
             "test_phase": "production",
             "part_id": "PN-100",

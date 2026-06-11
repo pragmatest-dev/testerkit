@@ -2,7 +2,7 @@
 
 **URLs:** `/parts` (list), `/parts/new`, `/parts/{id}`, `/parts/{id}/edit`, `/parts/{id}/stations` (the Stations tab as its own URL — bookmarkable)
 
-A part is a DUT under test — its part number, revision,
+A part is a UUT under test — its part number, revision,
 characteristics (named measurements with limits and units), and pin
 map. The Parts entity pages are the browser surface for the
 project's `parts/` directory.
@@ -43,7 +43,7 @@ A header bar (Back + Edit buttons), one Part Information card
 
 | Tab | Content |
 |---|---|
-| Pins | The DUT pin map (one row per pin: pin, signal, description) |
+| Pins | The UUT pin map (one row per pin: pin, signal, description) |
 | Characteristics | One row per characteristic: name, function, direction, units, limit shape |
 | Stations | Compatible stations + the required capabilities the matcher resolved against. Each entry is a card with a View button that opens the matching station detail page. |
 

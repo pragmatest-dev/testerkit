@@ -138,7 +138,7 @@ def _prompt_for_slot_serials(
     slot_ids: list[str],
     test_phase: str,
 ) -> dict[str, str]:
-    """Prompt for DUT serial for each slot.
+    """Prompt for UUT serial for each slot.
 
     Args:
         slot_ids: Ordered list of slot IDs from fixture config.
@@ -198,10 +198,10 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         )
 
     return build_run_metadata(
-        dut_serial=request.config.getoption("--dut-serial"),
-        dut_part_number=request.config.getoption("--dut-part-number"),
-        dut_revision=request.config.getoption("--dut-revision"),
-        dut_lot_number=request.config.getoption("--dut-lot-number"),
+        uut_serial=request.config.getoption("--uut-serial"),
+        uut_part_number=request.config.getoption("--uut-part-number"),
+        uut_revision=request.config.getoption("--uut-revision"),
+        uut_lot_number=request.config.getoption("--uut-lot-number"),
         station_id=_resolve_station_id(request.config),
         station_config=station_config,
         fixture_config=fixture_config,
@@ -298,10 +298,10 @@ def _emit_session_start_events(logger: TestRunLogger) -> None:
             station_type=logger.test_run.station_type,
             station_location=logger.test_run.station_location,
             station_hostname=logger.test_run.station_hostname,
-            dut_serial=logger.test_run.dut.serial,
-            dut_part_number=logger.test_run.dut.part_number,
-            dut_revision=logger.test_run.dut.revision,
-            dut_lot_number=logger.test_run.dut.lot_number,
+            uut_serial=logger.test_run.uut.serial,
+            uut_part_number=logger.test_run.uut.part_number,
+            uut_revision=logger.test_run.uut.revision,
+            uut_lot_number=logger.test_run.uut.lot_number,
             part_id=logger.test_run.part_id,
             part_name=logger.test_run.part_name,
             part_revision=logger.test_run.part_revision,
@@ -395,9 +395,9 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
     session_id = UUID(env_session_id) if env_session_id else uuid4()
     meta["session_id"] = session_id
 
-    env_dut_serial = os.environ.get("LITMUS_DUT_SERIAL")
-    if env_dut_serial:
-        meta["dut_serial"] = env_dut_serial
+    env_uut_serial = os.environ.get("LITMUS_UUT_SERIAL")
+    if env_uut_serial:
+        meta["uut_serial"] = env_uut_serial
 
     logger = TestRunLogger(**meta)
 
@@ -446,7 +446,7 @@ def part_context(request) -> PartContext | None:
        ``parts/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml``
        is used as an explicit path. Mirrors ``--station``/``--fixture``
        resolution shape.
-    2. ``--dut-part-number <pn>`` — content match against
+    2. ``--uut-part-number <pn>`` — content match against
        ``part.part_number:`` across ``parts/*.yaml``.
     3. Single-file fallback when ``parts/`` holds exactly one file.
     4. ``None`` — bringup tier without a part YAML.
@@ -464,7 +464,7 @@ def part_context(request) -> PartContext | None:
 
     part_value = request.config.getoption("--part")
     guardband = float(request.config.getoption("--guardband"))
-    part_number = request.config.getoption("--dut-part-number")
+    part_number = request.config.getoption("--uut-part-number")
 
     ctx = None
 
@@ -496,13 +496,13 @@ def _autodiscover_part(
     """Pick a part YAML from ``parts/`` in the project or cwd.
 
     Selection rules:
-    1. If ``--dut-part-number`` is set and exactly one part's
+    1. If ``--uut-part-number`` is set and exactly one part's
        ``part_number:`` matches (case-insensitive), use it.
-    2. If ``--dut-part-number`` is set but no file matches, raise
+    2. If ``--uut-part-number`` is set but no file matches, raise
        ``pytest.UsageError`` — a typo in the selector is worse than a
        silent wrong-part pick.
     3. Otherwise, take the first sorted ``parts/*.yaml`` file. If
-       the directory holds multiple parts and ``--dut-part-number``
+       the directory holds multiple parts and ``--uut-part-number``
        was not provided, raise ``pytest.UsageError`` — Rev-B flows
        need an explicit selector.
     """
@@ -537,11 +537,11 @@ def _autodiscover_part(
             return PartContext.from_file(matches[0], guardband_pct=guardband)
         if not matches:
             raise pytest.UsageError(
-                f"--dut-part-number={part_number!r} did not match any part in "
+                f"--uut-part-number={part_number!r} did not match any part in "
                 f"parts/. Available: " + ", ".join(sorted(p.stem for p in part_files))
             )
         raise pytest.UsageError(
-            f"--dut-part-number={part_number!r} matched multiple parts: "
+            f"--uut-part-number={part_number!r} matched multiple parts: "
             + ", ".join(sorted(str(m.relative_to(m.parents[1])) for m in matches))
             + ". Use --part=<path> to disambiguate."
         )
@@ -550,7 +550,7 @@ def _autodiscover_part(
         raise pytest.UsageError(
             f"parts/ has {len(part_files)} YAML files "
             f"({', '.join(p.stem for p in part_files)}); "
-            "pass --part <id-or-path> or --dut-part-number <pn> to choose one."
+            "pass --part <id-or-path> or --uut-part-number <pn> to choose one."
         )
 
     return PartContext.from_file(part_files[0], guardband_pct=guardband)
@@ -637,7 +637,7 @@ def fixture_config(request) -> FixtureConfig | None:
                 part_family=fc.part_family,
                 part_revision=fc.part_revision,
                 connections=slot.connections,
-                dut_resource=slot.dut_resource,
+                uut_resource=slot.uut_resource,
             )
 
     return fc
@@ -774,23 +774,23 @@ def instrument(instruments, instrument_records) -> InstrumentAccessor:
 
 
 @pytest.fixture(scope="session")
-def dut(
+def uut(
     part_context,
     fixture_config,
     mock_instruments,
 ) -> Generator[Any, None, None]:
-    """Instantiate and yield the DUT communication driver.
+    """Instantiate and yield the UUT communication driver.
 
     Resolves the driver class from ``Part.driver`` (loaded via part_context)
-    and connects using ``FixtureConfig.dut_resource``. Follows the same pattern
+    and connects using ``FixtureConfig.uut_resource``. Follows the same pattern
     as instrument fixtures — session-scoped, auto-disconnected at teardown.
 
     Usage in tests:
-        def test_firmware_version(dut):
-            assert dut.get_version().startswith("2.")
+        def test_firmware_version(uut):
+            assert uut.get_version().startswith("2.")
 
     Returns:
-        Connected DUT driver instance, or None if part has no driver.
+        Connected UUT driver instance, or None if part has no driver.
     """
     if not part_context or not part_context.part.driver:
         yield None
@@ -801,7 +801,7 @@ def dut(
     driver_class = load_part_driver(part_context.part)
     if driver_class is None:
         warnings.warn(
-            f"DUT driver {part_context.part.driver!r} could not be imported",
+            f"UUT driver {part_context.part.driver!r} could not be imported",
             UserWarning,
             stacklevel=2,
         )
@@ -809,7 +809,7 @@ def dut(
         return
 
     # Resolve connection resource from fixture config
-    dut_resource = fixture_config.dut_resource if fixture_config else None
+    uut_resource = fixture_config.uut_resource if fixture_config else None
 
     if mock_instruments:
         from litmus.instruments.mocks import Mock
@@ -818,8 +818,8 @@ def dut(
         yield inst
         return
 
-    if dut_resource:
-        inst = driver_class(dut_resource)
+    if uut_resource:
+        inst = driver_class(uut_resource)
     else:
         inst = driver_class()
 
@@ -836,7 +836,7 @@ def dut(
         elif hasattr(inst, "close"):
             inst.close()
     except (OSError, RuntimeError) as exc:
-        warnings.warn(f"Failed to cleanup DUT driver: {exc}", stacklevel=2)
+        warnings.warn(f"Failed to cleanup UUT driver: {exc}", stacklevel=2)
 
 
 @pytest.fixture(scope="session")
@@ -898,7 +898,7 @@ def routes(request) -> Generator[RouteManager | None, None, None]:
 def pins(instruments, fixture_config, _route_manager) -> PinAccessor:
     """UUT-centric pin accessor for tests.
 
-    Resolves DUT pin names to instrument instances. When fixture points
+    Resolves UUT pin names to instrument instances. When fixture points
     have switch routes, instruments are wrapped in RoutedProxy for
     transparent route activation on first use.
 
@@ -941,7 +941,7 @@ def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManag
 
 @pytest.fixture(scope="session")
 def sync(logger):
-    """Provide sync point for multi-DUT test coordination.
+    """Provide sync point for multi-UUT test coordination.
 
     In worker mode (_LITMUS_SLOT_ID set), returns a SyncPoint that
     blocks until all slots arrive. In single-slot mode, returns None.
@@ -1246,7 +1246,7 @@ def prompt(request: pytest.FixtureRequest) -> Callable[..., Any]:
     Each marker carries one or more entries keyed by name::
 
         @pytest.mark.litmus_prompts(
-            operator_setup={"message": "Insert DUT", "prompt_type": "confirm"},
+            operator_setup={"message": "Insert UUT", "prompt_type": "confirm"},
             pick_fixture={"message": "Pick fixture", "prompt_type": "choice",
                           "choices": ["bench_01", "bench_02"]},
         )

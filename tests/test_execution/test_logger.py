@@ -19,16 +19,16 @@ class TestTestRunLogger:
 
     def test_init(self):
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
-        assert logger.test_run.dut.serial == "SN001"
+        assert logger.test_run.uut.serial == "SN001"
         assert logger.test_run.station_id == "station_001"
         assert logger.test_run.outcome is None
 
     def test_init_with_all_options(self):
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
             station_type="production",
             operator_id="John Doe",
@@ -40,7 +40,7 @@ class TestTestRunLogger:
 
     def test_start_step(self):
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         logger.start_step("measure_voltage", description="Signal 5V rail")
@@ -52,7 +52,7 @@ class TestTestRunLogger:
 
     def test_log_measurement(self):
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         logger.start_step("test_step")
@@ -69,7 +69,7 @@ class TestTestRunLogger:
 
     def test_log_measurement_auto_creates_step(self):
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
 
@@ -81,7 +81,7 @@ class TestTestRunLogger:
 
     def test_log_measurement_fail_propagates(self):
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         logger.start_step("test_step")
@@ -101,7 +101,7 @@ class TestTestRunLogger:
 
     def test_log_measurement_error_propagates(self):
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         logger.start_step("test_step")
@@ -118,7 +118,7 @@ class TestTestRunLogger:
 
     def test_error_overrides_fail(self):
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         logger.start_step("test_step")
@@ -138,7 +138,7 @@ class TestTestRunLogger:
 
     def test_end_step(self):
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         logger.start_step("test_step")
@@ -149,7 +149,7 @@ class TestTestRunLogger:
 
     def test_finalize(self):
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         logger.start_step("test_step")
@@ -168,7 +168,7 @@ class TestTestRunLogger:
         pytest-rerunfailures, STDF retest, Jenkins flaky-handler.
         """
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
 
@@ -195,7 +195,7 @@ class TestTestRunLogger:
 
     def test_multiple_steps(self):
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
 
@@ -216,7 +216,7 @@ class TestTestRunLogger:
     def test_start_step_sets_contextvars(self):
         """start_step() sets module-level contextvars."""
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         # Before start_step, contextvars should be None (default)
@@ -233,7 +233,7 @@ class TestTestRunLogger:
     def test_log_measurement_resolves_from_contextvar(self):
         """log_measurement() uses contextvar step when instance state is None."""
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         # Create a step externally and set via contextvar
@@ -258,7 +258,7 @@ class TestTestRunLogger:
     def test_register_step(self):
         """register_step() adds step to test_run and returns index."""
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         step = TestStep(name="registered_step")
@@ -274,7 +274,7 @@ class TestTestRunLogger:
     def test_log_measurement_no_double_append(self):
         """log_measurement() doesn't double-append if measurement already in vector."""
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         logger.start_step("test_step")
@@ -300,7 +300,7 @@ class TestEventLogIntegration:
 
         run_id = uuid4()
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
             run_id=run_id,
         )
@@ -331,7 +331,7 @@ class TestEventLogIntegration:
 
         run_id = uuid4()
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
             run_id=run_id,
         )
@@ -350,7 +350,7 @@ class TestEventLogIntegration:
             if data["event_type"] == "test.measurement":
                 # These fields should NOT be on the normalized event
                 assert "station_id" not in data
-                assert "dut_serial" not in data
+                assert "uut_serial" not in data
                 assert "instruments" not in data
                 assert "vector_started_at" not in data
                 assert "step_started_at" not in data
@@ -365,7 +365,7 @@ class TestEventLogIntegration:
     def test_start_step_code_identity(self):
         """start_step() stores code identity on TestStep."""
         logger = TestRunLogger(
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station_001",
         )
         logger.start_step(

@@ -1,7 +1,7 @@
 # Stage 1 — Vanilla pytest
 
 Plain-pytest tests. The Litmus plugin is loaded but it stays out of
-your way: you get a DUT-serial prompt and a run record on day one
+your way: you get a UUT-serial prompt and a run record on day one
 without writing any Litmus-specific code. Every later stage layers
 measurement features on top of this same setup.
 
@@ -26,7 +26,7 @@ measurement features on top of this same setup.
 - `@pytest.mark.parametrize` for a sweep
 - Real `PSU` / `DMM` driver classes (resource string, connect/disconnect,
   SCPI-named methods) — same shape PyVISA / PyMeasure / vendor SDK use
-- A run record stamped with the DUT serial — no measurement code yet
+- A run record stamped with the UUT serial — no measurement code yet
 
 ## Where drivers come from
 
@@ -69,7 +69,7 @@ lifts it out of `conftest.py` and into station YAML.
 
 ```bash
 cd examples/01-vanilla
-uv run pytest --dut-serial=bob -v
+uv run pytest --uut-serial=bob -v
 ```
 
 > **No real serial yet?** Use anything memorable — `bob`, `proto-1`,

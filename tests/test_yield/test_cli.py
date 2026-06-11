@@ -24,8 +24,8 @@ from litmus.data.schemas import _build_write_schema, table_from_rows
 def _row(
     *,
     run_id: str,
-    dut_part_number: str,
-    dut_serial: str = "SN001",
+    uut_part_number: str,
+    uut_serial: str = "SN001",
     run_outcome: str = "passed",
     run_started_at: datetime = datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
     run_ended_at: datetime = datetime(2026, 1, 1, 10, 1, tzinfo=UTC),
@@ -44,9 +44,9 @@ def _row(
         run_id=run_id,
         run_started_at=run_started_at,
         run_ended_at=run_ended_at,
-        dut_serial=dut_serial,
-        dut_part_number=dut_part_number,
-        part_id=dut_part_number,
+        uut_serial=uut_serial,
+        uut_part_number=uut_part_number,
+        part_id=uut_part_number,
         station_id=station_name,
         station_name=station_name,
         test_phase=test_phase,
@@ -59,7 +59,7 @@ def _row(
         limit_high=limit_high,
         run_outcome=run_outcome,
         measurement_units="V",
-        dut_lot_number="LOT01",
+        uut_lot_number="LOT01",
     )
 
 
@@ -82,16 +82,16 @@ def fixture_data() -> dict[str, str]:
     rows = [
         _row(
             run_id=f"yld-{uuid4()}",
-            dut_part_number=part,
-            dut_serial="SN001",
+            uut_part_number=part,
+            uut_serial="SN001",
             run_outcome="passed",
             value=3.3,
             outcome="passed",
         ),
         _row(
             run_id=f"yld-{uuid4()}",
-            dut_part_number=part,
-            dut_serial="SN002",
+            uut_part_number=part,
+            uut_serial="SN002",
             run_outcome="failed",
             run_started_at=datetime(2026, 1, 1, 11, 0, tzinfo=UTC),
             run_ended_at=datetime(2026, 1, 1, 11, 2, tzinfo=UTC),

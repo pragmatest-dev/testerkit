@@ -44,7 +44,7 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 Tests in this repo write to the project-local data dir
 (`<repo>/data/`, scoped by the repo's `litmus.yaml`). Per-test
 isolation is by **identifier** (uuid4 `run_id`, `session_id`,
-unique `dut_serial` / `part_id`), NEVER by `tmp_path` for any
+unique `uut_serial` / `part_id`), NEVER by `tmp_path` for any
 constructor that spawns a daemon.
 
 **Forbidden** (each spawns a per-test daemon, ~100 gRPC threads;

@@ -285,7 +285,7 @@ The synthesis. Pick the row that matches your intent; everything else follows.
 |---|---|---|---|---|
 | Judge a scalar against limits | `verify(name, v, limit=L)` | `float`/`int`/`bool` | event payload | judged row |
 | Record a scalar with no judgment (characterization) | `verify(name, v)` no limit | scalar | event payload | DONE row |
-| Stamp contextual scalar on the vector (DUT temp, operator, supply) | `observe(name, v)` | scalar | `out_<name>` inline | auto-promote if vector has no `verify`; else rides along |
+| Stamp contextual scalar on the vector (UUT temp, operator, supply) | `observe(name, v)` | scalar | `out_<name>` inline | auto-promote if vector has no `verify`; else rides along |
 | Capture a discrete waveform | `observe(name, wf)` | `Waveform` / `ndarray` | ChannelStore (one row) | `out_<name> = channel://…`; auto-promote rule applies |
 | Capture a discrete file artifact (image, vendor blob, file on disk) | `observe(name, X)` | `Path` / `bytes` / `PIL.Image` / etc. | FileStore (one file) | `out_<name> = file://…`; auto-promote rule applies |
 | Force a first-class row for an artifact | `verify(name, X)` no limit | non-scalar | ChannelStore or FileStore (by shape) | explicit DONE row |
@@ -328,7 +328,7 @@ observe("scope.ch1.capture", scope.acquire())
 
 # Discrete artifact (file-shaped → FileStore)
 observe("front_panel_photo", camera.snap())
-observe("nicom_dump",        Path("dut.tdms"))
+observe("nicom_dump",        Path("uut.tdms"))
 
 # Derived stats from a captured waveform (judged scalars; share out_ source)
 wf = scope.acquire()
@@ -341,9 +341,9 @@ verify("max",       wf.max(),       Limit(low=3.2, high=3.4))
 # ChannelStore directly.
 
 # Streaming captures (video / continuous DAQ to file) — opt-in API
-with filestore.stream("dut_video", format="mp4") as sink:
+with filestore.stream("uut_video", format="mp4") as sink:
     camera.stream_to(sink)
-observe("dut_video", sink)        # link to this vector
+observe("uut_video", sink)        # link to this vector
 ```
 
 ### What test authors NEVER write
@@ -502,7 +502,7 @@ observe("psu_under_test.voltage", v)
 observe("voltage", v, namespace="psu_under_test")    # → "psu_under_test.voltage"
 ```
 
-**Multi-DUT parallel execution is NOT a collision problem.** Each slot/worker emits its own `SessionStarted` (per `slot_runner.py:568`), so all writes share the channel kind but are session-tagged on the data rows. Same `channel_id="dmm.voltage"` across 4 workers means: one shared descriptor (correct — it IS the same kind of signal), four distinct sessions of data rows (correct — per-DUT isolation). The kind-registry validates that all workers are writing the same type — which is what you want.
+**Multi-UUT parallel execution is NOT a collision problem.** Each slot/worker emits its own `SessionStarted` (per `slot_runner.py:568`), so all writes share the channel kind but are session-tagged on the data rows. Same `channel_id="dmm.voltage"` across 4 workers means: one shared descriptor (correct — it IS the same kind of signal), four distinct sessions of data rows (correct — per-UUT isolation). The kind-registry validates that all workers are writing the same type — which is what you want.
 
 **What the system does NOT enforce:**
 - No format requirement (you CAN write a bare `channel_id="voltage"`; system accepts it)
@@ -511,7 +511,7 @@ observe("voltage", v, namespace="psu_under_test")    # → "psu_under_test.volta
 
 **Recommended discipline:**
 1. Drivers always namespace by `instrument_role` (handled automatically by the observer wrapper).
-2. Test authors namespace by purpose, fixture, or DUT-context — never bare leaf names like `"voltage"` unless you can guarantee uniqueness across all tests in the project.
+2. Test authors namespace by purpose, fixture, or UUT-context — never bare leaf names like `"voltage"` unless you can guarantee uniqueness across all tests in the project.
 3. If you hit a kind-registry collision error, that's the system telling you two unrelated producers grabbed the same name — disambiguate by renaming, not by deleting the descriptor.
 
 For edge cases (intentional schema migration, instrument swap): a `litmus channels reset-descriptor <channel_id>` admin tool would handle the rare cases. Not v0.2.0 critical; v0.2.x patch.
@@ -550,7 +550,7 @@ Artifact metadata:
 
 ```python
 class FileArtifactMetadata:
-    file_uri: str                  # "file://_ref/dut_video.mp4"
+    file_uri: str                  # "file://_ref/uut_video.mp4"
     mime_type: str                 # "video/mp4" — primary dispatch field
     extension: str                 # ".mp4" — fallback when MIME is ambiguous
     size: int
@@ -782,7 +782,7 @@ The four-level hierarchy (session ⊃ run ⊃ step ⊃ vector) carries traceabil
 | Level | Event | Snapshots | Source |
 |---|---|---|---|
 | Session | `SessionStarted` (`events.py:60-133`) | station identity, operator, fixture, slot count, process | once at session open |
-| Run | `RunStarted` (`events.py:154-203`) | DUT (serial, part, revision, lot), part, git state, project, environment fingerprint, custom metadata (+ station fields duplicated for self-contained query) | once per run within a session |
+| Run | `RunStarted` (`events.py:154-203`) | UUT (serial, part, revision, lot), part, git state, project, environment fingerprint, custom metadata (+ station fields duplicated for self-contained query) | once per run within a session |
 | Step | `StepStarted` | step path + module/function context | once per test method |
 | Vector | `VectorStarted` | `in_*` / conditions for this acquisition | once per parametrize/sweep iteration |
 
@@ -803,7 +803,7 @@ The four-level hierarchy (session ⊃ run ⊃ step ⊃ vector) carries traceabil
 | Layer | Fields |
 |---|---|
 | Station (duplicated from session for self-contained query) | `station_id`, `station_name`, `station_type`, `station_location`, `station_hostname`, `slot_id`, `slot_index` |
-| DUT | `dut_serial`, `dut_part_number`, `dut_revision`, `dut_lot_number` |
+| UUT | `uut_serial`, `uut_part_number`, `uut_revision`, `uut_lot_number` |
 | Part | `part_id`, `part_name`, `part_revision` |
 | Operator (duplicated) | `operator_id`, `operator_name` |
 | Test context | `fixture_id`, `test_phase`, `project_name`, `git_commit`, `git_branch`, `git_remote` |
@@ -827,7 +827,7 @@ The factory `SessionStarted.from_station(...)` (`events.py:95-133`) and the `Run
 **Configured** (caller must provide; sourced from project YAML or test context):
 - `station_id`, `station_name`, `station_type`, `station_location` — from station YAML
 - `operator_id`, `operator_name` — explicit at session open
-- `dut_serial`, `dut_part_number`, etc. — from test setup
+- `uut_serial`, `uut_part_number`, etc. — from test setup
 - `part_id`, `part_name`, `part_revision` — from station's part config
 - `fixture_id` — from fixture YAML
 - `custom_metadata` — explicit
@@ -873,7 +873,7 @@ Lifecycle events (`SessionStarted`, `RunStarted`, `InstrumentConnected`) are **s
 | Concern | Where it lives |
 |---|---|
 | Static station identity (hostname, fixture, operator login) | `SessionStarted` |
-| Per-DUT swap (serial, part, git state) | `RunStarted` |
+| Per-UUT swap (serial, part, git state) | `RunStarted` |
 | Static instrument identity (model, serial, cal cert at connect) | `InstrumentConnected` |
 | **Continuous environmental drift** (lab temp over 4-hour run, line voltage variation) | **ChannelStore** via `observer.read` from an environmental driver, or `stream(...)` from non-instrument sources |
 | Discrete artifacts during the session (operator photo, vendor file capture) | FileStore via `observe(name, file/image)` |
@@ -888,7 +888,7 @@ So mid-session drift uses the **data layer** (channels stream environmental sens
 |---|---|---|
 | Pytest plugin | `pytest_plugin/__init__.py:269` | test orchestrator opens a session |
 | Interactive `connect.py` | `connect.py:105` | scripts / manual runs via `litmus.connect(...)` |
-| Multi-DUT slot runner | `execution/slot_runner.py:568` | parallel DUT execution |
+| Multi-UUT slot runner | `execution/slot_runner.py:568` | parallel UUT execution |
 
 The factory enforces the auto-detection behavior (hostname, pid, client, slot_count). Three callers, one factory, identical session-open semantics. A `test_conventions.py`-style guard could enforce going forward: "all `SessionStarted` construction goes through `from_station`."
 
@@ -969,7 +969,7 @@ async for batch in client.subscribe_channel("scope.ch1"):
     plot.append(batch.samples)
 
 # 3. File subscription — partial reads with frame-index notifications
-async for chunk in client.subscribe_file("file://_ref/dut_video.mp4", live=True):
+async for chunk in client.subscribe_file("file://_ref/uut_video.mp4", live=True):
     video_decoder.feed(chunk.bytes)
 
 # 4. Convenience: subscribe to a whole run's live updates
@@ -1067,7 +1067,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 16 | Optional `namespace=` kwarg on observe/verify/stream — symmetric across all five power-user surfaces (Context.observe/verify/stream + channels.{write,stream} + files.{write,stream}) | C3a + cluster-4 | ✅ DONE | (cluster-4 phase-5 closed files.{write,stream} parity) |
 | 17 | Rename metadata fields → `attributes` across schemas | C2 | ✅ DONE | #18 |
 | 18 | Live waveform plot on channels detail page | C10 | ✅ DONE | #34 |
-| 18b | `/channels/{id}` chart: render-time session grouping with operator-readable legend (`<dut_serial> · <YYYY-MM-DD HH:MM:SS>`) — scalar channels with samples from 2+ sessions render one series per session, distinct color per session, legend on. Single-session views unchanged. | C10 follow-on | ✅ DONE | (this PR, task #196) |
+| 18b | `/channels/{id}` chart: render-time session grouping with operator-readable legend (`<uut_serial> · <YYYY-MM-DD HH:MM:SS>`) — scalar channels with samples from 2+ sessions render one series per session, distinct color per session, legend on. Single-session views unchanged. | C10 follow-on | ✅ DONE | (this PR, task #196) |
 | 19 | Payload-filter perf baselines (item 21 baseline) | C11 | ✅ DONE | #37 |
 | 20 | Consumer SDK (`litmus.live`) | C10 | ⏳ PENDING | — |
 | 21 | Typed Arrow event payloads (22 ids/names promoted to typed DuckDB columns; outcome filter 2.74×, role filter 3.7× via projection narrowing) | C11 | ✅ DONE | #39 |
@@ -1084,7 +1084,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 - **Cross-store retention coordination** — item 1d moves materialized artifacts from `runs/{stem}_ref/` (sibling to the parquet) to `files/{date}/{session_id}/` (separate tree). Today's retention only walks `runs/`. If a user prunes parquets, the FileStore artifacts they referenced get orphaned (dangling URIs); if they prune FileStore but keep parquets, parquet URIs break. Recommendation when retention gets real: walk both trees, intersect with surviving references, prune the diff. Closely related to L1 (which would make the reference-intersection an indexed query). Note in retention design when it next gets touched.
 - **Session-first layout reorg** — today's `data_dir/{runs,events,channels,files}/` is type-first; could become session-first `data_dir/sessions/{date}/{session_id}/{run.parquet,events/,channels/,files/}` for cleaner per-session retention + operator mental model. Net change: glob-pattern updates in 4 discovery loops (`runs/*/*.parquet` → `sessions/*/*/run.parquet`, etc.). Channel cross-session sharing constraint: `channels/{date}/{ch}_{sid}.arrow` files are intentionally per-channel-then-session so a long-running fixture channel accumulates across runs; session-first per-channel buckets would break that. Either keep channels separate, or design per-session channel writes + a cross-session view. Significant arch refactor — defer to v0.3.0 or late v0.2.0 cleanup. Discussed in 1d planning and explicitly deferred.
 - **Streaming as a capability both stores can offer** — surfaced in C4-remainder while scoping item 1b. ChannelStore is already streaming-shaped (append-only, subscribable, Flight `do_get`). FileStore becomes streaming-capable with item 2's sink (`open(key, format) -> sink; sink.write(chunk); sink.close() -> URI`). What gets streamed differs (typed samples vs byte chunks of one artifact), but the lifecycle pattern is symmetric. This shows up in two design questions: (a) the verb surface in C3 — `stream(name, sample)` should be uniform across both stores (item 7 + item 8 `channels.stream` / `filestore.stream`); (b) the lifecycle event types — today `ChannelStarted`/`ChannelClosed` (Position 2, channels) and `StreamStarted`/`StreamFrameIndex`/`StreamEnded` (for FileStore streams) do the same job for two stream types. Could collapse into one Stream* family with a `source` discriminator, or stay separate because the keying differs (channel_id stable across sessions vs stream_id per-instance UUID). Decide when C3 / C5 actually shape the verbs and the sink. Don't unify the events preemptively — that's a downstream consequence of the verb design, not an item 1b/2 decision.
-- **Channels + files as test INPUTS (v0.3.0 follow-on — punted 2026-06-06)** — surfaced 2026-06-03 reviewing the v0.2.0 remaining-work scope; briefly pulled into v0.2.0 on 2026-06-05 then **punted back to v0.3.0 on 2026-06-06** after a deeper spitball revealed an alternative shape worth designing properly. The interesting question isn't "ship `channels.read` / `files.read` symmetric to write" — it's whether `in_*` columns can hold URIs the way `out_*` does, with `context.get_input(name)` polymorphically unpacking on access (scalar inline → return literal; URI → resolve and return unpacked value). That makes traceability inherent (the `in_*` column IS the trace, no `InputLinked` event needed) and makes test bodies symmetric on both sides. But it surfaces real questions about eager-vs-lazy timing, URI lookup ergonomics, and lifecycle/retention semantics that need user-facing patterns settled before code. **Decision**: ship v0.2.0 without inputs to avoid half-designing the polymorphic-input shape under release pressure. Re-open in v0.3.0 with both layers in scope: (a) imperative read verbs (`channels.read`, `files.read`) as plumbing; (b) `context.get_input` unpack-on-access as the test-author surface. See 2026-06-06 chat transcript for the spitball + tradeoff matrix. Today's verb surface (`observe`/`verify`/`stream`) is producer-only; ChannelStore and FileStore have read APIs (`store.query(...)`, `store.read(uri)`) but no test-author-facing way to consume prior data as test stimulus. Real T&M workflows pull historical data forward: reference-waveform comparison ("compare this DUT's response to a golden-unit waveform captured last week"), replay ("feed this recorded signal as stimulus"), calibration carry-over ("read the cal file attached to the last successful run on this fixture"), cross-session correlation ("compare to the same measurement across the last 10 runs of this part"). Without a first-class input surface, test authors hand-roll `ChannelStore(...).query(...)` (breaks layering, no traceability) or ship reference data in the repo (no audit trail). Design questions to settle when this is picked up: (a) surface shape — bare verbs (`load_channel(...)`) or attached namespaces (`channels.read(...)` / `files.read(...)` — likely the latter, symmetric with `channels.write` / `files.write` from item 8); (b) traceability — does loading emit a typed event (`InputLinked`?) so the run records its dependencies?; (c) retention contract — loud `MissingInputError` vs return `None` vs replay-from-archive when the referenced channel was pruned (ties to cross-store retention deliberation above); (d) lookup ergonomics — by URI, by `(session_id, channel_id)`, or by higher-level query ("the latest `measurement_name='vout_idle'` on `dut_serial='SN001'`"); the typed-column promotion from PR #39 makes that query cheap; (e) pin-aware loading for part-spec workflows ("the reference for this pin's vout characteristic" instead of channel_id). Out of scope for the initial design: comparison verbs on top of loads (that's `verify()` territory operating on loaded data), schema migration of prior-run data with old column layouts (loud-fail philosophy applies), multi-session aggregation (analysis/SPC territory). Defer to v0.3.0 — verb surface and store APIs need to settle in v0.2.0 first.
+- **Channels + files as test INPUTS (v0.3.0 follow-on — punted 2026-06-06)** — surfaced 2026-06-03 reviewing the v0.2.0 remaining-work scope; briefly pulled into v0.2.0 on 2026-06-05 then **punted back to v0.3.0 on 2026-06-06** after a deeper spitball revealed an alternative shape worth designing properly. The interesting question isn't "ship `channels.read` / `files.read` symmetric to write" — it's whether `in_*` columns can hold URIs the way `out_*` does, with `context.get_input(name)` polymorphically unpacking on access (scalar inline → return literal; URI → resolve and return unpacked value). That makes traceability inherent (the `in_*` column IS the trace, no `InputLinked` event needed) and makes test bodies symmetric on both sides. But it surfaces real questions about eager-vs-lazy timing, URI lookup ergonomics, and lifecycle/retention semantics that need user-facing patterns settled before code. **Decision**: ship v0.2.0 without inputs to avoid half-designing the polymorphic-input shape under release pressure. Re-open in v0.3.0 with both layers in scope: (a) imperative read verbs (`channels.read`, `files.read`) as plumbing; (b) `context.get_input` unpack-on-access as the test-author surface. See 2026-06-06 chat transcript for the spitball + tradeoff matrix. Today's verb surface (`observe`/`verify`/`stream`) is producer-only; ChannelStore and FileStore have read APIs (`store.query(...)`, `store.read(uri)`) but no test-author-facing way to consume prior data as test stimulus. Real T&M workflows pull historical data forward: reference-waveform comparison ("compare this UUT's response to a golden-unit waveform captured last week"), replay ("feed this recorded signal as stimulus"), calibration carry-over ("read the cal file attached to the last successful run on this fixture"), cross-session correlation ("compare to the same measurement across the last 10 runs of this part"). Without a first-class input surface, test authors hand-roll `ChannelStore(...).query(...)` (breaks layering, no traceability) or ship reference data in the repo (no audit trail). Design questions to settle when this is picked up: (a) surface shape — bare verbs (`load_channel(...)`) or attached namespaces (`channels.read(...)` / `files.read(...)` — likely the latter, symmetric with `channels.write` / `files.write` from item 8); (b) traceability — does loading emit a typed event (`InputLinked`?) so the run records its dependencies?; (c) retention contract — loud `MissingInputError` vs return `None` vs replay-from-archive when the referenced channel was pruned (ties to cross-store retention deliberation above); (d) lookup ergonomics — by URI, by `(session_id, channel_id)`, or by higher-level query ("the latest `measurement_name='vout_idle'` on `uut_serial='SN001'`"); the typed-column promotion from PR #39 makes that query cheap; (e) pin-aware loading for part-spec workflows ("the reference for this pin's vout characteristic" instead of channel_id). Out of scope for the initial design: comparison verbs on top of loads (that's `verify()` territory operating on loaded data), schema migration of prior-run data with old column layouts (loud-fail philosophy applies), multi-session aggregation (analysis/SPC territory). Defer to v0.3.0 — verb surface and store APIs need to settle in v0.2.0 first.
 
 ### MVP (initial release) — stores + API consistency + types
 
@@ -1196,7 +1196,7 @@ Item 1 is the foundation; decomposed for execution clarity.
 
 25. **Operator-UI reference page fixes (5 stale pages).** Updates needed for changes that landed in 0.1.3 but missed the docs. Files: `docs/reference/operator-ui/tests.md`, `stations.md`, `parts.md`, `fixtures.md`, `instruments.md`. Tracked in `project_followup_operator_ui_reference_drift.md`. DoD: each page matches running UI; screenshots regenerated.
 
-26. **Operator-UI new reference pages (2 missing).** New files: `docs/reference/operator-ui/duts.md`, `docs/reference/operator-ui/profiles.md`. DoD: each page exists, follows the established operator-ui reference page format, screenshots included.
+26. **Operator-UI new reference pages (2 missing).** New files: `docs/reference/operator-ui/uuts.md`, `docs/reference/operator-ui/profiles.md`. DoD: each page exists, follows the established operator-ui reference page format, screenshots included.
 
 27. **`docs/concepts/data/three-stores.md` updates to four-store model.** Add FileStore as first-class; update storage layout diagram; reflect the `received_at` / `acquired_at` schema. DoD: page reflects four-store reality; diagrams updated.
 
@@ -1282,7 +1282,7 @@ The audit is useful anyway: gives readers from other ecosystems a way to orient,
 | Properties indexed for cross-file search | NI DIAdem (TDMS properties) |
 | The four jobs (disposition / traceability / yield / diagnosis) | ISO/IEC 17025, SEMI E10/E58, AIAG MSA, Western Electric / Six Sigma |
 | Measurements with limits + outcomes, attachments as side artifacts | **OpenHTF** — `measurements` (with limits) + `phase.attach_from_file()` |
-| DUT serial + station + operator + spec on every row | MES / shop-floor data; SEMI SECS/GEM; **IEEE 1671 ATML** (consulted) |
+| UUT serial + station + operator + spec on every row | MES / shop-floor data; SEMI SECS/GEM; **IEEE 1671 ATML** (consulted) |
 | Session / run / step / vector hierarchy | **ATML** (consulted) |
 | Sample-rate-derived time axis (`t0 + dt`) | TDMS waveform encoding; IEEE 1671; MATLAB timeseries |
 

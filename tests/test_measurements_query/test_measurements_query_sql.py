@@ -3,7 +3,7 @@
 Uses the canonical singleton runs daemon (the only one a Litmus
 process should ever talk to). Each fixture writes synthetic
 measurement parquets into the canonical runs dir under a unique
-``dut_part_number`` so every aggregation can scope to this test's
+``uut_part_number`` so every aggregation can scope to this test's
 own data via the existing ``part=`` filter — passing past whatever
 other rows the canonical store may hold.
 """
@@ -29,8 +29,8 @@ from litmus.data.schemas import _build_write_schema, table_from_rows
 def _row(
     *,
     run_id: str,
-    dut_part_number: str,
-    dut_serial: str = "SN001",
+    uut_part_number: str,
+    uut_serial: str = "SN001",
     run_outcome: str = "passed",
     run_started_at: str = "2026-01-01T10:00:00",
     run_ended_at: str = "2026-01-01T10:05:00",
@@ -50,9 +50,9 @@ def _row(
         run_id=run_id,
         run_started_at=datetime.fromisoformat(run_started_at).replace(tzinfo=UTC),
         run_ended_at=datetime.fromisoformat(run_ended_at).replace(tzinfo=UTC),
-        dut_serial=dut_serial,
-        dut_part_number=dut_part_number,
-        part_id=dut_part_number,
+        uut_serial=uut_serial,
+        uut_part_number=uut_part_number,
+        part_id=uut_part_number,
         station_id=station_name,
         station_name=station_name,
         test_phase=test_phase,
@@ -102,8 +102,8 @@ def fixture_data() -> dict[str, str]:
     rows = [
         _row(
             run_id=f"mqs-{uuid4()}",
-            dut_part_number=part,
-            dut_serial="SN001",
+            uut_part_number=part,
+            uut_serial="SN001",
             run_outcome="passed",
             run_started_at="2026-01-01T10:00:00",
             run_ended_at="2026-01-01T10:05:00",
@@ -112,8 +112,8 @@ def fixture_data() -> dict[str, str]:
         ),
         _row(
             run_id=f"mqs-{uuid4()}",
-            dut_part_number=part,
-            dut_serial="SN002",
+            uut_part_number=part,
+            uut_serial="SN002",
             run_outcome="failed",
             run_started_at="2026-01-01T11:00:00",
             run_ended_at="2026-01-01T11:03:00",
@@ -122,8 +122,8 @@ def fixture_data() -> dict[str, str]:
         ),
         _row(
             run_id=f"mqs-{uuid4()}",
-            dut_part_number=part,
-            dut_serial="SN001",
+            uut_part_number=part,
+            uut_serial="SN001",
             run_outcome="passed",
             run_started_at="2026-01-01T12:00:00",
             run_ended_at="2026-01-01T12:04:00",
@@ -132,8 +132,8 @@ def fixture_data() -> dict[str, str]:
         ),
         _row(
             run_id=f"mqs-{uuid4()}",
-            dut_part_number=part,
-            dut_serial="SN002",
+            uut_part_number=part,
+            uut_serial="SN002",
             run_outcome="passed",
             run_started_at="2026-01-01T13:00:00",
             run_ended_at="2026-01-01T13:06:00",
@@ -167,10 +167,10 @@ class TestYieldSummary:
 
         # fmt: off
         python_runs = [
-            {"dut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T10:00:00"},  # noqa: E501
-            {"dut_serial": "SN002", "run_outcome": "failed", "run_started_at": "2026-01-01T11:00:00"},  # noqa: E501
-            {"dut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T12:00:00"},  # noqa: E501
-            {"dut_serial": "SN002", "run_outcome": "passed", "run_started_at": "2026-01-01T13:00:00"},  # noqa: E501
+            {"uut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T10:00:00"},  # noqa: E501
+            {"uut_serial": "SN002", "run_outcome": "failed", "run_started_at": "2026-01-01T11:00:00"},  # noqa: E501
+            {"uut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T12:00:00"},  # noqa: E501
+            {"uut_serial": "SN002", "run_outcome": "passed", "run_started_at": "2026-01-01T13:00:00"},  # noqa: E501
         ]
         # fmt: on
         python_fpy = calculate_fpy(python_runs)
@@ -210,7 +210,7 @@ class TestPareto:
         canonical_runs = resolve_data_dir() / "runs" / "test-mqs-no-failures" / "2026-01-01"
         _write_measurements(
             canonical_runs,
-            [_row(run_id=f"mqs-{uuid4()}", dut_part_number=part, value=3.3, outcome="passed")],
+            [_row(run_id=f"mqs-{uuid4()}", uut_part_number=part, value=3.3, outcome="passed")],
             filename=f"{part}_main.parquet",
         )
         store = MeasurementsQuery()
@@ -226,8 +226,8 @@ class TestCpk:
         rows = [
             _row(
                 run_id=f"mqs-cpk-{uuid4()}",
-                dut_part_number=part,
-                dut_serial=f"SN{i:03d}",
+                uut_part_number=part,
+                uut_serial=f"SN{i:03d}",
                 value=v,
                 outcome="passed",
             )
@@ -249,11 +249,11 @@ class TestCpk:
         _write_measurements(
             canonical_runs,
             [
-                _row(run_id=f"mqs-{uuid4()}", dut_part_number=part, value=3.3, outcome="passed"),
+                _row(run_id=f"mqs-{uuid4()}", uut_part_number=part, value=3.3, outcome="passed"),
                 _row(
                     run_id=f"mqs-{uuid4()}",
-                    dut_part_number=part,
-                    dut_serial="SN002",
+                    uut_part_number=part,
+                    uut_serial="SN002",
                     value=3.31,
                     outcome="passed",
                 ),
@@ -353,7 +353,7 @@ class TestParametric:
     def test_scatter_returns_typed_rows(self, fixture_data):
         store = MeasurementsQuery()
         filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
-        rows = store.parametric(y="measurement_value", x="dut_serial", filters=filters)
+        rows = store.parametric(y="measurement_value", x="uut_serial", filters=filters)
         assert len(rows) == 4
         assert all(isinstance(r, ParametricRow) for r in rows)
         assert all(r.group == "" for r in rows)
@@ -362,7 +362,7 @@ class TestParametric:
         store = MeasurementsQuery()
         filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
         rows = store.parametric(
-            y="measurement_value", x="dut_serial", group_by="run_outcome", filters=filters
+            y="measurement_value", x="uut_serial", group_by="run_outcome", filters=filters
         )
         groups = {r.group for r in rows}
         assert groups == {"passed", "failed"}
@@ -371,7 +371,7 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="dut_serial",
+            x="uut_serial",
             filters=FilterSet(
                 string_filters={"part_id": [fixture_data["part"]]},
                 enum_filters={"run_outcome": ["passed"]},
@@ -383,7 +383,7 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="dut_serial",
+            x="uut_serial",
             filters=FilterSet(
                 string_filters={"part_id": [fixture_data["part"]]},
                 enum_filters={"run_outcome": ["passed", "failed"]},
@@ -395,7 +395,7 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="dut_serial",
+            x="uut_serial",
             chart_type="histogram",
             bins=4,
             filters=FilterSet(string_filters={"part_id": [fixture_data["part"]]}),
@@ -407,7 +407,7 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="dut_serial",
+            x="uut_serial",
             chart_type="bar",
             filters=FilterSet(string_filters={"part_id": [fixture_data["part"]]}),
         )
@@ -420,7 +420,7 @@ class TestParametric:
     def test_invalid_column_rejected(self):
         store = MeasurementsQuery()
         with pytest.raises(ValueError, match="invalid column identifier"):
-            store.parametric(y="value; DROP TABLE silver --", x="dut_serial")
+            store.parametric(y="value; DROP TABLE silver --", x="uut_serial")
 
 
 class TestDistinctValues:
@@ -428,14 +428,14 @@ class TestDistinctValues:
         store = MeasurementsQuery()
         # Scope by part so the canonical store's other rows don't pollute.
         filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
-        opts = store.distinct_values("dut_serial", filters=filters)
+        opts = store.distinct_values("uut_serial", filters=filters)
         values = {o.value for o in opts}
         assert values == {"SN001", "SN002"}
 
     def test_options_carry_counts(self, fixture_data):
         store = MeasurementsQuery()
         filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
-        opts = store.distinct_values("dut_serial", filters=filters)
+        opts = store.distinct_values("uut_serial", filters=filters)
         # 2 measurements per serial in the fixture
         assert all(o.count == 2 for o in opts)
 
@@ -448,13 +448,13 @@ class TestDistinctValues:
         assert fixture_data["part"] in {o.value for o in opts}
 
     def test_cross_filter_narrows_other(self, fixture_data):
-        """A filter on run_outcome narrows the dut_serial options to passing serials."""
+        """A filter on run_outcome narrows the uut_serial options to passing serials."""
         store = MeasurementsQuery()
         filters = FilterSet(
             string_filters={"part_id": [fixture_data["part"]]},
             enum_filters={"run_outcome": ["failed"]},
         )
-        opts = store.distinct_values("dut_serial", filters=filters)
+        opts = store.distinct_values("uut_serial", filters=filters)
         # Only SN002 has a failed run for our part
         assert {o.value for o in opts} == {"SN002"}
 

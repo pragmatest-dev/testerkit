@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 
 
 @pytest.fixture
@@ -21,14 +21,14 @@ def realistic_test_run() -> TestRun:
       - All 10 comparator types spread across measurements
       - value=None measurement (error case)
       - Nested step_path ("power/output/voltage")
-      - DUT with all fields, custom_metadata, instrument_arrays
+      - UUT with all fields, custom_metadata, instrument_arrays
     """
     return TestRun(
         id=uuid4(),
         started_at=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 3, 4, 10, 5, 0, tzinfo=UTC),
-        dut=DUT(
-            serial="DUT-001",
+        uut=UUT(
+            serial="UUT-001",
             part_number="PN-200",
             revision="B",
             lot_number="LOT-42",
@@ -80,7 +80,7 @@ def realistic_test_run() -> TestRun:
                                 limit_high=3.6,
                                 limit_comparator="GELE",
                                 outcome=Outcome.PASSED,
-                                dut_pin="VOUT",
+                                uut_pin="VOUT",
                                 instrument_name="DMM_01",
                                 characteristic_id="SPEC-001",
                             ),
@@ -259,10 +259,10 @@ def _replay_events(
             station_name=test_run.station_name,
             station_type=test_run.station_type,
             station_location=test_run.station_location,
-            dut_serial=test_run.dut.serial,
-            dut_part_number=test_run.dut.part_number,
-            dut_revision=test_run.dut.revision,
-            dut_lot_number=test_run.dut.lot_number,
+            uut_serial=test_run.uut.serial,
+            uut_part_number=test_run.uut.part_number,
+            uut_revision=test_run.uut.revision,
+            uut_lot_number=test_run.uut.lot_number,
             part_id=test_run.part_id,
             part_name=test_run.part_name,
             part_revision=test_run.part_revision,
@@ -316,7 +316,7 @@ def _replay_events(
                         limit_comparator=meas.limit_comparator,
                         characteristic_id=meas.characteristic_id,
                         spec_ref=meas.spec_ref,
-                        dut_pin=meas.dut_pin,
+                        uut_pin=meas.uut_pin,
                         instrument_name=meas.instrument_name,
                         instrument_resource=meas.instrument_resource,
                         instrument_channel=meas.instrument_channel,

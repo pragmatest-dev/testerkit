@@ -2,12 +2,12 @@
 
 **URLs:** `/fixtures` (list), `/fixtures/new`, `/fixtures/{id}`, `/fixtures/{id}/edit`
 
-A fixture is the wiring between a DUT's pins and a station's
+A fixture is the wiring between a UUT's pins and a station's
 instrument channels — which probe goes on which pin, which DMM
 channel reads which voltage. A fixture is bound to a part (so it
 gets used in the right runs) and is used at run time by stations
 whose instruments cover the fixture's connections. The fixture's
-connection rows themselves carry free-text DUT-pin and channel
+connection rows themselves carry free-text UUT-pin and channel
 fields — they're not validated against the part's pin map at
 edit time.
 
@@ -49,7 +49,7 @@ strip with three tabs:
 
 | Tab | Content |
 |---|---|
-| Pin Mappings | The connections table — one row per (DUT pin → instrument channel) mapping. Columns: Connection (the mapping's name), DUT Pin, Net, Instrument, Channel, Description. |
+| Pin Mappings | The connections table — one row per (UUT pin → instrument channel) mapping. Columns: Connection (the mapping's name), UUT Pin, Net, Instrument, Channel, Description. |
 | Compatible Stations | Stations whose instruments cover this fixture's required instruments and channels. |
 | Diagram | A Mermaid-rendered diagram of the pin-to-instrument wiring. |
 
@@ -57,7 +57,7 @@ strip with three tabs:
 
 A form for the same fields the fixture YAML carries. The Part
 binding is a dropdown — editable on both New and Edit (no read-only
-restriction). The DUT Pin and Instrument Channel fields on each
+restriction). The UUT Pin and Instrument Channel fields on each
 connection row are **free-text inputs**, not dropdowns sourced from
 the part pin map.
 

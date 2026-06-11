@@ -179,7 +179,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_LITMUS}" },
       "targets": [
         {
-          "rawSql": "SELECT run_id, session_id, started_at, outcome, dut_serial, station_id, num_measurements FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY started_at DESC LIMIT 50",
+          "rawSql": "SELECT run_id, session_id, started_at, outcome, uut_serial, station_id, num_measurements FROM runs WHERE started_at BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY started_at DESC LIMIT 50",
           "format": "table"
         }
       ]

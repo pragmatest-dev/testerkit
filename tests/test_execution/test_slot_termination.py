@@ -114,18 +114,18 @@ class TestSlotRunnerPropagateTermination:
 
     @staticmethod
     def _make_runner() -> SlotRunner:
-        from litmus.data.models import DUT
+        from litmus.data.models import UUT
         from litmus.execution.slots import ResolvedSlot
 
         slots = {
             "slot_1": ResolvedSlot(slot_id="slot_1", connections={}),
             "slot_2": ResolvedSlot(slot_id="slot_2", connections={}),
         }
-        duts = {
-            "slot_1": DUT(serial="A"),
-            "slot_2": DUT(serial="B"),
+        uuts = {
+            "slot_1": UUT(serial="A"),
+            "slot_2": UUT(serial="B"),
         }
-        return SlotRunner(slots=slots, duts=duts)
+        return SlotRunner(slots=slots, uuts=uuts)
 
     def test_terminates_only_live_children(self):
         runner = self._make_runner()

@@ -20,7 +20,7 @@ from litmus.api.app import create_api_router
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import (
-    DUT,
+    UUT,
     Measurement,
     Outcome,
     TestRun,
@@ -36,7 +36,7 @@ def _make_run(*, run_id, step_specs):
         id=run_id,
         started_at=datetime(2026, 5, 2, 12, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 5, 2, 12, 1, 0, tzinfo=UTC),
-        dut=DUT(serial="SN-001"),
+        uut=UUT(serial="SN-001"),
         outcome=Outcome.PASSED,
         steps=[
             TestStep(

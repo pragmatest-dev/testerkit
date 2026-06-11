@@ -96,7 +96,7 @@ def test_mixed_configured_and_observed(monkeypatch):
         "usage_stats_by",
         lambda _field: {
             "lm317": {"runs": 9, "passed": 9, "failed": 0, "last_run": None},
-            "unknown-dut": {"runs": 1, "passed": 0, "failed": 1, "last_run": None},
+            "unknown-uut": {"runs": 1, "passed": 0, "failed": 1, "last_run": None},
         },
     )
 
@@ -104,5 +104,5 @@ def test_mixed_configured_and_observed(monkeypatch):
     by_id = {r.id: r for r in rows}
     assert by_id["tps54302"].provenance == "configured"
     assert by_id["lm317"].provenance == "configured"  # YAML wins
-    assert by_id["unknown-dut"].provenance == "observed_only"
+    assert by_id["unknown-uut"].provenance == "observed_only"
     assert len(rows) == 3

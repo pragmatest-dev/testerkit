@@ -5,9 +5,9 @@ Litmus is a Python-native hardware test platform for the AI-assisted era. It pro
 ## Folder Convention
 
 Entity-aligned folders contain YAML configuration files:
-- `parts/` — DUT specifications, characteristics, and limits
+- `parts/` — UUT specifications, characteristics, and limits
 - `stations/` — Bench configurations (instruments + roles); `stations/types/` for abstract station-type templates
-- `fixtures/` — DUT-pin to instrument-channel routing
+- `fixtures/` — UUT-pin to instrument-channel routing
 - `profiles/` — Named bundles of session-level overrides (limits, sweeps, fixture, station_type)
 - `catalog/` — Instrument capability definitions
 
@@ -52,7 +52,7 @@ All configuration uses YAML files with Pydantic validation. Edit YAML directly o
 
 - **Parts** define what you're testing: characteristics, limits, pin map
 - **Stations** define your bench: which instruments, what roles they play; `station_type:` declares the abstract layout
-- **Fixtures** map DUT pins to instrument channels; `station_types: [...]` declares which station layouts the fixture supports
+- **Fixtures** map UUT pins to instrument channels; `station_types: [...]` declares which station layouts the fixture supports
 - **Profiles** bundle session-level overrides — limits, sweeps, mocks, fixture, station_type — keyed by facet (e.g. `test_phase: production`)
 
 ## Writing Tests

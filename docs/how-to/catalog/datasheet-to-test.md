@@ -93,7 +93,7 @@ Pick whichever fits where you are: generics if you're sketching, scaffold for we
 
 ### Phase 3 — Create station config
 
-Claude generates `stations/<id>.yaml` wiring the selected instruments to roles (`psu`, `dmm`, `dut_load`, etc.) with realistic mock values. Schema is validated server-side.
+Claude generates `stations/<id>.yaml` wiring the selected instruments to roles (`psu`, `dmm`, `uut_load`, etc.) with realistic mock values. Schema is validated server-side.
 
 Approval gate: review the wiring. Most edits here are around VISA resource strings (the agent has no way to discover your bench's actual `TCPIP::*::INSTR` addresses unless you've already populated them or it can call `litmus_discover` against a live bench).
 
@@ -114,7 +114,7 @@ Approval gate: review both files. Edit directly — pytest and the YAML are the 
 
 ### Phase 5 — Execute and analyze
 
-Claude calls `litmus_run(test="tests/test_<id>.py", station="<station_id>", serial="<DUT-SERIAL>", project=<root>)`. The test executes against the configured station (with `mocks:` from the sidecar if `--mock-instruments` is implied, otherwise against the real bench).
+Claude calls `litmus_run(test="tests/test_<id>.py", station="<station_id>", serial="<UUT-SERIAL>", project=<root>)`. The test executes against the configured station (with `mocks:` from the sidecar if `--mock-instruments` is implied, otherwise against the real bench).
 
 Claude shows you the results table — rows are measurements, columns are sweep axes, cells colored pass/fail/skip. From here you can ask follow-ups:
 

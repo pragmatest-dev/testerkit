@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 from litmus.models.instrument import CalibrationInfo, InstrumentInfo, InstrumentRecord
 
 
@@ -71,7 +71,7 @@ class TestBuildInstrumentArrays:
         psu = _make_record("psu", instrument_id="keysight_001", serial="SN-PSU")
 
         logger = TestRunLogger(
-            dut_serial="DUT001",
+            uut_serial="UUT001",
             station_id="station_001",
             instruments={"dmm": dmm, "psu": psu},
         )
@@ -99,7 +99,7 @@ class TestBuildInstrumentArrays:
         }
 
         logger = TestRunLogger(
-            dut_serial="DUT001",
+            uut_serial="UUT001",
             station_id="station_001",
             instruments=records,
         )
@@ -115,7 +115,7 @@ class TestBuildInstrumentArrays:
         from litmus.execution.logger import TestRunLogger
 
         logger = TestRunLogger(
-            dut_serial="DUT001",
+            uut_serial="UUT001",
             station_id="station_001",
         )
 
@@ -138,7 +138,7 @@ class TestBuildInstrumentArrays:
         )
 
         logger = TestRunLogger(
-            dut_serial="DUT001",
+            uut_serial="UUT001",
             station_id="station_001",
             instruments={"dmm": record},
         )
@@ -165,7 +165,7 @@ class TestSetStepInstruments:
         }
 
         logger = TestRunLogger(
-            dut_serial="DUT001",
+            uut_serial="UUT001",
             station_id="station_001",
             instruments=records,
         )
@@ -186,7 +186,7 @@ class TestEmptyRowSchemaMatches:
         backend = ParquetBackend(data_dir="/tmp/litmus_test_run_row")
 
         test_run = TestRun(
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             station_id="station_001",
         )
 
@@ -210,7 +210,7 @@ class TestParquetRoundTrip:
 
         # Build a test run with a step that has instrument arrays
         test_run = TestRun(
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             station_id="station_001",
         )
 

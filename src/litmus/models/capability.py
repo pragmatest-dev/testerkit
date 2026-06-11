@@ -148,7 +148,7 @@ class ChannelTopology(BaseModel):
 
     Describes the physical terminals, connector type, and ground topology
     for a channel. Used in catalog and instrument library entries to model
-    how instruments physically connect to the DUT.
+    how instruments physically connect to the UUT.
 
     Example YAML:
         "1":

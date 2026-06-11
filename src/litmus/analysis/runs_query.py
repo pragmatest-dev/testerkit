@@ -27,7 +27,7 @@ from litmus.data.data_dir import resolve_data_dir
 # See feedback_operator_facing_identifiers.md.
 _VALID_PARETO_GROUP_BY = frozenset(
     {
-        "dut_part_number",
+        "uut_part_number",
         "station_hostname",
         "operator_id",
         "test_phase",
@@ -48,9 +48,9 @@ class RunRow(BaseModel):
     run_id: str | None = None
     session_id: str | None = None
     slot_id: str | None = None
-    dut_serial: str | None = None
-    dut_part_number: str | None = None
-    dut_lot_number: str | None = None
+    uut_serial: str | None = None
+    uut_part_number: str | None = None
+    uut_lot_number: str | None = None
     station_id: str | None = None
     station_name: str | None = None
     station_hostname: str | None = None
@@ -131,9 +131,9 @@ class RunsQuery:
             phase / part / station / lot / outcome: Multi-value
                 filters. ``str`` collapses to ``=``, ``list`` to
                 ``IN (…)``. ``None`` / empty contributes nothing.
-                ``part`` filters by ``dut_part_number`` (operator-
+                ``part`` filters by ``uut_part_number`` (operator-
                 facing); ``station`` by ``station_hostname``; ``lot``
-                by ``dut_lot_number``.
+                by ``uut_lot_number``.
             since / until: ISO date or datetime strings. Filter
                 ``started_at`` to ``[since, until]`` (inclusive).
                 ``None`` / empty contributes nothing.
@@ -145,9 +145,9 @@ class RunsQuery:
             multi_filter_clauses(
                 {
                     "test_phase": phase,
-                    "dut_part_number": part,
+                    "uut_part_number": part,
                     "station_hostname": station,
-                    "dut_lot_number": lot,
+                    "uut_lot_number": lot,
                     "outcome": outcome,
                 }
             )
@@ -187,7 +187,7 @@ class RunsQuery:
         *,
         include_incomplete: bool = False,
     ) -> list[RunRow]:
-        """Return all runs sharing a ``session_id`` (multi-DUT siblings).
+        """Return all runs sharing a ``session_id`` (multi-UUT siblings).
 
         Default excludes in-flight rows; pass ``include_incomplete=True``
         to surface running peers (e.g. live multi-slot view).
@@ -205,7 +205,7 @@ class RunsQuery:
     def failure_pareto(
         self,
         *,
-        group_by: str = "dut_part_number",
+        group_by: str = "uut_part_number",
         top_n: int = 10,
         phase: str | list[str] | None = None,
         part: str | list[str] | None = None,
@@ -217,7 +217,7 @@ class RunsQuery:
 
         Answers "where are the failures concentrated?" at the run
         level — most-failing parts, most-failing stations, etc.
-        Default groups by ``dut_part_number`` (a.k.a. part) since
+        Default groups by ``uut_part_number`` (a.k.a. part) since
         that's the most useful pareto for an operator: which part
         SKU is hurting yield.
 
@@ -230,7 +230,7 @@ class RunsQuery:
         count.
 
         Args:
-            group_by: Column to group by — ``dut_part_number``
+            group_by: Column to group by — ``uut_part_number``
                 (part), ``station_id``, ``operator_id``,
                 ``test_phase``. Validated against an allowlist; bad
                 values raise ``ValueError``.
@@ -251,7 +251,7 @@ class RunsQuery:
             multi_filter_clauses(
                 {
                     "test_phase": phase,
-                    "dut_part_number": part,
+                    "uut_part_number": part,
                     "station_hostname": station,
                 }
             )
@@ -305,9 +305,9 @@ class RunsQuery:
             multi_filter_clauses(
                 {
                     "test_phase": phase,
-                    "dut_part_number": part,
+                    "uut_part_number": part,
                     "station_hostname": station,
-                    "dut_lot_number": lot,
+                    "uut_lot_number": lot,
                     "outcome": outcome,
                 }
             )
@@ -338,7 +338,7 @@ class RunsQuery:
         from litmus.data._flight_errors import FlightPermanentError
 
         out: dict[str, list[str]] = {}
-        for column in ("test_phase", "dut_part_number", "station_hostname"):
+        for column in ("test_phase", "uut_part_number", "station_hostname"):
             try:
                 rows = self._query_dicts(
                     f"SELECT DISTINCT {column} AS v FROM runs "
@@ -373,7 +373,7 @@ class RunsQuery:
         """
         _VALID_BY_COLUMNS = frozenset(
             {
-                "dut_part_number",
+                "uut_part_number",
                 "station_hostname",
                 "station_id",
                 "fixture_id",

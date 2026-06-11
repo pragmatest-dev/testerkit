@@ -35,17 +35,17 @@ Litmus defines events across 11 categories.
 ### Run (3 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
-| `RunStarted` | `run.started` | Full run context: DUT, part, operator, config snapshots |
+| `RunStarted` | `run.started` | Full run context: UUT, part, operator, config snapshots |
 | `RunEnded` | `run.ended` | Run outcome |
 | `RunMaterialized` | `run.materialized` | Parquet file written; ready for downstream consumers (defined but not currently in the `Event` discriminated union). |
 
-### Slot (2 events — multi-DUT)
+### Slot (2 events — multi-UUT)
 | Event | Type String | Description |
 |-------|-------------|-------------|
-| `SlotStarted` | `slot.started` | A multi-DUT slot subprocess begins |
-| `SlotCompleted` | `slot.completed` | A multi-DUT slot subprocess finishes |
+| `SlotStarted` | `slot.started` | A multi-UUT slot subprocess begins |
+| `SlotCompleted` | `slot.completed` | A multi-UUT slot subprocess finishes |
 
-### Sync (2 events — multi-DUT)
+### Sync (2 events — multi-UUT)
 | Event | Type String | Description |
 |-------|-------------|-------------|
 | `SyncArrived` | `sync.arrived` | A worker reached a synchronization barrier |
@@ -63,7 +63,7 @@ Litmus defines events across 11 categories.
 | `InstrumentConnected` | `fixture.instrument_connected` | Instrument identified and connected |
 | `IdentityVerified` | `fixture.identity_verified` | Expected vs actual instrument identity |
 | `CalibrationWarning` | `fixture.calibration_warning` | Calibration due date approaching |
-| `DutScanned` | `fixture.dut_scanned` | DUT serial barcode scanned |
+| `UutScanned` | `fixture.uut_scanned` | UUT serial barcode scanned |
 | `InstrumentDisconnected` | `fixture.instrument_disconnected` | Instrument released during teardown |
 
 ### Test (5 events)
@@ -107,7 +107,7 @@ A typical test session emits events in this order:
 
 ```
 SessionStarted          # Session-wide metadata (station, operator)
-├── RunStarted          # Run context (DUT, part, config snapshots)
+├── RunStarted          # Run context (UUT, part, config snapshots)
 ├── InstrumentConnected # One per instrument role
 ├── IdentityVerified    # Optional identity check
 ├── StepsDiscovered     # Full list of collected test items

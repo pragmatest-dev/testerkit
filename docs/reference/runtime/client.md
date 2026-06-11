@@ -18,7 +18,7 @@ client = LitmusClient()
 
 # Start a test run
 run = client.start_run(
-    dut_serial="SN12345",
+    uut_serial="SN12345",
     station_id="bench_1",
     test_phase="production",
 )
@@ -55,11 +55,11 @@ Returned by `client.start_run()`.
 
 ```python
 run = client.start_run(
-    dut_serial="SN12345",          # Required
+    uut_serial="SN12345",          # Required
     station_id="bench_1",          # Required
-    dut_part_number="PCB-001",     # Optional
-    dut_revision="A",              # Optional
-    dut_lot_number="LOT2026",      # Optional
+    uut_part_number="PCB-001",     # Optional
+    uut_revision="A",              # Optional
+    uut_lot_number="LOT2026",      # Optional
     station_type="production",     # Optional
     operator="Jane Doe",           # Optional
     test_phase="production",       # Optional
@@ -156,7 +156,7 @@ def run_production_test(serial_number: str):
     client = LitmusClient(data_dir="./test_results")
 
     run = client.start_run(
-        dut_serial=serial_number,
+        uut_serial=serial_number,
         station_id="production_line_1",
         operator="AutoTester",
         test_phase="production",
@@ -194,7 +194,7 @@ from litmus import LitmusClient
 def submit_labview_run(serial, station, measurements):
     """measurements: list of dicts with name, value, low, high, units."""
     client = LitmusClient()
-    run = client.start_run(dut_serial=serial, station_id=station, test_phase="production")
+    run = client.start_run(uut_serial=serial, station_id=station, test_phase="production")
     with run.step("labview_results") as step:
         for m in measurements:
             step.measure(**m)
@@ -218,7 +218,7 @@ def submit_teststand_results(serial, station, results_json):
 
     client = LitmusClient()
     run = client.start_run(
-        dut_serial=serial,
+        uut_serial=serial,
         station_id=station,
         test_phase="production",
     )
@@ -243,7 +243,7 @@ voltage = float(sys.argv[2])
 
 client = LitmusClient()
 run = client.start_run(
-    dut_serial=serial,
+    uut_serial=serial,
     station_id="cli_test",
     test_phase="characterization",
 )

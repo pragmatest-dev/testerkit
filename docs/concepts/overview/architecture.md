@@ -51,7 +51,7 @@ flowchart LR
     end
 
     subgraph Runtime["RUNTIME"]
-        DUT["DUT<br/>(serial)"]
+        UUT["UUT<br/>(serial)"]
         SI["Station instance"]
         TR["Test run"]
     end
@@ -61,8 +61,8 @@ flowchart LR
         MD["Measurement data"]
     end
 
-    PS -- "instantiated as" --> DUT
-    DUT -- "tested in" --> TRR
+    PS -- "instantiated as" --> UUT
+    UUT -- "tested in" --> TRR
     ST -- "deployed as" --> SI
     SI -- "produces" --> MD
     TC -- "executed as" --> TR
@@ -76,7 +76,7 @@ The platform's data model splits cleanly into three concerns: **what you're test
 
 ### 1. Parts & Specs
 
-What the DUT is, what its measurable characteristics are, and how spec bands attach.
+What the UUT is, what its measurable characteristics are, and how spec bands attach.
 
 ```mermaid
 erDiagram
@@ -116,7 +116,7 @@ erDiagram
 
 ### 2. Stations, Fixtures & Capability Matching
 
-The bench side: physical stations, the instruments they hold, the capabilities those instruments expose, and the optional fixture layer that routes instrument channels to DUT pins.
+The bench side: physical stations, the instruments they hold, the capabilities those instruments expose, and the optional fixture layer that routes instrument channels to UUT pins.
 
 ```mermaid
 erDiagram
@@ -155,7 +155,7 @@ erDiagram
         instrument string FK
         instrument_channel string
         instrument_terminal string
-        dut_pin string FK
+        uut_pin string FK
         net string
         function string
         route SwitchRoute
@@ -175,7 +175,7 @@ erDiagram
     Station ||--o{ StationInstrumentConfig : "instruments{}"
     StationInstrumentConfig ||--o{ Capability : "capabilities[]"
     Fixture ||--o{ FixtureConnection : "connections[]"
-    FixtureConnection }o--|| Pin : "dut_pin →"
+    FixtureConnection }o--|| Pin : "uut_pin →"
     FixtureConnection }o--|| StationInstrumentConfig : "instrument →"
     Characteristic ||--|| Capability : "matches (direction-flipped)"
 ```
@@ -207,14 +207,14 @@ erDiagram
         runner string
         tests dict
     }
-    DUT {
+    UUT {
         serial string PK
         part_number string
     }
     TestRun {
         id uuid PK
         started_at datetime
-        dut_serial string FK
+        uut_serial string FK
         station_id string FK
         outcome enum
     }
@@ -238,8 +238,8 @@ erDiagram
     }
 
     SidecarConfig ||--o{ TestEntry : "tests{}"
-    DUT }o--|| Part : "instance of"
-    TestRun }o--|| DUT : "for DUT"
+    UUT }o--|| Part : "instance of"
+    TestRun }o--|| UUT : "for UUT"
     TestRun }o--|| Station : "on station"
     TestRun ||--o{ TestVector : "vectors[]"
     TestVector ||--o{ Measurement : "measurements[]"
@@ -249,7 +249,7 @@ erDiagram
 
 | Concept | Type (YAML Definition) | Instance (Runtime) |
 |---------|------------------------|-------------------|
-| What to test | `Part` | `DUT` |
+| What to test | `Part` | `UUT` |
 | Where to test | `StationType` | `StationConfig` |
 | What to run | `SidecarConfig` (file scope) + pytest collection | `TestRun` |
 | Single iteration | `TestEntry` (per-method scope) | `TestVector` |
@@ -300,7 +300,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    PC["Part characteristic<br/>direction: OUTPUT<br/>function: dc_voltage<br/>(DUT outputs voltage)"]
+    PC["Part characteristic<br/>direction: OUTPUT<br/>function: dc_voltage<br/>(UUT outputs voltage)"]
     REQ["Required capability<br/>direction: INPUT<br/>function: dc_voltage<br/>(need to measure)"]
     SI["Station instrument<br/>provides: INPUT<br/>function: dc_voltage<br/>(DMM can measure)"]
     PC -- "direction-flip" --> REQ

@@ -71,14 +71,14 @@ def _write_fixture(pytester: pytest.Pytester) -> None:
             connections:
               vin_measure:
                 name: vin_measure
-                dut_pin: TP_VIN
+                uut_pin: TP_VIN
                 net: VIN_5V
                 instrument: dmm
                 instrument_channel: '1'
                 instrument_terminal: hi
               vout_measure:
                 name: vout_measure
-                dut_pin: TP_VOUT
+                uut_pin: TP_VOUT
                 net: VOUT_3V3
                 instrument: dmm
                 instrument_channel: '2'
@@ -91,7 +91,7 @@ def _write_fixture(pytester: pytest.Pytester) -> None:
 def test_simple_path_absolute_limits_no_part(pytester: pytest.Pytester) -> None:
     """Sidecar with only absolute ``low``/``high`` — no part, no fixture.
 
-    Limit stamps on the row; ``dut_pin`` / ``fixture_connection`` /
+    Limit stamps on the row; ``uut_pin`` / ``fixture_connection`` /
     ``spec_ref`` stay null. Demonstrates the "Layer 1 + Layer 2 only"
     simple path from the plan.
     """
@@ -196,7 +196,7 @@ def test_multi_pin_characteristic_iterates_all_connections(pytester: pytest.Pyte
                 from litmus.execution._state import get_active_connection
                 seen = []
                 for _ in context.connections:
-                    seen.append(get_active_connection().dut_pin)
+                    seen.append(get_active_connection().uut_pin)
                     verify("v_drop", 1.1)
                 assert sorted(seen) == ["TP_VIN", "TP_VOUT"]
             """
@@ -320,7 +320,7 @@ def test_multi_char_marker_iterates_union(pytester: pytest.Pytester) -> None:
         test_seq=textwrap.dedent(
             """
             def test_rails(context, verify):
-                seen = [conn.dut_pin for conn in context.connections]
+                seen = [conn.uut_pin for conn in context.connections]
                 assert seen == ["TP_VOUT", "TP_VIN"]   # marker order
             """
         )
@@ -354,7 +354,7 @@ def test_multi_char_default_iterator_stamps_per_connection_char(
             def test_rails(context, verify):
                 seen = []
                 for conn in context.connections:
-                    if conn.dut_pin == "TP_VOUT":
+                    if conn.uut_pin == "TP_VOUT":
                         m = verify("v_rail", 3.30)
                     else:
                         m = verify("i_idle", 0.05)
@@ -391,11 +391,11 @@ def test_for_characteristic_narrows_and_pushes_active_char(
             """
             def test_rails(context, verify):
                 for conn in context.connections.for_characteristic("rail_3v3"):
-                    assert conn.dut_pin == "TP_VOUT"
+                    assert conn.uut_pin == "TP_VOUT"
                     m = verify("v_rail", 3.30)
                     assert m.characteristic_id == "rail_3v3"
                 for conn in context.connections.for_characteristic("idle_current"):
-                    assert conn.dut_pin == "TP_VIN"
+                    assert conn.uut_pin == "TP_VIN"
                     m = verify("i_idle", 0.05)
                     assert m.characteristic_id == "idle_current"
             """
@@ -462,7 +462,7 @@ def test_marker_absent_scope_derived_from_limit_chars(
                 assert sorted(context.characteristics) == ["idle_current", "rail_3v3"]
                 seen = []
                 for conn in context.connections:
-                    seen.append(conn.dut_pin)
+                    seen.append(conn.uut_pin)
                 # Order follows limit-listing order.
                 assert seen == ["TP_VOUT", "TP_VIN"]
             """
@@ -598,13 +598,13 @@ def test_per_function_matching_routes_to_correct_connection(
             connections:
               vout_dc:
                 name: vout_dc
-                dut_pin: TP_VOUT
+                uut_pin: TP_VOUT
                 instrument: dmm
                 instrument_channel: '1'
                 function: dc_voltage
               vout_ac:
                 name: vout_ac
-                dut_pin: TP_VOUT
+                uut_pin: TP_VOUT
                 instrument: scope
                 instrument_channel: '1'
                 function: ac_voltage
@@ -679,7 +679,7 @@ def test_function_unset_connection_is_fallback(
             connections:
               vout_legacy:
                 name: vout_legacy
-                dut_pin: TP_VOUT
+                uut_pin: TP_VOUT
                 instrument: dmm
                 instrument_channel: '1'
             """

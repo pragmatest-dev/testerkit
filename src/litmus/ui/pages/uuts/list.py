@@ -1,6 +1,6 @@
-"""DUTs list page — every row is a device observed in run history.
+"""UUTs list page — every row is a device observed in run history.
 
-DUTs are never declared in YAML (the unit-under-test is identified at
+UUTs are never declared in YAML (the unit-under-test is identified at
 runtime by serial). Unlike the other entity-observed-view pages, this
 one has no provenance chip and no filter — every row is observed-only
 by definition.
@@ -16,26 +16,26 @@ from litmus.ui.shared.components import (
     render_no_data_card,
 )
 from litmus.ui.shared.layout import create_layout
-from litmus.ui.shared.services import duts_from_runs
+from litmus.ui.shared.services import uuts_from_runs
 
 
-@ui.page("/duts")
-def duts_page():
-    """DUTs list — one row per distinct ``dut_serial`` in run history."""
-    create_layout("DUTs")
+@ui.page("/uuts")
+def uuts_page():
+    """UUTs list — one row per distinct ``uut_serial`` in run history."""
+    create_layout("UUTs")
 
-    rows_data = duts_from_runs()
+    rows_data = uuts_from_runs()
 
     with page_layout():
-        page_header("DUTs", icon="memory", badge=f"{len(rows_data)} observed")
+        page_header("UUTs", icon="memory", badge=f"{len(rows_data)} observed")
 
         if not rows_data:
             render_no_data_card(
                 ui.column().classes("w-full"),
-                title="No DUTs observed yet.",
+                title="No UUTs observed yet.",
                 reason=(
                     "Run a test against a station to populate this list. "
-                    "Every distinct DUT serial that appears in run history "
+                    "Every distinct UUT serial that appears in run history "
                     "shows up here."
                 ),
                 icon="memory",
@@ -94,4 +94,4 @@ def duts_page():
             rows=rows,
             row_key="serial",
             time_columns=["last_run"],
-        ).props('data-testid="duts-table"')
+        ).props('data-testid="uuts-table"')

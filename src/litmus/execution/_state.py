@@ -545,7 +545,7 @@ def get_current_slot_id() -> str | None:
 
     In multi-slot worker children, set from the ``_LITMUS_SLOT_ID`` env
     var at session start. In single-process operator-targeted runs, set
-    from the ``--slot`` CLI flag. ``None`` for non-fixtured single-DUT
+    from the ``--slot`` CLI flag. ``None`` for non-fixtured single-UUT
     runs. Read by the plugin to stamp ``slot_id`` on run rows.
     """
     return _slot_id_var.get()

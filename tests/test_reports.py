@@ -17,7 +17,7 @@ import pytest
 
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.data_dir import resolve_data_dir
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 from litmus.data.run_store import RunStore
 from litmus.reports.core import (
     generate_report,
@@ -32,7 +32,7 @@ def sample_run():
         id=uuid4(),
         started_at=datetime(2026, 2, 7, 12, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 2, 7, 12, 5, 0, tzinfo=UTC),
-        dut=DUT(serial="SN-001", part_number="PN-100", revision="A"),
+        uut=UUT(serial="SN-001", part_number="PN-100", revision="A"),
         station_id="bench_01",
         part_id="widget_v1",
         part_name="Widget",
@@ -121,7 +121,7 @@ class TestLoadRunData:
     def test_basic_fields(self, data_dir, run_id):
         data = load_run_data(run_id, str(data_dir))
         assert data.run_id == run_id
-        assert data.dut_serial == "SN-001"
+        assert data.uut_serial == "SN-001"
         assert data.station_id == "bench_01"
         assert data.part_id == "widget_v1"
         assert data.operator_id == "test_op"
@@ -153,7 +153,7 @@ class TestGenerateReport:
         assert obj["run_id"] == run_id
         assert obj["summary"]["total"] == 3
         assert obj["summary"]["passed"] == 2
-        assert obj["dut"]["serial"] == "SN-001"
+        assert obj["uut"]["serial"] == "SN-001"
         assert len(obj["measurements"]) == 3
 
     def test_csv(self, data_dir, run_id, tmp_path):

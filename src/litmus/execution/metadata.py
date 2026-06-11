@@ -1,6 +1,6 @@
 """Runner-neutral run-metadata assembly.
 
-:class:`TestRunLogger` takes a fat kwargs dict — DUT serial, station
+:class:`TestRunLogger` takes a fat kwargs dict — UUT serial, station
 identity, part identity, fixture id, environment capture, project
 name, profile name + facets, session inputs, instrument records, etc.
 The dict is the same regardless of which runner is driving; only the
@@ -24,10 +24,10 @@ from litmus.execution._git import get_project_name
 
 def build_run_metadata(
     *,
-    dut_serial: str | None,
-    dut_part_number: str | None = None,
-    dut_revision: str | None = None,
-    dut_lot_number: str | None = None,
+    uut_serial: str | None,
+    uut_part_number: str | None = None,
+    uut_revision: str | None = None,
+    uut_lot_number: str | None = None,
     station_id: str | None = None,
     station_config: Any | None = None,
     fixture_config: Any | None = None,
@@ -45,8 +45,8 @@ def build_run_metadata(
 
     Resolves derived fields (part info from ``part_context``,
     station fields from ``station_config``, environment capture, git
-    project name) so the runner's plugin doesn't have to. ``dut_part_number``
-    and ``dut_revision`` fall back to the active part when not
+    project name) so the runner's plugin doesn't have to. ``uut_part_number``
+    and ``uut_revision`` fall back to the active part when not
     supplied explicitly.
     """
     # Part info from part_context
@@ -70,17 +70,17 @@ def build_run_metadata(
         )
         station_location = station_config.location
 
-    # DUT defaults from part spec
-    if dut_part_number is None and part_context is not None:
-        dut_part_number = part_context.part.part_number
-    if dut_revision is None and part_context is not None:
-        dut_revision = part_context.part.revision
+    # UUT defaults from part spec
+    if uut_part_number is None and part_context is not None:
+        uut_part_number = part_context.part.part_number
+    if uut_revision is None and part_context is not None:
+        uut_revision = part_context.part.revision
 
     return {
-        "dut_serial": dut_serial,
-        "dut_part_number": dut_part_number,
-        "dut_revision": dut_revision,
-        "dut_lot_number": dut_lot_number,
+        "uut_serial": uut_serial,
+        "uut_part_number": uut_part_number,
+        "uut_revision": uut_revision,
+        "uut_lot_number": uut_lot_number,
         "station_id": station_id,
         "station_name": station_name,
         "station_type": station_type,

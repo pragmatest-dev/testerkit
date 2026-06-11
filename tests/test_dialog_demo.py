@@ -24,8 +24,8 @@ async def test_with_confirm_dialog():
 
     # This will block until operator responds via UI
     response = await manager.confirm(
-        message="Is the DUT powered on and connected?",
-        title="DUT Check",
+        message="Is the UUT powered on and connected?",
+        title="UUT Check",
         run_id=run_id,
         timeout=120,  # 2 minute timeout
     )
@@ -34,10 +34,10 @@ async def test_with_confirm_dialog():
         pytest.fail("Operator did not respond in time")
 
     if not response.confirmed:
-        pytest.fail("Operator indicated DUT is not ready")
+        pytest.fail("Operator indicated UUT is not ready")
 
     # Continue with test...
-    assert True, "DUT confirmed ready"
+    assert True, "UUT confirmed ready"
 
 
 @pytest.mark.asyncio
@@ -49,9 +49,9 @@ async def test_with_input_dialog():
     run_id = _get_run_id()
 
     response = await manager.input(
-        message="Enter the DUT serial number from the label:",
+        message="Enter the UUT serial number from the label:",
         title="Serial Number",
-        placeholder="e.g., DUT-001-2024",
+        placeholder="e.g., UUT-001-2024",
         run_id=run_id,
         timeout=60,
     )

@@ -50,12 +50,12 @@
 
 <div class="meta-grid">
   <div class="meta-card">
-    <h3>DUT</h3>
+    <h3>UUT</h3>
     <dl>
-      <dt>Serial</dt><dd>{{ data.dut_serial or '—' }}</dd>
-      {% if data.dut_part_number %}<dt>Part Number</dt><dd>{{ data.dut_part_number }}</dd>{% endif %}
-      {% if data.dut_revision %}<dt>Revision</dt><dd>{{ data.dut_revision }}</dd>{% endif %}
-      {% if data.dut_lot_number %}<dt>Lot</dt><dd>{{ data.dut_lot_number }}</dd>{% endif %}
+      <dt>Serial</dt><dd>{{ data.uut_serial or '—' }}</dd>
+      {% if data.uut_part_number %}<dt>Part Number</dt><dd>{{ data.uut_part_number }}</dd>{% endif %}
+      {% if data.uut_revision %}<dt>Revision</dt><dd>{{ data.uut_revision }}</dd>{% endif %}
+      {% if data.uut_lot_number %}<dt>Lot</dt><dd>{{ data.uut_lot_number }}</dd>{% endif %}
     </dl>
   </div>
   <div class="meta-card">

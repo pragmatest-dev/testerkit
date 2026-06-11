@@ -24,7 +24,7 @@ class DesignerState:
 
         # --- Part side ---
         self.part: Part | None = None
-        self.dut_pins: dict[str, dict] = {}  # pin_key -> {name, net, type, description}
+        self.uut_pins: dict[str, dict] = {}  # pin_key -> {name, net, type, description}
         self.char_by_pin: dict[str, list[str]] = {}  # pin_key -> [characteristic names]
 
         # --- Instrument side ---
@@ -32,7 +32,7 @@ class DesignerState:
         self.instruments: dict[str, dict] = {}
 
         # --- Fixture connections ---
-        # connection_name -> {dut_pin, instrument, channel, terminal, net}
+        # connection_name -> {uut_pin, instrument, channel, terminal, net}
         self.connections: dict[str, dict] = {}
 
         # --- UI state ---
@@ -51,8 +51,8 @@ class DesignerState:
         net: str,
         description: str | None = None,
     ) -> None:
-        """Add a new DUT pin."""
-        self.dut_pins[key] = {
+        """Add a new UUT pin."""
+        self.uut_pins[key] = {
             "name": name,
             "net": net,
             "description": description or "",
@@ -60,15 +60,15 @@ class DesignerState:
 
     def edit_pin(self, key: str, **updates: Any) -> None:
         """Update fields on an existing pin."""
-        if key in self.dut_pins:
-            self.dut_pins[key].update(updates)
+        if key in self.uut_pins:
+            self.uut_pins[key].update(updates)
 
     def remove_pin(self, key: str) -> None:
         """Remove a pin and any connections referencing it."""
-        self.dut_pins.pop(key, None)
+        self.uut_pins.pop(key, None)
         self.char_by_pin.pop(key, None)
         # Remove connections that reference this pin
-        to_remove = [name for name, conn in self.connections.items() if conn["dut_pin"] == key]
+        to_remove = [name for name, conn in self.connections.items() if conn["uut_pin"] == key]
         for name in to_remove:
             del self.connections[name]
 
@@ -156,7 +156,7 @@ class DesignerState:
     def add_connection(
         self,
         point_name: str,
-        dut_pin: str,
+        uut_pin: str,
         instrument: str,
         channel: str,
         net: str | None = None,
@@ -164,10 +164,10 @@ class DesignerState:
     ) -> None:
         """Create a fixture point connection."""
         if net is None:
-            pin_data = self.dut_pins.get(dut_pin, {})
+            pin_data = self.uut_pins.get(uut_pin, {})
             net = pin_data.get("net", "")
         self.connections[point_name] = {
-            "dut_pin": dut_pin,
+            "uut_pin": uut_pin,
             "instrument": instrument,
             "channel": channel,
             "terminal": terminal,
@@ -182,20 +182,20 @@ class DesignerState:
         """Find connection point name by pin and channel keys."""
         for name, conn in self.connections.items():
             conn_channel_key = f"{conn['instrument']}:{conn['channel']}"
-            if conn["dut_pin"] == pin_key and conn_channel_key == channel_key:
+            if conn["uut_pin"] == pin_key and conn_channel_key == channel_key:
                 return name
         return None
 
     def find_connection_for_pin(self, pin_key: str) -> dict | None:
         """Find the first connection for a given pin, if any."""
         for conn in self.connections.values():
-            if conn["dut_pin"] == pin_key:
+            if conn["uut_pin"] == pin_key:
                 return conn
         return None
 
     def find_connections_for_pin(self, pin_key: str) -> list[dict]:
         """Find all connections for a given pin (GND pins may have multiple)."""
-        return [conn for conn in self.connections.values() if conn["dut_pin"] == pin_key]
+        return [conn for conn in self.connections.values() if conn["uut_pin"] == pin_key]
 
     # -------------------------------------------------------------------------
     # Selection
@@ -214,7 +214,7 @@ class DesignerState:
 
     def is_pin_connected(self, pin_key: str) -> bool:
         """Check if a pin has a connection."""
-        return any(c["dut_pin"] == pin_key for c in self.connections.values())
+        return any(c["uut_pin"] == pin_key for c in self.connections.values())
 
     def is_channel_used(self, role: str, channel: str) -> bool:
         """Check if an instrument channel is already wired."""
@@ -258,20 +258,20 @@ class DesignerState:
 
         # Count: existing output channels connected to this pin
         for conn in self.connections.values():
-            if conn["dut_pin"] == pin_key:
+            if conn["uut_pin"] == pin_key:
                 if self._channel_is_output(conn["instrument"], conn["channel"]):
                     output_count += 1
 
         # Count: existing output pins connected to this channel
         for conn in self.connections.values():
             if conn["instrument"] == role and conn["channel"] == channel:
-                if self._pin_is_output(conn["dut_pin"]):
+                if self._pin_is_output(conn["uut_pin"]):
                     output_count += 1
 
         return output_count > 1
 
     def _pin_is_output(self, pin_key: str) -> bool:
-        """Check if a DUT pin is an output (provides signal)."""
+        """Check if a UUT pin is an output (provides signal)."""
         from litmus.models.enums import Direction
 
         char_names = self.char_by_pin.get(pin_key, [])
@@ -323,13 +323,13 @@ class DesignerState:
     @property
     def wired_pin_count(self) -> int:
         """Number of pins that have connections."""
-        wired = {c["dut_pin"] for c in self.connections.values()}
+        wired = {c["uut_pin"] for c in self.connections.values()}
         return len(wired)
 
     @property
     def total_pin_count(self) -> int:
-        """Total number of DUT pins."""
-        return len(self.dut_pins)
+        """Total number of UUT pins."""
+        return len(self.uut_pins)
 
     @property
     def available_pin_count(self) -> int:
@@ -353,7 +353,7 @@ class DesignerState:
         for connection_name, conn in self.connections.items():
             entry: dict[str, Any] = {
                 "name": connection_name,  # Required by FixtureConnection model
-                "dut_pin": conn["dut_pin"],
+                "uut_pin": conn["uut_pin"],
                 "instrument": conn["instrument"],
             }
             if conn.get("channel"):
@@ -387,7 +387,7 @@ class DesignerState:
     def to_part_pins_patch(self) -> dict:
         """Generate pin updates for part spec YAML."""
         pins = {}
-        for key, pin in self.dut_pins.items():
+        for key, pin in self.uut_pins.items():
             pin_data: dict[str, str] = {"name": pin["name"]}
             if pin.get("net"):
                 pin_data["net"] = pin["net"]
@@ -408,10 +408,10 @@ class DesignerState:
         self.part_id = part.id
 
         # Load pins
-        self.dut_pins = {}
+        self.uut_pins = {}
         if hasattr(part, "pins") and part.pins:
             for key, pin in part.pins.items():
-                self.dut_pins[key] = {
+                self.uut_pins[key] = {
                     "name": pin.name,
                     "net": pin.net or "",
                     "role": pin.role.value if hasattr(pin, "role") else "signal",
@@ -450,9 +450,9 @@ class DesignerState:
             else fixture_config.get("connections", {})
         )
         for connection_name, fc in connections.items():
-            if hasattr(fc, "dut_pin"):
+            if hasattr(fc, "uut_pin"):
                 self.connections[connection_name] = {
-                    "dut_pin": fc.dut_pin or "",
+                    "uut_pin": fc.uut_pin or "",
                     "instrument": fc.instrument or "",
                     "channel": fc.instrument_channel or "1",
                     "terminal": fc.instrument_terminal,
@@ -460,7 +460,7 @@ class DesignerState:
                 }
             else:
                 self.connections[connection_name] = {
-                    "dut_pin": fc.get("dut_pin", ""),
+                    "uut_pin": fc.get("uut_pin", ""),
                     "instrument": fc.get("instrument", ""),
                     "channel": fc.get("instrument_channel", "1"),
                     "terminal": fc.get("instrument_terminal"),

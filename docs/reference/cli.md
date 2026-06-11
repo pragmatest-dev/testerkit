@@ -270,11 +270,11 @@ Top failures (Pareto). Group by part / step / measurement.
 | `--phase` | `text` | Test phase (or 'all') |
 | `--data-dir` | `text` | Results directory |
 | `--top` | `integer` | Number of top failures  *(default: `10`)* |
-| `--group-by` | `{part, step, measurement}` | Lens for the pareto: ``part`` groups runs by ``dut_part_number`` (most-failing SKUs); ``step`` groups steps by ``step_path`` (most-failing tests); ``measurement`` groups limit-bearing measurements by name (the historical default).  *(default: `part`)* |
+| `--group-by` | `{part, step, measurement}` | Lens for the pareto: ``part`` groups runs by ``uut_part_number`` (most-failing SKUs); ``step`` groups steps by ``step_path`` (most-failing tests); ``measurement`` groups limit-bearing measurements by name (the historical default).  *(default: `part`)* |
 
 #### `litmus metrics retest` {#cli-metrics-retest}
 
-Retest rates: how often DUTs are retried.
+Retest rates: how often UUTs are retried.
 
 | Argument / option | Type | Description |
 |---|---|---|
@@ -570,11 +570,11 @@ See [Profiles](../how-to/execution/profiles.md) for the profile YAML shape.
 | `LITMUS_MOCK_INSTRUMENTS` | Set to `1` to enable mock mode without passing `--mock-instruments`. |
 | `LITMUS_AUTO_CONFIRM` | Truthy → auto-resolve operator prompts and dialogs in non-tty contexts (CI, subprocess runs). Set to `"confirm"` to auto-confirm, `"cancel"` to auto-cancel; any other truthy value defaults to confirm. |
 | `LITMUS_SERVER_URL` | Server URL the dialog bridge uses to POST operator prompts from subprocess test runs back to the UI host (default: `http://localhost:8000`). |
-| `LITMUS_DUT_SERIAL` | Default DUT serial (shared across slots). For per-slot serials, use `LITMUS_DUT_SERIAL_<SLOT_ID>` (e.g. `LITMUS_DUT_SERIAL_SLOT_1`). |
-| `LITMUS_DUT_PART_NUMBER` | Default DUT part number (`dut_part_number` on every run). |
-| `LITMUS_DUT_REVISION` | Default DUT hardware revision. |
-| `LITMUS_DUT_LOT_NUMBER` | Default DUT lot / batch number. |
-| `LITMUS_FIXTURE_SLOT` | JSON-serialized `ResolvedSlot` injected into per-slot child processes by the multi-DUT orchestrator. Operator-set values are ignored. |
+| `LITMUS_UUT_SERIAL` | Default UUT serial (shared across slots). For per-slot serials, use `LITMUS_UUT_SERIAL_<SLOT_ID>` (e.g. `LITMUS_UUT_SERIAL_SLOT_1`). |
+| `LITMUS_UUT_PART_NUMBER` | Default UUT part number (`uut_part_number` on every run). |
+| `LITMUS_UUT_REVISION` | Default UUT hardware revision. |
+| `LITMUS_UUT_LOT_NUMBER` | Default UUT lot / batch number. |
+| `LITMUS_FIXTURE_SLOT` | JSON-serialized `ResolvedSlot` injected into per-slot child processes by the multi-UUT orchestrator. Operator-set values are ignored. |
 | `LITMUS_DAEMON_IDLE_TIMEOUT` | Seconds a background daemon (events, runs, channels) waits idle before self-shutting-down (default: `300`). |
 | `LITMUS_DAEMON_SPAWN_TIMEOUT` | Seconds to wait for a daemon to report ready after spawning (default: `30`). |
 | `LITMUS_SKIP_DAEMON_NOTIFY` | Suppresses the daemon-notify gRPC hop when constructing `ParquetBackend` — useful in tooling scripts that read backends without serving runs. |

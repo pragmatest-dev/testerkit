@@ -3,7 +3,7 @@
 **URLs:** `/stations` (list), `/stations/new`, `/stations/{id}`, `/stations/{id}/edit`
 
 A station is a bench — the set of instruments at a physical location
-that run tests against DUTs. The Stations entity pages are the
+that run tests against UUTs. The Stations entity pages are the
 browser surface for configuring them. Test engineers usually author
 station YAML directly in `stations/*.yaml`; the UI exists for quick
 edits, bench operators who don't want to touch YAML, and a usage
@@ -48,7 +48,7 @@ test phases, then a tab strip with three tabs:
 |---|---|
 | Instruments | One row per instrument: Name, Driver, Resource, Manufacturer / Model, Serial, Cal Due, Status |
 | Capabilities | A table of what this station's instruments can measure or source: Instrument, Capability, Function, Direction |
-| Recent Runs | A run table scoped to this station (DUT, Project, Started, Outcome) |
+| Recent Runs | A run table scoped to this station (UUT, Project, Started, Outcome) |
 
 When the URL points at a station that doesn't exist, the page shows
 a "Station not found." card.

@@ -184,10 +184,10 @@ class StdfSubscriber(EventSubscriber):
         mir.set_value("START_T", _dt_to_epoch(s.occurred_at))
         mir.set_value("STAT_NUM", 1)
         mir.set_value("MODE_COD", "P")
-        if s.dut_lot_number:
-            mir.set_value("LOT_ID", s.dut_lot_number)
-        if s.dut_part_number:
-            mir.set_value("PART_TYP", s.dut_part_number)
+        if s.uut_lot_number:
+            mir.set_value("LOT_ID", s.uut_lot_number)
+        if s.uut_part_number:
+            mir.set_value("PART_TYP", s.uut_part_number)
         mir.set_value("NODE_NAM", s.station_id)
         mir.set_value("JOB_NAM", s.project_name or "")
         if s.operator_id:
@@ -233,7 +233,7 @@ class StdfSubscriber(EventSubscriber):
         prr.set_value("NUM_TEST", len(self._measurements))
         prr.set_value("HARD_BIN", 1 if not any_fail else 0)
         prr.set_value("SOFT_BIN", 1 if not any_fail else 0)
-        prr.set_value("PART_ID", s.dut_serial)
+        prr.set_value("PART_ID", s.uut_serial)
         records.append(_pack_record(prr))
 
         # MRR

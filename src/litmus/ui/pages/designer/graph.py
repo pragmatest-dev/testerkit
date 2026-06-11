@@ -42,7 +42,7 @@ WIRE_COLORS = [
 
 # Category indices — visual roles, not pin types.
 # Pin behaviour is described by capabilities, not categories.
-CAT_PIN = 0  # Default DUT pin (has characteristics)
+CAT_PIN = 0  # Default UUT pin (has characteristics)
 CAT_PIN_REF = 1  # Reference pin (no characteristics, e.g. ground)
 CAT_UNUSED = 2  # Reserved
 CAT_INSTRUMENT = 3
@@ -62,10 +62,10 @@ def build_graph_option(state: DesignerState) -> dict:
     categories = build_categories()
 
     # Calculate chart height based on node count
-    pin_count = len(state.dut_pins)
+    pin_count = len(state.uut_pins)
     channel_count = sum(len(inst.get("channels", ["1"])) for inst in state.instruments.values())
     # Account for group headers
-    pin_groups = len(_group_pins_by_connector(state.dut_pins))
+    pin_groups = len(_group_pins_by_connector(state.uut_pins))
     inst_groups = len(state.instruments)
     left_height = pin_count * NODE_GAP + pin_groups * GROUP_GAP + 60
     right_height = channel_count * NODE_GAP + inst_groups * GROUP_GAP + 60
@@ -111,7 +111,7 @@ def build_nodes(state: DesignerState) -> list[dict]:
     y = 20
 
     # --- Part side (left) ---
-    groups = _group_pins_by_connector(state.dut_pins)
+    groups = _group_pins_by_connector(state.uut_pins)
     for group_type, pin_keys in groups.items():
         # Group header
         nodes.append(
@@ -138,7 +138,7 @@ def build_nodes(state: DesignerState) -> list[dict]:
         y += NODE_GAP
 
         for pin_key in pin_keys:
-            pin = state.dut_pins[pin_key]
+            pin = state.uut_pins[pin_key]
             is_selected = state.selected_pin == pin_key
             is_connected = state.is_pin_connected(pin_key)
 
@@ -455,9 +455,9 @@ def build_links(state: DesignerState, nodes: list[dict]) -> tuple[list[dict], li
     if not n_conns:
         return links, waypoints
 
-    # Sort connections by source (DUT pin) Y position so top-to-bottom pins
+    # Sort connections by source (UUT pin) Y position so top-to-bottom pins
     # get right-to-left vertical lanes in the corridor (top pin = rightmost)
-    conn_list.sort(key=lambda item: node_y.get(item[1]["dut_pin"], 0))
+    conn_list.sort(key=lambda item: node_y.get(item[1]["uut_pin"], 0))
 
     # Spread verticals evenly across the corridor
     corridor_left = LEFT_X + 60
@@ -477,7 +477,7 @@ def build_links(state: DesignerState, nodes: list[dict]) -> tuple[list[dict], li
         return base
 
     for idx, (point_name, conn) in enumerate(conn_list):
-        source = conn["dut_pin"]
+        source = conn["uut_pin"]
         target = _make_target_key(conn)
         sy = node_y.get(source, 0)
         ty = node_y.get(target, 0)
@@ -516,7 +516,7 @@ def build_links(state: DesignerState, nodes: list[dict]) -> tuple[list[dict], li
         }
 
     for idx, (point_name, conn) in enumerate(conn_list):
-        source = conn["dut_pin"]
+        source = conn["uut_pin"]
         target = _make_target_key(conn)
 
         # Skip connections to non-existent nodes (orphaned fixture data)
@@ -590,7 +590,7 @@ def build_links(state: DesignerState, nodes: list[dict]) -> tuple[list[dict], li
 def build_categories() -> list[dict]:
     """Build color categories for graph nodes."""
     return [
-        # CAT_PIN (0) — DUT pin with characteristics
+        # CAT_PIN (0) — UUT pin with characteristics
         {"name": "Pin", "itemStyle": {"color": "#3b82f6", "borderColor": "#2563eb"}},
         # CAT_PIN_REF (1) — reference pin (no characteristics)
         {"name": "Reference", "itemStyle": {"color": "#94a3b8", "borderColor": "#64748b"}},
@@ -611,14 +611,14 @@ def build_categories() -> list[dict]:
     ]
 
 
-def _group_pins_by_connector(dut_pins: dict[str, dict]) -> dict[str, list[str]]:
+def _group_pins_by_connector(uut_pins: dict[str, dict]) -> dict[str, list[str]]:
     """Group pin keys by connector prefix (e.g., J1, TP).
 
     Pins without an underscore separator go into a '' group.
     """
     groups: dict[str, list[str]] = {}
 
-    for key in dut_pins:
+    for key in uut_pins:
         parts = key.split("_", 1)
         prefix = parts[0] if len(parts) > 1 else ""
         if prefix not in groups:

@@ -1,6 +1,6 @@
-"""Behavior contract for ``duts_from_runs``.
+"""Behavior contract for ``uuts_from_runs``.
 
-Unlike the other entity helpers, DUTs are purely observed (never
+Unlike the other entity helpers, UUTs are purely observed (never
 declared in YAML), so there's no provenance discriminator. The test
 monkeypatches ``RunsQuery`` to drive the SQL contract.
 """
@@ -43,7 +43,7 @@ def _install_fake(monkeypatch, payload: list[dict[str, Any]]) -> None:
 
 def test_empty(monkeypatch):
     _install_fake(monkeypatch, [])
-    assert services.duts_from_runs() == []
+    assert services.uuts_from_runs() == []
 
 
 def test_skips_blank_serials(monkeypatch):
@@ -71,7 +71,7 @@ def test_skips_blank_serials(monkeypatch):
             },
         ],
     )
-    assert services.duts_from_runs() == []
+    assert services.uuts_from_runs() == []
 
 
 def test_typed_row_shape(monkeypatch):
@@ -89,7 +89,7 @@ def test_typed_row_shape(monkeypatch):
             }
         ],
     )
-    rows = services.duts_from_runs()
+    rows = services.uuts_from_runs()
     assert len(rows) == 1
     r = rows[0]
     assert r.serial == "SN001"
@@ -116,6 +116,6 @@ def test_null_part_and_lot_become_empty(monkeypatch):
             }
         ],
     )
-    rows = services.duts_from_runs()
+    rows = services.uuts_from_runs()
     assert rows[0].part_number == ""
     assert rows[0].lot_number == ""

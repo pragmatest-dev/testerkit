@@ -175,13 +175,13 @@ tests:
 
 ```bash
 # Mock-instrument run (default for development)
-pytest tests/ --station=my_station --mock-instruments --dut-serial=TEST001 -v
+pytest tests/ --station=my_station --mock-instruments --uut-serial=TEST001 -v
 
 # With real hardware
-pytest tests/ --station=my_station --dut-serial=SN001 -v
+pytest tests/ --station=my_station --uut-serial=SN001 -v
 ```
 
-> **On `--dut-serial` for early articles:** if your first DUT doesn't have
+> **On `--uut-serial` for early articles:** if your first UUT doesn't have
 > a real serial yet (engineering build, breadboard, dev unit), call it
 > whatever you like — `bob`, `proto-1`, `dev`. The serial is just the
 > identifier the run record will be filed under. Best practice once you

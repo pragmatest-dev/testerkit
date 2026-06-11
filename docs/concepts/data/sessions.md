@@ -6,11 +6,11 @@ A session represents a connect-to-disconnect lifecycle — the window during whi
 
 A session begins when a process calls `connect()` and ends when the connection is released. During a session, all events share the same `session_id`, making it easy to group and query related activity.
 
-Sessions are broader than test runs. A single session might contain multiple test runs (e.g., retesting the same DUT), or no test runs at all (e.g., a calibration script or manual instrument exploration).
+Sessions are broader than test runs. A single session might contain multiple test runs (e.g., retesting the same UUT), or no test runs at all (e.g., a calibration script or manual instrument exploration).
 
 ## Session Metadata
 
-`SessionStarted` (see [event-log](event-log.md) for the event-type taxonomy) captures session-wide context — the *who/where/how* of the process holding the connection. Per-run context (DUT, part, test phase, git, environment) lives on `RunStarted`, emitted once per test run within the session.
+`SessionStarted` (see [event-log](event-log.md) for the event-type taxonomy) captures session-wide context — the *who/where/how* of the process holding the connection. Per-run context (UUT, part, test phase, git, environment) lives on `RunStarted`, emitted once per test run within the session.
 
 | Category | Fields |
 |----------|--------|
@@ -24,7 +24,7 @@ Sessions are broader than test runs. A single session might contain multiple tes
 
 | Category | Fields |
 |----------|--------|
-| **DUT** | `dut_serial`, `dut_part_number`, `dut_revision`, `dut_lot_number` |
+| **UUT** | `uut_serial`, `uut_part_number`, `uut_revision`, `uut_lot_number` |
 | **Part** | `part_id`, `part_name`, `part_revision` |
 | **Slot** | `slot_id`, `slot_index` |
 | **Test context** | `fixture_id`, `test_phase`, `project_name` |
@@ -38,7 +38,7 @@ Config files (station, fixture, part spec) are tracked via git — the `git_comm
 
 Sessions solve three problems:
 
-1. **Grouping events across runs** — Multiple test runs on the same DUT during one sitting share a session. You can query "everything that happened while bench-7 was connected" without knowing individual run IDs.
+1. **Grouping events across runs** — Multiple test runs on the same UUT during one sitting share a session. You can query "everything that happened while bench-7 was connected" without knowing individual run IDs.
 
 2. **Live monitoring** — The operator UI subscribes to events by `session_id` to show real-time progress. The session boundary tells the UI when to start and stop monitoring.
 
