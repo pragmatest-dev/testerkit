@@ -113,7 +113,7 @@ def write(
             sidecar (item 1c).
 
     Returns:
-        ``file://{session_id}/{filename}`` URI.
+        ``file://{date}/{session_id}/{filename}`` URI.
     """
     # Lazy: data.files chain pulls PIL / serializers; only loaded
     # when files.write actually runs.

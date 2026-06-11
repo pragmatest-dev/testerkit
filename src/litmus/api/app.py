@@ -275,7 +275,7 @@ def create_api_router() -> APIRouter:
         Clients pass the URI from any ``out_*`` column verbatim. Three
         URI shapes are recognized (item 1d dual-path):
 
-        * ``file://{session_id}/{filename}`` — FileStore canonical
+        * ``file://{date}/{session_id}/{filename}`` — FileStore canonical
           (post-1d)
         * ``file://_ref/{filename}`` — legacy per-parquet sidecar
         * ``channel://scope.ch1?session=...`` — live channel reference
@@ -327,7 +327,7 @@ def create_api_router() -> APIRouter:
         materialized run yet — live streams, in-progress captures, any
         FileStore artifact reachable by URI alone.
 
-        ``uri`` must be ``file://{session_id}/{filename}``; the endpoint
+        ``uri`` must be ``file://{date}/{session_id}/{filename}``; the endpoint
         serves the artifact through the FileStore — which reads it from the
         blob backend (local disk or a remote object store), never touching
         the filesystem here. The body is **streamed** from the backend in

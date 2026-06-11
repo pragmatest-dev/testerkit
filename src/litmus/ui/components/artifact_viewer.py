@@ -68,7 +68,7 @@ def list_artifacts(measurement: dict[str, Any]) -> list[tuple[str, str]]:
             continue
         # Item 1d: ``file://`` URIs come in two shapes — legacy
         # ``file://_ref/{filename}`` (per-parquet sidecar) and
-        # FileStore-canonical ``file://{session_id}/{filename}``.
+        # FileStore-canonical ``file://{date}/{session_id}/{filename}``.
         # Both are file references; ``channel://`` is the live-channel
         # reference. Anything else is inline data.
         if value.startswith(("file://", "channel://")):

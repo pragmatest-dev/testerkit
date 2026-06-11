@@ -170,7 +170,9 @@ def scan_sidecars(conn: duckdb.DuckDBPyConnection, files_dir: Path) -> int:
             continue
         session_id = blob.parent.name
         name = blob.name
-        uri = f"file://{session_id}/{name}"
+        # URI carries the full backend key incl. date ({date}/{session_id}/{name}),
+        # matching FileStore.write so _resolve_key strips the right key on rescan.
+        uri = f"file://{blob.parent.parent.name}/{session_id}/{name}"
         if uri in known:
             continue
         try:

@@ -41,8 +41,8 @@ _VIDEO_EXTS = {".mp4", ".webm"}
 _TEXT_EXTS = {".txt", ".log", ".md"}
 
 
-@ui.page("/files/{session_id}/{filename}")
-def file_detail_page(session_id: str, filename: str) -> None:
+@ui.page("/files/{date}/{session_id}/{filename}")
+def file_detail_page(date: str, session_id: str, filename: str) -> None:
     """Show one FileStore artifact with metadata + inline viewer + download.
 
     The viewer dispatches on the on-disk file extension (cheapest
@@ -52,7 +52,7 @@ def file_detail_page(session_id: str, filename: str) -> None:
     """
     create_layout("File")
     store = get_filestore()
-    uri = f"file://{session_id}/{filename}"
+    uri = f"file://{date}/{session_id}/{filename}"
     size = store.size(uri)
 
     with page_layout():
@@ -64,7 +64,7 @@ def file_detail_page(session_id: str, filename: str) -> None:
 
         if size is None:
             with ui.card().classes("w-full p-6"):
-                ui.label(f"File not found: file://{session_id}/{filename}").classes(
+                ui.label(f"File not found: file://{date}/{session_id}/{filename}").classes(
                     "text-slate-600"
                 )
                 ui.link("← Back to Files", "/files").classes("text-blue-600 hover:underline")

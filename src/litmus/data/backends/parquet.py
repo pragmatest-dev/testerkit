@@ -751,7 +751,7 @@ def _resolve_ref_to_path(parquet_path: Path | None, ref: str) -> Path | None:
 
     ``parquet_path`` is only consulted for legacy
     ``file://_ref/{filename}`` URIs (per-parquet sidecar layout).
-    New FileStore-shape URIs (``file://{session_id}/{filename}``)
+    New FileStore-shape URIs (``file://{date}/{session_id}/{filename}``)
     resolve without it.
     """
     raw = ref
@@ -765,7 +765,7 @@ def _resolve_ref_to_path(parquet_path: Path | None, ref: str) -> Path | None:
         filename = raw[len(REF_PATH_PREFIX) :]
         return parquet_path.parent / (parquet_path.stem + "_ref") / filename
 
-    # New (item 1d) FileStore refs (``file://{session_id}/{filename}``) are
+    # New (item 1d) FileStore refs (``file://{date}/{session_id}/{filename}``) are
     # NOT path-resolved here — ``load_file`` reads them as bytes through the
     # blob backend (the store owns where they live; no path crosses out).
     return None
@@ -776,7 +776,7 @@ def load_file(parquet_path: Path | None, ref: str) -> Any:
 
     Dual-path post-item-1d:
 
-    - New: ``file://{session_id}/{filename}`` — resolves through
+    - New: ``file://{date}/{session_id}/{filename}`` — resolves through
       FileStore (canonical home for all artifacts).
     - Legacy: ``file://_ref/{filename}`` or bare ``_ref/{filename}`` —
       resolves to the parquet's sibling ``{stem}_ref/`` directory.

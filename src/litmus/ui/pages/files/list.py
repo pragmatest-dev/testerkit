@@ -38,8 +38,10 @@ def _row_for_artifact(entry: dict[str, Any]) -> dict[str, Any]:
         "size": format_file_size(entry["size_bytes"]),
         "created_at": format_datetime(entry["created_at"]),
         "uri": entry["uri"],
-        "detail_url": f"/files/{entry['session_id']}/{entry['filename']}",
-        "download_url": f"/files-static/{entry['session_id']}/{entry['filename']}?download=1",
+        # Routes carry the full key ({date}/{session_id}/{filename}) so the
+        # detail/serve endpoints rebuild the exact URI — no date-less guess.
+        "detail_url": f"/files/{entry['uri'].removeprefix('file://')}",
+        "download_url": f"/files-static/{entry['uri'].removeprefix('file://')}?download=1",
     }
 
 
@@ -325,9 +327,9 @@ def _show_empty_state(slot: ui.column, *, has_data: bool, dir_exists: bool) -> N
     )
 
 
-@app.get("/files-static/{session_id}/{filename}")
-def serve_file_artifact(session_id: str, filename: str, download: int = 0) -> Response:
-    """Serve an artifact by its ``file://{session_id}/{filename}`` URI.
+@app.get("/files-static/{date}/{session_id}/{filename}")
+def serve_file_artifact(date: str, session_id: str, filename: str, download: int = 0) -> Response:
+    """Serve an artifact by its ``file://{date}/{session_id}/{filename}`` URI.
 
     Streams the bytes through the FileStore (blob backend) — the on-disk /
     object-store layout stays an implementation detail and the body is
@@ -343,7 +345,7 @@ def serve_file_artifact(session_id: str, filename: str, download: int = 0) -> Re
     from litmus.api._mime import sniff_mime
     from litmus.data.files import get_filestore
 
-    uri = f"file://{session_id}/{filename}"
+    uri = f"file://{date}/{session_id}/{filename}"
     store = get_filestore()
     size = store.size(uri)
     handle = store.open_input(uri)

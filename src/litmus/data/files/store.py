@@ -6,7 +6,7 @@ waveforms, JSON exports, anything that fits the file-shaped pattern
 streaming; not for ChannelStore-shaped data (rejected by ChannelStore
 via ``classify_value``).
 
-URI format:    ``file://{session_id}/{filename}``
+URI format:    ``file://{date}/{session_id}/{filename}``
 On disk:       ``{data_dir}/files/{date}/{session_id}/{filename}``
 Sidecar:       ``{filename}.meta.json`` (item 1c — MIME + size +
                user attributes)
@@ -136,7 +136,7 @@ class FileStore:
                 ``instrument_role``). Same population path as above.
 
         Returns:
-            URI of the form ``file://{session_id}/{filename}``.
+            URI of the form ``file://{date}/{session_id}/{filename}``.
             The filename reflects the actual on-disk name (including
             any collision-avoidance ``_2`` / ``_3`` suffix).
         """
@@ -361,7 +361,7 @@ class FileStore:
         landed). The sidecar is read through the backend like any blob.
 
         Args:
-            uri: A ``file://{session_id}/{filename}`` URI returned
+            uri: A ``file://{date}/{session_id}/{filename}`` URI returned
                 by :meth:`put`.
         """
         key = self._resolve_key(uri)
