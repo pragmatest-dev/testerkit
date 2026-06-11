@@ -8,11 +8,10 @@ actual port to a file, which ``acquire()`` reads and stores in state.
 from __future__ import annotations
 
 import sys
-import time
 import warnings
 from pathlib import Path
 
-from litmus.data._daemon_lifecycle import DaemonManager
+from litmus.data._daemon_lifecycle import DaemonManager, wait_for_location
 from litmus.data._flight_query import probe_flights
 
 
@@ -49,24 +48,6 @@ class FlightDaemonManager(DaemonManager):
         port_file = self._dir / self._ready_name
         return {"location": port_file.read_text().strip()}
 
-    def _wait_for_location(self) -> str:
-        """Poll the state file until the daemon writes its location (up to 5s).
-
-        Reuse-path acquires can land before the daemon has written its
-        location into state on slow CI runners — poll briefly so the
-        transient case doesn't leak as a RuntimeError.
-        """
-        deadline = time.monotonic() + 5.0
-        while True:
-            location = self.read_state().get("location")
-            if location:
-                return location
-            if time.monotonic() >= deadline:
-                raise RuntimeError(
-                    f"Flight daemon started but no location in state after 5s: {self._dir}"
-                )
-            time.sleep(0.05)
-
     def acquire_location(self) -> str:
         """Acquire a reference and return the gRPC location string.
 
@@ -75,7 +56,7 @@ class FlightDaemonManager(DaemonManager):
         killed and respawned so callers get a working connection.
         """
         super().acquire()
-        location = self._wait_for_location()
+        location = wait_for_location(self, self._dir, "channels")
         if not probe_flights(location):
             warnings.warn(
                 f"Channels Flight daemon at {location} is not responding — killing and respawning.",
@@ -83,7 +64,7 @@ class FlightDaemonManager(DaemonManager):
             )
             self.force_restart()
             super().acquire()
-            location = self._wait_for_location()
+            location = wait_for_location(self, self._dir, "channels")
         return location
 
 
