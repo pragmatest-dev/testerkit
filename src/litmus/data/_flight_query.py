@@ -38,11 +38,6 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.flight as flight
 
-from litmus.data._flight_errors import (
-    FlightQueryError,  # noqa: F401 — re-exported for callers
-    FlightTransientError,  # noqa: F401 — re-exported for callers
-    IndexOutOfDate,  # noqa: F401 — back-compat alias re-exported
-)
 from litmus.data._flight_retry import with_retry
 
 # Default deadline for one-shot request/response Flight calls (queries +

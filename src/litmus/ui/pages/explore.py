@@ -26,7 +26,7 @@ from litmus.analysis.measurement_facets import (
     FilterSet,
 )
 from litmus.analysis.measurements_query import MeasurementsQuery
-from litmus.data._flight_errors import IndexOutOfDate
+from litmus.data._flight_errors import FlightPermanentError
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_store import EventStore
 from litmus.ui.shared.components import (
@@ -507,7 +507,7 @@ def _fetch_initial_schema(
     try:
         with MeasurementsQuery(_data_dir=data_dir) as q:
             schema = q.describe_columns()
-    except IndexOutOfDate:
+    except FlightPermanentError:
         return None
     except (OSError, ValueError, RuntimeError) as exc:
         return str(exc)
@@ -526,7 +526,7 @@ def _fetch_initial_schema(
         try:
             with MeasurementsQuery(_data_dir=data_dir) as q:
                 top_names = q.distinct_values("measurement_name", filters=FilterSet(), limit=20)
-        except (OSError, ValueError, RuntimeError, IndexOutOfDate):
+        except (OSError, ValueError, RuntimeError, FlightPermanentError):
             top_names = []
         real_names = [o for o in top_names if not o.value.startswith("_")]
         if real_names:

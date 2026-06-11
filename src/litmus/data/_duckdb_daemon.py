@@ -379,7 +379,7 @@ def daemon_run(events_dir: Path) -> None:
         canonical = cur.execute(
             f"SELECT e.* FROM events e WHERE e.id IN (SELECT id FROM {view}) "
             "ORDER BY e.event_number"
-        ).fetch_arrow_table()
+        ).to_arrow_table()
         cur.unregister(view)
         return canonical
 
@@ -390,7 +390,7 @@ def daemon_run(events_dir: Path) -> None:
         # Registered via extra_setup so the subscribe surface is live BEFORE
         # the daemon accepts connections — a subscriber that connects the
         # instant it's ready must not race the registration.
-        sub_schema = conn.execute("SELECT * FROM events LIMIT 0").fetch_arrow_table().schema
+        sub_schema = conn.execute("SELECT * FROM events LIMIT 0").to_arrow_table().schema
         server.register_subscribe_schema(
             "events",
             sub_schema,

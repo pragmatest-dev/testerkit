@@ -9,11 +9,10 @@ DuckDB index is rebuilt from IPC files on every daemon start.
 
 from __future__ import annotations
 
-import time
 import warnings
 from pathlib import Path
 
-from litmus.data._daemon_lifecycle import DaemonManager
+from litmus.data._daemon_lifecycle import DaemonManager, wait_for_location
 from litmus.data._flight_query import probe_sql
 
 
@@ -31,20 +30,6 @@ class DuckDBDaemonManager(DaemonManager):
 # Module-level convenience — EventStore uses these directly.
 
 
-def _wait_for_location(mgr: DuckDBDaemonManager, events_dir: Path) -> str:
-    """Poll the state file until the daemon writes its Flight location (up to 5s)."""
-    deadline = time.monotonic() + 5.0
-    while True:
-        location = mgr.read_state().get("location")
-        if location:
-            return location
-        if time.monotonic() >= deadline:
-            raise RuntimeError(
-                f"DuckDB daemon started but no location in state after 5s: {events_dir}"
-            )
-        time.sleep(0.05)
-
-
 def acquire(events_dir: Path) -> str:
     """Acquire a reference to the DuckDB daemon, starting it if needed.
 
@@ -54,7 +39,7 @@ def acquire(events_dir: Path) -> str:
     """
     mgr = DuckDBDaemonManager(events_dir)
     mgr.acquire()
-    location = _wait_for_location(mgr, events_dir)
+    location = wait_for_location(mgr, events_dir, "events")
     if not probe_sql(location, "events"):
         warnings.warn(
             f"Events daemon at {location} is not responding — killing and respawning.",
@@ -62,7 +47,7 @@ def acquire(events_dir: Path) -> str:
         )
         mgr.force_restart()
         mgr.acquire()
-        location = _wait_for_location(mgr, events_dir)
+        location = wait_for_location(mgr, events_dir, "events")
     return location
 
 

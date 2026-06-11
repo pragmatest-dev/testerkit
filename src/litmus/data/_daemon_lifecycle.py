@@ -395,3 +395,21 @@ class DaemonManager:
         # No signal handlers — release() is a no-op so there is nothing
         # to do on SIGINT/SIGTERM. pytest and uvicorn both manage their
         # own signal handling; installing a handler here only interferes.
+
+
+def wait_for_location(mgr: DaemonManager, store_dir: Path, label: str) -> str:
+    """Poll the daemon's state file until it writes its Flight location (up to 5s).
+
+    Shared by every store's manager (events / runs / files). ``label`` names
+    the store in the timeout error.
+    """
+    deadline = time.monotonic() + 5.0
+    while True:
+        location = mgr.read_state().get("location")
+        if location:
+            return location
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"{label} daemon started but no location in state after 5s: {store_dir}"
+            )
+        time.sleep(0.05)

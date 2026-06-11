@@ -197,24 +197,3 @@ def wrap(exc: Exception) -> FlightQueryError:
     if kind is FlightErrorKind.TRANSIENT:
         return FlightTransientError(str(exc), cause=exc)
     return FlightPermanentError(str(exc), cause=exc)
-
-
-# ---------------------------------------------------------------------------
-# Backwards-compat alias
-# ---------------------------------------------------------------------------
-
-
-# ``IndexOutOfDate`` was the catch-all for any Binder Error before
-# we split transient vs permanent. New code should raise
-# ``FlightPermanentError`` directly. Old call-sites can keep
-# catching ``IndexOutOfDate`` until they migrate; subclass-of
-# ``FlightPermanentError`` means a ``except FlightPermanentError``
-# catches both.
-class IndexOutOfDate(FlightPermanentError):
-    """Deprecated alias for :class:`FlightPermanentError`.
-
-    Kept so existing ``except IndexOutOfDate`` blocks
-    (``cli.py``, ``services.py``, ``explore.py``,
-    ``runs_query.py``) still compile. Prefer the typed kinds in
-    new code.
-    """

@@ -69,13 +69,13 @@ def _ensure_daemon_live() -> str:
 
     Uses the production probe function to avoid duplicating logic.
     """
-    from litmus.data.runs_duckdb_manager import _flight_probe
+    from litmus.data._flight_query import probe_sql
 
     runs_dir = resolve_data_dir() / "runs"
     for _attempt in range(2):
         location = runs_duckdb_manager.acquire(runs_dir)
         _drop_pooled_client(location)
-        if _flight_probe(location):
+        if probe_sql(location, "runs"):
             return location
         _kill_daemon()
     raise RuntimeError("Could not establish a live daemon connection after 2 attempts")

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -21,7 +20,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.flight as flight
 
-from litmus.data._daemon_lifecycle import DaemonManager, _pid_alive
+from litmus.data._daemon_lifecycle import DaemonManager, _pid_alive, wait_for_location
 from litmus.data._flight_query import (
     FlightQueryClient,
     _drop_pooled_client,
@@ -47,20 +46,6 @@ class FilesCatalogManager(DaemonManager):
     _port_file = "_files_catalog_flight_port"
 
 
-def _wait_for_location(mgr: FilesCatalogManager, files_dir: Path) -> str:
-    """Poll the state file until the daemon writes its Flight location (up to 5s)."""
-    deadline = time.monotonic() + 5.0
-    while True:
-        location = mgr.read_state().get("location")
-        if location:
-            return location
-        if time.monotonic() >= deadline:
-            raise RuntimeError(
-                f"files catalog daemon started but no location in state after 5s: {files_dir}"
-            )
-        time.sleep(0.05)
-
-
 def acquire(files_dir: Path) -> str:
     """Acquire a ref to the catalog daemon, starting it if needed.
 
@@ -70,7 +55,7 @@ def acquire(files_dir: Path) -> str:
     """
     mgr = FilesCatalogManager(files_dir)
     mgr.acquire()
-    location = _wait_for_location(mgr, files_dir)
+    location = wait_for_location(mgr, files_dir, "files")
     if not probe_sql(location, "files"):
         warnings.warn(
             f"Files catalog daemon at {location} is not responding — killing and respawning.",
@@ -78,7 +63,7 @@ def acquire(files_dir: Path) -> str:
         )
         mgr.force_restart()
         mgr.acquire()
-        location = _wait_for_location(mgr, files_dir)
+        location = wait_for_location(mgr, files_dir, "files")
     return location
 
 

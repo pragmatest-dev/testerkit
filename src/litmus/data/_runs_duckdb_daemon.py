@@ -987,7 +987,7 @@ def _ingest_parquet_files(
     so all DuckDB writes (Flight queries, ingest, _on_put) are
     serialized through one connection. This eliminates the catalog-lock
     deadlock that occurred when the background ingest opened its own
-    connection and competed with the Flight server's pre_query_hook
+    connection and competed with the Flight server's query handlers
     on DuckDB's global catalog lock.
 
     Per-file: each ``_ingest_one_file`` acquires the lock, ingests one
@@ -1858,7 +1858,6 @@ def daemon_run(runs_dir: Path) -> None:
         port_file_name="_runs_duckdb_flight_port",
         thread_name="runs-duckdb-flight",
         pre_ready=None,
-        pre_query_hook=None,
         parallel=True,
     )
 

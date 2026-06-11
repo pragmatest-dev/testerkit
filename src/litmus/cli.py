@@ -562,7 +562,7 @@ def serve(host: str, port: int, reload: bool):
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def runs(data_dir: str | None, limit: int, as_json: bool):
     """List recent test runs."""
-    from litmus.data._flight_query import IndexOutOfDate
+    from litmus.data._flight_errors import FlightPermanentError
     from litmus.data.backends.parquet import ParquetBackend
 
     data_dir = _get_data_dir(data_dir)
@@ -570,7 +570,7 @@ def runs(data_dir: str | None, limit: int, as_json: bool):
     backend = ParquetBackend(data_dir=data_dir)
     try:
         test_runs = backend.list_runs(limit=limit)
-    except IndexOutOfDate as exc:
+    except FlightPermanentError as exc:
         raise click.ClickException(str(exc)) from None
 
     if not test_runs:

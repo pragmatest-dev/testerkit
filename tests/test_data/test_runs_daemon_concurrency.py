@@ -6,10 +6,9 @@ Two failure modes these tests catch:
    daemon signals ready blows past ``_SPAWN_TIMEOUT`` (30s) on a fresh
    index with many parquets.
 
-2. Background-ingest deadlock — the runs daemon's ``pre_query_hook``
-   (``live_subscriber.refresh``) calls ``conn.register()`` on the main
-   connection while a background ingest thread on a separate
-   connection holds DuckDB write transactions. Two-connection contention
+2. Background-ingest deadlock — a background ingest thread on a
+   separate connection holds DuckDB write transactions while a Flight
+   query handler touches the main connection. Two-connection contention
    on DuckDB's global catalog lock under GIL deadlocks the daemon, and
    any Flight query hangs indefinitely.
 

@@ -237,7 +237,7 @@ class DuckDBFlightServer(flight.FlightServerBase):
         # ingest thread can use the same lock to serialize all DuckDB
         # access on the daemon's main connection. Without this, a
         # background thread opening its own connection deadlocks
-        # against the Flight server's pre_query_hook on DuckDB's
+        # against the Flight server's query handlers on DuckDB's
         # global catalog lock under GIL contention.
         self._lock = lock if lock is not None else threading.Lock()
         # Parallel mode (opt-in, per store): each Flight handler thread
@@ -252,7 +252,6 @@ class DuckDBFlightServer(flight.FlightServerBase):
         self._parallel = parallel
         self._tls = threading.local()
         self._put_hooks: dict[str, Callable[[pa.Table], pa.Table | None]] = {}
-        self._pre_query_hooks: dict[str, Callable[[duckdb.DuckDBPyConnection], None]] = {}
         # Live push: per-db subscriber queues + the Arrow schema each
         # subscription stream yields. A ``do_get`` with the
         # ``__SUBSCRIBE__`` ticket registers a queue here; ``_publish``
@@ -304,10 +303,6 @@ class DuckDBFlightServer(flight.FlightServerBase):
         with self._sub_lock:
             return bool(self._subscribers.get(db_name))
 
-    def publish(self, db_name: str, table: pa.Table) -> None:
-        """Public entry point for :meth:`_publish` (fan rows to subscribers)."""
-        self._publish(db_name, table)
-
     def _publish(self, db_name: str, table: pa.Table) -> None:
         """Fan newly-inserted rows out to live subscribers of ``db_name``.
 
@@ -344,21 +339,6 @@ class DuckDBFlightServer(flight.FlightServerBase):
         nothing. For the no-hook path, the inserted batch is published as-is.
         """
         self._put_hooks[db_name] = hook
-
-    def register_pre_query_hook(
-        self,
-        db_name: str,
-        hook: Callable[[duckdb.DuckDBPyConnection], None],
-    ) -> None:
-        """Register a hook that runs before each ``do_get`` query.
-
-        The hook receives the database's connection and runs under
-        the same lock as the query itself. Used by the runs daemon
-        to refresh in-memory overlay tables (in-flight runs / steps)
-        from the accumulator pool right before the query executes,
-        so the UNION views see a current snapshot.
-        """
-        self._pre_query_hooks[db_name] = hook
 
     def _cursor_for(self, conn: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConnection:
         """Return this thread's cursor on ``conn``, creating one on first touch.
@@ -409,36 +389,18 @@ class DuckDBFlightServer(flight.FlightServerBase):
         conn = self._databases.get(db_name)
         if conn is None:
             raise flight.FlightServerError(f"Unknown database: {db_name!r}")
-        pre_query = self._pre_query_hooks.get(db_name)
 
         if self._parallel:
             # Lock-free: per-thread cursor reads an MVCC snapshot,
             # unaffected by a concurrent write on another cursor.
             cursor = self._cursor_for(conn)
-            self._run_pre_query(db_name, pre_query, cursor)
-            result = cursor.execute(sql).fetch_arrow_table()
+            result = cursor.execute(sql).to_arrow_table()
             return flight.RecordBatchStream(result)
 
         with self._lock:
-            self._run_pre_query(db_name, pre_query, conn)
-            result = conn.execute(sql).fetch_arrow_table()
+            result = conn.execute(sql).to_arrow_table()
 
         return flight.RecordBatchStream(result)
-
-    @staticmethod
-    def _run_pre_query(
-        db_name: str,
-        pre_query: Callable[[duckdb.DuckDBPyConnection], None] | None,
-        conn: duckdb.DuckDBPyConnection,
-    ) -> None:
-        if pre_query is None:
-            return
-        try:
-            pre_query(conn)
-        except Exception as exc:  # noqa: BLE001 — never break a query because the hook failed
-            import logging
-
-            logging.getLogger(__name__).warning("pre_query_hook for %s failed: %s", db_name, exc)
 
     def _do_subscribe(self, db_name: str, cursor: int = 0) -> flight.GeneratorStream:
         """Open a held-open push stream for ``db_name`` (no polling).
@@ -482,8 +444,6 @@ class DuckDBFlightServer(flight.FlightServerBase):
                             except StopIteration:
                                 break
                     except Exception as exc:  # noqa: BLE001 — replay failure must not kill live
-                        import logging
-
                         logging.getLogger(__name__).warning(
                             "subscribe replay for %s failed: %s", db_name, exc
                         )
@@ -618,12 +578,11 @@ def start_flight_server_in_daemon(
     daemon_dir: Path,
     db_name: str,
     conn: duckdb.DuckDBPyConnection,
-    put_hook: Callable[[pa.Table], None] | None,
+    put_hook: Callable[[pa.Table], pa.Table | None] | None,
     port_file_name: str,
     thread_name: str,
     extra_setup: Callable[[DuckDBFlightServer], None] | None = None,
     pre_ready: Callable[[], None] | None = None,
-    pre_query_hook: Callable[[duckdb.DuckDBPyConnection], None] | None = None,
     lock: threading.Lock | None = None,
     parallel: bool = False,
 ) -> tuple[DuckDBFlightServer, Path, str]:
@@ -651,8 +610,6 @@ def start_flight_server_in_daemon(
     server.register(db_name, conn)
     if put_hook is not None:
         server.register_put_hook(db_name, put_hook)
-    if pre_query_hook is not None:
-        server.register_pre_query_hook(db_name, pre_query_hook)
     # Register every extra db / hook (e.g. the files frames fan-out) BEFORE the
     # serve thread starts and ``write_ready`` fires — otherwise a client that
     # connects the instant the daemon is "ready" can do_put to a not-yet-
