@@ -20,6 +20,7 @@ from litmus.ui.shared.components import (
     page_layout,
     push_url_state,
     render_skeleton,
+    stat_card,
     status_chip_classes,
     status_row_fields,
     subscribe_with_refresh,
@@ -533,12 +534,12 @@ def _render_overview_tab(
                     ui.icon("arrow_forward").classes("text-slate-400 text-sm")
             with ui.card_section():
                 with ui.row().classes("gap-8"):
-                    _stat_card(str(total_steps), "Steps", "text-slate-700")
-                    _stat_card(str(total_steps - failed_steps), "Passed", "text-emerald-600")
-                    _stat_card(str(failed_steps), "Failed", "text-red-600")
+                    stat_card(str(total_steps), "Steps", "text-slate-700")
+                    stat_card(str(total_steps - failed_steps), "Passed", "text-emerald-600")
+                    stat_card(str(failed_steps), "Failed", "text-red-600")
                     if total_steps > 0:
                         pct = int(((total_steps - failed_steps) / total_steps) * 100)
-                        _stat_card(f"{pct}%", "Pass Rate", "text-blue-600")
+                        stat_card(f"{pct}%", "Pass Rate", "text-blue-600")
 
         with ui.card().classes(f"flex-1 {clickable}").on("click", lambda _: on_show_measurements()):
             with ui.card_section():
@@ -547,18 +548,12 @@ def _render_overview_tab(
                     ui.icon("arrow_forward").classes("text-slate-400 text-sm")
             with ui.card_section():
                 with ui.row().classes("gap-8"):
-                    _stat_card(str(total_meas), "Measurements", "text-slate-700")
-                    _stat_card(str(passed_meas), "Passed", "text-emerald-600")
-                    _stat_card(str(failed_meas), "Failed", "text-red-600")
+                    stat_card(str(total_meas), "Measurements", "text-slate-700")
+                    stat_card(str(passed_meas), "Passed", "text-emerald-600")
+                    stat_card(str(failed_meas), "Failed", "text-red-600")
                     if total_meas > 0:
                         pct = int((passed_meas / total_meas) * 100)
-                        _stat_card(f"{pct}%", "Pass Rate", "text-blue-600")
-
-
-def _stat_card(value: str, label: str, color_class: str) -> None:
-    from litmus.ui.shared.components import stat_card
-
-    stat_card(value, label, color_class)
+                        stat_card(f"{pct}%", "Pass Rate", "text-blue-600")
 
 
 # ── Secondary tabs ────────────────────────────────────────────────────────────

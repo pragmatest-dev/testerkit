@@ -11,6 +11,7 @@ from nicegui import ui
 from litmus.ui.shared.components import (
     data_table,
     format_datetime,
+    page_header,
     page_layout,
     render_no_data_card,
 )
@@ -26,15 +27,7 @@ def duts_page():
     rows_data = duts_from_runs()
 
     with page_layout():
-        with (
-            ui.row()
-            .classes("items-center justify-between w-full")
-            .props('data-testid="duts-header"')
-        ):
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("memory").classes("text-slate-600")
-                ui.label("DUTs").classes("text-lg font-semibold text-slate-700")
-                ui.badge(f"{len(rows_data)} observed").props("outline")
+        page_header("DUTs", icon="memory", badge=f"{len(rows_data)} observed")
 
         if not rows_data:
             render_no_data_card(

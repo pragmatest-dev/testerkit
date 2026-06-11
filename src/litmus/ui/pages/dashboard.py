@@ -9,6 +9,7 @@ from litmus.ui.shared.components import (
     data_table,
     display_status,
     format_datetime,
+    render_no_data_card,
     render_skeleton,
     status_chip_classes,
 )
@@ -66,7 +67,12 @@ async def dashboard_page():
                 for station in stations:
                     _station_card(station)
             else:
-                ui.label("No stations configured.").classes("text-slate-500 italic")
+                render_no_data_card(
+                    ui.column().classes("w-full"),
+                    title="No stations configured.",
+                    reason="Add a station YAML under stations/ to populate this panel.",
+                    icon="dns",
+                )
 
         runs_container.clear()
         with runs_container:
@@ -222,4 +228,9 @@ def _render_recent_runs(runs: list) -> None:
 
         ui.timer(1.0, _patch_dialog_counts)
     else:
-        ui.label("No test runs yet.").classes("text-slate-500 italic")
+        render_no_data_card(
+            ui.column().classes("w-full"),
+            title="No test runs yet.",
+            reason="Launch a test to populate this list.",
+            icon="history",
+        )

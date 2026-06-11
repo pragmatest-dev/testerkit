@@ -77,8 +77,8 @@ def file_detail_page(date: str, session_id: str, filename: str) -> None:
         meta = store.read_attributes(uri) or FileArtifactMetadata(
             mime="", extension=ext, size_bytes=size, attributes={}
         )
-        download_url = f"/files-static/{session_id}/{filename}?download=1"
-        view_url = f"/files-static/{session_id}/{filename}"
+        download_url = f"/files-static/{date}/{session_id}/{filename}?download=1"
+        view_url = f"/files-static/{date}/{session_id}/{filename}"
 
         _render_metadata_card(session_id, meta, store.modified_at(uri), download_url)
         _render_viewer(store, uri, ext, size, view_url)
