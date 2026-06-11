@@ -36,17 +36,6 @@ class Latchable(Protocol):
     def uri(self) -> str: ...
 
 
-def is_uri(value: Any) -> bool:
-    """Return True if ``value`` is a string in the ``channel://`` or
-    ``file://`` reference URI shape.
-
-    Used by :class:`Context.observe` to detect URI-string latching
-    (passing an already-known URI from a prior write — stamp it
-    without re-writing).
-    """
-    return isinstance(value, str) and value.startswith(("channel://", "file://"))
-
-
 def classify_value(value: Any) -> Literal["scalar", "numeric_array", "channel", "blob"]:
     """Classify a value for storage routing.
 

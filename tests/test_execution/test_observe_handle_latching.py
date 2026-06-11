@@ -30,7 +30,7 @@ import pytest
 from litmus import channels, files
 from litmus.data.channels.store import ChannelStore
 from litmus.data.event_log import EventLog
-from litmus.data.ref import Latchable, is_uri
+from litmus.data.ref import Latchable, is_ref
 from litmus.execution._state import (
     push_current_context,
     reset_current_context,
@@ -83,7 +83,7 @@ def session(tmp_path: Path):
 
 
 # --------------------------------------------------------------------- #
-# Latchable Protocol + is_uri helper                                     #
+# Latchable Protocol + is_ref helper                                     #
 # --------------------------------------------------------------------- #
 
 
@@ -110,15 +110,15 @@ class TestLatchableProtocol:
         assert not isinstance([1, 2, 3], Latchable)
         assert not isinstance(b"bytes", Latchable)
 
-    def test_is_uri_recognizes_both_schemes(self) -> None:
-        assert is_uri("channel://scope.ch1?session=abc")
-        assert is_uri("file://abc/capture.bin")
+    def test_is_ref_recognizes_both_schemes(self) -> None:
+        assert is_ref("channel://scope.ch1?session=abc")
+        assert is_ref("file://abc/capture.bin")
         # Negative cases
-        assert not is_uri("just a string")
-        assert not is_uri("https://example.com")
-        assert not is_uri(3.14)
-        assert not is_uri(None)
-        assert not is_uri(b"file://bytes-not-str")
+        assert not is_ref("just a string")
+        assert not is_ref("https://example.com")
+        assert not is_ref(3.14)
+        assert not is_ref(None)
+        assert not is_ref(b"file://bytes-not-str")
 
 
 # --------------------------------------------------------------------- #

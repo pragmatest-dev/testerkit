@@ -26,7 +26,7 @@ from litmus.data.models import (
     _utcnow,
     escalate_outcome,
 )
-from litmus.data.ref import Latchable, classify_value, is_uri
+from litmus.data.ref import Latchable, classify_value, is_ref
 from litmus.execution._state import (
     get_active_characteristic,
     get_active_limits,
@@ -315,7 +315,7 @@ class Context:
             # re-writing. Checked BEFORE shape dispatch so a ``str``
             # URI doesn't fall through to the scalar-stash path and a
             # sink handle doesn't get pickled as a blob.
-            if is_uri(value):
+            if is_ref(value):
                 self._stamp_observation(full_key, value)
                 return
             if isinstance(value, Latchable):
