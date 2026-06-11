@@ -33,7 +33,6 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
-import duckdb
 import pyarrow as pa
 
 from litmus.data.backends._event_accumulator import EventAccumulator
@@ -404,16 +403,3 @@ INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
 EMPTY_INFLIGHT_RUNS = pa.Table.from_pylist([], schema=INFLIGHT_RUNS_SCHEMA)
 EMPTY_INFLIGHT_STEPS = pa.Table.from_pylist([], schema=INFLIGHT_STEPS_SCHEMA)
 EMPTY_INFLIGHT_MEASUREMENTS = pa.Table.from_pylist([], schema=INFLIGHT_MEASUREMENTS_SCHEMA)
-
-
-def register_empty_inflight(conn: duckdb.DuckDBPyConnection) -> None:
-    """Seed the daemon's connection with empty inflight relations.
-
-    Called once at daemon startup, **before** the UNION views in
-    ``_create_views`` are defined. Without this, those views fail
-    to compile because ``inflight_runs`` / ``inflight_steps`` /
-    ``inflight_measurements`` aren't yet bound to anything.
-    """
-    conn.register("inflight_runs", EMPTY_INFLIGHT_RUNS)
-    conn.register("inflight_steps", EMPTY_INFLIGHT_STEPS)
-    conn.register("inflight_measurements", EMPTY_INFLIGHT_MEASUREMENTS)
