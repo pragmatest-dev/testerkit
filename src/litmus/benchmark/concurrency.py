@@ -108,7 +108,7 @@ def _representative_worker(data_dir: str, scale: int, seed: int) -> float:
             for i in range(prof.measurements):
                 es.emit(make_measurement(sid, i))
             es.flush()
-            run = build_run(seed * 100_000 + r, n_steps=prof.steps)
+            run = build_run(seed * 100_000 + r, n_steps=prof.steps, n_meas=prof.measurements)
             store.notify_new_run(backend.save_test_run(run))
     finally:
         es.close()
