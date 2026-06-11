@@ -2138,44 +2138,44 @@ def metrics_group():
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_summary(data_dir, phase, since, until_date, product, station, period, as_json):
     """Yield summary: FPY, final yield, run counts, duration stats."""
-    store = _measurements_query(data_dir)
-    rows = store.yield_summary(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-        period=period,
-    )
-
-    if not rows:
-        click.echo("[]" if as_json else "No data found.")
-        return
-
-    if as_json:
-        click.echo(json.dumps(rows, indent=2, default=str))
-        return
-
-    click.echo(
-        f"{'Period':<12} {'Product':<16} {'Station':<16} {'Runs':>5} "
-        f"{'Pass':>5} {'Fail':>5} {'FPY':>6} {'Final':>6} {'Avg(s)':>7}"
-    )
-    click.echo("-" * 96)
-    for r in rows:
-        fpt = r.get("first_pass_total", 0)
-        fpp = r.get("first_pass_passed", 0)
-        fpy = f"{fpp / fpt * 100:.1f}%" if fpt else "N/A"
-        us = r.get("unique_serials", 0)
-        fp = r.get("final_passed", 0)
-        final = f"{fp / us * 100:.1f}%" if us else "N/A"
-        avg_d = r.get("avg_duration_s")
-        avg = f"{avg_d:.1f}" if avg_d is not None else "N/A"
-        click.echo(
-            f"{str(r.get('period', '')):<12} {str(r.get('product', '')):<16} "
-            f"{str(r.get('station', '')):<16} {r.get('total_runs', 0):>5} "
-            f"{r.get('passed', 0):>5} {r.get('failed', 0):>5} "
-            f"{fpy:>6} {final:>6} {avg:>7}"
+    with _measurements_query(data_dir) as store:
+        rows = store.yield_summary(
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until_date,
+            period=period,
         )
+
+        if not rows:
+            click.echo("[]" if as_json else "No data found.")
+            return
+
+        if as_json:
+            click.echo(json.dumps(rows, indent=2, default=str))
+            return
+
+        click.echo(
+            f"{'Period':<12} {'Product':<16} {'Station':<16} {'Runs':>5} "
+            f"{'Pass':>5} {'Fail':>5} {'FPY':>6} {'Final':>6} {'Avg(s)':>7}"
+        )
+        click.echo("-" * 96)
+        for r in rows:
+            fpt = r.get("first_pass_total", 0)
+            fpp = r.get("first_pass_passed", 0)
+            fpy = f"{fpp / fpt * 100:.1f}%" if fpt else "N/A"
+            us = r.get("unique_serials", 0)
+            fp = r.get("final_passed", 0)
+            final = f"{fp / us * 100:.1f}%" if us else "N/A"
+            avg_d = r.get("avg_duration_s")
+            avg = f"{avg_d:.1f}" if avg_d is not None else "N/A"
+            click.echo(
+                f"{str(r.get('period', '')):<12} {str(r.get('product', '')):<16} "
+                f"{str(r.get('station', '')):<16} {r.get('total_runs', 0):>5} "
+                f"{r.get('passed', 0):>5} {r.get('failed', 0):>5} "
+                f"{fpy:>6} {final:>6} {avg:>7}"
+            )
 
 
 @metrics_group.command("pareto")
@@ -2274,36 +2274,36 @@ def metrics_pareto(data_dir, phase, since, until_date, product, station, top_n, 
 @click.option("--min-samples", default=10, help="Minimum sample count")
 def metrics_cpk(data_dir, phase, since, until_date, product, station, min_samples, as_json):
     """Process capability (Cpk/Cp) per measurement."""
-    store = _measurements_query(data_dir)
-    rows = store.cpk(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-        min_samples=min_samples,
-    )
-
-    if not rows:
-        click.echo("[]" if as_json else "No measurements with enough samples.")
-        return
-
-    if as_json:
-        click.echo(json.dumps(rows, indent=2, default=str))
-        return
-
-    click.echo(f"{'Measurement':<30} {'N':>5} {'Mean':>10} {'Sigma':>10} {'Cpk':>7} {'Cp':>7}")
-    click.echo("-" * 75)
-    for r in rows:
-        name = str(r.get("measurement_name", ""))
-        if len(name) > 28:
-            name = name[:25] + "..."
-        cpk_val = f"{r['cpk']:.3f}" if r.get("cpk") is not None else "N/A"
-        cp_val = f"{r['cp']:.3f}" if r.get("cp") is not None else "N/A"
-        click.echo(
-            f"{name:<30} {r.get('n') or 0:>5} {r.get('mean') or 0:>10.4f} "
-            f"{r.get('sigma') or 0:>10.4f} {cpk_val:>7} {cp_val:>7}"
+    with _measurements_query(data_dir) as store:
+        rows = store.cpk(
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until_date,
+            min_samples=min_samples,
         )
+
+        if not rows:
+            click.echo("[]" if as_json else "No measurements with enough samples.")
+            return
+
+        if as_json:
+            click.echo(json.dumps(rows, indent=2, default=str))
+            return
+
+        click.echo(f"{'Measurement':<30} {'N':>5} {'Mean':>10} {'Sigma':>10} {'Cpk':>7} {'Cp':>7}")
+        click.echo("-" * 75)
+        for r in rows:
+            name = str(r.get("measurement_name", ""))
+            if len(name) > 28:
+                name = name[:25] + "..."
+            cpk_val = f"{r['cpk']:.3f}" if r.get("cpk") is not None else "N/A"
+            cp_val = f"{r['cp']:.3f}" if r.get("cp") is not None else "N/A"
+            click.echo(
+                f"{name:<30} {r.get('n') or 0:>5} {r.get('mean') or 0:>10.4f} "
+                f"{r.get('sigma') or 0:>10.4f} {cpk_val:>7} {cp_val:>7}"
+            )
 
 
 @metrics_group.command("trend")
@@ -2311,31 +2311,31 @@ def metrics_cpk(data_dir, phase, since, until_date, product, station, min_sample
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_trend(data_dir, phase, since, until_date, product, station, period, as_json):
     """Yield trend over time."""
-    store = _measurements_query(data_dir)
-    rows = store.trend(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-        period=period,
-    )
-
-    if not rows:
-        click.echo("[]" if as_json else "No data found.")
-        return
-
-    if as_json:
-        click.echo(json.dumps(rows, indent=2, default=str))
-        return
-
-    click.echo(f"{'Period':<14} {'Total':>6} {'Passed':>7} {'Yield':>7}")
-    click.echo("-" * 38)
-    for r in rows:
-        click.echo(
-            f"{str(r.get('period', '')):<14} {r.get('total', 0):>6} "
-            f"{r.get('passed', 0):>7} {r.get('yield_pct', 0):>6.1f}%"
+    with _measurements_query(data_dir) as store:
+        rows = store.trend(
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until_date,
+            period=period,
         )
+
+        if not rows:
+            click.echo("[]" if as_json else "No data found.")
+            return
+
+        if as_json:
+            click.echo(json.dumps(rows, indent=2, default=str))
+            return
+
+        click.echo(f"{'Period':<14} {'Total':>6} {'Passed':>7} {'Yield':>7}")
+        click.echo("-" * 38)
+        for r in rows:
+            click.echo(
+                f"{str(r.get('period', '')):<14} {r.get('total', 0):>6} "
+                f"{r.get('passed', 0):>7} {r.get('yield_pct', 0):>6.1f}%"
+            )
 
 
 @metrics_group.command("retest")
@@ -2343,32 +2343,32 @@ def metrics_trend(data_dir, phase, since, until_date, product, station, period, 
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_retest(data_dir, phase, since, until_date, product, station, period, as_json):
     """Retest rates: how often DUTs are retried."""
-    store = _measurements_query(data_dir)
-    rows = store.retest(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-        period=period,
-    )
-
-    if not rows:
-        click.echo("[]" if as_json else "No data found.")
-        return
-
-    if as_json:
-        click.echo(json.dumps(rows, indent=2, default=str))
-        return
-
-    click.echo(f"{'Period':<14} {'Serials':>8} {'Retested':>9} {'Rate':>7} {'Avg Ret':>8}")
-    click.echo("-" * 50)
-    for r in rows:
-        click.echo(
-            f"{str(r.get('period', '')):<14} {r.get('total_serials', 0):>8} "
-            f"{r.get('retested_count', 0):>9} {r.get('retest_rate', 0):>6.1f}% "
-            f"{r.get('avg_retries', 0):>7.1f}"
+    with _measurements_query(data_dir) as store:
+        rows = store.retest(
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until_date,
+            period=period,
         )
+
+        if not rows:
+            click.echo("[]" if as_json else "No data found.")
+            return
+
+        if as_json:
+            click.echo(json.dumps(rows, indent=2, default=str))
+            return
+
+        click.echo(f"{'Period':<14} {'Serials':>8} {'Retested':>9} {'Rate':>7} {'Avg Ret':>8}")
+        click.echo("-" * 50)
+        for r in rows:
+            click.echo(
+                f"{str(r.get('period', '')):<14} {r.get('total_serials', 0):>8} "
+                f"{r.get('retested_count', 0):>9} {r.get('retest_rate', 0):>6.1f}% "
+                f"{r.get('avg_retries', 0):>7.1f}"
+            )
 
 
 @metrics_group.command("time-loss")
@@ -2376,34 +2376,36 @@ def metrics_retest(data_dir, phase, since, until_date, product, station, period,
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_time_loss(data_dir, phase, since, until_date, product, station, period, as_json):
     """Time lost to failures and errors."""
-    store = _measurements_query(data_dir)
-    rows = store.time_loss(
-        product=product,
-        station=station,
-        phase=phase,
-        since=since,
-        until=until_date,
-        period=period,
-    )
-
-    if not rows:
-        click.echo("[]" if as_json else "No data found.")
-        return
-
-    if as_json:
-        click.echo(json.dumps(rows, indent=2, default=str))
-        return
-
-    click.echo(f"{'Period':<14} {'Total(s)':>10} {'Pass(s)':>10} {'Fail(s)':>10} {'Error(s)':>10}")
-    click.echo("-" * 58)
-    for r in rows:
-        click.echo(
-            f"{str(r.get('period', '')):<14} "
-            f"{r.get('total_time_s', 0) or 0:>10.1f} "
-            f"{r.get('pass_time_s', 0) or 0:>10.1f} "
-            f"{r.get('fail_time_s', 0) or 0:>10.1f} "
-            f"{r.get('error_time_s', 0) or 0:>10.1f}"
+    with _measurements_query(data_dir) as store:
+        rows = store.time_loss(
+            product=product,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until_date,
+            period=period,
         )
+
+        if not rows:
+            click.echo("[]" if as_json else "No data found.")
+            return
+
+        if as_json:
+            click.echo(json.dumps(rows, indent=2, default=str))
+            return
+
+        click.echo(
+            f"{'Period':<14} {'Total(s)':>10} {'Pass(s)':>10} {'Fail(s)':>10} {'Error(s)':>10}"
+        )
+        click.echo("-" * 58)
+        for r in rows:
+            click.echo(
+                f"{str(r.get('period', '')):<14} "
+                f"{r.get('total_time_s', 0) or 0:>10.1f} "
+                f"{r.get('pass_time_s', 0) or 0:>10.1f} "
+                f"{r.get('fail_time_s', 0) or 0:>10.1f} "
+                f"{r.get('error_time_s', 0) or 0:>10.1f}"
+            )
 
 
 # ---------------------------------------------------------------------------
