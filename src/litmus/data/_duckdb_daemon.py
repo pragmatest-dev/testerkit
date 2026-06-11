@@ -65,7 +65,7 @@ _EVENT_COLUMNS_FROM_IPC: list[str] = [
 # * ``event_number`` — server-stamped via ``nextval('event_seq')`` here.
 #   The "what commit-order did this land in" answer for the watcher's
 #   cursor and replay ordering. Strictly monotonic with INSERT order
-#   under the put-hook lock, so ``event_number > last`` poll never
+#   under the put-hook lock, so the ``event_number > last`` cursor never
 #   advances past a row that hasn't yet been inserted. ``received_at``
 #   was previously the cursor too, but ``now()`` (transaction-start
 #   timestamp) has subtle wall-clock ordering issues across concurrent
@@ -171,7 +171,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """)
     for col, sql_type in _EVENTS_COLUMNS:
         conn.execute(f"ALTER TABLE events ADD COLUMN IF NOT EXISTS {col} {sql_type}")
-    # Monotonic insert-order sequence. The watcher polls by
+    # Monotonic insert-order sequence. The watcher streams by
     # ``event_number > last`` which is bulletproof against the
     # wall-clock races that ``received_at >=`` had: ``received_at`` is
     # stamped via ``now()`` at transaction start, but multiple

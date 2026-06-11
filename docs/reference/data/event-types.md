@@ -88,7 +88,6 @@ Emitted once per test run. Contains full run context.
 | `git_remote` | `str \| None` | `None` |
 | `environment_json` | `str \| None` | `None` |
 | `custom_metadata` | `dict[str, Any]` | `{}` |
-| `channel_refs` | `list[str]` | `[]` |
 
 ### `run.ended` — `RunEnded`
 

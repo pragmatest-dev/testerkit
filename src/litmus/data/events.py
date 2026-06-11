@@ -277,9 +277,6 @@ class RunStarted(EventBase):
     # Custom metadata
     custom_metadata: dict[str, Any] = Field(default_factory=dict)
 
-    # Channel references for infrastructure correlation
-    channel_refs: list[str] = Field(default_factory=list)
-
 
 class RunEnded(EventBase):
     """Emitted at the end of a test run."""
@@ -761,7 +758,7 @@ class DialogResponded(EventBase):
 # ---------------------------------------------------------------------------
 
 SESSION_EVENTS = {SessionStarted, SessionEnded}
-RUN_EVENTS = {RunStarted, RunEnded}
+RUN_EVENTS = {RunStarted, RunEnded, RunMaterialized}
 SLOT_EVENTS = {SlotStarted, SlotCompleted, SyncArrived, SyncRelease}
 FIXTURE_EVENTS = {
     InstrumentConnected,
@@ -804,6 +801,7 @@ Event = Annotated[
     | SessionEnded
     | RunStarted
     | RunEnded
+    | RunMaterialized
     | SlotStarted
     | SlotCompleted
     | SyncArrived

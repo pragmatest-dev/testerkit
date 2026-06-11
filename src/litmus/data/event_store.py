@@ -179,9 +179,9 @@ class EventStore:
 
         # Track event IDs delivered in-process to avoid duplicate delivery
         # from the cross-process watcher. Bounded LRU (FIFO eviction) so
-        # long-running orchestrators don't leak memory; the watcher polls
-        # every 500ms with a ``received_at`` cursor, so old IDs are never
-        # re-fetched and don't need to be retained.
+        # long-running orchestrators don't leak memory; the watcher receives a
+        # held-open push stream from an ``event_number`` cursor, so old IDs are
+        # never re-delivered and don't need to be retained beyond the window.
         self._delivered_ids: OrderedDict[str, None] = OrderedDict()
         self._delivered_ids_max = 10000
 
@@ -479,7 +479,7 @@ class EventStore:
         * ``"none"`` — skip replay entirely; deliver only future events.
 
         In-process: instant dispatch on ``emit()``.
-        Cross-process: internal polling detects new data via DuckDB index.
+        Cross-process: a held-open push stream delivers new events as they land.
 
         Returns an unsubscribe callable.
         """
@@ -487,8 +487,8 @@ class EventStore:
         # is a monotonic ``event_number`` (insert-order sequence stamped
         # by the events daemon's ``nextval('event_seq')`` under the
         # same lock as the INSERT). Replay covers
-        # ``event_number <= snapshot``; watcher polls
-        # ``event_number > snapshot``. ``event_number`` is bulletproof
+        # ``event_number <= snapshot``; the watcher receives
+        # ``event_number > snapshot`` live. ``event_number`` is bulletproof
         # against the wall-clock race ``received_at`` had — two
         # put-hook batches under the same lock can finish out of order
         # vs. their transaction-start timestamps, but ``nextval()``
@@ -558,7 +558,7 @@ class EventStore:
                     )
                 # Dispatch each event to the new subscriber's callback,
                 # then stamp ``_delivered_ids`` so the watcher dedups
-                # against the boundary on its first poll. Mirrors the
+                # against the boundary on the first pushed batch. Mirrors the
                 # sync-replay behaviour, just in a background thread so
                 # the watcher can serve real-time events concurrently.
                 for evt in existing:
@@ -597,7 +597,7 @@ class EventStore:
         ``initial_cursor`` seeds ``_watch_loop`` to a known
         ``event_number`` from the caller — the monotonic insert-order
         sequence stamped by the events daemon under the put-hook lock.
-        The watcher polls ``WHERE event_number > initial_cursor`` so
+        The watcher streams ``WHERE event_number > initial_cursor`` so
         any event with a higher position is picked up. Position values
         are strictly monotonic with commit order, so there's no
         boundary race against wall-clock ordering.

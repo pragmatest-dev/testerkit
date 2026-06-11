@@ -40,6 +40,7 @@ from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
+    Observation,
     RunEnded,
     RunMaterialized,
     RunStarted,
@@ -64,7 +65,8 @@ _EVENT_CLASSES: dict[str, type] = {
     "test.step_started": StepStarted,
     "test.step_ended": StepEnded,
     "test.measurement": MeasurementRecorded,
-    "instrument.connected": InstrumentConnected,
+    "test.observation": Observation,
+    "fixture.instrument_connected": InstrumentConnected,
 }
 
 
