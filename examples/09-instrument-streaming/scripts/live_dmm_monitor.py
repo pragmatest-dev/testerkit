@@ -16,13 +16,15 @@ Usage::
     cd examples/09-instrument-streaming
     uv run python scripts/live_dmm_monitor.py
 
-The script runs for 60 seconds at 50 samples/second (3000 samples).
-Stop early with Ctrl-C. Reopen the channel panel — your samples
-stay on the timeline (ChannelStore is persisted, not just live).
+The script runs for 60 seconds at 50 samples/second (3000 samples) —
+set ``LITMUS_STREAM_SECONDS`` to run a shorter slice. Stop early with
+Ctrl-C. Reopen the channel panel — your samples stay on the timeline
+(ChannelStore is persisted, not just live).
 """
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -36,7 +38,9 @@ import litmus.channels  # noqa: E402
 from litmus import connect  # noqa: E402
 
 RATE_HZ = 50.0
-DURATION_S = 60.0
+# Default 60 s for the live demo; the example-scripts test runs a 1 s slice
+# via LITMUS_STREAM_SECONDS so CI still exercises the full streaming path.
+DURATION_S = float(os.environ.get("LITMUS_STREAM_SECONDS", "60"))
 
 
 def main() -> None:

@@ -26,6 +26,8 @@ CHAPTERS: tuple[str, ...] = (
     "05-part-spec",
     "06-station-catalog",
     "07-profiles",
+    "08-waveform-evidence",
+    "10-artifacts-and-byte-streams",
 )
 
 
