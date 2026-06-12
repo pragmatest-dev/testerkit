@@ -31,7 +31,7 @@ def build_run_metadata(
     station_id: str | None = None,
     station_config: Any | None = None,
     fixture_config: Any | None = None,
-    part_context: Any | None = None,
+    part: Any | None = None,
     operator_id: str | None = None,
     project_dir: Path,
     data_dir: str | None = None,
@@ -43,18 +43,18 @@ def build_run_metadata(
 ) -> dict[str, Any]:
     """Build the kwargs dict :class:`TestRunLogger` expects.
 
-    Resolves derived fields (part info from ``part_context``,
+    Resolves derived fields (part info from the active ``part``,
     station fields from ``station_config``, environment capture, git
     project name) so the runner's plugin doesn't have to. ``uut_part_number``
     and ``uut_revision`` fall back to the active part when not
     supplied explicitly.
     """
-    # Part info from part_context
+    # Part identity from the active Part
     part_id = part_name = part_revision = None
-    if part_context is not None:
-        part_id = part_context.part.id
-        part_name = part_context.part.name
-        part_revision = part_context.part.revision
+    if part is not None:
+        part_id = part.id
+        part_name = part.name
+        part_revision = part.revision
 
     # Fixture id
     fixture_id = None
@@ -71,10 +71,10 @@ def build_run_metadata(
         station_location = station_config.location
 
     # UUT defaults from part spec
-    if uut_part_number is None and part_context is not None:
-        uut_part_number = part_context.part.part_number
-    if uut_revision is None and part_context is not None:
-        uut_revision = part_context.part.revision
+    if uut_part_number is None and part is not None:
+        uut_part_number = part.part_number
+    if uut_revision is None and part is not None:
+        uut_revision = part.revision
 
     return {
         "uut_serial": uut_serial,

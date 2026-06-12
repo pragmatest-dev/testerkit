@@ -56,6 +56,7 @@ _log = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from litmus.data.models import TestRun
     from litmus.execution.logger import TestRunLogger
+    from litmus.models.part import Part
     from litmus.models.station import StationConfig
     from litmus.parts.context import PartContext
 
@@ -808,15 +809,15 @@ class Context:
         return get_active_station_config()
 
     @property
-    def part(self) -> PartContext | None:
-        """Active :class:`PartContext`, or ``None`` when no part is loaded.
+    def part(self) -> Part | None:
+        """Active :class:`Part` definition, or ``None`` when no part is loaded.
 
-        Mirrors the ``part_context`` session fixture but lets tests
-        reach for it via ``ctx.part`` without taking the fixture as
-        an argument. Useful inside helpers / verify wrappers that
-        already have a ``Context`` reference.
+        Mirrors the ``part`` session fixture but lets tests reach for it
+        via ``ctx.part`` without taking the fixture as an argument. For
+        derived limits use ``ctx.get_limit(name)`` or the ``limits`` fixture.
         """
-        return get_active_part_context()
+        pc = get_active_part_context()
+        return pc.part if pc else None
 
     # -------------------------------------------------------------------------
     # Limit access

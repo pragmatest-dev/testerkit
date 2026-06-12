@@ -1,4 +1,4 @@
-"""Part YAML resolution chain for the ``part_context`` fixture.
+"""Part YAML resolution chain for the ``part`` fixture.
 
 Single ``--part`` flag with path-or-id dispatch (matches
 ``--station`` / ``--fixture`` shape):
@@ -67,9 +67,9 @@ def test_part_id_lookup_picks_matching_file(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         test_pick=textwrap.dedent(
             """
-            def test_picks_alpha(part_context):
-                assert part_context is not None
-                assert part_context.part.id == "alpha"
+            def test_picks_alpha(part):
+                assert part is not None
+                assert part.id == "alpha"
             """
         )
     )
@@ -84,7 +84,7 @@ def test_part_id_missing_yaml_raises_usage_error(pytester: pytest.Pytester) -> N
     pytester.makepyfile(
         test_missing=textwrap.dedent(
             """
-            def test_unreachable(part_context):
+            def test_unreachable(part):
                 assert False, "fixture resolution should have failed"
             """
         )
@@ -103,8 +103,8 @@ def test_part_accepts_path_shape(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         test_path=textwrap.dedent(
             """
-            def test_loads(part_context):
-                assert part_context.part.id == "beta"
+            def test_loads(part):
+                assert part.id == "beta"
             """
         )
     )

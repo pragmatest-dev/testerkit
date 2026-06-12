@@ -16,7 +16,7 @@ All three are available on every test run — no station, no sidecar, no sweep r
 | `verify` | Records the row, resolves a limit, raises on FAIL      | `verify(name, value, limit=..., characteristic=...)` (`characteristic` = a named measurable property on the part spec — covered in step 6 / [concepts/capabilities](../concepts/configuration/capabilities.md)) |
 | `context`| Ambient run / UUT / station / vector state             | `get_param`, `changed`, `last`, `observe`, `.part`, `.station`, `.run` |
 
-These are the common per-test entry points. The plugin exposes 17 others (hardware accessors like `pins` / `instruments` / `uut`, configuration accessors like `part_context` / `station_config`, special modes like `vectors` / `sync`) — see the [Litmus fixtures reference](../reference/pytest/fixtures.md) for the full set.
+These are the common per-test entry points. The plugin exposes 17 others (hardware accessors like `pins` / `instruments` / `uut`, configuration accessors like `part` / `station_config`, special modes like `vectors` / `sync`) — see the [Litmus fixtures reference](../reference/pytest/fixtures.md) for the full set.
 
 ## From assert to logger.measure
 

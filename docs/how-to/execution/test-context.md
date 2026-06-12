@@ -67,7 +67,7 @@ def test_serial_stamp(self, context, verify):
 |-------------------|----------------------------|--------------------------|
 | `context.run`     | `TestRun \| None`          | (no fixture — read here) |
 | `context.station` | `StationConfig \| None`    | `station_config`         |
-| `context.part` | `PartContext \| None`   | `part_context`        |
+| `context.part` | `Part \| None`   | `part`        |
 
 Each returns `None` when the corresponding tier is absent. Bringup tests (no `stations/` YAML) get `context.station is None`; tests that don't load a part get `context.part is None`. Guard with `if context.station:` before reaching for fields, or take the typed fixture (`station_config`) when the test only runs with a station present — pytest will skip it otherwise.
 

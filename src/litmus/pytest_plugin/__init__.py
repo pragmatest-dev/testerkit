@@ -51,6 +51,7 @@ from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.pool import InstrumentPool
 from litmus.instruments.route_manager import RouteManager
 from litmus.models.instrument import InstrumentRecord
+from litmus.models.part import Part
 from litmus.models.station import StationConfig
 from litmus.models.test_config import FixtureConfig, PromptConfig
 from litmus.parts.context import PartContext
@@ -205,7 +206,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         station_id=_resolve_station_id(request.config),
         station_config=station_config,
         fixture_config=fixture_config,
-        part_context=_safe_get_session_fixture(request, "part_context"),
+        part=_safe_get_session_fixture(request, "part"),
         operator_id=request.config.getoption("--operator"),
         project_dir=request.config.rootpath,
         data_dir=request.config.getoption("--data-dir"),
@@ -437,8 +438,8 @@ def run_context(logger) -> RunContext:
 
 
 @pytest.fixture(scope="session")
-def part_context(request) -> PartContext | None:
-    """Provide part context for spec-driven testing.
+def part(request) -> Part | None:
+    """The active :class:`Part` definition for spec-driven testing.
 
     Resolution chain (first match wins):
 
@@ -451,14 +452,17 @@ def part_context(request) -> PartContext | None:
     3. Single-file fallback when ``parts/`` holds exactly one file.
     4. ``None`` — bringup tier without a part YAML.
 
+    Exposes the part's identity, pins, and characteristics. For derived
+    limits use the ``limits`` fixture or ``context.get_limit(name)``; for
+    everything else the test can reach, use the ``context`` fixture.
+
     Usage in tests:
-        def test_voltage(part_context, dmm):
-            limit = part_context.get_limit("output_voltage", temperature=25)
-            value = dmm.measure_dc_voltage()
-            # Use limit for validation...
+        def test_voltage(part, context, dmm):
+            assert part.part_number == "DEMO-BUCK-3V3"
+            limit = context.get_limit("output_voltage", temperature=25)
 
     Returns:
-        :class:`PartContext`, or ``None`` if no part YAML is loaded.
+        :class:`Part`, or ``None`` if no part YAML is loaded.
     """
     from litmus.pytest_plugin.helpers import is_yaml_path
 
@@ -484,8 +488,11 @@ def part_context(request) -> PartContext | None:
     else:
         ctx = _autodiscover_part(request.config, guardband, part_number)
 
+    # The PartContext stays the internal derivation engine (limit resolution
+    # reaches it via the active-part-context ContextVar); the fixture exposes
+    # the Part definition itself.
     set_active_part_context(ctx)
-    return ctx
+    return ctx.part if ctx else None
 
 
 def _autodiscover_part(
@@ -775,13 +782,13 @@ def instrument(instruments, instrument_records) -> InstrumentAccessor:
 
 @pytest.fixture(scope="session")
 def uut(
-    part_context,
+    part,
     fixture_config,
     mock_instruments,
 ) -> Generator[Any, None, None]:
     """Instantiate and yield the UUT communication driver.
 
-    Resolves the driver class from ``Part.driver`` (loaded via part_context)
+    Resolves the driver class from ``Part.driver`` (the ``part`` fixture)
     and connects using ``FixtureConfig.uut_resource``. Follows the same pattern
     as instrument fixtures — session-scoped, auto-disconnected at teardown.
 
@@ -792,16 +799,16 @@ def uut(
     Returns:
         Connected UUT driver instance, or None if part has no driver.
     """
-    if not part_context or not part_context.part.driver:
+    if not part or not part.driver:
         yield None
         return
 
     from litmus.parts.loader import load_part_driver
 
-    driver_class = load_part_driver(part_context.part)
+    driver_class = load_part_driver(part)
     if driver_class is None:
         warnings.warn(
-            f"UUT driver {part_context.part.driver!r} could not be imported",
+            f"UUT driver {part.driver!r} could not be imported",
             UserWarning,
             stacklevel=2,
         )

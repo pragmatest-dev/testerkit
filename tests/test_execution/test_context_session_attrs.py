@@ -2,7 +2,7 @@
 
 ``context.run`` / ``context.station`` / ``context.part`` are the
 read-only ambient roll-up tests use without taking ``logger`` /
-``station_config`` / ``part_context`` as fixture arguments. Each
+``station_config`` / ``part`` as fixture arguments. Each
 delegates to a ContextVar getter in :mod:`litmus.execution._state`.
 
 UUT identity intentionally lives at ``context.run.uut`` — a top-level
@@ -105,7 +105,7 @@ def test_context_part_none_when_no_yaml(pytester: pytest.Pytester) -> None:
 
 
 def test_context_part_resolves_when_loaded(pytester: pytest.Pytester) -> None:
-    """With ``--part``, ``context.part`` exposes the :class:`PartContext`."""
+    """With ``--part``, ``context.part`` exposes the :class:`Part`."""
     pytester.makeini(_INI)
     (pytester.path / "parts").mkdir()
     (pytester.path / "parts" / "widget.yaml").write_text(
@@ -133,7 +133,7 @@ def test_context_part_resolves_when_loaded(pytester: pytest.Pytester) -> None:
             """
             def test_part_loaded(context):
                 assert context.part is not None
-                assert context.part.part.id == "widget"
+                assert context.part.id == "widget"
             """
         )
     )

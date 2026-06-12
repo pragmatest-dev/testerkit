@@ -13,12 +13,12 @@ Grouped by what you reach for the fixture **for**:
 | Recording measurements | Write a measurement row, resolve a limit, raise on FAIL, prompt the operator | `verify`, `logger`, `limits`, `prompt` |
 | Talking to instruments | Get a driver instance, route a signal, hit a UUT pin | `instruments`, `instrument`, `instrument_records`, `uut`, `pins`, `routes`, `fixture_manager` |
 | Reading per-test state | Active sweep params, observations, the connection currently being iterated | `context`, `connections` |
-| Reading loaded configuration | The typed YAML / CLI that shaped this run | `part_context`, `station_config`, `fixture_config`, `run_context`, `mock_instruments` |
+| Reading loaded configuration | The typed YAML / CLI that shaped this run | `part`, `station_config`, `fixture_config`, `run_context`, `mock_instruments` |
 | Flow control | Drive the test body's iteration / synchronization | `vectors`, `sync` |
 
 Plus **one role-named fixture per instrument the station YAML declares** (e.g. `dmm`, `psu`, `scope`). See [Per-role auto-fixtures](#per-role-auto-fixtures).
 
-Every fixture above is available in every test — pytest will resolve any of them by name. The "what you'd reach for it for" column is intent, not availability. Several have meaningful "no project state" defaults (`part_context` returns `None`, `instruments` returns `{}`, `connections` returns `None`, etc.) so taking one in a vanilla project is safe.
+Every fixture above is available in every test — pytest will resolve any of them by name. The "what you'd reach for it for" column is intent, not availability. Several have meaningful "no project state" defaults (`part` returns `None`, `instruments` returns `{}`, `connections` returns `None`, etc.) so taking one in a vanilla project is safe.
 
 ---
 
@@ -178,7 +178,7 @@ Returns a `Context` exposing the run / UUT / station / vector state for the acti
 | `context.last(key, default=None)` | `Any` | Prior iteration's value for `key`. |
 | `context.observe(key, value)` | `None` | Record a free-form observation. |
 | `context.observations` | `dict` | All recorded observations. |
-| `context.part` | `PartContext \| None` | Active part context (= `part_context` fixture). |
+| `context.part` | `Part \| None` | Active part definition (= `part` fixture). |
 | `context.station` | `StationConfig \| None` | Active station config (= `station_config` fixture). |
 | `context.run` | `TestRun \| None` | The current `TestRun`. |
 | `context.limits` | `LimitsView` | Read-only limits mapping (= `limits` fixture). |
@@ -206,9 +206,9 @@ def test_per_pin(connections, dmm):
 
 Typed accessors over the YAML / CLI that shaped this run. Each one resolves to its model OR `None` (or an empty dict / bool) — taking one in a vanilla project is safe.
 
-### `part_context` — session
+### `part` — session
 
-Returns a `PartContext` loaded from `parts/*.yaml`, or `None` if no `parts/` directory or no match.
+Returns the active `Part` definition loaded from `parts/*.yaml` (identity, pins, characteristics), or `None` if no `parts/` directory or no match. For derived limits use the `limits` fixture or `context.get_limit(name)`.
 
 Resolution chain (first match wins):
 1. `--part <id-or-path>` — `<id>` looks up `parts/<id>.yaml`; `<path>` is used directly.
@@ -217,10 +217,10 @@ Resolution chain (first match wins):
 4. `None`.
 
 ```python
-def test_spec(part_context, dmm, verify):
-    if part_context:
-        limit = part_context.get_limit("output_voltage", temperature=25)
-    verify("output_voltage", dmm.measure_dc_voltage())
+def test_spec(part, context, dmm, verify):
+    if part:
+        assert part.part_number == "DEMO-BUCK-3V3"
+    verify("output_voltage", dmm.measure_dc_voltage())  # limit resolves from the part spec
 ```
 
 ### `station_config` — session

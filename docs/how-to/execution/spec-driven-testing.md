@@ -1,6 +1,6 @@
 # Spec-Driven Testing
 
-Derive test limits and [traceability](traceability.md) from the [part specification](../../concepts/configuration/parts.md). The `verify` fixture resolves the limit, UUT pin, and spec reference automatically from the active `part_context` (a [`PartContext`](../../concepts/configuration/parts.md) — the loaded-part container exposed to tests) — you just call `verify(name, value)`.
+Derive test limits and [traceability](traceability.md) from the [part specification](../../concepts/configuration/parts.md). The `verify` fixture resolves the limit, UUT pin, and spec reference automatically from the active part (loaded from `parts/*.yaml`; the `part` fixture exposes that [`Part`](../../concepts/configuration/parts.md) definition) — you just call `verify(name, value)`.
 
 > **Prerequisites.** A `parts/<id>.yaml` file with at least one characteristic (see [tutorial step 6](../../tutorial/06-specifications.md)). The part context must be active — pass `--part=<id>` / `--part=<path>`, or `--uut-part-number=<pn>` to look it up by part number, or rely on single-file autodiscovery when there's exactly one part YAML in `parts/`. Limits also flow from sidecar YAML / markers / profiles — this page focuses on the part-spec path.
 
