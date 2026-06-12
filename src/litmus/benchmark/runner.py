@@ -238,20 +238,30 @@ def run_benchmark(
             )
         progress("measuring on-disk footprint ...")
         report.storage = _measure_storage(data_dir)
-        progress("measuring concurrent-run capacity ...")
+        progress("measuring concurrent-write capacity (per store) ...")
         writer_counts = [1, 2, 4, 8] if options.tier == "full" else [1, 2, 4]
-        points: list[ConcurrencyPoint] = []
-        for w in writer_counts:
-            walls = run_concurrency(data_dir, "representative.production", 2, w, rounds=2)
-            wall = min(walls) if walls else 0.0
-            points.append(ConcurrencyPoint(w, (w * 2) / wall if wall > 0 else 0.0))
-        report.concurrency = ConcurrencySweep(points)
+        # (store label, concurrency op, units per writer). One sweep per store
+        # — each gets its own scaling curve and per-writer efficiency.
+        sweep_specs = [
+            ("events", "events.emit", 1000),
+            ("channels", "channels.write", 1000),
+            ("files", "files.write", 10),
+            ("runs", "representative.production", 2),
+        ]
+        for store, op, scale in sweep_specs:
+            progress(f"measuring concurrent-write capacity: {store} ...")
+            points: list[ConcurrencyPoint] = []
+            for w in writer_counts:
+                walls = run_concurrency(data_dir, op, scale, w, rounds=2)
+                wall = min(walls) if walls else 0.0
+                points.append(ConcurrencyPoint(w, (w * scale) / wall if wall > 0 else 0.0))
+            report.concurrency.append(ConcurrencySweep(store, points))
         report.footprint = sampler.stop()
     finally:
         _kill_daemons(data_dir)
         shutil.rmtree(data_dir, ignore_errors=True)
 
-    report.coefficients = extract_coefficients(report.results, report.storage, report.concurrency)
+    report.coefficients = extract_coefficients(report.results, report.storage)
     report.duration_s = time.perf_counter() - started
     return report
 
@@ -403,7 +413,7 @@ def _verdict(report: BenchmarkReport) -> str:
         return "No capacity was measured."
     free = _free_disk(report)
     prod = next(p for p in PROFILES if p.name == "production")
-    cap = derive_capacity(coef, prod, free_disk_bytes=free, sweep=report.concurrency)
+    cap = derive_capacity(coef, prod, free_disk_bytes=free, sweep=report.runs_concurrency)
     return (
         f"Recording a production test run costs ~{_ms(cap.per_run_s * 1000)} and "
         f"~{cap.storage_gb_per_run * 1024:.1f} MB. This machine finalizes "
@@ -446,7 +456,7 @@ def format_markdown(report: BenchmarkReport) -> str:
     out.append("|---|---|--:|--:|--:|")
     if coef is not None:
         for sc in PROFILES:
-            cap = derive_capacity(coef, sc, free_disk_bytes=free, sweep=report.concurrency)
+            cap = derive_capacity(coef, sc, free_disk_bytes=free, sweep=report.runs_concurrency)
             out.append(
                 f"| {sc.name.capitalize()} | {_composition(sc)} | {_ms(cap.per_run_s * 1000)} "
                 f"| {cap.storage_gb_per_run * 1024:.1f} MB | {_si(cap.storage_runs)} |"
@@ -480,6 +490,24 @@ def format_markdown(report: BenchmarkReport) -> str:
         if r is not None:
             out.append(f"| {label} | {_ms(r[0])} | {r[1]} |")
     out.append("")
+
+    if report.concurrency:
+        writers = sorted({p.writers for s in report.concurrency for p in s.points})
+        out.append("## Concurrent writes (per store)")
+        out.append("")
+        out.append("| Store | " + " | ".join(f"{w}w" for w in writers) + " | Per-writer |")
+        out.append("|---" + "|--:" * (len(writers) + 1) + "|")
+        for s in report.concurrency:
+            rate = {p.writers: p.throughput_per_s for p in s.points}
+            cells = " | ".join(f"{_si(rate.get(w, 0.0))}/s" for w in writers)
+            out.append(f"| {s.store} | {cells} | {s.factor():.2f} |")
+        out.append("")
+        out.append(
+            "_Per-writer efficiency = (rate at max writers ÷ writers) ÷ single-writer rate. "
+            "~1.0 scales cleanly; ~0.5 serializes._"
+        )
+        out.append("")
+
     out.append(
         "_Full per-size, parallel-scaling, coefficient, and storage detail is in `report.json`._"
     )
@@ -504,7 +532,7 @@ def format_summary(report: BenchmarkReport) -> str:
     lines.append(f"    {'phase':<16} {'time/run':>10} {'on disk':>10} {'runs fit':>12}")
     if coef is not None:
         for sc in PROFILES:
-            cap = derive_capacity(coef, sc, free_disk_bytes=free, sweep=report.concurrency)
+            cap = derive_capacity(coef, sc, free_disk_bytes=free, sweep=report.runs_concurrency)
             lines.append(
                 f"    {sc.name:<16} {_ms(cap.per_run_s * 1000):>10} "
                 f"{cap.storage_gb_per_run * 1024:>8.1f}MB {_si(cap.storage_runs):>12}"
@@ -518,5 +546,17 @@ def format_summary(report: BenchmarkReport) -> str:
         if r is not None:
             lines.append(f"    {label:<26} {_ms(r[0]):>9} {r[1]:>16}")
     lines.append("")
+
+    if report.concurrency:
+        writers = sorted({p.writers for s in report.concurrency for p in s.points})
+        lines.append("  Concurrent writes (per store, aggregate rate):")
+        cols = "".join(f"{str(w) + 'w':>12}" for w in writers)
+        lines.append(f"    {'store':<10}{cols}{'per-writer':>12}")
+        for s in report.concurrency:
+            rate = {p.writers: p.throughput_per_s for p in s.points}
+            cells = "".join(f"{_si(rate.get(w, 0.0)) + '/s':>12}" for w in writers)
+            lines.append(f"    {s.store:<10}{cells}{s.factor():>12.2f}")
+        lines.append("")
+
     lines.append("  Full detail (coefficients, per-size, scaling, storage) is in report.json.")
     return "\n".join(lines)

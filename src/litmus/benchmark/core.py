@@ -166,11 +166,16 @@ class BenchmarkReport:
     footprint: ResourceFootprint | None = None
     # Measured on-disk bytes/record per store (the calculator's storage input).
     storage: StorageFootprint | None = None
-    # Production-run concurrency sweep (the "run X at once" input).
-    concurrency: ConcurrencySweep | None = None
+    # One write-throughput sweep per store (events / channels / files / runs).
+    concurrency: list[ConcurrencySweep] = field(default_factory=list)
     # The capacity-calculator coefficient block.
     coefficients: Coefficients | None = None
     duration_s: float = 0.0
+
+    @property
+    def runs_concurrency(self) -> ConcurrencySweep | None:
+        """The production-run sweep — the input to the runs-ingest capacity model."""
+        return next((s for s in self.concurrency if s.store == "runs"), None)
 
     def as_dict(self) -> dict[str, object]:
         out: dict[str, object] = {
@@ -184,8 +189,8 @@ class BenchmarkReport:
             out["footprint_under_load"] = asdict(self.footprint)
         if self.storage is not None:
             out["storage_bytes_per_record"] = asdict(self.storage)
-        if self.concurrency is not None:
-            out["concurrency_sweep"] = asdict(self.concurrency)
+        if self.concurrency:
+            out["concurrency_by_store"] = [asdict(s) for s in self.concurrency]
         if self.coefficients is not None:
             out["coefficients"] = asdict(self.coefficients)
         return out

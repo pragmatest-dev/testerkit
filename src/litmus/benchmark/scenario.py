@@ -88,7 +88,6 @@ class Coefficients:
     run_save_s: float  # seconds per run save
     file_byte_s: float  # seconds per file byte (write/stream)
     run_overhead_s: float  # fixed per-run cost (events flush/commit)
-    concurrency_factor: float  # per-writer efficiency at max writers (~1 = scales)
     # On-disk bytes per component — the actual (possibly compressed) footprint
     # when measured; ``on_disk_measured`` flags measured vs. raw fallback.
     measurement_bytes: int
@@ -112,25 +111,26 @@ class StorageFootprint:
 @dataclass(frozen=True)
 class ConcurrencyPoint:
     writers: int
-    runs_per_s: float
+    throughput_per_s: float  # aggregate units/s across all writers
 
 
 @dataclass(frozen=True)
 class ConcurrencySweep:
-    """Production-run throughput across writer counts → per-writer efficiency."""
+    """One store's write throughput across writer counts → per-writer efficiency."""
 
+    store: str
     points: list[ConcurrencyPoint]
 
     def factor(self) -> float:
         """Per-writer efficiency at the max writer count:
-        (runs/s at max writers ÷ writers) ÷ runs/s at 1 writer. ~1 = scales."""
+        (rate at max writers ÷ writers) ÷ rate at 1 writer. ~1 = scales."""
         if not self.points:
             return 1.0
-        base = next((p.runs_per_s for p in self.points if p.writers == 1), 0.0)
+        base = next((p.throughput_per_s for p in self.points if p.writers == 1), 0.0)
         top = max(self.points, key=lambda p: p.writers)
         if not base or not top.writers:
             return 1.0
-        return (top.runs_per_s / top.writers) / base
+        return (top.throughput_per_s / top.writers) / base
 
 
 def _one_writer(results: list[WorkloadResult], op: str) -> list[WorkloadResult]:
@@ -155,34 +155,15 @@ def _byte_s(results: list[WorkloadResult], op: str, default: float) -> float:
     return 1.0 / max(rows, key=lambda r: r.bytes_per_s or 0.0).bytes_per_s  # type: ignore[operator]
 
 
-def _concurrency_factor(results: list[WorkloadResult]) -> float:
-    """Mean per-writer efficiency at the max writer count, across write ops:
-    (aggregate ÷ writers) ÷ single-writer rate. ~1.0 = scales near-linearly."""
-    factors: list[float] = []
-    for op in {r.op for r in results if r.writers > 1}:
-        multi = [r for r in results if r.op == op and r.writers > 1]
-        if not multi:
-            continue
-        top = max(multi, key=lambda r: r.writers)
-        base = next(
-            (r for r in results if r.op == op and r.writers == 1 and r.scale == top.scale),
-            None,
-        )
-        if base and base.throughput > 0 and top.writers:
-            factors.append((top.throughput / top.writers) / base.throughput)
-    return sum(factors) / len(factors) if factors else 1.0
-
-
 def extract_coefficients(
     results: list[WorkloadResult],
     storage: StorageFootprint | None = None,
-    concurrency: ConcurrencySweep | None = None,
 ) -> Coefficients:
     """Derive the machine's per-component coefficients from a benchmark run.
 
     ``storage`` overrides raw byte sizes with the measured on-disk footprint.
-    ``concurrency`` (the production-run sweep) gives the real per-writer
-    efficiency for the "run X at once" capacity.
+    Concurrency is reported per store (see ``BenchmarkReport.concurrency``),
+    not folded into a single headline factor.
     """
     # Per-component time. Defaults are conservative fallbacks if an op is absent.
     measurement_s = _per_unit_s(results, "events.emit", 2e-4)
@@ -217,14 +198,12 @@ def extract_coefficients(
         run_b = int(storage.run_bytes)
         file_ratio = storage.file_byte_ratio or 1.0
         on_disk = True
-    factor = concurrency.factor() if concurrency else _concurrency_factor(results)
     return Coefficients(
         measurement_s=measurement_s,
         point_s=point_s,
         run_save_s=run_save_s,
         file_byte_s=file_byte_s,
         run_overhead_s=run_overhead_s,
-        concurrency_factor=factor,
         measurement_bytes=int(meas_bytes),
         point_bytes=point_bytes,
         run_bytes=int(run_b),
@@ -323,7 +302,7 @@ def derive_capacity(
     per_run = predict_run_cost_s(coef, sc)
     rb = max(1, run_bytes(coef, sc))
     if sweep and sweep.points:
-        sustained = max(p.runs_per_s for p in sweep.points)
+        sustained = max(p.throughput_per_s for p in sweep.points)
     else:
         sustained = 1.0 / per_run
     return Capacity(
