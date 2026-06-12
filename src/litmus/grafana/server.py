@@ -103,7 +103,12 @@ _IPC_TABLES: list[tuple[str, str, str]] = [
         "occurred_at AT TIME ZONE 'UTC' AS occurred_at, "
         "received_at AT TIME ZONE 'UTC' AS received_at",
     ),
-    ("channels", "channels", "timestamp AT TIME ZONE 'UTC' AS timestamp"),
+    (
+        "channels",
+        "channels",
+        "received_at AT TIME ZONE 'UTC' AS received_at, "
+        "sampled_at AT TIME ZONE 'UTC' AS sampled_at",
+    ),
 ]
 
 
