@@ -10,6 +10,8 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-12
+
 Data-architecture release. A fourth store (FileStore) joins Runs,
 Events, Channels for blobs / waveforms / streaming captures. Three
 test-author verbs — `observe`, `verify`, `stream` — replace ad-hoc
@@ -60,14 +62,20 @@ gains entity-observed-view across inventory pages, two new pages
   detail page with mime-switched viewers (image, JSON pretty-print,
   JSONL table, CSV table, NPZ Waveform chart, NPY stats, hex
   download). `?download=1` forces Content-Disposition save.
+- **`litmus_files` MCP tool + `GET /api/files/catalog`** — list
+  FileStore artifacts (uri / session / run filters, newest-first) from
+  agents and HTTP, mirroring the existing `/files` byte-server.
 - **`/channels` list filters** — Channel ID contains / Type /
   Instrument / Since-Until, URL-mirrored. Live-poll + in-place row
   mutation pattern preserved.
 - **`/channels/{id}` chart groups by session** — scalar channels with
   samples from multiple runs render one series per session, distinct
-  color per session, legend labelled `<uut_serial> · <YYYY-MM-DD
-  HH:MM:SS>`. Single-session views unchanged. Waveform overlays
-  unchanged.
+  color per session, legend (scrolling, under the plot) labelled
+  `<uut_serial> · <YYYY-MM-DD HH:MM:SS>`. A **Time | Index** x-axis
+  toggle (URL-shared via `?x_mode=`) overlays sessions by sample index
+  for shape comparison. An activity-driven badge reads `● live` while
+  samples arrive, `○ idle` otherwise. Single-session and waveform
+  overlays unchanged.
 - **`/results/{run_id}` "View this run's" card** — Events, Channels,
   and Files deep-link buttons all carry the run's session into the
   target page (URL-only scoping via `session_filter_banner`).
@@ -95,6 +103,16 @@ gains entity-observed-view across inventory pages, two new pages
 
 ### Changed
 
+- **BREAKING — `product` → `part` and `dut` → `uut` rename.** The
+  type/definition entity is now **Part** and the physical instance is
+  now **UUT** (unit under test), aligning with ASAM AoPart / STDF /
+  ATML terminology and generalizing beyond electronics. Renamed
+  across the YAML schema (`products/` → `parts/`), pytest fixtures,
+  event/parquet fields (`uut_serial`, `uut_part_number`), parquet
+  columns, operator-UI routes (`/parts`, `/uuts`), and the HTTP / MCP
+  query surfaces. Pre-1.0, there is no compatibility shim: existing
+  `product_*` / `dut_*` YAML and parquet must be regenerated or
+  migrated.
 - **Operator-readable session labels everywhere.** Pages that displayed
   session UUID prefixes now resolve to `<uut_serial> · <YYYY-MM-DD
   HH:MM:SS>` via a shared lookup helper (`/channels` data tab,
@@ -141,6 +159,10 @@ gains entity-observed-view across inventory pages, two new pages
 
 ### Fixed
 
+- **Live-channel UI panels deliver on the event loop.** Channel-data
+  callbacks fired on the Flight reader thread, mutating NiceGUI elements
+  off the loop; they now marshal through the UI loop (same contract the
+  event path already used).
 - `/channels/{id}` 500 error on pure-scalar channels.
 - `Context.stream` and `channels.write` did not emit `ChannelStarted`
   (only the observer path did). All writer paths now emit it.
@@ -301,7 +323,8 @@ Initial public release on PyPI as `litmus-test`.
   transports (`s3`, `gcs`, `azure`, `sftp`), and integrations (`pymeasure`,
   `ni`, `lxi`, `grafana`, `pdf`, `sbom`)
 
-[Unreleased]: https://github.com/pragmatest-dev/litmus/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/pragmatest-dev/litmus/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/pragmatest-dev/litmus/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/pragmatest-dev/litmus/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/pragmatest-dev/litmus/releases/tag/v0.1.2
 [0.1.1]: https://github.com/pragmatest-dev/litmus/releases/tag/v0.1.1
