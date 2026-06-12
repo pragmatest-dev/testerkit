@@ -112,13 +112,17 @@ gains entity-observed-view across inventory pages, two new pages
 
 ### Changed
 
-- **`litmus benchmark` reports concurrency per store.** The write-throughput
-  sweep (1 → 2 → 4 writers) now runs for **events, channels, files, and runs**
-  — each with its own scaling curve and per-writer efficiency — instead of a
-  single runs-only sweep collapsed into one headline factor (dropped). The
-  full sweep surfaces what the old single number hid: e.g. channels scale
-  cleanly to 2 writers but contend at 4. New `report.json` key
-  `concurrency_by_store` (replaces `concurrency_sweep`).
+- **`litmus benchmark` reports concurrency per store, measured honestly.**
+  The write-throughput sweep (1 → 2 → 4 writers) now runs for **events,
+  channels, files, and runs** — each with its own scaling curve and
+  per-writer efficiency — instead of a single runs-only sweep collapsed into
+  one headline factor (dropped). Two measurement fixes: the round wall is now
+  the true overlapped span (`max(end) − min(start)` across workers, not the
+  slowest worker's self-timed loop, which overstated throughput); and the
+  runs workers no longer perform a synchronous `notify_new_run` the real
+  `save_test_run` path never does (that phantom ACK was artificially
+  serializing the runs sweep). New `report.json` key `concurrency_by_store`
+  (replaces `concurrency_sweep`).
 - **Metrics are per-phase now.** The quality dashboards (Yield / Pareto /
   Cpk / Retest) default to **`phase = production`** and the **last 30 days**
   instead of "all phases except development, all time" — production is the

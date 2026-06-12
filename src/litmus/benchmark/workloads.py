@@ -142,15 +142,15 @@ def _setup_events_query(scale: int) -> Callable[[BenchContext], Callable[[], obj
 
 def _setup_runs_save(scale: int) -> Callable[[BenchContext], Callable[[], object]]:
     def setup(ctx: BenchContext) -> Callable[[], object]:
+        # Mirror the real finalize path (``save_test_run`` = atomic file
+        # write, no synchronous daemon notify).
         from litmus.data.backends.parquet import ParquetBackend
-        from litmus.data.run_store import RunStore
 
         backend = ParquetBackend(data_dir=ctx.data_dir)
-        store = ctx.track(RunStore(_data_dir=ctx.data_dir))
 
         def save_n() -> None:
             for _ in range(scale):
-                store.notify_new_run(backend.save_test_run(build_run(uuid4().int % 1_000_000)))  # type: ignore[union-attr]
+                backend.save_test_run(build_run(uuid4().int % 1_000_000))
 
         return save_n
 
