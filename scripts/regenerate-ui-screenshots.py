@@ -127,22 +127,22 @@ MANIFEST: list[Shot] = [
     ),
     # /metrics — yield / pareto / cpk / retest / time-loss / assets
     Shot(
-        url="/metrics",
+        url="/metrics?phase=development",
         selector="[data-testid='metrics-filters']",
         output_path="metrics/filters.png",
     ),
     Shot(
-        url="/metrics",
+        url="/metrics?phase=development",
         selector="[data-testid='metrics-yield']",
         output_path="metrics/yield.png",
     ),
     Shot(
-        url="/metrics?tab=Pareto",
+        url="/metrics?tab=Pareto&phase=development&pareto_group=measurement",
         selector="[data-testid='metrics-pareto']",
         output_path="metrics/pareto.png",
     ),
     Shot(
-        url="/metrics?tab=Cpk",
+        url="/metrics?tab=Cpk&phase=development",
         selector="[data-testid='metrics-cpk']",
         output_path="metrics/cpk.png",
     ),

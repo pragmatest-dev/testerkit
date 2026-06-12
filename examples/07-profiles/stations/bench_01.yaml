@@ -14,12 +14,14 @@ instruments:
       # {nominal, sigma} → a gaussian draw each read, so runs vary
       # (real distributions / Cpk / yield instead of one flat value).
       measure_voltage: {nominal: 5.0, sigma: 0.02}
-      measure_current: {nominal: 0.042, sigma: 0.003}
+      # idle_current spec is 0.05 (limit 0.04–0.06) — center here, not at
+      # the old 0.042 which sat on the lower limit and failed under noise.
+      measure_current: {nominal: 0.05, sigma: 0.004}
   dmm:
     type: dmm
     driver: drivers.DMM
     resource: TCPIP::192.168.1.102::INSTR
     catalog_ref: generic_dmm
     mock_config:
-      measure_dc_voltage: {nominal: 3.31, sigma: 0.02}
+      measure_dc_voltage: {nominal: 3.30, sigma: 0.015}
       measure_dc_current: {nominal: 0.042, sigma: 0.003}
