@@ -9,6 +9,7 @@ from nicegui import ui
 
 from litmus.data.channels.models import ChannelSample
 from litmus.ui.shared.components import (
+    LiveBadge,
     data_table,
     format_datetime,
     info_field,
@@ -28,6 +29,7 @@ def channel_detail_page(
     session_id: str = "",
     since: str = "",
     until: str = "",
+    x_mode: str = "time",
 ) -> None:
     """Single-channel browser with a chart and a raw-data tab.
 
@@ -71,6 +73,10 @@ def channel_detail_page(
         # before chart_card / data_card are built below.
         chart_card: ui.card | None = None
         data_card: ui.card | None = None
+        # X-axis mode for scalar plots: "time" (received timestamp) or
+        # "index" (per-session sample index, so multiple sessions overlay
+        # for shape comparison). Mutable cell — the toggle updates it.
+        x_mode_state = ["index" if x_mode == "index" else "time"]
         # Live-subscription handle — built by _render_chart on each
         # refresh, cancelled before the next refresh so we don't leak
         # stale callbacks targeting an orphaned chart object.
@@ -87,6 +93,7 @@ def channel_detail_page(
                     "session_id": session_id,
                     "since": filters.since(),
                     "until": filters.until(),
+                    "x_mode": x_mode_state[0],
                 },
             )
             payload = query_channel(
@@ -107,6 +114,7 @@ def channel_detail_page(
                 data,
                 descriptor,
                 session_filter=session_id or None,
+                x_mode=x_mode_state[0],
             )
             if live_unsub is not None:
                 live_unsub_holder.append(live_unsub)
@@ -136,6 +144,23 @@ def channel_detail_page(
                 ui.button(
                     "Clear", icon="clear", on_click=lambda: _clear_filters(filters, refresh)
                 ).props("flat dense")
+
+                # X-axis mode — only meaningful for scalar channels.
+                # Waveforms already plot against intra-capture index/time.
+                if (descriptor.get("data_type") or "").startswith("scalar"):
+
+                    def _on_x_mode(e: Any) -> None:
+                        x_mode_state[0] = "index" if e.value == "index" else "time"
+                        refresh()
+
+                    ui.toggle(
+                        {"time": "Time", "index": "Index"},
+                        value=x_mode_state[0],
+                        on_change=_on_x_mode,
+                    ).props("dense").classes("ml-auto").tooltip(
+                        "X-axis: received time, or per-session sample index "
+                        "(multiple sessions overlay for shape comparison)"
+                    )
 
         # data-testid attributes are stable selectors for the
         # screenshot-regeneration script (scripts/regenerate-ui-
@@ -180,6 +205,7 @@ def _render_chart(
     descriptor: dict[str, Any],
     *,
     session_filter: str | None = None,
+    x_mode: str = "time",
 ) -> Callable[[], None] | None:
     """ECharts line plot of scalar values; first-sample plot for arrays.
 
@@ -207,11 +233,9 @@ def _render_chart(
         with ui.card_section():
             with ui.row().classes("items-center justify-between w-full"):
                 ui.label("Chart").classes("font-semibold")
-                # Build item 18 — live update indicator. Pulses on
-                # each sample received via ui_channel_data.
-                live_badge = ui.label("● live").classes(
-                    "px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700"
-                )
+                # Activity-driven indicator: live while samples arrive,
+                # idle after a few seconds of silence (see LiveBadge).
+                live_badge = LiveBadge()
             ui.label("LTTB-decimated to ≤1,000 points; faithful peaks/valleys.").classes(
                 "text-xs text-slate-500"
             )
@@ -279,14 +303,40 @@ def _render_chart(
             scalar_session_ids
         ) > 1
 
+        # Legend lives UNDER the plot (below the zoom slider) so it never
+        # collides with the top-right toolbox; ``type: scroll`` keeps it
+        # to one paginated row. The grid bottom grows to make room when
+        # the legend is shown.
+        grid_bottom = 112 if show_legend else 70
+        slider_bottom = 52 if show_legend else 18
+
+        # Index mode (scalar only): plot each session against its own
+        # sample index so multiple sessions overlay for shape comparison.
+        # Waveforms already use an intra-capture index/time axis.
+        index_axis = x_mode == "index" and not (isinstance(last_values, list) and last_values)
+        if index_axis:
+            x_axis: dict[str, Any] = {
+                "type": "value",
+                "name": "sample index",
+                "nameLocation": "middle",
+                "nameGap": 30,
+            }
+        else:
+            x_axis = {
+                "type": "category",
+                "data": x_values,
+                "name": x_axis_label,
+                "nameLocation": "middle",
+                "nameGap": 30,
+            }
+
         chart = ui.echart(
             {
                 "tooltip": {"trigger": "axis"},
-                # ``type: scroll`` keeps the legend to a single paginated
-                # row (page arrows) no matter how many sessions are
-                # present, so it never wraps down into the plot grid.
                 "legend": (
-                    {"show": True, "type": "scroll", "top": 30} if show_legend else {"show": False}
+                    {"show": True, "type": "scroll", "bottom": 8}
+                    if show_legend
+                    else {"show": False}
                 ),
                 "title": {
                     "text": channel_id,
@@ -315,18 +365,12 @@ def _render_chart(
                 # doesn't squash the line into a flat band.
                 "dataZoom": [
                     {"type": "inside", "filterMode": "none"},
-                    {"type": "slider", "filterMode": "none", "height": 18, "bottom": 18},
+                    {"type": "slider", "filterMode": "none", "height": 16, "bottom": slider_bottom},
                 ],
-                "xAxis": {
-                    "type": "category",
-                    "data": x_values,
-                    "name": x_axis_label,
-                    "nameLocation": "middle",
-                    "nameGap": 30,
-                },
+                "xAxis": x_axis,
                 "yAxis": {"type": "value", "name": y_label, "scale": y_axis_scale},
-                "series": _build_chart_series(rows, last_values, y_data),
-                "grid": {"left": 60, "right": 30, "top": 60, "bottom": 70},
+                "series": _build_chart_series(rows, last_values, y_data, x_mode),
+                "grid": {"left": 60, "right": 30, "top": 40, "bottom": grid_bottom},
             }
         ).classes("w-full h-96 px-4 pb-4")
         # ECharts inside a Quasar card_section sometimes initializes with
@@ -360,7 +404,7 @@ def _wire_live_subscription(  # noqa: PLR0913
     descriptor: dict[str, Any],
     rows_ref: list[dict[str, Any]],
     session_filter: str | None,
-    live_badge: ui.label,
+    live_badge: LiveBadge,
 ) -> Callable[[], None]:
     """Subscribe to live samples for ``channel_id`` and update ``chart`` in place.
 
@@ -385,13 +429,10 @@ def _wire_live_subscription(  # noqa: PLR0913
     # mutations on a deleted chart.
     signal = ui_channel_data(channel_id)
 
-    # LIVE badge stays static green when subscribed. A pulse-style
-    # animation tied to a one-shot ``ui.timer`` raced page teardown
-    # (timer fires after slot deletion → RuntimeError); the badge's
-    # presence alone signals "subscribed" clearly enough.
-    _ = live_badge
-
     def _on_sample(sample: ChannelSample) -> None:
+        # Every received sample drives the live badge — even before the
+        # chart exists (an empty channel that has just started producing).
+        live_badge.ping()
         if chart is None:
             # Empty initial state — nothing to mutate yet.
             return
@@ -602,6 +643,7 @@ def _build_chart_series(
     rows: list[dict[str, Any]],
     last_values: list[Any] | None,
     y_data: list[Any],
+    x_mode: str = "time",
 ) -> list[dict[str, Any]]:
     """Build the ECharts ``series`` array.
 
@@ -621,7 +663,7 @@ def _build_chart_series(
     # ``last_values`` for scalar channels is a single float — guard with
     # isinstance before treating it as iterable.
     if not isinstance(last_values, list) or not last_values:
-        return _build_scalar_series(rows, y_data)
+        return _build_scalar_series(rows, y_data, x_mode)
 
     waveform_rows = [r for r in rows if isinstance(r.get("value"), list) and r.get("value")]
     if len(waveform_rows) <= 1:
@@ -640,6 +682,7 @@ def _build_chart_series(
 def _build_scalar_series(
     rows: list[dict[str, Any]],
     y_data: list[Any],
+    x_mode: str = "time",
 ) -> list[dict[str, Any]]:
     """Build the scalar-channel series array.
 
@@ -650,6 +693,13 @@ def _build_scalar_series(
     the prior behaviour. When two or more sessions are present, returns
     one named series per session (operator-readable label) so the
     legend identifies which color is which run.
+
+    ``x_mode`` controls the X placement. ``"time"`` plots each point at
+    its ``received_at`` against a shared time axis (sessions sit
+    side-by-side along the timeline). ``"index"`` plots each session's
+    values against their own 0..n sample index, so sessions overlay for
+    shape comparison — a 1-D ``data`` array on the value axis lands
+    point *k* at x=*k*.
     """
     session_ids = {str(r.get("session_id") or "") for r in rows}
     if len(session_ids) <= 1:
@@ -662,20 +712,20 @@ def _build_scalar_series(
             }
         ]
 
-    # Multi-session view: bucket rows by session_id, build one series
-    # per bucket. Each data point carries its own [tick, value] so the
-    # x-axis can be a category (existing behaviour) and missing-from-
-    # this-session ticks render as a gap rather than zero. Order
-    # preserved by the row sequence (which is server-side sorted by
+    # Multi-session: bucket rows by session_id, one series per bucket.
+    # Order preserved by the row sequence (server-side sorted by
     # received_at).
-    by_session: dict[str, list[list[Any]]] = {}
+    by_session: dict[str, list[Any]] = {}
     for r in rows:
         sid = str(r.get("session_id") or "")
-        tick = _axis_tick(r.get("received_at"))
         value = _extract_scalar(r)
         if value is None:
             continue
-        by_session.setdefault(sid, []).append([tick, value])
+        # time: [tick, value] pairs on the shared category axis (a tick
+        # missing from a session renders as a gap, not a zero). index:
+        # bare values, placed at 0..n on the value axis to overlay.
+        point = value if x_mode == "index" else [_axis_tick(r.get("received_at")), value]
+        by_session.setdefault(sid, []).append(point)
 
     series: list[dict[str, Any]] = []
     for sid, points in by_session.items():

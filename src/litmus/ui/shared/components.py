@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import inspect
 import re
+import time
 from collections.abc import Callable
 from datetime import datetime
 from functools import lru_cache
@@ -892,6 +893,53 @@ class AutoSaver:
             self._timer.cancel()
         self._dirty = True
         self._do_save()
+
+
+_LIVE_CLS = "px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700"
+_IDLE_CLS = "px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-500"
+
+
+class LiveBadge:
+    """Activity-driven live indicator.
+
+    Starts idle. :meth:`ping` — called on each sample a page receives —
+    flips it to a green ``● live``. A repeating timer falls back to a
+    gray ``○ idle`` after ``idle_after`` seconds without a ping. So the
+    badge reflects whether data is actually flowing, not merely that the
+    page is subscribed: a channel that hasn't been written in a while
+    reads idle, and a channel being streamed reads live.
+
+    Usage::
+
+        badge = LiveBadge()              # renders the label in place
+        channel_data(ch_id).subscribe(lambda s: badge.ping())
+    """
+
+    def __init__(self, *, idle_after: float = 5.0) -> None:
+        self._idle_after = idle_after
+        self._last_ping: float | None = None
+        self._label = ui.label()
+        self._set_idle()
+        # Repeating timer — auto-cancelled when the client disconnects.
+        ui.timer(1.0, self._tick)
+
+    def ping(self) -> None:
+        """Register a received sample: badge goes live, idle clock resets."""
+        self._last_ping = time.monotonic()
+        if self._label.text != "● live":
+            self._label.text = "● live"
+            self._label.classes(replace=_LIVE_CLS)
+
+    def _tick(self) -> None:
+        if self._last_ping is None:
+            return
+        if time.monotonic() - self._last_ping >= self._idle_after:
+            self._set_idle()
+
+    def _set_idle(self) -> None:
+        self._last_ping = None
+        self._label.text = "○ idle"
+        self._label.classes(replace=_IDLE_CLS)
 
 
 def _format_range(r: dict[str, Any], units: str = "") -> str:
