@@ -8,7 +8,7 @@ Litmus has two CLI surfaces that take a run and produce a file:
 - `litmus export <id> -f <fmt>` — **replays the event stream** for
   a run or session into a target format. The supported formats are
   the test-and-measurement interchange ones: CSV, JSON, STDF,
-  HDF5, TDMS, MDF4, ATML.
+  HDF5, TDMS, MDF4.
 
 Pick the command by what the receiver wants. A QA engineer wants
 PDF reports → `litmus show -f pdf`. A semiconductor vendor wants
@@ -53,7 +53,6 @@ environment snapshot.
 litmus export <id> -f csv                 # default output dir: exports/csv/
 litmus export <id> -f json -o /tmp/out/   # explicit output dir
 litmus export <id> -f stdf                # STDF v4 for semiconductor test floors
-litmus export <id> -f atml                # ATML / IEEE 1671 instances
 litmus export <id> -f hdf5                # HDF5 (scientific computing)
 litmus export <id> -f tdms                # NI TDMS (LabVIEW ecosystem)
 litmus export <id> -f mdf4                # ASAM MDF4 (automotive measurement data)
@@ -68,7 +67,6 @@ prefix-matching the events file. Output directory defaults to
 | csv | Flat CSV — one row per measurement |
 | json | Structured JSON mirroring the event stream |
 | stdf | Standard Test Data Format (v4) — semiconductor test floors / Spotfire / Examinator |
-| atml | ATML / IEEE 1671 instance documents — ATE traceability |
 | hdf5 | Hierarchical Data Format — scientific computing |
 | tdms | NI TDMS — LabVIEW / DIAdem |
 | mdf4 | ASAM MDF4 — automotive measurement |
@@ -85,7 +83,7 @@ the `-f` choices.
 ```bash
 litmus export <run_id> -f bogus
 # No subscriber registered for format 'bogus'.
-# Available: atml, csv, hdf5, json, mdf4, stdf, tdms
+# Available: csv, hdf5, json, mdf4, stdf, tdms
 ```
 
 Asking for an unknown format prints the current list of installed

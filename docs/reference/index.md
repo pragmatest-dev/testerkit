@@ -31,7 +31,7 @@ The shapes the system writes. If you're reading parquet, the event log, or any e
 - [Models](data/models.md) — every public Pydantic model + ERD of how they reference each other (generated).
 - [Event types](data/event-types.md) — every typed event payload the runtime emits (generated).
 - [Parquet schema](data/parquet-schema.md) — every column in the run parquet, the `record_type` discriminator, how retries land.
-- [Output formats](data/outputs.md) — what `litmus show -f <fmt>` and `litmus export` produce for HTML / PDF / JSON / CSV / STDF / HDF5 / TDMS / MDF4 / ATML.
+- [Output formats](data/outputs.md) — what `litmus show -f <fmt>` and `litmus export` produce for HTML / PDF / JSON / CSV / STDF / HDF5 / TDMS / MDF4.
 - [Query API](data/query-api.md) — `RunsQuery`, `StepsQuery`, `MeasurementsQuery`. The public read path the UI and HTTP API both use (generated).
 
 ## Runtime

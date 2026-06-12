@@ -1,5 +1,5 @@
 """Internal event-subscriber registry — used by the ``litmus export``
-CLI replay path (csv/json/stdf/hdf5/tdms/mdf4/atml converters in
+CLI replay path (csv/json/stdf/hdf5/tdms/mdf4 converters in
 :mod:`litmus.data.exporters`). The canonical run materializer
 (parquet + DuckDB index) is owned by the runs daemon and does NOT
 go through this registry.
@@ -22,10 +22,6 @@ from litmus.data.subscribers.replay import replay_to_subscriber
 # extra isn't installed the import fails; swallow so the rest of the
 # package still loads. The CLI surfaces a "format not registered" error
 # pointing at the right extra.
-try:
-    import litmus.data.exporters.atml  # noqa: F401
-except ImportError:
-    pass
 try:
     import litmus.data.exporters.stdf  # noqa: F401
 except ImportError:

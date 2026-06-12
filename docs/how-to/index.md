@@ -42,7 +42,7 @@ Pull data out of the runtime — query, debug, export, dashboard.
 - [Querying channel data](data/querying-channels.md) — time-series data plane
 - [Find flaky tests](data/find-flaky-tests.md) — use Metrics → Retest and Results detail to spot intermittents
 - [Compare two runs](data/compare-runs.md) — diff known-good vs failing with two tabs + a DuckDB query
-- [Export results](data/export-results.md) — `litmus show -f` for reports (HTML/PDF/JSON/CSV) and `litmus export -f` for interchange (STDF/HDF5/TDMS/MDF4/ATML)
+- [Export results](data/export-results.md) — `litmus show -f` for reports (HTML/PDF/JSON/CSV) and `litmus export -f` for interchange (STDF/HDF5/TDMS/MDF4)
 - [Query runs and metrics via MCP](data/mcp-query-runs.md) — `litmus_runs` / `litmus_steps` / `litmus_metrics` recipes
 - [Debug failures via MCP](data/mcp-debug-failures.md) — chained investigative workflow when a run fails
 - [Grafana dashboards](data/grafana-dashboards.md) — pre-built dashboards for results, events, channels

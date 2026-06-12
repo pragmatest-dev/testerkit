@@ -136,7 +136,7 @@ Export a test run or session to a different format via event replay.
 | Argument / option | Type | Description |
 |---|---|---|
 | `ID` | `text` |  |
-| `-f`/`--format` | `text` | Target format (csv, json, stdf, hdf5, tdms, mdf4, atml) |
+| `-f`/`--format` | `text` | Target format (csv, json, stdf, hdf5, tdms, mdf4) |
 | `-o`/`--output-dir` | `text` | Output directory |
 | `--data-dir` | `text` | Data directory |
 

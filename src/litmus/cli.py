@@ -786,7 +786,7 @@ def _read_events_by_id(
     "--format",
     "fmt",
     required=True,
-    help="Target format (csv, json, stdf, hdf5, tdms, mdf4, atml)",
+    help="Target format (csv, json, stdf, hdf5, tdms, mdf4)",
 )
 @click.option("-o", "--output-dir", default=None, help="Output directory")
 @click.option("--data-dir", default=None, help="Data directory")
