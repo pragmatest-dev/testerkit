@@ -11,13 +11,15 @@ instruments:
     mock_config:
       set_voltage: 5.0
       set_current: 0.5
-      measure_voltage: 5.0
-      measure_current: 0.042
+      # {nominal, sigma} → a gaussian draw each read, so runs vary
+      # (real distributions / Cpk / yield instead of one flat value).
+      measure_voltage: {nominal: 5.0, sigma: 0.02}
+      measure_current: {nominal: 0.042, sigma: 0.003}
   dmm:
     type: dmm
     driver: drivers.DMM
     resource: TCPIP::192.168.1.102::INSTR
     catalog_ref: generic_dmm
     mock_config:
-      measure_dc_voltage: 3.31
-      measure_dc_current: 0.042
+      measure_dc_voltage: {nominal: 3.31, sigma: 0.02}
+      measure_dc_current: {nominal: 0.042, sigma: 0.003}

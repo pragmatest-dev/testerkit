@@ -43,7 +43,7 @@ For each instrument in the active station YAML, Litmus substitutes a stand-in fo
 
 - **`isinstance(dmm, MyDMM)` is `False`.** The stand-in isn't a subclass of your driver class. Tests that rely on isinstance against the real driver class will fail; either don't do that, or build your own stand-in in a conftest fixture (see [bringup-tier conftest in custom-drivers.md](custom-drivers.md#conftestpy-bringup-tier-no-station-yaml-yet)).
 - **Every method call is a silent no-op returning `None`** unless you've listed it in `mock_config:`. Missing methods don't raise `AttributeError`.
-- **Methods you do list in `mock_config:` return the configured value** — a scalar (returned on every call), a dict (first positional arg is the lookup key), or a callable (invoked with the call args).
+- **Methods you do list in `mock_config:` return the configured value** — a scalar (returned on every call), a **noise spec** `{nominal, sigma}` (a fresh `random.gauss(nominal, sigma)` draw each call), a dict (first positional arg is the lookup key), or a callable (invoked with the call args).
 - `connect()` / `disconnect()` are wired automatically; the stand-in works as a context manager.
 - When the station entry references an instrument-asset file (`instruments/<id>.yaml`), the stand-in carries the asset's identity fields (`manufacturer` / `model` / `serial` / `firmware`) so traceability rows still show meaningful values. Without an asset reference these stay `None`.
 
@@ -151,6 +151,24 @@ instruments:
 ```
 
 For [per-instrument `mock: true`](#per-instrument-mock-on-real-stations) (mocking one instrument while keeping others on real hardware), `mock_config:` works the same way.
+
+### Noisy readings — `{nominal, sigma}`
+
+A constant return is fine for a happy-path test, but it produces a single
+repeated measurement value — no spread for distribution / Cpk / yield views.
+To make a mocked reading vary, give it a **noise spec** instead of a scalar:
+
+```yaml
+    mock_config:
+      measure_dc_voltage: {nominal: 3.31, sigma: 0.02}   # gauss(3.31, 0.02) each read
+      measure_current:    {nominal: 0.042, sigma: 0.003}
+```
+
+Each call returns a fresh `random.gauss(nominal, sigma)` draw, so repeated
+runs land a real distribution — some inside the limit, some outside if `sigma`
+is wide enough relative to the spec. A dict is read as a noise spec when it has
+a `nominal` key; without one it's the SCPI-style arg→return lookup above.
+
 
 ## Layer ② — Sidecar `mocks:` (the `litmus_mocks` marker)
 

@@ -29,6 +29,7 @@ Example usage:
     smu = Mock(Keithley2400, voltage=5.0, current=1.5e-6)
 """
 
+import random
 from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
 T = TypeVar("T")
@@ -74,6 +75,10 @@ def _make_mock_method(value: Any):
     Args:
         value: The configured mock value. Can be:
             - callable: Called with the method arguments
+            - noise spec ``{"nominal": x, "sigma": s}``: a fresh
+              ``random.gauss(x, s)`` draw each call (so measurements vary
+              run-to-run — real distributions, Cpk, yield instead of one
+              repeated value)
             - dict: First positional argument used as lookup key
             - other: Returned directly regardless of arguments
 
@@ -83,6 +88,11 @@ def _make_mock_method(value: Any):
     if callable(value):
         # Callable - pass through args
         return value
+    elif isinstance(value, dict) and "nominal" in value:
+        # Noise spec - gaussian draw around the nominal on every call.
+        mean = float(value["nominal"])
+        sigma = float(value.get("sigma", 0.0))
+        return lambda *args, **kwargs: random.gauss(mean, sigma)
     elif isinstance(value, dict):
         # Dict - lookup by first argument
         def dict_lookup(*args, **kwargs):

@@ -65,6 +65,10 @@ gains entity-observed-view across inventory pages, two new pages
 - **`litmus_files` MCP tool + `GET /api/files/catalog`** — list
   FileStore artifacts (uri / session / run filters, newest-first) from
   agents and HTTP, mirroring the existing `/files` byte-server.
+- **Mock noise spec** — a station `mock_config` value shaped
+  `{nominal, sigma}` returns a fresh `random.gauss(nominal, sigma)` draw
+  each call, so mock measurements vary run-to-run (real distributions /
+  Cpk / yield) instead of one repeated value.
 - **`/channels` list filters** — Channel ID contains / Type /
   Instrument / Since-Until, URL-mirrored. Live-poll + in-place row
   mutation pattern preserved.
