@@ -219,6 +219,8 @@ async def explore_page(request: Request):
     facet_widgets: dict[str, Any] = {}
     cardinality_label: Any = None
     chart_container: Any = None
+    chart_widget: Any = None
+    chart_status: Any = None
 
     def _new_query() -> MeasurementsQuery:
         return MeasurementsQuery(_data_dir=data_dir)
@@ -290,13 +292,17 @@ async def explore_page(request: Request):
         )
 
     async def _refresh_chart() -> None:
-        render_skeleton(chart_container, "h-[28rem]")
+        # Status (skeleton / empty / error) lives in chart_status; the echart
+        # element is persistent and always visible (so ECharts initializes its
+        # canvas) — we update its options rather than clear and recreate it
+        # (recreating disposes an uninitialized chart on unmount).
+        render_skeleton(chart_status, "h-[28rem]")
         y_val = state["y"]
         x_val = state["x"]
         ct = state["chart_type"]
         if not y_val or (not x_val and ct != "histogram"):
-            chart_container.clear()
-            with chart_container:
+            chart_status.clear()
+            with chart_status:
                 ui.label("Pick a Y and X column").classes("text-slate-500 italic")
             return
 
@@ -315,15 +321,26 @@ async def explore_page(request: Request):
         try:
             rows = await run.io_bound(_fetch)
         except (OSError, ValueError, RuntimeError) as exc:
-            chart_container.clear()
-            with chart_container:
+            chart_status.clear()
+            with chart_status:
                 ui.label(f"Query failed: {exc}").classes("text-red-600")
                 with ui.expansion("Stack trace", icon="bug_report").classes("w-full"):
                     ui.code(traceback.format_exc()).classes("text-xs")
             return
-        chart_container.clear()
-        with chart_container:
-            _render_chart([r.model_dump() for r in rows], ct, y_val, x_val)
+
+        option = _build_chart_option([r.model_dump() for r in rows], ct, y_val, x_val)
+        chart_status.clear()
+        # ``ui.echart.options`` is read-only — mutate the dict in place and
+        # ``update()`` rather than reassigning it.
+        chart_widget.options.clear()
+        if option is None:
+            chart_widget.update()
+            with chart_status:
+                ui.label("No data matches these selections").classes("text-slate-500 italic")
+            return
+        chart_widget.options.update(option)
+        chart_widget.update()
+        ui.timer(0.1, lambda: chart_widget.run_chart_method("resize"), once=True)
 
     _refreshing: dict[str, bool] = {"active": False}
 
@@ -481,7 +498,10 @@ async def explore_page(request: Request):
 
         # Chart container — skeleton until first refresh fires.
         chart_container = ui.column().classes("w-full").props('data-testid="explore-chart"')
-        render_skeleton(chart_container, "h-[28rem]")
+        with chart_container:
+            chart_status = ui.column().classes("w-full")
+            chart_widget = ui.echart({}).classes("w-full h-[28rem]")
+        render_skeleton(chart_status, "h-[28rem]")
 
     # First load fires after page renders.
     ui.timer(0.0, _refresh_all, once=True)
@@ -769,16 +789,21 @@ def _series_label(group_key: str, fallback: str) -> str:
     return group_key
 
 
-def _render_chart(  # noqa: PLR0912
+def _build_chart_option(  # noqa: PLR0912
     rows: list[dict[str, Any]],
     chart_type: str,
     y_label: str,
     x_label: str,
-) -> None:
-    """Render rows into an ECharts plot. Long-format → grouped series."""
+) -> dict[str, Any] | None:
+    """Build an ECharts option dict from rows (long-format → grouped series).
+
+    Returns ``None`` for an empty result so the caller shows an empty state
+    rather than swapping out the persistent chart element — recreating the
+    ``ui.echart`` each refresh triggers an ECharts dispose-of-uninitialized
+    lifecycle error.
+    """
     if not rows:
-        ui.label("No data matches these selections").classes("text-slate-500 italic")
-        return
+        return None
 
     by_group: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
@@ -854,5 +879,4 @@ def _render_chart(  # noqa: PLR0912
             "dataZoom": _DATA_ZOOM_XY,
         }
 
-    chart = ui.echart(option).classes("w-full h-[28rem]")
-    ui.timer(0.1, lambda: chart.run_chart_method("resize"), once=True)
+    return option
