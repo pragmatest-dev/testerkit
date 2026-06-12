@@ -319,6 +319,28 @@ def create_api_router() -> APIRouter:
 
         return _serialize_ref(result)
 
+    @router.get(
+        "/files/catalog",
+        response_model=GenericObjectResponse,
+        response_class=ORJSONResponse,
+    )
+    def list_files(
+        uri: str | None = None,
+        session_id: str | None = None,
+        run_id: str | None = None,
+        limit: int = 50,
+    ):
+        """List FileStore artifacts from the catalog (MCP-parity with ``litmus_files``)."""
+        from litmus.mcp.tools import files_query
+
+        return files_query(
+            uri=uri,
+            session_id=session_id,
+            run_id=run_id,
+            limit=limit,
+            data_dir=data_dir,
+        )
+
     @router.get("/files")
     def get_file(uri: str, request: Request) -> Response:
         """Serve a FileStore artifact directly by ``file://`` URI.

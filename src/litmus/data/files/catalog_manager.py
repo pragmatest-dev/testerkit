@@ -127,6 +127,35 @@ def list_recent(files_dir: Path, limit: int) -> list[dict[str, Any]]:
     )
 
 
+def list_artifacts(
+    files_dir: Path,
+    *,
+    uri: str | None = None,
+    session_id: str | None = None,
+    run_id: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Return catalog rows newest-first, optionally filtered.
+
+    ``uri`` returns the single matching artifact; ``session_id`` /
+    ``run_id`` filter the listing. SQL is built here, inside the files
+    store, so callers (HTTP API, MCP tool) never touch the catalog
+    table directly.
+    """
+    clauses = []
+    if uri:
+        clauses.append(f"uri = '{_sql_str(uri)}'")
+    if session_id:
+        clauses.append(f"session_id = '{_sql_str(session_id)}'")
+    if run_id:
+        clauses.append(f"run_id = '{_sql_str(run_id)}'")
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    return query_catalog(
+        files_dir,
+        f"SELECT * FROM file_catalog {where} ORDER BY created_at DESC LIMIT {int(limit)}",
+    )
+
+
 def push_artifact(files_dir: Path, row: dict[str, Any]) -> None:
     """Push one catalog row to the daemon (best-effort, non-fatal).
 

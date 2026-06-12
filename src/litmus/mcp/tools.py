@@ -1330,6 +1330,39 @@ def channels_query(
     return {"channel_id": channel_id, "data": table.to_pylist()}
 
 
+def files_query(
+    uri: str | None = None,
+    session_id: str | None = None,
+    run_id: str | None = None,
+    limit: int = 50,
+    *,
+    data_dir: Path | None = None,
+) -> dict[str, Any]:
+    """List FileStore artifacts from the file catalog.
+
+    Shared implementation for the HTTP API and MCP tool. Returns catalog
+    rows (uri, name, format, session_id, run_id, created_at, ...) newest
+    first. ``uri`` returns the single matching artifact; ``session_id``
+    / ``run_id`` filter the listing. An artifact's bytes are fetched
+    separately by its ``file://`` URI.
+    """
+    from litmus.data.data_dir import resolve_data_dir
+    from litmus.data.files import catalog_manager
+
+    base = data_dir if data_dir else resolve_data_dir()
+    files_dir = base / "files"
+    if not files_dir.exists():
+        return {"files": []}
+    rows = catalog_manager.list_artifacts(
+        files_dir,
+        uri=uri,
+        session_id=session_id,
+        run_id=run_id,
+        limit=limit,
+    )
+    return {"files": rows}
+
+
 def channels_list_query(*, data_dir: Path | None = None) -> dict[str, Any]:
     """List known channels with their descriptors, served by the daemon.
 
@@ -1496,6 +1529,23 @@ def channels_tool(
         session_id=session_id,
         last_n=last_n,
         max_points=max_points,
+        data_dir=_resolve_data_dir(project),
+    )
+
+
+def files_tool(
+    uri: str | None = None,
+    session_id: str | None = None,
+    run_id: str | None = None,
+    limit: int = 50,
+    project: str | None = None,
+) -> dict[str, Any]:
+    """List FileStore artifacts (MCP tool wrapper)."""
+    return files_query(
+        uri=uri,
+        session_id=session_id,
+        run_id=run_id,
+        limit=limit,
         data_dir=_resolve_data_dir(project),
     )
 

@@ -20,7 +20,7 @@ servers in a multi-server agent setup. Within the prefix:
   "list"|"tree")``, ``litmus_metrics(action="summary"|"pareto"|
   "cpk"|"trend"|"retest"|"time_loss")``. Single-action queries
   drop the ``action`` parameter: ``litmus_events``, ``litmus_
-  sessions``, ``litmus_channels``.
+  sessions``, ``litmus_channels``, ``litmus_files``.
 - **Project-scoped CRUD** is ``litmus_project`` — the unified
   entity multiplexer (init, list, get, save, read, lookup_enum,
   enum_reference) operating on a project root.
@@ -37,6 +37,7 @@ Tools shipped (12 + 1 prompt):
 - ``litmus_events`` — Query events from the event store
 - ``litmus_sessions`` — List known sessions
 - ``litmus_channels`` — Query channel data
+- ``litmus_files`` — List FileStore artifacts (blobs, waveforms, streams)
 - ``litmus_metrics`` — Query manufacturing-test analytics
 - ``litmus_runs`` — Query the runs summary table
 - ``litmus_steps`` — Query the steps table for one run
@@ -56,6 +57,7 @@ from litmus.mcp.tools import (
     channels_tool,
     discover_tool,
     events_tool,
+    files_tool,
     litmus_tool,
     match_tool,
     metrics_tool,
@@ -529,6 +531,33 @@ def create_mcp_server() -> FastMCP:
             project: Project root path.
         """
         return channels_tool(channel_id, session_id, last_n, max_points, project)
+
+    # -------------------------------------------------------------------------
+    # Tool: litmus_files
+    # -------------------------------------------------------------------------
+
+    @mcp.tool(name="litmus_files")
+    def query_files(
+        uri: str | None = None,
+        session_id: str | None = None,
+        run_id: str | None = None,
+        limit: int = 50,
+        project: str | None = None,
+    ) -> dict[str, Any]:
+        """List FileStore artifacts (blobs, waveforms, streaming captures).
+
+        Returns catalog rows newest-first — each carrying its ``file://``
+        URI, name, format, session_id, run_id, and created_at. Fetch an
+        artifact's bytes separately via its URI (HTTP ``GET /files?uri=``).
+
+        Args:
+            uri: Return the single artifact with this ``file://`` URI.
+            session_id: Filter to artifacts written by this session.
+            run_id: Filter to artifacts produced by this run.
+            limit: Maximum rows to return (newest first).
+            project: Project root path.
+        """
+        return files_tool(uri, session_id, run_id, limit, project)
 
     # -------------------------------------------------------------------------
     # Tool 10: litmus_metrics

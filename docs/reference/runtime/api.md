@@ -68,6 +68,7 @@ Twelve tools, all prefixed `litmus_`. Each tool's parameter shape and full docst
 | `litmus_channels` | `channel_id`, `session_id`, `last_n`, `max_points`, `project` | Query channel data from the streaming channel store. |
 | `litmus_discover` | `protocols` | Scan for connected instruments across all protocols. |
 | `litmus_events` | `session_id`, `event_type`, `role`, `since`, `limit`, `project` | Query events from the event store. |
+| `litmus_files` | `uri`, `session_id`, `run_id`, `limit`, `project` | List FileStore artifacts (blobs, waveforms, streaming captures). |
 | `litmus_match` | `part_id`, `station_id`, `fixture_id`, `requirements`, `project` | Check compatibility between parts, stations, and fixtures. |
 | `litmus_metrics` | `action`, `part`, `station`, `phase`, `since`, `until`, `period`, `top_n`, `min_samples`, `project` | Query manufacturing-test analytics (DuckDB SQL aggregated from parquet rows). |
 | `litmus_open` | `type`, `id`, `base_url` | Get URL to view/edit an entity in the browser UI. |
@@ -218,6 +219,7 @@ Every route is mounted under the `/api/` prefix. Field shapes for request / resp
 
 | Method | Path | Response model | Summary |
 |---|---|---|---|
+| `GET` | `/api/files/catalog` | `GenericObjectResponse` | List FileStore artifacts from the catalog (MCP-parity with ``litmus_files``). |
 | `GET` | `/api/files` | — | Serve a FileStore artifact directly by ``file://`` URI. |
 <!-- GENERATED:api-http-routes:end -->
 
