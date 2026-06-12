@@ -7,8 +7,8 @@ Each submodule defines one schema family:
 * :mod:`litmus.models.enums`             — canonical enum vocabulary
 * :mod:`litmus.models.instrument`        — calibration / discovered-instrument records
 * :mod:`litmus.models.instrument_asset`  — instrument asset YAML files
-* :mod:`litmus.models.product`           — product + characteristic + pin schemas
-* :mod:`litmus.models.product_manifest`  — per-product workflow manifest
+* :mod:`litmus.models.part`           — part + characteristic + pin schemas
+* :mod:`litmus.models.part_manifest`  — per-part workflow manifest
 * :mod:`litmus.models.project`           — ``litmus.yaml`` + profile schema
 * :mod:`litmus.models.station`           — station deployment + station-type template
 * :mod:`litmus.models.test_config`       — sidecar test config + fixture schema

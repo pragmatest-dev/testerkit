@@ -4,8 +4,8 @@ The "I produced the data, now what?" half of the story. Demonstrates
 the public Query API surfaces a data analyst (or external tool, or
 custom UI) would reach for:
 
-* ``RunsQuery`` — list recent runs, filter by outcome / DUT / station
-* ``MeasurementsQuery`` — yield summary, distinct DUT serials,
+* ``RunsQuery`` — list recent runs, filter by outcome / UUT / station
+* ``MeasurementsQuery`` — yield summary, distinct UUT serials,
   parametric queries
 * ``EventStore`` — replay the timeline of events for a run
 
@@ -61,14 +61,14 @@ def main() -> None:
             outcome = r.outcome or "in_flight"
             started = r.started_at.isoformat(timespec="seconds") if r.started_at else "?"
             print(
-                f"  {r.dut_serial or '-':<10}  {r.dut_part_number or '-':<18}  "
+                f"  {r.uut_serial or '-':<10}  {r.uut_part_number or '-':<18}  "
                 f"{r.station_id or '-':<10}  {outcome:<8}  started {started}"
             )
 
-        # 2. Filter by DUT — every run on SN-001
+        # 2. Filter by UUT — every run on SN-001
         target_serial = "SN-001"
-        sn_runs = [r for r in runs if r.dut_serial == target_serial]
-        print(f"\nRuns for DUT {target_serial}: {len(sn_runs)}")
+        sn_runs = [r for r in runs if r.uut_serial == target_serial]
+        print(f"\nRuns for UUT {target_serial}: {len(sn_runs)}")
         for r in sn_runs:
             run_short = (r.run_id or "?")[:8]
             started = r.started_at.isoformat(timespec="seconds") if r.started_at else "?"
@@ -80,31 +80,29 @@ def main() -> None:
         for outcome, n in sorted(counts.items(), key=lambda kv: -kv[1]):
             print(f"  {outcome or 'in_flight':<10}  {n:>3}")
 
-    # 4. Yield summary — one row per (product, station, phase, period)
+    # 4. Yield summary — one row per (part, station, phase, period)
     _hr()
     with MeasurementsQuery(_data_dir=data_dir) as m_q:
         try:
             yield_rows = m_q.yield_summary()
-            print(f"\nYield summary — {len(yield_rows)} (product, station, phase) groupings:")
+            print(f"\nYield summary — {len(yield_rows)} (part, station, phase) groupings:")
             for row in yield_rows[:8]:
-                product = row.get("product", "?")
+                part = row.get("part", "?")
                 station = row.get("station", "?")
                 total = row.get("total_runs", 0)
                 passed = row.get("passed_runs", 0)
                 pct = (passed / total * 100) if total else 0
-                print(
-                    f"  {product:<18}  {station:<10}  {passed:>3}/{total:<3} passed  ({pct:5.1f} %)"
-                )
+                print(f"  {part:<18}  {station:<10}  {passed:>3}/{total:<3} passed  ({pct:5.1f} %)")
         except Exception as exc:  # noqa: BLE001
             print(f"\nyield_summary() unavailable for this dataset: {exc}")
 
-        # 5. Distinct DUTs seen — pure observability
+        # 5. Distinct UUTs seen — pure observability
         try:
-            duts = m_q.distinct_values("dut_serial")
-            values = sorted(d.value for d in duts if d.value is not None)
-            print(f"\nDistinct dut_serial values: {values}")
+            uuts = m_q.distinct_values("uut_serial")
+            values = sorted(d.value for d in uuts if d.value is not None)
+            print(f"\nDistinct uut_serial values: {values}")
         except Exception as exc:  # noqa: BLE001
-            print(f"distinct_values('dut_serial') unavailable: {exc}")
+            print(f"distinct_values('uut_serial') unavailable: {exc}")
 
     # 6. EventStore — timeline replay
     _hr()

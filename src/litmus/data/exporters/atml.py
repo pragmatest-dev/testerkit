@@ -227,13 +227,13 @@ class AtmlSubscriber(EventSubscriber):
 
         # UUT
         uut = ET.SubElement(result_set, _tr("UUT"))
-        uut.set("serialNumber", s.dut_serial)
-        if s.dut_part_number:
-            uut.set("partNumber", s.dut_part_number)
-        if s.dut_revision:
-            uut.set("partRevisionNumber", s.dut_revision)
-        if s.dut_lot_number:
-            uut.set("batchNumber", s.dut_lot_number)
+        uut.set("serialNumber", s.uut_serial)
+        if s.uut_part_number:
+            uut.set("partNumber", s.uut_part_number)
+        if s.uut_revision:
+            uut.set("partRevisionNumber", s.uut_revision)
+        if s.uut_lot_number:
+            uut.set("batchNumber", s.uut_lot_number)
 
         # Station — bringup tier may have no station_id; emit a sentinel
         # so the IEEE-1671 schema's required attribute is still present.
@@ -338,8 +338,8 @@ class AtmlSubscriber(EventSubscriber):
                 m.units,
             )
 
-            if m.dut_pin:
-                test_el.set("dutPin", m.dut_pin)
+            if m.uut_pin:
+                test_el.set("uutPin", m.uut_pin)
             if m.instrument_name:
                 test_el.set("instrumentName", m.instrument_name)
 

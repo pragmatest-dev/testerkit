@@ -162,7 +162,7 @@ instruments:
 
 Run with mocks:
 ```bash
-pytest tests/ --station=dev_station --mock-instruments --dut-serial=TEST001
+pytest tests/ --station=dev_station --mock-instruments --uut-serial=TEST001
 ```
 
 ## Discovery

@@ -67,7 +67,7 @@ class MeasurementView(BaseModel):
     characteristic_id: str | None = None
     spec_ref: str | None = None
     # Per-measurement signal path (distinct from per-step step_instruments_* arrays)
-    dut_pin: str | None = None
+    uut_pin: str | None = None
     fixture_connection: str | None = None
     instrument_name: str | None = None
     instrument_resource: str | None = None
@@ -95,7 +95,7 @@ class StepView(BaseModel):
 
 
 class RequirementSummary(BaseModel):
-    """Flat HTTP shape for a product capability requirement."""
+    """Flat HTTP shape for a part capability requirement."""
 
     function: str
     direction: str
@@ -122,9 +122,9 @@ class RunView(BaseModel):
     run_id: str
     session_id: str | None = None
     station_id: str | None = None
-    dut_serial: str | None = None
-    dut_part_number: str | None = None
-    product_id: str | None = None
+    uut_serial: str | None = None
+    uut_part_number: str | None = None
+    part_id: str | None = None
     test_phase: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
@@ -209,7 +209,7 @@ def _measurements_for_step(
             limit_comparator=row.get("limit_comparator"),
             characteristic_id=row.get("characteristic_id"),
             spec_ref=row.get("spec_ref"),
-            dut_pin=row.get("dut_pin"),
+            uut_pin=row.get("uut_pin"),
             fixture_connection=row.get("fixture_connection"),
             instrument_name=row.get("instrument_name"),
             instrument_resource=row.get("instrument_resource"),
@@ -299,9 +299,9 @@ def build_run_view(
         run_id=run.run_id or "",
         session_id=run.session_id,
         station_id=run.station_id,
-        dut_serial=run.dut_serial,
-        dut_part_number=run.dut_part_number,
-        product_id=run.product_id,
+        uut_serial=run.uut_serial,
+        uut_part_number=run.uut_part_number,
+        part_id=run.part_id,
         test_phase=run.test_phase,
         started_at=run.started_at,
         ended_at=run.ended_at,

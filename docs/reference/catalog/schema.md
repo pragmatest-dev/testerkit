@@ -17,7 +17,7 @@ id: generic_psu
 manufacturer: Generic
 model: "PSU"
 name: "Generic DC Power Supply"
-description: "Programmable DC power supply for sourcing voltage and current to DUT"
+description: "Programmable DC power supply for sourcing voltage and current to UUT"
 type: psu                      # dmm | psu | scope | fgen | smu | eload | …
 interfaces: [usb, lan, gpib]   # optional — supported control interfaces
 form_factor: bench             # optional — bench | pxi | modular | …
@@ -119,7 +119,7 @@ signals:
 | `range` | `RangeSpec` |
 | `accuracy` | `AccuracySpec` |
 | `resolution` | `ResolutionSpec` |
-| `value` | `float` (product-side scalar — instruments use `range`) |
+| `value` | `float` (part-side scalar — instruments use `range`) |
 | `units` | `str` |
 | `bands` | `list[SpecBand]` |
 | `qualifier` | `SpecQualifier` |

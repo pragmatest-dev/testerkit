@@ -1,7 +1,7 @@
 """Centralized search path management for Litmus resources.
 
 This module provides a single source of truth for where different
-resource types (products, stations, instruments, etc.) are located.
+resource types (parts, stations, instruments, etc.) are located.
 
 All paths are relative to the project root (defaults to cwd).
 Run the server from the project directory: `cd myproject && litmus serve`
@@ -16,7 +16,7 @@ from pathlib import Path
 class ResourceType(StrEnum):
     """Types of resources in the Litmus ecosystem."""
 
-    PRODUCTS = "products"  # Product YAML files
+    PARTS = "parts"  # Part YAML files
     STATIONS = "stations"  # Station configurations
     INSTRUMENTS = "instruments"  # Instrument library definitions
     FIXTURES = "fixtures"  # Test fixture definitions
@@ -55,9 +55,9 @@ def get_all_search_paths(
 
 
 # Convenience aliases
-def get_product_paths(project_root: Path | None = None) -> list[Path]:
-    """Get search paths for product folders."""
-    return get_search_paths(ResourceType.PRODUCTS, project_root)
+def get_part_paths(project_root: Path | None = None) -> list[Path]:
+    """Get search paths for part folders."""
+    return get_search_paths(ResourceType.PARTS, project_root)
 
 
 def get_station_paths(project_root: Path | None = None) -> list[Path]:

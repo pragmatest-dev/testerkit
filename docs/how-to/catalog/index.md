@@ -1,6 +1,6 @@
 # How-To — Catalog
 
-AI-assisted authoring against the capability catalog: produce instrument YAML and product YAML from a datasheet PDF with operator approval at every step.
+AI-assisted authoring against the capability catalog: produce instrument YAML and part YAML from a datasheet PDF with operator approval at every step.
 
 - [Datasheet → tests with Claude Code](datasheet-to-test.md) — end-to-end walkthrough of the `datasheet-to-test` workflow
 

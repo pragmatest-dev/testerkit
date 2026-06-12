@@ -92,7 +92,7 @@ class TestAtmlSubscriber:
         root = tree.getroot()
         uut = root.find(f".//{{{_NS_TR}}}UUT")
         assert uut is not None
-        assert uut.get("serialNumber") == "DUT-001"
+        assert uut.get("serialNumber") == "UUT-001"
         assert uut.get("partNumber") == "PN-200"
         assert uut.get("partRevisionNumber") == "B"
         assert uut.get("batchNumber") == "LOT-42"

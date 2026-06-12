@@ -71,10 +71,10 @@ def store() -> FileStore:
 def test_put_path_copies_with_suffix_preserved(store: FileStore, tmp_path: Path) -> None:
     """Path values are copied; original suffix is preserved on disk."""
     sid = _session_id()
-    src = tmp_path / "dut.tdms"
+    src = tmp_path / "uut.tdms"
     src.write_bytes(b"\x00\x01\x02fake-tdms-bytes")
 
-    uri = store.write("dut_capture", src, session_id=sid)
+    uri = store.write("uut_capture", src, session_id=sid)
 
     parsed_sid, filename = _parse_uri(uri)
     assert parsed_sid == sid

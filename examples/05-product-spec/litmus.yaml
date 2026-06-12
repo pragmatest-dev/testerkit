@@ -1,3 +1,0 @@
-name: product-spec-example
-data_dir: data   # keep example data local — don't pollute global
-mock_instruments: true

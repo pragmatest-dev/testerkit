@@ -199,7 +199,7 @@ FileStore artifact metadata carries three identification layers:
 
 ```python
 class FileArtifactMetadata:
-    file_uri: str                  # "file://_ref/dut_video.mp4"
+    file_uri: str                  # "file://_ref/uut_video.mp4"
     mime_type: str                 # "video/mp4" — primary dispatch field
     extension: str                 # ".mp4" — fallback when MIME is ambiguous
     size: int
@@ -333,7 +333,7 @@ async for batch in client.subscribe_channel("scope.ch1"):
     plot.append(batch.samples)
 
 # 3. File subscription — partial reads with frame-index notifications
-async for chunk in client.subscribe_file("file://_ref/dut_video.mp4", live=True):
+async for chunk in client.subscribe_file("file://_ref/uut_video.mp4", live=True):
     video_decoder.feed(chunk.bytes)
 
 # 4. Convenience: subscribe to a whole run's live updates

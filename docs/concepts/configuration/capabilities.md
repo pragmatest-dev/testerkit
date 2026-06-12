@@ -1,10 +1,10 @@
 # Capabilities
 
-**Capabilities** describe what instruments can do and what products need. The capability system enables automatic matching between products and stations using an ATML (Automatic Test Markup Language) / IEEE 1641-inspired signal-parameter model — ATML / IEEE 1671 is the industry test-data interchange standard Litmus aligns with.
+**Capabilities** describe what instruments can do and what parts need. The capability system enables automatic matching between parts and stations using an ATML (Automatic Test Markup Language) / IEEE 1641-inspired signal-parameter model — ATML / IEEE 1671 is the industry test-data interchange standard Litmus aligns with.
 
 ## The problem
 
-A Keysight 34461A datasheet says it can measure "DC Voltage: 100 mV to 1000 V, 0.0035% + 0.0006% accuracy, 6.5-digit resolution." A product spec says "3.3 V output, ±5% tolerance." How do we connect these two worlds in a machine-readable way so the system can automatically determine whether a given instrument can test a given product?
+A Keysight 34461A datasheet says it can measure "DC Voltage: 100 mV to 1000 V, 0.0035% + 0.0006% accuracy, 6.5-digit resolution." A part spec says "3.3 V output, ±5% tolerance." How do we connect these two worlds in a machine-readable way so the system can automatically determine whether a given instrument can test a given part?
 
 We need a shared language that works for both sides. That language is `Capability`.
 
@@ -23,10 +23,10 @@ A capability has three core dimensions:
 ```
 Capability (base)
 ├── InstrumentCapability    — adds channels, readback
-└── ProductCharacteristic   — adds pin / pins / net / signal_group, datasheet_ref
+└── PartCharacteristic   — adds pin / pins / net / signal_group, datasheet_ref
 ```
 
-A `ProductCharacteristic` must specify at least one physical interface (`pin`, `pins`, `net`, or `signal_group`) — the validator rejects characteristics that don't.
+A `PartCharacteristic` must specify at least one physical interface (`pin`, `pins`, `net`, or `signal_group`) — the validator rejects characteristics that don't.
 
 Both share the same `function + direction + signals/conditions/controls/attributes` core. Direction always describes the hardware it's on: "input" means "this device receives/sinks signal."
 
@@ -87,10 +87,10 @@ capabilities:
 
 ## Direction Pairing
 
-The key insight is that **directions pair** between products and instruments:
+The key insight is that **directions pair** between parts and instruments:
 
 ```
-Product Characteristic          Required Instrument Capability
+Part Characteristic          Required Instrument Capability
 ─────────────────────          ────────────────────────────────
 output_voltage (OUTPUT)   →    dc_voltage (INPUT) — need to measure
 input_voltage (INPUT)     →    dc_voltage (OUTPUT) — need to source
@@ -98,12 +98,12 @@ input_voltage (INPUT)     →    dc_voltage (OUTPUT) — need to source
 
 ### Why This Works
 
-When a product **outputs** voltage, the instrument needs to **input** (measure) that voltage.
+When a part **outputs** voltage, the instrument needs to **input** (measure) that voltage.
 
-When a product **inputs** power, the instrument needs to **output** (source) that power.
+When a part **inputs** power, the instrument needs to **output** (source) that power.
 
 ```
-Product (DUT)                    Instrument
+Part (UUT)                    Instrument
 ────────────                     ──────────
 
 output_voltage ────signal───►    DMM (measures dc_voltage)
@@ -114,11 +114,11 @@ input_voltage                    (OUTPUT)
    (INPUT)
 ```
 
-Direction pairing happens in the matching service (`_directions_compatible()`), not in the models. Both sides store direction as-is — "input" always means "sink" regardless of whether it's on a product or instrument.
+Direction pairing happens in the matching service (`_directions_compatible()`), not in the models. Both sides store direction as-is — "input" always means "sink" regardless of whether it's on a part or instrument.
 
 ## Capability Matching
 
-The matcher determines whether a station can test a product using tiered matching controlled by `MatchDepth` (an enum naming how deep to take the match check):
+The matcher determines whether a station can test a part using tiered matching controlled by `MatchDepth` (an enum naming how deep to take the match check):
 
 1. **Function match** — instrument has same `MeasurementFunction` as requirement
 2. **Direction match** — directions pair correctly (OUTPUT↔INPUT, BIDIR satisfies both)
@@ -128,12 +128,12 @@ The matcher determines whether a station can test a product using tiered matchin
 
 ```python
 from litmus.matching.service import find_compatible_stations
-from litmus.store import get_product
+from litmus.store import get_part
 
-# Load by id (`get_product` looks up `products/<id>.yaml` from the project root).
-# Use `load_product(Path(...))` when you have an explicit path on disk.
-product = get_product("power_board")
-matches = find_compatible_stations(product)   # takes the loaded Product object
+# Load by id (`get_part` looks up `parts/<id>.yaml` from the project root).
+# Use `load_part(Path(...))` when you have an explicit path on disk.
+part = get_part("power_board")
+matches = find_compatible_stations(part)   # takes the loaded Part object
 
 for match in matches:
     print(f"{match.station_id}: {'Compatible' if match.compatible else 'Missing capabilities'}")
@@ -142,8 +142,8 @@ for match in matches:
 ### Matching Algorithm
 
 ```python
-# Product characteristic
-char = product.characteristics["output_voltage"]
+# Part characteristic
+char = part.characteristics["output_voltage"]
 # function: dc_voltage, direction: OUTPUT
 
 # Matching wraps characteristics into CapabilityRequirement
@@ -339,26 +339,26 @@ When a station instrument has `catalog_ref: keysight_34461a`, the matching engin
 ```python
 from litmus.matching.service import find_compatible_stations, check_station_compatibility
 
-# Find all compatible stations (takes the loaded Product object)
-matches = find_compatible_stations(product)
+# Find all compatible stations (takes the loaded Part object)
+matches = find_compatible_stations(part)
 
 # Check specific station — takes id strings, returns dict | None
-result = check_station_compatibility(product_id, station_id)
+result = check_station_compatibility(part_id, station_id)
 if result and not result["compatible"]:
     for cap in result["missing"]:
         print(f"Missing: {cap['direction']} {cap['function']}")
 ```
 
-`find_compatible_stations(product)` takes a loaded `Product` object and returns a `list[StationMatch]`. `check_station_compatibility(product_id, station_id)` takes id strings and returns a `dict | None`; its `missing` value is a list of dicts shaped `{characteristic, function, direction}`.
+`find_compatible_stations(part)` takes a loaded `Part` object and returns a `list[StationMatch]`. `check_station_compatibility(part_id, station_id)` takes id strings and returns a `dict | None`; its `missing` value is a list of dicts shaped `{characteristic, function, direction}`.
 
 ### HTTP API
 
 ```bash
 # Find all compatible stations
-curl "http://localhost:8000/api/match?product_id=power_board"
+curl "http://localhost:8000/api/match?part_id=power_board"
 
 # Check specific station
-curl "http://localhost:8000/api/match?product_id=power_board&station_id=bench_1"
+curl "http://localhost:8000/api/match?part_id=power_board&station_id=bench_1"
 ```
 
 ## Lineage: where this model came from
@@ -374,7 +374,7 @@ The model draws from three industry standards, taking the parts that fit Litmus'
 Key design decisions:
 
 - **Flat function enum** instead of IEEE 1641's signal grammar — simpler; covers 95% of real use cases.
-- **Same model for products and instruments** instead of ATML's separate UUT / instrument schemas — enables direct matching without translation.
+- **Same model for parts and instruments** instead of ATML's separate UUT / instrument schemas — enables direct matching without translation.
 - **Structured conditions** instead of freeform text — machine-parseable, which is what unlocks automated matching.
 - **Typed parameter collections** instead of role tags — four focused dicts (`signals` / `conditions` / `controls` / `attributes`) are clearer than one dict with role metadata.
 
@@ -427,7 +427,7 @@ catalog_entry:
           accuracy: {pct_reading: 0.0035}
           resolution: {digits: 6.5}
 
-Product spec — what the DUT NEEDS tested
+Part spec — what the UUT NEEDS tested
 ────────────────────────────────────────
 id: power_board_v1
 pins:
@@ -436,7 +436,7 @@ pins:
 characteristics:
   rail_3v3:
     function: dc_voltage          ─┐
-    direction: output              │  ProductCharacteristic
+    direction: output              │  PartCharacteristic
     pin: VOUT                      │  (extends Capability)
     signals:                       │
       voltage:                     │
@@ -455,6 +455,6 @@ Matching: dc_voltage OUTPUT ↔ dc_voltage INPUT
 
 ## Next Steps
 
-- [Fixtures](fixtures.md) — Mapping DUT pins to instruments
+- [Fixtures](fixtures.md) — Mapping UUT pins to instruments
 - [Architecture](../overview/architecture.md) — System data flow
 - [Custom drivers](../../how-to/configuration/custom-drivers.md) — Creating custom drivers

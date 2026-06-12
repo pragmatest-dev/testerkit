@@ -495,7 +495,7 @@ def _render_data_table(card: ui.card, rows: list[dict[str, Any]]) -> None:
             },
         ]
 
-        # Session column shows the operator-readable label (DUT serial
+        # Session column shows the operator-readable label (UUT serial
         # + start time) rather than the raw UUID prefix. Matches the
         # no-synthetic-IDs-in-operator-UI rule and the chart legend
         # rendered by item 18b.

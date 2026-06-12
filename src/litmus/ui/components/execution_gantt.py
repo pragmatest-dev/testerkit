@@ -1,4 +1,4 @@
-"""Execution timeline (Gantt chart) for multi-DUT parallel runs.
+"""Execution timeline (Gantt chart) for multi-UUT parallel runs.
 
 Renders an ECharts Gantt chart showing per-slot test step execution
 over time. Each slot gets a Y-axis row; each step is a colored bar
@@ -6,7 +6,7 @@ showing its duration.
 
 Sources from typed :class:`StepRow` objects so the chart never sees
 raw measurement dicts — slot_id, started_at, ended_at, outcome, and
-dut_serial are all first-class fields.
+uut_serial are all first-class fields.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def render_execution_gantt(
                 "started": s.started_at,
                 "ended": s.ended_at,
                 "outcome": s.outcome,
-                "dut_serial": s.dut_serial or "",
+                "uut_serial": s.uut_serial or "",
             }
         else:
             # Worst-outcome wins when multiple step rows share a name in a slot.
@@ -78,8 +78,8 @@ def render_execution_gantt(
     slot_ids = list(slots.keys())
     slot_labels = []
     for sid in slot_ids:
-        dut = next(iter(slots[sid].values()))["dut_serial"]
-        label = f"{sid} ({dut})" if dut else sid
+        uut = next(iter(slots[sid].values()))["uut_serial"]
+        label = f"{sid} ({uut})" if uut else sid
         if sid == current_slot_id:
             label = f"► {label}"
         slot_labels.append(label)

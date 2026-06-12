@@ -15,7 +15,7 @@ Events, Channels for blobs / waveforms / streaming captures. Three
 test-author verbs — `observe`, `verify`, `stream` — replace ad-hoc
 measurement recording with a typed, routeable surface. The operator UI
 gains entity-observed-view across inventory pages, two new pages
-(DUTs, Profiles), and an AST-driven Tests rewrite.
+(UUTs, Profiles), and an AST-driven Tests rewrite.
 
 ### Added
 
@@ -38,17 +38,17 @@ gains entity-observed-view across inventory pages, two new pages
   every streaming sink session. Live consumers range-read the file
   directly via the path in `StreamStarted`.
 - **Typed event payload columns** — 22 IDs and names (channel_id,
-  dut_serial, role, outcome, etc.) promoted from JSON payload to
+  uut_serial, role, outcome, etc.) promoted from JSON payload to
   typed DuckDB columns, enabling WHERE pushdown. Measured: 2.74×
   speedup on `outcome=failed` filter over 10k events.
 - **Live waveform plot** on `/channels/{id}` updates push-style as
   samples arrive.
 - **`XYData` model** for paired-array data (IV curves, eye diagrams,
   S-parameter sweeps).
-- **Entity-observed-view across operator UI** — stations, products,
+- **Entity-observed-view across operator UI** — stations, parts,
   fixtures, instruments list pages merge YAML-configured + observed-
   in-runs entities with a Configured/Observed chip and filter.
-- **New `/duts` page** — one row per distinct DUT serial in run history.
+- **New `/uuts` page** — one row per distinct UUT serial in run history.
 - **New `/profiles` list + detail pages** — profile registry with
   extends-chain rendering and resolved YAML view.
 - **Rewritten `/tests` page** — AST-driven file-level layout with
@@ -65,7 +65,7 @@ gains entity-observed-view across inventory pages, two new pages
   mutation pattern preserved.
 - **`/channels/{id}` chart groups by session** — scalar channels with
   samples from multiple runs render one series per session, distinct
-  color per session, legend labelled `<dut_serial> · <YYYY-MM-DD
+  color per session, legend labelled `<uut_serial> · <YYYY-MM-DD
   HH:MM:SS>`. Single-session views unchanged. Waveform overlays
   unchanged.
 - **`/results/{run_id}` "View this run's" card** — Events, Channels,
@@ -96,7 +96,7 @@ gains entity-observed-view across inventory pages, two new pages
 ### Changed
 
 - **Operator-readable session labels everywhere.** Pages that displayed
-  session UUID prefixes now resolve to `<dut_serial> · <YYYY-MM-DD
+  session UUID prefixes now resolve to `<uut_serial> · <YYYY-MM-DD
   HH:MM:SS>` via a shared lookup helper (`/channels` data tab,
   `/files` detail Session field, the session filter banner on
   `/events` / `/channels` / `/files`). Banner distinguishes the
@@ -127,7 +127,7 @@ gains entity-observed-view across inventory pages, two new pages
 - Materializer auto-promotion: observation-only vectors now produce
   `DONE` rows in the parquet measurement table instead of disappearing
   from the analytical view.
-- Two new operator-UI reference pages (`duts.md`, `profiles.md`) bring
+- Two new operator-UI reference pages (`uuts.md`, `profiles.md`) bring
   the total to 18. Four reference pages updated for the chip + filter.
   Tests reference page rewritten for the AST layout.
 
@@ -147,7 +147,7 @@ gains entity-observed-view across inventory pages, two new pages
 - `/live/{run_id}` Streams panel showed streams from all runs;
   subscription now scopes by `run_id`.
 - **`observe()` URIs reach parquet `out_*` columns.** Before this
-  fix, `context.observe("dut_photo", img)` wrote the file to
+  fix, `context.observe("uut_photo", img)` wrote the file to
   FileStore but the URI lived only on `Context._observations` —
   `logger.log_measurement` projected `out_*` from
   `vector.observations` (empty), so the operator UI's Measurements
@@ -183,7 +183,7 @@ predictable `<quadrant>/<category>/<topic>.md` cell, with cross-quadrant
 - **16 per-screen reference pages** under `docs/reference/operator-ui/`
   — every NiceGUI page (Dashboard, Launch Test, Live monitor, Results
   list/detail, Metrics, Measurements, Events, Channels list/detail,
-  System Designer, Stations, Products, Fixtures, Instruments, Tests)
+  System Designer, Stations, Parts, Fixtures, Instruments, Tests)
   documented from the running source. Each carries a cropped
   testid-anchored screenshot.
 - **Cropped UI screenshots** via new `scripts/regenerate-ui-screenshots.py`
@@ -220,7 +220,7 @@ predictable `<quadrant>/<category>/<topic>.md` cell, with cross-quadrant
   `rglob`, sidebar groups render as accordion (current page's group
   auto-expands).
 - **Operator-UI table cleanup**: dropped run UUIDs from operator-facing
-  tables (operators identify runs by DUT serial + start time, not
+  tables (operators identify runs by UUT serial + start time, not
   UUID). Events page Session filter changed from free-text input to
   autocomplete dropdown labelled `<timestamp> • <client>` (pytest /
   jupyter / etc.). Live monitor's Run ID kept but de-emphasized (still
@@ -284,7 +284,7 @@ Initial public release on PyPI as `litmus-test`.
 
 - `@litmus_test` decorator for pytest-native hardware tests with vector
   expansion, limit checking, measurement recording, retries, and mock injection
-- Station / fixture / product / sequence YAML configuration, loaded through a
+- Station / fixture / part / sequence YAML configuration, loaded through a
   single store layer with Pydantic validation
 - Instrument fixtures resolved from station config (no `conftest.py`
   boilerplate required)

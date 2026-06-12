@@ -178,7 +178,7 @@ def _render_capabilities_tab(station_id: str, config):
     """Render the capabilities tab — what this station's instruments can do.
 
     `station_id` is unused today; kept on the signature for symmetry with
-    the sibling renderers and so a future "compatible products/tests"
+    the sibling renderers and so a future "compatible parts/tests"
     panel can be added without a churn-y signature change.
     """
     _ = station_id
@@ -223,7 +223,7 @@ def _render_runs_tab(station_id: str):
 
     if station_runs:
         columns = [
-            {"name": "dut", "label": "DUT", "field": "dut", "align": "left"},
+            {"name": "uut", "label": "UUT", "field": "uut", "align": "left"},
             {"name": "project", "label": "Project", "field": "project", "align": "left"},
             {"name": "started", "label": "Started", "field": "started", "align": "left"},
             {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
@@ -231,7 +231,7 @@ def _render_runs_tab(station_id: str):
         rows = [
             {
                 "full_run_id": r.test_run_id or "",
-                "dut": r.dut_serial or "",
+                "uut": r.uut_serial or "",
                 "project": r.project_name or "",
                 "started": format_datetime(r.started_at),
                 "outcome": r.outcome or "",

@@ -30,12 +30,12 @@ Plain pytest collection — no proprietary IDE, no test DSL. Runs with the `pyte
 | Concern                           | Litmus addition                                      |
 |-----------------------------------|------------------------------------------------------|
 | Measurement/event persistence     | `logger.measure(name, v, ...)` → parquet, traceable  |
-| Product-spec-driven limits + pins | `verify(name, v)` resolves from product YAML     |
+| Part-spec-driven limits + pins | `verify(name, v)` resolves from part YAML     |
 | Vector parameters + change detect | `context.get_param(k)`, `context.changed(k)`         |
 | Operator-editable sweeps          | Sidecar `test_<module>.yaml` `sweeps:` overrides     |
 | Instrument role fixtures          | Station config → `dmm`, `psu`, `scope` auto-fixtures |
 | Mock mode                         | `--mock-instruments`, sidecar `mocks:`, `pytest-mock` |
-| Session flags                     | `--station`, `--product`, `--operator`, `--dut-serial`, `--test-phase` |
+| Session flags                     | `--station`, `--part`, `--operator`, `--uut-serial`, `--test-phase` |
 | Per-test-imposed limits           | `@pytest.mark.litmus_limits(name={...})`             |
 
 Retries and explicit test dependencies are **ecosystem plugins**, not Litmus additions — use `@pytest.mark.flaky(reruns=N)` (`pytest-rerunfailures`) and `@pytest.mark.dependency(depends=[...])` (`pytest-dependency`).

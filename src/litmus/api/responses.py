@@ -103,20 +103,20 @@ class DialogRespondAck(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Products & Stations
+# Parts & Stations
 # ---------------------------------------------------------------------------
 
 
-class ProductsListResponse(BaseModel):
-    """``GET /products`` — product summaries (id + label-only fields)."""
+class PartsListResponse(BaseModel):
+    """``GET /parts`` — part summaries (id + label-only fields)."""
 
-    products: list[dict[str, Any]]
+    parts: list[dict[str, Any]]
 
 
-class ProductRequirementsResponse(BaseModel):
-    """``GET /products/{product_id}/requirements`` — required capabilities."""
+class PartRequirementsResponse(BaseModel):
+    """``GET /parts/{part_id}/requirements`` — required capabilities."""
 
-    product_id: str
+    part_id: str
     requirements: list[RequirementSummary]
 
 
@@ -134,17 +134,17 @@ class StationCapabilitiesResponse(BaseModel):
 
 
 class MatchSingleResponse(BaseModel):
-    """``GET /match?product_id=X&station_id=Y`` — one-station match check."""
+    """``GET /match?part_id=X&station_id=Y`` — one-station match check."""
 
-    product_id: str
+    part_id: str
     station_id: str
     compatible: bool
 
 
 class MatchAllResponse(BaseModel):
-    """``GET /match?product_id=X`` — all-stations match result."""
+    """``GET /match?part_id=X`` — all-stations match result."""
 
-    product_id: str
+    part_id: str
     stations: list[dict[str, Any]]
 
 

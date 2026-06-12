@@ -10,8 +10,8 @@ from pydantic import BaseModel
 class LaunchRequest(BaseModel):
     """Request to launch a test run."""
 
-    product_id: str | None = None  # Product being tested
-    dut_serial: str
+    part_id: str | None = None  # Part being tested
+    uut_serial: str
     station_id: str
     test_path: str = "tests"  # pytest target — directory or node-id list
     test_profile: str | None = None  # Profile name from litmus.yaml; passed as --test-profile
@@ -39,7 +39,7 @@ class ActiveRun(BaseModel):
     status: Literal["pending", "running", "completed", "failed"]
     progress_pct: int = 0
     current_step: str | None = None
-    dut_serial: str
+    uut_serial: str
     station_id: str
 
 

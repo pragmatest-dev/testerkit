@@ -59,7 +59,7 @@ This creates the datasource, a "Litmus" folder, and imports all 10 dashboards.
 ## Dashboards
 
 ### Yield Overview
-Overall yield gauge, pass/fail/error counts, first-pass yield over time, outcome breakdown pie chart, and volume bar chart. Filter by phase, product, and station.
+Overall yield gauge, pass/fail/error counts, first-pass yield over time, outcome breakdown pie chart, and volume bar chart. Filter by phase, part, and station.
 
 ### Failure Pareto
 Top failing step + measurement pairs ranked by failure count with failure rate percentages. Identifies the most impactful test failures.
@@ -77,7 +77,7 @@ Yield and duration comparison across test stations. Identifies station-level per
 Average and P95 test duration over time, duration by step (identifies bottlenecks), and duration distribution histogram.
 
 ### Unit Traceability
-Full test history for a specific serial number — all runs and measurements. Select by DUT serial.
+Full test history for a specific serial number — all runs and measurements. Select by UUT serial.
 
 ### Event Log
 Event volume over time, event type breakdown, recent sessions with cross-store joins (event count + channel samples per session), instrument activity, and dialog events. Filter by event type.

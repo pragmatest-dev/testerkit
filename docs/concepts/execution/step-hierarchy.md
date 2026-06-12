@@ -18,7 +18,7 @@ Each level emits its own event in the run log. Each level rolls its outcome up t
 
 ### TestRun
 
-One run = one pytest session. Wraps a session_id, run_id, dut_serial, station, fixture, operator — all of it is the run-level context.
+One run = one pytest session. Wraps a session_id, run_id, uut_serial, station, fixture, operator — all of it is the run-level context.
 
 Events: `RunStarted` at session start, `RunEnded` at session end. The session also emits `SessionStarted` / `SessionEnded`, but those are session-scoped (could span multiple runs in a multi-slot harness).
 
@@ -44,7 +44,7 @@ For tests using the `vectors` fixture, the test body iterates the matrix itself.
 
 ### Measurement — one recorded value
 
-A `logger.measure("vin_voltage", 3.30)` or a `verify(...)` call. Carries the value, units, limit, characteristic_id, and dut_pin / instrument_resource / fixture_connection traceability fields.
+A `logger.measure("vin_voltage", 3.30)` or a `verify(...)` call. Carries the value, units, limit, characteristic_id, and uut_pin / instrument_resource / fixture_connection traceability fields.
 
 Events: `MeasurementRecorded`. Carries the full effective `inputs` dict — outer step params **merged with** the current vector's inner params — so analytics queries can filter on either dimension without joining back to the step.
 

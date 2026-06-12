@@ -44,7 +44,7 @@ class TestFixtureConnectionWithRoute:
             name="vout_measure",
             instrument="dmm",
             instrument_channel="1",
-            dut_pin="VOUT",
+            uut_pin="VOUT",
             route=SwitchRoute(switch="matrix", channels=["r0c0"], settling_ms=5),
         )
         assert conn.route is not None
@@ -56,7 +56,7 @@ class TestFixtureConnectionWithRoute:
         conn = FixtureConnection(
             name="vout_measure",
             instrument="dmm",
-            dut_pin="VOUT",
+            uut_pin="VOUT",
             route=SwitchRoute(switch="matrix", channels=["r0c0"]),
         )
         data = conn.model_dump()
@@ -69,7 +69,7 @@ class TestFixtureConnectionWithRoute:
         data = {
             "name": "vout_measure",
             "instrument": "dmm",
-            "dut_pin": "VOUT",
+            "uut_pin": "VOUT",
             "route": {
                 "switch": "matrix",
                 "channels": ["r0c0", "r0c1"],

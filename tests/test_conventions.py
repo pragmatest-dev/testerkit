@@ -77,7 +77,7 @@ def test_no_tmp_path_daemon_spawners():
         backend = ParquetBackend(data_dir=canonical)
 
     Per-test isolation by ``run_id`` (uuid4), ``session_id``, or a
-    unique ``dut_serial`` / ``product_id`` filter — not by directory.
+    unique ``uut_serial`` / ``part_id`` filter — not by directory.
     """
     offenders: list[tuple[Path, int, str]] = []
     for path in _iter_test_files():

@@ -122,7 +122,7 @@ def test_prompt_fixture_named_lookup(pytester: pytest.Pytester) -> None:
                     if config.prompt_type == "choice":
                         return config.choices[0]
                     if config.prompt_type == "input":
-                        return "DUT-0042"
+                        return "UUT-0042"
                     return True
                 set_prompt_handler(handler)
                 try:
@@ -131,7 +131,7 @@ def test_prompt_fixture_named_lookup(pytester: pytest.Pytester) -> None:
                     set_prompt_handler(None)
 
             @pytest.mark.litmus_prompts(
-                op_setup={"message": "Insert DUT", "prompt_type": "confirm"},
+                op_setup={"message": "Insert UUT", "prompt_type": "confirm"},
                 pick={"message": "Pick fixture", "prompt_type": "choice",
                       "choices": ["bench_01", "bench_02"]},
                 serial={"message": "Enter serial", "prompt_type": "input"},
@@ -139,9 +139,9 @@ def test_prompt_fixture_named_lookup(pytester: pytest.Pytester) -> None:
             def test_kinds(prompt, captured):
                 assert prompt("op_setup") is True
                 assert prompt("pick") == "bench_01"
-                assert prompt("serial") == "DUT-0042"
+                assert prompt("serial") == "UUT-0042"
                 assert [c.message for c in captured] == [
-                    "Insert DUT", "Pick fixture", "Enter serial",
+                    "Insert UUT", "Pick fixture", "Enter serial",
                 ]
             """
         )
@@ -231,7 +231,7 @@ def test_prompt_fixture_sidecar_yaml(pytester: pytest.Pytester) -> None:
             tests:
               test_sidecar:
                 prompts:
-                  setup: {message: "Insert DUT", prompt_type: confirm}
+                  setup: {message: "Insert UUT", prompt_type: confirm}
             """
         )
     )

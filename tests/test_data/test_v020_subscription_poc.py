@@ -127,7 +127,7 @@ def session(tmp_path: Path):
     #    own hooks read TestRun fields off the active logger, so a stub
     #    won't do — use the real one and swap in our event log.
     logger = TestRunLogger(
-        dut_serial="POC-DUT-001",
+        uut_serial="POC-UUT-001",
         station_id="poc-station",
         run_id=run_id,
         session_id=session_id,
@@ -210,15 +210,15 @@ class TestEventSubscriptionPoC:
 
     def test_observation_lands_in_subscriber(self, session: Any) -> None:
         """observe() emits Observation per call."""
-        session.ctx.observe("dut_temp_c", 23.5)
+        session.ctx.observe("uut_temp_c", 23.5)
         session.ctx.observe("operator", "ALICE")
 
         observations = [e for e in session.events if isinstance(e, Observation)]
         assert len(observations) == 2
-        assert {o.name for o in observations} == {"dut_temp_c", "operator"}
+        assert {o.name for o in observations} == {"uut_temp_c", "operator"}
         # scalar value preserved inline
         by_name = {o.name: o for o in observations}
-        assert by_name["dut_temp_c"].value == 23.5
+        assert by_name["uut_temp_c"].value == 23.5
         assert by_name["operator"].value == "ALICE"
 
     def test_observation_blob_lands_with_file_uri(self, session: Any) -> None:

@@ -24,7 +24,7 @@ def _build_src(tmp_path: Path) -> tuple[Path, Path]:
     src = tmp_path / "src"
     runs = src / "runs" / "runs" / _DATE
     runs.mkdir(parents=True)
-    parquet = runs / "120000_DUT1.parquet"
+    parquet = runs / "120000_UUT1.parquet"
     file_key = f"{_DATE}/{_SID}/capture.bin"
     pq.write_table(
         pa.table(

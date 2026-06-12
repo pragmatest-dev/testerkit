@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from litmus.api.app import create_api_router
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import (
-    DUT,
+    UUT,
     Measurement,
     Outcome,
     TestRun,
@@ -34,7 +34,7 @@ def _make_run(*, run_id, steps):
         id=run_id,
         started_at=datetime(2026, 5, 2, 12, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 5, 2, 12, 1, 0, tzinfo=UTC),
-        dut=DUT(serial="SN-001"),
+        uut=UUT(serial="SN-001"),
         outcome=Outcome.PASSED,
         steps=[
             TestStep(name=name, outcome=Outcome.PASSED, vectors=vectors or [])
@@ -89,7 +89,7 @@ class TestMeasurementLessRun:
         body = resp.json()
 
         assert body["run_id"].startswith(run_id[:8])
-        assert body["dut_serial"] == "SN-001"
+        assert body["uut_serial"] == "SN-001"
         assert body["outcome"] == "passed"
         assert body["started_at"] is not None
 

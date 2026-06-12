@@ -194,7 +194,7 @@ The materializer is a free function in the runs daemon, not an in-runner subscri
 
 The cascade never produces ABORTED. The materializer fallback above is the only path that writes an ABORTED row to parquet automatically. `LitmusClient.RunBuilder.abort()` (`client.py:339`) also stamps `Outcome.ABORTED` on the run object it returns, but does not save it; an external runner that wants to land that row has to call `_backend.save_test_run(...)` on the returned object explicitly.
 
-### Multi-DUT slot orchestrator
+### Multi-UUT slot orchestrator
 
 Per-slot child outcomes are computed from `subprocess.Popen.returncode` by `SlotRunner._monitor_slot`. These are **strings, not the Outcome enum** — they aggregate process exit codes, not the per-run cascade.
 
@@ -204,14 +204,14 @@ Per-slot child outcomes are computed from `subprocess.Popen.returncode` by `Slot
 | `"failed"` | Child pytest exited non-zero | `execution/slot_runner.py:338` |
 | `"passed"` | Child pytest exited with code 0 | `execution/slot_runner.py:338` |
 
-The orchestrator's `SessionEnded.outcome` is the worst of these across slots (`slot_runner.py:622`). Each child still writes its own `RunEnded` carrying its cascade-derived Outcome from the per-run tables above. For the operational guide, see [multi-DUT testing](../../how-to/execution/multi-dut-testing.md).
+The orchestrator's `SessionEnded.outcome` is the worst of these across slots (`slot_runner.py:622`). Each child still writes its own `RunEnded` carrying its cascade-derived Outcome from the per-run tables above. For the operational guide, see [multi-UUT testing](../../how-to/execution/multi-uut-testing.md).
 
 ## See also
 
 - [Step hierarchy](step-hierarchy.md) — the measurement / vector / step / run levels the cascade walks
 - [Step manifest](step-manifest.md) — how `outcome IS NULL` rows show as "Never Ran" in finalized runs
 - [Event log](../data/event-log.md) — `RunEnded` / `StepEnded` events that carry the cascade-derived outcome
-- [Multi-DUT testing](../../how-to/execution/multi-dut-testing.md) — slot orchestrator outcomes in practice
+- [Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) — slot orchestrator outcomes in practice
 - [Limits](../../how-to/execution/limits.md) — how a measurement gets a limit attached (the trigger for measurement-level PASSED/FAILED and for step-level verdict intent)
 - [Models reference](../../reference/data/models.md) — `Outcome` enum source-of-truth and field tables for `Measurement` / `TestVector` / `TestStep` / `TestRun`
 - [Parquet schema](../../reference/data/parquet-schema.md) — column-level definitions of `run_outcome`, `step_outcome`, `measurement_outcome`

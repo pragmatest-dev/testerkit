@@ -59,11 +59,11 @@ async def metrics_page(
         since / until: Date range (YYYY-MM-DD).
         tab: Active tab name (Yield / Pareto / Cpk / Retest /
             Time loss / Assets).
-        pareto_group: Pareto group-by lens (product / step /
+        pareto_group: Pareto group-by lens (part / step /
             measurement) — only meaningful on the Pareto tab.
     """
     phase = request.query_params.getlist("phase")
-    product = request.query_params.getlist("product")
+    part = request.query_params.getlist("part")
     station = request.query_params.getlist("station")
 
     data_dir = str(resolve_data_dir())
@@ -72,7 +72,7 @@ async def metrics_page(
 
     # Indexed distincts — ~50ms, fast enough to do before chrome.
     filter_options = await run.io_bound(get_runs_filter_options)
-    products = filter_options.get("dut_part_number", [])
+    parts = filter_options.get("uut_part_number", [])
     stations = filter_options.get("station_hostname", [])
 
     # ---------------------------------------------------------------------------
@@ -83,7 +83,7 @@ async def metrics_page(
     # while the closures below guard against None at call time.
     # ---------------------------------------------------------------------------
     phase_filter: Any = None
-    product_filter: Any = None
+    part_filter: Any = None
     station_filter: Any = None
     lot_filter: Any = None
     since_filter: Any = None
@@ -99,8 +99,8 @@ async def metrics_page(
     time_loss_container: Any = None
     assets_container: Any = None
 
-    valid_pareto_groups = {"product", "step", "measurement"}
-    initial_pareto_group = pareto_group if pareto_group in valid_pareto_groups else "product"
+    valid_pareto_groups = {"part", "step", "measurement"}
+    initial_pareto_group = pareto_group if pareto_group in valid_pareto_groups else "part"
 
     loaded_tabs: set[str] = set()
     filters_sig: dict[str, Any] = {"value": None}
@@ -108,7 +108,7 @@ async def metrics_page(
     def update_url() -> None:
         if (
             phase_filter is None
-            or product_filter is None
+            or part_filter is None
             or station_filter is None
             or lot_filter is None
             or since_filter is None
@@ -121,14 +121,14 @@ async def metrics_page(
             "/metrics",
             {
                 "phase": list(phase_filter.value or []),
-                "product": list(product_filter.value or []),
+                "part": list(part_filter.value or []),
                 "station": list(station_filter.value or []),
                 "lot": lot_filter.value,
                 "since": since_filter.value,
                 "until": until_filter.value,
                 "tab": tabs.value if tabs.value != "Yield" else "",
                 "pareto_group": (
-                    pareto_group_select.value if pareto_group_select.value != "product" else ""
+                    pareto_group_select.value if pareto_group_select.value != "part" else ""
                 ),
             },
         )
@@ -136,18 +136,18 @@ async def metrics_page(
     def _current_filters() -> tuple:
         return (
             tuple(sorted(phase_filter.value or [])),
-            tuple(sorted(product_filter.value or [])),
+            tuple(sorted(part_filter.value or [])),
             tuple(sorted(station_filter.value or [])),
             lot_filter.value or "",
             since_filter.value or "",
             until_filter.value or "",
-            pareto_group_select.value or "product",
+            pareto_group_select.value or "part",
         )
 
     def _filter_args() -> tuple:
         return (
             list(phase_filter.value or []) or None,
-            list(product_filter.value or []) or None,
+            list(part_filter.value or []) or None,
             list(station_filter.value or []) or None,
             since_filter.value or None,
             until_filter.value or None,
@@ -165,10 +165,10 @@ async def metrics_page(
         render_skeleton(summary_container, "h-24")
         render_skeleton(trend_chart_container, "h-64")
         render_skeleton(time_stats_container, "h-32")
-        phase_, product_, station_, since_, until_ = _filter_args()
+        phase_, part_, station_, since_, until_ = _filter_args()
         try:
             data = await run.io_bound(
-                _fetch_yield_data, data_dir, phase_, product_, station_, since_, until_
+                _fetch_yield_data, data_dir, phase_, part_, station_, since_, until_
             )
         except (OSError, ValueError, RuntimeError) as exc:
             summary_container.clear()
@@ -208,9 +208,9 @@ async def metrics_page(
         if cpk_table_container is None:
             return
         render_skeleton(cpk_table_container, "h-48")
-        phase_, product_, station_, since_, until_ = _filter_args()
+        phase_, part_, station_, since_, until_ = _filter_args()
         data = await run.io_bound(
-            _fetch_yield_data, data_dir, phase_, product_, station_, since_, until_
+            _fetch_yield_data, data_dir, phase_, part_, station_, since_, until_
         )
         if data is None:
             render_empty_card(
@@ -226,10 +226,10 @@ async def metrics_page(
         if pareto_chart_container is None or pareto_group_select is None:
             return
         render_skeleton(pareto_chart_container, "h-64")
-        phase_, product_, station_, since_, until_ = _filter_args()
-        group_by = pareto_group_select.value or "product"
+        phase_, part_, station_, since_, until_ = _filter_args()
+        group_by = pareto_group_select.value or "part"
         rows, title, subtitle, bucket_label = await run.io_bound(
-            _fetch_pareto_data, data_dir, group_by, phase_, product_, station_, since_, until_
+            _fetch_pareto_data, data_dir, group_by, phase_, part_, station_, since_, until_
         )
         _render_failure_pareto_chart(
             pareto_chart_container,
@@ -243,9 +243,9 @@ async def metrics_page(
         if retest_container is None:
             return
         render_skeleton(retest_container, "h-48")
-        phase_, product_, station_, since_, until_ = _filter_args()
+        phase_, part_, station_, since_, until_ = _filter_args()
         rows = await run.io_bound(
-            _safe_metric_query, data_dir, phase_, product_, station_, since_, until_, "retest"
+            _safe_metric_query, data_dir, phase_, part_, station_, since_, until_, "retest"
         )
         _render_retest_body(retest_container, rows)
 
@@ -253,12 +253,12 @@ async def metrics_page(
         if time_loss_container is None:
             return
         render_skeleton(time_loss_container, "h-48")
-        phase_, product_, station_, since_, until_ = _filter_args()
+        phase_, part_, station_, since_, until_ = _filter_args()
         rows = await run.io_bound(
             _safe_metric_query,
             data_dir,
             phase_,
-            product_,
+            part_,
             station_,
             since_,
             until_,
@@ -281,7 +281,7 @@ async def metrics_page(
             f is None
             for f in (
                 phase_filter,
-                product_filter,
+                part_filter,
                 station_filter,
                 lot_filter,
                 since_filter,
@@ -359,14 +359,14 @@ async def metrics_page(
                 placeholder="All phases (excludes 'development' by default)",
             )
 
-            initial_product = [p for p in product if p in products]
-            product_filter = multi_select_filter(
-                "Product",
-                products,
-                initial_product,
+            initial_part = [p for p in part if p in parts]
+            part_filter = multi_select_filter(
+                "Part",
+                parts,
+                initial_part,
                 on_change=_on_filter_change,
                 classes="w-64",
-                placeholder="All products",
+                placeholder="All parts",
             )
 
             initial_station = [s for s in station if s in stations]
@@ -429,7 +429,7 @@ async def metrics_page(
             with ui.tab_panel(pareto_tab).props('data-testid="metrics-pareto"'):
                 pareto_group_select = ui.select(
                     options={
-                        "product": "Product (most-failing dut_part_number)",
+                        "part": "Part (most-failing uut_part_number)",
                         "step": "Step (most-failing step_path)",
                         "measurement": "Measurement (historical: limit-bearing measures)",
                     },
@@ -484,7 +484,7 @@ async def metrics_page(
 def _fetch_yield_data(
     data_dir: str,
     phase: str | list[str] | None,
-    product: str | list[str] | None,
+    part: str | list[str] | None,
     station: str | list[str] | None,
     since: str | None,
     until: str | None,
@@ -492,7 +492,7 @@ def _fetch_yield_data(
     """Compute all yield dashboard data. Returns None when filters match no data."""
     with MeasurementsQuery(_data_dir=data_dir) as store:
         summary_rows = store.yield_summary(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -513,7 +513,7 @@ def _fetch_yield_data(
         final_yield = final_passed / unique_serials if unique_serials else 0.0
 
         pareto_rows = store.pareto(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -537,7 +537,7 @@ def _fetch_yield_data(
             )
 
         cpk_data = store.cpk(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -545,7 +545,7 @@ def _fetch_yield_data(
         )
 
         trend_data = store.trend(
-            product=product,
+            part=part,
             station=station,
             phase=phase,
             since=since,
@@ -588,7 +588,7 @@ def _fetch_pareto_data(
     data_dir: str,
     group_by: str,
     phase: str | list[str] | None,
-    product: str | list[str] | None,
+    part: str | list[str] | None,
     station: str | list[str] | None,
     since: str | None,
     until: str | None,
@@ -605,7 +605,7 @@ def _fetch_pareto_data(
                 rows = q.failure_pareto(
                     top_n=15,
                     phase=phase,
-                    product=product,
+                    part=part,
                     station=station,
                     since=since,
                     until=until,
@@ -622,7 +622,7 @@ def _fetch_pareto_data(
         try:
             with MeasurementsQuery(_data_dir=data_dir) as q:
                 raw = q.pareto(
-                    product=product,
+                    part=part,
                     station=station,
                     phase=phase,
                     since=since,
@@ -637,14 +637,14 @@ def _fetch_pareto_data(
             "Top 15 limit-bearing measurements with the most failures.",
             "measurement",
         )
-    else:  # product (default)
+    else:  # part (default)
         try:
             with RunsQuery(_data_dir=data_dir) as q:
                 rows = q.failure_pareto(
-                    group_by="dut_part_number",
+                    group_by="uut_part_number",
                     top_n=15,
                     phase=phase,
-                    product=product,
+                    part=part,
                     station=station,
                     since=since,
                     until=until,
@@ -653,16 +653,16 @@ def _fetch_pareto_data(
             rows = []
         return (
             rows,
-            "Failing products",
-            "Top 15 ``dut_part_number`` buckets with the most failed/errored runs.",
-            "product",
+            "Failing parts",
+            "Top 15 ``uut_part_number`` buckets with the most failed/errored runs.",
+            "part",
         )
 
 
 def _safe_metric_query(
     data_dir: str,
     phase: str | list[str] | None,
-    product: str | list[str] | None,
+    part: str | list[str] | None,
     station: str | list[str] | None,
     since: str | None,
     until: str | None,
@@ -673,7 +673,7 @@ def _safe_metric_query(
         with MeasurementsQuery(_data_dir=data_dir) as store:
             fn = getattr(store, method)
             return fn(
-                product=product,
+                part=part,
                 station=station,
                 phase=phase,
                 since=since,
@@ -1027,7 +1027,7 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
         render_empty_card(
             container,
             "Retest rates",
-            "No retest data — record DUTs across multiple sessions to populate.",
+            "No retest data — record UUTs across multiple sessions to populate.",
         )
         return
 
@@ -1035,7 +1035,7 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
         with ui.card_section():
             ui.label("Retest rates").classes("font-semibold")
             ui.label(
-                "How often unique DUTs needed more than one attempt to clear "
+                "How often unique UUTs needed more than one attempt to clear "
                 "the same step. High retest rates flag flaky tests or marginal "
                 "hardware."
             ).classes("text-xs text-slate-500")
@@ -1191,7 +1191,7 @@ def _render_assets_body(container: Any, pairs: list[dict[str, Any]]) -> None:
             ui.label("Asset utilization").classes("font-semibold")
             ui.label(
                 "Instrument time-connected over the selected window. "
-                "Filters Phase / Product / Station don't apply here — "
+                "Filters Phase / Part / Station don't apply here — "
                 "instruments are keyed by role + resource, not by run context."
             ).classes("text-xs text-slate-500")
         columns = [

@@ -16,7 +16,7 @@ the three tools you'll use most.
 
 | Tool | Use it for |
 |---|---|
-| `litmus_runs(action="list")` | "show me recent runs" — returns the most recent N run summaries (the MCP tool accepts only `limit`; for per-product / per-station filtering, follow up with the assistant filtering the response client-side) |
+| `litmus_runs(action="list")` | "show me recent runs" — returns the most recent N run summaries (the MCP tool accepts only `limit`; for per-part / per-station filtering, follow up with the assistant filtering the response client-side) |
 | `litmus_runs(action="get", run_id=...)` | "tell me about run X" — one run's full summary, accepts 8-char prefix |
 | `litmus_steps(run_id=...)` | "what did run X actually execute" — flat list (`action="list"`) or hierarchy (`action="tree"`) |
 | `litmus_metrics(action=...)` | "is the line healthy" — aggregate analytics over a date range |
@@ -32,8 +32,8 @@ Ask your assistant:
 > List the last 20 runs.
 
 It calls `litmus_runs(action="list", limit=20)` and gets a JSON
-array of run summaries (run_id, started, outcome, DUT serial,
-station, product). Then you can ask follow-ups like "filter to
+array of run summaries (run_id, started, outcome, UUT serial,
+station, part). Then you can ask follow-ups like "filter to
 the ones that failed", and the assistant either re-queries or
 filters the in-memory list.
 
@@ -72,7 +72,7 @@ has no MCP equivalent yet:
 | `retest` | Retest rates per serial bucketed by period |
 | `time_loss` | Time lost to failed / errored runs |
 
-Filters available on every action: `product`, `station`, `phase`,
+Filters available on every action: `part`, `station`, `phase`,
 `since`, `until`. Plus per-action tuning: `top_n` (Pareto cutoff),
 `min_samples` (Cpk minimum-N filter).
 
@@ -105,7 +105,7 @@ For a longer diagnostic, chain the tools:
 That's:
 
 1. `litmus_runs(action="list", limit=200)` — fetch recent runs
-2. Group client-side by `dut_serial`, find one with multiple
+2. Group client-side by `uut_serial`, find one with multiple
    failures on the same `step_path`
 3. `litmus_steps(run_id=<first>, action="list")` and again for the
    second

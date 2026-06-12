@@ -11,7 +11,7 @@ on any facet, and renders the result as a chart instead of a table.
 Use it to ask questions like "what did `output_voltage` look like
 across all production runs on bench-3 last week?", "did this
 measurement drift when we changed lots?", or "how is the limit
-margin distributed for `iq` across all DUTs?".
+margin distributed for `iq` across all UUTs?".
 
 ## Filter section
 
@@ -19,7 +19,7 @@ margin distributed for `iq` across all DUTs?".
 
 A row of facet widgets, each populated from values actually present
 in the index. Changing any facet re-fetches all the others' options
-(so the Product list only shows products that exist under your other
+(so the Part list only shows parts that exist under your other
 current filters).
 
 | Facet | Filters by | Widget |
@@ -27,12 +27,12 @@ current filters).
 | Run outcome | The run's overall outcome (`passed`, `failed`, ...) | Multi-select enum |
 | Measurement outcome | The measurement row's own outcome | Multi-select enum |
 | Limit comparator | How the measurement is checked (`GELE`, `LE`, ...) | Multi-select enum |
-| Product | DUT part number | Multi-select |
+| Part | UUT part number | Multi-select |
 | Station | Station hostname or identifier | Multi-select |
 | Test phase | The free-form `test_phase` value stamped on the run. The conventional values are `validation`, `production`, and `characterization`, but any string a project chooses to use will appear here. | Multi-select |
 | Step | The test/step name the measurement belongs to | Multi-select |
 | Measurement | The named measurement (`vout`, `iq`, ...) | Multi-select |
-| DUT serial | A specific unit | Multi-select |
+| UUT serial | A specific unit | Multi-select |
 | Date range | Run start date `Since` / `Until` | Date range |
 
 A count below the row tells you how many measurement rows the
@@ -53,7 +53,7 @@ The PLOT card sits above the chart and decides what gets drawn.
 | Y axis | Which numeric column to plot vertically. Required. Both fixed schema columns (`measurement_value`, `run_started_at`, ...) and dynamic input/output columns (`in_*`, `out_*` recorded by `context.configure()` and `context.observe()`) appear in the dropdown. |
 | X axis | Which numeric column to plot horizontally. Same column choices as Y. Required for scatter / line / bar; ignored for histogram. |
 | Chart | One of `scatter` (default), `line`, `bar`, `histogram`. |
-| Group by | Optional. Plots one series per distinct value of the chosen column — e.g. group by `dut_serial` to see one line per DUT. |
+| Group by | Optional. Plots one series per distinct value of the chosen column — e.g. group by `uut_serial` to see one line per UUT. |
 | Bins | Histogram bin count. 2–200, default 30. |
 | Limit | Maximum row count fetched. 10–100,000, default 5,000. The chart only ever shows up to this many rows. |
 | Refresh | Force a re-fetch. Filter and control changes already auto-refresh; use this to pick up new runs that arrived while the page was open. |
@@ -90,7 +90,7 @@ captures the exact view:
 
 | Parameter | Meaning |
 |---|---|
-| Per-facet | Each multi-value facet repeats its column name as a query key (e.g. `?product=PN-100&product=PN-200`) |
+| Per-facet | Each multi-value facet repeats its column name as a query key (e.g. `?part=PN-100&part=PN-200`) |
 | `since`, `until` | Date range, `YYYY-MM-DD` (omitted when blank) |
 | `y`, `x` | Selected axes (omitted when blank, and `x` is omitted on histogram charts where it's ignored) |
 | `chart_type` | `scatter` (default — omitted), `line`, `bar`, or `histogram` |
@@ -119,10 +119,10 @@ Each measurement row carries the values shown in `vout`, `iq`, etc.
   to one value, Y to `measurement_value`, Chart to `histogram`, and
   read the spread. Limit-bearing measurements show their pass/fail
   via the Measurement outcome facet.
-- **One measurement across DUTs** — set the Measurement facet,
+- **One measurement across UUTs** — set the Measurement facet,
   X to `run_started_at`, Y to `measurement_value`, Group by
-  `dut_serial`. One line per unit, time-series view.
-- **Compare lots** — Group by something derived from `dut_serial`,
+  `uut_serial`. One line per unit, time-series view.
+- **Compare lots** — Group by something derived from `uut_serial`,
   or stack Lot + Date Range filters and re-query.
 
 ## See also

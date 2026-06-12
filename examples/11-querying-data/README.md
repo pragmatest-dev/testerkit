@@ -10,14 +10,14 @@ external dashboards.
 ## What this example does
 
 `scripts/seed_runs.py` populates `data/` with 8 fake runs across 5
-DUTs and 2 stations (using `LitmusClient` — the programmatic
+UUTs and 2 stations (using `LitmusClient` — the programmatic
 run-building API). `scripts/analyze.py` then queries them through
 the public API:
 
-- **`RunsQuery`** — list recent runs, filter by DUT serial, count
+- **`RunsQuery`** — list recent runs, filter by UUT serial, count
   outcomes
-- **`MeasurementsQuery`** — yield summary by `(product, station,
-  phase)`, distinct DUT serials, parametric queries
+- **`MeasurementsQuery`** — yield summary by `(part, station,
+  phase)`, distinct UUT serials, parametric queries
 - **`EventStore`** — replay the lifecycle event timeline
 
 Output is plain text so you can run it in any terminal. Replace the
@@ -34,7 +34,7 @@ examples/11-querying-data/
 ├── litmus.yaml
 ├── pyproject.toml
 └── scripts/
-    ├── seed_runs.py        # produce: 8 runs, 5 DUTs, 2 stations
+    ├── seed_runs.py        # produce: 8 runs, 5 UUTs, 2 stations
     └── analyze.py          # consume: list / filter / yield / events
 ```
 
@@ -60,7 +60,7 @@ from litmus.queries import RunsQuery
 
 with RunsQuery(_data_dir="data") as q:
     for run in q.list_recent(limit=20):
-        print(run.dut_serial, run.outcome)
+        print(run.uut_serial, run.outcome)
 ```
 
 For the UI half, run `uv run litmus serve --reload` and navigate:
@@ -69,7 +69,7 @@ For the UI half, run `uv run litmus serve --reload` and navigate:
 |---|---|
 | `/runs` | Same `RunsQuery` data, clickable rows → per-run detail |
 | `/metrics` | Yield + Pareto + Cpk views (uses `MeasurementsQuery`) |
-| `/measurements` | Full parametric query (filter by characteristic, DUT, station, time) |
+| `/measurements` | Full parametric query (filter by characteristic, UUT, station, time) |
 | `/events` | Timeline replay (uses `EventStore`) |
 | `/channels` | At-rest channel data (uses `ChannelStore`) |
 | `/files` | At-rest artifacts (uses `FileStore`) |

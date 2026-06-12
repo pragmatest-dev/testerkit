@@ -37,7 +37,7 @@ async def live_page(run_id: str):
                     )
                 # Run ID is kept on the page so the URL is copyable /
                 # bookmarkable, but rendered small and muted — operators
-                # identify runs by DUT serial + start time, not UUID.
+                # identify runs by UUT serial + start time, not UUID.
                 with ui.row().classes("items-center gap-2 mt-2"):
                     ui.label("Run ID:").classes("text-xs text-slate-400")
                     ui.label(run_id).classes("text-xs font-mono text-slate-400 select-all")

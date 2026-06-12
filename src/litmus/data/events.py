@@ -49,7 +49,7 @@ def _detect_client() -> str:
 # * **Pairing IDs** — an open-event ``stream_id`` / ``dialog_id`` /
 #   ``channel_id`` / ``slot_id`` has a matching close-event with the
 #   same value. The pushdown answers "did this open ever close?"
-# * **Operator-facing identifiers** — ``dut_serial`` /
+# * **Operator-facing identifiers** — ``uut_serial`` /
 #   ``station_hostname`` are how operators name what they're querying
 #   ("everything that happened to SN001 on bench-3").
 # * **Names + roles + enums** — recognition fields and the small set
@@ -66,7 +66,7 @@ TYPED_PAYLOAD_COLUMNS: tuple[str, ...] = (
     "channel_id",
     "slot_id",
     # Operator-facing identifiers
-    "dut_serial",
+    "uut_serial",
     "station_hostname",
     # Other IDs
     "instrument_id",
@@ -135,7 +135,7 @@ class EventBase(BaseModel):
 class SessionStarted(EventBase):
     """Emitted once at the start of a session (interactive or test orchestrator).
 
-    Contains session-wide metadata only. Run-level fields (DUT, config snapshots)
+    Contains session-wide metadata only. Run-level fields (UUT, config snapshots)
     live in ``RunStarted``. Session events must NOT carry run_id.
     """
 
@@ -229,8 +229,8 @@ class SessionEnded(EventBase):
 class RunStarted(EventBase):
     """Emitted once per test run. Contains full run context.
 
-    In single-DUT mode, one RunStarted follows SessionStarted.
-    In multi-DUT mode, each worker emits its own RunStarted.
+    In single-UUT mode, one RunStarted follows SessionStarted.
+    In multi-UUT mode, each worker emits its own RunStarted.
     """
 
     event_type: Literal["run.started"] = "run.started"
@@ -248,16 +248,16 @@ class RunStarted(EventBase):
     pid: int | None = None
     client: str = Field(default_factory=_detect_client)
 
-    # DUT
-    dut_serial: str = ""
-    dut_part_number: str | None = None
-    dut_revision: str | None = None
-    dut_lot_number: str | None = None
+    # UUT
+    uut_serial: str = ""
+    uut_part_number: str | None = None
+    uut_revision: str | None = None
+    uut_lot_number: str | None = None
 
-    # Product
-    product_id: str | None = None
-    product_name: str | None = None
-    product_revision: str | None = None
+    # Part
+    part_id: str | None = None
+    part_name: str | None = None
+    part_revision: str | None = None
 
     # Operator
     operator_id: str | None = None
@@ -318,20 +318,20 @@ class RunMaterialized(EventBase):
 
 
 # ---------------------------------------------------------------------------
-# Slot events (multi-DUT)
+# Slot events (multi-UUT)
 # ---------------------------------------------------------------------------
 
 
 class SlotStarted(EventBase):
-    """Emitted when a DUT slot begins execution."""
+    """Emitted when a UUT slot begins execution."""
 
     event_type: Literal["slot.started"] = "slot.started"
     slot_id: str
-    dut_serial: str
+    uut_serial: str
 
 
 class SlotCompleted(EventBase):
-    """Emitted when a DUT slot finishes execution."""
+    """Emitted when a UUT slot finishes execution."""
 
     event_type: Literal["slot.completed"] = "slot.completed"
     slot_id: str
@@ -397,9 +397,9 @@ class CalibrationWarning(EventBase):
     message: str = ""
 
 
-class DutScanned(EventBase):
-    event_type: Literal["fixture.dut_scanned"] = "fixture.dut_scanned"
-    dut_serial: str
+class UutScanned(EventBase):
+    event_type: Literal["fixture.uut_scanned"] = "fixture.uut_scanned"
+    uut_serial: str
     scan_source: str | None = None
 
 
@@ -444,7 +444,7 @@ class StepStarted(EventBase):
 class MeasurementRecorded(EventBase):
     """A single measurement. Normalized: carries only measurement-specific fields.
 
-    Run metadata (station, DUT, operator, etc.) lives in ``RunStarted``.
+    Run metadata (station, UUT, operator, etc.) lives in ``RunStarted``.
     Instrument arrays live in ``InstrumentConnected`` events.
     Subscribers denormalize at write time.
     """
@@ -472,7 +472,7 @@ class MeasurementRecorded(EventBase):
     spec_ref: str | None = None
 
     # Signal path
-    dut_pin: str | None = None
+    uut_pin: str | None = None
     fixture_connection: str | None = None
     instrument_name: str | None = None
     instrument_resource: str | None = None
@@ -764,7 +764,7 @@ FIXTURE_EVENTS = {
     InstrumentConnected,
     IdentityVerified,
     CalibrationWarning,
-    DutScanned,
+    UutScanned,
     InstrumentDisconnected,
 }
 TEST_EVENTS = {
@@ -809,7 +809,7 @@ Event = Annotated[
     | InstrumentConnected
     | IdentityVerified
     | CalibrationWarning
-    | DutScanned
+    | UutScanned
     | InstrumentDisconnected
     | StepStarted
     | MeasurementRecorded

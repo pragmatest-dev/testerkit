@@ -61,7 +61,7 @@ After the starter project runs, the recommended progression:
 
 1. **[Tutorial](./docs/tutorial/index.md)** — Ten short chapters from a first test through live production monitoring. Read in order; each builds on the last.
 2. **[Examples](./examples/README.md)** — Seven self-contained projects (`01-vanilla` → `07-profiles`) that isolate one concept each. Clone, run, modify.
-3. **[Concepts](./docs/concepts/index.md)** — Reference for the vocabulary: station, fixture, product, sequence, capability, vector.
+3. **[Concepts](./docs/concepts/index.md)** — Reference for the vocabulary: station, fixture, part, sequence, capability, vector.
 
 When you're ready to leave mocks behind, [From Mocks to Hardware](./docs/tutorial/from-mocks-to-hardware.md) covers the transition.
 
@@ -77,18 +77,18 @@ litmus runs                     # see results
 ## Design principles
 
 1. **Built for hardware test, end to end** — Every measurement carries its limits, signal path, and the instrument that took it (with serial, cal date, firmware) — a field failure traces back to the exact bench state. Yield, Cpk, Pareto, retest, and time-loss analytics ship built in. Industry exporters (STDF, ATML, HDF5, TDMS, MDF4) bridge your reporting pipeline.
-2. **Everything is a file you can version** — Limits, stations, products, fixtures, sequences, results — all files. Edit them in your text editor, diff them in git, review changes like code. A project moves between machines as a folder.
+2. **Everything is a file you can version** — Limits, stations, parts, fixtures, sequences, results — all files. Edit them in your text editor, diff them in git, review changes like code. A project moves between machines as a folder.
 3. **Open and extensible, no lock-in** — Pytest tests (plus its plugin ecosystem), PyVISA for any VISA-compatible instrument, YAML config, Parquet results that any data tool can read. All open source. If you change your mind about Litmus, your tests, configs, and results travel with you.
 4. **AI-ready, never AI-dependent** — Built on technology AI assistants know deeply (pytest, YAML, Python, markdown). MCP tools expose every Litmus operation; JSON Schemas act as guardrails for any config the AI writes. The platform itself never calls out to an AI model.
-5. **Starts simple, grows with you** — After install, `pytest` passes on any machine — no server, no account, no hardware needed to begin. Add what you need as you need it: measurement logging, station config, product specs, capability matching — in whatever order fits your project.
+5. **Starts simple, grows with you** — After install, `pytest` passes on any machine — no server, no account, no hardware needed to begin. Add what you need as you need it: measurement logging, station config, part specs, capability matching — in whatever order fits your project.
 
 ## Project layout
 
 ```
-products/*.yaml           → Product characteristics and tolerances
+parts/*.yaml           → Part characteristics and tolerances
 catalog/*.yaml            → Instrument capabilities and accuracy
 stations/*.yaml           → Which instruments are at this bench
-fixtures/*.yaml           → How DUT pins connect to instruments
+fixtures/*.yaml           → How UUT pins connect to instruments
 sequences/*.yaml          → What to test and in what order
 tests/*.py                → Test code
 results/*.parquet         → Measurements with full traceability
@@ -113,7 +113,7 @@ def test_rail_3v3(context, psu, dmm, verify):
     psu.set_voltage(context.get_param("vin"))
     psu.enable_output()
     verify("rail_3v3", float(dmm.measure_dc_voltage()))
-    # → limit-checked against the YAML next to the test or your product spec
+    # → limit-checked against the YAML next to the test or your part spec
     # → logged to your results file with the instrument that took it
 ```
 

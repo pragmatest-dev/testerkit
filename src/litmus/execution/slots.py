@@ -1,7 +1,7 @@
-"""Fixture slot resolution for multi-DUT testing.
+"""Fixture slot resolution for multi-UUT testing.
 
 Resolves fixture slots against a station config to validate that all
-referenced instrument roles exist. Single-DUT fixtures (using
+referenced instrument roles exist. Single-UUT fixtures (using
 ``connections`` instead of ``slots``) are normalized to a single
 implicit slot.
 """
@@ -20,18 +20,18 @@ class ResolvedSlot(BaseModel):
 
     Attributes:
         slot_id: Unique slot identifier (e.g., "slot_1").
-        connections: FixtureConnection mappings for this slot's DUT.
+        connections: FixtureConnection mappings for this slot's UUT.
         instrument_roles: Set of station instrument roles this slot needs.
-        dut_resource: Per-slot DUT connection string (e.g., COM3, /dev/ttyUSB0).
+        uut_resource: Per-slot UUT connection string (e.g., COM3, /dev/ttyUSB0).
     """
 
     slot_id: str
     connections: dict[str, FixtureConnection] = Field(default_factory=dict)
     instrument_roles: set[str] = Field(default_factory=set)
-    dut_resource: str | None = None
+    uut_resource: str | None = None
 
 
-# Default slot ID for single-DUT fixtures
+# Default slot ID for single-UUT fixtures
 DEFAULT_SLOT_ID = "default"
 
 
@@ -41,8 +41,8 @@ def resolve_fixture_slots(
 ) -> dict[str, ResolvedSlot]:
     """Resolve fixture slots and validate instrument references.
 
-    For single-DUT fixtures (``connections``), returns one slot with id
-    "default". For multi-DUT fixtures (``slots``), returns one slot per
+    For single-UUT fixtures (``connections``), returns one slot with id
+    "default". For multi-UUT fixtures (``slots``), returns one slot per
     entry.
 
     Args:
@@ -63,7 +63,7 @@ def resolve_fixture_slots(
             slot_id: _build_resolved_slot(
                 slot_id,
                 slot.connections,
-                dut_resource=slot.dut_resource,
+                uut_resource=slot.uut_resource,
             )
             for slot_id, slot in fixture_config.slots.items()
         }
@@ -72,7 +72,7 @@ def resolve_fixture_slots(
             DEFAULT_SLOT_ID: _build_resolved_slot(
                 DEFAULT_SLOT_ID,
                 fixture_config.connections,
-                dut_resource=fixture_config.dut_resource,
+                uut_resource=fixture_config.uut_resource,
             )
         }
 
@@ -86,7 +86,7 @@ def _build_resolved_slot(
     slot_id: str,
     connections: dict[str, FixtureConnection],
     *,
-    dut_resource: str | None = None,
+    uut_resource: str | None = None,
 ) -> ResolvedSlot:
     """Build a ResolvedSlot from fixture connections."""
     roles = {conn.instrument for conn in connections.values()}
@@ -99,7 +99,7 @@ def _build_resolved_slot(
         slot_id=slot_id,
         connections=connections,
         instrument_roles=roles,
-        dut_resource=dut_resource,
+        uut_resource=uut_resource,
     )
 
 

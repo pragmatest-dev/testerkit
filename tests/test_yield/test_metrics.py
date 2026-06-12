@@ -20,30 +20,30 @@ from litmus.analysis.metrics import (
 class TestFPY:
     def test_all_pass(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "B", "run_outcome": "passed", "run_started_at": "2026-01-01T00:01:00Z"},
+            {"uut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "B", "run_outcome": "passed", "run_started_at": "2026-01-01T00:01:00Z"},
         ]
         assert calculate_fpy(runs) == 1.0
 
     def test_all_fail(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
         ]
         assert calculate_fpy(runs) == 0.0
 
     def test_retest_pass_after_fail(self):
         """First run fails, second passes — FPY should be 0 for that serial."""
         runs = [
-            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T01:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T01:00:00Z"},
         ]
         assert calculate_fpy(runs) == 0.0
 
     def test_mixed(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "B", "run_outcome": "failed", "run_started_at": "2026-01-01T00:01:00Z"},
-            {"dut_serial": "C", "run_outcome": "passed", "run_started_at": "2026-01-01T00:02:00Z"},
+            {"uut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "B", "run_outcome": "failed", "run_started_at": "2026-01-01T00:01:00Z"},
+            {"uut_serial": "C", "run_outcome": "passed", "run_started_at": "2026-01-01T00:02:00Z"},
         ]
         assert calculate_fpy(runs) == pytest.approx(2 / 3)
 
@@ -60,15 +60,15 @@ class TestFinalYield:
     def test_retest_pass(self):
         """First run fails, second passes — final yield should be 100%."""
         runs = [
-            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T01:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T01:00:00Z"},
         ]
         assert calculate_final_yield(runs) == 1.0
 
     def test_final_fail(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T01:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T01:00:00Z"},
         ]
         assert calculate_final_yield(runs) == 0.0
 

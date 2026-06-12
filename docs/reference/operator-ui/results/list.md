@@ -37,8 +37,8 @@ Click a row to open the run's detail page at `/results/{run_id}`.
 | Column | What it shows | Sortable |
 |---|---|---|
 | Outcome | Colored chip — Passed, Failed, Errored, Skipped, Aborted, Terminated, Done, or Running for in-flight runs | yes |
-| Serial | DUT serial number stamped on the run | yes |
-| Part Number | DUT part number | yes |
+| Serial | UUT serial number stamped on the run | yes |
+| Part Number | UUT part number | yes |
 | Hostname | Station hostname that ran the test | yes |
 | Project | Project name from `litmus.yaml` | yes |
 | Phase | Test phase facet (e.g. `development`, `production`, `characterization`) | yes |
@@ -90,7 +90,7 @@ For the underlying event log Litmus materialises run rows from, see
 
 - **Find a flaky test** — sort by Outcome, then scan for tests that
   appear with both `Passed` and `Errored` outcomes across recent runs.
-- **Compare two runs from the same DUT** — sort by Serial, open the
+- **Compare two runs from the same UUT** — sort by Serial, open the
   two run detail pages in adjacent tabs.
 - **Watch live activity** — leave the view open during a test run;
   the table auto-refreshes on `run.started` / `run.ended` events.

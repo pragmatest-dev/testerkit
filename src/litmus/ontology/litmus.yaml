@@ -20,8 +20,8 @@
 # look at the model. Adding a new verb requires explicit review.
 #
 #   Domain composition —
-#     exposes            Product exposes Pin / SignalGroup (physical interface).
-#     specifies          Product specifies ProductCharacteristic (electrical spec).
+#     exposes            Part exposes Pin / SignalGroup (physical interface).
+#     specifies          Part specifies PartCharacteristic (electrical spec).
 #     bundles            SignalGroup bundles BusSignal (bus members).
 #     parameterized_by   Capability parameterized_by Signal/Condition/Control/
 #                        Attribute/SpecBand (its measurable dimensions).
@@ -31,7 +31,7 @@
 #     identifies         Asset/Record identifies via InstrumentInfo.
 #     calibrated_per     Asset/Record calibrated_per CalibrationInfo.
 #     wires              FixtureConfig/FixtureSlot wires FixtureConnection.
-#     partitions_into    FixtureConfig partitions_into FixtureSlot (multi-DUT).
+#     partitions_into    FixtureConfig partitions_into FixtureSlot (multi-UUT).
 #     routed_through     FixtureConnection routed_through SwitchRoute.
 #     declares           ProjectConfig declares config blocks (profiles,
 #                        multi_slot, prompts).
@@ -40,7 +40,7 @@
 #     nests              TestEntry nests TestEntry (recursive scope).
 #     resolves_via       MeasurementLimitConfig resolves_via bands/lookup/step.
 #     resolves_to        MeasurementLimitConfig resolves_to Limit at vector time.
-#     derives_from       MeasurementLimitConfig derives_from ProductCharacteristic
+#     derives_from       MeasurementLimitConfig derives_from PartCharacteristic
 #                        (spec value + tolerance).
 #     applies_stimulus   TestVector applies_stimulus StimulusRecord.
 #
@@ -51,8 +51,8 @@
 #   Class / type-instance —
 #     inherits_from      Pydantic class inheritance.
 #     instance_of        Runtime entity is an occurrence of a definition
-#                        (DUT instance_of Product).
-#     instantiated_as    Inverse of instance_of (Product instantiated_as DUT).
+#                        (UUT instance_of Part).
+#     instantiated_as    Inverse of instance_of (Part instantiated_as UUT).
 #
 #   Naming pointers (FK by id) — narrow; prefer a domain verb when one fits.
 #     references         A names B by id/name (non-owning pointer).
@@ -60,7 +60,7 @@
 #                        last-wins (ProfileConfig.extends).
 #
 #   Execution semantics —
-#     tests              TestRun tests DUT (the subject of testing).
+#     tests              TestRun tests UUT (the subject of testing).
 #     runs_on            TestRun runs_on Station (the bench).
 #     validates_against  Load-time contract check (StationConfig vs StationType).
 #
@@ -79,7 +79,7 @@
 #                        concept — see the `run.materialized` event.
 #
 # CATEGORY VOCABULARY:
-#   definition       YAML-authored on disk — products/, stations/, fixtures/,
+#   definition       YAML-authored on disk — parts/, stations/, fixtures/,
 #                    catalog/, instruments/, litmus.yaml.
 #   primitive        Reusable Pydantic shape — not authored on its own;
 #                    appears as a sub-field of definitions.
@@ -138,60 +138,60 @@ concepts:
     summary: Multi-slot orchestration knobs (per-child grace seconds, etc.).
     model: litmus.models.project.MultiSlotConfig
 
-  - id: product
+  - id: part
     category: definition
     summary: >
       Spec for a thing-under-test: identity, pins, signal groups, and
       characteristics. ATML "UUT Description".
-    model: litmus.models.product.Product
-    authored_at: products/*.yaml | products/{id}/spec.yaml
-    docs: docs/concepts/products.md
+    model: litmus.models.part.Part
+    authored_at: parts/*.yaml | parts/{id}/spec.yaml
+    docs: docs/concepts/parts.md
     relationships:
       - { kind: exposes,             target: pin }
       - { kind: exposes,             target: signal_group }
-      - { kind: specifies,             target: product_characteristic }
-      - { kind: instantiated_as, target: dut }                   # inverse of dut.instance_of
+      - { kind: specifies,             target: part_characteristic }
+      - { kind: instantiated_as, target: uut }                   # inverse of uut.instance_of
 
-  - id: product_manifest
+  - id: part_manifest
     category: definition
     summary: >
-      Per-product folder manifest tracking workflow position (parse →
+      Per-part folder manifest tracking workflow position (parse →
       review → derive → select station → generate tests → execute).
-    model: litmus.models.product_manifest.ProductManifest
-    authored_at: products/{id}/manifest.yaml
+    model: litmus.models.part_manifest.PartManifest
+    authored_at: parts/{id}/manifest.yaml
     relationships:
-      - { kind: references, target: product }
+      - { kind: references, target: part }
 
   - id: pin
     category: primitive
     summary: >
-      Physical DUT pin with role classification (signal / ground / power /
+      Physical UUT pin with role classification (signal / ground / power /
       reference) for fixture routing.
-    model: litmus.models.product.Pin
+    model: litmus.models.part.Pin
 
   - id: signal_group
     category: primitive
     summary: Grouped signals forming a bus interface (I2C, SPI, UART).
-    model: litmus.models.product.SignalGroup
+    model: litmus.models.part.SignalGroup
     relationships:
       - { kind: bundles, target: bus_signal }
 
   - id: bus_signal
     category: primitive
     summary: One signal within a bus group; references a Pin by name.
-    model: litmus.models.product.BusSignal
+    model: litmus.models.part.BusSignal
     relationships:
       - { kind: references, target: pin }
 
-  - id: product_characteristic
+  - id: part_characteristic
     category: definition
     summary: >
-      A DUT capability tied to a physical interface (pin/pins/net/
+      A UUT capability tied to a physical interface (pin/pins/net/
       signal_group) with optional datasheet ref. Extends Capability —
-      the matching service pairs DUT OUTPUT characteristics with
+      the matching service pairs UUT OUTPUT characteristics with
       instrument INPUT capabilities by direction flip.
-    model: litmus.models.product.ProductCharacteristic
-    authored_at: products/*.yaml (under characteristics:)
+    model: litmus.models.part.PartCharacteristic
+    authored_at: parts/*.yaml (under characteristics:)
     docs: docs/concepts/capability-model.md
     relationships:
       - { kind: inherits_from, target: capability }
@@ -267,7 +267,7 @@ concepts:
   - id: fixture_config
     category: definition
     summary: >
-      Bench-to-DUT wiring. Either single-DUT connections or multi-slot
+      Bench-to-UUT wiring. Either single-UUT connections or multi-slot
       slots; never both. station_types[] declares which abstract station
       layouts this fixture can wire against.
     model: litmus.models.test_config.FixtureConfig
@@ -276,24 +276,24 @@ concepts:
     relationships:
       - { kind: wires,  target: fixture_connection }
       - { kind: partitions_into,  target: fixture_slot }
-      - { kind: references, target: product }         # product_id / product_family
+      - { kind: references, target: part }         # part_id / part_family
       - { kind: references, target: station_type }    # station_types[]
 
   - id: fixture_connection
     category: primitive
     summary: >
-      Named DUT-pin ↔ instrument-channel pairing — the addressable unit
+      Named UUT-pin ↔ instrument-channel pairing — the addressable unit
       of fixture routing. Optionally carries a measurement function
       (DMM for DC, scope for AC) and a SwitchRoute for switched fixtures.
     model: litmus.models.test_config.FixtureConnection
     relationships:
-      - { kind: references, target: pin }                   # dut_pin
+      - { kind: references, target: pin }                   # uut_pin
       - { kind: references, target: measurement_function }  # function: MeasurementFunction | None
       - { kind: routed_through,  target: switch_route }
 
   - id: fixture_slot
     category: primitive
-    summary: One DUT slot inside a multi-DUT fixture; has its own connection map.
+    summary: One UUT slot inside a multi-UUT fixture; has its own connection map.
     model: litmus.models.test_config.FixtureSlot
     relationships:
       - { kind: wires,  target: fixture_connection }
@@ -307,14 +307,14 @@ concepts:
 
 
 # =============================================================================
-# CAPABILITY / SPEC PRIMITIVES — shared by products and instruments
+# CAPABILITY / SPEC PRIMITIVES — shared by parts and instruments
 # =============================================================================
 
   - id: capability
     category: primitive
     summary: >
-      What a signal endpoint can do — base of both ProductCharacteristic
-      (DUT side) and InstrumentCapability (bench side). Function +
+      What a signal endpoint can do — base of both PartCharacteristic
+      (UUT side) and InstrumentCapability (bench side). Function +
       direction + signals/conditions/controls/attributes. ATML/IVI/
       IEEE 1641 lineage.
     model: litmus.models.capability.Capability
@@ -476,7 +476,7 @@ concepts:
       - { kind: resolves_via, target: limit_lookup_config }
       - { kind: resolves_via, target: limit_step_config }
       - { kind: resolves_to,  target: limit }                      # to_limit() at vector time
-      - { kind: derives_from, target: product_characteristic }     # characteristic: + tolerance
+      - { kind: derives_from, target: part_characteristic }     # characteristic: + tolerance
 
   - id: limit_lookup_config
     category: primitive
@@ -513,15 +513,15 @@ concepts:
     model: null
     docs: docs/concepts/sessions.md
     relationships:
-      - { kind: contains, target: test_run }    # one or many (single-DUT vs multi-slot)
+      - { kind: contains, target: test_run }    # one or many (single-UUT vs multi-slot)
       - { kind: emits,    target: session_started }
       - { kind: emits, target: session_ended }
 
   - id: test_run
     category: runtime
     summary: >
-      One complete test execution against one DUT on one Station.
-      Carries DUT/product/station/fixture traceability, profile/facets,
+      One complete test execution against one UUT on one Station.
+      Carries UUT/part/station/fixture traceability, profile/facets,
       git context, operator, collected items, executed steps, custom
       metadata, and the final outcome.
     model: litmus.data.models.TestRun
@@ -530,9 +530,9 @@ concepts:
       - { kind: stored_in,  target: run_store }
       - { kind: contains,   target: test_step }
       - { kind: contains,   target: collected_item }
-      - { kind: tests,      target: dut }
+      - { kind: tests,      target: uut }
       - { kind: runs_on,    target: station_config }
-      - { kind: references, target: product }
+      - { kind: references, target: part }
       - { kind: references, target: fixture_config }
       - { kind: references, target: profile_config }     # profile name
       - { kind: references, target: outcome }            # outcome: Outcome | None
@@ -570,7 +570,7 @@ concepts:
     category: runtime
     summary: >
       Single measurement — name, value, units, limit fields, outcome.
-      Carries full signal path (dut_pin, instrument_name, resource,
+      Carries full signal path (uut_pin, instrument_name, resource,
       channel, fixture_connection) for traceability. check_limit() is
       the single comparator-aware judgment path.
     model: litmus.data.models.Measurement
@@ -584,18 +584,18 @@ concepts:
     category: runtime
     summary: >
       Captured stimulus (commanded inputs) — param/value/units +
-      instrument/resource/channel + dut_pin + fixture_connection.
+      instrument/resource/channel + uut_pin + fixture_connection.
     model: litmus.data.models.StimulusRecord
 
-  - id: dut
+  - id: uut
     category: runtime
     summary: >
-      Physical instance of a Product — serial, part_number, revision,
+      Physical instance of a Part — serial, part_number, revision,
       lot_number. Created at run start from operator scan or CLI.
-    model: litmus.data.models.DUT
+    model: litmus.data.models.UUT
     docs: docs/concepts/architecture-erd.md
     relationships:
-      - { kind: instance_of, target: product }
+      - { kind: instance_of, target: part }
 
   - id: collected_item
     category: runtime
@@ -747,7 +747,7 @@ concepts:
     category: event
     event_type: run.started
     summary: >
-      Emitted once per test run. Full run context — station/DUT/product/
+      Emitted once per test run. Full run context — station/UUT/part/
       operator/test phase/git/environment.
     model: litmus.data.events.RunStarted
     relationships:
@@ -779,12 +779,12 @@ concepts:
       - { kind: inherits_from, target: event_base }
       - { kind: records,         target: test_run }
 
-  # ---- Slot events (multi-DUT) ----
+  # ---- Slot events (multi-UUT) ----
 
   - id: slot_started
     category: event
     event_type: slot.started
-    summary: A DUT slot begins execution. Carries slot_id and dut_serial.
+    summary: A UUT slot begins execution. Carries slot_id and uut_serial.
     model: litmus.data.events.SlotStarted
     relationships:
       - { kind: stored_in,     target: event_store }
@@ -794,7 +794,7 @@ concepts:
   - id: slot_completed
     category: event
     event_type: slot.completed
-    summary: A DUT slot finishes execution.
+    summary: A UUT slot finishes execution.
     model: litmus.data.events.SlotCompleted
     relationships:
       - { kind: stored_in,     target: event_store }
@@ -850,15 +850,15 @@ concepts:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
 
-  - id: dut_scanned
+  - id: uut_scanned
     category: event
-    event_type: fixture.dut_scanned
-    summary: DUT serial scanned at run start (operator or barcode).
-    model: litmus.data.events.DutScanned
+    event_type: fixture.uut_scanned
+    summary: UUT serial scanned at run start (operator or barcode).
+    model: litmus.data.events.UutScanned
     relationships:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
-      - { kind: records,         target: dut }
+      - { kind: records,         target: uut }
 
   - id: instrument_disconnected
     category: event
@@ -1091,7 +1091,7 @@ concepts:
   - id: direction
     category: enum
     summary: >
-      Signal direction (INPUT / OUTPUT). Capability matching pairs DUT
+      Signal direction (INPUT / OUTPUT). Capability matching pairs UUT
       OUTPUT with instrument INPUT.
     model: litmus.models.enums.Direction
 
@@ -1140,20 +1140,20 @@ slices:
   - id: runtime-anatomy
     title: Composing a Test Run
     summary: >
-      How a TestRun is composed from authored definitions (Product, Station,
-      Fixture, Profile) and decomposed into runtime entities (DUT, steps,
+      How a TestRun is composed from authored definitions (Part, Station,
+      Fixture, Profile) and decomposed into runtime entities (UUT, steps,
       vectors, measurements). The canonical "what is a run made of" view.
     layout: LR
     highlight: [test_run]
     concepts:
       - project_config
       - profile_config
-      - product
-      - product_characteristic
+      - part
+      - part_characteristic
       - station_config
       - station_type
       - fixture_config
-      - dut
+      - uut
       - test_run
       - test_step
       - test_vector
@@ -1180,8 +1180,8 @@ slices:
       - step_started
       - step_ended
       - measurement_recorded
-      - dut_scanned
-      - dut
+      - uut_scanned
+      - uut
 
   - id: config-layering
     title: Config Layering — Profile, Sidecar, Marker
@@ -1222,17 +1222,17 @@ slices:
       - attribute
 
   - id: capability-and-matching
-    title: Capability Shape — Products and Instruments Share It
+    title: Capability Shape — Parts and Instruments Share It
     summary: >
-      ProductCharacteristic and InstrumentCapability inherit the same
-      Capability base. Matching pairs DUT OUTPUT with instrument INPUT
+      PartCharacteristic and InstrumentCapability inherit the same
+      Capability base. Matching pairs UUT OUTPUT with instrument INPUT
       by direction flip — same fields, same shape, different sides of
       the bench. SpecBand drives condition-dependent overrides on both.
     layout: TB
     highlight: [capability]
     concepts:
       - capability
-      - product_characteristic
+      - part_characteristic
       - instrument_capability
       - spec_band
       - signal
@@ -1243,11 +1243,11 @@ slices:
       - measurement_function
 
   - id: fixture-routing
-    title: Fixture Routing — DUT Pin to Instrument Channel
+    title: Fixture Routing — UUT Pin to Instrument Channel
     summary: >
-      How a DUT pin reaches an instrument channel. FixtureConnection names
+      How a UUT pin reaches an instrument channel. FixtureConnection names
       the pairing; SwitchRoute handles intervening matrix/mux switching;
-      RouteClosed/RouteOpened events record activation. Multi-DUT fixtures
+      RouteClosed/RouteOpened events record activation. Multi-UUT fixtures
       use FixtureSlot to scope per-slot channel maps.
     layout: LR
     highlight: [fixture_connection]
@@ -1258,7 +1258,7 @@ slices:
       - switch_route
       - pin
       - station_instrument_config
-      - product
+      - part
       - route_closed
       - route_opened
 
@@ -1304,12 +1304,12 @@ ontology_ignored:
     reason: Enum used only inside SpecBand; not authored on its own.
   - model: litmus.models.capability.ConditionKey
     reason: String vocabulary for Capability.conditions keys. Documented as part of capability schema.
-  - model: litmus.models.product.PinRole
+  - model: litmus.models.part.PinRole
     reason: Enum on Pin.role. Documented as part of pin.
-  - model: litmus.models.product_manifest.WorkflowStep
-    reason: Enum sequencing the datasheet-to-test workflow on ProductManifest.
-  - model: litmus.models.product_manifest.FileReferences
-    reason: File-path bag inside ProductManifest.
+  - model: litmus.models.part_manifest.WorkflowStep
+    reason: Enum sequencing the datasheet-to-test workflow on PartManifest.
+  - model: litmus.models.part_manifest.FileReferences
+    reason: File-path bag inside PartManifest.
   - model: litmus.models.instrument.ChannelKind
     reason: Enum driving InstrumentProxy event emission (read/set/control/configure).
   - model: litmus.models.enums.WaveformShape

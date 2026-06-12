@@ -341,7 +341,7 @@ _OP_LABELS: list[tuple[str, str, str]] = [
     ("Locate a file", "files.resolve", "query"),
 ]
 
-# Representative per-product test cycle used only to express the "in parallel"
+# Representative per-part test cycle used only to express the "in parallel"
 # figure (sustained runs/s × cycle). Stated in the report so it's interpretable.
 _CYCLE_S = 10.0
 
@@ -407,7 +407,7 @@ def _verdict(report: BenchmarkReport) -> str:
     return (
         f"Recording a production test run costs ~{_ms(cap.per_run_s * 1000)} and "
         f"~{cap.storage_gb_per_run * 1024:.1f} MB. This machine finalizes "
-        f"~{cap.sustained_runs_per_s:.0f} runs/s (≈{cap.parallel_products(_CYCLE_S)} products in "
+        f"~{cap.sustained_runs_per_s:.0f} runs/s (≈{cap.parallel_parts(_CYCLE_S)} parts in "
         f"parallel at a {_CYCLE_S:.0f}s cycle) and can hold ~{_si(cap.storage_runs)} runs. "
         "Litmus stays out of your test's way."
     )
@@ -453,7 +453,7 @@ def format_markdown(report: BenchmarkReport) -> str:
             )
     out.append("")
     out.append(
-        '_Compositions are illustrative, tunable. "Products in parallel" = the data layer\'s '
+        '_Compositions are illustrative, tunable. "Parts in parallel" = the data layer\'s '
         "sustained run rate × your test cycle — at a multi-second cycle that's hundreds._"
     )
     out.append("")

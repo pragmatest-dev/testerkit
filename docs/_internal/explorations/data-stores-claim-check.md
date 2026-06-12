@@ -17,7 +17,7 @@ bears responsibility**, and it has to serve four jobs at once, for a long
 time. Every store/claim/index decision below traces back to one of these:
 
 1. **Disposition (the gate).** Did *this* unit meet spec? Pass/fail, bin,
-   ship-or-scrap — per-unit, against limits derived from the product spec.
+   ship-or-scrap — per-unit, against limits derived from the part spec.
 2. **Traceability & provenance (the defense).** A durable, reconstructable
    record tying a **serial** → the **spec/limits** judged against → the
    **instruments + calibration** that measured it → **station, operator,
@@ -371,7 +371,7 @@ The synthesis of the verb table, the dispatch table, and the data-type taxonomy.
 |---|---|---|---|---|---|
 | Judge a scalar against limits | `verify(name, v, limit=L)` | `float` / `int` / `bool` | event payload | `Measurement` | judged row (`value=v`, `outcome=PASSED/FAILED`) |
 | Record a scalar with no judgment (characterization scalar) | `verify(name, v)` no limit | `float` / `int` / `bool` / `str` | event payload | `Measurement` | DONE row (`value=v`, `outcome=DONE`) |
-| Stamp contextual scalar on the vector (DUT temp, supply, operator) | `observe(name, v)` | `float` / `int` / `bool` / `str` | `out_<name>` inline | `Observation` | only if vector has no `verify` → DONE row; else rides along |
+| Stamp contextual scalar on the vector (UUT temp, supply, operator) | `observe(name, v)` | `float` / `int` / `bool` / `str` | `out_<name>` inline | `Observation` | only if vector has no `verify` → DONE row; else rides along |
 | Capture a discrete artifact (waveform, image, file, vendor blob) | `observe(name, v)` | `Waveform` / `ndarray` / `Path` / `bytes` / image / model | FileStore (`file://…`) | `Observation` w/ `file://` claim | same auto-promotion rule |
 | Force a first-class row for an artifact (alongside derived verifies) | `verify(name, v)` no limit | non-scalar | FileStore | `Measurement` w/ `file://` claim | explicit DONE row (`value=NULL`, `outcome=DONE`) |
 | Judge a derived stat computed from a captured artifact | `verify(name, derived_scalar, limit=L)` | `float` (computed from the artifact) | event payload | `Measurement` | judged row; sees source URI via `out_*` on the same vector |
@@ -412,7 +412,7 @@ observe("supply_voltage", psu.measure_voltage())
 # discrete artifact captures (anything non-scalar)
 observe("scope.ch1.capture", scope.acquire())              # → file://… (Waveform)
 observe("front_panel_photo", camera.snap())                # → file://… (Image)
-observe("nicom_dump",        Path("dut.tdms"))             # → file://… (Path copy)
+observe("nicom_dump",        Path("uut.tdms"))             # → file://… (Path copy)
 
 # derived stats from a captured artifact (judged scalars; share out_ source)
 wf = scope.acquire()
@@ -425,7 +425,7 @@ verify("max",       wf.max(),       Limit(low=3.2, high=3.4))
 # call ChannelStore directly
 
 # streaming captures (video / DAQ-to-file) — opt-in API
-with filestore.stream("dut_video", format="mp4") as sink:
+with filestore.stream("uut_video", format="mp4") as sink:
     camera.stream_to(sink)
 ```
 
@@ -506,7 +506,7 @@ Every meaningful operation emits an event; each carries data inline (when small)
 
 **Phase 2 — Materialization (at `RunEnded`).** The materializer walks the event log for the run and builds the parquet measurement table. Measurement events → rows. Observation events in the same vector → `out_*` columns denormalized onto every measurement row in that vector. The auto-promotion rule decides whether observations also become DONE rows. Claim URIs flow through as-is into the parquet columns. `materialize_channel_refs` does its session-keyed copy-on-prune step when channel retention triggers (separate, retention-driven, not at RunEnded).
 
-**Phase 3 — At rest (post-run).** Two query surfaces, two purposes. **Parquet** is the analytical surface — `SELECT … FROM measurements WHERE …` by name / value / outcome. `out_*` columns hold scalar snapshots or claim URIs. Joins to product / station / spec for SPC. **Event log** stays queryable for replay / audit / "what exactly happened in this vector." Filter by `event_type`, `run_id`, `session_id`, `event_number`. **Following a URI** is the raw-data drill-down — `file://…` resolves via FileStore (artifact viewer renders or serves bytes); `channel://…` resolves via ChannelStore (rows for the session, plot or compute).
+**Phase 3 — At rest (post-run).** Two query surfaces, two purposes. **Parquet** is the analytical surface — `SELECT … FROM measurements WHERE …` by name / value / outcome. `out_*` columns hold scalar snapshots or claim URIs. Joins to part / station / spec for SPC. **Event log** stays queryable for replay / audit / "what exactly happened in this vector." Filter by `event_type`, `run_id`, `session_id`, `event_number`. **Following a URI** is the raw-data drill-down — `file://…` resolves via FileStore (artifact viewer renders or serves bytes); `channel://…` resolves via ChannelStore (rows for the session, plot or compute).
 
 ### Why events aren't the search surface
 
@@ -795,7 +795,7 @@ The audit is useful anyway for three reasons: it gives readers from other ecosys
 
 *Gap 2 — the relational shape of the analytic surface.* MLflow's entities (params, metrics, tags, artifacts) are **flat siblings under a run**. They share `run_id` as grouping but have no row-level relationship to each other — a metric does not reference a param or an artifact; an artifact does not reference a metric. To ask "which params and artifacts correspond to metric `loss=0.2`?" you join via `run_id` and get *all* params and *all* artifacts on that run.
 
-Our analytic shape is opposite: **everything denormalizes onto the measurement row**. A `verify` row carries its own `value` / `outcome` / `limit_*`, the vector's `in_*` (inputs from `configure`), the vector's `out_*` (observations including artifact URIs), and the session/run context (DUT serial, station, spec) — one query, no joins. "Which inputs and which captured artifact correspond to this overshoot row?" is answered by the row's own columns.
+Our analytic shape is opposite: **everything denormalizes onto the measurement row**. A `verify` row carries its own `value` / `outcome` / `limit_*`, the vector's `in_*` (inputs from `configure`), the vector's `out_*` (observations including artifact URIs), and the session/run context (UUT serial, station, spec) — one query, no joins. "Which inputs and which captured artifact correspond to this overshoot row?" is answered by the row's own columns.
 
 This is a real architectural difference, driven by data-shape needs:
 
@@ -832,7 +832,7 @@ So our shape **converges with** MLflow on the **storage split** (lean metadata +
 | **The four jobs** (disposition / traceability / yield / diagnosis) | ISO/IEC 17025 (lab quality / traceability), SEMI E10 / E58 (equipment metrics), AIAG MSA (Cpk / Gauge R&R), Western Electric / Six Sigma (SPC) — each job traces to an established T&M domain |
 | Measurements with limits + outcomes, attachments as side artifacts | **OpenHTF** — `measurements` (with limits) + `phase.attach_from_file()` (artifacts) |
 | Calibration cert + traceability spine | ISO/IEC 17025, A2LA accreditation |
-| DUT serial + station + operator + spec on every row | MES / shop-floor data; SEMI SECS/GEM; IEEE 1671 ATML test result format |
+| UUT serial + station + operator + spec on every row | MES / shop-floor data; SEMI SECS/GEM; IEEE 1671 ATML test result format |
 | Sample-rate-derived time axis (`t0 + dt`) | TDMS waveform encoding; IEEE 1671; MATLAB time-series objects |
 
 ### Observability lineage (close cousin, lighter reuse)

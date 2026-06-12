@@ -27,7 +27,7 @@ OUTPUT_DIR = REPO_ROOT / "dist"
 REFS_SRC = DOCS_DIR / "refs"
 DOCS_TO_COPY = {
     REFS_SRC / "capability.md": REFS_DIR / "capability.md",
-    REFS_SRC / "product.md": REFS_DIR / "product.md",
+    REFS_SRC / "part.md": REFS_DIR / "part.md",
     REFS_SRC / "station.md": REFS_DIR / "station.md",
     REFS_SRC / "fixture.md": REFS_DIR / "fixture.md",
     REFS_SRC / "test-writing.md": REFS_DIR / "test-writing.md",
@@ -54,7 +54,7 @@ def generate_enums_md() -> str:
         (
             "ConditionKey",
             "Canonical keys for the `conditions` dict. "
-            "Shared vocabulary for products and instruments.",
+            "Shared vocabulary for parts and instruments.",
         ),
         ("ConnectorType", "Physical connector type on instrument."),
         ("TerminalRole", "Physical terminal on an instrument channel."),

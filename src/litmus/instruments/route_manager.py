@@ -70,15 +70,15 @@ class RouteManager:
         self._active_routes: dict[str, SwitchRoute] = {}  # connection_name → active route
         self._held_locks: dict[str, BaseFileLock] = {}  # resource_key → held lock
         self._channel_owners: dict[tuple[str, str], str] = {}  # (switch_role, channel) → connection
-        # Build reverse lookup: dut_pin → connection_name (for for_pin)
+        # Build reverse lookup: uut_pin → connection_name (for for_pin)
         self._pin_to_connection: dict[str, str] = {}
         # Build conflict model: instrument_channel → list of connection names
         self._instrument_channel_map: dict[tuple[str, str | None], list[str]] = {}
 
         for connection_name, connection in connections.items():
             if connection.route is not None:
-                if connection.dut_pin:
-                    self._pin_to_connection[connection.dut_pin] = connection_name
+                if connection.uut_pin:
+                    self._pin_to_connection[connection.uut_pin] = connection_name
                 key = (connection.instrument, connection.instrument_channel)
                 self._instrument_channel_map.setdefault(key, []).append(connection_name)
 
@@ -194,7 +194,7 @@ class RouteManager:
 
     @contextmanager
     def for_pin(self, pin_name: str) -> Generator[None, None, None]:
-        """Activate switch route for a DUT pin. Use with direct instrument access.
+        """Activate switch route for a UUT pin. Use with direct instrument access.
 
         Usage::
 
@@ -202,7 +202,7 @@ class RouteManager:
                 v = dmm.measure_voltage()
 
         Args:
-            pin_name: DUT pin name (e.g., "VOUT").
+            pin_name: UUT pin name (e.g., "VOUT").
 
         Raises:
             KeyError: If no routed fixture connection for this pin.
@@ -215,10 +215,10 @@ class RouteManager:
             self.deactivate(connection_name)
 
     def _resolve_pin(self, pin_name: str) -> str:
-        """Resolve a DUT pin name to a fixture connection name."""
+        """Resolve a UUT pin name to a fixture connection name."""
         if pin_name not in self._pin_to_connection:
             raise KeyError(
-                f"No routed fixture connection for DUT pin '{pin_name}'. "
+                f"No routed fixture connection for UUT pin '{pin_name}'. "
                 f"Available routed pins: {sorted(self._pin_to_connection.keys())}"
             )
         return self._pin_to_connection[pin_name]

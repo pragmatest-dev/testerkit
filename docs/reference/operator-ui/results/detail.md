@@ -6,7 +6,7 @@ The detail view is what you land on after clicking a row in the
 [Results list](list.md). It shows everything Litmus recorded for one
 run: a sticky summary header, an Overview with stats, and tabs for
 Steps, Measurements, the Execution Timeline (multi-slot runs only),
-and DUT History.
+and UUT History.
 
 You can also leave it open during a run to watch progress live — the
 status chip shows a "Live" indicator and the tables fill in as steps
@@ -27,8 +27,8 @@ content. It carries:
 | Title | The static label `Test Run Summary` |
 | Outcome chip | Colored chip showing the current status. For finished runs the chip reads the final outcome (`PASSED`, `FAILED`, `ERRORED`, `SKIPPED`, `TERMINATED`, `ABORTED`, or `DONE`). For in-flight runs the chip reads `RUNNING`, and an animated blue dot + `Live` label appears next to it. |
 | Back button | Returns to the [Results list](list.md) (`/results`) |
-| Part Number | DUT part number stamped on the run |
-| Serial | DUT serial number |
+| Part Number | UUT part number stamped on the run |
+| Serial | UUT serial number |
 | Hostname | Station hostname that ran the test |
 | Project | Project name from `litmus.yaml` |
 | Started | Run start timestamp, rendered in browser-local time |
@@ -46,7 +46,7 @@ with at least one measurement that carries a `slot_id`).
 | Steps | The step table — one row per step execution, in execution order |
 | Measurements | The measurement table — one row per recorded measurement |
 | Execution Timeline | (multi-slot only) Gantt-style chart of all slots in the parallel session, with this run's slot highlighted |
-| DUT History | A short list of other runs for the same DUT serial |
+| UUT History | A short list of other runs for the same UUT serial |
 
 The active tab is mirrored into the URL (`?tab=Steps`, `?tab=Measurements`,
 etc.), so a bookmark lands the reader back on the same tab.
@@ -130,16 +130,16 @@ slot's activity, with this run's slot highlighted.
 
 For single-slot runs (the common case) the tab is hidden entirely.
 
-### DUT History
+### UUT History
 
-A short table of other runs for the same DUT serial — useful for
+A short table of other runs for the same UUT serial — useful for
 "is this unit's last 5 runs all green?" checks. Loads on demand on
 first click. Up to 10 rows, drawn from the project's most recent
-100 runs — older history for the same DUT isn't shown here. Click
+100 runs — older history for the same UUT isn't shown here. Click
 any row to jump to that run's detail page.
 
-When no other runs exist for the DUT serial within that window, the
-tab body shows `No other runs found for DUT: <serial>`.
+When no other runs exist for the UUT serial within that window, the
+tab body shows `No other runs found for UUT: <serial>`.
 
 ## Live updates
 
@@ -185,8 +185,8 @@ For the underlying schemas, see
 ## Common tasks
 
 - **Drill into a failing measurement** — open the Measurements tab,
-  scan for `FAILED` chips, then jump to the DUT History tab to see
-  whether the prior run for the same DUT had the same failure.
+  scan for `FAILED` chips, then jump to the UUT History tab to see
+  whether the prior run for the same UUT had the same failure.
 - **Pull a waveform or log** — Measurements tab, scroll to the
   Artifacts card below the table, click the artifact button.
 - **Watch a long test live** — open the detail page during the run
@@ -203,7 +203,7 @@ The active tab is mirrored into the URL via the `tab` query parameter:
 | `/results/{run_id}?tab=Steps` | Steps |
 | `/results/{run_id}?tab=Measurements` | Measurements |
 | `/results/{run_id}?tab=Execution%20Timeline` | Execution Timeline (multi-slot only) |
-| `/results/{run_id}?tab=DUT%20History` | DUT History |
+| `/results/{run_id}?tab=UUT%20History` | UUT History |
 
 Bookmarking the URL bookmarks the run + the open tab.
 

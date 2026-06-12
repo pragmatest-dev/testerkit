@@ -14,7 +14,7 @@ import pytest
 from litmus.data.backends._row_helpers import MeasurementRow, build_row
 from litmus.data.exporters.csv_exporter import CsvSubscriber
 from litmus.data.exporters.json_exporter import JsonSubscriber
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 from litmus.data.subscribers._base import get_subscriber_class, list_subscribers
 from tests.test_data.conftest import _replay_events
 
@@ -26,7 +26,7 @@ def sample_test_run() -> TestRun:
         id=uuid4(),
         started_at=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 3, 4, 10, 5, 0, tzinfo=UTC),
-        dut=DUT(serial="DUT001", part_number="PN-100", revision="A"),
+        uut=UUT(serial="UUT001", part_number="PN-100", revision="A"),
         station_id="station_001",
         test_phase="development",
         outcome=Outcome.PASSED,
@@ -195,7 +195,7 @@ class TestJsonSubscriber:
 
         data = json.loads(json_file.read_text())
         assert data["station_id"] == "station_001"
-        assert data["dut"]["serial"] == "DUT001"
+        assert data["uut"]["serial"] == "UUT001"
         assert len(data["steps"]) == 1
         assert len(data["steps"][0]["vectors"][0]["measurements"]) == 2
 
@@ -267,7 +267,7 @@ class TestMeasurementRow:
 
         assert isinstance(row, MeasurementRow)
         assert row.run_id == str(sample_test_run.id)
-        assert row.dut_serial == "DUT001"
+        assert row.uut_serial == "UUT001"
         assert row.station_id == "station_001"
         assert row.step_name == "test_voltage"
         assert row.measurement_name == "vout"
@@ -306,7 +306,7 @@ class TestMeasurementRow:
         assert all(isinstance(r, MeasurementRow) for r in rows)
         assert rows[0].measurement_name == "vout"
         assert rows[1].measurement_name == "iout"
-        assert rows[0].dut_serial == "DUT001"
+        assert rows[0].uut_serial == "UUT001"
 
 
 class TestEventSubscriberLifecycle:
@@ -425,11 +425,11 @@ class TestSaveRefToDir:
         ref_dir = tmp_path / "_ref"
         ref_dir.mkdir()
 
-        model = DUT(serial="DUT001", part_number="PN-100")
-        ref = save_ref_to_dir(ref_dir, "abc", "dut", model)
-        assert ref == "file://_ref/abc_dut.json"
-        content = json.loads((ref_dir / "abc_dut.json").read_text())
-        assert content["serial"] == "DUT001"
+        model = UUT(serial="UUT001", part_number="PN-100")
+        ref = save_ref_to_dir(ref_dir, "abc", "uut", model)
+        assert ref == "file://_ref/abc_uut.json"
+        content = json.loads((ref_dir / "abc_uut.json").read_text())
+        assert content["serial"] == "UUT001"
 
 
 class TestInstrumentArrayKeys:
@@ -438,7 +438,7 @@ class TestInstrumentArrayKeys:
         from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS, TestRunLogger
 
         logger = TestRunLogger(
-            dut_serial="DUT001",
+            uut_serial="UUT001",
             station_id="station_001",
         )
         arrays = logger.build_instrument_arrays()
@@ -458,7 +458,7 @@ class TestReconstructTestRun:
 
         # Compare key fields
         assert rebuilt.id == sample_test_run.id
-        assert rebuilt.dut.serial == sample_test_run.dut.serial
+        assert rebuilt.uut.serial == sample_test_run.uut.serial
         assert rebuilt.station_id == sample_test_run.station_id
         assert rebuilt.outcome == sample_test_run.outcome
         assert len(rebuilt.steps) == len(sample_test_run.steps)
@@ -532,7 +532,7 @@ class TestHarnessLoggerIntegration:
         from litmus.execution.logger import TestRunLogger
 
         logger = TestRunLogger(
-            dut_serial="DUT001",
+            uut_serial="UUT001",
             station_id="station_001",
         )
 
@@ -574,7 +574,7 @@ class TestHarnessLoggerIntegration:
         from litmus.execution.logger import TestRunLogger
 
         logger = TestRunLogger(
-            dut_serial="DUT001",
+            uut_serial="UUT001",
             station_id="station_001",
         )
         harness = TestHarness(logger=logger, step_name="test_voltage")

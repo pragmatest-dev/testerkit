@@ -150,8 +150,8 @@ async def result_detail_page(run_id: str, tab: str = ""):
 
             with ui.card_section().classes("py-2 px-3"):
                 with ui.row().classes("flex-wrap gap-x-10 gap-y-2 w-full"):
-                    info_field("Part Number", run_obj.dut_part_number or "")
-                    info_field("Serial", run_obj.dut_serial or "")
+                    info_field("Part Number", run_obj.uut_part_number or "")
+                    info_field("Serial", run_obj.uut_serial or "")
                     info_field("Hostname", run_obj.station_hostname or "")
                     info_field("Project", run_obj.project_name or "")
                     info_field("Started", format_datetime(run_obj.started_at))
@@ -202,7 +202,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
             measurements_tab = ui.tab("Measurements", icon="science")
             if has_slots and session_id:
                 timeline_tab = ui.tab("Execution Timeline", icon="timeline")
-            history_tab = ui.tab("DUT History", icon="history")
+            history_tab = ui.tab("UUT History", icon="history")
         ui.add_css(
             ".q-tab__icon { font-size: 1rem !important; }"
             ".q-tab { min-height: 32px !important; padding: 0 12px !important; }"
@@ -215,7 +215,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
         _tab_lookup: dict[str, Any] = {
             "Steps": steps_tab,
             "Measurements": measurements_tab,
-            "DUT History": history_tab,
+            "UUT History": history_tab,
         }
         if timeline_tab is not None:
             _tab_lookup["Execution Timeline"] = timeline_tab
@@ -274,7 +274,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
             )
             if active == "Execution Timeline":
                 await _load_timeline()
-            elif active == "DUT History":
+            elif active == "UUT History":
                 await _load_history()
 
         tabs.on_value_change(_on_tab_change)
@@ -566,12 +566,12 @@ def _render_history_tab(
     all_runs: list,
 ) -> None:
     container.clear()
-    dut_serial = run_obj.dut_serial or ""
-    dut_runs = [r for r in all_runs if r.dut_serial == dut_serial and r.test_run_id != run_id]
+    uut_serial = run_obj.uut_serial or ""
+    uut_runs = [r for r in all_runs if r.uut_serial == uut_serial and r.test_run_id != run_id]
 
     with container:
-        if dut_runs:
-            ui.label(f"Other runs for DUT: {dut_serial}").classes("text-sm text-slate-500 mb-2")
+        if uut_runs:
+            ui.label(f"Other runs for UUT: {uut_serial}").classes("text-sm text-slate-500 mb-2")
             columns = [
                 {"name": "project", "label": "Project", "field": "project", "align": "left"},
                 {"name": "started", "label": "Started", "field": "started", "align": "left"},
@@ -584,7 +584,7 @@ def _render_history_tab(
                     "started": format_datetime(r.started_at),
                     "outcome": r.outcome or "",
                 }
-                for r in dut_runs[:10]
+                for r in uut_runs[:10]
             ]
             data_table(
                 columns=columns,
@@ -594,7 +594,7 @@ def _render_history_tab(
                 time_columns=["started"],
             )
         else:
-            ui.label(f"No other runs found for DUT: {dut_serial}").classes("text-slate-500 italic")
+            ui.label(f"No other runs found for UUT: {uut_serial}").classes("text-slate-500 italic")
 
 
 def _render_timeline_tab(

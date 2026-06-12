@@ -28,7 +28,7 @@ class StimulusRecord(BaseModel):
     - instrument: Station config name (e.g., "psu_main")
     - resource: VISA address or connection string
     - channel: Channel on instrument (e.g., "CH1")
-    - dut_pin: DUT pin being driven
+    - uut_pin: UUT pin being driven
     - fixture_connection: Named fixture connection
     """
 
@@ -38,7 +38,7 @@ class StimulusRecord(BaseModel):
     instrument: str | None = None  # Station config name (e.g., "psu_main")
     resource: str | None = None  # VISA address or connection string
     channel: str | None = None  # Channel on instrument (e.g., "CH1")
-    dut_pin: str | None = None  # DUT pin being driven
+    uut_pin: str | None = None  # UUT pin being driven
     fixture_connection: str | None = None  # Named fixture connection
 
 
@@ -219,7 +219,7 @@ class Measurement(BaseModel):
     timestamp: datetime = Field(default_factory=_utcnow)
 
     # Traceability (ATML: signal routing)
-    dut_pin: str | None = None  # Which DUT pin was measured
+    uut_pin: str | None = None  # Which UUT pin was measured
     instrument_name: str | None = None  # Station config name (e.g., "dmm_main")
     instrument_resource: str | None = None  # VISA address or connection string
     instrument_channel: str | None = None  # Channel on instrument (e.g., "CH1")
@@ -381,7 +381,7 @@ class CollectedItem(BaseModel):
     vector_count_planned: int = 1
 
 
-class DUT(BaseModel):
+class UUT(BaseModel):
     """Device under test identification."""
 
     serial: str
@@ -398,9 +398,9 @@ class RunSummary(BaseModel):
     slot_id: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
-    dut_serial: str | None = None
-    dut_part_number: str | None = None
-    product_id: str | None = None
+    uut_serial: str | None = None
+    uut_part_number: str | None = None
+    part_id: str | None = None
     station_id: str | None = None
     station_name: str | None = None
     station_type: str | None = None
@@ -425,13 +425,13 @@ class TestRun(BaseModel):
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
 
-    # DUT identification
-    dut: DUT
+    # UUT identification
+    uut: UUT
 
-    # Product traceability
-    product_id: str | None = None
-    product_name: str | None = None
-    product_revision: str | None = None
+    # Part traceability
+    part_id: str | None = None
+    part_name: str | None = None
+    part_revision: str | None = None
 
     # Station traceability — ``station_id`` is None for bringup tier
     # runs (no station YAML on disk; tests use conftest-defined

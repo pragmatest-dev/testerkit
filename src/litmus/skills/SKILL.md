@@ -10,7 +10,7 @@ Skills are markdown prompts that guide AI assistants (Claude, Copilot, etc.) thr
 ## Available Skills
 
 ### Workflows
-- **[datasheet-to-test](workflow/datasheet-to-test.md)** - Full workflow from product datasheet to running tests
+- **[datasheet-to-test](workflow/datasheet-to-test.md)** - Full workflow from part datasheet to running tests
 - **[datasheet-to-catalog](workflow/datasheet-to-catalog.md)** - Generate catalog YAML from instrument datasheet PDF (thorough, for accuracy specs)
 - **[catalog-scaffold](catalog-scaffold.md)** - Quick catalog entry from Claude's knowledge (fast, for common instruments)
 
@@ -41,7 +41,7 @@ Skills are designed for **Claude Desktop + MCP** (for Max subscribers) or any AI
 ┌─────────────────────────────────────────┐
 │ Litmus MCP Server                       │
 │                                         │
-│ Tools: list_products, create_product,   │
+│ Tools: list_parts, create_part,   │
 │        derive_requirements, run_tests   │
 └─────────────────────────────────────────┘
 ```
@@ -58,7 +58,7 @@ Skills are designed for **Claude Desktop + MCP** (for Max subscribers) or any AI
 2. Configure Claude Desktop to use the server (in settings)
 
 3. Ask Claude:
-   > "Help me create tests for the TPS54302. The datasheet is in examples/products/tps54302/datasheet.md"
+   > "Help me create tests for the TPS54302. The datasheet is in examples/parts/tps54302/datasheet.md"
 
 4. Claude will guide you through each step, asking for approval before proceeding
 
@@ -80,4 +80,4 @@ Key principles:
 - Always pause for human approval before major actions
 - Show confidence levels when extracting information
 - Offer the UI editor for complex changes
-- Persist state in product folders for resume capability
+- Persist state in part folders for resume capability

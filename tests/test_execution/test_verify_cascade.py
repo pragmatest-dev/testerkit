@@ -127,7 +127,7 @@ def test_verify_cascade_to_streaming_row(
     )
     serial = f"test-{uuid4().hex[:8]}"
     result = pytester.runpytest_subprocess(
-        f"--dut-serial={serial}",
+        f"--uut-serial={serial}",
         "--mock-instruments",
         "-q",
     )
@@ -167,7 +167,7 @@ def test_logger_measure_alone_still_stamps_done(pytester: pytest.Pytester) -> No
     )
     serial = f"test-{uuid4().hex[:8]}"
     result = pytester.runpytest_subprocess(
-        f"--dut-serial={serial}",
+        f"--uut-serial={serial}",
         "--mock-instruments",
         "-q",
     )
@@ -210,7 +210,7 @@ def test_in_test_vector_iteration_allows_repeat_name(pytester: pytest.Pytester) 
     )
     serial = f"test-{uuid4().hex[:8]}"
     result = pytester.runpytest_subprocess(
-        f"--dut-serial={serial}",
+        f"--uut-serial={serial}",
         "--mock-instruments",
         "-q",
     )

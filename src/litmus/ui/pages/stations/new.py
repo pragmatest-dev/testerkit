@@ -230,7 +230,7 @@ def new_station_page():
                         ui.label("About Stations").classes("font-medium text-blue-700")
                         ui.label(
                             "A station represents a physical test setup with instruments. "
-                            "Products are matched to stations based on instrument capabilities."
+                            "Parts are matched to stations based on instrument capabilities."
                         ).classes("text-sm text-blue-600")
                         ui.label("You can add instruments now or edit the station later.").classes(
                             "text-sm text-blue-600"

@@ -48,7 +48,7 @@ from litmus.data.events import (
     StepStarted,
 )
 from litmus.data.models import (
-    DUT,
+    UUT,
     Measurement,
     Outcome,
     TestRun,
@@ -71,7 +71,7 @@ def _run_with_vector(
         id=uuid4(),
         started_at=datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 5, 31, 12, 0, 1, tzinfo=UTC),
-        dut=DUT(serial="SN001"),
+        uut=UUT(serial="SN001"),
         outcome=Outcome.PASSED,
         steps=[
             TestStep(
@@ -180,7 +180,7 @@ class TestKindStabilityOffline:
             id=uuid4(),
             started_at=datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC),
             ended_at=datetime(2026, 5, 31, 12, 0, 1, tzinfo=UTC),
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             outcome=Outcome.PASSED,
             steps=[
                 TestStep(
@@ -211,7 +211,7 @@ class TestKindStabilityOffline:
             id=uuid4(),
             started_at=datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC),
             ended_at=datetime(2026, 5, 31, 12, 0, 1, tzinfo=UTC),
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             outcome=Outcome.PASSED,
             steps=[
                 TestStep(
@@ -262,7 +262,7 @@ def _seeded_accumulator() -> tuple[EventAccumulator, dict]:
             session_id=ctx["session_id"],
             run_id=ctx["run_id"],
             station_id="st1",
-            dut_serial="SN001",
+            uut_serial="SN001",
             occurred_at=datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC),
         )
     )

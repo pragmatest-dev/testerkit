@@ -13,7 +13,7 @@ EventSubscriber that accumulates events and writes TDMS on close.
           - {meas_name}: measurement value channels (props: limits/units)
           - {meas_name}_outcome: outcome string channels
 
-Constants (station, DUT, operator) go in root/group properties.
+Constants (station, UUT, operator) go in root/group properties.
 Only per-vector-varying data becomes channels.
 """
 
@@ -241,10 +241,10 @@ class TdmsSubscriber(EventSubscriber):
             "station_id": s.station_id,
             "project_name": s.project_name or "",
             "test_phase": s.test_phase or "",
-            "dut_serial": s.dut_serial,
+            "uut_serial": s.uut_serial,
         }
-        if s.dut_part_number:
-            root_props["dut_part_number"] = s.dut_part_number
+        if s.uut_part_number:
+            root_props["uut_part_number"] = s.uut_part_number
         if s.operator_id:
             root_props["operator_id"] = s.operator_id
         if s.station_name:

@@ -10,7 +10,7 @@ uv run python scripts/generate_reference_docs.py models
 
 The hand-written ERD below stays put; it changes only when relationships change shape, not on every field rename.
 
-For conceptual framing of the capability-side models (`InstrumentCapability`, `ProductCharacteristic`, `SpecBand`, `Signal`, `Condition`, `Control`, `Attribute`, `ChannelTopology`), see [concepts/capabilities](../../concepts/configuration/capabilities.md). For the event log subclasses of `EventBase`, see [event-types.md](event-types.md).
+For conceptual framing of the capability-side models (`InstrumentCapability`, `PartCharacteristic`, `SpecBand`, `Signal`, `Condition`, `Control`, `Attribute`, `ChannelTopology`), see [concepts/capabilities](../../concepts/configuration/capabilities.md). For the event log subclasses of `EventBase`, see [event-types.md](event-types.md).
 
 ## Shared enums (`litmus.models.enums`)
 
@@ -23,8 +23,8 @@ Direction of signal flow for a capability.
 
 | Value | Description |
 |---|---|
-| `'input'` | Signal/sense from DUT |
-| `'output'` | Source/drive to DUT |
+| `'input'` | Signal/sense from UUT |
+| `'output'` | Source/drive to UUT |
 | `'bidir'` | Both (SMU, VNA) |
 | `'transform'` | Signal-path component (amplifier, filter, mixer) |
 
@@ -344,11 +344,11 @@ Abstract station-type template (``stations/types/*.yaml``).
 | `instruments` | `dict[str, InstrumentConfig]` | *required* |
 | `capabilities` | `list[str]` | `[]` |
 
-### Product — `litmus.models.product`
+### Part — `litmus.models.part`
 
 #### `Pin` {#model-pin}
 
-Physical pin/pad on the DUT (ATML: Port).
+Physical pin/pad on the UUT (ATML: Port).
 
 | Field | Type | Default |
 |---|---|---|
@@ -378,9 +378,9 @@ Grouped signals forming a bus interface (ATML: Bus).
 | `parameters` | `dict[str, Any]` | `{}` |
 | `description` | `str \| None` | `None` |
 
-#### `ProductCharacteristic` {#model-productcharacteristic}
+#### `PartCharacteristic` {#model-partcharacteristic}
 
-Product capability + physical interface + traceability (ATML: UUT Characteristic).
+Part capability + physical interface + traceability (ATML: UUT Characteristic).
 
 | Field | Type | Default |
 |---|---|---|
@@ -398,9 +398,9 @@ Product capability + physical interface + traceability (ATML: UUT Characteristic
 | `signal_group` | `str \| None` | `None` |
 | `datasheet_ref` | `str \| None` | `None` |
 
-#### `Product` {#model-product}
+#### `Part` {#model-part}
 
-Product definition (ATML: UUT Description).
+Part definition (ATML: UUT Description).
 
 | Field | Type | Default |
 |---|---|---|
@@ -415,11 +415,11 @@ Product definition (ATML: UUT Description).
 | `driver` | `str \| None` | `None` |
 | `pins` | `dict[str, Pin]` | `{}` |
 | `signal_groups` | `dict[str, SignalGroup]` | `{}` |
-| `characteristics` | `dict[str, ProductCharacteristic]` | `{}` |
+| `characteristics` | `dict[str, PartCharacteristic]` | `{}` |
 
 #### `PinRole` {#enum-pinrole}
 
-Role of a physical DUT pin in the test system.
+Role of a physical UUT pin in the test system.
 
 | Value | Description |
 |---|---|
@@ -428,11 +428,11 @@ Role of a physical DUT pin in the test system.
 | `'power'` | Power input/output (VIN, VOUT) |
 | `'reference'` | Voltage reference, not driven |
 
-### Product manifest — `litmus.models.product_manifest`
+### Part manifest — `litmus.models.part_manifest`
 
 #### `FileReferences` {#model-filereferences}
 
-References to files in the product folder.
+References to files in the part folder.
 
 | Field | Type | Default |
 |---|---|---|
@@ -442,13 +442,13 @@ References to files in the product folder.
 | `station_selection` | `str \| None` | `None` |
 | `tests` | `str \| None` | `None` |
 
-#### `ProductManifest` {#model-productmanifest}
+#### `PartManifest` {#model-partmanifest}
 
-Manifest for a product folder.
+Manifest for a part folder.
 
 | Field | Type | Default |
 |---|---|---|
-| `product_id` | `str` | *required* |
+| `part_id` | `str` | *required* |
 | `name` | `str` | *required* |
 | `description` | `str \| None` | `None` |
 | `current_step` | `WorkflowStep \| None` | `None` |
@@ -563,34 +563,34 @@ A named connection on a test fixture.
 | `instrument_channel` | `str \| None` | `None` |
 | `instrument_terminal` | `str \| None` | `None` |
 | `description` | `str \| None` | `None` |
-| `dut_pin` | `str \| None` | `None` |
+| `uut_pin` | `str \| None` | `None` |
 | `net` | `str \| None` | `None` |
 | `function` | `MeasurementFunction \| None` | `None` |
 | `route` | `SwitchRoute \| None` | `None` |
 
 #### `FixtureSlot` {#model-fixtureslot}
 
-A DUT slot within a multi-DUT fixture.
+A UUT slot within a multi-UUT fixture.
 
 | Field | Type | Default |
 |---|---|---|
 | `connections` | `dict[str, FixtureConnection]` | `{}` |
-| `dut_resource` | `str \| None` | `None` |
+| `uut_resource` | `str \| None` | `None` |
 | `description` | `str \| None` | `None` |
 
 #### `FixtureConfig` {#model-fixtureconfig}
 
-Test fixture definition (DUT interface).
+Test fixture definition (UUT interface).
 
 | Field | Type | Default |
 |---|---|---|
 | `id` | `str` | *required* |
 | `name` | `str \| None` | `None` |
-| `product_id` | `str \| None` | `None` |
-| `product_family` | `str \| None` | `None` |
-| `product_revision` | `str \| None` | `None` |
+| `part_id` | `str \| None` | `None` |
+| `part_family` | `str \| None` | `None` |
+| `part_revision` | `str \| None` | `None` |
 | `station_types` | `list[str]` | `[]` |
-| `dut_resource` | `str \| None` | `None` |
+| `uut_resource` | `str \| None` | `None` |
 | `connections` | `dict[str, FixtureConnection]` | `{}` |
 | `slots` | `dict[str, FixtureSlot]` | `{}` |
 | `description` | `str \| None` | `None` |
@@ -782,7 +782,7 @@ A fixed hardware fact or performance characteristic.
 
 #### `Capability` {#model-capability}
 
-What a signal endpoint can do — shared by products and instruments.
+What a signal endpoint can do — shared by parts and instruments.
 
 | Field | Type | Default |
 |---|---|---|
@@ -961,7 +961,7 @@ Record of a stimulus applied during test execution.
 | `instrument` | `str \| None` | `None` |
 | `resource` | `str \| None` | `None` |
 | `channel` | `str \| None` | `None` |
-| `dut_pin` | `str \| None` | `None` |
+| `uut_pin` | `str \| None` | `None` |
 | `fixture_connection` | `str \| None` | `None` |
 
 #### `Measurement` {#model-measurement}
@@ -982,7 +982,7 @@ A single measurement with optional limit checking.
 | `spec_ref` | `str \| None` | `None` |
 | `limit_comparator` | `str \| None` | `None` |
 | `timestamp` | `datetime` | *via* `_utcnow()` |
-| `dut_pin` | `str \| None` | `None` |
+| `uut_pin` | `str \| None` | `None` |
 | `instrument_name` | `str \| None` | `None` |
 | `instrument_resource` | `str \| None` | `None` |
 | `instrument_channel` | `str \| None` | `None` |
@@ -1050,7 +1050,7 @@ A pytest item collected for execution (before any run).
 | `vector_index` | `int` | `0` |
 | `vector_count_planned` | `int` | `1` |
 
-#### `DUT` {#model-dut}
+#### `UUT` {#model-uut}
 
 Device under test identification.
 
@@ -1072,9 +1072,9 @@ Lightweight run header read from parquet index (no steps/measurements).
 | `slot_id` | `str \| None` | `None` |
 | `started_at` | `datetime \| None` | `None` |
 | `ended_at` | `datetime \| None` | `None` |
-| `dut_serial` | `str \| None` | `None` |
-| `dut_part_number` | `str \| None` | `None` |
-| `product_id` | `str \| None` | `None` |
+| `uut_serial` | `str \| None` | `None` |
+| `uut_part_number` | `str \| None` | `None` |
+| `part_id` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
 | `station_name` | `str \| None` | `None` |
 | `station_type` | `str \| None` | `None` |
@@ -1098,10 +1098,10 @@ A complete test run with steps and measurements.
 | `session_id` | `UUID` | *via* `uuid4()` |
 | `started_at` | `datetime` | *via* `_utcnow()` |
 | `ended_at` | `datetime \| None` | `None` |
-| `dut` | `DUT` | *required* |
-| `product_id` | `str \| None` | `None` |
-| `product_name` | `str \| None` | `None` |
-| `product_revision` | `str \| None` | `None` |
+| `uut` | `UUT` | *required* |
+| `part_id` | `str \| None` | `None` |
+| `part_name` | `str \| None` | `None` |
+| `part_revision` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
 | `station_name` | `str \| None` | `None` |
 | `station_type` | `str \| None` | `None` |
@@ -1201,8 +1201,8 @@ Request to launch a test run.
 
 | Field | Type | Default |
 |---|---|---|
-| `product_id` | `str \| None` | `None` |
-| `dut_serial` | `str` | *required* |
+| `part_id` | `str \| None` | `None` |
+| `uut_serial` | `str` | *required* |
 | `station_id` | `str` | *required* |
 | `test_path` | `str` | `'tests'` |
 | `test_profile` | `str \| None` | `None` |
@@ -1230,7 +1230,7 @@ Public summary of one currently-tracked run.
 | `status` | `Literal['pending', 'running', 'completed', 'failed']` | *required* |
 | `progress_pct` | `int` | `0` |
 | `current_step` | `str \| None` | `None` |
-| `dut_serial` | `str` | *required* |
+| `uut_serial` | `str` | *required* |
 | `station_id` | `str` | *required* |
 
 #### `DialogCreate` {#model-dialogcreate}
@@ -1350,21 +1350,21 @@ Request body for saving an entity via the unified save endpoint.
 |---|---|---|
 | `status` | `Literal['ok']` | *required* |
 
-#### `ProductsListResponse` {#model-productslistresponse}
+#### `PartsListResponse` {#model-partslistresponse}
 
-``GET /products`` — product summaries (id + label-only fields).
-
-| Field | Type | Default |
-|---|---|---|
-| `products` | `list[dict[str, Any]]` | *required* |
-
-#### `ProductRequirementsResponse` {#model-productrequirementsresponse}
-
-``GET /products/{product_id}/requirements`` — required capabilities.
+``GET /parts`` — part summaries (id + label-only fields).
 
 | Field | Type | Default |
 |---|---|---|
-| `product_id` | `str` | *required* |
+| `parts` | `list[dict[str, Any]]` | *required* |
+
+#### `PartRequirementsResponse` {#model-partrequirementsresponse}
+
+``GET /parts/{part_id}/requirements`` — required capabilities.
+
+| Field | Type | Default |
+|---|---|---|
+| `part_id` | `str` | *required* |
 | `requirements` | `list[RequirementSummary]` | *required* |
 
 #### `StationsListResponse` {#model-stationslistresponse}
@@ -1386,21 +1386,21 @@ Request body for saving an entity via the unified save endpoint.
 
 #### `MatchSingleResponse` {#model-matchsingleresponse}
 
-``GET /match?product_id=X&station_id=Y`` — one-station match check.
+``GET /match?part_id=X&station_id=Y`` — one-station match check.
 
 | Field | Type | Default |
 |---|---|---|
-| `product_id` | `str` | *required* |
+| `part_id` | `str` | *required* |
 | `station_id` | `str` | *required* |
 | `compatible` | `bool` | *required* |
 
 #### `MatchAllResponse` {#model-matchallresponse}
 
-``GET /match?product_id=X`` — all-stations match result.
+``GET /match?part_id=X`` — all-stations match result.
 
 | Field | Type | Default |
 |---|---|---|
-| `product_id` | `str` | *required* |
+| `part_id` | `str` | *required* |
 | `stations` | `list[dict[str, Any]]` | *required* |
 
 #### `InstrumentTypesResponse` {#model-instrumenttypesresponse}
@@ -1446,9 +1446,9 @@ One row from the ``runs`` table — denormalized run-level summary.
 | `run_id` | `str \| None` | `None` |
 | `session_id` | `str \| None` | `None` |
 | `slot_id` | `str \| None` | `None` |
-| `dut_serial` | `str \| None` | `None` |
-| `dut_part_number` | `str \| None` | `None` |
-| `dut_lot_number` | `str \| None` | `None` |
+| `uut_serial` | `str \| None` | `None` |
+| `uut_part_number` | `str \| None` | `None` |
+| `uut_lot_number` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
 | `station_name` | `str \| None` | `None` |
 | `station_hostname` | `str \| None` | `None` |
@@ -1459,7 +1459,7 @@ One row from the ``runs`` table — denormalized run-level summary.
 | `num_measurements` | `int \| None` | `None` |
 | `num_steps` | `int \| None` | `None` |
 | `test_phase` | `str \| None` | `None` |
-| `product_id` | `str \| None` | `None` |
+| `part_id` | `str \| None` | `None` |
 | `operator_id` | `str \| None` | `None` |
 | `project_name` | `str \| None` | `None` |
 
@@ -1489,7 +1489,7 @@ One row from the ``steps`` table — full denormalized run + step context.
 | `vector_count` | `int \| None` | `None` |
 | `retry_count` | `int \| None` | `None` |
 | `markers` | `str \| None` | `None` |
-| `dut_serial` | `str \| None` | `None` |
+| `uut_serial` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `outputs` | `dict[str, Any]` | `{}` |
@@ -1535,7 +1535,7 @@ Cardinality stats for the cardinality badge — single query result.
 | `total_rows` | `int` | *required* |
 | `distinct_runs` | `int` | *required* |
 | `distinct_measurements` | `int` | *required* |
-| `distinct_products` | `int` | *required* |
+| `distinct_parts` | `int` | *required* |
 
 #### `ParametricRow` {#model-parametricrow}
 
@@ -1693,10 +1693,10 @@ erDiagram
     }
 
     %% ============================================
-    %% PRODUCTS MODULE
+    %% PARTS MODULE
     %% ============================================
 
-    Product {
+    Part {
         id string PK
         name string
         part_number string
@@ -1726,7 +1726,7 @@ erDiagram
         parameters dict
     }
 
-    ProductCharacteristic {
+    PartCharacteristic {
         function MeasurementFunction
         direction Direction
         units string
@@ -1780,14 +1780,14 @@ erDiagram
     FixtureConfig {
         id string PK
         name string
-        product_id string FK
-        product_family string
-        product_revision string
+        part_id string FK
+        part_family string
+        part_revision string
     }
 
     FixtureConnection {
         name string PK
-        dut_pin string FK
+        uut_pin string FK
         net string
         instrument string FK
         instrument_channel string
@@ -1866,8 +1866,8 @@ erDiagram
         session_id uuid
         started_at datetime
         ended_at datetime
-        dut DUT
-        product_id string
+        uut UUT
+        part_id string
         station_id string FK
         station_hostname string
         fixture_id string
@@ -1877,7 +1877,7 @@ erDiagram
         steps list
     }
 
-    DUT {
+    UUT {
         serial string PK
         part_number string
         revision string
@@ -1911,7 +1911,7 @@ erDiagram
         instrument string
         resource string
         channel string
-        dut_pin string
+        uut_pin string
         fixture_connection string
     }
 
@@ -1924,7 +1924,7 @@ erDiagram
         limit_nominal float
         limit_comparator string
         outcome Outcome
-        dut_pin string
+        uut_pin string
         instrument_name string
         instrument_resource string
         instrument_channel string
@@ -1945,12 +1945,12 @@ erDiagram
     %% RELATIONSHIPS
     %% ============================================
 
-    %% Product structure
-    Product ||--o{ Pin : "has"
-    Product ||--o{ SignalGroup : "has"
-    Product ||--o{ ProductCharacteristic : "has"
-    ProductCharacteristic ||--o{ SpecBand : "has specs"
-    ProductCharacteristic }o--o{ Pin : "applies to"
+    %% Part structure
+    Part ||--o{ Pin : "has"
+    Part ||--o{ SignalGroup : "has"
+    Part ||--o{ PartCharacteristic : "has"
+    PartCharacteristic ||--o{ SpecBand : "has specs"
+    PartCharacteristic }o--o{ Pin : "applies to"
 
     %% Capability relationships
     InstrumentCapability }o--|| Direction : "has"
@@ -1962,8 +1962,8 @@ erDiagram
     InstrumentCapability ||--o{ Attribute : "has"
     InstrumentCatalogEntry ||--o{ InstrumentCapability : "provides"
     InstrumentCatalogEntry ||--o{ ChannelTopology : "has channels"
-    ProductCharacteristic }o--|| Direction : "has"
-    ProductCharacteristic }o--|| MeasurementFunction : "has"
+    PartCharacteristic }o--|| Direction : "has"
+    PartCharacteristic }o--|| MeasurementFunction : "has"
 
     %% Station structure
     StationType ||--o{ StationInstrumentConfig : "requires"
@@ -1972,7 +1972,7 @@ erDiagram
     StationInstrumentConfig ||--o{ InstrumentCapability : "provides"
 
     %% Fixture structure
-    FixtureConfig }o--o| Product : "for"
+    FixtureConfig }o--o| Part : "for"
     FixtureConfig ||--o{ FixtureConnection : "has"
     FixtureConnection }o--o| Pin : "connects"
     FixtureConnection }o--|| StationInstrumentConfig : "routes to"
@@ -1984,10 +1984,10 @@ erDiagram
     SidecarConfig ||--o{ Limit : "limits:"
     SidecarConfig ||--o{ PromptConfig : "prompts:"
     SidecarConfig }o--o| RetryConfig : "retry:"
-    Limit }o--o| ProductCharacteristic : "from"
+    Limit }o--o| PartCharacteristic : "from"
 
     %% Test execution results
-    TestRun ||--|| DUT : "tests"
+    TestRun ||--|| UUT : "tests"
     TestRun }o--|| StationConfig : "on"
     TestRun ||--o{ TestStep : "contains"
     TestStep ||--o{ TestVector : "contains"
@@ -2002,10 +2002,10 @@ erDiagram
 ## Capability matching at a glance
 
 ```python
-# Product defines what it needs tested
-product.characteristics["output_voltage"]
+# Part defines what it needs tested
+part.characteristics["output_voltage"]
     → function: dc_voltage
-    → direction: OUTPUT   # DUT provides voltage
+    → direction: OUTPUT   # UUT provides voltage
 
 # Station instruments provide capabilities
 station.instruments["dmm_main"]
@@ -2025,5 +2025,5 @@ See [concepts/capabilities](../../concepts/configuration/capabilities.md) for th
 - [Configuration](configuration.md) — YAML schema reference (uses these same models)
 - [Parquet schema](parquet-schema.md) — the materialized row shape
 - [Catalog schema](../catalog/catalog-schema.md) — `InstrumentCatalogEntry` in depth
-- [Capabilities (concept)](../../concepts/configuration/capabilities.md) — `InstrumentCapability` / `ProductCharacteristic` design
+- [Capabilities (concept)](../../concepts/configuration/capabilities.md) — `InstrumentCapability` / `PartCharacteristic` design
 - [Context architecture (how-to)](../../how-to/execution/test-context.md) — the runtime `Context` class (not a `BaseModel`)

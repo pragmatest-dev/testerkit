@@ -61,7 +61,7 @@ def init_project(
         tier: Scaffold tier (``"bringup"``, ``"bench"``, or
             ``"factory"``). ``"bringup"`` creates a Tier 0/1 scaffold
             (MagicMock fixtures in conftest, one test, one sidecar — no
-            station/product/fixture YAML). ``"bench"`` is equivalent to
+            station/part/fixture YAML). ``"bench"`` is equivalent to
             ``starter=True``. ``"factory"`` is the bench scaffold plus
             production/characterization profile skeletons.
 
@@ -76,13 +76,13 @@ def init_project(
     created_files: list[str] = []
     warnings: list[str] = []
 
-    # Create directories. Bringup tier skips station/product/fixture —
+    # Create directories. Bringup tier skips station/part/fixture —
     # those layers are off until the user graduates to Tier 2.
     if tier == "bringup":
         subdirs = ["tests", "reports"]
     else:
         subdirs = [
-            "products",
+            "parts",
             "stations",
             "fixtures",
             "instruments",
@@ -109,7 +109,7 @@ filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
 """
         elif starter:
             # Starter mode: include pytest defaults so users can just run "pytest"
-            addopts = "-v --station=starter_station --mock-instruments --dut-serial=STARTER001"
+            addopts = "-v --station=starter_station --mock-instruments --uut-serial=STARTER001"
             pytest_section = f'''[tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -147,7 +147,7 @@ dependencies = [
         if tier == "bringup":
             conftest_content = '''"""Bench-bringup conftest — instrument fixtures defined directly.
 
-Tier 0/1 escape hatch: no station / catalog / product YAML needed.
+Tier 0/1 escape hatch: no station / catalog / part YAML needed.
 Swap ``MagicMock`` for a real driver (PyVISA / PyMeasure / vendor lib)
 when you\'re ready for the bench. Graduate to Tier 2 by moving driver
 resolution into a ``stations/<id>.yaml`` and deleting these fixtures —
@@ -196,7 +196,7 @@ For PIN-BASED fixtures with traceability (measurement -> pin -> instrument):
 
     @pytest.fixture(scope="session")
     def output_dmm(pins):
-        return pins.get("TP_VOUT")  # measurement includes dut_pin
+        return pins.get("TP_VOUT")  # measurement includes uut_pin
 """
 '''
         else:
@@ -214,7 +214,7 @@ No manual fixture definitions needed here.
 
 Run with --mock-instruments for hardware-free testing:
 
-    pytest tests/ --mock-instruments --dut-serial=TEST001
+    pytest tests/ --mock-instruments --uut-serial=TEST001
 """
 
 # Add project-specific fixtures below if needed.
@@ -233,7 +233,7 @@ Run with --mock-instruments for hardware-free testing:
         proj_data: dict[str, Any] = {"name": project_name}
         if starter:
             # Starter projects write to a project-local ``data/`` dir so
-            # learning runs (mock instruments, example_product, etc.) don't
+            # learning runs (mock instruments, example_part, etc.) don't
             # pollute the global platformdirs store users will share across
             # projects on this machine. When the user is ready, ``litmus
             # data promote`` migrates non-starter runs into the global
@@ -268,7 +268,7 @@ data/
 reports/
 
 # Source-of-truth Litmus config IS in git on purpose:
-#   stations/, products/, fixtures/, tests/, instruments/, profiles/
+#   stations/, parts/, fixtures/, tests/, instruments/, profiles/
 # Do NOT add those above — losing them silently is exactly the bug
 # this template used to ship.
 
@@ -293,7 +293,7 @@ A [Litmus](https://github.com/pragmatest-dev/litmus) hardware test project.
 
 | Folder | Contents |
 |--------|----------|
-| `products/` | Product specifications (YAML) |
+| `parts/` | Part specifications (YAML) |
 | `stations/` | Station configurations (YAML) |
 | `fixtures/` | Test fixture definitions (YAML) |
 | `tests/` | Test code (Python) |
@@ -330,7 +330,7 @@ to the global store.
 
     # Create .vscode/ with YAML schema validation. Generates one
     # JSON schema per Litmus config type (sidecar, profile, project,
-    # station, fixture, product, catalog, instrument_asset) from the
+    # station, fixture, part, catalog, instrument_asset) from the
     # backing Pydantic models, plus a settings.json that wires each
     # YAML glob (tests/**, profiles/**, etc.) to the right schema —
     # users get autocomplete + inline validation in VS Code via the
@@ -479,13 +479,13 @@ def _create_starter_files(path: Path) -> list[str]:
         station_file.write_text(comment_header + dump_yaml(station_content))
         created_files.append("stations/starter_station.yaml")
 
-    # Create products/example_product.yaml
-    product_file = path / "products" / "example_product.yaml"
-    if not product_file.exists():
-        product_content = {
-            "id": "example_product",
-            "name": "Example Product",
-            "description": "Auto-generated example product specification",
+    # Create parts/example_part.yaml
+    part_file = path / "parts" / "example_part.yaml"
+    if not part_file.exists():
+        part_content = {
+            "id": "example_part",
+            "name": "Example Part",
+            "description": "Auto-generated example part specification",
             "pins": {
                 "TP_VOUT": {
                     "name": "TP1",
@@ -510,8 +510,8 @@ def _create_starter_files(path: Path) -> list[str]:
                 },
             },
         }
-        product_file.write_text(dump_yaml(product_content))
-        created_files.append("products/example_product.yaml")
+        part_file.write_text(dump_yaml(part_content))
+        created_files.append("parts/example_part.yaml")
 
     # Create fixtures/example_fixture.yaml
     fixture_file = path / "fixtures" / "example_fixture.yaml"
@@ -519,12 +519,12 @@ def _create_starter_files(path: Path) -> list[str]:
         fixture_content = {
             "id": "example_fixture",
             "name": "Example Fixture",
-            "description": "Maps DUT pins to station instrument channels",
-            "product_id": "example_product",
+            "description": "Maps UUT pins to station instrument channels",
+            "part_id": "example_part",
             "connections": {
                 "vout_measure": {
                     "name": "vout_measure",
-                    "dut_pin": "TP_VOUT",
+                    "uut_pin": "TP_VOUT",
                     "instrument": "dmm",
                     "instrument_channel": "ch1",
                     "instrument_terminal": "hi",
@@ -534,9 +534,9 @@ def _create_starter_files(path: Path) -> list[str]:
             },
         }
         comment_header = (
-            "# Example fixture — wires DUT pins through station instrument\n"
-            "# channels. Each connection has a name, a dut_pin (matches a\n"
-            "# pin in the active product YAML), and an instrument role\n"
+            "# Example fixture — wires UUT pins through station instrument\n"
+            "# channels. Each connection has a name, a uut_pin (matches a\n"
+            "# pin in the active part YAML), and an instrument role\n"
             "# (matches a key in the active station's instruments: dict).\n"
             "#\n"
             "# Tests iterate connections via ``ctx.connections`` and call\n"
@@ -614,7 +614,7 @@ def test_output_voltage(context, psu, dmm, verify) -> None:
             "# Graduate to spec-driven limits by replacing low/high/units\n"
             "# with ``characteristic: output_voltage, tolerance_pct: 2``\n"
             "# — the resolver reads the band from\n"
-            "# products/example_product.yaml. Doing so also auto-derives\n"
+            "# parts/example_part.yaml. Doing so also auto-derives\n"
             "# fixture connections, so the test body must then iterate\n"
             "# ``ctx.connections`` instead of calling the dmm directly.\n"
             "\n"
@@ -645,10 +645,10 @@ def _create_bringup_files(path: Path) -> list[str]:
     if not test_file.exists():
         test_file.write_text('''"""Tier 0/1 smoke tests for a brand-new board.
 
-Bringup scaffold: no station / product / fixture YAML. Limits live
+Bringup scaffold: no station / part / fixture YAML. Limits live
 inline (as a dict literal) or in a same-named sidecar
 (``test_smoke.yaml``). When you graduate to Tier 2 (add a station +
-product), the test bodies here are unchanged — you just swap the
+part), the test bodies here are unchanged — you just swap the
 sidecar shape.
 
 For the full ``verify`` signature, limit dict schema, and outcomes,
@@ -685,7 +685,7 @@ def test_current_draw(psu, verify) -> None:
     sidecar = path / "tests" / "test_smoke.yaml"
     if not sidecar.exists():
         sidecar.write_text(
-            "# Tier 1 sidecar — absolute bounds only. No product, no characteristic.\n"
+            "# Tier 1 sidecar — absolute bounds only. No part, no characteristic.\n"
             "# Graduate to Tier 2 by swapping ``low/high`` for\n"
             "# ``characteristic: <id>`` + ``tolerance_pct: N``.\n"
             "limits:\n"

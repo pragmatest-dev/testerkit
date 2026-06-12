@@ -1,4 +1,4 @@
-"""Platform-level parallel slot execution for multi-DUT testing.
+"""Platform-level parallel slot execution for multi-UUT testing.
 
 SlotRunner manages per-slot **subprocesses** with environment-based isolation.
 Each slot gets its own OS process with slot-specific env vars. The parent
@@ -7,7 +7,7 @@ process coordinates sync points via EventStore.
 Usage:
     runner = SlotRunner(
         slots=resolved_slots,
-        duts={"slot_1": dut1, "slot_2": dut2},
+        uuts={"slot_1": uut1, "slot_2": uut2},
         session_id=session_id,
     )
     results = runner.run(["pytest", "tests/", "-v"])
@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from litmus.data.models import DUT
+from litmus.data.models import UUT
 from litmus.execution.slots import ResolvedSlot
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 def _build_slot_env(
     slot_id: str,
-    dut: DUT,
+    uut: UUT,
     slot: ResolvedSlot,
     base_env: dict[str, str],
 ) -> dict[str, str]:
@@ -45,23 +45,23 @@ def _build_slot_env(
 
     Environment variables set:
     - ``_LITMUS_SLOT_ID`` — which slot this process handles
-    - ``LITMUS_DUT_SERIAL`` — DUT serial for this slot
-    - ``LITMUS_DUT_PART_NUMBER`` — optional DUT part number
-    - ``LITMUS_DUT_REVISION`` — optional DUT revision
-    - ``LITMUS_DUT_LOT_NUMBER`` — optional DUT lot/batch number
+    - ``LITMUS_UUT_SERIAL`` — UUT serial for this slot
+    - ``LITMUS_UUT_PART_NUMBER`` — optional UUT part number
+    - ``LITMUS_UUT_REVISION`` — optional UUT revision
+    - ``LITMUS_UUT_LOT_NUMBER`` — optional UUT lot/batch number
     - ``LITMUS_FIXTURE_SLOT`` — JSON-serialized slot config
     """
     env = base_env.copy()
     env["_LITMUS_SLOT_ID"] = slot_id
-    env["LITMUS_DUT_SERIAL"] = dut.serial
-    if dut.part_number:
-        env["LITMUS_DUT_PART_NUMBER"] = dut.part_number
-    if dut.revision:
-        env["LITMUS_DUT_REVISION"] = dut.revision
-    if dut.lot_number:
-        env["LITMUS_DUT_LOT_NUMBER"] = dut.lot_number
-    if slot.dut_resource:
-        env["LITMUS_DUT_RESOURCE"] = slot.dut_resource
+    env["LITMUS_UUT_SERIAL"] = uut.serial
+    if uut.part_number:
+        env["LITMUS_UUT_PART_NUMBER"] = uut.part_number
+    if uut.revision:
+        env["LITMUS_UUT_REVISION"] = uut.revision
+    if uut.lot_number:
+        env["LITMUS_UUT_LOT_NUMBER"] = uut.lot_number
+    if slot.uut_resource:
+        env["LITMUS_UUT_RESOURCE"] = slot.uut_resource
     env["LITMUS_FIXTURE_SLOT"] = slot.model_dump_json()
     return env
 
@@ -77,15 +77,15 @@ class SlotResult:
 
 
 class SlotRunner:
-    """Runs a command for each DUT slot in parallel subprocesses.
+    """Runs a command for each UUT slot in parallel subprocesses.
 
     Each subprocess gets:
     - ``_LITMUS_SESSION_ID`` — shared across all slots
     - ``_LITMUS_SLOT_ID`` — which slot this process handles
     - ``_LITMUS_SLOT_COUNT`` — total slot count (for sync)
-    - ``LITMUS_DUT_SERIAL`` — DUT serial for this slot
-    - ``LITMUS_DUT_PART_NUMBER`` — optional DUT metadata
-    - ``LITMUS_DUT_RESOURCE`` — DUT driver connection string
+    - ``LITMUS_UUT_SERIAL`` — UUT serial for this slot
+    - ``LITMUS_UUT_PART_NUMBER`` — optional UUT metadata
+    - ``LITMUS_UUT_RESOURCE`` — UUT driver connection string
     - ``LITMUS_FIXTURE_SLOT`` — JSON-serialized slot config
     - ``_LITMUS_INSTRUMENT_SERVER`` — instrument server address (if shared instruments)
     - ``_LITMUS_SHARED_ROLES`` — comma-separated roles served remotely
@@ -96,7 +96,7 @@ class SlotRunner:
     def __init__(
         self,
         slots: dict[str, ResolvedSlot],
-        duts: dict[str, DUT],
+        uuts: dict[str, UUT],
         *,
         session_id: UUID | None = None,
         instrument_server_address: str | None = None,
@@ -106,12 +106,12 @@ class SlotRunner:
         if not slots:
             raise ValueError("At least one slot is required")
 
-        missing = set(slots) - set(duts)
+        missing = set(slots) - set(uuts)
         if missing:
-            raise ValueError(f"Missing DUT identity for slots: {', '.join(sorted(missing))}")
+            raise ValueError(f"Missing UUT identity for slots: {', '.join(sorted(missing))}")
 
         self._slots = slots
-        self._duts = duts
+        self._uuts = uuts
         self._session_id = session_id or uuid4()
         self._instrument_server_address = instrument_server_address
         self._shared_roles = shared_roles or set()
@@ -223,17 +223,17 @@ class SlotRunner:
         try:
             # Spawn one subprocess per slot
             for slot_id, slot in self._slots.items():
-                dut = self._duts[slot_id]
-                slot_env = _build_slot_env(slot_id, dut, slot, base_env)
+                uut = self._uuts[slot_id]
+                slot_env = _build_slot_env(slot_id, uut, slot, base_env)
                 slot_env["_LITMUS_SLOT_INDEX"] = str(slot_ids.index(slot_id))
 
                 result = SlotResult(slot_id=slot_id, outcome="errored")
                 results[slot_id] = result
 
                 logger.info(
-                    "Spawning slot '%s' (DUT %s): %s",
+                    "Spawning slot '%s' (UUT %s): %s",
                     slot_id,
-                    dut.serial,
+                    uut.serial,
                     " ".join(cmd),
                 )
 
@@ -254,7 +254,7 @@ class SlotRunner:
                         SlotStarted(
                             session_id=self._session_id,
                             slot_id=slot_id,
-                            dut_serial=dut.serial,
+                            uut_serial=uut.serial,
                         )
                     )
 
@@ -364,7 +364,7 @@ def is_orchestrator_mode(config) -> bool:
 
     The ``--slot`` opt-out is what makes operator targeting work
     against a multi-slot fixture: the operator passes ``--slot=slot_2``
-    (and a single ``--dut-serial``) and gets a single-process run that
+    (and a single ``--uut-serial``) and gets a single-process run that
     records as ``slot_id=slot_2`` instead of N parallel children.
     """
     if os.environ.get("_LITMUS_SLOT_ID"):
@@ -398,8 +398,8 @@ def is_worker_mode() -> bool:
 def _build_child_cmd(config) -> list[str]:
     """Build the pytest command for child processes.
 
-    Reconstructs the original pytest invocation, stripping ``--dut-serial(s)``
-    (each child gets its own ``--dut-serial`` via env var).
+    Reconstructs the original pytest invocation, stripping ``--uut-serial(s)``
+    (each child gets its own ``--uut-serial`` via env var).
     """
     import sys
 
@@ -411,14 +411,14 @@ def _build_child_cmd(config) -> list[str]:
         if skip_next:
             skip_next = False
             continue
-        if arg.startswith("--dut-serials="):
+        if arg.startswith("--uut-serials="):
             continue
-        if arg == "--dut-serials":
+        if arg == "--uut-serials":
             skip_next = True
             continue
-        if arg.startswith("--dut-serial="):
+        if arg.startswith("--uut-serial="):
             continue
-        if arg == "--dut-serial":
+        if arg == "--uut-serial":
             skip_next = True
             continue
         filtered.append(arg)
@@ -448,7 +448,7 @@ def _report_slot_results(session, results: dict[str, SlotResult]) -> None:
     import sys
 
     sys.stdout.write("\n" + "=" * 60 + "\n")
-    sys.stdout.write("Multi-DUT Results\n")
+    sys.stdout.write("Multi-UUT Results\n")
     sys.stdout.write("=" * 60 + "\n")
     for slot_id in results:
         r = results[slot_id]
@@ -465,7 +465,7 @@ def _report_slot_results(session, results: dict[str, SlotResult]) -> None:
 def _run_subprocess_mode(
     session,
     slots: dict[str, ResolvedSlot],
-    duts: dict[str, DUT],
+    uuts: dict[str, UUT],
     session_id: UUID,
     event_store,
     shared_roles: set[str] | None = None,
@@ -588,7 +588,7 @@ def _run_subprocess_mode(
 
         runner = SlotRunner(
             slots,
-            duts,
+            uuts,
             session_id=session_id,
             instrument_server_address=server.address_str if server else None,
             shared_roles=served_roles if server else None,
@@ -644,7 +644,7 @@ def run_multi_slot_session(
     """Orchestrate a multi-slot pytest session.
 
     Called from ``pytest_runtestloop`` when :func:`is_orchestrator_mode` is
-    true. Loads the fixture config, resolves per-slot DUT identities, stands
+    true. Loads the fixture config, resolves per-slot UUT identities, stands
     up an :class:`InstrumentServer` for any shared roles, then drives
     :class:`SlotRunner` and reports per-slot summaries.
 
@@ -655,8 +655,8 @@ def run_multi_slot_session(
 
     from litmus.data.event_store import EventStore
     from litmus.execution._state import get_current_logger, get_event_store, set_event_store
-    from litmus.execution.dut_provider import CLIDUTProvider
     from litmus.execution.slots import detect_shared_instruments, resolve_fixture_slots
+    from litmus.execution.uut_provider import CLIUUTProvider
     from litmus.pytest_plugin import _mocks_active
     from litmus.pytest_plugin.helpers import find_fixture_file
     from litmus.store import load_fixture, load_project_config
@@ -672,19 +672,19 @@ def run_multi_slot_session(
     shared_roles = detect_shared_instruments(slots)
     station_instruments = station_config.instruments if station_config else {}
 
-    dut_serial = session.config.getoption("--dut-serial")
-    dut_serials_raw = session.config.getoption("--dut-serials")
-    provider = CLIDUTProvider.from_cli_args(
-        dut_serial=dut_serial,
-        dut_serials=dut_serials_raw,
+    uut_serial = session.config.getoption("--uut-serial")
+    uut_serials_raw = session.config.getoption("--uut-serials")
+    provider = CLIUUTProvider.from_cli_args(
+        uut_serial=uut_serial,
+        uut_serials=uut_serials_raw,
         slot_ids=slot_ids,
     )
-    duts = {sid: provider.get_dut(sid) for sid in slot_ids}
+    uuts = {sid: provider.get_uut(sid) for sid in slot_ids}
 
-    if dut_serial and not dut_serials_raw and len(slot_ids) > 1:
+    if uut_serial and not uut_serials_raw and len(slot_ids) > 1:
         warnings.warn(
-            f"Single --dut-serial '{dut_serial}' applied to all {len(slot_ids)} slots. "
-            f"Use --dut-serials for per-slot assignment.",
+            f"Single --uut-serial '{uut_serial}' applied to all {len(slot_ids)} slots. "
+            f"Use --uut-serials for per-slot assignment.",
             stacklevel=1,
         )
 
@@ -703,7 +703,7 @@ def run_multi_slot_session(
     _run_subprocess_mode(
         session,
         slots,
-        duts,
+        uuts,
         session_id,
         event_store,
         shared_roles=shared_roles,

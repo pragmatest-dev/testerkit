@@ -55,20 +55,20 @@ class TestFixtureManager:
         """Fixture providing a test fixture configuration."""
         return FixtureConfig(
             id="test_fixture",
-            product_family="test_product",
+            part_family="test_part",
             connections={
                 "vout_measure": FixtureConnection(
                     name="vout_measure",
                     instrument="dmm_main",
                     instrument_channel="1",
-                    dut_pin="VOUT",
+                    uut_pin="VOUT",
                     net="VOUT_3V3",
                 ),
                 "vin_supply": FixtureConnection(
                     name="vin_supply",
                     instrument="psu_main",
                     instrument_channel="CH1",
-                    dut_pin="VIN",
+                    uut_pin="VIN",
                     net="VIN_5V",
                 ),
             },
@@ -100,7 +100,7 @@ class TestFixtureManager:
         manager = FixtureManager(fx_config, inst_map)
         conn = manager.get_connection_for_pin("VOUT")
         assert conn.name == "vout_measure"
-        assert conn.dut_pin == "VOUT"
+        assert conn.uut_pin == "VOUT"
 
     def test_get_connection_for_net(self, fx_config, inst_map):
         manager = FixtureManager(fx_config, inst_map)
@@ -145,17 +145,17 @@ class TestPinAccessor:
         """Fixture providing a PinAccessor with mock instruments."""
         fc = FixtureConfig(
             id="test_fixture",
-            product_family="test_product",
+            part_family="test_part",
             connections={
                 "vout_measure": FixtureConnection(
                     name="vout_measure",
                     instrument="dmm_main",
-                    dut_pin="VOUT",
+                    uut_pin="VOUT",
                 ),
                 "vin_supply": FixtureConnection(
                     name="vin_supply",
                     instrument="psu_main",
-                    dut_pin="VIN",
+                    uut_pin="VIN",
                 ),
             },
         )

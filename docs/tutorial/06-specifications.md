@@ -1,29 +1,29 @@
-# Step 6: Product Specifications
+# Step 6: Part Specifications
 
-**Goal:** Define product specifications and link test limits to them.
+**Goal:** Define part specifications and link test limits to them.
 
 ## What You'll Build
 
-A product specification that documents your device and provides traceability for test limits.
+A part specification that documents your device and provides traceability for test limits.
 
 ## Project Structure
 
 ```
 my_project/
-├── products/
-│   └── power_board.yaml         # Product specification
+├── parts/
+│   └── power_board.yaml         # Part specification
 ├── tests/
 │   ├── test_power.py            # Test code (pytest functions or classes)
 │   └── test_power.yaml          # Sidecar — limits, sweeps, mocks for test_power.py
 └── pyproject.toml
 ```
 
-## The Product Spec
+## The Part Spec
 
 Define what you're testing:
 
 ```yaml
-# products/power_board.yaml
+# parts/power_board.yaml
 id: power_board
 name: "5V to 3.3V Converter"
 revision: "A"
@@ -65,7 +65,7 @@ characteristics:
 
 ## What the Spec Defines
 
-### Product Identity
+### Part Identity
 
 ```yaml
 id: power_board           # Unique identifier
@@ -93,7 +93,7 @@ Measurable properties with expected values (each entry in `bands:` is a [`SpecBa
 ```yaml
 characteristics:
   output_voltage:
-    direction: output      # DUT outputs this
+    direction: output      # UUT outputs this
     function: dc_voltage   # DC voltage measurement
     units: V
     pins: [VOUT]           # Measured at this pin
@@ -136,7 +136,7 @@ Guardband:  10% tighter
 Production: 3.152V to 3.449V
 ```
 
-Calculate guardbanded limits in the sidecar — the product spec stays
+Calculate guardbanded limits in the sidecar — the part spec stays
 the source-of-truth for the characteristic value/accuracy, and the
 sidecar narrows it via `tolerance_pct` (or hard `low`/`high`) for
 the production run:
@@ -187,16 +187,16 @@ limits:
 
 ## Why Separate Spec from Sidecar?
 
-| Spec (products/*.yaml) | Sidecar (tests/test_*.yaml) |
+| Spec (parts/*.yaml) | Sidecar (tests/test_*.yaml) |
 |-------|--------|
-| What the product SHOULD do | How this test file exercises it |
+| What the part SHOULD do | How this test file exercises it |
 | From datasheet/requirements | Test-specific parameters |
 | Rarely changes | May change per environment |
 | Shared across test files | Co-located with one test file |
 
 ## Complete Example
 
-**products/power_board.yaml:**
+**parts/power_board.yaml:**
 ```yaml
 id: power_board
 name: "5V to 3.3V Converter"
@@ -260,7 +260,7 @@ Every measurement can be traced back to the original specification.
 
 ## What You Learned
 
-- Product specification structure (product, pins, characteristics)
+- Part specification structure (part, pins, characteristics)
 - Conditions for operating points
 - Guardbanding for production margins
 - Traceability from spec to test results

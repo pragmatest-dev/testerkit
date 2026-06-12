@@ -1,6 +1,6 @@
 """Shared enums for Litmus configuration — capability vocabulary.
 
-These enums are the shared vocabulary between products and instruments.
+These enums are the shared vocabulary between parts and instruments.
 They define WHAT can be measured/sourced (MeasurementFunction),
 in which direction (Direction), and with what physical properties.
 """
@@ -15,8 +15,8 @@ from enum import StrEnum
 class Direction(StrEnum):
     """Direction of signal flow for a capability."""
 
-    INPUT = "input"  # Signal/sense from DUT
-    OUTPUT = "output"  # Source/drive to DUT
+    INPUT = "input"  # Signal/sense from UUT
+    OUTPUT = "output"  # Source/drive to UUT
     BIDIR = "bidir"  # Both (SMU, VNA)
     TRANSFORM = "transform"  # Signal-path component (amplifier, filter, mixer)
 
@@ -29,7 +29,7 @@ class MeasurementFunction(StrEnum):
     electronics hardware test: DC, AC, RF, mixed-signal, digital, optical, thermal.
 
     Design principles:
-    - One enum for instruments AND products (direction distinguishes measure vs source)
+    - One enum for instruments AND parts (direction distinguishes measure vs source)
     - Functions describe WHAT, not HOW (dc_voltage not dmm_dc_volts)
     - Flat enum (grouped by comment only, no hierarchy)
     - Waveform shapes are parameters, not functions (use WaveformShape enum)
@@ -104,12 +104,12 @@ class MeasurementFunction(StrEnum):
     JITTER = "jitter"
     EYE_DIAGRAM = "eye_diagram"
 
-    # Signal quality metrics (product datasheet specs)
+    # Signal quality metrics (part datasheet specs)
     THD = "thd"  # Total harmonic distortion (also THD+N)
     SNR = "snr"  # Signal-to-noise ratio (also SINAD)
     GAIN = "gain"  # Signal transfer ratio (RF amps, lock-in, signal chain)
 
-    # RF network measurements (VNA-derived, but named product specs)
+    # RF network measurements (VNA-derived, but named part specs)
     RETURN_LOSS = "return_loss"  # S11 magnitude — "return loss > 20 dB"
     INSERTION_LOSS = "insertion_loss"  # S21 magnitude — "insertion loss < 0.5 dB"
     VSWR = "vswr"  # Voltage standing wave ratio — "VSWR < 1.5:1"
@@ -264,7 +264,7 @@ class MatchDepth(StrEnum):
 class Comparator(StrEnum):
     """Limit comparators per ATML/IEEE 1671.
 
-    Used for limit checking in both instrument capabilities and product specs.
+    Used for limit checking in both instrument capabilities and part specs.
     The comparator defines how a measured value is compared against limits.
 
     Single-bound comparators:

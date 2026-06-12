@@ -1,7 +1,7 @@
 """Behavior contract for ``fixtures_with_provenance``.
 
-Same shape as the stations/products provenance tests. Fixtures carry
-an extra ``product`` display label resolved against ``discover_products``;
+Same shape as the stations/parts provenance tests. Fixtures carry
+an extra ``part`` display label resolved against ``discover_parts``;
 this test asserts that resolution and the three provenance values.
 """
 
@@ -16,26 +16,26 @@ from litmus.ui.shared import services
 def _fake_fixture(
     fixture_id: str,
     name: str = "",
-    product_id: str = "",
+    part_id: str = "",
     n_connections: int = 0,
 ):
     return SimpleNamespace(
         id=fixture_id,
         name=name,
-        product_id=product_id,
-        product_family=None,
-        product_revision="",
+        part_id=part_id,
+        part_family=None,
+        part_revision="",
         connections={f"c{i}": object() for i in range(n_connections)},
     )
 
 
-def _fake_product(product_id: str, name: str = ""):
-    return {"id": product_id, "name": name}
+def _fake_part(part_id: str, name: str = ""):
+    return {"id": part_id, "name": name}
 
 
 def test_configured_no_runs(monkeypatch):
     monkeypatch.setattr(services, "discover_fixtures", lambda: [_fake_fixture("fx-01")])
-    monkeypatch.setattr(services, "discover_products", lambda: [])
+    monkeypatch.setattr(services, "discover_parts", lambda: [])
     monkeypatch.setattr(services, "usage_stats_by", lambda _field: {})
 
     rows = services.fixtures_with_provenance()
@@ -43,18 +43,14 @@ def test_configured_no_runs(monkeypatch):
     assert rows[0].provenance == "configured"
 
 
-def test_configured_with_runs_resolves_product_label(monkeypatch):
-    """A YAML fixture with runs stays 'configured'; product label resolves."""
+def test_configured_with_runs_resolves_part_label(monkeypatch):
+    """A YAML fixture with runs stays 'configured'; part label resolves."""
     monkeypatch.setattr(
         services,
         "discover_fixtures",
-        lambda: [
-            _fake_fixture("fx-01", name="Bench fixture", product_id="tps54302", n_connections=8)
-        ],
+        lambda: [_fake_fixture("fx-01", name="Bench fixture", part_id="tps54302", n_connections=8)],
     )
-    monkeypatch.setattr(
-        services, "discover_products", lambda: [_fake_product("tps54302", "3A Buck")]
-    )
+    monkeypatch.setattr(services, "discover_parts", lambda: [_fake_part("tps54302", "3A Buck")])
     monkeypatch.setattr(
         services,
         "usage_stats_by",
@@ -68,13 +64,13 @@ def test_configured_with_runs_resolves_product_label(monkeypatch):
     r = rows[0]
     assert r.provenance == "configured"
     assert r.runs == 3
-    assert r.product == "3A Buck"
+    assert r.part == "3A Buck"
     assert r.connections == 8
 
 
-def test_observed_only_has_no_product_label(monkeypatch):
+def test_observed_only_has_no_part_label(monkeypatch):
     monkeypatch.setattr(services, "discover_fixtures", lambda: [])
-    monkeypatch.setattr(services, "discover_products", lambda: [])
+    monkeypatch.setattr(services, "discover_parts", lambda: [])
     monkeypatch.setattr(
         services,
         "usage_stats_by",
@@ -85,7 +81,7 @@ def test_observed_only_has_no_product_label(monkeypatch):
     assert len(rows) == 1
     r = rows[0]
     assert r.provenance == "observed_only"
-    assert r.product == ""
+    assert r.part == ""
     assert r.connections == 0
 
 
@@ -95,7 +91,7 @@ def test_mixed_configured_and_observed(monkeypatch):
         "discover_fixtures",
         lambda: [_fake_fixture("fx-01"), _fake_fixture("fx-02")],
     )
-    monkeypatch.setattr(services, "discover_products", lambda: [])
+    monkeypatch.setattr(services, "discover_parts", lambda: [])
     monkeypatch.setattr(
         services,
         "usage_stats_by",

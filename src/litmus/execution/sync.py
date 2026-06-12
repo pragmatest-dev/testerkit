@@ -1,4 +1,4 @@
-"""Cross-process sync points for multi-DUT parallel testing.
+"""Cross-process sync points for multi-UUT parallel testing.
 
 SyncPoint (child side): emits SyncArrived, subscribes to SyncRelease, blocks.
 SyncCoordinator (parent side): watches SyncArrived, emits SyncRelease when

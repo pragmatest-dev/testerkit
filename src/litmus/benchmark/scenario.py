@@ -258,9 +258,9 @@ def run_bytes(coef: Coefficients, sc: Scenario) -> int:
 class Capacity:
     """Derived machine capacity for a scenario, the report's headline.
 
-    "How many products in parallel" is a THROUGHPUT question, not an OS-process
+    "How many parts in parallel" is a THROUGHPUT question, not an OS-process
     one: the data layer finalizes ``sustained_runs_per_s`` runs/s, so it keeps
-    up with that many products as long as their combined completion rate stays
+    up with that many parts as long as their combined completion rate stays
     under it. At a typical multi-second test cycle that's hundreds — far past a
     physical line — which is the honest, confidence-building framing.
     """
@@ -270,8 +270,8 @@ class Capacity:
     storage_runs: int  # runs that fit on free disk
     storage_gb_per_run: float
 
-    def parallel_products(self, cycle_s: float) -> int:
-        """Products you can run in parallel at a per-product cycle of
+    def parallel_parts(self, cycle_s: float) -> int:
+        """Parts you can run in parallel at a per-part cycle of
         ``cycle_s`` seconds: sustained-rate × cycle (combined completion rate
         must stay under the data layer's ceiling)."""
         return int(self.sustained_runs_per_s * cycle_s)

@@ -1,13 +1,13 @@
 # Litmus — Hardware Test Platform
 
-Litmus is a Python-native hardware test platform for the AI-assisted era. It provides the infrastructure layer for hardware testing — configuration management (products, stations, fixtures, profiles), instrument discovery and access (via PyVISA/PyMeasure), structured test data storage (Parquet), and AI tool integration (MCP server). Tests are standard pytest functions; Litmus adds the hardware-specific context, data pipeline, and operator UI. Data flows from YAML config → pytest execution → Parquet results → reports/analytics.
+Litmus is a Python-native hardware test platform for the AI-assisted era. It provides the infrastructure layer for hardware testing — configuration management (parts, stations, fixtures, profiles), instrument discovery and access (via PyVISA/PyMeasure), structured test data storage (Parquet), and AI tool integration (MCP server). Tests are standard pytest functions; Litmus adds the hardware-specific context, data pipeline, and operator UI. Data flows from YAML config → pytest execution → Parquet results → reports/analytics.
 
 ## Folder Convention
 
 Entity-aligned folders contain YAML configuration files:
-- `products/` — DUT specifications, characteristics, and limits
+- `parts/` — UUT specifications, characteristics, and limits
 - `stations/` — Bench configurations (instruments + roles); `stations/types/` for abstract station-type templates
-- `fixtures/` — DUT-pin to instrument-channel routing
+- `fixtures/` — UUT-pin to instrument-channel routing
 - `profiles/` — Named bundles of session-level overrides (limits, sweeps, fixture, station_type)
 - `catalog/` — Instrument capability definitions
 
@@ -35,7 +35,7 @@ litmus instrument list [--json]   # List configured instruments
 litmus instrument show <id> [--json]  # Show instrument details + cal status
 ```
 
-### Metrics (filters: `--since`, `--until`, `--product`, `--station`, `--phase`; all accept `--json`)
+### Metrics (filters: `--since`, `--until`, `--part`, `--station`, `--phase`; all accept `--json`)
 
 ```bash
 litmus metrics summary [--period day|week|month] [--json]
@@ -50,9 +50,9 @@ litmus metrics time-loss [--period day|week|month] [--json]
 
 All configuration uses YAML files with Pydantic validation. Edit YAML directly or use the operator UI (`litmus serve`).
 
-- **Products** define what you're testing: characteristics, limits, pin map
+- **Parts** define what you're testing: characteristics, limits, pin map
 - **Stations** define your bench: which instruments, what roles they play; `station_type:` declares the abstract layout
-- **Fixtures** map DUT pins to instrument channels; `station_types: [...]` declares which station layouts the fixture supports
+- **Fixtures** map UUT pins to instrument channels; `station_types: [...]` declares which station layouts the fixture supports
 - **Profiles** bundle session-level overrides — limits, sweeps, mocks, fixture, station_type — keyed by facet (e.g. `test_phase: production`)
 
 ## Writing Tests
@@ -76,9 +76,9 @@ def test_output_voltage(verify, psu, dmm) -> None:
 **Prefer CLI with `--json` for tool use** — all commands above accept `--json` for machine-readable output. This is more token-efficient and reliable than MCP for local operations.
 
 **MCP tools** (for remote/discovery use cases):
-- `litmus` — CRUD on products, stations, fixtures, instruments, profiles, catalog
+- `litmus` — CRUD on parts, stations, fixtures, instruments, profiles, catalog
 - `litmus_discover` — Discover instruments on VISA / NI / Serial / LXI buses
-- `litmus_match` — Check whether a station can test a product
+- `litmus_match` — Check whether a station can test a part
 - `litmus_run` — Execute tests and stream results
 - `litmus_metrics` — Yield / pareto / cpk / trend / retest / time-loss queries
 - `litmus_events` / `litmus_sessions` / `litmus_channels` — Event log queries

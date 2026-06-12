@@ -76,7 +76,7 @@ import time.
 | **Channel Explorer** | Time-series visualization of instrument channel data by session |
 
 Each dashboard targets the Litmus PostgreSQL data source. Variables
-on the dashboard let operators pick product, station, time window,
+on the dashboard let operators pick part, station, time window,
 serial number, etc. without editing panels.
 
 ## Customizing dashboards

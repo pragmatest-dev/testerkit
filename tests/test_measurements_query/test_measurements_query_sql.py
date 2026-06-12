@@ -3,8 +3,8 @@
 Uses the canonical singleton runs daemon (the only one a Litmus
 process should ever talk to). Each fixture writes synthetic
 measurement parquets into the canonical runs dir under a unique
-``dut_part_number`` so every aggregation can scope to this test's
-own data via the existing ``product=`` filter — passing past whatever
+``uut_part_number`` so every aggregation can scope to this test's
+own data via the existing ``part=`` filter — passing past whatever
 other rows the canonical store may hold.
 """
 
@@ -29,8 +29,8 @@ from litmus.data.schemas import _build_write_schema, table_from_rows
 def _row(
     *,
     run_id: str,
-    dut_part_number: str,
-    dut_serial: str = "SN001",
+    uut_part_number: str,
+    uut_serial: str = "SN001",
     run_outcome: str = "passed",
     run_started_at: str = "2026-01-01T10:00:00",
     run_ended_at: str = "2026-01-01T10:05:00",
@@ -50,9 +50,9 @@ def _row(
         run_id=run_id,
         run_started_at=datetime.fromisoformat(run_started_at).replace(tzinfo=UTC),
         run_ended_at=datetime.fromisoformat(run_ended_at).replace(tzinfo=UTC),
-        dut_serial=dut_serial,
-        dut_part_number=dut_part_number,
-        product_id=dut_part_number,
+        uut_serial=uut_serial,
+        uut_part_number=uut_part_number,
+        part_id=uut_part_number,
         station_id=station_name,
         station_name=station_name,
         test_phase=test_phase,
@@ -92,18 +92,18 @@ def _write_measurements(
 
 @pytest.fixture(scope="module")
 def fixture_data() -> dict[str, str]:
-    """4 runs, 2 serials under a unique product.
+    """4 runs, 2 serials under a unique part.
 
     SN001: run-1 pass, run-3 pass (first pass = pass)
     SN002: run-2 fail, run-4 pass (first pass = fail, final = pass)
     """
-    product = f"TEST-MQS-{uuid4().hex[:8]}"  # unique to this fixture
+    part = f"TEST-MQS-{uuid4().hex[:8]}"  # unique to this fixture
     canonical_runs = resolve_data_dir() / "runs" / "test-mqs" / "2026-01-01"
     rows = [
         _row(
             run_id=f"mqs-{uuid4()}",
-            dut_part_number=product,
-            dut_serial="SN001",
+            uut_part_number=part,
+            uut_serial="SN001",
             run_outcome="passed",
             run_started_at="2026-01-01T10:00:00",
             run_ended_at="2026-01-01T10:05:00",
@@ -112,8 +112,8 @@ def fixture_data() -> dict[str, str]:
         ),
         _row(
             run_id=f"mqs-{uuid4()}",
-            dut_part_number=product,
-            dut_serial="SN002",
+            uut_part_number=part,
+            uut_serial="SN002",
             run_outcome="failed",
             run_started_at="2026-01-01T11:00:00",
             run_ended_at="2026-01-01T11:03:00",
@@ -122,8 +122,8 @@ def fixture_data() -> dict[str, str]:
         ),
         _row(
             run_id=f"mqs-{uuid4()}",
-            dut_part_number=product,
-            dut_serial="SN001",
+            uut_part_number=part,
+            uut_serial="SN001",
             run_outcome="passed",
             run_started_at="2026-01-01T12:00:00",
             run_ended_at="2026-01-01T12:04:00",
@@ -132,8 +132,8 @@ def fixture_data() -> dict[str, str]:
         ),
         _row(
             run_id=f"mqs-{uuid4()}",
-            dut_part_number=product,
-            dut_serial="SN002",
+            uut_part_number=part,
+            uut_serial="SN002",
             run_outcome="passed",
             run_started_at="2026-01-01T13:00:00",
             run_ended_at="2026-01-01T13:06:00",
@@ -141,18 +141,18 @@ def fixture_data() -> dict[str, str]:
             outcome="passed",
         ),
     ]
-    _write_measurements(canonical_runs, rows, filename=f"{product}_main.parquet")
-    return {"product": product, "station": "STA-MQS"}
+    _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
+    return {"part": part, "station": "STA-MQS"}
 
 
-# Helper: every aggregation accepts ``product`` and ``station``,
-# so scope every test query by the fixture's unique product.
+# Helper: every aggregation accepts ``part`` and ``station``,
+# so scope every test query by the fixture's unique part.
 
 
 class TestYieldSummary:
     def test_basic_counts(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.yield_summary(phase="all", product=fixture_data["product"])
+        rows = store.yield_summary(phase="all", part=fixture_data["part"])
         assert len(rows) >= 1
         total_runs = sum(r["total_runs"] for r in rows)
         assert total_runs == 4
@@ -160,17 +160,17 @@ class TestYieldSummary:
     def test_fpy_matches_python(self, fixture_data):
         """Gold FPY must match metrics.calculate_fpy on same data."""
         store = MeasurementsQuery()
-        rows = store.yield_summary(phase="all", product=fixture_data["product"])
+        rows = store.yield_summary(phase="all", part=fixture_data["part"])
         fp_total = sum(r["first_pass_total"] for r in rows)
         fp_passed = sum(r["first_pass_passed"] for r in rows)
         gold_fpy = fp_passed / fp_total if fp_total else 0.0
 
         # fmt: off
         python_runs = [
-            {"dut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T10:00:00"},  # noqa: E501
-            {"dut_serial": "SN002", "run_outcome": "failed", "run_started_at": "2026-01-01T11:00:00"},  # noqa: E501
-            {"dut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T12:00:00"},  # noqa: E501
-            {"dut_serial": "SN002", "run_outcome": "passed", "run_started_at": "2026-01-01T13:00:00"},  # noqa: E501
+            {"uut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T10:00:00"},  # noqa: E501
+            {"uut_serial": "SN002", "run_outcome": "failed", "run_started_at": "2026-01-01T11:00:00"},  # noqa: E501
+            {"uut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T12:00:00"},  # noqa: E501
+            {"uut_serial": "SN002", "run_outcome": "passed", "run_started_at": "2026-01-01T13:00:00"},  # noqa: E501
         ]
         # fmt: on
         python_fpy = calculate_fpy(python_runs)
@@ -178,7 +178,7 @@ class TestYieldSummary:
 
     def test_final_yield(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.yield_summary(phase="all", product=fixture_data["product"])
+        rows = store.yield_summary(phase="all", part=fixture_data["part"])
         final_passed = sum(r["final_passed"] for r in rows)
         unique_serials = sum(r["unique_serials"] for r in rows)
         final_yield = final_passed / unique_serials if unique_serials else 0.0
@@ -186,12 +186,12 @@ class TestYieldSummary:
 
     def test_phase_filter(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.yield_summary(product=fixture_data["product"])
+        rows = store.yield_summary(part=fixture_data["part"])
         assert all(r["phase"] != "development" for r in rows)
 
     def test_duration_stats(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.yield_summary(phase="all", product=fixture_data["product"])
+        rows = store.yield_summary(phase="all", part=fixture_data["part"])
         for r in rows:
             assert r["avg_duration_s"] is not None
             assert r["avg_duration_s"] > 0
@@ -200,43 +200,43 @@ class TestYieldSummary:
 class TestPareto:
     def test_failure_count(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.pareto(phase="all", product=fixture_data["product"])
+        rows = store.pareto(phase="all", part=fixture_data["part"])
         assert len(rows) == 1
         assert rows[0]["fail_count"] == 1
         assert rows[0]["measurement_name"] == "vout"
 
     def test_no_failures(self):
-        product = f"TEST-MQS-NF-{uuid4().hex[:8]}"
+        part = f"TEST-MQS-NF-{uuid4().hex[:8]}"
         canonical_runs = resolve_data_dir() / "runs" / "test-mqs-no-failures" / "2026-01-01"
         _write_measurements(
             canonical_runs,
-            [_row(run_id=f"mqs-{uuid4()}", dut_part_number=product, value=3.3, outcome="passed")],
-            filename=f"{product}_main.parquet",
+            [_row(run_id=f"mqs-{uuid4()}", uut_part_number=part, value=3.3, outcome="passed")],
+            filename=f"{part}_main.parquet",
         )
         store = MeasurementsQuery()
-        assert store.pareto(phase="all", product=product) == []
+        assert store.pareto(phase="all", part=part) == []
 
 
 class TestCpk:
     def test_cpk_matches_python(self):
         """Gold Cpk must match metrics.calculate_cpk on same data."""
-        product = f"TEST-MQS-CPK-{uuid4().hex[:8]}"
+        part = f"TEST-MQS-CPK-{uuid4().hex[:8]}"
         canonical_runs = resolve_data_dir() / "runs" / "test-mqs-cpk" / "2026-01-01"
         values = [3.3, 3.31, 3.29, 3.32, 3.28, 3.30, 3.33, 3.27, 3.31, 3.29]
         rows = [
             _row(
                 run_id=f"mqs-cpk-{uuid4()}",
-                dut_part_number=product,
-                dut_serial=f"SN{i:03d}",
+                uut_part_number=part,
+                uut_serial=f"SN{i:03d}",
                 value=v,
                 outcome="passed",
             )
             for i, v in enumerate(values)
         ]
-        _write_measurements(canonical_runs, rows, filename=f"{product}_main.parquet")
+        _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
 
         store = MeasurementsQuery()
-        gold_rows = store.cpk(phase="all", product=product, min_samples=5)
+        gold_rows = store.cpk(phase="all", part=part, min_samples=5)
         assert len(gold_rows) >= 1
         gold_cpk = gold_rows[0]["cpk"]
 
@@ -244,30 +244,30 @@ class TestCpk:
         assert gold_cpk == pytest.approx(python_result["cpk"], abs=0.01)
 
     def test_min_samples_filter(self):
-        product = f"TEST-MQS-MIN-{uuid4().hex[:8]}"
+        part = f"TEST-MQS-MIN-{uuid4().hex[:8]}"
         canonical_runs = resolve_data_dir() / "runs" / "test-mqs-min" / "2026-01-01"
         _write_measurements(
             canonical_runs,
             [
-                _row(run_id=f"mqs-{uuid4()}", dut_part_number=product, value=3.3, outcome="passed"),
+                _row(run_id=f"mqs-{uuid4()}", uut_part_number=part, value=3.3, outcome="passed"),
                 _row(
                     run_id=f"mqs-{uuid4()}",
-                    dut_part_number=product,
-                    dut_serial="SN002",
+                    uut_part_number=part,
+                    uut_serial="SN002",
                     value=3.31,
                     outcome="passed",
                 ),
             ],
-            filename=f"{product}_main.parquet",
+            filename=f"{part}_main.parquet",
         )
         store = MeasurementsQuery()
-        assert store.cpk(phase="all", product=product, min_samples=10) == []
+        assert store.cpk(phase="all", part=part, min_samples=10) == []
 
 
 class TestTrend:
     def test_trend_data(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.trend(phase="all", product=fixture_data["product"])
+        rows = store.trend(phase="all", part=fixture_data["part"])
         assert len(rows) >= 1
         for r in rows:
             assert "period" in r
@@ -276,14 +276,14 @@ class TestTrend:
 
     def test_weekly_period(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.trend(phase="all", product=fixture_data["product"], period="week")
+        rows = store.trend(phase="all", part=fixture_data["part"], period="week")
         assert len(rows) >= 1
 
 
 class TestRetest:
     def test_retest_detection(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.retest(phase="all", product=fixture_data["product"])
+        rows = store.retest(phase="all", part=fixture_data["part"])
         assert len(rows) >= 1
         total_serials = sum(r["total_serials"] for r in rows)
         retested = sum(r["retested_count"] for r in rows)
@@ -294,7 +294,7 @@ class TestRetest:
 class TestTimeLoss:
     def test_time_breakdown(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.time_loss(phase="all", product=fixture_data["product"])
+        rows = store.time_loss(phase="all", part=fixture_data["part"])
         assert len(rows) >= 1
         total = sum(r["total_time_s"] or 0 for r in rows)
         fail = sum(r["fail_time_s"] or 0 for r in rows)
@@ -303,33 +303,33 @@ class TestTimeLoss:
 
 
 class TestEmptyDataset:
-    def test_all_methods_return_empty_for_unknown_product(self):
+    def test_all_methods_return_empty_for_unknown_part(self):
         unknown = f"TEST-MQS-NONE-{uuid4().hex[:8]}"
         store = MeasurementsQuery()
-        assert store.yield_summary(product=unknown, phase="all") == []
-        assert store.pareto(product=unknown, phase="all") == []
-        assert store.cpk(product=unknown, phase="all") == []
-        assert store.trend(product=unknown, phase="all") == []
-        assert store.retest(product=unknown, phase="all") == []
-        assert store.time_loss(product=unknown, phase="all") == []
+        assert store.yield_summary(part=unknown, phase="all") == []
+        assert store.pareto(part=unknown, phase="all") == []
+        assert store.cpk(part=unknown, phase="all") == []
+        assert store.trend(part=unknown, phase="all") == []
+        assert store.retest(part=unknown, phase="all") == []
+        assert store.time_loss(part=unknown, phase="all") == []
 
 
 class TestFilters:
-    def test_product_filter(self, fixture_data):
+    def test_part_filter(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.yield_summary(product=fixture_data["product"], phase="all")
-        assert all(r["product"] == fixture_data["product"] for r in rows)
+        rows = store.yield_summary(part=fixture_data["part"], phase="all")
+        assert all(r["part"] == fixture_data["part"] for r in rows)
 
     def test_station_filter(self, fixture_data):
         store = MeasurementsQuery()
         rows = store.yield_summary(
-            station=fixture_data["station"], product=fixture_data["product"], phase="all"
+            station=fixture_data["station"], part=fixture_data["part"], phase="all"
         )
         assert all(r["station"] == fixture_data["station"] for r in rows)
 
-    def test_nonexistent_product(self):
+    def test_nonexistent_part(self):
         store = MeasurementsQuery()
-        assert store.yield_summary(product=f"NOPE-{uuid4().hex}", phase="all") == []
+        assert store.yield_summary(part=f"NOPE-{uuid4().hex}", phase="all") == []
 
     def test_date_filter(self, fixture_data):
         store = MeasurementsQuery()
@@ -337,7 +337,7 @@ class TestFilters:
             since="2026-01-01",
             until="2026-01-01",
             phase="all",
-            product=fixture_data["product"],
+            part=fixture_data["part"],
         )
         assert len(rows) >= 1
 
@@ -352,17 +352,17 @@ class TestParametric:
 
     def test_scatter_returns_typed_rows(self, fixture_data):
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"product_id": [fixture_data["product"]]})
-        rows = store.parametric(y="measurement_value", x="dut_serial", filters=filters)
+        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
+        rows = store.parametric(y="measurement_value", x="uut_serial", filters=filters)
         assert len(rows) == 4
         assert all(isinstance(r, ParametricRow) for r in rows)
         assert all(r.group == "" for r in rows)
 
     def test_group_by_populates_group_column(self, fixture_data):
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"product_id": [fixture_data["product"]]})
+        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
         rows = store.parametric(
-            y="measurement_value", x="dut_serial", group_by="run_outcome", filters=filters
+            y="measurement_value", x="uut_serial", group_by="run_outcome", filters=filters
         )
         groups = {r.group for r in rows}
         assert groups == {"passed", "failed"}
@@ -371,9 +371,9 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="dut_serial",
+            x="uut_serial",
             filters=FilterSet(
-                string_filters={"product_id": [fixture_data["product"]]},
+                string_filters={"part_id": [fixture_data["part"]]},
                 enum_filters={"run_outcome": ["passed"]},
             ),
         )
@@ -383,9 +383,9 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="dut_serial",
+            x="uut_serial",
             filters=FilterSet(
-                string_filters={"product_id": [fixture_data["product"]]},
+                string_filters={"part_id": [fixture_data["part"]]},
                 enum_filters={"run_outcome": ["passed", "failed"]},
             ),
         )
@@ -395,10 +395,10 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="dut_serial",
+            x="uut_serial",
             chart_type="histogram",
             bins=4,
-            filters=FilterSet(string_filters={"product_id": [fixture_data["product"]]}),
+            filters=FilterSet(string_filters={"part_id": [fixture_data["part"]]}),
         )
         assert all(isinstance(r, HistogramRow) for r in rows)
         assert sum(r.y for r in rows) == 4
@@ -407,9 +407,9 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="dut_serial",
+            x="uut_serial",
             chart_type="bar",
-            filters=FilterSet(string_filters={"product_id": [fixture_data["product"]]}),
+            filters=FilterSet(string_filters={"part_id": [fixture_data["part"]]}),
         )
         assert len(rows) == 2
         assert all(isinstance(r, ParametricRow) for r in rows)
@@ -420,42 +420,42 @@ class TestParametric:
     def test_invalid_column_rejected(self):
         store = MeasurementsQuery()
         with pytest.raises(ValueError, match="invalid column identifier"):
-            store.parametric(y="value; DROP TABLE silver --", x="dut_serial")
+            store.parametric(y="value; DROP TABLE silver --", x="uut_serial")
 
 
 class TestDistinctValues:
     def test_no_filter_returns_fixture_serials(self, fixture_data):
         store = MeasurementsQuery()
-        # Scope by product so the canonical store's other rows don't pollute.
-        filters = FilterSet(string_filters={"product_id": [fixture_data["product"]]})
-        opts = store.distinct_values("dut_serial", filters=filters)
+        # Scope by part so the canonical store's other rows don't pollute.
+        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
+        opts = store.distinct_values("uut_serial", filters=filters)
         values = {o.value for o in opts}
         assert values == {"SN001", "SN002"}
 
     def test_options_carry_counts(self, fixture_data):
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"product_id": [fixture_data["product"]]})
-        opts = store.distinct_values("dut_serial", filters=filters)
+        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
+        opts = store.distinct_values("uut_serial", filters=filters)
         # 2 measurements per serial in the fixture
         assert all(o.count == 2 for o in opts)
 
     def test_cross_filter_excludes_self(self, fixture_data):
-        """exclude_self=True means filtering on product_id doesn't narrow itself."""
+        """exclude_self=True means filtering on part_id doesn't narrow itself."""
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"product_id": [fixture_data["product"]]})
-        opts = store.distinct_values("product_id", filters=filters, exclude_self=True)
-        # Returns all known products (since we excluded the product_id filter on itself).
-        assert fixture_data["product"] in {o.value for o in opts}
+        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
+        opts = store.distinct_values("part_id", filters=filters, exclude_self=True)
+        # Returns all known parts (since we excluded the part_id filter on itself).
+        assert fixture_data["part"] in {o.value for o in opts}
 
     def test_cross_filter_narrows_other(self, fixture_data):
-        """A filter on run_outcome narrows the dut_serial options to passing serials."""
+        """A filter on run_outcome narrows the uut_serial options to passing serials."""
         store = MeasurementsQuery()
         filters = FilterSet(
-            string_filters={"product_id": [fixture_data["product"]]},
+            string_filters={"part_id": [fixture_data["part"]]},
             enum_filters={"run_outcome": ["failed"]},
         )
-        opts = store.distinct_values("dut_serial", filters=filters)
-        # Only SN002 has a failed run for our product
+        opts = store.distinct_values("uut_serial", filters=filters)
+        # Only SN002 has a failed run for our part
         assert {o.value for o in opts} == {"SN002"}
 
     def test_invalid_column_rejected(self):
@@ -467,25 +467,25 @@ class TestDistinctValues:
 class TestSummaryCounts:
     def test_filter_counts_match_fixture(self, fixture_data):
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"product_id": [fixture_data["product"]]})
+        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
         counts = store.summary_counts(filters=filters)
         assert counts.total_rows == 4
         assert counts.distinct_runs == 4
         assert counts.distinct_measurements == 1  # only "vout"
-        assert counts.distinct_products == 1  # the fixture's unique product
+        assert counts.distinct_parts == 1  # the fixture's unique part
 
     def test_filter_narrows_counts(self, fixture_data):
         store = MeasurementsQuery()
         filters = FilterSet(
-            string_filters={"product_id": [fixture_data["product"]]},
+            string_filters={"part_id": [fixture_data["part"]]},
             enum_filters={"run_outcome": ["passed"]},
         )
         counts = store.summary_counts(filters=filters)
         assert counts.total_rows == 3
 
-    def test_unknown_product_returns_zeros(self):
+    def test_unknown_part_returns_zeros(self):
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"product_id": [f"NOPE-{uuid4().hex}"]})
+        filters = FilterSet(string_filters={"part_id": [f"NOPE-{uuid4().hex}"]})
         counts = store.summary_counts(filters=filters)
         assert counts.total_rows == 0
         assert counts.distinct_runs == 0

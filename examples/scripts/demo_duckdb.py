@@ -26,13 +26,13 @@ section("Recent test runs")
 print(
     db.sql(f"""
     SELECT
-        dut_serial,
+        uut_serial,
         station_id,
         run_outcome,
         COUNT(DISTINCT measurement_name) AS measurements,
         run_started_at::DATE AS date
     FROM "{parquet}"
-    GROUP BY run_id, dut_serial, station_id, run_outcome, run_started_at
+    GROUP BY run_id, uut_serial, station_id, run_outcome, run_started_at
     ORDER BY run_started_at DESC
     LIMIT 10
 """)
@@ -105,7 +105,7 @@ print(
     db.sql(f"""
     SELECT
         measurement_name, value, units, outcome,
-        dut_serial, station_id, git_commit,
+        uut_serial, station_id, git_commit,
         meas_instrument, meas_instrument_channel,
         instr_serial, instr_cal_due,
         run_started_at

@@ -67,7 +67,7 @@ resource: "GPIB1::12::INSTR"  # Board 1, address 12
 
 ```yaml
 resource: "USB0::0x2A8D::0x0101::MY12345::INSTR"
-# Format: USB{board}::{vendor}::{product}::{serial}::INSTR
+# Format: USB{board}::{vendor}::{part}::{serial}::INSTR
 ```
 
 ### Serial
@@ -96,7 +96,7 @@ instruments:
 ### Running in Mock Mode
 
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --uut-serial=SIM001
 ```
 
 The `--mock-instruments` flag uses mock instruments instead of real hardware. Mock values come from `mock_config` in the station, or can be overridden per-test in the sidecar YAML next to your test file (`tests/test_*.yaml`).
@@ -230,18 +230,18 @@ instruments:
 
 Run in CI:
 ```bash
-pytest tests/ --station=stations/ci_station.yaml --mock-instruments --dut-serial=CI-TEST
+pytest tests/ --station=stations/ci_station.yaml --mock-instruments --uut-serial=CI-TEST
 ```
 
 ## Selecting a fixture at run time
 
-Stations don't pin a fixture themselves. The active fixture is selected by `--fixture=...` on the pytest command line (or by a profile that sets it). The plugin validates that the fixture's `product_id` / `product_family` matches the active product spec before any test runs.
+Stations don't pin a fixture themselves. The active fixture is selected by `--fixture=...` on the pytest command line (or by a profile that sets it). The plugin validates that the fixture's `part_id` / `part_family` matches the active part spec before any test runs.
 
 ```bash
 pytest tests/ \
   --station=bench_1 \
   --fixture=fixtures/power_board_fixture.yaml \
-  --dut-serial=SN001
+  --uut-serial=SN001
 ```
 
 See [Fixtures](../../concepts/configuration/fixtures.md) for the pin-to-instrument mapping model.
@@ -282,9 +282,9 @@ print(f"Instruments: {list(station.instruments.keys())}")
 
 Invalid configurations raise `pydantic.ValidationError` with details about what's wrong.
 
-## Shared Instruments (Multi-DUT)
+## Shared Instruments (Multi-UUT)
 
-When a fixture defines multiple **slots** (parallel DUT positions — see [Multi-DUT testing](../execution/multi-dut-testing.md)), instruments referenced by more than one slot are automatically detected as **shared**. The orchestrator connects shared instruments once and hosts them via an internal RPC server (`InstrumentServer` in `src/litmus/instruments/server.py`); worker subprocesses access them through transparent proxy objects. Tests never know the difference.
+When a fixture defines multiple **slots** (parallel UUT positions — see [Multi-UUT testing](../execution/multi-uut-testing.md)), instruments referenced by more than one slot are automatically detected as **shared**. The orchestrator connects shared instruments once and hosts them via an internal RPC server (`InstrumentServer` in `src/litmus/instruments/server.py`); worker subprocesses access them through transparent proxy objects. Tests never know the difference.
 
 ### Per-Resource Locking
 

@@ -1,13 +1,13 @@
 """Read-only session attributes on the ``context`` fixture.
 
-``context.run`` / ``context.station`` / ``context.product`` are the
+``context.run`` / ``context.station`` / ``context.part`` are the
 read-only ambient roll-up tests use without taking ``logger`` /
-``station_config`` / ``product_context`` as fixture arguments. Each
+``station_config`` / ``part_context`` as fixture arguments. Each
 delegates to a ContextVar getter in :mod:`litmus.execution._state`.
 
-DUT identity intentionally lives at ``context.run.dut`` — a top-level
-``context.dut`` would collide with the bare ``dut`` fixture (which is
-the live DUT driver). Same reasoning skips ``context.instruments``;
+UUT identity intentionally lives at ``context.run.uut`` — a top-level
+``context.uut`` would collide with the bare ``uut`` fixture (which is
+the live UUT driver). Same reasoning skips ``context.instruments``;
 take the ``instruments`` fixture as an argument.
 """
 
@@ -30,19 +30,19 @@ _INI = textwrap.dedent(
 
 
 def test_context_run_returns_active_test_run(pytester: pytest.Pytester) -> None:
-    """``context.run`` exposes the active :class:`TestRun`, including ``run.dut``."""
+    """``context.run`` exposes the active :class:`TestRun`, including ``run.uut``."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_run_attr=textwrap.dedent(
             """
             def test_run_exposes_record(context):
                 assert context.run is not None
-                assert context.run.dut is not None
-                assert context.run.dut.serial == "ABC123"
+                assert context.run.uut is not None
+                assert context.run.uut.serial == "ABC123"
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=ABC123")
+    result = pytester.runpytest("-v", "--uut-serial=ABC123")
     result.assert_outcomes(passed=1)
 
 
@@ -57,7 +57,7 @@ def test_context_station_none_in_bringup(pytester: pytest.Pytester) -> None:
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=test")
+    result = pytester.runpytest("-v", "--uut-serial=test")
     result.assert_outcomes(passed=1)
 
 
@@ -85,30 +85,30 @@ def test_context_station_resolves_when_loaded(pytester: pytest.Pytester) -> None
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=test", "--station=stations/alpha.yaml")
+    result = pytester.runpytest("-v", "--uut-serial=test", "--station=stations/alpha.yaml")
     result.assert_outcomes(passed=1)
 
 
-def test_context_product_none_when_no_yaml(pytester: pytest.Pytester) -> None:
-    """No product YAML → ``context.product`` is ``None``."""
+def test_context_part_none_when_no_yaml(pytester: pytest.Pytester) -> None:
+    """No part YAML → ``context.part`` is ``None``."""
     pytester.makeini(_INI)
     pytester.makepyfile(
-        test_no_product=textwrap.dedent(
+        test_no_part=textwrap.dedent(
             """
-            def test_product_none(context):
-                assert context.product is None
+            def test_part_none(context):
+                assert context.part is None
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=test")
+    result = pytester.runpytest("-v", "--uut-serial=test")
     result.assert_outcomes(passed=1)
 
 
-def test_context_product_resolves_when_loaded(pytester: pytest.Pytester) -> None:
-    """With ``--product``, ``context.product`` exposes the :class:`ProductContext`."""
+def test_context_part_resolves_when_loaded(pytester: pytest.Pytester) -> None:
+    """With ``--part``, ``context.part`` exposes the :class:`PartContext`."""
     pytester.makeini(_INI)
-    (pytester.path / "products").mkdir()
-    (pytester.path / "products" / "widget.yaml").write_text(
+    (pytester.path / "parts").mkdir()
+    (pytester.path / "parts" / "widget.yaml").write_text(
         textwrap.dedent(
             """
             id: widget
@@ -129,13 +129,13 @@ def test_context_product_resolves_when_loaded(pytester: pytest.Pytester) -> None
         )
     )
     pytester.makepyfile(
-        test_product=textwrap.dedent(
+        test_part=textwrap.dedent(
             """
-            def test_product_loaded(context):
-                assert context.product is not None
-                assert context.product.product.id == "widget"
+            def test_part_loaded(context):
+                assert context.part is not None
+                assert context.part.part.id == "widget"
             """
         )
     )
-    result = pytester.runpytest("-v", "--dut-serial=test", "--product=products/widget.yaml")
+    result = pytester.runpytest("-v", "--uut-serial=test", "--part=parts/widget.yaml")
     result.assert_outcomes(passed=1)

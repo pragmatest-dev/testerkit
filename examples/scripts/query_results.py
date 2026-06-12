@@ -77,12 +77,12 @@ def recent_runs(limit: int = 10):
     duckdb.sql(f"""
         SELECT
             LEFT(run_id::VARCHAR, 8) as run_id,
-            dut_serial,
+            uut_serial,
             MIN(run_started_at) as started,
             COUNT(*) as measurements,
             COUNT(*) FILTER (outcome = 'fail') as failures
         FROM read_parquet('{RESULTS_GLOB}', union_by_name=true)
-        GROUP BY run_id, dut_serial
+        GROUP BY run_id, uut_serial
         ORDER BY started DESC
         LIMIT {limit}
     """).show()
@@ -102,7 +102,7 @@ def failed_measurements():
             ROUND(low_limit, 4) as low,
             ROUND(high_limit, 4) as high,
             units,
-            dut_serial,
+            uut_serial,
             run_started_at::DATE as date
         FROM read_parquet('{RESULTS_GLOB}', union_by_name=true)
         WHERE outcome = 'fail'

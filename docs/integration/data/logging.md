@@ -39,7 +39,7 @@ Wire it up in the calling code:
 
 ```python
 client = LitmusClient()
-run = client.start_run(dut_serial="SN001", station_id="bench_1")
+run = client.start_run(uut_serial="SN001", station_id="bench_1")
 handler = LitmusHandler(run)
 logging.getLogger("my_test").addHandler(handler)
 ```
@@ -59,7 +59,7 @@ def sync_to_database(run_id: str, db_connection):
 
     db_connection.execute(
         "INSERT INTO test_runs (id, serial, outcome) VALUES (?, ?, ?)",
-        (run_id, run.dut_serial, run.outcome)
+        (run_id, run.uut_serial, run.outcome)
     )
 
     for m in measurements:
@@ -86,7 +86,7 @@ def upload_results(run_id: str, bucket: str):
     run = client.get_run(run_id)
 
     local_path = run.file_path                  # attribute on RunSummary
-    s3_key = f"test_results/{run.dut_serial}/{run_id}.parquet"
+    s3_key = f"test_results/{run.uut_serial}/{run_id}.parquet"
     s3.upload_file(local_path, bucket, s3_key)
 ```
 
@@ -101,9 +101,9 @@ import duckdb
 
 # Cross-run query — DuckDB reads the parquet directly
 duckdb.sql("""
-    SELECT dut_serial, step_name, measurement_outcome, COUNT(*)
+    SELECT uut_serial, step_name, measurement_outcome, COUNT(*)
     FROM '<data_dir>/runs/**/*.parquet'
-    GROUP BY dut_serial, step_name, measurement_outcome
+    GROUP BY uut_serial, step_name, measurement_outcome
 """).show()
 ```
 

@@ -1,6 +1,6 @@
-"""Capability models for matching products to stations.
+"""Capability models for matching parts to stations.
 
-Signal/Capability hierarchy: describes what an instrument or product
+Signal/Capability hierarchy: describes what an instrument or part
 can measure/source, with typed parameter dictionaries for signals,
 conditions, controls, and attributes.
 
@@ -48,10 +48,10 @@ class SpecQualifier(StrEnum):
     Industry-standard datasheet semantic (Keysight / Keithley / R&S).
     Capability matching can/should distinguish a warranted spec from
     a typical-only one when checking whether an instrument meets a
-    product requirement — see ROADMAP "SpecQualifier matching" for
+    part requirement — see ROADMAP "SpecQualifier matching" for
     the wiring plan.
 
-    - **guaranteed**: Warranted spec — product must meet it,
+    - **guaranteed**: Warranted spec — part must meet it,
       guardbanded for measurement uncertainty.
     - **typical**: Expected performance across multiple units, not
       warranted.
@@ -148,7 +148,7 @@ class ChannelTopology(BaseModel):
 
     Describes the physical terminals, connector type, and ground topology
     for a channel. Used in catalog and instrument library entries to model
-    how instruments physically connect to the DUT.
+    how instruments physically connect to the UUT.
 
     Example YAML:
         "1":
@@ -230,7 +230,7 @@ class Signal(BaseModel):
                   frequency: {min: 3, max: 5, units: Hz}
                 accuracy: {pct_reading: 0.35, pct_range: 0.03}
 
-    Example YAML (product):
+    Example YAML (part):
         signals:
           voltage:
             value: 3.3
@@ -376,7 +376,7 @@ class Attribute(BaseModel):
 class ConditionKey(StrEnum):
     """Canonical keys for the ``conditions`` dict on a Capability.
 
-    Not enforced at model level; used as a shared vocabulary so products
+    Not enforced at model level; used as a shared vocabulary so parts
     and instruments use the same names.
 
     Derived from audit of 150+ instrument datasheets across 19 vendors and IVI
@@ -429,9 +429,9 @@ class ConditionKey(StrEnum):
 
 
 class Capability(BaseModel):
-    """What a signal endpoint can do — shared by products and instruments.
+    """What a signal endpoint can do — shared by parts and instruments.
 
-    Base class for both product characteristics and instrument capabilities.
+    Base class for both part characteristics and instrument capabilities.
     Describes a measurement function with direction and typed parameter dicts.
 
     Parameter categories (ATML/IVI/IEEE 1641 lineage):
@@ -569,7 +569,7 @@ class InstrumentCapability(Capability):
 def band_matches(band: SpecBand, params: dict[str, float | str | bool]) -> bool:
     """Check if all ``when`` clauses in a SpecBand match the given params.
 
-    Shared by product spec lookup and instrument capability matching.
+    Shared by part spec lookup and instrument capability matching.
     An empty ``when`` dict matches any query (unconditional spec).
     """
     for key, spec in band.when.items():

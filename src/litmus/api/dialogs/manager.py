@@ -35,13 +35,13 @@ class DialogManager:
 
     Usage from test code (in-process):
         manager = get_dialog_manager()
-        response = await manager.confirm("Is DUT connected?")
+        response = await manager.confirm("Is UUT connected?")
         if response.confirmed:
             # proceed with test
 
     Usage from test subprocess (HTTP mode):
         manager = get_dialog_manager()  # auto-detects LITMUS_SERVER_URL
-        response = await manager.confirm("Is DUT connected?")
+        response = await manager.confirm("Is UUT connected?")
         # This POSTs to server and polls for response
 
     Usage from UI:

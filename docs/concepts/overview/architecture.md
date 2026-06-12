@@ -2,12 +2,12 @@
 
 ## How the Framework Works
 
-> **Vocabulary primer.** This page drops a lot of names into one diagram. If you haven't seen them yet: **[product](../configuration/products.md)** and **[station](../configuration/stations.md)** are YAML definitions; **[sidecar](../../reference/configuration.md)** is the per-test YAML carrying limits / sweeps / mocks; **`verify` / `context` / `logger`** are three of the 20 pytest fixtures Litmus adds — the common per-test entry points (see [reference/litmus-fixtures](../../reference/pytest/fixtures.md)); **[characteristic](../configuration/capabilities.md)** is a measurable property on a product; **[capability](../configuration/capabilities.md)** is what an instrument can do.
+> **Vocabulary primer.** This page drops a lot of names into one diagram. If you haven't seen them yet: **[part](../configuration/parts.md)** and **[station](../configuration/stations.md)** are YAML definitions; **[sidecar](../../reference/configuration.md)** is the per-test YAML carrying limits / sweeps / mocks; **`verify` / `context` / `logger`** are three of the 20 pytest fixtures Litmus adds — the common per-test entry points (see [reference/litmus-fixtures](../../reference/pytest/fixtures.md)); **[characteristic](../configuration/capabilities.md)** is a measurable property on a part; **[capability](../configuration/capabilities.md)** is what an instrument can do.
 
 ```mermaid
 flowchart LR
     subgraph Inputs
-        P[Product spec<br/>products/*.yaml<br/>pins, chars, bands]
+        P[Part spec<br/>parts/*.yaml<br/>pins, chars, bands]
         S[Station YAML<br/>stations/*.yaml<br/>instruments, resources]
         SC[Sidecar YAML<br/>tests/test_*.yaml<br/>limits, sweeps, mocks, retry, prompts]
         T[Test code<br/>tests/test_*.py<br/>verify / context / logger]
@@ -32,8 +32,8 @@ flowchart LR
 
 | Concept | What It Is | Example |
 |---------|-----------|---------|
-| **[Product](../configuration/products.md)** | Spec defining what you're testing | TPS54302 DC-DC converter |
-| **[Characteristic](../configuration/capabilities.md)** | Measurable property of product | output_voltage: 3.3V ±5% |
+| **[Part](../configuration/parts.md)** | Spec defining what you're testing | TPS54302 DC-DC converter |
+| **[Characteristic](../configuration/capabilities.md)** | Measurable property of part | output_voltage: 3.3V ±5% |
 | **[Station](../configuration/stations.md)** | Physical test bench with instruments | Bench 1 with DMM, PSU, ELoad |
 | **[Capability](../configuration/capabilities.md)** | What an instrument can do | DMM: measure DC voltage |
 | **[Sidecar](../../reference/configuration.md)** | YAML alongside a test file declaring limits, sweeps, mocks, retry, prompts | `tests/test_power.yaml` |
@@ -45,13 +45,13 @@ flowchart LR
 ```mermaid
 flowchart LR
     subgraph Definitions["DEFINITIONS (YAML)"]
-        PS["Product spec<br/>products/*.yaml"]
+        PS["Part spec<br/>parts/*.yaml"]
         ST["Station type<br/>stations/*.yaml"]
         TC["Test code + sidecar<br/>tests/test_*.py + .yaml"]
     end
 
     subgraph Runtime["RUNTIME"]
-        DUT["DUT<br/>(serial)"]
+        UUT["UUT<br/>(serial)"]
         SI["Station instance"]
         TR["Test run"]
     end
@@ -61,8 +61,8 @@ flowchart LR
         MD["Measurement data"]
     end
 
-    PS -- "instantiated as" --> DUT
-    DUT -- "tested in" --> TRR
+    PS -- "instantiated as" --> UUT
+    UUT -- "tested in" --> TRR
     ST -- "deployed as" --> SI
     SI -- "produces" --> MD
     TC -- "executed as" --> TR
@@ -72,15 +72,15 @@ flowchart LR
 
 ## Entity Relationships
 
-The platform's data model splits cleanly into three concerns: **what you're testing** (products and their specs), **how you test it** (stations, fixtures, capabilities), and **what gets executed and recorded** (sidecar configuration and runs). Each diagram below covers one concern. For the full per-model schema with every field, see [reference/models](../../reference/data/models.md) and [reference/catalog-schema](../../reference/catalog/schema.md). Click any diagram to expand.
+The platform's data model splits cleanly into three concerns: **what you're testing** (parts and their specs), **how you test it** (stations, fixtures, capabilities), and **what gets executed and recorded** (sidecar configuration and runs). Each diagram below covers one concern. For the full per-model schema with every field, see [reference/models](../../reference/data/models.md) and [reference/catalog-schema](../../reference/catalog/schema.md). Click any diagram to expand.
 
-### 1. Products & Specs
+### 1. Parts & Specs
 
-What the DUT is, what its measurable characteristics are, and how spec bands attach.
+What the UUT is, what its measurable characteristics are, and how spec bands attach.
 
 ```mermaid
 erDiagram
-    Product {
+    Part {
         id string PK
         name string
         revision string
@@ -109,14 +109,14 @@ erDiagram
         resolution ResolutionSpec
     }
 
-    Product ||--o{ Pin : "pins[]"
-    Product ||--o{ Characteristic : "characteristics[]"
+    Part ||--o{ Pin : "pins[]"
+    Part ||--o{ Characteristic : "characteristics[]"
     Characteristic ||--o{ SpecBand : "bands[]"
 ```
 
 ### 2. Stations, Fixtures & Capability Matching
 
-The bench side: physical stations, the instruments they hold, the capabilities those instruments expose, and the optional fixture layer that routes instrument channels to DUT pins.
+The bench side: physical stations, the instruments they hold, the capabilities those instruments expose, and the optional fixture layer that routes instrument channels to UUT pins.
 
 ```mermaid
 erDiagram
@@ -148,14 +148,14 @@ erDiagram
     }
     Fixture {
         id string PK
-        product_id string FK
+        part_id string FK
     }
     FixtureConnection {
         name string PK
         instrument string FK
         instrument_channel string
         instrument_terminal string
-        dut_pin string FK
+        uut_pin string FK
         net string
         function string
         route SwitchRoute
@@ -175,7 +175,7 @@ erDiagram
     Station ||--o{ StationInstrumentConfig : "instruments{}"
     StationInstrumentConfig ||--o{ Capability : "capabilities[]"
     Fixture ||--o{ FixtureConnection : "connections[]"
-    FixtureConnection }o--|| Pin : "dut_pin →"
+    FixtureConnection }o--|| Pin : "uut_pin →"
     FixtureConnection }o--|| StationInstrumentConfig : "instrument →"
     Characteristic ||--|| Capability : "matches (direction-flipped)"
 ```
@@ -207,14 +207,14 @@ erDiagram
         runner string
         tests dict
     }
-    DUT {
+    UUT {
         serial string PK
         part_number string
     }
     TestRun {
         id uuid PK
         started_at datetime
-        dut_serial string FK
+        uut_serial string FK
         station_id string FK
         outcome enum
     }
@@ -230,7 +230,7 @@ erDiagram
         units string
         outcome enum
     }
-    Product {
+    Part {
         id string PK
     }
     Station {
@@ -238,8 +238,8 @@ erDiagram
     }
 
     SidecarConfig ||--o{ TestEntry : "tests{}"
-    DUT }o--|| Product : "instance of"
-    TestRun }o--|| DUT : "for DUT"
+    UUT }o--|| Part : "instance of"
+    TestRun }o--|| UUT : "for UUT"
     TestRun }o--|| Station : "on station"
     TestRun ||--o{ TestVector : "vectors[]"
     TestVector ||--o{ Measurement : "measurements[]"
@@ -249,7 +249,7 @@ erDiagram
 
 | Concept | Type (YAML Definition) | Instance (Runtime) |
 |---------|------------------------|-------------------|
-| What to test | `Product` | `DUT` |
+| What to test | `Part` | `UUT` |
 | Where to test | `StationType` | `StationConfig` |
 | What to run | `SidecarConfig` (file scope) + pytest collection | `TestRun` |
 | Single iteration | `TestEntry` (per-method scope) | `TestVector` |
@@ -259,11 +259,11 @@ erDiagram
 
 ### 1. Spec → Config → Test Flow
 
-**Limits can come from three places** — product spec, sidecar override, or inline in the test:
+**Limits can come from three places** — part spec, sidecar override, or inline in the test:
 
 ```mermaid
 flowchart LR
-    A["Product spec<br/>products/*.yaml<br/>characteristic.bands"]
+    A["Part spec<br/>parts/*.yaml<br/>characteristic.bands"]
     B["Sidecar override<br/>tests/test_*.yaml<br/>limits: {name: {...}}"]
     C["Inline limit<br/>logger.measure(name, v, limit=Limit(...))"]
     R["Limit resolution<br/>(per measurement)"]
@@ -272,13 +272,13 @@ flowchart LR
     C --> R
 ```
 
-Product-spec bands derive a production limit by applying any configured guardband (tightening the spec for manufacturing margin). For example: `3.3V ± 5%` (3.135–3.465) with a 10% guardband becomes `3.152–3.449`.
+Part-spec bands derive a production limit by applying any configured guardband (tightening the spec for manufacturing margin). For example: `3.3V ± 5%` (3.135–3.465) with a 10% guardband becomes `3.152–3.449`.
 
 **Full flow with conditions:**
 
 ```mermaid
 flowchart LR
-    PS["Product spec<br/>products/tps54302.yaml<br/>characteristics.output_voltage.bands<br/>(N bands keyed by when:)"]
+    PS["Part spec<br/>parts/tps54302.yaml<br/>characteristics.output_voltage.bands<br/>(N bands keyed by when:)"]
     SC["Sidecar<br/>tests/test_*.yaml<br/>sweeps: [{temp:[25,85], load:[.5,3]}]<br/>characteristics: [output_voltage]"]
     TC["Test code<br/>tests/test_*.py<br/>verify('output_voltage', dmm.measure())"]
 
@@ -300,7 +300,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    PC["Product characteristic<br/>direction: OUTPUT<br/>function: dc_voltage<br/>(DUT outputs voltage)"]
+    PC["Part characteristic<br/>direction: OUTPUT<br/>function: dc_voltage<br/>(UUT outputs voltage)"]
     REQ["Required capability<br/>direction: INPUT<br/>function: dc_voltage<br/>(need to measure)"]
     SI["Station instrument<br/>provides: INPUT<br/>function: dc_voltage<br/>(DMM can measure)"]
     PC -- "direction-flip" --> REQ
@@ -323,7 +323,7 @@ flowchart LR
 
 | Entity | Location |
 |--------|----------|
-| Product specs | `products/*.yaml` |
+| Part specs | `parts/*.yaml` |
 | Station configs | `stations/*.yaml` |
 | Test code | `tests/test_*.py` |
 | Test sidecars | `tests/test_*.yaml` |

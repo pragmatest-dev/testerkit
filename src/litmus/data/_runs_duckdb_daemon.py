@@ -137,9 +137,9 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             file_path VARCHAR,
             session_id VARCHAR,
             slot_id VARCHAR,
-            dut_serial VARCHAR,
-            dut_part_number VARCHAR,
-            dut_lot_number VARCHAR,
+            uut_serial VARCHAR,
+            uut_part_number VARCHAR,
+            uut_lot_number VARCHAR,
             station_id VARCHAR,
             station_name VARCHAR,
             station_hostname VARCHAR,
@@ -150,7 +150,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             num_measurements INTEGER,
             num_steps INTEGER,
             test_phase VARCHAR,
-            product_id VARCHAR,
+            part_id VARCHAR,
             operator_id VARCHAR,
             project_name VARCHAR
         )
@@ -181,7 +181,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             measurement_count INTEGER,
             vector_count INTEGER,
             markers VARCHAR,
-            dut_serial VARCHAR,
+            uut_serial VARCHAR,
             station_id VARCHAR,
             dynamic_attrs MAP(VARCHAR, VARCHAR),
             PRIMARY KEY (run_id, step_path, vector_index)
@@ -265,11 +265,11 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             run_started_at        TIMESTAMPTZ,
             run_ended_at          TIMESTAMPTZ,
             run_outcome           VARCHAR,
-            dut_serial            VARCHAR,
-            dut_part_number       VARCHAR,
-            dut_revision          VARCHAR,
-            dut_lot_number        VARCHAR,
-            product_id            VARCHAR,
+            uut_serial            VARCHAR,
+            uut_part_number       VARCHAR,
+            uut_revision          VARCHAR,
+            uut_lot_number        VARCHAR,
+            part_id            VARCHAR,
             station_id            VARCHAR,
             station_hostname      VARCHAR,
             fixture_id            VARCHAR,
@@ -296,7 +296,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             limit_comparator      VARCHAR,
             characteristic_id     VARCHAR,
             spec_ref              VARCHAR,
-            dut_pin               VARCHAR,
+            uut_pin               VARCHAR,
             fixture_connection    VARCHAR,
             instrument_name       VARCHAR,
             instrument_resource   VARCHAR,
@@ -307,8 +307,8 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             python_version        VARCHAR,
             litmus_version        VARCHAR,
             env_fingerprint       VARCHAR,
-            product_name          VARCHAR,
-            product_revision      VARCHAR,
+            part_name          VARCHAR,
+            part_revision      VARCHAR,
             station_name          VARCHAR,
             station_type          VARCHAR,
             station_location      VARCHAR,
@@ -352,9 +352,9 @@ _RUNS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("file_path", "VARCHAR"),
     ("session_id", "VARCHAR"),
     ("slot_id", "VARCHAR"),
-    ("dut_serial", "VARCHAR"),
-    ("dut_part_number", "VARCHAR"),
-    ("dut_lot_number", "VARCHAR"),
+    ("uut_serial", "VARCHAR"),
+    ("uut_part_number", "VARCHAR"),
+    ("uut_lot_number", "VARCHAR"),
     ("station_id", "VARCHAR"),
     ("station_name", "VARCHAR"),
     ("station_hostname", "VARCHAR"),
@@ -365,7 +365,7 @@ _RUNS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("num_measurements", "INTEGER"),
     ("num_steps", "INTEGER"),
     ("test_phase", "VARCHAR"),
-    ("product_id", "VARCHAR"),
+    ("part_id", "VARCHAR"),
     ("operator_id", "VARCHAR"),
     ("project_name", "VARCHAR"),
 )
@@ -393,7 +393,7 @@ _STEPS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     # values 0..N).
     ("retry_count", "INTEGER"),
     ("markers", "VARCHAR"),
-    ("dut_serial", "VARCHAR"),
+    ("uut_serial", "VARCHAR"),
     ("station_id", "VARCHAR"),
     ("dynamic_attrs", "MAP(VARCHAR, VARCHAR)"),
 )
@@ -406,13 +406,13 @@ _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("run_started_at", "TIMESTAMPTZ"),
     ("run_ended_at", "TIMESTAMPTZ"),
     ("run_outcome", "VARCHAR"),
-    ("dut_serial", "VARCHAR"),
-    ("dut_part_number", "VARCHAR"),
-    ("dut_revision", "VARCHAR"),
-    ("dut_lot_number", "VARCHAR"),
-    ("product_id", "VARCHAR"),
-    ("product_name", "VARCHAR"),
-    ("product_revision", "VARCHAR"),
+    ("uut_serial", "VARCHAR"),
+    ("uut_part_number", "VARCHAR"),
+    ("uut_revision", "VARCHAR"),
+    ("uut_lot_number", "VARCHAR"),
+    ("part_id", "VARCHAR"),
+    ("part_name", "VARCHAR"),
+    ("part_revision", "VARCHAR"),
     ("station_id", "VARCHAR"),
     ("station_name", "VARCHAR"),
     ("station_hostname", "VARCHAR"),
@@ -449,7 +449,7 @@ _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("limit_comparator", "VARCHAR"),
     ("characteristic_id", "VARCHAR"),
     ("spec_ref", "VARCHAR"),
-    ("dut_pin", "VARCHAR"),
+    ("uut_pin", "VARCHAR"),
     ("fixture_connection", "VARCHAR"),
     ("instrument_name", "VARCHAR"),
     ("instrument_resource", "VARCHAR"),
@@ -520,7 +520,7 @@ _IO_SCHEMA_QUERY = """
     AND name NOT LIKE '%\\_instrument' ESCAPE '\\'
     AND name NOT LIKE '%\\_resource' ESCAPE '\\'
     AND name NOT LIKE '%\\_channel' ESCAPE '\\'
-    AND name NOT LIKE '%\\_dut\\_pin' ESCAPE '\\'
+    AND name NOT LIKE '%\\_uut\\_pin' ESCAPE '\\'
     AND name NOT LIKE '%\\_fixture\\_point' ESCAPE '\\'
 """
 
@@ -647,13 +647,13 @@ _MEAS_FIXED_COLS: frozenset[str] = frozenset(
         "run_started_at",
         "run_ended_at",
         "run_outcome",
-        "dut_serial",
-        "dut_part_number",
-        "dut_revision",
-        "dut_lot_number",
-        "product_id",
-        "product_name",
-        "product_revision",
+        "uut_serial",
+        "uut_part_number",
+        "uut_revision",
+        "uut_lot_number",
+        "part_id",
+        "part_name",
+        "part_revision",
         "station_id",
         "station_name",
         "station_hostname",
@@ -690,7 +690,7 @@ _MEAS_FIXED_COLS: frozenset[str] = frozenset(
         "limit_comparator",
         "characteristic_id",
         "spec_ref",
-        "dut_pin",
+        "uut_pin",
         "fixture_connection",
         "instrument_name",
         "instrument_resource",
@@ -824,7 +824,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             filename AS file_path,
             session_id,
             slot_id,
-            dut_serial, dut_part_number, dut_lot_number,
+            uut_serial, uut_part_number, uut_lot_number,
             station_id, station_name, station_hostname,
             fixture_id,
             run_outcome AS outcome,
@@ -836,23 +836,23 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
                 AS num_measurements,
             CAST(COUNT(*) FILTER (WHERE record_type = 'step') AS INTEGER)
                 AS num_steps,
-            test_phase, product_id, operator_id, project_name
+            test_phase, part_id, operator_id, project_name
         FROM read_parquet({flist}, filename=true, union_by_name=true)
         WHERE run_id IS NOT NULL
         GROUP BY
             filename, run_id, session_id, slot_id,
-            dut_serial, dut_part_number, dut_lot_number,
+            uut_serial, uut_part_number, uut_lot_number,
             station_id, station_name, station_hostname,
             fixture_id,
             run_outcome, run_started_at, run_ended_at,
-            test_phase, product_id, operator_id, project_name
+            test_phase, part_id, operator_id, project_name
         ON CONFLICT (run_id) DO UPDATE SET
             file_path = excluded.file_path,
             session_id = excluded.session_id,
             slot_id = excluded.slot_id,
-            dut_serial = excluded.dut_serial,
-            dut_part_number = excluded.dut_part_number,
-            dut_lot_number = excluded.dut_lot_number,
+            uut_serial = excluded.uut_serial,
+            uut_part_number = excluded.uut_part_number,
+            uut_lot_number = excluded.uut_lot_number,
             station_id = excluded.station_id,
             station_name = excluded.station_name,
             station_hostname = excluded.station_hostname,
@@ -863,7 +863,7 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             num_measurements = excluded.num_measurements,
             num_steps = excluded.num_steps,
             test_phase = excluded.test_phase,
-            product_id = excluded.product_id,
+            part_id = excluded.part_id,
             operator_id = excluded.operator_id,
             project_name = excluded.project_name
     """)
@@ -924,7 +924,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 AS INTEGER
             ) AS retry_count,
             step_markers AS markers,
-            dut_serial,
+            uut_serial,
             station_id,
             {map_expr} AS dynamic_attrs
         FROM read_parquet({flist}, filename=true, union_by_name=true)
@@ -938,7 +938,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             session_id, slot_id, step_name, parent_path,
             step_outcome, step_started_at, step_ended_at,
             step_vector_count, step_markers,
-            dut_serial, station_id
+            uut_serial, station_id
         ON CONFLICT (run_id, step_path, vector_index) DO UPDATE SET
             step_index = excluded.step_index,
             file_path = excluded.file_path,
@@ -955,7 +955,7 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             vector_count = excluded.vector_count,
             retry_count = excluded.retry_count,
             markers = excluded.markers,
-            dut_serial = excluded.dut_serial,
+            uut_serial = excluded.uut_serial,
             station_id = excluded.station_id,
             dynamic_attrs = excluded.dynamic_attrs
     """)
@@ -1254,8 +1254,8 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             record_type,
             run_id, session_id, slot_id,
             run_started_at, run_ended_at, run_outcome,
-            dut_serial, dut_part_number, dut_revision, dut_lot_number,
-            product_id, product_name, product_revision,
+            uut_serial, uut_part_number, uut_revision, uut_lot_number,
+            part_id, part_name, part_revision,
             station_id, station_name, station_hostname, station_type, station_location,
             fixture_id, test_phase, project_name, operator_id, operator_name,
             git_commit, git_branch, git_remote,
@@ -1266,7 +1266,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             measurement_name, measurement_value, measurement_outcome,
             measurement_units, measurement_timestamp,
             limit_low, limit_high, limit_nominal, limit_comparator,
-            characteristic_id, spec_ref, dut_pin, fixture_connection,
+            characteristic_id, spec_ref, uut_pin, fixture_connection,
             instrument_name, instrument_resource, instrument_channel,
             dynamic_attrs
         FROM overlay.inflight_measurements
@@ -1289,11 +1289,11 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
         UNION ALL BY NAME
         SELECT
             run_id, file_path, session_id, slot_id,
-            dut_serial, dut_part_number, dut_lot_number, station_id, station_name,
+            uut_serial, uut_part_number, uut_lot_number, station_id, station_name,
             station_hostname, fixture_id,
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
-            num_measurements, num_steps, test_phase, product_id,
+            num_measurements, num_steps, test_phase, part_id,
             operator_id, project_name
         FROM overlay.inflight_runs
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)
@@ -1312,7 +1312,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             TRY_CAST(outcome AS outcome_kind) AS outcome,
             started_at, ended_at,
             duration_s, has_measurements, measurement_count, vector_count, retry_count,
-            markers, dut_serial, station_id,
+            markers, uut_serial, station_id,
             dynamic_attrs
         FROM overlay.inflight_steps
         WHERE run_id NOT IN (SELECT run_id FROM runs_materialized)

@@ -57,7 +57,7 @@ from litmus.data.backends._row_helpers import (
 )
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import (
-    DUT,
+    UUT,
     Measurement,
     Outcome,
     RunSummary,
@@ -79,7 +79,7 @@ logger = logging.getLogger(__name__)
 
 # Suffix patterns for stimulus signal-path columns (in_{param}_{suffix}).
 # A column like "in_vin_instrument" is metadata, not a param value.
-_STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_dut_pin", "_fixture_connection")
+_STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_uut_pin", "_fixture_connection")
 
 # Outcome priority for deterministic worst-case selection from a set.
 # Lower rank = worse outcome. Ties (same rank) pick the same "worst" value.
@@ -204,15 +204,15 @@ class ParquetBackend:
         # UTC timestamp for filename (compact ISO 8601 basic format)
         timestamp = test_run.started_at.strftime("%Y%m%dT%H%M%SZ")
         date_str = test_run.started_at.strftime("%Y-%m-%d")
-        dut_serial = test_run.dut.serial.strip() if test_run.dut.serial else ""
+        uut_serial = test_run.uut.serial.strip() if test_run.uut.serial else ""
 
         # Create date directory under runs/
         date_dir = self._runs_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
         # Filename: timestamp first, serial if present
-        if dut_serial:
-            filename = f"{timestamp}_{dut_serial}.parquet"
+        if uut_serial:
+            filename = f"{timestamp}_{uut_serial}.parquet"
         else:
             filename = f"{timestamp}.parquet"
 
@@ -424,7 +424,7 @@ class ParquetBackend:
     ) -> dict[str, Any]:
         """Build the single ``record_type='run'`` row for the parquet.
 
-        Carries run-level identity / DUT / station / fixture / environment
+        Carries run-level identity / UUT / station / fixture / environment
         columns plus ``custom_metadata`` (flattened to ``custom_*``).
         Step and measurement columns are NULL. Always present (one per
         parquet); for empty runs it is the entire parquet.
@@ -497,8 +497,8 @@ class ParquetBackend:
                     "outcome": m.get("vector_outcome"),
                     "started_at": m.get("vector_started_at"),
                     "ended_at": m.get("vector_ended_at"),
-                    "dut_serial": m.get("dut_serial"),
-                    "product_id": m.get("product_id"),
+                    "uut_serial": m.get("uut_serial"),
+                    "part_id": m.get("part_id"),
                     "station_id": m.get("station_id"),
                 }
                 vector_info["params"] = {k[3:]: v for k, v in m.items() if _is_param_column(k)}
@@ -556,7 +556,7 @@ class ParquetBackend:
         self,
         rows: list[dict[str, Any]],
         started_at: datetime,
-        dut_serial: str,
+        uut_serial: str,
         file_metadata: dict[bytes, bytes] | None = None,
     ) -> Path:
         """Save pre-built flat row dicts to Parquet.
@@ -569,13 +569,13 @@ class ParquetBackend:
 
         timestamp = started_at.strftime("%Y%m%dT%H%M%SZ")
         date_str = started_at.strftime("%Y-%m-%d")
-        dut_serial = dut_serial.strip() if dut_serial else ""
+        uut_serial = uut_serial.strip() if uut_serial else ""
 
         date_dir = self._runs_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
-        if dut_serial:
-            filename = f"{timestamp}_{dut_serial}.parquet"
+        if uut_serial:
+            filename = f"{timestamp}_{uut_serial}.parquet"
         else:
             filename = f"{timestamp}.parquet"
 
@@ -737,7 +737,7 @@ def materialize_run_to_parquet(
     return backend.save_from_rows(
         rows,
         started_at=s.occurred_at,
-        dut_serial=s.dut_serial,
+        uut_serial=s.uut_serial,
         file_metadata=_build_file_metadata_from_acc(acc),
     )
 
@@ -1139,7 +1139,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                     outcome=Outcome(outcome_str) if outcome_str else None,
                     characteristic_id=mr.get("characteristic_id"),
                     spec_ref=mr.get("spec_ref"),
-                    dut_pin=mr.get("dut_pin"),
+                    uut_pin=mr.get("uut_pin"),
                     instrument_name=mr.get("instrument_name"),
                     instrument_resource=mr.get("instrument_resource"),
                     instrument_channel=mr.get("instrument_channel"),
@@ -1212,15 +1212,15 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         id=UUID(run_id_str),
         started_at=run_started_at,
         ended_at=first.get("run_ended_at"),
-        dut=DUT(
-            serial=first.get("dut_serial") or "",
-            part_number=first.get("dut_part_number"),
-            revision=first.get("dut_revision"),
-            lot_number=first.get("dut_lot_number"),
+        uut=UUT(
+            serial=first.get("uut_serial") or "",
+            part_number=first.get("uut_part_number"),
+            revision=first.get("uut_revision"),
+            lot_number=first.get("uut_lot_number"),
         ),
-        product_id=first.get("product_id"),
-        product_name=first.get("product_name"),
-        product_revision=first.get("product_revision"),
+        part_id=first.get("part_id"),
+        part_name=first.get("part_name"),
+        part_revision=first.get("part_revision"),
         station_id=first.get("station_id"),
         station_name=first.get("station_name"),
         station_type=first.get("station_type"),

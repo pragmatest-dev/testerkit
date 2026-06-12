@@ -36,8 +36,8 @@ from litmus.api.responses import (
     MatchSingleResponse,
     MeasurementsListResponse,
     MetricsResponse,
-    ProductRequirementsResponse,
-    ProductsListResponse,
+    PartRequirementsResponse,
+    PartsListResponse,
     RunLaunchResponse,
     RunsListResponse,
     StationCapabilitiesResponse,
@@ -50,7 +50,7 @@ from litmus.data.backends.parquet import ParquetBackend, is_file_reference, load
 from litmus.data.models import Waveform
 from litmus.models.catalog import InstrumentCatalogEntry
 from litmus.models.instrument_asset import InstrumentAssetFile
-from litmus.models.product import Product
+from litmus.models.part import Part
 from litmus.models.station import StationConfig
 
 # Chunk size for streaming a file artifact body out of the blob backend —
@@ -166,7 +166,7 @@ def create_api_router() -> APIRouter:
             version=_litmus_version_str,
             description=(
                 "JSON API for runs, steps, measurements, sessions, dialogs, "
-                "channels, products, stations, instruments, metrics, and the "
+                "channels, parts, stations, instruments, metrics, and the "
                 "MCP-parity tool surface."
             ),
             routes=request.app.routes,
@@ -618,42 +618,42 @@ def create_api_router() -> APIRouter:
         )
 
     # -------------------------------------------------------------------------
-    # Products & Stations
+    # Parts & Stations
     # -------------------------------------------------------------------------
 
-    @router.get("/products", response_model=ProductsListResponse)
-    def list_products():
-        """List all available product specifications."""
-        from litmus.matching.service import list_products_summary
+    @router.get("/parts", response_model=PartsListResponse)
+    def list_parts():
+        """List all available part specifications."""
+        from litmus.matching.service import list_parts_summary
 
-        products = list_products_summary()
-        return {"products": products}
+        parts = list_parts_summary()
+        return {"parts": parts}
 
-    @router.get("/products/{product_id}", response_model=Product)
-    def get_product(product_id: str):
-        """Get a product specification by ID."""
-        from litmus.store import get_product as store_get_product
+    @router.get("/parts/{part_id}", response_model=Part)
+    def get_part(part_id: str):
+        """Get a part specification by ID."""
+        from litmus.store import get_part as store_get_part
 
-        product = store_get_product(product_id)
-        if not product:
-            raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found")
-        return product.model_dump()
+        part = store_get_part(part_id)
+        if not part:
+            raise HTTPException(status_code=404, detail=f"Part '{part_id}' not found")
+        return part.model_dump()
 
     @router.get(
-        "/products/{product_id}/requirements",
-        response_model=ProductRequirementsResponse,
+        "/parts/{part_id}/requirements",
+        response_model=PartRequirementsResponse,
     )
-    def get_product_requirements(product_id: str):
-        """Get required capabilities for a product."""
+    def get_part_requirements(part_id: str):
+        """Get required capabilities for a part."""
         from litmus.matching.service import get_required_capabilities
-        from litmus.store import get_product as store_get_product
+        from litmus.store import get_part as store_get_part
 
-        product = store_get_product(product_id)
-        if not product:
-            raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found")
-        reqs = get_required_capabilities(product)
+        part = store_get_part(part_id)
+        if not part:
+            raise HTTPException(status_code=404, detail=f"Part '{part_id}' not found")
+        reqs = get_required_capabilities(part)
         return {
-            "product_id": product_id,
+            "part_id": part_id,
             "requirements": [
                 RequirementSummary(
                     function=r.function.value,
@@ -713,8 +713,8 @@ def create_api_router() -> APIRouter:
         }
 
     @router.get("/match", response_model=MatchSingleResponse | MatchAllResponse)
-    def match_capabilities(product_id: str, station_id: str | None = None):
-        """Match product requirements to station capabilities.
+    def match_capabilities(part_id: str, station_id: str | None = None):
+        """Match part requirements to station capabilities.
 
         If station_id is provided, returns detailed match for that station.
         Otherwise, returns all stations with their compatibility status.
@@ -723,28 +723,28 @@ def create_api_router() -> APIRouter:
             find_all_station_matches,
             find_compatible_stations,
         )
-        from litmus.store import get_product as store_get_product
+        from litmus.store import get_part as store_get_part
         from litmus.store import get_station as store_get_station
 
-        product = store_get_product(product_id)
-        if not product:
-            raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found")
+        part = store_get_part(part_id)
+        if not part:
+            raise HTTPException(status_code=404, detail=f"Part '{part_id}' not found")
 
         if station_id:
             # Validate station exists, then find its match result
             config = store_get_station(station_id)
             if not config:
                 raise HTTPException(status_code=404, detail=f"Station '{station_id}' not found")
-            matches = find_compatible_stations(product)
+            matches = find_compatible_stations(part)
             match = next((m for m in matches if m.station_id == station_id), None)
             return {
-                "product_id": product_id,
+                "part_id": part_id,
                 "station_id": station_id,
                 "compatible": match.compatible if match else False,
             }
         else:
-            result = find_all_station_matches(product)
-            return {"product_id": product_id, "stations": result}
+            result = find_all_station_matches(part)
+            return {"part_id": part_id, "stations": result}
 
     # -------------------------------------------------------------------------
     # Instruments & Catalog
@@ -797,7 +797,7 @@ def create_api_router() -> APIRouter:
 
     @router.get("/metrics/summary", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_summary(
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
@@ -808,7 +808,7 @@ def create_api_router() -> APIRouter:
         with _measurements_query() as q:
             return {
                 "data": q.yield_summary(
-                    product=product,
+                    part=part,
                     station=station,
                     phase=phase,
                     since=since,
@@ -819,7 +819,7 @@ def create_api_router() -> APIRouter:
 
     @router.get("/metrics/pareto", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_pareto(
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
@@ -830,7 +830,7 @@ def create_api_router() -> APIRouter:
         with _measurements_query() as q:
             return {
                 "data": q.pareto(
-                    product=product,
+                    part=part,
                     station=station,
                     phase=phase,
                     since=since,
@@ -841,7 +841,7 @@ def create_api_router() -> APIRouter:
 
     @router.get("/metrics/cpk", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_cpk(
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
@@ -852,7 +852,7 @@ def create_api_router() -> APIRouter:
         with _measurements_query() as q:
             return {
                 "data": q.cpk(
-                    product=product,
+                    part=part,
                     station=station,
                     phase=phase,
                     since=since,
@@ -863,7 +863,7 @@ def create_api_router() -> APIRouter:
 
     @router.get("/metrics/trend", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_trend(
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
@@ -874,7 +874,7 @@ def create_api_router() -> APIRouter:
         with _measurements_query() as q:
             return {
                 "data": q.trend(
-                    product=product,
+                    part=part,
                     station=station,
                     phase=phase,
                     since=since,
@@ -885,7 +885,7 @@ def create_api_router() -> APIRouter:
 
     @router.get("/metrics/retest", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_retest(
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
@@ -896,7 +896,7 @@ def create_api_router() -> APIRouter:
         with _measurements_query() as q:
             return {
                 "data": q.retest(
-                    product=product,
+                    part=part,
                     station=station,
                     phase=phase,
                     since=since,
@@ -907,7 +907,7 @@ def create_api_router() -> APIRouter:
 
     @router.get("/metrics/time-loss", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_time_loss(
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
@@ -918,7 +918,7 @@ def create_api_router() -> APIRouter:
         with _measurements_query() as q:
             return {
                 "data": q.time_loss(
-                    product=product,
+                    part=part,
                     station=station,
                     phase=phase,
                     since=since,
@@ -963,7 +963,7 @@ def create_api_router() -> APIRouter:
 
     @router.post("/save/{entity_type}/{entity_id}", response_model=GenericObjectResponse)
     def save_entity(entity_type: str, entity_id: str, request: SaveRequest):
-        """Create or update an entity (station, product, sequence, fixture, etc.).
+        """Create or update an entity (station, part, sequence, fixture, etc.).
 
         HTTP equivalent of litmus_project(action='save', ...) MCP tool action.
         Returns validation errors if content does not match the schema.

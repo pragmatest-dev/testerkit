@@ -220,14 +220,14 @@ def _write_or_check(path: Path, new_content: str, *, check: bool) -> bool:
 _EVENT_CATEGORIES: list[tuple[str, list[str]]] = [
     ("Session", ["SessionStarted", "SessionEnded"]),
     ("Run", ["RunStarted", "RunEnded", "RunMaterialized"]),
-    ("Slot (multi-DUT)", ["SlotStarted", "SlotCompleted", "SyncArrived", "SyncRelease"]),
+    ("Slot (multi-UUT)", ["SlotStarted", "SlotCompleted", "SyncArrived", "SyncRelease"]),
     (
         "Fixture",
         [
             "InstrumentConnected",
             "IdentityVerified",
             "CalibrationWarning",
-            "DutScanned",
+            "UutScanned",
             "InstrumentDisconnected",
         ],
     ),
@@ -347,8 +347,8 @@ def _generate_event_types(*, check: bool) -> bool:
 _MODELS_MODULES: list[tuple[str, str]] = [
     ("Project & station YAML", "litmus.models.project"),
     ("Station", "litmus.models.station"),
-    ("Product", "litmus.models.product"),
-    ("Product manifest", "litmus.models.product_manifest"),
+    ("Part", "litmus.models.part"),
+    ("Part manifest", "litmus.models.part_manifest"),
     ("Test config (sidecar, markers, limits, fixtures)", "litmus.models.test_config"),
     ("Capabilities (catalog signal/condition/control/attribute)", "litmus.models.capability"),
     ("Catalog entry", "litmus.models.catalog"),
@@ -494,12 +494,12 @@ _CONFIG_FILES: list[tuple[str, str, str]] = [
     (
         "`fixtures/<id>.yaml`",
         "litmus.models.test_config.FixtureConfig",
-        "DUT-pin ↔ instrument-channel routing (single-DUT) or per-slot routing (multi-DUT).",
+        "UUT-pin ↔ instrument-channel routing (single-UUT) or per-slot routing (multi-UUT).",
     ),
     (
-        "`products/<id>.yaml`",
-        "litmus.models.product.Product",
-        "Product specification — pins, signal groups, characteristics.",
+        "`parts/<id>.yaml`",
+        "litmus.models.part.Part",
+        "Part specification — pins, signal groups, characteristics.",
     ),
     (
         "`tests/test_<name>.yaml`",
@@ -565,7 +565,7 @@ _HTTP_SECTIONS: list[tuple[str, str]] = [
     ("Events & sessions", "/api/events"),
     ("Events & sessions", "/api/sessions"),
     ("Channels", "/api/channels"),
-    ("Products", "/api/products"),
+    ("Parts", "/api/parts"),
     ("Stations", "/api/stations"),
     ("Capability matching", "/api/match"),
     ("Instruments", "/api/instruments"),

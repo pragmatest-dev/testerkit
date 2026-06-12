@@ -32,7 +32,7 @@ SCHEMA_VERSION = "1.0"
 #     ``measurement_*`` columns are NULL.
 #   * ``record_type = 'measurement'`` — one row per recorded measurement.
 #     Carries the measurement payload plus the same denormalized step +
-#     run + DUT + station + fixture context as the corresponding step
+#     run + UUT + station + fixture context as the corresponding step
 #     row, so cross-run measurement queries don't need self-joins.
 #
 # Both kinds share grain ``(run_id, step_path, vector_index)``; measurement
@@ -78,15 +78,15 @@ RUN_ROW_SCHEMA = pa.schema(
         # Who
         ("operator_id", pa.string()),
         ("operator_name", pa.string()),
-        # DUT
-        ("dut_serial", pa.string()),
-        ("dut_part_number", pa.string()),
-        ("dut_revision", pa.string()),
-        ("dut_lot_number", pa.string()),
-        # Product
-        ("product_id", pa.string()),
-        ("product_name", pa.string()),
-        ("product_revision", pa.string()),
+        # UUT
+        ("uut_serial", pa.string()),
+        ("uut_part_number", pa.string()),
+        ("uut_revision", pa.string()),
+        ("uut_lot_number", pa.string()),
+        # Part
+        ("part_id", pa.string()),
+        ("part_name", pa.string()),
+        ("part_revision", pa.string()),
         # Station
         ("station_id", pa.string()),
         ("station_name", pa.string()),
@@ -116,7 +116,7 @@ RUN_ROW_SCHEMA = pa.schema(
         ("characteristic_id", pa.string()),
         ("spec_ref", pa.string()),
         # Signal path
-        ("dut_pin", pa.string()),
+        ("uut_pin", pa.string()),
         ("fixture_connection", pa.string()),
         ("instrument_name", pa.string()),
         ("instrument_resource", pa.string()),

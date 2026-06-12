@@ -20,7 +20,7 @@ Azure SQL transient-error docs:
   same daemon re-produces the same error and burns time.
 
 Conflating the two is what made one bad column ("Binder Error:
-``dut_lot_number`` does not exist") hang the /results page handler
+``uut_lot_number`` does not exist") hang the /results page handler
 for ~7s and surface as ``ERR_EMPTY_RESPONSE``.
 
 References

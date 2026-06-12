@@ -42,7 +42,7 @@ def test_output_voltage(context, psu, dmm, verify):
 Run directly with pytest:
 
 ```bash
-pytest tests/test_power.py::test_output_voltage -v --dut-serial=TEST001
+pytest tests/test_power.py::test_output_voltage -v --uut-serial=TEST001
 ```
 
 ## Inline Markers
@@ -134,9 +134,9 @@ sweeps:
 
 Available expanders: `linspace`, `arange`, `logspace`, `geomspace`,
 `repeat`, `range`. Same shape works in any list position across all Litmus
-YAML (sidecars, profiles, stations, products).
+YAML (sidecars, profiles, stations, parts).
 
-## Product with Change Detection
+## Part with Change Detection
 
 Put slow-changing parameters first. Use `context.changed(key)` — returns True iff this iteration's value differs from the previous iteration's — to detect outer loop changes:
 
@@ -183,6 +183,6 @@ This uses `pytest-rerunfailures` (already a Litmus dependency).
 
 ## Continue
 
-Where do these limit values come from? Let's link them to product specifications.
+Where do these limit values come from? Let's link them to part specifications.
 
-← [Step 4: Add Limits](04-limits.md)  |  [Step 6: Product Specifications →](06-specifications.md)
+← [Step 4: Add Limits](04-limits.md)  |  [Step 6: Part Specifications →](06-specifications.md)

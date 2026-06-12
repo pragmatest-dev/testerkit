@@ -26,11 +26,11 @@ Author and run tests.
 - [Writing tests](execution/writing-tests.md) — pytest classes, sidecar YAML, the `verify` pattern
 - [Test limits](execution/limits.md) — limit shapes, condition-indexed bands, comparator semantics
 - [Test vectors & sweeps](execution/vector-expansion.md) — sidecar `sweeps:`, `@parametrize`, the `vectors` fixture
-- [Spec-driven testing](execution/spec-driven-testing.md) — derive limits from the product YAML
+- [Spec-driven testing](execution/spec-driven-testing.md) — derive limits from the part YAML
 - [Read and write the test context](execution/test-context.md) — what the `context` fixture knows and how to use it from inside a test
 - [Profiles — named config sets](execution/profiles.md) — select which tests run and how
 - [Managing sessions](execution/managing-sessions.md) — connect/disconnect lifecycle for instrument usage
-- [Multi-DUT testing](execution/multi-dut-testing.md) — subprocess-per-slot, shared instruments
+- [Multi-UUT testing](execution/multi-uut-testing.md) — subprocess-per-slot, shared instruments
 - [Measurement traceability](execution/traceability.md) — ATML / IEEE 1671 metadata captured automatically
 - [Operator prompts](execution/operator-prompts.md) — design guide for the `litmus_prompts` marker and the `prompt` fixture
 

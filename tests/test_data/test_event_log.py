@@ -18,7 +18,7 @@ class TestEventLog:
         event = RunStarted(
             run_id=run_id,
             station_id="st1",
-            dut_serial="SN001",
+            uut_serial="SN001",
         )
         log.emit(event)
         log.close()
@@ -124,7 +124,7 @@ class TestEventLog:
         run_id = uuid4()
         log = EventLog(tmp_path / "events", run_id)
 
-        log.emit(RunStarted(run_id=run_id, station_id="st1", dut_serial="SN001"))
+        log.emit(RunStarted(run_id=run_id, station_id="st1", uut_serial="SN001"))
         log.emit(
             MeasurementRecorded(
                 run_id=run_id,

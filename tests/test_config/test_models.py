@@ -79,8 +79,8 @@ class TestStationType:
 class TestFixtureConfig:
     def test_fixture_config(self):
         config = FixtureConfig(
-            id="product_a_fixture",
-            product_family="product_a",
+            id="part_a_fixture",
+            part_family="part_a",
             connections={
                 "vcc": FixtureConnection(name="VCC", instrument="psu", instrument_channel="CH1"),
                 "gnd": FixtureConnection(
@@ -88,7 +88,7 @@ class TestFixtureConfig:
                 ),
             },
         )
-        assert config.id == "product_a_fixture"
+        assert config.id == "part_a_fixture"
         assert "vcc" in config.connections
         assert config.connections["vcc"].instrument == "psu"
 

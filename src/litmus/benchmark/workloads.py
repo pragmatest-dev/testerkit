@@ -58,7 +58,7 @@ def make_measurement(session_id: UUID, i: int):
 def build_run(seed: int, *, n_steps: int = 10, n_meas: int = 5):
     """A finalized TestRun with ``n_steps`` steps x ``n_meas`` measurements."""
     from litmus.data.models import (
-        DUT,
+        UUT,
         Measurement,
         Outcome,
         TestRun,
@@ -70,7 +70,7 @@ def build_run(seed: int, *, n_steps: int = 10, n_meas: int = 5):
         id=uuid4(),
         started_at=datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 6, 1, 12, 1, 0, tzinfo=UTC),
-        dut=DUT(serial=f"SN-{seed:06d}"),
+        uut=UUT(serial=f"SN-{seed:06d}"),
         outcome=Outcome.PASSED,
         steps=[
             TestStep(

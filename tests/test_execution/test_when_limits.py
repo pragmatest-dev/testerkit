@@ -277,7 +277,7 @@ def test_scalar_dict_shape_still_resolves(pytester: pytest.Pytester) -> None:
 
 
 def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -> None:
-    """Band using ``tolerance_pct`` against a product characteristic.
+    """Band using ``tolerance_pct`` against a part characteristic.
 
     The characteristic provides the nominal (3.3 V); the band applies
     ±2% at vin=5.0, ±5% at vin=3.3. A reading of 3.30 passes at vin=5.0
@@ -285,8 +285,8 @@ def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -
     with 3.30 == nominal, both rows pass.
     """
     pytester.makeini(_INI)
-    (pytester.path / "products").mkdir()
-    (pytester.path / "products" / "mini.yaml").write_text(
+    (pytester.path / "parts").mkdir()
+    (pytester.path / "parts" / "mini.yaml").write_text(
         textwrap.dedent(
             """
             id: mini
@@ -330,5 +330,5 @@ def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -
 """
         )
     )
-    result = pytester.runpytest("-v", "--product=products/mini.yaml")
+    result = pytester.runpytest("-v", "--part=parts/mini.yaml")
     result.assert_outcomes(passed=2)

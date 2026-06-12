@@ -8,7 +8,7 @@ from litmus.matching.service import (
 )
 from litmus.models.capability import InstrumentCapability, RangeSpec, Signal
 from litmus.models.enums import Direction, MeasurementFunction
-from litmus.models.product import ProductCharacteristic
+from litmus.models.part import PartCharacteristic
 
 
 def _make_station_cap(
@@ -43,7 +43,7 @@ def _make_req(
     units="V",
 ) -> CapabilityRequirement:
     return CapabilityRequirement(
-        capability=ProductCharacteristic(
+        capability=PartCharacteristic(
             function=function,
             direction=direction,
             signals=signals or {},
@@ -436,25 +436,25 @@ class TestReadbackFiltering:
 
 
 class TestPinRole:
-    """Tests for PinRole enum on product Pin model."""
+    """Tests for PinRole enum on part Pin model."""
 
     def test_pin_role_default_signal(self):
         """Pin role defaults to signal."""
-        from litmus.models.product import Pin
+        from litmus.models.part import Pin
 
         pin = Pin(name="TP1")
         assert pin.role == "signal"
 
     def test_pin_role_ground(self):
         """Pin role can be set to ground."""
-        from litmus.models.product import Pin, PinRole
+        from litmus.models.part import Pin, PinRole
 
         pin = Pin(name="J1.2", role=PinRole.GROUND)
         assert pin.role == "ground"
 
     def test_pin_role_power(self):
         """Pin role can be set to power."""
-        from litmus.models.product import Pin, PinRole
+        from litmus.models.part import Pin, PinRole
 
         pin = Pin(name="J1.1", role=PinRole.POWER, net="VIN_5V")
         assert pin.role == "power"
@@ -553,7 +553,7 @@ class TestFixtureConnectionTerminal:
 
         fc = FixtureConnection(
             name="gnd_psu_lo",
-            dut_pin="J1_GND",
+            uut_pin="J1_GND",
             instrument="psu",
             instrument_channel="1",
             instrument_terminal="lo",
@@ -617,9 +617,9 @@ class TestDesignerAutoSuggest:
         compatible = get_compatible_channels_for_pin(
             pin_key="TP_VOUT",
             char_by_pin={},
-            product=None,
+            part=None,
             instruments=instruments,
-            dut_pins={"TP_VOUT": {"name": "TP2", "net": "VOUT", "role": "signal"}},
+            uut_pins={"TP_VOUT": {"name": "TP2", "net": "VOUT", "role": "signal"}},
         )
         # Without characteristics, all channels are returned
         assert "psu:1" in compatible
@@ -634,9 +634,9 @@ class TestDesignerAutoSuggest:
         compatible = get_compatible_channels_for_pin(
             pin_key="J1_GND",
             char_by_pin={},
-            product=None,
+            part=None,
             instruments=instruments,
-            dut_pins={"J1_GND": {"name": "J1.2", "net": "GND", "role": "ground"}},
+            uut_pins={"J1_GND": {"name": "J1.2", "net": "GND", "role": "ground"}},
         )
         assert "psu:1" in compatible
         assert "dmm:1" in compatible

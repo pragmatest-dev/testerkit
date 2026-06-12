@@ -56,7 +56,7 @@ def session(tmp_path: Path):
     _reset_filestore()
 
     logger = TestRunLogger(
-        dut_serial="POC-DUT-001",
+        uut_serial="POC-UUT-001",
         station_id="poc-station",
         run_id=run_id,
         session_id=session_id,

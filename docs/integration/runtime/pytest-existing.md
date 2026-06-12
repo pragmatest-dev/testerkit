@@ -22,8 +22,8 @@ That's it. Litmus's pytest plugin registers via its entry point in `pyproject.to
 
 The plugin registers these CLI flags out of the box:
 
-- `--dut-serial`, `--dut-serials`, `--dut-part-number`, `--dut-revision`, `--dut-lot-number`
-- `--station`, `--slot`, `--fixture`, `--product`
+- `--uut-serial`, `--uut-serials`, `--uut-part-number`, `--uut-revision`, `--uut-lot-number`
+- `--station`, `--slot`, `--fixture`, `--part`
 - `--mock-instruments` / `--no-mock-instruments`, `--test-phase`, `--test-profile` / `--no-test-profile`, `--operator`
 - `--data-dir`, `--guardband`, `--strict-traceability`
 
@@ -49,7 +49,7 @@ def test_output_voltage(dmm, verify):
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-The `dmm` fixture resolves to a connected DMM driver from your station YAML. The `verify` fixture resolves the limit (sidecar / marker / product spec / inline `limit=`), records the measurement to parquet, and raises `LimitFailure` if it's out of range.
+The `dmm` fixture resolves to a connected DMM driver from your station YAML. The `verify` fixture resolves the limit (sidecar / marker / part spec / inline `limit=`), records the measurement to parquet, and raises `LimitFailure` if it's out of range.
 
 Your existing tests keep running unmodified — pytest treats them as ordinary tests with no fixture dependencies on the Litmus surface.
 
@@ -62,7 +62,7 @@ def test_calculate_something():
 Both run together:
 
 ```bash
-pytest tests/ --station=bench_1 --dut-serial=SN001
+pytest tests/ --station=bench_1 --uut-serial=SN001
 ```
 
 ## Configuration files
@@ -73,8 +73,8 @@ A complete Litmus-aware project has up to four YAML files. None of them are requ
 |---|---|---|
 | `litmus.yaml` | Project-wide defaults (data dir, default station, etc.) | Always recommended — pin a `data_dir:` so results land somewhere predictable |
 | `stations/<id>.yaml` | Declares instruments and their roles for one bench | Any test that takes an instrument fixture (`dmm`, `psu`, etc.) |
-| `fixtures/<id>.yaml` | Maps DUT pins to instrument channels | Tests that use the `pins` fixture or need pin-level traceability |
-| `products/<id>.yaml` | Declares pins + characteristics + spec bands | Tests that use `verify` against a product spec |
+| `fixtures/<id>.yaml` | Maps UUT pins to instrument channels | Tests that use the `pins` fixture or need pin-level traceability |
+| `parts/<id>.yaml` | Declares pins + characteristics + spec bands | Tests that use `verify` against a part spec |
 
 For the full schemas, see [configuration reference](../../reference/configuration.md).
 
@@ -134,7 +134,7 @@ For tests where rewriting the assertion to use `verify` isn't worth it but you s
 from litmus import LitmusClient
 
 client = LitmusClient()
-run = client.start_run(dut_serial="SN001", station_id="bench_1", test_phase="production")
+run = client.start_run(uut_serial="SN001", station_id="bench_1", test_phase="production")
 
 with run.step("voltage_check") as step:
     voltage = your_existing_measure_function()
@@ -160,7 +160,7 @@ from litmus import Limit
 from litmus.execution.harness import TestHarness
 from litmus.execution.logger import TestRunLogger
 
-logger = TestRunLogger(dut_serial="SN001", station_id="bench_1")
+logger = TestRunLogger(uut_serial="SN001", station_id="bench_1")
 harness = TestHarness(logger=logger)
 
 with harness.step("test_power_rails"):
@@ -170,7 +170,7 @@ with harness.step("test_power_rails"):
     harness.measure("vdd", vdd, limit=Limit(low=1.7, high=1.9, units="V"))
 ```
 
-`TestHarness.measure()` takes `name`, `value`, optional `units`, `limit` (a `Limit` model — no `low=` / `high=` kwargs), `dut_pin`, `instrument_channel`, `fixture_connection`. When `limit=` is not passed, the harness resolves limits from its `limits=` / `config["limits"]` (whichever you provided at construction) and the active `product_context`; see [integration/harness.md → Recording measurements](harness.md#recording-measurements).
+`TestHarness.measure()` takes `name`, `value`, optional `units`, `limit` (a `Limit` model — no `low=` / `high=` kwargs), `uut_pin`, `instrument_channel`, `fixture_connection`. When `limit=` is not passed, the harness resolves limits from its `limits=` / `config["limits"]` (whichever you provided at construction) and the active `part_context`; see [integration/harness.md → Recording measurements](harness.md#recording-measurements).
 
 - Pros: the most direct way to drive Litmus from non-pytest Python (Robot Framework, unittest, ad-hoc scripts).
 - Trade-off: don't construct `TestRunLogger` at module-import time — its `__init__` captures git state and the hostname for the `TestRun` record, and you'd rather that snapshot happen at session start, not module load. Open the event log explicitly afterward (`logger.event_log = store.get_event_log(...)`) so it lines up with the session boundary. That work belongs in a session-start hook or `pytest_sessionstart`, not at import.
@@ -276,7 +276,7 @@ for role, cfg in station.instruments.items():
 ```bash
 pytest tests/                                  # auto-resolves default_station from litmus.yaml
 pytest tests/ --mock-instruments               # hardware-free run via mock instruments
-pytest tests/ --station=bench_1 --dut-serial=SN001
+pytest tests/ --station=bench_1 --uut-serial=SN001
 ```
 
 ### CI
@@ -286,7 +286,7 @@ pytest tests/ --station=bench_1 --dut-serial=SN001
   run: |
     pytest tests/ \
       --mock-instruments \
-      --dut-serial=CI \
+      --uut-serial=CI \
       --station=ci_station \
       --test-phase=development
 ```
@@ -298,7 +298,7 @@ For CI, the simplest setup is a `stations/ci_station.yaml` whose every instrumen
 ```bash
 pytest tests/ \
   --station=bench_1 \
-  --dut-serial=$SERIAL \
+  --uut-serial=$SERIAL \
   --operator=$OPERATOR \
   --test-phase=production
 ```
@@ -321,11 +321,11 @@ If `litmus runs` is empty, check that the test session reached `RunEnded` (the p
 
 | You get | You spend |
 |---|---|
-| Every measurement persisted with full traceability (DUT serial, station, operator, timestamps, limits, outcomes) | Writing a `stations/<id>.yaml` for each bench |
+| Every measurement persisted with full traceability (UUT serial, station, operator, timestamps, limits, outcomes) | Writing a `stations/<id>.yaml` for each bench |
 | Mock-mode CI without changing test bodies | Per-test `mock_config` setpoints for the simulated bench |
 | Operator UI, MCP tools, HTTP API on the same data | Nothing — they read the same parquet |
-| Spec-driven limits (limits move from test code to product YAML) | Authoring `products/<id>.yaml` |
-| Capability matching (which station can run this product) | A `catalog/<vendor>/<model>.yaml` per instrument model |
+| Spec-driven limits (limits move from test code to part YAML) | Authoring `parts/<id>.yaml` |
+| Capability matching (which station can run this part) | A `catalog/<vendor>/<model>.yaml` per instrument model |
 
 Pick what you need. The plugin doesn't force any of it — without YAMLs, you still get plain pytest with no platform features active.
 

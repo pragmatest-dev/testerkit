@@ -1,10 +1,10 @@
-"""Burn-in test — multiple artifact types around one DUT cycle.
+"""Burn-in test — multiple artifact types around one UUT cycle.
 
 Demonstrates the full FileStore use case in v0.2.0:
 
-* **PIL.Image** — a captured photo of the DUT, observe'd at start of
+* **PIL.Image** — a captured photo of the UUT, observe'd at start of
   test. Routes to FileStore via the PIL serializer; lands as PNG;
-  ``out_dut_photo`` carries ``file://...`` URI; the operator UI's
+  ``out_uut_photo`` carries ``file://...`` URI; the operator UI's
   artifact viewer renders it inline.
 * **Pydantic model** — a structured burn-in report observed at end
   of test. Routes to FileStore via the BaseModel serializer; lands
@@ -27,7 +27,7 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 
-from drivers import snapshot_dut
+from drivers import snapshot_uut
 from pydantic import BaseModel
 
 import litmus.files
@@ -37,7 +37,7 @@ from litmus import Limit
 class BurnInReport(BaseModel):
     """Final burn-in summary — lands in FileStore as JSON."""
 
-    dut_serial: str
+    uut_serial: str
     duration_s: float
     started_at: datetime
     ended_at: datetime
@@ -46,12 +46,12 @@ class BurnInReport(BaseModel):
     notes: str
 
 
-def test_dut_burn_in(observe, verify, psu) -> None:
+def test_uut_burn_in(observe, verify, psu) -> None:
     started = datetime.now(UTC)
 
-    # Capture a "before" photo of the DUT — PIL.Image routes to
+    # Capture a "before" photo of the UUT — PIL.Image routes to
     # FileStore via the PIL serializer (lands as .png).
-    observe("dut_photo", snapshot_dut(serial="SN-DEMO-001"))
+    observe("uut_photo", snapshot_uut(serial="SN-DEMO-001"))
 
     # Attach a vendor capture artifact — raw bytes route via the
     # bytes serializer (lands as .bin). Synthesized here; in a real
@@ -95,7 +95,7 @@ def test_dut_burn_in(observe, verify, psu) -> None:
     # serializer (lands as .json).
     ended = datetime.now(UTC)
     report = BurnInReport(
-        dut_serial="SN-DEMO-001",
+        uut_serial="SN-DEMO-001",
         duration_s=(ended - started).total_seconds(),
         started_at=started,
         ended_at=ended,
@@ -106,7 +106,7 @@ def test_dut_burn_in(observe, verify, psu) -> None:
     observe("burn_report", report)
 
     # The judgment: rail voltage stayed within ±5 % of 5.0 V across
-    # all samples. ``out_dut_photo`` / ``out_vendor_capture`` /
+    # all samples. ``out_uut_photo`` / ``out_vendor_capture`` /
     # ``out_burn_log`` / ``out_burn_report`` all land on this row;
     # one click takes the analyst from the verify row to any
     # artifact.

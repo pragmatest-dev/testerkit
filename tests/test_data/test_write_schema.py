@@ -5,7 +5,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from litmus.data.backends.parquet import ParquetBackend
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 from litmus.data.schemas import (
     _INSTR_ARRAY_TYPES,
     RUN_ROW_SCHEMA,
@@ -135,7 +135,7 @@ class TestRoundTripExplicitSchema:
         v = TestVector(index=0, measurements=[m])
         s = TestStep(name="test_v", vectors=[v])
         run = TestRun(
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             steps=[s],
             station_id="bench_1",
             outcome=Outcome.PASSED,
@@ -165,7 +165,7 @@ class TestRoundTripExplicitSchema:
         )
         s = TestStep(name="test_v", vectors=[v])
         run = TestRun(
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             steps=[s],
             station_id="bench_1",
             outcome=Outcome.PASSED,

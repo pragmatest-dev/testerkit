@@ -18,14 +18,14 @@ That's it. You'll see tests pass with mock instruments, limits checked, and resu
 
 > **Concepts cheat-sheet.** Quick Start shows a complete Litmus project, which means it uses every concept the framework has — most for the first time. Each term in the rest of this page links forward to the tutorial step that introduces it properly:
 >
-> - **Product spec** — `products/*.yaml`. Describes the device under test. → [Step 6](06-specifications.md), [concepts/products](../concepts/configuration/products.md)
+> - **Part spec** — `parts/*.yaml`. Describes the device under test. → [Step 6](06-specifications.md), [concepts/parts](../concepts/configuration/parts.md)
 > - **Station YAML** — `stations/*.yaml`. Declares the bench's instruments. → [Step 7](07-real-instruments.md), [concepts/stations](../concepts/configuration/stations.md)
 > - **Sidecar YAML** — `tests/test_<module>.yaml`. Carries limits, sweeps, mocks for tests in that module. → [Step 5](05-configuration.md)
 > - **`verify` / `logger` / `context` fixtures** — three of the 20 fixtures Litmus contributes. → [Step 3](03-fixtures.md), [reference/litmus-fixtures](../reference/pytest/fixtures.md)
 > - **`@pytest.mark.litmus_limits`** — one of the seven Litmus markers; pins a limit at the top of a test. → [Step 4](04-limits.md), [reference/litmus-markers](../reference/pytest/markers.md)
 > - **`mock_config`** — Per-instrument return values for mock mode. → [Step 2](02-mock-instruments.md), [how-to/mock-mode](../how-to/configuration/mock-mode.md)
-> - **Characteristics, bands, accuracy, `when:`** — Product-spec vocabulary. → [Step 6](06-specifications.md), [reference/catalog-schema](../reference/catalog/schema.md)
-> - **Capability matching** — How Litmus pairs a product to a station. → [Step 8](08-capabilities.md), [concepts/capabilities](../concepts/configuration/capabilities.md)
+> - **Characteristics, bands, accuracy, `when:`** — Part-spec vocabulary. → [Step 6](06-specifications.md), [reference/catalog-schema](../reference/catalog/schema.md)
+> - **Capability matching** — How Litmus pairs a part to a station. → [Step 8](08-capabilities.md), [concepts/capabilities](../concepts/configuration/capabilities.md)
 > - **MCP** — Model Context Protocol; how AI agents drive Litmus. → [how-to/mcp-integration](../how-to/overview/mcp-integration.md)
 
 ## How to Install
@@ -40,8 +40,8 @@ Litmus projects follow a standard folder structure. The UI is driven by these fo
 
 ```
 my_project/
-├── products/                    # WHAT you're testing
-│   └── my_product.yaml          # Product specification
+├── parts/                    # WHAT you're testing
+│   └── my_part.yaml          # Part specification
 ├── stations/                    # WHERE you test
 │   └── my_station.yaml          # Instruments + addresses
 ├── fixtures/                    # HOW pins connect to instruments
@@ -50,8 +50,8 @@ my_project/
 │   └── custom_dmm.yaml          # Driver definitions
 ├── tests/                       # Test code + sidecar config
 │   ├── conftest.py              # Custom fixtures (optional — roles auto-register)
-│   ├── test_my_product.py       # Test functions
-│   └── test_my_product.yaml     # Sidecar (vectors, limits, mocks)
+│   ├── test_my_part.py       # Test functions
+│   └── test_my_part.yaml     # Sidecar (vectors, limits, mocks)
 ├── results/                     # Output (gitignored)
 │   └── measurements/            # Parquet files
 └── pyproject.toml
@@ -61,11 +61,11 @@ my_project/
 
 When you run `litmus init quick_start --starter`, it generates all of these files. Here's what each one does:
 
-### Product Spec (`products/example_product.yaml`)
+### Part Spec (`parts/example_part.yaml`)
 
 ```yaml
-# products/my_product.yaml
-id: my_product
+# parts/my_part.yaml
+id: my_part
 name: "5V to 3.3V Power Module"
 
 characteristics:
@@ -133,12 +133,12 @@ instruments:
 Tests are **plain pytest** — no decorator, no base class. The Litmus plugin contributes [20 fixtures](../reference/pytest/fixtures.md) (the per-test `context` / `verify` / `logger`, plus `pins`, `instruments`, per-role auto-fixtures from the station YAML, etc.) and [seven markers](../reference/pytest/markers.md). For how Litmus tests use pytest's own collection / fixture / marker mechanisms see [pytest-native reference](../reference/overview/pytest-native.md).
 
 ```python
-# tests/test_my_product.py
-class TestMyProduct:
+# tests/test_my_part.py
+class TestMyPart:
     def test_output_voltage(self, context, psu, dmm, verify):
         """Verify output voltage is within spec.
 
-        verify() resolves the limit from the product YAML,
+        verify() resolves the limit from the part YAML,
         records a measurement, and raises on fail.
         """
         vin = context.get_param("vin", 5.0)
@@ -149,14 +149,14 @@ class TestMyProduct:
         verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-For measurements that don't come from the product spec, use `logger.measure(name, value, limit={"low": ..., "high": ..., "units": "V"})` with inline limits or a sidecar `test_<module>.yaml`.
+For measurements that don't come from the part spec, use `logger.measure(name, value, limit={"low": ..., "high": ..., "units": "V"})` with inline limits or a sidecar `test_<module>.yaml`.
 
-### Sidecar (`tests/test_my_product.yaml`)
+### Sidecar (`tests/test_my_part.yaml`)
 
 Sidecar YAML carries vectors, limits, and mocks alongside the test file. Same merge rules as stacked pytest decorators — file scope, class scope, per-test:
 
 ```yaml
-# tests/test_my_product.yaml
+# tests/test_my_part.yaml
 limits:
   output_voltage:
     low: 3.234
@@ -164,7 +164,7 @@ limits:
     nominal: 3.3
     units: V
 tests:
-  TestMyProduct:
+  TestMyPart:
     sweeps:
       - {vin: [5.0]}
     mocks:
@@ -175,13 +175,13 @@ tests:
 
 ```bash
 # Mock-instrument run (default for development)
-pytest tests/ --station=my_station --mock-instruments --dut-serial=TEST001 -v
+pytest tests/ --station=my_station --mock-instruments --uut-serial=TEST001 -v
 
 # With real hardware
-pytest tests/ --station=my_station --dut-serial=SN001 -v
+pytest tests/ --station=my_station --uut-serial=SN001 -v
 ```
 
-> **On `--dut-serial` for early articles:** if your first DUT doesn't have
+> **On `--uut-serial` for early articles:** if your first UUT doesn't have
 > a real serial yet (engineering build, breadboard, dev unit), call it
 > whatever you like — `bob`, `proto-1`, `dev`. The serial is just the
 > identifier the run record will be filed under. Best practice once you
@@ -206,7 +206,7 @@ def test_something(context, psu, dmm, verify):
                dmm.measure_dc_voltage())
 ```
 
-**No hardcoded values in code.** Conditions come from `context` (populated by native `@pytest.mark.parametrize` or sidecar YAML). Limits come from the product spec, an inline `@pytest.mark.litmus_limits` decorator, or the sidecar's `limits:` field — never inline asserts.
+**No hardcoded values in code.** Conditions come from `context` (populated by native `@pytest.mark.parametrize` or sidecar YAML). Limits come from the part spec, an inline `@pytest.mark.litmus_limits` decorator, or the sidecar's `limits:` field — never inline asserts.
 
 For the full reference — markers, sidecar YAML, `context.changed()`, mocks, retries — see the [Writing Tests guide](../how-to/execution/writing-tests.md).
 
@@ -241,7 +241,7 @@ print(df[df["record_type"] == "measurement"])   # measurement rows only
 
 | Folder | Purpose | UI Page |
 |--------|---------|---------|
-| `products/` | Product specs (what you're testing) | /products |
+| `parts/` | Part specs (what you're testing) | /parts |
 | `stations/` | Station configs (instruments + addresses) | /stations |
 | `fixtures/` | Pin-to-instrument mappings | /fixtures |
 | `instruments/` | Custom instrument drivers | /instruments |
@@ -267,6 +267,6 @@ When you're ready to move from mocks to real instruments, see [Step 7: Real Inst
 ## Next Steps
 
 - [Tutorial index](index.md) — full step-by-step path (recommended next)
-- [Core Concepts](../concepts/) — Understand products, stations, and capabilities
+- [Core Concepts](../concepts/) — Understand parts, stations, and capabilities
 - [Writing Tests](../how-to/execution/writing-tests.md) — Patterns and best practices
 - [Configuration Reference](../reference/configuration.md) — YAML schema details

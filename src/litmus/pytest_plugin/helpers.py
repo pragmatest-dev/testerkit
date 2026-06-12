@@ -39,7 +39,7 @@ def find_yaml_in_subdir(config, subdir: str, filename: str) -> Path | None:
 def is_yaml_path(value: str) -> bool:
     """Return True if ``value`` looks like a path to a YAML file.
 
-    Used by the unified ``--station`` / ``--fixture`` / ``--product``
+    Used by the unified ``--station`` / ``--fixture`` / ``--part``
     flags to dispatch between "look up ``<subdir>/<id>.yaml``" and "use
     this string as a path verbatim." A real ID never contains ``/`` or
     a ``.yaml`` / ``.yml`` extension, so the heuristic is safe.
@@ -317,7 +317,7 @@ def mocks_active(config: pytest.Config) -> bool:
 
 
 def prompt_for_serial(test_phase: str, slot_id: str | None = None) -> str:
-    """Prompt for DUT serial or raise if non-interactive.
+    """Prompt for UUT serial or raise if non-interactive.
 
     Args:
         test_phase: Current test phase (for error message).
@@ -330,19 +330,19 @@ def prompt_for_serial(test_phase: str, slot_id: str | None = None) -> str:
 
     if sys.stdin.isatty():
         serial = input(
-            f"[litmus] test_phase='{test_phase}' requires a DUT serial{label}.\n"
-            f"  Enter DUT serial (or Ctrl+C to abort): "
+            f"[litmus] test_phase='{test_phase}' requires a UUT serial{label}.\n"
+            f"  Enter UUT serial (or Ctrl+C to abort): "
         )
         serial = serial.strip()
         if not serial:
             raise pytest.UsageError(
-                f"DUT serial number is required{label} for "
+                f"UUT serial number is required{label} for "
                 f"non-development test phases. "
-                "Use --dut-serial <serial> or enter a serial when prompted."
+                "Use --uut-serial <serial> or enter a serial when prompted."
             )
         return serial
 
     raise pytest.UsageError(
-        f"DUT serial number is required for test_phase='{test_phase}'{label}. "
-        "Use --dut-serial <serial> or --dut-serials slot=serial."
+        f"UUT serial number is required for test_phase='{test_phase}'{label}. "
+        "Use --uut-serial <serial> or --uut-serials slot=serial."
     )

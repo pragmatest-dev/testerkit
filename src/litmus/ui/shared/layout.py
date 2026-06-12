@@ -147,10 +147,10 @@ def create_sidebar():
 
             _nav_item("/designer", "design_services", "System Designer")
             _nav_item("/stations", "settings_input_hdmi", "Stations")
-            _nav_item("/products", "inventory_2", "Products")
+            _nav_item("/parts", "inventory_2", "Parts")
             _nav_item("/fixtures", "hub", "Fixtures")
             _nav_item("/instruments", "precision_manufacturing", "Instruments")
-            _nav_item("/duts", "memory", "DUTs")
+            _nav_item("/uuts", "memory", "UUTs")
             _nav_item("/tests", "science", "Tests")
             _nav_item("/profiles", "layers", "Profiles")
 
@@ -224,7 +224,7 @@ def _create_dialogs_bell() -> None:
 
     Clicking opens a NiceGUI ``ui.menu()`` listing each pending dialog
     with the dialog title, the operator-readable run identifier
-    (``<dut_serial> · <YYYY-MM-DD HH:MM:SS>`` via
+    (``<uut_serial> · <YYYY-MM-DD HH:MM:SS>`` via
     :func:`lookup_run_label`), and a ``Go →`` link straight to
     ``/live/{run_id}`` — bypasses the run detail page so the operator
     can answer in one click. Refreshed by a 1 s timer matching the
@@ -272,7 +272,7 @@ def _create_dialogs_bell() -> None:
 def _render_bell_row(dialog: dict, lookup_run_label) -> None:
     """Render one entry in the header bell's pending-dialog list.
 
-    Layout: amber bell glyph, title (top), step + DUT (mid),
+    Layout: amber bell glyph, title (top), step + UUT (mid),
     operator-readable run label (bottom), right-aligned ``Go →`` link
     that navigates straight to ``/live/{run_id}``.
     """

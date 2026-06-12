@@ -4,7 +4,7 @@ The FileStore showcase. When a value can't fit in ChannelStore's
 typed-row schema, the platform routes it to FileStore. A single
 burn-in test demonstrates the four shapes:
 
-- **PIL.Image** — a synthesized photo of the DUT, captured at start
+- **PIL.Image** — a synthesized photo of the UUT, captured at start
   of test. Lands as PNG; the operator UI renders it inline.
 - **bytes** — a vendor capture file (synthesized TDMS-like binary).
   Lands as `.bin`.
@@ -17,7 +17,7 @@ burn-in test demonstrates the four shapes:
   `out_burn_log` column.
 
 Plus a regular `verify` on the mean rail voltage. All four artifacts
-ride on the same vector — `out_dut_photo` / `out_vendor_capture` /
+ride on the same vector — `out_uut_photo` / `out_vendor_capture` /
 `out_burn_log` / `out_burn_report` are all reachable from the verify
 row, so the analyst can navigate from a failing measurement to any
 piece of supporting evidence in one click.
@@ -34,7 +34,7 @@ examples/10-artifacts-and-byte-streams/
 ├── drivers/
 │   ├── __init__.py
 │   ├── psu.py            # self-simulating PSU
-│   └── scene.py          # PIL-based DUT-photo synthesizer
+│   └── scene.py          # PIL-based UUT-photo synthesizer
 ├── stations/
 │   └── bench_01.yaml
 └── tests/
@@ -58,7 +58,7 @@ Navigate:
 - `http://localhost:8000/results/{run_id}` — the verify row. The
   Artifacts section shows the four `out_*` columns, each a clickable
   `file://...` URI.
-- Click `out_dut_photo` → the photo renders inline.
+- Click `out_uut_photo` → the photo renders inline.
 - Click `out_burn_report` → the JSON is shown.
 - Click `out_burn_log` → the JSONL log (text view).
 - Click `out_vendor_capture` → download (binary, no inline viewer).
@@ -69,11 +69,11 @@ Navigate:
 data/
 ├── events/{date}/{session_id}-{pid}.arrow   # SessionStarted, ObserveEvent x4, StreamStarted/Ended, MeasurementRecorded
 ├── files/{date}/{session_id}/                # the artifacts:
-│   ├── dut_photo.png + .meta.json
+│   ├── uut_photo.png + .meta.json
 │   ├── vendor_capture.bin + .meta.json
 │   ├── burn_log.jsonl + .meta.json
 │   └── burn_report.json + .meta.json
-└── runs/{date}/{ts}_{dut_serial}.parquet     # the verify row + every out_* URI
+└── runs/{date}/{ts}_{uut_serial}.parquet     # the verify row + every out_* URI
 ```
 
 Per-artifact `.meta.json` sidecars carry MIME, extension, size, and

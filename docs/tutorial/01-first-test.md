@@ -102,7 +102,7 @@ def test_rail(dmm, verify):
     )
 ```
 
-Rows land in parquet with `measurement_value`, `limit_low` / `limit_high`, and `measurement_outcome` populated. [Traceability](../how-to/execution/traceability.md) columns (`dut_pin`, `instrument_channel`, `fixture_connection`, `spec_ref`) stay NULL until you graduate to a [station](../concepts/configuration/stations.md) + [product](../concepts/configuration/products.md) + [fixture](../concepts/configuration/fixtures.md) — at which point the test bodies don't change.
+Rows land in parquet with `measurement_value`, `limit_low` / `limit_high`, and `measurement_outcome` populated. [Traceability](../how-to/execution/traceability.md) columns (`uut_pin`, `instrument_channel`, `fixture_connection`, `spec_ref`) stay NULL until you graduate to a [station](../concepts/configuration/stations.md) + [part](../concepts/configuration/parts.md) + [fixture](../concepts/configuration/fixtures.md) — at which point the test bodies don't change.
 
 See [`examples/01-vanilla`](https://github.com/pragmatest-dev/litmus/tree/main/examples/01-vanilla) for a runnable example.
 

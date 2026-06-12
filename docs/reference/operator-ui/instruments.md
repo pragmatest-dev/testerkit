@@ -117,6 +117,6 @@ for asset files.
 
 - [Configuration reference → Catalog](../catalog-schema.md)
 - [Concepts → Capabilities](../../concepts/configuration/capabilities.md) — how
-  catalog capabilities feed station ↔ product matching
+  catalog capabilities feed station ↔ part matching
 - [`litmus station init`](../cli.md#cli-station-init) — discover
   instruments and create asset YAML

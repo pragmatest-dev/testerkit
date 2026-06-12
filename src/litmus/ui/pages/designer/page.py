@@ -1,6 +1,6 @@
 """System Designer page — interactive test system architect.
 
-Assembles products (DUT pins), instruments, and fixture wiring
+Assembles parts (UUT pins), instruments, and fixture wiring
 using an ECharts interactive graph as the design surface.
 """
 
@@ -26,21 +26,21 @@ from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
     discover_fixtures,
     discover_instrument_types,
-    discover_products,
+    discover_parts,
     discover_stations,
     load_fixture_config,
-    load_product_model,
+    load_part_model,
     load_station_config,
     save_fixture,
 )
 
 
 @ui.page("/designer")
-def designer_page(product: str = "", station: str = "", fixture: str = ""):
+def designer_page(part: str = "", station: str = "", fixture: str = ""):
     """System Designer — interactive test system architect.
 
     Args:
-        product: Pre-fill product from URL query param
+        part: Pre-fill part from URL query param
         station: Pre-fill station from URL query param
         fixture: Pre-fill fixture from URL query param
     """
@@ -48,8 +48,8 @@ def designer_page(product: str = "", station: str = "", fixture: str = ""):
     state = DesignerState()
     drawer = create_properties_drawer()
 
-    products = discover_products()
-    product_options = {p["id"]: p["name"] for p in products}
+    parts = discover_parts()
+    part_options = {p["id"]: p["name"] for p in parts}
 
     stations = discover_stations()
     station_options = {s.id: s.name or s.id for s in stations}
@@ -60,8 +60,8 @@ def designer_page(product: str = "", station: str = "", fixture: str = ""):
     def update_url():
         """Update URL query params to reflect current selections."""
         params = []
-        if state.product_id:
-            params.append(f"product={state.product_id}")
+        if state.part_id:
+            params.append(f"part={state.part_id}")
         if state.system_id:
             params.append(f"station={state.system_id}")
         if state.fixture_id:
@@ -102,9 +102,9 @@ def designer_page(product: str = "", station: str = "", fixture: str = ""):
         if config:
             state.load_station(config.model_dump())
 
-    # Load product from URL if provided
-    if product and product in product_options:
-        _on_product_change(product, state, lambda: None)  # Don't rebuild yet
+    # Load part from URL if provided
+    if part and part in part_options:
+        _on_part_change(part, state, lambda: None)  # Don't rebuild yet
 
     # Load fixture from URL if provided
     if fixture:
@@ -112,9 +112,9 @@ def designer_page(product: str = "", station: str = "", fixture: str = ""):
         if fixture_config:
             state.load_fixture(fixture_config)
 
-    def on_product_change(product_id: str) -> None:
-        """Handle product selection change."""
-        _on_product_change(product_id, state, rebuild)
+    def on_part_change(part_id: str) -> None:
+        """Handle part selection change."""
+        _on_part_change(part_id, state, rebuild)
         update_url()
 
     with ui.column().classes("w-full p-6 gap-4"):
@@ -122,11 +122,11 @@ def designer_page(product: str = "", station: str = "", fixture: str = ""):
         with ui.row().classes("w-full items-end gap-3 flex-wrap justify-between"):
             with ui.row().classes("items-end gap-3 flex-wrap"):
                 ui.select(
-                    product_options,
-                    label="Product",
-                    value=product if product in product_options else None,
+                    part_options,
+                    label="Part",
+                    value=part if part in part_options else None,
                     with_input=True,
-                    on_change=lambda e: on_product_change(e.value),
+                    on_change=lambda e: on_part_change(e.value),
                 ).classes("w-48")
 
                 ui.select(
@@ -250,11 +250,11 @@ def _rebuild_chart(
 ) -> None:
     """Rebuild the ECharts graph."""
     container.clear()
-    if not state.dut_pins and not state.instruments:
+    if not state.uut_pins and not state.instruments:
         with container:
             with ui.column().classes("w-full items-center py-12"):
                 ui.icon("design_services").classes("text-6xl text-slate-300")
-                ui.label("Select a product and load a station to begin").classes("text-slate-400")
+                ui.label("Select a part and load a station to begin").classes("text-slate-400")
         return
 
     option = build_graph_option(state)
@@ -325,7 +325,7 @@ def _handle_chart_click(event, state, drawer, rebuild) -> None:
         if not data.get("interactive", True):
             return
 
-        if side == "product" and node_type == "pin":
+        if side == "part" and node_type == "pin":
             pin_key = data.get("pin_key", data.get("name", ""))
             if state.selected_pin == pin_key:
                 # Same pin clicked again — deselect (exit wiring mode)
@@ -335,7 +335,7 @@ def _handle_chart_click(event, state, drawer, rebuild) -> None:
                 # Select pin — enter/switch wiring mode (no drawer)
                 state.select_pin(pin_key)
                 state.compatible_channels = get_compatible_channels_for_pin(
-                    pin_key, state.char_by_pin, state.product, state.instruments
+                    pin_key, state.char_by_pin, state.part, state.instruments
                 )
                 drawer.value = False
 
@@ -353,7 +353,7 @@ def _handle_chart_click(event, state, drawer, rebuild) -> None:
                 else:
                     # Create connection (allow any wiring for now)
                     pin = state.selected_pin
-                    net = state.dut_pins.get(pin, {}).get("net", "")
+                    net = state.uut_pins.get(pin, {}).get("net", "")
                     term_suffix = f"_{terminal}" if terminal else ""
                     point_name = f"{pin.lower()}_{role}_ch{channel}{term_suffix}"
                     state.add_connection(point_name, pin, role, channel, net, terminal)
@@ -397,7 +397,7 @@ def _rebuild_connections_tab(state, container, drawer, rebuild) -> None:
 
         columns = [
             {"name": "point", "label": "Point", "field": "point", "align": "left"},
-            {"name": "pin", "label": "DUT Pin", "field": "pin", "align": "left"},
+            {"name": "pin", "label": "UUT Pin", "field": "pin", "align": "left"},
             {"name": "net", "label": "Net", "field": "net", "align": "left"},
             {
                 "name": "instrument",
@@ -417,7 +417,7 @@ def _rebuild_connections_tab(state, container, drawer, rebuild) -> None:
             rows.append(
                 {
                     "point": point_name,
-                    "pin": conn.get("dut_pin", ""),
+                    "pin": conn.get("uut_pin", ""),
                     "net": conn.get("net", ""),
                     "instrument": conn.get("instrument", ""),
                     "channel": conn.get("channel", ""),
@@ -463,13 +463,13 @@ def _rebuild_yaml_tab(state, container) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _on_product_change(product_id, state, rebuild) -> None:
-    """Handle product selection change."""
-    if not product_id:
+def _on_part_change(part_id, state, rebuild) -> None:
+    """Handle part selection change."""
+    if not part_id:
         return
-    product = load_product_model(product_id)
-    if product:
-        state.load_product(product)
+    part = load_part_model(part_id)
+    if part:
+        state.load_part(part)
 
         # Try to load existing fixture with auto-generated ID
         if state.fixture_id:
@@ -477,22 +477,22 @@ def _on_product_change(product_id, state, rebuild) -> None:
             if fixture:
                 state.load_fixture(fixture)
                 ui.notify(
-                    f"Loaded {product.name} + fixture ({len(state.connections)} connections)",
+                    f"Loaded {part.name} + fixture ({len(state.connections)} connections)",
                     type="info",
                 )
                 rebuild()
                 return
 
         rebuild()
-        ui.notify(f"Loaded {product.name} ({len(state.dut_pins)} pins)", type="info")
+        ui.notify(f"Loaded {part.name} ({len(state.uut_pins)} pins)", type="info")
 
 
 def _auto_match(state, rebuild) -> None:
     """Auto-suggest connections for unconnected pins."""
     suggestions = auto_suggest_connections(
-        state.dut_pins,
+        state.uut_pins,
         state.char_by_pin,
-        state.product,
+        state.part,
         state.instruments,
         state.connections,
     )
@@ -503,7 +503,7 @@ def _auto_match(state, rebuild) -> None:
     for s in suggestions:
         state.add_connection(
             s["point_name"],
-            s["dut_pin"],
+            s["uut_pin"],
             s["instrument"],
             s["channel"],
             s.get("net"),

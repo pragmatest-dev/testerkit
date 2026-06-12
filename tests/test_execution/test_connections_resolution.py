@@ -23,14 +23,14 @@ _INI = textwrap.dedent(
 )
 
 
-def _write_product(pytester: pytest.Pytester) -> None:
-    """Minimal product YAML with one single-pin and one multi-pin char."""
-    (pytester.path / "products").mkdir()
-    (pytester.path / "products" / "mini.yaml").write_text(
+def _write_part(pytester: pytest.Pytester) -> None:
+    """Minimal part YAML with one single-pin and one multi-pin char."""
+    (pytester.path / "parts").mkdir()
+    (pytester.path / "parts" / "mini.yaml").write_text(
         textwrap.dedent(
             """
             id: mini
-            name: Mini Product
+            name: Mini Part
             revision: A
             characteristics:
               rail_3v3:
@@ -67,18 +67,18 @@ def _write_fixture(pytester: pytest.Pytester) -> None:
             """
             id: mini
             name: Mini Fixture
-            product_id: mini
+            part_id: mini
             connections:
               vin_measure:
                 name: vin_measure
-                dut_pin: TP_VIN
+                uut_pin: TP_VIN
                 net: VIN_5V
                 instrument: dmm
                 instrument_channel: '1'
                 instrument_terminal: hi
               vout_measure:
                 name: vout_measure
-                dut_pin: TP_VOUT
+                uut_pin: TP_VOUT
                 net: VOUT_3V3
                 instrument: dmm
                 instrument_channel: '2'
@@ -88,10 +88,10 @@ def _write_fixture(pytester: pytest.Pytester) -> None:
     )
 
 
-def test_simple_path_absolute_limits_no_product(pytester: pytest.Pytester) -> None:
-    """Sidecar with only absolute ``low``/``high`` — no product, no fixture.
+def test_simple_path_absolute_limits_no_part(pytester: pytest.Pytester) -> None:
+    """Sidecar with only absolute ``low``/``high`` — no part, no fixture.
 
-    Limit stamps on the row; ``dut_pin`` / ``fixture_connection`` /
+    Limit stamps on the row; ``uut_pin`` / ``fixture_connection`` /
     ``spec_ref`` stay null. Demonstrates the "Layer 1 + Layer 2 only"
     simple path from the plan.
     """
@@ -119,7 +119,7 @@ def test_simple_path_absolute_limits_no_product(pytester: pytest.Pytester) -> No
 def test_connections_marker_iterates_and_stamps_pin(pytester: pytest.Pytester) -> None:
     """``tests.<method>.connections: [name]`` → ``ctx.connections`` iterates and stamps."""
     pytester.makeini(_INI)
-    _write_product(pytester)
+    _write_part(pytester)
     _write_fixture(pytester)
 
     pytester.makepyfile(
@@ -153,7 +153,7 @@ def test_connections_marker_iterates_and_stamps_pin(pytester: pytest.Pytester) -
 def test_characteristic_spec_derives_tolerance_limit(pytester: pytest.Pytester) -> None:
     """Test-level ``characteristic`` + per-label ``tolerance_pct`` → derived limit."""
     pytester.makeini(_INI)
-    _write_product(pytester)
+    _write_part(pytester)
     _write_fixture(pytester)
 
     pytester.makepyfile(
@@ -186,7 +186,7 @@ def test_characteristic_spec_derives_tolerance_limit(pytester: pytest.Pytester) 
 def test_multi_pin_characteristic_iterates_all_connections(pytester: pytest.Pytester) -> None:
     """Multi-pin char → ``ctx.connections`` yields N connections, distinct pins stamped."""
     pytester.makeini(_INI)
-    _write_product(pytester)
+    _write_part(pytester)
     _write_fixture(pytester)
 
     pytester.makepyfile(
@@ -196,7 +196,7 @@ def test_multi_pin_characteristic_iterates_all_connections(pytester: pytest.Pyte
                 from litmus.execution._state import get_active_connection
                 seen = []
                 for _ in context.connections:
-                    seen.append(get_active_connection().dut_pin)
+                    seen.append(get_active_connection().uut_pin)
                     verify("v_drop", 1.1)
                 assert sorted(seen) == ["TP_VIN", "TP_VOUT"]
             """
@@ -220,7 +220,7 @@ def test_multi_pin_characteristic_iterates_all_connections(pytester: pytest.Pyte
 def test_unconsumed_connections_iterator_fails_loudly(pytester: pytest.Pytester) -> None:
     """Declaring connections but skipping ``ctx.connections`` iteration → test fails."""
     pytester.makeini(_INI)
-    _write_product(pytester)
+    _write_part(pytester)
     _write_fixture(pytester)
 
     pytester.makepyfile(
@@ -275,14 +275,14 @@ def test_no_markers_ctx_connections_is_none(pytester: pytest.Pytester) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _write_two_char_product(pytester: pytest.Pytester) -> None:
-    """Product with two single-pin chars (rail_3v3 + idle_current)."""
-    (pytester.path / "products").mkdir()
-    (pytester.path / "products" / "mini.yaml").write_text(
+def _write_two_char_part(pytester: pytest.Pytester) -> None:
+    """Part with two single-pin chars (rail_3v3 + idle_current)."""
+    (pytester.path / "parts").mkdir()
+    (pytester.path / "parts" / "mini.yaml").write_text(
         textwrap.dedent(
             """
             id: mini
-            name: Mini Product
+            name: Mini Part
             revision: A
             characteristics:
               rail_3v3:
@@ -314,13 +314,13 @@ def _write_two_char_product(pytester: pytest.Pytester) -> None:
 def test_multi_char_marker_iterates_union(pytester: pytest.Pytester) -> None:
     """``litmus_characteristics: [a, b]`` → ``ctx.connections`` iterates the union."""
     pytester.makeini(_INI)
-    _write_two_char_product(pytester)
+    _write_two_char_part(pytester)
     _write_fixture(pytester)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
             def test_rails(context, verify):
-                seen = [conn.dut_pin for conn in context.connections]
+                seen = [conn.uut_pin for conn in context.connections]
                 assert seen == ["TP_VOUT", "TP_VIN"]   # marker order
             """
         )
@@ -346,7 +346,7 @@ def test_multi_char_default_iterator_stamps_per_connection_char(
 ) -> None:
     """Default iteration stamps the right ``characteristic_id`` per row."""
     pytester.makeini(_INI)
-    _write_two_char_product(pytester)
+    _write_two_char_part(pytester)
     _write_fixture(pytester)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -354,7 +354,7 @@ def test_multi_char_default_iterator_stamps_per_connection_char(
             def test_rails(context, verify):
                 seen = []
                 for conn in context.connections:
-                    if conn.dut_pin == "TP_VOUT":
+                    if conn.uut_pin == "TP_VOUT":
                         m = verify("v_rail", 3.30)
                     else:
                         m = verify("i_idle", 0.05)
@@ -384,18 +384,18 @@ def test_for_characteristic_narrows_and_pushes_active_char(
 ) -> None:
     """``for_characteristic(id)`` yields only that char's connections + stamps id."""
     pytester.makeini(_INI)
-    _write_two_char_product(pytester)
+    _write_two_char_part(pytester)
     _write_fixture(pytester)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
             def test_rails(context, verify):
                 for conn in context.connections.for_characteristic("rail_3v3"):
-                    assert conn.dut_pin == "TP_VOUT"
+                    assert conn.uut_pin == "TP_VOUT"
                     m = verify("v_rail", 3.30)
                     assert m.characteristic_id == "rail_3v3"
                 for conn in context.connections.for_characteristic("idle_current"):
-                    assert conn.dut_pin == "TP_VIN"
+                    assert conn.uut_pin == "TP_VIN"
                     m = verify("i_idle", 0.05)
                     assert m.characteristic_id == "idle_current"
             """
@@ -420,7 +420,7 @@ def test_for_characteristic_narrows_and_pushes_active_char(
 def test_per_limit_char_not_in_marker_errors(pytester: pytest.Pytester) -> None:
     """Limit names a char not in the marker's list → UsageError at fixture setup."""
     pytester.makeini(_INI)
-    _write_two_char_product(pytester)
+    _write_two_char_part(pytester)
     _write_fixture(pytester)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -452,7 +452,7 @@ def test_marker_absent_scope_derived_from_limit_chars(
 ) -> None:
     """No ``characteristics:`` marker → scope is the union of per-limit chars."""
     pytester.makeini(_INI)
-    _write_two_char_product(pytester)
+    _write_two_char_part(pytester)
     _write_fixture(pytester)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -462,7 +462,7 @@ def test_marker_absent_scope_derived_from_limit_chars(
                 assert sorted(context.characteristics) == ["idle_current", "rail_3v3"]
                 seen = []
                 for conn in context.connections:
-                    seen.append(conn.dut_pin)
+                    seen.append(conn.uut_pin)
                 # Order follows limit-listing order.
                 assert seen == ["TP_VOUT", "TP_VIN"]
             """
@@ -488,7 +488,7 @@ def test_verify_explicit_characteristic_override(
 ) -> None:
     """``verify(..., characteristic=<id>)`` stamps that char regardless of ContextVar."""
     pytester.makeini(_INI)
-    _write_two_char_product(pytester)
+    _write_two_char_part(pytester)
     _write_fixture(pytester)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -521,7 +521,7 @@ def test_verify_explicit_characteristic_override(
 def test_ctx_limits_for_characteristic_filter(pytester: pytest.Pytester) -> None:
     """``ctx.limits.for_characteristic(id)`` returns only that char's labelled limits."""
     pytester.makeini(_INI)
-    _write_two_char_product(pytester)
+    _write_two_char_part(pytester)
     _write_fixture(pytester)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -559,12 +559,12 @@ def test_per_function_matching_routes_to_correct_connection(
 ) -> None:
     """Two connections on the same pin (DC + AC) → resolver picks by ``(pin, function)``."""
     pytester.makeini(_INI)
-    (pytester.path / "products").mkdir()
-    (pytester.path / "products" / "mini.yaml").write_text(
+    (pytester.path / "parts").mkdir()
+    (pytester.path / "parts" / "mini.yaml").write_text(
         textwrap.dedent(
             """
             id: mini
-            name: Mini Product
+            name: Mini Part
             revision: A
             characteristics:
               rail_3v3:
@@ -594,17 +594,17 @@ def test_per_function_matching_routes_to_correct_connection(
             """
             id: mini
             name: Mini Fixture
-            product_id: mini
+            part_id: mini
             connections:
               vout_dc:
                 name: vout_dc
-                dut_pin: TP_VOUT
+                uut_pin: TP_VOUT
                 instrument: dmm
                 instrument_channel: '1'
                 function: dc_voltage
               vout_ac:
                 name: vout_ac
-                dut_pin: TP_VOUT
+                uut_pin: TP_VOUT
                 instrument: scope
                 instrument_channel: '1'
                 function: ac_voltage
@@ -647,12 +647,12 @@ def test_function_unset_connection_is_fallback(
 ) -> None:
     """A connection without ``function:`` is the fallback when no functioned alternative exists."""
     pytester.makeini(_INI)
-    (pytester.path / "products").mkdir()
-    (pytester.path / "products" / "mini.yaml").write_text(
+    (pytester.path / "parts").mkdir()
+    (pytester.path / "parts" / "mini.yaml").write_text(
         textwrap.dedent(
             """
             id: mini
-            name: Mini Product
+            name: Mini Part
             revision: A
             characteristics:
               rail_3v3:
@@ -675,11 +675,11 @@ def test_function_unset_connection_is_fallback(
             """
             id: mini
             name: Mini Fixture
-            product_id: mini
+            part_id: mini
             connections:
               vout_legacy:
                 name: vout_legacy
-                dut_pin: TP_VOUT
+                uut_pin: TP_VOUT
                 instrument: dmm
                 instrument_channel: '1'
             """

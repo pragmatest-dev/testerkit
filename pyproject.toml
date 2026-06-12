@@ -193,7 +193,7 @@ members = [
     "examples/02-verify",
     "examples/03-inline-limits",
     "examples/04-sidecar-markers",
-    "examples/05-product-spec",
+    "examples/05-part-spec",
     "examples/06-station-catalog",
     "examples/07-profiles",
     "examples/08-waveform-evidence",
@@ -207,7 +207,7 @@ litmus-example-01-vanilla = { workspace = true }
 litmus-example-02-verify = { workspace = true }
 litmus-example-03-inline-limits = { workspace = true }
 litmus-example-04-sidecar-markers = { workspace = true }
-litmus-example-05-product-spec = { workspace = true }
+litmus-example-05-part-spec = { workspace = true }
 litmus-example-06-station-catalog = { workspace = true }
 litmus-example-07-profiles = { workspace = true }
 litmus-example-08-waveform-evidence = { workspace = true }

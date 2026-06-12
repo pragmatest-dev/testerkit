@@ -11,14 +11,14 @@ Grouped by what you reach for the fixture **for**:
 | Group | What you'd reach for it for | Fixtures |
 |---|---|---|
 | Recording measurements | Write a measurement row, resolve a limit, raise on FAIL, prompt the operator | `verify`, `logger`, `limits`, `prompt` |
-| Talking to instruments | Get a driver instance, route a signal, hit a DUT pin | `instruments`, `instrument`, `instrument_records`, `dut`, `pins`, `routes`, `fixture_manager` |
+| Talking to instruments | Get a driver instance, route a signal, hit a UUT pin | `instruments`, `instrument`, `instrument_records`, `uut`, `pins`, `routes`, `fixture_manager` |
 | Reading per-test state | Active sweep params, observations, the connection currently being iterated | `context`, `connections` |
-| Reading loaded configuration | The typed YAML / CLI that shaped this run | `product_context`, `station_config`, `fixture_config`, `run_context`, `mock_instruments` |
+| Reading loaded configuration | The typed YAML / CLI that shaped this run | `part_context`, `station_config`, `fixture_config`, `run_context`, `mock_instruments` |
 | Flow control | Drive the test body's iteration / synchronization | `vectors`, `sync` |
 
 Plus **one role-named fixture per instrument the station YAML declares** (e.g. `dmm`, `psu`, `scope`). See [Per-role auto-fixtures](#per-role-auto-fixtures).
 
-Every fixture above is available in every test — pytest will resolve any of them by name. The "what you'd reach for it for" column is intent, not availability. Several have meaningful "no project state" defaults (`product_context` returns `None`, `instruments` returns `{}`, `connections` returns `None`, etc.) so taking one in a vanilla project is safe.
+Every fixture above is available in every test — pytest will resolve any of them by name. The "what you'd reach for it for" column is intent, not availability. Several have meaningful "no project state" defaults (`part_context` returns `None`, `instruments` returns `{}`, `connections` returns `None`, etc.) so taking one in a vanilla project is safe.
 
 ---
 
@@ -28,7 +28,7 @@ The verbs you write into test bodies. Most tests need `verify` and nothing else 
 
 ### `verify` — function
 
-Callable: `verify(name, value, limit=None, characteristic=None)`. Records the measurement row (value, units, limits, traceability), resolves a limit from the active chain (sidecar / inline marker / product spec), stamps `measurement_outcome`, and **raises `AssertionError`** when the value is out of range.
+Callable: `verify(name, value, limit=None, characteristic=None)`. Records the measurement row (value, units, limits, traceability), resolves a limit from the active chain (sidecar / inline marker / part spec), stamps `measurement_outcome`, and **raises `AssertionError`** when the value is out of range.
 
 `limit=` accepts either a `Limit` model or a dict literal — `verify` coerces dicts via `Limit.model_validate(...)`.
 
@@ -116,18 +116,18 @@ def test_all(instrument):
 
 Returns `dict[role_name, InstrumentRecord]` — the resolved instrument metadata (driver class, resource string, calibration cert, mocked flag) before connection. Useful for tests that need identity or calibration info without taking the live driver.
 
-### `dut` — session
+### `uut` — session
 
-Yields the connected DUT driver (resolved from `Product.driver` + `FixtureConfig.dut_resource`), or `None` when the product has no driver. Mocked when `--mock-instruments` is on.
+Yields the connected UUT driver (resolved from `Part.driver` + `FixtureConfig.uut_resource`), or `None` when the part has no driver. Mocked when `--mock-instruments` is on.
 
 ```python
-def test_firmware(dut):
-    assert dut.get_version().startswith("2.")
+def test_firmware(uut):
+    assert uut.get_version().startswith("2.")
 ```
 
 ### `pins` — session
 
-Returns a `PinAccessor` for UUT-centric pin access. Looks up the instrument that the fixture YAML maps to each DUT pin, transparently activates the route if any switch is in the path.
+Returns a `PinAccessor` for UUT-centric pin access. Looks up the instrument that the fixture YAML maps to each UUT pin, transparently activates the route if any switch is in the path.
 
 ```python
 def test_output(pins):
@@ -168,7 +168,7 @@ The active vector's params, observations, and currently-bound connection.
 
 ### `context` — function
 
-Returns a `Context` exposing the run / DUT / station / vector state for the active test. Resolves on every test, with empty defaults when there's nothing to expose.
+Returns a `Context` exposing the run / UUT / station / vector state for the active test. Resolves on every test, with empty defaults when there's nothing to expose.
 
 | Method | Returns | Purpose |
 |---|---|---|
@@ -178,7 +178,7 @@ Returns a `Context` exposing the run / DUT / station / vector state for the acti
 | `context.last(key, default=None)` | `Any` | Prior iteration's value for `key`. |
 | `context.observe(key, value)` | `None` | Record a free-form observation. |
 | `context.observations` | `dict` | All recorded observations. |
-| `context.product` | `ProductContext \| None` | Active product context (= `product_context` fixture). |
+| `context.part` | `PartContext \| None` | Active part context (= `part_context` fixture). |
 | `context.station` | `StationConfig \| None` | Active station config (= `station_config` fixture). |
 | `context.run` | `TestRun \| None` | The current `TestRun`. |
 | `context.limits` | `LimitsView` | Read-only limits mapping (= `limits` fixture). |
@@ -206,20 +206,20 @@ def test_per_pin(connections, dmm):
 
 Typed accessors over the YAML / CLI that shaped this run. Each one resolves to its model OR `None` (or an empty dict / bool) — taking one in a vanilla project is safe.
 
-### `product_context` — session
+### `part_context` — session
 
-Returns a `ProductContext` loaded from `products/*.yaml`, or `None` if no `products/` directory or no match.
+Returns a `PartContext` loaded from `parts/*.yaml`, or `None` if no `parts/` directory or no match.
 
 Resolution chain (first match wins):
-1. `--product <id-or-path>` — `<id>` looks up `products/<id>.yaml`; `<path>` is used directly.
-2. `--dut-part-number <pn>` — content match against `product.part_number:` across `products/*.yaml`.
-3. Single-file fallback when `products/` holds exactly one product file.
+1. `--part <id-or-path>` — `<id>` looks up `parts/<id>.yaml`; `<path>` is used directly.
+2. `--uut-part-number <pn>` — content match against `part.part_number:` across `parts/*.yaml`.
+3. Single-file fallback when `parts/` holds exactly one part file.
 4. `None`.
 
 ```python
-def test_spec(product_context, dmm, verify):
-    if product_context:
-        limit = product_context.get_limit("output_voltage", temperature=25)
+def test_spec(part_context, dmm, verify):
+    if part_context:
+        limit = part_context.get_limit("output_voltage", temperature=25)
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
@@ -229,7 +229,7 @@ Returns the `StationConfig` resolved from `--station` / `stations/*.yaml`, or `N
 
 ### `fixture_config` — session
 
-Returns the `FixtureConfig` resolved from `--fixture` / `fixtures/*.yaml`, or `None`. In worker mode (multi-slot), extracts just this slot's `connections` and `dut_resource`.
+Returns the `FixtureConfig` resolved from `--fixture` / `fixtures/*.yaml`, or `None`. In worker mode (multi-slot), extracts just this slot's `connections` and `uut_resource`.
 
 ### `run_context` — session
 
@@ -270,7 +270,7 @@ Choose self-loop mode when an outer setup (thermal soak, supply ramp) shouldn't 
 
 ### `sync` — session
 
-Yields a `SyncPoint` for multi-DUT coordination when running in worker mode (`_LITMUS_SLOT_ID` is set), or `None` in single-slot mode. `sync.wait(name, timeout=...)` blocks until every slot reaches the same name:
+Yields a `SyncPoint` for multi-UUT coordination when running in worker mode (`_LITMUS_SLOT_ID` is set), or `None` in single-slot mode. `sync.wait(name, timeout=...)` blocks until every slot reaches the same name:
 
 ```python
 def test_measure_hot(dmm, sync):
@@ -308,6 +308,6 @@ These names are not hard-coded — they come from your station YAML at session s
 
 - [Litmus markers](litmus-markers.md) — the seven `@pytest.mark.litmus_*` decorators and their sidecar equivalents
 - [pytest-native reference](../overview/pytest-native.md) — how the bundled plugin uses pytest's own collection / fixtures / markers
-- [Models](../data/models.md) — `Limit`, `MeasurementLimitConfig`, `ProductContext`, `StationConfig`, `FixtureConfig` field shapes
+- [Models](../data/models.md) — `Limit`, `MeasurementLimitConfig`, `PartContext`, `StationConfig`, `FixtureConfig` field shapes
 - [Test vectors & sweeps](../../how-to/execution/vector-expansion.md) — `litmus_sweeps`, `parametrize`, and the `vectors` self-loop fixture
 - [Spec-driven testing](../../how-to/execution/spec-driven-testing.md) — `litmus_characteristics` + `connections` workflow

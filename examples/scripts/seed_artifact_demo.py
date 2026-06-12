@@ -17,7 +17,7 @@ What the script writes:
 
 * ``scope_capture`` — a 4-cycle 100 Hz sine wave as a ``Waveform``;
   served as JSON, rendered by ECharts in a line plot.
-* ``dut_photo`` — a 1×1 red PNG; magic-byte sniffed to ``image/png``,
+* ``uut_photo`` — a 1×1 red PNG; magic-byte sniffed to ``image/png``,
   rendered inline via ``<img>``.
 * ``schematic`` — an SVG drawn inline; served as ``image/svg+xml``.
 * ``calibration_cert`` — a minimal valid PDF saying "Hello from
@@ -40,12 +40,12 @@ from uuid import uuid4
 from litmus import Outcome, Waveform
 from litmus.data.backends.parquet import ParquetBackend
 
-# DUT / Measurement / TestRun / TestStep / TestVector are framework
+# UUT / Measurement / TestRun / TestStep / TestVector are framework
 # internals — this demo script is the only user code that constructs
 # them directly. Real test code uses the top-level verbs (observe,
 # verify) and never touches these classes.
 from litmus.data.models import (
-    DUT,
+    UUT,
     Measurement,
     TestRun,
     TestStep,
@@ -136,9 +136,9 @@ def main() -> None:
         id=uuid4(),
         started_at=started,
         ended_at=started,
-        dut=DUT(serial="DEMO-DUT-001", part_number="ART-VIEW", revision="A"),
-        product_id=None,
-        product_name="Artifact Viewing Demo",
+        uut=UUT(serial="DEMO-UUT-001", part_number="ART-VIEW", revision="A"),
+        part_id=None,
+        part_name="Artifact Viewing Demo",
         operator_id="demo",
         test_phase="development",
         outcome=Outcome.PASSED,
@@ -151,7 +151,7 @@ def main() -> None:
                         outcome=Outcome.PASSED,
                         observations={
                             "scope_capture": _sine_waveform(),
-                            "dut_photo": PNG_1X1_RED,
+                            "uut_photo": PNG_1X1_RED,
                             "schematic": SVG_DEMO,
                             "calibration_cert": PDF_DEMO,
                             "debug_log": LOG_TEXT,

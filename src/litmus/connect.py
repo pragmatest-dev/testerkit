@@ -387,7 +387,7 @@ class StationConnection:
         )
 
     def sync(self, name: str, timeout: float | None = None) -> None:
-        """Wait at a named sync point (multi-DUT coordination).
+        """Wait at a named sync point (multi-UUT coordination).
 
         In single-slot mode (no _LITMUS_SLOT_ID), returns immediately.
         In multi-slot mode, blocks until all slots arrive at this point.

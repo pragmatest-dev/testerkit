@@ -70,11 +70,11 @@ class TestHdf5Subscriber:
         )
         with h5py.File(result, "r") as f:
             assert f.attrs["station_id"] == "station_alpha"
-            assert f.attrs["dut_serial"] == "DUT-001"
-            assert f.attrs["dut_part_number"] == "PN-200"
+            assert f.attrs["uut_serial"] == "UUT-001"
+            assert f.attrs["uut_part_number"] == "PN-200"
             assert f.attrs["test_phase"] == "qualification"
             assert f.attrs["operator_id"] == "OP-42"
-            assert f.attrs["product_id"] == "PROD-100"
+            assert f.attrs["part_id"] == "PROD-100"
 
     def test_custom_metadata(
         self,
@@ -127,7 +127,7 @@ class TestHdf5Subscriber:
             assert vout.attrs["limit_high"] == 3.6
             assert vout.attrs["outcome"] == "passed"
             assert vout.attrs["characteristic_id"] == "SPEC-001"
-            assert vout.attrs["dut_pin"] == "VOUT"
+            assert vout.attrs["uut_pin"] == "VOUT"
             assert vout.attrs["instrument_name"] == "DMM_01"
 
     def test_inputs_as_vec_attrs(

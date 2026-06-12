@@ -21,7 +21,7 @@ from litmus.data.events import (
     StepStarted,
 )
 from litmus.data.models import (
-    DUT,
+    UUT,
     Measurement,
     Outcome,
     TestRun,
@@ -35,7 +35,7 @@ from litmus.execution._state import (
     get_active_connection,
     get_active_instruments,
     get_active_limits,
-    get_active_product_context,
+    get_active_part_context,
     get_active_vector_params,
     get_current_step,
     get_current_vector,
@@ -131,16 +131,16 @@ def _auto_traceability(name: str) -> dict[str, Any]:
     1. **Active :class:`FixtureConnection`** (from ``_active_connection_var``,
        pushed by ``ConnectionIterator`` while the test iterates
        ``ctx.connections``). When set, this is the authoritative source
-       for ``dut_pin`` / ``net`` / ``fixture_connection`` /
+       for ``uut_pin`` / ``net`` / ``fixture_connection`` /
        ``instrument_name`` / ``instrument_channel`` /
        ``instrument_terminal`` — the connection IS the row's pin.
-    2. **Legacy name-match against the active ProductContext**: when no
+    2. **Legacy name-match against the active PartContext**: when no
        connection is active, fall back to ``spec.get_pin_info(name)``
        for rows whose measurement label happens to equal a characteristic
        id. This branch exists for the transition period and will be
        dropped once demos and tests have moved to the spec/connections markers.
 
-    Returns a dict with any of ``dut_pin``, ``net``, ``fixture_connection``,
+    Returns a dict with any of ``uut_pin``, ``net``, ``fixture_connection``,
     ``instrument_name``, ``instrument_resource``, ``instrument_channel``,
     ``instrument_terminal``, ``characteristic_id``, ``spec_ref`` — callers use
     ``.get(...)`` so pure-pytest runs (no spec, no connections) fall through
@@ -150,8 +150,8 @@ def _auto_traceability(name: str) -> dict[str, Any]:
 
     conn = get_active_connection()
     if conn is not None:
-        if conn.dut_pin is not None:
-            result["dut_pin"] = conn.dut_pin
+        if conn.uut_pin is not None:
+            result["uut_pin"] = conn.uut_pin
         if conn.net is not None:
             result["net"] = conn.net
         result["fixture_connection"] = conn.name
@@ -168,7 +168,7 @@ def _auto_traceability(name: str) -> dict[str, Any]:
             result["instrument_resource"] = str(resource)
         return result
 
-    spec = get_active_product_context()
+    spec = get_active_part_context()
     if spec is None:
         return result
 
@@ -179,7 +179,7 @@ def _auto_traceability(name: str) -> dict[str, Any]:
     if not pin_info:
         return result
 
-    result["dut_pin"] = pin_info.get("dut_pin")
+    result["uut_pin"] = pin_info.get("uut_pin")
     result["fixture_connection"] = pin_info.get("fixture_connection")
     result["instrument_channel"] = pin_info.get("instrument_channel")
     result["characteristic_id"] = name
@@ -222,10 +222,10 @@ def _resolve_measurement_limit(
     """Return a Limit or None per :meth:`TestRunLogger.measure`'s resolution chain.
 
     Chain order: inline low/high/nominal/comparator → explicit ``limit=``
-    → active sidecar limits → active product context → unchecked (None).
+    → active sidecar limits → active part context → unchecked (None).
 
     Graceful degradation: both ``get_active_limits`` (sidecar) and
-    ``get_active_product_context`` (product YAML) may be empty/None in
+    ``get_active_part_context`` (part YAML) may be empty/None in
     pure-pytest runs; in that case returns ``None`` and the measurement
     is recorded unchecked. The spec read is a one-way ContextVar snapshot
     at write time — not a runtime call on the spec module — so the
@@ -253,7 +253,7 @@ def _resolve_measurement_limit(
         # time, including band matching with sibling-as-catch-all fallback.
         return resolve_limit(cfg, test_char=get_active_characteristic())
 
-    spec = get_active_product_context()
+    spec = get_active_part_context()
     if spec is not None:
         try:
             return spec.get_limit(name)
@@ -387,7 +387,7 @@ class TestRunLogger:
 
     def __init__(
         self,
-        dut_serial: str,
+        uut_serial: str,
         station_id: str | None,
         station_name: str | None = None,
         station_type: str | None = None,
@@ -401,16 +401,16 @@ class TestRunLogger:
         session_inputs: dict[str, str] | None = None,
         session_id: UUID | None = None,
         run_id: UUID | str | None = None,
-        # Product traceability
-        product_id: str | None = None,
-        product_name: str | None = None,
-        product_revision: str | None = None,
+        # Part traceability
+        part_id: str | None = None,
+        part_name: str | None = None,
+        part_revision: str | None = None,
         # Fixture traceability
         fixture_id: str | None = None,
-        # DUT details
-        dut_part_number: str | None = None,
-        dut_revision: str | None = None,
-        dut_lot_number: str | None = None,
+        # UUT details
+        uut_part_number: str | None = None,
+        uut_revision: str | None = None,
+        uut_lot_number: str | None = None,
         # Code traceability
         git_commit: str | None = None,
         git_branch: str | None = None,
@@ -452,11 +452,11 @@ class TestRunLogger:
         self.test_run = TestRun(
             id=run_id,
             session_id=_session_id,
-            dut=DUT(
-                serial=dut_serial,
-                part_number=dut_part_number,
-                revision=dut_revision,
-                lot_number=dut_lot_number,
+            uut=UUT(
+                serial=uut_serial,
+                part_number=uut_part_number,
+                revision=uut_revision,
+                lot_number=uut_lot_number,
             ),
             station_id=station_id,
             station_name=station_name,
@@ -469,9 +469,9 @@ class TestRunLogger:
             profile=profile,
             profile_facets=profile_facets or {},
             session_inputs=session_inputs or {},
-            product_id=product_id,
-            product_name=product_name,
-            product_revision=product_revision,
+            part_id=part_id,
+            part_name=part_name,
+            part_revision=part_revision,
             fixture_id=fixture_id,
             git_commit=git_commit,
             git_branch=git_branch,
@@ -951,7 +951,7 @@ class TestRunLogger:
                 limit_comparator=measurement.limit_comparator,
                 characteristic_id=measurement.characteristic_id,
                 spec_ref=measurement.spec_ref,
-                dut_pin=measurement.dut_pin,
+                uut_pin=measurement.uut_pin,
                 fixture_connection=measurement.fixture_connection,
                 instrument_name=measurement.instrument_name,
                 instrument_resource=measurement.instrument_resource,
@@ -1013,12 +1013,12 @@ class TestRunLogger:
 
         1. ``limit=Limit(...)`` passed by the caller.
         2. :func:`get_active_limits` — sidecar + marker + profile merge.
-        3. :func:`get_active_product_context` — product characteristic by name.
+        3. :func:`get_active_part_context` — part characteristic by name.
         4. None — row records no limit fields.
 
-        **Auto-traceability** — ``dut_pin`` / ``instrument_*`` /
+        **Auto-traceability** — ``uut_pin`` / ``instrument_*`` /
         ``fixture_connection`` / ``characteristic_id`` / ``spec_ref`` are pulled
-        from the active :class:`ProductContext` by measurement name when
+        from the active :class:`PartContext` by measurement name when
         available. Callers never pass these.
 
         **Duplicate-name dedup**: two writes with the same name in one
@@ -1071,8 +1071,8 @@ class TestRunLogger:
             meas_spec_ref = resolved_limit.spec_ref
             cmp_str = _stringify_comparator(resolved_limit.comparator)
 
-        # Auto-fill traceability from the active ProductContext. A caller
-        # (ProductContext.check / legacy harness) may have pre-populated a
+        # Auto-fill traceability from the active PartContext. A caller
+        # (PartContext.check / legacy harness) may have pre-populated a
         # Measurement; here we only set fields from the spec when they
         # would otherwise be blank.
         trace = _auto_traceability(name)
@@ -1087,7 +1087,7 @@ class TestRunLogger:
             limit_comparator=cmp_str,
             characteristic_id=meas_char_id or trace.get("characteristic_id"),
             spec_ref=meas_spec_ref or trace.get("spec_ref"),
-            dut_pin=trace.get("dut_pin"),
+            uut_pin=trace.get("uut_pin"),
             instrument_name=trace.get("instrument_name"),
             instrument_resource=trace.get("instrument_resource"),
             instrument_channel=trace.get("instrument_channel"),

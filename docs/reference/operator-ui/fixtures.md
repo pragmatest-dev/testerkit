@@ -2,13 +2,13 @@
 
 **URLs:** `/fixtures` (list), `/fixtures/new`, `/fixtures/{id}`, `/fixtures/{id}/edit`
 
-A fixture is the wiring between a DUT's pins and a station's
+A fixture is the wiring between a UUT's pins and a station's
 instrument channels — which probe goes on which pin, which DMM
-channel reads which voltage. A fixture is bound to a product (so it
+channel reads which voltage. A fixture is bound to a part (so it
 gets used in the right runs) and is used at run time by stations
 whose instruments cover the fixture's connections. The fixture's
-connection rows themselves carry free-text DUT-pin and channel
-fields — they're not validated against the product's pin map at
+connection rows themselves carry free-text UUT-pin and channel
+fields — they're not validated against the part's pin map at
 edit time.
 
 ## List — `/fixtures`
@@ -22,7 +22,7 @@ only referenced by past runs). Columns:
 | Status | **Configured** chip (grey) — a YAML file exists. **Observed** chip (amber) — appears in run history but has no YAML file. |
 | ID | Fixture identifier |
 | Name | Human-readable name |
-| Product | Product name (falls back to the bound product ID when the product name isn't resolvable) |
+| Part | Part name (falls back to the bound part ID when the part name isn't resolvable) |
 | Rev | Revision string (when set) |
 | Connections | Count of pin → channel connections defined; `—` for Observed rows |
 | Runs | Total runs that have used this fixture |
@@ -44,22 +44,22 @@ empty-state card explaining the entity and offering a Create Fixture button.
 ## Detail — `/fixtures/{id}`
 
 A header bar (Back + Edit buttons), one Fixture Information card
-(ID, name, product binding, revision, description), then a tab
+(ID, name, part binding, revision, description), then a tab
 strip with three tabs:
 
 | Tab | Content |
 |---|---|
-| Pin Mappings | The connections table — one row per (DUT pin → instrument channel) mapping. Columns: Connection (the mapping's name), DUT Pin, Net, Instrument, Channel, Description. |
+| Pin Mappings | The connections table — one row per (UUT pin → instrument channel) mapping. Columns: Connection (the mapping's name), UUT Pin, Net, Instrument, Channel, Description. |
 | Compatible Stations | Stations whose instruments cover this fixture's required instruments and channels. |
 | Diagram | A Mermaid-rendered diagram of the pin-to-instrument wiring. |
 
 ## Edit — `/fixtures/{id}/edit` and New — `/fixtures/new`
 
-A form for the same fields the fixture YAML carries. The Product
+A form for the same fields the fixture YAML carries. The Part
 binding is a dropdown — editable on both New and Edit (no read-only
-restriction). The DUT Pin and Instrument Channel fields on each
+restriction). The UUT Pin and Instrument Channel fields on each
 connection row are **free-text inputs**, not dropdowns sourced from
-the product pin map.
+the part pin map.
 
 The Instrument dropdown on each connection row pulls its options
 from the union of all stations' instruments in the project, so any

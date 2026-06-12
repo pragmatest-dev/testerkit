@@ -71,13 +71,13 @@ class LimitFailure(AssertionError):
         name: str,
         value: float | None,
         limit: Limit,
-        dut_pin: str | None = None,
+        uut_pin: str | None = None,
         spec_ref: str | None = None,
     ) -> None:
         self.name = name
         self.value = value
         self.limit = limit
-        self.dut_pin = dut_pin
+        self.uut_pin = uut_pin
         self.spec_ref = spec_ref
         super().__init__(self._format())
 
@@ -85,8 +85,8 @@ class LimitFailure(AssertionError):
         units = f" {self.limit.units}" if self.limit.units else ""
         lines = [f"{self.name} = {self.value}{units} fails {self.limit!r}"]
         trailer: list[str] = []
-        if self.dut_pin:
-            trailer.append(f"pin: {self.dut_pin}")
+        if self.uut_pin:
+            trailer.append(f"pin: {self.uut_pin}")
         if self.spec_ref:
             trailer.append(f"spec: {self.spec_ref}")
         if trailer:
@@ -266,7 +266,7 @@ def _perform_verify(
             raise MissingLimitError(
                 f"verify({name!r}, ...) has no limit to judge against. "
                 "Pass limit=Limit(...), configure a limit via "
-                "@pytest.mark.litmus_limits / sidecar / profile / product spec, "
+                "@pytest.mark.litmus_limits / sidecar / profile / part spec, "
                 "use logger.measure() to record without judging, or "
                 "set ``verify_requires_limit: false`` on the active profile."
             )
@@ -281,7 +281,7 @@ def _perform_verify(
             name=name,
             value=measurement.value,
             limit=effective_limit,
-            dut_pin=measurement.dut_pin,
+            uut_pin=measurement.uut_pin,
             spec_ref=measurement.spec_ref,
         )
     return measurement

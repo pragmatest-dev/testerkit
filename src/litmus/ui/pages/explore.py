@@ -132,7 +132,7 @@ def _query_dict_from_request(request: Request) -> dict[str, list[str]]:
     """Multi-value query string → ``{key: [v1, v2, ...]}``.
 
     FastAPI's ``request.query_params`` is a multi-dict; ``getlist`` is
-    the way to recover repeated keys (e.g. ``?product=A&product=B``).
+    the way to recover repeated keys (e.g. ``?part=A&part=B``).
     """
     return {k: request.query_params.getlist(k) for k in set(request.query_params)}
 
@@ -146,7 +146,7 @@ async def explore_page(request: Request):
     via ui.timer after the page is connected.
 
     URL state encodes the full view: each filter facet's selected
-    values as repeated query keys (``?product=PN-100&product=PN-200``)
+    values as repeated query keys (``?part=PN-100&part=PN-200``)
     plus ``y`` / ``x`` / ``chart_type`` / ``group_by`` / ``bins`` /
     ``limit`` / ``since`` / ``until``.
     """
@@ -286,7 +286,7 @@ async def explore_page(request: Request):
             f"{counts.total_rows:,} measurements · "
             f"{counts.distinct_runs:,} runs · "
             f"{counts.distinct_measurements:,} measurement names · "
-            f"{counts.distinct_products:,} products"
+            f"{counts.distinct_parts:,} parts"
         )
 
     async def _refresh_chart() -> None:

@@ -59,7 +59,7 @@ class TestFlattenProfileChain:
             tests={"test_rail": TestEntry(limits=_v_rail(low=3.2, high=3.4))},
         )
         child = ProfileConfig(
-            facets={"test_phase": "production", "product": "tps54302"},
+            facets={"test_phase": "production", "part": "tps54302"},
             extends="family",
             tests={"test_rail": TestEntry(limits=_v_rail(low=3.25, high=3.35))},
         )
@@ -197,18 +197,18 @@ class TestResolveActiveProfileWithExtends:
             tests={"test_rail": TestEntry(limits=_v_rail(low=3.2))},
         )
         child = ProfileConfig(
-            facets={"test_phase": "production", "product": "tps54302"},
+            facets={"test_phase": "production", "part": "tps54302"},
             extends="family",
             tests={"test_rail": TestEntry(limits=_v_rail(low=3.25))},
         )
         project = _make_project({"family": parent, "prod-tps54302": child})
         name, profile, facets = resolve_active_profile(
-            None, {"test_phase": "production", "product": "tps54302"}, project
+            None, {"test_phase": "production", "part": "tps54302"}, project
         )
         assert name == "prod-tps54302"
         assert profile is not None
         _assert_v_rail(profile.tests["test_rail"].limits, low=3.25)
-        assert facets == {"test_phase": "production", "product": "tps54302"}
+        assert facets == {"test_phase": "production", "part": "tps54302"}
 
     def test_parent_without_facets_unreachable_via_facet_query(self) -> None:
         parent = ProfileConfig(

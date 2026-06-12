@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep
+from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep
 
 
 class TestOutcomeEnum:
@@ -124,25 +124,25 @@ class TestMeasurement:
         assert result2 == Outcome.FAILED
 
 
-class TestDUT:
-    """Tests for DUT model."""
+class TestUUT:
+    """Tests for UUT model."""
 
-    def test_basic_dut(self):
-        dut = DUT(serial="SN001")
-        assert dut.serial == "SN001"
-        assert dut.part_number is None
+    def test_basic_uut(self):
+        uut = UUT(serial="SN001")
+        assert uut.serial == "SN001"
+        assert uut.part_number is None
 
-    def test_dut_with_all_fields(self):
-        dut = DUT(
+    def test_uut_with_all_fields(self):
+        uut = UUT(
             serial="SN001",
             part_number="PN-123",
             revision="A",
             lot_number="LOT001",
         )
-        assert dut.serial == "SN001"
-        assert dut.part_number == "PN-123"
-        assert dut.revision == "A"
-        assert dut.lot_number == "LOT001"
+        assert uut.serial == "SN001"
+        assert uut.part_number == "PN-123"
+        assert uut.revision == "A"
+        assert uut.lot_number == "LOT001"
 
 
 class TestTestStep:
@@ -175,10 +175,10 @@ class TestTestRun:
 
     def test_basic_test_run(self):
         run = TestRun(
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             station_id="station_001",
         )
-        assert run.dut.serial == "SN001"
+        assert run.uut.serial == "SN001"
         assert run.station_id == "station_001"
         # New runs have no outcome — see TestStep.test_basic_step.
         assert run.outcome is None
@@ -187,7 +187,7 @@ class TestTestRun:
     def test_test_run_with_steps(self):
         step = TestStep(name="measure_voltage")
         run = TestRun(
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             station_id="station_001",
             steps=[step],
         )
@@ -201,7 +201,7 @@ class TestTestRun:
         machine — but the canonical station ``id`` doesn't exist.
         """
         run = TestRun(
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             station_id=None,
         )
         assert run.station_id is None

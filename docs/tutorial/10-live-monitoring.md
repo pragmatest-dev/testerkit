@@ -37,7 +37,7 @@ litmus serve --reload
 
 Open `http://localhost:8000` — the operator UI shows live session activity, including:
 
-- Session metadata (station, DUT, operator)
+- Session metadata (station, UUT, operator)
 - Instrument connections
 - Measurements as they happen
 - Step progress during test runs
@@ -70,7 +70,7 @@ The detail page is a sticky header card with a tab strip beneath:
 **Overview** (run-level summary), **Steps** (one row per
 `(step_path, vector_index)` execution with its outcome and
 measurement count), **Measurements** (every value logged with its
-limit and outcome), and **DUT History** (this DUT's prior runs).
+limit and outcome), and **UUT History** (this UUT's prior runs).
 
 For the full reference, see
 [Operator UI → Results — list](../reference/operator-ui/results/list.md)
@@ -80,14 +80,14 @@ and [Operator UI → Results — detail](../reference/operator-ui/results/detail
 
 After a few runs accumulate, the
 [`/metrics`](http://localhost:8000/metrics) page becomes the
-go-to "is the bench healthy" view. A filter bar (Phase / Product /
+go-to "is the bench healthy" view. A filter bar (Phase / Part /
 Station / Lot / Since / Until) sits above a tab strip with six
 analytical lenses:
 
 | Tab | What it shows |
 |---|---|
 | Yield | First-pass yield, final yield, run / failure counts, a yield trend chart, and time stats |
-| Pareto | Failure counts grouped by Product, Step, or Measurement (the group-by is a control on the tab) |
+| Pareto | Failure counts grouped by Part, Step, or Measurement (the group-by is a control on the tab) |
 | Cpk | Per-measurement process capability, ranked worst-first |
 | Retest | Time-bucketed retest rate — how many serials needed more than one attempt that period |
 | Time loss | Wall-clock time spent on failed / errored runs per period |

@@ -87,7 +87,7 @@ async def test_local_dialog_emits_events() -> None:
     manager = DialogManager()
     mock_logger = _make_mock_logger()
 
-    dialog = ConfirmDialog(title="Wait", message="Check DUT")
+    dialog = ConfirmDialog(title="Wait", message="Check UUT")
 
     async def respond_after_delay() -> None:
         await asyncio.sleep(0.05)
