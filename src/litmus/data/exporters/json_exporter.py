@@ -7,9 +7,12 @@ JSON file on close.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
@@ -20,6 +23,30 @@ from litmus.data.events import (
     StepStarted,
 )
 from litmus.data.subscribers._output_file import OutputFile
+
+
+def _jsonable(obj: Any) -> Any:
+    """Coerce a value tree to valid-JSON-safe form before ``json.dumps``.
+
+    Non-finite floats (``NaN``/``Inf`` are not valid JSON) become ``null``;
+    ``datetime`` / ``UUID`` / ``bytes`` / ``set`` — which can appear in the
+    free-form ``custom_metadata`` / ``inputs`` / ``outputs`` dicts — become
+    strings/lists. Without this a NaN measurement emits invalid JSON and a
+    datetime in custom metadata raises ``TypeError`` mid-export.
+    """
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return [_jsonable(v) for v in obj]
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, UUID):
+        return str(obj)
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", "replace")
+    return obj
 
 
 class JsonSubscriber(EventSubscriber):
@@ -196,7 +223,7 @@ class JsonSubscriber(EventSubscriber):
         if s.custom_metadata:
             data["custom_metadata"] = dict(s.custom_metadata)
 
-        out_file.write_text(json.dumps(data, indent=2) + "\n")
+        out_file.write_text(json.dumps(_jsonable(data), indent=2) + "\n")
 
         if self._on_output:
             self._on_output(OutputFile(path=out_file, format="json", run_id=run_id))

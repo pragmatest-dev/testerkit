@@ -12,6 +12,7 @@ Hierarchical structure:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,20 @@ from litmus.data.events import (
     StepStarted,
 )
 from litmus.data.subscribers._output_file import OutputFile
+
+
+def _h5_attr(val: Any) -> Any:
+    """Coerce a free-form value to an h5py-storable attribute.
+
+    h5py attributes accept scalars (int/float/str/bool/bytes); the
+    ``custom_metadata`` / ``inputs`` / ``outputs`` dicts are ``dict[str, Any]``,
+    so a list/dict/datetime/UUID value would raise mid-export. Scalars pass
+    through; everything else is JSON-encoded to a string.
+    """
+    if isinstance(val, (int, float, str, bool, bytes)):
+        return val
+    return json.dumps(val, default=str)
+
 
 # ── Event subscriber ────────────────────────────────────────────────
 
@@ -115,7 +130,7 @@ class Hdf5Subscriber(EventSubscriber):
             if s.part_id:
                 f.attrs["part_id"] = s.part_id
             for key, val in s.custom_metadata.items():
-                f.attrs[f"custom_{key}"] = val
+                f.attrs[f"custom_{key}"] = _h5_attr(val)
 
             # Instruments
             if self._instruments:
@@ -177,11 +192,11 @@ class Hdf5Subscriber(EventSubscriber):
                 for k, v in m.inputs.items():
                     attr_key = f"in_{k}"
                     if attr_key not in vec_grp.attrs:
-                        vec_grp.attrs[attr_key] = v
+                        vec_grp.attrs[attr_key] = _h5_attr(v)
                 for k, v in m.outputs.items():
                     attr_key = f"out_{k}"
                     if attr_key not in vec_grp.attrs:
-                        vec_grp.attrs[attr_key] = v
+                        vec_grp.attrs[attr_key] = _h5_attr(v)
 
                 meas_grp = vec_grp.require_group("measurements")
                 if m.value is not None:

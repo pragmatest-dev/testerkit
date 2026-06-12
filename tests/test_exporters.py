@@ -200,6 +200,80 @@ class TestJsonSubscriber:
         assert len(data["steps"][0]["vectors"][0]["measurements"]) == 2
 
 
+def _reject_constant(token: str) -> float:
+    # json.loads is lenient and parses NaN/Infinity (invalid JSON) back to
+    # floats; firing here on those tokens turns json.loads into a strict
+    # validity check.
+    raise ValueError(f"non-JSON constant in export output: {token}")
+
+
+class TestExporterRobustness:
+    """Regression: exporters survive NaN values and non-primitive metadata.
+
+    Previously a NaN measurement emitted the bare ``NaN`` token (invalid JSON)
+    and a ``datetime``/``UUID`` in ``custom_metadata`` raised ``TypeError``
+    mid-export (JSON) or on attribute write (HDF5).
+    """
+
+    def _edge_run(self) -> TestRun:
+        ts = datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC)
+        return TestRun(
+            id=uuid4(),
+            started_at=ts,
+            ended_at=ts,
+            uut=UUT(serial="UUT001"),
+            station_id="s1",
+            test_phase="development",
+            outcome=Outcome.ERRORED,
+            custom_metadata={"captured_at": ts, "trace_id": uuid4()},
+            steps=[
+                TestStep(
+                    name="t",
+                    started_at=ts,
+                    ended_at=ts,
+                    outcome=Outcome.ERRORED,
+                    vectors=[
+                        TestVector(
+                            index=0,
+                            retry=0,
+                            params={},
+                            outcome=Outcome.ERRORED,
+                            measurements=[
+                                Measurement(
+                                    name="v",
+                                    value=float("nan"),
+                                    units="V",
+                                    outcome=Outcome.ERRORED,
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+    def test_json_nan_and_nonprimitive_metadata(self, tmp_path: Path):
+        sub = JsonSubscriber(tmp_path)
+        sub.open()
+        _replay_events(self._edge_run(), sub)
+        sub.close()
+        text = next(tmp_path.glob("*.json")).read_text()
+        data = json.loads(text, parse_constant=_reject_constant)  # raises on NaN/Inf
+        meas = data["steps"][0]["vectors"][0]["measurements"][0]
+        assert meas["value"] is None  # NaN -> null
+        assert "custom_metadata" in data  # datetime/UUID didn't crash the dump
+
+    def test_hdf5_nonprimitive_metadata_does_not_crash(self, tmp_path: Path):
+        pytest.importorskip("h5py")
+        from litmus.data.exporters.hdf5 import Hdf5Subscriber
+
+        sub = Hdf5Subscriber(tmp_path)
+        sub.open()
+        _replay_events(self._edge_run(), sub)
+        sub.close()
+        assert list(tmp_path.iterdir())  # a file was written => no crash
+
+
 class TestPluginWarnings:
     def test_event_subscriber_warns_on_error(self, tmp_path):
         """Event subscriber failure emits a warning and disables the subscriber."""
