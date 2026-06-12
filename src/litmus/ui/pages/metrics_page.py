@@ -2,7 +2,7 @@
 
 import logging
 import traceback
-from datetime import UTC
+from datetime import UTC, date, timedelta
 from typing import Any, TypedDict
 
 from fastapi import Request
@@ -65,6 +65,15 @@ async def metrics_page(
     phase = request.query_params.getlist("phase")
     part = request.query_params.getlist("part")
     station = request.query_params.getlist("station")
+
+    # Metrics are per-phase. Default to production — the phase yield / Cpk /
+    # pareto are actually meaningful for (development is mock/dirty-git data;
+    # characterization deliberately drives out-of-spec) — and to a recent
+    # window rather than all of history. Both stay overridable via filters/URL.
+    if not phase:
+        phase = ["production"]
+    if not since:
+        since = (date.today() - timedelta(days=30)).isoformat()
 
     data_dir = str(resolve_data_dir())
 
@@ -182,15 +191,18 @@ async def metrics_page(
             outcomes = await run.io_bound(_fetch_run_level_counts, data_dir)
             summary_container.clear()
             _render_run_level_fallback_body(summary_container, outcomes)
-            render_empty_card(
-                trend_chart_container,
-                "Yield trend",
-                "No measurements yet — once tests record values, the trend appears here.",
+            phase_label = ", ".join(phase_) if phase_ else "production"
+            scope_msg = (
+                f"No {phase_label} runs in the selected window. Metrics are "
+                "per-phase — development is mock / dirty-git data and is "
+                "excluded here. Change the Phase filter (e.g. development) or "
+                "widen the date range."
             )
+            render_empty_card(trend_chart_container, "Yield trend", scope_msg)
             render_empty_card(
                 time_stats_container,
                 "Test time statistics",
-                "No measurement-level timing yet.",
+                scope_msg,
             )
             return
 
@@ -356,7 +368,7 @@ async def metrics_page(
                 initial_phase,
                 on_change=_on_filter_change,
                 classes="w-56",
-                placeholder="All phases (excludes 'development' by default)",
+                placeholder="Phase (defaults to production)",
             )
 
             initial_part = [p for p in part if p in parts]

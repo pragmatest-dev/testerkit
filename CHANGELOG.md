@@ -107,6 +107,14 @@ gains entity-observed-view across inventory pages, two new pages
 
 ### Changed
 
+- **Metrics are per-phase now.** The quality dashboards (Yield / Pareto /
+  Cpk / Retest) default to **`phase = production`** and the **last 30 days**
+  instead of "all phases except development, all time" — production is the
+  only phase where FPY / Cpk / pareto are meaningful (development is mock /
+  dirty-git data; characterization deliberately drives out-of-spec). The
+  Phase filter switches it. The empty state names the cause ("No production
+  runs in the window — change the Phase filter or widen the date range")
+  rather than the misleading "No measurements yet."
 - **BREAKING — `product` → `part` and `dut` → `uut` rename.** The
   type/definition entity is now **Part** and the physical instance is
   now **UUT** (unit under test), aligning with ASAM AoPart / STDF /
