@@ -7,8 +7,8 @@ One call does three things:
 2. Resolves the active limit and compares the value against it
 3. Raises `AssertionError` (subclass `LimitFailure`) on FAIL
 
-Use `logger.measure` for record-only measurements (characterization /
-setup readouts where no limit applies).
+Use [`observe`](observe.md) for record-only measurements
+(characterization / setup readouts where no limit applies).
 
 ## Signature
 

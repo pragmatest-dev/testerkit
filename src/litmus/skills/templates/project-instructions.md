@@ -80,8 +80,8 @@ def test_output_voltage(verify, psu, dmm) -> None:
 - `litmus_discover` — Discover instruments on VISA / NI / Serial / LXI buses
 - `litmus_match` — Check whether a station can test a part
 - `litmus_run` — Execute tests and stream results
-- `litmus_metrics` — Yield / pareto / cpk / trend / retest / time-loss queries
-- `litmus_events` / `litmus_sessions` / `litmus_channels` — Event log queries
+- `litmus_runs` / `litmus_steps` / `litmus_metrics` — Runs and steps tables; yield / pareto / cpk / trend / retest / time-loss analytics
+- `litmus_events` / `litmus_sessions` / `litmus_channels` / `litmus_files` — Event log, sessions, channel data, and FileStore artifacts
 
 **Test data** is Parquet, queryable with DuckDB:
 ```sql
@@ -96,5 +96,6 @@ Read these on demand via the CLI — don't load them all upfront. `litmus refs l
 |-------|---------|
 | Project tiers (Tier 0 → 4 ladder, when to graduate) | `litmus refs show tiers` |
 | `verify` signature, limit dict shape, sidecar `limits:` schema, outcomes | `litmus refs show verify` |
+| `observe` / `stream` record-only verbs, ChannelStore / FileStore routing | `litmus refs show observe` |
 | Per-test mock overrides (`litmus_mocks` marker + sidecar `mocks:`) | `litmus refs show mocks` |
 | Profiles, facets, phase wiring | `litmus refs show profiles` |

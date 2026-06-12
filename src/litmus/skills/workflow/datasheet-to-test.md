@@ -234,7 +234,9 @@ class TestRails:
 
 Notes for good generation:
 - Use `verify(name, v)` for judgment-bearing measurements — limits resolve from active part/sidecar/profile; raises `LimitFailure` on out-of-band, `MissingLimitError` if no limit configured
-- Use `logger.measure(name, v)` for record-only measurements (setup readouts, characterization) — stamps `Outcome.DONE`, never raises
+- Use `observe(name, v)` for record-only measurements and evidence (setup readouts, characterization, captures) — no judgment, never raises. Routes by shape: scalars land inline, arrays / `Waveform` go to ChannelStore, blobs / images go to FileStore as a `file://` artifact auto-linked from the run
+- Use `stream(name, sample)` to push one time-series sample to ChannelStore across a sweep (e.g. a rail logged under increasing load)
+- `observe` / `verify` / `stream` are the three test-author verbs — see `litmus refs show observe`
 - Use `context.changed(k)` in parametrized sweeps to skip expensive reconfig
 - Prefer native `@pytest.mark.parametrize` for code-owned sweeps; use sidecar `vectors:` for operator-edited sweeps
 </step>
