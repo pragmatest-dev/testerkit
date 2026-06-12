@@ -21,24 +21,24 @@ past, then you get a capacity report:
 ```
 Litmus performance on this machine
 
-  Intel(R) Core(TM) Ultra 9 275HX · 24 cores · 15.34 GB RAM · Linux 6.6 (WSL2) · litmus 0.1.3 · fast tier · 58s
+  Intel(R) Core(TM) Ultra 9 275HX · 24 cores · 15.34 GB RAM · Linux 6.6.87 (WSL2) · litmus 0.2.0 · duckdb 1.5.0 · pyarrow 23.0.0 · fast tier · 35s
 
-  Recording a production test run costs ~74 ms and ~0.4 MB. This machine
-  finalizes ~18 runs/s (≈180 parts in parallel at a 10s cycle) and can hold
-  ~2.18M runs. Litmus stays out of your test's way.
-  Under load it uses ~<0.1% of this machine's CPU and ~1.9 GB (12% of RAM) —
+  Recording a production test run costs ~74 ms and ~0.3 MB. This machine
+  finalizes ~15 runs/s (≈153 parts in parallel at a 10s cycle) and can hold
+  ~3.42M runs. Litmus stays out of your test's way.
+  Under load it uses ~<0.1% of this machine's CPU and ~1.3 GB (9% of RAM) —
   the rest stays free for your test code and other apps.
 
   Recording test runs (by phase):
     phase              time/run    on disk     runs fit
-    characterization      5.7 s    157.0MB         5.7k
-    validation           293 ms      5.2MB         172k
-    production            74 ms      0.4MB        2.18M
+    characterization      2.6 s    156.8MB        5.69k
+    validation           229 ms      5.1MB         177k
+    production            74 ms      0.3MB        3.42M
 
   Per-operation rates:
     operation                    latency   sustained rate
-    Log a measurement            0.22 ms          4.59k/s
-    Write a waveform block       0.61 ms   3.86M points/s
+    Log a measurement            0.25 ms          3.97k/s
+    Write a waveform block       0.16 ms   9.98M points/s
     ...
 ```
 
