@@ -24,7 +24,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from nicegui import app, ui
+from nicegui import app, background_tasks, run, ui
 
 # Ensure the parent repo is importable when running from examples/
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -36,6 +36,7 @@ import litmus
 # script needs an explicit type annotation.
 from litmus.connect import StationConnection
 from litmus.data.channels.models import ChannelSample
+from litmus.models.station import StationInstrumentConfig
 from litmus.ui import bind_channel_store, channel_data
 from litmus.ui.components import create_instrument_activity, create_session_table
 from litmus.ui.shared.components import InstrumentToggle
@@ -193,11 +194,10 @@ def main_page() -> None:
 def _build_readback_card(
     station: StationConnection,
     role: str,
-    inst_config: object,
+    inst_config: StationInstrumentConfig,
 ) -> None:
-    desc = getattr(inst_config, "description", "") or role.upper()
-    inst_type = getattr(inst_config, "type", "")
-    layout = _CARD_LAYOUTS.get(inst_type, CardLayout())
+    desc = inst_config.description or role.upper()
+    layout = _CARD_LAYOUTS.get(inst_config.type, CardLayout())
 
     with ui.card().classes("flex-1"):
         with ui.row().classes("items-center justify-between w-full mb-2"):
@@ -266,9 +266,9 @@ def _build_readback_card(
 def _build_scope_card(
     station: StationConnection,
     role: str,
-    inst_config: object,
+    inst_config: StationInstrumentConfig,
 ) -> None:
-    desc = getattr(inst_config, "description", "") or role.upper()
+    desc = inst_config.description or role.upper()
 
     with ui.card().classes("w-full"):
         with ui.row().classes("items-center justify-between w-full mb-2"):
@@ -335,16 +335,11 @@ def _build_scope_card(
         running = {"active": False, "task": None}
 
         async def _continuous() -> None:
-            loop = asyncio.get_event_loop()
             while running["active"]:
                 if not toggle.connected:
                     await asyncio.sleep(0.1)
                     continue
-                await loop.run_in_executor(
-                    None,
-                    toggle.driver.fetch_waveform,
-                    "CH1",
-                )
+                await run.io_bound(toggle.driver.fetch_waveform, "CH1")
                 await asyncio.sleep(0.05)
 
         def _start() -> None:
@@ -352,7 +347,7 @@ def _build_scope_card(
                 return
             station.configure(role, "start_continuous", channel="CH1")
             running["active"] = True
-            running["task"] = asyncio.ensure_future(_continuous())
+            running["task"] = background_tasks.create(_continuous())
             run_btn.props(remove="color=green", add="color=red")
             run_btn.text = "Stop"
 

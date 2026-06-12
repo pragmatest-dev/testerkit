@@ -9,8 +9,11 @@ Two data paths:
    ``bind_channel_store(store)`` once at startup, then
    ``ui_channel_data(channel_id).subscribe(handler)`` per component.
 
-   NiceGUI ``Event`` handles thread safety, multi-client delivery,
-   and auto-unsubscribe on client disconnect.
+   Both stores deliver on a background Flight reader thread. The
+   binding marshals every callback onto the NiceGUI event loop before
+   it runs, so handlers may mutate elements directly. NiceGUI ``Event``
+   handles multi-client delivery and auto-unsubscribe on client
+   disconnect.
 
 Usage::
 
@@ -30,17 +33,31 @@ Usage::
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from datetime import datetime
 from uuid import UUID
 
-from nicegui import Event
+from nicegui import Event, core
 
 from litmus.data.channels.client import ChannelClient
 from litmus.data.channels.models import ChannelSample
 from litmus.data.channels.store import ChannelStore
 from litmus.data.event_store import EventStore
+
+
+def _on_ui_loop(fn: Callable[..., None], *args: object) -> None:
+    """Run ``fn(*args)`` on the NiceGUI event loop, safe from any thread.
+
+    EventStore and ChannelStore both deliver on background Flight reader
+    threads, but NiceGUI element mutation must happen on the UI event
+    loop. ``core.loop`` is the loop NiceGUI runs on (set at server
+    startup). With no running loop — tests, in-process use — run inline.
+    """
+    loop = core.loop
+    if loop is not None and loop.is_running():
+        loop.call_soon_threadsafe(fn, *args)
+    else:
+        fn(*args)
 
 
 def ui_subscribe(
@@ -55,18 +72,13 @@ def ui_subscribe(
 ) -> Callable[[], None]:
     """Subscribe to EventStore events, delivering on the NiceGUI UI thread.
 
-    Wraps ``store.on_event()`` so the callback always runs on the asyncio
+    Wraps ``store.on_event()`` so the callback always runs on the UI
     event loop — safe to mutate any NiceGUI element directly.
 
     Returns an unsubscribe callable.
     """
-    loop = asyncio.get_event_loop()
-
-    def _threadsafe_callback(evt: dict) -> None:
-        loop.call_soon_threadsafe(callback, evt)
-
     return store.on_event(
-        _threadsafe_callback,
+        lambda evt: _on_ui_loop(callback, evt),
         event_type=event_type,
         role=role,
         session_id=session_id,
@@ -91,8 +103,10 @@ def ui_channel_data(channel_id: str) -> Event:
 
         ui_channel_data("scope.waveform").subscribe(lambda sample: ...)
 
-    NiceGUI handles thread safety, multi-client delivery, and
-    auto-unsubscribe on client disconnect.
+    Handlers run on the UI event loop — the binding marshals samples
+    off the Flight reader thread — so they may mutate elements
+    directly. NiceGUI handles multi-client delivery and auto-unsubscribe
+    on client disconnect.
     """
     if channel_id not in _channel_signals:
         _channel_signals[channel_id] = Event()
@@ -115,13 +129,22 @@ def reset_channel_signals() -> None:
     _global_signal = None
 
 
-def _dispatch_sample_to_signals(sample: ChannelSample) -> None:
+def _emit_to_signals(sample: ChannelSample) -> None:
     """Fan out one sample to its per-channel and global NiceGUI signals."""
     evt = _channel_signals.get(sample.channel_id)
     if evt is not None:
         evt.emit(sample)
     if _global_signal is not None:
         _global_signal.emit(sample)
+
+
+def _dispatch_sample_to_signals(sample: ChannelSample) -> None:
+    """Deliver a sample to its signals on the UI event loop.
+
+    ``ChannelClient.on_channel`` calls this from a background reader
+    thread; the loop hop keeps NiceGUI element mutation on the loop.
+    """
+    _on_ui_loop(_emit_to_signals, sample)
 
 
 def bind_flight_location(location: str) -> Callable[[], None]:
