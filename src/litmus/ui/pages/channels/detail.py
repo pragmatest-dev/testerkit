@@ -282,7 +282,12 @@ def _render_chart(
         chart = ui.echart(
             {
                 "tooltip": {"trigger": "axis"},
-                "legend": {"show": show_legend, "top": 30} if show_legend else {"show": False},
+                # ``type: scroll`` keeps the legend to a single paginated
+                # row (page arrows) no matter how many sessions are
+                # present, so it never wraps down into the plot grid.
+                "legend": (
+                    {"show": True, "type": "scroll", "top": 30} if show_legend else {"show": False}
+                ),
                 "title": {
                     "text": channel_id,
                     "textStyle": {"fontSize": 14, "fontWeight": "normal"},
