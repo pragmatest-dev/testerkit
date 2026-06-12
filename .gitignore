@@ -28,6 +28,9 @@ litmus/skills/refs/
 /schemas/
 .benchmarks/
 
+# Transient logs (daemon, serve, stream, uicheck)
+*.log
+
 # Local databases and env files
 *.duckdb
 *.duckdb.wal
