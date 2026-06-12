@@ -194,6 +194,12 @@ Return the measurements schema: ``[{column_name, column_type}, ...]``.
 
 Generic Y vs X query over measurements, optionally split by ``group_by``.
 
+### `MeasurementsQuery.latest_run_limits` {#measurementsquery-latest_run_limits}
+
+`latest_run_limits(*, x: str, filters: FilterSet | None = None) → list[LimitBandRow]`
+
+Limit envelope from the most recent run, keyed by the chart's X.
+
 ### `MeasurementsQuery.distinct_values` {#measurementsquery-distinct_values}
 
 `distinct_values(column: str, *, filters: FilterSet | None = None, exclude_self: bool = True, limit: int = 500) → list[FacetOption]`

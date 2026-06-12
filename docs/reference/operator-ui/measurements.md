@@ -73,6 +73,13 @@ PLOT control:
 - **Bar** — bars at each X with height Y
 - **Histogram** — distribution of the Y value alone (X is ignored), bucketed by Bins
 
+When the Measurement filter is narrowed to a single measurement and Y
+is `measurement_value`, a scatter or line chart overlays that
+measurement's spec limits as two black dashed lines — the low and high
+bounds from its **most recent run**. The lines track the X axis, so a
+limit that varies by condition draws as a step band and a constant
+limit draws flat.
+
 When the result set exceeds Limit, only the first Limit rows are
 returned (ordered by run id, not by date). Tighten the filter set or
 raise Limit if the chart looks truncated; very large limits make the

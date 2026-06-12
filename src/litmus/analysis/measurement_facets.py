@@ -96,6 +96,19 @@ class HistogramRow(BaseModel):
     group: str = ""
 
 
+class LimitBandRow(BaseModel):
+    """One point of a measurement's limit envelope, keyed by the chart's X.
+
+    The chart layer draws ``low`` and ``high`` as step lines against the
+    same X axis as the data — a staircase when limits are condition-indexed,
+    a flat band when they don't vary.
+    """
+
+    x: float | str | datetime | date | None = None
+    low: float | None = None
+    high: float | None = None
+
+
 class FilterSet(BaseModel):
     """Current filter state — URL-shareable, validated against ``MEASUREMENT_FACETS``.
 

@@ -56,6 +56,7 @@ Per-screen reference for the browser surface. For orientation, see the [Tour of 
 - [Events](operator-ui/events.md) — `/events`
 - [Channels — list](operator-ui/channels/list.md) — `/channels`
 - [Channels — detail](operator-ui/channels/detail.md) — `/channels/{channel}`
+- [Files](operator-ui/files.md) — `/files`
 - [System Designer](operator-ui/designer.md) — `/designer`
 - [Stations](operator-ui/stations.md) — `/stations`
 - [Parts](operator-ui/parts.md) — `/parts`

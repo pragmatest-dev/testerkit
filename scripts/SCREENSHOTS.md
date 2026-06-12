@@ -6,6 +6,27 @@ The cropped PNGs under `docs/_assets/operator-ui/` are produced by
 its `MANIFEST`, and writes one PNG per shot. The PNGs are committed;
 the script regenerates them in-place when the UI changes.
 
+## Seed the data first
+
+The script renders against `examples/07-profiles` (the canonical
+fully-featured example), so it needs that project's data populated —
+otherwise the Results / Metrics / Explore shots come back empty. Seed it
+before regenerating, and re-seed whenever you want fresh numbers:
+
+```bash
+cd examples/07-profiles
+# many distinct serials under the production profile → a real yield
+# distribution (FPY < 100 %, a measurement pareto, finite Cpk):
+for i in $(seq 1 24); do
+  uv run pytest --test-phase=production --uut-serial="SN-$(printf %03d $i)" -q
+done
+cd ../..
+```
+
+Note: mocked runs are stamped `test_phase=development` by design (mock
+data isn't real), and the Metrics dashboards default to `production` — so
+the metrics shots are captured with `?phase=development` in the manifest.
+
 ## Running
 
 ```bash

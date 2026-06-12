@@ -17,7 +17,12 @@ from uuid import uuid4
 import pyarrow.parquet as pq
 import pytest
 
-from litmus.analysis.measurement_facets import FilterSet, HistogramRow, ParametricRow
+from litmus.analysis.measurement_facets import (
+    FilterSet,
+    HistogramRow,
+    LimitBandRow,
+    ParametricRow,
+)
 from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.analysis.metrics import calculate_cpk, calculate_fpy
 from litmus.data.backends._row_helpers import MeasurementRow
@@ -42,6 +47,7 @@ def _row(
     limit_high: float | None = 3.6,
     station_name: str = "STA-MQS",
     test_phase: str = "production",
+    step_index: int = 0,
 ) -> MeasurementRow:
     """Build a MeasurementRow with sensible defaults."""
     return MeasurementRow(
@@ -57,7 +63,7 @@ def _row(
         station_name=station_name,
         test_phase=test_phase,
         step_name=step_name,
-        step_index=0,
+        step_index=step_index,
         measurement_name=measurement_name,
         measurement_value=value,
         measurement_outcome=outcome,
@@ -421,6 +427,96 @@ class TestParametric:
         store = MeasurementsQuery()
         with pytest.raises(ValueError, match="invalid column identifier"):
             store.parametric(y="value; DROP TABLE silver --", x="uut_serial")
+
+
+@pytest.fixture(scope="module")
+def limit_band_data() -> dict[str, str]:
+    """Two runs of ``vout`` over two step_index points, with limits that
+    tightened between runs and vary per step in the latest run.
+
+    Older run (10:00): both steps limited 3.0–3.6.
+    Newer run (12:00): step 0 limited 3.1–3.5, step 1 limited 3.2–3.4.
+
+    ``latest_run_limits`` must return the newer run's per-step bounds.
+    """
+    part = f"LBR-{uuid4().hex[:8]}"
+    canonical_runs = resolve_data_dir() / "runs" / "lbr" / "2026-02-01"
+    older = f"lbr-{uuid4()}"
+    newer = f"lbr-{uuid4()}"
+    rows = [
+        _row(
+            run_id=older,
+            uut_part_number=part,
+            run_started_at="2026-02-01T10:00:00",
+            step_index=0,
+            limit_low=3.0,
+            limit_high=3.6,
+        ),
+        _row(
+            run_id=older,
+            uut_part_number=part,
+            run_started_at="2026-02-01T10:00:00",
+            step_index=1,
+            limit_low=3.0,
+            limit_high=3.6,
+        ),
+        _row(
+            run_id=newer,
+            uut_part_number=part,
+            run_started_at="2026-02-01T12:00:00",
+            step_index=0,
+            limit_low=3.1,
+            limit_high=3.5,
+        ),
+        _row(
+            run_id=newer,
+            uut_part_number=part,
+            run_started_at="2026-02-01T12:00:00",
+            step_index=1,
+            limit_low=3.2,
+            limit_high=3.4,
+        ),
+    ]
+    _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
+    return {"part": part}
+
+
+class TestLatestRunLimits:
+    def _scope(self, part: str) -> FilterSet:
+        return FilterSet(string_filters={"part_id": [part], "measurement_name": ["vout"]})
+
+    def test_returns_latest_run_per_step_bounds(self, limit_band_data):
+        store = MeasurementsQuery()
+        rows = store.latest_run_limits(x="step_index", filters=self._scope(limit_band_data["part"]))
+        assert all(isinstance(r, LimitBandRow) for r in rows)
+        by_x = {r.x: (r.low, r.high) for r in rows}
+        # The newer run's bounds, per step — never the older 3.0–3.6.
+        assert by_x == {0: (3.1, 3.5), 1: (3.2, 3.4)}
+
+    def test_ordered_by_x(self, limit_band_data):
+        store = MeasurementsQuery()
+        rows = store.latest_run_limits(x="step_index", filters=self._scope(limit_band_data["part"]))
+        assert [r.x for r in rows] == [0, 1]
+
+    def test_no_limits_returns_empty(self):
+        part = f"LBR-NONE-{uuid4().hex[:8]}"
+        canonical_runs = resolve_data_dir() / "runs" / "lbr-none" / "2026-02-01"
+        rows = [
+            _row(
+                run_id=f"lbrn-{uuid4()}",
+                uut_part_number=part,
+                run_started_at="2026-02-01T10:00:00",
+                limit_low=None,
+                limit_high=None,
+            ),
+        ]
+        _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
+        store = MeasurementsQuery()
+        result = store.latest_run_limits(
+            x="step_index",
+            filters=FilterSet(string_filters={"part_id": [part], "measurement_name": ["vout"]}),
+        )
+        assert result == []
 
 
 class TestDistinctValues:

@@ -1558,6 +1558,16 @@ One bin in a histogram result. ``x`` is the bin midpoint.
 | `y` | `int` | *required* |
 | `group` | `str` | `''` |
 
+#### `LimitBandRow` {#model-limitbandrow}
+
+One point of a measurement's limit envelope, keyed by the chart's X.
+
+| Field | Type | Default |
+|---|---|---|
+| `x` | `float \| str \| datetime \| date \| None` | `None` |
+| `low` | `float \| None` | `None` |
+| `high` | `float \| None` | `None` |
+
 #### `FilterSet` {#model-filterset}
 
 Current filter state — URL-shareable, validated against ``MEASUREMENT_FACETS``.

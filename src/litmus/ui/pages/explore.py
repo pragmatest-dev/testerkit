@@ -24,6 +24,7 @@ from litmus.analysis.measurement_facets import (
     FacetKind,
     FacetSpec,
     FilterSet,
+    LimitBandRow,
 )
 from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.data._flight_errors import FlightPermanentError
@@ -100,6 +101,40 @@ def _render_no_measurements_state() -> None:
                     "Run that with ``litmus serve`` (or ``pytest`` directly), "
                     "then revisit this page."
                 ).classes("text-xs text-slate-500 mt-2")
+
+
+def _default_y(y_options: list[str]) -> str:
+    """Pick a sensible default Y — the measurement value, not a stimulus input.
+
+    Prefers ``measurement_value`` / ``value`` over the first numeric
+    column (which is often an ``in_*`` input). Falls back to the first
+    option only when neither is present.
+    """
+    if not y_options:
+        return ""
+    for candidate in ("measurement_value", "value"):
+        if candidate in y_options:
+            return candidate
+    return y_options[0]
+
+
+def _default_x(x_options: list[str]) -> str:
+    """Pick a sensible default X axis — a real parameter, not an id column.
+
+    Prefers a swept stimulus input (``in_*`` — the natural parametric
+    axis), then the vector index, then time. Falls back to the first
+    non-id column, and only to ``x_options[0]`` when everything is an id.
+    """
+    if not x_options:
+        return ""
+    swept = [c for c in x_options if c.startswith("in_")]
+    if swept:
+        return swept[0]
+    for candidate in ("vector_index", "run_started_at"):
+        if candidate in x_options:
+            return candidate
+    non_id = [c for c in x_options if not c.endswith("_id")]
+    return non_id[0] if non_id else x_options[0]
 
 
 def _classify_columns(
@@ -329,6 +364,24 @@ async def explore_page(request: Request):
             return
 
         option = _build_chart_option([r.model_dump() for r in rows], ct, y_val, x_val)
+
+        # Spec-limit overlay: when a single measurement is scoped and Y is
+        # its value, draw the latest run's low/high envelope as step lines
+        # tracking X. Off for histogram/bar and for multi-measurement views.
+        meas = _single_scoped_measurement(state["filter_set"])
+        plotting_value = y_val in ("measurement_value", "value")
+        if option is not None and ct in ("scatter", "line") and plotting_value and meas:
+
+            def _fetch_limits() -> list[LimitBandRow]:
+                with _new_query() as q:
+                    return q.latest_run_limits(x=x_val, filters=state["filter_set"])
+
+            try:
+                bounds = await run.io_bound(_fetch_limits)
+            except (OSError, ValueError, RuntimeError):
+                bounds = []
+            _add_limit_series(option, bounds)
+
         chart_status.clear()
         # ``ui.echart.options`` is read-only — mutate the dict in place and
         # ``update()`` rather than reassigning it.
@@ -552,20 +605,14 @@ def _fetch_initial_schema(
         if real_names:
             initial_filters = FilterSet(string_filters={"measurement_name": [real_names[0].value]})
         if not initial_y:
-            for candidate in ("measurement_value", "value"):
-                if candidate in y_options:
-                    initial_y = candidate
-                    break
+            initial_y = _default_y(y_options)
         if not initial_x:
-            for candidate in ("vector_index", "run_started_at"):
-                if candidate in x_options:
-                    initial_x = candidate
-                    break
+            initial_x = _default_x(x_options)
 
     if initial_y not in y_options:
-        initial_y = y_options[0] if y_options else ""
+        initial_y = _default_y(y_options)
     if initial_x not in x_options:
-        initial_x = x_options[0] if x_options else ""
+        initial_x = _default_x(x_options)
     if initial_chart_type not in CHART_TYPES:
         initial_chart_type = "scatter"
     if initial_group_by and initial_group_by not in group_options:
@@ -699,6 +746,51 @@ def _coerce_x(value: Any) -> Any:
             * 1000
         )
     return value
+
+
+def _single_scoped_measurement(filter_set: FilterSet) -> str | None:
+    """The lone measurement_name in scope, or None when 0 or many are selected.
+
+    The limit overlay needs exactly one measurement — limits belong to a
+    measurement, so a chart mixing several has no single envelope to draw.
+    """
+    names = filter_set.string_filters.get("measurement_name", [])
+    return names[0] if len(names) == 1 else None
+
+
+# Spec limits draw black/dashed so they read as boundaries, distinct from
+# the colored data series.
+_LIMIT_COLOR = "#1f2937"
+
+
+def _add_limit_series(option: dict[str, Any], bounds: list[LimitBandRow]) -> None:
+    """Overlay the latest run's low/high envelope as step lines on a scatter/line option.
+
+    Two dashed step series tracking the data's X axis — a staircase when
+    the limit is condition-indexed, flat when it doesn't vary. Drawn
+    ``silent`` so they don't steal tooltips from the data points.
+    """
+    sides = (
+        ("Limit low", [[_coerce_x(b.x), b.low] for b in bounds if b.low is not None]),
+        ("Limit high", [[_coerce_x(b.x), b.high] for b in bounds if b.high is not None]),
+    )
+    for name, points in sides:
+        if not points:
+            continue
+        option["series"].append(
+            {
+                "type": "line",
+                "name": name,
+                "data": points,
+                "step": "middle",
+                "showSymbol": False,
+                "silent": True,
+                "lineStyle": {"type": "dashed", "color": _LIMIT_COLOR, "width": 1.5},
+                "itemStyle": {"color": _LIMIT_COLOR},
+                "z": 1,
+            }
+        )
+        option["legend"]["data"].append(name)
 
 
 def _x_axis_type(rows: list[dict[str, Any]]) -> str:

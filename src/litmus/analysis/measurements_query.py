@@ -18,6 +18,7 @@ from litmus.analysis.measurement_facets import (
     FacetOption,
     FilterSet,
     HistogramRow,
+    LimitBandRow,
     ParametricRow,
     SummaryCounts,
 )
@@ -782,6 +783,44 @@ class MeasurementsQuery:
             LIMIT {int(limit)}
             """
         return [ParametricRow(**row) for row in self._query_dicts(sql)]
+
+    def latest_run_limits(
+        self,
+        *,
+        x: str,
+        filters: FilterSet | None = None,
+    ) -> list[LimitBandRow]:
+        """Limit envelope from the most recent run, keyed by the chart's X.
+
+        Meaningful only when ``filters`` scope to a single
+        ``measurement_name`` (the caller checks). Picks the latest
+        finalized run that carries limits for the scoped rows, then
+        returns its ``(x, limit_low, limit_high)`` — one row per distinct
+        X, ordered by X. A condition-indexed limit renders as a step
+        band; a constant limit collapses to a flat one.
+        """
+        x_col = _col_expr(x)
+        clauses = [f"{x_col} IS NOT NULL", "run_outcome IS NOT NULL"]
+        clauses.extend(_filter_clauses(filters))
+        where = " WHERE " + " AND ".join(clauses)
+        sql = f"""
+        WITH latest AS (
+            SELECT run_id
+            FROM measurements{where}
+              AND (limit_low IS NOT NULL OR limit_high IS NOT NULL)
+            ORDER BY run_started_at DESC
+            LIMIT 1
+        )
+        SELECT
+            {x_col} AS x,
+            MAX(limit_low) AS low,
+            MAX(limit_high) AS high
+        FROM measurements{where}
+          AND run_id = (SELECT run_id FROM latest)
+        GROUP BY {x_col}
+        ORDER BY {x_col}
+        """
+        return [LimitBandRow(**row) for row in self._query_dicts(sql)]
 
     def distinct_values(
         self,

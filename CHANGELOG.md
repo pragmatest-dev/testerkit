@@ -69,6 +69,11 @@ gains entity-observed-view across inventory pages, two new pages
   `{nominal, sigma}` returns a fresh `random.gauss(nominal, sigma)` draw
   each call, so mock measurements vary run-to-run (real distributions /
   Cpk / yield) instead of one repeated value.
+- **Spec-limit overlay on `/explore`** — when the Measurement filter is
+  narrowed to one measurement and Y is `measurement_value`, scatter /
+  line charts overlay that measurement's low/high limits from its most
+  recent run as black dashed lines that track the X axis (a step band
+  when the limit is condition-indexed, flat when constant).
 - **`/channels` list filters** — Channel ID contains / Type /
   Instrument / Since-Until, URL-mirrored. Live-poll + in-place row
   mutation pattern preserved.
@@ -176,6 +181,11 @@ gains entity-observed-view across inventory pages, two new pages
   off the loop; they now marshal through the UI loop (same contract the
   event path already used).
 - `/channels/{id}` 500 error on pure-scalar channels.
+- **`/explore` default axes pick a real parameter.** A measurement-
+  scoped URL with no axis params fell through to the first schema
+  column — often an id like `characteristic_id` for X and a stimulus
+  input for Y. X now prefers a swept `in_*` input (then `vector_index`
+  / time, never an `*_id`); Y prefers `measurement_value`.
 - `Context.stream` and `channels.write` did not emit `ChannelStarted`
   (only the observer path did). All writer paths now emit it.
 - `/live/{run_id}` Streams panel showed streams from all runs;

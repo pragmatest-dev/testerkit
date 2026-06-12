@@ -37,7 +37,9 @@ check each against the new shape:
 
 - [ ] Regenerate demo / example data so no pre-rename or old-schema
       parquet ships (stale columns leak into UI dropdowns)
-- [ ] Regenerate UI screenshots if the UI changed
+- [ ] Regenerate UI screenshots if the UI changed — **seed `examples/07-profiles`
+      first** (see `scripts/SCREENSHOTS.md`), else Results / Metrics / Explore
+      shots come back empty
 
 ## 4. Version & changelog
 
