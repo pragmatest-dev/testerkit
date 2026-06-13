@@ -408,3 +408,20 @@ monotonic per-channel sequence) must stay an **opaque internal** value — never
 verb arg — so a Kafka offset / Redis id / TSDB timestamp can substitute. The
 plan (Decision 5, Phase 4 risk) already says this; the audit confirms it's the
 single thing that could turn "swap-clean" into "blocker" if violated.
+
+# Phase 4 built (2026-06-13) — window verb + monotonic sequence
+
+Done. A per-(channel, session) `sequence` is stamped producer-side (both
+`ChannelStore.write` and the remote `ChannelClient.write`, each an `itertools.count`
+— the `event_offset` idiom) and carried identically into the live wire batch, the
+durable segment, and the warm index (four schema sites: wire `sample_schema`,
+durable `_infer_schema` + legacy fallbacks, index `_INDEX_ARROW_SCHEMA` + the
+hardcoded `CREATE TABLE`). `channels.window(name, cb, dur, max_hz)` subscribes
+before the history read (closes the gap) and dedups the buffered live tail against
+the per-(session, sequence) high-water (closes the dup — kdb+ `-11!` replay-then-tail).
+
+**The opacity discipline held:** `sequence` is dropped at *both* public read
+boundaries (`channels.query` and the shared HTTP/MCP `channels_query`), so it never
+enters a public read contract — only the internal `window` stitch reads it. The
+req6 verdict stands: swap-clean. Migration cost was the documented schema change
+(no backcompat — existing `data/channels/` is cleared, the sanctioned path).
