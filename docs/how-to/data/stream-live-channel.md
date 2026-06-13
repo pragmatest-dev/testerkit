@@ -74,8 +74,29 @@ Open `http://localhost:8000/channels/dmm.voltage`. The channel panel appears onc
 
 Run the script a second time and both sessions' samples appear on the same `dmm.voltage` timeline. ChannelStore files are session-scoped on disk; the UI unifies them by channel name. To scope a query to a single session, pass `session_id=` to [channel queries](querying-channels.md).
 
+## Step 5: Consume it from your own code (not just the UI)
+
+The operator UI is one consumer; your own script or agent can subscribe with the same verbs the UI uses. Run this while the producer above is streaming:
+
+```python
+import litmus.channels as channels
+
+# the newest value, conflated — a gauge (fires when the value changes)
+stop_gauge = channels.latest("dmm.voltage", lambda s: print("now:", s.value))
+
+# every sample, delivered as coalesced batches — a live chart edge
+stop_chart = channels.live("dmm.voltage", lambda b: print("+", b.num_rows, "samples"))
+
+# ... later
+stop_gauge()
+stop_chart()
+```
+
+`latest` and `live` are **subscriptions** — callbacks the platform fires on a background thread until you call the returned unsubscribe. For a one-shot read (or to poll a refreshing view) use `channels.query(...)` instead. See [Choosing a channel verb](choosing-a-channel-verb.md) for which to reach for; a runnable consumer lives at `examples/09-instrument-streaming/scripts/live_dmm_reader.py`.
+
 ## See also
 
+- [Choosing a channel verb](choosing-a-channel-verb.md) — write/stream vs latest/live/query, by cadence and intent
 - [The Three Test-Author Verbs](../../concepts/data/three-verbs.md) — when to use `stream` vs `observe`; why the store-direct layer skips vector context
 - [Tutorial 12 — Continuous monitoring](../../tutorial/12-continuous-monitoring.md) — full walkthrough of this pattern from scratch, including the self-simulating DMM driver and on-disk layout
 - [Query channel data](querying-channels.md) — time-range queries, session filtering, MCP and HTTP API

@@ -36,6 +36,18 @@ curl "http://localhost:8000/api/channels/scope.ch1?session_id=abc123&max_points=
 curl "http://localhost:8000/api/channels/dmm.voltage?since=2026-03-10T14:00:00&until=2026-03-10T15:00:00"
 ```
 
+## Python: `channels.query` (the verb)
+
+The simplest entry point — a one-shot pull through the daemon's index, no paths to wire:
+
+```python
+import litmus.channels as channels
+
+table = channels.query("dmm.voltage", last_n=500, max_points=500)  # PyArrow Table
+```
+
+`query` is the **pull** verb. Poll it in your own loop for a refreshing sparkline; for *push* (react as data lands) use `channels.latest` / `channels.live` instead — see [Choosing a channel verb](choosing-a-channel-verb.md). The lower-level `ChannelStore` / `ChannelClient` forms below are for when you already hold a store or a daemon address.
+
 ## Python: [`ChannelStore`](../../concepts/data/three-stores.md)
 
 ```python

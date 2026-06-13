@@ -4,6 +4,7 @@ Pull data out of the runtime. Query the event log and channel store, debug failu
 
 - [Querying historical events](querying-events.md) — MCP tool, HTTP API, Python
 - [Querying channel data](querying-channels.md) — time-series data plane
+- [Choosing a channel verb](choosing-a-channel-verb.md) — write/stream vs latest/live/query, picked by cadence and intent
 - [Capture a waveform and judge derived scalars](capture-waveform.md) — observe + verify pattern for scope traces
 - [Stream a live channel](stream-live-channel.md) — channels.stream from interactive code; live UI updates push-style
 - [Capture an artifact](capture-an-artifact.md) — observe(PIL.Image / bytes / Pydantic) + files.stream byte-stream sinks
