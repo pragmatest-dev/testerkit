@@ -9,7 +9,7 @@ Wraps a ChannelStore instance. Handles:
 
 from __future__ import annotations
 
-import queue
+import collections
 import threading
 import warnings
 from datetime import datetime
@@ -20,13 +20,66 @@ import pyarrow as pa
 import pyarrow.flight as flight
 
 from litmus.data.channels.models import (
-    ChannelSample,
+    SubscribePolicy,
     sample_schema,
-    sample_to_batch,
 )
 
 if TYPE_CHECKING:
     from litmus.data.channels.store import ChannelStore
+
+
+class _SubscriberRing:
+    """Per-subscriber bounded ring of batches with a drain-coalesce read.
+
+    Replaces the raw queue + per-sample re-explosion. The whole received batch
+    is put once; ``drain`` returns ALL queued batches at once so a lagging
+    consumer catches up in one read (LMAX batching effect). On overflow it drops
+    + counts a gap instead of removing the subscriber.
+    """
+
+    def __init__(self, policy: SubscribePolicy = SubscribePolicy.ALL, maxsize: int = 1024) -> None:
+        self._policy = policy
+        self._max = maxsize
+        self._batches: collections.deque[pa.RecordBatch] = collections.deque()
+        self._cond = threading.Condition()
+        self._gaps = 0
+        self._closed = False
+
+    @property
+    def gaps(self) -> int:
+        """Batches dropped on overflow (consumer fell behind)."""
+        return self._gaps
+
+    def put(self, batch: pa.RecordBatch) -> None:
+        with self._cond:
+            if self._closed:
+                return
+            if self._policy is SubscribePolicy.LATEST:
+                self._batches.clear()  # conflate to newest
+                self._batches.append(batch)
+            else:
+                self._batches.append(batch)
+                while len(self._batches) > self._max:
+                    self._batches.popleft()
+                    self._gaps += 1
+            self._cond.notify()
+
+    def drain(self, timeout: float) -> list[pa.RecordBatch] | None:
+        """Block up to ``timeout`` for batches. Returns all queued batches, an
+        empty list on timeout, or None once closed and drained."""
+        with self._cond:
+            if not self._batches and not self._closed:
+                self._cond.wait(timeout)
+            if self._closed and not self._batches:
+                return None
+            out = list(self._batches)
+            self._batches.clear()
+            return out
+
+    def close(self) -> None:
+        with self._cond:
+            self._closed = True
+            self._cond.notify_all()
 
 
 class ChannelFlightServer(flight.FlightServerBase):
@@ -40,30 +93,18 @@ class ChannelFlightServer(flight.FlightServerBase):
         super().__init__(location)
         self._store = store
         self._lock = threading.Lock()
-        # channel_id → list of queues for active do_get subscribers
-        self._flight_subscribers: dict[str, list[queue.Queue[pa.RecordBatch | None]]] = {}
-        # Register a global on_channel callback to fan out to Flight subscribers
-        self._unsub = store.on_channel(None, self._on_sample)
+        # channel_id → list of subscriber rings for active do_get subscribers
+        self._flight_subscribers: dict[str, list[_SubscriberRing]] = {}
+        # Relay whole batches (no per-sample re-explosion) to Flight subscribers
+        self._unsub = store.on_batch(None, self._relay_batch)
 
-    def _on_sample(self, sample: ChannelSample) -> None:
-        """Fan out new samples to channel-specific and wildcard subscribers."""
+    def _relay_batch(self, channel_id: str, batch: pa.RecordBatch) -> None:
+        """Put the whole received batch on each subscriber's ring, once —
+        channel-specific and wildcard. No per-row work, no subscriber removal."""
         with self._lock:
-            batch: pa.RecordBatch | None = None
-            # Deliver to channel-specific and wildcard ("*") subscribers
-            for key in (sample.channel_id, "*"):
-                queues = self._flight_subscribers.get(key)
-                if not queues:
-                    continue
-                if batch is None:
-                    batch = sample_to_batch(sample)
-                dead: list[queue.Queue[pa.RecordBatch | None]] = []
-                for q in queues:
-                    try:
-                        q.put_nowait(batch)
-                    except queue.Full:
-                        dead.append(q)
-                for q in dead:
-                    queues.remove(q)
+            for key in (channel_id, "*"):
+                for ring in self._flight_subscribers.get(key, []):
+                    ring.put(batch)
 
     def do_put(
         self,
@@ -129,26 +170,29 @@ class ChannelFlightServer(flight.FlightServerBase):
 
         # Live subscription
         channel_id = raw
-        q: queue.Queue[pa.RecordBatch | None] = queue.Queue(maxsize=10_000)
+        ring = _SubscriberRing()  # policy=ALL; Phase 3 wires policy from the ticket
 
         with self._lock:
-            self._flight_subscribers.setdefault(channel_id, []).append(q)
+            self._flight_subscribers.setdefault(channel_id, []).append(ring)
 
         def _generate():  # type: ignore[no-untyped-def]
             try:
                 while True:
-                    try:
-                        batch = q.get(timeout=1.0)
-                    except queue.Empty:
-                        continue
-                    if batch is None:
-                        break
-                    yield batch
+                    batches = ring.drain(1.0)
+                    if batches is None:
+                        break  # closed
+                    if not batches:
+                        continue  # timeout — keep waiting
+                    # Coalesce everything queued into ONE batch: a lagging
+                    # consumer catches up in a single read.
+                    combined = pa.Table.from_batches(batches).combine_chunks()
+                    yield from combined.to_batches()
             finally:
+                ring.close()
                 with self._lock:
                     subs = self._flight_subscribers.get(channel_id, [])
                     try:
-                        subs.remove(q)
+                        subs.remove(ring)
                     except ValueError:
                         pass
 
@@ -194,15 +238,11 @@ class ChannelFlightServer(flight.FlightServerBase):
         )
 
     def shutdown(self) -> None:
-        """Stop the server and clean up subscribers."""
-        # Signal all subscriber queues to stop
+        """Stop the server and close subscriber rings."""
         with self._lock:
-            for queues in self._flight_subscribers.values():
-                for q in queues:
-                    try:
-                        q.put_nowait(None)
-                    except queue.Full:
-                        pass
+            for rings in self._flight_subscribers.values():
+                for ring in rings:
+                    ring.close()
             self._flight_subscribers.clear()
         self._unsub()
         super().shutdown()

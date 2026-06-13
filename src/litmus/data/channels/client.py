@@ -111,6 +111,42 @@ class ChannelClient:
 
         return unsub
 
+    def on_channel_batch(
+        self,
+        channel_id: str,
+        callback: Callable[[pa.RecordBatch], None],
+    ) -> Callable[[], None]:
+        """Subscribe to live channel data as whole (coalesced) batches.
+
+        Each batch the daemon yields is handed to ``callback`` once — the
+        consumer decodes N rows columnar instead of paying a per-sample
+        callback. Spawns a reader thread; returns an unsubscribe callable.
+        """
+        stop = threading.Event()
+
+        def _reader() -> None:
+            try:
+                ticket = flight.Ticket(channel_id.encode("utf-8"))
+                reader = self._client.do_get(ticket)
+                for chunk in reader:
+                    if stop.is_set() or self._stop.is_set():
+                        break
+                    callback(chunk.data)
+            except (OSError, pa.ArrowException):
+                if not stop.is_set() and not self._stop.is_set():
+                    raise
+
+        thread = threading.Thread(
+            target=_reader, daemon=True, name=f"channel-sub-batch-{channel_id}"
+        )
+        thread.start()
+        self._reader_threads.append(thread)
+
+        def unsub() -> None:
+            stop.set()
+
+        return unsub
+
     def query(
         self,
         channel_id: str,

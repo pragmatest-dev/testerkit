@@ -8,6 +8,8 @@ Supports live in-process subscriptions via on_channel().
 from __future__ import annotations
 
 import json
+import os
+import queue
 import re
 import threading
 import warnings
@@ -195,6 +197,11 @@ class ChannelStore:
         self._registry: dict[str, ChannelDescriptor] = {}
         self._subscribers: dict[str, list[Callable[[ChannelSample], None]]] = {}
         self._global_subscribers: list[Callable[[ChannelSample], None]] = []
+        # Batch-level taps (whole RecordBatch per received chunk) — the
+        # cross-process fan-out registers here so it relays a batch once instead
+        # of re-exploding to per-sample deliveries.
+        self._batch_subscribers: dict[str, list[Callable[[str, pa.RecordBatch], None]]] = {}
+        self._global_batch_subscribers: list[Callable[[str, pa.RecordBatch], None]] = []
         self._serve = serve
         self._flight_host = host
         self._flight_port = port
@@ -238,12 +245,31 @@ class ChannelStore:
         self._pending_lock = threading.Lock()
         self._pending_threshold = 100
 
+        # The synchronous daemon push is OFF the write path: write() enqueues the
+        # sample and a background thread does the Flight do_put, so capture runs
+        # at durable-append speed regardless of daemon/subscriber drain. The live
+        # feed drops on overflow (live = from-now); the durable segment is whole.
+        # Default on; LITMUS_CHANNELS_SYNC_PUSH=1 forces the inline sync push
+        # (A/B benchmarking + rollback).
+        self._async_push = os.environ.get("LITMUS_CHANNELS_SYNC_PUSH") != "1"
+        self._push_queue: queue.Queue[tuple[str, ChannelSample]] | None = None
+        self._push_thread: threading.Thread | None = None
+        self._push_stop: threading.Event | None = None
+        self._push_drops = 0
+
     def open(self) -> None:
         self._channels_dir.mkdir(parents=True, exist_ok=True)
         if self._index_enabled:
             self._index_open()
         if self._serve:
             self._connect_or_serve()
+            if self._async_push and self._flight_location is not None:
+                self._push_queue = queue.Queue(maxsize=10_000)
+                self._push_stop = threading.Event()
+                self._push_thread = threading.Thread(
+                    target=self._push_loop, name="channel-pusher", daemon=True
+                )
+                self._push_thread.start()
 
     def list_channel_info(self) -> list[tuple[ChannelDescriptor, pa.Schema]]:
         """Return (descriptor, schema) for each registered channel."""
@@ -401,8 +427,21 @@ class ChannelStore:
         # Notify subscribers
         if sample is not None:
             self._notify(channel_id, sample)
-            # Push to Flight daemon so cross-process subscribers see it
-            self._flight_push(channel_id, sample)
+            # Co-located batch subscribers (a Flight server wrapping THIS store)
+            # get a 1-row batch tap. Guarded: a producer that only pushes to the
+            # daemon has no batch subscribers, so capture pays nothing here.
+            if self._global_batch_subscribers or self._batch_subscribers.get(channel_id):
+                self._notify_batch(channel_id, sample_to_batch(sample))
+            # Push to Flight daemon so cross-process subscribers see it.
+            # Async-push mode: enqueue (off the write path) and let the
+            # background pusher do the do_put; drop on overflow (live = from-now).
+            if self._push_queue is not None:
+                try:
+                    self._push_queue.put_nowait((channel_id, sample))
+                except queue.Full:
+                    self._push_drops += 1
+            else:
+                self._flight_push(channel_id, sample)
             # Keep an index-enabled store consistent on any write path
             # (the daemon never calls write(), but in-process index stores do).
             if self._index_enabled:
@@ -570,6 +609,58 @@ class ChannelStore:
         def unsub() -> None:
             try:
                 self._subscribers[channel_id].remove(callback)
+            except (ValueError, KeyError):
+                pass
+
+        return unsub
+
+    def _notify_batch(self, channel_id: str, batch: pa.RecordBatch) -> None:
+        """Deliver a whole received batch to batch-level subscribers (the
+        cross-process fan-out), channel-specific then global."""
+        for cb in self._batch_subscribers.get(channel_id, []):
+            try:
+                cb(channel_id, batch)
+            except Exception as exc:  # noqa: BLE001 — subscriber isolation
+                warnings.warn(
+                    f"Channel batch subscriber failed on '{channel_id}': {exc}",
+                    stacklevel=2,
+                )
+        for cb in self._global_batch_subscribers:
+            try:
+                cb(channel_id, batch)
+            except Exception as exc:  # noqa: BLE001 — subscriber isolation
+                warnings.warn(
+                    f"Channel batch subscriber failed on '{channel_id}': {exc}",
+                    stacklevel=2,
+                )
+
+    def on_batch(
+        self,
+        channel_id: str | None,
+        callback: Callable[[str, pa.RecordBatch], None],
+    ) -> Callable[[], None]:
+        """Subscribe to whole received batches (not per-sample).
+
+        ``callback(channel_id, batch)`` fires once per ``ingest_batch`` chunk —
+        the fan-out path that relays a batch without re-exploding it to rows.
+        ``channel_id=None`` subscribes to all channels.
+        """
+        if channel_id is None:
+            self._global_batch_subscribers.append(callback)
+
+            def unsub_global() -> None:
+                try:
+                    self._global_batch_subscribers.remove(callback)
+                except ValueError:
+                    pass
+
+            return unsub_global
+
+        self._batch_subscribers.setdefault(channel_id, []).append(callback)
+
+        def unsub() -> None:
+            try:
+                self._batch_subscribers[channel_id].remove(callback)
             except (ValueError, KeyError):
                 pass
 
@@ -937,6 +1028,9 @@ class ChannelStore:
         only via the pending buffer flush — never via the disk scan — so
         there is no overlap to dedup.
         """
+        # Fan out the whole batch ONCE (cross-process relay) before the per-row
+        # index work — no re-explosion to per-sample deliveries.
+        self._notify_batch(channel_id, batch)
         rows: list[dict[str, Any]] = []
         for i in range(batch.num_rows):
             sample = batch_row_to_sample(batch, i)
@@ -1080,6 +1174,21 @@ class ChannelStore:
             warnings.warn(f"Channel Flight push failed (non-fatal): {exc}", stacklevel=2)
             self._reset_flight()
 
+    def _push_loop(self) -> None:
+        """Background consumer of the push queue (async-push mode). Drains
+        samples and does the Flight do_put OFF the write path, so a slow daemon
+        or subscriber never backpressures capture."""
+        q = self._push_queue
+        stop = self._push_stop
+        if q is None or stop is None:
+            return
+        while not stop.is_set() or not q.empty():
+            try:
+                channel_id, sample = q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            self._flight_push(channel_id, sample)
+
     def _reset_flight(self) -> None:
         """Tear down the Flight client + all held writers after an error, so
         the next push reconnects and reopens streams (the broken stream can't
@@ -1097,6 +1206,16 @@ class ChannelStore:
     def flight_location(self) -> str | None:
         """The gRPC location of the Flight server, if running."""
         return self._flight_location
+
+    @property
+    def push_drops(self) -> int:
+        """Live samples dropped when the async push queue overflowed.
+
+        Live = from-now; an overflow drop never affects the durable segment
+        (which is whole). Non-zero means a subscriber/daemon couldn't keep up
+        with capture — the live feed is lossy under that load, by design.
+        """
+        return self._push_drops
 
     @property
     def session_id(self) -> UUID:
@@ -1154,6 +1273,14 @@ class ChannelStore:
                     )
                 )
         self._closed = True
+
+        # Stop the async pusher (if any) and let it drain before tearing down
+        # the writers it uses.
+        if self._push_thread is not None:
+            if self._push_stop is not None:
+                self._push_stop.set()
+            self._push_thread.join(timeout=5.0)
+            self._push_thread = None
 
         # Close held do_put writers (flushes any in-flight batch) before the
         # client and server ref.

@@ -8,12 +8,26 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 import pyarrow as pa
 from pydantic import BaseModel, Field
 
 from litmus.data.models import _utcnow
+
+
+class SubscribePolicy(StrEnum):
+    """How a live subscriber's ring handles samples it hasn't drained yet.
+
+    - ``ALL``: keep every batch (lossless while the consumer keeps up); on
+      overflow drop oldest and count a gap.
+    - ``LATEST``: conflate to the newest batch only (a gauge that always shows
+      the current value, never a backlog).
+    """
+
+    ALL = "all"
+    LATEST = "latest"
 
 
 class ChannelDescriptor(BaseModel):

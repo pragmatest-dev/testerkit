@@ -1193,6 +1193,15 @@ A single channel data point delivered to subscribers.
 | `source_method` | `str` | `''` |
 | `session_id` | `str \| None` | `None` |
 
+#### `SubscribePolicy` {#enum-subscribepolicy}
+
+How a live subscriber's ring handles samples it hasn't drained yet.
+
+| Value | Description |
+|---|---|
+| `'all'` |  |
+| `'latest'` |  |
+
 ### HTTP API request shapes — `litmus.api.models`
 
 #### `LaunchRequest` {#model-launchrequest}
