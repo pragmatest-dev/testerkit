@@ -5,6 +5,7 @@ Provides the same write/subscribe API as ChannelStore but over Flight RPC.
 
 from __future__ import annotations
 
+import itertools
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -39,6 +40,10 @@ class ChannelClient:
         self._client = flight.connect(location)
         self._reader_threads: list[threading.Thread] = []
         self._stop = threading.Event()
+        # Per-channel monotonic write position — this remote producer stamps
+        # the same sequence the in-process ChannelStore does, so the daemon
+        # carries it unchanged into both the relayed live batch and the index.
+        self._channel_seq: dict[str, itertools.count] = {}
 
     def write(
         self,
@@ -59,6 +64,7 @@ class ChannelClient:
         in the daemon's index; ``None`` for sessionless writes.
         """
         value_str = encode_value(value)
+        seq = next(self._channel_seq.setdefault(channel_id, itertools.count()))
         schema = sample_schema()
         batch = pa.record_batch(
             {
@@ -70,6 +76,7 @@ class ChannelClient:
                 "units": [units or ""],
                 "sample_interval": [sample_interval],
                 "session_id": [session_id],
+                "sequence": [seq],
             },
             schema=schema,
         )

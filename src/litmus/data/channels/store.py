@@ -7,6 +7,7 @@ Supports live in-process subscriptions via on_channel().
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import queue
@@ -195,6 +196,11 @@ class ChannelStore:
         self._flush_threshold = flush_threshold
         self._writers: dict[str, _ChannelWriter] = {}
         self._registry: dict[str, ChannelDescriptor] = {}
+        # Per-(channel, session) monotonic write position. This store is
+        # session-scoped, so one counter per channel mirrors EventStore's
+        # per-writer event_offset; next() on itertools.count is atomic under
+        # the GIL, so concurrent writes to one channel get distinct values.
+        self._channel_seq: dict[str, itertools.count] = {}
         self._subscribers: dict[str, list[Callable[[ChannelSample], None]]] = {}
         self._global_subscribers: list[Callable[[ChannelSample], None]] = []
         # Batch-level taps (whole RecordBatch per received chunk) — the
@@ -368,6 +374,14 @@ class ChannelStore:
         )
         if row is None:
             raise ValueError(f"Channel {channel_id}: could not classify value")
+
+        # Stamp the monotonic sequence once, into both the durable row and the
+        # live sample, so a window stitch can dedup history vs live on
+        # (session_id, sequence) without timestamp ties.
+        seq = next(self._channel_seq.setdefault(channel_id, itertools.count()))
+        row["sequence"] = seq
+        if sample is not None:
+            sample.sequence = seq
 
         # Register channel
         if channel_id not in self._registry:
@@ -795,6 +809,7 @@ class ChannelStore:
             ("source_method", pa.utf8()),
             ("sample_interval", pa.float64()),
             ("value", pa.utf8()),
+            ("sequence", pa.int64()),
         ]
     )
 
@@ -842,7 +857,8 @@ class ChannelStore:
                 sampled_at TIMESTAMPTZ,
                 source_method VARCHAR,
                 sample_interval DOUBLE,
-                value VARCHAR
+                value VARCHAR,
+                sequence BIGINT
             )
             """
         )
@@ -1008,6 +1024,7 @@ class ChannelStore:
             "source_method": sample.source_method or "",
             "sample_interval": interval,
             "value": encode_value(payload),
+            "sequence": sample.sequence,
         }
 
     def _pending_extend(self, rows: list[dict[str, Any]]) -> None:
@@ -1068,7 +1085,7 @@ class ChannelStore:
         # scanned on the next restart, channel_index after.
         sql = [
             "SELECT received_at, sampled_at, value, source_method, "
-            "session_id, sample_interval FROM ("
+            "session_id, sample_interval, sequence FROM ("
             "SELECT * FROM channel_index UNION ALL SELECT * FROM live.channel_live"
             ") WHERE channel_id = ?"
         ]

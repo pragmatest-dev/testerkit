@@ -75,6 +75,12 @@ class ChannelSample(BaseModel):
     sample_interval: float | None = None
     source_method: str = ""
     session_id: str | None = None
+    sequence: int = -1
+    """Monotonic per-(channel, session) write position, stamped by the
+    producer. Carried identically into the live batch and the durable
+    segment so a history-to-live stitch can dedup on (session_id,
+    sequence) without timestamp ties. ``-1`` means unstamped. Internal
+    ordering cursor — never a verb parameter."""
 
 
 # Arrow schemas — minimal columns, no per-row metadata duplication.
@@ -227,6 +233,7 @@ def _infer_schema(value: object) -> pa.Schema:
 
     fields.append(pa.field("source_method", pa.utf8()))
     fields.append(pa.field("session_id", pa.utf8()))
+    fields.append(pa.field("sequence", pa.int64()))
     return pa.schema(fields)
 
 
@@ -243,6 +250,7 @@ SCALAR_SCHEMA = pa.schema(
         pa.field("value", pa.float64()),
         pa.field("source_method", pa.utf8()),
         pa.field("session_id", pa.utf8()),
+        pa.field("sequence", pa.int64()),
     ]
 )
 
@@ -254,6 +262,7 @@ ARRAY_SCHEMA = pa.schema(
         pa.field("sample_interval", pa.float64()),
         pa.field("source_method", pa.utf8()),
         pa.field("session_id", pa.utf8()),
+        pa.field("sequence", pa.int64()),
     ]
 )
 
@@ -287,6 +296,7 @@ def sample_schema() -> pa.Schema:
             pa.field("units", pa.utf8()),
             pa.field("sample_interval", pa.float64()),
             pa.field("session_id", pa.utf8()),
+            pa.field("sequence", pa.int64()),
         ]
     )
 
@@ -304,6 +314,7 @@ def sample_to_batch(sample: ChannelSample) -> pa.RecordBatch:
             "units": [sample.units or ""],
             "sample_interval": [sample.sample_interval],
             "session_id": [sample.session_id],
+            "sequence": [sample.sequence],
         },
         schema=sample_schema(),
     )
@@ -347,6 +358,12 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
     if "session_id" in columns:
         session_id = batch.column("session_id")[i].as_py() or None
 
+    sequence = -1
+    if "sequence" in columns:
+        seq_val = batch.column("sequence")[i].as_py()
+        if seq_val is not None:
+            sequence = seq_val
+
     return ChannelSample(
         channel_id=batch.column("channel_id")[i].as_py(),
         received_at=batch.column("received_at")[i].as_py(),
@@ -356,4 +373,5 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
         sample_interval=sample_interval,
         source_method=source_method,
         session_id=session_id,
+        sequence=sequence,
     )
