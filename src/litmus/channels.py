@@ -27,7 +27,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,7 +35,12 @@ import pyarrow as pa
 
 from litmus.data.channels import flight_manager
 from litmus.data.channels.client import ChannelClient, channel_query_client
-from litmus.data.channels.models import ChannelSample, SubscribePolicy
+from litmus.data.channels.models import (
+    ChannelSample,
+    SubscribePolicy,
+    encode_value,
+    sample_schema,
+)
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.ref import make_channel_uri
 from litmus.execution._state import (
@@ -174,7 +179,7 @@ def query(
     """
     full_name = f"{namespace}.{name}" if namespace else name
     with channel_query_client(_channels_dir()) as client:
-        return client.query(
+        table = client.query(
             full_name,
             session_id=session_id,
             start=start,
@@ -182,6 +187,11 @@ def query(
             last_n=last_n,
             max_points=max_points,
         )
+    # ``sequence`` is an internal ordering cursor (the window-stitch dedup key),
+    # never part of the public read contract — drop it from query results.
+    if "sequence" in table.column_names:
+        table = table.drop_columns(["sequence"])
+    return table
 
 
 def latest(
@@ -260,6 +270,132 @@ def _throttle_batches(
     return wrapped
 
 
+def _history_to_wire_batch(channel_id: str, table: pa.Table) -> pa.RecordBatch | None:
+    """Reshape a ``query`` result into one live-shaped RecordBatch.
+
+    ``query`` returns decoded values and drops ``channel_id``/``units``;
+    ``window`` delivers the history prefill in the same shape ``live`` uses so
+    the consumer's batch handler is identical for prefill and live tail.
+    """
+    n = table.num_rows
+    if n == 0:
+        return None
+    names = set(table.column_names)
+
+    def _col(name: str, default: object) -> list:
+        return table.column(name).to_pylist() if name in names else [default] * n
+
+    return pa.record_batch(
+        {
+            "channel_id": [channel_id] * n,
+            "received_at": _col("received_at", None),
+            "sampled_at": _col("sampled_at", None),
+            "value": [encode_value(v) for v in _col("value", None)],
+            "source_method": [s or "" for s in _col("source_method", "")],
+            "units": [""] * n,
+            "sample_interval": _col("sample_interval", None),
+            "session_id": _col("session_id", None),
+            "sequence": _col("sequence", -1),
+        },
+        schema=sample_schema(),
+    )
+
+
+def _dedup_against_history(
+    batch: pa.RecordBatch, high_water: dict[str, int]
+) -> pa.RecordBatch | None:
+    """Drop live rows already covered by the history prefill.
+
+    A live row duplicates a history row iff its ``sequence`` is at or below the
+    per-session high-water mark seen in history. Returns the survivors (or
+    ``None`` if every row is a duplicate).
+    """
+    if not high_water:
+        return batch
+    sessions = batch.column("session_id").to_pylist()
+    seqs = batch.column("sequence").to_pylist()
+    mask = [s is None or q > high_water.get(s, -1) for s, q in zip(sessions, seqs, strict=True)]
+    if all(mask):
+        return batch
+    if not any(mask):
+        return None
+    return batch.filter(pa.array(mask))
+
+
+def window(
+    name: str,
+    callback: Callable[[pa.RecordBatch], None],
+    *,
+    dur: float,
+    namespace: str | None = None,
+    max_hz: float | None = None,
+) -> Callable[[], None]:
+    """Backfill the last ``dur`` seconds, then continue live (the chart window).
+
+    Delivers the channel's last ``dur`` seconds of history as an initial
+    :class:`pyarrow.RecordBatch`, then keeps ``callback`` fed with new samples —
+    the "show me the last 30 seconds, live" pattern. History and live arrive in
+    the same batch shape and are joined at the seam with no gap (subscribe runs
+    before the history read) and no double-counted sample (dedup on the per-sample
+    sequence). ``max_hz`` throttles the live tail. Returns an unsubscribe callable.
+    """
+    full_name = f"{namespace}.{name}" if namespace else name
+
+    lock = threading.Lock()
+    live_buffer: list[pa.RecordBatch] = []
+    high_water: dict[str, int] = {}
+    buffering = [True]
+    forward = _throttle_batches(callback, 1.0 / max_hz) if max_hz else callback
+
+    def _on_live(batch: pa.RecordBatch) -> None:
+        with lock:
+            if buffering[0]:
+                live_buffer.append(batch)
+                return
+            deduped = _dedup_against_history(batch, high_water)
+        if deduped is not None and deduped.num_rows:
+            forward(deduped)
+
+    # Subscribe BEFORE the history read so nothing written in between is lost
+    # (subscribe-before-query closes the gap; the sequence closes the dup).
+    client = ChannelClient(flight_manager.acquire(_channels_dir()))
+    unsub_reader = client.on_channel_batch(full_name, _on_live, policy=SubscribePolicy.ALL)
+
+    now = datetime.now(UTC)
+    max_points = int(dur * max_hz) if max_hz else None
+    history = client.query(full_name, start=now - timedelta(seconds=dur), max_points=max_points)
+    if "sequence" in history.column_names and history.num_rows:
+        for s, q in zip(
+            history.column("session_id").to_pylist(),
+            history.column("sequence").to_pylist(),
+            strict=True,
+        ):
+            if s is not None and q > high_water.get(s, -1):
+                high_water[s] = q
+
+    hist_batch = _history_to_wire_batch(full_name, history)
+    if hist_batch is not None:
+        callback(hist_batch)
+
+    # Flush the buffered live tail (deduped) under the lock, then hand the live
+    # stream straight through. Holding the lock here serializes the seam with
+    # any reader-thread delivery, so the tail can't interleave with live.
+    with lock:
+        for b in live_buffer:
+            deduped = _dedup_against_history(b, high_water)
+            if deduped is not None and deduped.num_rows:
+                callback(deduped)
+        live_buffer.clear()
+        buffering[0] = False
+
+    def unsub() -> None:
+        unsub_reader()
+        client.close()
+        flight_manager.release(_channels_dir())
+
+    return unsub
+
+
 @contextmanager
 def stream(name: str, *, namespace: str | None = None) -> Iterator[_ChannelSink]:
     """Context-managed channel sink — multi-sample append.
@@ -294,4 +430,4 @@ def stream(name: str, *, namespace: str | None = None) -> Iterator[_ChannelSink]
         sink.close()
 
 
-__all__ = ["latest", "live", "query", "stream", "write"]
+__all__ = ["latest", "live", "query", "stream", "window", "write"]
