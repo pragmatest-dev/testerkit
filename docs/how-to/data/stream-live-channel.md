@@ -87,12 +87,16 @@ stop_gauge = channels.latest("dmm.voltage", lambda s: print("now:", s.value))
 # every sample, delivered as coalesced batches — a live chart edge
 stop_chart = channels.live("dmm.voltage", lambda b: print("+", b.num_rows, "samples"))
 
+# the last 30s drawn immediately, then live — a chart that opens already full
+stop_window = channels.window("dmm.voltage", on_batch, dur=30)
+
 # ... later
 stop_gauge()
 stop_chart()
+stop_window()
 ```
 
-`latest` and `live` are **subscriptions** — callbacks the platform fires on a background thread until you call the returned unsubscribe. For a one-shot read (or to poll a refreshing view) use `channels.query(...)` instead. See [Choosing a channel verb](choosing-a-channel-verb.md) for which to reach for; a runnable consumer lives at `examples/09-instrument-streaming/scripts/live_dmm_reader.py`.
+`latest`, `live`, and `window` are **subscriptions** — callbacks the platform fires on a background thread until you call the returned unsubscribe. `window` differs only in that it backfills the last `dur` seconds before going live. For a one-shot read (or to poll a refreshing view) use `channels.query(...)` instead. See [Choosing a channel verb](choosing-a-channel-verb.md) for which to reach for; a runnable consumer lives at `examples/09-instrument-streaming/scripts/live_dmm_reader.py`.
 
 ## See also
 

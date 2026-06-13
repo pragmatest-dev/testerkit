@@ -25,12 +25,13 @@ A `sample` can be a scalar (a number) **or** an array (a whole waveform/buffer) 
 
 ## Consuming — pick by cadence and intent
 
-There are three consumer verbs. Two are **subscriptions** (push — the platform calls your function as data lands) and one is a **query** (pull — you ask for it).
+There are four consumer verbs. Three are **subscriptions** (push — the platform calls your function as data lands) and one is a **query** (pull — you ask for it).
 
 | You want… | Verb | Style | Good for |
 |---|---|---|---|
 | The **current value**, updated when it changes | `channels.latest(name, cb)` | push, conflated | a gauge: chamber temp, supply readback, pressure |
 | **Every sample** as it arrives, batched | `channels.live(name, cb, max_hz=…)` | push, lossless-while-keeping-up | a live chart of a fast signal: a trace, a sweep |
+| The **last *N* seconds**, then keep going live | `channels.window(name, cb, dur=…)` | push (history first, then live) | a rolling chart that's already populated the moment it opens |
 | A **range of past samples**, once | `channels.query(name, …)` | pull (one-shot) | analysis, export, a report, a periodic refresh |
 
 ```python
@@ -39,6 +40,9 @@ unsub = channels.latest("chamber.temp", lambda s: gauge.set(s.value))
 
 # live chart — every sample, delivered as coalesced batches, capped at 30/s
 unsub = channels.live("scope.ch1", on_batch, max_hz=30)
+
+# rolling window — the last 30s drawn immediately, then live (capped at 30/s)
+unsub = channels.window("scope.ch1", on_batch, dur=30, max_hz=30)
 
 # pull — the last 500 points for a report (poll this in a loop for a sparkline)
 table = channels.query("chamber.temp", last_n=500)
@@ -65,9 +69,20 @@ while running:
     time.sleep(1)
 ```
 
+### `window` — `live`, but already populated
+
+`live` starts empty: a chart fed by `live` is blank until the next sample arrives. `window` fixes the cold start — it hands you the last `dur` seconds of history *first*, then continues live from the same point with no gap and no repeated sample. Reach for it when a chart should look full the instant it opens (a "last 30 seconds" trace you can pop up mid-run), and for `live` when starting from empty is fine (a chart you open before the run begins).
+
+```python
+# opens already showing the last 30s, then keeps scrolling
+unsub = channels.window("scope.ch1", chart.extend, dur=30, max_hz=30)
+```
+
+`dur` is the history depth in seconds; `max_hz` caps the live tail exactly as it does for `live`.
+
 ### Live is "from now"; the log is complete
 
-The live feed (`latest`/`live`) is **from-now** — it delivers what arrives after you subscribe, and under extreme overload it drops the oldest live values rather than stalling the producer or disconnecting you. The durable record is always complete: if you need *every* point with no gaps (an audit, a lossless export), read it back with `channels.query(...)` — the log is the source of truth, the live feed is a low-latency view of the leading edge.
+The live feed (`latest`/`live`) is **from-now** — it delivers what arrives after you subscribe, and under extreme overload it drops the oldest live values rather than stalling the producer or disconnecting you. The durable record is always complete: if you need *every* point with no gaps (an audit, a lossless export), read it back with `channels.query(...)` — the log is the source of truth, the live feed is a low-latency view of the leading edge. (`window`'s history prefill comes from that same complete log.)
 
 ## At a glance
 
@@ -75,6 +90,8 @@ The live feed (`latest`/`live`) is **from-now** — it delivers what arrives aft
 produce:   write(one-shot)         stream(continuous)
 consume:   latest(newest, push)    live(every sample, push)    query(range, pull)
            gauge / slow signal     chart / fast signal         analysis / report / poll
+                                   window(last N s, then live)
+                                   rolling chart, pre-filled
 ```
 
 ## See also
