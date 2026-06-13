@@ -20,6 +20,7 @@ from litmus.data.channels import flight_manager
 from litmus.data.channels.models import (
     ChannelDescriptor,
     ChannelSample,
+    SubscribePolicy,
     batch_row_to_sample,
     encode_value,
     sample_schema,
@@ -81,16 +82,23 @@ class ChannelClient:
         self,
         channel_id: str,
         callback: Callable[[ChannelSample], None],
+        *,
+        policy: SubscribePolicy = SubscribePolicy.ALL,
     ) -> Callable[[], None]:
-        """Subscribe to live channel data via do_get.
+        """Subscribe to live channel data via do_get (per-sample callback).
 
-        Spawns a reader thread. Returns an unsubscribe callable.
+        ``policy=LATEST`` conflates to the newest sample. Spawns a reader
+        thread. Returns an unsubscribe callable.
         """
         stop = threading.Event()
 
         def _reader() -> None:
             try:
-                ticket = flight.Ticket(channel_id.encode("utf-8"))
+                ticket = flight.Ticket(
+                    channel_id.encode("utf-8")
+                    if policy is SubscribePolicy.ALL
+                    else f"{channel_id}?policy={policy.value}".encode()
+                )
                 reader = self._client.do_get(ticket)
                 for chunk in reader:
                     if stop.is_set() or self._stop.is_set():
@@ -115,6 +123,8 @@ class ChannelClient:
         self,
         channel_id: str,
         callback: Callable[[pa.RecordBatch], None],
+        *,
+        policy: SubscribePolicy = SubscribePolicy.ALL,
     ) -> Callable[[], None]:
         """Subscribe to live channel data as whole (coalesced) batches.
 
@@ -126,7 +136,11 @@ class ChannelClient:
 
         def _reader() -> None:
             try:
-                ticket = flight.Ticket(channel_id.encode("utf-8"))
+                ticket = flight.Ticket(
+                    channel_id.encode("utf-8")
+                    if policy is SubscribePolicy.ALL
+                    else f"{channel_id}?policy={policy.value}".encode()
+                )
                 reader = self._client.do_get(ticket)
                 for chunk in reader:
                     if stop.is_set() or self._stop.is_set():

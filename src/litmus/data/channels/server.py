@@ -137,10 +137,19 @@ class ChannelFlightServer(flight.FlightServerBase):
         """Consumer subscribes to live channel data, or queries historical."""
         raw = ticket.ticket.decode("utf-8")
 
-        # Historical query: channel_id?start=...&end=...&max_points=...
+        # channel_id?policy=latest → live subscription with that ring policy;
+        # channel_id?start=...&last_n=... → historical query; bare → live (ALL).
         if "?" in raw:
             channel_id, query_str = raw.split("?", 1)
             params = parse_qs(query_str)
+            if "policy" in params:
+                try:
+                    policy = SubscribePolicy(params["policy"][0])
+                except ValueError as exc:
+                    raise flight.FlightServerError(
+                        f"Invalid policy: {params['policy'][0]!r}"
+                    ) from exc
+                return self._live_stream(channel_id, policy)
             kwargs: dict[str, Any] = {}
             if "session_id" in params:
                 kwargs["session_id"] = params["session_id"][0]
@@ -168,9 +177,12 @@ class ChannelFlightServer(flight.FlightServerBase):
                 return flight.RecordBatchStream(table)
             return flight.GeneratorStream(table.schema, iter([]))
 
-        # Live subscription
-        channel_id = raw
-        ring = _SubscriberRing()  # policy=ALL; Phase 3 wires policy from the ticket
+        # Bare channel_id → live subscription, ALL policy
+        return self._live_stream(raw, SubscribePolicy.ALL)
+
+    def _live_stream(self, channel_id: str, policy: SubscribePolicy) -> flight.GeneratorStream:
+        """A live do_get stream: register a ring, drain-coalesce, unregister."""
+        ring = _SubscriberRing(policy=policy)
 
         with self._lock:
             self._flight_subscribers.setdefault(channel_id, []).append(ring)
@@ -197,8 +209,7 @@ class ChannelFlightServer(flight.FlightServerBase):
                         pass
 
         # Use a schema that covers common cases; actual batches may vary
-        schema = sample_schema()
-        return flight.GeneratorStream(schema, _generate())
+        return flight.GeneratorStream(sample_schema(), _generate())
 
     def list_flights(
         self,

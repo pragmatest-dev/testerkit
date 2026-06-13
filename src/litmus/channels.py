@@ -23,10 +23,20 @@ explicit ("write to this specific store, no auto-association").
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import threading
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import pyarrow as pa
+
+from litmus.data.channels import flight_manager
+from litmus.data.channels.client import ChannelClient, channel_query_client
+from litmus.data.channels.models import ChannelSample, SubscribePolicy
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.ref import make_channel_uri
 from litmus.execution._state import (
     get_channel_store,
@@ -141,6 +151,115 @@ class _ChannelSink:
         self._closed = True
 
 
+def _channels_dir() -> Path:
+    """The project's channels directory (where the daemon serves from)."""
+    return resolve_data_dir() / "channels"
+
+
+def query(
+    name: str,
+    *,
+    namespace: str | None = None,
+    session_id: str | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    last_n: int | None = None,
+    max_points: int | None = None,
+) -> pa.Table:
+    """One-shot at-rest read of a channel (the pull verb).
+
+    Goes through the daemon's warm index (no per-call disk walk). Poll this in
+    your own loop for a sparkline / periodic refresh. ``max_points`` decimates
+    (LTTB) for charts. Returns an Arrow table.
+    """
+    full_name = f"{namespace}.{name}" if namespace else name
+    with channel_query_client(_channels_dir()) as client:
+        return client.query(
+            full_name,
+            session_id=session_id,
+            start=start,
+            end=end,
+            last_n=last_n,
+            max_points=max_points,
+        )
+
+
+def latest(
+    name: str,
+    callback: Callable[[ChannelSample], None],
+    *,
+    namespace: str | None = None,
+) -> Callable[[], None]:
+    """Subscribe to the **newest sample** of a channel, conflated (the gauge).
+
+    ``callback`` fires with a :class:`ChannelSample` each time a newer sample
+    lands; if you fall behind you get the current one, never a backlog. The
+    sample's value is whatever the channel carries — a number (DMM) or a whole
+    array/waveform (scope). Returns an unsubscribe callable.
+    """
+    full_name = f"{namespace}.{name}" if namespace else name
+    client = ChannelClient(flight_manager.acquire(_channels_dir()))
+    unsub_reader = client.on_channel(full_name, callback, policy=SubscribePolicy.LATEST)
+
+    def unsub() -> None:
+        unsub_reader()
+        client.close()
+        flight_manager.release(_channels_dir())
+
+    return unsub
+
+
+def live(
+    name: str,
+    callback: Callable[[pa.RecordBatch], None],
+    *,
+    namespace: str | None = None,
+    max_hz: float | None = None,
+) -> Callable[[], None]:
+    """Subscribe to **every sample** of a channel, batched (the chart edge).
+
+    ``callback`` fires with a coalesced :class:`pyarrow.RecordBatch` — a
+    lagging consumer catches up in one batch rather than per-sample. ``max_hz``
+    throttles delivery cadence (coalescing in between); ``None`` delivers each
+    batch as it arrives. Returns an unsubscribe callable.
+    """
+    full_name = f"{namespace}.{name}" if namespace else name
+    cb = _throttle_batches(callback, 1.0 / max_hz) if max_hz else callback
+    client = ChannelClient(flight_manager.acquire(_channels_dir()))
+    unsub_reader = client.on_channel_batch(full_name, cb, policy=SubscribePolicy.ALL)
+
+    def unsub() -> None:
+        unsub_reader()
+        client.close()
+        flight_manager.release(_channels_dir())
+
+    return unsub
+
+
+def _throttle_batches(
+    callback: Callable[[pa.RecordBatch], None], interval: float
+) -> Callable[[pa.RecordBatch], None]:
+    """Deliver to ``callback`` at most every ``interval`` s, coalescing the
+    batches that arrived in between into one."""
+    lock = threading.Lock()
+    pending: list[pa.RecordBatch] = []
+    last = [0.0]
+
+    def wrapped(batch: pa.RecordBatch) -> None:
+        with lock:
+            pending.append(batch)
+            now = time.monotonic()
+            if now - last[0] < interval:
+                return
+            combined = pa.Table.from_batches(pending).combine_chunks().to_batches()
+            pending.clear()
+            last[0] = now
+        for b in combined:
+            callback(b)
+
+    return wrapped
+
+
 @contextmanager
 def stream(name: str, *, namespace: str | None = None) -> Iterator[_ChannelSink]:
     """Context-managed channel sink — multi-sample append.
@@ -175,4 +294,4 @@ def stream(name: str, *, namespace: str | None = None) -> Iterator[_ChannelSink]
         sink.close()
 
 
-__all__ = ["stream", "write"]
+__all__ = ["latest", "live", "query", "stream", "write"]
