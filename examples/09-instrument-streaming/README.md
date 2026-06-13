@@ -31,7 +31,9 @@ examples/09-instrument-streaming/
 ├── stations/
 │   └── bench_01.yaml
 └── scripts/
-    └── live_dmm_monitor.py          # the streaming script
+    ├── live_dmm_monitor.py          # PRODUCE — stream dmm.voltage
+    ├── live_dmm_reader.py           # CONSUME (headless) — channels.latest / .live
+    └── live_monitor_ui.py           # CONSUME (custom UI) — gauge + chart + max_hz slider
 ```
 
 `drivers/dmm.py` is a concrete DMM class whose `measure_voltage()`
@@ -68,6 +70,24 @@ The script runs for 60 seconds. Stop early with Ctrl-C; partial data
 stays on disk. Reopen the channel panel after a fresh script run —
 all sessions' data accumulates on the same logical channel; per-session
 files keep storage segmented for retention.
+
+## Three ways to consume a channel
+
+The operator UI above is one consumer. The same data is reachable from your
+own code via the consumer verbs — pick by who's watching:
+
+| You want… | Run | Verbs |
+|---|---|---|
+| Litmus's built-in UI to show it | `litmus serve` → `/channels/dmm.voltage` | (none — the UI does it) |
+| a **script / agent** to react to samples | `python scripts/live_dmm_reader.py` | `channels.latest` (newest), `channels.live` (every sample) |
+| to build **your own UI** with controls | `python scripts/live_monitor_ui.py` → `:8080` | `latest` → gauge, `live(max_hz=)` → chart + slider |
+
+`live_monitor_ui.py` is self-contained (it spawns its own producer), so you can
+run just that one file. It puts a slow `chamber.temp` gauge (`latest`, conflated)
+next to a fast `scope.ch1` trace (`live`, coalesced batches) so the policy
+difference is visible — drag the `max_hz` slider and watch the chart's delivery
+cadence change without losing points. See
+[How-to — Choosing a channel verb](../../docs/how-to/data/choosing-a-channel-verb.md).
 
 ## Why the imports are this shape
 
