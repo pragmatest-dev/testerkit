@@ -35,6 +35,7 @@ from litmus.data.channels.models import (
     _infer_schema,
     batch_row_to_sample,
     encode_value,
+    sample_schema,
     sample_to_batch,
 )
 from litmus.data.events import ChannelClosed, ChannelStarted
@@ -460,6 +461,125 @@ class ChannelStore:
             # (the daemon never calls write(), but in-process index stores do).
             if self._index_enabled:
                 self._pending_extend([self._index_row(channel_id, sample)])
+
+        return make_channel_uri(channel_id, str(self._session_id))
+
+    def write_many(  # noqa: PLR0913
+        self,
+        channel_id: str,
+        values: Sequence[float | int | bool],
+        *,
+        sampled_ats: Sequence[datetime | None] | None = None,
+        units: str | None = None,
+        source: str = "observe",
+        instrument_role: str = "",
+        resource: str = "",
+        attributes: dict[str, Any] | None = None,
+        run_id: UUID | None = None,
+    ) -> str:
+        """Write N individually-timestamped scalar samples in one columnar call.
+
+        The batch-native producer path: builds ONE Arrow batch (no per-sample
+        dict build), bulk-appends it to the durable segment, and pushes it to
+        the daemon as ONE message — vs N ``write()`` calls. Each sample keeps
+        its own ``sequence``; ``sampled_ats`` may give a per-sample hardware
+        timestamp, else all share this call's ``received_at``.
+
+        Scalars only (the high-rate path). For array/struct samples use
+        ``write()`` per capture.
+        """
+        if not values:
+            return make_channel_uri(channel_id, str(self._session_id))
+        if "/" in channel_id or "\\" in channel_id or ".." in channel_id:
+            raise ValueError(
+                f"Invalid channel_id '{channel_id}': must not contain path separators or '..'"
+            )
+        first = values[0]
+        if isinstance(first, (list, tuple, dict)) or hasattr(first, "tolist"):
+            raise NotImplementedError(
+                "write_many is the scalar fast path; use write() for array/struct samples"
+            )
+        if classify_value(first) == "blob":
+            raise ValueError(
+                f"Channel {channel_id}: value type {type(first).__name__} is not numeric"
+            )
+
+        n = len(values)
+        now = datetime.now(UTC)
+        sid = str(self._session_id)
+        data_type = _data_type_for(first)
+        sampled = list(sampled_ats) if sampled_ats is not None else [None] * n
+
+        if channel_id not in self._registry:
+            self._registry[channel_id] = ChannelDescriptor(
+                channel_id=channel_id,
+                data_type=data_type,
+                units=units,
+                instrument_role=instrument_role,
+                resource=resource,
+                attributes=dict(attributes) if attributes else {},
+                first_seen=now,
+            )
+            self._channel_run_ids[channel_id] = run_id
+            if self._event_log is not None:
+                self._event_log.emit(
+                    ChannelStarted(
+                        session_id=self._session_id,
+                        run_id=run_id,
+                        channel_id=channel_id,
+                        units=units,
+                        instrument_role=instrument_role or None,
+                        method=source or None,
+                        resource=resource or None,
+                    )
+                )
+        if channel_id not in self._writers:
+            descriptor_json = self._registry[channel_id].model_dump_json().encode()
+            schema = _infer_schema(first).with_metadata(
+                {b"litmus.channel_descriptor": descriptor_json}
+            )
+            session_short = str(self._session_id)[:8]
+            today = date.today().isoformat()
+            path = self._channels_dir / today / f"{channel_id}_{session_short}.arrow"
+            self._writers[channel_id] = _ChannelWriter(
+                channel_id, data_type, schema, path, self._flush_threshold
+            )
+
+        counter = self._channel_seq.setdefault(channel_id, itertools.count())
+        seqs = [next(counter) for _ in range(n)]
+        writer = self._writers[channel_id]
+
+        # Durable batch — typed value column, built columnarly (no per-row dict).
+        durable = pa.record_batch(
+            {
+                "received_at": [now] * n,
+                "sampled_at": sampled,
+                "value": list(values),
+                "source_method": [source] * n,
+                "session_id": [sid] * n,
+                "sequence": seqs,
+            },
+            schema=writer.schema,
+        )
+        writer.append_batch(durable)
+
+        # Batched push — one wire batch, one gRPC message (value JSON-encoded).
+        if self._flight_location is not None:
+            wire = pa.record_batch(
+                {
+                    "channel_id": [channel_id] * n,
+                    "received_at": [now] * n,
+                    "sampled_at": sampled,
+                    "value": [encode_value(v) for v in values],
+                    "source_method": [source] * n,
+                    "units": [units or ""] * n,
+                    "sample_interval": [None] * n,
+                    "session_id": [sid] * n,
+                    "sequence": seqs,
+                },
+                schema=sample_schema(),
+            )
+            self._flight_push_batch(channel_id, wire)
 
         return make_channel_uri(channel_id, str(self._session_id))
 
@@ -1153,9 +1273,15 @@ class ChannelStore:
         flight_manager.release(self._channels_dir)
 
     def _flight_push(self, channel_id: str, sample: ChannelSample) -> None:
-        """Push a sample to the Flight daemon via do_put.
+        """Push a single sample to the Flight daemon (1-row batch)."""
+        self._flight_push_batch(channel_id, sample_to_batch(sample))
 
-        Non-fatal: data is in IPC files, daemon rebuilds on restart.
+    def _flight_push_batch(self, channel_id: str, batch: pa.RecordBatch) -> None:
+        """Push a pre-built multi-row wire batch to the Flight daemon via do_put.
+
+        The batched-transport core: one ``write_batch`` = one gRPC message for
+        the whole batch, on the held per-channel stream. Non-fatal: data is in
+        IPC files, daemon rebuilds on restart.
         """
         location = self._flight_location
         if location is None:
@@ -1165,7 +1291,6 @@ class ChannelStore:
             if client is None:
                 client = flight.connect(location)
                 self._flight_client = client
-            batch = sample_to_batch(sample)
             writer = self._flight_writers.get(channel_id)
             if writer is None:
                 descriptor = flight.FlightDescriptor.for_command(
