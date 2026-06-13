@@ -6,9 +6,10 @@ visible side by side:
 
 - ``chamber.temp`` (~0.5 Hz, slow)  -> ``channels.latest`` -> a GAUGE (newest
   value, conflated — you never see a backlog).
-- ``scope.ch1`` (50 Hz, fast)        -> ``channels.live(max_hz=)`` -> a live
-  CHART (every sample, coalesced into batches), with a ``max_hz`` slider so you
-  can watch the delivery cadence change without losing data.
+- ``scope.ch1`` (50 Hz, fast)        -> ``channels.window(dur=, max_hz=)`` -> a
+  rolling CHART of the last ``dur`` seconds that continues live, with ``dur`` and
+  ``max_hz`` sliders — drag either and the chart re-fills from history instantly,
+  never blank.
 
 Run it and open the printed URL::
 
@@ -34,8 +35,9 @@ import litmus.channels as channels
 from litmus.data.channels.store import ChannelStore
 from litmus.data.data_dir import resolve_data_dir
 
+_PRODUCE_HZ = 50
 _STOP = threading.Event()
-_STATE: dict = {"temp": None, "trace": deque(maxlen=200)}
+_STATE: dict = {"temp": None, "trace": deque(maxlen=200), "dur": 5, "max_hz": 10}
 _SUBS: dict = {}
 
 
@@ -65,17 +67,25 @@ def _on_trace(batch) -> None:  # noqa: ANN001 — pyarrow.RecordBatch
         _STATE["trace"].append(json.loads(v))
 
 
-def _start_live(max_hz: int) -> None:
+def _start_window(dur: int, max_hz: int) -> None:
+    """(Re)subscribe the scope chart as a rolling window of the last ``dur`` s.
+
+    window() backfills the last ``dur`` seconds immediately, then continues
+    live — so the chart is never blank, even right after you drag a slider.
+    The buffer is re-sized to hold the chosen depth (50 Hz producer + headroom).
+    """
+    _STATE["dur"], _STATE["max_hz"] = dur, max_hz
     if "trace" in _SUBS:
         _SUBS["trace"]()
-    _SUBS["trace"] = channels.live("scope.ch1", _on_trace, max_hz=max_hz)
+    _STATE["trace"] = deque(maxlen=max(200, int(dur * _PRODUCE_HZ * 1.5)))
+    _SUBS["trace"] = channels.window("scope.ch1", _on_trace, dur=dur, max_hz=max_hz)
 
 
 # Start producing + subscribing once, at import.
 threading.Thread(target=_producer, daemon=True).start()
 time.sleep(0.6)  # let the daemon spawn
 _SUBS["temp"] = channels.latest("chamber.temp", _on_temp)
-_start_live(10)
+_start_window(5, 10)
 
 
 @ui.page("/")
@@ -89,7 +99,9 @@ def page() -> None:
             ui.label("°C").classes("text-gray-400")
         with ui.card().classes("flex-1"):
             ui.label("scope.ch1").classes("text-sm text-gray-500")
-            ui.label("channels.live(max_hz=…) — coalesced batches").classes("text-xs text-gray-400")
+            ui.label("channels.window(dur=…, max_hz=…) — last N s, then live").classes(
+                "text-xs text-gray-400"
+            )
             chart = ui.echart(
                 {
                     "animation": False,
@@ -101,11 +113,24 @@ def page() -> None:
             ).classes("w-full h-64")
 
     with ui.row().classes("items-center gap-4"):
+        ui.label("window dur (s):")
+        dur_val = ui.label("5").classes("font-mono w-8")
+
+        def on_dur(e) -> None:  # noqa: ANN001 — nicegui ValueChangeEventArguments
+            _start_window(int(e.value), _STATE["max_hz"])
+            dur_val.set_text(str(int(e.value)))
+
+        ui.slider(min=1, max=15, value=5, on_change=on_dur)
+        ui.label("← deeper history; chart re-fills from the log instantly, never blank").classes(
+            "text-xs text-gray-400"
+        )
+
+    with ui.row().classes("items-center gap-4"):
         ui.label("live max_hz:")
         hz_val = ui.label("10").classes("font-mono w-8")
 
         def on_hz(e) -> None:  # noqa: ANN001 — nicegui ValueChangeEventArguments
-            _start_live(int(e.value))
+            _start_window(_STATE["dur"], int(e.value))
             hz_val.set_text(str(int(e.value)))
 
         ui.slider(min=1, max=50, value=10, on_change=on_hz)
