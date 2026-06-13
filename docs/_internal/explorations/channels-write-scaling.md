@@ -374,3 +374,37 @@ p99.9 ~20ms is imperceptible for a live view, so it's deferred, not a blocker.
   the index-substrate sub-task. Not pushed, so rename is free.
 - **R4 proof** — map the opaque cursor onto two named backends (Redis
   last-delivered-id, S3 event) before claiming "config swap."
+
+# req6 backend-swap audit (Phases 0/2/3, 2026-06-13)
+
+Verdict: **everything added is swap-clean.** The public contract is verb + name
++ (query) time/count filters + `max_hz`; everything backend-specific is
+implementation. Per surface:
+
+- **Public verbs** (`channels.py`): `latest(name, cb)`, `live(name, cb, max_hz=)`,
+  `query(name, start, end, last_n, max_points)`. No `received_at`/cursor/offset/seq
+  in any signature; `policy` is set *internally* (`SubscribePolicy.LATEST`/`ALL`,
+  channels.py:202/229), never a verb arg. `query`'s filters (time range, last_n,
+  max_points) are backend-universal (TSDB range, Kafka timestamp, S3 list). **Backend-neutral.**
+- **Policy `all`/`latest`** maps to broker semantics (Kafka all-offsets vs compacted;
+  Redis `XREAD` vs last-id; TSDB tail vs last). The `?policy=latest` ticket
+  (`server.py` do_get) is **transport**, not API — a Kafka adapter translates the
+  verb to a compacted-topic consumer. **Swap-clean.**
+- **`_SubscriberRing` + gap-count + drop-oldest** is purely server-side; the verb
+  contract is callback + policy. The gap is a server counter, not on the wire,
+  not in the API. A broker would retain rather than drop; the API never promises
+  drop. **Embedded-only, doesn't leak.**
+- **`max_hz`** is a client-side throttle (`_throttle_batches`); backend-agnostic.
+  It doesn't *block* a swap. (Prior art: a server-side `samplingInterval` could
+  supplement it — additive, not required.) **Swap-clean.**
+- **Durable-append target** — `write()` still appends to the local `.arrow`
+  `_ChannelWriter` (store.py:425). Phase 0's async push (store.py:440) is the
+  *daemon push*, orthogonal to the append — it did **not** deepen the local-file
+  coupling. (Swapping the durable substrate to a remote log *being* the truth is
+  pre-existing req6 work, unchanged here.) **Not deepened.**
+
+**One discipline to maintain:** Phase 4's stitch/catch-up cursor (the planned
+monotonic per-channel sequence) must stay an **opaque internal** value — never a
+verb arg — so a Kafka offset / Redis id / TSDB timestamp can substitute. The
+plan (Decision 5, Phase 4 risk) already says this; the audit confirms it's the
+single thing that could turn "swap-clean" into "blocker" if violated.
