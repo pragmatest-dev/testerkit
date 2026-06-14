@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import logging
+from collections import deque
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
-from nicegui import ui
+from nicegui import run, ui
 
 from litmus.data.channels.models import ChannelSample
+from litmus.data.data_dir import resolve_data_dir
+from litmus.data.event_store import EventStore
 from litmus.ui.shared.components import (
     LiveBadge,
     data_table,
@@ -17,10 +22,12 @@ from litmus.ui.shared.components import (
     push_url_state,
     session_filter_banner,
 )
-from litmus.ui.shared.event_binding import ui_channel_data
+from litmus.ui.shared.event_binding import ui_channel_data, ui_subscribe
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import list_channels, query_channel
 from litmus.ui.shared.timestamps import format_time_short
+
+logger = logging.getLogger(__name__)
 
 
 @ui.page("/channels/{channel_id}")
@@ -43,7 +50,11 @@ def channel_detail_page(
 
     with ui.column().classes("w-full p-6 gap-4"):
         with ui.row().classes("items-center justify-between w-full"):
-            ui.label(channel_id).classes("text-2xl font-semibold")
+            with ui.row().classes("items-center gap-3"):
+                ui.label(channel_id).classes("text-2xl font-semibold")
+                # Page-scoped so it survives chart rebuilds on every filter
+                # change. Driven by lifecycle events + sample activity below.
+                live_badge = LiveBadge()
             ui.button(
                 "Back",
                 icon="arrow_back",
@@ -77,12 +88,58 @@ def channel_detail_page(
         # "index" (per-session sample index, so multiple sessions overlay
         # for shape comparison). Mutable cell — the toggle updates it.
         x_mode_state = ["index" if x_mode == "index" else "time"]
-        # Live-subscription handle — built by _render_chart on each
-        # refresh, cancelled before the next refresh so we don't leak
-        # stale callbacks targeting an orphaned chart object.
-        live_unsub_holder: list[Callable[[], None]] = []
+        # ── Live infrastructure: one holder, one renderer ───────────────
+        # The live-UI rule (docs/_internal/explorations/live-ui-pattern.md):
+        # the subscription callbacks below write only plain Python (the
+        # holder) and the thread-safe badge setters; the ui.timer is the
+        # sole code that mutates the chart, on the UI loop. refresh()
+        # rebuilds the chart on every filter change, so the timer targets
+        # whichever chart is current via chart_ref, and ``drawn_through``
+        # (set to query time by refresh) keeps the live tail from redrawing
+        # samples already in the history slice.
+        live_samples: deque[ChannelSample] = deque(maxlen=2000)
+        chart_ref: list[ui.echart | None] = [None]
+        drawn_through: list[datetime | None] = [None]
 
-        def refresh() -> None:
+        def _on_live(sample: ChannelSample) -> None:
+            live_samples.append(sample)
+            live_badge.ping()
+
+        ui_channel_data(channel_id).subscribe(_on_live)
+
+        # Lifecycle → badge, on a separate path from samples (so a started
+        # channel reads live even if the sample relay is quiet). Best-effort:
+        # if the events daemon is down the badge falls back to activity alone.
+        try:
+            event_store = EventStore.get_shared(resolve_data_dir())
+
+            def _on_started(evt: dict) -> None:
+                if evt.get("channel_id") == channel_id:
+                    live_badge.mark_started()
+
+            def _on_closed(evt: dict) -> None:
+                if evt.get("channel_id") == channel_id:
+                    live_badge.mark_closed()
+
+            ui_subscribe(event_store, _on_started, event_type="channel.started")
+            ui_subscribe(event_store, _on_closed, event_type="channel.closed")
+        except (OSError, RuntimeError) as exc:
+            logger.debug("Channel lifecycle badge updates unavailable: %s", exc)
+
+        def _redraw_live() -> None:
+            chart = chart_ref[0]
+            if chart is None or not live_samples:
+                return
+            cutoff = drawn_through[0]
+            fresh = [s for s in live_samples if cutoff is None or s.received_at > cutoff]
+            if not fresh:
+                return
+            drawn_through[0] = fresh[-1].received_at
+            _append_live_samples(chart, fresh)
+
+        ui.timer(0.25, _redraw_live)
+
+        async def refresh() -> None:
             if chart_card is None or data_card is None:
                 return
             push_url_state(
@@ -96,7 +153,10 @@ def channel_detail_page(
                     "x_mode": x_mode_state[0],
                 },
             )
-            payload = query_channel(
+            # io_bound: the channel query is a blocking gRPC call — run it
+            # off the event loop so filter changes never freeze the page.
+            payload = await run.io_bound(
+                query_channel,
                 channel_id,
                 session_id=session_id or None,
                 since=filters.since() or None,
@@ -104,20 +164,15 @@ def channel_detail_page(
                 max_points=1000,  # LTTB decimation for chart-friendly response
             )
             data = payload.get("data") or []
-            # Cancel previous live subscription before rebuilding.
-            for unsub in live_unsub_holder:
-                unsub()
-            live_unsub_holder.clear()
-            live_unsub = _render_chart(
+            chart_ref[0] = _render_chart(
                 chart_card,
                 channel_id,
                 data,
                 descriptor,
-                session_filter=session_id or None,
                 x_mode=x_mode_state[0],
             )
-            if live_unsub is not None:
-                live_unsub_holder.append(live_unsub)
+            # History now covers up to ~now; the live tail draws only newer.
+            drawn_through[0] = datetime.now(UTC)
             _render_data_table(data_card, data)
 
         # Filters first (above chart + data) so the page reads top-down.
@@ -149,9 +204,9 @@ def channel_detail_page(
                 # Waveforms already plot against intra-capture index/time.
                 if (descriptor.get("data_type") or "").startswith("scalar"):
 
-                    def _on_x_mode(e: Any) -> None:
+                    async def _on_x_mode(e: Any) -> None:
                         x_mode_state[0] = "index" if e.value == "index" else "time"
-                        refresh()
+                        await refresh()
 
                     ui.toggle(
                         {"time": "Time", "index": "Index"},
@@ -169,10 +224,12 @@ def channel_detail_page(
         chart_card = ui.card().classes("w-full").props('data-testid="channel-chart"')
         data_card = ui.card().classes("w-full").props('data-testid="channel-data"')
 
-        refresh()
+        # Schedule the first (async) render on the loop — the page function
+        # itself is sync, so it can't await refresh() directly.
+        ui.timer(0, refresh, once=True)
 
 
-def _clear_filters(filters: _Filters, refresh: Callable[[], None]) -> None:
+async def _clear_filters(filters: _Filters, refresh: Callable[[], Awaitable[None]]) -> None:
     """Reset the date-window filters to defaults and re-render.
 
     The ``?session_id=`` URL param is intentionally NOT cleared here —
@@ -181,7 +238,7 @@ def _clear_filters(filters: _Filters, refresh: Callable[[], None]) -> None:
     """
     filters.since_input.set_value("")
     filters.until_input.set_value("")
-    refresh()
+    await refresh()
 
 
 def _render_descriptor_card(descriptor: dict[str, Any]) -> None:
@@ -204,38 +261,24 @@ def _render_chart(
     rows: list[dict[str, Any]],
     descriptor: dict[str, Any],
     *,
-    session_filter: str | None = None,
     x_mode: str = "time",
-) -> Callable[[], None] | None:
+) -> ui.echart | None:
     """ECharts line plot of scalar values; first-sample plot for arrays.
 
-    Build item 18 (Live waveform plot): when the panel renders, also
-    subscribes to live samples for this channel and appends them to
-    the chart in real time. Returns the unsubscribe callable so the
-    page-level refresh() can cancel before re-rendering.
+    Rebuilds the chart card from the (already filtered + decimated)
+    ``rows``. Returns the chart object so the page's live timer can append
+    the live tail to it (``None`` when there's no history yet — the timer
+    skips drawing until a refresh builds a chart). The live tail itself is
+    wired once at the page level, not here.
 
-    Scalar channels: each new sample appends one (received_at, value)
-    point to the trailing series.
-
-    Array channels (Waveform-shaped writes): each new sample replaces
-    the chart's series with the new array.
-
-    ``session_filter`` filters the **historical** query; live samples
-    from ChannelStore don't carry session_id on the Event signal today,
-    so they're shown regardless. Acceptable for v1: the historical
-    chart respects the filter, live tail shows fresh activity. A future
-    cluster can plumb session_id through :class:`ChannelSample` if
-    operators ask for it.
+    Scalar channels plot one (received_at, value) point per row; array
+    channels (Waveform-shaped writes) plot the most recent capture as a
+    single trace.
     """
-    _ = session_filter  # unused on the live path — see docstring
     card.clear()
     with card:
         with ui.card_section():
-            with ui.row().classes("items-center justify-between w-full"):
-                ui.label("Chart").classes("font-semibold")
-                # Activity-driven indicator: live while samples arrive,
-                # idle after a few seconds of silence (see LiveBadge).
-                live_badge = LiveBadge()
+            ui.label("Chart").classes("font-semibold")
             ui.label("LTTB-decimated to ≤1,000 points; faithful peaks/valleys.").classes(
                 "text-xs text-slate-500"
             )
@@ -243,18 +286,7 @@ def _render_chart(
         if not rows:
             with ui.card_section():
                 ui.label("No samples for the current filters.").classes("text-slate-500 italic")
-            # Still subscribe to live samples — a channel with no past
-            # data starts producing now, render the first sample when it
-            # arrives (operator gets "live empty → first point" UX).
-            return _wire_live_subscription(
-                card=card,
-                channel_id=channel_id,
-                chart=None,
-                descriptor=descriptor,
-                rows_ref=rows,
-                session_filter=session_filter,
-                live_badge=live_badge,
-            )
+            return None
 
         x_values = [_axis_tick(r.get("received_at")) for r in rows]
         units = descriptor.get("units") or ""
@@ -385,76 +417,34 @@ def _render_chart(
             once=True,
         )
 
-    return _wire_live_subscription(
-        card=card,
-        channel_id=channel_id,
-        chart=chart,
-        descriptor=descriptor,
-        rows_ref=rows,
-        session_filter=session_filter,
-        live_badge=live_badge,
-    )
+    return chart
 
 
-def _wire_live_subscription(  # noqa: PLR0913
-    *,
-    card: ui.card,
-    channel_id: str,
-    chart: ui.echart | None,
-    descriptor: dict[str, Any],
-    rows_ref: list[dict[str, Any]],
-    session_filter: str | None,
-    live_badge: LiveBadge,
-) -> Callable[[], None]:
-    """Subscribe to live samples for ``channel_id`` and update ``chart`` in place.
+def _append_live_samples(chart: ui.echart, samples: list[ChannelSample]) -> None:
+    """Append live ``samples`` to ``chart`` (scalar) or replace its trace (array).
 
-    Returns the unsubscribe callable — caller must call it before
-    re-rendering the chart (so a stale callback doesn't mutate an
-    orphaned chart object).
+    The sole chart-mutating path for live data — called only from the
+    page's ``ui.timer`` (on the UI loop), never from a delivery thread.
 
-    Scalar channels: each new sample appends one point to the trailing
-    series and the X-axis category list.
-
-    Array channels: each new sample is the new waveform trace — replace
-    the chart's first series ``data`` with the array.
-
-    Empty initial state (``chart is None``): record samples in
-    ``rows_ref``; the chart is re-rendered on the next refresh() so
-    the operator sees data accumulate. We don't reach back into the
-    page to call refresh from here.
+    Scalar channels append one (received_at, value) point per sample to the
+    trailing series. Array channels (Waveform-shaped writes) replace the
+    trace with the most recent capture. Multi-session scalar views (more
+    than one series) skip the live tail: ChannelSample carries no session_id
+    on the live path, so a point can't be routed to the right per-session
+    series — the operator gets the new sample on the next Refresh instead.
     """
-    # NiceGUI Event auto-unsubscribes on client disconnect, but the
-    # page's refresh() cycle creates new chart objects without
-    # disconnecting — explicit unsubscribe avoids stale-callback
-    # mutations on a deleted chart.
-    signal = ui_channel_data(channel_id)
-
-    def _on_sample(sample: ChannelSample) -> None:
-        # Every received sample drives the live badge — even before the
-        # chart exists (an empty channel that has just started producing).
-        live_badge.ping()
-        if chart is None:
-            # Empty initial state — nothing to mutate yet.
-            return
-
+    opts = chart.options
+    series = opts.get("series") or []
+    touched = False
+    for sample in samples:
         value = sample.value
-        ts_short = format_time_short(sample.received_at.isoformat())
-
-        opts = chart.options
-        series = opts.get("series") or []
-        x_data = (opts.get("xAxis") or {}).get("data") or []
-
         if isinstance(value, list) and value:
-            # Array (waveform) — replace the trace with the new array.
             interval = sample.sample_interval or 0.0
             if interval:
-                x_axis_data, _label = _format_time_axis(interval, len(value))
+                x_axis_data, _ = _format_time_axis(interval, len(value))
             else:
                 x_axis_data = [str(i) for i in range(len(value))]
             opts["xAxis"]["data"] = x_axis_data
-            # Keep only one trace (the latest) to avoid unbounded growth;
-            # historical traces are part of the static load below the
-            # latest live capture.
             opts["series"] = [
                 {
                     "name": "live",
@@ -465,40 +455,21 @@ def _wire_live_subscription(  # noqa: PLR0913
                     "lineStyle": {"width": 1.5, "color": "#2563eb"},
                 }
             ]
+            series = opts["series"]
+            touched = True
         else:
-            # Scalar — append (x, y) to the trailing series.
-            if not series:
-                return
-            # Skip live-tail in the multi-session-grouped view: live
-            # samples from ChannelStore don't carry session_id, so we
-            # can't route them to the right per-session series.
-            # Appending to series[0] would visually attach the live
-            # point to whichever session happened to land first (a
-            # misleading color attribution). The operator can still
-            # see the new sample by clicking Refresh, which re-queries
-            # historical data with the new sample included.
-            if len(series) > 1:
-                return
+            if not series or len(series) > 1:
+                continue
             primary = series[0]
             data_list = list(primary.get("data") or [])
             data_list.append(value)
             primary["data"] = data_list
-            x_data_list = list(x_data)
-            x_data_list.append(ts_short)
-            opts["xAxis"]["data"] = x_data_list
-
+            x_list = list((opts.get("xAxis") or {}).get("data") or [])
+            x_list.append(format_time_short(sample.received_at.isoformat()))
+            opts["xAxis"]["data"] = x_list
+            touched = True
+    if touched:
         chart.update()
-
-    signal.subscribe(_on_sample)
-
-    def _unsubscribe() -> None:
-        try:
-            signal.unsubscribe(_on_sample)
-        except ValueError:
-            # Already unsubscribed (auto-cleanup on client disconnect)
-            pass
-
-    return _unsubscribe
 
 
 def _render_data_table(card: ui.card, rows: list[dict[str, Any]]) -> None:
