@@ -356,6 +356,7 @@ def _render_chart(
                 "name": "offset",
                 "nameLocation": "middle",
                 "nameGap": 30,
+                "minInterval": 1,  # offsets are integers — no fractional ticks
             }
         else:
             scalar_session_ids = {
