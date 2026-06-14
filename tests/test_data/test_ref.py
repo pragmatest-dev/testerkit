@@ -68,18 +68,34 @@ class TestChannelUri:
     def test_make_and_parse_roundtrip(self):
         uri = make_channel_uri("scope.ch1.waveform", "abc123")
         assert uri.startswith("channel://")
-        channel_id, session_id = parse_channel_uri(uri)
-        assert channel_id == "scope.ch1.waveform"
-        assert session_id == "abc123"
+        ticket = parse_channel_uri(uri)
+        assert ticket.channel_id == "scope.ch1.waveform"
+        assert ticket.session_id == "abc123"
+        assert ticket.offset is None
+
+    def test_make_and_parse_roundtrip_with_offset(self):
+        uri = make_channel_uri("scope.ch1.waveform", "abc123", offset=7)
+        # session stays first so the runs-index session regex keeps working.
+        assert uri == "channel://scope.ch1.waveform?session=abc123&offset=7"
+        ticket = parse_channel_uri(uri)
+        assert ticket.channel_id == "scope.ch1.waveform"
+        assert ticket.session_id == "abc123"
+        assert ticket.offset == 7
+
+    def test_offset_zero_roundtrips(self):
+        # offset 0 is a real sample, not "absent" — must survive the round trip.
+        ticket = parse_channel_uri(make_channel_uri("c", "s", offset=0))
+        assert ticket.offset == 0
 
     def test_parse_invalid_raises(self):
         with pytest.raises(ValueError, match="Not a channel URI"):
             parse_channel_uri("file://something")
 
     def test_parse_no_query(self):
-        channel_id, session_id = parse_channel_uri("channel://foo.bar")
-        assert channel_id == "foo.bar"
-        assert session_id == ""
+        ticket = parse_channel_uri("channel://foo.bar")
+        assert ticket.channel_id == "foo.bar"
+        assert ticket.session_id == ""
+        assert ticket.offset is None
 
 
 class TestIsRef:

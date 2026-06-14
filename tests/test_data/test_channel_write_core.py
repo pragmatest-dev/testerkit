@@ -12,7 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
+from litmus.data.backends.parquet import load_ref
 from litmus.data.channels.store import ChannelStore
+from litmus.data.ref import parse_channel_uri
 
 
 def _values_and_offsets(store: ChannelStore, channel: str) -> tuple[list, list]:
@@ -138,3 +140,49 @@ class TestRuntimeReadableLog:
         index._last_scan = 0.0
         assert index.query("ch").num_rows == 1  # deduped, not 2
         index.close()
+
+
+class TestSingleOffsetTicket:
+    """A single write returns an offset-qualified ticket; a consumer follows the
+    ticket to exactly that one row.
+
+    The bug: a multi-vector sweep that observes one waveform per vector on the
+    same channel used to stamp IDENTICAL ``channel://name?session=X`` URIs on
+    every vector's ``out_*`` — indistinguishable, and each resolved to the whole
+    channel. Each single write now carries its own ``offset``.
+    """
+
+    def test_repeated_writes_return_distinct_offset_tickets(self, tmp_path: Path):
+        # Three "vectors", each observing one waveform on the same channel.
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=4)
+        store.open()
+        uris = [store.write("scope.trace", [float(v), float(v) + 1]) for v in range(3)]
+        store.close()
+
+        assert len(set(uris)) == 3  # pre-fix: all 3 were identical
+        assert [parse_channel_uri(u).offset for u in uris] == [0, 1, 2]
+
+    def test_ticket_follows_to_one_row(self, tmp_path: Path):
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=4)
+        store.open()
+        uris = [store.write("scope.trace", [float(v), float(v) + 1]) for v in range(3)]
+
+        # The whole channel holds 3 rows...
+        assert store.query("scope.trace").num_rows == 3
+        # ...but each ticket resolves to exactly its own one row.
+        for i, uri in enumerate(uris):
+            resolved = load_ref(uri, channel_store=store)
+            assert resolved.num_rows == 1
+            assert resolved.column("offset").to_pylist() == [i]
+        store.close()
+
+    def test_batch_write_ticket_stays_whole_channel(self, tmp_path: Path):
+        # write_many (the deferred range case) returns an un-offset ticket that
+        # still resolves to the whole channel+session.
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=100)
+        store.open()
+        uri = store.write_many("dmm.v", [1.0, 2.0, 3.0])
+        store.close()
+
+        assert parse_channel_uri(uri).offset is None
+        assert load_ref(uri, channel_store=store).num_rows == 3

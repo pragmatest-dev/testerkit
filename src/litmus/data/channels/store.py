@@ -738,7 +738,7 @@ class ChannelStore:
                 else None
             )
             self._publish(channel_id, wire, samples)
-            return make_channel_uri(channel_id, sid)
+            return make_channel_uri(channel_id, sid, offset=offsets[0] if n == 1 else None)
 
         # ---- Array / struct / dict: per-row build (the envelope needs it) ----
         rows: list[dict] = []
@@ -787,7 +787,9 @@ class ChannelStore:
             else None
         )
         self._publish(channel_id, wire, samples if need_samples else None)
-        return make_channel_uri(channel_id, sid)
+        # offset pins single-sample writes (write/observe) to their one row; the
+        # batch verb (write_many, N>1) stays un-offset — that's the deferred range case.
+        return make_channel_uri(channel_id, sid, offset=offsets[0] if n == 1 else None)
 
     def _publish(
         self,
@@ -1044,6 +1046,7 @@ class ChannelStore:
         end: datetime | None = None,
         last_n: int | None = None,
         max_points: int | None = None,
+        offset: int | None = None,
     ) -> pa.Table:
         """Query channel data, merging flushed files + in-memory buffer.
 
@@ -1060,6 +1063,10 @@ class ChannelStore:
                 (Largest Triangle Three Buckets). Preserves peaks and valleys
                 for faithful visual representation. Applied after all other
                 filters. Requires a ``value`` or ``samples`` column.
+            offset: Internal cursor — pin the result to the one row at this
+                offset (used by materialization to follow a single-offset
+                ticket). NOT exposed on the public ``channels.query`` verb;
+                ``offset`` stays a store-internal addressing cursor.
         """
         if self._index_enabled:
             return self._query_index(
@@ -1069,6 +1076,7 @@ class ChannelStore:
                 end=end,
                 last_n=last_n,
                 max_points=max_points,
+                offset=offset,
             )
 
         session_short = session_id[:8] if session_id else None
@@ -1136,6 +1144,11 @@ class ChannelStore:
                 for ts in received
             ]
             result = result.filter(keep)
+
+        # Pin to a single offset (internal ticket follow). offset is per-sample
+        # within (session, channel); session filtering above already scoped it.
+        if offset is not None and "offset" in result.column_names:
+            result = result.filter([o == offset for o in result.column("offset").to_pylist()])
 
         # Limit to last N
         if last_n is not None and len(result) > last_n:
@@ -1487,6 +1500,7 @@ class ChannelStore:
         end: datetime | None,
         last_n: int | None,
         max_points: int | None,
+        offset: int | None = None,
     ) -> pa.Table:
         """At-rest query served from the warm index (∪ pending buffer)."""
         self._maybe_scan_disk()
@@ -1514,6 +1528,9 @@ class ChannelStore:
         if end_utc is not None:
             sql.append("AND received_at <= ?")
             params.append(end_utc)
+        if offset is not None:
+            sql.append('AND "offset" = ?')
+            params.append(offset)
         sql.append("ORDER BY received_at")
         table = self._dedup_on_offset(cur.execute(" ".join(sql), params).arrow().read_all())
 

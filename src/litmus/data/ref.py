@@ -15,6 +15,23 @@ from __future__ import annotations
 from typing import Any, Literal, Protocol, runtime_checkable
 from urllib.parse import parse_qs, quote, unquote, urlencode
 
+from pydantic import BaseModel
+
+
+class ChannelTicket(BaseModel):
+    """A reference to channel data: a channel + session, optionally pinned to
+    one sample by its ``offset``.
+
+    ``offset`` is set when the reference points at exactly one channel row (a
+    single ``write`` / ``observe``); ``None`` means the whole channel+session.
+    The single-offset form is what lets each vector of a sweep reference its own
+    sample instead of the whole channel.
+    """
+
+    channel_id: str
+    session_id: str
+    offset: int | None = None
+
 
 @runtime_checkable
 class Latchable(Protocol):
@@ -71,32 +88,50 @@ def classify_value(value: Any) -> Literal["scalar", "numeric_array", "channel", 
     return "blob"
 
 
-def make_channel_uri(channel_id: str, session_id: str) -> str:
+def make_channel_uri(channel_id: str, session_id: str, offset: int | None = None) -> str:
     """Build a ``channel://`` URI for a channel data reference.
+
+    ``offset`` pins the reference to one channel row (omitted → whole
+    channel+session). ``session`` MUST stay first in the query string: the
+    runs-index ref scanner regex-extracts session from the URI, so the offset is
+    appended after it.
 
     >>> make_channel_uri("scope.ch1.waveform", "abc123")
     'channel://scope.ch1.waveform?session=abc123'
+    >>> make_channel_uri("scope.ch1.waveform", "abc123", offset=7)
+    'channel://scope.ch1.waveform?session=abc123&offset=7'
     """
-    return f"channel://{quote(channel_id, safe='.')}?{urlencode({'session': session_id})}"
+    query = urlencode({"session": session_id})
+    if offset is not None:
+        query += f"&{urlencode({'offset': offset})}"
+    return f"channel://{quote(channel_id, safe='.')}?{query}"
 
 
-def parse_channel_uri(uri: str) -> tuple[str, str]:
-    """Parse a ``channel://`` URI into (channel_id, session_id).
+def parse_channel_uri(uri: str) -> ChannelTicket:
+    """Parse a ``channel://`` URI into a :class:`ChannelTicket`.
+
+    A URI without ``offset`` parses to ``offset=None`` (whole channel+session).
 
     >>> parse_channel_uri("channel://scope.ch1.waveform?session=abc123")
-    ('scope.ch1.waveform', 'abc123')
+    ChannelTicket(channel_id='scope.ch1.waveform', session_id='abc123', offset=None)
+    >>> parse_channel_uri("channel://scope.ch1.waveform?session=abc123&offset=7").offset
+    7
     """
     if not uri.startswith("channel://"):
         raise ValueError(f"Not a channel URI: {uri!r}")
     rest = uri[len("channel://") :]
+    offset: int | None = None
     if "?" in rest:
         channel_id, query = rest.split("?", 1)
         params = parse_qs(query)
         session_id = params.get("session", [""])[0]
+        raw_offset = params.get("offset", [None])[0]
+        if raw_offset is not None:
+            offset = int(raw_offset)
     else:
         channel_id = rest
         session_id = ""
-    return unquote(channel_id), session_id
+    return ChannelTicket(channel_id=unquote(channel_id), session_id=session_id, offset=offset)
 
 
 def is_ref(value: object) -> bool:

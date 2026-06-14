@@ -958,8 +958,12 @@ def load_ref(
         if channel_store is None:
             return value
         try:
-            channel_id, session_id = parse_channel_uri(value)
-            return channel_store.query(channel_id, session_id=session_id or None)
+            ticket = parse_channel_uri(value)
+            return channel_store.query(
+                ticket.channel_id,
+                session_id=ticket.session_id or None,
+                offset=ticket.offset,
+            )
         except Exception:  # noqa: BLE001
             # A dangling or unreachable channel degrades to "unavailable" (return
             # the URI) — never crash the caller/UI. Mirrors load_file's missing-
@@ -1003,9 +1007,11 @@ def extract_refs(parquet_path: Path) -> tuple[set[tuple[str, str]], set[str]]:
             if not is_ref(v):
                 continue
             if v.startswith("channel://"):
-                cid, sid = parse_channel_uri(v)
-                if cid and sid:
-                    channels.add((cid, sid))
+                # Retention is per-(channel, session): a channel is reachable if
+                # any ticket references it, regardless of offset. Drop the offset.
+                ticket = parse_channel_uri(v)
+                if ticket.channel_id and ticket.session_id:
+                    channels.add((ticket.channel_id, ticket.session_id))
             else:  # file://
                 files.add(v[len("file://") :])
     return channels, files
