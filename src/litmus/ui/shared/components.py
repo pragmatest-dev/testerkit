@@ -896,50 +896,73 @@ class AutoSaver:
 
 
 _LIVE_CLS = "px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700"
+_OPEN_CLS = "px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700"
 _IDLE_CLS = "px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-500"
+_CLOSED_CLS = "px-2 py-0.5 rounded text-xs font-semibold bg-slate-200 text-slate-600"
 
 
 class LiveBadge:
-    """Activity-driven live indicator.
+    """Live indicator driven by channel lifecycle and sample activity.
 
-    Starts idle. :meth:`ping` — called on each sample a page receives —
-    flips it to a green ``● live``. A repeating timer falls back to a
-    gray ``○ idle`` after ``idle_after`` seconds without a ping. So the
-    badge reflects whether data is actually flowing, not merely that the
-    page is subscribed: a channel that hasn't been written in a while
-    reads idle, and a channel being streamed reads live.
+    Follows the live-UI rule (``docs/_internal/explorations/live-ui-pattern.md``):
+    the state setters write only plain Python fields, so they are safe to
+    call from any thread — a background Flight reader or an event callback —
+    while a ``ui.timer`` on the UI loop is the only code that renders. Four
+    states, recomputed each tick:
+
+    - ``● live``   — started, samples arriving within ``idle_after`` seconds.
+    - ``◐ open``   — started, not closed, but no recent sample (the channel
+      is open but quiet — distinct from never having started).
+    - ``○ closed`` — the channel or its session has closed; terminal.
+    - ``○ idle``   — nothing known yet (no start, no samples).
 
     Usage::
 
-        badge = LiveBadge()              # renders the label in place
+        badge = LiveBadge()                       # renders itself in place
         channel_data(ch_id).subscribe(lambda s: badge.ping())
+        # lifecycle from channel.started / channel.closed events:
+        badge.mark_started(); badge.mark_closed()
     """
 
     def __init__(self, *, idle_after: float = 5.0) -> None:
         self._idle_after = idle_after
-        self._last_ping: float | None = None
+        self._last_sample: float | None = None
+        self._started = False
+        self._closed = False
         self._label = ui.label()
-        self._set_idle()
-        # Repeating timer — auto-cancelled when the client disconnects.
-        ui.timer(1.0, self._tick)
+        self._render()
+        # The only renderer — runs on the UI loop, auto-cancelled on disconnect.
+        ui.timer(1.0, self._render)
 
     def ping(self) -> None:
-        """Register a received sample: badge goes live, idle clock resets."""
-        self._last_ping = time.monotonic()
-        if self._label.text != "● live":
-            self._label.text = "● live"
-            self._label.classes(replace=_LIVE_CLS)
+        """Register a received sample (thread-safe: plain field write)."""
+        self._last_sample = time.monotonic()
 
-    def _tick(self) -> None:
-        if self._last_ping is None:
-            return
-        if time.monotonic() - self._last_ping >= self._idle_after:
-            self._set_idle()
+    def mark_started(self) -> None:
+        """Lifecycle: ``channel.started`` seen (thread-safe field write)."""
+        self._started = True
 
-    def _set_idle(self) -> None:
-        self._last_ping = None
-        self._label.text = "○ idle"
-        self._label.classes(replace=_IDLE_CLS)
+    def mark_closed(self) -> None:
+        """Lifecycle: ``channel.closed`` / session ended — terminal."""
+        self._closed = True
+
+    def _fresh(self) -> bool:
+        return self._last_sample is not None and (
+            time.monotonic() - self._last_sample < self._idle_after
+        )
+
+    def _render(self) -> None:
+        if self._closed:
+            text, cls = "○ closed", _CLOSED_CLS
+        elif self._fresh():
+            text, cls = "● live", _LIVE_CLS
+        elif self._started:
+            text, cls = "◐ open", _OPEN_CLS
+        else:
+            text, cls = "○ idle", _IDLE_CLS
+        if self._label.text != text:
+            self._label.text = text
+            self._label.classes(replace=cls)
 
 
 def _format_range(r: dict[str, Any], units: str = "") -> str:
