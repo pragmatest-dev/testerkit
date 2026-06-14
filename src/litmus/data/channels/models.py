@@ -75,12 +75,12 @@ class ChannelSample(BaseModel):
     sample_interval: float | None = None
     source_method: str = ""
     session_id: str | None = None
-    sequence: int = -1
+    offset: int = -1
     """Monotonic per-(channel, session) write position, stamped by the
     producer. Carried identically into the live batch and the durable
-    segment so a history-to-live stitch can dedup on (session_id,
-    sequence) without timestamp ties. ``-1`` means unstamped. Internal
-    ordering cursor — never a verb parameter."""
+    segment so a history-to-live stitch can dedup on (session_id, offset)
+    without timestamp ties. ``-1`` means unstamped. Internal ordering
+    cursor — never a verb parameter."""
 
 
 # Arrow schemas — minimal columns, no per-row metadata duplication.
@@ -233,7 +233,7 @@ def _infer_schema(value: object) -> pa.Schema:
 
     fields.append(pa.field("source_method", pa.utf8()))
     fields.append(pa.field("session_id", pa.utf8()))
-    fields.append(pa.field("sequence", pa.int64()))
+    fields.append(pa.field("offset", pa.int64()))
     return pa.schema(fields)
 
 
@@ -250,7 +250,7 @@ SCALAR_SCHEMA = pa.schema(
         pa.field("value", pa.float64()),
         pa.field("source_method", pa.utf8()),
         pa.field("session_id", pa.utf8()),
-        pa.field("sequence", pa.int64()),
+        pa.field("offset", pa.int64()),
     ]
 )
 
@@ -262,7 +262,7 @@ ARRAY_SCHEMA = pa.schema(
         pa.field("sample_interval", pa.float64()),
         pa.field("source_method", pa.utf8()),
         pa.field("session_id", pa.utf8()),
-        pa.field("sequence", pa.int64()),
+        pa.field("offset", pa.int64()),
     ]
 )
 
@@ -296,8 +296,31 @@ def sample_schema() -> pa.Schema:
             pa.field("units", pa.utf8()),
             pa.field("sample_interval", pa.float64()),
             pa.field("session_id", pa.utf8()),
-            pa.field("sequence", pa.int64()),
+            pa.field("offset", pa.int64()),
         ]
+    )
+
+
+def samples_to_batch(samples: list[ChannelSample]) -> pa.RecordBatch:
+    """Convert N samples to ONE RecordBatch (the coalesced wire message).
+
+    The columnar counterpart to :func:`sample_to_batch`: builds each column
+    once for the whole list so N samples ride a single gRPC do_put instead of
+    N one-row messages. All samples carry the same schema (``sample_schema``).
+    """
+    return pa.record_batch(
+        {
+            "channel_id": [s.channel_id for s in samples],
+            "received_at": [s.received_at for s in samples],
+            "sampled_at": [s.sampled_at for s in samples],
+            "value": [encode_value(s.value) for s in samples],
+            "source_method": [s.source_method for s in samples],
+            "units": [s.units or "" for s in samples],
+            "sample_interval": [s.sample_interval for s in samples],
+            "session_id": [s.session_id for s in samples],
+            "offset": [s.offset for s in samples],
+        },
+        schema=sample_schema(),
     )
 
 
@@ -314,7 +337,7 @@ def sample_to_batch(sample: ChannelSample) -> pa.RecordBatch:
             "units": [sample.units or ""],
             "sample_interval": [sample.sample_interval],
             "session_id": [sample.session_id],
-            "sequence": [sample.sequence],
+            "offset": [sample.offset],
         },
         schema=sample_schema(),
     )
@@ -358,11 +381,11 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
     if "session_id" in columns:
         session_id = batch.column("session_id")[i].as_py() or None
 
-    sequence = -1
-    if "sequence" in columns:
-        seq_val = batch.column("sequence")[i].as_py()
+    offset = -1
+    if "offset" in columns:
+        seq_val = batch.column("offset")[i].as_py()
         if seq_val is not None:
-            sequence = seq_val
+            offset = seq_val
 
     return ChannelSample(
         channel_id=batch.column("channel_id")[i].as_py(),
@@ -373,5 +396,5 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
         sample_interval=sample_interval,
         source_method=source_method,
         session_id=session_id,
-        sequence=sequence,
+        offset=offset,
     )

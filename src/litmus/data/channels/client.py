@@ -41,7 +41,7 @@ class ChannelClient:
         self._reader_threads: list[threading.Thread] = []
         self._stop = threading.Event()
         # Per-channel monotonic write position — this remote producer stamps
-        # the same sequence the in-process ChannelStore does, so the daemon
+        # the same offset the in-process ChannelStore does, so the daemon
         # carries it unchanged into both the relayed live batch and the index.
         self._channel_seq: dict[str, itertools.count] = {}
 
@@ -76,7 +76,7 @@ class ChannelClient:
                 "units": [units or ""],
                 "sample_interval": [sample_interval],
                 "session_id": [session_id],
-                "sequence": [seq],
+                "offset": [seq],
             },
             schema=schema,
         )

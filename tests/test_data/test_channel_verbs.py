@@ -81,7 +81,7 @@ def test_window_prefills_history_then_continues_live() -> None:
     lock = threading.Lock()
 
     def collect(batch: pa.RecordBatch) -> None:
-        seqs = batch.column("sequence").to_pylist()
+        seqs = batch.column("offset").to_pylist()
         with lock:
             delivered.extend(seqs)
 
@@ -114,16 +114,16 @@ def test_dedup_against_history_drops_covered_rows() -> None:
     batch = pa.record_batch(
         {
             "session_id": ["s1", "s1", "s1", "s2"],
-            "sequence": [3, 4, 5, 0],
+            "offset": [3, 4, 5, 0],
         }
     )
-    # s1 history reached sequence 4; s2 has no history.
+    # s1 history reached offset 4; s2 has no history.
     survivors = _dedup_against_history(batch, {"s1": 4})
     assert survivors is not None
     pairs = list(
         zip(
             survivors.column("session_id").to_pylist(),
-            survivors.column("sequence").to_pylist(),
+            survivors.column("offset").to_pylist(),
             strict=True,
         )
     )

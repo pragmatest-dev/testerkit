@@ -71,6 +71,44 @@ def _channel_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]
     return (t0, _now())
 
 
+def _channel_write_many_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]:
+    from litmus.data.channels.store import ChannelStore
+
+    store = ChannelStore(Path(data_dir), uuid4(), flush_threshold=50, serve=True)
+    store.open()
+    ch = f"dmm.voltage_w{seed}"
+    block = [3.3 + (i % 100) * 0.01 for i in range(1000)]  # bare-value batch
+    nb = max(1, scale // len(block))
+    t0 = _now()
+    try:
+        for _ in range(nb):
+            store.write_many(ch, block)
+    finally:
+        store.close()
+    return (t0, _now())
+
+
+def _channel_stream_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]:
+    import litmus.channels as channels_mod
+    from litmus.data.channels.store import ChannelStore
+    from litmus.execution._state import set_channel_store
+
+    store = ChannelStore(Path(data_dir), uuid4(), flush_threshold=50, serve=True)
+    store.open()
+    set_channel_store(store)
+    ch = f"dmm.voltage_w{seed}"
+    values = [3.3 + (i % 100) * 0.01 for i in range(scale)]
+    t0 = _now()
+    try:
+        with channels_mod.stream(ch) as sink:
+            for v in values:
+                sink.write(v)
+    finally:
+        store.close()
+        set_channel_store(None)
+    return (t0, _now())
+
+
 def _file_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]:
     from litmus.data.files.store import FileStore
 
@@ -131,6 +169,8 @@ def _representative_worker(data_dir: str, scale: int, seed: int) -> tuple[float,
 _WORKERS = {
     "events.emit": _event_worker,
     "channels.write": _channel_worker,
+    "channels.write_many": _channel_write_many_worker,
+    "channels.stream": _channel_stream_worker,
     "files.write": _file_worker,
     "runs.save": _runs_worker,
     "representative.production": _representative_worker,

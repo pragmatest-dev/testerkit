@@ -1327,10 +1327,10 @@ def channels_query(
             last_n=last_n,
             max_points=max_points,
         )
-    # ``sequence`` is an internal ordering cursor (the window-stitch dedup key),
+    # ``offset`` is an internal ordering cursor (the window-stitch dedup key),
     # never part of the public read contract — drop it from query results.
-    if "sequence" in table.column_names:
-        table = table.drop_columns(["sequence"])
+    if "offset" in table.column_names:
+        table = table.drop_columns(["offset"])
     return {"channel_id": channel_id, "data": table.to_pylist()}
 
 
