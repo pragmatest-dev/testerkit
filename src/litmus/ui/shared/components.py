@@ -939,8 +939,9 @@ class LiveBadge:
         self._last_sample = time.monotonic()
 
     def mark_started(self) -> None:
-        """Lifecycle: ``channel.started`` seen (thread-safe field write)."""
+        """Lifecycle: channel is open — a (re)start clears a prior close."""
         self._started = True
+        self._closed = False
 
     def mark_closed(self) -> None:
         """Lifecycle: ``channel.closed`` / session ended — terminal."""

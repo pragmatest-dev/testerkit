@@ -113,13 +113,34 @@ def channel_detail_page(
         try:
             event_store = EventStore.get_shared(resolve_data_dir())
 
-            def _on_started(evt: dict) -> None:
-                if evt.get("channel_id") == channel_id:
+            # channel.started/closed replay as two independent streams, so an
+            # older session's close must not mark a channel a newer session
+            # has reopened. Compare the latest start vs latest close timestamp
+            # (ISO strings sort chronologically) to decide the current state.
+            last_started = [""]
+            last_closed = [""]
+
+            def _apply_lifecycle() -> None:
+                if not last_started[0]:
+                    return
+                if last_closed[0] >= last_started[0]:
+                    live_badge.mark_closed()
+                else:
                     live_badge.mark_started()
 
+            def _on_started(evt: dict) -> None:
+                if evt.get("channel_id") != channel_id:
+                    return
+                ts = str(evt.get("received_at") or evt.get("occurred_at") or "")
+                last_started[0] = max(last_started[0], ts)
+                _apply_lifecycle()
+
             def _on_closed(evt: dict) -> None:
-                if evt.get("channel_id") == channel_id:
-                    live_badge.mark_closed()
+                if evt.get("channel_id") != channel_id:
+                    return
+                ts = str(evt.get("received_at") or evt.get("occurred_at") or "")
+                last_closed[0] = max(last_closed[0], ts)
+                _apply_lifecycle()
 
             ui_subscribe(event_store, _on_started, event_type="channel.started")
             ui_subscribe(event_store, _on_closed, event_type="channel.closed")
