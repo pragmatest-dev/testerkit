@@ -257,13 +257,12 @@ plugin (`pytest_plugin/__init__.py:255-257`), both via `set_channel_store(...)`.
 (`files.py:50-69`). Session contextvars: `set_event_store`/`set_channel_store` in
 `execution/_state.py`; `session_id` via `resolve_session_id`.
 
-**Design decision (Option A — process-scoped session, reused):** the first producer in a process
-lazily opens **one** process session; `connect()`, the pytest plugin, and bare writes all attach
-to / reuse it; it closes at process-exit (atexit) or via the P3 lease. `connect()` block-exit
-releases instruments + ends the **run**, never the session. Matches pytest (one session/process)
-and "one correlation root per producer process." **Watch-point / escalate if it conflicts:** the
-pytest plugin and slot orchestrator already own a session — the process owner must unify with them
-(first-opener owns; others attach), not double-open.
+**Design decision (refined — see "Session ownership, multi-process & cleanup" below):** the
+session is owned by the **producer control-context** (1 per simple process; **N per multiplexing
+server** like `litmus serve`), NOT a process singleton. The primitive is **context-local**
+(contextvar-based) and supports multiple concurrent sessions per process. Close authority is the
+**P3 reaper (derived)**; explicit `SessionEnded` is a quiescence-proven fast-path only.
+`connect()` block-exit releases instruments + ends the **run**, never force-closes the session.
 
 **Sub-steps:**
 - **2a — Session primitive (behavior-preserving extraction).** Introduce an internal session-scope
@@ -281,6 +280,37 @@ pytest plugin and slot orchestrator already own a session — the process owner 
 - **2d — connect()-exit decoupling.** Split `stop()`: block-exit releases instruments + ends the RUN
   (reconnect `__exit__`'s outcome to the run end — fixes P1's dead `stop(outcome=)` param); do NOT
   emit `SessionEnded` on block-exit; the session ends at process-exit (atexit) / P3 lease.
+
+## Session ownership, multi-process & cleanup (refined model)
+
+1. **Uniform model: correlation root with a *derived* close.** A session holds no scarce resource
+   (OTel-shaped); its terminal state is **derived by the single reaper** (all participants quiescent
+   + lease). **No peer ever force-closes a session** → multi-process sharing is safe by construction.
+2. **Ownership = originator; explicit close is a quiescence-proven fast-path only.** Emitted only by
+   a context that can prove no one else writes — a sole producer, or an orchestrator post-join.
+   Otherwise the reaper derives it. The reaper is always the authority.
+3. **Multi-process forms:** *Multi-DUT* = one session, owner spawns+injects+**joins** workers then
+   fast-path-closes (+ lease backstop); the join reclaims **run** instruments, not the session.
+   *Many interactive UIs* = many independent sessions, one per control-context (1/simple process,
+   **N per multiplexing server**), each owns+closes its own, lease reaps the vanished. *Distributed
+   peers (HIL)* = legitimate only as one logical activity; works because close is derived (no owner
+   to join). *Not legitimate:* sharing a session merely to correlate independent producers —
+   correlation is metadata/query (campaign/DUT/date), never shared lifecycle.
+4. **Runs are the specialization** (scarce instruments, structured join/close, outcome, pid-death
+   force-close + cascade) — kept out of the session model.
+5. **Cleanup — instrument locks are pid-local and fully decoupled from sessions.** The instrument
+   **lock self-releases via OS `flock` on process death** incl. SIGKILL (same-host) — no leak; the
+   `.lock` file is cosmetic. A held lock does NOT keep a session open (liveness = spine recency,
+   not lock-holding); session close does NOT release a lock (the OS does, on pid death); a session
+   may be reaped while a hung-but-alive process still holds its lock — correct, don't yank a lock
+   from a live process. The only link is the uniform one: instrument *activity* emits session-tagged
+   events that renew the lease like any operation. So locks impose **zero concerns on session
+   management.** Graceful close additionally calls `pool.release_all()` as a courtesy; the **session
+   + UI "in-use" indicator** clear via the **derived `SessionEnded`** (the indicator keys off
+   `session.ended`), independent of the lock. **Residual (not a session concern):** hardware
+   safe-state on abrupt death → next-acquirer re-init (follow-on #36).
+6. **Build:** primitive is context-local / N-per-process; P3 reaper = real close authority; explicit
+   close = fast-path; instrument lifecycle stays a run concern; 2a keeps today's explicit closes.
 
 ## Progress log (keep current)
 
