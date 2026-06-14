@@ -575,3 +575,66 @@ Drove the operator UI live (example 09 producer + `litmus serve`, Playwright):
   (set `LITMUS_STREAM_SECONDS`). Watch `/channels/dmm.voltage`.
 - Daemon-test hygiene: no `tmp_path` daemons; `resolve_data_dir()`; kill stray
   `flight_daemon`/`litmus serve` before daemon-spawning runs.
+
+---
+
+# Built — 2026-06-14 (Half A + Half B Slice 1)
+
+**Branch:** `spike/batch-native-channels`. Full suite green throughout.
+
+## Half A — single-offset channel ticket (`7bd5e34`)
+A channel reference is now a single-offset `ChannelTicket(channel_id, session_id,
+offset)`. `make_channel_uri(offset=)` / `parse_channel_uri` carry it; `write`/
+`observe` (n==1) return offset-qualified URIs; `write_many`/sink stay un-offset
+(the deferred range case). `load_ref` slices by `ticket.offset`. Fixes the
+10-vector-sweep stamps-identical-URIs bug. **Ranges (`[start,end]`) were dropped
+as YAGNI** — observe is always one row (an array is one offset's *value*); a true
+range only appears in streaming/batch, and adding `end_offset` later is provably
+additive (proven surface-by-surface). Decide channel-vs-file range *encoding*
+together at the streaming step.
+
+## Half B Slice 1 — channel identity & liveness (4 commits)
+- **P1 `b43ea50`** — hostname on the durable descriptor. `ChannelDescriptor`
+  gains `hostname`/`session_id`; the store **self-resolves `socket.gethostname()`**
+  (not a station config — not every producer has one; and it must be the raw
+  producer host the pid-liveness keys on). Rides in segment metadata.
+- **P2 `652dd1a`** — derived non-unique `channel_registry` table in the channel
+  daemon's DuckDB: one version row per `(channel, session)`, hostname a grouping
+  column. Sourced from the per-session descriptor (NOT the channel-keyed cache).
+  `last_updated` advanced by the scan fold + live `ingest_batch`.
+- **P3 `9fb7b02`** — `do_get __registry__` verb + `ChannelClient.channel_registry()`
+  + `channels_liveness_query` (mcp): registry rows × event-store terminal lifecycle
+  (`channel.closed`/`session.ended`), joined in-process → `{live, open_stale,
+  closed, dead}`. Channel store = truth; event store = augmentation.
+- **P4 `9e16d0d`** — sessions self-heal: the orphan sweep emits
+  `SessionEnded(outcome="aborted")` on **same-host + pid-death** (never the
+  no-events timeout). Pool tracks open *sessions* (runless/idle ones `open_runs`
+  can't see).
+
+**Key architecture call (settled this session):** for channels the **ChannelStore
+is the source of truth**, NOT events — the store registers, then *emits*
+`ChannelStarted` as a downstream notification (opposite of the runs flow). Liveness
+= lifecycle (event-store augmentation) + `last_updated` recency staleness.
+
+## Deferred queue (in order)
+1. **Half B Slice 2** — `declare`→standing-watch (consumer binds when its expected
+   `(hostname, channel)` goes live, re-binds across restarts) + active-match
+   (subscribing to a dead channel errors, not silent-empty).
+2. **Wire `channels_liveness_query`** as an MCP tool + HTTP endpoint + UI badge;
+   add the full producer→daemon kill e2e (unit suite has the pool + predicate +
+   verb round-trip; the 30s-sweep e2e is manual for now).
+3. **Live-badge finding — INSTRUMENT, don't guess.** Producer *does* push live
+   cross-process (`serve=True`→`do_put`, verified). The idle badge is likely
+   daemon-identity (producer vs `litmus serve` resolving different ref-counted
+   daemons / data dirs). Repro live with logging on both processes; don't bake an
+   unverified cause into a fix.
+4. **`StationInfo` event** — richer declared station metadata (config id/name/
+   location/label) keyed to the session, SEPARATE from the runtime socket host.
+   Justified by the host-source split in P1.
+5. **`offset` → `sample_offset` rename** — channel column + index + wire schema +
+   `ChannelSample.offset` + the Half A ticket field/URI param, swept together. No
+   backcompat; needs a `data/channels` clear.
+6. **Cross-host pid liveness** — P4 self-heal is same-host only (`os.kill` is
+   host-local); a remote producer needs a different liveness probe.
+7. **Tuning levers** + **files-streaming** + **stacked cross-session compare**
+   (from the prior handoff queue).
