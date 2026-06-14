@@ -54,6 +54,23 @@ shape. Present, not prevent.
   mutate elements inside `ui_subscribe` callbacks; converge them onto
   holder+timer (see `live-ui-pattern.md`).
 
+### 6. Show live status of channels on the `/channels` list table
+The detail badge derives live from lifecycle events (`ChannelStarted ∧
+¬ChannelClosed`, latest-start vs latest-close); the **list** page has no live
+column (any liveness it derives is activity-based, not lifecycle). Add a Live
+column driven by lifecycle events — the channel twin of the new `/files` live
+table. Reuse `LiveBadge` pills + the holder+timer rule.
+
+### 7. Channel tuning consolidation → shared `StreamTuning` (files reuses)
+Handoff deferred item 7 — NOT done. Collect the 9 scattered knobs
+(`_ChannelSink._FLUSH_ROWS`/`_FLUSH_INTERVAL`, `ChannelStore(flush_threshold=)`,
+the **unplumbed** `BufferedIPCWriter.flush_interval`, `_pending_threshold`, push
+queue `maxsize=10_000`, `_PUSH_MAX_ROWS`/`_PUSH_MAX_WAIT`, `_SubscriberRing
+maxsize=1024`) into one config object, plumb `flush_interval`, surface the
+durability pair (`flush_threshold`, `flush_interval`) toward `litmus.yaml`.
+**Files-streaming reuses the same object** — make it a shared `StreamTuning`
+(channels + files), not channels-only.
+
 ## Done (committed)
 - Live-UI convergence (P3a–d): `LiveBadge` state+timer, detail page
   async/io_bound + holder/timer, channel values panel, contributor note.
