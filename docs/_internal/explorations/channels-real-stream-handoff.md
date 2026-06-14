@@ -488,3 +488,90 @@ which shrinks under contention. No 2× expectation; the verbs are aligned.
   clean for now, lift to shared when files needs it). Fix the synchronous
   `publish_frame` (the "same disease" channels had) and the non-atomic streaming
   sidecar (Rule F2).
+
+---
+
+# Next-session handoff (2026-06-13): queue + findings (context that lived only in chat)
+
+**Branch:** `spike/batch-native-channels`. **Committed:** `e6b0fc5` (the alignment
+above). Full suite 2048 passed. The items below were shaped in conversation and are
+NOT yet built — written here so a fresh context can resume.
+
+## Remaining queue (user's order)
+
+1. **Track 2 — discovery / identity / liveness / ticket** (the big one; shaping below).
+2. **Tuning levers** — collect the 9 scattered knobs into one `ChannelTuning` object
+   and PLUMB `flush_interval`. Inventory: `_ChannelSink._FLUSH_ROWS`/`_FLUSH_INTERVAL`
+   (`channels.py`), `ChannelStore(flush_threshold=)`, **`BufferedIPCWriter.flush_interval`
+   (currently UNREACHABLE — `_ChannelWriter` never passes it; stuck at 1.0 s)**,
+   `_pending_threshold`, push queue `maxsize=10_000`, `_PUSH_MAX_ROWS`/`_PUSH_MAX_WAIT`,
+   `_SubscriberRing maxsize=1024`. Surface the durability pair (`flush_threshold`,
+   `flush_interval`) toward `litmus.yaml`. Files reuses the object.
+3. **PR to 0.2.0** — PR `spike/batch-native-channels` → the v0.2.0 integration branch
+   (confirm exact branch name via `git branch -a | grep 0.2.0`). PRs are explicit-only;
+   the user asked for this one. Stack if sequential.
+4. **Files-streaming** — the next store, same shape (see the Resolution "Open/next").
+5. **Stacked cross-session compare** on `/channels/{id}` — overlay one trace per
+   `session_id`; `query()` already returns all sessions; align by `offset`/elapsed.
+   Operator-facing identifiers (DUT/date), never raw session UUIDs.
+
+## Track 2 shaping (from this session's conversation)
+
+The crystallized idea: **a consumer DECLARES the channel/shape it expects, and that
+declaration drives a standing watch over the EventStore (`ChannelStarted`) and/or the
+ChannelStore registry that BINDS when a matching channel goes live — and re-binds
+across producer restarts.** A passive `on_channel(name)` that just sits there is what
+fails "page opened before the producer started" and "producer restarted."
+
+Pieces (from the "Track 2 knowledge" section above + this conversation):
+- **Liveness/versioned registry** — today `_registry` is last-write-wins, one
+  descriptor per name, no versioning/liveness/hostname. Track 2 = one row per
+  `(hostname, channel)` with indexed cols, `attributes` JSON, current def + per-session
+  version history, and **liveness/last-seen**. Subscribe by `(hostname, channel)`,
+  default-filter to own host, subscription survives producer restart.
+- **Hostname** — system-sourced (`station_hostname` else `socket.gethostname()`),
+  NEVER a `declare` arg, on the *session* (channels inherit it). Likely a
+  `StationInfo`/`SessionInfo` event after session creation.
+- **Ticket model** — `(channel, session, [offset_start, offset_end])` range refs;
+  `make_channel_uri`/`parse_channel_uri` carry optional `[start,end]`; `write` returns
+  offset-qualified tickets; `observe` stamps the ticket on the `Observation` event +
+  `out_*` column with `vector_index`. Fixes the 10-vector-sweep-stamps-identical-URIs
+  bug. Today `make_channel_uri` carries neither offset nor range (`ref.py`).
+- **Active-match** — today `do_get`/`_live_stream` registers a ring for ANY name with
+  no active check; subscribe to a dead channel → silent empty stream. Track 2 validates
+  against the live registry.
+
+NOTE: I was about to spawn an Explore agent over the Track 2 surfaces (registry,
+`server.py` list_flights/do_get, `ref.py` make_channel_uri, `events.py`
+ChannelStarted, `event_store.py` on_event cursor/replay) — do that first to ground a
+Track 2 plan. Track 2 has real design forks (registry schema, URI ticket format,
+version-history storage) → plan it, don't auto-pilot.
+
+## The live-UI finding (IMPORTANT — not otherwise recorded)
+
+Drove the operator UI live (example 09 producer + `litmus serve`, Playwright):
+- **At-rest/history UI: works** — `/channels/dmm.voltage` rendered descriptor, chart,
+  1000-sample table.
+- **Live badge stayed "○ idle"** with a producer actively streaming at 50 Hz, in place,
+  no reload — so live-append-to-an-open-page is UNCONFIRMED.
+- **Critical nuance:** Phase C's runtime segment-scan means **"query works" no longer
+  proves "live push works"** — the table can populate entirely from disk segments while
+  the live relay does nothing. The badge is the only true live indicator, and it's not
+  firing. Likely orthogonal/pre-existing (the daemon relay path was untouched; only
+  producer-side enqueue changed) — user chose to fold the fix into Track 2
+  (declare→standing-watch). To investigate properly: clean env (no mid-session daemon
+  kills), trace producer push → daemon `ingest_batch`/relay → UI `on_channel`.
+- The detail page drives "live" off **sample arrival** (`ui_channel_data` →
+  `on_channel`), NOT `ChannelStarted` events — even though `event_binding.py` has the
+  event plumbing. That's the wiring Track 2 should change.
+
+## Gotchas / how-to
+
+- **Stale pre-rename index** (column `sequence`, not `offset`) breaks queries with a
+  Binder Error; sanctioned migration = clear `data/channels` (no backcompat). The
+  example-09 channels dir was cleared this session (gitignored, regenerable).
+- **UI demo recipe:** `uv run --directory examples/09-instrument-streaming litmus serve`
+  + `uv run --directory examples/09-instrument-streaming python scripts/live_dmm_monitor.py`
+  (set `LITMUS_STREAM_SECONDS`). Watch `/channels/dmm.voltage`.
+- Daemon-test hygiene: no `tmp_path` daemons; `resolve_data_dir()`; kill stray
+  `flight_daemon`/`litmus serve` before daemon-spawning runs.
