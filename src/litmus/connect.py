@@ -33,9 +33,9 @@ from litmus.data.event_log import EventLog
 from litmus.data.event_store import EventStore
 from litmus.data.events import (
     InstrumentConfigure,
-    SessionEnded,
     SessionStarted,
 )
+from litmus.execution.session_scope import SessionScope, open_session
 from litmus.instruments.pool import InstrumentPool
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.station import StationConfig
@@ -60,6 +60,7 @@ class StationConnection:
         self._data_dir = data_dir
         self._mock = mock
         self._session_id = uuid4()
+        self._scope: SessionScope | None = None
         self._event_store: EventStore | None = None
         self._event_log: EventLog | None = None
         self._pool: InstrumentPool | None = None
@@ -69,16 +70,33 @@ class StationConnection:
         self._started = False
 
     def start(self) -> None:
-        """Create EventLog, emit SessionStarted, wire session-level ContextVars."""
+        """Open the session (emit SessionStarted, wire ContextVars) + connect capabilities."""
         if self._started:
             return
 
-        self._event_store = EventStore(_data_dir=self._data_dir)
-        self._event_log = self._event_store.get_event_log(self._session_id)
+        # Open the producer session via the shared primitive: it creates the
+        # EventStore + EventLog, wires the EventStore ContextVar, and emits
+        # SessionStarted. connect always owns its EventStore (reuse_existing=False).
+        started = SessionStarted.from_station(
+            session_id=self._session_id,
+            station_id=self._config.id,
+            station_name=self._config.name,
+            station_type=self._config.station_type,
+            station_location=self._config.location,
+            session_type="interactive",
+        )
+        self._scope = open_session(
+            started,
+            session_id=self._session_id,
+            data_dir=self._data_dir,
+            reuse_existing=False,
+            emit_lifecycle=True,
+        )
+        self._event_store = self._scope.event_store
+        self._event_log = self._scope.event_log
 
-        # Create ChannelStore directly (not as EventLog subscriber).
-        # Pass event_log so ChannelStore can emit ChannelStarted /
-        # ChannelClosed lifecycle events (item 4b consolidation).
+        # ChannelStore is opened eagerly here today (lazy attach lands in a later
+        # phase). Pass event_log so it can emit ChannelStarted / ChannelClosed.
         self._channel_store = ChannelStore(
             self._event_store._data_dir,
             self._session_id,
@@ -87,15 +105,11 @@ class StationConnection:
         )
         self._channel_store.open()
 
-        # Wire the session-level ContextVars so module-level surfaces
-        # (``litmus.channels.stream``, ``litmus.files.write``, etc.)
-        # resolve to this session's stores. Same shape as the pytest
-        # plugin's session setup — without this, interactive code that
-        # calls ``channels.stream(name)`` raises "no active
-        # ChannelStore" even though the connection just opened one.
-        from litmus.execution._state import set_channel_store, set_event_store
+        # Wire the ChannelStore ContextVar (open_session wired the EventStore) so
+        # module-level surfaces (``litmus.channels.stream``, ``litmus.files.write``)
+        # resolve to this session's stores.
+        from litmus.execution._state import set_channel_store
 
-        set_event_store(self._event_store)
         set_channel_store(self._channel_store)
 
         self._pool = InstrumentPool(
@@ -114,17 +128,6 @@ class StationConnection:
         from litmus.execution.sync import get_sync
 
         self._sync_point = get_sync(self._event_store)
-
-        self._event_log.emit(
-            SessionStarted.from_station(
-                session_id=self._session_id,
-                station_id=self._config.id,
-                station_name=self._config.name,
-                station_type=self._config.station_type,
-                station_location=self._config.location,
-                session_type="interactive",
-            )
-        )
         self._started = True
 
     @property
@@ -191,7 +194,7 @@ class StationConnection:
         return self._instrument_server.address_str
 
     def stop(self, outcome: str = "passed") -> None:
-        """Release all instruments, emit SessionEnded, close EventLog."""
+        """Release instruments, then close the session (SessionEnded + store teardown)."""
         if not self._started:
             return
 
@@ -204,12 +207,11 @@ class StationConnection:
         if self._pool:
             self._pool.release_all()
 
-        if self._event_log:
-            self._event_log.emit(
-                SessionEnded(
-                    session_id=self._session_id,
-                )
-            )
+        # End the session via the primitive: emit SessionEnded (best-effort fast-path
+        # — connect is the sole producer of its session), then close stores. The
+        # ChannelStore closes BEFORE the event log so its subscribers flush first.
+        if self._scope is not None:
+            self._scope.emit_ended()
 
         if self._channel_store:
             self._channel_store.close()
@@ -217,17 +219,15 @@ class StationConnection:
 
         self._sync_point = None
 
-        if self._event_store:
-            self._event_store.close()
-            self._event_store = None
+        if self._scope is not None:
+            self._scope.close_stores()  # closes log + (owned) EventStore + clears its ContextVar
+            self._scope = None
+        self._event_store = None
         self._event_log = None
 
-        # Clear the session-level ContextVars wired in ``start()``.
-        # Mirrors the pytest plugin's teardown — without this, a later
-        # call to ``litmus.channels.stream`` would target a closed store.
-        from litmus.execution._state import set_channel_store, set_event_store
+        # Clear the ChannelStore ContextVar (close_stores cleared the EventStore one).
+        from litmus.execution._state import set_channel_store
 
-        set_event_store(None)
         set_channel_store(None)
 
         deregister_cleanup(str(self._session_id))
