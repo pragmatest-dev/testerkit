@@ -11,6 +11,7 @@ catalog is rebuilt from them on every daemon start.
 from __future__ import annotations
 
 import json
+import queue
 import threading
 import warnings
 from collections.abc import Callable
@@ -233,6 +234,93 @@ def publish_frame(
         warnings.warn(f"Files frame publish failed (non-fatal): {exc}", stacklevel=2)
     finally:
         release(files_dir)
+
+
+class _FrameRelay:
+    """Per-stream frame fan-out, off the writer's hot path.
+
+    Mirrors the channel push relay (``channels/store.py``): the writer enqueues a
+    frame non-blocking; a background thread coalesces and ``do_put``s them to the
+    daemon. Resolving the daemon ONCE (at :func:`open_frame_relay`) keeps the
+    per-chunk ``is_running``/``do_put`` cost off ``StreamingSink.write`` — the
+    "same disease" channels had. On overflow it drops the oldest frame and counts
+    it (live = from-now; the on-disk byte stream is the durable record), so a slow
+    subscriber can never block or unbound-buffer the writer.
+    """
+
+    _MAX_ROWS = 256  # frames coalesced per do_put
+    _DESCRIPTOR = flight.FlightDescriptor.for_command(f"{FRAMES_DB}\0frames".encode())
+
+    def __init__(self, files_dir: Path, location: str, *, maxsize: int = 1024) -> None:
+        self._files_dir = files_dir
+        self._location = location
+        self._q: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=maxsize)
+        self._dropped = 0
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._drain, name="files-frame-relay", daemon=True)
+        self._thread.start()
+
+    @property
+    def dropped(self) -> int:
+        """Frames dropped under overflow — the gap signal a subscriber can see."""
+        return self._dropped
+
+    def publish(self, row: dict[str, Any]) -> None:
+        """Enqueue a frame non-blocking; drop-oldest + count on overflow."""
+        try:
+            self._q.put_nowait(row)
+        except queue.Full:
+            try:
+                self._q.get_nowait()
+            except queue.Empty:
+                pass
+            self._dropped += 1
+            try:
+                self._q.put_nowait(row)
+            except queue.Full:
+                pass
+
+    def _drain(self) -> None:
+        client = _get_pooled_client(self._location)
+        while True:
+            try:
+                rows = [self._q.get(timeout=0.05)]
+            except queue.Empty:
+                if self._stop.is_set():
+                    return
+                continue
+            while len(rows) < self._MAX_ROWS:
+                try:
+                    rows.append(self._q.get_nowait())
+                except queue.Empty:
+                    break
+            try:
+                tbl = pa.Table.from_pylist(rows, schema=FRAME_ARROW_SCHEMA)
+                writer, _ = client.do_put(self._DESCRIPTOR, tbl.schema, options=call_options())
+                writer.write_table(tbl)
+                writer.close()
+            except (OSError, RuntimeError, pa.ArrowException) as exc:
+                _drop_pooled_client(self._location)
+                client = _get_pooled_client(self._location)
+                warnings.warn(f"Files frame relay do_put failed (non-fatal): {exc}", stacklevel=2)
+
+    def close(self) -> None:
+        """Flush remaining frames, stop the thread, release the daemon ref."""
+        self._stop.set()
+        self._thread.join(timeout=5.0)
+        release(self._files_dir)
+
+
+def open_frame_relay(files_dir: Path) -> _FrameRelay | None:
+    """Start a non-blocking frame relay iff a catalog daemon is already serving.
+
+    Resolved ONCE per stream (not per chunk). Returns ``None`` when no daemon
+    runs — the common no-subscriber / benchmark case — so the writer's hot path
+    skips all frame work. Never spawns a daemon.
+    """
+    if not is_running(files_dir):
+        return None
+    return _FrameRelay(files_dir, acquire(files_dir))
 
 
 def subscribe_frames(

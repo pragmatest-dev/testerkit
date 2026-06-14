@@ -50,7 +50,7 @@ from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 import orjson
 
 from litmus.data.events import StreamEnded, StreamStarted
-from litmus.data.files.catalog_manager import publish_frame
+from litmus.data.files.catalog_manager import open_frame_relay
 
 # Optional-extra deps: nptdms (TDMS) and h5py (HDF5) are gated behind
 # install extras (``pip install litmus-test[tdms,hdf5]``). The top-level
@@ -246,6 +246,11 @@ class _BaseSink:
         self._stream_id = uuid4()
         self._byte_offset = 0
         self._closed = False
+        # Resolve the live frame fan-out ONCE (not per chunk). ``None`` when no
+        # catalog daemon serves this dir — the writer's hot path then skips all
+        # frame work. When a daemon is up, frames go to a non-blocking background
+        # relay so the per-chunk do_put never blocks the writer.
+        self._relay = open_frame_relay(files_dir)
         # Emit StreamStarted at construction (NOT at first write) so
         # the ``.uri`` property — valid from construction onward — is
         # never returned for a stream that hasn't announced itself to
@@ -339,16 +344,23 @@ class _BaseSink:
             return
         prev = self._byte_offset
         self._byte_offset += length
-        publish_frame(
-            self._files_dir,
-            stream_id=str(self._stream_id),
-            uri=self._uri,
-            byte_offset=prev,
-            length=length,
-            payload=payload,
-        )
+        if self._relay is not None:
+            self._relay.publish(
+                {
+                    "stream_id": str(self._stream_id),
+                    "uri": self._uri,
+                    "byte_offset": prev,
+                    "length": length,
+                    "payload": payload,
+                }
+            )
 
     def _emit_ended(self, uri: str) -> None:
+        # Flush + stop the frame relay before announcing the stream closed, so a
+        # subscriber sees every frame before StreamEnded.
+        if self._relay is not None:
+            self._relay.close()
+            self._relay = None
         if self._event_log is None:
             return
         size_bytes = self._byte_offset if self._byte_offset > 0 else None
