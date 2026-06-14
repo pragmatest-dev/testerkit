@@ -467,7 +467,6 @@ def _run_subprocess_mode(
     slots: dict[str, ResolvedSlot],
     uuts: dict[str, UUT],
     session_id: UUID,
-    event_store,
     shared_roles: set[str] | None = None,
     station_instruments: dict[str, Any] | None = None,
     mock_all: bool = False,
@@ -481,8 +480,9 @@ def _run_subprocess_mode(
     """
     import sys
 
-    from litmus.data.events import SessionEnded, SessionStarted
+    from litmus.data.events import SessionStarted
     from litmus.execution._state import get_current_logger
+    from litmus.execution.session_scope import open_session
 
     server = None
     shared_drivers: dict[str, Any] = {}
@@ -542,9 +542,6 @@ def _run_subprocess_mode(
             server.start()
 
     current_logger = get_current_logger()
-    event_log = None
-    if event_store is not None:
-        event_log = event_store.get_event_log(session_id)
 
     station_id = ""
     station_name = None
@@ -563,20 +560,25 @@ def _run_subprocess_mode(
         operator_name = tr.operator_name
         fixture_id = tr.fixture_id
 
-    if event_log is not None:
-        event_log.emit(
-            SessionStarted.from_station(
-                session_id=session_id,
-                station_id=station_id,
-                station_name=station_name,
-                station_type=station_type,
-                station_location=station_location,
-                operator_id=operator_id,
-                operator_name=operator_name,
-                fixture_id=fixture_id,
-                slot_count=len(slots),
-            )
-        )
+    # Open the session via the shared primitive — the orchestrator owns it
+    # (reuse the store if the logger fixture set one, else create + own). Emits
+    # SessionStarted(slot_count); workers attach to this injected session id.
+    scope = open_session(
+        SessionStarted.from_station(
+            session_id=session_id,
+            station_id=station_id,
+            station_name=station_name,
+            station_type=station_type,
+            station_location=station_location,
+            operator_id=operator_id,
+            operator_name=operator_name,
+            fixture_id=fixture_id,
+            slot_count=len(slots),
+        ),
+        session_id=session_id,
+        reuse_existing=True,
+        emit_lifecycle=True,
+    )
 
     try:
 
@@ -603,22 +605,16 @@ def _run_subprocess_mode(
             results = runner.run(
                 child_cmd,
                 on_output=_stream_output,
-                event_store=event_store,
+                event_store=scope.event_store,
             )
         finally:
             set_active_slot_runner(None)
 
         _report_slot_results(session, results)
 
-        if event_log is not None:
-            event_log.emit(
-                SessionEnded(
-                    session_id=session_id,
-                )
-            )
+        scope.emit_ended()
     finally:
-        if event_log is not None:
-            event_log.close()
+        scope.close_stores()  # closes log + (owned) EventStore client connection; daemon untouched
 
         if server is not None:
             server.stop(force=True)
@@ -645,8 +641,7 @@ def run_multi_slot_session(
     """
     import warnings
 
-    from litmus.data.event_store import EventStore
-    from litmus.execution._state import get_current_logger, get_event_store, set_event_store
+    from litmus.execution._state import get_current_logger
     from litmus.execution.slots import detect_shared_instruments, resolve_fixture_slots
     from litmus.execution.uut_provider import CLIUUTProvider
     from litmus.pytest_plugin import _mocks_active
@@ -680,13 +675,6 @@ def run_multi_slot_session(
             stacklevel=1,
         )
 
-    # Reuse the logger's EventStore so sync events from children correlate
-    # with the parent's subscriptions. logger owns close().
-    event_store = get_event_store()
-    if event_store is None:
-        event_store = EventStore()
-        set_event_store(event_store)
-
     current_logger = get_current_logger()
     session_id = current_logger.test_run.session_id if current_logger else uuid4()
 
@@ -697,7 +685,6 @@ def run_multi_slot_session(
         slots,
         uuts,
         session_id,
-        event_store,
         shared_roles=shared_roles,
         station_instruments=station_instruments,
         mock_all=_mocks_active(session.config),

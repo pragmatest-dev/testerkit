@@ -320,7 +320,14 @@ the **P3 reaper (derived)**; explicit `SessionEnded` is a quiescence-proven fast
 
 - [x] 0 — design doc committed (this file)
 - [x] 1 — drop session outcome — `7edc01d` (removed SessionEnded.outcome + slot rollup; readers keyed off event existence not .outcome; stop(outcome=) left for P2)
-- [ ] 2 — correlation-root primitive + behavioral core (KEYSTONE)
+- [~] 2 — KEYSTONE (in progress). **2a done**: `session_scope.open_session`/`SessionScope`
+  primitive (`8a6edf3`) + connect & pytest plugin migrated onto it (`8a6edf3`/`a15bdb6`), full
+  suite green. **Slot orchestrator CONSOLIDATED onto `open_session`** (one-way consistency /
+  anti-drift; full suite green): `run_multi_slot_session` no longer hand-creates the store;
+  `_run_subprocess_mode` owns it via `open_session(reuse_existing=True)` + `emit_ended`/`close_stores`.
+  All producer session-opens now go through the one primitive. **2b** (lazy ChannelStore) / **2c**
+  (write-needs-session gate) / **2d** (connect-exit decoupling) remain — 2d intertwines with P3's
+  lease (session outlives the connect block → process-exit/lease).
 - [ ] 3 — will + spine-only reaper
 - [ ] 4 — terminal finality + cascade
 - [ ] 5 — envelope discipline + per-writer gap detection
@@ -331,6 +338,26 @@ the **P3 reaper (derived)**; explicit `SessionEnded` is a quiescence-proven fast
 _On each completion: append a one-line "what landed" note + commit sha._
 
 ## Follow-on (sequenced after the session core)
+
+- **Measurement storage redesign — JSON/semi-structured (tasks #37 + #38). SEQUENCED LATER:
+  after this session overhaul, after the files branch, and once back on channels.** Surfaced
+  during this work but pre-existing + unrelated to the session migration. Findings (all
+  verified): today `out_*`/`in_*` are wide dynamic typed columns; a single run with mixed
+  types in one column (`out_b: float,str`) **fails materialization and is silently dropped**
+  (`_runs_duckdb_daemon.py:1552` swallows to a `logger.warning`) — a green CI still lost runs.
+  Across files, `union_by_name` promotes mixed types to VARCHAR (verified: `1.5`→`'1.5'`), so a
+  single varying run flips a column corpus-wide and breaks typed/Cpk queries. **Direction:**
+  store `in/out/custom` as JSON/semi-structured — lossless, stable, swap-ready (maps natively to
+  Snowflake VARIANT / Postgres JSONB / BigQuery JSON / DuckDB JSON; req-6 swap = dialect change).
+  **Caveat (benchmarked):** raw JSON-path queries on DuckDB are **2.5× slower (distinct-enum) /
+  8.9× slower (filter)** than typed columns — so the **parametric viewer** (fast input-condition
+  filter + drop-down enumeration) needs a **typed derived index/projection over the JSON source**
+  (the runs-daemon DuckDB index already is a derived projection — extend it). Plus **#37**: emit a
+  durable `RunMaterializationFailed` event instead of swallowing, so no run is ever silently lost.
+  **Also fold in: consolidate the ~14 wide instrument fields** (`step_instruments_*` parallel
+  array columns, `_INSTR_ARRAY_TYPES` in `schemas.py`) into the same semi-structured representation
+  — same wide-column smell, same swap-readiness win. Needs its own shaping pass. 0.2.0 breaking
+  (wipe data, no backcompat).
 
 - **Auto-capture station info at session creation (task #35).** At session open, automatically
   stamp richer STATION context onto `SessionStarted` (beyond station_id/hostname/type/location):
