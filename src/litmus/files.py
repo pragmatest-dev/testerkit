@@ -121,12 +121,14 @@ def write(
 
     full_name = f"{namespace}.{name}" if namespace else name
     sid = _resolve_session_id(session_id)
+    _, run_id = _resolve_event_log_and_run_id()  # run provenance for the catalog
     return get_filestore().write(
         name=full_name,
         value=value,
         session_id=sid,
         vector_id=vector_id,
         attributes=attributes,
+        run_id=run_id,
     )
 
 

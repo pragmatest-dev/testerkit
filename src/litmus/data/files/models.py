@@ -41,3 +41,7 @@ class FileArtifactMetadata(BaseModel):
     # ChannelStore path would have provided.
     instrument_role: str = ""
     resource: str = ""
+    # The run that produced this artifact (when written inside a run), so the
+    # catalog can be filtered by run and the UI can link back. Persisted in the
+    # sidecar so a daemon-restart rescan recovers it. ``None`` for run-less writes.
+    run_id: str | None = None

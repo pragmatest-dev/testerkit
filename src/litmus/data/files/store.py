@@ -98,6 +98,7 @@ class FileStore:
         attributes: dict[str, Any] | None = None,
         instrument_role: str = "",
         resource: str = "",
+        run_id: UUID | None = None,
     ) -> str:
         """Write ``value`` to FileStore; return its ``file://`` URI.
 
@@ -181,6 +182,7 @@ class FileStore:
             attributes=dict(attributes or {}),
             instrument_role=instrument_role,
             resource=resource,
+            run_id=str(run_id) if run_id else None,
         )
         self._backend.write_bytes(f"{key}{_SIDECAR_SUFFIX}", metadata.model_dump_json().encode())
 
@@ -280,6 +282,7 @@ class FileStore:
                 extension=fmt.extension,
                 size_bytes=self._backend.size(key) or 0,
                 attributes=attrs_for_sidecar,
+                run_id=str(run_id) if run_id else None,
             )
             self._backend.write_bytes(
                 f"{key}{_SIDECAR_SUFFIX}", metadata.model_dump_json().encode()

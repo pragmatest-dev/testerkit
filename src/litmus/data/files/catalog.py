@@ -30,6 +30,7 @@ CATALOG_DDL = """
 CREATE TABLE IF NOT EXISTS file_catalog (
     uri VARCHAR PRIMARY KEY,
     session_id VARCHAR,
+    run_id VARCHAR,
     name VARCHAR,
     path VARCHAR,
     mime VARCHAR,
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS file_catalog (
 _CATALOG_COLUMNS = (
     "uri",
     "session_id",
+    "run_id",
     "name",
     "path",
     "mime",
@@ -61,8 +63,11 @@ _CATALOG_COLUMNS = (
     "created_at",
     "attributes",
 )
+# Column-explicit (not ``SELECT *``) so a catalog upgraded via ALTER (which
+# appends run_id at the end) still aligns with the source table by name.
+_INSERT_COLS = ", ".join(_CATALOG_COLUMNS)
 _UPSERT_SQL = (
-    "INSERT INTO file_catalog SELECT * FROM {src} "
+    f"INSERT INTO file_catalog ({_INSERT_COLS}) SELECT {_INSERT_COLS} FROM {{src}} "
     "ON CONFLICT (uri) DO UPDATE SET "
     + ", ".join(f"{c}=excluded.{c}" for c in _CATALOG_COLUMNS if c != "uri")
 )
@@ -71,6 +76,7 @@ CATALOG_ARROW_SCHEMA = pa.schema(
     [
         ("uri", pa.utf8()),
         ("session_id", pa.utf8()),
+        ("run_id", pa.utf8()),
         ("name", pa.utf8()),
         ("path", pa.utf8()),
         ("mime", pa.utf8()),
@@ -110,6 +116,8 @@ FRAME_ARROW_SCHEMA = pa.schema(
 def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """Idempotently align the on-disk catalog schema (additive open)."""
     conn.execute(CATALOG_DDL)
+    # Additive upgrade for catalogs created before run_id existed.
+    conn.execute("ALTER TABLE file_catalog ADD COLUMN IF NOT EXISTS run_id VARCHAR")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_file_catalog_created ON file_catalog(created_at)")
 
 
@@ -141,6 +149,7 @@ def catalog_row(
     return {
         "uri": uri,
         "session_id": session_id,
+        "run_id": meta.run_id,
         "name": name,
         "path": key,
         "mime": meta.mime,
