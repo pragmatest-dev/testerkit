@@ -12,6 +12,7 @@ import json
 import os
 import queue
 import re
+import socket
 import threading
 import time
 import warnings
@@ -248,6 +249,7 @@ class ChannelStore:
         port: int = 0,
         event_log: ChannelEventEmitter | None = None,
         index: bool = False,
+        station_hostname: str | None = None,
     ) -> None:
         # Parent-only convention — caller passes the results parent
         # (containing ``runs/``, ``channels/``, ``events/`` …); the
@@ -255,6 +257,10 @@ class ChannelStore:
         # StepsQuery / MeasurementsQuery / EventStore.
         self._channels_dir = data_dir / "channels"
         self._session_id = session_id
+        # The store runs in the producer process, so its own host IS the channel's
+        # host — resolve it here rather than depending on a station config (which
+        # not every producer path has). Tests may pass an explicit value.
+        self._station_hostname = station_hostname or socket.gethostname()
         self._flush_threshold = flush_threshold
         self._writers: dict[str, _ChannelWriter] = {}
         self._registry: dict[str, ChannelDescriptor] = {}
@@ -440,6 +446,8 @@ class ChannelStore:
             resource=resource,
             attributes=dict(attributes) if attributes else {},
             first_seen=now or datetime.now(UTC),
+            hostname=self._station_hostname,
+            session_id=str(self._session_id),
         )
         self._channel_run_ids[channel_id] = run_id
         if self._event_log is not None:

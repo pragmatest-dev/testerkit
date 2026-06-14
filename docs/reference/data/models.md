@@ -1175,6 +1175,8 @@ Metadata for a single channel, written once when first seen.
 | `instrument_role` | `str` | `''` |
 | `resource` | `str` | `''` |
 | `units` | `str \| None` | `None` |
+| `hostname` | `str` | `''` |
+| `session_id` | `str` | `''` |
 | `attributes` | `dict[str, Any]` | `{}` |
 | `first_seen` | `datetime` | *via* `_utcnow()` |
 

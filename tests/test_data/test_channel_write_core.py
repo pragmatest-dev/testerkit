@@ -9,10 +9,15 @@ only-after-a-restart.
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
 from uuid import uuid4
 
+import pyarrow as pa
+import pyarrow.ipc as ipc
+
 from litmus.data.backends.parquet import load_ref
+from litmus.data.channels.models import ChannelDescriptor
 from litmus.data.channels.store import ChannelStore
 from litmus.data.ref import parse_channel_uri
 
@@ -186,3 +191,35 @@ class TestSingleOffsetTicket:
 
         assert parse_channel_uri(uri).offset is None
         assert load_ref(uri, channel_store=store).num_rows == 3
+
+
+class TestDescriptorHostname:
+    """Every durable channel descriptor carries the producing session's host +
+    id, so the registry can key identity on (hostname, channel)."""
+
+    def test_descriptor_carries_hostname_and_session(self, tmp_path: Path):
+        sid = uuid4()
+        store = ChannelStore(tmp_path, sid, flush_threshold=1, station_hostname="h1")
+        store.open()
+        store.write("dmm.v", 1.0)
+        store.close()
+
+        seg = next((tmp_path / "channels").glob("*/dmm.v_*.arrow"))
+        meta = ipc.open_stream(pa.OSFile(str(seg), "rb")).schema.metadata
+        desc = ChannelDescriptor.model_validate_json(meta[b"litmus.channel_descriptor"])
+        assert desc.hostname == "h1"
+        assert desc.session_id == str(sid)
+
+    def test_hostname_defaults_to_socket(self, tmp_path: Path):
+        # No station config needed — the store resolves its own (producer) host.
+        store = ChannelStore(tmp_path, uuid4(), flush_threshold=1)
+        store.open()
+        store.write("dmm.v", 1.0)
+        store.close()
+        assert store._registry["dmm.v"].hostname == socket.gethostname()
+
+    def test_old_metadata_deserializes_with_defaults(self):
+        # Pre-existing segment metadata lacking the new keys → empty defaults.
+        desc = ChannelDescriptor.model_validate_json('{"channel_id": "c"}')
+        assert desc.hostname == ""
+        assert desc.session_id == ""

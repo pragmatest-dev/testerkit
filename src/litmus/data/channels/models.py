@@ -46,6 +46,10 @@ class ChannelDescriptor(BaseModel):
     instrument_role: str = ""
     resource: str = ""
     units: str | None = None
+    # Producing session's host + id, stamped at registration. The registry keys
+    # identity on (hostname, channel) so it survives a producer restart.
+    hostname: str = ""
+    session_id: str = ""
     # Channel-level metadata bag. Renamed from ``properties`` to
     # ``attributes`` in build item 17 for cross-schema vocabulary
     # consistency (matches FileArtifactMetadata.attributes and
