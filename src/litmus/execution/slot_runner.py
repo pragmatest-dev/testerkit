@@ -611,17 +611,9 @@ def _run_subprocess_mode(
         _report_slot_results(session, results)
 
         if event_log is not None:
-            worst = "passed"
-            for r in results.values():
-                if r.outcome == "errored":
-                    worst = "errored"
-                    break
-                if r.outcome == "failed":
-                    worst = "failed"
             event_log.emit(
                 SessionEnded(
                     session_id=session_id,
-                    outcome=worst,
                 )
             )
     finally:

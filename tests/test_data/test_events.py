@@ -151,7 +151,7 @@ class TestEventModels:
         from litmus.data.events import SessionEnded
 
         with _pytest.raises(ValueError, match="must not have run_id"):
-            SessionEnded(outcome="passed", run_id=uuid4())
+            SessionEnded(run_id=uuid4())
 
     def test_session_started_has_no_run_id(self):
         e = SessionStarted(station_id="st1")
@@ -160,7 +160,7 @@ class TestEventModels:
     def test_session_ended_has_no_run_id(self):
         from litmus.data.events import SessionEnded
 
-        e = SessionEnded(outcome="passed")
+        e = SessionEnded()
         assert e.run_id is None
 
     def test_run_started_slot_index(self):

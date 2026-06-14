@@ -19,7 +19,7 @@ def _started(sid, *, host: str = "h1", pid: int = 999999) -> dict:
 
 
 def _ended(sid) -> dict:
-    return SessionEnded(session_id=sid, outcome="aborted").model_dump(mode="json")
+    return SessionEnded(session_id=sid).model_dump(mode="json")
 
 
 class TestOpenSessions:

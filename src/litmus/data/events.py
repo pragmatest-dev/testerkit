@@ -212,7 +212,6 @@ class SessionEnded(EventBase):
     """Emitted at the end of a session. Must NOT carry run_id."""
 
     event_type: Literal["session.ended"] = "session.ended"
-    outcome: str | None = None
 
     @model_validator(mode="after")
     def _reject_run_id(self) -> SessionEnded:

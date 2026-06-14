@@ -1805,18 +1805,13 @@ def daemon_run(runs_dir: Path) -> None:
                 logger.warning("Failed to emit synthetic SessionEnded for %s: %s", session_id, exc)
 
     def _emit_synthetic_session_ended(es: Any, session_id: str, occurred_at: datetime) -> None:
-        """Emit ``SessionEnded(outcome="aborted")`` for a crashed session (no run_id).
-
-        Counterpart to :func:`_emit_synthetic_run_ended` for the session level —
-        the roll-up verdict of a crash is aborted (its runs finalized aborted).
-        """
+        """Emit ``SessionEnded`` for a crashed session (no run_id)."""
         from litmus.data.events import SessionEnded
 
         es.emit(
             SessionEnded(
                 session_id=UUID(session_id),
                 occurred_at=occurred_at,
-                outcome="aborted",
             )
         )
 

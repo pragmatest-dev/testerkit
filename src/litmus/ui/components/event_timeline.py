@@ -102,7 +102,6 @@ _DETAIL_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "test.step_started": lambda e: e.get("step_name", ""),
     "test.step_ended": _detail_step_ended,
     "run.ended": lambda e: e.get("outcome", ""),
-    "session.ended": lambda e: e.get("outcome", ""),
     "channel.started": _detail_channel_started,
     "channel.closed": lambda e: f"{e.get('channel_id', '')} ({e.get('reason', '')})",
     "stream.started": _detail_stream_started,

@@ -208,7 +208,6 @@ class StationConnection:
             self._event_log.emit(
                 SessionEnded(
                     session_id=self._session_id,
-                    outcome=outcome,
                 )
             )
 

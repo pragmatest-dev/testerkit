@@ -50,9 +50,7 @@ Emitted once at the start of a session (interactive or test orchestrator).
 
 Emitted at the end of a session. Must NOT carry run_id.
 
-| Field | Type | Default |
-|---|---|---|
-| `outcome` | `str \| None` | `None` |
+*(no fields beyond the base; the event_type discriminator is the only marker.)*
 
 ## Run events
 

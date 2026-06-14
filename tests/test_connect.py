@@ -140,7 +140,7 @@ class TestStationConnection:
         assert conn.event_log is not None
         conn.stop()
 
-    def test_context_manager_error_outcome(self):
+    def test_context_manager_emits_session_ended_on_error(self):
         station = _make_station()
         log_path = None
         with pytest.raises(ValueError):
@@ -156,7 +156,7 @@ class TestStationConnection:
         assert log_path is not None
         events = _read_events_from_ipc(log_path)
         ended = [e for e in events if e["event_type"] == "session.ended"]
-        assert ended[0]["outcome"] == "errored"
+        assert len(ended) == 1
 
 
 class TestSessionStartedFields:

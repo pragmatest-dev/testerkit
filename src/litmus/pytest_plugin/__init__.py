@@ -352,14 +352,13 @@ def _teardown_logger(logger: TestRunLogger, event_store: Any) -> None:
     _close_open_class_container(logger)
 
     # finalize() emits RunEnded; it does not close the event log itself.
-    test_run = logger.finalize()
+    logger.finalize()
 
     if logger.event_log is not None:
         if not _is_multi_slot_worker():
             logger.event_log.emit(
                 SessionEnded(
                     session_id=logger._session_id,
-                    outcome=test_run.outcome.value if test_run.outcome else None,
                 )
             )
         logger.event_log.close()
