@@ -43,6 +43,7 @@ from litmus.data.events import (
     RunEnded,
     RunMaterialized,
     RunStarted,
+    SessionEnded,
     SessionStarted,
     StepEnded,
     StepsDiscovered,
@@ -57,6 +58,7 @@ logger = logging.getLogger(__name__)
 # events daemon over Flight; the accumulator works with typed events.
 _EVENT_CLASSES: dict[str, type] = {
     "session.started": SessionStarted,
+    "session.ended": SessionEnded,
     "run.started": RunStarted,
     "run.ended": RunEnded,
     "run.materialized": RunMaterialized,
@@ -80,9 +82,11 @@ class AccumulatorPool:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._accs: dict[str, EventAccumulator] = {}  # run_id → accumulator
-        # Producer pid per session_id, captured from SessionStarted.
-        # Used by the orphan sweep for liveness checks.
+        # Producer pid + host per session_id, captured from SessionStarted and
+        # cleared on SessionEnded. Used by the orphan sweep: the host gates the
+        # pid check (os.kill is host-local), the pid is the liveness probe.
         self._session_pid: dict[str, int] = {}
+        self._session_host: dict[str, str] = {}
         # Most recent event timestamp per run_id — wall-clock fallback
         # for the orphan sweep when pid liveness check is unavailable.
         self._last_event_at: dict[str, datetime] = {}
@@ -128,6 +132,15 @@ class AccumulatorPool:
             if session_id and typed.pid:
                 with self._lock:
                     self._session_pid[session_id] = typed.pid
+                    self._session_host[session_id] = typed.station_hostname or ""
+            return
+
+        if isinstance(typed, SessionEnded):
+            # A cleanly-ended session is no longer open — drop it so the orphan
+            # sweep can't self-heal (re-emit SessionEnded for) it.
+            session_id = str(typed.session_id) if typed.session_id else None
+            if session_id:
+                self.mark_session_ended(session_id)
             return
 
         if isinstance(typed, RunMaterialized):
@@ -194,6 +207,25 @@ class AccumulatorPool:
                 last = self._last_event_at.get(run_id)
                 out.append((run_id, acc, pid, last))
         return out
+
+    def open_sessions(self) -> list[tuple[str, int, str]]:
+        """Return ``(session_id, pid, station_hostname)`` for sessions still open.
+
+        Open = ``SessionStarted`` seen, ``SessionEnded`` not seen. Includes
+        sessions with no open run (runless / idle), which ``open_runs`` can't
+        surface — the orphan sweep needs these to self-heal a crashed producer.
+        """
+        with self._lock:
+            return [
+                (sid, pid, self._session_host.get(sid, ""))
+                for sid, pid in self._session_pid.items()
+            ]
+
+    def mark_session_ended(self, session_id: str) -> None:
+        """Drop a session from the open set (on SessionEnded or after self-heal)."""
+        with self._lock:
+            self._session_pid.pop(session_id, None)
+            self._session_host.pop(session_id, None)
 
     def evict(self, run_id: str) -> EventAccumulator | None:
         """Drop the accumulator for ``run_id`` and return it (or ``None``)."""

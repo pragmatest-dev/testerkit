@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import queue
+import socket
 import sys
 import threading
 import warnings
@@ -33,6 +34,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import duckdb
 import pyarrow as pa
@@ -1783,6 +1785,40 @@ def daemon_run(runs_dir: Path) -> None:
                 logger.info("Finalizing orphan run %s as aborted (%s)", run_id, reason)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Failed to emit synthetic RunEnded for %s: %s", run_id, exc)
+
+        # Self-heal crashed sessions (runs finalized above first). Gate strictly on
+        # SAME-HOST (os.kill is host-local) + PID-DEATH — never the no-events
+        # timeout, which would false-close a legitimately idle long-lived session.
+        daemon_host = socket.gethostname()
+        for session_id, pid, host in pool.open_sessions():
+            if host != daemon_host:
+                continue  # remote / unknown-host producer — pid not locally checkable
+            if _check_pid_liveness(pid) is not False:
+                continue  # alive or indeterminate — leave it (operator/last_updated)
+            try:
+                _emit_synthetic_session_ended(es, session_id, now)
+                pool.mark_session_ended(session_id)
+                logger.info(
+                    "Self-healing crashed session %s as aborted (pid %s gone)", session_id, pid
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to emit synthetic SessionEnded for %s: %s", session_id, exc)
+
+    def _emit_synthetic_session_ended(es: Any, session_id: str, occurred_at: datetime) -> None:
+        """Emit ``SessionEnded(outcome="aborted")`` for a crashed session (no run_id).
+
+        Counterpart to :func:`_emit_synthetic_run_ended` for the session level —
+        the roll-up verdict of a crash is aborted (its runs finalized aborted).
+        """
+        from litmus.data.events import SessionEnded
+
+        es.emit(
+            SessionEnded(
+                session_id=UUID(session_id),
+                occurred_at=occurred_at,
+                outcome="aborted",
+            )
+        )
 
     def _emit_synthetic_run_ended(es: Any, run_id: str, occurred_at: datetime) -> None:
         """Emit ``RunEnded(outcome="aborted")`` for an orphan.
