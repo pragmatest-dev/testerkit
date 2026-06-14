@@ -1,25 +1,26 @@
 """Live channel values table — Position 2 reshape.
 
-Subscribes to :class:`~litmus.data.events.ChannelStarted` for
-discovery (one row per channel that ever wrote in this run) and to
-the per-channel ChannelStore Flight signal for live sample values
-(value + units + last-update timestamp updated push-style on every
-sample).
+Subscribes to :class:`~litmus.data.events.ChannelStarted` for discovery
+(one row per channel that ever wrote in this run) and to the per-channel
+ChannelStore Flight signal for live sample values.
 
-This is the canonical operator view: a stable list of channels with
-their latest reading, no per-sample event flood. Replaces the
-pre-Position-2 wiring that filtered ``instrument.read`` events
-(retired in C1) and is the operator-side counterpart to the design
-doc's "EventStore for discovery, sample transport for data"
-split.
+Follows the live-UI rule (``docs/_internal/explorations/live-ui-pattern.md``):
+the sample callback writes only a plain per-row holder; a single
+``ui.timer`` is the sole renderer. Discovery (adding a row) and close
+(marking a row) are structural and run on the UI loop via
+:func:`ui_subscribe`. So nothing off the UI loop touches an element, and
+the per-sample path never mutates UI directly.
 
-Push-based: no polling.
+This is the canonical operator view: a stable list of channels with their
+latest reading, no per-sample event flood.
+
+Push-based: no polling for data — the timer only paints what already arrived.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from dataclasses import dataclass
 from uuid import UUID
 
 from nicegui import ui
@@ -30,6 +31,20 @@ from litmus.ui.shared.event_binding import ui_channel_data, ui_subscribe
 from litmus.ui.shared.timestamps import format_time_short
 
 
+@dataclass
+class _ChannelRow:
+    """Per-channel row: label handles + the latest reading the timer paints."""
+
+    val_lbl: ui.label
+    units_lbl: ui.label
+    ts_lbl: ui.label
+    value: object = None
+    units: str = ""
+    ts: str = ""
+    closed: bool = False
+    dirty: bool = True
+
+
 def create_channel_values_panel(
     store: EventStore,
     *,
@@ -37,20 +52,18 @@ def create_channel_values_panel(
 ) -> tuple[ui.column, Callable[[], None]]:
     """Auto-discover channels and show a live-values table.
 
-    ``run_id`` filters the ``ChannelStarted`` discovery subscription to
-    the matching run — operators on ``/live/{run_id}`` only see channels
-    from the run they're looking at. ``None`` shows everything.
+    ``run_id`` filters the ``ChannelStarted`` discovery subscription to the
+    matching run — operators on ``/live/{run_id}`` only see channels from
+    the run they're looking at. ``None`` shows everything.
 
-    Live sample values come from :func:`ui_channel_data` (NiceGUI
-    Event[ChannelSample]) — wired across all channels by the
-    application's :func:`bind_channel_store` call at startup. No
-    per-channel subscription bookkeeping in this component.
+    Live sample values come from :func:`ui_channel_data` (wired by the
+    application's :func:`bind_channel_store` at startup). The sample
+    callback only records the reading; a ``ui.timer`` paints it.
 
-    Returns ``(container, unsubscribe)`` so the caller can stop
-    discovery updates on page teardown.
+    Returns ``(container, unsubscribe)`` so the caller can stop discovery
+    updates on page teardown.
     """
-    # channel_id → (value_label, units_label, timestamp_label, sample_unsub)
-    channel_rows: dict[str, tuple[ui.label, ui.label, ui.label, Callable[[], None]]] = {}
+    rows: dict[str, _ChannelRow] = {}
 
     container = ui.column().classes("w-full gap-2")
 
@@ -73,14 +86,14 @@ def create_channel_values_panel(
         if isinstance(value, list) and value and isinstance(value[0], (int, float)):
             # Array sample — show length, not the whole array
             return f"[{len(value)} samples]"
-        return str(value)
+        return "—" if value is None else str(value)
 
     def _on_channel_started(evt: dict) -> None:
-        """Discovery: add a row + subscribe to live samples for this channel."""
+        """Discovery: add a row + a sample subscription that fills its holder."""
         nonlocal placeholder_removed
 
         ch_id = evt.get("channel_id")
-        if not ch_id or ch_id in channel_rows:
+        if not ch_id or ch_id in rows:
             return
 
         if not placeholder_removed:
@@ -88,44 +101,49 @@ def create_channel_values_panel(
             placeholder.delete()
             header.classes(remove="hidden")
 
-        units_from_event = evt.get("units") or ""
-
         with rows_container:
             with ui.row().classes("w-full px-3 py-1.5 border-b border-slate-100 items-center"):
                 ui.label(ch_id).classes("w-1/3 text-sm font-mono text-slate-700")
                 val_lbl = ui.label("—").classes("w-1/4 text-sm font-mono font-semibold")
-                units_lbl = ui.label(units_from_event).classes("w-1/6 text-xs text-slate-500")
+                units_lbl = ui.label(evt.get("units") or "").classes("w-1/6 text-xs text-slate-500")
                 ts_lbl = ui.label("").classes("w-1/4 text-xs text-slate-400")
 
-        # Subscribe to live samples for this channel — values stream over
-        # the per-channel NiceGUI Event signal (wired in by the page's
-        # bind_channel_store at startup; no Flight client per-component).
-        def _on_sample(sample: ChannelSample) -> None:
-            val_lbl.set_text(_format_value(sample.value))
+        row = _ChannelRow(val_lbl, units_lbl, ts_lbl, units=evt.get("units") or "")
+        rows[ch_id] = row
+
+        # Sample callback: record the reading only — no UI mutation here.
+        def _on_sample(sample: ChannelSample, _row: _ChannelRow = row) -> None:
+            _row.value = sample.value
             if sample.units:
-                units_lbl.set_text(sample.units)
-            ts_lbl.set_text(format_time_short(sample.received_at.isoformat()))
+                _row.units = sample.units
+            _row.ts = format_time_short(sample.received_at.isoformat())
+            _row.dirty = True
 
-        signal = ui_channel_data(ch_id)
-        signal.subscribe(_on_sample)
-
-        def _sample_unsub() -> None:
-            # NiceGUI Event has no .unsubscribe(callback); cleanup happens
-            # on client disconnect. Track for completeness in case API
-            # gains explicit unsub later.
-            pass
-
-        channel_rows[ch_id] = (val_lbl, units_lbl, ts_lbl, _sample_unsub)
+        ui_channel_data(ch_id).subscribe(_on_sample)
 
     def _on_channel_closed(evt: dict) -> None:
-        """Lifecycle close — mark the row visually (italicize timestamp)."""
+        """Lifecycle close — mark the row so the timer italicizes it."""
         ch_id = evt.get("channel_id")
-        if not ch_id or ch_id not in channel_rows:
-            return
-        _val_lbl, _units_lbl, ts_lbl, _ = channel_rows[ch_id]
-        # Stamp close time + italicize so operators see "no more samples"
-        ts_lbl.classes(add="italic")
-        ts_lbl.set_text(f"closed {format_time_short(datetime.now(UTC).isoformat())}")
+        row = rows.get(ch_id) if ch_id else None
+        if row is not None:
+            row.closed = True
+            row.dirty = True
+
+    def _render() -> None:
+        """Sole renderer: paint the rows whose holders changed."""
+        for row in rows.values():
+            if not row.dirty:
+                continue
+            row.dirty = False
+            row.val_lbl.set_text(_format_value(row.value))
+            row.units_lbl.set_text(row.units)
+            if row.closed:
+                row.ts_lbl.classes(add="italic")
+                row.ts_lbl.set_text(f"closed · {row.ts}" if row.ts else "closed")
+            else:
+                row.ts_lbl.set_text(row.ts)
+
+    ui.timer(0.25, _render)
 
     unsub_started = ui_subscribe(
         store, _on_channel_started, event_type="channel.started", run_id=run_id
