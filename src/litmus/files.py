@@ -44,7 +44,8 @@ from litmus.execution._state import (
 )
 
 if TYPE_CHECKING:
-    from litmus.data.files.streaming import FileEventEmitter, StreamingSink
+    from litmus.data.event_log import EventLog
+    from litmus.data.files.streaming import StreamingSink
 
 
 def _resolve_session_id(session_id: str | None) -> str:
@@ -132,7 +133,7 @@ def write(
     )
 
 
-def _resolve_event_log_and_run_id() -> tuple[FileEventEmitter | None, UUID | None]:
+def _resolve_event_log_and_run_id() -> tuple[EventLog | None, UUID | None]:
     """Pull the active event_log + run_id from the current logger.
 
     Mirrors :meth:`Context._emit_observation`'s plumbing. Both

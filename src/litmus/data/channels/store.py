@@ -19,7 +19,10 @@ import warnings
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from litmus.data.event_log import EventLog
 from uuid import UUID
 
 import duckdb
@@ -106,18 +109,6 @@ def _decimate_table(table: pa.Table, max_points: int) -> pa.Table:
 
     indices = _lttb_indices(values, max_points)
     return table.take(indices)
-
-
-class ChannelEventEmitter(Protocol):
-    """Structural type for anything ChannelStore can emit lifecycle events into.
-
-    Both the production :class:`litmus.data.event_log.EventLog` and the
-    test-side ``CollectingLog`` shape (just an ``emit`` method) satisfy
-    this. Keeps :class:`ChannelStore` decoupled from the heavyweight
-    event-log subsystem.
-    """
-
-    def emit(self, event: Any) -> None: ...
 
 
 class _ChannelWriter(BufferedIPCWriter):
@@ -247,7 +238,7 @@ class ChannelStore:
         serve: bool = False,
         host: str = "127.0.0.1",
         port: int = 0,
-        event_log: ChannelEventEmitter | None = None,
+        event_log: EventLog | None = None,
         index: bool = False,
         station_hostname: str | None = None,
     ) -> None:

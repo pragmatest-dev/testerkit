@@ -28,7 +28,7 @@ from litmus.instruments.locks import (
     acquire_resource,
     release_resource,
 )
-from litmus.instruments.observer import DriverObserver, InstrumentEventEmitter
+from litmus.instruments.observer import DriverObserver, InstrumentEventBuilder
 from litmus.instruments.observers import detect_protocol, get_observer_class
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.station import StationInstrumentConfig
@@ -188,7 +188,7 @@ class InstrumentPool:
         protocol = detect_protocol(driver_class) if driver_class else "generic"
         observer_cls = get_observer_class(protocol)
 
-        emitter = InstrumentEventEmitter(
+        emitter = InstrumentEventBuilder(
             event_log=self._event_log,
             session_id=self._session_id,
             role=role,

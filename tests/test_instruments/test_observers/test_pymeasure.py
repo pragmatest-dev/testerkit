@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 from litmus.data.events import ChannelStarted, InstrumentSet
-from litmus.instruments.observer import InstrumentEventEmitter
+from litmus.instruments.observer import InstrumentEventBuilder
 from litmus.instruments.observers.pymeasure import PyMeasureObserver, build_channel_map
 from litmus.models.instrument import ChannelKind
 
@@ -159,7 +159,7 @@ def _make_observer(
     overrides: dict[str, str] | None = None,
 ) -> tuple[PyMeasureObserver, CollectingLog]:
     log = CollectingLog()
-    emitter = InstrumentEventEmitter(event_log=log, session_id=uuid4(), role="dmm")  # type: ignore[arg-type]
+    emitter = InstrumentEventBuilder(event_log=log, session_id=uuid4(), role="dmm")  # type: ignore[arg-type]
     obs = PyMeasureObserver(driver_class, "dmm", emitter, yaml_overrides=overrides)
     return obs, log
 

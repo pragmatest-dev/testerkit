@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.instruments.observer import LIFECYCLE_METHODS, DriverObserver, InstrumentEventEmitter
+from litmus.instruments.observer import LIFECYCLE_METHODS, DriverObserver, InstrumentEventBuilder
 from litmus.instruments.observers.generic import GenericObserver
 from litmus.models.instrument import ChannelKind
 
@@ -88,7 +88,7 @@ class PyMeasureObserver(DriverObserver):
         self,
         driver_class: type,
         role: str,
-        emit: InstrumentEventEmitter,
+        emit: InstrumentEventBuilder,
         yaml_overrides: dict[str, str] | None = None,
         driver_instance: Any = None,
     ) -> None:

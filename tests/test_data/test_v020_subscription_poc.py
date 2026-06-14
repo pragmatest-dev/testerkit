@@ -79,7 +79,7 @@ from litmus.execution._state import (
 )
 from litmus.execution.harness import Context, TestHarness
 from litmus.execution.logger import TestRunLogger
-from litmus.instruments.observer import InstrumentEventEmitter
+from litmus.instruments.observer import InstrumentEventBuilder
 
 
 @pytest.fixture
@@ -175,13 +175,13 @@ def session(tmp_path: Path):
 # --------------------------------------------------------------------- #
 
 
-def _emitter(session: Any) -> InstrumentEventEmitter:
-    """Build an InstrumentEventEmitter wired to the session's EventLog + ChannelStore.
+def _emitter(session: Any) -> InstrumentEventBuilder:
+    """Build an InstrumentEventBuilder wired to the session's EventLog + ChannelStore.
 
     Production instrument observers go through this; using it directly
     in the PoC exercises the same code path that fires ``ChannelStarted``.
     """
-    return InstrumentEventEmitter(
+    return InstrumentEventBuilder(
         event_log=session.event_log,
         session_id=session.session_id,
         role="dmm",

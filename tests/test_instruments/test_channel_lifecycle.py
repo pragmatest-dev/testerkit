@@ -2,7 +2,7 @@
 
 C1 in the v0.2.0 build-item cluster plan, **plus** the item-4b
 consolidation that moved ``ChannelStarted`` / ``ChannelClosed``
-emission ownership from :class:`InstrumentEventEmitter` to
+emission ownership from :class:`InstrumentEventBuilder` to
 :class:`ChannelStore` so any writer path (observer.read /
 Context.stream / channels.write / FileStore sink) gets the same
 lifecycle events without coordinating its own tracker.
@@ -18,7 +18,7 @@ Verifies:
 - ``observer.read`` stamps the active harness ``Context``'s
   ``_observations`` with the channel URI on first write per (vector,
   channel) — item 5. Idempotent via ``setdefault``.
-- ``InstrumentEventEmitter`` no longer emits ``ChannelStarted`` itself — the
+- ``InstrumentEventBuilder`` no longer emits ``ChannelStarted`` itself — the
   store does. Per-instance trackers in the observer were a
   pre-consolidation duplicate.
 """
@@ -32,18 +32,19 @@ from uuid import UUID, uuid4
 import pytest
 
 from litmus.data.channels.store import ChannelStore
+from litmus.data.event_log import EventLog
 from litmus.data.events import ChannelClosed, ChannelStarted
 from litmus.execution._state import push_current_context, reset_current_context
 from litmus.execution.harness import Context, TestHarness
-from litmus.instruments.observer import InstrumentEventEmitter
+from litmus.instruments.observer import InstrumentEventBuilder
 
 
-class CollectingLog:
+class CollectingLog(EventLog):
     def __init__(self) -> None:
-        self.events: list[Any] = []
+        self.emitted: list[Any] = []
 
     def emit(self, event: Any) -> None:
-        self.events.append(event)
+        self.emitted.append(event)
 
 
 @pytest.fixture
@@ -62,8 +63,8 @@ def _emitter(
     log: CollectingLog,
     session_id: UUID,
     run_id: UUID,
-) -> InstrumentEventEmitter:
-    return InstrumentEventEmitter(
+) -> InstrumentEventBuilder:
+    return InstrumentEventBuilder(
         event_log=log,  # type: ignore[arg-type]
         session_id=session_id,
         role="dmm",
@@ -83,7 +84,7 @@ def test_first_read_emits_channel_started(session) -> None:
     emit = _emitter(store, log, session_id, run_id)
     emit.read("dmm.voltage", 3.3, method="measure_voltage")
 
-    started = [e for e in log.events if isinstance(e, ChannelStarted)]
+    started = [e for e in log.emitted if isinstance(e, ChannelStarted)]
     assert len(started) == 1
     ev = started[0]
     assert ev.channel_id == "dmm.voltage"
@@ -103,7 +104,7 @@ def test_subsequent_reads_same_channel_emit_no_more_events(session) -> None:
     for v in range(1000):
         emit.read("dmm.voltage", float(v), method="measure_voltage")
 
-    started = [e for e in log.events if isinstance(e, ChannelStarted)]
+    started = [e for e in log.emitted if isinstance(e, ChannelStarted)]
     assert len(started) == 1  # not 1000
 
     store.close()
@@ -117,7 +118,7 @@ def test_different_channels_each_get_own_channel_started(session) -> None:
     emit.read("dmm.voltage", 3.4, method="v")  # repeat — no new event
     emit.read("dmm.current", 0.2, method="i")  # repeat — no new event
 
-    started = [e for e in log.events if isinstance(e, ChannelStarted)]
+    started = [e for e in log.emitted if isinstance(e, ChannelStarted)]
     assert len(started) == 2
     assert {e.channel_id for e in started} == {"dmm.voltage", "dmm.current"}
 
@@ -145,7 +146,7 @@ def test_two_writer_paths_to_same_channel_emit_one_started(session) -> None:
     ctx.stream("psu.voltage", 3.4)  # second writer, same channel/session
 
     started = [
-        e for e in log.events if isinstance(e, ChannelStarted) and e.channel_id == "psu.voltage"
+        e for e in log.emitted if isinstance(e, ChannelStarted) and e.channel_id == "psu.voltage"
     ]
     assert len(started) == 1, (
         "ChannelStore should emit ChannelStarted exactly once per "
@@ -167,7 +168,7 @@ def test_close_emits_channel_closed_for_each_touched_channel(session) -> None:
 
     store.close()
 
-    closed = [e for e in log.events if isinstance(e, ChannelClosed)]
+    closed = [e for e in log.emitted if isinstance(e, ChannelClosed)]
     assert len(closed) == 2
     assert {e.channel_id for e in closed} == {"dmm.voltage", "dmm.current"}
     for ev in closed:
@@ -182,7 +183,7 @@ def test_close_emits_no_channel_closed_for_untouched_channels(session) -> None:
     # No writes at all
     store.close()
 
-    closed = [e for e in log.events if isinstance(e, ChannelClosed)]
+    closed = [e for e in log.emitted if isinstance(e, ChannelClosed)]
     assert closed == []
 
 
@@ -194,7 +195,7 @@ def test_close_is_idempotent_event_wise(session) -> None:
     store.close()
     store.close()  # second close emits nothing
 
-    closed = [e for e in log.events if isinstance(e, ChannelClosed)]
+    closed = [e for e in log.emitted if isinstance(e, ChannelClosed)]
     assert len(closed) == 1
 
 
@@ -221,7 +222,7 @@ def test_context_stream_emits_channel_started(session) -> None:
     ctx.stream("psu.voltage", 3.3)
     ctx.stream("psu.voltage", 3.4)  # repeat — no new event
 
-    started = [e for e in log.events if isinstance(e, ChannelStarted)]
+    started = [e for e in log.emitted if isinstance(e, ChannelStarted)]
     assert len(started) == 1
     assert started[0].channel_id == "psu.voltage"
     store.close()
@@ -243,7 +244,7 @@ def test_channels_write_emits_channel_started(tmp_path: Path) -> None:
         channels.write("eload.current", 1.0)
         channels.write("eload.current", 1.1)
 
-        started = [e for e in log.events if isinstance(e, ChannelStarted)]
+        started = [e for e in log.emitted if isinstance(e, ChannelStarted)]
         assert len(started) == 1
         assert started[0].channel_id == "eload.current"
     finally:
@@ -307,7 +308,7 @@ def test_observer_read_with_no_active_context_does_not_error(session) -> None:
     emit = _emitter(store, log, session_id, run_id)
     emit.read("dmm.voltage", 3.3, method="v")
     # Channel got written; ChannelStarted fired; no error from missing Context
-    started = [e for e in log.events if isinstance(e, ChannelStarted)]
+    started = [e for e in log.emitted if isinstance(e, ChannelStarted)]
     assert len(started) == 1
     store.close()
 
@@ -315,7 +316,7 @@ def test_observer_read_with_no_active_context_does_not_error(session) -> None:
 def test_observer_read_without_channel_store_does_not_stamp_observations() -> None:
     """No channel_store → no URI → no stamping (nothing to stamp with)."""
     log = CollectingLog()
-    emit = InstrumentEventEmitter(
+    emit = InstrumentEventBuilder(
         event_log=log,  # type: ignore[arg-type]
         session_id=uuid4(),
         role="dmm",

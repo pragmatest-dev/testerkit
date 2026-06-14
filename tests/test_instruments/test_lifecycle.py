@@ -67,9 +67,9 @@ class TestVerifyAndWrap:
         )
         driver = object()
 
-        from litmus.instruments.observer import DriverObserver, InstrumentEventEmitter
+        from litmus.instruments.observer import DriverObserver, InstrumentEventBuilder
 
-        emitter = InstrumentEventEmitter(event_log, session_id, "dmm")
+        emitter = InstrumentEventBuilder(event_log, session_id, "dmm")
         observer = DriverObserver(object, "dmm", emitter)
         result = verify_and_wrap(driver, "dmm", record, event_log, session_id, observer=observer)
 

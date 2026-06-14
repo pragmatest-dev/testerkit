@@ -27,6 +27,7 @@ from uuid import uuid4
 import orjson
 import pytest
 
+from litmus.data.event_log import EventLog
 from litmus.data.events import StreamEnded, StreamStarted
 from litmus.data.files import FileStore
 from litmus.data.files.streaming import (
@@ -41,14 +42,14 @@ def _sid() -> str:
     return f"test-{uuid4().hex[:12]}"
 
 
-class CollectingLog:
+class CollectingLog(EventLog):
     """Captures emitted events in order for assertion."""
 
     def __init__(self) -> None:
-        self.events: list[Any] = []
+        self.emitted: list[Any] = []
 
     def emit(self, event: Any) -> None:
-        self.events.append(event)
+        self.emitted.append(event)
 
 
 @pytest.fixture
@@ -206,16 +207,16 @@ class TestRawSink:
             sink.write(b"more")
             sink.write(b"chunks")
 
-        types = [type(e).__name__ for e in log.events]
+        types = [type(e).__name__ for e in log.emitted]
         assert types == ["StreamStarted", "StreamEnded"]
 
-        started = log.events[0]
+        started = log.emitted[0]
         assert isinstance(started, StreamStarted)
         assert started.stream_id == sink.stream_id
         assert started.name == "daq"
         assert started.format == "raw"
 
-        ended = log.events[1]
+        ended = log.emitted[1]
         assert isinstance(ended, StreamEnded)
         assert ended.stream_id == sink.stream_id
         assert ended.uri is not None and ended.uri.endswith(f"/{sid}/daq.bin")
@@ -266,7 +267,7 @@ class TestRawSink:
         assert uri1 == uri2
 
         # Only one StreamEnded event despite double close
-        ended = [e for e in log.events if isinstance(e, StreamEnded)]
+        ended = [e for e in log.emitted if isinstance(e, StreamEnded)]
         assert len(ended) == 1
 
     def test_write_after_close_raises(self, store: FileStore, log: CollectingLog) -> None:
@@ -399,14 +400,14 @@ class TestTdmsSink:
             sink.write(nptdms.ChannelObject("daq", "ch1", np.array([1.0])))
             sink.write(nptdms.ChannelObject("daq", "ch1", np.array([2.0])))
 
-        types = [type(e).__name__ for e in log.events]
+        types = [type(e).__name__ for e in log.emitted]
         assert types == ["StreamStarted", "StreamEnded"]
 
-        started = log.events[0]
+        started = log.emitted[0]
         assert isinstance(started, StreamStarted)
         assert started.format == "tdms"
 
-        ended = log.events[1]
+        ended = log.emitted[1]
         assert isinstance(ended, StreamEnded)
         assert ended.stream_id == sink.stream_id
         assert ended.uri is not None and ended.uri.endswith(f"/{sid}/capture.tdms")
@@ -543,7 +544,7 @@ class TestStreamReadbackAndEventModel:
         assert store.read(uri) == b"hello-world"
 
         # Only lifecycle events — frames are ephemeral, never durable events.
-        non_lifecycle = [e for e in log.events if not isinstance(e, StreamStarted | StreamEnded)]
+        non_lifecycle = [e for e in log.emitted if not isinstance(e, StreamStarted | StreamEnded)]
         assert non_lifecycle == []
 
 
@@ -580,6 +581,6 @@ class TestStreamMetadata:
         ) as sink:
             sink.write(b"x")
 
-        for event in log.events:
+        for event in log.emitted:
             assert event.run_id == run_id
             assert str(event.session_id) == sid
