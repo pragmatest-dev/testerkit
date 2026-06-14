@@ -295,3 +295,13 @@ pytest plugin and slot orchestrator already own a session — the process owner 
 - [ ] 8 — liveness projection → UI/MCP/HTTP
 
 _On each completion: append a one-line "what landed" note + commit sha._
+
+## Follow-on (sequenced after the session core)
+
+- **Auto-capture station info at session creation (task #35).** At session open, automatically
+  stamp richer STATION context onto `SessionStarted` (beyond station_id/hostname/type/location):
+  instruments present + roles/resources, fixture, calibration/asset refs, a station-config
+  snapshot — however much the process can provide. The session exists to provide context; richer
+  auto-captured metadata lets us ask deeper questions of the events/data captured under it.
+  Automatic in the session primitive (rides the P3 will), not hand-threaded per producer; degrades
+  gracefully when a field is unavailable (bare script vs full station connect). Blocked on P2.
