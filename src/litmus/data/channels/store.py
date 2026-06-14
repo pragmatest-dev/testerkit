@@ -1253,6 +1253,26 @@ class ChannelStore:
             "CREATE INDEX IF NOT EXISTS idx_channel_index_cid_recv "
             "ON channel_index(channel_id, received_at)"
         )
+        # Derived registry: one version row per (channel, session). Non-unique on
+        # (hostname, channel) — each session that opens a channel appends a row, so
+        # current def = latest, history = all rows. ``last_updated`` (coarse) is the
+        # freshest received_at seen, for liveness staleness.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS channel_registry (
+                channel_id VARCHAR,
+                session_id VARCHAR,
+                hostname VARCHAR,
+                data_type VARCHAR,
+                instrument_role VARCHAR,
+                resource VARCHAR,
+                units VARCHAR,
+                first_seen TIMESTAMPTZ,
+                last_updated TIMESTAMPTZ,
+                PRIMARY KEY (channel_id, session_id)
+            )
+            """
+        )
 
     def _index_cursor(self) -> duckdb.DuckDBPyConnection:
         """Thread-local read cursor over the shared in-memory index."""
@@ -1291,7 +1311,11 @@ class ChannelStore:
                 # Torn / still-open segment — leave it out of the ledger so
                 # the next restart re-reads it once it's a complete file.
                 continue
-            self._absorb_descriptor(m.group(1), table.schema)
+            desc = self._absorb_descriptor(m.group(1), table.schema)
+            if desc is not None and "received_at" in table.column_names:
+                recv = [t for t in table.column("received_at").to_pylist() if t is not None]
+                if recv:
+                    self._bump_last_updated(desc.channel_id, desc.session_id, max(recv))
             rows = self._segment_rows_to_index(m.group(1), table)
             self._insert_index_rows(rows, "channel_index", ledger_path=path_str)
 
@@ -1314,18 +1338,69 @@ class ChannelStore:
             self._last_scan = now
         self._scan_disk()
 
-    def _absorb_descriptor(self, channel_id: str, schema: pa.Schema) -> None:
-        """Populate the served descriptor map from a segment's schema metadata.
+    def _absorb_descriptor(self, channel_id: str, schema: pa.Schema) -> ChannelDescriptor | None:
+        """Populate the served descriptor map + registry from segment/stream metadata.
 
         Producers stamp the ``ChannelDescriptor`` as Arrow schema metadata on
         every segment; the daemon (which never calls ``write()``) reads it here
-        so ``list_channel_info`` can serve it.
+        so ``list_channel_info`` can serve it. Returns the parsed descriptor (or
+        ``None`` if absent) so callers can reuse it without re-parsing.
         """
-        if channel_id in self._registry:
-            return
         meta = (schema.metadata or {}).get(b"litmus.channel_descriptor")
-        if meta:
-            self._registry[channel_id] = ChannelDescriptor.model_validate_json(meta)
+        if not meta:
+            return None
+        desc = ChannelDescriptor.model_validate_json(meta)
+        # Registry row is per (channel, session): establish it even when the
+        # channel-keyed _registry cache already holds another session's descriptor
+        # (its last-write-wins would otherwise drop this session's version row).
+        self._register_descriptor_row(desc)
+        if channel_id not in self._registry:
+            self._registry[channel_id] = desc
+        return desc
+
+    def _register_descriptor_row(self, desc: ChannelDescriptor) -> None:
+        """Establish a (channel, session) registry version row (idempotent).
+
+        Carries the per-session hostname/descriptor; ``last_updated`` starts NULL
+        and is advanced by :meth:`_bump_last_updated`. No-op off the indexed daemon.
+        """
+        if self._index_db is None:
+            return
+        with self._index_lock:
+            self._index_db.execute(
+                """
+                INSERT INTO channel_registry
+                    (channel_id, session_id, hostname, data_type, instrument_role,
+                     resource, units, first_seen, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                ON CONFLICT (channel_id, session_id) DO NOTHING
+                """,
+                [
+                    desc.channel_id,
+                    desc.session_id,
+                    desc.hostname,
+                    desc.data_type,
+                    desc.instrument_role,
+                    desc.resource,
+                    desc.units,
+                    desc.first_seen,
+                ],
+            )
+
+    def _bump_last_updated(self, channel_id: str, session_id: str, ts: datetime | None) -> None:
+        """Advance a registry row's ``last_updated`` to ``ts`` if newer (NULL-safe)."""
+        if self._index_db is None or ts is None or not session_id:
+            return
+        with self._index_lock:
+            self._index_db.execute(
+                """
+                UPDATE channel_registry
+                SET last_updated = CASE
+                    WHEN last_updated IS NULL OR ? > last_updated THEN ? ELSE last_updated END
+                WHERE channel_id = ? AND session_id = ?
+                """,
+                [ts, ts, channel_id, session_id],
+            )
 
     @classmethod
     def _segment_rows_to_index(cls, channel_id: str, table: pa.Table) -> list[dict[str, Any]]:
@@ -1461,6 +1536,16 @@ class ChannelStore:
         # Fan out the whole batch ONCE (cross-process relay) before any index
         # work — no re-explosion to per-sample deliveries.
         self._notify_batch(channel_id, batch)
+
+        # Keep the registry row's last_updated fresh for a live (low-rate) channel
+        # whose single segment hasn't closed yet for the scan to pick up. The row
+        # was established by do_put's _absorb_descriptor; one host per session, so
+        # (channel, session) keys the bump.
+        if self._index_db is not None and batch.num_rows and "received_at" in batch.schema.names:
+            sids = batch.column("session_id").to_pylist()
+            recv = [t for t in batch.column("received_at").to_pylist() if t is not None]
+            if sids and sids[0] and recv:
+                self._bump_last_updated(channel_id, sids[0], max(recv))
 
         desc = self._registry.get(channel_id)
         is_scalar = desc is not None and desc.data_type.startswith("scalar:")

@@ -223,3 +223,88 @@ class TestDescriptorHostname:
         desc = ChannelDescriptor.model_validate_json('{"channel_id": "c"}')
         assert desc.hostname == ""
         assert desc.session_id == ""
+
+
+class TestChannelRegistry:
+    """The derived (hostname, channel, session) registry table in the daemon's index."""
+
+    def _write_segment(self, data_dir: Path, channel: str, host: str):
+        sid = uuid4()
+        p = ChannelStore(data_dir, sid, flush_threshold=1, station_hostname=host)
+        p.open()
+        p.write(channel, 1.0)
+        p.close()
+        return sid
+
+    def test_row_per_session_non_unique_on_channel(self, tmp_path: Path):
+        # Two sessions (two hosts) write the SAME channel → two version rows.
+        # Guards the last-write-wins _registry cache from collapsing them.
+        self._write_segment(tmp_path, "dmm.v", "h1")
+        self._write_segment(tmp_path, "dmm.v", "h2")
+
+        idx = ChannelStore(tmp_path, uuid4(), index=True)
+        idx.open()
+        assert idx._index_db is not None
+        rows = idx._index_db.execute(
+            "SELECT hostname, channel_id FROM channel_registry ORDER BY hostname"
+        ).fetchall()
+        idx.close()
+        assert [r[0] for r in rows] == ["h1", "h2"]
+        assert all(r[1] == "dmm.v" for r in rows)
+
+    def test_scan_sets_last_updated(self, tmp_path: Path):
+        sid = self._write_segment(tmp_path, "dmm.v", "h1")
+        idx = ChannelStore(tmp_path, uuid4(), index=True)
+        idx.open()
+        assert idx._index_db is not None
+        row = idx._index_db.execute(
+            "SELECT last_updated FROM channel_registry WHERE session_id = ?", [str(sid)]
+        ).fetchone()
+        idx.close()
+        assert row is not None and row[0] is not None
+
+    def test_rescan_is_idempotent(self, tmp_path: Path):
+        sid = self._write_segment(tmp_path, "dmm.v", "h1")
+        idx = ChannelStore(tmp_path, uuid4(), index=True)
+        idx.open()
+        assert idx._index_db is not None
+        before = idx._index_db.execute(
+            "SELECT last_updated FROM channel_registry WHERE session_id = ?", [str(sid)]
+        ).fetchone()
+        idx._last_scan = 0.0
+        idx._maybe_scan_disk()  # ledger gates the segment → no re-read, no dup
+        count = idx._index_db.execute("SELECT COUNT(*) FROM channel_registry").fetchone()
+        after = idx._index_db.execute(
+            "SELECT last_updated FROM channel_registry WHERE session_id = ?", [str(sid)]
+        ).fetchone()
+        idx.close()
+        assert before is not None and after is not None and count is not None
+        assert count[0] == 1
+        assert after[0] == before[0]
+
+    def test_live_ingest_bumps_last_updated(self, tmp_path: Path):
+        from datetime import UTC, datetime
+
+        from litmus.data.channels.models import ChannelSample, sample_to_batch
+
+        idx = ChannelStore(tmp_path, uuid4(), index=True)
+        idx.open()
+        assert idx._index_db is not None
+        sid = str(uuid4())
+        idx._register_descriptor_row(
+            ChannelDescriptor(channel_id="dmm.v", session_id=sid, hostname="h1")
+        )
+        ts = datetime.now(UTC)
+        idx.ingest_batch(
+            "dmm.v",
+            sample_to_batch(
+                ChannelSample(
+                    channel_id="dmm.v", received_at=ts, value=1.0, session_id=sid, offset=0
+                )
+            ),
+        )
+        row = idx._index_db.execute(
+            "SELECT last_updated FROM channel_registry WHERE session_id = ?", [sid]
+        ).fetchone()
+        idx.close()
+        assert row is not None and row[0] is not None
