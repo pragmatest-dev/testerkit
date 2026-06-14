@@ -221,22 +221,22 @@ def channel_detail_page(
                     "Clear", icon="clear", on_click=lambda: _clear_filters(filters, refresh)
                 ).props("flat dense")
 
-                # X-axis mode — only meaningful for scalar channels.
-                # Waveforms already plot against intra-capture index/time.
-                if (descriptor.get("data_type") or "").startswith("scalar"):
+                # X-axis mode: Time, or per-session Offset (sessions overlay
+                # for shape comparison). Applies to scalar and array channels
+                # alike — an array session's captures are appended in offset
+                # order, so it overlays just like a scalar.
+                async def _on_x_mode(e: Any) -> None:
+                    x_mode_state[0] = "offset" if e.value == "offset" else "time"
+                    await refresh()
 
-                    async def _on_x_mode(e: Any) -> None:
-                        x_mode_state[0] = "offset" if e.value == "offset" else "time"
-                        await refresh()
-
-                    ui.toggle(
-                        {"time": "Time", "offset": "Offset"},
-                        value=x_mode_state[0],
-                        on_change=_on_x_mode,
-                    ).props("dense").classes("ml-auto").tooltip(
-                        "X-axis: received time, or per-session sample offset "
-                        "(multiple sessions overlay for shape comparison)"
-                    )
+                ui.toggle(
+                    {"time": "Time", "offset": "Offset"},
+                    value=x_mode_state[0],
+                    on_change=_on_x_mode,
+                ).props("dense").classes("ml-auto").tooltip(
+                    "X-axis: received time, or per-session sample offset "
+                    "(multiple sessions overlay for shape comparison)"
+                )
 
         # data-testid attributes are stable selectors for the
         # screenshot-regeneration script (scripts/regenerate-ui-
@@ -344,30 +344,13 @@ def _render_chart(
             y_data = [_extract_scalar(r) for r in rows]
             x_axis_label = "received"
 
-        # Scalar channels with multiple sessions get a legend that
-        # names each session (operator-readable label via
-        # ``lookup_session_label``). Waveform overlays and
-        # single-session scalar views stay legend-off — they have
-        # no meaningful series names.
-        scalar_session_ids = {
-            str(r.get("session_id") or "") for r in rows if not isinstance(r.get("value"), list)
-        }
-        show_legend = (not isinstance(last_values, list) or not last_values) and len(
-            scalar_session_ids
-        ) > 1
-
-        # Legend lives UNDER the plot (below the zoom slider) so it never
-        # collides with the top-right toolbox; ``type: scroll`` keeps it
-        # to one paginated row. The grid bottom grows to make room when
-        # the legend is shown.
-        grid_bottom = 112 if show_legend else 70
-        slider_bottom = 52 if show_legend else 18
-
-        # Offset mode (scalar only): plot each session against its own
-        # sample offset so multiple sessions overlay for shape comparison.
-        # Waveforms already use an intra-capture index/time axis.
-        offset_axis = x_mode == "offset" and not (isinstance(last_values, list) and last_values)
-        if offset_axis:
+        # Offset mode overlays one trace per session on a value axis, for
+        # scalar and array channels alike (an array session's captures are
+        # appended). Show the legend whenever >1 session is present so each
+        # colored trace is identifiable. Time mode keeps the scalar-only
+        # multi-session legend; array time mode (eye-diagram) stays legend-off.
+        if x_mode == "offset":
+            show_legend = len({str(r.get("session_id") or "") for r in rows}) > 1
             x_axis: dict[str, Any] = {
                 "type": "value",
                 "name": "offset",
@@ -375,6 +358,12 @@ def _render_chart(
                 "nameGap": 30,
             }
         else:
+            scalar_session_ids = {
+                str(r.get("session_id") or "") for r in rows if not isinstance(r.get("value"), list)
+            }
+            show_legend = (not isinstance(last_values, list) or not last_values) and len(
+                scalar_session_ids
+            ) > 1
             x_axis = {
                 "type": "category",
                 "data": x_values,
@@ -382,6 +371,11 @@ def _render_chart(
                 "nameLocation": "middle",
                 "nameGap": 30,
             }
+
+        # Legend lives UNDER the plot (below the zoom slider) so it never
+        # collides with the top-right toolbox; the grid bottom grows for it.
+        grid_bottom = 112 if show_legend else 70
+        slider_bottom = 52 if show_legend else 18
 
         chart = ui.echart(
             {
@@ -651,6 +645,11 @@ def _build_chart_series(
     label via :func:`lookup_session_label`). A scalar channel with
     only one session keeps the existing single-line shape.
     """
+    # Offset overlay treats array channels like scalars: append each
+    # session's captures into one trace (see _build_offset_array_series).
+    if x_mode == "offset" and isinstance(last_values, list) and last_values:
+        return _build_offset_array_series(rows)
+
     # Scalar channel (or empty array): plot the scalar series from y_data.
     # ``last_values`` for scalar channels is a single float — guard with
     # isinstance before treating it as iterable.
@@ -726,6 +725,41 @@ def _build_scalar_series(
 
     series: list[dict[str, Any]] = []
     for sid, points in by_session.items():
+        label, _found = lookup_session_label(sid) if sid else ("(no session)", True)
+        series.append(
+            {
+                "type": "line",
+                "name": label,
+                "data": points,
+                "showSymbol": False,
+                "smooth": False,
+            }
+        )
+    return series
+
+
+def _build_offset_array_series(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Offset overlay for array channels: append each session's captures.
+
+    A session's captures (each an array value at a successive offset) are
+    concatenated in offset order into one trace, plotted as ``[position,
+    value]`` pairs against a running sample position. One series per session,
+    overlaid and aligned at 0 — the array analog of the scalar offset overlay.
+    """
+    by_session: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        if isinstance(r.get("value"), list) and r.get("value"):
+            by_session.setdefault(str(r.get("session_id") or ""), []).append(r)
+
+    series: list[dict[str, Any]] = []
+    for sid, srows in by_session.items():
+        srows.sort(key=lambda r: r.get("offset") or 0)
+        points: list[list[Any]] = []
+        pos = 0
+        for r in srows:
+            for v in r["value"]:
+                points.append([pos, v])
+                pos += 1
         label, _found = lookup_session_label(sid) if sid else ("(no session)", True)
         series.append(
             {
