@@ -8,6 +8,8 @@ from typing import Any
 from fastapi.responses import Response, StreamingResponse
 from nicegui import app, ui
 
+from litmus.data.data_dir import resolve_data_dir
+from litmus.data.event_store import EventStore
 from litmus.ui.shared.components import (
     data_table,
     format_datetime,
@@ -18,6 +20,7 @@ from litmus.ui.shared.components import (
     render_no_data_card,
     session_filter_banner,
 )
+from litmus.ui.shared.event_binding import ui_subscribe
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import files_dir_exists, list_recent_files
 
@@ -33,6 +36,7 @@ _PAGE_LIMIT = 200
 
 def _row_for_artifact(entry: dict[str, Any]) -> dict[str, Any]:
     return {
+        "live": "○ done",  # at-rest: a closed/one-shot artifact in the catalog
         "filename": entry["filename"],
         "mime": entry["mime"] or entry["extension"].lstrip("."),
         "size": format_file_size(entry["size_bytes"]),
@@ -42,6 +46,20 @@ def _row_for_artifact(entry: dict[str, Any]) -> dict[str, Any]:
         # detail/serve endpoints rebuild the exact URI — no date-less guess.
         "detail_url": f"/files/{entry['uri'].removeprefix('file://')}",
         "download_url": f"/files-static/{entry['uri'].removeprefix('file://')}?download=1",
+    }
+
+
+def _row_for_open_stream(stream_id: str, info: dict[str, Any]) -> dict[str, Any]:
+    """A still-open stream: live, not yet in the catalog (no uri until close)."""
+    return {
+        "live": "● live",
+        "filename": info.get("name") or "(stream)",
+        "mime": info.get("format") or "stream",
+        "size": "—",
+        "created_at": format_datetime(info.get("started_at")),
+        "uri": f"stream:{stream_id}",  # row key only — no link until close
+        "detail_url": "",
+        "download_url": "",
     }
 
 
@@ -152,6 +170,36 @@ def files_page(
     mime_options = _mime_options_from_entries(all_entries)
     initial_mime = mime if mime in mime_options else ""
 
+    # Live status: open streams arrive as stream.started / stream.ended events
+    # (an open stream has no catalog row until it closes). Track them in a
+    # holder; the event callbacks only flip a dirty flag, and a ui.timer
+    # re-renders when it's set (no per-tick rebuild → no flicker). Best-effort:
+    # if the events daemon is down the table still lists at-rest artifacts.
+    open_streams: dict[str, dict[str, Any]] = {}
+    live_dirty = [False]
+    try:
+        _event_store = EventStore.get_shared(resolve_data_dir())
+
+        def _on_stream_started(evt: dict) -> None:
+            sid = evt.get("stream_id")
+            if sid:
+                open_streams[str(sid)] = {
+                    "name": evt.get("name"),
+                    "format": evt.get("format"),
+                    "started_at": evt.get("occurred_at") or evt.get("received_at"),
+                }
+                live_dirty[0] = True
+
+        def _on_stream_ended(evt: dict) -> None:
+            sid = evt.get("stream_id")
+            if sid and open_streams.pop(str(sid), None) is not None:
+                live_dirty[0] = True  # now an at-rest catalog row on re-walk
+
+        ui_subscribe(_event_store, _on_stream_started, event_type="stream.started")
+        ui_subscribe(_event_store, _on_stream_ended, event_type="stream.ended")
+    except (OSError, RuntimeError):
+        pass
+
     with page_layout():
         page_header("Files")
         ui.label(
@@ -230,28 +278,45 @@ def files_page(
                 until=filters.until(),
             )[:_PAGE_LIMIT]
 
-            count_label.text = f"{len(filtered)} of {len(all_entries)} file(s)" + (
-                f" (first {_LIST_LIMIT})" if len(all_entries) >= _LIST_LIMIT else ""
+            # Live (open) streams ride at the top — they have no catalog row
+            # yet. Closed/one-shot artifacts come from the filtered catalog.
+            live_rows = [_row_for_open_stream(sid, info) for sid, info in open_streams.items()]
+            catalog_rows = [_row_for_artifact(e) for e in filtered]
+            rows = live_rows + catalog_rows
+
+            count_label.text = (
+                f"{len(catalog_rows)} of {len(all_entries)} file(s)"
+                + (f" (first {_LIST_LIMIT})" if len(all_entries) >= _LIST_LIMIT else "")
+                + (f" · {len(live_rows)} live" if live_rows else "")
             )
 
             table_holder.clear()
             empty_state.clear()
-            if not filtered:
+            if not rows:
                 _show_empty_state(
                     empty_state,
                     has_data=bool(all_entries),
                     dir_exists=files_dir_exists(),
                 )
                 return
-            rows = [_row_for_artifact(e) for e in filtered]
             with table_holder:
                 _build_table(rows)
 
         _apply_and_render()
 
+        def _live_tick() -> None:
+            # Re-render only when a stream opened/closed — re-walks the catalog
+            # so a just-closed stream shows up as its at-rest row.
+            if live_dirty[0]:
+                live_dirty[0] = False
+                refresh()
+
+        ui.timer(0.5, _live_tick)
+
 
 def _build_table(rows: list[dict[str, Any]]) -> ui.table:
     columns = [
+        {"name": "live", "label": "Live", "field": "live", "align": "left"},
         {"name": "filename", "label": "Filename", "field": "filename", "align": "left"},
         {"name": "mime", "label": "Type", "field": "mime", "align": "left"},
         {"name": "size", "label": "Size", "field": "size", "align": "right"},
@@ -263,6 +328,15 @@ def _build_table(rows: list[dict[str, Any]]) -> ui.table:
         rows=rows,
         row_key="uri",
         time_columns=["created_at"],
+    )
+    # Live cell: green ● live for an open stream, gray ○ done for at-rest.
+    table.add_slot(
+        "body-cell-live",
+        '<q-td :props="props">'
+        "<span :class=\"props.value === '● live' "
+        "? 'text-emerald-600 font-semibold text-xs' : 'text-slate-400 text-xs'\">"
+        "{{ props.value }}</span>"
+        "</q-td>",
     )
     # Filename cell links to the detail page (metadata + inline viewer).
     table.add_slot(
