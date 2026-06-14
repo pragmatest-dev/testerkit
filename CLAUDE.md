@@ -131,7 +131,7 @@ When planning a new feature or significant change for Litmus, always follow this
 3. **Write the plan** — Create the implementation plan with tasks, files to create/modify, and verification steps
 4. **Exit plan mode** — Present the plan for user approval
 
-IMPORTANT: Always invoke `/agent-os:shape-spec` before finalizing the plan.
+**Shaping style (preferred):** shape plans as an *interactive teaching session* — start high-level, then go one level deeper per topic, a few paragraphs at a time, pausing for questions before advancing — rather than dumping a long plan doc for review. Build the plan file incrementally as decisions settle; reserve plan-mode exit for when the model is fully walked and the decisions are locked. Approved plans are encoded as a living **execution diary** (design contract + progress log) committed under `docs/_internal/explorations/` for cross-session execution. (Plans are shaped via direct discussion + plan mode; the agent-os step above is no longer used.)
 
 ## Plan Adherence — NO DESIGN DEVIATIONS
 
