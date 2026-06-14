@@ -308,3 +308,20 @@ class TestChannelRegistry:
         ).fetchone()
         idx.close()
         assert row is not None and row[0] is not None
+
+    def test_derive_liveness_predicate(self):
+        from datetime import UTC, datetime, timedelta
+
+        from litmus.mcp.tools import _derive_liveness
+
+        now = datetime.now(UTC)
+        fresh = now - timedelta(seconds=1)
+        stale = now - timedelta(seconds=120)
+        closed = {("S1", "ch.a")}
+        ended = {"S2"}
+        d = _derive_liveness
+        assert d("S1", "ch.a", fresh, closed, ended, now, 30) == "closed"
+        assert d("S2", "ch.b", fresh, closed, ended, now, 30) == "dead"  # session ended
+        assert d("S3", "ch.c", fresh, closed, ended, now, 30) == "live"  # open + fresh
+        assert d("S3", "ch.c", stale, closed, ended, now, 30) == "open_stale"  # open + stale
+        assert d("S3", "ch.c", None, closed, ended, now, 30) == "open_stale"  # open + never

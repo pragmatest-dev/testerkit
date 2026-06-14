@@ -205,6 +205,17 @@ class ChannelClient:
         reader = self._client.do_get(ticket, options=call_options())
         return reader.read_all()
 
+    def channel_registry(self) -> pa.Table:
+        """Fetch the daemon's ``(hostname, channel, session)`` registry rows.
+
+        Unlike :meth:`channels` (one current descriptor per channel via
+        ``list_flights``), this returns the full non-unique registry — one
+        version row per session, with ``last_updated`` — for liveness/discovery.
+        """
+        ticket = flight.Ticket(b"__registry__")
+        reader = self._client.do_get(ticket, options=call_options())
+        return reader.read_all()
+
     def channels(self) -> list[ChannelDescriptor]:
         """List available channels with their descriptors via list_flights.
 

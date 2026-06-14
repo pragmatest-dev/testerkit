@@ -1402,6 +1402,24 @@ class ChannelStore:
                 [ts, ts, channel_id, session_id],
             )
 
+    _REGISTRY_COLUMNS = (
+        "channel_id, session_id, hostname, data_type, instrument_role, "
+        "resource, units, first_seen, last_updated"
+    )
+
+    def query_registry(self) -> pa.Table:
+        """All ``(hostname, channel, session)`` registry version rows.
+
+        Daemon-side read of the derived registry (folds any newly-closed segments
+        first). Off the indexed daemon this is empty.
+        """
+        if self._index_db is None:
+            return pa.table({c.strip(): [] for c in self._REGISTRY_COLUMNS.split(",")})
+        self._maybe_scan_disk()
+        cur = self._index_cursor()
+        result = cur.execute(f"SELECT {self._REGISTRY_COLUMNS} FROM channel_registry")
+        return result.arrow().read_all()
+
     @classmethod
     def _segment_rows_to_index(cls, channel_id: str, table: pa.Table) -> list[dict[str, Any]]:
         """Convert a typed segment table to index rows (``value`` JSON-encoded).

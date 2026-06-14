@@ -1434,6 +1434,89 @@ def channels_recent_query(
     return {"channels": out}
 
 
+def _derive_liveness(
+    session_id: str,
+    channel_id: str,
+    last_updated: datetime | None,
+    closed: set[tuple[str, str]],
+    ended: set[str],
+    now: datetime,
+    stale_after: float,
+) -> str:
+    """Liveness for one registry row: lifecycle (event store) + recency staleness.
+
+    A registry row's existence already implies "started", so only the terminal
+    signals are consulted — ``closed`` (ChannelClosed) and ``ended`` (SessionEnded).
+    Otherwise the channel is open: ``live`` if a sample landed within
+    ``stale_after`` seconds, else ``open_stale`` (open but quiet — e.g. a crashed
+    producer whose session hasn't been closed yet).
+    """
+    if (session_id, channel_id) in closed:
+        return "closed"
+    if session_id in ended:
+        return "dead"
+    if last_updated is not None and (now - last_updated).total_seconds() <= stale_after:
+        return "live"
+    return "open_stale"
+
+
+def channels_liveness_query(
+    *,
+    stale_after: float = 30.0,
+    data_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Channel registry rows with a derived liveness, for discovery dashboards.
+
+    One row per ``(hostname, channel, session)`` version, each tagged
+    ``liveness ∈ {live, open_stale, closed, dead}``. The descriptor and
+    ``last_updated`` come from the channel store's own registry (the source of
+    truth); the terminal lifecycle signals come from the event store (the
+    authority on session/channel close) as augmentation. ``stale_after`` is the
+    freshness window — there is no universal "live" without a rate expectation,
+    so a channel with no sample within it reads ``open_stale``, not ``live``.
+    """
+    import json
+
+    from litmus.data.channels.client import channel_query_client
+    from litmus.data.data_dir import resolve_data_dir
+    from litmus.data.event_store import EventStore
+
+    base = data_dir if data_dir else resolve_data_dir()
+    if not (base / "channels").exists():
+        return {"channels": []}
+
+    with channel_query_client(base / "channels") as client:
+        registry = client.channel_registry().to_pylist()
+
+    # Terminal lifecycle signals (augmentation). If the event store is
+    # unreachable, fall back to recency alone (closed/ended stay empty).
+    closed: set[tuple[str, str]] = set()
+    ended: set[str] = set()
+    try:
+        es = EventStore(_data_dir=base)
+        for e in es.events(event_type="channel.closed"):
+            closed.add((str(e.get("session_id")), json.loads(e["json"]).get("channel_id", "")))
+        for e in es.events(event_type="session.ended"):
+            ended.add(str(e.get("session_id")))
+    except Exception:  # noqa: BLE001
+        pass
+
+    now = datetime.now(UTC)
+    rows: list[dict[str, Any]] = []
+    for r in registry:
+        sid, cid = str(r.get("session_id")), r.get("channel_id", "")
+        live = _derive_liveness(sid, cid, r.get("last_updated"), closed, ended, now, stale_after)
+        rows.append(
+            {
+                **r,
+                "first_seen": str(r["first_seen"]) if r.get("first_seen") else None,
+                "last_updated": str(r["last_updated"]) if r.get("last_updated") else None,
+                "liveness": live,
+            }
+        )
+    return {"channels": rows}
+
+
 def _build_recent_series(rows: list[dict[str, Any]]) -> tuple[list[Any], Any]:
     """Build the sparkline series + latest value from raw channel rows.
 

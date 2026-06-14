@@ -137,6 +137,13 @@ class ChannelFlightServer(flight.FlightServerBase):
         """Consumer subscribes to live channel data, or queries historical."""
         raw = ticket.ticket.decode("utf-8")
 
+        # Reserved discovery verb: the (hostname, channel, session) registry rows.
+        if raw == "__registry__":
+            table = self._store.query_registry()
+            if table.num_rows:
+                return flight.RecordBatchStream(table)
+            return flight.GeneratorStream(table.schema, iter([]))
+
         # channel_id?policy=latest → live subscription with that ring policy;
         # channel_id?start=...&last_n=... → historical query; bare → live (ALL).
         if "?" in raw:

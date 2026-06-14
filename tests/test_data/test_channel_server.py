@@ -99,6 +99,29 @@ class TestInProcessServer:
         server.shutdown()
         store.close()
 
+    def test_registry_verb_round_trip(self, tmp_path: Path) -> None:
+        # A producer writes a closed segment; an index store scans it and serves
+        # the (hostname, channel, session) registry over the __registry__ verb.
+        prod = ChannelStore(tmp_path, uuid4(), flush_threshold=1, station_hostname="h1")
+        prod.open()
+        prod.write("dmm.voltage", 3.3)
+        prod.close()
+
+        store = ChannelStore(tmp_path, uuid4(), index=True)
+        store.open()
+        server, location = start_server_background(store)
+
+        client = ChannelClient(location)
+        rows = client.channel_registry().to_pylist()
+        client.close()
+        server.shutdown()
+        store.close()
+
+        assert len(rows) == 1
+        assert rows[0]["hostname"] == "h1"
+        assert rows[0]["channel_id"] == "dmm.voltage"
+        assert rows[0]["session_id"]
+
     def test_remote_write_persists(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
         server, location = start_server_background(store)
