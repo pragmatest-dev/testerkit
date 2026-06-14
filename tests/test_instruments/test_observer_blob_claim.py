@@ -2,7 +2,7 @@
 
 Pre-3b: an instrument that returns a blob (PIL image, raw bytes,
 arbitrary Pydantic model, Path) had the value silently dropped at
-``EventEmitter._store_value`` because the channel store path was
+``InstrumentEventEmitter._store_value`` because the channel store path was
 skipped for blobs and no FileStore route existed. The blob never
 reached durable storage.
 
@@ -10,11 +10,11 @@ After 3b (this PR):
 
 - ``_store_value`` detects ``classify_value(value) == "blob"`` and
   routes the bytes through ``FileStore.write(...)`` with the
-  session_id from EventEmitter.
+  session_id from InstrumentEventEmitter.
 - The returned ``file://`` URI is written into ChannelStore as the
   channel's sample value — works as a ``scalar:str`` channel because
   C2 (item 14) made ChannelStore accept str leaf types.
-- The URI is returned to the caller, so ``EventEmitter.read``'s
+- The URI is returned to the caller, so ``InstrumentEventEmitter.read``'s
   existing ``ctx._observations.setdefault(...)`` stamping picks it
   up unchanged.
 
@@ -36,7 +36,7 @@ from litmus.data.data_dir import resolve_data_dir
 from litmus.data.events import ChannelStarted
 from litmus.data.files import _reset_for_tests
 from litmus.data.ref import classify_value
-from litmus.instruments.observer import EventEmitter
+from litmus.instruments.observer import InstrumentEventEmitter
 
 
 class CollectingLog:
@@ -48,10 +48,10 @@ class CollectingLog:
 
 
 class FakeChannelStore:
-    """Captures the writes EventEmitter routes through it.
+    """Captures the writes InstrumentEventEmitter routes through it.
 
     Mimics the parts of ``litmus.data.channels.ChannelStore.write``
-    that EventEmitter touches: takes (channel_id, value, source),
+    that InstrumentEventEmitter touches: takes (channel_id, value, source),
     returns a synthesized ``channel://`` URI, records the args.
     Also mirrors item-4b consolidation: when ``event_log`` is wired,
     emits ``ChannelStarted`` once per (channel, session) on first
@@ -105,13 +105,13 @@ def _reset_filestore_singleton():
     _reset_for_tests()
 
 
-def _emitter_with_store() -> tuple[EventEmitter, CollectingLog, FakeChannelStore, str]:
+def _emitter_with_store() -> tuple[InstrumentEventEmitter, CollectingLog, FakeChannelStore, str]:
     log = CollectingLog()
     sid = uuid4()
     # Wire the fake store with the same event_log + session_id the
     # emitter uses, so the store can emit ChannelStarted (item 4b).
     store = FakeChannelStore(session_id=sid, event_log=log)
-    emitter = EventEmitter(
+    emitter = InstrumentEventEmitter(
         event_log=log,  # type: ignore[arg-type]
         session_id=sid,
         role="scope",
@@ -341,7 +341,7 @@ def test_no_channel_store_blob_value_passes_through_unchanged() -> None:
     as the no-channel-store branch for scalars; intentional.
     """
     log = CollectingLog()
-    emitter = EventEmitter(
+    emitter = InstrumentEventEmitter(
         event_log=log,  # type: ignore[arg-type]
         session_id=uuid4(),
         role="dmm",

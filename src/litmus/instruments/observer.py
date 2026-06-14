@@ -1,10 +1,10 @@
-"""Observer contract and EventEmitter for instrument proxies.
+"""Observer contract and InstrumentEventEmitter for instrument proxies.
 
 The proxy delegates all interpretation to a ``DriverObserver`` subclass.
 Each driver library gets its own observer that understands the library's
 API conventions (descriptors, prefixes, SCPI, etc.).
 
-``EventEmitter`` encapsulates event construction, channel store writes,
+``InstrumentEventEmitter`` encapsulates event construction, channel store writes,
 and session plumbing so observers just call ``emit.read("voltage", 3.3)``.
 """
 
@@ -43,7 +43,7 @@ LIFECYCLE_METHODS = frozenset(
 """Methods the observer should never emit events for."""
 
 
-class EventEmitter:
+class InstrumentEventEmitter:
     """Passed to observers. Handles event log, channel store, session IDs."""
 
     def __init__(
@@ -232,7 +232,7 @@ class DriverObserver:
         self,
         driver_class: type,
         role: str,
-        emit: EventEmitter,
+        emit: InstrumentEventEmitter,
         yaml_overrides: dict[str, str] | None = None,
         driver_instance: Any = None,
     ) -> None:

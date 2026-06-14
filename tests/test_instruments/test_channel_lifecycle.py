@@ -2,7 +2,7 @@
 
 C1 in the v0.2.0 build-item cluster plan, **plus** the item-4b
 consolidation that moved ``ChannelStarted`` / ``ChannelClosed``
-emission ownership from :class:`EventEmitter` to
+emission ownership from :class:`InstrumentEventEmitter` to
 :class:`ChannelStore` so any writer path (observer.read /
 Context.stream / channels.write / FileStore sink) gets the same
 lifecycle events without coordinating its own tracker.
@@ -18,7 +18,7 @@ Verifies:
 - ``observer.read`` stamps the active harness ``Context``'s
   ``_observations`` with the channel URI on first write per (vector,
   channel) — item 5. Idempotent via ``setdefault``.
-- ``EventEmitter`` no longer emits ``ChannelStarted`` itself — the
+- ``InstrumentEventEmitter`` no longer emits ``ChannelStarted`` itself — the
   store does. Per-instance trackers in the observer were a
   pre-consolidation duplicate.
 """
@@ -35,7 +35,7 @@ from litmus.data.channels.store import ChannelStore
 from litmus.data.events import ChannelClosed, ChannelStarted
 from litmus.execution._state import push_current_context, reset_current_context
 from litmus.execution.harness import Context, TestHarness
-from litmus.instruments.observer import EventEmitter
+from litmus.instruments.observer import InstrumentEventEmitter
 
 
 class CollectingLog:
@@ -62,8 +62,8 @@ def _emitter(
     log: CollectingLog,
     session_id: UUID,
     run_id: UUID,
-) -> EventEmitter:
-    return EventEmitter(
+) -> InstrumentEventEmitter:
+    return InstrumentEventEmitter(
         event_log=log,  # type: ignore[arg-type]
         session_id=session_id,
         role="dmm",
@@ -315,7 +315,7 @@ def test_observer_read_with_no_active_context_does_not_error(session) -> None:
 def test_observer_read_without_channel_store_does_not_stamp_observations() -> None:
     """No channel_store → no URI → no stamping (nothing to stamp with)."""
     log = CollectingLog()
-    emit = EventEmitter(
+    emit = InstrumentEventEmitter(
         event_log=log,  # type: ignore[arg-type]
         session_id=uuid4(),
         role="dmm",

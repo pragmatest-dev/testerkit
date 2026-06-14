@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.instruments.observer import DriverObserver, EventEmitter
+from litmus.instruments.observer import DriverObserver, InstrumentEventEmitter
 from litmus.models.instrument import ChannelKind
 
 _READ_PREFIXES = ("measure_", "read_", "get_", "query_", "fetch_")
@@ -65,7 +65,7 @@ class GenericObserver(DriverObserver):
         self,
         driver_class: type,
         role: str,
-        emit: EventEmitter,
+        emit: InstrumentEventEmitter,
         yaml_overrides: dict[str, str] | None = None,
         driver_instance: Any = None,
     ) -> None:

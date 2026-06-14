@@ -82,13 +82,13 @@ if TYPE_CHECKING:
 
 
 # --------------------------------------------------------------------- #
-# Event-emitter Protocol — any object with ``.emit(event)`` qualifies.   #
-# Real production callers pass a :class:`litmus.data.event_log.EventLog`#
-# ; tests pass simple collectors. Structural typing keeps both happy.    #
-# --------------------------------------------------------------------- #
+# FileEventEmitter Protocol — any object with ``.emit(event)`` qualifies. #
+# Real production callers pass a :class:`litmus.data.event_log.EventLog`  #
+# ; tests pass simple collectors. Structural typing keeps both happy.      #
+# ----------------------------------------------------------------------- #
 
 
-class EventEmitter(Protocol):
+class FileEventEmitter(Protocol):
     def emit(self, event: Any) -> None: ...
 
 
@@ -233,7 +233,7 @@ class _BaseSink:
         name: str,
         format_name: str,
         session_id: str,
-        event_log: EventEmitter | None,
+        event_log: FileEventEmitter | None,
         run_id: UUID | None = None,
     ) -> None:
         self._uri = uri
@@ -400,7 +400,7 @@ class _RawByteSink(_BaseSink):
         name: str,
         format_name: str,
         session_id: str,
-        event_log: EventEmitter | None,
+        event_log: FileEventEmitter | None,
         run_id: UUID | None = None,
         finalizer: Callable[[], None] | None = None,
     ) -> None:
@@ -478,7 +478,7 @@ class _JsonlSink(_BaseSink):
         name: str,
         format_name: str,
         session_id: str,
-        event_log: EventEmitter | None,
+        event_log: FileEventEmitter | None,
         run_id: UUID | None = None,
         finalizer: Callable[[], None] | None = None,
     ) -> None:
@@ -546,7 +546,7 @@ class _TdmsSink(_BaseSink):
         name: str,
         format_name: str,
         session_id: str,
-        event_log: EventEmitter | None,
+        event_log: FileEventEmitter | None,
         run_id: UUID | None = None,
         finalizer: Callable[[], None] | None = None,
     ) -> None:
@@ -636,7 +636,7 @@ class _H5Sink(_BaseSink):
         name: str,
         format_name: str,
         session_id: str,
-        event_log: EventEmitter | None,
+        event_log: FileEventEmitter | None,
         run_id: UUID | None = None,
         finalizer: Callable[[], None] | None = None,
     ) -> None:

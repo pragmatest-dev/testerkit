@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from litmus.instruments.observer import DriverObserver, EventEmitter
+from litmus.instruments.observer import DriverObserver, InstrumentEventEmitter
 
 
 class CollectingLog:
@@ -18,10 +18,10 @@ class CollectingLog:
         self.events.append(event)
 
 
-def make_emitter(role: str = "inst") -> tuple[EventEmitter, CollectingLog]:
-    """Create an EventEmitter backed by a CollectingLog."""
+def make_emitter(role: str = "inst") -> tuple[InstrumentEventEmitter, CollectingLog]:
+    """Create an InstrumentEventEmitter backed by a CollectingLog."""
     log = CollectingLog()
-    emitter = EventEmitter(event_log=log, session_id=uuid4(), role=role)  # type: ignore[arg-type]
+    emitter = InstrumentEventEmitter(event_log=log, session_id=uuid4(), role=role)  # type: ignore[arg-type]
     return emitter, log
 
 

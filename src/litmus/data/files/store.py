@@ -45,7 +45,7 @@ from litmus.data.files.serializers import find_serializer
 from litmus.data.files.streaming import StreamingSink, get_format
 
 if TYPE_CHECKING:
-    from litmus.data.files.streaming import EventEmitter
+    from litmus.data.files.streaming import FileEventEmitter
 
 _SIDECAR_SUFFIX = ".meta.json"
 
@@ -213,7 +213,7 @@ class FileStore:
         session_id: str,
         vector_id: str | None = None,
         attributes: dict[str, Any] | None = None,
-        event_log: EventEmitter | None = None,
+        event_log: FileEventEmitter | None = None,
         run_id: UUID | None = None,
     ) -> StreamingSink:
         """Open a streaming sink — one file, written incrementally.

@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from litmus.data.event_log import EventLog
 from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
-from litmus.instruments.observer import EventEmitter
+from litmus.instruments.observer import InstrumentEventEmitter
 from litmus.instruments.observers.generic import GenericObserver
 from litmus.instruments.observers.pymeasure import PyMeasureObserver
 from litmus.instruments.proxy import InstrumentProxy
@@ -54,7 +54,7 @@ def _make_proxy(driver=None) -> tuple[InstrumentProxy, CollectingLog]:  # noqa: 
     session_id = uuid4()
     run_id = uuid4()
     d = driver or FakeDriver()
-    emitter = EventEmitter(
+    emitter = InstrumentEventEmitter(
         event_log=cast(EventLog, log),
         session_id=session_id,
         role="dmm",  # type: ignore[arg-type]
@@ -176,7 +176,7 @@ class PropertyDriver:
 def _make_property_proxy() -> tuple[InstrumentProxy, CollectingLog]:
     log = CollectingLog()
     session_id = uuid4()
-    emitter = EventEmitter(
+    emitter = InstrumentEventEmitter(
         event_log=cast(EventLog, log),
         session_id=session_id,
         role="dmm",  # type: ignore[arg-type]
@@ -231,7 +231,7 @@ class TestMixedMethodAndProperty:
                 return 25.0
 
         log = CollectingLog()
-        emitter = EventEmitter(
+        emitter = InstrumentEventEmitter(
             event_log=cast(EventLog, log),
             session_id=uuid4(),
             role="dmm",  # type: ignore[arg-type]

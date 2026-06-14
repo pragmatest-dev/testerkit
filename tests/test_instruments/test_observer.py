@@ -1,11 +1,11 @@
-"""Tests for EventEmitter and DriverObserver base contract."""
+"""Tests for InstrumentEventEmitter and DriverObserver base contract."""
 
 from __future__ import annotations
 
 from uuid import uuid4
 
 from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
-from litmus.instruments.observer import DriverObserver, EventEmitter
+from litmus.instruments.observer import DriverObserver, InstrumentEventEmitter
 
 
 class CollectingLog:
@@ -16,9 +16,9 @@ class CollectingLog:
         self.events.append(event)
 
 
-def _make_emitter() -> tuple[EventEmitter, CollectingLog]:
+def _make_emitter() -> tuple[InstrumentEventEmitter, CollectingLog]:
     log = CollectingLog()
-    emitter = EventEmitter(
+    emitter = InstrumentEventEmitter(
         event_log=log,  # type: ignore[arg-type]
         session_id=uuid4(),
         role="dmm",
@@ -28,7 +28,7 @@ def _make_emitter() -> tuple[EventEmitter, CollectingLog]:
     return emitter, log
 
 
-class TestEventEmitterRead:
+class TestInstrumentEventEmitterRead:
     def test_first_read_emits_channel_started(self):
         """Position 2 / v0.2.0: per-sample InstrumentRead is retired.
 
@@ -68,7 +68,7 @@ class TestEventEmitterRead:
         assert {e.channel_id for e in log.events} == {"dmm.voltage", "dmm.current"}
 
 
-class TestEventEmitterSet:
+class TestInstrumentEventEmitterSet:
     def test_emits_instrument_set(self):
         emitter, log = _make_emitter()
         emitter.set("dmm.voltage", 5.0, attr="voltage")
@@ -81,7 +81,7 @@ class TestEventEmitterSet:
         assert event.attribute == "voltage"
 
 
-class TestEventEmitterConfigure:
+class TestInstrumentEventEmitterConfigure:
     def test_emits_instrument_configure(self):
         emitter, log = _make_emitter()
         emitter.configure("configure_range", {"auto": True})
@@ -93,7 +93,7 @@ class TestEventEmitterConfigure:
         assert event.parameters == {"auto": True}
 
 
-class TestEventEmitterChannelStore:
+class TestInstrumentEventEmitterChannelStore:
     def test_writes_to_channel_store(self):
         """Channel store still receives every sample; only the EVENT is lifecycle-only."""
         from litmus.data.events import ChannelStarted
@@ -132,7 +132,7 @@ class TestEventEmitterChannelStore:
                     )
                 return f"channel://{channel_id}"
 
-        emitter = EventEmitter(
+        emitter = InstrumentEventEmitter(
             event_log=log,  # type: ignore[arg-type]
             session_id=session_id,
             role="dmm",
