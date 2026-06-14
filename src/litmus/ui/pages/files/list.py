@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi.responses import Response, StreamingResponse
@@ -195,8 +196,14 @@ def files_page(
             if sid and open_streams.pop(str(sid), None) is not None:
                 live_dirty[0] = True  # now an at-rest catalog row on re-walk
 
-        ui_subscribe(_event_store, _on_stream_started, event_type="stream.started")
-        ui_subscribe(_event_store, _on_stream_ended, event_type="stream.ended")
+        # Live = from page-load onward. Without ``since`` the subscription
+        # replays every historical stream.started — old/never-closed test
+        # streams would all show as "live". A stream already open at load shows
+        # ○ done once it closes (catalog); the false-positive flood is the bug
+        # to avoid here. (Same replay trap as the channel badge.)
+        _since = datetime.now(UTC)
+        ui_subscribe(_event_store, _on_stream_started, event_type="stream.started", since=_since)
+        ui_subscribe(_event_store, _on_stream_ended, event_type="stream.ended", since=_since)
     except (OSError, RuntimeError):
         pass
 
