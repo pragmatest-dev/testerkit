@@ -85,9 +85,9 @@ def channel_detail_page(
         chart_card: ui.card | None = None
         data_card: ui.card | None = None
         # X-axis mode for scalar plots: "time" (received timestamp) or
-        # "index" (per-session sample index, so multiple sessions overlay
+        # "offset" (per-session sample offset, so multiple sessions overlay
         # for shape comparison). Mutable cell — the toggle updates it.
-        x_mode_state = ["index" if x_mode == "index" else "time"]
+        x_mode_state = ["offset" if x_mode == "offset" else "time"]
         # ── Live infrastructure: one holder, one renderer ───────────────
         # The live-UI rule (docs/_internal/explorations/live-ui-pattern.md):
         # the subscription callbacks below write only plain Python (the
@@ -226,15 +226,15 @@ def channel_detail_page(
                 if (descriptor.get("data_type") or "").startswith("scalar"):
 
                     async def _on_x_mode(e: Any) -> None:
-                        x_mode_state[0] = "index" if e.value == "index" else "time"
+                        x_mode_state[0] = "offset" if e.value == "offset" else "time"
                         await refresh()
 
                     ui.toggle(
-                        {"time": "Time", "index": "Index"},
+                        {"time": "Time", "offset": "Offset"},
                         value=x_mode_state[0],
                         on_change=_on_x_mode,
                     ).props("dense").classes("ml-auto").tooltip(
-                        "X-axis: received time, or per-session sample index "
+                        "X-axis: received time, or per-session sample offset "
                         "(multiple sessions overlay for shape comparison)"
                     )
 
@@ -363,14 +363,14 @@ def _render_chart(
         grid_bottom = 112 if show_legend else 70
         slider_bottom = 52 if show_legend else 18
 
-        # Index mode (scalar only): plot each session against its own
-        # sample index so multiple sessions overlay for shape comparison.
+        # Offset mode (scalar only): plot each session against its own
+        # sample offset so multiple sessions overlay for shape comparison.
         # Waveforms already use an intra-capture index/time axis.
-        index_axis = x_mode == "index" and not (isinstance(last_values, list) and last_values)
-        if index_axis:
+        offset_axis = x_mode == "offset" and not (isinstance(last_values, list) and last_values)
+        if offset_axis:
             x_axis: dict[str, Any] = {
                 "type": "value",
-                "name": "sample index",
+                "name": "offset",
                 "nameLocation": "middle",
                 "nameGap": 30,
             }
@@ -688,17 +688,19 @@ def _build_scalar_series(
 
     ``x_mode`` controls the X placement. ``"time"`` plots each point at
     its ``received_at`` against a shared time axis (sessions sit
-    side-by-side along the timeline). ``"index"`` plots each session's
-    values against their own 0..n sample index, so sessions overlay for
-    shape comparison — a 1-D ``data`` array on the value axis lands
-    point *k* at x=*k*.
+    side-by-side along the timeline). ``"offset"`` plots each session's
+    values against their per-session ``offset`` as ``[offset, value]``
+    pairs on a value axis, so sessions overlay aligned at offset 0.
     """
     session_ids = {str(r.get("session_id") or "") for r in rows}
     if len(session_ids) <= 1:
+        data = (
+            [[r.get("offset"), _extract_scalar(r)] for r in rows] if x_mode == "offset" else y_data
+        )
         return [
             {
                 "type": "line",
-                "data": y_data,
+                "data": data,
                 "showSymbol": False,
                 "smooth": False,
             }
@@ -714,9 +716,12 @@ def _build_scalar_series(
         if value is None:
             continue
         # time: [tick, value] pairs on the shared category axis (a tick
-        # missing from a session renders as a gap, not a zero). index:
-        # bare values, placed at 0..n on the value axis to overlay.
-        point = value if x_mode == "index" else [_axis_tick(r.get("received_at")), value]
+        # missing from a session renders as a gap, not a zero). offset:
+        # [offset, value] pairs on the value axis, sessions aligned at 0.
+        if x_mode == "offset":
+            point = [r.get("offset"), value]
+        else:
+            point = [_axis_tick(r.get("received_at")), value]
         by_session.setdefault(sid, []).append(point)
 
     series: list[dict[str, Any]] = []

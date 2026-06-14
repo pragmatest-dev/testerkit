@@ -1307,7 +1307,9 @@ def channels_query(
 ) -> dict[str, Any]:
     """Query channel data from the channel store.
 
-    Shared implementation for HTTP API and MCP tool.
+    Shared implementation for HTTP API and MCP tool. Each row carries its
+    ``offset`` — the sample's per-session position. That's part of the
+    channel ticket (``channel://…&offset=N``), so it travels with the data.
     """
     from litmus.data.channels.client import channel_query_client
     from litmus.data.data_dir import resolve_data_dir
@@ -1327,10 +1329,6 @@ def channels_query(
             last_n=last_n,
             max_points=max_points,
         )
-    # ``offset`` is an internal ordering cursor (the window-stitch dedup key),
-    # never part of the public read contract — drop it from query results.
-    if "offset" in table.column_names:
-        table = table.drop_columns(["offset"])
     return {"channel_id": channel_id, "data": table.to_pylist()}
 
 

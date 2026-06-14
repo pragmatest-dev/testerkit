@@ -1627,7 +1627,7 @@ def query_channel(
 
     Returns ``{"channel_id": str, "data": [row, ...]}`` where each row is
     a dict matching the channel's Arrow schema (timestamp + value /
-    samples + source_method + session_id).
+    samples + source_method + session_id + offset).
     """
     from litmus.mcp.tools import channels_query
 
