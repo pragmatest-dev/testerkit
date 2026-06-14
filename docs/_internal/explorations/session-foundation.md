@@ -257,11 +257,12 @@ plugin (`pytest_plugin/__init__.py:255-257`), both via `set_channel_store(...)`.
 (`files.py:50-69`). Session contextvars: `set_event_store`/`set_channel_store` in
 `execution/_state.py`; `session_id` via `resolve_session_id`.
 
-**Design decision (refined — see "Session ownership, multi-process & cleanup" below):** the
-session is owned by the **producer control-context** (1 per simple process; **N per multiplexing
-server** like `litmus serve`), NOT a process singleton. The primitive is **context-local**
-(contextvar-based) and supports multiple concurrent sessions per process. Close authority is the
-**P3 reaper (derived)**; explicit `SessionEnded` is a quiescence-proven fast-path only.
+**Design decision (refined — see "Session ownership, multi-process & cleanup" below):** a
+**producer** nominally has **one** session (its one shared context), reused; that id can be
+**shared outward** to collaborators (multi-DUT workers attach; UIs may share). The **N** only
+appears at the **service** (the EventStore/runs daemon), which multiplexes all producers' sessions
+— that's infra, not a producer. The primitive is producer-side + context-local. Close authority is
+the **P3 reaper (derived)**; explicit `SessionEnded` is a quiescence-proven fast-path only.
 `connect()` block-exit releases instruments + ends the **run**, never force-closes the session.
 
 **Sub-steps:**
@@ -289,13 +290,15 @@ server** like `litmus serve`), NOT a process singleton. The primitive is **conte
 2. **Ownership = originator; explicit close is a quiescence-proven fast-path only.** Emitted only by
    a context that can prove no one else writes — a sole producer, or an orchestrator post-join.
    Otherwise the reaper derives it. The reaper is always the authority.
-3. **Multi-process forms:** *Multi-DUT* = one session, owner spawns+injects+**joins** workers then
-   fast-path-closes (+ lease backstop); the join reclaims **run** instruments, not the session.
-   *Many interactive UIs* = many independent sessions, one per control-context (1/simple process,
-   **N per multiplexing server**), each owns+closes its own, lease reaps the vanished. *Distributed
-   peers (HIL)* = legitimate only as one logical activity; works because close is derived (no owner
-   to join). *Not legitimate:* sharing a session merely to correlate independent producers —
-   correlation is metadata/query (campaign/DUT/date), never shared lifecycle.
+3. **Producer = 1 session; service = N.** A producer nominally has one session (its shared context);
+   the **N concurrent sessions live at the service** (EventStore/runs daemon — the shared spine all
+   producers multiplex through), which is infra, not a producer. Forms: *Multi-DUT* = one session
+   shared outward, owner spawns+injects+**joins** workers then fast-path-closes (+ lease backstop);
+   the join reclaims **run** instruments, not the session. *Interactive UIs* = mostly separate (one
+   per UI), may share an id if desired; each self-closes (lease) or fast-path-closes. *Distributed
+   peers (HIL)* = one logical activity sharing the id; works because close is derived (no owner to
+   join). *Not legitimate:* sharing a session merely to correlate independent producers — correlation
+   is metadata/query (campaign/DUT/date), never shared lifecycle.
 4. **Runs are the specialization** (scarce instruments, structured join/close, outcome, pid-death
    force-close + cascade) — kept out of the session model.
 5. **Cleanup — instrument locks are pid-local and fully decoupled from sessions.** The instrument
@@ -309,8 +312,9 @@ server** like `litmus serve`), NOT a process singleton. The primitive is **conte
    + UI "in-use" indicator** clear via the **derived `SessionEnded`** (the indicator keys off
    `session.ended`), independent of the lock. **Residual (not a session concern):** hardware
    safe-state on abrupt death → next-acquirer re-init (follow-on #36).
-6. **Build:** primitive is context-local / N-per-process; P3 reaper = real close authority; explicit
-   close = fast-path; instrument lifecycle stays a run concern; 2a keeps today's explicit closes.
+6. **Build:** primitive is producer-side + context-local (nominally 1 session per producer; the
+   daemon aggregates N); P3 reaper = real close authority; explicit close = fast-path; instrument
+   lifecycle stays a run concern; 2a keeps today's explicit closes.
 
 ## Progress log (keep current)
 
