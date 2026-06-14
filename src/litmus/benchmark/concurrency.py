@@ -121,6 +121,34 @@ def _file_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]:
     return (t0, _now())
 
 
+def _file_stream_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]:
+    """Stream ``scale`` 64 KB chunks through a real append sink (one stream)."""
+    from litmus.data.files.store import FileStore
+
+    store = FileStore(data_dir=Path(data_dir))
+    sid = uuid4().hex
+    chunk = b"a" * (64 * 1024)
+    t0 = _now()
+    sink = store.open_stream(name=f"raw_{seed}_{uuid4().hex[:6]}", format="raw", session_id=sid)
+    for _ in range(scale):
+        sink.write(chunk)
+    sink.close()
+    return (t0, _now())
+
+
+def _raw_io_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]:
+    """Raw ``open(...,'wb').write()`` of the same chunks — the file-I/O ceiling
+    the stream is measured against (no sink, no frame relay, no sidecar)."""
+    chunk = b"a" * (64 * 1024)
+    p = Path(data_dir) / "files" / f"rawio_{seed}_{uuid4().hex}.bin"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    t0 = _now()
+    with open(p, "wb") as f:
+        for _ in range(scale):
+            f.write(chunk)
+    return (t0, _now())
+
+
 def _runs_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]:
     # The real finalize path (``BuildRun.finish`` → ``save_test_run``) writes
     # the parquet atomically and returns — it does NOT notify the daemon
@@ -172,6 +200,8 @@ _WORKERS = {
     "channels.write_many": _channel_write_many_worker,
     "channels.stream": _channel_stream_worker,
     "files.write": _file_worker,
+    "files.stream_raw": _file_stream_worker,
+    "files.raw_io": _raw_io_worker,
     "runs.save": _runs_worker,
     "representative.production": _representative_worker,
 }

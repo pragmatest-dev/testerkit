@@ -536,6 +536,59 @@ class TestFileStreamPerf:
     surface is clear. Pick the dial that matters per format.
     """
 
+    def test_stream_raw_near_io_ceiling(self, tmp_path: Path) -> None:
+        """Raw streaming stays close to the raw ``open(...,'wb').write`` ceiling
+        on the same storage. Regression guard for the publish_frame-on-the-
+        hot-path disease — a Flight ``do_put`` per chunk dropped streaming to
+        ~16% of the ceiling; the non-blocking ``_FrameRelay`` (resolve-once +
+        background drain) restored it to ~90%+. Sampling is interleaved
+        warm-vs-warm with the GC paused and min-of-N, so the ratio reflects the
+        real per-chunk code overhead, not disk write-back noise.
+        """
+        import gc  # noqa: PLC0415
+        import time  # noqa: PLC0415
+
+        from litmus.data.files.store import FileStore
+
+        store = FileStore(data_dir=tmp_path)
+        sid = str(uuid4())
+        n_chunks = 200
+        chunk = b"a" * (64 * 1024)
+
+        def raw() -> None:
+            with open(tmp_path / f"r_{uuid4().hex}.bin", "wb") as f:
+                for _ in range(n_chunks):
+                    f.write(chunk)
+
+        def streaming() -> None:
+            sink = store.open_stream(name=f"s_{uuid4().hex[:8]}", format="raw", session_id=sid)
+            for _ in range(n_chunks):
+                sink.write(chunk)
+            sink.close()
+
+        for _ in range(2):  # warm caches for both paths
+            raw()
+            streaming()
+        raw_t: list[float] = []
+        stream_t: list[float] = []
+        gc.disable()
+        try:
+            for _ in range(6):  # interleave so both see the same cache state
+                t = time.perf_counter()
+                raw()
+                raw_t.append(time.perf_counter() - t)
+                t = time.perf_counter()
+                streaming()
+                stream_t.append(time.perf_counter() - t)
+        finally:
+            gc.enable()
+
+        ratio = min(raw_t) / min(stream_t)  # ≈ streaming throughput / raw throughput
+        assert ratio >= 0.70, (
+            f"raw streaming is only {ratio:.0%} of the file-I/O ceiling "
+            "— is publish_frame back on the writer's hot path?"
+        )
+
     @pytest.mark.benchmark(group="filestream-raw", warmup=True, min_rounds=10)
     @pytest.mark.parametrize("chunk_kb", [1, 64, 1024])
     def test_stream_raw(self, tmp_path: Path, benchmark, chunk_kb: int):
