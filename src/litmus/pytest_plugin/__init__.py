@@ -32,7 +32,6 @@ from litmus.execution._state import (
     set_active_vector_params,
     set_channel_store,
     set_current_logger,
-    set_event_store,
     set_instrument_records,
 )
 from litmus.execution.accessors import InstrumentAccessor
@@ -238,25 +237,29 @@ def _setup_event_log_and_subscribers(
     durably to the events daemon. Materialization happens async after
     pytest exits.
 
-    Returns the EventStore (existing or newly created) so the teardown
-    helper can close it after the run.
+    Returns the :class:`SessionScope` so the teardown helper can end + close it.
     """
     from litmus.data.channels.store import ChannelStore
-    from litmus.data.event_store import EventStore
+    from litmus.execution.session_scope import open_session
 
-    event_store = get_event_store()
-    if event_store is None:
-        event_store = EventStore(_data_dir=results_path)
-        set_event_store(event_store)
+    # Open the producer session via the shared primitive (reuse-or-create the
+    # EventStore, wire its ContextVar, get the EventLog). SessionStarted is NOT
+    # emitted here — _emit_session_start_events fires it (orchestrator-only) once
+    # the logger/test_run fields exist. emit_lifecycle gates the teardown SessionEnded.
+    scope = open_session(
+        None,
+        session_id=session_id,
+        data_dir=results_path,
+        reuse_existing=True,
+        emit_lifecycle=not _is_multi_slot_worker(),
+    )
+    logger.event_log = scope.event_log
 
-    event_log = event_store.get_event_log(session_id)
-    logger.event_log = event_log
-
-    channel_store = ChannelStore(results_path, session_id, serve=True, event_log=event_log)
+    channel_store = ChannelStore(results_path, session_id, serve=True, event_log=scope.event_log)
     channel_store.open()
     set_channel_store(channel_store)
 
-    return event_store
+    return scope
 
 
 def _emit_session_start_events(logger: TestRunLogger) -> None:
@@ -333,10 +336,8 @@ def _emit_session_start_events(logger: TestRunLogger) -> None:
         )
 
 
-def _teardown_logger(logger: TestRunLogger, event_store: Any) -> None:
-    """Close subscribers, finalize the run, emit SessionEnded."""
-    from litmus.data.events import SessionEnded
-
+def _teardown_logger(logger: TestRunLogger, scope: Any) -> None:
+    """Close subscribers, finalize the run, end the session."""
     # ChannelStore closes before the event log so its subscribers see the
     # final flush before the event log shuts subscribers down.
     cs = get_channel_store()
@@ -354,18 +355,12 @@ def _teardown_logger(logger: TestRunLogger, event_store: Any) -> None:
     # finalize() emits RunEnded; it does not close the event log itself.
     logger.finalize()
 
-    if logger.event_log is not None:
-        if not _is_multi_slot_worker():
-            logger.event_log.emit(
-                SessionEnded(
-                    session_id=logger._session_id,
-                )
-            )
-        logger.event_log.close()
-
-    if event_store is not None:
-        event_store.close()
-        set_event_store(None)
+    # End the session via the primitive: SessionEnded (orchestrator-only — the
+    # scope's emit_lifecycle is False for a multi-slot worker) then close stores
+    # (event log + owned EventStore + clears the EventStore ContextVar).
+    if scope is not None:
+        scope.emit_ended()
+        scope.close_stores()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -401,9 +396,9 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
 
     logger = TestRunLogger(**meta)
 
-    event_store: Any = None
+    scope: Any = None
     if data_dir:
-        event_store = _setup_event_log_and_subscribers(logger, Path(data_dir), session_id)
+        scope = _setup_event_log_and_subscribers(logger, Path(data_dir), session_id)
         _emit_session_start_events(logger)
 
     set_current_logger(logger)
@@ -412,7 +407,7 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
     finally:
         # Capture not-started steps onto the run manifest before finalize.
         logger.test_run.collected_items = get_collected_items()
-        _teardown_logger(logger, event_store)
+        _teardown_logger(logger, scope)
         set_current_logger(None)
 
 
