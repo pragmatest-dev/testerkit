@@ -36,7 +36,7 @@ from litmus.data.channels.models import (
     _infer_schema,
     batch_row_to_sample,
     encode_value,
-    sample_to_batch,
+    sample_schema,
     samples_to_batch,
 )
 from litmus.data.events import ChannelClosed, ChannelStarted
@@ -142,6 +142,13 @@ class _ChannelWriter(BufferedIPCWriter):
         self._path_template = path
         self._segment = 0
         self._closed_paths: list[Path] = []
+        # Channels buffer whole RecordBatches (the columnar write core builds
+        # them) and flush+rotate once buffered rows reach the threshold — so
+        # per-sample writes accumulate into one segment instead of one file each,
+        # while staying queryable in memory before the flush (the analogue of the
+        # base's per-row dict buffer, which channels no longer use).
+        self._pending_batches: list[pa.RecordBatch] = []
+        self._pending_rows = 0
 
     @property
     def path(self) -> Path:
@@ -155,6 +162,59 @@ class _ChannelWriter(BufferedIPCWriter):
     def all_paths(self) -> list[Path]:
         """All closed segment paths (readable by ipc.open_stream)."""
         return list(self._closed_paths)
+
+    def append_batch(self, batch: pa.RecordBatch) -> pa.RecordBatch:
+        """Buffer a columnar batch; flush + rotate once buffered rows reach the
+        threshold (or the idle timer fires). Overrides the base's immediate write
+        so small blocks coalesce into segment-sized files instead of one each."""
+        with self._lock:
+            self._pending_batches.append(batch)
+            self._pending_rows += batch.num_rows
+            if self._pending_rows >= self._flush_threshold:
+                self._flush_pending()
+            elif self._timer is None:
+                self._start_timer()
+        return batch
+
+    def _flush_pending(self) -> None:
+        """Write buffered batches as one segment, then rotate. Caller holds lock."""
+        if not self._pending_batches:
+            return
+        self._cancel_timer()
+        writer = self._ensure_writer()
+        for b in self._pending_batches:
+            writer.write_batch(b)
+        self._row_count += self._pending_rows
+        flushed = self._pending_batches[-1]
+        self._pending_batches = []
+        self._pending_rows = 0
+        self._on_flush(flushed)
+
+    def _timer_flush(self) -> None:
+        """Idle-timer flush — drains the pending batches (not the dict buffer)."""
+        with self._lock:
+            self._timer = None
+            self._flush_pending()
+
+    def pending_table(self) -> pa.Table | None:
+        """Buffered-but-unflushed rows as one table — for mid-session query."""
+        with self._lock:
+            if not self._pending_batches:
+                return None
+            return pa.Table.from_batches(self._pending_batches)
+
+    def close(self) -> int:
+        """Flush pending batches, then close the open segment."""
+        with self._lock:
+            self._cancel_timer()
+            self._flush_pending()
+        if self._writer is not None:
+            try:
+                self._writer.close()
+            except _WRITE_ERRORS as exc:
+                warnings.warn(f"Failed to close IPC writer: {exc}", stacklevel=2)
+            self._writer = None
+        return self._row_count
 
     def _on_flush(self, batch: pa.RecordBatch) -> None:
         """Rotate: close this segment so it's readable, open next on demand."""
@@ -252,6 +312,13 @@ class ChannelStore:
         self._pending: list[dict[str, Any]] = []
         self._pending_lock = threading.Lock()
         self._pending_threshold = 100
+        # Runtime segment fold: queries lazily scan newly-closed segments into
+        # the index (throttled), so a sample the live push dropped under overflow
+        # is queryable from its durable segment without a daemon restart. The
+        # query dedups overlay ∪ index on (channel, session, offset), so a sample
+        # in both (pushed AND scanned) is counted once.
+        self._scan_lock = threading.Lock()
+        self._last_scan = 0.0
 
         # The synchronous daemon push is OFF the write path: write() enqueues the
         # sample and a background thread does the Flight do_put, so capture runs
@@ -260,7 +327,7 @@ class ChannelStore:
         # Default on; LITMUS_CHANNELS_SYNC_PUSH=1 forces the inline sync push
         # (A/B benchmarking + rollback).
         self._async_push = os.environ.get("LITMUS_CHANNELS_SYNC_PUSH") != "1"
-        self._push_queue: queue.Queue[tuple[str, ChannelSample | pa.RecordBatch]] | None = None
+        self._push_queue: queue.Queue[tuple[str, pa.RecordBatch]] | None = None
         self._push_thread: threading.Thread | None = None
         self._push_stop: threading.Event | None = None
         self._push_drops = 0
@@ -296,6 +363,29 @@ class ChannelStore:
         if channel_id in self._registry:
             return SCALAR_SCHEMA
         return None
+
+    def _ensure_writer(
+        self,
+        channel_id: str,
+        first_value: object,
+        sample_interval: float | None,
+        data_type: str,
+    ) -> _ChannelWriter:
+        """Return the channel's segment writer, creating it (schema inferred from
+        ``first_value``) on first use. ``_register`` must have run first — the
+        segment schema carries the registry descriptor as Arrow metadata."""
+        writer = self._writers.get(channel_id)
+        if writer is not None:
+            return writer
+        schema = _infer_schema(self._normalize_value(first_value, sample_interval)).with_metadata(
+            {b"litmus.channel_descriptor": self._registry[channel_id].model_dump_json().encode()}
+        )
+        session_short = str(self._session_id)[:8]
+        today = date.today().isoformat()
+        path = self._channels_dir / today / f"{channel_id}_{session_short}.arrow"
+        writer = _ChannelWriter(channel_id, data_type, schema, path, self._flush_threshold)
+        self._writers[channel_id] = writer
+        return writer
 
     def _register(  # noqa: PLR0913
         self,
@@ -450,103 +540,19 @@ class ChannelStore:
         Raises:
             ValueError: If value classifies as "blob" (not storable).
         """
-        if "/" in channel_id or "\\" in channel_id or ".." in channel_id:
-            raise ValueError(
-                f"Invalid channel_id '{channel_id}': must not contain path separators or '..'"
-            )
-
-        vtype = classify_value(value)
-        if vtype == "blob":
-            raise ValueError(
-                f"Channel {channel_id}: value type {type(value).__name__} is not numeric. "
-                "Use file:// refs for non-numeric data."
-            )
-
-        now = datetime.now(UTC)
-
-        data_type, row, sample = self._to_arrow_row(
+        # One sample is the N=1 case of the shared core (see _append_and_publish).
+        return self._append_and_publish(
             channel_id,
-            value,
-            now,
-            source,
+            values=[value],
+            sampled_ats=[sampled_at],
+            source=source,
             units=units,
             sample_interval=sample_interval,
-            sampled_at=sampled_at,
-        )
-        if row is None:
-            raise ValueError(f"Channel {channel_id}: could not classify value")
-
-        # Stamp the monotonic offset once, into both the durable row and the
-        # live sample, so a window stitch can dedup history vs live on
-        # (session_id, offset) without timestamp ties.
-        seq = next(self._channel_seq.setdefault(channel_id, itertools.count()))
-        row["offset"] = seq
-        if sample is not None:
-            sample.offset = seq
-
-        # Register identity / validate against the established one (immutable
-        # within a session — conflicting unit/type raises, no silent-ignore).
-        self._register(
-            channel_id,
-            data_type=data_type,
-            units=units,
             instrument_role=instrument_role,
             resource=resource,
             attributes=attributes,
-            source=source,
             run_id=run_id,
-            now=now,
         )
-
-        # Get or create writer (schema inferred from first value)
-        if channel_id not in self._writers:
-            schema = _infer_schema(self._normalize_value(value, sample_interval))
-            # Descriptor rides on the segment's Arrow schema metadata (the
-            # daemon reads + serves it); it is metadata, never an indexed column.
-            schema = schema.with_metadata(
-                {
-                    b"litmus.channel_descriptor": self._registry[channel_id]
-                    .model_dump_json()
-                    .encode()
-                }
-            )
-            session_short = str(self._session_id)[:8]
-            today = date.today().isoformat()
-            path = self._channels_dir / today / f"{channel_id}_{session_short}.arrow"
-            self._writers[channel_id] = _ChannelWriter(
-                channel_id,
-                data_type,
-                schema,
-                path,
-                self._flush_threshold,
-            )
-
-        self._writers[channel_id].append(row)
-
-        # Notify subscribers
-        if sample is not None:
-            self._notify(channel_id, sample)
-            # Co-located batch subscribers (a Flight server wrapping THIS store)
-            # get a 1-row batch tap. Guarded: a producer that only pushes to the
-            # daemon has no batch subscribers, so capture pays nothing here.
-            if self._global_batch_subscribers or self._batch_subscribers.get(channel_id):
-                self._notify_batch(channel_id, sample_to_batch(sample))
-            # Push to Flight daemon so cross-process subscribers see it.
-            # Async-push mode: enqueue (off the write path) and let the
-            # background pusher do the do_put; drop on overflow (live = from-now).
-            if self._push_queue is not None:
-                try:
-                    self._push_queue.put_nowait((channel_id, sample))
-                except queue.Full:
-                    self._push_drops += 1
-            else:
-                self._flight_push(channel_id, sample)
-            # Keep an index-enabled store consistent on any write path
-            # (the daemon never calls write(), but in-process index stores do).
-            if self._index_enabled:
-                self._pending_extend([self._index_row(channel_id, sample)])
-
-        return make_channel_uri(channel_id, str(self._session_id))
 
     def write_many(  # noqa: PLR0913
         self,
@@ -575,32 +581,170 @@ class ChannelStore:
         """
         if not samples:
             return make_channel_uri(channel_id, str(self._session_id))
-        if "/" in channel_id or "\\" in channel_id or ".." in channel_id:
-            raise ValueError(
-                f"Invalid channel_id '{channel_id}': must not contain path separators or '..'"
-            )
 
-        now = datetime.now(UTC)
-        counter = self._channel_seq.setdefault(channel_id, itertools.count())
-
-        # Accept bare values [v, ...] OR (value, sampled_at) pairs. Decide once
-        # from the first element so the whole batch is read the same way: a pair
-        # is a 2-tuple whose second item is a timestamp (datetime) or None.
+        # Accept bare values ``[v, ...]`` OR ``(value, sampled_at)`` pairs. Decide
+        # once from the first element: a pair is a 2-tuple whose second item is a
+        # timestamp (datetime) or None. Split into parallel value/timestamp columns
+        # and hand the block to the shared core — N samples is just the N>1 case.
         first_el = samples[0]
         paired = (
             isinstance(first_el, tuple)
             and len(first_el) == 2
             and (first_el[1] is None or isinstance(first_el[1], datetime))
         )
+        if paired:
+            values = [e[0] for e in samples]
+            sampled_ats: list[datetime | None] = [e[1] for e in samples]
+        else:
+            values = list(samples)
+            sampled_ats = [None] * len(samples)
 
-        # Every row is built through the SAME path write() uses, so behavior is
-        # identical per sample — only the durable append and the push are batched.
+        return self._append_and_publish(
+            channel_id,
+            values=values,
+            sampled_ats=sampled_ats,
+            source=source,
+            units=units,
+            sample_interval=sample_interval,
+            instrument_role=instrument_role,
+            resource=resource,
+            attributes=attributes,
+            run_id=run_id,
+        )
+
+    def _has_batch_subs(self, channel_id: str) -> bool:
+        """Any co-located batch subscriber (a Flight server wrapping THIS store)."""
+        return bool(self._global_batch_subscribers or self._batch_subscribers.get(channel_id))
+
+    def _append_and_publish(  # noqa: PLR0913
+        self,
+        channel_id: str,
+        *,
+        values: Sequence[Any],
+        sampled_ats: Sequence[datetime | None],
+        source: str,
+        units: str | None = None,
+        sample_interval: float | None = None,
+        instrument_role: str = "",
+        resource: str = "",
+        attributes: dict[str, Any] | None = None,
+        run_id: UUID | None = None,
+    ) -> str:
+        """Append a block of 1+ samples to the durable segment, then best-effort
+        publish — the ONE body behind ``write`` / ``write_many`` / the stream sink.
+
+        The three verbs differ only in batching granularity (1 / N / streamed);
+        this is the shared mechanism. The durable segment is written FIRST (every
+        call, complete) — the live relay and the index only ever lag under push
+        overflow, never lose (visibility trails the durable frontier, never
+        durability).
+
+        Scalar blocks take a columnar fast path: each column is one ``pa.array``,
+        no per-sample ``ChannelSample`` or per-row dict. Array/struct/dict values
+        take the per-row build (their envelope needs it). ``ChannelSample`` objects
+        are materialized only when an in-process per-sample subscriber or the local
+        index actually consumes them — never on the common capture path.
+        """
+        if not values:
+            return make_channel_uri(channel_id, str(self._session_id))
+        if "/" in channel_id or "\\" in channel_id or ".." in channel_id:
+            raise ValueError(
+                f"Invalid channel_id '{channel_id}': must not contain path separators or '..'"
+            )
+        first = values[0]
+        if classify_value(first) == "blob":
+            raise ValueError(
+                f"Channel {channel_id}: value type {type(first).__name__} is not numeric. "
+                "Use file:// refs for non-numeric data."
+            )
+
+        now = datetime.now(UTC)
+        sid = str(self._session_id)
+        n = len(values)
+        # One contiguous offset block — next() is atomic, single producer thread.
+        counter = self._channel_seq.setdefault(channel_id, itertools.count())
+        offsets = list(itertools.islice(counter, n))
+        sampled = [_to_utc(t) for t in sampled_ats]
+        # Per-sample objects only when something downstream actually reads them.
+        need_samples = bool(
+            self._index_enabled or self._subscribers.get(channel_id) or self._global_subscribers
+        )
+
+        if isinstance(first, (bool, int, float, str)):
+            # ---- Scalar fast path: columnar, no per-row objects ----
+            data_type = _data_type_for(first)
+            self._register(
+                channel_id,
+                data_type=data_type,
+                units=units,
+                instrument_role=instrument_role,
+                resource=resource,
+                attributes=attributes,
+                source=source,
+                run_id=run_id,
+                now=now,
+            )
+            writer = self._ensure_writer(channel_id, first, None, data_type)
+            received = pa.array([now] * n, type=pa.timestamp("us", tz="UTC"))
+            sampled_col = pa.array(sampled, type=pa.timestamp("us", tz="UTC"))
+            # Durable segment FIRST — typed columns, one pa.array each.
+            writer.append_batch(
+                pa.record_batch(
+                    {
+                        "received_at": received,
+                        "sampled_at": sampled_col,
+                        "value": pa.array(values, type=writer.schema.field("value").type),
+                        "source_method": pa.array([source] * n, type=pa.utf8()),
+                        "session_id": pa.array([sid] * n, type=pa.utf8()),
+                        "offset": pa.array(offsets, type=pa.int64()),
+                    },
+                    schema=writer.schema,
+                )
+            )
+            # Live wire (sample_schema, JSON value) — identical to samples_to_batch,
+            # built only when there's somewhere to send it.
+            wire = None
+            if self._flight_location is not None or self._has_batch_subs(channel_id):
+                wire = pa.record_batch(
+                    {
+                        "channel_id": pa.array([channel_id] * n, type=pa.utf8()),
+                        "received_at": received,
+                        "sampled_at": sampled_col,
+                        "value": pa.array([encode_value(v) for v in values], type=pa.utf8()),
+                        "source_method": pa.array([source] * n, type=pa.utf8()),
+                        "units": pa.array([units or ""] * n, type=pa.utf8()),
+                        "sample_interval": pa.array([sample_interval] * n, type=pa.float64()),
+                        "session_id": pa.array([sid] * n, type=pa.utf8()),
+                        "offset": pa.array(offsets, type=pa.int64()),
+                    },
+                    schema=sample_schema(),
+                )
+            samples = (
+                [
+                    ChannelSample(
+                        channel_id=channel_id,
+                        received_at=now,
+                        sampled_at=sampled[i],
+                        value=values[i],
+                        units=units,
+                        sample_interval=sample_interval,
+                        source_method=source,
+                        session_id=sid,
+                        offset=offsets[i],
+                    )
+                    for i in range(n)
+                ]
+                if need_samples
+                else None
+            )
+            self._publish(channel_id, wire, samples)
+            return make_channel_uri(channel_id, sid)
+
+        # ---- Array / struct / dict: per-row build (the envelope needs it) ----
         rows: list[dict] = []
-        push_samples: list[ChannelSample] = []
+        samples = []
         data_type = "scalar:float"
-        first_value: Any = None
-        for i, element in enumerate(samples):
-            value, ts = element if paired else (element, None)
+        for i, value in enumerate(values):
             dt, row, sample = self._to_arrow_row(
                 channel_id,
                 value,
@@ -608,20 +752,17 @@ class ChannelStore:
                 source,
                 units=units,
                 sample_interval=sample_interval,
-                sampled_at=_to_utc(ts),
+                sampled_at=sampled[i],
             )
             if row is None:
                 raise ValueError(f"Channel {channel_id}: could not classify value")
             if i == 0:
                 data_type = dt
-                first_value = value
-            seq = next(counter)
-            row["offset"] = seq
+            row["offset"] = offsets[i]
             if sample is not None:
-                sample.offset = seq
-                push_samples.append(sample)
+                sample.offset = offsets[i]
+                samples.append(sample)
             rows.append(row)
-
         self._register(
             channel_id,
             data_type=data_type,
@@ -633,55 +774,49 @@ class ChannelStore:
             run_id=run_id,
             now=now,
         )
-        if channel_id not in self._writers:
-            schema = _infer_schema(
-                self._normalize_value(first_value, sample_interval)
-            ).with_metadata(
-                {
-                    b"litmus.channel_descriptor": self._registry[channel_id]
-                    .model_dump_json()
-                    .encode()
-                }
-            )
-            session_short = str(self._session_id)[:8]
-            today = date.today().isoformat()
-            path = self._channels_dir / today / f"{channel_id}_{session_short}.arrow"
-            self._writers[channel_id] = _ChannelWriter(
-                channel_id, data_type, schema, path, self._flush_threshold
-            )
-        writer = self._writers[channel_id]
-
-        # One durable batch, columns assembled from the rows write() built.
+        writer = self._ensure_writer(channel_id, first, sample_interval, data_type)
         writer.append_batch(
             pa.record_batch(
                 {col: [r[col] for r in rows] for col in writer.schema.names},
                 schema=writer.schema,
             )
         )
+        wire = (
+            samples_to_batch(samples)
+            if samples and (self._flight_location is not None or self._has_batch_subs(channel_id))
+            else None
+        )
+        self._publish(channel_id, wire, samples if need_samples else None)
+        return make_channel_uri(channel_id, sid)
 
-        if push_samples:
-            wire = samples_to_batch(push_samples)
-            # In-process fan-out: the whole batch once for batch subscribers; the
-            # per-sample callback API is fed only when someone is subscribed.
-            if self._global_batch_subscribers or self._batch_subscribers.get(channel_id):
-                self._notify_batch(channel_id, wire)
-            if self._subscribers.get(channel_id) or self._global_subscribers:
-                for sample in push_samples:
-                    self._notify(channel_id, sample)
-            # One gRPC message for the whole batch, off the write path through
-            # the same async pusher write() uses (drop-on-overflow = from-now).
-            if self._flight_location is not None:
-                if self._push_queue is not None:
-                    try:
-                        self._push_queue.put_nowait((channel_id, wire))
-                    except queue.Full:
-                        self._push_drops += 1
-                else:
-                    self._flight_push_batch(channel_id, wire)
-            if self._index_enabled:
-                self._pending_extend([self._index_row(channel_id, s) for s in push_samples])
+    def _publish(
+        self,
+        channel_id: str,
+        wire: pa.RecordBatch | None,
+        samples: list[ChannelSample] | None,
+    ) -> None:
+        """Best-effort live fan-out + local-index feed after the durable append.
 
-        return make_channel_uri(channel_id, str(self._session_id))
+        The durable segment already holds the data; nothing here can risk it. The
+        relay (push) drops on overflow (live = from-now); the index lags. This is
+        the dumb-tickerplant tail — append to the log already happened; this just
+        publishes.
+        """
+        if wire is not None and self._has_batch_subs(channel_id):
+            self._notify_batch(channel_id, wire)
+        if samples is not None and (self._subscribers.get(channel_id) or self._global_subscribers):
+            for sample in samples:
+                self._notify(channel_id, sample)
+        if wire is not None and self._flight_location is not None:
+            if self._push_queue is not None:
+                try:
+                    self._push_queue.put_nowait((channel_id, wire))
+                except queue.Full:
+                    self._push_drops += 1
+            else:
+                self._flight_push_batch(channel_id, wire)
+        if self._index_enabled and samples is not None:
+            self._pending_extend([self._index_row(channel_id, s) for s in samples])
 
     @staticmethod
     def _normalize_value(
@@ -957,13 +1092,10 @@ class ChannelStore:
                     tables.append(seg_reader.read_all())
                 except (pa.ArrowInvalid, OSError):
                     pass
-            # Unflushed buffer
-            if writer.buffer:
-                buf_table = pa.table(
-                    {col: [r[col] for r in writer.buffer] for col in writer.schema.names},
-                    schema=writer.schema,
-                )
-                tables.append(buf_table)
+            # Buffered-but-unflushed batches (read-after-write before the flush)
+            pending = writer.pending_table()
+            if pending is not None:
+                tables.append(pending)
 
         # Read from closed files on disk (other sessions or filtered session)
         if session_short:
@@ -1018,7 +1150,7 @@ class ChannelStore:
     # ---- Warm DuckDB index (daemon-only; Opt 1) ----
 
     _INDEX_ENVELOPE = frozenset(
-        {"received_at", "sampled_at", "source_method", "session_id", "sample_interval"}
+        {"received_at", "sampled_at", "source_method", "session_id", "sample_interval", "offset"}
     )
     # Async-pusher batching: accumulate up to this many rows OR this long
     # (whichever first) before each do_put, so a per-sample write() firehose
@@ -1142,6 +1274,25 @@ class ChannelStore:
             rows = self._segment_rows_to_index(m.group(1), table)
             self._insert_index_rows(rows, "channel_index", ledger_path=path_str)
 
+    # Bound how often a query re-globs the channels dir for newly-closed
+    # segments — frequent dashboard polls shouldn't each pay a directory walk.
+    _RUNTIME_SCAN_INTERVAL = 1.0
+
+    def _maybe_scan_disk(self) -> None:
+        """Fold newly-closed segments into the index before a query (throttled).
+
+        Closes the restart-recovery gap: a sample the live push dropped under
+        overflow is durable in its closed segment and becomes queryable here,
+        without bouncing the daemon. Incremental (ledger-gated) and rate-limited;
+        the union dedup in ``_query_index`` absorbs any overlap with the overlay.
+        """
+        now = time.monotonic()
+        with self._scan_lock:
+            if now - self._last_scan < self._RUNTIME_SCAN_INTERVAL:
+                return
+            self._last_scan = now
+        self._scan_disk()
+
     def _absorb_descriptor(self, channel_id: str, schema: pa.Schema) -> None:
         """Populate the served descriptor map from a segment's schema metadata.
 
@@ -1179,6 +1330,10 @@ class ChannelStore:
                     "source_method": r.get("source_method") or "",
                     "sample_interval": r.get("sample_interval"),
                     "value": encode_value(payload),
+                    # Carry the segment's offset into the index so a scanned row
+                    # dedups against the same sample in the live overlay (else the
+                    # runtime fold would double-count it with a null offset).
+                    "offset": r.get("offset", -1),
                 }
             )
         return out
@@ -1334,11 +1489,13 @@ class ChannelStore:
         max_points: int | None,
     ) -> pa.Table:
         """At-rest query served from the warm index (∪ pending buffer)."""
+        self._maybe_scan_disk()
         self._flush_pending()
         cur = self._index_cursor()
-        # Union the durable index with the live overlay (same columns); a
-        # sample is in exactly one of them — overlay until its segment is
-        # scanned on the next restart, channel_index after.
+        # Union the durable index with the live overlay (same columns). A sample
+        # lands in the overlay (push) and/or channel_index (segment scan), and the
+        # runtime fold can put it in both — _dedup_on_offset below collapses the
+        # overlap on the per-sample cursor (session, offset).
         sql = [
             "SELECT received_at, sampled_at, value, source_method, "
             'session_id, sample_interval, "offset" FROM ('
@@ -1358,7 +1515,7 @@ class ChannelStore:
             sql.append("AND received_at <= ?")
             params.append(end_utc)
         sql.append("ORDER BY received_at")
-        table = cur.execute(" ".join(sql), params).arrow().read_all()
+        table = self._dedup_on_offset(cur.execute(" ".join(sql), params).arrow().read_all())
 
         if last_n is not None and table.num_rows > last_n:
             table = table.slice(table.num_rows - last_n)
@@ -1366,6 +1523,30 @@ class ChannelStore:
         if max_points is not None and table.num_rows > max_points:
             table = _decimate_table(table, max_points)
         return table
+
+    @staticmethod
+    def _dedup_on_offset(table: pa.Table) -> pa.Table:
+        """Collapse overlay∪index overlap on the per-sample cursor (session, offset).
+
+        The runtime segment fold can place a sample in both the durable index and
+        the live overlay; both copies are identical, so keep the first (the table
+        is already ordered by ``received_at``). A no-op when they don't overlap.
+        Rows with an unstamped ``offset`` (< 0, legacy) are never collapsed.
+        """
+        if table.num_rows == 0 or "offset" not in table.column_names:
+            return table
+        sessions = table.column("session_id").to_pylist()
+        offsets = table.column("offset").to_pylist()
+        seen: set[tuple[Any, int]] = set()
+        keep: list[int] = []
+        for i, (s, o) in enumerate(zip(sessions, offsets, strict=True)):
+            if o is not None and o >= 0:
+                key = (s, o)
+                if key in seen:
+                    continue
+                seen.add(key)
+            keep.append(i)
+        return table if len(keep) == table.num_rows else table.take(keep)
 
     @staticmethod
     def _decode_value_column(table: pa.Table) -> pa.Table:
@@ -1408,10 +1589,6 @@ class ChannelStore:
         """Release our ref on the Flight server daemon."""
         flight_manager.release(self._channels_dir)
 
-    def _flight_push(self, channel_id: str, sample: ChannelSample) -> None:
-        """Push a single sample to the Flight daemon (1-row batch)."""
-        self._flight_push_batch(channel_id, sample_to_batch(sample))
-
     def _flight_push_batch(self, channel_id: str, batch: pa.RecordBatch) -> None:
         """Push a pre-built multi-row wire batch to the Flight daemon via do_put.
 
@@ -1453,23 +1630,21 @@ class ChannelStore:
             self._reset_flight()
 
     def _push_loop(self) -> None:
-        """Background consumer of the push queue (async-push mode). Drains and
-        COALESCES per channel — loose samples become one batch, pre-built batches
-        concatenate — so each drain does ONE do_put per channel off the write
-        path. A slow daemon/subscriber never backpressures capture (drop happens
-        at enqueue, not here).
+        """Background consumer of the push queue (the dumb relay). Drains and
+        concatenates per channel — pure transport batching — so each drain does
+        ONE do_put per channel off the capture path. Every queued item is a wire
+        ``RecordBatch`` (the write core builds it); the relay never inspects or
+        rebuilds a sample. A slow daemon/subscriber never backpressures capture —
+        drop happens at enqueue (queue full), never here.
 
         Accumulates up to ``_PUSH_MAX_ROWS`` rows OR ``_PUSH_MAX_WAIT`` seconds
         (whichever first) before pushing, so a per-sample ``write()`` firehose
-        coalesces into write_many-sized batches instead of tiny ones — the
-        wait bounds live latency (it can't grow unbounded like a backlog)."""
+        coalesces into larger batches — the wait bounds live latency (it can't
+        grow unbounded like a backlog)."""
         q = self._push_queue
         stop = self._push_stop
         if q is None or stop is None:
             return
-
-        def _rows(item: tuple[str, ChannelSample | pa.RecordBatch]) -> int:
-            return int(getattr(item[1], "num_rows", 1))  # 1 for a ChannelSample
 
         while not stop.is_set() or not q.empty():
             try:
@@ -1477,7 +1652,7 @@ class ChannelStore:
             except queue.Empty:
                 continue
             drained = [first]
-            nrows = _rows(first)
+            nrows = first[1].num_rows
             deadline = time.monotonic() + self._PUSH_MAX_WAIT
             while nrows < self._PUSH_MAX_ROWS:
                 remaining = deadline - time.monotonic()
@@ -1488,24 +1663,15 @@ class ChannelStore:
                 except queue.Empty:
                     break
                 drained.append(item)
-                nrows += _rows(item)
-            per_channel: dict[str, tuple[list[ChannelSample], list[pa.RecordBatch]]] = {}
-            for channel_id, payload in drained:
-                samps, batches = per_channel.setdefault(channel_id, ([], []))
-                if isinstance(payload, pa.RecordBatch):
-                    batches.append(payload)
-                else:
-                    samps.append(payload)
-            for channel_id, (samps, batches) in per_channel.items():
-                parts = list(batches)
-                if samps:
-                    parts.append(samples_to_batch(samps))
-                if not parts:
-                    continue
+                nrows += item[1].num_rows
+            per_channel: dict[str, list[pa.RecordBatch]] = {}
+            for channel_id, batch in drained:
+                per_channel.setdefault(channel_id, []).append(batch)
+            for channel_id, batches in per_channel.items():
                 wire = (
-                    parts[0]
-                    if len(parts) == 1
-                    else pa.Table.from_batches(parts).combine_chunks().to_batches()[0]
+                    batches[0]
+                    if len(batches) == 1
+                    else pa.Table.from_batches(batches).combine_chunks().to_batches()[0]
                 )
                 self._flight_push_batch(channel_id, wire)
 

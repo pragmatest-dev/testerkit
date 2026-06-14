@@ -137,7 +137,7 @@ class TestStreaming:
         # After 7 writes with threshold 5, writer should have flushed once
         writer = store._writers["dmm.dc_voltage"]
         assert writer._row_count == 5  # One flush of 5
-        assert len(writer._buffer) == 2  # 2 remaining in buffer
+        assert writer._pending_rows == 2  # 2 remaining buffered (unflushed)
 
         store.close()
 

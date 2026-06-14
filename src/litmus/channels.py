@@ -172,9 +172,10 @@ class _ChannelSink:
     """
 
     # Sink-side batching: accumulate up to this many samples OR this long, then
-    # flush as ONE write_many (columnar append + single enqueue). This is what
-    # makes stream the fast path — it reaches the batched ceiling instead of the
-    # per-sample one. The interval bounds live latency for low-rate streams.
+    # flush as ONE columnar block (typed segment append built straight from the
+    # value list — no per-sample object). This is what makes stream the fast path:
+    # the producer loop only pays the durable columnar append; the wire push and
+    # index lag off-thread. The interval bounds live latency for low-rate streams.
     _FLUSH_ROWS = 1000
     _FLUSH_INTERVAL = 0.005
 
@@ -232,7 +233,7 @@ class _ChannelSink:
             self._flush_locked()
 
     def _flush_locked(self) -> None:
-        """Flush the buffer as one ``write_many``. Caller holds ``_lock``."""
+        """Flush the buffer as one columnar block. Caller holds ``_lock``."""
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
@@ -240,6 +241,8 @@ class _ChannelSink:
             return
         batch = self._buf
         self._buf = []
+        # write_many is the shared columnar core — a bare-value block flushes as
+        # one typed segment append + one wire push, no per-sample objects.
         self._store.write_many(self._channel_id, batch, source="stream", run_id=self._run_id)
 
     def close(self) -> None:
