@@ -247,10 +247,45 @@ reaper, sweep composition), `connect.py` + `pytest_plugin/__init__.py` + `execut
 (session primitive, drop outcome, lazy attach), `data/channels/store.py` + `data/files/store.py`
 (id-as-tag convergence). Untouched: `data/ref.py`, ticket regex/paths (id shape preserved).
 
+## P2 detail (keystone) — spec + sub-steps
+
+**Recon (verified):** channels write resolves the store via `channels.py:_resolve_store()` →
+`get_channel_store()` (contextvar), raising `no_active_resource_error("ChannelStore")` if None;
+the `ChannelStore` is created **eagerly** in `connect.start()` (`connect.py:82-88`) and the pytest
+plugin (`pytest_plugin/__init__.py:255-257`), both via `set_channel_store(...)`. Files resolve the
+`FileStore` singleton (`get_filestore()`) + `_resolve_session_id(..., fallback_to_active=True)`
+(`files.py:50-69`). Session contextvars: `set_event_store`/`set_channel_store` in
+`execution/_state.py`; `session_id` via `resolve_session_id`.
+
+**Design decision (Option A — process-scoped session, reused):** the first producer in a process
+lazily opens **one** process session; `connect()`, the pytest plugin, and bare writes all attach
+to / reuse it; it closes at process-exit (atexit) or via the P3 lease. `connect()` block-exit
+releases instruments + ends the **run**, never the session. Matches pytest (one session/process)
+and "one correlation root per producer process." **Watch-point / escalate if it conflicts:** the
+pytest plugin and slot orchestrator already own a session — the process owner must unify with them
+(first-opener owns; others attach), not double-open.
+
+**Sub-steps:**
+- **2a — Session primitive (behavior-preserving extraction).** Introduce an internal session-scope
+  / `open_session()` that mints `session_id`, creates EventStore+EventLog, wires `set_event_store`,
+  emits `SessionStarted`, registers atexit/SIGTERM cleanup, and `close()` → emits `SessionEnded` +
+  clears vars. `connect.start()/stop()` + pytest plugin setup/teardown call it instead of inlining
+  (keep current close-on-exit timing for now — 2d changes it). Slot workers attach to the injected
+  id, no re-open. **Opus designs the primitive's shape; Sonnet does the mechanical extraction under
+  review** (high blast radius — connect.py + plugin + slot_runner + _state).
+- **2b — Lazy ChannelStore.** Remove eager `ChannelStore`/`set_channel_store` from `connect.start()`
+  + the pytest plugin; create on first need in `_resolve_store()` (build from the open session's
+  session_id + data_dir + event_log, then `set_channel_store`).
+- **2c — Write-needs-open-session gate.** `_resolve_store()` (channels) and `files._resolve_session_id`
+  raise a typed `SessionRequired` if no OPEN session (not merely no store). Kills orphans.
+- **2d — connect()-exit decoupling.** Split `stop()`: block-exit releases instruments + ends the RUN
+  (reconnect `__exit__`'s outcome to the run end — fixes P1's dead `stop(outcome=)` param); do NOT
+  emit `SessionEnded` on block-exit; the session ends at process-exit (atexit) / P3 lease.
+
 ## Progress log (keep current)
 
 - [x] 0 — design doc committed (this file)
-- [ ] 1 — drop session outcome
+- [x] 1 — drop session outcome — `7edc01d` (removed SessionEnded.outcome + slot rollup; readers keyed off event existence not .outcome; stop(outcome=) left for P2)
 - [ ] 2 — correlation-root primitive + behavioral core (KEYSTONE)
 - [ ] 3 — will + spine-only reaper
 - [ ] 4 — terminal finality + cascade
