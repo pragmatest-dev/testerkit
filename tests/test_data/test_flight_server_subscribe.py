@@ -143,3 +143,27 @@ def test_subscribe_rejected_without_schema() -> None:
         client.close()
     finally:
         server.shutdown()
+
+
+def test_query_hook_serves_do_get_without_a_duckdb_conn() -> None:
+    """A db with a registered query hook serves do_get via the hook — the
+    payload is parsed by the hook (a typed verb, not SQL) and the db needs no
+    DuckDB connection. The seam channels' query path plugs into (Phase 5)."""
+    server = DuckDBFlightServer("grpc://127.0.0.1:0")
+    seen: list[str] = []
+
+    def _hook(payload: str) -> pa.Table:
+        seen.append(payload)
+        return pa.table({"n": pa.array([len(payload)], type=pa.int64())})
+
+    server.register_query_hook("verbdb", _hook)  # note: no server.register(conn)
+    location = f"grpc://127.0.0.1:{server.port}"
+    threading.Thread(target=server.serve, daemon=True, name="test-flight-qh").start()
+    try:
+        client = flight.connect(location)
+        table = client.do_get(flight.Ticket(b"verbdb\0dmm.voltage?last_n=10")).read_all()
+        client.close()
+        assert seen == ["dmm.voltage?last_n=10"]
+        assert table.column("n").to_pylist() == [len("dmm.voltage?last_n=10")]
+    finally:
+        server.shutdown()

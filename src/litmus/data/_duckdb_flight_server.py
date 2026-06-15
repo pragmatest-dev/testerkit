@@ -314,6 +314,7 @@ class DuckDBFlightServer(flight.FlightServerBase):
         self._parallel = parallel
         self._tls = threading.local()
         self._put_hooks: dict[str, Callable[[pa.Table], pa.Table | None]] = {}
+        self._query_hooks: dict[str, Callable[[str], pa.Table]] = {}
         # Live push: per-db subscriber queues + the Arrow schema each
         # subscription stream yields. A ``do_get`` with the
         # ``__SUBSCRIBE__`` ticket registers a queue here; ``_publish``
@@ -401,6 +402,21 @@ class DuckDBFlightServer(flight.FlightServerBase):
         """
         self._put_hooks[db_name] = hook
 
+    def register_query_hook(self, db_name: str, hook: Callable[[str], pa.Table]) -> None:
+        """Register a custom do_get handler for a database name (read-side
+        parallel to :meth:`register_put_hook`).
+
+        When set, a ``do_get`` ticket ``db_name\\0<payload>`` routes ``<payload>``
+        to the hook — which parses it however the store wants (NOT necessarily
+        SQL) and returns an Arrow table to stream back — instead of executing it
+        as DuckDB SQL. This lets a store whose read is a typed verb
+        (range / last-N / decimate / discovery) rather than SQL-over-one-table
+        serve through the shared server, and such a db need not register a DuckDB
+        connection at all. ``__SUBSCRIBE__`` still takes precedence; opt-in, so
+        plain query-only dbs never call this.
+        """
+        self._query_hooks[db_name] = hook
+
     def _cursor_for(self, conn: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConnection:
         """Return this thread's cursor on ``conn``, creating one on first touch.
 
@@ -446,6 +462,13 @@ class DuckDBFlightServer(flight.FlightServerBase):
                 except ValueError:
                     cursor = 0
             return self._do_subscribe(db_name, cursor)
+
+        # Typed read hook (range / last-N / decimate / discovery) — the store
+        # parses the payload itself, so a query-hooked db need not register a
+        # DuckDB connection. Checked before the SQL path.
+        query_hook = self._query_hooks.get(db_name)
+        if query_hook is not None:
+            return flight.RecordBatchStream(query_hook(sql))
 
         conn = self._databases.get(db_name)
         if conn is None:
