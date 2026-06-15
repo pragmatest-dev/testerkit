@@ -83,25 +83,25 @@ def test_ovp_path_sidecar(verify, psu, dmm) -> None:
         "choices": ["bench_01", "bench_02"],
     }
 )
-def test_operator_choice_inline(logger, prompt, psu, dmm) -> None:
+def test_operator_choice_inline(measure, prompt, psu, dmm) -> None:
     """Auto-confirm returns the first choice; the assert proves the prompt fired.
 
     No limit is configured for this gate — the rail value is recorded as
-    DONE via ``logger.measure``. ``verify`` is for judgment-bearing
-    measurements; ``logger.measure`` is the recorder.
+    DONE via ``measure``. ``verify`` is for judgment-bearing
+    measurements; ``measure`` is the recorder.
     """
     chosen = prompt("pick_fixture")
     assert chosen == "bench_01"
     psu.set_voltage(5.0)
-    logger.measure("v_rail", dmm.measure_dc_voltage())
+    measure("v_rail", dmm.measure_dc_voltage())
 
 
-def test_operator_choice_sidecar(logger, prompt, psu, dmm) -> None:
+def test_operator_choice_sidecar(measure, prompt, psu, dmm) -> None:
     """Same gate; prompt config in the sidecar."""
     chosen = prompt("pick_fixture")
     assert chosen == "bench_01"
     psu.set_voltage(5.0)
-    logger.measure("v_rail", dmm.measure_dc_voltage())
+    measure("v_rail", dmm.measure_dc_voltage())
 
 
 class TestIdle:

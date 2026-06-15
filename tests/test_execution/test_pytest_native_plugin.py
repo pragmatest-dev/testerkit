@@ -349,10 +349,10 @@ def _write_measure_test(
 
 
 def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> None:
-    """``logger.measure`` records and stamps DONE — never raises on out-of-limit.
+    """``measure`` records and stamps DONE — never raises on out-of-limit.
 
     Judgment lives on ``verify`` (the one verb that judges, raises, and
-    cascades FAILED). ``logger.measure`` is the recorder: the row gets
+    cascades FAILED). ``measure`` is the recorder: the row gets
     ``Outcome.DONE`` so it shows up in analytics as "ran, no judgment."
     """
     _write_measure_test(
@@ -363,8 +363,8 @@ def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> N
             from litmus.models.test_config import Limit
 
             class TestSeq:
-                def test_records(self, logger):
-                    m = logger.measure(
+                def test_records(self, measure):
+                    m = measure(
                         "v_out", 3.5,
                         limit=Limit(low=3.2, high=3.4, units="V", nominal=3.3),
                     )
@@ -409,10 +409,10 @@ def test_duplicate_measurement_name_in_step_errors(
             from litmus.models.test_config import Limit
 
             class TestSeq:
-                def test_dup(self, logger):
+                def test_dup(self, measure):
                     lim = Limit(low=3.2, high=3.4, units="V")
-                    logger.measure("v_out", 3.3, limit=lim)
-                    logger.measure("v_out", 3.35, limit=lim)
+                    measure("v_out", 3.3, limit=lim)
+                    measure("v_out", 3.35, limit=lim)
             """
         ),
     )
@@ -423,18 +423,26 @@ def test_duplicate_measurement_name_in_step_errors(
 
 
 def test_allow_repeat_streams_same_name(pytester: pytest.Pytester) -> None:
-    """Inner-loop streaming requires allow_repeat on every call."""
+    """Inner-loop streaming requires allow_repeat on every call.
+
+    ``allow_repeat`` is a low-level recorder escape hatch on the run-scope
+    primitive — not exposed on the public ``measure`` verb (the idiomatic
+    loop path is the ``vectors`` fixture). This test reaches the primitive
+    directly to cover that escape hatch.
+    """
     _write_measure_test(
         pytester,
         textwrap.dedent(
             """
+            from litmus.execution._state import get_current_logger
             from litmus.models.test_config import Limit
 
             class TestSeq:
-                def test_stream(self, logger):
+                def test_stream(self):
                     lim = Limit(low=3.2, high=3.4, units="V")
+                    run = get_current_logger()
                     for _ in range(10):
-                        logger.measure("v_sample", 3.3, limit=lim, allow_repeat=True)
+                        run.measure("v_sample", 3.3, limit=lim, allow_repeat=True)
             """
         ),
     )
@@ -443,14 +451,14 @@ def test_allow_repeat_streams_same_name(pytester: pytest.Pytester) -> None:
 
 
 def test_sidecar_limits_auto_resolve(pytester: pytest.Pytester) -> None:
-    """`logger.measure(name, value)` picks up the sidecar limit by name."""
+    """`measure(name, value)` picks up the sidecar limit by name."""
     _write_measure_test(
         pytester,
         textwrap.dedent(
             """
             class TestSeq:
-                def test_resolves(self, logger):
-                    logger.measure("v_out", 3.25)  # no inline limit
+                def test_resolves(self, measure):
+                    measure("v_out", 3.25)  # no inline limit
             """
         ),
         sidecar=textwrap.dedent(

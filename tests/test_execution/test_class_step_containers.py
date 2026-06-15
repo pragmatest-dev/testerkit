@@ -497,9 +497,9 @@ def test_swept_class_with_vectors_fixture_inner_sweep(tmp_path: Path) -> None:
         @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
         class TestSeq:
             @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])
-            def test_b(self, voltage, vectors, logger):
+            def test_b(self, voltage, vectors, measure):
                 for v in vectors:
-                    logger.measure("vout", voltage * v["current"])
+                    measure("vout", voltage * v["current"])
         """,
     )
     result = _run_pytest(test_file, session_id=session_id)

@@ -149,10 +149,10 @@ def test_verify_cascade_to_streaming_row(
     assert row["run_outcome"] == expected_outcome
 
 
-def test_logger_measure_alone_still_stamps_done(pytester: pytest.Pytester) -> None:
-    """``logger.measure`` (no verify) keeps the recorder default DONE.
+def test_measure_alone_still_stamps_done(pytester: pytest.Pytester) -> None:
+    """``measure`` (no verify) keeps the recorder default DONE.
 
-    The cascade fix is verify-specific. Plain ``logger.measure`` calls
+    The cascade fix is verify-specific. Plain ``measure`` calls
     must continue to produce DONE rows (the recorder semantic — "ran,
     no judgment").
     """
@@ -160,8 +160,8 @@ def test_logger_measure_alone_still_stamps_done(pytester: pytest.Pytester) -> No
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
-            def test_rail(logger):
-                logger.measure("v_rail", 3.3)
+            def test_rail(measure):
+                measure("v_rail", 3.3)
             """
         )
     )

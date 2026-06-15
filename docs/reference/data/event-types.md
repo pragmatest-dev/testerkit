@@ -271,17 +271,6 @@ A single measurement. Normalized: carries only measurement-specific fields.
 | `outputs` | `dict[str, Any]` | `{}` |
 | `custom` | `dict[str, Any]` | `{}` |
 
-### `test.record` — `RecordEvent`
-
-A key/value record emitted by harness.record().
-
-| Field | Type | Default |
-|---|---|---|
-| `step_name` | `str` | *required* |
-| `step_index` | `int` | *required* |
-| `key` | `str` | *required* |
-| `value` | `Any` | *required* |
-
 ### `test.observation` — `Observation`
 
 Emitted by ``Context.observe(key, value)``.

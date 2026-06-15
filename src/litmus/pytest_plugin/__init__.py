@@ -42,7 +42,9 @@ from litmus.execution.metadata import build_run_metadata
 from litmus.execution.profiles import resolve_test_phase
 from litmus.execution.verify import (
     LimitsFn,
+    MeasureFn,
     VerifyFn,
+    build_measure_callable,
     build_verify_callable,
 )
 from litmus.fixtures.manager import FixtureManager, PinAccessor
@@ -1107,6 +1109,28 @@ def verify() -> VerifyFn:
     and raises :class:`LimitFailure` on FAIL.
     """
     return build_verify_callable()
+
+
+@pytest.fixture
+def measure() -> MeasureFn:
+    """Callable fixture: ``measure(name, value[, limit=])`` — record-only.
+
+    The record-only sibling of ``verify`` (alongside ``observe`` /
+    ``stream``). Stamps one measurement row with ``Outcome.DONE`` and
+    never judges or raises on a missing limit — use it when a value
+    should be captured but not pass/fail checked (characterization,
+    diagnostics, logged context). Same row primitive underneath as
+    ``verify``::
+
+        def test_characterize(measure, dmm):
+            measure("vout", dmm.measure_dc_voltage())
+
+    Thin pytest wrapper around the runner-neutral
+    :func:`litmus.execution.verify.build_measure_callable`. Both shapes
+    — this bare callable and :meth:`Context.measure` — route through the
+    same body so the verb behaves identically.
+    """
+    return build_measure_callable()
 
 
 @pytest.fixture

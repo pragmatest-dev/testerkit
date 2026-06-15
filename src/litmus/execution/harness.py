@@ -47,7 +47,7 @@ from litmus.execution._state import (
     resolve_session_id,
 )
 from litmus.execution.vectors import Vector, expand_vectors
-from litmus.execution.verify import _perform_verify
+from litmus.execution.verify import _perform_measure, _perform_verify
 from litmus.models.test_config import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
 from litmus.prompts import ask
 
@@ -853,45 +853,53 @@ class Context:
     def measure(
         self,
         name: str,
-        value: float | None,
-        units: str | None = None,
+        value: float | int | None,
         limit: Limit | None = None,
-        uut_pin: str | None = None,
-        instrument_channel: str | None = None,
-        fixture_connection: str | None = None,
+        *,
+        characteristic: str | None = None,
+        namespace: str | None = None,
     ) -> Measurement:
-        """Record an explicit measurement by name.
+        """Record a measurement without judging it (→ measurement row).
 
-        Use when the measurement name differs from the step name,
-        or when producing multiple measurements from one test.
+        The record-only sibling of :meth:`verify` — stamps one
+        measurement row with :attr:`Outcome.DONE` and never raises on a
+        missing limit. Use when a value should be captured but not
+        pass/fail judged (characterization, diagnostics, logged
+        context). Auto-traceability (``uut_pin`` / ``instrument_*`` /
+        ``characteristic_id`` / ``spec_ref``) is pulled from the active
+        :class:`PartContext` by measurement name — callers never pass it.
+
+        Like :meth:`verify` / :meth:`observe`, routes through the active
+        logger (ContextVar) via the shared ``_perform_measure`` body, so
+        the method form and the bare ``measure`` fixture behave
+        identically and work in pytest-native tests and programmatic
+        paths alike.
 
         Args:
             name: Measurement name (e.g., "output_voltage").
-            value: Measured value.
-            units: Units (optional, uses limit.units if available).
-            limit: Explicit limit (optional, overrides config lookup).
-            uut_pin: UUT pin being measured (optional).
-            instrument_channel: Instrument channel used (optional).
-            fixture_connection: Named fixture connection used (optional).
+            value: Measured value (scalar).
+            limit: Optional ``Limit`` recorded on the row (so analysis
+                sees the active band) but never evaluated.
+            characteristic: Override the active characteristic for
+                limit/spec resolution.
+            namespace: Optional prefix sugar — the effective name
+                becomes ``"{namespace}.{name}"``. Same rule across
+                observe / verify / measure.
 
         Returns:
-            Measurement object with outcome set.
+            The recorded :class:`Measurement` (``Outcome.DONE``).
 
         Example:
             def test_power_supply(context, dmm, psu):
                 context.measure("output_voltage", dmm.measure_dc_voltage())
                 context.measure("quiescent_current", psu.measure_current())
         """
-        if self._harness is None:
-            raise RuntimeError("No harness attached to context")
-        return self._harness.measure(
+        return _perform_measure(
             name,
             value,
-            units=units,
             limit=limit,
-            uut_pin=uut_pin,
-            instrument_channel=instrument_channel,
-            fixture_connection=fixture_connection,
+            characteristic=characteristic,
+            namespace=namespace,
         )
 
 
@@ -1369,16 +1377,6 @@ class TestHarness:
             # Single value: infer name from spec ref → limit key → step name
             name = self._infer_measurement_name()
             self.measure(name, result)
-
-    def record(self, key: str, value: Any) -> None:
-        """Emit a key/value record event via the logger.
-
-        Args:
-            key: Record key (e.g., "firmware_version").
-            value: Record value (must be JSON-serializable).
-        """
-        if self._logger:
-            self._logger.record(key, value)
 
     def _infer_measurement_name(self) -> str:
         """Infer measurement name from limits config.

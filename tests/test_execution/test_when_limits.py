@@ -222,8 +222,8 @@ def test_no_band_matches_no_siblings_raises_via_verify(pytester: pytest.Pytester
     result.stdout.fnmatch_lines(["*MissingLimitError*"])
 
 
-def test_no_band_matches_logger_measure_records_done(pytester: pytest.Pytester) -> None:
-    """``logger.measure`` is the characterization path — records DONE on no-band-match."""
+def test_no_band_matches_measure_records_done(pytester: pytest.Pytester) -> None:
+    """``measure`` is the characterization path — records DONE on no-band-match."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -232,8 +232,8 @@ def test_no_band_matches_logger_measure_records_done(pytester: pytest.Pytester) 
             from litmus.data.models import Outcome
 
             @pytest.mark.parametrize("vin", [12.0])
-            def test_rail(logger, vin):
-                m = logger.measure("v_rail", 99.0)
+            def test_rail(measure, vin):
+                m = measure("v_rail", 99.0)
                 assert m.outcome == Outcome.DONE
             """
         )

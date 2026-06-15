@@ -15,7 +15,6 @@ from litmus.data._json_safe import coerce_dict
 from litmus.data.backends._row_helpers import build_input_columns, build_output_columns
 from litmus.data.events import (
     MeasurementRecorded,
-    RecordEvent,
     RunEnded,
     StepEnded,
     StepStarted,
@@ -1167,28 +1166,6 @@ class TestRunLogger:
             self._step_seen_names.add(key)
             if allow_repeat:
                 self._step_seen_repeatable.add(key)
-
-    def record(self, key: str, value: Any) -> None:
-        """Emit a key/value record event to the event log.
-
-        Args:
-            key: Record key (e.g., "firmware_version", "calibration_date").
-            value: Record value (must be JSON-serializable).
-        """
-        step = get_current_step()
-        step_name = step.name if step else ""
-        step_index = self._current_step_index if step else -1
-        if self._event_log is not None:
-            self._event_log.emit(
-                RecordEvent(
-                    session_id=self._session_id,
-                    run_id=self.test_run.id,
-                    step_name=step_name,
-                    step_index=step_index,
-                    key=key,
-                    value=value,
-                )
-            )
 
     def finalize(self) -> TestRun:
         """Complete test run and return result.

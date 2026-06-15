@@ -54,6 +54,25 @@ class VerifyFn(Protocol):
     ) -> Measurement: ...
 
 
+class MeasureFn(Protocol):
+    """Signature of the ``measure`` fixture callable.
+
+    The record-only peer of :class:`VerifyFn` — records a value with
+    :attr:`Outcome.DONE` and no pass/fail judgment. Same row primitive
+    underneath as ``verify``; the only difference is that ``measure``
+    never judges and never raises on a missing limit.
+    """
+
+    def __call__(
+        self,
+        name: str,
+        value: float | int | None,
+        limit: Limit | dict[str, Any] | None = ...,
+        characteristic: str | None = ...,
+        namespace: str | None = ...,
+    ) -> Measurement: ...
+
+
 LimitsFn = Mapping[str, Limit]
 """Type alias for the ``limits`` fixture — a read-only ``name → Limit`` map."""
 
@@ -297,3 +316,64 @@ def build_verify_callable() -> VerifyFn:
     implementation.
     """
     return _perform_verify
+
+
+def _perform_measure(
+    name: str,
+    value: float | int | None,
+    limit: Limit | dict[str, Any] | None = None,
+    characteristic: str | None = None,
+    namespace: str | None = None,
+) -> Measurement:
+    """The actual measure implementation — ``verify`` minus the judgment.
+
+    Records one measurement row with :attr:`Outcome.DONE` (the
+    recorder semantic — "ran, no judgment") and never raises on a
+    missing limit. Called by both :meth:`Context.measure` (the method
+    form) and the bare ``measure`` pytest fixture (the callable form),
+    so the verb behaves identically regardless of which surface the
+    test author reaches for — symmetric with :func:`_perform_verify`.
+
+    Resolves the active logger via the usual ContextVar chain, so it
+    needs no harness reference and works in pytest-native tests and
+    programmatic paths alike. The limit, when passed, is recorded on
+    the row (so analysis sees the active band) but never evaluated —
+    use :func:`_perform_verify` to judge.
+    """
+    # namespace= prefix sugar — same rule as verify / observe.
+    if namespace:
+        name = f"{namespace}.{name}"
+    from contextlib import nullcontext
+
+    from litmus.execution._state import (
+        get_current_logger,
+        pushed_active_characteristic,
+    )
+
+    logger = get_current_logger()
+    if logger is None:
+        raise RuntimeError(
+            "measure() called without an active Litmus logger — "
+            "is a Litmus runner plugin installed?"
+        )
+
+    # Accept dict literals at the call site (shared with ``verify``).
+    limit_obj = coerce_limit(limit)
+    char_ctx = (
+        pushed_active_characteristic(characteristic)
+        if characteristic is not None
+        else nullcontext()
+    )
+    with char_ctx:
+        return logger.measure(name, value, limit=limit_obj)
+
+
+def build_measure_callable() -> MeasureFn:
+    """Construct the runner-neutral ``measure`` callable (record-only).
+
+    The record-only peer of :func:`build_verify_callable`. Each runner
+    adapter wraps this with its native fixture primitive. The callable
+    delegates to :func:`_perform_measure` so the method form
+    (``Context.measure``) and the bare-callable form share one body.
+    """
+    return _perform_measure

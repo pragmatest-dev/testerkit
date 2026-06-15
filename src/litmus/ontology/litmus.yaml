@@ -896,15 +896,6 @@ concepts:
       - { kind: inherits_from, target: event_base }
       - { kind: records,         target: measurement }
 
-  - id: record_event
-    category: event
-    event_type: test.record
-    summary: A key/value record from harness.record() — out-of-band data.
-    model: litmus.data.events.RecordEvent
-    relationships:
-      - { kind: stored_in,     target: event_store }
-      - { kind: inherits_from, target: event_base }
-
   - id: observation
     category: event
     event_type: test.observation

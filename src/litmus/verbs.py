@@ -1,17 +1,18 @@
-"""Top-level verb functions — ``observe``, ``verify``, ``stream``.
+"""Top-level verb functions — ``observe``, ``verify``, ``measure``, ``stream``.
 
-The three test-author intent verbs are exposed three ways. Pick the
+The four test-author intent verbs are exposed three ways. Pick the
 one that matches how your code is structured:
 
 1. **Top-level imports** (recommended — works from any code, not
    only tests)::
 
-        from litmus import observe, verify, stream
+        from litmus import observe, verify, measure, stream
 
         def my_step(dmm, psu, voltage):
             psu.set_voltage(voltage)
             observe("psu.voltage", voltage)
             verify("rail_v", dmm.measure_voltage(), Limit(low=4.75, high=5.25))
+            measure("rail_ripple", ripple(dmm.read_waveform()))  # record-only
 
 2. **Pytest fixtures** (idiomatic when a test signature already
    takes other fixtures)::
@@ -61,7 +62,7 @@ def _active_context() -> Any:
     if ctx is None:
         raise RuntimeError(
             "No active Litmus context. The top-level verbs (observe / "
-            "verify / stream) are test-author verbs — they require the "
+            "verify / measure / stream) are test-author verbs — they require the "
             "pytest ``context`` fixture, which pushes a Context for the "
             "duration of the test. Outside a pytest test (notebooks, "
             "scripts, custom UIs), use the store-direct surfaces instead: "
@@ -103,6 +104,27 @@ def verify(
     )
 
 
+def measure(
+    name: str,
+    value: float | int | None,
+    limit: Any = None,
+    *,
+    characteristic: str | None = None,
+    namespace: str | None = None,
+) -> Any:
+    """Record a measurement without judging it (→ measurement row).
+
+    The record-only sibling of ``verify`` — stamps one measurement row
+    with ``Outcome.DONE`` and never raises on a missing limit. Use when
+    a value should be captured but not pass/fail judged
+    (characterization, diagnostics, logged context). Thin top-level
+    pass-through to :meth:`litmus.execution.harness.Context.measure`.
+    """
+    return _active_context().measure(
+        name, value, limit, characteristic=characteristic, namespace=namespace
+    )
+
+
 def stream(name: str, sample: Any, *, namespace: str | None = None) -> str:
     """Append one sample to a channel (→ ``channel://`` URI).
 
@@ -115,4 +137,4 @@ def stream(name: str, sample: Any, *, namespace: str | None = None) -> str:
     return _active_context().stream(name, sample, namespace=namespace)
 
 
-__all__ = ["observe", "verify", "stream"]
+__all__ = ["observe", "verify", "measure", "stream"]

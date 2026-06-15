@@ -483,16 +483,6 @@ class MeasurementRecorded(EventBase):
     custom: dict[str, Any] = Field(default_factory=dict)
 
 
-class RecordEvent(EventBase):
-    """A key/value record emitted by harness.record()."""
-
-    event_type: Literal["test.record"] = "test.record"
-    step_name: str
-    step_index: int
-    key: str
-    value: Any
-
-
 class Observation(EventBase):
     """Emitted by ``Context.observe(key, value)``.
 
@@ -769,7 +759,6 @@ FIXTURE_EVENTS = {
 TEST_EVENTS = {
     StepStarted,
     MeasurementRecorded,
-    RecordEvent,
     Observation,
     StepEnded,
     StepsDiscovered,
@@ -812,7 +801,6 @@ Event = Annotated[
     | InstrumentDisconnected
     | StepStarted
     | MeasurementRecorded
-    | RecordEvent
     | Observation
     | StepEnded
     | StepsDiscovered
