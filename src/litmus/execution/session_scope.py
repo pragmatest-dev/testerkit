@@ -23,10 +23,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from litmus.execution._state import get_event_store, set_event_store
+from litmus.execution._state import (
+    get_event_store,
+    push_channel_store,
+    push_event_store,
+    reset_channel_store,
+    reset_event_store,
+)
 
 if TYPE_CHECKING:
     from litmus.data.event_log import EventLog
@@ -49,6 +55,19 @@ class SessionScope:
     event_log: EventLog
     owns_event_store: bool
     emit_lifecycle: bool
+    # ContextVar tokens (not the store objects) — token discipline so a nested
+    # session's close restores the outer binding instead of clobbering it to None.
+    _event_store_token: Any = None
+    _channel_store_token: Any = None
+
+    def attach_channel_store(self, store: Any) -> None:
+        """Wire this session's ChannelStore into the ContextVar, token-managed.
+
+        The store object's lifecycle (close) stays with the caller; the scope owns
+        only the ContextVar token, so :meth:`close_stores` restores the outer
+        session's binding rather than nulling it.
+        """
+        self._channel_store_token = push_channel_store(store)
 
     def emit_ended(self) -> None:
         """Emit ``SessionEnded`` (best-effort fast-path).
@@ -65,16 +84,22 @@ class SessionScope:
     def close_stores(self) -> None:
         """Close the event log and, if this scope created it, the EventStore.
 
-        Clears the EventStore ContextVar only when this scope owns the store, so an
-        attached/reused store isn't torn out from under another scope. Capability
-        stores (ChannelStore) are the caller's concern — closed before this so their
-        subscribers flush ahead of the event log.
+        Resets the ContextVar tokens (restoring the outer session's bindings) rather
+        than nulling them, so an attached/reused store isn't torn out from under
+        another scope. The ChannelStore *object* is closed by the caller before this
+        (so its subscribers flush ahead of the event log); here we only release its
+        ContextVar token.
         """
+        if self._channel_store_token is not None:
+            reset_channel_store(self._channel_store_token)
+            self._channel_store_token = None
         if self.event_log is not None:
             self.event_log.close()
         if self.owns_event_store and self.event_store is not None:
             self.event_store.close()
-            set_event_store(None)
+        if self._event_store_token is not None:
+            reset_event_store(self._event_store_token)
+            self._event_store_token = None
 
 
 def open_session(
@@ -111,9 +136,12 @@ def open_session(
 
     event_store = get_event_store() if reuse_existing else None
     owns_event_store = event_store is None
+    event_store_token = None
     if owns_event_store:
         event_store = EventStore(_data_dir=data_dir)
-        set_event_store(event_store)
+        # Token discipline: a nested connect()/session restores the outer
+        # EventStore on close instead of clobbering the ContextVar to None.
+        event_store_token = push_event_store(event_store)
     event_log = event_store.get_event_log(session_id)
     if emit_lifecycle and started is not None:
         event_log.emit(started)
@@ -123,4 +151,5 @@ def open_session(
         event_log=event_log,
         owns_event_store=owns_event_store,
         emit_lifecycle=emit_lifecycle,
+        _event_store_token=event_store_token,
     )

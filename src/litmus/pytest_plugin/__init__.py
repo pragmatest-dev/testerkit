@@ -30,7 +30,6 @@ from litmus.execution._state import (
     set_active_part_context,
     set_active_vector_index,
     set_active_vector_params,
-    set_channel_store,
     set_current_logger,
     set_instrument_records,
 )
@@ -258,7 +257,7 @@ def _setup_event_log_and_subscribers(
     # Constructed now, opens lazily on first channel write (no daemon spin for a
     # zero-channel session).
     channel_store = ChannelStore(results_path, session_id, serve=True, event_log=scope.event_log)
-    set_channel_store(channel_store)
+    scope.attach_channel_store(channel_store)
 
     return scope
 
@@ -340,11 +339,11 @@ def _emit_session_start_events(logger: TestRunLogger) -> None:
 def _teardown_logger(logger: TestRunLogger, scope: Any) -> None:
     """Close subscribers, finalize the run, end the session."""
     # ChannelStore closes before the event log so its subscribers see the
-    # final flush before the event log shuts subscribers down.
+    # final flush before the event log shuts subscribers down. Its ContextVar
+    # token is released by scope.close_stores() below (restoring any outer binding).
     cs = get_channel_store()
     if cs is not None:
         cs.close()
-        set_channel_store(None)
 
     # Close any still-open class container BEFORE finalize() so the
     # container's StepEnded carries its rolled-up outcome (the rollup

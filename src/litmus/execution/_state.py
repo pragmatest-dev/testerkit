@@ -270,8 +270,27 @@ def get_channel_store() -> Any:
 
 
 def set_channel_store(value: Any) -> None:
-    """Set value. Returns None."""
+    """Set value. Returns None.
+
+    Blanket set; used only by the session-end safety net (pytest_sessionfinish)
+    and benchmarks. Producers use :func:`push_channel_store` /
+    :func:`reset_channel_store` so a nested session restores the outer binding.
+    """
     _channel_store_var.set(value)
+
+
+def push_channel_store(value: Any) -> Token[Any]:
+    """Set the active ChannelStore; returns a token for :func:`reset_channel_store`.
+
+    Token discipline (not blanket ``set``) so a nested session's close restores
+    the outer session's store instead of clobbering it to ``None``.
+    """
+    return _channel_store_var.set(value)
+
+
+def reset_channel_store(token: Token[Any]) -> None:
+    """Restore the prior ChannelStore using a token from :func:`push_channel_store`."""
+    _channel_store_var.reset(token)
 
 
 def get_active_limits() -> dict[str, Any]:
@@ -510,8 +529,28 @@ def get_event_store() -> Any:
 
 
 def set_event_store(value: Any) -> None:
-    """Set the session EventStore. Returns None."""
+    """Set the session EventStore. Returns None.
+
+    Blanket set; used only by the session-end safety net (pytest_sessionfinish).
+    The session primitive uses :func:`push_event_store` / :func:`reset_event_store`
+    so a nested session restores the outer binding instead of clobbering it.
+    """
     _event_store_var.set(value)
+
+
+def push_event_store(value: Any) -> Token[Any]:
+    """Set the active EventStore; returns a token for :func:`reset_event_store`.
+
+    Token discipline (not blanket ``set``) so a nested session's close restores
+    the outer session's EventStore instead of clobbering it to ``None`` — the
+    fix for the cross-session contextvar clobber.
+    """
+    return _event_store_var.set(value)
+
+
+def reset_event_store(token: Token[Any]) -> None:
+    """Restore the prior EventStore using a token from :func:`push_event_store`."""
+    _event_store_var.reset(token)
 
 
 def get_collected_items() -> list[CollectedItem]:

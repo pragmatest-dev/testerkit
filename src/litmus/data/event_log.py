@@ -189,7 +189,7 @@ class EventLog:
         on_flush: Callable[[pa.RecordBatch], None] | None = None,
     ) -> None:
         self.log_dir = log_dir
-        self.session_id = session_id
+        self._session_id = session_id
         self._on_emit = on_emit
         self._on_flush = on_flush
         date_dir = self.log_dir / date.today().isoformat()
@@ -216,6 +216,11 @@ class EventLog:
         # (Context.observe / observer._store_value); events carry the
         # ``file://`` URI string and the EventLog has nothing of its own
         # to claim-check.
+
+    @property
+    def session_id(self) -> UUID:
+        """The session this log writes for — set at construction, immutable."""
+        return self._session_id
 
     @property
     def path(self) -> Path:

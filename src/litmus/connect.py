@@ -107,10 +107,9 @@ class StationConnection:
 
         # Wire the ChannelStore ContextVar (open_session wired the EventStore) so
         # module-level surfaces (``litmus.channels.stream``, ``litmus.files.write``)
-        # resolve to this session's stores.
-        from litmus.execution._state import set_channel_store
-
-        set_channel_store(self._channel_store)
+        # resolve to this session's stores. Token-managed via the scope so a nested
+        # connect()/session restores the outer binding on close.
+        self._scope.attach_channel_store(self._channel_store)
 
         self._pool = InstrumentPool(
             session_id=self._session_id,
@@ -220,15 +219,12 @@ class StationConnection:
         self._sync_point = None
 
         if self._scope is not None:
-            self._scope.close_stores()  # closes log + (owned) EventStore + clears its ContextVar
+            # Resets both store ContextVar tokens (restoring any outer session's
+            # bindings) + closes the owned EventStore.
+            self._scope.close_stores()
             self._scope = None
         self._event_store = None
         self._event_log = None
-
-        # Clear the ChannelStore ContextVar (close_stores cleared the EventStore one).
-        from litmus.execution._state import set_channel_store
-
-        set_channel_store(None)
 
         deregister_cleanup(str(self._session_id))
         self._started = False
