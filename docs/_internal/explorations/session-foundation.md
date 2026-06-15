@@ -275,7 +275,9 @@ the **P3 reaper (derived)**; explicit `SessionEnded` is a quiescence-proven fast
   review** (high blast radius — connect.py + plugin + slot_runner + _state).
 - **2b — Lazy ChannelStore.** Remove eager `ChannelStore`/`set_channel_store` from `connect.start()`
   + the pytest plugin; create on first need in `_resolve_store()` (build from the open session's
-  session_id + data_dir + event_log, then `set_channel_store`).
+  session_id + data_dir + event_log, then `set_channel_store`). **MINIMAL scope: defer the daemon
+  spin only — NOT the id-as-tag store-constructor refactor. That convergence is a separate follow-on;
+  do not pull it into 2b (it ballooned here once already).**
 - **2c — Write-needs-open-session gate.** `_resolve_store()` (channels) and `files._resolve_session_id`
   raise a typed `SessionRequired` if no OPEN session (not merely no store). Kills orphans.
 - **2d — connect()-exit decoupling.** Split `stop()`: block-exit releases instruments + ends the RUN
@@ -316,6 +318,30 @@ the **P3 reaper (derived)**; explicit `SessionEnded` is a quiescence-proven fast
    daemon aggregates N); P3 reaper = real close authority; explicit close = fast-path; instrument
    lifecycle stays a run concern; 2a keeps today's explicit closes.
 
+## Cross-store consistency (HARD REQUIREMENT — the day's lesson)
+
+The four primary stores (Event, Channel, File, Run) must behave **identically** on the axes the
+session/event model touches — no per-store corners. No phase lands a fix for one store without the
+same shape for all. Verified state:
+
+- **Emission (LANDED):** `EventLog.emit()` is the **sole** emitter. Every store builds its events
+  inline and emits via `EventLog`. The only justified extra layer is the instrument
+  `InstrumentEventBuilder` (translates dynamic driver calls; protocol-agnostic — observers
+  self-register via `__init_subclass__`, nothing enumerates them).
+- **Lifecycle grammar (NOT built — follow-on):** the global data verbs (`write`/`stream`) must drive
+  a **uniform, verb-keyed** event vocabulary — same `<Entity>Started`/`<Entity>Ended` everywhere; a
+  one-shot `write` emits a discrete event everywhere. Today a one-shot **file write emits nothing**;
+  channels vs file-streams use differently-named `Channel*` vs `Stream*` for the same verb.
+- **Streaming mechanism (NOT converged — broken contract, follow-on):** channels + files run
+  **parallel duplicate** producer/consumer relays (bounded queue + drop-oldest + gap-count +
+  drain-coalesce); `files/catalog_manager._FrameRelay` literally "mirrors the channel push relay."
+  The channels refactor was meant to be the shared mechanism files sit on; it isn't. Converge it
+  (daemons may stay separate; the optimization must be ONE shared component).
+- **DI vs ContextVar (KEEP DI — it is the consistent choice):** stores take `event_log` by
+  injection because the event-store ContextVar lives in `execution/_state.py` and the **data layer
+  imports nothing from execution**. Resolving from the ContextVar would invert that clean boundary.
+  Do not "fix" stores to pull from context.
+
 ## Progress log (keep current)
 
 - [x] 0 — design doc committed (this file)
@@ -328,7 +354,14 @@ the **P3 reaper (derived)**; explicit `SessionEnded` is a quiescence-proven fast
   All producer session-opens now go through the one primitive. **2b** (lazy ChannelStore) / **2c**
   (write-needs-session gate) / **2d** (connect-exit decoupling) remain — 2d intertwines with P3's
   lease (session outlives the connect block → process-exit/lease).
-- [ ] 3 — will + spine-only reaper
+- **Detour — event-emitter consistency (NOT an original phase; landed this session).** `bdaf2a7`
+  domain-prefixed every emitter (no bare `EventEmitter`); `fb2f365` made **`EventLog` the sole
+  emitter** — deleted the `ChannelEventEmitter`/`FileEventEmitter` protocols (thin EventLog aliases),
+  retyped `event_log` params to `EventLog`, renamed `InstrumentEventEmitter`→`InstrumentEventBuilder`
+  (it builds; EventLog emits); test fakes subclass `EventLog`. Full gate green. See Cross-store consistency.
+- [ ] 3 — will + spine-only reaper. **The will-fields + 900s sub-step was drafted then reverted out
+  of the tree (uncommitted → lost). P3 is FULLY PENDING — do will-fields + reaper together; orphan
+  timeout is still `3600` at `_runs_duckdb_daemon.py:1754`.**
 - [ ] 4 — terminal finality + cascade
 - [ ] 5 — envelope discipline + per-writer gap detection
 - [ ] 6 — producer/reader split + first-class reader entry
@@ -366,3 +399,17 @@ _On each completion: append a one-line "what landed" note + commit sha._
   auto-captured metadata lets us ask deeper questions of the events/data captured under it.
   Automatic in the session primitive (rides the P3 will), not hand-threaded per producer; degrades
   gracefully when a field is unavailable (bare script vs full station connect). Blocked on P2.
+
+- **Emission-grammar consistency (NEW — surfaced this session).** Uniform, verb-keyed lifecycle
+  events across all four stores: one `<Entity>Started`/`<Entity>Ended` grammar (converge
+  `SlotCompleted`→`SlotEnded`, `ChannelClosed`→`ChannelEnded`, `RouteOpened/Closed`; fix
+  `SyncArrived/Release` tense) + add the missing discrete **one-shot file-write event** (today a
+  one-shot file PUT emits nothing). Noise/info balance: 2 events per span, 1 per discrete write,
+  never per-sample. Needs a design pass before implementing. See Cross-store consistency.
+
+- **Streaming-relay convergence (NEW — broken contract).** Channels and files duplicate the
+  producer/consumer relay (bounded queue + drop-oldest overflow + gap count + drain-coalesce);
+  `files/catalog_manager._FrameRelay` "mirrors the channel push relay" instead of reusing it (the
+  channels refactor was supposed to be the shared mechanism files sit on — it wasn't). Extract ONE
+  shared relay component; converge both. Daemons may stay separate; the optimization must not be
+  duplicated. See Cross-store consistency.
