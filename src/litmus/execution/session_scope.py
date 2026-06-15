@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from litmus.data.event_log import EventLog
     from litmus.data.event_store import EventStore
     from litmus.data.events import SessionStarted
+    from litmus.models.station import StationConfig
 
 
 @dataclass
@@ -100,6 +101,42 @@ class SessionScope:
         if self._event_store_token is not None:
             reset_event_store(self._event_store_token)
             self._event_store_token = None
+
+
+def build_session_started(
+    config: StationConfig | None,
+    *,
+    session_id: UUID,
+    session_type: str = "test_run",
+    operator_id: str | None = None,
+    station_id: str | None = None,
+) -> SessionStarted:
+    """Build SessionStarted from a resolved StationConfig (runner-neutral).
+
+    The single station->session-event mapping shared by every producer
+    (connect, pytest, future producer-UIs). Degrades gracefully when no
+    station config loaded: falls back to the explicit ``station_id`` (which
+    may itself be None for a bare bringup run). This is the growth point for
+    richer auto-captured station context at session creation (task #35).
+    """
+    from litmus.data.events import SessionStarted
+
+    if config is not None:
+        return SessionStarted.from_station(
+            session_id=session_id,
+            station_id=config.id,
+            station_name=config.name,
+            station_type=config.station_type,
+            station_location=config.location,
+            operator_id=operator_id,
+            session_type=session_type,
+        )
+    return SessionStarted.from_station(
+        session_id=session_id,
+        station_id=station_id,
+        operator_id=operator_id,
+        session_type=session_type,
+    )
 
 
 def open_session(

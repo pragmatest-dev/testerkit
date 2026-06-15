@@ -513,6 +513,10 @@ class RunScope:
         # public surface for hook code; the underscore guards against
         # ad-hoc reads.
         self._external_run_outcome: Outcome | None = None
+        # finalize() is idempotent — set once it has emitted RunEnded so a
+        # second call (e.g. pytest_sessionfinish finalizing on KeyboardInterrupt
+        # before the run fixture's teardown) does not double-emit.
+        self._finalized: bool = False
 
     def record_external_outcome(self, outcome: Outcome | None) -> None:
         """Fold a run-level outcome contribution that has no owning step.
@@ -1180,7 +1184,14 @@ class RunScope:
 
         Emits RunEnded event. Does NOT close the event log — caller is
         responsible for emitting SessionEnded and closing the log.
+
+        Idempotent: a second call returns the already-finalized run without
+        re-emitting RunEnded.
         """
+        if self._finalized:
+            return self.test_run
+        self._finalized = True
+
         # Close any unclosed step before finalizing
         if get_current_step() is not None:
             self.end_step()

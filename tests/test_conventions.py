@@ -154,7 +154,7 @@ _CHANNELSTORE_ALLOWED = {
     # legitimately construct a ChannelStore. Everyone else queries
     # via the daemon.
     "src/litmus/connect.py",
-    "src/litmus/pytest_plugin/__init__.py",
+    "src/litmus/pytest_plugin/hooks.py",
     "src/litmus/data/channels/_flight_daemon.py",
     "src/litmus/data/channels/store.py",
     # The benchmark's write/stream workloads are serve=True producers;

@@ -31,11 +31,8 @@ from uuid import UUID, uuid4
 from litmus.data.channels.store import ChannelStore
 from litmus.data.event_log import EventLog
 from litmus.data.event_store import EventStore
-from litmus.data.events import (
-    InstrumentConfigure,
-    SessionStarted,
-)
-from litmus.execution.session_scope import SessionScope, open_session
+from litmus.data.events import InstrumentConfigure
+from litmus.execution.session_scope import SessionScope, build_session_started, open_session
 from litmus.instruments.pool import InstrumentPool
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.station import StationConfig
@@ -77,12 +74,9 @@ class StationConnection:
         # Open the producer session via the shared primitive: it creates the
         # EventStore + EventLog, wires the EventStore ContextVar, and emits
         # SessionStarted. connect always owns its EventStore (reuse_existing=False).
-        started = SessionStarted.from_station(
+        started = build_session_started(
+            self._config,
             session_id=self._session_id,
-            station_id=self._config.id,
-            station_name=self._config.name,
-            station_type=self._config.station_type,
-            station_location=self._config.location,
             session_type="interactive",
         )
         self._scope = open_session(

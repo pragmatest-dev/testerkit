@@ -29,16 +29,15 @@ from litmus.execution._state import (
     get_active_profile,
     get_active_profile_name,
     get_active_slot_runner,
+    get_channel_store,
     get_current_logger,
     set_active_instruments,
     set_active_profile,
-    set_channel_store,
     set_collected_items,
     set_current_code_identity,
     set_current_slot_id,
     set_current_step_aliases,
     set_current_step_config,
-    set_event_store,
     set_instrument_records,
     set_test_node_aliases,
     set_test_node_configs,
@@ -300,8 +299,72 @@ def pytest_report_header(config):
     return lines
 
 
+# Stash keys for the producer session opened at sessionstart and closed at
+# sessionfinish — the run fixture (RunStarted) and pytest_sessionfinish
+# (SessionEnded + close) read the scope/id from here.
+_SESSION_SCOPE_KEY: pytest.StashKey = pytest.StashKey()
+_SESSION_ID_KEY: pytest.StashKey = pytest.StashKey()
+# The run controller (RunScope) for THIS pytest session, stored by the run
+# fixture. Used by pytest_sessionfinish to finalize the session's own run on a
+# KeyboardInterrupt (where sessionfinish fires before the fixture's teardown) —
+# scoped to this session's run, NOT get_current_logger() (which a nested
+# in-process pytester run restores to the OUTER run, finalizing it prematurely).
+_RUN_SCOPE_KEY: pytest.StashKey = pytest.StashKey()
+
+
+def _open_session_for_pytest(session) -> None:
+    """Open the producer session (correlation root) at pytest start.
+
+    Lifted out of the run fixture. Station identity resolves through the
+    runner-neutral store path (same as connect()), so it needs no pytest
+    fixtures and matches how any producer opens a session. The SessionScope
+    is stashed on the pytest session for the run fixture (RunStarted) and
+    pytest_sessionfinish (SessionEnded + close) to pick up.
+    """
+    from pathlib import Path
+    from uuid import UUID, uuid4
+
+    from litmus.data.channels.store import ChannelStore
+    from litmus.data.data_dir import resolve_data_dir
+    from litmus.execution.session_scope import build_session_started, open_session
+    from litmus.pytest_plugin.helpers import (
+        find_station_file,
+        is_multi_slot_worker,
+        resolve_station_id,
+    )
+    from litmus.store import load_station
+
+    config = session.config
+    data_dir_opt = config.getoption("--data-dir")
+    data_dir = Path(data_dir_opt) if data_dir_opt else resolve_data_dir()
+
+    env_session_id = os.environ.get("_LITMUS_SESSION_ID")
+    session_id = UUID(env_session_id) if env_session_id else uuid4()
+
+    station_path = find_station_file(config)
+    station_config = load_station(station_path) if station_path else None
+    started = build_session_started(
+        station_config,
+        session_id=session_id,
+        session_type="test_run",
+        operator_id=config.getoption("--operator", default=None),
+        station_id=resolve_station_id(config),
+    )
+    scope = open_session(
+        started,
+        session_id=session_id,
+        data_dir=data_dir,
+        reuse_existing=True,
+        emit_lifecycle=not is_multi_slot_worker(),
+    )
+    channel_store = ChannelStore(data_dir, session_id, serve=True, event_log=scope.event_log)
+    scope.attach_channel_store(channel_store)
+    session.stash[_SESSION_SCOPE_KEY] = scope
+    session.stash[_SESSION_ID_KEY] = session_id
+
+
 def pytest_sessionstart(session):
-    """Wire prompt routing + validate UUT serial at session start."""
+    """Open the producer session + wire prompt routing + validate UUT serial."""
     _install_termination_handler()
 
     # If we're a test subprocess launched by ``litmus serve``, bridge
@@ -315,6 +378,11 @@ def pytest_sessionstart(session):
 
     config = session.config
     _resolve_and_install_slot_id(config)
+
+    # Open the correlation-root session here (not in the run fixture). Collect-only
+    # runs produce no data, so they open no session.
+    if not config.getoption("--collect-only", default=False):
+        _open_session_for_pytest(session)
 
     uut_serial = config.getoption("--uut-serial")
     uut_serials = config.getoption("--uut-serials")
@@ -810,20 +878,41 @@ def _apply_cascade_to_items(items: list[pytest.Item]) -> None:
 
 
 def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
-    """Clean up all session-scoped ContextVars and module-level state."""
-    # Close any open class container before the logger is torn down so the
-    # final container's StepEnded reaches the event log.
-    logger_inst = get_current_logger()
-    if logger_inst is not None:
-        _close_open_class_container(logger_inst)
+    """Close the producer session + clean up session-scoped ContextVars.
+
+    On a KeyboardInterrupt, pytest fires this hook BEFORE the session-scoped
+    run fixture's teardown, so finalize THIS session's run here (emit RunEnded)
+    while the event log is still open. ``finalize()`` is idempotent — the run
+    fixture's later teardown is then a no-op. We finalize the run from the
+    stash, NOT ``get_current_logger()``: a nested in-process pytester run
+    restores the ContextVar to the OUTER run on teardown, so finalizing the
+    current logger here would seal the outer run prematurely (mid-suite),
+    after which every later step re-triggers a failed materialize.
+    """
+    run = session.stash.get(_RUN_SCOPE_KEY, None)
+    if run is not None:
+        # Close any open class container so its StepEnded reaches the event log,
+        # then finalize the run (RunEnded) before the stores close below.
+        _close_open_class_container(run)
+        run.finalize()
+
+    # Close the producer session: channel store flushes first (subscribers see
+    # the final frames), then SessionEnded (orchestrator-only) + store teardown.
+    # close_stores() resets the EventStore/ChannelStore ContextVar tokens
+    # (restoring any outer binding) — this replaces the blunt set_*(None) clears.
+    scope = session.stash.get(_SESSION_SCOPE_KEY, None)
+    if scope is not None:
+        cs = get_channel_store()
+        if cs is not None:
+            cs.close()
+        scope.emit_ended()
+        scope.close_stores()
 
     set_active_instruments({})
     set_instrument_records({})
     set_test_node_aliases({})
     set_test_node_configs({})
     set_collected_items([])
-    set_channel_store(None)
-    set_event_store(None)
     set_active_profile(None)
     _STEP_JUDGMENT_INTENT.clear()
 

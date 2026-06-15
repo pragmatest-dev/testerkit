@@ -316,6 +316,14 @@ def mocks_active(config: pytest.Config) -> bool:
     return load_project_defaults().mock_instruments
 
 
+def is_multi_slot_worker() -> bool:
+    """Return True when this process is one of N>1 workers in a multi-slot run."""
+    return (
+        os.environ.get("_LITMUS_SLOT_ID") is not None
+        and int(os.environ.get("_LITMUS_SLOT_COUNT", "1")) > 1
+    )
+
+
 def prompt_for_serial(test_phase: str, slot_id: str | None = None) -> str:
     """Prompt for UUT serial or raise if non-interactive.
 

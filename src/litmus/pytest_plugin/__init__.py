@@ -218,72 +218,18 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     )
 
 
-def _is_multi_slot_worker() -> bool:
-    """Return True when this process is one of N>1 workers in a multi-slot run."""
-    return (
-        os.environ.get("_LITMUS_SLOT_ID") is not None
-        and int(os.environ.get("_LITMUS_SLOT_COUNT", "1")) > 1
-    )
+def _emit_run_start_events(logger: RunScope) -> None:
+    """Emit RunStarted + per-instrument + StepsDiscovered.
 
-
-def _setup_event_log_and_subscribers(logger: RunScope, results_path: Path, session_id: UUID) -> Any:
-    """Wire EventStore + EventLog + default subscribers.
-
-    The events bus is the source of truth for the test run. The runs
-    daemon subscribes to it and materializes parquets in its own process
-    (see :mod:`litmus.data._runs_duckdb_daemon`). The pytest process
-    just emits events; ``event_store.close()`` at teardown flushes them
-    durably to the events daemon. Materialization happens async after
-    pytest exits.
-
-    Returns the :class:`SessionScope` so the teardown helper can end + close it.
+    Session lifecycle (SessionStarted / stores) is opened at
+    ``pytest_sessionstart`` (see ``hooks._open_session_for_pytest``); this
+    fixture-side helper emits only the RUN-scoped events.
     """
-    from litmus.data.channels.store import ChannelStore
-    from litmus.execution.session_scope import open_session
-
-    # Open the producer session via the shared primitive (reuse-or-create the
-    # EventStore, wire its ContextVar, get the EventLog). SessionStarted is NOT
-    # emitted here — _emit_session_start_events fires it (orchestrator-only) once
-    # the logger/test_run fields exist. emit_lifecycle gates the teardown SessionEnded.
-    scope = open_session(
-        None,
-        session_id=session_id,
-        data_dir=results_path,
-        reuse_existing=True,
-        emit_lifecycle=not _is_multi_slot_worker(),
-    )
-    logger.event_log = scope.event_log
-
-    # Constructed now, opens lazily on first channel write (no daemon spin for a
-    # zero-channel session).
-    channel_store = ChannelStore(results_path, session_id, serve=True, event_log=scope.event_log)
-    scope.attach_channel_store(channel_store)
-
-    return scope
-
-
-def _emit_session_start_events(logger: RunScope) -> None:
-    """Emit SessionStarted (orchestrator only) + RunStarted + per-instrument + StepsDiscovered."""
-    from litmus.data.events import RunStarted, SessionStarted, StepsDiscovered
+    from litmus.data.events import RunStarted, StepsDiscovered
 
     event_log = logger.event_log
     if event_log is None:
         return
-
-    if not _is_multi_slot_worker():
-        event_log.emit(
-            SessionStarted.from_station(
-                session_id=logger._session_id,
-                station_id=logger.test_run.station_id,
-                station_name=logger.test_run.station_name,
-                station_type=logger.test_run.station_type,
-                station_location=logger.test_run.station_location,
-                station_hostname=logger.test_run.station_hostname,
-                operator_id=logger.test_run.operator_id,
-                operator_name=logger.test_run.operator_name,
-                fixture_id=logger.test_run.fixture_id,
-            )
-        )
 
     from litmus.execution._state import get_current_slot_id
 
@@ -336,31 +282,19 @@ def _emit_session_start_events(logger: RunScope) -> None:
         )
 
 
-def _teardown_logger(logger: RunScope, scope: Any) -> None:
-    """Close subscribers, finalize the run, end the session."""
-    # ChannelStore closes before the event log so its subscribers see the
-    # final flush before the event log shuts subscribers down. Its ContextVar
-    # token is released by scope.close_stores() below (restoring any outer binding).
-    cs = get_channel_store()
-    if cs is not None:
-        cs.close()
+def _finalize_run(logger: RunScope) -> None:
+    """Finalize the run (emit RunEnded). Session close is handled at sessionfinish.
 
-    # Close any still-open class container BEFORE finalize() so the
-    # container's StepEnded carries its rolled-up outcome (the rollup
-    # walks the run's steps and folds children via the severity ladder).
-    # pytest_sessionfinish fires AFTER session-fixture teardown, so it's
-    # too late to consult the logger there.
+    Close any still-open class container BEFORE finalize() so the
+    container's StepEnded carries its rolled-up outcome (the rollup walks
+    the run's steps and folds children via the severity ladder).
+    ``finalize()`` is idempotent — on a KeyboardInterrupt, ``pytest_sessionfinish``
+    finalizes first (it runs before this session-scoped fixture's teardown),
+    and this call is then a no-op.
+    """
     _close_open_class_container(logger)
-
     # finalize() emits RunEnded; it does not close the event log itself.
     logger.finalize()
-
-    # End the session via the primitive: SessionEnded (orchestrator-only — the
-    # scope's emit_lifecycle is False for a multi-slot worker) then close stores
-    # (event log + owned EventStore + clears the EventStore ContextVar).
-    if scope is not None:
-        scope.emit_ended()
-        scope.close_stores()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -373,12 +307,17 @@ def logger(request) -> Generator[RunScope, None, None]:
     channels stores. Post-hoc rendering / format conversion happens
     via ``litmus show -f X`` and ``litmus export <run> -f X``.
 
-    The body delegates to focused helpers — :func:`_setup_event_log_and_subscribers`
-    wires the event log, :func:`_emit_session_start_events` fires the
-    Session/Run/StepsDiscovered triplet, :func:`_teardown_logger` closes
-    everything in the right order at session end.
+    Session lifecycle (SessionStarted / stores open / SessionEnded / stores close)
+    is handled by ``pytest_sessionstart`` / ``pytest_sessionfinish``. This fixture
+    attaches the run to the already-open session and emits only RunStarted /
+    RunEnded (+ instrument events + StepsDiscovered).
     """
     from litmus.data.data_dir import resolve_data_dir
+    from litmus.pytest_plugin.hooks import (
+        _RUN_SCOPE_KEY,
+        _SESSION_ID_KEY,
+        _SESSION_SCOPE_KEY,
+    )
 
     meta = _build_run_metadata(request)
     data_dir = meta["data_dir"]
@@ -386,8 +325,14 @@ def logger(request) -> Generator[RunScope, None, None]:
         data_dir = str(resolve_data_dir())
         meta["data_dir"] = data_dir
 
-    env_session_id = os.environ.get("_LITMUS_SESSION_ID")
-    session_id = UUID(env_session_id) if env_session_id else uuid4()
+    # Session_id is minted by _open_session_for_pytest at sessionstart and stashed.
+    # Fall back to env/uuid4 for collect-only / headless paths where no session opened.
+    stash_session_id = request.session.stash.get(_SESSION_ID_KEY, None)
+    if stash_session_id is not None:
+        session_id = stash_session_id
+    else:
+        env_session_id = os.environ.get("_LITMUS_SESSION_ID")
+        session_id = UUID(env_session_id) if env_session_id else uuid4()
     meta["session_id"] = session_id
 
     env_uut_serial = os.environ.get("LITMUS_UUT_SERIAL")
@@ -395,11 +340,15 @@ def logger(request) -> Generator[RunScope, None, None]:
         meta["uut_serial"] = env_uut_serial
 
     logger = RunScope(**meta)
+    # Store this session's run so pytest_sessionfinish finalizes THIS run on a
+    # KeyboardInterrupt — not get_current_logger() (a nested pytester run
+    # restores that to the outer run, which we must not seal mid-suite).
+    request.session.stash[_RUN_SCOPE_KEY] = logger
 
-    scope: Any = None
-    if data_dir:
-        scope = _setup_event_log_and_subscribers(logger, Path(data_dir), session_id)
-        _emit_session_start_events(logger)
+    scope = request.session.stash.get(_SESSION_SCOPE_KEY, None)
+    if scope is not None:
+        logger.event_log = scope.event_log
+        _emit_run_start_events(logger)
 
     set_current_logger(logger)
     try:
@@ -407,7 +356,7 @@ def logger(request) -> Generator[RunScope, None, None]:
     finally:
         # Capture not-started steps onto the run manifest before finalize.
         logger.test_run.collected_items = get_collected_items()
-        _teardown_logger(logger, scope)
+        _finalize_run(logger)
         set_current_logger(None)
 
 
