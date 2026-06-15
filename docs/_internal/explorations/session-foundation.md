@@ -565,8 +565,9 @@ ask the user). Open design calls already settled this session:
   `logger.record`, `RecordEvent`, and `channels`/`files` `record` surfaces in the Step-4 wave.
 - **Naming renames deferred to their phases** (`RunScope`, P6 writer/store, P7) — see the names pile.
 
-Remaining waves: **(A)** Step 4 author surface — promote `measure` to a public verb (peer of `verify`;
-`Context.measure` already exists at `harness.py:853`), de-expose the `logger` fixture, delete `record`.
+Remaining waves: **(A — LANDED `da6b86e`)** Step 4 author surface — `measure` promoted to a public verb
+(peer of `verify`; top-level + fixture + `Context.measure`, all logger-routed via `_perform_measure`),
+`logger` fixture de-exposed (no test/example requests it for recording), `record` deleted (was dead).
 **(B)** `RunScope` rename (`TestRunLogger`→`RunScope`) + lift session-open into `pytest_sessionstart`.
 **(C)** P6 producer/reader split (extract index/reader out of `ChannelStore`, `store.py:1053-1700`) → DI
 contract (drop `session_id` param, derive from `event_log`). **(D)** P3 reaper (refcount close +
@@ -594,6 +595,17 @@ will-fields + 900s). **(E)** ⚠ P4 terminal finality — STOP at the instrument
   emitter** — deleted the `ChannelEventEmitter`/`FileEventEmitter` protocols (thin EventLog aliases),
   retyped `event_log` params to `EventLog`, renamed `InstrumentEventEmitter`→`InstrumentEventBuilder`
   (it builds; EventLog emits); test fakes subclass `EventLog`. Full gate green. See Cross-store consistency.
+- **Wave A — author surface (Step-4 pytest side; `da6b86e`, 2026-06-15).** `measure` promoted to a
+  public verb (top-level `litmus.measure` + bare `measure` fixture + `Context.measure`, all routed
+  through the runner-neutral `_perform_measure`→`get_current_logger().measure` like `verify`/`observe`;
+  `Context.measure` no longer needs a harness). `measure` stays symmetric with `verify` (no
+  `allow_repeat` — `vectors` is the loop idiom; `allow_repeat` kept as a run-scope primitive escape
+  hatch). `logger` **fixture de-exposed** — no test/example requests it for recording (primitive unit
+  tests via direct `TestRunLogger(...)` untouched). `record` **deleted** (confirmed dead): `logger.record`,
+  `harness.record`, `RecordEvent` (+ TEST_EVENTS/Event union), the ontology entry, the generator
+  category, both record test files; `event-types.md` regenerated. Full gate green. **NOTE — deferred:**
+  prose-docs + skills-template `logger.measure`→`measure` migration folded into the post-Wave-B docs
+  pass (those pages also rename `logger`→`RunScope`, so migrate once, not twice — per-page-audit cost).
 - [ ] 3 — will + spine-only reaper. **The will-fields + 900s sub-step was drafted then reverted out
   of the tree (uncommitted → lost). P3 is FULLY PENDING — do will-fields + reaper together; orphan
   timeout is still `3600` at `_runs_duckdb_daemon.py:1754`.**
