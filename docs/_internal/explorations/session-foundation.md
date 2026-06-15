@@ -558,14 +558,19 @@ Names this overhaul surfaced as overloaded. Track here; resolve at the noted pha
 
 - [x] 0 — design doc committed (this file)
 - [x] 1 — drop session outcome — `7edc01d` (removed SessionEnded.outcome + slot rollup; readers keyed off event existence not .outcome; stop(outcome=) left for P2)
-- [~] 2 — KEYSTONE (in progress). **2a done**: `session_scope.open_session`/`SessionScope`
-  primitive (`8a6edf3`) + connect & pytest plugin migrated onto it (`8a6edf3`/`a15bdb6`), full
-  suite green. **Slot orchestrator CONSOLIDATED onto `open_session`** (one-way consistency /
-  anti-drift; full suite green): `run_multi_slot_session` no longer hand-creates the store;
-  `_run_subprocess_mode` owns it via `open_session(reuse_existing=True)` + `emit_ended`/`close_stores`.
-  All producer session-opens now go through the one primitive. **2b** (lazy ChannelStore) / **2c**
-  (write-needs-session gate) / **2d** (connect-exit decoupling) remain — 2d intertwines with P3's
-  lease (session outlives the connect block → process-exit/lease).
+- [~] 2 — KEYSTONE (mostly landed). **2a** (`8a6edf3`/`a15bdb6`) + slot consolidation: the
+  `open_session`/`SessionScope` primitive; all producer session-opens go through it.
+  **2b lazy ChannelStore** (`def605f`, 2026-06-14): `open()` deferred to first write (Option B — DI chain
+  untouched; the Flight daemon spins on the first channel write, not at session open).
+  **Foundation refinements** (`28b0e01`, 2026-06-14): **the cross-session ContextVar CLOBBER is FIXED** —
+  `SessionScope` owns the EventStore + ChannelStore ContextVar *tokens*, push-on-open / reset-on-close
+  restores the outer session (was `set(None)` clobber); `EventLog.session_id` is now **read-only** (the
+  single id source). Regression test added (`test_session_scope_tokens.py`); full pre-commit gate green.
+  **2c (the old `SessionRequired` write-gate) DROPPED** — superseded by the auto-root / strict-first model
+  (see "Session lifecycle model — refined"). **REMAINING in/after 2:** the DI contract (drop the
+  `session_id` constructor param, derive from `event_log`) + its precondition the **P6 producer/reader
+  split** (extract the index/reader `ChannelStore` — sizeable: ~600 lines of index/query code interwoven
+  in `store.py:1053-1700`); then `RunScope` rename + lift session-open into `pytest_sessionstart`.
 - **Detour — event-emitter consistency (NOT an original phase; landed this session).** `bdaf2a7`
   domain-prefixed every emitter (no bare `EventEmitter`); `fb2f365` made **`EventLog` the sole
   emitter** — deleted the `ChannelEventEmitter`/`FileEventEmitter` protocols (thin EventLog aliases),
@@ -575,7 +580,10 @@ Names this overhaul surfaced as overloaded. Track here; resolve at the noted pha
   of the tree (uncommitted → lost). P3 is FULLY PENDING — do will-fields + reaper together; orphan
   timeout is still `3600` at `_runs_duckdb_daemon.py:1754`.**
 - [ ] 4 — terminal finality + cascade
-- [ ] 5 — envelope discipline + per-writer gap detection
+- [~] 5 — envelope discipline + per-writer gap detection. **Gap detection LANDED** (`def605f`,
+  2026-06-14): `_EventSequenceMonitor` in the runs daemon flags non-contiguous `event_offset` per
+  `writer_key` (truncated/lost records) with a log + counter, no drop/block; no-ops on the column-less
+  in-process path. Independently reviewed. Envelope-naming-discipline part still pending.
 - [ ] 6 — producer/reader split + first-class reader entry
 - [ ] 7 — rename `StationConnection` → `Session`
 - [ ] 8 — liveness projection → UI/MCP/HTTP
