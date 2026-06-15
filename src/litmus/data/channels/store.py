@@ -10,7 +10,6 @@ from __future__ import annotations
 import itertools
 import json
 import os
-import queue
 import re
 import socket
 import threading
@@ -31,6 +30,7 @@ import pyarrow.flight as flight
 import pyarrow.ipc as ipc
 
 from litmus.data._ipc_writer import BufferedIPCWriter
+from litmus.data._push_relay import PushRelay
 from litmus.data.channels import flight_manager
 from litmus.data.channels.models import (
     SCALAR_SCHEMA,
@@ -324,10 +324,7 @@ class ChannelStore:
         # Default on; LITMUS_CHANNELS_SYNC_PUSH=1 forces the inline sync push
         # (A/B benchmarking + rollback).
         self._async_push = os.environ.get("LITMUS_CHANNELS_SYNC_PUSH") != "1"
-        self._push_queue: queue.Queue[tuple[str, pa.RecordBatch]] | None = None
-        self._push_thread: threading.Thread | None = None
-        self._push_stop: threading.Event | None = None
-        self._push_drops = 0
+        self._push_relay: PushRelay | None = None
 
     def open(self) -> None:
         self._channels_dir.mkdir(parents=True, exist_ok=True)
@@ -336,12 +333,15 @@ class ChannelStore:
         if self._serve:
             self._connect_or_serve()
             if self._async_push and self._flight_location is not None:
-                self._push_queue = queue.Queue(maxsize=10_000)
-                self._push_stop = threading.Event()
-                self._push_thread = threading.Thread(
-                    target=self._push_loop, name="channel-pusher", daemon=True
+                self._push_relay = PushRelay(
+                    flush=self._push_flush,
+                    key=lambda item: item[0],
+                    weight=lambda item: item[1].num_rows,
+                    max_weight=self._PUSH_MAX_ROWS,
+                    max_wait=self._PUSH_MAX_WAIT,
+                    queue_max=10_000,
+                    thread_name="channel-pusher",
                 )
-                self._push_thread.start()
 
     def list_channel_info(self) -> list[tuple[ChannelDescriptor, pa.Schema]]:
         """Return (descriptor, schema) for each registered channel."""
@@ -809,11 +809,8 @@ class ChannelStore:
             for sample in samples:
                 self._notify(channel_id, sample)
         if wire is not None and self._flight_location is not None:
-            if self._push_queue is not None:
-                try:
-                    self._push_queue.put_nowait((channel_id, wire))
-                except queue.Full:
-                    self._push_drops += 1
+            if self._push_relay is not None:
+                self._push_relay.publish((channel_id, wire))
             else:
                 self._flight_push_batch(channel_id, wire)
         if self._index_enabled and samples is not None:
@@ -1748,51 +1745,19 @@ class ChannelStore:
             warnings.warn(f"Channel Flight push failed (non-fatal): {exc}", stacklevel=2)
             self._reset_flight()
 
-    def _push_loop(self) -> None:
-        """Background consumer of the push queue (the dumb relay). Drains and
-        concatenates per channel — pure transport batching — so each drain does
-        ONE do_put per channel off the capture path. Every queued item is a wire
-        ``RecordBatch`` (the write core builds it); the relay never inspects or
-        rebuilds a sample. A slow daemon/subscriber never backpressures capture —
-        drop happens at enqueue (queue full), never here.
-
-        Accumulates up to ``_PUSH_MAX_ROWS`` rows OR ``_PUSH_MAX_WAIT`` seconds
-        (whichever first) before pushing, so a per-sample ``write()`` firehose
-        coalesces into larger batches — the wait bounds live latency (it can't
-        grow unbounded like a backlog)."""
-        q = self._push_queue
-        stop = self._push_stop
-        if q is None or stop is None:
-            return
-
-        while not stop.is_set() or not q.empty():
-            try:
-                first = q.get(timeout=0.1)
-            except queue.Empty:
-                continue
-            drained = [first]
-            nrows = first[1].num_rows
-            deadline = time.monotonic() + self._PUSH_MAX_WAIT
-            while nrows < self._PUSH_MAX_ROWS:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                try:
-                    item = q.get(timeout=remaining)
-                except queue.Empty:
-                    break
-                drained.append(item)
-                nrows += item[1].num_rows
-            per_channel: dict[str, list[pa.RecordBatch]] = {}
-            for channel_id, batch in drained:
-                per_channel.setdefault(channel_id, []).append(batch)
-            for channel_id, batches in per_channel.items():
-                wire = (
-                    batches[0]
-                    if len(batches) == 1
-                    else pa.Table.from_batches(batches).combine_chunks().to_batches()[0]
-                )
-                self._flight_push_batch(channel_id, wire)
+    def _push_flush(self, channel_id: object, items: list[tuple[str, pa.RecordBatch]]) -> None:
+        """Flush one channel's coalesced burst down the held do_put (the dumb
+        relay's transport). The shared ``PushRelay`` groups by channel and bounds
+        the burst; this concatenates the per-channel wire batches — pure
+        transport batching, ONE do_put per channel — and never inspects or
+        rebuilds a sample. A failed push is non-fatal (the segment is durable)."""
+        batches = [batch for _, batch in items]
+        wire = (
+            batches[0]
+            if len(batches) == 1
+            else pa.Table.from_batches(batches).combine_chunks().to_batches()[0]
+        )
+        self._flight_push_batch(str(channel_id), wire)
 
     def _reset_flight(self) -> None:
         """Tear down the Flight client + all held writers after an error, so
@@ -1820,7 +1785,7 @@ class ChannelStore:
         (which is whole). Non-zero means a subscriber/daemon couldn't keep up
         with capture — the live feed is lossy under that load, by design.
         """
-        return self._push_drops
+        return self._push_relay.dropped if self._push_relay is not None else 0
 
     @property
     def session_id(self) -> UUID:
@@ -1881,11 +1846,9 @@ class ChannelStore:
 
         # Stop the async pusher (if any) and let it drain before tearing down
         # the writers it uses.
-        if self._push_thread is not None:
-            if self._push_stop is not None:
-                self._push_stop.set()
-            self._push_thread.join(timeout=5.0)
-            self._push_thread = None
+        if self._push_relay is not None:
+            self._push_relay.close()
+            self._push_relay = None
 
         # Close held do_put writers (flushes any in-flight batch) before the
         # client and server ref.
