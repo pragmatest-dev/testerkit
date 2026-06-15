@@ -34,6 +34,7 @@ from litmus.data.files.catalog import (
     FRAME_ARROW_SCHEMA,
     FRAMES_DB,
 )
+from litmus.models.data_options import FileOptions
 
 
 class FilesCatalogManager(DaemonManager):
@@ -263,23 +264,25 @@ class _FrameTransport:
             warnings.warn(f"Files frame relay do_put failed (non-fatal): {exc}", stacklevel=2)
 
 
-def open_frame_relay(files_dir: Path) -> PushRelay | None:
+def open_frame_relay(files_dir: Path, options: FileOptions | None = None) -> PushRelay | None:
     """Start a non-blocking frame relay iff a catalog daemon is already serving.
 
     Resolved ONCE per stream (not per chunk). Returns ``None`` when no daemon
     runs — the common no-subscriber / benchmark case — so the writer's hot path
     skips all frame work. Never spawns a daemon. The shared :class:`PushRelay`
     owns the queue + drain + drop-oldest overflow; :class:`_FrameTransport`
-    supplies the frame codec + held ``do_put``.
+    supplies the frame codec + held ``do_put``. Coalescing tuning comes from
+    ``options`` (litmus.yaml ``files:``).
     """
     if not is_running(files_dir):
         return None
+    opts = options or FileOptions()
     transport = _FrameTransport(acquire(files_dir))
     return PushRelay(
         flush=transport.flush,
-        max_weight=256,  # frames coalesced per do_put
-        max_wait=0.05,
-        queue_max=1024,
+        max_weight=opts.frame_push_max_rows,
+        max_wait=opts.frame_push_max_wait,
+        queue_max=opts.frame_push_queue_max,
         thread_name="files-frame-relay",
         on_close=lambda: release(files_dir),
     )

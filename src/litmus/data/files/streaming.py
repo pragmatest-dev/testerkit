@@ -240,7 +240,8 @@ class _BaseSink:
         # Resolve the live frame fan-out ONCE (not per chunk). ``None`` when no
         # catalog daemon serves this dir — the writer's hot path then skips all
         # frame work. When a daemon is up, frames go to a non-blocking background
-        # relay so the per-chunk do_put never blocks the writer.
+        # relay so the per-chunk do_put never blocks the writer. Coalescing
+        # tuning defaults from ``FileOptions`` (the single home for those knobs).
         self._relay = open_frame_relay(files_dir)
         # Emit StreamStarted at construction (NOT at first write) so
         # the ``.uri`` property — valid from construction onward — is

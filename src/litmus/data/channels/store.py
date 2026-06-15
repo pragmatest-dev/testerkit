@@ -45,6 +45,7 @@ from litmus.data.channels.models import (
 )
 from litmus.data.events import ChannelClosed, ChannelStarted
 from litmus.data.ref import classify_value, make_channel_uri
+from litmus.models.data_options import ChannelOptions
 
 _WRITE_ERRORS = (OSError, pa.ArrowException)  # type: ignore[attr-defined]
 
@@ -126,8 +127,14 @@ class _ChannelWriter(BufferedIPCWriter):
         schema: pa.Schema,
         path: Path,
         flush_threshold: int = 100,
+        flush_interval: float = 1.0,
     ) -> None:
-        super().__init__(path=path, schema=schema, flush_threshold=flush_threshold)
+        super().__init__(
+            path=path,
+            schema=schema,
+            flush_threshold=flush_threshold,
+            flush_interval=flush_interval,
+        )
         self.channel_id = channel_id
         self.data_type = data_type
         # Template: /dir/channel_id_session.arrow → segments append _NNN
@@ -233,8 +240,9 @@ class ChannelStore:
         self,
         data_dir: Path,
         session_id: UUID,
-        flush_threshold: int = 100,
+        flush_threshold: int | None = None,
         *,
+        options: ChannelOptions | None = None,
         serve: bool = False,
         host: str = "127.0.0.1",
         port: int = 0,
@@ -252,7 +260,13 @@ class ChannelStore:
         # host — resolve it here rather than depending on a station config (which
         # not every producer path has). Tests may pass an explicit value.
         self._station_hostname = station_hostname or socket.gethostname()
-        self._flush_threshold = flush_threshold
+        # Producer-local data options (litmus.yaml ``channels:``). An explicit
+        # ``flush_threshold`` overrides ``options.writer_flush_threshold`` — the
+        # one knob with a direct shortcut, since it's the dominant test lever.
+        self._options = options or ChannelOptions()
+        self._flush_threshold = (
+            flush_threshold if flush_threshold is not None else self._options.writer_flush_threshold
+        )
         self._writers: dict[str, _ChannelWriter] = {}
         self._registry: dict[str, ChannelDescriptor] = {}
         # Per-(channel, session) monotonic write position. This store is
@@ -337,9 +351,9 @@ class ChannelStore:
                     flush=self._push_flush,
                     key=lambda item: item[0],
                     weight=lambda item: item[1].num_rows,
-                    max_weight=self._PUSH_MAX_ROWS,
-                    max_wait=self._PUSH_MAX_WAIT,
-                    queue_max=10_000,
+                    max_weight=self._options.push_max_rows,
+                    max_wait=self._options.push_max_wait,
+                    queue_max=self._options.push_queue_max,
                     thread_name="channel-pusher",
                 )
 
@@ -380,7 +394,14 @@ class ChannelStore:
         session_short = str(self._session_id)[:8]
         today = date.today().isoformat()
         path = self._channels_dir / today / f"{channel_id}_{session_short}.arrow"
-        writer = _ChannelWriter(channel_id, data_type, schema, path, self._flush_threshold)
+        writer = _ChannelWriter(
+            channel_id,
+            data_type,
+            schema,
+            path,
+            self._flush_threshold,
+            self._options.writer_flush_interval,
+        )
         self._writers[channel_id] = writer
         return writer
 
@@ -1161,11 +1182,6 @@ class ChannelStore:
     _INDEX_ENVELOPE = frozenset(
         {"received_at", "sampled_at", "source_method", "session_id", "sample_interval", "offset"}
     )
-    # Async-pusher batching: accumulate up to this many rows OR this long
-    # (whichever first) before each do_put, so a per-sample write() firehose
-    # coalesces into write_many-sized batches. The wait bounds live latency.
-    _PUSH_MAX_ROWS = 1000
-    _PUSH_MAX_WAIT = 0.005
 
     _INDEX_ARROW_SCHEMA = pa.schema(
         [
@@ -1771,6 +1787,11 @@ class ChannelStore:
                 pass
         self._flight_writers.clear()
         self._flight_client = None
+
+    @property
+    def options(self) -> ChannelOptions:
+        """The producer-local data options this store writes under."""
+        return self._options
 
     @property
     def flight_location(self) -> str | None:
