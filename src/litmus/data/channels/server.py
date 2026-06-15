@@ -100,8 +100,8 @@ def _make_put_hook(store: ChannelStore):  # type: ignore[no-untyped-def]
         # per-batch hot path skips the metadata parse + the registry INSERT under
         # _index_lock — and keeps ingest_batch's columnar fast path alive (it
         # needs the registered scalar descriptor to take the columnar branch).
-        if channel_id not in store._registry:
-            store._absorb_descriptor(channel_id, table.schema)
+        if store._index is not None and not store._index.has(channel_id):
+            store._index.absorb_descriptor(channel_id, table.schema)
         for batch in table.to_batches():
             try:
                 store.ingest_batch(channel_id, batch)

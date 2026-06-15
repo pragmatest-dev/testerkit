@@ -8,12 +8,9 @@ Supports live in-process subscriptions via on_channel().
 from __future__ import annotations
 
 import itertools
-import json
 import os
 import re
 import socket
-import threading
-import time
 import warnings
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
@@ -24,7 +21,6 @@ if TYPE_CHECKING:
     from litmus.data.event_log import EventLog
 from uuid import UUID
 
-import duckdb
 import pyarrow as pa
 import pyarrow.flight as flight
 import pyarrow.ipc as ipc
@@ -32,6 +28,7 @@ import pyarrow.ipc as ipc
 from litmus.data._ipc_writer import BufferedIPCWriter
 from litmus.data._push_relay import PushRelay
 from litmus.data.channels import flight_manager
+from litmus.data.channels.index import ChannelIndex, _decimate_table, _to_utc
 from litmus.data.channels.models import (
     CHANNELS_PUT_COMMAND,
     SCALAR_SCHEMA,
@@ -49,68 +46,6 @@ from litmus.data.ref import classify_value, make_channel_uri
 from litmus.models.data_options import ChannelOptions
 
 _WRITE_ERRORS = (OSError, pa.ArrowException)  # type: ignore[attr-defined]
-
-
-def _to_utc(dt: datetime | None) -> datetime | None:
-    """Coerce a datetime to UTC (or pass through ``None``).
-
-    Naive datetimes are interpreted as already UTC; aware datetimes
-    are converted via ``astimezone(UTC)``.
-    """
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
-
-
-def _lttb_indices(values: Sequence[float], n_out: int) -> list[int]:
-    """Largest Triangle Three Buckets downsampling — return selected indices.
-
-    Visually lossless: preserves peaks, valleys, and shape better than naive
-    stride decimation. Delegates to ``tsdownsample`` (compiled LTTB); first and
-    last points are always kept.
-
-    Reference: Sveinn Steinarsson, "Downsampling Time Series for Visual
-    Representation", MSc thesis, University of Iceland, 2013.
-    """
-    n = len(values)
-    if n <= n_out or n_out < 3:
-        return list(range(n))
-    # Heavy deps deferred off the module import path — only the decimation
-    # (query w/ max_points) path pays numpy/tsdownsample's load.
-    import numpy as np  # noqa: PLC0415
-    from tsdownsample import LTTBDownsampler  # noqa: PLC0415
-
-    indices = LTTBDownsampler().downsample(np.asarray(values, dtype=float), n_out=n_out)
-    return [int(i) for i in indices]
-
-
-def _decimate_table(table: pa.Table, max_points: int) -> pa.Table:
-    """Apply LTTB decimation to an Arrow table.
-
-    Uses the ``value`` column for scalar channels, or row index for
-    struct/array channels (where there's no single numeric column).
-    """
-    n = len(table)
-    if n <= max_points:
-        return table
-
-    # Find best column for LTTB area calculation
-    if "value" in table.schema.names:
-        col = table.column("value")
-        try:
-            values = [float(v.as_py()) for v in col]
-        except (TypeError, ValueError):
-            # Non-numeric value column — fall back to stride
-            indices = list(range(0, n, max(1, n // max_points)))[:max_points]
-            return table.take(indices)
-    else:
-        # Struct/array channel — use row index as proxy (preserves time density)
-        values = list(range(n))
-
-    indices = _lttb_indices(values, max_points)
-    return table.take(indices)
 
 
 class _ChannelWriter(BufferedIPCWriter):
@@ -315,27 +250,13 @@ class ChannelStore:
         # first append (see ``_append_and_publish``) and is idempotent.
         self._opened = False
 
-        # Warm DuckDB index — daemon-only (Opt 1: the daemon indexes
-        # producer files and serves at-rest query from the index; it no
-        # longer persists its own segment copy). The index is a derived
-        # cache: producer IPC files are the durable truth, so it is built
-        # in-memory and rebuilt by scanning closed segments on open().
-        # Producers (serve=True writers) never set ``index`` — they only
-        # persist + push.
-        self._index_enabled = index
-        self._index_db: duckdb.DuckDBPyConnection | None = None
-        self._index_local = threading.local()
-        self._index_lock = threading.Lock()
-        self._pending: list[dict[str, Any]] = []
-        self._pending_lock = threading.Lock()
-        self._pending_threshold = 100
-        # Runtime segment fold: queries lazily scan newly-closed segments into
-        # the index (throttled), so a sample the live push dropped under overflow
-        # is queryable from its durable segment without a daemon restart. The
-        # query dedups overlay ∪ index on (channel, session, offset), so a sample
-        # in both (pushed AND scanned) is counted once.
-        self._scan_lock = threading.Lock()
-        self._last_scan = 0.0
+        # Warm DuckDB index — the session-less reader (``ChannelIndex``) the
+        # store composes when indexing is enabled: the daemon indexes producer
+        # files and serves at-rest query (Opt 1 — no second segment copy), and
+        # warm-index tests write + index through one object. The index is a
+        # derived cache (producer IPC files are the durable truth); ``None`` on a
+        # pure producer (``serve=True`` writers persist + push, no local index).
+        self._index = ChannelIndex(self._channels_dir) if index else None
 
         # The synchronous daemon push is OFF the write path: write() enqueues the
         # sample and a background thread does the Flight do_put, so capture runs
@@ -350,8 +271,8 @@ class ChannelStore:
         if self._opened:
             return
         self._channels_dir.mkdir(parents=True, exist_ok=True)
-        if self._index_enabled:
-            self._index_open()
+        if self._index is not None:
+            self._index.open()
         if self._serve:
             self._connect_or_serve()
             if self._async_push and self._flight_location is not None:
@@ -369,13 +290,20 @@ class ChannelStore:
         self._opened = True
 
     def list_channel_info(self) -> list[tuple[ChannelDescriptor, pa.Schema]]:
-        """Return (descriptor, schema) for each registered channel."""
-        result: list[tuple[ChannelDescriptor, pa.Schema]] = []
+        """Return (descriptor, schema) for each known channel.
+
+        A writer populates ``_registry`` on first write (producer / warm-index
+        test); the daemon absorbs descriptors into its index (no writer, so the
+        schema falls back to ``SCALAR_SCHEMA``). Both are surfaced.
+        """
+        out: dict[str, tuple[ChannelDescriptor, pa.Schema]] = {}
         for cid, desc in self._registry.items():
             writer = self._writers.get(cid)
-            schema = writer.schema if writer else SCALAR_SCHEMA
-            result.append((desc, schema))
-        return result
+            out[cid] = (desc, writer.schema if writer else SCALAR_SCHEMA)
+        if self._index is not None:
+            for desc in self._index.descriptors():
+                out.setdefault(desc.channel_id, (desc, SCALAR_SCHEMA))
+        return list(out.values())
 
     def get_channel_schema(self, channel_id: str) -> pa.Schema | None:
         """Return the Arrow schema for a channel, or None if unknown."""
@@ -383,6 +311,8 @@ class ChannelStore:
         if writer is not None:
             return writer.schema
         if channel_id in self._registry:
+            return SCALAR_SCHEMA
+        if self._index is not None and self._index.has(channel_id):
             return SCALAR_SCHEMA
         return None
 
@@ -702,7 +632,7 @@ class ChannelStore:
         sampled = [_to_utc(t) for t in sampled_ats]
         # Per-sample objects only when something downstream actually reads them.
         need_samples = bool(
-            self._index_enabled or self._subscribers.get(channel_id) or self._global_subscribers
+            self._index is not None or self._subscribers.get(channel_id) or self._global_subscribers
         )
 
         if isinstance(first, (bool, int, float, str)):
@@ -849,8 +779,8 @@ class ChannelStore:
                 self._push_relay.publish((channel_id, wire))
             else:
                 self._flight_push_batch(channel_id, wire)
-        if self._index_enabled and samples is not None:
-            self._pending_extend([self._index_row(channel_id, s) for s in samples])
+        if self._index is not None and samples is not None:
+            self._index.extend_pending([self._index.index_row(channel_id, s) for s in samples])
 
     @staticmethod
     def _normalize_value(
@@ -1100,8 +1030,8 @@ class ChannelStore:
                 ticket). NOT exposed on the public ``channels.query`` verb;
                 ``offset`` stays a store-internal addressing cursor.
         """
-        if self._index_enabled:
-            return self._query_index(
+        if self._index is not None:
+            return self._index.query(
                 channel_id,
                 session_id=session_id,
                 start=start,
@@ -1192,383 +1122,19 @@ class ChannelStore:
 
         return result
 
-    # ---- Warm DuckDB index (daemon-only; Opt 1) ----
-
-    _INDEX_ENVELOPE = frozenset(
-        {"received_at", "sampled_at", "source_method", "session_id", "sample_interval", "offset"}
-    )
-
-    _INDEX_ARROW_SCHEMA = pa.schema(
-        [
-            ("channel_id", pa.utf8()),
-            ("session_id", pa.utf8()),
-            ("received_at", pa.timestamp("us", tz="UTC")),
-            ("sampled_at", pa.timestamp("us", tz="UTC")),
-            ("source_method", pa.utf8()),
-            ("sample_interval", pa.float64()),
-            ("value", pa.utf8()),
-            ("offset", pa.int64()),
-        ]
-    )
-
-    def _index_open(self) -> None:
-        """Open the on-disk index and fold in segments closed since last run.
-
-        The index is a persistent derived cache (``_index.duckdb`` in the
-        channels dir): it survives a daemon restart and is brought current
-        by an **incremental** scan — only segments not already in the
-        ``_ingested`` ledger are read (vs. the old wipe-and-rebuild-from-all
-        on every start). Producer IPC files remain the durable truth.
-
-        Live ``do_put`` rows ride a separate attached ``:memory:`` overlay
-        (``live.channel_live``): they are ephemeral (lost on restart, then
-        re-derived from their now-closed segments by the incremental scan),
-        so they never collide with a segment-scanned row. Mirrors the runs
-        daemon's persistent-index + in-memory-overlay split.
-        """
-        index_path = self._channels_dir / "_index.duckdb"
-        self._index_db = duckdb.connect(str(index_path))
-        self._ensure_index_schema(self._index_db)
-        # Ephemeral live overlay: attached :memory: so it's visible to every
-        # child read cursor (a register()'d temp view would not be), yet not
-        # persisted — it's a projection of in-flight samples, re-derived from
-        # segments on restart.
-        self._index_db.execute("ATTACH ':memory:' AS live")
-        self._index_db.execute(
-            "CREATE TABLE live.channel_live AS SELECT * FROM channel_index LIMIT 0"
-        )
-        self._scan_disk()
-
-    @staticmethod
-    def _ensure_index_schema(conn: duckdb.DuckDBPyConnection) -> None:
-        """Idempotently align the on-disk index schema (additive open).
-
-        ``CREATE TABLE IF NOT EXISTS`` so a new column auto-migrates an
-        existing DB on next spawn — no version bump, no re-ingest.
-        """
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS channel_index (
-                channel_id VARCHAR,
-                session_id VARCHAR,
-                received_at TIMESTAMPTZ,
-                sampled_at TIMESTAMPTZ,
-                source_method VARCHAR,
-                sample_interval DOUBLE,
-                value VARCHAR,
-                "offset" BIGINT
-            )
-            """
-        )
-        # Ledger of ingested segments — keyed on path alone. A channel
-        # segment is written exactly once (one batch, then closed
-        # immutable), so a path that's already recorded never needs
-        # re-reading. (Events key on (path, mtime, size) because its IPC
-        # files grow; channel segments don't.)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS _ingested (path VARCHAR PRIMARY KEY, row_count BIGINT)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_channel_index_cid_recv "
-            "ON channel_index(channel_id, received_at)"
-        )
-        # Derived registry: one version row per (channel, session). Non-unique on
-        # (hostname, channel) — each session that opens a channel appends a row, so
-        # current def = latest, history = all rows. ``last_updated`` (coarse) is the
-        # freshest received_at seen, for liveness staleness.
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS channel_registry (
-                channel_id VARCHAR,
-                session_id VARCHAR,
-                hostname VARCHAR,
-                data_type VARCHAR,
-                instrument_role VARCHAR,
-                resource VARCHAR,
-                units VARCHAR,
-                first_seen TIMESTAMPTZ,
-                last_updated TIMESTAMPTZ,
-                PRIMARY KEY (channel_id, session_id)
-            )
-            """
-        )
-
-    def _index_cursor(self) -> duckdb.DuckDBPyConnection:
-        """Thread-local read cursor over the shared in-memory index."""
-        cur = getattr(self._index_local, "cur", None)
-        if cur is None:
-            assert self._index_db is not None
-            cur = self._index_db.cursor()
-            self._index_local.cur = cur
-        return cur
-
-    def _scan_disk(self) -> None:
-        """Fold segments closed since last run into the persistent index.
-
-        Incremental: a segment already in the ``_ingested`` ledger is
-        skipped, so a daemon restart only reads new files rather than
-        rebuilding the whole index from every segment.
-        """
-        if self._index_db is None:
-            return
-        pattern = re.compile(r"^(.+)_([0-9a-f]{8})(?:_\d+)?$")
-        with self._index_lock:
-            ingested = {
-                row[0] for row in self._index_db.execute("SELECT path FROM _ingested").fetchall()
-            }
-        for arrow_file in sorted(self._channels_dir.glob("*/*.arrow")):
-            path_str = str(arrow_file)
-            if path_str in ingested:
-                continue
-            m = pattern.match(arrow_file.stem)
-            if not m:
-                continue
-            try:
-                reader = ipc.open_stream(pa.OSFile(str(arrow_file), "rb"))
-                table = reader.read_all()
-            except (pa.ArrowInvalid, OSError):
-                # Torn / still-open segment — leave it out of the ledger so
-                # the next restart re-reads it once it's a complete file.
-                continue
-            desc = self._absorb_descriptor(m.group(1), table.schema)
-            if desc is not None and "received_at" in table.column_names:
-                recv = [t for t in table.column("received_at").to_pylist() if t is not None]
-                if recv:
-                    self._bump_last_updated(desc.channel_id, desc.session_id, max(recv))
-            rows = self._segment_rows_to_index(m.group(1), table)
-            self._insert_index_rows(rows, "channel_index", ledger_path=path_str)
-
-    # Bound how often a query re-globs the channels dir for newly-closed
-    # segments — frequent dashboard polls shouldn't each pay a directory walk.
-    _RUNTIME_SCAN_INTERVAL = 1.0
-
-    def _maybe_scan_disk(self) -> None:
-        """Fold newly-closed segments into the index before a query (throttled).
-
-        Closes the restart-recovery gap: a sample the live push dropped under
-        overflow is durable in its closed segment and becomes queryable here,
-        without bouncing the daemon. Incremental (ledger-gated) and rate-limited;
-        the union dedup in ``_query_index`` absorbs any overlap with the overlay.
-        """
-        now = time.monotonic()
-        with self._scan_lock:
-            if now - self._last_scan < self._RUNTIME_SCAN_INTERVAL:
-                return
-            self._last_scan = now
-        self._scan_disk()
-
-    def _absorb_descriptor(self, channel_id: str, schema: pa.Schema) -> ChannelDescriptor | None:
-        """Populate the served descriptor map + registry from segment/stream metadata.
-
-        Producers stamp the ``ChannelDescriptor`` as Arrow schema metadata on
-        every segment; the daemon (which never calls ``write()``) reads it here
-        so ``list_channel_info`` can serve it. Returns the parsed descriptor (or
-        ``None`` if absent) so callers can reuse it without re-parsing.
-        """
-        meta = (schema.metadata or {}).get(b"litmus.channel_descriptor")
-        if not meta:
-            return None
-        desc = ChannelDescriptor.model_validate_json(meta)
-        # Registry row is per (channel, session): establish it even when the
-        # channel-keyed _registry cache already holds another session's descriptor
-        # (its last-write-wins would otherwise drop this session's version row).
-        self._register_descriptor_row(desc)
-        if channel_id not in self._registry:
-            self._registry[channel_id] = desc
-        return desc
-
-    def _register_descriptor_row(self, desc: ChannelDescriptor) -> None:
-        """Establish a (channel, session) registry version row (idempotent).
-
-        Carries the per-session hostname/descriptor; ``last_updated`` starts NULL
-        and is advanced by :meth:`_bump_last_updated`. No-op off the indexed daemon.
-        """
-        if self._index_db is None:
-            return
-        with self._index_lock:
-            self._index_db.execute(
-                """
-                INSERT INTO channel_registry
-                    (channel_id, session_id, hostname, data_type, instrument_role,
-                     resource, units, first_seen, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
-                ON CONFLICT (channel_id, session_id) DO NOTHING
-                """,
-                [
-                    desc.channel_id,
-                    desc.session_id,
-                    desc.hostname,
-                    desc.data_type,
-                    desc.instrument_role,
-                    desc.resource,
-                    desc.units,
-                    desc.first_seen,
-                ],
-            )
-
-    def _bump_last_updated(self, channel_id: str, session_id: str, ts: datetime | None) -> None:
-        """Advance a registry row's ``last_updated`` to ``ts`` if newer (NULL-safe)."""
-        if self._index_db is None or ts is None or not session_id:
-            return
-        with self._index_lock:
-            self._index_db.execute(
-                """
-                UPDATE channel_registry
-                SET last_updated = CASE
-                    WHEN last_updated IS NULL OR ? > last_updated THEN ? ELSE last_updated END
-                WHERE channel_id = ? AND session_id = ?
-                """,
-                [ts, ts, channel_id, session_id],
-            )
-
-    _REGISTRY_COLUMNS = (
-        "channel_id, session_id, hostname, data_type, instrument_role, "
-        "resource, units, first_seen, last_updated"
-    )
-
     def query_registry(self) -> pa.Table:
-        """All ``(hostname, channel, session)`` registry version rows.
-
-        Daemon-side read of the derived registry (folds any newly-closed segments
-        first). Off the indexed daemon this is empty.
-        """
-        if self._index_db is None:
-            return pa.table({c.strip(): [] for c in self._REGISTRY_COLUMNS.split(",")})
-        self._maybe_scan_disk()
-        cur = self._index_cursor()
-        result = cur.execute(f"SELECT {self._REGISTRY_COLUMNS} FROM channel_registry")
-        return result.arrow().read_all()
-
-    @classmethod
-    def _segment_rows_to_index(cls, channel_id: str, table: pa.Table) -> list[dict[str, Any]]:
-        """Convert a typed segment table to index rows (``value`` JSON-encoded).
-
-        ``channel_id`` comes from the filename (segments don't store it);
-        ``session_id`` from the row column. Scalar/array rows carry a
-        ``value`` column; dict/struct rows fold their non-envelope columns
-        back into one JSON object.
-        """
-        out: list[dict[str, Any]] = []
-        for r in table.to_pylist():
-            if "value" in r:
-                payload = r["value"]
-            else:
-                payload = {k: v for k, v in r.items() if k not in cls._INDEX_ENVELOPE}
-            out.append(
-                {
-                    "channel_id": channel_id,
-                    "session_id": r.get("session_id"),
-                    "received_at": r.get("received_at"),
-                    "sampled_at": r.get("sampled_at"),
-                    "source_method": r.get("source_method") or "",
-                    "sample_interval": r.get("sample_interval"),
-                    "value": encode_value(payload),
-                    # Carry the segment's offset into the index so a scanned row
-                    # dedups against the same sample in the live overlay (else the
-                    # runtime fold would double-count it with a null offset).
-                    "offset": r.get("offset", -1),
-                }
-            )
-        return out
-
-    def _insert_index_rows(
-        self,
-        rows: list[dict[str, Any]],
-        table: str,
-        *,
-        ledger_path: str | None = None,
-    ) -> None:
-        """Insert index rows under the write lock (single writer).
-
-        ``table`` is ``channel_index`` (durable, segment-scanned) or
-        ``live.channel_live`` (ephemeral overlay). ``ledger_path``, when
-        given, records the source segment in ``_ingested`` in the SAME
-        transaction as the insert, so a crash can't half-record a segment.
-        """
-        if self._index_db is None:
-            return
-        if not rows:
-            # An empty segment still needs its ledger mark so it isn't
-            # re-read on every restart.
-            if ledger_path is not None:
-                with self._index_lock:
-                    self._index_db.execute(
-                        "INSERT OR IGNORE INTO _ingested (path, row_count) VALUES (?, 0)",
-                        [ledger_path],
-                    )
-            return
-        tbl = pa.Table.from_pylist(rows, schema=self._INDEX_ARROW_SCHEMA)
-        with self._index_lock:
-            self._index_db.register("_incoming", tbl)
-            self._index_db.execute(f"INSERT INTO {table} SELECT * FROM _incoming")
-            self._index_db.unregister("_incoming")
-            if ledger_path is not None:
-                self._index_db.execute(
-                    "INSERT OR IGNORE INTO _ingested (path, row_count) VALUES (?, ?)",
-                    [ledger_path, len(rows)],
-                )
-
-    def _insert_index_batch(self, batch: pa.RecordBatch, table: str) -> None:
-        """Columnar index insert: register the Arrow batch and INSERT…SELECT —
-        no per-row dict build. Used by the scalar fast path in ``ingest_batch``."""
-        if self._index_db is None or batch.num_rows == 0:
-            return
-        tbl = pa.Table.from_batches([batch])
-        with self._index_lock:
-            self._index_db.register("_incoming", tbl)
-            self._index_db.execute(f"INSERT INTO {table} SELECT * FROM _incoming")
-            self._index_db.unregister("_incoming")
-
-    @staticmethod
-    def _payload_and_interval(sample: ChannelSample) -> tuple[Any, float | None]:
-        """Split an array sample's ``{value, sample_interval}`` envelope.
-
-        ``_normalize_value`` folds arrays into ``{"value": [...],
-        "sample_interval": dt}``, which is what rides on the live sample.
-        Segments store the array in the ``value`` column with
-        ``sample_interval`` alongside, so the index must too — otherwise a
-        live-ingested array would encode differently from a disk-scanned one.
-        """
-        v = sample.value
-        if (
-            isinstance(v, dict)
-            and set(v.keys()) == {"value", "sample_interval"}
-            and isinstance(v.get("value"), list)
-        ):
-            return v["value"], v["sample_interval"]
-        return v, sample.sample_interval
-
-    def _index_row(self, channel_id: str, sample: ChannelSample) -> dict[str, Any]:
-        """Build one index row from a sample (``value`` JSON-encoded)."""
-        payload, interval = self._payload_and_interval(sample)
-        return {
-            "channel_id": channel_id,
-            "session_id": sample.session_id,
-            "received_at": sample.received_at,
-            "sampled_at": sample.sampled_at,
-            "source_method": sample.source_method or "",
-            "sample_interval": interval,
-            "value": encode_value(payload),
-            "offset": sample.offset,
-        }
-
-    def _pending_extend(self, rows: list[dict[str, Any]]) -> None:
-        """Append index rows to the pending buffer; flush past the threshold."""
-        if not rows:
-            return
-        with self._pending_lock:
-            self._pending.extend(rows)
-            overflowed = len(self._pending) >= self._pending_threshold
-        if overflowed:
-            self._flush_pending()
+        """All ``(hostname, channel, session)`` registry version rows (empty off
+        the indexed daemon)."""
+        if self._index is not None:
+            return self._index.query_registry()
+        cols = ChannelIndex._REGISTRY_COLUMNS.split(",")
+        return pa.table({c.strip(): [] for c in cols})
 
     def ingest_batch(self, channel_id: str, batch: pa.RecordBatch) -> None:
-        """Daemon do_put path: index live samples + fan out (no segment persist).
-
-        Replaces ``store.write`` on the daemon side (Opt 1: the daemon
-        does not persist a second segment copy). Live rows reach the index
-        only via the pending buffer flush — never via the disk scan — so
-        there is no overlap to dedup.
+        """Daemon do_put path: fan out the live batch + feed the index (no segment
+        persist — Opt 1: the daemon keeps no second segment copy). Live rows reach
+        the index only via its pending buffer, never the disk scan, so there is no
+        overlap to dedup.
         """
         # Fan out the whole batch ONCE (cross-process relay) before any index
         # work — no re-explosion to per-sample deliveries.
@@ -1576,27 +1142,24 @@ class ChannelStore:
 
         # Keep the registry row's last_updated fresh for a live (low-rate) channel
         # whose single segment hasn't closed yet for the scan to pick up. The row
-        # was established by do_put's _absorb_descriptor; one host per session, so
+        # was established by do_put's absorb_descriptor; one host per session, so
         # (channel, session) keys the bump.
-        if self._index_db is not None and batch.num_rows and "received_at" in batch.schema.names:
+        if self._index is not None and batch.num_rows and "received_at" in batch.schema.names:
             sids = batch.column("session_id").to_pylist()
             recv = [t for t in batch.column("received_at").to_pylist() if t is not None]
             if sids and sids[0] and recv:
-                self._bump_last_updated(channel_id, sids[0], max(recv))
+                self._index.bump_last_updated(channel_id, sids[0], max(recv))
 
-        desc = self._registry.get(channel_id)
+        desc = self._index.descriptor(channel_id) if self._index is not None else None
         is_scalar = desc is not None and desc.data_type.startswith("scalar:")
         has_sample_subs = bool(self._subscribers.get(channel_id) or self._global_subscribers)
         # Columnar fast path: for a scalar channel with no per-sample in-process
         # subscriber, the wire ``value`` (JSON utf8) is already the index
-        # encoding, so project the batch's columns straight into the index schema
-        # — no per-row decode / object build / re-encode loop.
+        # encoding, so the index projects the batch's columns straight into its
+        # schema — no per-row decode / object build / re-encode loop.
         if is_scalar and not has_sample_subs:
-            idx = pa.record_batch(
-                {name: batch.column(name) for name in self._INDEX_ARROW_SCHEMA.names},
-                schema=self._INDEX_ARROW_SCHEMA,
-            )
-            self._insert_index_batch(idx, "live.channel_live")
+            if self._index is not None:
+                self._index.insert_live_columnar(batch)
             return
 
         # Array/struct channels (or a per-sample subscriber attached) need the
@@ -1604,118 +1167,12 @@ class ChannelStore:
         rows: list[dict[str, Any]] = []
         for i in range(batch.num_rows):
             sample = batch_row_to_sample(batch, i)
-            rows.append(self._index_row(channel_id, sample))
+            if self._index is not None:
+                rows.append(self._index.index_row(channel_id, sample))
             if has_sample_subs:
                 self._notify(channel_id, sample)
-        self._pending_extend(rows)
-
-    def _flush_pending(self) -> None:
-        """Move pending live rows into the index."""
-        with self._pending_lock:
-            if not self._pending:
-                return
-            pending = self._pending
-            self._pending = []
-        # Live rows land in the ephemeral overlay, NOT the durable index:
-        # their durable copy is the producer segment, folded into
-        # channel_index by the incremental scan on the next restart.
-        self._insert_index_rows(pending, "live.channel_live")
-
-    def _query_index(
-        self,
-        channel_id: str,
-        *,
-        session_id: str | None,
-        start: datetime | None,
-        end: datetime | None,
-        last_n: int | None,
-        max_points: int | None,
-        offset: int | None = None,
-    ) -> pa.Table:
-        """At-rest query served from the warm index (∪ pending buffer)."""
-        self._maybe_scan_disk()
-        self._flush_pending()
-        cur = self._index_cursor()
-        # Union the durable index with the live overlay (same columns). A sample
-        # lands in the overlay (push) and/or channel_index (segment scan), and the
-        # runtime fold can put it in both — _dedup_on_offset below collapses the
-        # overlap on the per-sample cursor (session, offset).
-        sql = [
-            "SELECT received_at, sampled_at, value, source_method, "
-            'session_id, sample_interval, "offset" FROM ('
-            "SELECT * FROM channel_index UNION ALL SELECT * FROM live.channel_live"
-            ") WHERE channel_id = ?"
-        ]
-        params: list[Any] = [channel_id]
-        if session_id:
-            sql.append("AND left(session_id, 8) = left(?, 8)")
-            params.append(session_id)
-        start_utc = _to_utc(start)
-        end_utc = _to_utc(end)
-        if start_utc is not None:
-            sql.append("AND received_at >= ?")
-            params.append(start_utc)
-        if end_utc is not None:
-            sql.append("AND received_at <= ?")
-            params.append(end_utc)
-        if offset is not None:
-            sql.append('AND "offset" = ?')
-            params.append(offset)
-        sql.append("ORDER BY received_at")
-        table = self._dedup_on_offset(cur.execute(" ".join(sql), params).arrow().read_all())
-
-        if last_n is not None and table.num_rows > last_n:
-            table = table.slice(table.num_rows - last_n)
-        table = self._decode_value_column(table)
-        if max_points is not None and table.num_rows > max_points:
-            table = _decimate_table(table, max_points)
-        return table
-
-    @staticmethod
-    def _dedup_on_offset(table: pa.Table) -> pa.Table:
-        """Collapse overlay∪index overlap on the per-sample cursor (session, offset).
-
-        The runtime segment fold can place a sample in both the durable index and
-        the live overlay; both copies are identical, so keep the first (the table
-        is already ordered by ``received_at``). A no-op when they don't overlap.
-        Rows with an unstamped ``offset`` (< 0, legacy) are never collapsed.
-        """
-        if table.num_rows == 0 or "offset" not in table.column_names:
-            return table
-        sessions = table.column("session_id").to_pylist()
-        offsets = table.column("offset").to_pylist()
-        seen: set[tuple[Any, int]] = set()
-        keep: list[int] = []
-        for i, (s, o) in enumerate(zip(sessions, offsets, strict=True)):
-            if o is not None and o >= 0:
-                key = (s, o)
-                if key in seen:
-                    continue
-                seen.add(key)
-            keep.append(i)
-        return table if len(keep) == table.num_rows else table.take(keep)
-
-    @staticmethod
-    def _decode_value_column(table: pa.Table) -> pa.Table:
-        """JSON-decode the VARCHAR ``value`` column back to typed values.
-
-        Inverse of ``encode_value``: non-JSON strings pass through (matches
-        ``batch_row_to_sample``). Values within one channel are homogeneous,
-        so Arrow infers a single column type.
-        """
-        if "value" not in table.column_names or table.num_rows == 0:
-            return table
-        decoded: list[Any] = []
-        for v in table.column("value").to_pylist():
-            if v is None:
-                decoded.append(None)
-                continue
-            try:
-                decoded.append(json.loads(v))
-            except (json.JSONDecodeError, TypeError):
-                decoded.append(v)
-        idx = table.column_names.index("value")
-        return table.set_column(idx, "value", pa.array(decoded))
+        if self._index is not None:
+            self._index.extend_pending(rows)
 
     def _connect_or_serve(self) -> None:
         """Acquire a ref-counted Flight server daemon.
@@ -1916,12 +1373,8 @@ class ChannelStore:
                         stacklevel=2,
                     )
 
-            if self._index_db is not None:
-                try:
-                    self._index_db.close()
-                except (OSError, duckdb.Error):
-                    pass
-                self._index_db = None
+            if self._index is not None:
+                self._index.close()
         finally:
             self._writers.clear()
             self._subscribers.clear()

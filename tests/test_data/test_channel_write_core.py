@@ -102,7 +102,8 @@ class TestRuntimeReadableLog:
         producer.close()
 
         # Without reopening the index, a query folds the new segment in.
-        index._last_scan = 0.0  # bypass the scan throttle for the test
+        assert index._index is not None
+        index._index._last_scan = 0.0  # bypass the scan throttle for the test
         result = index.query("ch")
         assert result.num_rows == 4
         assert sorted(float(v) for v in result.column("value").to_pylist()) == [
@@ -142,7 +143,8 @@ class TestRuntimeReadableLog:
             offset=0,
         )
         index.ingest_batch("ch", sample_to_batch(s))
-        index._last_scan = 0.0
+        assert index._index is not None
+        index._index._last_scan = 0.0
         assert index.query("ch").num_rows == 1  # deduped, not 2
         index.close()
 
@@ -244,8 +246,9 @@ class TestChannelRegistry:
 
         idx = ChannelStore(tmp_path, uuid4(), index=True)
         idx.open()
-        assert idx._index_db is not None
-        rows = idx._index_db.execute(
+        engine = idx._index
+        assert engine is not None and engine._index_db is not None
+        rows = engine._index_db.execute(
             "SELECT hostname, channel_id FROM channel_registry ORDER BY hostname"
         ).fetchall()
         idx.close()
@@ -256,8 +259,9 @@ class TestChannelRegistry:
         sid = self._write_segment(tmp_path, "dmm.v", "h1")
         idx = ChannelStore(tmp_path, uuid4(), index=True)
         idx.open()
-        assert idx._index_db is not None
-        row = idx._index_db.execute(
+        engine = idx._index
+        assert engine is not None and engine._index_db is not None
+        row = engine._index_db.execute(
             "SELECT last_updated FROM channel_registry WHERE session_id = ?", [str(sid)]
         ).fetchone()
         idx.close()
@@ -267,14 +271,15 @@ class TestChannelRegistry:
         sid = self._write_segment(tmp_path, "dmm.v", "h1")
         idx = ChannelStore(tmp_path, uuid4(), index=True)
         idx.open()
-        assert idx._index_db is not None
-        before = idx._index_db.execute(
+        engine = idx._index
+        assert engine is not None and engine._index_db is not None
+        before = engine._index_db.execute(
             "SELECT last_updated FROM channel_registry WHERE session_id = ?", [str(sid)]
         ).fetchone()
-        idx._last_scan = 0.0
-        idx._maybe_scan_disk()  # ledger gates the segment → no re-read, no dup
-        count = idx._index_db.execute("SELECT COUNT(*) FROM channel_registry").fetchone()
-        after = idx._index_db.execute(
+        engine._last_scan = 0.0
+        engine._maybe_scan_disk()  # ledger gates the segment → no re-read, no dup
+        count = engine._index_db.execute("SELECT COUNT(*) FROM channel_registry").fetchone()
+        after = engine._index_db.execute(
             "SELECT last_updated FROM channel_registry WHERE session_id = ?", [str(sid)]
         ).fetchone()
         idx.close()
@@ -289,9 +294,10 @@ class TestChannelRegistry:
 
         idx = ChannelStore(tmp_path, uuid4(), index=True)
         idx.open()
-        assert idx._index_db is not None
+        engine = idx._index
+        assert engine is not None and engine._index_db is not None
         sid = str(uuid4())
-        idx._register_descriptor_row(
+        engine._register_descriptor_row(
             ChannelDescriptor(channel_id="dmm.v", session_id=sid, hostname="h1")
         )
         ts = datetime.now(UTC)
@@ -303,7 +309,7 @@ class TestChannelRegistry:
                 )
             ),
         )
-        row = idx._index_db.execute(
+        row = engine._index_db.execute(
             "SELECT last_updated FROM channel_registry WHERE session_id = ?", [sid]
         ).fetchone()
         idx.close()
