@@ -17,9 +17,52 @@ import pyarrow as pa
 import pyarrow.flight as flight
 import pytest
 
-from litmus.data._duckdb_flight_server import DuckDBFlightServer
+from litmus.data._duckdb_flight_server import DuckDBFlightServer, _SubscriberBuffer
 
 _SCHEMA = pa.schema([pa.field("x", pa.int64())])
+
+
+def _rb(i: int) -> pa.RecordBatch:
+    return pa.record_batch({"x": pa.array([i], type=pa.int64())})
+
+
+def test_buffer_lossy_drops_oldest_and_counts_gaps() -> None:
+    """No replay_sql → lossy: overflow drops the oldest + counts a gap, never
+    signals removal; the subscriber stays attached."""
+    buf = _SubscriberBuffer(lossy=True, maxsize=2)
+    assert buf.put(_rb(1)) is True
+    assert buf.put(_rb(2)) is True
+    assert buf.put(_rb(3)) is True  # overflow: drop oldest, keep subscriber
+    assert buf.gaps == 1
+    drained = buf.drain(0.1)
+    assert drained is not None
+    assert [b.column("x").to_pylist()[0] for b in drained] == [2, 3]
+
+
+def test_buffer_lossless_signals_removal_on_overflow() -> None:
+    """replay_sql-backed → lossless: overflow returns False so _publish drops
+    the subscriber (→ client reconnects + replays). No oldest-drop, no gap."""
+    buf = _SubscriberBuffer(lossy=False, maxsize=2)
+    assert buf.put(_rb(1)) is True
+    assert buf.put(_rb(2)) is True
+    assert buf.put(_rb(3)) is False  # overflow → remove subscriber
+    assert buf.gaps == 0
+
+
+def test_buffer_drain_coalesces_all_queued() -> None:
+    """One drain returns every queued batch (LMAX catch-up)."""
+    buf = _SubscriberBuffer(lossy=True, maxsize=100)
+    for i in range(5):
+        buf.put(_rb(i))
+    drained = buf.drain(0.1)
+    assert drained is not None
+    assert len(drained) == 5
+
+
+def test_buffer_drain_returns_none_when_closed() -> None:
+    buf = _SubscriberBuffer(lossy=True, maxsize=10)
+    buf.close()
+    assert buf.drain(0.1) is None
 
 
 def _make_server(*, with_subscribe: bool = True) -> tuple[DuckDBFlightServer, str]:
