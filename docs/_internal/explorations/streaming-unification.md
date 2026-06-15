@@ -1,7 +1,11 @@
 # Streaming unification — promote DuckDBFlightServer for all four stores
 
-> **Status:** IN PROGRESS (2026-06-14) — branch `spike/streaming-unification`
-> (worktree, based on `spike/session-overhaul` HEAD e508bf0).
+> **Status:** COMPLETE (2026-06-15) — branch `spike/streaming-unification`
+> (worktree, based on `spike/session-overhaul` HEAD e508bf0). All phases 0–7
+> landed; channels is on the shared `DuckDBFlightServer`, the bespoke
+> `ChannelFlightServer` is gone, producer relay + consumer reader are both
+> shared, and the channel write/write_many/stream throughput is preserved and
+> improved (benchmark below). Full suite green (2084 passed, 17 skipped).
 > **Scope:** FULL (approved). Promote the shared Flight server for all four
 > stores; end the "each store reimplements the other's half" duplication.
 > Internal doc — file:line citations and private names are fine here.
@@ -280,10 +284,13 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
    client-wide close, `swallow_errors` for the files contract, `on_close` for
    files' client-close + daemon-release) — no copies of the loop. Removes the
    triplicated thread/stop/try-except boilerplate and the drift between the three.
-7. **Benchmark + docs** — `litmus benchmark --full` before/after to guard the
-   channel throughput ratios (no regression vs the pre-unification numbers);
-   update this diary + `channels-followups.md` #7 (mark done). Full suite
-   green.
+7. **Benchmark + docs** — **DONE.** `scripts/bench_channel_scaling.py`
+   before/after (the bundled `litmus benchmark` sweep doesn't cover
+   write_many/stream — recorded as a follow-up). Result: shared server beats the
+   pre-everything original on every write mode (write_many 154→205k, stream
+   150→198k, write scales further). Full suite green: **2084 passed, 17 skipped**.
+   Diary updated; the `StreamTuning` knob-consolidation (`channels-followups.md`
+   #7) landed as the per-store `ChannelOptions`/`FileOptions` in Phase 2.
 
 ## What stays out of scope
 
