@@ -11,8 +11,6 @@ catalog is rebuilt from them on every daemon start.
 from __future__ import annotations
 
 import json
-import queue
-import threading
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -29,11 +27,14 @@ from litmus.data._flight_query import (
     call_options,
     probe_sql,
 )
+from litmus.data._flight_subscribe import subscribe
+from litmus.data._push_relay import PushRelay
 from litmus.data.files.catalog import (
     CATALOG_ARROW_SCHEMA,
     FRAME_ARROW_SCHEMA,
     FRAMES_DB,
 )
+from litmus.models.data_options import FileOptions
 
 
 class FilesCatalogManager(DaemonManager):
@@ -236,91 +237,55 @@ def publish_frame(
         release(files_dir)
 
 
-class _FrameRelay:
-    """Per-stream frame fan-out, off the writer's hot path.
+class _FrameTransport:
+    """The files-frame codec + held transport behind a :class:`PushRelay`.
 
-    Mirrors the channel push relay (``channels/store.py``): the writer enqueues a
-    frame non-blocking; a background thread coalesces and ``do_put``s them to the
-    daemon. Resolving the daemon ONCE (at :func:`open_frame_relay`) keeps the
-    per-chunk ``is_running``/``do_put`` cost off ``StreamingSink.write`` — the
-    "same disease" channels had. On overflow it drops the oldest frame and counts
-    it (live = from-now; the on-disk byte stream is the durable record), so a slow
-    subscriber can never block or unbound-buffer the writer.
+    Coalesces a drained burst of frame dicts into one ``RecordBatch`` and
+    ``do_put``s it to the catalog daemon's hook-only frames db on a pooled,
+    held client. On error it drops + reacquires the pooled client; the on-disk
+    byte stream is the durable record, so a failed push is non-fatal.
     """
 
-    _MAX_ROWS = 256  # frames coalesced per do_put
     _DESCRIPTOR = flight.FlightDescriptor.for_command(f"{FRAMES_DB}\0frames".encode())
 
-    def __init__(self, files_dir: Path, location: str, *, maxsize: int = 1024) -> None:
-        self._files_dir = files_dir
+    def __init__(self, location: str) -> None:
         self._location = location
-        self._q: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=maxsize)
-        self._dropped = 0
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._drain, name="files-frame-relay", daemon=True)
-        self._thread.start()
+        self._client = _get_pooled_client(location)
 
-    @property
-    def dropped(self) -> int:
-        """Frames dropped under overflow — the gap signal a subscriber can see."""
-        return self._dropped
-
-    def publish(self, row: dict[str, Any]) -> None:
-        """Enqueue a frame non-blocking; drop-oldest + count on overflow."""
+    def flush(self, _key: object, rows: list[dict[str, Any]]) -> None:
         try:
-            self._q.put_nowait(row)
-        except queue.Full:
-            try:
-                self._q.get_nowait()
-            except queue.Empty:
-                pass
-            self._dropped += 1
-            try:
-                self._q.put_nowait(row)
-            except queue.Full:
-                pass
-
-    def _drain(self) -> None:
-        client = _get_pooled_client(self._location)
-        while True:
-            try:
-                rows = [self._q.get(timeout=0.05)]
-            except queue.Empty:
-                if self._stop.is_set():
-                    return
-                continue
-            while len(rows) < self._MAX_ROWS:
-                try:
-                    rows.append(self._q.get_nowait())
-                except queue.Empty:
-                    break
-            try:
-                tbl = pa.Table.from_pylist(rows, schema=FRAME_ARROW_SCHEMA)
-                writer, _ = client.do_put(self._DESCRIPTOR, tbl.schema, options=call_options())
-                writer.write_table(tbl)
-                writer.close()
-            except (OSError, RuntimeError, pa.ArrowException) as exc:
-                _drop_pooled_client(self._location)
-                client = _get_pooled_client(self._location)
-                warnings.warn(f"Files frame relay do_put failed (non-fatal): {exc}", stacklevel=2)
-
-    def close(self) -> None:
-        """Flush remaining frames, stop the thread, release the daemon ref."""
-        self._stop.set()
-        self._thread.join(timeout=5.0)
-        release(self._files_dir)
+            tbl = pa.Table.from_pylist(rows, schema=FRAME_ARROW_SCHEMA)
+            writer, _ = self._client.do_put(self._DESCRIPTOR, tbl.schema, options=call_options())
+            writer.write_table(tbl)
+            writer.close()
+        except (OSError, RuntimeError, pa.ArrowException) as exc:
+            _drop_pooled_client(self._location)
+            self._client = _get_pooled_client(self._location)
+            warnings.warn(f"Files frame relay do_put failed (non-fatal): {exc}", stacklevel=2)
 
 
-def open_frame_relay(files_dir: Path) -> _FrameRelay | None:
+def open_frame_relay(files_dir: Path, options: FileOptions | None = None) -> PushRelay | None:
     """Start a non-blocking frame relay iff a catalog daemon is already serving.
 
     Resolved ONCE per stream (not per chunk). Returns ``None`` when no daemon
     runs — the common no-subscriber / benchmark case — so the writer's hot path
-    skips all frame work. Never spawns a daemon.
+    skips all frame work. Never spawns a daemon. The shared :class:`PushRelay`
+    owns the queue + drain + drop-oldest overflow; :class:`_FrameTransport`
+    supplies the frame codec + held ``do_put``. Coalescing tuning comes from
+    ``options`` (litmus.yaml ``files:``).
     """
     if not is_running(files_dir):
         return None
-    return _FrameRelay(files_dir, acquire(files_dir))
+    opts = options or FileOptions()
+    transport = _FrameTransport(acquire(files_dir))
+    return PushRelay(
+        flush=transport.flush,
+        max_weight=opts.frame_push_max_rows,
+        max_wait=opts.frame_push_max_wait,
+        queue_max=opts.frame_push_queue_max,
+        thread_name="files-frame-relay",
+        on_close=lambda: release(files_dir),
+    )
 
 
 def subscribe_frames(
@@ -337,29 +302,24 @@ def subscribe_frames(
     """
     location = acquire(files_dir)
     client = flight.connect(location)
-    stop = threading.Event()
 
-    def _run() -> None:
-        try:
-            reader = client.do_get(flight.Ticket(f"{FRAMES_DB}\0__SUBSCRIBE__".encode()))
-            for chunk in reader:
-                if stop.is_set():
-                    break
-                batch = chunk.data
-                for i in range(batch.num_rows):
-                    callback({c: batch.column(c)[i].as_py() for c in batch.schema.names})
-        except (OSError, pa.ArrowException):
-            pass
+    def _on_batch(batch: pa.RecordBatch) -> None:
+        for i in range(batch.num_rows):
+            callback({c: batch.column(c)[i].as_py() for c in batch.schema.names})
 
-    thread = threading.Thread(target=_run, daemon=True, name="files-frame-sub")
-    thread.start()
-
-    def unsub() -> None:
-        stop.set()
+    def _close() -> None:
         try:
             client.close()
         except (OSError, RuntimeError, pa.ArrowException):
             pass
         release(files_dir)
 
+    unsub, _thread = subscribe(
+        client,
+        flight.Ticket(f"{FRAMES_DB}\0__SUBSCRIBE__".encode()),
+        _on_batch,
+        name="files-frame-sub",
+        swallow_errors=True,
+        on_close=_close,
+    )
     return unsub

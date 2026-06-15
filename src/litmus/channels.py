@@ -176,8 +176,7 @@ class _ChannelSink:
     # value list — no per-sample object). This is what makes stream the fast path:
     # the producer loop only pays the durable columnar append; the wire push and
     # index lag off-thread. The interval bounds live latency for low-rate streams.
-    _FLUSH_ROWS = 1000
-    _FLUSH_INTERVAL = 0.005
+    # Thresholds come from the store's ``ChannelOptions`` (litmus.yaml channels:).
 
     def __init__(self, store: Any, channel_id: str, run_id: UUID | None = None) -> None:
         self._store = store
@@ -210,19 +209,20 @@ class _ChannelSink:
         return make_channel_uri(self._channel_id, str(self._store.session_id))
 
     def write(self, sample: Any) -> str:
-        """Buffer one sample; flush as a columnar batch at the size cap or
-        ``_FLUSH_INTERVAL``. Returns the channel URI."""
+        """Buffer one sample; flush as a columnar batch at the size cap or the
+        sink flush interval. Returns the channel URI."""
         if self._closed:
             raise RuntimeError(
                 f"channel sink for {self._channel_id!r} is closed; opening a new "
                 "sink (or call channels.write) is required."
             )
+        opts = self._store.options
         with self._lock:
             self._buf.append(sample)
-            if len(self._buf) >= self._FLUSH_ROWS:
+            if len(self._buf) >= opts.sink_flush_rows:
                 self._flush_locked()
             elif self._timer is None:
-                self._timer = threading.Timer(self._FLUSH_INTERVAL, self._timer_flush)
+                self._timer = threading.Timer(opts.sink_flush_interval, self._timer_flush)
                 self._timer.daemon = True
                 self._timer.start()
         return make_channel_uri(self._channel_id, str(self._store.session_id))

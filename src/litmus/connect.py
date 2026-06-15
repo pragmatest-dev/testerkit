@@ -91,10 +91,14 @@ class StationConnection:
 
         # ChannelStore is constructed now but opens lazily on first channel write
         # (no daemon spin for a zero-channel session). Pass event_log so it can
-        # emit ChannelStarted / ChannelClosed.
+        # emit ChannelStarted / ChannelClosed. Channel data options come from the
+        # project config (litmus.yaml channels:), not the station config; absent →
+        # ChannelOptions defaults.
+        _proj = _find_project_config()
         self._channel_store = ChannelStore(
             self._event_store._data_dir,
             self._session_id,
+            options=_proj[1].channels if _proj else None,
             serve=True,
             event_log=self._event_log,
         )

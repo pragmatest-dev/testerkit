@@ -43,7 +43,7 @@ def resolve_files_backend(
     1. Explicit ``backend_uri`` (tests, the backend-swap proof).
     2. When ``allow_override`` (no explicit ``data_dir`` was given — tests
        and the benchmark stay local regardless of project config):
-       ``LITMUS_FILES_BACKEND`` env, then ``litmus.yaml`` ``files_backend``.
+       ``LITMUS_FILES_BACKEND`` env, then ``litmus.yaml`` ``files.backend``.
     3. Default ``files_dir.as_uri()``.
     """
     if backend_uri is not None:
@@ -56,8 +56,8 @@ def resolve_files_backend(
             from litmus.connect import _find_project_config
 
             found = _find_project_config()
-            if found and found[1].files_backend:
-                return found[1].files_backend
+            if found and found[1].files.backend:
+                return found[1].files.backend
         except (ImportError, AttributeError, FileNotFoundError):
             pass
     return files_dir.as_uri()

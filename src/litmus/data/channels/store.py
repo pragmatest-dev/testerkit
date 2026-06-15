@@ -10,7 +10,6 @@ from __future__ import annotations
 import itertools
 import json
 import os
-import queue
 import re
 import socket
 import threading
@@ -31,8 +30,10 @@ import pyarrow.flight as flight
 import pyarrow.ipc as ipc
 
 from litmus.data._ipc_writer import BufferedIPCWriter
+from litmus.data._push_relay import PushRelay
 from litmus.data.channels import flight_manager
 from litmus.data.channels.models import (
+    CHANNELS_PUT_COMMAND,
     SCALAR_SCHEMA,
     ChannelDescriptor,
     ChannelSample,
@@ -45,6 +46,7 @@ from litmus.data.channels.models import (
 )
 from litmus.data.events import ChannelClosed, ChannelStarted
 from litmus.data.ref import classify_value, make_channel_uri
+from litmus.models.data_options import ChannelOptions
 
 _WRITE_ERRORS = (OSError, pa.ArrowException)  # type: ignore[attr-defined]
 
@@ -126,8 +128,14 @@ class _ChannelWriter(BufferedIPCWriter):
         schema: pa.Schema,
         path: Path,
         flush_threshold: int = 100,
+        flush_interval: float = 1.0,
     ) -> None:
-        super().__init__(path=path, schema=schema, flush_threshold=flush_threshold)
+        super().__init__(
+            path=path,
+            schema=schema,
+            flush_threshold=flush_threshold,
+            flush_interval=flush_interval,
+        )
         self.channel_id = channel_id
         self.data_type = data_type
         # Template: /dir/channel_id_session.arrow → segments append _NNN
@@ -233,8 +241,9 @@ class ChannelStore:
         self,
         data_dir: Path,
         session_id: UUID,
-        flush_threshold: int = 100,
+        flush_threshold: int | None = None,
         *,
+        options: ChannelOptions | None = None,
         serve: bool = False,
         host: str = "127.0.0.1",
         port: int = 0,
@@ -252,7 +261,13 @@ class ChannelStore:
         # host — resolve it here rather than depending on a station config (which
         # not every producer path has). Tests may pass an explicit value.
         self._station_hostname = station_hostname or socket.gethostname()
-        self._flush_threshold = flush_threshold
+        # Producer-local data options (litmus.yaml ``channels:``). An explicit
+        # ``flush_threshold`` overrides ``options.writer_flush_threshold`` — the
+        # one knob with a direct shortcut, since it's the dominant test lever.
+        self._options = options or ChannelOptions()
+        self._flush_threshold = (
+            flush_threshold if flush_threshold is not None else self._options.writer_flush_threshold
+        )
         self._writers: dict[str, _ChannelWriter] = {}
         self._registry: dict[str, ChannelDescriptor] = {}
         # Per-(channel, session) monotonic write position. This store is
@@ -329,10 +344,7 @@ class ChannelStore:
         # Default on; LITMUS_CHANNELS_SYNC_PUSH=1 forces the inline sync push
         # (A/B benchmarking + rollback).
         self._async_push = os.environ.get("LITMUS_CHANNELS_SYNC_PUSH") != "1"
-        self._push_queue: queue.Queue[tuple[str, pa.RecordBatch]] | None = None
-        self._push_thread: threading.Thread | None = None
-        self._push_stop: threading.Event | None = None
-        self._push_drops = 0
+        self._push_relay: PushRelay | None = None
 
     def open(self) -> None:
         if self._opened:
@@ -343,12 +355,15 @@ class ChannelStore:
         if self._serve:
             self._connect_or_serve()
             if self._async_push and self._flight_location is not None:
-                self._push_queue = queue.Queue(maxsize=10_000)
-                self._push_stop = threading.Event()
-                self._push_thread = threading.Thread(
-                    target=self._push_loop, name="channel-pusher", daemon=True
+                self._push_relay = PushRelay(
+                    flush=self._push_flush,
+                    key=lambda item: item[0],
+                    weight=lambda item: item[1].num_rows,
+                    max_weight=self._options.push_max_rows,
+                    max_wait=self._options.push_max_wait,
+                    queue_max=self._options.push_queue_max,
+                    thread_name="channel-pusher",
                 )
-                self._push_thread.start()
         # Set last: a failed open() can be retried; a single producer thread means
         # no concurrent re-entry to guard against (see the single-writer model).
         self._opened = True
@@ -390,7 +405,14 @@ class ChannelStore:
         session_short = str(self._session_id)[:8]
         today = date.today().isoformat()
         path = self._channels_dir / today / f"{channel_id}_{session_short}.arrow"
-        writer = _ChannelWriter(channel_id, data_type, schema, path, self._flush_threshold)
+        writer = _ChannelWriter(
+            channel_id,
+            data_type,
+            schema,
+            path,
+            self._flush_threshold,
+            self._options.writer_flush_interval,
+        )
         self._writers[channel_id] = writer
         return writer
 
@@ -823,11 +845,8 @@ class ChannelStore:
             for sample in samples:
                 self._notify(channel_id, sample)
         if wire is not None and self._flight_location is not None:
-            if self._push_queue is not None:
-                try:
-                    self._push_queue.put_nowait((channel_id, wire))
-                except queue.Full:
-                    self._push_drops += 1
+            if self._push_relay is not None:
+                self._push_relay.publish((channel_id, wire))
             else:
                 self._flight_push_batch(channel_id, wire)
         if self._index_enabled and samples is not None:
@@ -1178,11 +1197,6 @@ class ChannelStore:
     _INDEX_ENVELOPE = frozenset(
         {"received_at", "sampled_at", "source_method", "session_id", "sample_interval", "offset"}
     )
-    # Async-pusher batching: accumulate up to this many rows OR this long
-    # (whichever first) before each do_put, so a per-sample write() firehose
-    # coalesces into write_many-sized batches. The wait bounds live latency.
-    _PUSH_MAX_ROWS = 1000
-    _PUSH_MAX_WAIT = 0.005
 
     _INDEX_ARROW_SCHEMA = pa.schema(
         [
@@ -1740,7 +1754,7 @@ class ChannelStore:
             writer = self._flight_writers.get(channel_id)
             if writer is None:
                 descriptor = flight.FlightDescriptor.for_command(
-                    channel_id.encode("utf-8"),
+                    CHANNELS_PUT_COMMAND,
                 )
                 # Stamp the descriptor on the persistent stream schema so the
                 # daemon absorbs it on stream-open — live channels are served
@@ -1762,51 +1776,19 @@ class ChannelStore:
             warnings.warn(f"Channel Flight push failed (non-fatal): {exc}", stacklevel=2)
             self._reset_flight()
 
-    def _push_loop(self) -> None:
-        """Background consumer of the push queue (the dumb relay). Drains and
-        concatenates per channel — pure transport batching — so each drain does
-        ONE do_put per channel off the capture path. Every queued item is a wire
-        ``RecordBatch`` (the write core builds it); the relay never inspects or
-        rebuilds a sample. A slow daemon/subscriber never backpressures capture —
-        drop happens at enqueue (queue full), never here.
-
-        Accumulates up to ``_PUSH_MAX_ROWS`` rows OR ``_PUSH_MAX_WAIT`` seconds
-        (whichever first) before pushing, so a per-sample ``write()`` firehose
-        coalesces into larger batches — the wait bounds live latency (it can't
-        grow unbounded like a backlog)."""
-        q = self._push_queue
-        stop = self._push_stop
-        if q is None or stop is None:
-            return
-
-        while not stop.is_set() or not q.empty():
-            try:
-                first = q.get(timeout=0.1)
-            except queue.Empty:
-                continue
-            drained = [first]
-            nrows = first[1].num_rows
-            deadline = time.monotonic() + self._PUSH_MAX_WAIT
-            while nrows < self._PUSH_MAX_ROWS:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                try:
-                    item = q.get(timeout=remaining)
-                except queue.Empty:
-                    break
-                drained.append(item)
-                nrows += item[1].num_rows
-            per_channel: dict[str, list[pa.RecordBatch]] = {}
-            for channel_id, batch in drained:
-                per_channel.setdefault(channel_id, []).append(batch)
-            for channel_id, batches in per_channel.items():
-                wire = (
-                    batches[0]
-                    if len(batches) == 1
-                    else pa.Table.from_batches(batches).combine_chunks().to_batches()[0]
-                )
-                self._flight_push_batch(channel_id, wire)
+    def _push_flush(self, channel_id: object, items: list[tuple[str, pa.RecordBatch]]) -> None:
+        """Flush one channel's coalesced burst down the held do_put (the dumb
+        relay's transport). The shared ``PushRelay`` groups by channel and bounds
+        the burst; this concatenates the per-channel wire batches — pure
+        transport batching, ONE do_put per channel — and never inspects or
+        rebuilds a sample. A failed push is non-fatal (the segment is durable)."""
+        batches = [batch for _, batch in items]
+        wire = (
+            batches[0]
+            if len(batches) == 1
+            else pa.Table.from_batches(batches).combine_chunks().to_batches()[0]
+        )
+        self._flight_push_batch(str(channel_id), wire)
 
     def _reset_flight(self) -> None:
         """Tear down the Flight client + all held writers after an error, so
@@ -1822,6 +1804,11 @@ class ChannelStore:
         self._flight_client = None
 
     @property
+    def options(self) -> ChannelOptions:
+        """The producer-local data options this store writes under."""
+        return self._options
+
+    @property
     def flight_location(self) -> str | None:
         """The gRPC location of the Flight server, if running."""
         return self._flight_location
@@ -1834,7 +1821,7 @@ class ChannelStore:
         (which is whole). Non-zero means a subscriber/daemon couldn't keep up
         with capture — the live feed is lossy under that load, by design.
         """
-        return self._push_drops
+        return self._push_relay.dropped if self._push_relay is not None else 0
 
     @property
     def session_id(self) -> UUID:
@@ -1895,11 +1882,9 @@ class ChannelStore:
 
         # Stop the async pusher (if any) and let it drain before tearing down
         # the writers it uses.
-        if self._push_thread is not None:
-            if self._push_stop is not None:
-                self._push_stop.set()
-            self._push_thread.join(timeout=5.0)
-            self._push_thread = None
+        if self._push_relay is not None:
+            self._push_relay.close()
+            self._push_relay = None
 
         # Close held do_put writers (flushes any in-flight batch) before the
         # client and server ref.

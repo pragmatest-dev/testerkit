@@ -632,7 +632,7 @@ class EventStore:
         below it is delivered by the background replay there; this stream
         carries everything strictly past it.
         """
-        # Ticket: ``events\0__SUBSCRIBE__\0<cursor>`` — see DuckDBFlightServer.
+        # Ticket: ``events\0__SUBSCRIBE__\0cursor=<n>`` — see DuckDBFlightServer.
         last_event_number: int = initial_cursor
         location = self._location
         backoff = 0.1
@@ -641,7 +641,9 @@ class EventStore:
             try:
                 conn = flight.connect(location)
                 client = conn  # retained for the finally-block close
-                ticket = flight.Ticket(f"events\0__SUBSCRIBE__\0{int(last_event_number)}".encode())
+                ticket = flight.Ticket(
+                    f"events\0__SUBSCRIBE__\0cursor={int(last_event_number)}".encode()
+                )
                 reader = conn.do_get(ticket)
                 backoff = 0.1  # connected — reset backoff
                 for chunk in reader:

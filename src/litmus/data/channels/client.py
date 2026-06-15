@@ -17,8 +17,11 @@ import pyarrow as pa
 import pyarrow.flight as flight
 
 from litmus.data._flight_query import call_options
+from litmus.data._flight_subscribe import subscribe
 from litmus.data.channels import flight_manager
 from litmus.data.channels.models import (
+    CHANNELS_FLIGHT_DB,
+    CHANNELS_PUT_COMMAND,
     ChannelDescriptor,
     ChannelSample,
     SubscribePolicy,
@@ -26,6 +29,21 @@ from litmus.data.channels.models import (
     encode_value,
     sample_schema,
 )
+
+
+def _subscribe_ticket(channel_id: str, policy: SubscribePolicy) -> flight.Ticket:
+    """Build a shared-server subscribe ticket.
+
+    ``channels\\0__SUBSCRIBE__\\0channel_id=<id>`` — the server-side equality
+    filter routes only this channel's rows to the subscriber (no client-side
+    broadcast). The ``"*"`` wildcard subscribes to every channel: it sends NO
+    ``channel_id`` predicate (empty filter = all rows). ``LATEST`` adds
+    ``&conflate=latest`` (the gauge that keeps only the newest batch).
+    """
+    parts = [] if channel_id == "*" else [f"channel_id={quote(channel_id)}"]
+    if policy is SubscribePolicy.LATEST:
+        parts.append("conflate=latest")
+    return flight.Ticket(f"{CHANNELS_FLIGHT_DB}\0__SUBSCRIBE__\0{'&'.join(parts)}".encode())
 
 
 class ChannelClient:
@@ -80,7 +98,7 @@ class ChannelClient:
             },
             schema=schema,
         )
-        descriptor = flight.FlightDescriptor.for_command(channel_id.encode("utf-8"))
+        descriptor = flight.FlightDescriptor.for_command(CHANNELS_PUT_COMMAND)
         writer, _ = self._client.do_put(descriptor, schema, options=call_options())
         writer.write_batch(batch)
         writer.close()
@@ -97,33 +115,19 @@ class ChannelClient:
         ``policy=LATEST`` conflates to the newest sample. Spawns a reader
         thread. Returns an unsubscribe callable.
         """
-        stop = threading.Event()
 
-        def _reader() -> None:
-            try:
-                ticket = flight.Ticket(
-                    channel_id.encode("utf-8")
-                    if policy is SubscribePolicy.ALL
-                    else f"{channel_id}?policy={policy.value}".encode()
-                )
-                reader = self._client.do_get(ticket)
-                for chunk in reader:
-                    if stop.is_set() or self._stop.is_set():
-                        break
-                    batch = chunk.data
-                    for i in range(batch.num_rows):
-                        callback(batch_row_to_sample(batch, i))
-            except (OSError, pa.ArrowException):
-                if not stop.is_set() and not self._stop.is_set():
-                    raise
+        def _on_batch(batch: pa.RecordBatch) -> None:
+            for i in range(batch.num_rows):
+                callback(batch_row_to_sample(batch, i))
 
-        thread = threading.Thread(target=_reader, daemon=True, name=f"channel-sub-{channel_id}")
-        thread.start()
+        unsub, thread = subscribe(
+            self._client,
+            _subscribe_ticket(channel_id, policy),
+            _on_batch,
+            name=f"channel-sub-{channel_id}",
+            client_stop=self._stop,
+        )
         self._reader_threads.append(thread)
-
-        def unsub() -> None:
-            stop.set()
-
         return unsub
 
     def on_channel_batch(
@@ -139,33 +143,14 @@ class ChannelClient:
         consumer decodes N rows columnar instead of paying a per-sample
         callback. Spawns a reader thread; returns an unsubscribe callable.
         """
-        stop = threading.Event()
-
-        def _reader() -> None:
-            try:
-                ticket = flight.Ticket(
-                    channel_id.encode("utf-8")
-                    if policy is SubscribePolicy.ALL
-                    else f"{channel_id}?policy={policy.value}".encode()
-                )
-                reader = self._client.do_get(ticket)
-                for chunk in reader:
-                    if stop.is_set() or self._stop.is_set():
-                        break
-                    callback(chunk.data)
-            except (OSError, pa.ArrowException):
-                if not stop.is_set() and not self._stop.is_set():
-                    raise
-
-        thread = threading.Thread(
-            target=_reader, daemon=True, name=f"channel-sub-batch-{channel_id}"
+        unsub, thread = subscribe(
+            self._client,
+            _subscribe_ticket(channel_id, policy),
+            callback,
+            name=f"channel-sub-batch-{channel_id}",
+            client_stop=self._stop,
         )
-        thread.start()
         self._reader_threads.append(thread)
-
-        def unsub() -> None:
-            stop.set()
-
         return unsub
 
     def query(
@@ -199,38 +184,35 @@ class ChannelClient:
             params.append(f"max_points={max_points}")
         if last_n is not None:
             params.append(f"last_n={last_n}")
-        # Always include "?" so server distinguishes historical from live
-        ticket_str = channel_id + "?" + "&".join(params)
-        ticket = flight.Ticket(ticket_str.encode("utf-8"))
+        # ``channels\0<channel_id>?params`` routes to the query-hook verb.
+        payload = channel_id + "?" + "&".join(params)
+        ticket = flight.Ticket(f"{CHANNELS_FLIGHT_DB}\0{payload}".encode())
         reader = self._client.do_get(ticket, options=call_options())
         return reader.read_all()
 
     def channel_registry(self) -> pa.Table:
         """Fetch the daemon's ``(hostname, channel, session)`` registry rows.
 
-        Unlike :meth:`channels` (one current descriptor per channel via
-        ``list_flights``), this returns the full non-unique registry — one
-        version row per session, with ``last_updated`` — for liveness/discovery.
+        Unlike :meth:`channels` (one current descriptor per channel), this
+        returns the full non-unique registry — one version row per session, with
+        ``last_updated`` — for liveness/discovery.
         """
-        ticket = flight.Ticket(b"__registry__")
+        ticket = flight.Ticket(f"{CHANNELS_FLIGHT_DB}\0__registry__".encode())
         reader = self._client.do_get(ticket, options=call_options())
         return reader.read_all()
 
     def channels(self) -> list[ChannelDescriptor]:
-        """List available channels with their descriptors via list_flights.
+        """List available channels with their descriptors.
 
-        The daemon serves the full ``ChannelDescriptor`` (units, role, …) as
-        ``FlightInfo.app_metadata``.
+        The daemon serves the full ``ChannelDescriptor`` (units, role, …) as a
+        JSON row per channel over the ``__channels__`` enumeration verb.
         """
-        result = []
-        for fi in self._client.list_flights():
-            meta = fi.app_metadata
-            if meta:
-                result.append(ChannelDescriptor.model_validate_json(meta))
-            else:
-                cid = fi.descriptor.command.decode("utf-8")
-                result.append(ChannelDescriptor(channel_id=cid))
-        return result
+        ticket = flight.Ticket(f"{CHANNELS_FLIGHT_DB}\0__channels__".encode())
+        table = self._client.do_get(ticket, options=call_options()).read_all()
+        return [
+            ChannelDescriptor.model_validate_json(row)
+            for row in table.column("descriptor").to_pylist()
+        ]
 
     def close(self) -> None:
         """Stop all reader threads and close the connection."""

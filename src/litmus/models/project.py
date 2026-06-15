@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from litmus.models.data_options import ChannelOptions, FileOptions
 from litmus.models.test_config import PromptConfig, TestEntry
 
 
@@ -84,10 +85,9 @@ class ProjectConfig(BaseModel):
 
     name: str
     data_dir: str | None = None
-    # Blob-backend root URI for FileStore artifacts. Default (unset) keeps
-    # blobs under ``{data_dir}/files``. Set to an ``s3://`` / ``gcs://`` URI
-    # to store artifacts in an object store — only this changes; no code does.
-    files_backend: str | None = None
+    # Per-store data options (buffering / push tuning + the files blob backend).
+    channels: ChannelOptions = Field(default_factory=ChannelOptions)
+    files: FileOptions = Field(default_factory=FileOptions)
     # Optional fallback station id when no ``--station`` is passed
     # and hostname auto-match doesn't fire.
     # Set this to a real station id in your project; leaving it

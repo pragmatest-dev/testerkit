@@ -14,13 +14,14 @@ do_put descriptor format: ``db_name\0table_name``
 
 from __future__ import annotations
 
+import collections
 import logging
-import queue
 import threading
 import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qs
 
 import duckdb
 import pyarrow as pa
@@ -36,10 +37,136 @@ _ACK = b"\x01"
 # A real SQL query never equals this sentinel.
 _SUBSCRIBE = "__SUBSCRIBE__"
 
-# Bounded per-subscriber queue. A subscriber that can't keep up is
-# dropped (its stream ends) rather than blocking the publisher — same
-# back-pressure policy as the channel Flight server.
+# Bounded per-subscriber buffer depth.
 _SUB_QUEUE_MAX = 10_000
+
+
+def _parse_subscribe(qs: str) -> tuple[int, bool, dict[str, str]]:
+    """Parse a ``__SUBSCRIBE__`` options querystring into (cursor, conflate,
+    predicates).
+
+    One urlencoded querystring carries every subscribe option. Reserved control
+    keys: ``cursor`` (replay position, int) and ``conflate`` (``latest`` → keep
+    only the newest batch — a gauge). Every other key is an equality filter
+    predicate (``channel_id=…``, ``event_type=…``). Empty → no replay, no
+    conflation, no filter (the whole db's live stream)."""
+    parsed = {k: v[0] for k, v in parse_qs(qs, keep_blank_values=True).items() if v}
+    cursor = 0
+    raw_cursor = parsed.pop("cursor", "")
+    if raw_cursor:
+        try:
+            cursor = int(raw_cursor)
+        except ValueError:
+            cursor = 0
+    conflate = parsed.pop("conflate", "") == "latest"
+    return cursor, conflate, parsed
+
+
+def _apply_filter(table: pa.Table, predicates: dict[str, str]) -> pa.Table | None:
+    """Rows of ``table`` matching ALL equality predicates, or ``None`` if none.
+
+    Empty predicates returns ``table`` unchanged — the no-filter path costs
+    nothing (the events materializer, a channels ``*`` wildcard). A predicate on
+    an absent column matches no rows. The all-match and no-match cases skip the
+    pyarrow ``filter`` copy, so a channels single-``channel_id`` batch keeps or
+    skips whole."""
+    if not predicates:
+        return table
+    keep = [True] * table.num_rows
+    for col, val in predicates.items():
+        if col not in table.column_names:
+            return None
+        values = table.column(col).to_pylist()
+        keep = [k and v == val for k, v in zip(keep, values, strict=True)]
+    matched = sum(keep)
+    if matched == 0:
+        return None
+    if matched == table.num_rows:
+        return table
+    return table.filter(pa.array(keep, type=pa.bool_()))
+
+
+class _SubscriberBuffer:
+    """Per-subscriber batch buffer for a live ``__SUBSCRIBE__`` stream.
+
+    ``drain`` returns ALL queued batches at once, so a lagging consumer catches
+    up in one read (drain-coalesce — the LMAX effect). Overflow behavior is
+    derived from whether the subscription is replay-backed:
+
+    - **lossless** (the db registered ``replay_sql``): on overflow ``put``
+      signals removal — the stream ends and the client reconnects + replays
+      from its cursor (events → runs).
+    - **lossy** (no ``replay_sql``): on overflow drop the oldest batch + count a
+      gap, keep the subscriber; the consumer re-syncs from the durable store
+      (channels / files frames — live = from-now). The in-memory drop never
+      touches the durable record.
+    """
+
+    def __init__(
+        self,
+        *,
+        lossy: bool,
+        maxsize: int = _SUB_QUEUE_MAX,
+        predicates: dict[str, str] | None = None,
+        conflate: bool = False,
+    ) -> None:
+        self._lossy = lossy
+        self._max = maxsize
+        self._predicates = predicates or {}
+        self._conflate = conflate
+        self._batches: collections.deque[pa.RecordBatch] = collections.deque()
+        self._cond = threading.Condition()
+        self._gaps = 0
+        self._closed = False
+
+    @property
+    def predicates(self) -> dict[str, str]:
+        """Server-side equality filter for this subscription ({} = all rows)."""
+        return self._predicates
+
+    @property
+    def gaps(self) -> int:
+        """Batches dropped under lossy overflow — the gap signal a consumer sees."""
+        return self._gaps
+
+    def put(self, batch: pa.RecordBatch) -> bool:
+        """Enqueue one batch. Returns ``False`` iff the subscriber should be
+        removed (lossless overflow), ``True`` otherwise."""
+        with self._cond:
+            if self._closed:
+                return True
+            if self._conflate:
+                # Gauge: keep only the newest batch. Intentional, not overflow —
+                # no gap count (channels' LATEST policy).
+                self._batches.clear()
+                self._batches.append(batch)
+            elif len(self._batches) >= self._max:
+                if not self._lossy:
+                    return False  # lossless: drop batch + drop subscriber (→ replay)
+                self._batches.append(batch)
+                self._batches.popleft()
+                self._gaps += 1
+            else:
+                self._batches.append(batch)
+            self._cond.notify()
+            return True
+
+    def drain(self, timeout: float) -> list[pa.RecordBatch] | None:
+        """Block up to ``timeout`` for batches; return all queued at once, an
+        empty list on timeout, or ``None`` once closed and drained."""
+        with self._cond:
+            if not self._batches and not self._closed:
+                self._cond.wait(timeout)
+            if self._closed and not self._batches:
+                return None
+            out = list(self._batches)
+            self._batches.clear()
+            return out
+
+    def close(self) -> None:
+        with self._cond:
+            self._closed = True
+            self._cond.notify_all()
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +379,7 @@ class DuckDBFlightServer(flight.FlightServerBase):
         self._parallel = parallel
         self._tls = threading.local()
         self._put_hooks: dict[str, Callable[[pa.Table], pa.Table | None]] = {}
+        self._query_hooks: dict[str, Callable[[str], pa.Table]] = {}
         # Live push: per-db subscriber queues + the Arrow schema each
         # subscription stream yields. A ``do_get`` with the
         # ``__SUBSCRIBE__`` ticket registers a queue here; ``_publish``
@@ -260,7 +388,7 @@ class DuckDBFlightServer(flight.FlightServerBase):
         # queue. Guarded by its own lock, independent of the DB lock, so
         # fan-out never holds up DuckDB access.
         self._sub_lock = threading.Lock()
-        self._subscribers: dict[str, list[queue.Queue[pa.RecordBatch | None]]] = {}
+        self._subscribers: dict[str, list[_SubscriberBuffer]] = {}
         self._subscribe_schemas: dict[str, pa.Schema] = {}
         # Optional per-db replay SQL with a ``{cursor}`` placeholder. When
         # set, a new subscriber first receives every row past its cursor
@@ -306,25 +434,26 @@ class DuckDBFlightServer(flight.FlightServerBase):
     def _publish(self, db_name: str, table: pa.Table) -> None:
         """Fan newly-inserted rows out to live subscribers of ``db_name``.
 
-        Called from ``do_put`` after each batch commits. Non-blocking
-        ``put_nowait`` with drop-on-full back-pressure: a subscriber
-        that can't keep up is removed and its stream ends, rather than
-        stalling the writer. No-op when nobody is subscribed.
+        Called from ``do_put`` after each batch commits. Non-blocking, never
+        stalls the writer. Per-subscriber overflow behavior is set by the buffer
+        (lossless → drop the subscriber so it reconnects + replays; lossy → drop
+        oldest + count a gap, keep it). No-op when nobody is subscribed.
         """
         with self._sub_lock:
             subs = self._subscribers.get(db_name)
             if not subs:
                 return
-            batches = table.to_batches()
-            dead: list[queue.Queue[pa.RecordBatch | None]] = []
-            for q in subs:
-                try:
-                    for b in batches:
-                        q.put_nowait(b)
-                except queue.Full:
-                    dead.append(q)
-            for q in dead:
-                subs.remove(q)
+            dead: list[_SubscriberBuffer] = []
+            for buf in subs:
+                matched = _apply_filter(table, buf.predicates)
+                if matched is None:
+                    continue  # no rows for this subscriber's filter
+                for b in matched.to_batches():
+                    if not buf.put(b):
+                        dead.append(buf)
+                        break
+            for buf in dead:
+                subs.remove(buf)
 
     def register_put_hook(self, db_name: str, hook: Callable[[pa.Table], pa.Table | None]) -> None:
         """Register a custom do_put handler for a database name.
@@ -339,6 +468,21 @@ class DuckDBFlightServer(flight.FlightServerBase):
         nothing. For the no-hook path, the inserted batch is published as-is.
         """
         self._put_hooks[db_name] = hook
+
+    def register_query_hook(self, db_name: str, hook: Callable[[str], pa.Table]) -> None:
+        """Register a custom do_get handler for a database name (read-side
+        parallel to :meth:`register_put_hook`).
+
+        When set, a ``do_get`` ticket ``db_name\\0<payload>`` routes ``<payload>``
+        to the hook — which parses it however the store wants (NOT necessarily
+        SQL) and returns an Arrow table to stream back — instead of executing it
+        as DuckDB SQL. This lets a store whose read is a typed verb
+        (range / last-N / decimate / discovery) rather than SQL-over-one-table
+        serve through the shared server, and such a db need not register a DuckDB
+        connection at all. ``__SUBSCRIBE__`` still takes precedence; opt-in, so
+        plain query-only dbs never call this.
+        """
+        self._query_hooks[db_name] = hook
 
     def _cursor_for(self, conn: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConnection:
         """Return this thread's cursor on ``conn``, creating one on first touch.
@@ -377,14 +521,18 @@ class DuckDBFlightServer(flight.FlightServerBase):
             )
         db_name, sql = raw.split("\0", 1)
         if sql == _SUBSCRIBE or sql.startswith(_SUBSCRIBE + "\0"):
-            cursor = 0
-            if "\0" in sql:
-                _, cur_str = sql.split("\0", 1)
-                try:
-                    cursor = int(cur_str)
-                except ValueError:
-                    cursor = 0
-            return self._do_subscribe(db_name, cursor)
+            # __SUBSCRIBE__\0<options-querystring> — one querystring carries the
+            # cursor, conflate, and filter predicates (all optional).
+            qs = sql.split("\0", 1)[1] if "\0" in sql else ""
+            cursor, conflate, predicates = _parse_subscribe(qs)
+            return self._do_subscribe(db_name, cursor, predicates, conflate)
+
+        # Typed read hook (range / last-N / decimate / discovery) — the store
+        # parses the payload itself, so a query-hooked db need not register a
+        # DuckDB connection. Checked before the SQL path.
+        query_hook = self._query_hooks.get(db_name)
+        if query_hook is not None:
+            return flight.RecordBatchStream(query_hook(sql))
 
         conn = self._databases.get(db_name)
         if conn is None:
@@ -402,7 +550,13 @@ class DuckDBFlightServer(flight.FlightServerBase):
 
         return flight.RecordBatchStream(result)
 
-    def _do_subscribe(self, db_name: str, cursor: int = 0) -> flight.GeneratorStream:
+    def _do_subscribe(
+        self,
+        db_name: str,
+        cursor: int = 0,
+        predicates: dict[str, str] | None = None,
+        conflate: bool = False,
+    ) -> flight.GeneratorStream:
         """Open a held-open push stream for ``db_name`` (no polling).
 
         Lossless catch-up + live, in one stream:
@@ -414,6 +568,10 @@ class DuckDBFlightServer(flight.FlightServerBase):
         3. Then block on the queue and yield live rows as ``publish`` fans
            them in.
 
+        ``predicates`` is the per-subscription server-side equality filter
+        ({} = every row); it is applied to both the replay backlog and the live
+        fan-out so the consumer only ever receives its matching rows.
+
         A row committed between the snapshot and registration appears in
         both the replay and the live queue — the client dedups by id, so
         delivery is at-least-once and gap-free.
@@ -421,10 +579,15 @@ class DuckDBFlightServer(flight.FlightServerBase):
         schema = self._subscribe_schemas.get(db_name)
         if schema is None:
             raise flight.FlightServerError(f"Database {db_name!r} does not support subscriptions")
-        q: queue.Queue[pa.RecordBatch | None] = queue.Queue(maxsize=_SUB_QUEUE_MAX)
-        with self._sub_lock:
-            self._subscribers.setdefault(db_name, []).append(q)
         replay_sql = self._subscribe_replay.get(db_name)
+        predicates = predicates or {}
+        # Overflow behavior follows the recovery capability: a replay-backed db
+        # (has replay_sql) is lossless (drop-subscriber → client replays); one
+        # without is lossy (drop-oldest + gap, recover from the durable store).
+        # ``conflate`` (channels' LATEST gauge) keeps only the newest batch.
+        buf = _SubscriberBuffer(lossy=replay_sql is None, predicates=predicates, conflate=conflate)
+        with self._sub_lock:
+            self._subscribers.setdefault(db_name, []).append(buf)
         conn = self._databases.get(db_name)
 
         def _generate():  # type: ignore[no-untyped-def]
@@ -440,26 +603,28 @@ class DuckDBFlightServer(flight.FlightServerBase):
                         reader = rcur.execute(sql).fetch_record_batch()
                         while True:
                             try:
-                                yield reader.read_next_batch()
+                                replayed = reader.read_next_batch()
                             except StopIteration:
                                 break
+                            matched = _apply_filter(pa.table(replayed), predicates)
+                            if matched is not None:
+                                yield from matched.to_batches()
                     except Exception as exc:  # noqa: BLE001 — replay failure must not kill live
                         logging.getLogger(__name__).warning(
                             "subscribe replay for %s failed: %s", db_name, exc
                         )
                 while True:
-                    try:
-                        batch = q.get(timeout=1.0)
-                    except queue.Empty:
-                        continue
-                    if batch is None:
+                    # Drain-coalesce: one read returns every queued batch, so a
+                    # lagging consumer catches up in a single pass.
+                    batches = buf.drain(1.0)
+                    if batches is None:
                         break
-                    yield batch
+                    yield from batches
             finally:
                 with self._sub_lock:
                     subs = self._subscribers.get(db_name, [])
                     try:
-                        subs.remove(q)
+                        subs.remove(buf)
                     except ValueError:
                         pass
 
@@ -550,19 +715,15 @@ class DuckDBFlightServer(flight.FlightServerBase):
     def shutdown(self) -> None:
         """Stop the server, ending any live subscription streams first.
 
-        Each open subscription holds a generator blocked on its queue;
+        Each open subscription holds a generator blocked on its buffer;
         ``FlightServerBase.shutdown()`` would wait on those in-flight
-        ``do_get`` RPCs forever. Push a ``None`` sentinel into every
-        subscriber queue so the generators break and the streams close,
-        then shut the server down.
+        ``do_get`` RPCs forever. ``close()`` every subscriber buffer so the
+        generators break and the streams close, then shut the server down.
         """
         with self._sub_lock:
             for subs in self._subscribers.values():
-                for q in subs:
-                    try:
-                        q.put_nowait(None)
-                    except queue.Full:
-                        pass
+                for buf in subs:
+                    buf.close()
             self._subscribers.clear()
         super().shutdown()
 
