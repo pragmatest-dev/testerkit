@@ -156,6 +156,28 @@ implementation detail.**
 Phase 5 does not land until every row here is demonstrably preserved (benchmark
 ratios + the channels test suite green, Phase 7).
 
+## Phase 5 subscribe routing — server-side filter (decided)
+
+Channels' per-`channel_id` isolation is preserved by **promoting filtering to
+the server**, not client-side broadcast (which would flood consumers with every
+channel's traffic). A per-subscription **equality-predicate filter** on the
+shared server — one mechanism every store can use:
+
+- Ticket: `db_name\0__SUBSCRIBE__\0<cursor>\0<filter>`, where `<filter>` is a
+  urlencoded predicate set (`channel_id=dmm.voltage`; events later:
+  `event_type=run.ended&role=dmm`). **Empty filter = all rows** — the
+  materializer's exact path, so E2 is untouched.
+- `_SubscriberBuffer` holds the predicates; `_publish` masks each batch to
+  matching rows (pyarrow equality, ANDed) and puts only those; the replay
+  applies the same filter. Channels' push batches are single-`channel_id`
+  (`_push_flush` does one `do_put` per channel), so the predicate is a one-shot
+  whole-batch check — the goal is **parity with today's server-side routing**,
+  verified by benchmark (no perf dip).
+- Maps every store onto one filter: channels → `channel_id` (empty = the `"*"`
+  wildcard), events (follow-up) → `event_type`/`role`/`session_id`/`run_id`,
+  files frames → `file_id`/`uri`. Expressiveness stays at equality-predicates
+  (ANDed) — the simplest thing covering every current need; not a general WHERE.
+
 ## Invariants discipline (blast radius)
 
 Phases 3–5 touch the server events/runs/files **share**. Per
@@ -228,3 +250,6 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
   ruled it OUT: cuts against the backend swap).
 - The req6 serving-tier swap hook stays deferred (dead env vars not shipped).
 - Track 2 (channels discovery/identity/ticket) is adjacent, not part of this.
+- **Events server-side filtering** — migrating the client-side broadcast+`matches`
+  (`event_store.py:218`) onto the new per-subscription filter is a verified
+  fast-follow once channels proves the mechanism, not part of this effort.

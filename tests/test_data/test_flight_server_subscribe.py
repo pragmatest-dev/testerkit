@@ -17,7 +17,12 @@ import pyarrow as pa
 import pyarrow.flight as flight
 import pytest
 
-from litmus.data._duckdb_flight_server import DuckDBFlightServer, _SubscriberBuffer
+from litmus.data._duckdb_flight_server import (
+    DuckDBFlightServer,
+    _apply_filter,
+    _parse_filter,
+    _SubscriberBuffer,
+)
 
 _SCHEMA = pa.schema([pa.field("x", pa.int64())])
 
@@ -141,6 +146,100 @@ def test_subscribe_rejected_without_schema() -> None:
         with pytest.raises(flight.FlightError):
             client.do_get(flight.Ticket(b"testdb\0__SUBSCRIBE__")).read_all()
         client.close()
+    finally:
+        server.shutdown()
+
+
+def _ctbl(cids: list[str]) -> pa.Table:
+    return pa.table(
+        {
+            "cid": pa.array(cids, type=pa.string()),
+            "v": pa.array(range(len(cids)), type=pa.int64()),
+        }
+    )
+
+
+def test_parse_filter() -> None:
+    assert _parse_filter("") == {}
+    assert _parse_filter("channel_id=dmm.voltage") == {"channel_id": "dmm.voltage"}
+    assert _parse_filter("event_type=run.ended&role=dmm") == {
+        "event_type": "run.ended",
+        "role": "dmm",
+    }
+
+
+def test_apply_filter_empty_returns_table_unchanged() -> None:
+    t = _ctbl(["a", "b"])
+    assert _apply_filter(t, {}) is t  # no-filter path: no copy
+
+
+def test_apply_filter_all_match_returns_same_table() -> None:
+    t = _ctbl(["a", "a"])
+    assert _apply_filter(t, {"cid": "a"}) is t  # whole-batch keep, no copy
+
+
+def test_apply_filter_keeps_only_matching_rows() -> None:
+    out = _apply_filter(_ctbl(["a", "b", "a"]), {"cid": "a"})
+    assert out is not None
+    assert out.column("cid").to_pylist() == ["a", "a"]
+
+
+def test_apply_filter_no_match_returns_none() -> None:
+    assert _apply_filter(_ctbl(["a", "b"]), {"cid": "z"}) is None
+
+
+def test_apply_filter_absent_column_returns_none() -> None:
+    assert _apply_filter(_ctbl(["a"]), {"nope": "x"}) is None
+
+
+def _put_m(location: str, cid: str, v: int) -> None:
+    client = flight.connect(location)
+    batch = pa.record_batch(
+        {"cid": pa.array([cid], type=pa.string()), "v": pa.array([v], type=pa.int64())}
+    )
+    writer, reader = client.do_put(flight.FlightDescriptor.for_command(b"mdb\0m"), batch.schema)
+    writer.write_batch(batch)
+    reader.read()
+    writer.close()
+    client.close()
+
+
+def test_subscribe_applies_server_side_filter() -> None:
+    """A SUB ticket carrying a filter delivers only matching rows — a
+    non-matching push is dropped server-side (channels' per-channel_id routing,
+    no client noise)."""
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE TABLE m (cid VARCHAR, v BIGINT)")
+    server = DuckDBFlightServer("grpc://127.0.0.1:0")
+    server.register("mdb", conn)
+    server.register_subscribe_schema("mdb", pa.schema([("cid", pa.string()), ("v", pa.int64())]))
+    location = f"grpc://127.0.0.1:{server.port}"
+    threading.Thread(target=server.serve, daemon=True, name="test-flight-f").start()
+
+    received: list[pa.RecordBatch] = []
+    registered = threading.Event()
+    try:
+        sub_client = flight.connect(location)
+
+        def _subscribe() -> None:
+            # filter cid=a → only "a" rows. Ticket: db\0__SUBSCRIBE__\0<cursor>\0<filter>
+            reader = sub_client.do_get(flight.Ticket(b"mdb\0__SUBSCRIBE__\0\0cid=a"))
+            registered.set()
+            for chunk in reader:
+                received.append(chunk.data)
+                break
+
+        t = threading.Thread(target=_subscribe, daemon=True)
+        t.start()
+        assert registered.wait(timeout=5), "subscription never registered"
+
+        _put_m(location, "b", 1)  # filtered out server-side
+        _put_m(location, "a", 2)  # delivered
+        t.join(timeout=5)
+
+        assert received, "filtered subscriber received nothing"
+        assert received[0].column("cid").to_pylist() == ["a"]
+        assert received[0].column("v").to_pylist() == [2]
     finally:
         server.shutdown()
 
