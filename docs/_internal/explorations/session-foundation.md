@@ -532,6 +532,28 @@ ids from data and has none of its own.
   **session** (correlation root — auto/shared). They compose; remote instruments = connect to that station +
   share the `session_id`. `connect(session_id=X)` is the attach/share path (provenance: handed id ⇒ participant).
 
+## Overloaded names — the pile (resolve deliberately; mostly deferred)
+
+Names this overhaul surfaced as overloaded. Track here; resolve at the noted phase, not ad-hoc.
+
+- **`logger` → three different things** (see the disambiguation table above): the `TestRunLogger`
+  **class** (the run controller — it *owns* the run, it is NOT a logger) → rename **`RunScope`**; the
+  session-scoped pytest **fixture** named `logger` (opens/closes the session); the local **variable**
+  `logger`. Decided: `RunScope` rename + de-expose the fixture.
+- **"Store" has no consistent scope.** The event model is the clean rule — `EventStore` = per-process
+  multiplexer (cross-session), `EventLog` = per-session writer. The others break it: **`ChannelStore`**
+  is overloaded as BOTH a *per-session producer/writer* AND a *cross-session reader/index*; `FileStore`
+  is a singleton tagged per-write; `RunStore` is query-only. So "store" means cross-session in one place
+  and session-scoped in another. **Rule to adopt:** "Store" = the cross-session corpus/factory; the
+  session-scoped thing is a **writer/log** (`EventLog` is the precedent). Surfaces at **P6** (the
+  producer/reader split inherently names the two pieces). Deferred — no rename before then.
+- **`StationConnection → Session` (P7) is suspect** — collides with `SessionScope`, and the connect
+  handle is a *station connection* (instruments + a session), not the correlation root itself. Revisit.
+- **Verb overloads:** `verify` = `measure` + judgment (one wraps the other — not peers); `record` looks
+  like `observe` but writes a `RecordEvent` the run materialization drops (not an `out_*` peer); `measure`
+  isn't a public verb. Resolution is the measure-promotion + record-decision work items, not a pure
+  rename — but the conceptual overlap belongs on the pile.
+
 ## Progress log (keep current)
 
 - [x] 0 — design doc committed (this file)
