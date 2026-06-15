@@ -61,16 +61,16 @@ EXPECTED_KEYS = [
 
 
 class TestBuildInstrumentArrays:
-    """Tests for TestRunLogger.build_instrument_arrays()."""
+    """Tests for RunScope.build_instrument_arrays()."""
 
     def test_build_instrument_arrays_14_keys(self):
         """Verify build_instrument_arrays returns all 14 expected keys."""
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.logger import RunScope
 
         dmm = _make_record("dmm", instrument_id="keithley_001", serial="SN-DMM")
         psu = _make_record("psu", instrument_id="keysight_001", serial="SN-PSU")
 
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="UUT001",
             station_id="station_001",
             instruments={"dmm": dmm, "psu": psu},
@@ -90,7 +90,7 @@ class TestBuildInstrumentArrays:
 
     def test_build_instrument_arrays_filtered(self):
         """Verify roles filter returns only requested instruments."""
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.logger import RunScope
 
         records = {
             "dmm": _make_record("dmm", serial="SN-DMM"),
@@ -98,7 +98,7 @@ class TestBuildInstrumentArrays:
             "eload": _make_record("eload", serial="SN-ELOAD"),
         }
 
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="UUT001",
             station_id="station_001",
             instruments=records,
@@ -112,9 +112,9 @@ class TestBuildInstrumentArrays:
 
     def test_build_instrument_arrays_empty(self):
         """No instruments produces empty lists for all 14 keys."""
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.logger import RunScope
 
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="UUT001",
             station_id="station_001",
         )
@@ -127,7 +127,7 @@ class TestBuildInstrumentArrays:
 
     def test_build_instrument_arrays_with_calibration(self):
         """Verify calibration fields are correctly populated."""
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.logger import RunScope
 
         record = _make_record(
             "dmm",
@@ -137,7 +137,7 @@ class TestBuildInstrumentArrays:
             lab="NIST",
         )
 
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="UUT001",
             station_id="station_001",
             instruments={"dmm": record},
@@ -156,7 +156,7 @@ class TestSetStepInstruments:
 
     def test_set_step_instruments_caches(self):
         """set_step_instruments caches the filtered arrays."""
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.logger import RunScope
 
         records = {
             "dmm": _make_record("dmm"),
@@ -164,7 +164,7 @@ class TestSetStepInstruments:
             "eload": _make_record("eload"),
         }
 
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="UUT001",
             station_id="station_001",
             instruments=records,

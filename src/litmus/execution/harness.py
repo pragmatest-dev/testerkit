@@ -55,7 +55,7 @@ _log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from litmus.data.models import TestRun
-    from litmus.execution.logger import TestRunLogger
+    from litmus.execution.logger import RunScope
     from litmus.models.part import Part
     from litmus.models.station import StationConfig
     from litmus.parts.context import PartContext
@@ -448,7 +448,7 @@ class Context:
         self._emit_observation(key, value)
 
     def _current_run_id(self) -> UUID | None:
-        """Pull the active run_id from the active TestRunLogger ContextVar.
+        """Pull the active run_id from the active RunScope ContextVar.
 
         Returned by :meth:`stream` / :meth:`observe` / :meth:`verify`
         write callers so ChannelStore can stamp the right run context
@@ -489,7 +489,7 @@ class Context:
         event_log = getattr(logger, "event_log", None) if logger is not None else None
         if event_log is None:
             _log.debug(
-                "Observation %r not emitted: no active TestRunLogger / event_log. "
+                "Observation %r not emitted: no active RunScope / event_log. "
                 "Run inside a logger context to land observations on the event timeline.",
                 key,
             )
@@ -933,7 +933,7 @@ class TestHarness:
     def __init__(
         self,
         config: Mapping[str, Any] | None = None,
-        logger: TestRunLogger | None = None,
+        logger: RunScope | None = None,
         step_name: str = "test",
         retry: RetryConfig | None = None,
         limits: dict[str, MeasurementLimitConfig | Limit] | None = None,
@@ -947,7 +947,7 @@ class TestHarness:
 
         Args:
             config: Test configuration dict with 'vectors', 'retry', 'limits' keys.
-            logger: TestRunLogger for accumulating results.
+            logger: RunScope for accumulating results.
             step_name: Name for the test step.
             retry: Retry configuration (overrides config if provided).
             limits: Limit configurations by measurement name (overrides config).

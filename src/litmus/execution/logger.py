@@ -62,7 +62,7 @@ from litmus.data.backends._row_helpers import (
 def instrument_info_fields(rec: InstrumentRecord) -> dict[str, Any]:
     """Return ``{manufacturer, model, serial, firmware}`` from a record.
 
-    Shared by :meth:`TestRunLogger.build_instrument_arrays` and the
+    Shared by :meth:`RunScope.build_instrument_arrays` and the
     plugin's ``InstrumentConnected`` event emitter — keeps the ``if
     rec.info else None`` dance in one place.
     """
@@ -80,7 +80,7 @@ def _stringify_comparator(cmp_raw: Any) -> str | None:
 
     Accepts a :class:`Comparator` enum, a raw string, or ``None``. Enums
     return their ``.value`` attribute; other non-``None`` values are
-    coerced via ``str(...)``. Used by :meth:`TestRunLogger.measure` to
+    coerced via ``str(...)``. Used by :meth:`RunScope.measure` to
     produce the canonical row shape.
     """
     if cmp_raw is None:
@@ -218,7 +218,7 @@ def _resolve_measurement_limit(
     limit: Limit | None,
     units: str | None,
 ) -> Limit | None:
-    """Return a Limit or None per :meth:`TestRunLogger.measure`'s resolution chain.
+    """Return a Limit or None per :meth:`RunScope.measure`'s resolution chain.
 
     Chain order: inline low/high/nominal/comparator → explicit ``limit=``
     → active sidecar limits → active part context → unchecked (None).
@@ -230,7 +230,7 @@ def _resolve_measurement_limit(
     at write time — not a runtime call on the spec module — so the
     ``test → spec → logger`` data-flow rule from the plugin plan still
     holds. Lives at module scope so it can be tested in isolation from
-    ``TestRunLogger`` instance state.
+    ``RunScope`` instance state.
     """
     if inline_any:
         return _limit_from_dict(
@@ -282,7 +282,7 @@ class DuplicateMeasurementError(AssertionError):
     Subclasses :class:`AssertionError` so pytest surfaces it as a test
     failure (and the typical streaming-loop users still see a helpful
     message). The dedup rule is enforced in
-    :meth:`TestRunLogger.measure`; bypass explicitly via
+    :meth:`RunScope.measure`; bypass explicitly via
     ``allow_repeat=True``.
     """
 
@@ -373,7 +373,7 @@ class RunContext:
         return dict(self._test_run.custom_metadata)
 
 
-class TestRunLogger:
+class RunScope:
     """Accumulates measurements during test run, produces TestRun.
 
     Optionally streams typed events to an event log (JSONL) for live

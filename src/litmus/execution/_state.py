@@ -38,7 +38,7 @@ from litmus.models.project import ProfileConfig
 from litmus.models.test_config import FixtureConnection
 
 if TYPE_CHECKING:
-    from litmus.execution.logger import TestRunLogger
+    from litmus.execution.logger import RunScope
     from litmus.models.station import StationConfig
 
 # Step/vector — stack-like, push/pop with token. Used by logger.py + harness.py.
@@ -49,8 +49,8 @@ _current_vector_var: ContextVar[Any] = ContextVar("current_vector", default=None
 # stamp channel URIs onto the active vector's ``out_*`` columns (item 5).
 _current_context_var: ContextVar[Any] = ContextVar("current_context", default=None)
 
-# Active TestRunLogger — session singleton, set once per test by the runner.
-_current_logger_var: ContextVar[TestRunLogger | None] = ContextVar("_current_logger", default=None)
+# Active RunScope — session singleton, set once per test by the runner.
+_current_logger_var: ContextVar[RunScope | None] = ContextVar("_current_logger", default=None)
 
 _active_instruments_var: ContextVar[dict[str, Any]] = ContextVar("_active_instruments")
 _instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_instrument_records")
@@ -208,13 +208,13 @@ def reset_current_context(token: Token[Any]) -> None:
     _current_context_var.reset(token)
 
 
-def get_current_logger() -> TestRunLogger | None:
-    """Return the active :class:`TestRunLogger`, or ``None`` if no run is in progress."""
+def get_current_logger() -> RunScope | None:
+    """Return the active :class:`RunScope`, or ``None`` if no run is in progress."""
     return _current_logger_var.get()
 
 
-def set_current_logger(logger: TestRunLogger | None) -> None:
-    """Set the active :class:`TestRunLogger`. Returns ``None``."""
+def set_current_logger(logger: RunScope | None) -> None:
+    """Set the active :class:`RunScope`. Returns ``None``."""
     _current_logger_var.set(logger)
 
 
@@ -460,7 +460,7 @@ def get_active_vector_params() -> dict[str, Any]:
     """Return the active test's vector params (parametrize + markers + sidecar).
 
     Returns throwaway empty; never stored. Populated by
-    ``_litmus_push_params`` at test start so ``TestRunLogger.measure``
+    ``_litmus_push_params`` at test start so ``RunScope.measure``
     can stamp ``TestVector.params`` without the harness wiring.
     """
     try:

@@ -1302,7 +1302,7 @@ def _escalate_step_and_run(logger_inst: Any, step: Any, new_outcome: Outcome) ->
 
     Run-level outcome is NOT stamped incrementally here. ``finalize()``
     walks ``test_run.steps`` via :func:`retry_aware_rollup` and folds
-    in :attr:`TestRunLogger._external_run_outcome` to compute the final
+    in :attr:`RunScope._external_run_outcome` to compute the final
     run outcome. The retry-aware rollup is what makes a passing retry
     correctly stamp the run as ``PASSED`` instead of the worst earlier
     attempt's outcome.
@@ -1310,7 +1310,7 @@ def _escalate_step_and_run(logger_inst: Any, step: Any, new_outcome: Outcome) ->
     When ``step is None`` (setup failure before the step opened, or a
     keyboard interrupt with no test running), the outcome has no step
     to attach to — it routes through
-    :meth:`TestRunLogger.record_external_outcome` so ``finalize()``
+    :meth:`RunScope.record_external_outcome` so ``finalize()``
     still picks it up.
 
     Callers must pass a non-None ``logger_inst`` (they all check upstream

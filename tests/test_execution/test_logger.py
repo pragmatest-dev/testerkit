@@ -1,4 +1,4 @@
-"""Tests for TestRunLogger."""
+"""Tests for RunScope."""
 
 from uuid import uuid4
 
@@ -11,14 +11,14 @@ from litmus.execution._state import (
     reset_current_step,
     reset_current_vector,
 )
-from litmus.execution.logger import TestRunLogger
+from litmus.execution.logger import RunScope
 
 
-class TestTestRunLogger:
-    """Tests for TestRunLogger."""
+class TestRunScope:
+    """Tests for RunScope."""
 
     def test_init(self):
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -27,7 +27,7 @@ class TestTestRunLogger:
         assert logger.test_run.outcome is None
 
     def test_init_with_all_options(self):
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
             station_type="production",
@@ -39,7 +39,7 @@ class TestTestRunLogger:
         assert logger.test_run.test_phase == "debug"
 
     def test_start_step(self):
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -51,7 +51,7 @@ class TestTestRunLogger:
         assert get_current_step() is not None
 
     def test_log_measurement(self):
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -68,7 +68,7 @@ class TestTestRunLogger:
         assert step.vectors[0].measurements[0].name == "voltage"
 
     def test_log_measurement_auto_creates_step(self):
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -80,7 +80,7 @@ class TestTestRunLogger:
         assert logger.test_run.steps[0].name == "voltage"
 
     def test_log_measurement_fail_propagates(self):
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -100,7 +100,7 @@ class TestTestRunLogger:
         assert logger.test_run.outcome == Outcome.FAILED
 
     def test_log_measurement_error_propagates(self):
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -117,7 +117,7 @@ class TestTestRunLogger:
         assert logger.test_run.outcome == Outcome.ERRORED
 
     def test_error_overrides_fail(self):
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -137,7 +137,7 @@ class TestTestRunLogger:
         assert logger.test_run.outcome == Outcome.ERRORED
 
     def test_end_step(self):
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -148,7 +148,7 @@ class TestTestRunLogger:
         assert logger.test_run.steps[0].ended_at is not None
 
     def test_finalize(self):
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -167,7 +167,7 @@ class TestTestRunLogger:
         ``litmus_retry`` reran the test. Final attempt wins — matches
         pytest-rerunfailures, STDF retest, Jenkins flaky-handler.
         """
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -194,7 +194,7 @@ class TestTestRunLogger:
         assert logger.test_run.outcome == Outcome.PASSED
 
     def test_multiple_steps(self):
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -215,7 +215,7 @@ class TestTestRunLogger:
 
     def test_start_step_sets_contextvars(self):
         """start_step() sets module-level contextvars."""
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -232,7 +232,7 @@ class TestTestRunLogger:
 
     def test_log_measurement_resolves_from_contextvar(self):
         """log_measurement() uses contextvar step when instance state is None."""
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -257,7 +257,7 @@ class TestTestRunLogger:
 
     def test_register_step(self):
         """register_step() adds step to test_run and returns index."""
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -273,7 +273,7 @@ class TestTestRunLogger:
 
     def test_log_measurement_no_double_append(self):
         """log_measurement() doesn't double-append if measurement already in vector."""
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -291,7 +291,7 @@ class TestTestRunLogger:
 
 
 class TestEventLogIntegration:
-    """Tests for EventLog integration in TestRunLogger."""
+    """Tests for EventLog integration in RunScope."""
 
     def test_event_log_emits_events(self, tmp_path):
         """Logger emits StepStarted, MeasurementRecorded, StepEnded, RunEnded."""
@@ -299,7 +299,7 @@ class TestEventLogIntegration:
         from litmus.data.event_log import EventLog
 
         run_id = uuid4()
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
             run_id=run_id,
@@ -330,7 +330,7 @@ class TestEventLogIntegration:
         from litmus.data.event_log import EventLog
 
         run_id = uuid4()
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
             run_id=run_id,
@@ -364,7 +364,7 @@ class TestEventLogIntegration:
 
     def test_start_step_code_identity(self):
         """start_step() stores code identity on TestStep."""
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )

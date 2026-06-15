@@ -302,7 +302,7 @@ _MEASURE_CONFTEST = textwrap.dedent(
     """
     import pytest
     from litmus.execution._state import get_current_logger, set_current_logger
-    from litmus.execution.logger import TestRunLogger
+    from litmus.execution.logger import RunScope
 
     # Session-scoped so the main plugin's session-scoped fixtures that
     # depend on ``logger`` (e.g. ``instruments``) can resolve it without
@@ -310,7 +310,7 @@ _MEASURE_CONFTEST = textwrap.dedent(
     @pytest.fixture(scope="session", autouse=True)
     def _active_logger():
         prev = get_current_logger()
-        _logger = TestRunLogger(
+        _logger = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
@@ -332,7 +332,7 @@ def _write_measure_test(
     test_body: str,
     sidecar: str | None = None,
 ) -> None:
-    """Write a pytester project with an active TestRunLogger for measure() calls."""
+    """Write a pytester project with an active RunScope for measure() calls."""
     pytester.makeini(
         textwrap.dedent(
             """

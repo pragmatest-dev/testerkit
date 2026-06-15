@@ -49,7 +49,7 @@ class FakeTestRun:
 
 
 class FakeLogger:
-    """Minimal stand-in for ``TestRunLogger`` for the ContextVar."""
+    """Minimal stand-in for ``RunScope`` for the ContextVar."""
 
     def __init__(self, event_log: FakeEventLog | None, run_id: UUID | None = None) -> None:
         self.event_log = event_log

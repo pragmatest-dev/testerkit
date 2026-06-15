@@ -78,7 +78,7 @@ from litmus.execution._state import (
     set_current_logger,
 )
 from litmus.execution.harness import Context, TestHarness
-from litmus.execution.logger import TestRunLogger
+from litmus.execution.logger import RunScope
 from litmus.instruments.observer import InstrumentEventBuilder
 
 
@@ -93,7 +93,7 @@ def session(tmp_path: Path):
     - ``file_store`` — ``FileStore`` bound to ``tmp_path``
     - ``location`` — Flight URL for the channel server
     - ``ctx`` — a :class:`Context` pushed via ContextVar
-    - ``logger`` — a real :class:`TestRunLogger` with our EventLog attached
+    - ``logger`` — a real :class:`RunScope` with our EventLog attached
     - ``session_id`` / ``run_id``
     """
     from litmus.data.files import store as fstore_module
@@ -123,10 +123,10 @@ def session(tmp_path: Path):
     _reset_filestore()
     fstore = FileStore(data_dir=tmp_path)
 
-    # 4) Real TestRunLogger with our EventLog attached. The pytest plugin's
+    # 4) Real RunScope with our EventLog attached. The pytest plugin's
     #    own hooks read TestRun fields off the active logger, so a stub
     #    won't do — use the real one and swap in our event log.
-    logger = TestRunLogger(
+    logger = RunScope(
         uut_serial="POC-UUT-001",
         station_id="poc-station",
         run_id=run_id,

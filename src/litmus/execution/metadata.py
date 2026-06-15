@@ -1,6 +1,6 @@
 """Runner-neutral run-metadata assembly.
 
-:class:`TestRunLogger` takes a fat kwargs dict — UUT serial, station
+:class:`RunScope` takes a fat kwargs dict — UUT serial, station
 identity, part identity, fixture id, environment capture, project
 name, profile name + facets, session inputs, instrument records, etc.
 The dict is the same regardless of which runner is driving; only the
@@ -9,7 +9,7 @@ reads its config object, etc.).
 
 This module owns the assembly: :func:`build_run_metadata` takes
 already-resolved inputs and returns the kwargs dict ready to hand to
-:class:`TestRunLogger`. Each runner's plugin gathers the inputs in its
+:class:`RunScope`. Each runner's plugin gathers the inputs in its
 own way and calls in.
 """
 
@@ -41,7 +41,7 @@ def build_run_metadata(
     session_inputs: dict[str, str] | None = None,
     instrument_records: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build the kwargs dict :class:`TestRunLogger` expects.
+    """Build the kwargs dict :class:`RunScope` expects.
 
     Resolves derived fields (part info from the active ``part``,
     station fields from ``station_config``, environment capture, git

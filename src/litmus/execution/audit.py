@@ -2,7 +2,7 @@
 
 Walks the just-completed step's measurements and reports any that
 are missing required traceability fields. Works for any runner that
-records measurements through :class:`TestRunLogger` — pytest, OpenHTF,
+records measurements through :class:`RunScope` — pytest, OpenHTF,
 unittest wrappers all share this check.
 """
 

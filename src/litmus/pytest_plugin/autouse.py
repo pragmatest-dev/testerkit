@@ -35,7 +35,7 @@ from litmus.execution.connections import (
     resolve_test_connections,
 )
 from litmus.execution.harness import Context
-from litmus.execution.logger import TestRunLogger
+from litmus.execution.logger import RunScope
 from litmus.execution.mocks import install_mocks
 from litmus.models.test_config import MeasurementLimitConfig, MockEntry
 from litmus.pytest_plugin.helpers import safe_get_session_fixture
@@ -108,7 +108,7 @@ def _scope_characteristics(
 
 
 @pytest.fixture(autouse=True)
-def _reseat_current_logger(logger: TestRunLogger) -> None:
+def _reseat_current_logger(logger: RunScope) -> None:
     """Re-install the session logger into the ContextVar for every test.
 
     Pytester-based tests run an inner pytest session whose own teardown

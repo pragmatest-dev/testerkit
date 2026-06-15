@@ -509,9 +509,9 @@ class TestSaveRefToDir:
 class TestInstrumentArrayKeys:
     def test_keys_match_build_output(self):
         """INSTRUMENT_ARRAY_KEYS stays in sync with build_instrument_arrays()."""
-        from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS, TestRunLogger
+        from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS, RunScope
 
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="UUT001",
             station_id="station_001",
         )
@@ -603,9 +603,9 @@ class TestHarnessLoggerIntegration:
         from litmus.data.event_log import EventLog, EventSubscriber
         from litmus.data.events import MeasurementRecorded
         from litmus.execution.harness import TestHarness
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.logger import RunScope
 
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="UUT001",
             station_id="station_001",
         )
@@ -645,9 +645,9 @@ class TestHarnessLoggerIntegration:
     def test_harness_measure_no_double_append_to_vector(self):
         """Measurement should appear exactly once in the vector."""
         from litmus.execution.harness import TestHarness
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.logger import RunScope
 
-        logger = TestRunLogger(
+        logger = RunScope(
             uut_serial="UUT001",
             station_id="station_001",
         )

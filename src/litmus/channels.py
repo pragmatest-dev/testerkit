@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 def _resolve_run_id() -> UUID | None:
     """Active run_id for stamping on ``ChannelStarted`` / ``ChannelClosed``.
 
-    Pulled from the active :class:`TestRunLogger` ContextVar at write
+    Pulled from the active :class:`RunScope` ContextVar at write
     time. ``None`` outside a run (interactive bringup, daemon-driven
     channel writes). ChannelStore tolerates ``None`` — channel-lifecycle
     events stay valid without run context.

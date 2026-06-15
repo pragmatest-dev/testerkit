@@ -37,7 +37,7 @@ from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.connections import ConnectionIterator
 from litmus.execution.harness import Context
 from litmus.execution.instrument_events import emit_instrument_events
-from litmus.execution.logger import RunContext, TestRunLogger
+from litmus.execution.logger import RunContext, RunScope
 from litmus.execution.metadata import build_run_metadata
 from litmus.execution.profiles import resolve_test_phase
 from litmus.execution.verify import (
@@ -226,9 +226,7 @@ def _is_multi_slot_worker() -> bool:
     )
 
 
-def _setup_event_log_and_subscribers(
-    logger: TestRunLogger, results_path: Path, session_id: UUID
-) -> Any:
+def _setup_event_log_and_subscribers(logger: RunScope, results_path: Path, session_id: UUID) -> Any:
     """Wire EventStore + EventLog + default subscribers.
 
     The events bus is the source of truth for the test run. The runs
@@ -264,7 +262,7 @@ def _setup_event_log_and_subscribers(
     return scope
 
 
-def _emit_session_start_events(logger: TestRunLogger) -> None:
+def _emit_session_start_events(logger: RunScope) -> None:
     """Emit SessionStarted (orchestrator only) + RunStarted + per-instrument + StepsDiscovered."""
     from litmus.data.events import RunStarted, SessionStarted, StepsDiscovered
 
@@ -338,7 +336,7 @@ def _emit_session_start_events(logger: TestRunLogger) -> None:
         )
 
 
-def _teardown_logger(logger: TestRunLogger, scope: Any) -> None:
+def _teardown_logger(logger: RunScope, scope: Any) -> None:
     """Close subscribers, finalize the run, end the session."""
     # ChannelStore closes before the event log so its subscribers see the
     # final flush before the event log shuts subscribers down. Its ContextVar
@@ -366,7 +364,7 @@ def _teardown_logger(logger: TestRunLogger, scope: Any) -> None:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def logger(request) -> Generator[TestRunLogger, None, None]:
+def logger(request) -> Generator[RunScope, None, None]:
     """Provide test run logger for the session.
 
     Autouse so every test (and the ``verify`` / ``context`` fixtures
@@ -396,7 +394,7 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
     if env_uut_serial:
         meta["uut_serial"] = env_uut_serial
 
-    logger = TestRunLogger(**meta)
+    logger = RunScope(**meta)
 
     scope: Any = None
     if data_dir:
@@ -413,7 +411,7 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
         set_current_logger(None)
 
 
-def _emit_instrument_events(logger: TestRunLogger, event_log: Any) -> None:
+def _emit_instrument_events(logger: RunScope, event_log: Any) -> None:
     """Pytest adapter — read ContextVar records, delegate to runner-neutral emitter."""
     emit_instrument_events(logger, event_log, get_instrument_records())
 
@@ -975,7 +973,7 @@ from litmus.execution.vectors import Vector  # noqa: E402
 
 
 @pytest.fixture
-def context(logger: TestRunLogger | None) -> Generator[Context, None, None]:
+def context(logger: RunScope | None) -> Generator[Context, None, None]:
     """Context exposed to tests for ``context.get_param("...")`` / ``.changed()``.
 
     Wires the active ChannelStore + session_id from the pytest plugin's
@@ -994,7 +992,7 @@ def context(logger: TestRunLogger | None) -> Generator[Context, None, None]:
     tests); the token-based reset restores the prior context on
     teardown.
 
-    ``logger`` is annotated as ``TestRunLogger | None`` because some
+    ``logger`` is annotated as ``RunScope | None`` because some
     pytester subtests deliberately override the ``logger`` autouse
     fixture to yield ``None`` (neutralizes the duckdb dependency in
     child processes). Falls back to a bare ``Context()`` when logger

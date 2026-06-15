@@ -31,7 +31,7 @@ from litmus.execution._state import (
     set_current_logger,
 )
 from litmus.execution.harness import Context, TestHarness
-from litmus.execution.logger import TestRunLogger
+from litmus.execution.logger import RunScope
 from litmus.execution.verify import _perform_verify
 from litmus.models.test_config import Limit
 
@@ -55,7 +55,7 @@ def session(tmp_path: Path):
     fstore_module.resolve_data_dir = lambda _=None: tmp_path
     _reset_filestore()
 
-    logger = TestRunLogger(
+    logger = RunScope(
         uut_serial="POC-UUT-001",
         station_id="poc-station",
         run_id=run_id,

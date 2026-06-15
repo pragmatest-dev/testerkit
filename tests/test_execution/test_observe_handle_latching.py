@@ -55,7 +55,7 @@ def session(tmp_path: Path):
     fstore_module.resolve_data_dir = lambda _=None: tmp_path
     _reset_filestore()
 
-    # No TestRunLogger — the bare Context path tests are simpler.
+    # No RunScope — the bare Context path tests are simpler.
     harness = TestHarness(session_id=session_id, channel_store=cstore)
     ctx = Context(harness=harness, channel_store=cstore, session_id=session_id)
 
