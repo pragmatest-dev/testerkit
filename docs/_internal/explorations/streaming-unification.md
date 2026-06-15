@@ -151,10 +151,28 @@ implementation detail.**
 | range/last-N/decimate/`max_points`/`session_id` query verb + value decode | `register_query_hook` (Phase 4) |
 | async/batched index feed (`ingest_batch`) | put-hook path (Phase 5) |
 | descriptor-absorb on `do_put` open | put-hook path (Phase 5) |
-| `__registry__` / `list_flights` / `get_flight_info` discovery + liveness | discovery via query-hook (Phase 4/5) |
+| `client.channels()` enumeration (was `list_flights`) | **query-hook verb** `__channels__` → descriptor table (Phase 5) |
+| `client.channel_registry()` | **query-hook verb** `__registry__` (Phase 5) |
+| liveness probe (`list_flights` responds empty) | **free** — `FlightServerBase.list_flights`, generic; `list_flights` goes back to being *only* the probe |
+| `get_flight_info` (per-channel schema) | **dropped** — no client caller (justified) |
 
 Phase 5 does not land until every row here is demonstrably preserved (benchmark
 ratios + the channels test suite green, Phase 7).
+
+## Channel baseline — before the cutover (`litmus benchmark`, WSL2, trust ratios)
+
+Captured on `spike/streaming-unification` with channels still on
+`ChannelFlightServer` (Intel Ultra 9 275HX, 24c, duckdb 1.5.0, pyarrow 23.0.0):
+
+- Write sensor sample: **6.09k/s** (0.16 ms) · Write waveform block:
+  **8.45M points/s** (0.21 ms) · Read channel data: **213k/s** (2.2 ms).
+- channels concurrent-write capacity: 7.28k → 9.04k → 10.1k /s (1/2/4 writers),
+  scaling 0.35.
+
+The cutover re-runs the same `litmus benchmark` and compares. Note: this guards
+the producer write/query path (what the channel-optimization work tracked); the
+daemon-side live-subscribe filter cost is not in this benchmark — exercise it
+separately if a number looks off.
 
 ## Phase 5 subscribe routing — server-side filter (decided)
 
