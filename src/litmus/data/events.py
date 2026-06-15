@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
+from litmus.data._process import process_uuid
 from litmus.data.models import _utcnow
 
 
@@ -161,6 +162,16 @@ class SessionStarted(EventBase):
     fixture_id: str | None = None
     slot_count: int = 1
 
+    # The will — the owner's liveness policy, read by the reaper off this event
+    # (never config). ``process_uuid`` pairs with pid + station_hostname as the
+    # producer identity (disambiguates a recycled pid). ``idle_lease_seconds`` /
+    # ``abandon_grace_seconds`` / ``abandon_reason`` are resolved producer-side
+    # from ``SessionOptions`` and stamped here at open.
+    process_uuid: str | None = None
+    idle_lease_seconds: float | None = None
+    abandon_grace_seconds: float | None = None
+    abandon_reason: str | None = None
+
     @model_validator(mode="after")
     def _reject_run_id(self) -> SessionStarted:
         if self.run_id is not None:
@@ -182,12 +193,18 @@ class SessionStarted(EventBase):
         fixture_id: str | None = None,
         slot_count: int | None = None,
         session_type: str = "test_run",
+        idle_lease_seconds: float | None = None,
+        abandon_grace_seconds: float | None = None,
+        abandon_reason: str | None = None,
     ) -> SessionStarted:
         """Build a SessionStarted with common station fields.
 
         Shared by plugin.py (pytest) and connect.py (interactive).
         If ``slot_count`` is None, reads ``_LITMUS_SLOT_COUNT`` env var
-        (defaults to 1).
+        (defaults to 1). The will fields (``idle_lease_seconds`` /
+        ``abandon_grace_seconds`` / ``abandon_reason``) are resolved
+        producer-side from ``SessionOptions`` by the caller; ``process_uuid``
+        is stamped automatically, like ``pid``.
         """
         if slot_count is None:
             slot_count = int(os.environ.get("_LITMUS_SLOT_COUNT", "1"))
@@ -205,6 +222,10 @@ class SessionStarted(EventBase):
             slot_count=slot_count,
             session_type=session_type,
             pid=os.getpid(),
+            process_uuid=process_uuid(),
+            idle_lease_seconds=idle_lease_seconds,
+            abandon_grace_seconds=abandon_grace_seconds,
+            abandon_reason=abandon_reason,
         )
 
 

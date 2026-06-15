@@ -119,6 +119,28 @@ class TestEventModels:
         assert e.pid is not None
         assert e.station_hostname is not None
 
+    def test_session_started_stamps_will(self):
+        from litmus.data._process import process_uuid
+
+        e = SessionStarted.from_station(
+            session_id=uuid4(),
+            station_id="st1",
+            idle_lease_seconds=1800.0,
+            abandon_grace_seconds=120.0,
+            abandon_reason="ci_timeout",
+        )
+        # producer identity: pid + hostname + a stable per-process uuid
+        assert e.process_uuid == process_uuid()
+        # the will the reaper reads off the spine
+        assert e.idle_lease_seconds == 1800.0
+        assert e.abandon_grace_seconds == 120.0
+        assert e.abandon_reason == "ci_timeout"
+
+    def test_process_uuid_stable_within_process(self):
+        from litmus.data._process import process_uuid
+
+        assert process_uuid() == process_uuid()
+
     def test_session_started_from_station_reads_env(self, monkeypatch):
         monkeypatch.setenv("_LITMUS_SLOT_COUNT", "4")
         e = SessionStarted.from_station(

@@ -34,9 +34,15 @@ from litmus.data.event_store import EventStore
 from litmus.data.events import InstrumentConfigure
 from litmus.execution.session_scope import SessionScope, build_session_started, open_session
 from litmus.instruments.pool import InstrumentPool
+from litmus.models.data_options import SessionOptions
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.station import StationConfig
 from litmus.signals import deregister_cleanup, register_cleanup
+
+# Interactive sessions outlive long human pauses at the bench, so the owner
+# declares a patient lease floor — never shorter than this, though a project
+# that configured an even longer ``session.idle_lease_seconds`` keeps it.
+_INTERACTIVE_IDLE_LEASE_SECONDS = 3600.0
 
 
 class StationConnection:
@@ -74,10 +80,23 @@ class StationConnection:
         # Open the producer session via the shared primitive: it creates the
         # EventStore + EventLog, wires the EventStore ContextVar, and emits
         # SessionStarted. connect always owns its EventStore (reuse_existing=False).
+        # Resolve the will from the project's session options (litmus.yaml
+        # ``session:``), then apply the interactive lease floor — the owner-side
+        # per-session_type override the design routes through the caller.
+        _proj = _find_project_config()
+        _base_session = _proj[1].session if _proj else SessionOptions()
+        _session_opts = _base_session.model_copy(
+            update={
+                "idle_lease_seconds": max(
+                    _base_session.idle_lease_seconds, _INTERACTIVE_IDLE_LEASE_SECONDS
+                )
+            }
+        )
         started = build_session_started(
             self._config,
             session_id=self._session_id,
             session_type="interactive",
+            session_options=_session_opts,
         )
         self._scope = open_session(
             started,
@@ -94,7 +113,6 @@ class StationConnection:
         # emit ChannelStarted / ChannelClosed. Channel data options come from the
         # project config (litmus.yaml channels:), not the station config; absent →
         # ChannelOptions defaults.
-        _proj = _find_project_config()
         self._channel_store = ChannelStore(
             self._event_store._data_dir,
             self._session_id,

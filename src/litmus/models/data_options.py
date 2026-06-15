@@ -1,16 +1,18 @@
-"""Per-store data options — the project-controllable knobs for each store.
+"""Producer-local data options — the project-controllable knobs.
 
 One home for the tuning levers that used to be scattered across the channel
 sink, channel store, IPC writer, push relay, and files frame relay. They group
-by store and by *who can change them*:
+by scope (store or session) and by *who can change them*:
 
 - These models hold the **producer-local** knobs — they run in the project's
   own process, so a project owns them and may set them in ``litmus.yaml`` under
-  ``channels:`` / ``files:``. Defaults reproduce the historical values exactly.
+  ``channels:`` / ``files:`` / ``session:``. Defaults reproduce the historical
+  values exactly.
 - Daemon-global caps (a shared singleton's internals) are NOT here: a project
   influences daemon behavior only by what the producer/consumer sends on the
-  wire (the subscribe ``?policy=`` pattern), never via config. Those live as
-  constants next to the daemon code that uses them.
+  wire (the subscribe ``?policy=`` pattern, or the session *will* stamped on
+  ``SessionStarted``), never via config. Those live as constants next to the
+  daemon code that uses them.
 """
 
 from __future__ import annotations
@@ -43,6 +45,32 @@ class ChannelOptions(BaseModel):
     push_max_rows: int = Field(default=1000, gt=0)
     push_max_wait: float = Field(default=0.005, gt=0)
     push_queue_max: int = Field(default=10_000, gt=0)
+
+
+class SessionOptions(BaseModel):
+    """Session liveness policy — the producer's *will* defaults (settable in
+    ``litmus.yaml`` under ``session:``).
+
+    The **owner** resolves these at session open and stamps them onto
+    ``SessionStarted``; the reaper reads them off that event (never config) to
+    decide when a silent session is abandoned. A second producer sharing the
+    ``session_id`` attaches without a ``SessionStarted``, so there is exactly one
+    will per session. Per-producer variation (interactive vs test) is a caller
+    override at ``open_session``, not a separate yaml block.
+    """
+
+    model_config = {"extra": "forbid", "frozen": True}
+
+    # No durable spine event tagged this session_id for this long → the reaper
+    # treats the session as suspect. A session outlives its runs, so this must
+    # never be shorter than the run orphan-timeout (the platform default anchors
+    # to it).
+    idle_lease_seconds: float = Field(default=900.0, gt=0)
+    # After the lease, a late event / reconnect still rescues the session for
+    # this long before the derived ``SessionEnded`` is emitted.
+    abandon_grace_seconds: float = Field(default=300.0, ge=0)
+    # Stamped onto the derived ``SessionEnded.reason`` when the reaper closes it.
+    abandon_reason: str = "abandoned"
 
 
 class FileOptions(BaseModel):

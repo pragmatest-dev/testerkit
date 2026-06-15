@@ -154,6 +154,15 @@ concepts:
     model: litmus.models.data_options.FileOptions
     authored_at: litmus.yaml (under files:)
 
+  - id: session_options
+    category: primitive
+    summary: >
+      Session liveness policy — the producer's will defaults (idle lease,
+      abandon grace, abandon reason) the owner stamps onto SessionStarted
+      (litmus.yaml under session:).
+    model: litmus.models.data_options.SessionOptions
+    authored_at: litmus.yaml (under session:)
+
   - id: part
     category: definition
     summary: >

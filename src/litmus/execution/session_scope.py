@@ -33,6 +33,7 @@ from litmus.execution._state import (
     reset_channel_store,
     reset_event_store,
 )
+from litmus.models.data_options import SessionOptions
 
 if TYPE_CHECKING:
     from litmus.data.event_log import EventLog
@@ -110,6 +111,7 @@ def build_session_started(
     session_type: str = "test_run",
     operator_id: str | None = None,
     station_id: str | None = None,
+    session_options: SessionOptions | None = None,
 ) -> SessionStarted:
     """Build SessionStarted from a resolved StationConfig (runner-neutral).
 
@@ -118,24 +120,26 @@ def build_session_started(
     station config loaded: falls back to the explicit ``station_id`` (which
     may itself be None for a bare bringup run). This is the growth point for
     richer auto-captured station context at session creation (task #35).
+
+    ``session_options`` is the owner's resolved will (per-``session_type``
+    caller override of the ``ProjectConfig`` default); its fields are stamped
+    onto the event so the reaper reads them off the spine. Defaults to the
+    platform ``SessionOptions`` when the caller passes none.
     """
     from litmus.data.events import SessionStarted
 
-    if config is not None:
-        return SessionStarted.from_station(
-            session_id=session_id,
-            station_id=config.id,
-            station_name=config.name,
-            station_type=config.station_type,
-            station_location=config.location,
-            operator_id=operator_id,
-            session_type=session_type,
-        )
+    opts = session_options or SessionOptions()
     return SessionStarted.from_station(
         session_id=session_id,
-        station_id=station_id,
+        station_id=config.id if config is not None else station_id,
+        station_name=config.name if config is not None else None,
+        station_type=config.station_type if config is not None else None,
+        station_location=config.location if config is not None else None,
         operator_id=operator_id,
         session_type=session_type,
+        idle_lease_seconds=opts.idle_lease_seconds,
+        abandon_grace_seconds=opts.abandon_grace_seconds,
+        abandon_reason=opts.abandon_reason,
     )
 
 

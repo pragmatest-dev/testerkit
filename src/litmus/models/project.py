@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from litmus.models.data_options import ChannelOptions, FileOptions
+from litmus.models.data_options import ChannelOptions, FileOptions, SessionOptions
 from litmus.models.test_config import PromptConfig, TestEntry
 
 
@@ -85,9 +85,11 @@ class ProjectConfig(BaseModel):
 
     name: str
     data_dir: str | None = None
-    # Per-store data options (buffering / push tuning + the files blob backend).
+    # Producer-local data options (buffering / push tuning + the files blob
+    # backend; session liveness / will defaults).
     channels: ChannelOptions = Field(default_factory=ChannelOptions)
     files: FileOptions = Field(default_factory=FileOptions)
+    session: SessionOptions = Field(default_factory=SessionOptions)
     # Optional fallback station id when no ``--station`` is passed
     # and hostname auto-match doesn't fire.
     # Set this to a real station id in your project; leaving it

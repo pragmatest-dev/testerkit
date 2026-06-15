@@ -45,6 +45,10 @@ Emitted once at the start of a session (interactive or test orchestrator).
 | `operator_name` | `str \| None` | `None` |
 | `fixture_id` | `str \| None` | `None` |
 | `slot_count` | `int` | `1` |
+| `process_uuid` | `str \| None` | `None` |
+| `idle_lease_seconds` | `float \| None` | `None` |
+| `abandon_grace_seconds` | `float \| None` | `None` |
+| `abandon_reason` | `str \| None` | `None` |
 
 ### `session.ended` — `SessionEnded`
 

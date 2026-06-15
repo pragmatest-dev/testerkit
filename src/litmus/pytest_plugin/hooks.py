@@ -332,7 +332,7 @@ def _open_session_for_pytest(session) -> None:
         is_multi_slot_worker,
         resolve_station_id,
     )
-    from litmus.store import load_station
+    from litmus.store import load_project_config, load_station
 
     config = session.config
     data_dir_opt = config.getoption("--data-dir")
@@ -343,12 +343,16 @@ def _open_session_for_pytest(session) -> None:
 
     station_path = find_station_file(config)
     station_config = load_station(station_path) if station_path else None
+    # Test sessions take the project's session-will defaults as-is (fail-fast
+    # liveness — no interactive lease bump). litmus.yaml ``session:`` → platform
+    # default when unset.
     started = build_session_started(
         station_config,
         session_id=session_id,
         session_type="test_run",
         operator_id=config.getoption("--operator", default=None),
         station_id=resolve_station_id(config),
+        session_options=load_project_config().session,
     )
     scope = open_session(
         started,

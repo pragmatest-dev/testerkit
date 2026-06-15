@@ -282,6 +282,7 @@ Schema for litmus.yaml project config files — all fields at root.
 | `data_dir` | `str \| None` | `None` |
 | `channels` | `ChannelOptions` | *via* `ChannelOptions()` |
 | `files` | `FileOptions` | *via* `FileOptions()` |
+| `session` | `SessionOptions` | *via* `SessionOptions()` |
 | `default_station` | `str \| None` | `None` |
 | `default_fixture` | `str \| None` | `None` |
 | `default_profile` | `str \| None` | `None` |
