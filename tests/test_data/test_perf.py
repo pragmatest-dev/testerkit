@@ -540,7 +540,7 @@ class TestFileStreamPerf:
         """Raw streaming stays close to the raw ``open(...,'wb').write`` ceiling
         on the same storage. Regression guard for the publish_frame-on-the-
         hot-path disease — a Flight ``do_put`` per chunk dropped streaming to
-        ~16% of the ceiling; the non-blocking ``_FrameRelay`` (resolve-once +
+        ~16% of the ceiling; the non-blocking frame relay (resolve-once +
         background drain) restored it to ~90%+. Sampling is interleaved
         warm-vs-warm with the GC paused and min-of-N, so the ratio reflects the
         real per-chunk code overhead, not disk write-back noise.
