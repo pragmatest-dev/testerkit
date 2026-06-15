@@ -30,6 +30,13 @@ class SubscribePolicy(StrEnum):
     LATEST = "latest"
 
 
+# Channels rides the shared DuckDBFlightServer under this db name. The do_put
+# descriptor is ``CHANNELS_FLIGHT_DB\0<table>`` — the put-hook reads the
+# ``channel_id`` column off the wire batch, so the table slot is a constant.
+CHANNELS_FLIGHT_DB = "channels"
+CHANNELS_PUT_COMMAND = b"channels\0live"
+
+
 class ChannelDescriptor(BaseModel):
     """Metadata for a single channel, written once when first seen.
 

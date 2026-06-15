@@ -12,7 +12,7 @@ import warnings
 from pathlib import Path
 
 from litmus.data._daemon_lifecycle import DaemonManager, wait_for_location
-from litmus.data._flight_query import probe_flights
+from litmus.data._flight_query import probe_sql
 
 
 class FlightDaemonManager(DaemonManager):
@@ -51,13 +51,17 @@ class FlightDaemonManager(DaemonManager):
     def acquire_location(self) -> str:
         """Acquire a reference and return the gRPC location string.
 
-        Probes the daemon after acquiring (via ``list_flights`` — empty is
-        alive, only an exception is dead): a wedged or dead Flight thread is
-        killed and respawned so callers get a working connection.
+        Probes the daemon after acquiring (via the lock-free ``__ping__`` verb —
+        connectivity, not data; only an exception is dead): a wedged or dead
+        Flight thread is killed and respawned so callers get a working
+        connection. The ping must NOT touch the store/index — a probe that took
+        ``_index_lock`` under write load would false-fail and respawn a healthy
+        busy daemon. Shares ``probe_sql`` with every other store on the shared
+        server, differing only in the lock-free payload.
         """
         super().acquire()
         location = wait_for_location(self, self._dir, "channels")
-        if not probe_flights(location):
+        if not probe_sql(location, "channels", payload="__ping__"):
             warnings.warn(
                 f"Channels Flight daemon at {location} is not responding — killing and respawning.",
                 stacklevel=2,

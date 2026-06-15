@@ -18,8 +18,9 @@ from uuid import UUID
 
 import pyarrow as pa
 
+from litmus.data._duckdb_flight_server import DuckDBFlightServer
 from litmus.data.channels.flight_manager import FlightDaemonManager
-from litmus.data.channels.server import ChannelFlightServer
+from litmus.data.channels.server import register_channel_hooks
 from litmus.data.channels.store import ChannelStore
 
 
@@ -34,7 +35,12 @@ def daemon_run(channels_dir: Path, host: str, port: int) -> None:
     store.open()
 
     location = f"grpc://{host}:{port}"
-    server = ChannelFlightServer(store, location)
+    # parallel=True: channels registers no DuckDB conn on the server, so the
+    # server-wide lock would only serialize concurrent producers' do_put for
+    # nothing — the store owns its own index locking. This matches the bespoke
+    # server's lock-free do_put (concurrent-write capacity).
+    server = DuckDBFlightServer(location, parallel=True)
+    register_channel_hooks(server, store)
     actual_location = f"grpc://{host}:{server.port}"
 
     # Write port file (doubles as ready signal) and PID

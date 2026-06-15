@@ -33,6 +33,7 @@ from litmus.data._ipc_writer import BufferedIPCWriter
 from litmus.data._push_relay import PushRelay
 from litmus.data.channels import flight_manager
 from litmus.data.channels.models import (
+    CHANNELS_PUT_COMMAND,
     SCALAR_SCHEMA,
     ChannelDescriptor,
     ChannelSample,
@@ -1739,7 +1740,7 @@ class ChannelStore:
             writer = self._flight_writers.get(channel_id)
             if writer is None:
                 descriptor = flight.FlightDescriptor.for_command(
-                    channel_id.encode("utf-8"),
+                    CHANNELS_PUT_COMMAND,
                 )
                 # Stamp the descriptor on the persistent stream schema so the
                 # daemon absorbs it on stream-open — live channels are served

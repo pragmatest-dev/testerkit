@@ -74,37 +74,25 @@ def _get_pooled_client(location: str) -> flight.FlightClient:
         return client
 
 
-def probe_sql(location: str, db_name: str, timeout_s: float = 5.0) -> bool:
-    """Liveness probe for a DuckDBFlightServer daemon (events / runs / files).
+def probe_sql(
+    location: str, db_name: str, timeout_s: float = 5.0, *, payload: str = "SELECT 1"
+) -> bool:
+    """Liveness probe for a DuckDBFlightServer daemon (events / runs / files /
+    channels).
 
-    Runs a literal ``SELECT 1`` (no FROM) so it tests CONNECTIVITY, not data —
-    it returns a row even on a cold daemon with no tables yet, and an empty or
-    any result counts as alive. Only an exception (dead Flight thread, deadline
-    on a wedged daemon) marks it down; the broken client is dropped so the next
-    caller reconnects. Short deadline so a wedged daemon fails fast.
+    Tests CONNECTIVITY, not data — any result (or an empty one) counts as alive;
+    only an exception (dead Flight thread, deadline on a wedged daemon) marks it
+    down, and the broken client is dropped so the next caller reconnects. Short
+    deadline so a wedged daemon fails fast. ``payload`` is the do_get body: a
+    SQL-backed db uses the default ``SELECT 1``; a query-hook db (channels) passes
+    a dedicated lock-free verb so the probe never contends on a store lock under
+    load (which would falsely declare a busy daemon dead).
     """
     try:
         client = _get_pooled_client(location)
         client.do_get(
-            flight.Ticket(f"{db_name}\0SELECT 1".encode()), options=call_options(timeout_s)
+            flight.Ticket(f"{db_name}\0{payload}".encode()), options=call_options(timeout_s)
         ).read_all()
-        return True
-    except Exception:  # noqa: BLE001 — any failure means "respawn it"
-        _drop_pooled_client(location)
-        return False
-
-
-def probe_flights(location: str, timeout_s: float = 5.0) -> bool:
-    """Liveness probe for a ChannelFlightServer daemon (no SQL surface).
-
-    Uses ``list_flights`` — a server-level call that responds even when the
-    daemon holds zero channels. An EMPTY list is alive (the server answered);
-    only an exception marks it down. (A "non-empty only" check would falsely
-    kill a brand-new daemon on every acquire.)
-    """
-    try:
-        client = _get_pooled_client(location)
-        list(client.list_flights(options=call_options(timeout_s)))
         return True
     except Exception:  # noqa: BLE001 — any failure means "respawn it"
         _drop_pooled_client(location)

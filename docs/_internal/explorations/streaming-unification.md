@@ -245,15 +245,33 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
    verified unchanged.*
 4. **`register_query_hook` seam** — typed read tickets for channels
    (range/last-N/decimate + `__registry__`); SQL stays the default.
-5. **Channels adopts `DuckDBFlightServer`** — daemon
-   (`_flight_daemon.py`/`flight_manager.py`) starts the shared server;
-   `do_put`→put_hook (`ingest_batch`), `do_get`→query_hook, subscribe→shared
-   buffer; `ALL`/`LATEST` conflation ported onto the live-tail branch;
-   `list_flights`/`get_flight_info`/descriptor-absorb/`__registry__`
-   fold into discovery. Delete `channels/server.py`
-   (`ChannelFlightServer` + bespoke `_SubscriberRing`). Update `ChannelClient`.
-   **Gated on the channels behavior inventory above — every row preserved, or
-   STOP-and-ask.**
+5. **Channels adopts `DuckDBFlightServer`** — **DONE.** The daemon
+   (`_flight_daemon.py`) + in-process helper start the shared server
+   (`parallel=True`); `channels/server.py` is now the adapter
+   (`register_channel_hooks`): `do_put`→put-hook (`ingest_batch`),
+   `do_get`→query-hook (range/last-N/decimate + `__registry__` + `__channels__`
+   enumeration + `__ping__` liveness), subscribe→shared buffer with a
+   `channel_id` filter and `LATEST`→`conflate`. Fan-out rides one `on_batch`
+   bridge → `server._publish` (gated on `has_subscribers`). `ChannelFlightServer`
+   + `_SubscriberRing` deleted; `get_flight_info` dropped; `list_flights` retired
+   in favour of `__channels__` + `probe_sql(payload="__ping__")` (the one shared
+   liveness probe; `probe_flights` deleted). `ChannelClient` rewired.
+
+   **Two perf regressions caught by `scripts/bench_channel_scaling.py` (before/
+   after; the bundled `litmus benchmark` sweep doesn't cover write_many/stream)
+   and fixed — the shared server now beats the bespoke one on every write mode:**
+   - *Per-batch `_absorb_descriptor`* killed `ingest_batch`'s columnar fast path
+     (empty `_registry` → not-scalar → slow per-row path) and churned
+     `_index_lock`. → absorb **once per channel** (gated on `_registry`), matching
+     the bespoke once-per-stream. Restored write_many 52k→180k+, stream→179k+.
+   - *`probe_sql` ran `store.query`* → took `_index_lock` → false-failed under
+     write load → daemon kill/respawn mid-run (the concurrent-write collapse +
+     bimodality). → lock-free `__ping__` verb (no store/index touch). Restored
+     `channels.write` scaling.
+
+   Final vs the pre-everything original (`e508bf0`), 1/2/4 writers:
+   write_many 154/162/152k → **180/190/188k**; stream 150/155/155k →
+   **179/183/184k**; write 7.6/10.6/9.8k → **7.6/13.5/13.2k**.
 6. **Shared `subscribe()` client reader** — fold `on_channel*` and
    `subscribe_frames` onto it; per-row decode stays pluggable.
 7. **Benchmark + docs** — `litmus benchmark --full` before/after to guard the
@@ -274,6 +292,15 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
 
 ## Follow-ups after this refactor
 
+- **`litmus benchmark` concurrent sweep only covers `channels.write`.** The
+  per-store concurrent-write sweep (`runner.py` `sweep_specs`) measures
+  `channels.write` only — NOT `channels.write_many` or the `stream` sink, the
+  high-throughput batched paths. The Phase 5 cutover regressed write_many/stream
+  ~3× (154k→52k) and the CLI never showed it; the regression was only caught by
+  the standalone `scripts/bench_channel_scaling.py` (which sweeps all three modes
+  across 1/2/4 writers). Fold those modes into the CLI sweep so the headline
+  command guards every write path. Until then, run `bench_channel_scaling.py`
+  whenever the producer push / daemon do_put / liveness-probe path changes.
 - **Merge worktrees back, return to files.** This effort runs in the
   `litmus-streaming` worktree off `spike/session-overhaul`. When it lands, merge
   the worktrees back together and resume the files-store work.
