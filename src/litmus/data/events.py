@@ -734,6 +734,26 @@ class StreamEnded(EventBase):
     size_bytes: int | None = None
 
 
+class StreamCheckpoint(EventBase):
+    """Low-rate liveness + progress marker from an active streaming producer.
+
+    A stream's samples/frames ride the off-spine fan-out, so a long active
+    stream emits nothing durable between ``StreamStarted`` and ``StreamEnded``.
+    The producer's write path emits one of these when more than the configured
+    cadence (``StreamTuning.checkpoint_cadence``, default ``lease/3``) has
+    elapsed since its last spine event, carrying the offset reached so far.
+
+    It renews the session lease like any spine event (so the reaper tells a live
+    stream apart from a crashed one) and records resumable progress. Bounded to
+    one per cadence regardless of sample rate — never per-sample. Emitted by both
+    the channel producer (``channel://`` uri) and the file sink (``file://``).
+    """
+
+    event_type: Literal["stream.checkpoint"] = "stream.checkpoint"
+    uri: str
+    offset: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Dialog events
 # ---------------------------------------------------------------------------
@@ -788,7 +808,7 @@ ROUTE_EVENTS = {RouteClosed, RouteOpened}
 INSTRUMENT_EVENTS = {InstrumentSet, InstrumentConfigure}
 CHANNEL_EVENTS = {ChannelStarted, ChannelClosed}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
-STREAM_EVENTS = {StreamStarted, StreamEnded}
+STREAM_EVENTS = {StreamStarted, StreamEnded, StreamCheckpoint}
 DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
     SESSION_EVENTS
@@ -835,6 +855,7 @@ Event = Annotated[
     | DiagnosticError
     | StreamStarted
     | StreamEnded
+    | StreamCheckpoint
     | DialogOpened
     | DialogResponded,
     Field(discriminator="event_type"),

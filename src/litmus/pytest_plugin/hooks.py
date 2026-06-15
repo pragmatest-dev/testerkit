@@ -346,13 +346,14 @@ def _open_session_for_pytest(session) -> None:
     # Test sessions take the project's session-will defaults as-is (fail-fast
     # liveness — no interactive lease bump). litmus.yaml ``session:`` → platform
     # default when unset.
+    project = load_project_config()
     started = build_session_started(
         station_config,
         session_id=session_id,
         session_type="test_run",
         operator_id=config.getoption("--operator", default=None),
         station_id=resolve_station_id(config),
-        session_options=load_project_config().session,
+        session_options=project.session,
     )
     scope = open_session(
         started,
@@ -361,7 +362,13 @@ def _open_session_for_pytest(session) -> None:
         reuse_existing=True,
         emit_lifecycle=not is_multi_slot_worker(),
     )
-    channel_store = ChannelStore(data_dir, session_id, serve=True, event_log=scope.event_log)
+    channel_store = ChannelStore(
+        data_dir,
+        session_id,
+        serve=True,
+        event_log=scope.event_log,
+        checkpoint_cadence=project.stream.resolve_cadence(project.session.idle_lease_seconds),
+    )
     scope.attach_channel_store(channel_store)
     session.stash[_SESSION_SCOPE_KEY] = scope
     session.stash[_SESSION_ID_KEY] = session_id

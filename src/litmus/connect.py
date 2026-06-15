@@ -34,7 +34,7 @@ from litmus.data.event_store import EventStore
 from litmus.data.events import InstrumentConfigure
 from litmus.execution.session_scope import SessionScope, build_session_started, open_session
 from litmus.instruments.pool import InstrumentPool
-from litmus.models.data_options import SessionOptions
+from litmus.models.data_options import SessionOptions, StreamTuning
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.station import StationConfig
 from litmus.signals import deregister_cleanup, register_cleanup
@@ -113,12 +113,14 @@ class StationConnection:
         # emit ChannelStarted / ChannelClosed. Channel data options come from the
         # project config (litmus.yaml channels:), not the station config; absent →
         # ChannelOptions defaults.
+        _stream_tuning = _proj[1].stream if _proj else StreamTuning()
         self._channel_store = ChannelStore(
             self._event_store._data_dir,
             self._session_id,
             options=_proj[1].channels if _proj else None,
             serve=True,
             event_log=self._event_log,
+            checkpoint_cadence=_stream_tuning.resolve_cadence(_session_opts.idle_lease_seconds),
         )
 
         # Wire the ChannelStore ContextVar (open_session wired the EventStore) so

@@ -478,6 +478,61 @@ symmetric session-level join/leave pairs so the balance can exceed 1. **Symmetry
 client-trusted:** every `Started` gets its matching `Ended` from either a clean leave or the reaper's
 synthetic decrement, so the balance always converges and the seal is guaranteed even across `kill -9`.
 
+## Wave D — P3 liveness: locked design + build plan (2026-06-15)
+
+Shaped in a design session; this is the contract for Wave D. The big realization: **liveness is
+a byproduct of normal emission, not a separate mechanism.** Every existing emit site
+(`RunStarted`, `StepStarted`, every `measure`/`observe`, `ChannelStarted`/`ChannelClosed`,
+instrument connects) already flows through the spine; a reaper watching the spine resets that
+session's lease on each one — *no emit site gets a keep-alive call*. Emitting **is** asserting
+liveness (DDS assert-by-write). The **one** path that emits nothing durable while active is a
+**stream** (frames are off-spine), so it is the *sole* new emitter.
+
+**The model (all three compose):**
+- **Recency lease** — the session is alive while any spine event tagged its `session_id` is recent;
+  the reaper resets a per-session timer on every such event and emits an additive synthetic
+  `SessionEnded{reason, derived}` at `lease + grace`. The will (D1) supplies `idle_lease_seconds` /
+  `abandon_grace_seconds` / `abandon_reason`, read off `SessionStarted` (never config).
+- **Structural balance** — open spans (`Started − Ended > 0`) are the *north-star* close signal
+  (instant clean close, crash-safe via the lease-synthesized `Ended`). YAGNI: ship the recency
+  condition now (single-owner degenerates to "has `SessionEnded`?"); build on the balance seam so
+  open-span counting slots in additively later. Do NOT build multi-participant join/leave now.
+- **Stream auto-checkpoint** — the sink, **on write**, emits one durable spine event carrying
+  offset-so-far *iff* `now − last_spine_event > cadence`. Piggyback on the write (no timer thread),
+  interval-gated so a 1 MHz stream costs the spine **one** checkpoint per cadence, not per sample.
+  A stream silent past the lease emits nothing and correctly ages out. Prior art: DDS liveliness +
+  MQTT keepalive (assert-by-write) · Kafka offset-commit + WAL checkpoint (carry an offset) ·
+  Flink/Chandy-Lamport (periodic snapshot markers). Data is NOT lost — samples stay durable in the
+  IPC/blob segments; the checkpoint is the low-rate control-plane marker over them.
+
+**Placement — the reaper lives on the events daemon (the spine owner).** `EventStore`
+(`event_store.py`) is the per-data_dir singleton whose `_ensure_watcher` consumes the **raw** spine
+(every event, ordered, *before* the runs accumulator's `_EVENT_CLASSES` filter — which is why the
+runs daemon was blind to channel events). The session reaper is a thread in the **events daemon**
+(singular per data_dir, persistent, holds the durable log → restart-clean re-derivation). The
+**runs daemon keeps its run reaper**; the same-host pid-death **session** sweep moves out (pid-death
+is run-only, per the model). Each reaper lives with the projection it owns.
+
+**Tunables (all producer-side / litmus.yaml, overridable):**
+
+| knob | home | read by | default |
+| --- | --- | --- | --- |
+| `idle_lease_seconds` | `SessionOptions` | reaper (via will) | 900 (test) / 3600 (interactive floor) |
+| `abandon_grace_seconds` | `SessionOptions` | reaper | 300 |
+| `abandon_reason` | `SessionOptions` | reaper | `abandoned` |
+| `checkpoint_cadence` | `StreamTuning` | stream sink | `lease / 3`, invariant `< lease` |
+
+**Build order (each green, each committed):**
+- **D1 — will + SessionOptions** — LANDED `180e6d1`.
+- **D-checkpoint** — `StreamTuning` (litmus.yaml `stream:`) + a `StreamCheckpoint` spine event
+  (uri + offset) + interval-gated emit on the **channel producer** (`ChannelStore._append_and_publish`)
+  and the **file stream sink** (`files/streaming.py` write path). Cadence resolved producer-side from
+  `StreamTuning.checkpoint_cadence` (or `lease/3`).
+- **D-reaper** — session-reaper thread in the events daemon: per-session last-activity + will →
+  synthetic `SessionEnded{reason, derived}` at `lease+grace`; add `reason`/`derived` to `SessionEnded`;
+  remove the pid-death session sweep from the runs daemon.
+- **D2 — run orphan-timeout `3600 → 900`** + the `lease ≥ run-timeout` anchor.
+
 ## Producer DI contract — decided 2026-06-14
 
 **Send the `event_log`; derive everything else. Never inject `session_id` alongside it.**

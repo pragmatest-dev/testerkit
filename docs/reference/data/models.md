@@ -283,6 +283,7 @@ Schema for litmus.yaml project config files — all fields at root.
 | `channels` | `ChannelOptions` | *via* `ChannelOptions()` |
 | `files` | `FileOptions` | *via* `FileOptions()` |
 | `session` | `SessionOptions` | *via* `SessionOptions()` |
+| `stream` | `StreamTuning` | *via* `StreamTuning()` |
 | `default_station` | `str \| None` | `None` |
 | `default_fixture` | `str \| None` | `None` |
 | `default_profile` | `str \| None` | `None` |

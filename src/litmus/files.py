@@ -206,10 +206,15 @@ def stream(
     """
     # Lazy: see write() — same data.files heavy chain.
     from litmus.data.files import get_filestore  # noqa: PLC0415
+    from litmus.store import load_project_config  # noqa: PLC0415
 
     full_name = f"{namespace}.{name}" if namespace else name
     sid = _resolve_session_id(session_id)
     event_log, run_id = _resolve_event_log_and_run_id()
+    # Stream liveness cadence — resolved from the project's stream/session config
+    # (litmus.yaml). A long file stream emits a StreamCheckpoint per cadence so the
+    # session lease renews instead of going silent on the spine.
+    _proj = load_project_config()
     sink = get_filestore().open_stream(
         name=full_name,
         format=format,
@@ -218,6 +223,7 @@ def stream(
         attributes=attributes,
         event_log=event_log,
         run_id=run_id,
+        checkpoint_cadence=_proj.stream.resolve_cadence(_proj.session.idle_lease_seconds),
     )
     try:
         yield sink

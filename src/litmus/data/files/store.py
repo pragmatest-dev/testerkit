@@ -42,7 +42,7 @@ from litmus.data.files.catalog_manager import (
 )
 from litmus.data.files.models import FileArtifactMetadata
 from litmus.data.files.serializers import find_serializer
-from litmus.data.files.streaming import StreamingSink, get_format
+from litmus.data.files.streaming import StreamingSink, _BaseSink, get_format
 
 if TYPE_CHECKING:
     from litmus.data.event_log import EventLog
@@ -215,6 +215,7 @@ class FileStore:
         attributes: dict[str, Any] | None = None,
         event_log: EventLog | None = None,
         run_id: UUID | None = None,
+        checkpoint_cadence: float | None = None,
     ) -> StreamingSink:
         """Open a streaming sink — one file, written incrementally.
 
@@ -311,11 +312,18 @@ class FileStore:
         if fmt.needs_local_path:
             # nptdms / h5py need a seekable local file; stage there, publish on close.
             staged = self._backend.stage_path(key)
-            return fmt.open(path=staged, finalizer=lambda: _finalize(staged), **common)
-        # raw/jsonl write straight to the backend output stream (local file /
-        # S3 multipart) — completes on close, so no separate publish step.
-        stream = self._backend.open_output_stream(key)
-        return fmt.open(stream=stream, finalizer=lambda: _finalize(None), **common)
+            sink = fmt.open(path=staged, finalizer=lambda: _finalize(staged), **common)
+        else:
+            # raw/jsonl write straight to the backend output stream (local file /
+            # S3 multipart) — completes on close, so no separate publish step.
+            stream = self._backend.open_output_stream(key)
+            sink = fmt.open(stream=stream, finalizer=lambda: _finalize(None), **common)
+        # Stream liveness cadence is set post-construction so custom formats
+        # (any StreamingSink) need not accept it; only _BaseSink subclasses
+        # carry the checkpoint machinery.
+        if checkpoint_cadence is not None and isinstance(sink, _BaseSink):
+            sink._checkpoint_cadence = checkpoint_cadence
+        return sink
 
     def read(self, uri: str) -> bytes | None:
         """Return the full bytes of the artifact at ``uri``, or ``None``.

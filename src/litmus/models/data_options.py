@@ -73,6 +73,44 @@ class SessionOptions(BaseModel):
     abandon_reason: str = "abandoned"
 
 
+class StreamTuning(BaseModel):
+    """Streaming liveness cadence — how often an active stream sink emits a
+    durable checkpoint (settable in ``litmus.yaml`` under ``stream:``).
+
+    A stream's samples/frames ride the off-spine fan-out, so a long active
+    stream would otherwise emit nothing durable between ``StreamStarted`` and
+    ``StreamEnded`` and the reaper couldn't tell a live stream from a dead one.
+    The sink emits one ``StreamCheckpoint`` (carrying offset-so-far) when this
+    long has elapsed since its last spine event — bounded to one per cadence
+    regardless of sample rate. Shared by the channel + file producers.
+    """
+
+    model_config = {"extra": "forbid", "frozen": True}
+
+    # ``None`` → derive ``idle_lease_seconds / 3`` producer-side (DDS
+    # assertions_per_lease_duration = 3). Must resolve to ``< idle_lease_seconds``
+    # so a live stream always asserts within the lease window.
+    checkpoint_cadence: float | None = Field(default=None, gt=0)
+
+    def resolve_cadence(self, idle_lease_seconds: float) -> float:
+        """Resolve the checkpoint cadence against a session's lease.
+
+        ``None`` derives ``lease / 3``; an explicit value must stay under the
+        lease so a live stream always asserts before it expires.
+        """
+        cadence = (
+            self.checkpoint_cadence
+            if self.checkpoint_cadence is not None
+            else idle_lease_seconds / 3
+        )
+        if cadence >= idle_lease_seconds:
+            raise ValueError(
+                f"checkpoint_cadence ({cadence}s) must be < idle_lease_seconds "
+                f"({idle_lease_seconds}s) so a live stream asserts within the lease"
+            )
+        return cadence
+
+
 class FileOptions(BaseModel):
     """File-store data options (settable in ``litmus.yaml`` under ``files:``)."""
 

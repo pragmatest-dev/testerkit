@@ -1,0 +1,143 @@
+"""Stream liveness checkpoints — the producer-side half of P3.
+
+A long active stream's samples/frames ride off-spine, so the channel + file
+producers emit a low-rate ``StreamCheckpoint`` (carrying offset) on a cadence so
+the session lease renews instead of going silent. Cadence resolves from
+``StreamTuning`` (default ``lease/3``, invariant ``< lease``).
+"""
+
+from __future__ import annotations
+
+import time
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+import pytest
+
+from litmus.data.channels.store import ChannelStore
+from litmus.data.event_log import EventLog
+from litmus.data.events import StreamCheckpoint
+from litmus.data.files.store import FileStore
+from litmus.data.files.streaming import _BaseSink
+from litmus.models.data_options import StreamTuning
+
+
+class CollectingLog(EventLog):
+    def __init__(self) -> None:
+        self.emitted: list[Any] = []
+
+    def emit(self, event: Any) -> None:
+        self.emitted.append(event)
+
+
+def _checkpoints(log: CollectingLog) -> list[StreamCheckpoint]:
+    return [e for e in log.emitted if isinstance(e, StreamCheckpoint)]
+
+
+# --------------------------------------------------------------------------- #
+# StreamTuning.resolve_cadence                                                #
+# --------------------------------------------------------------------------- #
+
+
+def test_cadence_defaults_to_lease_over_three():
+    assert StreamTuning().resolve_cadence(900.0) == 300.0
+
+
+def test_cadence_explicit_override():
+    assert StreamTuning(checkpoint_cadence=60.0).resolve_cadence(900.0) == 60.0
+
+
+def test_cadence_must_be_under_lease():
+    # A cadence >= the lease would let a live stream age out between checkpoints.
+    with pytest.raises(ValueError, match="must be < idle_lease_seconds"):
+        StreamTuning(checkpoint_cadence=900.0).resolve_cadence(900.0)
+
+
+# --------------------------------------------------------------------------- #
+# Channel producer                                                            #
+# --------------------------------------------------------------------------- #
+
+
+def test_channel_emits_checkpoint_once_per_cadence(tmp_path: Path):
+    log = CollectingLog()
+    sid = uuid4()
+    store = ChannelStore(
+        tmp_path, sid, flush_threshold=1000, event_log=log, checkpoint_cadence=10.0
+    )
+    store.open()
+    # First write announces ChannelStarted (a spine event) and arms the clock —
+    # no checkpoint yet.
+    store.write("ch", 1.0)
+    assert _checkpoints(log) == []
+    # Age the last spine emit past the cadence; the next write checkpoints.
+    store._last_spine_emit = datetime.now(UTC) - timedelta(seconds=100)
+    store.write("ch", 2.0)
+    cps = _checkpoints(log)
+    assert len(cps) == 1
+    assert cps[0].session_id == sid
+    assert cps[0].uri.startswith("channel://")
+    store.close()
+
+
+def test_channel_no_checkpoint_within_cadence(tmp_path: Path):
+    log = CollectingLog()
+    store = ChannelStore(
+        tmp_path, uuid4(), flush_threshold=1000, event_log=log, checkpoint_cadence=3600.0
+    )
+    store.open()
+    for i in range(50):
+        store.write("ch", float(i))
+    # 50 rapid writes, cadence 1h → not one checkpoint (bounded by time, not count).
+    assert _checkpoints(log) == []
+    store.close()
+
+
+def test_channel_no_checkpoint_without_cadence(tmp_path: Path):
+    log = CollectingLog()
+    store = ChannelStore(tmp_path, uuid4(), flush_threshold=1000, event_log=log)
+    store.open()
+    store._last_spine_emit = datetime.now(UTC) - timedelta(seconds=10_000)
+    for i in range(10):
+        store.write("ch", float(i))
+    assert _checkpoints(log) == []
+    store.close()
+
+
+# --------------------------------------------------------------------------- #
+# File producer                                                               #
+# --------------------------------------------------------------------------- #
+
+
+def test_file_stream_emits_checkpoint_once_per_cadence(tmp_path: Path):
+    log = CollectingLog()
+    store = FileStore(data_dir=tmp_path)
+    sink = store.open_stream(
+        name="capture",
+        format="raw",
+        session_id=str(uuid4()),
+        event_log=log,
+        checkpoint_cadence=10.0,
+    )
+    assert isinstance(sink, _BaseSink)
+    sink.write(b"first")  # StreamStarted armed the clock at construction
+    assert _checkpoints(log) == []
+    sink._last_spine_emit = time.monotonic() - 100.0  # age past cadence
+    sink.write(b"second")
+    cps = _checkpoints(log)
+    assert len(cps) == 1
+    assert cps[0].uri.startswith("file://")
+    assert cps[0].offset == len(b"first") + len(b"second")
+    sink.close()
+
+
+def test_file_stream_no_checkpoint_without_cadence(tmp_path: Path):
+    log = CollectingLog()
+    store = FileStore(data_dir=tmp_path)
+    sink = store.open_stream(name="capture", format="raw", session_id=str(uuid4()), event_log=log)
+    assert isinstance(sink, _BaseSink)
+    sink._last_spine_emit = time.monotonic() - 10_000.0
+    sink.write(b"data")
+    assert _checkpoints(log) == []
+    sink.close()

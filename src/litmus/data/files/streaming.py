@@ -42,6 +42,7 @@ help. See :func:`StreamingSink.byte_offset` for the post-chunk size.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -49,7 +50,7 @@ from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
 import orjson
 
-from litmus.data.events import StreamEnded, StreamStarted
+from litmus.data.events import StreamCheckpoint, StreamEnded, StreamStarted
 from litmus.data.files.catalog_manager import open_frame_relay
 
 # Optional-extra deps: nptdms (TDMS) and h5py (HDF5) are gated behind
@@ -226,6 +227,7 @@ class _BaseSink:
         session_id: str,
         event_log: EventLog | None,
         run_id: UUID | None = None,
+        checkpoint_cadence: float | None = None,
     ) -> None:
         self._uri = uri
         self._files_dir = files_dir
@@ -237,6 +239,13 @@ class _BaseSink:
         self._stream_id = uuid4()
         self._byte_offset = 0
         self._closed = False
+        # Stream liveness checkpoint: when set, the write path emits one
+        # ``StreamCheckpoint`` (carrying byte_offset) per ``checkpoint_cadence``
+        # so a long active file stream renews the session lease instead of going
+        # silent on the spine. ``_last_spine_emit`` (monotonic) tracks the sink's
+        # most recent event-log emission — StreamStarted / checkpoint reset it.
+        self._checkpoint_cadence = checkpoint_cadence
+        self._last_spine_emit: float | None = None
         # Resolve the live frame fan-out ONCE (not per chunk). ``None`` when no
         # catalog daemon serves this dir — the writer's hot path then skips all
         # frame work. When a daemon is up, frames go to a non-blocking background
@@ -319,6 +328,29 @@ class _BaseSink:
                 format=self._format_name,
             )
         )
+        self._last_spine_emit = time.monotonic()
+
+    def _maybe_checkpoint(self) -> None:
+        """Emit a ``StreamCheckpoint`` if a cadence of writing has elapsed since
+        the sink's last spine event — one per cadence, carrying byte_offset, so a
+        long active stream renews the session lease. No-op without a cadence/log."""
+        if self._checkpoint_cadence is None or self._event_log is None:
+            return
+        now = time.monotonic()
+        if (
+            self._last_spine_emit is not None
+            and now - self._last_spine_emit < self._checkpoint_cadence
+        ):
+            return
+        self._event_log.emit(
+            StreamCheckpoint(
+                session_id=self._session_uuid(),
+                run_id=self._run_id,
+                uri=self._uri,
+                offset=self._byte_offset,
+            )
+        )
+        self._last_spine_emit = now
 
     def _track_bytes(self, length: int, payload: bytes | None = None) -> None:
         """Advance the byte offset + push an ephemeral frame to subscribers.
@@ -346,6 +378,7 @@ class _BaseSink:
                     "payload": payload,
                 }
             )
+        self._maybe_checkpoint()
 
     def _emit_ended(self, uri: str) -> None:
         # Flush + stop the frame relay before announcing the stream closed, so a

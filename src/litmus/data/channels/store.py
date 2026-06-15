@@ -41,7 +41,7 @@ from litmus.data.channels.models import (
     sample_schema,
     samples_to_batch,
 )
-from litmus.data.events import ChannelClosed, ChannelStarted
+from litmus.data.events import ChannelClosed, ChannelStarted, StreamCheckpoint
 from litmus.data.ref import classify_value, make_channel_uri
 from litmus.models.data_options import ChannelOptions
 
@@ -185,6 +185,7 @@ class ChannelStore:
         event_log: EventLog | None = None,
         index: bool = False,
         station_hostname: str | None = None,
+        checkpoint_cadence: float | None = None,
     ) -> None:
         # Parent-only convention — caller passes the results parent
         # (containing ``runs/``, ``channels/``, ``events/`` …); the
@@ -238,6 +239,14 @@ class ChannelStore:
         # own tracker. ``event_log`` may be ``None`` for tests /
         # bringup paths with no session event log.
         self._event_log = event_log
+        # Stream liveness checkpoint: when set, the write path emits one
+        # ``StreamCheckpoint`` (carrying offset) per ``checkpoint_cadence`` of
+        # off-spine writing, so a long active channel stream renews the session
+        # lease instead of going silent on the spine. ``_last_spine_emit`` tracks
+        # the store's most recent event-log emission (ChannelStarted / checkpoint
+        # / ChannelClosed) — any of them resets the cadence clock.
+        self._checkpoint_cadence = checkpoint_cadence
+        self._last_spine_emit: datetime | None = None
         # First-write run_id per channel — pairs with ChannelClosed
         # on session-end so the two events carry the same run context.
         # ``None`` for channels written outside any run (daemon writes,
@@ -415,6 +424,30 @@ class ChannelStore:
                     resource=resource or None,
                 )
             )
+            self._last_spine_emit = now or datetime.now(UTC)
+
+    def _maybe_checkpoint(self, channel_id: str, offset: int, run_id: UUID | None) -> None:
+        """Emit a ``StreamCheckpoint`` if a cadence of off-spine writing has
+        elapsed since the store's last spine event — bounded to one per cadence,
+        carrying the channel's offset so the session lease renews and progress
+        is recorded. No-op without a cadence or event log."""
+        if self._checkpoint_cadence is None or self._event_log is None:
+            return
+        now = datetime.now(UTC)
+        if (
+            self._last_spine_emit is not None
+            and (now - self._last_spine_emit).total_seconds() < self._checkpoint_cadence
+        ):
+            return
+        self._event_log.emit(
+            StreamCheckpoint(
+                session_id=self._session_id,
+                run_id=run_id,
+                uri=make_channel_uri(channel_id, str(self._session_id), offset=offset),
+                offset=offset,
+            )
+        )
+        self._last_spine_emit = now
 
     def declare(
         self,
@@ -703,6 +736,7 @@ class ChannelStore:
                 else None
             )
             self._publish(channel_id, wire, samples)
+            self._maybe_checkpoint(channel_id, offsets[-1], run_id)
             return make_channel_uri(channel_id, sid, offset=offsets[0] if n == 1 else None)
 
         # ---- Array / struct / dict: per-row build (the envelope needs it) ----
@@ -752,6 +786,7 @@ class ChannelStore:
             else None
         )
         self._publish(channel_id, wire, samples if need_samples else None)
+        self._maybe_checkpoint(channel_id, offsets[-1], run_id)
         # offset pins single-sample writes (write/observe) to their one row; the
         # batch verb (write_many, N>1) stays un-offset — that's the deferred range case.
         return make_channel_uri(channel_id, sid, offset=offsets[0] if n == 1 else None)

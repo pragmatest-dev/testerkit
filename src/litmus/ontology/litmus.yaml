@@ -163,6 +163,15 @@ concepts:
     model: litmus.models.data_options.SessionOptions
     authored_at: litmus.yaml (under session:)
 
+  - id: stream_tuning
+    category: primitive
+    summary: >
+      Streaming liveness cadence — how often an active stream sink emits a
+      StreamCheckpoint (default lease/3). Shared by the channel + file
+      producers (litmus.yaml under stream:).
+    model: litmus.models.data_options.StreamTuning
+    authored_at: litmus.yaml (under stream:)
+
   - id: part
     category: definition
     summary: >
@@ -1063,6 +1072,18 @@ concepts:
     event_type: stream.ended
     summary: A stream ended.
     model: litmus.data.events.StreamEnded
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
+  - id: stream_checkpoint
+    category: event
+    event_type: stream.checkpoint
+    summary: >
+      Low-rate liveness + progress marker from an active stream — uri +
+      offset-so-far. Renews the session lease and records resumable progress;
+      emitted on a cadence (StreamTuning), never per sample.
+    model: litmus.data.events.StreamCheckpoint
     relationships:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }

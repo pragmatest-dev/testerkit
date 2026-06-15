@@ -408,6 +408,15 @@ Emitted when a FileStore streaming sink closes.
 | `uri` | `str \| None` | `None` |
 | `size_bytes` | `int \| None` | `None` |
 
+### `stream.checkpoint` — `StreamCheckpoint`
+
+Low-rate liveness + progress marker from an active streaming producer.
+
+| Field | Type | Default |
+|---|---|---|
+| `uri` | `str` | *required* |
+| `offset` | `int` | `0` |
+
 ## Dialog events
 
 ### `dialog.opened` — `DialogOpened`
