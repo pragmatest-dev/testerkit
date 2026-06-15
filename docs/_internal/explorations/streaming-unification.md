@@ -48,12 +48,42 @@ different machines. "Unify streaming" collapses the two lossy relays into
 | Impl | Where | Features | Disposition |
 |---|---|---|---|
 | `_SubscriberRing` + `_flight_subscribers` + `_relay_batch` + `_live_stream` in bespoke `ChannelFlightServer` | `channels/server.py:31,97,101,190` | `collections.deque`, **drain-coalesce** (LMAX catch-up: one read drains all queued batches), **ALL/LATEST policy**, **gap count** | → lift the ring INTO the shared server; retire `ChannelFlightServer` |
-| `_subscribers` plain `queue.Queue(maxsize=_SUB_QUEUE_MAX=10_000)` + `_do_subscribe` + `_publish` | `_duckdb_flight_server.py:263,405,306` | drop-on-full (removes the subscriber), **`replay_sql` cursor catch-up** (lossless across the subscribe boundary) | gains the ring's drain-coalesce + policy |
+| `_subscribers` plain `queue.Queue(maxsize=_SUB_QUEUE_MAX=10_000)` + `_do_subscribe` + `_publish` | `_duckdb_flight_server.py:263,405,306` | drop-on-full (removes the subscriber → client reconnects + replays), **`replay_sql` cursor catch-up** | gains drain-coalesce; overflow branches on `replay_sql` (events/runs unchanged) |
 
-The shared `_do_subscribe` already has the lossless replay-then-live
-catch-up the channels ring lacks; the channels ring has the drain-coalesce +
-policy the shared one lacks. The lift merges both strengths into the shared
-server — events/runs/files all benefit.
+**Durability is never in question here.** Every producer writes the durable
+segment (channels) / artifact (files) BEFORE any fan-out
+(`store.py:657-660`, `streaming.py:428-430`), so a subscribe buffer overflowing
+cannot lose data — only the *in-memory live tail* drops, and a consumer always
+recovers the rest from the durable store (`_maybe_scan_disk:1333-1336`; files
+range-read). What the two implementations actually differ on is **how a lagging
+live consumer catches up**, and the two overflow behaviors that follow are
+**mutually exclusive at the buffer level** — you cannot serve both with one:
+
+- **Replay-backed (events → runs):** on overflow the buffer **drops the
+  subscriber** (ends its stream). That drop *is* the recovery trigger — the
+  client reconnects and replays from its `replay_sql` cursor (in-band catch-up).
+  This consumer builds the runs view, so it must see every event in order;
+  keeping it attached while dropping old batches would advance its cursor past
+  rows it never refills.
+- **Live tail (channels / files frames):** on overflow the buffer **drops the
+  oldest batch, keeps the subscriber, counts a gap**. The consumer is a viewer;
+  it recovers missed data out-of-band by re-reading the durable store (using its
+  `offset` / `byte_offset` cursor to resume + dedup). Dropping *this* subscriber
+  would be wrong — there is no `replay_sql` replay on these subscriptions, so
+  ending the stream just churns reconnects for a consumer that re-syncs by a
+  separate query regardless. Keeping replay *off* the live path is also what
+  keeps the relay a cheap dumb tickerplant (`store.py:824`) — no per-subscriber
+  cursor bookkeeping competing with live fan-out on the hot path.
+
+The overflow behaviors are mutually exclusive, but the choice needs **no new
+policy type** — it follows directly from whether the db registered `replay_sql`,
+a fact the server already holds (`self._subscribe_replay`). `replay_sql` present
+→ drop-subscriber (the consumer can replay); absent → drop-oldest + gap (it
+can't, and re-syncs from the durable store). The two are coupled — there is no
+in-band replay without a cursor, and no point keeping a cursorless subscriber
+alive across a gap it can never refill — so a separate policy enum would be
+redundant and could only ever mirror `replay_sql`. Drain-coalesce (the LMAX
+read-side catch-up) is an orthogonal read optimization, safe for every subscriber.
 
 ### Client-side subscribe reader — TWO implementations
 
@@ -95,6 +125,37 @@ window-over-cross-DB-union errored — see the channels resolution), plus the
 opt-in seam: `register_query_hook` (parallel to `register_put_hook`).
 Events/runs/files keep plain SQL `do_get` — the hook is opt-in.
 
+## Channels behavior inventory — preserve ALL (the Phase 5 contract)
+
+Channels is a **painfully tuned machine** (`channels-write-scaling.md`,
+`channels-real-stream-handoff.md`). Every behavior below is load-bearing and
+must survive the migration onto the shared server. Each maps to where it is
+preserved; **any behavior that would change or drop is a STOP-and-ask, not an
+implementation detail.**
+
+| Behavior | Where it survives |
+|---|---|
+| Durable-segment-first append; write/write_many/stream unified on `_append_and_publish` | ChannelStore — untouched by the server move |
+| Scalar columnar fast path (no per-sample `ChannelSample`/dict) | ChannelStore — untouched |
+| `ChannelSample` materialized only when a subscriber/index consumes | ChannelStore — untouched |
+| Held per-channel `do_put` writers (one handshake per channel) | producer transport — kept; only the descriptor becomes the shared server's `db_name\0…` form (Phase 5) |
+| Async push relay off the capture path | shared `PushRelay` (Phase 1, done) |
+| Batch-buffering `_ChannelWriter` + rotation + idle flush | ChannelStore — untouched |
+| `offset` cursor (per-(channel,session) monotonic) + dedup | ChannelStore — untouched |
+| **drain-coalesce (LMAX: one read drains all queued)** | ported into the shared subscribe buffer (Phase 3) |
+| **`ALL`/`LATEST` conflation** | stays in `ChannelFlightServer` through Phase 4; ports onto the shared live-tail branch (Phase 5) |
+| **gap count on drop** | ported into the shared buffer (Phase 3) |
+| drop-oldest, keep-subscriber overflow | the no-`replay_sql` branch (Phase 3) |
+| `channel_index ∪ live overlay` dedup-on-`(session_id,offset)` | `store.query`, routed via `register_query_hook` (Phase 4) |
+| runtime segment-scan recovery (`_maybe_scan_disk`) | `store.query` path — untouched |
+| range/last-N/decimate/`max_points`/`session_id` query verb + value decode | `register_query_hook` (Phase 4) |
+| async/batched index feed (`ingest_batch`) | put-hook path (Phase 5) |
+| descriptor-absorb on `do_put` open | put-hook path (Phase 5) |
+| `__registry__` / `list_flights` / `get_flight_info` discovery + liveness | discovery via query-hook (Phase 4/5) |
+
+Phase 5 does not land until every row here is demonstrably preserved (benchmark
+ratios + the channels test suite green, Phase 7).
+
 ## Invariants discipline (blast radius)
 
 Phases 3–5 touch the server events/runs/files **share**. Per
@@ -103,12 +164,13 @@ Phases 3–5 touch the server events/runs/files **share**. Per
 > **Never remove a read lock in a commit that doesn't also make the
 > corresponding multi-statement write atomic.**
 
-The ring lift (Phase 3) changes the shared subscribe path. It must preserve:
-events' lossless events→runs materializer subscription (Rule E2: cursor
-replay + dedup, never silently drop the materializer), and runs' locked-mode
-reads (Rule R1, runs is not `parallel=True`). The ring change is fan-out
-mechanics, not the read/insert path, but any subscriber-drop semantics change
-gets verified against E2 before landing.
+Phase 3 adds drain-coalesce + replay-derived overflow to the shared subscribe
+buffer. Because events/runs are replay-backed, their overflow branch is exactly
+today's — drop-subscriber → client reconnects + cursor-replays (Rule E2); the
+new drop-oldest+gap branch is reached only by cursorless (channels/files frames)
+subscriptions, so the events→runs path is untouched by construction. No data is
+at risk either way — every store is durable-first; this governs only how a
+lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
 
 ## Phase plan
 
@@ -122,18 +184,36 @@ gets verified against E2 before landing.
 2. **`StreamTuning`** — collect the 9 knobs; plumb `flush_interval`; both
    relays + writers read it; surface `flush_threshold`/`flush_interval`
    toward `litmus.yaml`.
-3. **Lift `_SubscriberRing` into `DuckDBFlightServer`** — deque +
-   drain-coalesce + ALL/LATEST policy + gap count, replacing the plain
-   `queue.Queue`. Verify E2 (events materializer) + R1 (runs locked). *Cross-
-   store blast radius.*
+3. **Replay-derived overflow + drain-coalesce in `DuckDBFlightServer`** — replace
+   the plain `queue.Queue` subscriber with a buffer that:
+   - **drain-coalesces on read for ALL subscribers** (one read drains every
+     queued batch — LMAX catch-up); and
+   - **branches overflow on `replay_sql` presence** — no new policy type, the
+     server already stores `self._subscribe_replay`:
+     - replay-backed (events, runs) → drop the subscriber so the client
+       reconnects + replays from its cursor;
+     - not replay-backed (channels, files frames) → drop the oldest batch +
+       count a gap, keep the subscriber; it re-syncs from the durable store.
+
+   No data is at risk under either branch — every store is durable-first; this
+   only governs how a lagging *live* consumer re-syncs. **Conflation is a
+   separate axis and is NOT dropped:** channels' client-chosen `ALL`/`LATEST`
+   (`server.py:57`) stays in its own `ChannelFlightServer` untouched through
+   Phases 3–4, and ports onto the shared server's live-tail branch when channels
+   migrates in **Phase 5**. *Cross-store: changes the shared buffer events/runs
+   depend on — replay-backed stays drop-subscriber, and the events→runs path is
+   verified unchanged.*
 4. **`register_query_hook` seam** — typed read tickets for channels
    (range/last-N/decimate + `__registry__`); SQL stays the default.
 5. **Channels adopts `DuckDBFlightServer`** — daemon
    (`_flight_daemon.py`/`flight_manager.py`) starts the shared server;
    `do_put`→put_hook (`ingest_batch`), `do_get`→query_hook, subscribe→shared
-   ring; `list_flights`/`get_flight_info`/descriptor-absorb/`__registry__`
+   buffer; `ALL`/`LATEST` conflation ported onto the live-tail branch;
+   `list_flights`/`get_flight_info`/descriptor-absorb/`__registry__`
    fold into discovery. Delete `channels/server.py`
    (`ChannelFlightServer` + bespoke `_SubscriberRing`). Update `ChannelClient`.
+   **Gated on the channels behavior inventory above — every row preserved, or
+   STOP-and-ask.**
 6. **Shared `subscribe()` client reader** — fold `on_channel*` and
    `subscribe_frames` onto it; per-row decode stays pluggable.
 7. **Benchmark + docs** — `litmus benchmark --full` before/after to guard the
