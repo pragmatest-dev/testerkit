@@ -65,6 +65,57 @@ from litmus.models.enums import Comparator
 
 logger = logging.getLogger(__name__)
 
+
+class _EventSequenceMonitor:
+    """Per-writer emit-sequence contiguity check on ingested event rows.
+
+    Each EventLog writer stamps a per-instance ``writer_key`` and a
+    monotonic ``event_offset`` on every row it appends. The runs daemon
+    consumes those rows; a hole in a writer's offset stream means records
+    were truncated or lost in transit. This detect-and-flags: it logs and
+    counts gaps, never drops/blocks/crashes. Rows lacking the columns (the
+    in-process live emit path, which carries neither) are ignored.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._last: dict[str, int] = {}  # writer_key → last-seen event_offset
+        self.gap_count = 0
+        self.out_of_order_count = 0
+
+    def check(self, evt: dict[str, Any]) -> None:
+        writer_key = evt.get("writer_key")
+        offset = evt.get("event_offset")
+        if writer_key is None or offset is None:
+            return
+        offset = int(offset)
+        with self._lock:
+            last = self._last.get(writer_key)
+            if last is None or offset == last + 1:
+                self._last[writer_key] = offset
+                return
+            if offset <= last:
+                self.out_of_order_count += 1
+                logger.warning(
+                    "Event out-of-order for writer %s: offset %d arrived after %d",
+                    writer_key,
+                    offset,
+                    last,
+                )
+                return
+            # offset > last + 1: a hole.
+            self.gap_count += 1
+            self._last[writer_key] = offset
+            logger.warning(
+                "Event sequence gap for writer %s: expected offset %d, got %d "
+                "(%d record(s) missing)",
+                writer_key,
+                last + 1,
+                offset,
+                offset - last - 1,
+            )
+
+
 # ── Schema management ────────────────────────────────────────────────
 
 
@@ -1431,6 +1482,7 @@ def daemon_run(runs_dir: Path) -> None:
 
     # ── Materializer state ──────────────────────────────────────────
     pool = AccumulatorPool()
+    seq_monitor = _EventSequenceMonitor()
     stop_event = threading.Event()
     event_store_box: list[Any] = [None]  # set when the attach loop succeeds
     unsubscribe_box: list[Callable[[], None] | None] = [None]
@@ -1658,6 +1710,9 @@ def daemon_run(runs_dir: Path) -> None:
         under burst load — operator UI live-runs would lag by seconds.
         """
         et = evt.get("event_type")
+        # Per-writer sequence-gap check on the row columns (writer_key /
+        # event_offset). Detect-and-flag only — never drops or blocks.
+        seq_monitor.check(evt)
         if et == "run.materialized":
             rid = evt.get("run_id")
             if rid:

@@ -21,6 +21,16 @@ def _make_store(tmp_path: Path, flush_threshold: int = 100) -> ChannelStore:
 
 
 class TestScalarChannel:
+    def test_lazy_open_on_first_write_and_idempotent_open(self, tmp_path: Path):
+        """P2b: a never-opened store opens on first write; open() is idempotent."""
+        store = ChannelStore(tmp_path, uuid4())  # constructed, NOT opened
+        assert store._opened is False
+        store.write("dmm.dc_voltage", 3.3, source="measure")  # first write opens it
+        assert store._opened is True
+        store.open()  # idempotent — no re-init, no error
+        store.close()
+        assert len(list((tmp_path / "channels").glob("*/*.arrow"))) == 1
+
     def test_writes_arrow_ipc_on_close(self, tmp_path: Path):
         store = _make_store(tmp_path)
         store.write("dmm.dc_voltage", 3.3, source="measure_dc_voltage")

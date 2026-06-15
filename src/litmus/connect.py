@@ -95,15 +95,15 @@ class StationConnection:
         self._event_store = self._scope.event_store
         self._event_log = self._scope.event_log
 
-        # ChannelStore is opened eagerly here today (lazy attach lands in a later
-        # phase). Pass event_log so it can emit ChannelStarted / ChannelClosed.
+        # ChannelStore is constructed now but opens lazily on first channel write
+        # (no daemon spin for a zero-channel session). Pass event_log so it can
+        # emit ChannelStarted / ChannelClosed.
         self._channel_store = ChannelStore(
             self._event_store._data_dir,
             self._session_id,
             serve=True,
             event_log=self._event_log,
         )
-        self._channel_store.open()
 
         # Wire the ChannelStore ContextVar (open_session wired the EventStore) so
         # module-level surfaces (``litmus.channels.stream``, ``litmus.files.write``)

@@ -294,6 +294,11 @@ class ChannelStore:
         # interactive bringup).
         self._channel_run_ids: dict[str, UUID | None] = {}
         self._closed = False
+        # Lazy daemon spin: the store object is cheap, but ``open()`` (Flight
+        # serve + push thread) is the ~per-session cost. A session that writes
+        # zero channels must spin no daemon, so ``open()`` is deferred to the
+        # first append (see ``_append_and_publish``) and is idempotent.
+        self._opened = False
 
         # Warm DuckDB index — daemon-only (Opt 1: the daemon indexes
         # producer files and serves at-rest query from the index; it no
@@ -330,6 +335,8 @@ class ChannelStore:
         self._push_drops = 0
 
     def open(self) -> None:
+        if self._opened:
+            return
         self._channels_dir.mkdir(parents=True, exist_ok=True)
         if self._index_enabled:
             self._index_open()
@@ -342,6 +349,9 @@ class ChannelStore:
                     target=self._push_loop, name="channel-pusher", daemon=True
                 )
                 self._push_thread.start()
+        # Set last: a failed open() can be retried; a single producer thread means
+        # no concurrent re-entry to guard against (see the single-writer model).
+        self._opened = True
 
     def list_channel_info(self) -> list[tuple[ChannelDescriptor, pa.Schema]]:
         """Return (descriptor, schema) for each registered channel."""
@@ -656,6 +666,10 @@ class ChannelStore:
                 f"Channel {channel_id}: value type {type(first).__name__} is not numeric. "
                 "Use file:// refs for non-numeric data."
             )
+
+        # Lazy daemon spin: the first real append opens the store (Flight serve +
+        # push thread). Idempotent — a no-op for an already-open store.
+        self.open()
 
         now = datetime.now(UTC)
         sid = str(self._session_id)

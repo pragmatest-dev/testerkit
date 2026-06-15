@@ -255,8 +255,9 @@ def _setup_event_log_and_subscribers(
     )
     logger.event_log = scope.event_log
 
+    # Constructed now, opens lazily on first channel write (no daemon spin for a
+    # zero-channel session).
     channel_store = ChannelStore(results_path, session_id, serve=True, event_log=scope.event_log)
-    channel_store.open()
     set_channel_store(channel_store)
 
     return scope
