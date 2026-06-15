@@ -140,7 +140,7 @@ def _subscribe_collect(location: str, cursor: int, want: int) -> list[dict]:
     """
     client = flight.connect(location)
     try:
-        ticket = flight.Ticket(f"events\0__SUBSCRIBE__\0{cursor}".encode())
+        ticket = flight.Ticket(f"events\0__SUBSCRIBE__\0cursor={cursor}".encode())
         reader = client.do_get(ticket)
         out: list[dict] = []
         for chunk in reader:

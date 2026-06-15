@@ -20,7 +20,7 @@ import pytest
 from litmus.data._duckdb_flight_server import (
     DuckDBFlightServer,
     _apply_filter,
-    _parse_filter,
+    _parse_subscribe,
     _SubscriberBuffer,
 )
 
@@ -68,6 +68,17 @@ def test_buffer_drain_returns_none_when_closed() -> None:
     buf = _SubscriberBuffer(lossy=True, maxsize=10)
     buf.close()
     assert buf.drain(0.1) is None
+
+
+def test_buffer_conflate_keeps_only_newest() -> None:
+    """LATEST gauge: each put conflates to the newest batch, no gap count."""
+    buf = _SubscriberBuffer(lossy=True, maxsize=100, conflate=True)
+    for i in range(5):
+        buf.put(_rb(i))
+    drained = buf.drain(0.1)
+    assert drained is not None
+    assert [b.column("x").to_pylist()[0] for b in drained] == [4]  # only newest
+    assert buf.gaps == 0  # conflation is intentional, not overflow
 
 
 def _make_server(*, with_subscribe: bool = True) -> tuple[DuckDBFlightServer, str]:
@@ -159,13 +170,18 @@ def _ctbl(cids: list[str]) -> pa.Table:
     )
 
 
-def test_parse_filter() -> None:
-    assert _parse_filter("") == {}
-    assert _parse_filter("channel_id=dmm.voltage") == {"channel_id": "dmm.voltage"}
-    assert _parse_filter("event_type=run.ended&role=dmm") == {
-        "event_type": "run.ended",
-        "role": "dmm",
-    }
+def test_parse_subscribe() -> None:
+    # (cursor, conflate, predicates)
+    assert _parse_subscribe("") == (0, False, {})
+    assert _parse_subscribe("channel_id=dmm.voltage") == (0, False, {"channel_id": "dmm.voltage"})
+    assert _parse_subscribe("cursor=42") == (42, False, {})
+    assert _parse_subscribe("conflate=latest&channel_id=x") == (0, True, {"channel_id": "x"})
+    # cursor + conflate are reserved control keys, not filter predicates
+    assert _parse_subscribe("cursor=5&conflate=latest&event_type=run.ended") == (
+        5,
+        True,
+        {"event_type": "run.ended"},
+    )
 
 
 def test_apply_filter_empty_returns_table_unchanged() -> None:
@@ -222,8 +238,8 @@ def test_subscribe_applies_server_side_filter() -> None:
         sub_client = flight.connect(location)
 
         def _subscribe() -> None:
-            # filter cid=a → only "a" rows. Ticket: db\0__SUBSCRIBE__\0<cursor>\0<filter>
-            reader = sub_client.do_get(flight.Ticket(b"mdb\0__SUBSCRIBE__\0\0cid=a"))
+            # filter cid=a → only "a" rows. Ticket: db\0__SUBSCRIBE__\0<querystring>
+            reader = sub_client.do_get(flight.Ticket(b"mdb\0__SUBSCRIBE__\0cid=a"))
             registered.set()
             for chunk in reader:
                 received.append(chunk.data)

@@ -41,14 +41,25 @@ _SUBSCRIBE = "__SUBSCRIBE__"
 _SUB_QUEUE_MAX = 10_000
 
 
-def _parse_filter(raw: str) -> dict[str, str]:
-    """Parse a urlencoded equality-predicate filter (``a=1&b=2``) into a dict.
+def _parse_subscribe(qs: str) -> tuple[int, bool, dict[str, str]]:
+    """Parse a ``__SUBSCRIBE__`` options querystring into (cursor, conflate,
+    predicates).
 
-    The per-subscription server-side filter: empty string → no predicates (the
-    subscriber receives every row of the db, today's broadcast behavior)."""
-    if not raw:
-        return {}
-    return {k: v[0] for k, v in parse_qs(raw, keep_blank_values=True).items() if v}
+    One urlencoded querystring carries every subscribe option. Reserved control
+    keys: ``cursor`` (replay position, int) and ``conflate`` (``latest`` → keep
+    only the newest batch — a gauge). Every other key is an equality filter
+    predicate (``channel_id=…``, ``event_type=…``). Empty → no replay, no
+    conflation, no filter (the whole db's live stream)."""
+    parsed = {k: v[0] for k, v in parse_qs(qs, keep_blank_values=True).items() if v}
+    cursor = 0
+    raw_cursor = parsed.pop("cursor", "")
+    if raw_cursor:
+        try:
+            cursor = int(raw_cursor)
+        except ValueError:
+            cursor = 0
+    conflate = parsed.pop("conflate", "") == "latest"
+    return cursor, conflate, parsed
 
 
 def _apply_filter(table: pa.Table, predicates: dict[str, str]) -> pa.Table | None:
@@ -97,10 +108,12 @@ class _SubscriberBuffer:
         lossy: bool,
         maxsize: int = _SUB_QUEUE_MAX,
         predicates: dict[str, str] | None = None,
+        conflate: bool = False,
     ) -> None:
         self._lossy = lossy
         self._max = maxsize
         self._predicates = predicates or {}
+        self._conflate = conflate
         self._batches: collections.deque[pa.RecordBatch] = collections.deque()
         self._cond = threading.Condition()
         self._gaps = 0
@@ -122,7 +135,12 @@ class _SubscriberBuffer:
         with self._cond:
             if self._closed:
                 return True
-            if len(self._batches) >= self._max:
+            if self._conflate:
+                # Gauge: keep only the newest batch. Intentional, not overflow —
+                # no gap count (channels' LATEST policy).
+                self._batches.clear()
+                self._batches.append(batch)
+            elif len(self._batches) >= self._max:
                 if not self._lossy:
                     return False  # lossless: drop batch + drop subscriber (→ replay)
                 self._batches.append(batch)
@@ -503,16 +521,11 @@ class DuckDBFlightServer(flight.FlightServerBase):
             )
         db_name, sql = raw.split("\0", 1)
         if sql == _SUBSCRIBE or sql.startswith(_SUBSCRIBE + "\0"):
-            # __SUBSCRIBE__\0<cursor>\0<filter> — cursor and filter both optional.
-            parts = sql.split("\0")
-            cursor = 0
-            if len(parts) > 1 and parts[1]:
-                try:
-                    cursor = int(parts[1])
-                except ValueError:
-                    cursor = 0
-            predicates = _parse_filter(parts[2] if len(parts) > 2 else "")
-            return self._do_subscribe(db_name, cursor, predicates)
+            # __SUBSCRIBE__\0<options-querystring> — one querystring carries the
+            # cursor, conflate, and filter predicates (all optional).
+            qs = sql.split("\0", 1)[1] if "\0" in sql else ""
+            cursor, conflate, predicates = _parse_subscribe(qs)
+            return self._do_subscribe(db_name, cursor, predicates, conflate)
 
         # Typed read hook (range / last-N / decimate / discovery) — the store
         # parses the payload itself, so a query-hooked db need not register a
@@ -538,7 +551,11 @@ class DuckDBFlightServer(flight.FlightServerBase):
         return flight.RecordBatchStream(result)
 
     def _do_subscribe(
-        self, db_name: str, cursor: int = 0, predicates: dict[str, str] | None = None
+        self,
+        db_name: str,
+        cursor: int = 0,
+        predicates: dict[str, str] | None = None,
+        conflate: bool = False,
     ) -> flight.GeneratorStream:
         """Open a held-open push stream for ``db_name`` (no polling).
 
@@ -567,7 +584,8 @@ class DuckDBFlightServer(flight.FlightServerBase):
         # Overflow behavior follows the recovery capability: a replay-backed db
         # (has replay_sql) is lossless (drop-subscriber → client replays); one
         # without is lossy (drop-oldest + gap, recover from the durable store).
-        buf = _SubscriberBuffer(lossy=replay_sql is None, predicates=predicates)
+        # ``conflate`` (channels' LATEST gauge) keeps only the newest batch.
+        buf = _SubscriberBuffer(lossy=replay_sql is None, predicates=predicates, conflate=conflate)
         with self._sub_lock:
             self._subscribers.setdefault(db_name, []).append(buf)
         conn = self._databases.get(db_name)
