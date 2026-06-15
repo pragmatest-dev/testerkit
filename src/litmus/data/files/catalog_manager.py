@@ -11,7 +11,6 @@ catalog is rebuilt from them on every daemon start.
 from __future__ import annotations
 
 import json
-import threading
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -28,6 +27,7 @@ from litmus.data._flight_query import (
     call_options,
     probe_sql,
 )
+from litmus.data._flight_subscribe import subscribe
 from litmus.data._push_relay import PushRelay
 from litmus.data.files.catalog import (
     CATALOG_ARROW_SCHEMA,
@@ -302,29 +302,24 @@ def subscribe_frames(
     """
     location = acquire(files_dir)
     client = flight.connect(location)
-    stop = threading.Event()
 
-    def _run() -> None:
-        try:
-            reader = client.do_get(flight.Ticket(f"{FRAMES_DB}\0__SUBSCRIBE__".encode()))
-            for chunk in reader:
-                if stop.is_set():
-                    break
-                batch = chunk.data
-                for i in range(batch.num_rows):
-                    callback({c: batch.column(c)[i].as_py() for c in batch.schema.names})
-        except (OSError, pa.ArrowException):
-            pass
+    def _on_batch(batch: pa.RecordBatch) -> None:
+        for i in range(batch.num_rows):
+            callback({c: batch.column(c)[i].as_py() for c in batch.schema.names})
 
-    thread = threading.Thread(target=_run, daemon=True, name="files-frame-sub")
-    thread.start()
-
-    def unsub() -> None:
-        stop.set()
+    def _close() -> None:
         try:
             client.close()
         except (OSError, RuntimeError, pa.ArrowException):
             pass
         release(files_dir)
 
+    unsub, _thread = subscribe(
+        client,
+        flight.Ticket(f"{FRAMES_DB}\0__SUBSCRIBE__".encode()),
+        _on_batch,
+        name="files-frame-sub",
+        swallow_errors=True,
+        on_close=_close,
+    )
     return unsub

@@ -272,8 +272,14 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
    Final vs the pre-everything original (`e508bf0`), 1/2/4 writers:
    write_many 154/162/152k → **180/190/188k**; stream 150/155/155k →
    **179/183/184k**; write 7.6/10.6/9.8k → **7.6/13.5/13.2k**.
-6. **Shared `subscribe()` client reader** — fold `on_channel*` and
-   `subscribe_frames` onto it; per-row decode stays pluggable.
+6. **Shared `subscribe()` client reader** — **DONE.**
+   `_flight_subscribe.subscribe(client, ticket, on_batch, …)` owns the held
+   `do_get` + daemon reader thread + stop/unsub once; `ChannelClient.on_channel`
+   / `on_channel_batch` and files `subscribe_frames` pass a pluggable decode
+   callback. Per-caller differences ride flags (`client_stop` for the channels
+   client-wide close, `swallow_errors` for the files contract, `on_close` for
+   files' client-close + daemon-release) — no copies of the loop. Removes the
+   triplicated thread/stop/try-except boilerplate and the drift between the three.
 7. **Benchmark + docs** — `litmus benchmark --full` before/after to guard the
    channel throughput ratios (no regression vs the pre-unification numbers);
    update this diary + `channels-followups.md` #7 (mark done). Full suite

@@ -17,6 +17,7 @@ import pyarrow as pa
 import pyarrow.flight as flight
 
 from litmus.data._flight_query import call_options
+from litmus.data._flight_subscribe import subscribe
 from litmus.data.channels import flight_manager
 from litmus.data.channels.models import (
     CHANNELS_FLIGHT_DB,
@@ -114,28 +115,19 @@ class ChannelClient:
         ``policy=LATEST`` conflates to the newest sample. Spawns a reader
         thread. Returns an unsubscribe callable.
         """
-        stop = threading.Event()
 
-        def _reader() -> None:
-            try:
-                reader = self._client.do_get(_subscribe_ticket(channel_id, policy))
-                for chunk in reader:
-                    if stop.is_set() or self._stop.is_set():
-                        break
-                    batch = chunk.data
-                    for i in range(batch.num_rows):
-                        callback(batch_row_to_sample(batch, i))
-            except (OSError, pa.ArrowException):
-                if not stop.is_set() and not self._stop.is_set():
-                    raise
+        def _on_batch(batch: pa.RecordBatch) -> None:
+            for i in range(batch.num_rows):
+                callback(batch_row_to_sample(batch, i))
 
-        thread = threading.Thread(target=_reader, daemon=True, name=f"channel-sub-{channel_id}")
-        thread.start()
+        unsub, thread = subscribe(
+            self._client,
+            _subscribe_ticket(channel_id, policy),
+            _on_batch,
+            name=f"channel-sub-{channel_id}",
+            client_stop=self._stop,
+        )
         self._reader_threads.append(thread)
-
-        def unsub() -> None:
-            stop.set()
-
         return unsub
 
     def on_channel_batch(
@@ -151,28 +143,14 @@ class ChannelClient:
         consumer decodes N rows columnar instead of paying a per-sample
         callback. Spawns a reader thread; returns an unsubscribe callable.
         """
-        stop = threading.Event()
-
-        def _reader() -> None:
-            try:
-                reader = self._client.do_get(_subscribe_ticket(channel_id, policy))
-                for chunk in reader:
-                    if stop.is_set() or self._stop.is_set():
-                        break
-                    callback(chunk.data)
-            except (OSError, pa.ArrowException):
-                if not stop.is_set() and not self._stop.is_set():
-                    raise
-
-        thread = threading.Thread(
-            target=_reader, daemon=True, name=f"channel-sub-batch-{channel_id}"
+        unsub, thread = subscribe(
+            self._client,
+            _subscribe_ticket(channel_id, policy),
+            callback,
+            name=f"channel-sub-batch-{channel_id}",
+            client_stop=self._stop,
         )
-        thread.start()
         self._reader_threads.append(thread)
-
-        def unsub() -> None:
-            stop.set()
-
         return unsub
 
     def query(
