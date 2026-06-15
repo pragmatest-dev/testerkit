@@ -253,3 +253,15 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
 - **Events server-side filtering** — migrating the client-side broadcast+`matches`
   (`event_store.py:218`) onto the new per-subscription filter is a verified
   fast-follow once channels proves the mechanism, not part of this effort.
+
+## Follow-ups after this refactor
+
+- **Merge worktrees back, return to files.** This effort runs in the
+  `litmus-streaming` worktree off `spike/session-overhaul`. When it lands, merge
+  the worktrees back together and resume the files-store work.
+- **Files streaming perf gate is not trusted.**
+  `test_perf.py::TestFileStreamPerf::test_stream_raw_near_io_ceiling` is
+  `@pytest.mark.skip`'d — the user doesn't believe we actually hit the stated
+  io-ceiling numbers, and it flakes under load. Revisit files streaming perf
+  (re-measure honestly, fix or re-baseline the gate) as part of getting back to
+  files.
