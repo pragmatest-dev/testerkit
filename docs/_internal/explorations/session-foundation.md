@@ -568,7 +568,8 @@ ask the user). Open design calls already settled this session:
 Remaining waves: **(A — LANDED `da6b86e`)** Step 4 author surface — `measure` promoted to a public verb
 (peer of `verify`; top-level + fixture + `Context.measure`, all logger-routed via `_perform_measure`),
 `logger` fixture de-exposed (no test/example requests it for recording), `record` deleted (was dead).
-**(B)** `RunScope` rename (`TestRunLogger`→`RunScope`) + lift session-open into `pytest_sessionstart`.
+**(B — LANDED `92768b2`+`c8d3225`)** `RunScope` rename + session lifecycle lifted out of the run fixture
+(opens at `pytest_sessionstart`, closes at `pytest_sessionfinish`; runner-neutral `build_session_started`).
 **(C)** P6 producer/reader split (extract index/reader out of `ChannelStore`, `store.py:1053-1700`) → DI
 contract (drop `session_id` param, derive from `event_log`). **(D)** P3 reaper (refcount close +
 will-fields + 900s). **(E)** ⚠ P4 terminal finality — STOP at the instrument-lock scope decision.
@@ -606,6 +607,21 @@ will-fields + 900s). **(E)** ⚠ P4 terminal finality — STOP at the instrument
   category, both record test files; `event-types.md` regenerated. Full gate green. **NOTE — deferred:**
   prose-docs + skills-template `logger.measure`→`measure` migration folded into the post-Wave-B docs
   pass (those pages also rename `logger`→`RunScope`, so migrate once, not twice — per-page-audit cost).
+- **Wave B — RunScope rename + session lifecycle lift (`92768b2` + `c8d3225`, 2026-06-15).**
+  **B1** (`92768b2`): mechanical class rename `TestRunLogger`→`RunScope` (module `logger.py` unchanged;
+  `TestRun` record unchanged). **B2** (`c8d3225`): session opens at `pytest_sessionstart`, closes at
+  `pytest_sessionfinish`; the run fixture emits only `RunStarted`/`RunEnded` (no longer brackets
+  `SessionStarted`/`SessionEnded`). New `build_session_started()` is the runner-neutral
+  `StationConfig`→`SessionStarted` factory shared by `connect()` + pytest (store-path station resolution,
+  not the pytest fixture — works for any producer incl. a future producer-UI; down payment on #35).
+  **Hard-won correctness fix:** `pytest_sessionfinish` must finalize the run from the **per-session
+  stash**, NOT `get_current_logger()` — `set_current_logger` is token-restored, so a nested in-process
+  pytester run restores the var to the OUTER run on teardown; finalizing the current logger there sealed
+  the outer run mid-suite (its `RunEnded` landed before its own steps), and every later step then
+  re-triggered a failed materialize of the now-"complete" run (the un-evicted #37 mixed-type poison) —
+  a ~2000-deep daemon retry storm that starved legit runs → subprocess materialization timeouts.
+  `RunScope.finalize()` is now idempotent. Full suite green (2063 pass). **NOTE — still deferred:** the
+  prose-docs + skills-template `logger.measure`→`measure` migration (folded with this rename's doc pass).
 - [ ] 3 — will + spine-only reaper. **The will-fields + 900s sub-step was drafted then reverted out
   of the tree (uncommitted → lost). P3 is FULLY PENDING — do will-fields + reaper together; orphan
   timeout is still `3600` at `_runs_duckdb_daemon.py:1754`.**
