@@ -570,9 +570,10 @@ Remaining waves: **(A — LANDED `da6b86e`)** Step 4 author surface — `measure
 `logger` fixture de-exposed (no test/example requests it for recording), `record` deleted (was dead).
 **(B — LANDED `92768b2`+`c8d3225`)** `RunScope` rename + session lifecycle lifted out of the run fixture
 (opens at `pytest_sessionstart`, closes at `pytest_sessionfinish`; runner-neutral `build_session_started`).
-**(C)** P6 producer/reader split (extract index/reader out of `ChannelStore`, `store.py:1053-1700`) → DI
-contract (drop `session_id` param, derive from `event_log`). **(D)** P3 reaper (refcount close +
-will-fields + 900s). **(E)** ⚠ P4 terminal finality — STOP at the instrument-lock scope decision.
+**(C — split LANDED `f15a06b`)** P6 producer/reader split — the warm DuckDB index extracted to a
+session-less `ChannelIndex` (`data/channels/index.py`), composed by `ChannelStore`. **DI flip + naming
+DEFERRED** (decisions below). **(D)** P3 reaper (refcount close + will-fields + 900s). **(E)** ⚠ P4
+terminal finality — STOP at the instrument-lock scope decision.
 
 ## Progress log (keep current)
 
@@ -622,6 +623,24 @@ will-fields + 900s). **(E)** ⚠ P4 terminal finality — STOP at the instrument
   a ~2000-deep daemon retry storm that starved legit runs → subprocess materialization timeouts.
   `RunScope.finalize()` is now idempotent. Full suite green (2063 pass). **NOTE — still deferred:** the
   prose-docs + skills-template `logger.measure`→`measure` migration (folded with this rename's doc pass).
+- **Wave C — producer/reader split (`f15a06b`, 2026-06-15).** The warm DuckDB index (open / scan /
+  registry / insert / query — ~600 lines interwoven in `store.py`) extracted to a session-less
+  **`ChannelIndex`** (`data/channels/index.py`): it reads `session_id` off the data rows and has none of
+  its own (verified — the index never touched `self._session_id`; the producer stamps it). `ChannelStore`
+  now **composes** an optional `ChannelIndex` (`index=True` → daemon ingest+query, or a warm-index test
+  that writes + indexes through one object); `list_channel_info` / `get_channel_schema` / `query` /
+  `query_registry` / `ingest_batch` delegate the index half, and the producer write path feeds it when
+  present. The `_registry` duality resolved cleanly — a producer populates it via `_register`, the daemon
+  via the index's `absorb_descriptor`; never mixed on one object. **Two decisions taken at the gate
+  (2026-06-15):** ① **split-now / flip-later** — the `event_log` optional→required producer flip (DI
+  contract, decided 2026-06-14) has a ~51-site blast radius (9 bench/example producers + 42 bare write
+  tests, incl. `run_concurrency` the scaling bench drives); the split is its *precondition*, not a same-
+  commit coupling, so `event_log` stays optional this wave and the flip + a test/bench EventLog factory is
+  the focused follow-on. ② **defer naming** — the public class stays `ChannelStore` (the "Store" =
+  cross-session corpus rename rides P6's dedicated naming pass). **Proven behavior- and throughput-neutral**
+  via `scripts/bench_channel_scaling.py` (write / write_many / stream × 1/2/4 writer processes): baseline
+  vs after held within WSL2 run-to-run variance (write_many ~197k→214k/s 1w, stream ~200k/s 1w; aggregate
+  holds/climbs with writers; scaling factors unchanged). Full gate green (pyright + suite).
 - [ ] 3 — will + spine-only reaper. **The will-fields + 900s sub-step was drafted then reverted out
   of the tree (uncommitted → lost). P3 is FULLY PENDING — do will-fields + reaper together; orphan
   timeout is still `3600` at `_runs_duckdb_daemon.py:1754`.**
@@ -630,7 +649,9 @@ will-fields + 900s). **(E)** ⚠ P4 terminal finality — STOP at the instrument
   2026-06-14): `_EventSequenceMonitor` in the runs daemon flags non-contiguous `event_offset` per
   `writer_key` (truncated/lost records) with a log + counter, no drop/block; no-ops on the column-less
   in-process path. Independently reviewed. Envelope-naming-discipline part still pending.
-- [ ] 6 — producer/reader split + first-class reader entry
+- [~] 6 — producer/reader split + first-class reader entry. **Split LANDED** (`f15a06b`): session-less
+  `ChannelIndex` extracted, `ChannelStore` composes it. **Deferred:** the `event_log` required-flip (split-
+  now/flip-later decision) + the public rename (defer-naming decision) + a first-class reader entry point.
 - [ ] 7 — rename `StationConnection` → `Session`
 - [ ] 8 — liveness projection → UI/MCP/HTTP
 
