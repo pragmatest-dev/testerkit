@@ -342,6 +342,196 @@ same shape for all. Verified state:
   imports nothing from execution**. Resolving from the ContextVar would invert that clean boundary.
   Do not "fix" stores to pull from context.
 
+## Run vs session ownership — the keystone's author surface (decided 2026-06-14)
+
+Separating the keystone from the author surface exposed that the pytest-side session lifecycle
+is welded to the **run**, through a misnamed object. Verified against source:
+
+**Three different things are named "logger" — independently confirmed against source (2026-06-14).**
+This collision is the whole knot; it cost hours of apparent contradiction because the bare word
+"logger" was used for all three:
+
+| name | what it is | opens/closes the session? | is the run? | where |
+|------|------------|---------------------------|-------------|-------|
+| `TestRunLogger` (class → `RunScope`) | the run-controller object | **NO** — class body has no `open_session`/`SessionStarted`/`SessionEnded` | **YES** — builds `TestRun`, owns steps/outcome, emits `RunEnded` | `logger.py:377` (RunEnded `:1220`) |
+| `logger` (the `@pytest.fixture`) | the fixture **function** | **YES** — `open_session` `:402→:249`, `SessionStarted` `:403`, `emit_ended()`+`close_stores()` `:363-364` (teardown `:411`) | no — it just *yields* the run | `pytest_plugin/__init__.py:367` |
+| `logger` (local var in that fixture) | a `TestRunLogger` instance | no | it *is* row 1 | `__init__.py:398` |
+
+A test writing `def test_x(logger)` receives the `TestRunLogger` object (row 1 — the run controller),
+`yield`ed at `:407`. The session is opened/closed by the fixture **function** (row 2), **never** by the
+object. So: the run controller does not touch the session; a pytest fixture does. The rename
+(`TestRunLogger`→`RunScope`) + lifting `open_session` into a session fixture exists to kill this exact
+three-way name collision.
+
+- **`TestRunLogger` IS the run controller, not a logger.** It constructs the `TestRun`
+  (`logger.py:452`), owns step/vector/measurement lifecycle + the outcome rollup (`finalize()`),
+  and emits `RunStarted`/`StepStarted`/`RunEnded`. The injected `event_log` is the only
+  "logging" in it; the `context`/`run_context` author fixtures derive from it
+  (`__init__.py:977`/`:421`). The name describes ~5% of the object and hid the rest.
+- **Session lifecycle is bolted onto the run's *fixture*, not the class.** The session-scoped
+  autouse `logger` fixture calls `open_session` at setup and `emit_ended()`+`close_stores()` at
+  teardown (`__init__.py:402` / `_teardown_logger`). So a **run ending emits `SessionEnded`** —
+  the exact session=run coupling this overhaul exists to undo. The class is clean; the fixture is the bug.
+- **`logger` leaks to authors only because two ops were never promoted.** The powerful verbs
+  (`verify`/`observe`/`stream`) are public (`litmus.verbs`, route through `Context`, never the run
+  controller). `measure` (record-only measurement) and `record` (key/value) have no verb, so
+  authors reach `logger.measure`/`logger.record` — the sole reason the fixture is author-facing.
+- **Verb relationships (verified):** `verify` = `measure` + judgment — `verify` with no limit
+  literally falls through to `logger.measure(DONE)` when the profile permits, else `MissingLimitError`
+  (`harness.py:599-603`). `measure` never judges (always DONE) and never errors on a missing limit —
+  it is the "this is never judged" intent. `observe`→`out_*`/channels/files; `configure`→`in_*`;
+  both distinct from the measurement row.
+- **`record` is effectively dead.** `test.record` is NOT in the accumulator's `_EVENT_CLASSES`
+  whitelist (`_accumulator_pool.py:59`); `dispatch` drops unmapped types (`:122`). So `RecordEvent`
+  reaches no run/step/measurement projection — it survives only as a raw event. (Unverified: whether
+  any reader surfaces `test.record` at all.)
+
+**Decisions:**
+1. **`TestRunLogger` → `RunScope`** — symmetric with `SessionScope` (trace-owner ↔ span-owner);
+   names the parallel in the types. Owns `RunStarted`/`RunEnded` + the `TestRun` record. **`TestRun`
+   stays** the public, queryable record (don't rename — it's what `litmus show`/API/client return).
+   `RunScope` deliberately drops the `Test*` prefix: it's the live owner, not a peer data model of
+   `TestStep`/`TestVector`.
+2. **Session open/close lifts OUT of the run fixture.** Session is established at run-start (the
+   standalone/orchestrator/worker determination stays) but **not closed by the run** — closed by
+   derivation (P3 reaper/lease). The run fixture stops emitting `SessionEnded`. This is the
+   pytest-side of 2d.
+3. **Promote `measure` to a public verb** — record-only peer of `verify`, same row primitive
+   underneath. Then **de-expose the `logger` fixture**: no test requests it, it becomes the pure
+   internal `RunScope`.
+4. **`SessionRequired` / 2c dropped.** It's a typed rename of the existing no-setup error, not a
+   real fence — it does not catch the explicit-`session_id` orphan (a client can't know a session_id
+   was legitimately opened; that's spine-side). Reintroduce a typed exception in **P4** when the
+   reopen-UX has something to `except` it. (Lighter consistency win available now if wanted: unify the
+   channels+files no-session error to one message — no new type.)
+5. **`record`: decide home or delete** — OPEN. Needs the "does anything read `test.record`" check first.
+
+**Verified foundation bug (load-bearing for #2 — must land regardless of the rename):** the
+session-store ContextVars (`_event_store_var`, `_channel_store_var`) are the **only** mutable
+session-scoped vars managed with `set(value)`/`set(None)` instead of token push/reset — every other
+one (context, active_connection, step, vector) uses `push_*`/`reset_*(token)`. So a nested/sequential
+session **clobbers** the outer: `connect.stop()` / `close_stores()` call `set_event_store(None)`
+mid-session, wiping the outer pytest-session binding to `None` for every later test (order-dependent).
+A user who nests `connect()` inside a session loses their session binding on block exit. **Fix:** token
+push/reset in the primitive, restoring the prior binding on close. This is the determinism that makes
+"a session is open" a trustworthy signal at all.
+
+## Session lifecycle model — refined (2026-06-14)
+
+Refinements that converged this session; they supersede parts of the original contract above and
+simplify the P3/P4 machinery.
+
+**No `SessionRequired` — auto-root instead (supersedes P2c).** A producer write with no active
+session does not error; it mints one (OTel: the first write roots a new trace). Justified by our own
+"holds no scarce resource" → auto-root, never a lease-ceremony. The only typed exception is
+`SessionExpired` = a write through a held reference to an *already-sealed* session (P4) — "hit it once
+and learn." `session_id` is automatic by default, explicit only to **share** across processes.
+
+**Provenance = ownership.** Mint the id → owner (emits `SessionStarted`, anchors the session). Handed
+the id → participant (attaches, emits no `SessionStarted`, never closes). Collapses `session_id` +
+`emit_lifecycle` into one signal: `open_session()` (no id) mints+owns+emits; `open_session(session_id=X)`
+attaches silently. Owner = the mint site, always; a **store can never own** (DI boundary forbids it
+reaching `open_session`, and a session must outlive any single store — it spans channels + files + runs).
+
+**One active `SessionScope` in one token-managed ContextVar** (supersedes "token-discipline the two
+store vars"). The active session is one object carrying id + spine (+ lazily the channel store);
+`session_id` and `event_log` both resolve from it. Kills the clobber (event_store/channel_store were
+the only non-token contextvars and could disagree). The ambient ContextVar is the *test-author*
+convenience only; interactive UIs/services hold the explicit `SessionScope`/connection handle and write
+through it — no ambient magic outside the framework build.
+
+**Close/seal = a spine-derived `Started − Ended` balance (refcount) — REPLACES the separate
+live→suspect→abandoned + terminal-seal machinery.** One counter yields both liveness and finality:
+- `Started > Ended` → **open** (lease backstops a leaked ref).
+- `Started == Ended` → **sealed**: terminal, **writes fenced, reads never fenced**. A late write is
+  rejected; the writer opens a NEW session (ZK — no revival). This *is* the P4 fence, derived.
+- The **owner is the anchor ref** — first `Started` (its `SessionStarted`, carries the will), last
+  `Ended`; it holds the count above zero until the last participant leaves, so the balance can't seal
+  prematurely. Matches "owner spawns + injects + joins + closes last."
+- The **lease supplies the decrement a crash swallowed**: a `kill -9`'d participant never sends its
+  `Ended`, so the count never reaches zero on its own → the reaper, seeing all open refs quiescent past
+  the lease, emits the missing `Ended`(s) → balance hits zero → sealed. Refcount = clean path; lease =
+  the crash-time decrement. **Both mandatory** — a bare refcount leaks on crash (the exact failure the
+  overhaul exists to kill).
+- All **derived from the durable log** — count off the spine; a daemon restart re-derives, no in-memory
+  counter. Taxonomy: the owner's `SessionStarted` is the anchoring +1; each participant (attacher/run)
+  emits a lightweight **join/leave** pair (counted); the reaper's synthetic close is the missing leave.
+
+**Why lock this shape now — it's additively future-proof (no client-code refactor for new participants).**
+Because the model **sums a balance** rather than enumerating participants, new `Started`-emitting kinds
+slot in additively: a future collaborator type / attach surface just emits the same join/leave pair and
+the projection counts it. Adding multiple `Started` sources later is zero client-code churn — never a
+rewrite. That open-endedness is the reason to commit to the balance model over bespoke state machines.
+
+**Deployment (YAGNI line):** ship the `count(Started) > count(Ended)` *condition* now — today it
+degenerates to the single-owner case (one `SessionStarted`, one `SessionEnded`/lease-decrement, balance
+only toggles 0↔1, behaviorally identical to today's "has `SessionEnded`?" check). **Do not build the
+multi-participant join/leave emitters now** — they're the additive follow-on, triggered only when
+close-correctness annoyance is reported (people can't get explicit closes right → let the count carry it).
+Build on the balance abstraction today; wire the extra `Started` producers the day the pain is real.
+
+**Constrained ownership now (open later):** today = single owner anchors — one `SessionStarted`, one
+`Ended` (owner fast-path or lease-decrement), balance caps at 0↔1. Workers/attachers stay tracked as
+**runs** (their own `RunStarted`/`RunEnded`) and renew the lease by writing, but are not yet session-refs;
+the owner anchors the session open until they finish. Opening it later = letting participants emit
+symmetric session-level join/leave pairs so the balance can exceed 1. **Symmetry is lease-enforced, not
+client-trusted:** every `Started` gets its matching `Ended` from either a clean leave or the reaper's
+synthetic decrement, so the balance always converges and the seal is guaranteed even across `kill -9`.
+
+## Producer DI contract — decided 2026-06-14
+
+**Send the `event_log`; derive everything else. Never inject `session_id` alongside it.**
+
+- **`event_log: EventLog` — REQUIRED** on every producer. It is both the writer *and* the single
+  source of `session_id` (`event_log.session_id`, public, set at open, immutable — `event_log.py:192`).
+- **`session_id` — DERIVED, never passed.** It is *not* an emit-tag — it's the **partition/identity
+  key** embedded in the data layout of BOTH stores (verified):
+  - Channels: a `session_id` **column on every sample row** (`models.py:239`; stamped `store.py:711/730`)
+    + segment filename `{channel_id}_{session_short}.arrow` + `channel://…?session=` URI + dedup key
+    `(session_id, offset)` + index PK `(channel_id, session_id)` + query filter.
+  - Files: the **directory partition** `{data_dir}/files/{date}/{session_id}/…` (`files/store.py:421`)
+    + `file://{date}/{session_id}/…` URI + sidecar metadata.
+  - **Why derive, not inject:** two independent sources of the same id is a *correctness hazard*, not
+    mere redundancy. If injected `session_id` ≠ `event_log.session_id`, the **data** is stamped/partitioned
+    under one id while its **lifecycle events** emit under another → split correlation root: `?session=`
+    URIs don't resolve against the spine, materialization can't join data↔events, orphaned/unqueryable
+    artifacts — silently. Deriving from the writer makes them equal *by construction* (same anti-drift
+    rule as runs: one source, all paths derive, no drift).
+- **`run_id: UUID | None` — OPTIONAL, per-call** (not constructor). A session has N runs and the writer
+  can't know which is active; `None` outside any run (interactive / bringup / daemon writes).
+- **`data_dir: Path` — REQUIRED** for persisting stores (location root, from the `SessionScope`).
+- **`channel_store: ChannelStore | None` — OPTIONAL**, injected into the instrument/`observe` path only.
+
+**Consequence / dependency:** `event_log` flips optional→required on the producer path. The *only*
+holder of a store-without-event_log today is the **index/reader** (sentinel `UUID(int=0)`, writes
+nothing, reads session_ids *off the rows*). So the precondition for "required" is **splitting the
+reader out as a session-less type (P6)** — a producer *stamps* its id from the writer; a reader *reads*
+ids from data and has none of its own.
+
+## Foundation refinements — closing the model (2026-06-14)
+
+- **`session_id` is read-only on `EventLog`.** Make it a getter-only property (private backing), not a
+  writable attribute (today it's a plain `self.session_id =`). It's the **single source** the whole chain
+  derives from, so it must be immutable or the derive-don't-inject guarantee is defeatable by a reassignment.
+  Set once at open, read thereafter.
+- **`EventStore` is the `EventLog` factory; `open_session` orchestrates.** `open_session` ensures/owns the
+  `EventStore`, calls `get_event_log(session_id)` which constructs the **wired** `EventLog`
+  (`on_emit`→subscribers, `on_flush`→Flight). A leaf store can't make its own `EventLog` (no `EventStore` to
+  wire to) and `EventLog` can't auto-mint a `session_id` (would be an orphan with no `SessionStarted`) — session
+  creation is `open_session`'s job, at the top, handed down. `SessionScope.session_id` should be a **property**
+  over `event_log.session_id` — no stored second copy on the scope either.
+- **`SessionScope` travels in execution; decompose at the data boundary.** The active session is the one
+  `SessionScope` (one token contextvar). Stores can't take it (data imports nothing from execution) — at the
+  store boundary, unbundle to `event_log`. `SessionScope` above the boundary, `event_log` below.
+- **Strict-first sequencing.** Build the foundation requiring an explicit session — a clean "no active session"
+  surface error (the restored `no_active_resource_error`, **not** the killed `SessionRequired` store-gate).
+  **Auto-root is the additive follow-on**, deferred until the foundation is solid. Strict→permissive is additive;
+  the reverse is breaking. Same philosophy as constrained-ownership and `Started>Ended`-now.
+- **Three independent axes:** **station** (instruments — `connect(station)`, local or remote-proxied) ·
+  **server** (where data lands — config, `files_backend`/req-6 swap; FileStore IS swap-ready via `BlobBackend`) ·
+  **session** (correlation root — auto/shared). They compose; remote instruments = connect to that station +
+  share the `session_id`. `connect(session_id=X)` is the attach/share path (provenance: handed id ⇒ participant).
+
 ## Progress log (keep current)
 
 - [x] 0 — design doc committed (this file)
