@@ -554,6 +554,24 @@ Names this overhaul surfaced as overloaded. Track here; resolve at the noted pha
   isn't a public verb. Resolution is the measure-promotion + record-decision work items, not a pure
   rename — but the conceptual overlap belongs on the pile.
 
+## ▶ RESUME HERE (fresh session, 2026-06-14)
+
+Foundation landed + green (see entries below). Execute the rest in this order, agents for speed,
+committing each wave green; **stop only at the P4 instrument-lock-scope decision** (escalation gate —
+ask the user). Open design calls already settled this session:
+- **`record` → DELETE.** Confirmed dead: `test.record`/`RecordEvent` is emitted by `logger.record`
+  (`logger.py:1183`) but **nothing reads it** — the accumulator drops it (not in `_EVENT_CLASSES`), and
+  the only other hits are the class def + a type-union annotation (`events.py`). No reader. Remove
+  `logger.record`, `RecordEvent`, and `channels`/`files` `record` surfaces in the Step-4 wave.
+- **Naming renames deferred to their phases** (`RunScope`, P6 writer/store, P7) — see the names pile.
+
+Remaining waves: **(A)** Step 4 author surface — promote `measure` to a public verb (peer of `verify`;
+`Context.measure` already exists at `harness.py:853`), de-expose the `logger` fixture, delete `record`.
+**(B)** `RunScope` rename (`TestRunLogger`→`RunScope`) + lift session-open into `pytest_sessionstart`.
+**(C)** P6 producer/reader split (extract index/reader out of `ChannelStore`, `store.py:1053-1700`) → DI
+contract (drop `session_id` param, derive from `event_log`). **(D)** P3 reaper (refcount close +
+will-fields + 900s). **(E)** ⚠ P4 terminal finality — STOP at the instrument-lock scope decision.
+
 ## Progress log (keep current)
 
 - [x] 0 — design doc committed (this file)
