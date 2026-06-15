@@ -138,6 +138,22 @@ concepts:
     summary: Multi-slot orchestration knobs (per-child grace seconds, etc.).
     model: litmus.models.project.MultiSlotConfig
 
+  - id: channel_options
+    category: primitive
+    summary: >
+      Channel-store data options — sink/segment-writer/push-relay tuning that
+      a project owns (litmus.yaml under channels:).
+    model: litmus.models.data_options.ChannelOptions
+    authored_at: litmus.yaml (under channels:)
+
+  - id: file_options
+    category: primitive
+    summary: >
+      File-store data options — the blob-backend root URI plus streaming
+      frame-relay tuning (litmus.yaml under files:).
+    model: litmus.models.data_options.FileOptions
+    authored_at: litmus.yaml (under files:)
+
   - id: part
     category: definition
     summary: >
