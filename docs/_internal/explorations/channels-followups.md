@@ -37,7 +37,12 @@ just bump the Flight deadline. Then re-wire the tool + endpoint.
 Channel column + index + wire schema + `ChannelSample.offset` + the Half A
 ticket field/URI param + the now-surfaced offset in `channels_query` results
 + the chart's `r.get("offset")`. No backcompat; needs a `data/channels`
-clear.
+clear. While here, correct `ChannelIndex._ensure_schema`'s comment: it
+claims `CREATE TABLE IF NOT EXISTS` "auto-migrates a new column… no version
+bump, no re-ingest", which is false (it keeps the old table) and contradicts
+the sanctioned contract — the index is a disposable, regenerable projection,
+so the migration on any schema change is "clear `data/channels`", not an
+in-place column add.
 
 ### 4. Present polymorphic channels (list + detail)
 A `channel_id` can have different shapes across sessions (type is locked
