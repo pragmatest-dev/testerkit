@@ -13,6 +13,7 @@ Usage: python -m litmus.data._duckdb_daemon <events_dir>
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -42,6 +43,37 @@ logger = logging.getLogger(__name__)
 # couple of times per daemon lifetime — most reaps happen on the NEXT spin.
 _REAPER_BOOTSTRAP_DELAY = 5.0
 _REAPER_INTERVAL = 60.0
+
+
+def _json_is_derived(payload: str | None) -> bool:
+    """True if an event's ``json`` payload is spine-derived (reaper close,
+    materializer completion) — exempt from the terminal fence."""
+    if not payload:
+        return False
+    try:
+        return bool(json.loads(payload).get("derived"))
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return False
+
+
+def _fence_post_seal(table: pa.Table, sealed: set[str]) -> tuple[pa.Table, int]:
+    """Drop post-seal PRODUCER writes — rows whose session is already sealed
+    (has a ``SessionEnded``) and which are NOT ``derived``. Revival is rejected;
+    daemon completions (a run's async ``RunMaterialized``, a reaper ``RunEnded``)
+    ride through. Cheap fast-path: returns the table untouched unless some row
+    actually targets a sealed session (only then is the ``json`` parsed)."""
+    if not sealed:
+        return table, 0
+    sids = table.column("session_id").to_pylist()
+    if not any(s in sealed for s in sids):
+        return table, 0
+    jsons = table.column("json").to_pylist()
+    keep = [not (s in sealed and not _json_is_derived(j)) for s, j in zip(sids, jsons, strict=True)]
+    rejected = keep.count(False)
+    if rejected == 0:
+        return table, 0
+    return table.filter(keep), rejected
+
 
 # Columns to narrow an IPC-loaded Arrow table to before inserting. The
 # IPC file's schema may be wider than what we INSERT — this narrows it to
@@ -364,6 +396,20 @@ def daemon_run(events_dir: Path) -> None:
     srv_cell: dict[str, DuckDBFlightServer] = {}
     _put_tls = threading.local()
 
+    # Terminal fence — sealed session_ids (a SessionEnded landed). Loaded from the
+    # durable index at startup; each incoming SessionEnded adds to it. A post-seal
+    # producer write is rejected; daemon completions (derived) ride through.
+    _sealed_sessions: set[str] = set()
+    _sealed_lock = threading.Lock()
+    try:
+        for (sid,) in conn.execute(
+            "SELECT DISTINCT session_id FROM events "
+            "WHERE event_type = 'session.ended' AND session_id IS NOT NULL"
+        ).fetchall():
+            _sealed_sessions.add(str(sid))
+    except duckdb.Error:
+        pass
+
     def _events_cursor() -> duckdb.DuckDBPyConnection:
         # One write cursor per Flight handler thread, reused across calls.
         cur = getattr(_put_tls, "cur", None)
@@ -377,7 +423,27 @@ def daemon_run(events_dir: Path) -> None:
         # than the old row-by-row executemany; no large-string segfault in
         # DuckDB >= 1.5).
         cur = _events_cursor()
+        # Terminal fence: reject post-seal producer writes (revival) before they
+        # land. Fast-path returns the table untouched unless a row targets a
+        # sealed session. Snapshot the set under the lock only when there's a hit.
+        with _sealed_lock:
+            sealed = set(_sealed_sessions) if _sealed_sessions else None
+        if sealed is not None:
+            table, rejected = _fence_post_seal(table, sealed)
+            if rejected:
+                logger.info("Terminal fence rejected %d post-seal event(s)", rejected)
+            if table.num_rows == 0:
+                return None
         _insert_events(cur, table)
+        # Absorb any SessionEnded in this batch into the sealed set so later
+        # writes to that session are fenced.
+        ets = table.column("event_type").to_pylist()
+        if "session.ended" in ets:
+            sids = table.column("session_id").to_pylist()
+            with _sealed_lock:
+                _sealed_sessions.update(
+                    str(s) for e, s in zip(ets, sids, strict=True) if e == "session.ended" and s
+                )
         srv = srv_cell.get("s")
         if srv is None or not srv.has_subscribers("events"):
             return None

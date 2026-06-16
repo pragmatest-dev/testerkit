@@ -20,6 +20,7 @@ The pre-commit hook runs the same generator in `--check` mode, so source / docs 
 | `received_at` | `datetime \| None` | `None` |
 | `session_id` | `UUID` | *via* `uuid4()` |
 | `run_id` | `UUID \| None` | `None` |
+| `derived` | `bool` | `False` |
 <!-- GENERATED:event-types-base-fields:end -->
 
 `event_type` is the discriminator — every subclass declares it as a `Literal` with a fixed string value (shown as the section heading below).
@@ -57,7 +58,6 @@ Emitted at the end of a session. Must NOT carry run_id.
 | Field | Type | Default |
 |---|---|---|
 | `reason` | `str \| None` | `None` |
-| `derived` | `bool` | `False` |
 
 ## Run events
 

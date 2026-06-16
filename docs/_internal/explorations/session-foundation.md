@@ -707,7 +707,20 @@ terminal finality — STOP at the instrument-lock scope decision.
 - [x] 3 — will + spine-only reaper — **LANDED** (Wave D: `180e6d1` will/SessionOptions, `a3a185a`
   stream auto-checkpoint, `4463b1d` events-daemon session reaper, this commit run-timeout→900). See the
   "Wave D — P3 liveness" design+plan section above for the locked model.
-- [ ] 4 — terminal finality + cascade
+- [x] 4 — terminal finality + cascade — **LANDED** (Wave E). **Escalation gate dissolved, not decided:**
+  instrument locks aren't *owned* by the event log, they're *reported* to it — a lock is held by the
+  acquiring process (`InstrumentPool`, OS-`flock`), the spine only records its lifecycle. By the same
+  logic open streams (file handles) are reported too. So the session cascade owns only its own
+  producer-local stores (closed on clean exit — Wave B; gone with the process on crash); **locks/streams
+  are out of it entirely** — pid/pool-owned, OS-released, a lock can outlive a session (a process drives
+  an instrument across many sessions). That collapsed E to the **terminal fence**: the events daemon
+  rejects post-seal PRODUCER writes (revival) in the put-hook, but lets **`derived`** completions through
+  — a run's async `RunMaterialized` and a reaper `RunEnded` carry `derived=True` and still land after the
+  session seals (the bug this avoided: a blanket fence would kill `RunMaterialized`). `derived` moved to
+  `EventBase` (the fence discriminator); sealed-session set loaded from the durable index + updated per
+  `SessionEnded`; cheap fast-path (only parses `json` when a row targets a sealed session). No new
+  `SessionExpired` event — the seal IS `SessionEnded`; a client-side typed exception is the optional
+  follow-on. **No cascade, no store-teardown, no lock machinery** — the reframe deleted them.
 - [~] 5 — envelope discipline + per-writer gap detection. **Gap detection LANDED** (`def605f`,
   2026-06-14): `_EventSequenceMonitor` in the runs daemon flags non-contiguous `event_offset` per
   `writer_key` (truncated/lost records) with a log + counter, no drop/block; no-ops on the column-less

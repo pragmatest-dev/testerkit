@@ -1684,6 +1684,7 @@ def daemon_run(runs_dir: Path) -> None:
                         materializer="parquet",
                         destination=str(parquet_path),
                         materialized_at=datetime.now(UTC),
+                        derived=True,  # daemon completion — exempt from the terminal fence
                     )
                 )
             except Exception as exc:  # noqa: BLE001 — best-effort emit
@@ -1860,6 +1861,7 @@ def daemon_run(runs_dir: Path) -> None:
                 run_id=acc._run_started.run_id,
                 occurred_at=occurred_at,
                 outcome="aborted",
+                derived=True,  # daemon completion — exempt from the terminal fence
             )
         )
 

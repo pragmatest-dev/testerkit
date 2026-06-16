@@ -104,6 +104,12 @@ class EventBase(BaseModel):
     received_at: datetime | None = None  # Set by EventLog.emit()
     session_id: UUID = Field(default_factory=uuid4)
     run_id: UUID | None = None
+    # ``True`` for events the spine itself derives (the reaper's synthetic closes,
+    # a materializer's ``RunMaterialized``) vs. a producer observation. The
+    # terminal fence rejects post-seal PRODUCER writes (revival) but lets derived
+    # completions through — so a run's async ``RunMaterialized`` still lands after
+    # its session has sealed. Producers never set it.
+    derived: bool = False
 
     def typed_payload_values(self) -> dict[str, str | None]:
         """Return promoted column values for this event as ``{col: str | None}``.
@@ -240,7 +246,6 @@ class SessionEnded(EventBase):
 
     event_type: Literal["session.ended"] = "session.ended"
     reason: str | None = None
-    derived: bool = False
 
     @model_validator(mode="after")
     def _reject_run_id(self) -> SessionEnded:
