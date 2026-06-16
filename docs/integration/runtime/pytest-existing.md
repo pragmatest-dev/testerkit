@@ -147,7 +147,7 @@ run.finish()
 `LitmusClient` is a chained builder — `run.step()` and `step.vector()` are context managers; `run.finish()` finalizes and saves. Full API on [`reference/client.md`](../../reference/runtime/client.md).
 
 - Pros: zero plugin dependency; works from any Python code (LabVIEW Python Node, TestStand Python adapter, standalone scripts).
-- Trade-off: don't mix Path B with Path A in the same pytest session — the autouse `logger` fixture (plugin path) and a manually-constructed `LitmusClient` would each open their own run, producing duplicate parquet rows.
+- Trade-off: don't mix Path B with Path A in the same pytest session — the plugin's autouse run setup and a manually-constructed `LitmusClient` would each open their own run, producing duplicate parquet rows.
 
 Use this when you've got an existing pytest suite you don't want to touch, or when you're driving Litmus from non-pytest code. See also [submitting results from non-pytest sources](../data/results-api.md).
 
@@ -158,9 +158,9 @@ The lowest-level run-tracking primitive. Same machinery the pytest plugin sits o
 ```python
 from litmus import Limit
 from litmus.execution.harness import TestHarness
-from litmus.execution.logger import TestRunLogger
+from litmus.execution.logger import RunScope
 
-logger = TestRunLogger(uut_serial="SN001", station_id="bench_1")
+logger = RunScope(uut_serial="SN001", station_id="bench_1")
 harness = TestHarness(logger=logger)
 
 with harness.step("test_power_rails"):
@@ -173,8 +173,8 @@ with harness.step("test_power_rails"):
 `TestHarness.measure()` takes `name`, `value`, optional `units`, `limit` (a `Limit` model — no `low=` / `high=` kwargs), `uut_pin`, `instrument_channel`, `fixture_connection`. When `limit=` is not passed, the harness resolves limits from its `limits=` / `config["limits"]` (whichever you provided at construction) and the active `part_context`; see [integration/harness.md → Recording measurements](harness.md#recording-measurements).
 
 - Pros: the most direct way to drive Litmus from non-pytest Python (Robot Framework, unittest, ad-hoc scripts).
-- Trade-off: don't construct `TestRunLogger` at module-import time — its `__init__` captures git state and the hostname for the `TestRun` record, and you'd rather that snapshot happen at session start, not module load. Open the event log explicitly afterward (`logger.event_log = store.get_event_log(...)`) so it lines up with the session boundary. That work belongs in a session-start hook or `pytest_sessionstart`, not at import.
-- Trade-off: in a pytest project where the plugin is loaded, the autouse `logger` fixture already does this work for you. Path C is for the non-pytest case.
+- Trade-off: don't construct `RunScope` at module-import time — it captures git state and the hostname for the `TestRun` record at construction, and you'd rather that snapshot happen at session start, not module load. Open the event log explicitly afterward (`logger.event_log = store.get_event_log(...)`) so it lines up with the session boundary. That work belongs in a session-start hook or `pytest_sessionstart`, not at import.
+- Trade-off: in a pytest project where the plugin is loaded, the autouse run setup already does this work for you. Path C is for the non-pytest case.
 
 See [test harness](harness.md) for the imperative-runner integration guide.
 

@@ -233,7 +233,7 @@ Returns the `FixtureConfig` resolved from `--fixture` / `fixtures/*.yaml`, or `N
 
 ### `run_context` — session
 
-Returns the `RunContext` carried on the active `TestRunLogger`. Use it to attach run-level metadata that persists across tests:
+Returns the `RunContext` for the active run. Use it to attach run-level metadata that persists across tests:
 
 ```python
 def test_setup(run_context):

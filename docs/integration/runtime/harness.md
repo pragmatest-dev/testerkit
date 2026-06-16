@@ -6,15 +6,15 @@
 
 ## Required collaborators
 
-`TestHarness` writes through a `TestRunLogger`. The logger only persists events to disk when it has an `EventLog` attached. The pytest plugin wires this up automatically; outside pytest you do it yourself:
+`TestHarness` writes through a `RunScope`. The logger only persists events to disk when it has an `EventLog` attached. The pytest plugin wires this up automatically; outside pytest you do it yourself:
 
 ```python
 from litmus.queries import EventStore
 from litmus.data.events import RunStarted, SessionStarted
 from litmus.execution.harness import TestHarness
-from litmus.execution.logger import TestRunLogger
+from litmus.execution.logger import RunScope
 
-logger = TestRunLogger(
+logger = RunScope(
     uut_serial="SN12345",
     station_id="bench_1",
     test_phase="characterization",
@@ -61,7 +61,7 @@ logger.event_log.close()
 
 `finalize()` emits `RunEnded` and closes the open step but does NOT emit `SessionEnded`, does NOT close the event log, and does NOT close the channel store. Leaving any of these open from a long-running process leaks file handles and prevents the runs daemon from retiring the run's cohort. Emit `SessionEnded` and `.close()` the event log (and `channel_store.close()` if you wired one) before exiting.
 
-`TestRunLogger.__init__` takes the run-level metadata directly (`uut_serial`, `station_id`, `station_name`, `operator_id`, `test_phase`, `part_id`, `data_dir`, etc.). The logger constructs a `TestRun` and a `RunContext` (a plain class wrapping the run record, with a `.set(key, value)` method for custom metadata) for you; you don't construct either.
+`RunScope` takes the run-level metadata directly (`uut_serial`, `station_id`, `station_name`, `operator_id`, `test_phase`, `part_id`, `data_dir`, etc.). It constructs a `TestRun` and a `RunContext` (which exposes a `.set(key, value)` method for custom metadata) for you; you don't construct either.
 
 A harness whose logger has no `event_log` still runs, but **nothing is persisted** — every event the harness would emit silently no-ops. Useful for unit-testing the harness loop without writing to disk; not what you want for a real run. If your data dir stays empty, this is the first thing to check.
 
@@ -70,7 +70,7 @@ A harness whose logger has no `event_log` still runs, but **nothing is persisted
 ```python
 TestHarness(
     config: Mapping[str, Any] | None = None,
-    logger: TestRunLogger | None = None,
+    logger: RunScope | None = None,
     step_name: str = "test",
     retry: RetryConfig | None = None,
     limits: dict[str, MeasurementLimitConfig | Limit] | None = None,
@@ -84,7 +84,7 @@ TestHarness(
 | Argument | Purpose |
 |---|---|
 | `config` | Optional dict with `vectors:` / `limits:` / `mocks:` / `retry:` keys — same shape as the sidecar YAML |
-| `logger` | `TestRunLogger` that owns the event log writes |
+| `logger` | `RunScope` that owns the event log writes |
 | `step_name` | Name attached to the step records this harness emits |
 | `retry` | Explicit `RetryConfig` (overrides `config["retry"]`) |
 | `limits` | Per-measurement limit map (overrides `config["limits"]`) |
