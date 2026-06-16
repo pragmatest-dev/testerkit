@@ -55,6 +55,7 @@ from litmus.data._sql_helpers import sql_escape as _sql_escape
 from litmus.data.backends.parquet import materialize_run_to_parquet
 from litmus.data.models import Outcome
 from litmus.data.runs_duckdb_manager import RunsDuckDBManager
+from litmus.models.data_options import RUN_ORPHAN_TIMEOUT_SECONDS
 from litmus.models.enums import Comparator
 
 # Columns whose semantic type is a closed enum (Pydantic StrEnum), not
@@ -1804,7 +1805,7 @@ def daemon_run(runs_dir: Path) -> None:
         ingests, emits ``RunMaterialized``. Same code path as a clean
         producer-side close.
         """
-        orphan_timeout = 3600.0
+        orphan_timeout = RUN_ORPHAN_TIMEOUT_SECONDS
         while not stop_event.is_set():
             stop_event.wait(timeout=30.0)
             if stop_event.is_set():

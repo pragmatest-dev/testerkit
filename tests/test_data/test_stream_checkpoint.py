@@ -21,7 +21,7 @@ from litmus.data.event_log import EventLog
 from litmus.data.events import StreamCheckpoint
 from litmus.data.files.store import FileStore
 from litmus.data.files.streaming import _BaseSink
-from litmus.models.data_options import StreamTuning
+from litmus.models.data_options import RUN_ORPHAN_TIMEOUT_SECONDS, SessionOptions, StreamTuning
 
 
 class CollectingLog(EventLog):
@@ -53,6 +53,20 @@ def test_cadence_must_be_under_lease():
     # A cadence >= the lease would let a live stream age out between checkpoints.
     with pytest.raises(ValueError, match="must be < idle_lease_seconds"):
         StreamTuning(checkpoint_cadence=900.0).resolve_cadence(900.0)
+
+
+# --------------------------------------------------------------------------- #
+# SessionOptions lease invariant — a session outlives its runs                #
+# --------------------------------------------------------------------------- #
+
+
+def test_default_lease_meets_run_timeout():
+    assert SessionOptions().idle_lease_seconds >= RUN_ORPHAN_TIMEOUT_SECONDS
+
+
+def test_lease_below_run_timeout_rejected():
+    with pytest.raises(ValueError, match="must be >= the run orphan-timeout"):
+        SessionOptions(idle_lease_seconds=60.0)
 
 
 # --------------------------------------------------------------------------- #

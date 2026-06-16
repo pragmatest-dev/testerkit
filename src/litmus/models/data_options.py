@@ -17,7 +17,14 @@ by scope (store or session) and by *who can change them*:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+# A run with no events for this long is force-closed by the runs daemon's orphan
+# sweep. A session outlives its runs, so a session's idle lease must never be
+# shorter than this (a run's synthetic RunEnded is itself session traffic that
+# renews the session lease, so the run is always reaped first). The runs daemon
+# imports this as its sweep timeout; SessionOptions validates the lease against it.
+RUN_ORPHAN_TIMEOUT_SECONDS = 900.0
 
 
 class ChannelOptions(BaseModel):
@@ -71,6 +78,15 @@ class SessionOptions(BaseModel):
     abandon_grace_seconds: float = Field(default=300.0, ge=0)
     # Stamped onto the derived ``SessionEnded.reason`` when the reaper closes it.
     abandon_reason: str = "abandoned"
+
+    @model_validator(mode="after")
+    def _lease_outlives_runs(self) -> SessionOptions:
+        if self.idle_lease_seconds < RUN_ORPHAN_TIMEOUT_SECONDS:
+            raise ValueError(
+                f"idle_lease_seconds ({self.idle_lease_seconds}s) must be >= the run "
+                f"orphan-timeout ({RUN_ORPHAN_TIMEOUT_SECONDS}s) — a session outlives its runs"
+            )
+        return self
 
 
 class StreamTuning(BaseModel):

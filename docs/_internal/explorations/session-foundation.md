@@ -522,16 +522,24 @@ is run-only, per the model). Each reaper lives with the projection it owns.
 | `abandon_reason` | `SessionOptions` | reaper | `abandoned` |
 | `checkpoint_cadence` | `StreamTuning` | stream sink | `lease / 3`, invariant `< lease` |
 
-**Build order (each green, each committed):**
-- **D1 — will + SessionOptions** — LANDED `180e6d1`.
-- **D-checkpoint** — `StreamTuning` (litmus.yaml `stream:`) + a `StreamCheckpoint` spine event
-  (uri + offset) + interval-gated emit on the **channel producer** (`ChannelStore._append_and_publish`)
-  and the **file stream sink** (`files/streaming.py` write path). Cadence resolved producer-side from
-  `StreamTuning.checkpoint_cadence` (or `lease/3`).
-- **D-reaper** — session-reaper thread in the events daemon: per-session last-activity + will →
-  synthetic `SessionEnded{reason, derived}` at `lease+grace`; add `reason`/`derived` to `SessionEnded`;
-  remove the pid-death session sweep from the runs daemon.
-- **D2 — run orphan-timeout `3600 → 900`** + the `lease ≥ run-timeout` anchor.
+**Build order (each green, each committed) — ALL LANDED:**
+- **D1 — will + SessionOptions** — `180e6d1`.
+- **D-checkpoint** — `StreamTuning` (litmus.yaml `stream:`) + `StreamCheckpoint` spine event + interval-
+  gated emit on the channel producer (`ChannelStore._maybe_checkpoint`) and the file sink
+  (`files/streaming.py`, set post-construction so custom formats need not accept it); cadence resolved
+  producer-side via `StreamTuning.resolve_cadence` (default `lease/3`, invariant `< lease`). — `a3a185a`.
+- **D-reaper** — stateless session reaper on the **events daemon** (`_session_reaper.py`): recency =
+  `max(occurred_at)`, will read off `SessionStarted.json`; startup + periodic + shutdown scan; per-reap
+  loopback `EventStore` emit (transient self-PID ref, no idle pin); `SessionEnded` gains `reason`/`derived`;
+  pid-death **session** sweep removed from the runs daemon (pid-death is run-only). — `4463b1d`.
+- **D2 — run orphan-timeout `3600 → 900`** via shared `RUN_ORPHAN_TIMEOUT_SECONDS`; `SessionOptions`
+  validates `idle_lease_seconds ≥ RUN_ORPHAN_TIMEOUT_SECONDS` (a session outlives its runs). — this commit.
+
+**Reaper key property (locked in design):** stateless over the durable spine — no in-memory lease state,
+so a daemon spin re-derives the same verdict (daemon-down tolerance) and an index wipe rebuilds from the
+IPC outbox. The daemon idles (300s) before any lease (≥900s), so reaps are lazy (next-spin), correctness
+preserved, only timeliness deferred. Structural-balance (open-span refcount) is the northstar close signal;
+shipped the recency condition now, built on the balance seam (YAGNI — no multi-participant emitters yet).
 
 ## Producer DI contract — decided 2026-06-14
 
@@ -696,9 +704,9 @@ terminal finality — STOP at the instrument-lock scope decision.
   via `scripts/bench_channel_scaling.py` (write / write_many / stream × 1/2/4 writer processes): baseline
   vs after held within WSL2 run-to-run variance (write_many ~197k→214k/s 1w, stream ~200k/s 1w; aggregate
   holds/climbs with writers; scaling factors unchanged). Full gate green (pyright + suite).
-- [ ] 3 — will + spine-only reaper. **The will-fields + 900s sub-step was drafted then reverted out
-  of the tree (uncommitted → lost). P3 is FULLY PENDING — do will-fields + reaper together; orphan
-  timeout is still `3600` at `_runs_duckdb_daemon.py:1754`.**
+- [x] 3 — will + spine-only reaper — **LANDED** (Wave D: `180e6d1` will/SessionOptions, `a3a185a`
+  stream auto-checkpoint, `4463b1d` events-daemon session reaper, this commit run-timeout→900). See the
+  "Wave D — P3 liveness" design+plan section above for the locked model.
 - [ ] 4 — terminal finality + cascade
 - [~] 5 — envelope discipline + per-writer gap detection. **Gap detection LANDED** (`def605f`,
   2026-06-14): `_EventSequenceMonitor` in the runs daemon flags non-contiguous `event_offset` per
