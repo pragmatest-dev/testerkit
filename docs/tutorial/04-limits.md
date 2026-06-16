@@ -19,7 +19,7 @@ limit = {
 }
 ```
 
-Both `verify(name, value, limit=...)` and `logger.measure(name, value, limit=...)` accept this dict directly. Internally it's validated against the `Limit` Pydantic model in [`litmus.models.test_config`](../reference/data/models.md#model-limit). If you'd rather construct the model explicitly — for IDE type-checking or for a shared constant — `Limit` is re-exported from the top-level package:
+Both `verify(name, value, limit=...)` and `measure(name, value, limit=...)` accept this dict directly. Internally it's validated against the `Limit` Pydantic model in [`litmus.models.test_config`](../reference/data/models.md#model-limit). If you'd rather construct the model explicitly — for IDE type-checking or for a shared constant — `Limit` is re-exported from the top-level package:
 
 ```python
 from litmus import Limit
@@ -31,7 +31,7 @@ The dict form is the canonical idiom in tutorials and examples; reach for `Limit
 
 ## How a measurement is checked
 
-`logger.measure(...)` records a [`Measurement`](../reference/data/models.md#model-measurement) row with the value, units, and limit. `verify(...)` does the same plus raises `AssertionError` on FAIL. Either way, the row carries an `Outcome`:
+`measure(...)` records a [`Measurement`](../reference/data/models.md#model-measurement) row with the value, units, and limit. `verify(...)` does the same plus raises `AssertionError` on FAIL. Either way, the row carries an `Outcome`:
 
 | Outcome | String value | Meaning |
 |---------|--------------|---------|
@@ -47,7 +47,7 @@ Container outcomes roll up via the ladder `skipped < done < passed < failed < er
 
 ## Inline limit on the call
 
-The simplest form — pass `limit=` directly to `verify` or `logger.measure`:
+The simplest form — pass `limit=` directly to `verify` or `measure`:
 
 ```python
 def test_output_voltage(dmm, verify):
@@ -108,14 +108,14 @@ Full list:
 
 ## Recording without judging
 
-`logger.measure` records a value without comparing it to a limit — pass no `limit=` and the row carries `Outcome.DONE`:
+`measure` records a value without comparing it to a limit — pass no `limit=` and the row carries `Outcome.DONE`:
 
 ```python
-def test_voltage(dmm, logger):
-    logger.measure("output_voltage", dmm.measure_dc_voltage())
+def test_voltage(dmm, measure):
+    measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`verify` is judgment-bearing: calling it with no limit (no inline `limit=`, no marker, no sidecar, no part spec) raises `MissingLimitError`. For a wide characterization sweep where you want the same `verify()` test code to record values without judging, set `verify_requires_limit: false` on a [profile](../how-to/execution/profiles.md) — `verify` then falls back to `logger.measure` semantics for that session.
+`verify` is judgment-bearing: calling it with no limit (no inline `limit=`, no marker, no sidecar, no part spec) raises `MissingLimitError`. For a wide characterization sweep where you want the same `verify()` test code to record values without judging, set `verify_requires_limit: false` on a [profile](../how-to/execution/profiles.md) — `verify` then falls back to `measure` semantics for that session.
 
 ## What's missing — and what step 5 fixes
 
@@ -126,11 +126,11 @@ For [condition-indexed bands](../how-to/execution/limits.md#condition-indexed-ba
 ## What you learned
 
 - The limit dict — `low`, `high`, `nominal`, `units`, `comparator`
-- Inline limits via `verify(..., limit={...})` or `logger.measure(..., limit={...})`
+- Inline limits via `verify(..., limit={...})` or `measure(..., limit={...})`
 - The `litmus_limits` marker for class/function-level limit binding
 - The `Outcome` ladder and what each value means
 - The `Comparator` enum for non-`GELE` checks
-- Recording without judging via `logger.measure(no limit)` or a record-only profile
+- Recording without judging via `measure(no limit)` or a record-only profile
 
 ## Continue
 

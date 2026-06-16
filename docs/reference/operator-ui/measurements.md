@@ -39,7 +39,7 @@ A count below the row tells you how many measurement rows the
 current filter set matches.
 
 Before any measurements are recorded, the page shows a quick-start
-card pointing at the `verify` and `logger.measure` calls that
+card pointing at the `verify` and `measure` calls that
 populate the index.
 
 ## Plot controls

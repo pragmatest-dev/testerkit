@@ -66,13 +66,12 @@ Litmus defines events across 11 categories.
 | `UutScanned` | `fixture.uut_scanned` | UUT serial barcode scanned |
 | `InstrumentDisconnected` | `fixture.instrument_disconnected` | Instrument released during teardown |
 
-### Test (5 events)
+### Test (4 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
 | `StepsDiscovered` | `test.steps_discovered` | Full list of collected test items |
 | `StepStarted` | `test.step_started` | A test step begins execution |
 | `MeasurementRecorded` | `test.measurement` | A single measurement with limits and outcome |
-| `RecordEvent` | `test.record` | A key/value record from `harness.record()` |
 | `StepEnded` | `test.step_ended` | A test step finishes |
 
 ### Instrument (3 events)

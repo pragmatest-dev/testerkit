@@ -2,16 +2,16 @@
 
 Litmus tests are **plain pytest** — pytest classes or loose module-level functions that consume a few Litmus-provided fixtures. For everything that isn't Litmus-specific (fixtures, conftest, CLI, markers, the basics of parametrize for vanilla projects), refer to the official pytest docs at <https://docs.pytest.org/>.
 
-## `verify` vs `logger.measure` — pick one
+## `verify` vs `measure` — pick one
 
 Both produce identical rows on PASS. They differ only on FAIL:
 
-- **`verify(name, value)`** — records the measurement row (value, units, limits, traceability), resolves a limit, stamps `measurement_outcome`, and **raises `AssertionError`** when the value is out of range. Same record-side effect as `logger.measure`; the only difference is that `verify` raises on FAIL.
-- **`logger.measure(name, value)`** — records a row with `outcome = DONE` and **never raises**. Use this for characterization sweeps where you want all points captured regardless of pass/fail.
+- **`verify(name, value)`** — records the measurement row (value, units, limits, traceability), resolves a limit, stamps `measurement_outcome`, and **raises `AssertionError`** when the value is out of range. Same record-side effect as `measure`; the only difference is that `verify` raises on FAIL.
+- **`measure(name, value)`** — records a row with `outcome = DONE` and **never raises**. Use this for characterization sweeps where you want all points captured regardless of pass/fail.
 
-Rule of thumb: _would a fail here stop the line?_ → `verify`. Else → `logger.measure`.
+Rule of thumb: _would a fail here stop the line?_ → `verify`. Else → `measure`.
 
-`verify` also raises `MissingLimitError` (from `litmus.execution.verify`) when no limit can be resolved for the measurement — markers, sidecar, profile, and part spec are all checked, and an empty result is a config bug rather than an "unchecked" path. Switch to `logger.measure` if you intentionally want to record a value without judging it.
+`verify` also raises `MissingLimitError` (from `litmus.execution.verify`) when no limit can be resolved for the measurement — markers, sidecar, profile, and part spec are all checked, and an empty result is a config bug rather than an "unchecked" path. Switch to `measure` if you intentionally want to record a value without judging it.
 
 ## The core per-test fixtures
 
@@ -19,9 +19,9 @@ Rule of thumb: _would a fail here stop the line?_ → `verify`. Else → `logger
 |-----------|----------------------------------------------|---------------|
 | `context` | Ambient test context — run / UUT / station / vector params (when sweeping) / observations / fixture-connection state. Always available, whether the test is parametrized or not. | `get_param`, `changed`, `last`, `observe`, `configure` |
 | `verify`  | Limit check + record + raise on FAIL         | `verify(name, value, limit=..., characteristic=...)` |
-| `logger`  | Measurement/event sink                       | `measure(name, value, ...)`, `record(k, v)` |
+| `measure` | Record-only measurement — no judgment, never raises | `measure(name, value, limit=...)` |
 
-Data flow is one-way: `test → spec → logger`. Logger snapshots ambient [ContextVars](https://docs.python.org/3/library/contextvars.html) (Python's built-in async-safe scoped state — Litmus uses them for run id, station, UUT, active instruments) at write time.
+Data flow is one-way: `test → spec → measurement row`. The recording path snapshots ambient [ContextVars](https://docs.python.org/3/library/contextvars.html) (Python's built-in async-safe scoped state — Litmus uses them for run id, station, UUT, active instruments) at write time.
 
 ## Minimum viable test
 
@@ -33,7 +33,7 @@ class TestPowerUp:
         verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`verify` resolves the limit from the part YAML, writes a measurement via `logger`, and raises `AssertionError` on fail. Instrument fixtures (`psu`, `dmm`) are auto-registered from the station config — define a same-named `conftest.py` fixture only if you need custom setup/teardown.
+`verify` resolves the limit from the part YAML, writes a measurement row, and raises `AssertionError` on fail. Instrument fixtures (`psu`, `dmm`) are auto-registered from the station config — define a same-named `conftest.py` fixture only if you need custom setup/teardown.
 
 ## Test classes are sequences
 
@@ -146,11 +146,11 @@ and row stamping behave the same as in parametrized mode.
 
 ## Limits
 
-When `logger.measure(name, value)` is called without `limit=`, resolution
+When `measure(name, value)` is called without `limit=`, resolution
 walks the marker merge cascade (see *Merge cascade* below) looking for
 the closest `litmus_limits` entry by measurement name, falling back to:
 
-1. Explicit limit — `logger.measure("v", val, limit={"low": ..., "high": ..., "units": "V"})` (dict literal or `Limit(...)` both work)
+1. Explicit limit — `measure("v", val, limit={"low": ..., "high": ..., "units": "V"})` (dict literal or `Limit(...)` both work)
 2. Any `litmus_limits` marker (inline decorator, sidecar, profile) whose
    key matches `name`
 3. Part spec via `characteristic: "<name>"` delegation
@@ -161,8 +161,8 @@ the closest `litmus_limits` entry by measurement name, falling back to:
     output_voltage={"low": 3.234, "high": 3.366, "units": "V"},
     efficiency={"characteristic": "efficiency"},   # delegate to part spec
 )
-def test_rails(context, verify, logger, dmm):
-    logger.measure("output_voltage", dmm.measure_dc_voltage())
+def test_rails(context, verify, measure, dmm):
+    measure("output_voltage", dmm.measure_dc_voltage())
     verify("efficiency", compute_eff(...))
 ```
 
@@ -325,7 +325,7 @@ Tests are independent by default — there is no implicit prereq chain. Reach fo
 
 ## Duplicate-name guard
 
-`logger.measure` maintains a `seen_names` set per step. A second call with the same name raises `DuplicateMeasurementError` — typical trigger is `verify("v")` followed by a stray `logger.measure("v", ...)`. For intentional streaming, opt in with `allow_repeat=True`.
+Recording a measurement maintains a `seen_names` set per step. A second call with the same name raises `DuplicateMeasurementError` — typical trigger is `verify("v")` followed by a stray `measure("v", ...)`. For intentional streaming, opt in with `allow_repeat=True`.
 
 ## Graceful degradation
 
@@ -333,10 +333,10 @@ All three config sources are independent — tests work under any combination:
 
 | Sidecar | Spec | Shape                                                          |
 |---------|------|----------------------------------------------------------------|
-| —       | —    | `logger.measure("v", val, limit={"low": ..., "high": ..., "units": "V"})` — explicit |
+| —       | —    | `measure("v", val, limit={"low": ..., "high": ..., "units": "V"})` — explicit |
 | —       | ✓    | `verify("output_voltage", val)`                            |
-| ✓       | —    | `logger.measure("efficiency", eff)` — auto-resolves            |
-| ✓       | ✓    | `verify` for characteristics; `logger.measure` for procedure |
+| ✓       | —    | `measure("efficiency", eff)` — auto-resolves            |
+| ✓       | ✓    | `verify` for characteristics; `measure` for procedure |
 | —       | —    | `assert 3.2 <= val <= 3.4` — pure pytest, no Litmus machinery  |
 
 ## Instrument access
@@ -374,7 +374,7 @@ Everything else is standard pytest — see <https://docs.pytest.org/en/stable/re
 ## Best practices
 
 1. Prefer `verify(name, v)` when a part spec exists — limits, UUT pin, and spec ref resolve automatically
-2. Use `logger.measure` with inline kwargs or a sidecar `litmus_limits` marker for procedure-only measurements
+2. Use `measure` with inline kwargs or a sidecar `litmus_limits` marker for procedure-only measurements
 3. Use `context.changed()` to skip expensive reconfig across sweep iterations
 4. Prefer inline `@pytest.mark.litmus_limits` for code-owned sweeps; sidecar YAML for operator-edited sweeps
 5. Keep one measurement focus per test — let `litmus_sweeps` expand sweeps, not in-function loops

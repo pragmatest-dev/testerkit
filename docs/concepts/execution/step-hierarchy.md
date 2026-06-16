@@ -9,10 +9,10 @@ TestRun                              ← one per pytest session
 └── Step                             ← class container (when the class is swept, one per outer iteration)
     └── Step                         ← test method (one per pytest item)
         └── TestVector               ← one per inner iteration (1 for normal swept tests; N for `vectors`-fixture tests)
-            └── Measurement          ← one per `logger.measure` / `verify` call
+            └── Measurement          ← one per `measure` / `verify` call
 ```
 
-Each level emits its own event in the run log. Each level rolls its outcome up to the next level via the severity-max ladder (see [Outcomes](outcomes.md)). `verify` and `logger.measure` are pytest [fixtures](../../reference/pytest/fixtures.md); `vectors` is the [self-loop fixture](../../how-to/execution/vector-expansion.md).
+Each level emits its own event in the run log. Each level rolls its outcome up to the next level via the severity-max ladder (see [Outcomes](outcomes.md)). `verify` and `measure` are pytest [fixtures](../../reference/pytest/fixtures.md); `vectors` is the [self-loop fixture](../../how-to/execution/vector-expansion.md).
 
 ## What each level is
 
@@ -44,7 +44,7 @@ For tests using the `vectors` fixture, the test body iterates the matrix itself.
 
 ### Measurement — one recorded value
 
-A `logger.measure("vin_voltage", 3.30)` or a `verify(...)` call. Carries the value, units, limit, characteristic_id, and uut_pin / instrument_resource / fixture_connection traceability fields.
+A `measure("vin_voltage", 3.30)` or a `verify(...)` call. Carries the value, units, limit, characteristic_id, and uut_pin / instrument_resource / fixture_connection traceability fields.
 
 Events: `MeasurementRecorded`. Carries the full effective `inputs` dict — outer step params **merged with** the current vector's inner params — so analytics queries can filter on either dimension without joining back to the step.
 
@@ -67,15 +67,15 @@ Events: `MeasurementRecorded`. Carries the full effective `inputs` dict — oute
 ```python
 @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])      # class-level → outer
 class TestPower:
-    def test_warmup(self, voltage):
-        logger.measure("vin_warmup", voltage)
+    def test_warmup(self, voltage, measure):
+        measure("vin_warmup", voltage)
 
     @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])  # method-level → inner
-    def test_load(self, voltage, current):
-        logger.measure("vout_load", voltage * 1.1)
+    def test_load(self, voltage, current, measure):
+        measure("vout_load", voltage * 1.1)
 
-    def test_cooldown(self, voltage):
-        logger.measure("vin_cooldown", 0)
+    def test_cooldown(self, voltage, measure):
+        measure("vin_cooldown", 0)
 ```
 
 Event stream (condition-first):
@@ -109,9 +109,9 @@ When the method uses the `vectors` fixture, pytest sees ONE item per outer itera
 @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
 class TestPower:
     @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])
-    def test_load(self, voltage, vectors, logger):
+    def test_load(self, voltage, vectors, measure):
         for v in vectors:
-            logger.measure("vout", voltage * v["current"])
+            measure("vout", voltage * v["current"])
 ```
 
 Event stream:

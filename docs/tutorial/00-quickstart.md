@@ -21,7 +21,7 @@ That's it. You'll see tests pass with mock instruments, limits checked, and resu
 > - **Part spec** — `parts/*.yaml`. Describes the device under test. → [Step 6](06-specifications.md), [concepts/parts](../concepts/configuration/parts.md)
 > - **Station YAML** — `stations/*.yaml`. Declares the bench's instruments. → [Step 7](07-real-instruments.md), [concepts/stations](../concepts/configuration/stations.md)
 > - **Sidecar YAML** — `tests/test_<module>.yaml`. Carries limits, sweeps, mocks for tests in that module. → [Step 5](05-configuration.md)
-> - **`verify` / `logger` / `context` fixtures** — three of the 20 fixtures Litmus contributes. → [Step 3](03-fixtures.md), [reference/litmus-fixtures](../reference/pytest/fixtures.md)
+> - **`verify` / `measure` / `context` fixtures** — three of the 20 fixtures Litmus contributes. → [Step 3](03-fixtures.md), [reference/litmus-fixtures](../reference/pytest/fixtures.md)
 > - **`@pytest.mark.litmus_limits`** — one of the seven Litmus markers; pins a limit at the top of a test. → [Step 4](04-limits.md), [reference/litmus-markers](../reference/pytest/markers.md)
 > - **`mock_config`** — Per-instrument return values for mock mode. → [Step 2](02-mock-instruments.md), [how-to/mock-mode](../how-to/configuration/mock-mode.md)
 > - **Characteristics, bands, accuracy, `when:`** — Part-spec vocabulary. → [Step 6](06-specifications.md), [reference/catalog-schema](../reference/catalog/schema.md)
@@ -130,7 +130,7 @@ instruments:
 
 ### Test Code (`tests/test_example.py`)
 
-Tests are **plain pytest** — no decorator, no base class. The Litmus plugin contributes [20 fixtures](../reference/pytest/fixtures.md) (the per-test `context` / `verify` / `logger`, plus `pins`, `instruments`, per-role auto-fixtures from the station YAML, etc.) and [seven markers](../reference/pytest/markers.md). For how Litmus tests use pytest's own collection / fixture / marker mechanisms see [pytest-native reference](../reference/overview/pytest-native.md).
+Tests are **plain pytest** — no decorator, no base class. The Litmus plugin contributes [20 fixtures](../reference/pytest/fixtures.md) (the per-test `context` / `verify` / `measure`, plus `pins`, `instruments`, per-role auto-fixtures from the station YAML, etc.) and [seven markers](../reference/pytest/markers.md). For how Litmus tests use pytest's own collection / fixture / marker mechanisms see [pytest-native reference](../reference/overview/pytest-native.md).
 
 ```python
 # tests/test_my_part.py
@@ -149,7 +149,7 @@ class TestMyPart:
         verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-For measurements that don't come from the part spec, use `logger.measure(name, value, limit={"low": ..., "high": ..., "units": "V"})` with inline limits or a sidecar `test_<module>.yaml`.
+For measurements that don't come from the part spec, use `measure(name, value, limit={"low": ..., "high": ..., "units": "V"})` with inline limits or a sidecar `test_<module>.yaml`.
 
 ### Sidecar (`tests/test_my_part.yaml`)
 
@@ -195,7 +195,7 @@ Every Litmus test follows this pattern:
 1. **GET CONDITIONS** from `context.get_param(...)` (not hardcoded)
 2. **SET UP** stimulus (PSU voltage, load current)
 3. **MEASURE** the result
-4. **CHECK** with `verify(name, value)` or `logger.measure(name, value, ...)` — never `assert 3.0 <= v <= 3.6`
+4. **CHECK** with `verify(name, value)` or `measure(name, value, ...)` — never `assert 3.0 <= v <= 3.6`
 
 ```python
 def test_something(context, psu, dmm, verify):

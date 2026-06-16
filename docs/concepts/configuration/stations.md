@@ -131,9 +131,9 @@ pytest tests/ --station=bench_1 --uut-serial=SN001
 ### Via fixtures
 
 ```python
-def test_voltage(dmm, logger):
+def test_voltage(dmm, measure):
     """Instrument roles from station config are auto-registered as fixtures."""
-    logger.measure("voltage", dmm.measure_voltage())
+    measure("voltage", dmm.measure_voltage())
 ```
 
 ### Via CLI

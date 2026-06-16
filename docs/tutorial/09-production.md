@@ -61,14 +61,14 @@ connections:
 With a fixture config, you can access instruments via pin names. The [`pins`](../reference/pytest/fixtures.md#pins-session) *fixture* is a dict keyed by part-pin name returning the instrument routed to that pin by the active fixture YAML — distinct from the `pins:` block in the part YAML, which declares the pin set itself ([concepts/parts](../concepts/configuration/parts.md)):
 
 ```python
-def test_output_voltage(pins, logger):
+def test_output_voltage(pins, measure):
     """Access instruments by UUT pin name."""
     pins["VIN"].set_voltage(5.0)
     pins["VIN"].enable_output()
 
     voltage = pins["VOUT"].measure_dc_voltage()
 
-    logger.measure("output_voltage", voltage)
+    measure("output_voltage", voltage)
 ```
 
 Run with fixture config:

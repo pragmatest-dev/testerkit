@@ -27,7 +27,7 @@ pytest's fixture model is unchanged.
 - **All four scopes work.** `function`, `class`, `module`, `session` — choose the one that matches your resource cost.
 - **Resolution by name.** Take a fixture in the test signature; pytest resolves it from the nearest `conftest.py` upward, then from registered plugins (Litmus included).
 - **Yield fixtures, finalizers, request injection** all work as pytest documents them.
-- **`autouse=True`** works. Litmus's own `logger` fixture is autouse-session so every test sees an active logger without taking it as an argument.
+- **`autouse=True`** works. Litmus uses an autouse-session fixture internally so every test records measurements without taking a recording fixture as an argument.
 
 You can write your own fixtures in `conftest.py` alongside Litmus's. A common pattern is a project-local `uut` factory wrapping the Litmus `uut` session fixture, or a per-class hardware-setup fixture that takes `instruments` as a dependency.
 

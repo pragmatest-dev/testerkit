@@ -34,7 +34,7 @@ The difference between PASSED and DONE on a step that ran cleanly: did the body 
 A step has **verdict intent** if either fires during the test:
 
 - A passing rewritten `assert` (registered by `pytest_assertion_pass` in `pytest_plugin/hooks.py:153-172`).
-- A measurement whose limits resolved — `logger.measure` registers the intent when `measurement.limit_low` or `measurement.limit_high` is set (`execution/logger.py:861-867`).
+- A measurement whose limits resolved — `measure` registers the intent when `measurement.limit_low` or `measurement.limit_high` is set (`execution/logger.py:861-867`).
 
 The plugin tracks intent per step in a module-level set, `_STEP_JUDGMENT_INTENT` (`hooks.py:88`). At step end, `_stamp_step_from_call_outcome` (`hooks.py:1304-1346`) picks PASSED if the step id is in the set, DONE if not.
 

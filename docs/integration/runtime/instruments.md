@@ -53,10 +53,10 @@ instruments:
 The pytest plugin will instantiate the driver and make it available as a fixture:
 
 ```python
-def test_voltage(dmm, logger):
+def test_voltage(dmm, measure):
     # dmm is a pyvisa MessageBasedResource
     voltage = float(dmm.query("MEAS:VOLT:DC?"))
-    logger.measure("voltage", voltage)
+    measure("voltage", voltage)
 ```
 
 ## Using PyMeasure Drivers
@@ -85,12 +85,12 @@ instruments:
 ```
 
 ```python
-def test_output_voltage(psu, dmm, logger):
+def test_output_voltage(psu, dmm, measure):
     # PyMeasure provides high-level methods
     psu.voltage = 5.0
     psu.output_enabled = True
 
-    logger.measure("output_voltage", dmm.voltage_dc)
+    measure("output_voltage", dmm.voltage_dc)
 
     psu.output_enabled = False
 ```
@@ -194,10 +194,10 @@ Station roles become fixtures automatically:
 
 ```python
 # Station config has dmm and psu → fixtures auto-registered
-def test_output_voltage(context, psu, dmm, logger):
+def test_output_voltage(context, psu, dmm, measure):
     psu.voltage = context.get_param("vin", 5.0)
     psu.output_enabled = True
-    logger.measure("output_voltage", dmm.voltage_dc)
+    measure("output_voltage", dmm.voltage_dc)
 ```
 
 ### Custom Fixture Override

@@ -1,6 +1,6 @@
 # Test Limits
 
-Limits define pass/fail criteria for measurements. Litmus checks every `verify(...)` and `logger.measure(...)` call against a configured `Limit` and records the outcome.
+Limits define pass/fail criteria for measurements. Litmus checks every `verify(...)` and `measure(...)` call against a configured `Limit` and records the outcome.
 
 ## Limit structure
 
@@ -29,12 +29,12 @@ A limit needs at least one policy field that tells `verify` what to check. The f
 
 ## Where limits come from
 
-Both `verify(name, value)` and `logger.measure(name, value)` go through the same resolver. When `limit=` is passed explicitly, that value short-circuits the rest — every other source is ignored. Otherwise the resolver checks, in this order, and the **first match wins**:
+Both `verify(name, value)` and `measure(name, value)` go through the same resolver. When `limit=` is passed explicitly, that value short-circuits the rest — every other source is ignored. Otherwise the resolver checks, in this order, and the **first match wins**:
 
-1. **Explicit `limit=`** — `verify("v", val, limit={"low": ..., "high": ..., "units": "V"})` or `logger.measure(...)` with the same kwarg. The kwarg accepts either a dict literal or a `Limit(...)` model. Short-circuits everything below.
+1. **Explicit `limit=`** — `verify("v", val, limit={"low": ..., "high": ..., "units": "V"})` or `measure(...)` with the same kwarg. The kwarg accepts either a dict literal or a `Limit(...)` model. Short-circuits everything below.
 2. **Active limits entry for `name`** — populated from the sidecar / marker / profile cascade (merged into one entry per measurement name at test setup; details below).
 3. **Active part spec** — if the cascade has nothing and `verify` is in play, the resolver tries the active `PartContext` for a characteristic named `name`. This works for unconditional characteristics; condition-indexed bands need the explicit `characteristic:` delegation in step 2 to forward sweep params correctly (see [Spec-driven testing](spec-driven-testing.md#condition-indexed-example-when-accuracy-varies-with-operating-point)).
-4. **None** — characterization mode. `logger.measure` records the value with `outcome = DONE`. `verify` raises `MissingLimitError` — judgment-bearing calls don't silently fall through unless the active profile sets `verify_requires_limit: false`, which routes `verify` to the same record-only fallback.
+4. **None** — characterization mode. `measure` records the value with `outcome = DONE`. `verify` raises `MissingLimitError` — judgment-bearing calls don't silently fall through unless the active profile sets `verify_requires_limit: false`, which routes `verify` to the same record-only fallback.
 
 The cascade inside step 2 stacks marker sources in this order, with later entries overriding earlier ones key-by-key per measurement name:
 
@@ -59,9 +59,9 @@ import pytest
     efficiency={"characteristic": "efficiency"},    # delegate to part spec
     startup_current={"high": 50, "comparator": "LE", "units": "mA"},
 )
-def test_rails(context, logger, dmm):
-    logger.measure("output_voltage", dmm.measure_dc_voltage())
-    logger.measure("startup_current", measure_startup(...))
+def test_rails(context, measure, dmm):
+    measure("output_voltage", dmm.measure_dc_voltage())
+    measure("startup_current", measure_startup(...))
 ```
 
 Class-level applies to every method; method-level overrides per-key:
@@ -70,9 +70,9 @@ Class-level applies to every method; method-level overrides per-key:
 @pytest.mark.litmus_limits(output_voltage={"low": 3.2, "high": 3.4})
 class TestPowerBoard:
     @pytest.mark.litmus_limits(output_voltage={"low": 3.25, "high": 3.35})  # tighter
-    def test_precise(self, logger, dmm): ...
+    def test_precise(self, measure, dmm): ...
 
-    def test_normal(self, logger, dmm): ...     # uses class-level
+    def test_normal(self, measure, dmm): ...     # uses class-level
 ```
 
 ## Sidecar YAML form
@@ -135,7 +135,7 @@ A limit without `bands:` is the flat scalar shape (`output_voltage: {low: 3.2, h
 ## Explicit `limit=` kwarg
 
 ```python
-logger.measure("v", val, limit={"low": 3.2, "high": 3.4, "units": "V"})
+measure("v", val, limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
 Same shape works on `verify(name, value, limit={...})`. Need the model object for type-checking or as a shared constant? Import from the top-level package: `from litmus import Limit`.
@@ -172,7 +172,7 @@ Use this when the part YAML is the source of truth and tests are thin wrappers.
 Omit all sources to record values without pass/fail:
 
 ```python
-logger.measure("thermal_resistance", measure_rtheta())   # recorded, unchecked
+measure("thermal_resistance", measure_rtheta())   # recorded, unchecked
 ```
 
 Values show up in the parquet output for post-hoc analysis.
@@ -181,14 +181,14 @@ Values show up in the parquet output for post-hoc analysis.
 
 `verify` is judgment-bearing — calling it with no resolvable limit raises `MissingLimitError` (importable from `litmus.execution.verify`) rather than silently recording the value. The error names every source the resolver checked — `limit=` kwarg, sidecar / marker / profile cascade, and the active part spec — so the missing source is obvious.
 
-If you genuinely want to record without judging, use `logger.measure(name, value)` instead — it records the value with `outcome = DONE` and never raises on missing limits. The two methods divide cleanly: `verify` if a pass/fail decision belongs on the row, `logger.measure` if not.
+If you genuinely want to record without judging, use `measure(name, value)` instead — it records the value with `outcome = DONE` and never raises on missing limits. The two methods divide cleanly: `verify` if a pass/fail decision belongs on the row, `measure` if not.
 
 ## Best practices
 
 1. **Prefer `verify(name, v)`** when a part spec exists — limits, UUT pin, and `spec_ref` all flow automatically
 2. **Use `characteristic:`** to delegate to part-spec characteristics instead of duplicating values
 3. **Keep operator-tuned values in a sidecar `limits:` field** so non-developers can edit them
-4. **Match names** — the first argument to `verify` / `logger.measure` must match the limit key
+4. **Match names** — the first argument to `verify` / `measure` must match the limit key
 5. **Never hardcode** — no `assert 3.0 <= v <= 3.6` in test bodies; use `limits` (sidecar / profile) or `@pytest.mark.litmus_limits` (inline) or the part spec
 
 

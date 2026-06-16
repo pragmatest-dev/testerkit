@@ -23,7 +23,7 @@ def test_x(...): ...
 
 ## `litmus_limits`
 
-Pin a `Limit` per measurement name. Both `verify(name, value)` and `logger.measure(name, value)` record the measurement row and resolve the limit against this marker (or the sidecar's `limits:` block, or the active part spec, in resolution order); the only difference is `verify` raises `AssertionError` on FAIL where `logger.measure` doesn't.
+Pin a `Limit` per measurement name. Both `verify(name, value)` and `measure(name, value)` record the measurement row and resolve the limit against this marker (or the sidecar's `limits:` block, or the active part spec, in resolution order); the only difference is `verify` raises `AssertionError` on FAIL where `measure` doesn't.
 
 **Signature:** `@pytest.mark.litmus_limits(**by_name)` — one keyword per measurement name; each value is a dict matching `MeasurementLimitConfig`.
 

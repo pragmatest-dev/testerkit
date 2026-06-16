@@ -10,7 +10,7 @@ Grouped by what you reach for the fixture **for**:
 
 | Group | What you'd reach for it for | Fixtures |
 |---|---|---|
-| Recording measurements | Write a measurement row, resolve a limit, raise on FAIL, prompt the operator | `verify`, `logger`, `limits`, `prompt` |
+| Recording measurements | Write a measurement row, resolve a limit, raise on FAIL, prompt the operator | `verify`, `measure`, `limits`, `prompt` |
 | Talking to instruments | Get a driver instance, route a signal, hit a UUT pin | `instruments`, `instrument`, `instrument_records`, `uut`, `pins`, `routes`, `fixture_manager` |
 | Reading per-test state | Active sweep params, observations, the connection currently being iterated | `context`, `connections` |
 | Reading loaded configuration | The typed YAML / CLI that shaped this run | `part`, `station_config`, `fixture_config`, `run_context`, `mock_instruments` |
@@ -41,19 +41,19 @@ def test_rail_inline(dmm, verify):
            limit={"low": 3.2, "high": 3.4, "units": "V"})         # inline dict literal
 ```
 
-Same record-side effect as `logger.measure`; the only difference is `verify` raises on FAIL. Use `verify` when a fail should stop the line. With no resolvable limit, `verify` raises `MissingLimitError` — unless the active profile sets `verify_requires_limit: false`, in which case it falls back to `logger.measure` semantics (record-only, `Outcome.DONE`).
+Same record-side effect as `measure`; the only difference is `verify` raises on FAIL. Use `verify` when a fail should stop the line. With no resolvable limit, `verify` raises `MissingLimitError` — unless the active profile sets `verify_requires_limit: false`, in which case it falls back to `measure` semantics (record-only, `Outcome.DONE`).
 
-### `logger` — session, autouse
+### `measure` — function
 
-Yields a `TestRunLogger`. Autouse, so every test gets logging behind `verify` even when it doesn't take `logger` itself. Opens the event log at session start, flushes it at session end; the runs daemon materializes the per-run parquet on `RunEnded`.
+Callable: `measure(name, value, limit=None, characteristic=None)`. The record-only sibling of `verify` — records a measurement row with `outcome = DONE` and **never raises**, even when no limit resolves. Use it when a value should be captured but not pass/fail judged (characterization, diagnostics, sweeps you plot post-hoc).
 
 ```python
-def test_voltage(dmm, logger):
+def test_voltage(dmm, measure):
     v = dmm.measure_dc_voltage()
-    logger.measure("output_voltage", v, limit={"low": 3.2, "high": 3.4, "units": "V"})
+    measure("output_voltage", v, limit={"low": 3.2, "high": 3.4, "units": "V"})
 ```
 
-`logger.measure(name, value, *, limit=None, outcome=Outcome.DONE, allow_repeat=False)` records a measurement row without raising. `limit=` accepts either a `Limit` model or a dict literal. Same recording path as `verify`, just no FAIL-side effect — use it when a failing measurement shouldn't abort the test (characterization mode, sweeps you want to plot post-hoc, etc.).
+`limit=` accepts either a `Limit` model or a dict literal. Same recording path as `verify`, just no FAIL-side effect — use it when a failing measurement shouldn't abort the test.
 
 ### `limits` — function
 
@@ -258,13 +258,13 @@ Two fixtures that drive the test body's iteration shape, not just expose data. `
 Taking `vectors` in the test signature switches collection to **self-loop mode**: every source of vectors (`@pytest.mark.parametrize`, `litmus_sweeps`, sidecar `sweeps:`, profile overrides) is consolidated into one matrix at collection time, and the test runs as a single pytest case. The test body iterates the matrix itself:
 
 ```python
-def test_sweep(vectors, psu, dmm, logger):
+def test_sweep(vectors, psu, dmm, measure):
     for v in vectors:
         psu.set_voltage(v["vin"])
-        logger.measure("vout", dmm.measure_dc_voltage())
+        measure("vout", dmm.measure_dc_voltage())
 ```
 
-Each `for` iteration pushes the row's params + index into active state so `logger.measure`, `verify`, and `context` see the same row-scoped context they would in normal (one-case-per-row) mode. The fixture fails the test at teardown if the matrix is non-empty but the body iterated zero times.
+Each `for` iteration pushes the row's params + index into active state so `measure`, `verify`, and `context` see the same row-scoped context they would in normal (one-case-per-row) mode. The fixture fails the test at teardown if the matrix is non-empty but the body iterated zero times.
 
 Choose self-loop mode when an outer setup (thermal soak, supply ramp) shouldn't repeat per row; choose normal parametrize mode when you want pytest to report one case per row.
 

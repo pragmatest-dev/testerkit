@@ -91,7 +91,7 @@ def test_psu_step_response(observe, verify, psu, scope) -> None:
     verify("overshoot_v", overshoot_v, Limit(low=0, high=0.5, units="V"))
 ```
 
-Both `verify` calls share the same `out_scope_step` URI because `observe` stamps it on the vector before either call. `verify` raises `AssertionError` on a failing value — if you want to record failures without stopping the test, use `logger.measure` instead (see [`logger` fixture](../../reference/pytest/fixtures.md#logger--session-autouse)).
+Both `verify` calls share the same `out_scope_step` URI because `observe` stamps it on the vector before either call. `verify` raises `AssertionError` on a failing value — if you want to record failures without stopping the test, use `measure` instead (see [`measure` fixture](../../reference/pytest/fixtures.md#measure--function)).
 
 ## Step 4: Read it back
 

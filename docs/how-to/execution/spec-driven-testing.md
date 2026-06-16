@@ -118,8 +118,8 @@ When a test reports a value under a different name than the spec, delegate via `
 
 ```python
 @pytest.mark.litmus_limits(rail_3v3={"characteristic": "output_voltage"})
-def test_output(context, dmm, logger):
-    logger.measure("rail_3v3", dmm.measure_dc_voltage())
+def test_output(context, dmm, measure):
+    measure("rail_3v3", dmm.measure_dc_voltage())
 ```
 
 Same effect in sidecar:
@@ -153,16 +153,16 @@ Every `verify` records:
 
 No manual threading of traceability fields — they're injected by the plugin.
 
-## When to reach for `verify` vs `logger.measure`
+## When to reach for `verify` vs `measure`
 
 | Scenario                                               | Use                                     |
 |--------------------------------------------------------|-----------------------------------------|
 | Measurement maps to a part-spec characteristic      | `verify("output_voltage", v)`       |
-| Procedure-only measurement (no part characteristic) | `logger.measure("startup_time", t, ...)` |
+| Procedure-only measurement (no part characteristic) | `measure("startup_time", t, ...)` |
 | Dynamic limit from conditions                          | Callable limit via marker / sidecar     |
-| No limits, data collection only                        | `logger.measure(...)` with no limits    |
+| No limits, data collection only                        | `measure(...)` with no limits    |
 
-`verify` raises `MissingLimitError` (from `litmus.execution.verify`) when none of the resolution sources — markers, sidecar, profile, or part spec — produce a limit for the named measurement. This is intentional: a `verify` call with no spec is a config bug, not a silent "unchecked" recording. Use `logger.measure` for characterization sweeps where unchecked rows are the point.
+`verify` raises `MissingLimitError` (from `litmus.execution.verify`) when none of the resolution sources — markers, sidecar, profile, or part spec — produce a limit for the named measurement. This is intentional: a `verify` call with no spec is a config bug, not a silent "unchecked" recording. Use `measure` for characterization sweeps where unchecked rows are the point.
 
 ## See also
 

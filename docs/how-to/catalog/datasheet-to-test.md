@@ -101,12 +101,12 @@ Approval gate: review the wiring. Most edits here are around VISA resource strin
 
 Two files generated:
 
-- `tests/test_<part>.py` — pytest-native test code using the Litmus fixtures (`context`, `verify`, `logger`, plus instrument role fixtures like `psu`, `dmm`)
+- `tests/test_<part>.py` — pytest-native test code using the Litmus fixtures (`context`, `verify`, `measure`, plus instrument role fixtures like `psu`, `dmm`)
 - `tests/test_<part>.yaml` — sidecar YAML with `vectors:`, `limits:`, `mocks:` for operator-editable values
 
 The generated tests use:
 - `verify(name, value)` for judgment-bearing measurements — limits resolve from the active part spec / sidecar / profile, raises on out-of-band
-- `logger.measure(name, value)` for record-only setup readouts
+- `measure(name, value)` for record-only setup readouts
 - `context.changed("vin")` in parametrized sweeps to skip expensive reconfig
 - Native `@pytest.mark.parametrize` for code-owned sweeps; sidecar `vectors:` for operator-edited sweeps
 
@@ -148,7 +148,7 @@ Every file is plain YAML or Python. Git diffs work. Code review works. If you wa
 |---|---|---|
 | Claude can't find the workflow | MCP server not registered or Claude not restarted after `litmus setup` | `claude mcp list` to verify; restart Claude Code |
 | Agent loops trying to save an invalid YAML | The Pydantic model rejected the shape it tried to save | Let it iterate — server-side validation is the feedback signal; or stop it and edit the YAML by hand |
-| Test runs but every row is `SKIP` / `MISSING_LIMIT` | Phase 4 generated `verify()` calls without limits, and no sidecar / part spec covers them | Either add limits to the sidecar `limits:` block or switch the calls to `logger.measure()` for characterization-only |
+| Test runs but every row is `SKIP` / `MISSING_LIMIT` | Phase 4 generated `verify()` calls without limits, and no sidecar / part spec covers them | Either add limits to the sidecar `limits:` block or switch the calls to `measure()` for characterization-only |
 | Instrument match returns nothing | Catalog is empty or capability requirements aren't covered | Use generics for development, or run `/catalog-from-datasheet` for the missing instruments |
 | Agent picks the wrong instrument | The capability match is correct but the agent's preference doesn't match yours | Tell it directly: "I want the Keithley 2400 for the load instead of the eload" — it'll update the station and re-validate |
 

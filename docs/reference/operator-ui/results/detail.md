@@ -107,7 +107,7 @@ the values themselves, not the step structure around them.
 | Column | What it shows |
 |---|---|
 | Step | The step name this measurement belongs to |
-| Measurement | The measurement name passed to `verify` or `logger.measure` |
+| Measurement | The measurement name passed to `verify` or `measure` |
 | Value | Measured value with units appended (e.g. `3.31 V`). `—` when the measurement recorded no value (errored). |
 | Limits | The low–high band the value was checked against (e.g. `3.135 – 3.465`). `—` when no limit was active. |
 | Outcome | Colored chip showing the measurement outcome |

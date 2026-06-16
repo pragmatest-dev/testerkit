@@ -2,7 +2,7 @@
 
 You already have a pytest test suite. This page is the route to wiring Litmus in without rewriting it.
 
-The short version: install Litmus, point a station YAML at your bench, and the [bundled pytest plugin](../../reference/pytest/fixtures.md) auto-loads. Existing tests keep running. New tests that take Litmus fixtures (`verify`, `logger`, `context`, your per-role instrument fixtures) get measurement logging, limit checking, parquet results, and the operator UI for free.
+The short version: install Litmus, point a station YAML at your bench, and the [bundled pytest plugin](../../reference/pytest/fixtures.md) auto-loads. Existing tests keep running. New tests that take Litmus fixtures (`verify`, `measure`, `context`, your per-role instrument fixtures) get measurement logging, limit checking, parquet results, and the operator UI for free.
 
 The longer version is the rest of this page: install, what auto-loads, what fixtures appear, how to keep an old test alongside a new one, and four entry points for mixing in Litmus features at different depths.
 
@@ -37,11 +37,11 @@ The full table with defaults and descriptions is in [reference/pytest-native.md]
 pytest --co -q
 ```
 
-The plugin name appears in the loaded-plugins list at the top of the output. If your fixtures collection includes names like `context`, `verify`, `logger`, `pins`, `instruments`, `mock_instruments`, the plugin is live.
+The plugin name appears in the loaded-plugins list at the top of the output. If your fixtures collection includes names like `context`, `verify`, `measure`, `pins`, `instruments`, `mock_instruments`, the plugin is live.
 
 ## What fixtures appear
 
-The plugin provides a fixed set of [20 plugin fixtures](../../reference/pytest/fixtures.md) (most-used: `verify`, `logger`, `context`, `pins`, `instruments`). It also synthesizes one [per-role auto-fixture](../../reference/pytest/fixtures.md#per-role-auto-fixtures) per instrument in the active station YAML — so a station with `instruments: { dmm: ..., psu: ..., scope: ... }` exposes `dmm`, `psu`, `scope` as fixtures automatically. No wrapper code needed.
+The plugin provides a fixed set of [20 plugin fixtures](../../reference/pytest/fixtures.md) (most-used: `verify`, `measure`, `context`, `pins`, `instruments`). It also synthesizes one [per-role auto-fixture](../../reference/pytest/fixtures.md#per-role-auto-fixtures) per instrument in the active station YAML — so a station with `instruments: { dmm: ..., psu: ..., scope: ... }` exposes `dmm`, `psu`, `scope` as fixtures automatically. No wrapper code needed.
 
 ```python
 # tests/test_voltage.py — a new pytest test that uses Litmus

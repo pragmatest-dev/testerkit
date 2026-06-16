@@ -2,7 +2,7 @@
 
 ## How the Framework Works
 
-> **Vocabulary primer.** This page drops a lot of names into one diagram. If you haven't seen them yet: **[part](../configuration/parts.md)** and **[station](../configuration/stations.md)** are YAML definitions; **[sidecar](../../reference/configuration.md)** is the per-test YAML carrying limits / sweeps / mocks; **`verify` / `context` / `logger`** are three of the 20 pytest fixtures Litmus adds — the common per-test entry points (see [reference/litmus-fixtures](../../reference/pytest/fixtures.md)); **[characteristic](../configuration/capabilities.md)** is a measurable property on a part; **[capability](../configuration/capabilities.md)** is what an instrument can do.
+> **Vocabulary primer.** This page drops a lot of names into one diagram. If you haven't seen them yet: **[part](../configuration/parts.md)** and **[station](../configuration/stations.md)** are YAML definitions; **[sidecar](../../reference/configuration.md)** is the per-test YAML carrying limits / sweeps / mocks; **`verify` / `context` / `measure`** are three of the 20 pytest fixtures Litmus adds — the common per-test entry points (see [reference/litmus-fixtures](../../reference/pytest/fixtures.md)); **[characteristic](../configuration/capabilities.md)** is a measurable property on a part; **[capability](../configuration/capabilities.md)** is what an instrument can do.
 
 ```mermaid
 flowchart LR
@@ -10,7 +10,7 @@ flowchart LR
         P[Part spec<br/>parts/*.yaml<br/>pins, chars, bands]
         S[Station YAML<br/>stations/*.yaml<br/>instruments, resources]
         SC[Sidecar YAML<br/>tests/test_*.yaml<br/>limits, sweeps, mocks, retry, prompts]
-        T[Test code<br/>tests/test_*.py<br/>verify / context / logger]
+        T[Test code<br/>tests/test_*.py<br/>verify / context / measure]
     end
 
     subgraph Plugin[Litmus pytest plugin]
@@ -265,7 +265,7 @@ erDiagram
 flowchart LR
     A["Part spec<br/>parts/*.yaml<br/>characteristic.bands"]
     B["Sidecar override<br/>tests/test_*.yaml<br/>limits: {name: {...}}"]
-    C["Inline limit<br/>logger.measure(name, v, limit=Limit(...))"]
+    C["Inline limit<br/>measure(name, v, limit=Limit(...))"]
     R["Limit resolution<br/>(per measurement)"]
     A --> R
     B --> R
@@ -285,7 +285,7 @@ flowchart LR
     subgraph Runtime["Runtime (per vector)"]
         V["Vector params<br/>{temp:25, load:0.5} ..."]
         CR["Resolve limit<br/>spec.get_limit(name, when={temp, load})"]
-        VR["verify / logger.measure<br/>checks + records measurement row"]
+        VR["verify / measure<br/>checks + records measurement row"]
     end
 
     PS -- "matched per vector" --> CR

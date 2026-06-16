@@ -438,9 +438,9 @@ def test_output():
 - [ ] Each band has `when:`, `value`, and `accuracy:` populated.
 - [ ] Station configured with real or mock instruments. `mock_config:` keys are method names, not signal names.
 - [ ] Pulled the current test template: `litmus_project(action="read", path="template:test")`.
-- [ ] Test functions are plain `def test_*(...)` taking `context`, `verify`, `logger`, and the per-role instrument fixtures as needed.
+- [ ] Test functions are plain `def test_*(...)` taking `context`, `verify`, `measure`, and the per-role instrument fixtures as needed.
 - [ ] Test reads vector parameters via `context.get_param("key", default)` — no hardcoded stimulus values.
-- [ ] Test records measurements via `verify(name, value)` (raises on FAIL) or `logger.measure(name, value)` (records without judgment).
+- [ ] Test records measurements via `verify(name, value)` (raises on FAIL) or `measure(name, value)` (records without judgment).
 - [ ] Sidecar limits use `characteristic:` to delegate to the part spec (not `spec_ref:`, which is annotation-only).
 - [ ] `tolerance_pct` applied where the spec tolerance needs widening for production margin.
 - [ ] Sidecar YAML written to disk as a real `.yaml` file alongside `test_<module>.py` — not via `litmus_project(action="save", type="test")` (which forces `.py`).
@@ -449,7 +449,7 @@ def test_output():
 
 - [api.md → MCP tools](../../reference/runtime/api.md#tools) — full per-tool reference: parameters, return shapes, every keyword
 - [cli.md → litmus setup](../../reference/cli.md#cli-setup) — `litmus setup show` and the `--print-only` flag
-- [litmus-fixtures.md → context, verify, logger](../../reference/pytest/fixtures.md) — every pytest fixture this page references
+- [litmus-fixtures.md → context, verify, measure](../../reference/pytest/fixtures.md) — every pytest fixture this page references
 - [outcomes](../../concepts/execution/outcomes.md) — what each `run_outcome` / `step_outcome` / `measurement_outcome` value means
 - [capabilities](../../concepts/configuration/capabilities.md) — characteristics, SpecBand, the matching model
 - [limits](../execution/limits.md) — the full limit-resolution chain (sidecar / marker / part spec / inline)

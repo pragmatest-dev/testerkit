@@ -28,7 +28,7 @@ Because Litmus is a platform, you can access it through multiple entry points:
 
 | Entry Point | Use Case | How It Works |
 |-------------|----------|--------------|
-| **pytest** | New test development | pytest-native: [`context`](../../how-to/execution/test-context.md), `verify`, `logger` [fixtures](../../reference/pytest/fixtures.md) |
+| **pytest** | New test development | pytest-native: [`context`](../../how-to/execution/test-context.md), `verify`, `measure` [fixtures](../../reference/pytest/fixtures.md) |
 | **CLI** | Operations, debugging | `litmus runs`, `litmus show` |
 | **HTTP API** | CI/CD, dashboards | `POST /api/runs`, `GET /api/runs/{id}` |
 | **MCP Server** | AI integration | Claude Code, other AI agents |
@@ -42,7 +42,7 @@ All entry points share the same:
 
 ## pytest integration (primary path)
 
-For new projects, use the pytest plugin. Station YAML declares your instruments; the plugin auto-registers a fixture per role (`dmm`, `psu`, etc.) and supplies `context` / `verify` / `logger` for the test body:
+For new projects, use the pytest plugin. Station YAML declares your instruments; the plugin auto-registers a fixture per role (`dmm`, `psu`, etc.) and supplies `context` / `verify` / `measure` for the test body:
 
 ```python
 def test_output_voltage(context, psu, dmm, verify):
@@ -95,7 +95,7 @@ flowchart TB
 
 | Scenario | Approach |
 |---|---|
-| New pytest project | pytest-native tests with `context` / `verify` / `logger` fixtures (see [tutorial step 3](../../tutorial/03-fixtures.md)). |
+| New pytest project | pytest-native tests with `context` / `verify` / `measure` fixtures (see [tutorial step 3](../../tutorial/03-fixtures.md)). |
 | Existing pytest tests | Drop in Litmus fixtures + sidecar YAML incrementally — see [integration/pytest-existing](../../integration/runtime/pytest-existing.md). |
 | LabVIEW / TestStand / non-pytest runners | Use [`LitmusClient`](../../reference/runtime/client.md) to write run results from any Python boundary the other runner can shell out to. |
 | AI-assisted test authoring | Run the [MCP server](../../how-to/overview/mcp-integration.md) and point Claude Code / Cursor / Cline at it. |

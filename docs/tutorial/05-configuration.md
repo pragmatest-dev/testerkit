@@ -55,10 +55,10 @@ import pytest
 
 @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
 @pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
-def test_output_voltage(vin, context, psu, dmm, logger):
+def test_output_voltage(vin, context, psu, dmm, measure):
     psu.set_voltage(vin)
     psu.enable_output()
-    logger.measure("output_voltage", dmm.measure_dc_voltage())
+    measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 The [`@pytest.mark.litmus_sweeps(...)`](../reference/pytest/markers.md#litmus_sweeps) form is also available for inline use
@@ -66,7 +66,7 @@ of the runner-neutral vector vocabulary:
 
 ```python
 @pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5], "load": [0.1, 0.4, 0.8]}])
-def test_sweep(vin, load, psu, dmm, logger):
+def test_sweep(vin, load, psu, dmm, measure):
     ...
 ```
 
@@ -91,16 +91,16 @@ sweeps:
 ```
 
 ```python
-def test_voltage_sweep(context, dmm, logger):
+def test_voltage_sweep(context, dmm, measure):
     vin = context.get_param("input_voltage")
     load = context.get_param("load_percent")
-    logger.measure("output_voltage", dmm.measure_voltage())
+    measure("output_voltage", dmm.measure_voltage())
 ```
 
 ## Accessing Vector Parameters via Context
 
 ```python
-def test_sweep(context, psu, dmm, logger):
+def test_sweep(context, psu, dmm, measure):
     # Get required parameter (raises if missing)
     vin = context.get_param("input_voltage")
 
@@ -111,7 +111,7 @@ def test_sweep(context, psu, dmm, logger):
     print(context.params)  # {"input_voltage": 5.0, "load_percent": 50}
 
     psu.set_voltage(vin)
-    logger.measure("output_voltage", dmm.measure_voltage())
+    measure("output_voltage", dmm.measure_voltage())
 ```
 
 The context provides:
@@ -147,13 +147,13 @@ sweeps:
 ```
 
 ```python
-def test_temp_sweep(context, chamber, dmm, logger):
+def test_temp_sweep(context, chamber, dmm, measure):
     if context.changed("temperature"):
         # Only reconfigure when temperature changes
         chamber.set_temp(context.get_param("temperature"))
         time.sleep(60)  # Wait for stabilization
 
-    logger.measure("output_voltage", dmm.measure_voltage())
+    measure("output_voltage", dmm.measure_voltage())
 ```
 
 ## Retries
@@ -165,8 +165,8 @@ import pytest
 
 
 @pytest.mark.flaky(reruns=3, reruns_delay=0.5)
-def test_flaky(dmm, logger):
-    logger.measure("voltage", dmm.measure_voltage())
+def test_flaky(dmm, measure):
+    measure("voltage", dmm.measure_voltage())
 ```
 
 This uses `pytest-rerunfailures` (already a Litmus dependency).

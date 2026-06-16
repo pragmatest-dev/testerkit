@@ -84,13 +84,13 @@ flowchart LR
 When you use the `pins` fixture, traceability is captured automatically:
 
 ```python
-def test_output_voltage(pins, logger):
+def test_output_voltage(pins, measure):
     # pins["VOUT"] knows:
     # - uut_pin (from part spec)
     # - instrument_name (from fixture)
     # - instrument_resource (from station)
     # - instrument_channel (from fixture)
-    logger.measure("output_voltage", pins["VOUT"].measure_voltage())
+    measure("output_voltage", pins["VOUT"].measure_voltage())
 ```
 
 ### Manual (Direct Instruments)
@@ -98,10 +98,10 @@ def test_output_voltage(pins, logger):
 When using instruments directly, set traceability manually:
 
 ```python
-def test_output_voltage(dmm, logger):
+def test_output_voltage(dmm, measure):
     voltage = dmm.measure_dc_voltage()
 
-    logger.measure(
+    measure(
         "output_voltage",
         voltage,
         uut_pin="J1.3",
@@ -149,7 +149,7 @@ with harness.step():
 Add custom traceability fields that become Parquet columns:
 
 ```python
-def test_with_context(run_context, psu, dmm, logger):
+def test_with_context(run_context, psu, dmm, measure):
     # Custom fields for your organization's needs
     run_context.set("operator_badge", "EMP-12345")
     run_context.set("fixture_serial", "FIX-001")
@@ -158,7 +158,7 @@ def test_with_context(run_context, psu, dmm, logger):
 
     # Normal test code...
     psu.set_voltage(5.0)
-    logger.measure("output_voltage", dmm.measure_dc_voltage())
+    measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 ## Comparators (ATML/IEEE 1671)

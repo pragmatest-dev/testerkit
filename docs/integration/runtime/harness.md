@@ -1,6 +1,6 @@
 # Test Harness Integration
 
-> **For new pytest projects, use the plugin: [Litmus fixtures](../../reference/pytest/fixtures.md) (`context`, `verify`, `logger`, `pins`, … — 20 in total) and [Litmus markers](../../reference/pytest/markers.md) (`litmus_limits`, `litmus_sweeps`, …) handle setup automatically.** `TestHarness` is the imperative entry point for non-pytest runners (Robot Framework, unittest, custom harnesses) or for situations where you need explicit lifecycle control.
+> **For new pytest projects, use the plugin: [Litmus fixtures](../../reference/pytest/fixtures.md) (`context`, `verify`, `measure`, `pins`, … — 20 in total) and [Litmus markers](../../reference/pytest/markers.md) (`litmus_limits`, `litmus_sweeps`, …) handle setup automatically.** `TestHarness` is the imperative entry point for non-pytest runners (Robot Framework, unittest, custom harnesses) or for situations where you need explicit lifecycle control.
 
 `TestHarness` (in `litmus.execution.harness`) wraps the same machinery the pytest plugin uses: vector expansion, retry, limit resolution, measurement logging with full traceability.
 
@@ -127,7 +127,6 @@ step = harness.run_all(measure_rail, step_name="output_voltage")
 |---|---|---|
 | `harness.run_all(test_fn, step_name=None)` | `Callable[[Vector], Any] → TestStep` | Opens a step, iterates `harness.vectors`, runs each through `run_with_retry`. Returns the completed step. |
 | `harness.run_with_retry(vector, test_fn)` | `(Vector, Callable[[Vector], Any]) → TestVector` | Runs `test_fn(vector)` inside `run_vector`, retrying up to `retry_config.max_retries` times. Returns the final `TestVector`. |
-| `harness.record(key, value)` | `(str, Any) → None` | Emits a `RecordEvent` with `(key, value)`. Use for non-measurement diagnostics — firmware version, calibration timestamp, raw register dump. JSON-serializable values only. |
 | `harness.current_vector` (property) | → `Vector \| None` | The vector currently inside `run_vector`, or `None` when called outside a vector boundary. |
 | `harness.retry_config` (property) | → `RetryConfig` | The active `RetryConfig` (constructor arg, sidecar `retry:`, or the default `max_retries=0, delay=0`). |
 

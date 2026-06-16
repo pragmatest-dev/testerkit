@@ -45,12 +45,12 @@ When you run with `--station`, Litmus auto-registers each instrument role as a p
 
 ```python
 # tests/test_power.py
-def test_output_voltage(psu, dmm, logger):
+def test_output_voltage(psu, dmm, measure):
     """Instrument roles from station config are auto-registered as fixtures."""
     psu.set_voltage(5.0)
     psu.enable_output()
 
-    logger.measure("output_voltage", dmm.measure_dc_voltage())
+    measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Run with real hardware:
@@ -207,7 +207,7 @@ mocks:
 
 **tests/test_power.py:**
 ```python
-def test_output_voltage(psu, dmm, logger):
+def test_output_voltage(psu, dmm, measure):
     """Works with real hardware OR mock mode."""
     psu.set_voltage(5.0)
     psu.set_current_limit(1.0)
@@ -216,7 +216,7 @@ def test_output_voltage(psu, dmm, logger):
     voltage = dmm.measure_dc_voltage()
 
     psu.disable_output()
-    logger.measure("output_voltage", voltage)
+    measure("output_voltage", voltage)
 ```
 
 **Run with hardware:**
