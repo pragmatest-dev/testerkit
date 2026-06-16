@@ -71,6 +71,25 @@ def _channel_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]
     return (t0, _now())
 
 
+def _channel_durable_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]:
+    """Durable-capture rate: ``serve=False`` writes straight to local IPC segments
+    (the durable truth) with NO Flight daemon — so concurrent producers don't
+    serialize on the shared daemon's insert. This is the write throughput the
+    parallel-capture work actually bought; the daemon ingest is a separate,
+    disposable, serialized projection."""
+    from litmus.data.channels.store import ChannelStore
+
+    store = ChannelStore(Path(data_dir), uuid4(), flush_threshold=50, serve=False)
+    store.open()
+    t0 = _now()
+    try:
+        for i in range(scale):
+            store.write(f"dmm.voltage_w{seed}", 3.3 + (i % 100) * 0.01)
+    finally:
+        store.close()
+    return (t0, _now())
+
+
 def _channel_write_many_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]:
     from litmus.data.channels.store import ChannelStore
 
@@ -197,6 +216,7 @@ def _representative_worker(data_dir: str, scale: int, seed: int) -> tuple[float,
 _WORKERS = {
     "events.emit": _event_worker,
     "channels.write": _channel_worker,
+    "channels.write_durable": _channel_durable_worker,
     "channels.write_many": _channel_write_many_worker,
     "channels.stream": _channel_stream_worker,
     "files.write": _file_worker,

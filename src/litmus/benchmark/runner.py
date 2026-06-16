@@ -240,11 +240,18 @@ def run_benchmark(
         report.storage = _measure_storage(data_dir)
         progress("measuring concurrent-write capacity (per store) ...")
         writer_counts = [1, 2, 4, 8] if options.tier == "full" else [1, 2, 4]
-        # (store label, concurrency op, units per writer). One sweep per store
-        # — each gets its own scaling curve and per-writer efficiency.
+        # (store label, concurrency op, units per writer). One sweep per row —
+        # each gets its own scaling curve and per-writer efficiency. Channels
+        # shows BOTH paths so the contrast is explicit: "channels capture" is the
+        # durable write (serve=False → local IPC segments, no shared daemon →
+        # scales linearly), "channels ingest" is the serve=True path whose timed
+        # close() drains the PushRelay into the ONE shared daemon (serialized
+        # projection — by design, async + disposable). runs.save does no daemon
+        # notify, so it already reflects durable capture.
         sweep_specs = [
             ("events", "events.emit", 1000),
-            ("channels", "channels.write", 1000),
+            ("channels capture", "channels.write_durable", 5000),
+            ("channels ingest", "channels.write", 1000),
             ("files", "files.write", 10),
             ("runs", "representative.production", 2),
         ]
@@ -587,12 +594,16 @@ def format_summary(report: BenchmarkReport) -> str:
         writers = sorted({p.writers for s in report.concurrency for p in s.points})
         lines.append("  Concurrent writes (per store, aggregate rate):")
         cols = "".join(f"{str(w) + 'w':>12}" for w in writers)
-        lines.append(f"    {'store':<10}{cols}{'per-writer':>12}")
+        lines.append(f"    {'store':<18}{cols}{'per-writer':>12}")
         for s in report.concurrency:
             rate = {p.writers: p.throughput_per_s for p in s.points}
             cells = "".join(f"{_si(rate.get(w, 0.0)) + '/s':>12}" for w in writers)
-            lines.append(f"    {s.store:<10}{cells}{s.factor():>12.2f}")
+            lines.append(f"    {s.store:<18}{cells}{s.factor():>12.2f}")
         lines.append("")
+        lines.append(
+            "    (durable capture = local IPC, parallel; daemon ingest = the shared "
+            "single-writer projection, serialized by design)"
+        )
 
     if report.results:
         rows = _raw_rows(report)
