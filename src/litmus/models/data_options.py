@@ -48,9 +48,15 @@ class ChannelOptions(BaseModel):
     writer_flush_interval: float = Field(default=1.0, gt=0)
 
     # Producer push relay: coalesce up to this many rows OR this long before one
-    # do_put; bounded queue, drop-oldest on overflow (live = from-now).
+    # do_put; bounded queue, drop-oldest on overflow (live = from-now). The wait
+    # sets the live-feed lag AND the do_put batch size — bigger batches amortize
+    # the daemon's ~1.5ms fixed per-INSERT cost, so a short wait makes concurrent
+    # producers ship tiny batches that serialize on the daemon insert. 50ms is the
+    # measured knee: 4-writer scalar ingest ~14k->27k samp/s (factor 0.48->0.84)
+    # vs 5ms, at a 50ms live lag (imperceptible for monitoring). Lower it for a
+    # tighter live feed; raise it for higher concurrent ingest.
     push_max_rows: int = Field(default=1000, gt=0)
-    push_max_wait: float = Field(default=0.005, gt=0)
+    push_max_wait: float = Field(default=0.05, gt=0)
     push_queue_max: int = Field(default=10_000, gt=0)
 
 
