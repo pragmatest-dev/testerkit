@@ -31,10 +31,10 @@ import litmus.files
 from litmus.data.events import StreamEnded
 from litmus.data.files import _reset_for_tests, get_filestore
 from litmus.execution._state import (
-    get_current_logger,
+    get_current_run_scope,
     push_current_context,
     reset_current_context,
-    set_current_logger,
+    set_current_run_scope,
 )
 
 
@@ -78,10 +78,10 @@ def _isolated_filestore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iter
 
 @pytest.fixture
 def _logger_slot() -> Iterator[None]:
-    """Save + restore the active logger ContextVar around a test."""
-    prior = get_current_logger()
+    """Save + restore the active run-scope ContextVar around a test."""
+    prior = get_current_run_scope()
     yield
-    set_current_logger(prior)
+    set_current_run_scope(prior)
 
 
 # --------------------------------------------------------------------- #
@@ -135,7 +135,7 @@ class TestEventLogResolution:
         run_id = uuid4()
         log = CollectingLog()
         logger = FakeLogger(log, run_id=run_id)
-        set_current_logger(logger)  # type: ignore[arg-type]
+        set_current_run_scope(logger)  # type: ignore[arg-type]
 
         with litmus.files.stream("with_log", format="raw", session_id=sid) as sink:
             sink.write(b"abc")
@@ -221,7 +221,7 @@ class TestCloseOnContextExit:
         sid = str(uuid4())
         log = CollectingLog()
         logger = FakeLogger(log)
-        set_current_logger(logger)  # type: ignore[arg-type]
+        set_current_run_scope(logger)  # type: ignore[arg-type]
 
         captured_sink: Any = None
         with pytest.raises(ValueError):
@@ -241,7 +241,7 @@ class TestCloseOnContextExit:
         sid = str(uuid4())
         log = CollectingLog()
         logger = FakeLogger(log)
-        set_current_logger(logger)  # type: ignore[arg-type]
+        set_current_run_scope(logger)  # type: ignore[arg-type]
 
         with litmus.files.stream("double", format="raw", session_id=sid) as sink:
             sink.write(b"x")
@@ -268,7 +268,7 @@ class TestStreamReadbackAndLifecycle:
         sid = str(uuid4())
         log = CollectingLog()
         logger = FakeLogger(log)
-        set_current_logger(logger)  # type: ignore[arg-type]
+        set_current_run_scope(logger)  # type: ignore[arg-type]
 
         with litmus.files.stream("live", format="raw", session_id=sid) as sink:
             sink.write(b"first-")

@@ -50,7 +50,7 @@ _current_vector_var: ContextVar[Any] = ContextVar("current_vector", default=None
 _current_context_var: ContextVar[Any] = ContextVar("current_context", default=None)
 
 # Active RunScope — session singleton, set once per test by the runner.
-_current_logger_var: ContextVar[RunScope | None] = ContextVar("_current_logger", default=None)
+_current_run_scope_var: ContextVar[RunScope | None] = ContextVar("_current_run_scope", default=None)
 
 _active_instruments_var: ContextVar[dict[str, Any]] = ContextVar("_active_instruments")
 _instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_instrument_records")
@@ -208,14 +208,14 @@ def reset_current_context(token: Token[Any]) -> None:
     _current_context_var.reset(token)
 
 
-def get_current_logger() -> RunScope | None:
+def get_current_run_scope() -> RunScope | None:
     """Return the active :class:`RunScope`, or ``None`` if no run is in progress."""
-    return _current_logger_var.get()
+    return _current_run_scope_var.get()
 
 
-def set_current_logger(logger: RunScope | None) -> None:
+def set_current_run_scope(run_scope: RunScope | None) -> None:
     """Set the active :class:`RunScope`. Returns ``None``."""
-    _current_logger_var.set(logger)
+    _current_run_scope_var.set(run_scope)
 
 
 # --- Setters ---

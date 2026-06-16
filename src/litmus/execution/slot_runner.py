@@ -481,7 +481,7 @@ def _run_subprocess_mode(
     import sys
 
     from litmus.data.events import SessionStarted
-    from litmus.execution._state import get_current_logger
+    from litmus.execution._state import get_current_run_scope
     from litmus.execution.session_scope import open_session
 
     server = None
@@ -541,7 +541,7 @@ def _run_subprocess_mode(
             )
             server.start()
 
-    current_logger = get_current_logger()
+    current_run_scope = get_current_run_scope()
 
     station_id = ""
     station_name = None
@@ -550,8 +550,8 @@ def _run_subprocess_mode(
     operator_id = None
     operator_name = None
     fixture_id = None
-    if current_logger:
-        tr = current_logger.test_run
+    if current_run_scope:
+        tr = current_run_scope.test_run
         station_id = tr.station_id
         station_name = tr.station_name
         station_type = tr.station_type
@@ -641,7 +641,7 @@ def run_multi_slot_session(
     """
     import warnings
 
-    from litmus.execution._state import get_current_logger
+    from litmus.execution._state import get_current_run_scope
     from litmus.execution.slots import detect_shared_instruments, resolve_fixture_slots
     from litmus.execution.uut_provider import CLIUUTProvider
     from litmus.pytest_plugin import _mocks_active
@@ -675,8 +675,8 @@ def run_multi_slot_session(
             stacklevel=1,
         )
 
-    current_logger = get_current_logger()
-    session_id = current_logger.test_run.session_id if current_logger else uuid4()
+    current_run_scope = get_current_run_scope()
+    session_id = current_run_scope.test_run.session_id if current_run_scope else uuid4()
 
     project_config = load_project_config()
 

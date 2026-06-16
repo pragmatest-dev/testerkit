@@ -10,7 +10,7 @@ into ContextVar state, building :class:`ConnectionIterator` for the
 
 The underscore prefix on each fixture name reinforces "infrastructure,
 not user-facing." Test authors interact through the public surface
-(:func:`logger`, :func:`verify`, :func:`context`, …) defined in
+(:func:`verify`, :func:`context`, …) defined in
 :mod:`litmus.pytest_plugin.__init__`.
 """
 
@@ -27,7 +27,7 @@ from litmus.execution._state import (
     set_active_limits,
     set_active_test_characteristics,
     set_active_vector_params,
-    set_current_logger,
+    set_current_run_scope,
 )
 from litmus.execution.connections import (
     ConnectionIterator,
@@ -108,15 +108,15 @@ def _scope_characteristics(
 
 
 @pytest.fixture(autouse=True)
-def _reseat_current_logger(logger: RunScope) -> None:
-    """Re-install the session logger into the ContextVar for every test.
+def _reseat_current_run_scope(_run_scope: RunScope) -> None:
+    """Re-install the session run scope into the ContextVar for every test.
 
     Pytester-based tests run an inner pytest session whose own teardown
-    clears ``set_current_logger(None)`` — and because ContextVars are
+    clears ``set_current_run_scope(None)`` — and because ContextVars are
     process-wide, that leaks into the outer session. Re-seating on every
-    test keeps ``get_current_logger()`` correct regardless.
+    test keeps ``get_current_run_scope()`` correct regardless.
     """
-    set_current_logger(logger)
+    set_current_run_scope(_run_scope)
 
 
 @pytest.fixture(autouse=True)
@@ -355,6 +355,6 @@ __all__ = [
     "_litmus_push_limits",
     "_litmus_push_params",
     "_litmus_resolve_connections",
-    "_reseat_current_logger",
+    "_reseat_current_run_scope",
     "_route_cleanup",
 ]

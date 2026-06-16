@@ -30,7 +30,7 @@ from litmus.execution._state import (
     set_active_part_context,
     set_active_vector_index,
     set_active_vector_params,
-    set_current_logger,
+    set_current_run_scope,
     set_instrument_records,
 )
 from litmus.execution.accessors import InstrumentAccessor
@@ -66,7 +66,7 @@ from litmus.pytest_plugin.autouse import (
     _litmus_push_limits,  # noqa: F401
     _litmus_push_params,  # noqa: F401
     _litmus_resolve_connections,  # noqa: F401
-    _reseat_current_logger,  # noqa: F401
+    _reseat_current_run_scope,  # noqa: F401
     _route_cleanup,  # noqa: F401
 )
 from litmus.pytest_plugin.helpers import (
@@ -218,7 +218,7 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     )
 
 
-def _emit_run_start_events(logger: RunScope) -> None:
+def _emit_run_start_events(run_scope: RunScope) -> None:
     """Emit RunStarted + per-instrument + StepsDiscovered.
 
     Session lifecycle (SessionStarted / stores) is opened at
@@ -227,7 +227,7 @@ def _emit_run_start_events(logger: RunScope) -> None:
     """
     from litmus.data.events import RunStarted, StepsDiscovered
 
-    event_log = logger.event_log
+    event_log = run_scope.event_log
     if event_log is None:
         return
 
@@ -239,50 +239,50 @@ def _emit_run_start_events(logger: RunScope) -> None:
 
     event_log.emit(
         RunStarted(
-            session_id=logger._session_id,
-            run_id=logger.test_run.id,
+            session_id=run_scope._session_id,
+            run_id=run_scope.test_run.id,
             slot_id=slot_id,
             slot_index=env_slot_index,
-            station_id=logger.test_run.station_id,
-            station_name=logger.test_run.station_name,
-            station_type=logger.test_run.station_type,
-            station_location=logger.test_run.station_location,
-            station_hostname=logger.test_run.station_hostname,
-            uut_serial=logger.test_run.uut.serial,
-            uut_part_number=logger.test_run.uut.part_number,
-            uut_revision=logger.test_run.uut.revision,
-            uut_lot_number=logger.test_run.uut.lot_number,
-            part_id=logger.test_run.part_id,
-            part_name=logger.test_run.part_name,
-            part_revision=logger.test_run.part_revision,
-            operator_id=logger.test_run.operator_id,
-            operator_name=logger.test_run.operator_name,
-            fixture_id=logger.test_run.fixture_id,
-            test_phase=logger.test_run.test_phase,
-            project_name=logger.test_run.project_name,
-            git_commit=logger.test_run.git_commit,
-            git_branch=logger.test_run.git_branch,
-            git_remote=logger.test_run.git_remote,
-            environment_json=logger.test_run.environment_json,
-            custom_metadata=dict(logger.test_run.custom_metadata),
+            station_id=run_scope.test_run.station_id,
+            station_name=run_scope.test_run.station_name,
+            station_type=run_scope.test_run.station_type,
+            station_location=run_scope.test_run.station_location,
+            station_hostname=run_scope.test_run.station_hostname,
+            uut_serial=run_scope.test_run.uut.serial,
+            uut_part_number=run_scope.test_run.uut.part_number,
+            uut_revision=run_scope.test_run.uut.revision,
+            uut_lot_number=run_scope.test_run.uut.lot_number,
+            part_id=run_scope.test_run.part_id,
+            part_name=run_scope.test_run.part_name,
+            part_revision=run_scope.test_run.part_revision,
+            operator_id=run_scope.test_run.operator_id,
+            operator_name=run_scope.test_run.operator_name,
+            fixture_id=run_scope.test_run.fixture_id,
+            test_phase=run_scope.test_run.test_phase,
+            project_name=run_scope.test_run.project_name,
+            git_commit=run_scope.test_run.git_commit,
+            git_branch=run_scope.test_run.git_branch,
+            git_remote=run_scope.test_run.git_remote,
+            environment_json=run_scope.test_run.environment_json,
+            custom_metadata=dict(run_scope.test_run.custom_metadata),
             pid=os.getpid(),
         )
     )
 
-    _emit_instrument_events(logger, event_log)
+    _emit_instrument_events(run_scope, event_log)
 
     collected = get_collected_items()
     if collected:
         event_log.emit(
             StepsDiscovered(
-                session_id=logger._session_id,
-                run_id=logger.test_run.id,
+                session_id=run_scope._session_id,
+                run_id=run_scope.test_run.id,
                 items=[ci.model_dump() for ci in collected],
             )
         )
 
 
-def _finalize_run(logger: RunScope) -> None:
+def _finalize_run(run_scope: RunScope) -> None:
     """Finalize the run (emit RunEnded). Session close is handled at sessionfinish.
 
     Close any still-open class container BEFORE finalize() so the
@@ -292,17 +292,17 @@ def _finalize_run(logger: RunScope) -> None:
     finalizes first (it runs before this session-scoped fixture's teardown),
     and this call is then a no-op.
     """
-    _close_open_class_container(logger)
+    _close_open_class_container(run_scope)
     # finalize() emits RunEnded; it does not close the event log itself.
-    logger.finalize()
+    run_scope.finalize()
 
 
 @pytest.fixture(scope="session", autouse=True)
-def logger(request) -> Generator[RunScope, None, None]:
-    """Provide test run logger for the session.
+def _run_scope(request) -> Generator[RunScope, None, None]:
+    """Provide the test run scope for the session.
 
     Autouse so every test (and the ``verify`` / ``context`` fixtures
-    that route through ``set_current_logger``) sees an active logger.
+    that route through ``set_current_run_scope``) sees an active run scope.
     Snapshots config at run start; emits to the always-on parquet +
     channels stores. Post-hoc rendering / format conversion happens
     via ``litmus show -f X`` and ``litmus export <run> -f X``.
@@ -339,34 +339,34 @@ def logger(request) -> Generator[RunScope, None, None]:
     if env_uut_serial:
         meta["uut_serial"] = env_uut_serial
 
-    logger = RunScope(**meta)
+    run_scope = RunScope(**meta)
     # Store this session's run so pytest_sessionfinish finalizes THIS run on a
-    # KeyboardInterrupt — not get_current_logger() (a nested pytester run
+    # KeyboardInterrupt — not get_current_run_scope() (a nested pytester run
     # restores that to the outer run, which we must not seal mid-suite).
-    request.session.stash[_RUN_SCOPE_KEY] = logger
+    request.session.stash[_RUN_SCOPE_KEY] = run_scope
 
     scope = request.session.stash.get(_SESSION_SCOPE_KEY, None)
     if scope is not None:
-        logger.event_log = scope.event_log
-        _emit_run_start_events(logger)
+        run_scope.event_log = scope.event_log
+        _emit_run_start_events(run_scope)
 
-    set_current_logger(logger)
+    set_current_run_scope(run_scope)
     try:
-        yield logger
+        yield run_scope
     finally:
         # Capture not-started steps onto the run manifest before finalize.
-        logger.test_run.collected_items = get_collected_items()
-        _finalize_run(logger)
-        set_current_logger(None)
+        run_scope.test_run.collected_items = get_collected_items()
+        _finalize_run(run_scope)
+        set_current_run_scope(None)
 
 
-def _emit_instrument_events(logger: RunScope, event_log: Any) -> None:
+def _emit_instrument_events(run_scope: RunScope, event_log: Any) -> None:
     """Pytest adapter — read ContextVar records, delegate to runner-neutral emitter."""
-    emit_instrument_events(logger, event_log, get_instrument_records())
+    emit_instrument_events(run_scope, event_log, get_instrument_records())
 
 
 @pytest.fixture(scope="session")
-def run_context(logger) -> RunContext:
+def run_context(_run_scope) -> RunContext:
     """Provide run context for adding custom metadata.
 
     This is the run-level context that persists across all tests in the session.
@@ -377,7 +377,7 @@ def run_context(logger) -> RunContext:
             run_context.set("operator_badge", "EMP-12345")
             run_context.set("fixture_serial", "FIX-001")
     """
-    return logger.run_context
+    return _run_scope.run_context
 
 
 @pytest.fixture(scope="session")
@@ -644,7 +644,7 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
 
 @pytest.fixture(scope="session")
 def instruments(
-    station_config, mock_instruments, instrument_records, logger
+    station_config, mock_instruments, instrument_records, _run_scope
 ) -> Generator[dict[str, Any], None, None]:
     """Create instrument instances from station configuration.
 
@@ -681,9 +681,9 @@ def instruments(
         return
 
     inst_configs = station_config.instruments or {}
-    session_id = logger._session_id if logger else None
-    run_id = logger.test_run.id if logger else None
-    event_log = logger.event_log if logger else None
+    session_id = _run_scope._session_id if _run_scope else None
+    run_id = _run_scope.test_run.id if _run_scope else None
+    event_log = _run_scope.event_log if _run_scope else None
 
     pool = InstrumentPool(
         session_id=session_id,
@@ -793,7 +793,7 @@ def uut(
 def _route_manager(
     instruments,
     fixture_config,
-    logger,
+    _run_scope,
 ) -> Generator[RouteManager | None, None, None]:
     """Session-scoped route manager for switched signal routing.
 
@@ -804,9 +804,9 @@ def _route_manager(
         yield None
         return
 
-    session_id = logger._session_id if logger else None
-    event_log = logger.event_log if logger else None
-    station_id = logger.test_run.station_id or "" if logger else ""
+    session_id = _run_scope._session_id if _run_scope else None
+    event_log = _run_scope.event_log if _run_scope else None
+    station_id = _run_scope.test_run.station_id or "" if _run_scope else ""
 
     rm = RouteManager(
         connections=fixture_config.connections,
@@ -890,7 +890,7 @@ def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManag
 
 
 @pytest.fixture(scope="session")
-def sync(logger):
+def sync(_run_scope):
     """Provide sync point for multi-UUT test coordination.
 
     In worker mode (_LITMUS_SLOT_ID set), returns a SyncPoint that
@@ -903,7 +903,7 @@ def sync(logger):
             v = dmm.measure_voltage()
             assert v > 3.0
     """
-    del logger  # dependency-only: forces the session EventStore to exist
+    del _run_scope  # dependency-only: forces the session EventStore to exist
     from litmus.execution.slot_runner import is_worker_mode
 
     if not is_worker_mode():
@@ -922,7 +922,7 @@ from litmus.execution.vectors import Vector  # noqa: E402
 
 
 @pytest.fixture
-def context(logger: RunScope | None) -> Generator[Context, None, None]:
+def context(_run_scope: RunScope | None) -> Generator[Context, None, None]:
     """Context exposed to tests for ``context.get_param("...")`` / ``.changed()``.
 
     Wires the active ChannelStore + session_id from the pytest plugin's
@@ -941,18 +941,18 @@ def context(logger: RunScope | None) -> Generator[Context, None, None]:
     tests); the token-based reset restores the prior context on
     teardown.
 
-    ``logger`` is annotated as ``RunScope | None`` because some
-    pytester subtests deliberately override the ``logger`` autouse
+    ``_run_scope`` is annotated as ``RunScope | None`` because some
+    pytester subtests deliberately override the ``_run_scope`` autouse
     fixture to yield ``None`` (neutralizes the duckdb dependency in
-    child processes). Falls back to a bare ``Context()`` when logger
-    is unwired — matches the pre-wiring behaviour for that case.
+    child processes). Falls back to a bare ``Context()`` when the run
+    scope is unwired — matches the pre-wiring behaviour for that case.
     """
-    if logger is None:
+    if _run_scope is None:
         ctx = Context()
     else:
         ctx = Context(
             channel_store=get_channel_store(),
-            session_id=logger._session_id,
+            session_id=_run_scope._session_id,
         )
     token = push_current_context(ctx)
     try:

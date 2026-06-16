@@ -82,15 +82,15 @@ def context_with_logger(
 ) -> Iterator[Context]:
     """A Context wired up so observe() can emit events.
 
-    Sets a FakeLogger as the current logger ContextVar so
-    ``get_current_logger()`` returns it; resets on teardown.
+    Sets a FakeLogger as the current run-scope ContextVar so
+    ``get_current_run_scope()`` returns it; resets on teardown.
     """
     harness = TestHarness(session_id=session_id)
     ctx = Context(harness=harness)
     logger = FakeLogger(event_log=event_log, run_id=run_id)
     import litmus.execution.harness as harness_mod
 
-    monkeypatch_target = "get_current_logger"
+    monkeypatch_target = "get_current_run_scope"
     original = getattr(harness_mod, monkeypatch_target)
     setattr(harness_mod, monkeypatch_target, lambda: logger)
     try:
@@ -178,7 +178,7 @@ def test_multiple_observes_emit_multiple_events(
 def test_observe_without_logger_is_silent_but_still_stashes() -> None:
     """No active logger → no event emitted; _observations still populated."""
     ctx = Context(harness=TestHarness(session_id=uuid4()))
-    # No push_current_logger — get_current_logger returns None
+    # No run scope set — get_current_run_scope returns None
 
     ctx.observe("temp", 23.5)
     # No assertion on events (none to assert against)
@@ -193,7 +193,7 @@ def test_observe_without_event_log_on_logger_is_silent(
 
     ctx = Context(harness=TestHarness(session_id=session_id))
     logger = FakeLogger(event_log=None)
-    monkeypatch.setattr(harness_mod, "get_current_logger", lambda: logger)
+    monkeypatch.setattr(harness_mod, "get_current_run_scope", lambda: logger)
 
     ctx.observe("temp", 23.5)
 
@@ -209,7 +209,7 @@ def test_observe_without_session_id_is_silent_for_scalar(
     ctx = Context()  # no harness, no session_id
     event_log = FakeEventLog()
     logger = FakeLogger(event_log=event_log)
-    monkeypatch.setattr(harness_mod, "get_current_logger", lambda: logger)
+    monkeypatch.setattr(harness_mod, "get_current_run_scope", lambda: logger)
 
     ctx.observe("temp", 23.5)
 

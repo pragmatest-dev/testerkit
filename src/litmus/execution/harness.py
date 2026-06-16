@@ -34,7 +34,7 @@ from litmus.execution._state import (
     get_active_station_config,
     get_active_test_characteristics,
     get_current_code_identity,
-    get_current_logger,
+    get_current_run_scope,
     get_current_step,
     get_current_vector,
     no_active_resource_error,
@@ -456,8 +456,8 @@ class Context:
         Returns ``None`` when called outside a run (interactive
         bringup, daemon-driven writes, bare unit tests).
         """
-        logger = get_current_logger()
-        return getattr(getattr(logger, "test_run", None), "id", None)
+        run_scope = get_current_run_scope()
+        return getattr(getattr(run_scope, "test_run", None), "id", None)
 
     def _emit_observation(self, key: str, value: Any) -> None:
         """Emit an ``Observation`` event for the value that landed in ``_observations``.
@@ -485,12 +485,12 @@ class Context:
                 key,
             )
             return
-        logger = get_current_logger()
-        event_log = getattr(logger, "event_log", None) if logger is not None else None
+        run_scope = get_current_run_scope()
+        event_log = getattr(run_scope, "event_log", None) if run_scope is not None else None
         if event_log is None:
             _log.debug(
                 "Observation %r not emitted: no active RunScope / event_log. "
-                "Run inside a logger context to land observations on the event timeline.",
+                "Run inside a run-scope context to land observations on the event timeline.",
                 key,
             )
             return
@@ -499,7 +499,7 @@ class Context:
         # are fine when called outside a step/vector (defensive).
         step = get_current_step()
         vector = get_current_vector()
-        run_id = getattr(getattr(logger, "test_run", None), "id", None)
+        run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
 
         event_log.emit(
             Observation(
@@ -792,8 +792,8 @@ class Context:
         ``ctx.uut`` attribute (the bare ``uut`` fixture is the live UUT
         driver, a different concept).
         """
-        logger = get_current_logger()
-        return logger.test_run if logger is not None else None
+        run_scope = get_current_run_scope()
+        return run_scope.test_run if run_scope is not None else None
 
     @property
     def station(self) -> StationConfig | None:

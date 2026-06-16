@@ -301,28 +301,28 @@ def test_method_vec_id_uses_param_values(pytester: pytest.Pytester) -> None:
 _MEASURE_CONFTEST = textwrap.dedent(
     """
     import pytest
-    from litmus.execution._state import get_current_logger, set_current_logger
+    from litmus.execution._state import get_current_run_scope, set_current_run_scope
     from litmus.execution.logger import RunScope
 
     # Session-scoped so the main plugin's session-scoped fixtures that
-    # depend on ``logger`` (e.g. ``instruments``) can resolve it without
+    # depend on ``_run_scope`` (e.g. ``instruments``) can resolve it without
     # a ScopeMismatch.
     @pytest.fixture(scope="session", autouse=True)
-    def _active_logger():
-        prev = get_current_logger()
-        _logger = RunScope(
+    def _active_run_scope():
+        prev = get_current_run_scope()
+        run_scope = RunScope(
             uut_serial="SN001",
             station_id="station_001",
         )
-        set_current_logger(_logger)
+        set_current_run_scope(run_scope)
         try:
-            yield _logger
+            yield run_scope
         finally:
-            set_current_logger(prev)
+            set_current_run_scope(prev)
 
     @pytest.fixture(scope="session")
-    def logger(_active_logger):
-        return _active_logger
+    def _run_scope(_active_run_scope):
+        return _active_run_scope
     """
 )
 
@@ -434,13 +434,13 @@ def test_allow_repeat_streams_same_name(pytester: pytest.Pytester) -> None:
         pytester,
         textwrap.dedent(
             """
-            from litmus.execution._state import get_current_logger
+            from litmus.execution._state import get_current_run_scope
             from litmus.models.test_config import Limit
 
             class TestSeq:
                 def test_stream(self):
                     lim = Limit(low=3.2, high=3.4, units="V")
-                    run = get_current_logger()
+                    run = get_current_run_scope()
                     for _ in range(10):
                         run.measure("v_sample", 3.3, limit=lim, allow_repeat=True)
             """

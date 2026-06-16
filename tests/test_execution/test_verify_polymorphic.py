@@ -24,11 +24,11 @@ import pytest
 from litmus.data.channels.store import ChannelStore
 from litmus.data.models import Outcome, Waveform
 from litmus.execution._state import (
-    get_current_logger,
+    get_current_run_scope,
     push_current_context,
     reset_current_context,
     set_channel_store,
-    set_current_logger,
+    set_current_run_scope,
 )
 from litmus.execution.harness import Context, TestHarness
 from litmus.execution.logger import RunScope
@@ -55,38 +55,38 @@ def session(tmp_path: Path):
     fstore_module.resolve_data_dir = lambda _=None: tmp_path
     _reset_filestore()
 
-    logger = RunScope(
+    run_scope = RunScope(
         uut_serial="POC-UUT-001",
         station_id="poc-station",
         run_id=run_id,
         session_id=session_id,
         data_dir=tmp_path,
     )
-    logger.event_log = event_log
+    run_scope.event_log = event_log
 
-    harness = TestHarness(session_id=session_id, channel_store=cstore, logger=logger)
+    harness = TestHarness(session_id=session_id, channel_store=cstore, logger=run_scope)
     ctx = Context(harness=harness, channel_store=cstore, session_id=session_id)
 
-    prior_logger = get_current_logger()
-    set_current_logger(logger)
+    prior_run_scope = get_current_run_scope()
+    set_current_run_scope(run_scope)
     set_channel_store(cstore)
     token = push_current_context(ctx)
-    logger.start_step("test_step")
+    run_scope.start_step("test_step")
 
     class _Session:
         pass
 
     sess = _Session()
-    sess.logger = logger  # type: ignore[attr-defined]
+    sess.run_scope = run_scope  # type: ignore[attr-defined]
     sess.channel_store = cstore  # type: ignore[attr-defined]
     sess.ctx = ctx  # type: ignore[attr-defined]
 
     try:
         yield sess
     finally:
-        logger.end_step()
+        run_scope.end_step()
         reset_current_context(token)
-        set_current_logger(prior_logger)
+        set_current_run_scope(prior_run_scope)
         set_channel_store(None)
         cstore.close()
         event_log.close()

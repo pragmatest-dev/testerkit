@@ -219,15 +219,16 @@ def _perform_verify(
     from contextlib import nullcontext
 
     from litmus.execution._state import (
-        get_current_logger,
+        get_current_run_scope,
         pushed_active_characteristic,
     )
     from litmus.execution.logger import _resolve_measurement_limit
 
-    logger = get_current_logger()
-    if logger is None:
+    run_scope = get_current_run_scope()
+    if run_scope is None:
         raise RuntimeError(
-            "verify() called without an active Litmus logger — is a Litmus runner plugin installed?"
+            "verify() called without an active Litmus run scope — "
+            "is a Litmus runner plugin installed?"
         )
 
     # Verb-semantic guard: ``verify`` is judgment-bearing and operates
@@ -281,7 +282,7 @@ def _perform_verify(
 
             profile = get_active_profile()
             if profile is not None and profile.verify_requires_limit is False:
-                return logger.measure(name, value, limit=None)
+                return run_scope.measure(name, value, limit=None)
             raise MissingLimitError(
                 f"verify({name!r}, ...) has no limit to judge against. "
                 "Pass limit=Limit(...), configure a limit via "
@@ -293,7 +294,7 @@ def _perform_verify(
             float(value) if value is not None else None,
             effective_limit,
         )
-        measurement = logger.measure(name, value, limit=limit_obj, outcome=outcome)
+        measurement = run_scope.measure(name, value, limit=limit_obj, outcome=outcome)
 
     if outcome == Outcome.FAILED:
         raise LimitFailure(
@@ -346,14 +347,14 @@ def _perform_measure(
     from contextlib import nullcontext
 
     from litmus.execution._state import (
-        get_current_logger,
+        get_current_run_scope,
         pushed_active_characteristic,
     )
 
-    logger = get_current_logger()
-    if logger is None:
+    run_scope = get_current_run_scope()
+    if run_scope is None:
         raise RuntimeError(
-            "measure() called without an active Litmus logger — "
+            "measure() called without an active Litmus run scope — "
             "is a Litmus runner plugin installed?"
         )
 
@@ -365,7 +366,7 @@ def _perform_measure(
         else nullcontext()
     )
     with char_ctx:
-        return logger.measure(name, value, limit=limit_obj)
+        return run_scope.measure(name, value, limit=limit_obj)
 
 
 def build_measure_callable() -> MeasureFn:

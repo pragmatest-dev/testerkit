@@ -45,7 +45,7 @@ from litmus.data.data_dir import resolve_data_dir
 from litmus.data.ref import make_channel_uri
 from litmus.execution._state import (
     get_channel_store,
-    get_current_logger,
+    get_current_run_scope,
     no_active_resource_error,
 )
 
@@ -61,8 +61,8 @@ def _resolve_run_id() -> UUID | None:
     channel writes). ChannelStore tolerates ``None`` — channel-lifecycle
     events stay valid without run context.
     """
-    logger = get_current_logger()
-    return getattr(getattr(logger, "test_run", None), "id", None)
+    run_scope = get_current_run_scope()
+    return getattr(getattr(run_scope, "test_run", None), "id", None)
 
 
 def _resolve_store() -> Any:

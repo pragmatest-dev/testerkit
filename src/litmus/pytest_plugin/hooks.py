@@ -30,7 +30,7 @@ from litmus.execution._state import (
     get_active_profile_name,
     get_active_slot_runner,
     get_channel_store,
-    get_current_logger,
+    get_current_run_scope,
     set_active_instruments,
     set_active_profile,
     set_collected_items,
@@ -307,7 +307,7 @@ _SESSION_ID_KEY: pytest.StashKey = pytest.StashKey()
 # The run controller (RunScope) for THIS pytest session, stored by the run
 # fixture. Used by pytest_sessionfinish to finalize the session's own run on a
 # KeyboardInterrupt (where sessionfinish fires before the fixture's teardown) —
-# scoped to this session's run, NOT get_current_logger() (which a nested
+# scoped to this session's run, NOT get_current_run_scope() (which a nested
 # in-process pytester run restores to the OUTER run, finalizing it prematurely).
 _RUN_SCOPE_KEY: pytest.StashKey = pytest.StashKey()
 
@@ -895,7 +895,7 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
     run fixture's teardown, so finalize THIS session's run here (emit RunEnded)
     while the event log is still open. ``finalize()`` is idempotent — the run
     fixture's later teardown is then a no-op. We finalize the run from the
-    stash, NOT ``get_current_logger()``: a nested in-process pytester run
+    stash, NOT ``get_current_run_scope()``: a nested in-process pytester run
     restores the ContextVar to the OUTER run on teardown, so finalizing the
     current logger here would seal the outer run prematurely (mid-suite),
     after which every later step re-triggers a failed materialize.
@@ -1342,8 +1342,8 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     ``def test_*`` functions.
 
     Runs as a hookwrapper (rather than an autouse fixture) so it fires
-    *after* all setup fixtures — including ones that install the logger
-    via ``set_current_logger``. Autouse ordering between unrelated
+    *after* all setup fixtures — including ones that install the run scope
+    via ``set_current_run_scope``. Autouse ordering between unrelated
     autouse fixtures is unspecified, which previously let
     ``log_measurement`` auto-create (and reset) the step before the
     wrapper could open it.
@@ -1355,7 +1355,7 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     under ``--strict-traceability``) that every measurement carries the
     required traceability fields.
     """
-    logger_inst = get_current_logger()
+    logger_inst = get_current_run_scope()
     func = getattr(item, "function", None)
     strict = bool(item.config.getoption("--strict-traceability"))
 
@@ -1414,7 +1414,7 @@ def _escalate_step_and_run(logger_inst: Any, step: Any, new_outcome: Outcome) ->
     still picks it up.
 
     Callers must pass a non-None ``logger_inst`` (they all check upstream
-    via ``get_current_logger()``).
+    via ``get_current_run_scope()``).
     """
     if step is not None:
         step.outcome = escalate_outcome(step.outcome, new_outcome)
@@ -1490,7 +1490,7 @@ def pytest_runtest_makereport(item: pytest.Item, call: Any) -> Iterator[None]:
         return
     if call.excinfo is None:
         return
-    logger_inst = get_current_logger()
+    logger_inst = get_current_run_scope()
     if logger_inst is None:
         return
     exc_type = call.excinfo.type
@@ -1538,7 +1538,7 @@ def pytest_keyboard_interrupt(excinfo: Any) -> None:
     instead of orphan ``Aborted`` fallbacks.
     """
     _ = excinfo
-    logger_inst = get_current_logger()
+    logger_inst = get_current_run_scope()
     if logger_inst is not None:
         from litmus.execution._state import get_current_step
 

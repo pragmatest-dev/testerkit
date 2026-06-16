@@ -18,7 +18,7 @@ from litmus.api.dialogs.models import (
     InputDialog,
 )
 from litmus.data.events import DialogOpened, DialogResponded
-from litmus.execution._state import get_current_logger
+from litmus.execution._state import get_current_run_scope
 from litmus.prompts.core import LITMUS_AUTO_CONFIRM
 
 _logger = logging.getLogger(__name__)
@@ -185,16 +185,16 @@ class DialogManager:
         """Emit a DialogOpened event if inside a test run.
 
         Standalone UI / API contexts (where dialogs run without a test
-        logger) silently no-op the parquet-event side; the dialog
+        run scope) silently no-op the parquet-event side; the dialog
         itself still fires.
         """
-        logger = get_current_logger()
-        if logger is None or logger.event_log is None:
+        run_scope = get_current_run_scope()
+        if run_scope is None or run_scope.event_log is None:
             return
-        logger.event_log.emit(
+        run_scope.event_log.emit(
             DialogOpened(
-                session_id=logger._session_id,
-                run_id=logger.test_run.id,
+                session_id=run_scope._session_id,
+                run_id=run_scope.test_run.id,
                 dialog_id=dialog.id,
                 dialog_type=dialog.type.value,
                 title=dialog.title,
@@ -208,8 +208,8 @@ class DialogManager:
         self, dialog: Dialog, response: DialogResponse, duration: float
     ) -> None:
         """Emit a DialogResponded event if inside a test run."""
-        logger = get_current_logger()
-        if logger is None or logger.event_log is None:
+        run_scope = get_current_run_scope()
+        if run_scope is None or run_scope.event_log is None:
             return
 
         if response.timed_out:
@@ -222,10 +222,10 @@ class DialogManager:
             # type is already on the event for downstream filtering.
             response_type = "answered"
 
-        logger.event_log.emit(
+        run_scope.event_log.emit(
             DialogResponded(
-                session_id=logger._session_id,
-                run_id=logger.test_run.id,
+                session_id=run_scope._session_id,
+                run_id=run_scope.test_run.id,
                 dialog_id=dialog.id,
                 dialog_type=dialog.type.value,
                 response_type=response_type,

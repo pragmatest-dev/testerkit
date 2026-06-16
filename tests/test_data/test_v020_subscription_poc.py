@@ -71,11 +71,11 @@ from litmus.data.events import (
 from litmus.data.files import FileStore
 from litmus.data.files import _reset_for_tests as _reset_filestore
 from litmus.execution._state import (
-    get_current_logger,
+    get_current_run_scope,
     push_current_context,
     reset_current_context,
     set_channel_store,
-    set_current_logger,
+    set_current_run_scope,
 )
 from litmus.execution.harness import Context, TestHarness
 from litmus.execution.logger import RunScope
@@ -126,21 +126,21 @@ def session(tmp_path: Path):
     # 4) Real RunScope with our EventLog attached. The pytest plugin's
     #    own hooks read TestRun fields off the active logger, so a stub
     #    won't do — use the real one and swap in our event log.
-    logger = RunScope(
+    run_scope = RunScope(
         uut_serial="POC-UUT-001",
         station_id="poc-station",
         run_id=run_id,
         session_id=session_id,
         data_dir=tmp_path,
     )
-    logger.event_log = log
+    run_scope.event_log = log
 
     # 5) Harness + Context wired with everything
-    harness = TestHarness(session_id=session_id, channel_store=cstore, logger=logger)
+    harness = TestHarness(session_id=session_id, channel_store=cstore, logger=run_scope)
     ctx = Context(harness=harness, channel_store=cstore, session_id=session_id)
     set_channel_store(cstore)
-    prior_logger = get_current_logger()
-    set_current_logger(logger)
+    prior_run_scope = get_current_run_scope()
+    set_current_run_scope(run_scope)
     token = push_current_context(ctx)
 
     class _Session:
@@ -152,7 +152,7 @@ def session(tmp_path: Path):
     sess.file_store = fstore  # type: ignore[attr-defined]
     sess.location = location  # type: ignore[attr-defined]
     sess.ctx = ctx  # type: ignore[attr-defined]
-    sess.logger = logger  # type: ignore[attr-defined]
+    sess.run_scope = run_scope  # type: ignore[attr-defined]
     sess.session_id = session_id  # type: ignore[attr-defined]
     sess.run_id = run_id  # type: ignore[attr-defined]
     sess.event_log = log  # type: ignore[attr-defined]
@@ -161,7 +161,7 @@ def session(tmp_path: Path):
         yield sess
     finally:
         reset_current_context(token)
-        set_current_logger(prior_logger)
+        set_current_run_scope(prior_run_scope)
         set_channel_store(None)
         server.shutdown()
         cstore.close()

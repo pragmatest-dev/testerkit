@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from litmus.execution._state import (
-    get_current_logger,
+    get_current_run_scope,
     no_active_resource_error,
     resolve_session_id,
 )
@@ -134,18 +134,18 @@ def write(
 
 
 def _resolve_event_log_and_run_id() -> tuple[EventLog | None, UUID | None]:
-    """Pull the active event_log + run_id from the current logger.
+    """Pull the active event_log + run_id from the current run scope.
 
     Mirrors :meth:`Context._emit_observation`'s plumbing. Both
     returned values may be ``None`` — call sites must tolerate that
     (the sink emits silently when no event_log is available; useful
     for bare unit tests).
     """
-    logger = get_current_logger()
-    if logger is None:
+    run_scope = get_current_run_scope()
+    if run_scope is None:
         return None, None
-    event_log = getattr(logger, "event_log", None)
-    run_id = getattr(getattr(logger, "test_run", None), "id", None)
+    event_log = getattr(run_scope, "event_log", None)
+    run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
     return event_log, run_id
 
 
