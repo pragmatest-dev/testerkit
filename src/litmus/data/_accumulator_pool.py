@@ -82,11 +82,10 @@ class AccumulatorPool:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._accs: dict[str, EventAccumulator] = {}  # run_id → accumulator
-        # Producer pid + host per session_id, captured from SessionStarted and
-        # cleared on SessionEnded. Used by the orphan sweep: the host gates the
-        # pid check (os.kill is host-local), the pid is the liveness probe.
+        # Producer pid per session_id, captured from SessionStarted and cleared
+        # on SessionEnded. The RUN orphan sweep resolves a run back to its
+        # producer pid through this (pid-death force-closes a run).
         self._session_pid: dict[str, int] = {}
-        self._session_host: dict[str, str] = {}
         # Most recent event timestamp per run_id — wall-clock fallback
         # for the orphan sweep when pid liveness check is unavailable.
         self._last_event_at: dict[str, datetime] = {}
@@ -132,7 +131,6 @@ class AccumulatorPool:
             if session_id and typed.pid:
                 with self._lock:
                     self._session_pid[session_id] = typed.pid
-                    self._session_host[session_id] = typed.station_hostname or ""
             return
 
         if isinstance(typed, SessionEnded):
@@ -208,24 +206,11 @@ class AccumulatorPool:
                 out.append((run_id, acc, pid, last))
         return out
 
-    def open_sessions(self) -> list[tuple[str, int, str]]:
-        """Return ``(session_id, pid, station_hostname)`` for sessions still open.
-
-        Open = ``SessionStarted`` seen, ``SessionEnded`` not seen. Includes
-        sessions with no open run (runless / idle), which ``open_runs`` can't
-        surface — the orphan sweep needs these to self-heal a crashed producer.
-        """
-        with self._lock:
-            return [
-                (sid, pid, self._session_host.get(sid, ""))
-                for sid, pid in self._session_pid.items()
-            ]
-
     def mark_session_ended(self, session_id: str) -> None:
-        """Drop a session from the open set (on SessionEnded or after self-heal)."""
+        """Forget a session's producer pid (on SessionEnded). Keeps the run
+        sweep's pid map from carrying a closed session's producer."""
         with self._lock:
             self._session_pid.pop(session_id, None)
-            self._session_host.pop(session_id, None)
 
     def evict(self, run_id: str) -> EventAccumulator | None:
         """Drop the accumulator for ``run_id`` and return it (or ``None``)."""

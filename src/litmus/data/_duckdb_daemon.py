@@ -13,11 +13,13 @@ Usage: python -m litmus.data._duckdb_daemon <events_dir>
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
 import time
 import warnings
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
@@ -29,8 +31,17 @@ from litmus.data._duckdb_flight_server import (
     start_flight_server_in_daemon,
 )
 from litmus.data._ipc_writer import read_ipc_batches
+from litmus.data._session_reaper import reap_abandoned_sessions
 from litmus.data.duckdb_manager import DuckDBDaemonManager
 from litmus.data.events import TYPED_PAYLOAD_COLUMNS
+
+logger = logging.getLogger(__name__)
+
+# Session-reaper cadence: a short bootstrap wait (let the ingest thread populate
+# the table) then a periodic backstop. The daemon idles at 300s, so this fires a
+# couple of times per daemon lifetime — most reaps happen on the NEXT spin.
+_REAPER_BOOTSTRAP_DELAY = 5.0
+_REAPER_INTERVAL = 60.0
 
 # Columns to narrow an IPC-loaded Arrow table to before inserting. The
 # IPC file's schema may be wider than what we INSERT — this narrows it to
@@ -421,8 +432,34 @@ def daemon_run(events_dir: Path) -> None:
         name="duckdb-ingest",
     ).start()
 
+    # Session reaper — derive abandonment from the spine (recency vs the will)
+    # and emit synthetic SessionEnded. Stateless: re-derives from the durable
+    # table every iteration, so a daemon spin (incl. this startup) catches
+    # sessions abandoned while no daemon ran.
+    reaper_stop = threading.Event()
+
+    def _reaper_loop() -> None:
+        reaper_stop.wait(_REAPER_BOOTSTRAP_DELAY)  # let ingest populate the table
+        cur = conn.cursor()
+        while not reaper_stop.is_set():
+            try:
+                reap_abandoned_sessions(cur, events_dir, now=datetime.now(UTC))
+            except Exception as exc:  # noqa: BLE001 — a bad reap must not kill the daemon
+                logger.warning("Session reaper iteration failed: %s", exc)
+            reaper_stop.wait(_REAPER_INTERVAL)
+
+    threading.Thread(target=_reaper_loop, daemon=True, name="session-reaper").start()
+
     # Block until idle timeout
     mgr.monitor_refs()
+
+    # Final scan before exit: catch sessions already past their lease that went
+    # quiet while other sessions kept the daemon busy (eager vs next-spin).
+    reaper_stop.set()
+    try:
+        reap_abandoned_sessions(conn.cursor(), events_dir, now=datetime.now(UTC))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Shutdown session reap failed: %s", exc)
 
     shutdown_flight_server_in_daemon(server, port_file, conn)
     mgr.cleanup_state_files()

@@ -230,9 +230,17 @@ class SessionStarted(EventBase):
 
 
 class SessionEnded(EventBase):
-    """Emitted at the end of a session. Must NOT carry run_id."""
+    """Emitted at the end of a session. Must NOT carry run_id.
+
+    A clean close (owner leaving) carries the defaults. The reaper emits a
+    *derived* close for an abandoned session — ``derived=True`` and ``reason``
+    from the will (e.g. ``"abandoned"``) — so the synthetic seal is
+    operator-visible and never confused with a cooperative end.
+    """
 
     event_type: Literal["session.ended"] = "session.ended"
+    reason: str | None = None
+    derived: bool = False
 
     @model_validator(mode="after")
     def _reject_run_id(self) -> SessionEnded:

@@ -54,7 +54,10 @@ Emitted once at the start of a session (interactive or test orchestrator).
 
 Emitted at the end of a session. Must NOT carry run_id.
 
-*(no fields beyond the base; the event_type discriminator is the only marker.)*
+| Field | Type | Default |
+|---|---|---|
+| `reason` | `str \| None` | `None` |
+| `derived` | `bool` | `False` |
 
 ## Run events
 
