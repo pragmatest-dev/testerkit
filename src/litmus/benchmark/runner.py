@@ -371,6 +371,31 @@ def _op_rate(results: list[WorkloadResult], op: str, kind: str) -> tuple[float, 
     return small.min_s * 1000, f"{_si(big.throughput)}/s"
 
 
+def _raw_rows(report: BenchmarkReport) -> list[tuple[str, ...]]:
+    """One tuple per measured case — the full raw grid (every op × scale ×
+    writers), with each op's OWN unit and a byte-rate where the op is byte-sized.
+    Underlies the raw-detail table the curated capacity view sits on top of."""
+    rows: list[tuple[str, ...]] = []
+    for r in sorted(report.results, key=lambda r: (r.store, r.op, r.scale, r.writers)):
+        mbps = _mbps(r.bytes_per_s) if r.bytes_per_s is not None else "—"
+        rows.append(
+            (
+                r.op,
+                r.unit,
+                _si(r.scale),
+                f"{r.writers}w",
+                _ms(r.min_s * 1000),
+                _ms(r.median_s * 1000),
+                f"{_si(r.throughput)} {r.unit}/s",
+                mbps,
+            )
+        )
+    return rows
+
+
+_RAW_HEADERS = ("operation", "unit", "scale", "conc", "best", "median", "rate", "MB/s")
+
+
 def _composition(sc: object) -> str:
     """Reader-facing description of a phase scenario's data footprint."""
     parts = [f"{sc.measurements:,} measurements"]  # type: ignore[attr-defined]
@@ -508,6 +533,17 @@ def format_markdown(report: BenchmarkReport) -> str:
         )
         out.append("")
 
+    if report.results:
+        out.append("## Raw results")
+        out.append("")
+        out.append("Every measured case, each with its own unit and a byte-rate where byte-sized.")
+        out.append("")
+        out.append("| " + " | ".join(_RAW_HEADERS) + " |")
+        out.append("|---|---|--:|--:|--:|--:|--:|--:|")
+        for r in _raw_rows(report):
+            out.append("| " + " | ".join(r) + " |")
+        out.append("")
+
     out.append(
         "_Full per-size, parallel-scaling, coefficient, and storage detail is in `report.json`._"
     )
@@ -556,6 +592,25 @@ def format_summary(report: BenchmarkReport) -> str:
             rate = {p.writers: p.throughput_per_s for p in s.points}
             cells = "".join(f"{_si(rate.get(w, 0.0)) + '/s':>12}" for w in writers)
             lines.append(f"    {s.store:<10}{cells}{s.factor():>12.2f}")
+        lines.append("")
+
+    if report.results:
+        rows = _raw_rows(report)
+        widths = [
+            max(len(h), max((len(r[i]) for r in rows), default=0))
+            for i, h in enumerate(_RAW_HEADERS)
+        ]
+
+        def _fmt(cells: tuple[str, ...]) -> str:
+            # left-align the label columns, right-align the numeric ones.
+            return "    " + "  ".join(
+                c.ljust(widths[i]) if i < 4 else c.rjust(widths[i]) for i, c in enumerate(cells)
+            )
+
+        lines.append("  Raw per-op detail (best-of-N, aggregate rate across writers):")
+        lines.append(_fmt(_RAW_HEADERS))
+        for r in rows:
+            lines.append(_fmt(r))
         lines.append("")
 
     lines.append("  Full detail (coefficients, per-size, scaling, storage) is in report.json.")
