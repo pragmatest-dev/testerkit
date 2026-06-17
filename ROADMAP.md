@@ -262,6 +262,49 @@ file-write event is the meatier sub-item (a one-shot PUT emits nothing today)._
   today; add a discrete file-write event (1 event per discrete write, never
   per-sample).
 
+### Run materialization — failure handling & recovery (#37)
+
+When `materialize_run_to_parquet` raises (e.g. a mixed-type `out_*` column),
+the runs daemon swallows it to a `logger.warning` and returns — the run
+**silently vanishes from `/results`**. Two failures: it's invisible (a green
+CI loses runs with no signal), and the run stays in the "unmaterialized" set
+forever, so the daemon **re-replays + re-fails it on every launch**. The
+unmaterialized auto-replay (`events_for_unmaterialized_runs`) is only bounded
+*because it assumes runs eventually materialize* — a persistent failure breaks
+that bound, turning the replay set into unbounded, growing per-launch cost.
+
+The data isn't lost, though: parquet is a *derived projection*; the events
+are the source of truth and are retained. So a failure is **recoverable** —
+fix the bug, upgrade, re-materialize, and the runs reappear retroactively.
+Making that real is a small lifecycle sub-system (the pieces are coupled —
+the marker alone fixes neither the cost nor recovery):
+
+- **`RunMaterializationFailed`** — a *terminal* event. Run states become
+  in-flight | materialized | failed. Durable + queryable: "deferred, not lost."
+- **Exclude failed from the unmaterialized auto-replay** — replay becomes
+  `RunStarted AND NOT (RunMaterialized OR RunMaterializationFailed)`, so a
+  failing-bug class no longer re-replays every daemon launch. This is the
+  marker's operational point — emitting it *without* excluding doesn't fix
+  the per-launch cost.
+- **`litmus data rematerialize [--run <id> | --all-failed]`** — clears the
+  marker, replays the cohort, re-materializes. Run after upgrading with the
+  fix. Surface a count ("N runs failed to materialize → run
+  `litmus data rematerialize`").
+- **Retention must pin un-materialized / failed cohorts** — `prune_date_dirs`
+  is date-blind today; it must skip date-dirs holding not-yet-materialized
+  runs, mirroring reference-aware channel retention. (The `RunMaterialized`
+  docstring already *claims* retention is materialization-gated, but the code
+  isn't — close that gap, else a recoverable run's events get pruned before
+  the fix lands.)
+
+Independent of the JSON redesign below (that fixes the common *cause*; this
+handles the failure *mode* for any cause) and profile-independent — safe to
+build now, and it's the safety net that makes the breaking redesign
+recoverable.
+
+_RICE: R=med, I=2.5, C=0.7, E=1.5w → **high**. Target 0.2.0 — build alongside
+or ahead of the redesign as its recovery net._
+
 ### Measurement-storage redesign — JSON / semi-structured (#37 / #38)
 
 **Large + blocking; sequenced after the session overhaul + files branch.**
@@ -270,9 +313,8 @@ Source: `docs/_internal/explorations/session-foundation.md` (Follow-on),
 
 _RICE: R=high, I=3, C=0.7, E=4w → **high**. Target 0.2.0 — today it
 **silently drops runs** (mixed-type column fails materialization on a green
-CI = data loss). Quick win FIRST: emit `RunMaterializationFailed` (small E,
-high I) to stop the silent loss, ahead of the full JSON/semi-structured
-redesign + typed projection._
+CI = data loss); the cause fix is below, the recovery net is the Run
+materialization item above._
 
 Today `out_*` / `in_*` are wide dynamically-typed columns. A single run
 with mixed types in one column (`out_b: float, str`) **fails
@@ -293,8 +335,9 @@ What needs to land:
   fast input-condition filter + drop-down enumeration need a typed
   projection (extend the runs-daemon DuckDB index, which is already a
   derived projection).
-- Emit a durable **`RunMaterializationFailed`** event instead of
-  swallowing, so no run is ever silently lost (#37).
+- Failure handling + recovery is its own item (**Run materialization —
+  failure handling & recovery**, above) — the safety net that makes this
+  breaking change recoverable.
 - Consolidate the ~14 wide instrument fields (`step_instruments_*` parallel
   array columns, `_INSTR_ARRAY_TYPES`) into the same semi-structured
   representation — same wide-column smell, same swap-readiness win.
