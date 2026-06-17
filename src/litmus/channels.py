@@ -283,10 +283,10 @@ def query(
             last_n=last_n,
             max_points=max_points,
         )
-    # ``offset`` is an internal ordering cursor (the window-stitch dedup key),
+    # ``sample_offset`` is an internal ordering cursor (the window-stitch dedup key),
     # never part of the public read contract — drop it from query results.
-    if "offset" in table.column_names:
-        table = table.drop_columns(["offset"])
+    if "sample_offset" in table.column_names:
+        table = table.drop_columns(["sample_offset"])
     return table
 
 
@@ -391,7 +391,7 @@ def _history_to_wire_batch(channel_id: str, table: pa.Table) -> pa.RecordBatch |
             "units": [""] * n,
             "sample_interval": _col("sample_interval", None),
             "session_id": _col("session_id", None),
-            "offset": _col("offset", -1),
+            "sample_offset": _col("sample_offset", -1),
         },
         schema=sample_schema(),
     )
@@ -402,14 +402,14 @@ def _dedup_against_history(
 ) -> pa.RecordBatch | None:
     """Drop live rows already covered by the history prefill.
 
-    A live row duplicates a history row iff its ``offset`` is at or below the
+    A live row duplicates a history row iff its ``sample_offset`` is at or below the
     per-session high-water mark seen in history. Returns the survivors (or
     ``None`` if every row is a duplicate).
     """
     if not high_water:
         return batch
     sessions = batch.column("session_id").to_pylist()
-    seqs = batch.column("offset").to_pylist()
+    seqs = batch.column("sample_offset").to_pylist()
     mask = [s is None or q > high_water.get(s, -1) for s, q in zip(sessions, seqs, strict=True)]
     if all(mask):
         return batch
@@ -433,7 +433,7 @@ def window(
     the "show me the last 30 seconds, live" pattern. History and live arrive in
     the same batch shape and are joined at the seam with no gap (subscribe runs
     before the history read) and no double-counted sample (dedup on the per-sample
-    offset). ``max_hz`` throttles the live tail. Returns an unsubscribe callable.
+    sample_offset). ``max_hz`` throttles the live tail. Returns an unsubscribe callable.
     """
     full_name = f"{namespace}.{name}" if namespace else name
 
@@ -453,17 +453,17 @@ def window(
             forward(deduped)
 
     # Subscribe BEFORE the history read so nothing written in between is lost
-    # (subscribe-before-query closes the gap; the offset closes the dup).
+    # (subscribe-before-query closes the gap; the sample_offset closes the dup).
     client = ChannelClient(flight_manager.acquire(_channels_dir()))
     unsub_reader = client.on_channel_batch(full_name, _on_live, policy=SubscribePolicy.ALL)
 
     now = datetime.now(UTC)
     max_points = int(dur * max_hz) if max_hz else None
     history = client.query(full_name, start=now - timedelta(seconds=dur), max_points=max_points)
-    if "offset" in history.column_names and history.num_rows:
+    if "sample_offset" in history.column_names and history.num_rows:
         for s, q in zip(
             history.column("session_id").to_pylist(),
-            history.column("offset").to_pylist(),
+            history.column("sample_offset").to_pylist(),
             strict=True,
         ):
             if s is not None and q > high_water.get(s, -1):

@@ -26,7 +26,7 @@ def _values_and_offsets(store: ChannelStore, channel: str) -> tuple[list, list]:
     table = store.query(channel)
     return (
         table.column("value").to_pylist(),
-        table.column("offset").to_pylist(),
+        table.column("sample_offset").to_pylist(),
     )
 
 
@@ -140,7 +140,7 @@ class TestRuntimeReadableLog:
             received_at=datetime.now(UTC),
             value=7.0,
             session_id=sid,
-            offset=0,
+            sample_offset=0,
         )
         index.ingest_batch("ch", sample_to_batch(s))
         assert index._index is not None
@@ -167,7 +167,7 @@ class TestSingleOffsetTicket:
         store.close()
 
         assert len(set(uris)) == 3  # pre-fix: all 3 were identical
-        assert [parse_channel_uri(u).offset for u in uris] == [0, 1, 2]
+        assert [parse_channel_uri(u).sample_offset for u in uris] == [0, 1, 2]
 
     def test_ticket_follows_to_one_row(self, tmp_path: Path):
         store = ChannelStore(tmp_path, uuid4(), flush_threshold=4)
@@ -180,7 +180,7 @@ class TestSingleOffsetTicket:
         for i, uri in enumerate(uris):
             resolved = load_ref(uri, channel_store=store)
             assert resolved.num_rows == 1
-            assert resolved.column("offset").to_pylist() == [i]
+            assert resolved.column("sample_offset").to_pylist() == [i]
         store.close()
 
     def test_batch_write_ticket_stays_whole_channel(self, tmp_path: Path):
@@ -191,7 +191,7 @@ class TestSingleOffsetTicket:
         uri = store.write_many("dmm.v", [1.0, 2.0, 3.0])
         store.close()
 
-        assert parse_channel_uri(uri).offset is None
+        assert parse_channel_uri(uri).sample_offset is None
         assert load_ref(uri, channel_store=store).num_rows == 3
 
 
@@ -305,7 +305,7 @@ class TestChannelRegistry:
             "dmm.v",
             sample_to_batch(
                 ChannelSample(
-                    channel_id="dmm.v", received_at=ts, value=1.0, session_id=sid, offset=0
+                    channel_id="dmm.v", received_at=ts, value=1.0, session_id=sid, sample_offset=0
                 )
             ),
         )

@@ -443,7 +443,7 @@ class ChannelStore:
             StreamCheckpoint(
                 session_id=self._session_id,
                 run_id=run_id,
-                uri=make_channel_uri(channel_id, str(self._session_id), offset=offset),
+                uri=make_channel_uri(channel_id, str(self._session_id), sample_offset=offset),
                 offset=offset,
             )
         )
@@ -694,7 +694,7 @@ class ChannelStore:
                         "value": pa.array(values, type=writer.schema.field("value").type),
                         "source_method": pa.array([source] * n, type=pa.utf8()),
                         "session_id": pa.array([sid] * n, type=pa.utf8()),
-                        "offset": pa.array(offsets, type=pa.int64()),
+                        "sample_offset": pa.array(offsets, type=pa.int64()),
                     },
                     schema=writer.schema,
                 )
@@ -713,7 +713,7 @@ class ChannelStore:
                         "units": pa.array([units or ""] * n, type=pa.utf8()),
                         "sample_interval": pa.array([sample_interval] * n, type=pa.float64()),
                         "session_id": pa.array([sid] * n, type=pa.utf8()),
-                        "offset": pa.array(offsets, type=pa.int64()),
+                        "sample_offset": pa.array(offsets, type=pa.int64()),
                     },
                     schema=sample_schema(),
                 )
@@ -728,7 +728,7 @@ class ChannelStore:
                         sample_interval=sample_interval,
                         source_method=source,
                         session_id=sid,
-                        offset=offsets[i],
+                        sample_offset=offsets[i],
                     )
                     for i in range(n)
                 ]
@@ -737,7 +737,7 @@ class ChannelStore:
             )
             self._publish(channel_id, wire, samples)
             self._maybe_checkpoint(channel_id, offsets[-1], run_id)
-            return make_channel_uri(channel_id, sid, offset=offsets[0] if n == 1 else None)
+            return make_channel_uri(channel_id, sid, sample_offset=offsets[0] if n == 1 else None)
 
         # ---- Array / struct / dict: per-row build (the envelope needs it) ----
         rows: list[dict] = []
@@ -757,9 +757,9 @@ class ChannelStore:
                 raise ValueError(f"Channel {channel_id}: could not classify value")
             if i == 0:
                 data_type = dt
-            row["offset"] = offsets[i]
+            row["sample_offset"] = offsets[i]
             if sample is not None:
-                sample.offset = offsets[i]
+                sample.sample_offset = offsets[i]
                 samples.append(sample)
             rows.append(row)
         self._register(
@@ -787,9 +787,9 @@ class ChannelStore:
         )
         self._publish(channel_id, wire, samples if need_samples else None)
         self._maybe_checkpoint(channel_id, offsets[-1], run_id)
-        # offset pins single-sample writes (write/observe) to their one row; the
-        # batch verb (write_many, N>1) stays un-offset — that's the deferred range case.
-        return make_channel_uri(channel_id, sid, offset=offsets[0] if n == 1 else None)
+        # sample_offset pins single-sample writes (write/observe) to their one row;
+        # the batch verb (write_many, N>1) stays un-pinned — that's the deferred range case.
+        return make_channel_uri(channel_id, sid, sample_offset=offsets[0] if n == 1 else None)
 
     def _publish(
         self,
@@ -1043,7 +1043,7 @@ class ChannelStore:
         end: datetime | None = None,
         last_n: int | None = None,
         max_points: int | None = None,
-        offset: int | None = None,
+        sample_offset: int | None = None,
     ) -> pa.Table:
         """Query channel data, merging flushed files + in-memory buffer.
 
@@ -1060,10 +1060,11 @@ class ChannelStore:
                 (Largest Triangle Three Buckets). Preserves peaks and valleys
                 for faithful visual representation. Applied after all other
                 filters. Requires a ``value`` or ``samples`` column.
-            offset: Internal cursor — pin the result to the one row at this
-                offset (used by materialization to follow a single-offset
-                ticket). NOT exposed on the public ``channels.query`` verb;
-                ``offset`` stays a store-internal addressing cursor.
+            sample_offset: Internal cursor — pin the result to the one row at
+                this sample_offset (used by materialization to follow a
+                single-sample ticket). NOT exposed on the public
+                ``channels.query`` verb; ``sample_offset`` stays a store-internal
+                addressing cursor.
         """
         if self._index is not None:
             return self._index.query(
@@ -1073,7 +1074,7 @@ class ChannelStore:
                 end=end,
                 last_n=last_n,
                 max_points=max_points,
-                offset=offset,
+                sample_offset=sample_offset,
             )
 
         session_short = session_id[:8] if session_id else None
@@ -1142,10 +1143,12 @@ class ChannelStore:
             ]
             result = result.filter(keep)
 
-        # Pin to a single offset (internal ticket follow). offset is per-sample
-        # within (session, channel); session filtering above already scoped it.
-        if offset is not None and "offset" in result.column_names:
-            result = result.filter([o == offset for o in result.column("offset").to_pylist()])
+        # Pin to a single sample_offset (internal ticket follow). sample_offset is
+        # per-sample within (session, channel); session filtering above scoped it.
+        if sample_offset is not None and "sample_offset" in result.column_names:
+            result = result.filter(
+                [o == sample_offset for o in result.column("sample_offset").to_pylist()]
+            )
 
         # Limit to last N
         if last_n is not None and len(result) > last_n:

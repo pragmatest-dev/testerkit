@@ -107,7 +107,14 @@ class ChannelIndex:
     """
 
     _INDEX_ENVELOPE = frozenset(
-        {"received_at", "sampled_at", "source_method", "session_id", "sample_interval", "offset"}
+        {
+            "received_at",
+            "sampled_at",
+            "source_method",
+            "session_id",
+            "sample_interval",
+            "sample_offset",
+        }
     )
 
     _INDEX_ARROW_SCHEMA = pa.schema(
@@ -119,7 +126,7 @@ class ChannelIndex:
             ("source_method", pa.utf8()),
             ("sample_interval", pa.float64()),
             ("value", pa.utf8()),
-            ("offset", pa.int64()),
+            ("sample_offset", pa.int64()),
         ]
     )
 
@@ -201,10 +208,12 @@ class ChannelIndex:
 
     @staticmethod
     def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
-        """Idempotently align the on-disk index schema (additive open).
+        """Create the on-disk index schema if absent.
 
-        ``CREATE TABLE IF NOT EXISTS`` so a new column auto-migrates an
-        existing DB on next spawn — no version bump, no re-ingest.
+        The index is a disposable projection — every row is re-derivable from
+        the durable ``.arrow`` segments. ``CREATE TABLE IF NOT EXISTS`` keeps an
+        existing table as-is, so a column change is not an in-place migration:
+        clear ``data/channels`` and let the next open rebuild the projection.
         """
         conn.execute(
             """
@@ -216,7 +225,7 @@ class ChannelIndex:
                 source_method VARCHAR,
                 sample_interval DOUBLE,
                 value VARCHAR,
-                "offset" BIGINT
+                sample_offset BIGINT
             )
             """
         )
@@ -420,10 +429,10 @@ class ChannelIndex:
                     "source_method": r.get("source_method") or "",
                     "sample_interval": r.get("sample_interval"),
                     "value": encode_value(payload),
-                    # Carry the segment's offset into the index so a scanned row
+                    # Carry the segment's sample_offset into the index so a scanned row
                     # dedups against the same sample in the live overlay (else the
-                    # runtime fold would double-count it with a null offset).
-                    "offset": r.get("offset", -1),
+                    # runtime fold would double-count it with a null sample_offset).
+                    "sample_offset": r.get("sample_offset", -1),
                 }
             )
         return out
@@ -511,7 +520,7 @@ class ChannelIndex:
             "source_method": sample.source_method or "",
             "sample_interval": interval,
             "value": encode_value(payload),
-            "offset": sample.offset,
+            "sample_offset": sample.sample_offset,
         }
 
     def extend_pending(self, rows: list[dict[str, Any]]) -> None:
@@ -547,7 +556,7 @@ class ChannelIndex:
         end: datetime | None,
         last_n: int | None,
         max_points: int | None,
-        offset: int | None = None,
+        sample_offset: int | None = None,
     ) -> pa.Table:
         """At-rest query served from the warm index (∪ pending buffer)."""
         self._maybe_scan_disk()
@@ -555,11 +564,11 @@ class ChannelIndex:
         cur = self._cursor()
         # Union the durable index with the live overlay (same columns). A sample
         # lands in the overlay (push) and/or channel_index (segment scan), and the
-        # runtime fold can put it in both — _dedup_on_offset below collapses the
-        # overlap on the per-sample cursor (session, offset).
+        # runtime fold can put it in both — _dedup_on_sample_offset below collapses the
+        # overlap on the per-sample cursor (session, sample_offset).
         sql = [
             "SELECT received_at, sampled_at, value, source_method, "
-            'session_id, sample_interval, "offset" FROM ('
+            "session_id, sample_interval, sample_offset FROM ("
             "SELECT * FROM channel_index UNION ALL SELECT * FROM live.channel_live"
             ") WHERE channel_id = ?"
         ]
@@ -575,11 +584,11 @@ class ChannelIndex:
         if end_utc is not None:
             sql.append("AND received_at <= ?")
             params.append(end_utc)
-        if offset is not None:
-            sql.append('AND "offset" = ?')
-            params.append(offset)
+        if sample_offset is not None:
+            sql.append("AND sample_offset = ?")
+            params.append(sample_offset)
         sql.append("ORDER BY received_at")
-        table = self._dedup_on_offset(cur.execute(" ".join(sql), params).arrow().read_all())
+        table = self._dedup_on_sample_offset(cur.execute(" ".join(sql), params).arrow().read_all())
 
         if last_n is not None and table.num_rows > last_n:
             table = table.slice(table.num_rows - last_n)
@@ -589,21 +598,21 @@ class ChannelIndex:
         return table
 
     @staticmethod
-    def _dedup_on_offset(table: pa.Table) -> pa.Table:
-        """Collapse overlay∪index overlap on the per-sample cursor (session, offset).
+    def _dedup_on_sample_offset(table: pa.Table) -> pa.Table:
+        """Collapse overlay∪index overlap on the per-sample cursor (session, sample_offset).
 
         The runtime segment fold can place a sample in both the durable index and
         the live overlay; both copies are identical, so keep the first (the table
         is already ordered by ``received_at``). A no-op when they don't overlap.
-        Rows with an unstamped ``offset`` (< 0, legacy) are never collapsed.
+        Rows with an unstamped ``sample_offset`` (< 0, legacy) are never collapsed.
         """
-        if table.num_rows == 0 or "offset" not in table.column_names:
+        if table.num_rows == 0 or "sample_offset" not in table.column_names:
             return table
         sessions = table.column("session_id").to_pylist()
-        offsets = table.column("offset").to_pylist()
+        sample_offsets = table.column("sample_offset").to_pylist()
         seen: set[tuple[Any, int]] = set()
         keep: list[int] = []
-        for i, (s, o) in enumerate(zip(sessions, offsets, strict=True)):
+        for i, (s, o) in enumerate(zip(sessions, sample_offsets, strict=True)):
             if o is not None and o >= 0:
                 key = (s, o)
                 if key in seen:

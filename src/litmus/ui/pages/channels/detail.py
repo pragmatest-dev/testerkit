@@ -695,7 +695,9 @@ def _build_scalar_series(
     session_ids = {str(r.get("session_id") or "") for r in rows}
     if len(session_ids) <= 1:
         data = (
-            [[r.get("offset"), _extract_scalar(r)] for r in rows] if x_mode == "offset" else y_data
+            [[r.get("sample_offset"), _extract_scalar(r)] for r in rows]
+            if x_mode == "offset"
+            else y_data
         )
         return [
             {
@@ -719,7 +721,7 @@ def _build_scalar_series(
         # missing from a session renders as a gap, not a zero). offset:
         # [offset, value] pairs on the value axis, sessions aligned at 0.
         if x_mode == "offset":
-            point = [r.get("offset"), value]
+            point = [r.get("sample_offset"), value]
         else:
             point = [_axis_tick(r.get("received_at")), value]
         by_session.setdefault(sid, []).append(point)
@@ -754,7 +756,7 @@ def _build_offset_array_series(rows: list[dict[str, Any]]) -> list[dict[str, Any
 
     series: list[dict[str, Any]] = []
     for sid, srows in by_session.items():
-        srows.sort(key=lambda r: r.get("offset") or 0)
+        srows.sort(key=lambda r: r.get("sample_offset") or 0)
         points: list[list[Any]] = []
         pos = 0
         for r in srows:

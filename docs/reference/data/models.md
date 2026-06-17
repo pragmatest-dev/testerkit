@@ -1197,7 +1197,7 @@ A single channel data point delivered to subscribers.
 | `sample_interval` | `float \| None` | `None` |
 | `source_method` | `str` | `''` |
 | `session_id` | `str \| None` | `None` |
-| `offset` | `int` | `-1` |
+| `sample_offset` | `int` | `-1` |
 
 #### `SubscribePolicy` {#enum-subscribepolicy}
 

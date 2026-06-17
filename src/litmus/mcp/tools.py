@@ -1308,8 +1308,8 @@ def channels_query(
     """Query channel data from the channel store.
 
     Shared implementation for HTTP API and MCP tool. Each row carries its
-    ``offset`` — the sample's per-session position. That's part of the
-    channel ticket (``channel://…&offset=N``), so it travels with the data.
+    ``sample_offset`` — the sample's per-session position. That's part of the
+    channel ticket (``channel://…&sample_offset=N``), so it travels with the data.
     """
     from litmus.data.channels.client import channel_query_client
     from litmus.data.data_dir import resolve_data_dir

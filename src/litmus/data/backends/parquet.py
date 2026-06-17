@@ -962,7 +962,7 @@ def load_ref(
             return channel_store.query(
                 ticket.channel_id,
                 session_id=ticket.session_id or None,
-                offset=ticket.offset,
+                sample_offset=ticket.sample_offset,
             )
         except Exception:  # noqa: BLE001
             # A dangling or unreachable channel degrades to "unavailable" (return

@@ -86,10 +86,10 @@ class ChannelSample(BaseModel):
     sample_interval: float | None = None
     source_method: str = ""
     session_id: str | None = None
-    offset: int = -1
+    sample_offset: int = -1
     """Monotonic per-(channel, session) write position, stamped by the
     producer. Carried identically into the live batch and the durable
-    segment so a history-to-live stitch can dedup on (session_id, offset)
+    segment so a history-to-live stitch can dedup on (session_id, sample_offset)
     without timestamp ties. ``-1`` means unstamped. Internal ordering
     cursor — never a verb parameter."""
 
@@ -244,7 +244,7 @@ def _infer_schema(value: object) -> pa.Schema:
 
     fields.append(pa.field("source_method", pa.utf8()))
     fields.append(pa.field("session_id", pa.utf8()))
-    fields.append(pa.field("offset", pa.int64()))
+    fields.append(pa.field("sample_offset", pa.int64()))
     return pa.schema(fields)
 
 
@@ -261,7 +261,7 @@ SCALAR_SCHEMA = pa.schema(
         pa.field("value", pa.float64()),
         pa.field("source_method", pa.utf8()),
         pa.field("session_id", pa.utf8()),
-        pa.field("offset", pa.int64()),
+        pa.field("sample_offset", pa.int64()),
     ]
 )
 
@@ -273,7 +273,7 @@ ARRAY_SCHEMA = pa.schema(
         pa.field("sample_interval", pa.float64()),
         pa.field("source_method", pa.utf8()),
         pa.field("session_id", pa.utf8()),
-        pa.field("offset", pa.int64()),
+        pa.field("sample_offset", pa.int64()),
     ]
 )
 
@@ -307,7 +307,7 @@ def sample_schema() -> pa.Schema:
             pa.field("units", pa.utf8()),
             pa.field("sample_interval", pa.float64()),
             pa.field("session_id", pa.utf8()),
-            pa.field("offset", pa.int64()),
+            pa.field("sample_offset", pa.int64()),
         ]
     )
 
@@ -329,7 +329,7 @@ def samples_to_batch(samples: list[ChannelSample]) -> pa.RecordBatch:
             "units": [s.units or "" for s in samples],
             "sample_interval": [s.sample_interval for s in samples],
             "session_id": [s.session_id for s in samples],
-            "offset": [s.offset for s in samples],
+            "sample_offset": [s.sample_offset for s in samples],
         },
         schema=sample_schema(),
     )
@@ -348,7 +348,7 @@ def sample_to_batch(sample: ChannelSample) -> pa.RecordBatch:
             "units": [sample.units or ""],
             "sample_interval": [sample.sample_interval],
             "session_id": [sample.session_id],
-            "offset": [sample.offset],
+            "sample_offset": [sample.sample_offset],
         },
         schema=sample_schema(),
     )
@@ -392,11 +392,11 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
     if "session_id" in columns:
         session_id = batch.column("session_id")[i].as_py() or None
 
-    offset = -1
-    if "offset" in columns:
-        seq_val = batch.column("offset")[i].as_py()
+    sample_offset = -1
+    if "sample_offset" in columns:
+        seq_val = batch.column("sample_offset")[i].as_py()
         if seq_val is not None:
-            offset = seq_val
+            sample_offset = seq_val
 
     return ChannelSample(
         channel_id=batch.column("channel_id")[i].as_py(),
@@ -407,5 +407,5 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
         sample_interval=sample_interval,
         source_method=source_method,
         session_id=session_id,
-        offset=offset,
+        sample_offset=sample_offset,
     )
