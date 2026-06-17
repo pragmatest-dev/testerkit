@@ -24,7 +24,7 @@ Each event type adds a `Literal` `event_type` field used as a discriminator for 
 
 ## Event Categories
 
-Litmus defines events across 11 categories.
+Litmus defines events across 12 categories.
 
 ### Session (2 events)
 | Event | Type String | Description |
@@ -87,12 +87,19 @@ Litmus defines events across 11 categories.
 | `DiagnosticWarning` | `diagnostic.warning` | Non-fatal warning |
 | `DiagnosticError` | `diagnostic.error` | Error condition |
 
+### Channel (3 events)
+| Event | Type String | Description |
+|-------|-------------|-------------|
+| `ChannelStarted` | `channel.started` | A channel received its first sample in this session |
+| `ChannelEnded` | `channel.ended` | A channel was sealed for this session |
+| `ChannelCheckpoint` | `channel.checkpoint` | Liveness + progress marker from an active channel producer |
+
 ### File (3 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
 | `FileStarted` | `file.started` | A data stream begins |
 | `FileEnded` | `file.ended` | A data stream ends |
-| `StreamFrameIndex` | `stream.frame_index` | Frame count update |
+| `FileCheckpoint` | `file.checkpoint` | Liveness + progress marker from an active file sink |
 
 ### Dialog (2 events)
 | Event | Type String | Description |

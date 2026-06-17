@@ -166,12 +166,13 @@ def stream(
     stores can stream, with different granularity (file streams write
     bytes per chunk; channel streams write one typed sample per call).
 
-    The sink emits :class:`~litmus.data.events.FileStarted` on open,
-    :class:`~litmus.data.events.StreamFrameIndex` after each
-    :meth:`StreamingSink.write` (carries ``byte_offset`` so live
-    consumers range-read the new window), and
-    :class:`~litmus.data.events.FileEnded` on close (carries the
-    final ``file://`` URI).
+    The sink emits :class:`~litmus.data.events.FileStarted` on open and
+    :class:`~litmus.data.events.FileEnded` on close (carries the final
+    ``file://`` URI). Each :meth:`StreamingSink.write` fans out an ephemeral
+    frame (carrying ``byte_offset``) to live subscribers — not a durable
+    event — so consumers range-read the new window; a cadence-bounded
+    :class:`~litmus.data.events.FileCheckpoint` keeps the session alive
+    during long writes.
 
     Args:
         name: Artifact name (becomes part of the filename).
