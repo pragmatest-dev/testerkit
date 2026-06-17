@@ -14,7 +14,8 @@ Companion docs (read first): `data-store-unification-invariants.md` (the
 per-store invariant tables + the one rule that prevents read/write races),
 `channels-real-stream-handoff.md` (the channels streaming resolution this
 builds on), `data-store-backends.md` (the six-requirement service contract),
-`channels-followups.md` #7 (the `StreamTuning` follow-up folded in here).
+the `StreamTuning` follow-up folded in here (remaining tuning work now
+tracked in `ROADMAP.md`).
 
 ## Why this exists
 
@@ -289,8 +290,8 @@ lagging *live* consumer re-syncs. Runs stays locked-mode (Rule R1).
    write_many/stream — recorded as a follow-up). Result: shared server beats the
    pre-everything original on every write mode (write_many 154→205k, stream
    150→198k, write scales further). Full suite green: **2084 passed, 17 skipped**.
-   Diary updated; the `StreamTuning` knob-consolidation (`channels-followups.md`
-   #7) landed as the per-store `ChannelOptions`/`FileOptions` in Phase 2.
+   Diary updated; the `StreamTuning` knob-consolidation landed as the
+   per-store `ChannelOptions`/`FileOptions` in Phase 2.
 
 ## What stays out of scope
 

@@ -77,10 +77,12 @@ to confirm direction.
 ### Channels — streaming & liveness
 
 Open follow-ups deferred from the 2026-06 branch work. Source:
-`docs/_internal/explorations/channels-followups.md`,
-`channels-real-stream-handoff.md`, `live-ui-pattern.md`.
+`docs/_internal/explorations/channels-real-stream-handoff.md`,
+`live-ui-pattern.md`.
 
-_RICE: TBD_
+_RICE: R=med, I=1.5, C=0.7, E=3w → **med**. Target 0.2.0 for the list
+live-column + liveness MCP/HTTP wiring; Later for declare→standing-watch
+and physical-channel-id (open design forks)._
 
 - **`/channels` list live-status column.** The detail badge derives live
   from lifecycle events (`ChannelStarted ∧ ¬ChannelEnded`, latest-start vs
@@ -134,7 +136,10 @@ _RICE: TBD_
 Source: `docs/_internal/explorations/channels-write-scaling.md`,
 `store-perf-writemany-handoff.md`, `data-stores.md`.
 
-_RICE: TBD_
+_RICE: R=low-med, I=2, C=0.6, E=4w → **low-med**. Target Later (bites at
+multi-producer / HIL scale, not single-station). Quick win now: extend the
+`litmus benchmark` sweep to `write_many` / `stream` (E≈0.3w) so a regression
+like the Phase-5 one is visible next time._
 
 - **Daemon write path (`serve=True`) doesn't scale across writers** — one
   `_index_lock` serializes ingest. Shard parallel ingest per writer.
@@ -158,7 +163,9 @@ Source: `docs/_internal/explorations/data-stores.md`,
 `streaming-media.md`, `streaming-unification.md`,
 `data-store-backends.md`.
 
-_RICE: TBD_
+_RICE: R=med, I=2.5, C=0.7, E=5w → **high**. Target 0.2.0 — the headline
+next store after channels. Atomicity F1/F2 is a correctness sub-item; the
+warm index + real Range removes today's O(days) `rglob` read path._
 
 - **Files-streaming as the next store** — segment-objects + manifest, S3
   has no append. Live = push frames (bounded queue, signal overflow gap);
@@ -179,7 +186,9 @@ _RICE: TBD_
 Sequenced after files-streaming. Source:
 `docs/_internal/explorations/streaming-media.md`.
 
-_RICE: TBD_
+_RICE: R=low-med, I=2, C=0.5, E=4w → **med**. Target Later — gated on
+FileStore streaming landing first; encode-bound, narrower audience
+(video/audio capture)._
 
 - **Media codec / muxer formats** — mp4 via PyAV, wav / flac.
 - **Container rejoin / fragment-boundary checkpoints.**
@@ -194,7 +203,9 @@ promote-carries-refs #269, dangling-ref resilience #263). Remaining open.
 Source: `docs/_internal/explorations/data-stores.md`,
 `data-store-backends.md`, `data-store-unification-invariants.md`.
 
-_RICE: TBD_
+_RICE: R=med, I=1.5, C=0.7, E=2.5w → **med**. Target 0.2.0 for run
+seal/export + the `materialize` boundary fix; Later for the layout reorg
+(v0.3.0) and req-6 (no real remote server yet — don't ship dead env vars)._
 
 - **Run seal / export bundle.** A `litmus data` verb that seals a run and
   exports it (with its referenced channel/file data) as a portable bundle.
@@ -219,7 +230,10 @@ Session core P1–P4 landed on `spike/session-overhaul` (will + spine-only
 reaper, terminal-fence finality). The remainder is below. Source:
 `docs/_internal/explorations/session-foundation.md`.
 
-_RICE: TBD_
+_RICE: R=med, I=1.5, C=0.7, E=4w → **med**. Target 0.2.0 for P8 liveness
+projection + `StationInfo` (#35) — they unblock the live UIs; Later for the
+P6 `event_log` optional→required flip (~51 sites, internal) and the P7
+rename (high churn, low user impact)._
 
 - **P5 — envelope-naming discipline.** Per-writer gap detection landed
   (`def605f`); the envelope-naming half is pending.
@@ -251,7 +265,9 @@ FileCheckpoint`). Remaining inconsistencies. Source:
 `docs/_internal/explorations/session-foundation.md`,
 `store-event-rename-plan.md`, `checkpoint-split-plan.md`.
 
-_RICE: TBD_
+_RICE: R=low, I=1, C=0.9, E=1w → **small-med**. Target 0.2.0 — cheap, and
+finishes the uniform `{Entity}Started/Ended` grammar. The missing one-shot
+file-write event is the meatier sub-item (a one-shot PUT emits nothing today)._
 
 - **`SlotCompleted` → `SlotEnded`** (the lone non-`Ended` lifecycle event).
 - **`RouteOpened` / `RouteClosed`** + **`SyncArrived` / `SyncRelease`** —
@@ -266,7 +282,11 @@ _RICE: TBD_
 Source: `docs/_internal/explorations/session-foundation.md` (Follow-on),
 `data-stores.md`.
 
-_RICE: TBD_
+_RICE: R=high, I=3, C=0.7, E=4w → **high**. Target 0.2.0 — today it
+**silently drops runs** (mixed-type column fails materialization on a green
+CI = data loss). Quick win FIRST: emit `RunMaterializationFailed` (small E,
+high I) to stop the silent loss, ahead of the full JSON/semi-structured
+redesign + typed projection._
 
 Today `out_*` / `in_*` are wide dynamically-typed columns. A single run
 with mixed types in one column (`out_b: float, str`) **fails
@@ -300,7 +320,9 @@ What needs to land:
 Source: `docs/_internal/explorations/data-stores.md`,
 `streaming-unification.md`.
 
-_RICE: TBD_
+_RICE: R=med, I=2, C=0.6, E=3w → **med-high**. Target 0.2.0 for the
+`litmus.live` subscribe/deref SDK (the external-consumer + AI adoption
+surface); v0.3.0 for channels/files as test inputs._
 
 - **Consumer SDK — `litmus.live`** (`subscribe_events` / `subscribe_channel`
   / `subscribe_file` / `run_live`, plus deref). The subscribe-and-deref
@@ -314,7 +336,9 @@ _RICE: TBD_
 Source: `docs/_internal/explorations/data-stores.md`,
 `streaming-media.md`.
 
-_RICE: TBD_
+_RICE: R=low, I=1.5, C=0.5, E=high → **low**. Target Later — all explicitly
+long-term / symptom-driven (shared-mem transport already deferred after its
+PoC)._
 
 - **Local shared-memory transport** (build item 22) — DEFERRED; revisit on
   symptoms.
@@ -327,7 +351,8 @@ _RICE: TBD_
 
 Source: `docs/_internal/explorations/live-ui-pattern.md`.
 
-_RICE: TBD_
+_RICE: R=internal, I=1, C=0.8, E=2w → **low-med**. Target Later — tech debt,
+no user-visible change; do opportunistically as each panel is touched._
 
 Tree-wide `event_binding` → holder+timer convergence. The channel detail
 page, channel values panel, and `LiveBadge` are converged; the other ~8
@@ -342,7 +367,8 @@ once.
 
 Source: `docs/_internal/explorations/exporter-conformance-audit.md`.
 
-_RICE: TBD_
+_RICE: R=low-med, I=1, C=0.9, E=0.5w → **small-med**. Target 0.2.0 — cheap
+export-format correctness for STDF/CSV/TDMS consumers._
 
 - **STDF conformance** — `MRR.FINISH_T`, `PARM_FLG`.
 - **CSV NaN / Inf as strings + TDMS dtype** handling.
@@ -351,7 +377,8 @@ _RICE: TBD_
 
 Source: session/channels diaries.
 
-_RICE: TBD_
+_RICE: R=med, I=1, C=0.9, E=1w → **med**. Target 0.1.0 for the verb prose
+sweep (published docs must match the shipped API); 0.2.0 for items 25–30._
 
 - **Prose-docs + skills-template verb sweep** — `logger.measure` → `measure`,
   `logger` → `RunScope` across user-facing pages and skill templates.
