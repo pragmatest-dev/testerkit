@@ -305,58 +305,47 @@ recoverable.
 _RICE: R=med, I=2.5, C=0.7, E=1.5w → **high**. Target 0.2.0 — build alongside
 or ahead of the redesign as its recovery net._
 
-### Measurement-storage redesign — JSON / semi-structured (#37 / #38)
+### Measurement-storage redesign — nested-struct at-rest + EAV projection (#37 / #38)
 
 **Large + blocking; sequenced after the session overhaul + files branch.**
-Source: `docs/_internal/explorations/session-foundation.md` (Follow-on),
-`data-stores.md`.
+Design + phased plan: `docs/_internal/explorations/measurement-storage-eav.md`.
+Benches: `scripts/bench_measurement_storage.py`, `scripts/bench_at_rest_encoding.py`.
 
 _RICE: R=high, I=3, C=0.7, E=4w → **high**. Target 0.2.0 — today it
 **silently drops runs** (mixed-type column fails materialization on a green
 CI = data loss); the cause fix is below, the recovery net is the Run
 materialization item above._
 
-Today `out_*` / `in_*` are wide dynamically-typed columns. A single run
-with mixed types in one column (`out_b: float, str`) **fails
-materialization and is silently dropped** (`_runs_duckdb_daemon.py`
-swallows to a `logger.warning`) — a green CI can still lose runs. Across
-files, `union_by_name` promotes mixed types to VARCHAR (`1.5` → `'1.5'`),
-so one varying run flips a column corpus-wide and breaks typed / Cpk
-queries.
+Today `out_*` / `in_*` are wide dynamically-typed columns: mixed types in one
+column raise → materialize swallows → run **silently dropped**; across files
+`union_by_name` flips a column to VARCHAR corpus-wide (`1.5` → `'1.5'`); distinct
+names explode to tens of thousands of columns; `int` collapses to `float64`.
 
-What needs to land (bench: `scripts/bench_measurement_storage.py`):
+What needs to land:
 
-- Store `in` / `out` / `custom` as one **VARIANT** column each — DuckDB-native
-  typed-binary semi-structured. Lossless, mixed-type-safe, `~1.0×` typed on
-  disk (vs JSON-text `1.6×`), and the open Parquet / Iceberg-v3 standard, so
-  the req-6 swap to Snowflake / Spark / Dremio reads it natively. Chosen over
-  JSON-text: smaller, keeps types (no `1.5` → `'1.5'`), faster in-memory.
-- A **typed derived projection over the VARIANT source** for the parametric
-  viewer — **mandatory, not optional**. DuckDB's reader does NOT push
-  predicates / projection into shredded VARIANT sub-columns (verified through
-  1.5.3 — it reconstructs the variant + `variant_extract` per row; a
-  parquet-scan filter runs ~125× slower than a typed column, slower than even
-  JSON). The runs-daemon DuckDB index (already a derived projection)
-  materializes a typed column per consistently-typed measurement name; the
-  viewer reads the projection, never the raw VARIANT, on DuckDB. If DuckDB ever
-  ships shred read-pushdown those fields can drop the projection — free upside,
-  do not design for it.
-- **Name + type collisions across steps / runs:** VARIANT holds every value at
-  its own type losslessly; the projection gives each consistently-typed name a
-  typed column; a genuinely-mixed name keeps a tagged number/text pair
-  (EAV-style) rather than flipping the column corpus-wide to VARCHAR.
+- **At-rest:** store `in` / `out` / `custom` as one nested **`LIST<STRUCT<name,
+  kind, value_int, value_double, value_bool, value_text, value_json, unit?>>`**
+  column each — typed lanes, `kind` reusing `observation_kind()`. Benched
+  smallest on disk, fastest rebuild (native `UNNEST`), lossless incl. `int`,
+  and the most portable nested shape (Dremel-native Parquet; `ARRAY<STRUCT>` in
+  BigQuery/Spark, `FLATTEN` in Snowflake). Chosen over VARIANT (6% larger, 2.4×
+  slower rebuild, immature reader) and JSON (2.3× larger). `unit` slot reserved,
+  not plumbed.
+- **Projection:** runs-daemon index `UNNEST`s the nested column into a LONG/EAV
+  table (`run_id, step_index, side, name, kind, value_* lanes`), indexed on
+  `name`; query API reads the long table, lane selected by the query's type
+  expectation. Numeric query on a lane runs at clean-typed speed (~0.8ms); mixed
+  types never coerce (numbers/strings in different lanes → no VARCHAR flip).
 - **Enum drop-downs** stay on the maintained enum index (distinct values +
-  counts per name) — encoding-independent, O(distinct), ~0.2ms flat (54–106×
-  faster than a json/variant distinct-scan), behind the `distinct_values()` API
-  seam so it ports to any backend.
+  counts per name) — encoding-independent, O(distinct), ~0.2ms flat.
 - Failure handling + recovery is its own item (**Run materialization —
   failure handling & recovery**, above) — the safety net that makes this
   breaking change recoverable.
 - Consolidate the ~14 wide instrument fields (`step_instruments_*` parallel
-  array columns, `_INSTR_ARRAY_TYPES`) into the same VARIANT representation —
+  array columns, `_INSTR_ARRAY_TYPES`) into the same nested representation —
   same wide-column smell, same swap-readiness win.
 
-0.2.0-breaking (wipe data, no backcompat). Needs its own shaping pass.
+0.2.0-breaking (wipe data, no backcompat). Spiked on `spike/variant-at-rest-eav`.
 
 ### Consumer SDK & live API surface
 
