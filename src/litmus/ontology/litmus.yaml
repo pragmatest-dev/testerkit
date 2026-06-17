@@ -166,8 +166,8 @@ concepts:
   - id: stream_tuning
     category: primitive
     summary: >
-      Streaming liveness cadence — how often an active stream sink emits a
-      StreamCheckpoint (default lease/3). Shared by the channel + file
+      Streaming liveness cadence — how often an active producer emits a
+      checkpoint (default lease/3). Shared by the channel + file
       producers (litmus.yaml under stream:).
     model: litmus.models.data_options.StreamTuning
     authored_at: litmus.yaml (under stream:)
@@ -1037,6 +1037,19 @@ concepts:
       - { kind: inherits_from, target: event_base }
       - { kind: references,    target: channel_descriptor }
 
+  - id: channel_checkpoint
+    category: event
+    event_type: channel.checkpoint
+    summary: >
+      Low-rate liveness + progress marker from an active channel — uri +
+      sample_offset-so-far. Renews the session lease and records resumable
+      progress; emitted on a cadence (StreamTuning), never per sample.
+    model: litmus.data.events.ChannelCheckpoint
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: references,    target: channel_descriptor }
+
   - id: instrument_set
     category: event
     event_type: instrument.set
@@ -1076,14 +1089,14 @@ concepts:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
 
-  - id: stream_checkpoint
+  - id: file_checkpoint
     category: event
-    event_type: stream.checkpoint
+    event_type: file.checkpoint
     summary: >
-      Low-rate liveness + progress marker from an active stream — uri +
-      offset-so-far. Renews the session lease and records resumable progress;
-      emitted on a cadence (StreamTuning), never per sample.
-    model: litmus.data.events.StreamCheckpoint
+      Low-rate liveness + progress marker from an active file stream — uri +
+      byte_offset-so-far. Renews the session lease and records resumable
+      progress; emitted on a cadence (StreamTuning), never per write.
+    model: litmus.data.events.FileCheckpoint
     relationships:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }

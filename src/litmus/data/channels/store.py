@@ -41,7 +41,7 @@ from litmus.data.channels.models import (
     sample_schema,
     samples_to_batch,
 )
-from litmus.data.events import ChannelEnded, ChannelStarted, StreamCheckpoint
+from litmus.data.events import ChannelCheckpoint, ChannelEnded, ChannelStarted
 from litmus.data.ref import classify_value, make_channel_uri
 from litmus.models.data_options import ChannelOptions
 
@@ -240,8 +240,8 @@ class ChannelStore:
         # bringup paths with no session event log.
         self._event_log = event_log
         # Stream liveness checkpoint: when set, the write path emits one
-        # ``StreamCheckpoint`` (carrying offset) per ``checkpoint_cadence`` of
-        # off-spine writing, so a long active channel stream renews the session
+        # ``ChannelCheckpoint`` (carrying sample_offset) per ``checkpoint_cadence``
+        # of off-spine writing, so a long active channel stream renews the session
         # lease instead of going silent on the spine. ``_last_spine_emit`` tracks
         # the store's most recent event-log emission (ChannelStarted / checkpoint
         # / ChannelEnded) — any of them resets the cadence clock.
@@ -427,10 +427,10 @@ class ChannelStore:
             self._last_spine_emit = now or datetime.now(UTC)
 
     def _maybe_checkpoint(self, channel_id: str, offset: int, run_id: UUID | None) -> None:
-        """Emit a ``StreamCheckpoint`` if a cadence of off-spine writing has
+        """Emit a ``ChannelCheckpoint`` if a cadence of off-spine writing has
         elapsed since the store's last spine event — bounded to one per cadence,
-        carrying the channel's offset so the session lease renews and progress
-        is recorded. No-op without a cadence or event log."""
+        carrying the channel's sample offset so the session lease renews and
+        progress is recorded. No-op without a cadence or event log."""
         if self._checkpoint_cadence is None or self._event_log is None:
             return
         now = datetime.now(UTC)
@@ -440,11 +440,11 @@ class ChannelStore:
         ):
             return
         self._event_log.emit(
-            StreamCheckpoint(
+            ChannelCheckpoint(
                 session_id=self._session_id,
                 run_id=run_id,
                 uri=make_channel_uri(channel_id, str(self._session_id), sample_offset=offset),
-                offset=offset,
+                sample_offset=offset,
             )
         )
         self._last_spine_emit = now

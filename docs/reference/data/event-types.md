@@ -371,6 +371,15 @@ A channel was sealed for this session.
 | `channel_id` | `str` | *required* |
 | `reason` | `str` | *required* |
 
+### `channel.checkpoint` — `ChannelCheckpoint`
+
+Low-rate liveness + progress marker from an active channel producer.
+
+| Field | Type | Default |
+|---|---|---|
+| `uri` | `str` | *required* |
+| `sample_offset` | `int` | `0` |
+
 ## Diagnostic events
 
 ### `diagnostic.warning` — `DiagnosticWarning`
@@ -411,14 +420,14 @@ Emitted when a FileStore streaming sink closes.
 | `uri` | `str \| None` | `None` |
 | `size_bytes` | `int \| None` | `None` |
 
-### `stream.checkpoint` — `StreamCheckpoint`
+### `file.checkpoint` — `FileCheckpoint`
 
-Low-rate liveness + progress marker from an active streaming producer.
+Low-rate liveness + progress marker from an active file sink.
 
 | Field | Type | Default |
 |---|---|---|
 | `uri` | `str` | *required* |
-| `offset` | `int` | `0` |
+| `byte_offset` | `int` | `0` |
 
 ## Dialog events
 

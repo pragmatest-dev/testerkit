@@ -683,6 +683,25 @@ class ChannelEnded(EventBase):
     reason: str  # e.g., "session_ended" | "retention_prune"
 
 
+class ChannelCheckpoint(EventBase):
+    """Low-rate liveness + progress marker from an active channel producer.
+
+    A channel's samples ride the off-spine fan-out, so a long active channel
+    emits nothing durable between ``ChannelStarted`` and ``ChannelEnded``. The
+    producer's write path emits one of these when more than the configured
+    cadence (``StreamTuning.checkpoint_cadence``, default ``lease/3``) has
+    elapsed since its last spine event, carrying the sample offset reached so far.
+
+    It renews the session lease like any spine event (so the reaper tells a live
+    channel apart from a crashed one) and records resumable progress. Bounded to
+    one per cadence regardless of sample rate — never per-sample.
+    """
+
+    event_type: Literal["channel.checkpoint"] = "channel.checkpoint"
+    uri: str
+    sample_offset: int = 0
+
+
 class InstrumentSet(EventBase):
     """Emitted when a driver set method is called via proxy."""
 
@@ -747,24 +766,23 @@ class FileEnded(EventBase):
     size_bytes: int | None = None
 
 
-class StreamCheckpoint(EventBase):
-    """Low-rate liveness + progress marker from an active streaming producer.
+class FileCheckpoint(EventBase):
+    """Low-rate liveness + progress marker from an active file sink.
 
-    A stream's samples/frames ride the off-spine fan-out, so a long active
-    stream emits nothing durable between ``FileStarted`` and ``FileEnded``.
-    The producer's write path emits one of these when more than the configured
-    cadence (``StreamTuning.checkpoint_cadence``, default ``lease/3``) has
-    elapsed since its last spine event, carrying the offset reached so far.
+    A file stream's frames ride the off-spine fan-out, so a long active stream
+    emits nothing durable between ``FileStarted`` and ``FileEnded``. The sink's
+    write path emits one of these when more than the configured cadence
+    (``StreamTuning.checkpoint_cadence``, default ``lease/3``) has elapsed since
+    its last spine event, carrying the byte offset reached so far.
 
     It renews the session lease like any spine event (so the reaper tells a live
     stream apart from a crashed one) and records resumable progress. Bounded to
-    one per cadence regardless of sample rate — never per-sample. Emitted by both
-    the channel producer (``channel://`` uri) and the file sink (``file://``).
+    one per cadence regardless of write rate — never per-write.
     """
 
-    event_type: Literal["stream.checkpoint"] = "stream.checkpoint"
+    event_type: Literal["file.checkpoint"] = "file.checkpoint"
     uri: str
-    offset: int = 0
+    byte_offset: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -819,9 +837,9 @@ TEST_EVENTS = {
 }
 ROUTE_EVENTS = {RouteClosed, RouteOpened}
 INSTRUMENT_EVENTS = {InstrumentSet, InstrumentConfigure}
-CHANNEL_EVENTS = {ChannelStarted, ChannelEnded}
+CHANNEL_EVENTS = {ChannelStarted, ChannelEnded, ChannelCheckpoint}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
-FILE_EVENTS = {FileStarted, FileEnded, StreamCheckpoint}
+FILE_EVENTS = {FileStarted, FileEnded, FileCheckpoint}
 DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
     SESSION_EVENTS
@@ -864,11 +882,12 @@ Event = Annotated[
     | InstrumentConfigure
     | ChannelStarted
     | ChannelEnded
+    | ChannelCheckpoint
     | DiagnosticWarning
     | DiagnosticError
     | FileStarted
     | FileEnded
-    | StreamCheckpoint
+    | FileCheckpoint
     | DialogOpened
     | DialogResponded,
     Field(discriminator="event_type"),

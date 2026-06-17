@@ -524,7 +524,7 @@ is run-only, per the model). Each reaper lives with the projection it owns.
 
 **Build order (each green, each committed) — ALL LANDED:**
 - **D1 — will + SessionOptions** — `180e6d1`.
-- **D-checkpoint** — `StreamTuning` (litmus.yaml `stream:`) + `StreamCheckpoint` spine event + interval-
+- **D-checkpoint** — `StreamTuning` (litmus.yaml `stream:`) + `ChannelCheckpoint` / `FileCheckpoint` spine events + interval-
   gated emit on the channel producer (`ChannelStore._maybe_checkpoint`) and the file sink
   (`files/streaming.py`, set post-construction so custom formats need not accept it); cadence resolved
   producer-side via `StreamTuning.resolve_cadence` (default `lease/3`, invariant `< lease`). — `a3a185a`.

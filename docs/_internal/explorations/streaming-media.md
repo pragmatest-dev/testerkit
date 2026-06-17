@@ -37,7 +37,7 @@ diary already cites LL-HLS for the byte-rejoin reason). **The transport is right
 2. **Container rejoin (boundary-aware framing).** Two classes of stream, by how a
    live consumer reads a half-written file:
    - **Byte-appendable** (`raw`, `jsonl`) — rejoin at *any* byte offset; the
-     `StreamCheckpoint(offset)` works directly.
+     `FileCheckpoint(byte_offset)` works directly.
    - **Container** (`tdms`, `h5`, **mp4**) — you cannot decode mid-bytes; a raw
      range read is garbage without the library. MP4 specifically needs
      **fragmented MP4 (fMP4)**: an init segment + self-contained media fragments,
@@ -62,7 +62,7 @@ scaling number needs its own workload once a muxer lands.
 
 - `register_format("mp4", …)` PyAV muxer emitting fragment-aligned chunks (+ wav/
   flac via soundfile) — build item 23.
-- Make `StreamCheckpoint` fragment-boundary aware for container formats (offset =
+- Make `FileCheckpoint` fragment-boundary aware for container formats (byte_offset =
   last complete fragment, not raw byte count).
 - A `Flight-subscribe → fMP4/HLS` HTTP bridge for the operator-UI live viewer.
 - A `files.stream_<fmt>` benchmark workload per media format (encode-bound, not

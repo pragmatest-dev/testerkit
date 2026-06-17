@@ -96,15 +96,17 @@ class SessionOptions(BaseModel):
 
 
 class StreamTuning(BaseModel):
-    """Streaming liveness cadence — how often an active stream sink emits a
+    """Streaming liveness cadence — how often an active producer emits a
     durable checkpoint (settable in ``litmus.yaml`` under ``stream:``).
 
-    A stream's samples/frames ride the off-spine fan-out, so a long active
-    stream would otherwise emit nothing durable between ``FileStarted`` and
-    ``FileEnded`` and the reaper couldn't tell a live stream from a dead one.
-    The sink emits one ``StreamCheckpoint`` (carrying offset-so-far) when this
-    long has elapsed since its last spine event — bounded to one per cadence
-    regardless of sample rate. Shared by the channel + file producers.
+    A producer's samples/frames ride the off-spine fan-out, so a long active
+    producer would otherwise emit nothing durable between its start and end
+    lifecycle events and the reaper couldn't tell a live stream from a dead one.
+    The producer emits one checkpoint (carrying offset-so-far) when this long has
+    elapsed since its last spine event — bounded to one per cadence regardless of
+    sample rate. Shared by the channel producer (``ChannelCheckpoint``, carrying
+    ``sample_offset``) and the file sink (``FileCheckpoint``, carrying
+    ``byte_offset``).
     """
 
     model_config = {"extra": "forbid", "frozen": True}

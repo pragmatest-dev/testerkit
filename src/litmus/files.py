@@ -212,7 +212,7 @@ def stream(
     sid = _resolve_session_id(session_id)
     event_log, run_id = _resolve_event_log_and_run_id()
     # Stream liveness cadence — resolved from the project's stream/session config
-    # (litmus.yaml). A long file stream emits a StreamCheckpoint per cadence so the
+    # (litmus.yaml). A long file stream emits a FileCheckpoint per cadence so the
     # session lease renews instead of going silent on the spine.
     _proj = load_project_config()
     sink = get_filestore().open_stream(

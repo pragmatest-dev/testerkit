@@ -50,7 +50,7 @@ from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
 import orjson
 
-from litmus.data.events import FileEnded, FileStarted, StreamCheckpoint
+from litmus.data.events import FileCheckpoint, FileEnded, FileStarted
 from litmus.data.files.catalog_manager import open_frame_relay
 
 # Optional-extra deps: nptdms (TDMS) and h5py (HDF5) are gated behind
@@ -240,7 +240,7 @@ class _BaseSink:
         self._byte_offset = 0
         self._closed = False
         # Stream liveness checkpoint: when set, the write path emits one
-        # ``StreamCheckpoint`` (carrying byte_offset) per ``checkpoint_cadence``
+        # ``FileCheckpoint`` (carrying byte_offset) per ``checkpoint_cadence``
         # so a long active file stream renews the session lease instead of going
         # silent on the spine. ``_last_spine_emit`` (monotonic) tracks the sink's
         # most recent event-log emission — FileStarted / checkpoint reset it.
@@ -331,7 +331,7 @@ class _BaseSink:
         self._last_spine_emit = time.monotonic()
 
     def _maybe_checkpoint(self) -> None:
-        """Emit a ``StreamCheckpoint`` if a cadence of writing has elapsed since
+        """Emit a ``FileCheckpoint`` if a cadence of writing has elapsed since
         the sink's last spine event — one per cadence, carrying byte_offset, so a
         long active stream renews the session lease. No-op without a cadence/log."""
         if self._checkpoint_cadence is None or self._event_log is None:
@@ -343,11 +343,11 @@ class _BaseSink:
         ):
             return
         self._event_log.emit(
-            StreamCheckpoint(
+            FileCheckpoint(
                 session_id=self._session_uuid(),
                 run_id=self._run_id,
                 uri=self._uri,
-                offset=self._byte_offset,
+                byte_offset=self._byte_offset,
             )
         )
         self._last_spine_emit = now
