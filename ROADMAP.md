@@ -324,23 +324,37 @@ files, `union_by_name` promotes mixed types to VARCHAR (`1.5` → `'1.5'`),
 so one varying run flips a column corpus-wide and breaks typed / Cpk
 queries.
 
-What needs to land:
+What needs to land (bench: `scripts/bench_measurement_storage.py`):
 
-- Store `in` / `out` / `custom` as JSON / semi-structured — lossless,
-  stable, swap-ready (maps to Snowflake VARIANT / Postgres JSONB /
-  BigQuery JSON / DuckDB JSON; the req-6 swap becomes a dialect change).
-- A **typed derived index / projection over the JSON source** for the
-  parametric viewer — raw JSON-path queries on DuckDB benchmarked 2.5×
-  (distinct-enum) / 8.9× (filter) slower than typed columns, so the
-  fast input-condition filter + drop-down enumeration need a typed
-  projection (extend the runs-daemon DuckDB index, which is already a
-  derived projection).
+- Store `in` / `out` / `custom` as one **VARIANT** column each — DuckDB-native
+  typed-binary semi-structured. Lossless, mixed-type-safe, `~1.0×` typed on
+  disk (vs JSON-text `1.6×`), and the open Parquet / Iceberg-v3 standard, so
+  the req-6 swap to Snowflake / Spark / Dremio reads it natively. Chosen over
+  JSON-text: smaller, keeps types (no `1.5` → `'1.5'`), faster in-memory.
+- A **typed derived projection over the VARIANT source** for the parametric
+  viewer — **mandatory, not optional**. DuckDB's reader does NOT push
+  predicates / projection into shredded VARIANT sub-columns (verified through
+  1.5.3 — it reconstructs the variant + `variant_extract` per row; a
+  parquet-scan filter runs ~125× slower than a typed column, slower than even
+  JSON). The runs-daemon DuckDB index (already a derived projection)
+  materializes a typed column per consistently-typed measurement name; the
+  viewer reads the projection, never the raw VARIANT, on DuckDB. If DuckDB ever
+  ships shred read-pushdown those fields can drop the projection — free upside,
+  do not design for it.
+- **Name + type collisions across steps / runs:** VARIANT holds every value at
+  its own type losslessly; the projection gives each consistently-typed name a
+  typed column; a genuinely-mixed name keeps a tagged number/text pair
+  (EAV-style) rather than flipping the column corpus-wide to VARCHAR.
+- **Enum drop-downs** stay on the maintained enum index (distinct values +
+  counts per name) — encoding-independent, O(distinct), ~0.2ms flat (54–106×
+  faster than a json/variant distinct-scan), behind the `distinct_values()` API
+  seam so it ports to any backend.
 - Failure handling + recovery is its own item (**Run materialization —
   failure handling & recovery**, above) — the safety net that makes this
   breaking change recoverable.
 - Consolidate the ~14 wide instrument fields (`step_instruments_*` parallel
-  array columns, `_INSTR_ARRAY_TYPES`) into the same semi-structured
-  representation — same wide-column smell, same swap-readiness win.
+  array columns, `_INSTR_ARRAY_TYPES`) into the same VARIANT representation —
+  same wide-column smell, same swap-readiness win.
 
 0.2.0-breaking (wipe data, no backcompat). Needs its own shaping pass.
 
