@@ -31,7 +31,6 @@ Things that make Litmus *good* (not just shippable). Sorted by RICE.
 
 | Item | R | I | C | E | Score |
 |---|---|---|---|---|---|
-| Runner-invocation capture (full vs ad-hoc) | high | 2 | 0.9 | 1.0 | high |
 | Parquet compaction | medium | 2 | 0.7 | 3.0 | high |
 | `ReactiveChart` shared chart primitive | high | 2 | 0.8 | 2.0 | high |
 | Limit resolution strategies (expr / lookup / step / callable) | high | 2 | 0.5 | 3.0 | high |
@@ -67,6 +66,7 @@ to confirm direction.
 | `litmus export --to delta/iceberg/snowflake` | medium | 1.5 | 0.5 | 2.0 | Built-in transform from Litmus parquets to lakehouse table formats. The 3-line SQL pattern is documented at `docs/integration/lakehouse-import.md`; turn it into a first-class command once a real adopter asks. Don't pre-build. |
 | Table-format catalog evaluation (DuckLake / Delta / Iceberg) | medium | 2 | 0.5 | 3.0 | Replace ~3K lines of `_runs_duckdb_daemon.py` ingest sweep + `_materialized` table management with a managed catalog. DuckLake the closest fit (DuckDB-as-catalog, parquet-as-data); Delta/Iceberg as interop options. See `docs/explorations/data-architecture.md` open questions. |
 | Pluggable `Materializer` interface (parquet / postgres / snowflake / etc.) | medium | 2 | 0.6 | 4.0 | The runs daemon currently materializes runs to parquet only. Event payload already carries `materializer` + `destination`, so adding a `Materializer` plugin contract is forward-compatible. Wait until a real consumer asks. |
+| Runner-invocation capture (full vs ad-hoc) | high | 2 | 0.4 | 3.0 | Demoted: the naive `is_adhoc` (CLI `-k`/`-m`/node-ids) is wrong with profiles — a profile injects `markexpr`/`keyword` via `PYTEST_ADDOPTS`, so profile runs mislabel as ad-hoc and "Full" overclaims (a profile already scopes the test set). Needs a profile-aware model: scope = (profile, selection beyond the profile) + `profile` on `RunStarted`. |
 
 ---
 
@@ -409,6 +409,15 @@ offenders. Establish a "behavior-first" pattern others can copy when
 adding new tests.
 
 ### Runner-invocation capture — distinguish full sweeps from ad-hoc subsets
+
+> **Demoted to Later — design unsettled.** A first cut derived `is_adhoc`
+> from CLI `-k`/`-m`/node-ids alone, but **profiles** compose a
+> `markexpr`/`keyword` (injected via `PYTEST_ADDOPTS`), so a normal profile
+> run (`--test-phase=validation`) mislabels as ad-hoc, and "Full" overclaims
+> because a profile already scopes the test set. Corrected model: scope =
+> **(active profile, selection beyond the profile)**; also stamp `profile`
+> onto `RunStarted` (today it's only on `TestRun` — a materialize-from-events
+> drift gap). Rework around profile-awareness before building.
 
 The runs table records *what* was collected (every step that ran)
 but not *how* the runner was invoked. Two runs with identical
