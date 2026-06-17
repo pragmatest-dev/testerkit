@@ -37,16 +37,14 @@ Things that make Litmus *good* (not just shippable). Sorted by RICE.
 | Limit resolution strategies (expr / lookup / step / callable) | high | 2 | 0.5 | 3.0 | high |
 | Capability-aware runnability inference | high | 2 | 0.6 | 2.0 | high |
 | Live updates on Events/Channels store pages | medium | 1.5 | 0.6 | 2.0 | medium |
-| Consumer-side ref materialization (waveform viewing) | medium | 2 | 0.7 | 2.0 | medium |
+| Consumer-side ref: CLI `--waveform` + report embedding | small | 1 | 0.8 | 0.5 | small |
 | Operator-UI store browser (Sessions + Artifacts) | medium | 1.5 | 0.7 | 1.5 | medium |
 | Artifact viewer — inline previews + grid | medium | 2 | 0.6 | 2.0 | medium |
 | Facet prompt fallback (TTY interactive) | medium | 2 | 0.7 | 1.0 | medium |
 | Parametric viewer follow-ups | medium | 1.5 | 0.8 | 1.0 | medium |
 | StationType → StationConfig inheritance | medium | 1 | 0.8 | 1.0 | medium |
 | SpecQualifier matching scoring | medium | 1.5 | 0.6 | 1.0 | medium |
-| Exporter row-level cascade outcomes | medium | 1 | 0.7 | 1.0 | medium |
-| Channel EventStore-bridging subscription | medium | 1 | 0.6 | 1.0 | medium |
-| CLI fallback for multi-UUT operator prompts | low-med | 1 | 0.7 | 1.0 | medium |
+| Exporter row-level cascade outcomes | medium | 1 | 0.7 | 1.0 | medium || CLI fallback for multi-UUT operator prompts | low-med | 1 | 0.7 | 1.0 | medium |
 | HTTP support for ImageDialog | small | 0.5 | 0.7 | 0.5 | small |
 | Array channel empty-result schema | small | 0.5 | 0.9 | 0.2 | small |
 | Runs daemon — record actual `row_count` in `_ingested` | small | 0.5 | 0.9 | 0.2 | small |
@@ -123,14 +121,6 @@ and physical-channel-id (open design forks)._
   No backcompat; needs a `data/channels` clear. (Note: the `offset` →
   `sample_offset` column rename itself landed via `a6c11fc`; verify what
   remains before scoping.)
-- **Channel tuning consolidation → shared `StreamTuning`.** Collect the
-  scattered durability knobs (`_FLUSH_ROWS` / `_FLUSH_INTERVAL`,
-  `flush_threshold`, the unplumbed `flush_interval`, push-queue `maxsize`,
-  `_PUSH_MAX_ROWS` / `_PUSH_MAX_WAIT`, subscriber-ring size) into one config
-  object, plumb `flush_interval`, surface the durability pair toward
-  `litmus.yaml`. **Files-streaming reuses the same object** — make it a
-  shared `StreamTuning` (channels + files), not channels-only.
-
 ### Channels — write-path & relay performance
 
 Source: `docs/_internal/explorations/channels-write-scaling.md`,
@@ -220,10 +210,6 @@ seal/export + the `materialize` boundary fix; Later for the layout reorg
   shipped — deferred until a real server exists (don't ship dead env vars).
   Recipe recorded at `docs/_internal/explorations` (req6 swap recipe).
 - **Session-first layout reorg** (v0.3.0).
-- **`StreamTuning` / `checkpoint_cadence` optional rename** (the tuning
-  consolidation itself is done; this is a naming follow-up). Also tracked
-  under "Channel tuning consolidation" above.
-
 ### Session / liveness foundation remainder
 
 Session core P1–P4 landed on `spike/session-overhaul` (will + spine-only
@@ -1080,34 +1066,6 @@ The ``replay_to_subscriber`` path in ``data/subscribers/replay.py``
 is where this would naturally land for post-hoc replay; the live
 path needs the cascade backfill.
 
-### Channel EventStore-bridging subscription
-
-`channels/__init__.py:channel_subscribe()` is restored after being
-incorrectly flagged as "dead code" during the auto-picked Phase 6a.3
-audit. Filters ``instrument.read`` / ``instrument.set`` events from
-EventStore by ``channel_id`` — the EventStore-based subscription
-path complementary to ``ChannelStore.on_channel()`` (in-process) and
-``ChannelClient.on_channel()`` (Flight RPC).
-
-Why it exists: queries via ``EventStore`` work cross-process via
-Arrow Flight AND replay from history, so consumers (analytics
-dashboards, MCP tools, post-hoc UI) can subscribe to channel
-activity without the channel daemon running. The Flight
-subscription path requires the live daemon and only delivers new
-samples; the EventStore path can replay from any ``since`` cutoff.
-
-What needs to land: a real consumer. Candidates: the analytics
-metrics-store could subscribe to channels-of-interest for live
-charts; the MCP "watch this channel" tool; the operator UI's
-event-timeline panel. Flag if a use case materializes — otherwise
-keep as the build-out hook.
-
-**Note (2026-06 branch work):** `channel_subscribe()` no longer exists
-in `data/channels/__init__.py` — it was removed in the eager-import
-purge. This item is **left for human review**: decide whether to retire
-the entry outright or re-introduce the EventStore-bridging path against
-the current shared-server subscription surface.
-
 ### Array channel empty-result schema
 
 `channels/models.py:ARRAY_SCHEMA` is restored after being flagged
@@ -1187,48 +1145,19 @@ Surfaced by the Phase 6a.2 `data/backends/` design review: the
 write path saves large observations (Waveform / ndarray / bytes /
 Pydantic models) to `_ref/` sidecar files and stores
 ``file://_ref/abc.npz`` strings in parquet's ``out_*`` columns.
-The read path is implemented but never wired up:
+The deref path is now wired: the API (`GET /api/runs/{run_id}/ref`), the
+`artifact_viewer` UI component, and MCP all call
+`parquet.py:load_ref` (the `channel://` / `file://` URI dispatcher) →
+`load_file` (npz → `Waveform`, npy → ndarray, json → dict/Pydantic, …).
 
-- `parquet.py:load_ref(value, *, parquet_path, channel_store)` —
-  unified URI dispatcher (``channel://`` / ``file://`` / legacy)
-- `parquet.py:load_file(parquet_path, ref)` — loads npz →
-  ``Waveform``, npy → ndarray, json → dict/Pydantic, bin → bytes,
-  pkl → object, arrow → ``pa.Table``
-- `parquet.py:is_file_reference(value)` — predicate
+Remaining gaps (re-scoped 2026-06):
 
-Zero callers across `src/`, `tests/`, `scripts/`. So a consumer
-fetching a measurement row gets the literal string
-``"file://_ref/abc.npz"`` instead of a `Waveform` — there's
-currently **no way for the UI / API / CLI / MCP / reports to load
-waveform data for viewing**, even though the data is on disk.
-
-What needs to land:
-
-- **API**: a `GET /api/runs/{run_id}/measurements/{step}/{name}/waveform`
-  (or similar) that materializes via `load_ref` and returns JSON
-  (Y/t0/dt/attrs) or streams the raw file. Decide eager-in-RunView
-  vs lazy-on-demand vs opt-in query param.
-- **UI**: NiceGUI page renders the waveform via ECharts.
-  Detect ``file://`` strings in `out_*` columns of the run-detail
-  view; plot inline or in a modal.
-- **Reports**: HTML/PDF embed waveform plots instead of showing
-  the literal ref string.
-- **MCP**: a tool that materializes a waveform for an LLM consumer.
-- **CLI**: `litmus show <run> --waveform <name>` round-trips through
-  the same loader.
-
-Decision points: where does dereference happen, what's the wire
-format (JSON vs binary stream), do `channel://` refs need a
-parallel HTTP path now that `litmus serve` is the front door? The
-existing `load_ref` / `load_file` keep the dispatch surface; the
-consumer-side wiring is the missing layer.
-
-**Note:** the base wiring described here has since shipped (the
-`GET /api/runs/{run_id}/ref` endpoint and the `artifact_viewer`
-component both call `load_ref`); this entry's "zero callers / no way
-to load waveform data" framing is stale. **Left for human review** —
-re-scope to the remaining gaps (eager-vs-lazy in RunView, MCP tool,
-`litmus show --waveform`, report embedding) or retire.
+- **Reports**: HTML/PDF still embed the literal ref string instead of a
+  rendered waveform plot.
+- **CLI**: `litmus show <run> --waveform <name>` round-trip through
+  `load_ref`.
+- **RunView eager-vs-lazy**: decide whether run-detail materializes
+  waveforms inline or on demand.
 
 ### HTTP support for ImageDialog
 
@@ -1444,6 +1373,19 @@ _None._
 ---
 
 ## Completed
+
+### Channel/file tuning consolidation — per-store data options — 2026-06-16
+
+The scattered channel/file durability + cadence knobs were consolidated into
+per-store Pydantic options in `models/data_options.py` — `ChannelOptions`
+(sink/writer flush rows + interval, push relay), `FileOptions` (frame relay),
+`SessionOptions` (the liveness will), and a shared `StreamTuning` (`cadence`)
+reused by both the channel and file checkpoint paths — all settable in
+`litmus.yaml` under `channels:` / `files:` / `session:` / `stream:`.
+`StreamTuning` keeps its name ("stream" = the streaming activity, a verb),
+and the cadence field is already `cadence` (the `checkpoint_cadence` rename
+was considered and declined — redundant under the `stream:` block). Landed
+across the streaming-unification Phase 2 work.
 
 ### Channel attribution — `instrument_role` / `resource` on the descriptor — 2026-06-16
 
