@@ -48,7 +48,6 @@ Things that make Litmus *good* (not just shippable). Sorted by RICE.
 | Channel EventStore-bridging subscription | medium | 1 | 0.6 | 1.0 | medium |
 | CLI fallback for multi-UUT operator prompts | low-med | 1 | 0.7 | 1.0 | medium |
 | HTTP support for ImageDialog | small | 0.5 | 0.7 | 0.5 | small |
-| Channel attribution (`instrument_role`/`resource`) | small | 0.5 | 0.9 | 0.3 | small |
 | Array channel empty-result schema | small | 0.5 | 0.9 | 0.2 | small |
 | Runs daemon — record actual `row_count` in `_ingested` | small | 0.5 | 0.9 | 0.2 | small |
 
@@ -74,6 +73,290 @@ to confirm direction.
 ---
 
 ## Backlog
+
+### Channels — streaming & liveness
+
+Open follow-ups deferred from the 2026-06 branch work. Source:
+`docs/_internal/explorations/channels-followups.md`,
+`channels-real-stream-handoff.md`, `live-ui-pattern.md`.
+
+_RICE: TBD_
+
+- **`/channels` list live-status column.** The detail badge derives live
+  from lifecycle events (`ChannelStarted ∧ ¬ChannelEnded`, latest-start vs
+  latest-close); the **list** page has no live column (any liveness it
+  derives is activity-based, not lifecycle). Add a Live column driven by
+  lifecycle events — the channel twin of the `/files` live table. Reuse
+  `LiveBadge` pills + the holder+timer rule. (Also tracked under "Live
+  updates on Events and Channels store-browser pages" below.)
+- **Wire `channels_liveness_query` as an MCP tool + HTTP endpoint** —
+  `litmus_channels_liveness` + `GET /api/channels/_liveness`. Drafted then
+  reverted: on a large store the inline `_maybe_scan_disk()` inside the
+  registry read blocks the Flight `do_get` past the client deadline
+  (`FlightTimedOutError`). **Decouple the disk scan from the registry read
+  first** (no heavy scan inside the read) — do not bump the deadline — then
+  re-wire the tool + endpoint.
+- **Declare → standing-watch + active-match (Half B Slice 2).** Has open
+  design forks; needs a shaping pass before build.
+- **Live-badge "idle while streaming" finding.** Investigate (instrument,
+  don't guess) the case where a channel is streaming but the badge reads
+  idle.
+- **Present polymorphic channels (list + detail).** A `channel_id` can have
+  different shapes across sessions (type locked within a session, not
+  across). Today last-write-wins hides it. Source from the non-unique
+  registry: list Type cell flags divergence, sparkline scoped to the latest
+  shape; detail page facets by shape. Present, not prevent.
+- **Channel identity ↔ physical channel number.** A multi-channel
+  instrument (DMM ch1/ch2, DAQ ai0/ai1, scope ch1–ch4) is only
+  distinguishable today by baking the number into the `channel_id` string.
+  Decide whether channel identity carries the instrument's physical channel
+  number as a first-class field. Subsumes the array-index question
+  (waveform array index = intra-capture time; multi-channel array index =
+  physical channel, which needs a per-channel split + selector + labels).
+- **Stacked cross-session compare on `/channels/{id}`.** Overlay the same
+  channel across sessions for comparison.
+- **`offset` → `sample_offset` rename** (was task #6). Column + index + wire
+  schema + `ChannelSample.offset` + the ticket field/URI param + the
+  surfaced offset in `channels_query` results + the chart's `r.get("offset")`.
+  No backcompat; needs a `data/channels` clear. (Note: the `offset` →
+  `sample_offset` column rename itself landed via `a6c11fc`; verify what
+  remains before scoping.)
+- **Channel tuning consolidation → shared `StreamTuning`.** Collect the
+  scattered durability knobs (`_FLUSH_ROWS` / `_FLUSH_INTERVAL`,
+  `flush_threshold`, the unplumbed `flush_interval`, push-queue `maxsize`,
+  `_PUSH_MAX_ROWS` / `_PUSH_MAX_WAIT`, subscriber-ring size) into one config
+  object, plumb `flush_interval`, surface the durability pair toward
+  `litmus.yaml`. **Files-streaming reuses the same object** — make it a
+  shared `StreamTuning` (channels + files), not channels-only.
+
+### Channels — write-path & relay performance
+
+Source: `docs/_internal/explorations/channels-write-scaling.md`,
+`store-perf-writemany-handoff.md`, `data-stores.md`.
+
+_RICE: TBD_
+
+- **Daemon write path (`serve=True`) doesn't scale across writers** — one
+  `_index_lock` serializes ingest. Shard parallel ingest per writer.
+- **Index as a pull-consumer tailing segments by offset.** (Note:
+  `pyarrow.dataset` was ruled OUT for this; pull-by-offset is the path.)
+- **Batched-relay fan-out** to raise the ~4k/s live-relay ceiling.
+- **`litmus benchmark` concurrent sweep covers only `channels.write`** —
+  extend to `write_many` / `stream`.
+- **R4 backend-swap proof** (Redis / S3) for the channels store.
+- **Streaming-relay convergence (broken contract).** Channels and files
+  duplicate the producer/consumer relay (bounded queue + drop-oldest
+  overflow + gap count + drain-coalesce); `files/catalog_manager._FrameRelay`
+  *mirrors* the channel push relay instead of reusing it. Extract ONE shared
+  relay component; converge both. Daemons may stay separate; the
+  optimization must not be duplicated.
+
+### FileStore — streaming, atomicity, perf
+
+Large/blocking item per the diaries — the next store after channels.
+Source: `docs/_internal/explorations/data-stores.md`,
+`streaming-media.md`, `streaming-unification.md`,
+`data-store-backends.md`.
+
+_RICE: TBD_
+
+- **Files-streaming as the next store** — segment-objects + manifest, S3
+  has no append. Live = push frames (bounded queue, signal overflow gap);
+  history = warm index / at-rest object; persist = local append → ONE
+  immutable object on close. PUT = new record per call; STREAM = append one
+  record. `raw`/`jsonl` byte-drop vs `tdms`/`h5` boundary-rejoin.
+- **Files-streaming perf gate is `@skip`'d and distrusted — re-measure.**
+  (Memory bans flaky/skip markers; this gate must be made trustworthy, not
+  carried skipped.)
+- **FileStore atomicity (F1 / F2).** Temp + rename; emit the index row only
+  after durability.
+- **Files warm index + real HTTP Range (F3).** Today the read path is an
+  O(days) `rglob`.
+- **EventStore dual-write is unmeasured** — benchmark it.
+
+### Streaming media (after files-streaming)
+
+Sequenced after files-streaming. Source:
+`docs/_internal/explorations/streaming-media.md`.
+
+_RICE: TBD_
+
+- **Media codec / muxer formats** — mp4 via PyAV, wav / flac.
+- **Container rejoin / fragment-boundary checkpoints.**
+- **Flight → HTTP fMP4 / HLS browser bridge.**
+- **Per-media-format benchmark.**
+
+### Store federation & retention remainder
+
+Most of the 2026-06 federation/retention sweep shipped (reference-aware
+channel + file retention #262/#272, `litmus data import` #271,
+promote-carries-refs #269, dangling-ref resilience #263). Remaining open.
+Source: `docs/_internal/explorations/data-stores.md`,
+`data-store-backends.md`, `data-store-unification-invariants.md`.
+
+_RICE: TBD_
+
+- **Run seal / export bundle.** A `litmus data` verb that seals a run and
+  exports it (with its referenced channel/file data) as a portable bundle.
+  `litmus data import` is the inbound half; the outbound bundle isn't built.
+- **`materialize` globs channel `.arrow`** — store-boundary violation; it
+  reads channel segments through an ephemeral non-indexed `ChannelStore`
+  instead of the channels daemon API. (Gated on the #262 ref-vs-copy
+  decision, which has since landed — re-scope.)
+- **Cross-store retention coordination.**
+- **req-6 serving-tier daemon-location swap.** The remote-daemon-location
+  hook is proven (1 helper + ~4 one-line hooks + a test add) but not
+  shipped — deferred until a real server exists (don't ship dead env vars).
+  Recipe recorded at `docs/_internal/explorations` (req6 swap recipe).
+- **Session-first layout reorg** (v0.3.0).
+- **`StreamTuning` / `checkpoint_cadence` optional rename** (the tuning
+  consolidation itself is done; this is a naming follow-up). Also tracked
+  under "Channel tuning consolidation" above.
+
+### Session / liveness foundation remainder
+
+Session core P1–P4 landed on `spike/session-overhaul` (will + spine-only
+reaper, terminal-fence finality). The remainder is below. Source:
+`docs/_internal/explorations/session-foundation.md`.
+
+_RICE: TBD_
+
+- **P5 — envelope-naming discipline.** Per-writer gap detection landed
+  (`def605f`); the envelope-naming half is pending.
+- **P6 remainder.** The session-less `ChannelIndex` reader split landed
+  (`f15a06b`); still open: flip `event_log` from optional → required (~51
+  sites), add a first-class session-less reader entry point, and the
+  public "Store" naming pass.
+- **P7 — rename `StationConnection` → `Session`** (flagged suspect:
+  collides with `SessionScope`).
+- **P8 — liveness projection → UI / MCP / HTTP.**
+- **Multi-participant join / leave emitters.**
+- **Auto-root permissive session creation** (strict → permissive is
+  additive; deferred until the foundation is solid).
+- **Client-side `SessionExpired` typed exception** (the seal IS
+  `SessionEnded`; a typed client exception is the optional follow-on).
+- **Cross-host pid liveness** (P4 self-heal is same-host only).
+- **`StationInfo` event / auto-capture station info at session creation
+  (#35)** — stamp richer station context (instruments + roles/resources,
+  fixture, calibration/asset refs, config snapshot) onto `SessionStarted`,
+  degrading gracefully when a field is unavailable.
+- **Hardware safe-state on abrupt death (#36).**
+
+### Emission-grammar remainder
+
+Part of the uniform `{Entity}Started` / `{Entity}Ended` grammar landed
+this branch (`ChannelClosed → ChannelEnded`, `StreamStarted/Ended →
+FileStarted/FileEnded`, `StreamCheckpoint → ChannelCheckpoint +
+FileCheckpoint`). Remaining inconsistencies. Source:
+`docs/_internal/explorations/session-foundation.md`,
+`store-event-rename-plan.md`, `checkpoint-split-plan.md`.
+
+_RICE: TBD_
+
+- **`SlotCompleted` → `SlotEnded`** (the lone non-`Ended` lifecycle event).
+- **`RouteOpened` / `RouteClosed`** + **`SyncArrived` / `SyncRelease`** —
+  align to the verb-keyed tense.
+- **Missing one-shot file-write event.** A one-shot file PUT emits nothing
+  today; add a discrete file-write event (1 event per discrete write, never
+  per-sample).
+
+### Measurement-storage redesign — JSON / semi-structured (#37 / #38)
+
+**Large + blocking; sequenced after the session overhaul + files branch.**
+Source: `docs/_internal/explorations/session-foundation.md` (Follow-on),
+`data-stores.md`.
+
+_RICE: TBD_
+
+Today `out_*` / `in_*` are wide dynamically-typed columns. A single run
+with mixed types in one column (`out_b: float, str`) **fails
+materialization and is silently dropped** (`_runs_duckdb_daemon.py`
+swallows to a `logger.warning`) — a green CI can still lose runs. Across
+files, `union_by_name` promotes mixed types to VARCHAR (`1.5` → `'1.5'`),
+so one varying run flips a column corpus-wide and breaks typed / Cpk
+queries.
+
+What needs to land:
+
+- Store `in` / `out` / `custom` as JSON / semi-structured — lossless,
+  stable, swap-ready (maps to Snowflake VARIANT / Postgres JSONB /
+  BigQuery JSON / DuckDB JSON; the req-6 swap becomes a dialect change).
+- A **typed derived index / projection over the JSON source** for the
+  parametric viewer — raw JSON-path queries on DuckDB benchmarked 2.5×
+  (distinct-enum) / 8.9× (filter) slower than typed columns, so the
+  fast input-condition filter + drop-down enumeration need a typed
+  projection (extend the runs-daemon DuckDB index, which is already a
+  derived projection).
+- Emit a durable **`RunMaterializationFailed`** event instead of
+  swallowing, so no run is ever silently lost (#37).
+- Consolidate the ~14 wide instrument fields (`step_instruments_*` parallel
+  array columns, `_INSTR_ARRAY_TYPES`) into the same semi-structured
+  representation — same wide-column smell, same swap-readiness win.
+
+0.2.0-breaking (wipe data, no backcompat). Needs its own shaping pass.
+
+### Consumer SDK & live API surface
+
+Source: `docs/_internal/explorations/data-stores.md`,
+`streaming-unification.md`.
+
+_RICE: TBD_
+
+- **Consumer SDK — `litmus.live`** (`subscribe_events` / `subscribe_channel`
+  / `subscribe_file` / `run_live`, plus deref). The subscribe-and-deref
+  surface for external consumers (build item 20).
+- **Channels + files as test INPUTS** (v0.3.0) — read live channel / file
+  data into a running test, not just write it.
+- **`observer.read` → `record_read` rename.**
+
+### Long-term store / transport / sync
+
+Source: `docs/_internal/explorations/data-stores.md`,
+`streaming-media.md`.
+
+_RICE: TBD_
+
+- **Local shared-memory transport** (build item 22) — DEFERRED; revisit on
+  symptoms.
+- **Per-store attribute indexes (L1).**
+- **Frame-accurate video ↔ measurement sync** — needs a frame-index event
+  reintroduced.
+- **Materialize-on-prune output format** (`.arrow` → `.parquet` / `.npz`).
+
+### UI — live-panel convergence
+
+Source: `docs/_internal/explorations/live-ui-pattern.md`.
+
+_RICE: TBD_
+
+Tree-wide `event_binding` → holder+timer convergence. The channel detail
+page, channel values panel, and `LiveBadge` are converged; the other ~8
+live panels (`event_timeline`, `instrument_activity`, `session_table`,
+`file_streams`, `results/detail`, `metrics`, `explore`, `results/list`)
+still mutate elements inside `ui_subscribe` callbacks via the loop
+marshalling. Converge them onto holder+timer, then drop the render-path
+marshalling. Deliberately deferred to avoid changing every live panel at
+once.
+
+### Exporter conformance follow-ups
+
+Source: `docs/_internal/explorations/exporter-conformance-audit.md`.
+
+_RICE: TBD_
+
+- **STDF conformance** — `MRR.FINISH_T`, `PARM_FLG`.
+- **CSV NaN / Inf as strings + TDMS dtype** handling.
+
+### Docs sweeps
+
+Source: session/channels diaries.
+
+_RICE: TBD_
+
+- **Prose-docs + skills-template verb sweep** — `logger.measure` → `measure`,
+  `logger` → `RunScope` across user-facing pages and skill templates.
+- **v0.2.0 docs items 25–30** — 5 stale operator-UI pages, uuts / profiles
+  pages, the four-store model.
 
 ### Test audit — find brittle / implementation-coupled tests
 
@@ -792,6 +1075,12 @@ charts; the MCP "watch this channel" tool; the operator UI's
 event-timeline panel. Flag if a use case materializes — otherwise
 keep as the build-out hook.
 
+**Note (2026-06 branch work):** `channel_subscribe()` no longer exists
+in `data/channels/__init__.py` — it was removed in the eager-import
+purge. This item is **left for human review**: decide whether to retire
+the entry outright or re-introduce the EventStore-bridging path against
+the current shared-server subscription surface.
+
 ### Array channel empty-result schema
 
 `channels/models.py:ARRAY_SCHEMA` is restored after being flagged
@@ -805,8 +1094,8 @@ rows still gets a mismatched schema header.
 What needs to land: ``query()`` should branch on
 ``ChannelDescriptor.data_type`` (which is recorded at registration
 time) and pick ``ARRAY_SCHEMA`` for array channels' empty fallback.
-Currently low-impact (zero rows = no observable bug) but worth
-fixing alongside the Channel attribution work above.
+Currently low-impact (zero rows = no observable bug) but cheap to fix
+when next in the channels store.
 
 ### SpecQualifier matching — capability scoring honors `qualifier`
 
@@ -865,40 +1154,6 @@ test-engineering use case (load-curve specs, temperature-derated
 limits, formula-driven limits) — they're not aspirational, just
 not built yet.
 
-### Channel attribution — wire `instrument_role` / `resource` to ChannelDescriptor
-
-Surfaced by the Phase 6a.3 `data/channels/` design review:
-``ChannelDescriptor`` (in ``data/channels/models.py``) declares fields
-``instrument_role: str``, ``resource: str``, and
-``properties: dict[str, Any]`` that are never populated. Both
-constructor call sites (``store.py:270``, ``client.py:161``) leave
-them at default. Result: the ``_registry.json`` written at session
-end carries no "which instrument owns this channel" data.
-
-The data IS available at the call site:
-``instruments/observer.py`` already caches ``self._role`` and
-``self._resource`` from the connected instrument and writes
-channels via ``self._channel_store.write(channel_id, value,
-source=source)`` (line 69). The store's ``write()`` signature just
-doesn't accept the attribution kwargs.
-
-What needs to land:
-
-- ``ChannelStore.write()`` accepts ``instrument_role: str | None``,
-  ``resource: str | None``, ``properties: dict[str, Any] | None``.
-- ``instruments/observer.py`` ``_store_value()`` passes
-  ``instrument_role=self._role, resource=self._resource``.
-- Harness ``observe()`` path (``execution/harness.py:203``) passes
-  ``None`` for both — channels written from free-form
-  ``context.observe()`` have no instrument context.
-- Analytics / UI reads ``_registry.json`` to attribute channels to
-  instruments in waveform pickers and filtering.
-
-Decision points: should ``properties`` accept arbitrary kwargs as
-a metadata bag, or stay typed? Should the daemon-side store
-preserve attribution from cross-process producers (today the
-client RPC has no place to pass it)?
-
 ### Consumer-side ref materialization (waveform viewing)
 
 Surfaced by the Phase 6a.2 `data/backends/` design review: the
@@ -940,6 +1195,13 @@ format (JSON vs binary stream), do `channel://` refs need a
 parallel HTTP path now that `litmus serve` is the front door? The
 existing `load_ref` / `load_file` keep the dispatch surface; the
 consumer-side wiring is the missing layer.
+
+**Note:** the base wiring described here has since shipped (the
+`GET /api/runs/{run_id}/ref` endpoint and the `artifact_viewer`
+component both call `load_ref`); this entry's "zero callers / no way
+to load waveform data" framing is stale. **Left for human review** —
+re-scope to the remaining gaps (eager-vs-lazy in RunView, MCP tool,
+`litmus show --waveform`, report embedding) or retire.
 
 ### HTTP support for ImageDialog
 
@@ -1114,6 +1376,14 @@ chart's `appendData` call. Subscription lifecycle when the page
 unmounts — do we reuse the existing `event_binding` cleanup pattern
 or extend it for Flight subscriptions?
 
+**Update (2026-06 branch work):** the **channel detail page** sub-bullet
+shipped — live tail via a page-level deque + `ui.timer` + `LiveBadge`,
+with a cross-process Flight subscription on the channel daemon
+(`ui/pages/channels/detail.py`). Remaining open scope: the **Events
+page** live-subscription toggle (no live wiring today) and the
+**`/channels` list page** live-status column (deferred item below;
+2s poll-refresh only, no lifecycle column).
+
 ### Parametric measurement viewer — follow-ups
 
 The thin slice (`/explore` page, `MetricsStore.parametric()`,
@@ -1147,6 +1417,18 @@ _None._
 ---
 
 ## Completed
+
+### Channel attribution — `instrument_role` / `resource` on the descriptor — 2026-06-16
+
+`ChannelStore.write()` now accepts `instrument_role` / `resource` and
+`instruments/observer.py` passes `self._role` / `self._resource` on every
+channel write, so the channel descriptor carries "which instrument owns
+this channel". The daemon serves the full descriptor from segment Arrow
+schema metadata (`_registry.json` retired), and the producer hostname is
+stamped on it — the analytics / UI read path attributes channels to
+instruments via `channels()` rather than a side file. Key commit
+`e8f7742` (daemon serves descriptors; #231); hostname `b43ea50`; write-path
+wiring `46a109c`.
 
 ### Unified per-run parquet — 2026-05-07
 
