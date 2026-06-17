@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 
 
 def _resolve_run_id() -> UUID | None:
-    """Active run_id for stamping on ``ChannelStarted`` / ``ChannelClosed``.
+    """Active run_id for stamping on ``ChannelStarted`` / ``ChannelEnded``.
 
     Pulled from the active :class:`RunScope` ContextVar at write
     time. ``None`` outside a run (interactive bringup, daemon-driven

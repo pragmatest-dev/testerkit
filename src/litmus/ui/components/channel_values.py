@@ -149,7 +149,7 @@ def create_channel_values_panel(
         store, _on_channel_started, event_type="channel.started", run_id=run_id
     )
     unsub_closed = ui_subscribe(
-        store, _on_channel_closed, event_type="channel.closed", run_id=run_id
+        store, _on_channel_closed, event_type="channel.ended", run_id=run_id
     )
 
     def unsubscribe() -> None:

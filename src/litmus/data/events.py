@@ -47,7 +47,7 @@ def _detect_client() -> str:
 #
 # Three groups, by reason:
 #
-# * **Pairing IDs** — an open-event ``stream_id`` / ``dialog_id`` /
+# * **Pairing IDs** — an open-event ``file_id`` / ``dialog_id`` /
 #   ``channel_id`` / ``slot_id`` has a matching close-event with the
 #   same value. The pushdown answers "did this open ever close?"
 # * **Operator-facing identifiers** — ``uut_serial`` /
@@ -62,7 +62,7 @@ def _detect_client() -> str:
 # ``ALTER TABLE ADD COLUMN IF NOT EXISTS`` auto-migrates existing DBs.
 TYPED_PAYLOAD_COLUMNS: tuple[str, ...] = (
     # Pairing IDs
-    "stream_id",
+    "file_id",
     "dialog_id",
     "channel_id",
     "slot_id",
@@ -666,7 +666,7 @@ class ChannelStarted(EventBase):
     resource: str | None = None
 
 
-class ChannelClosed(EventBase):
+class ChannelEnded(EventBase):
     """A channel was sealed for this session.
 
     Position 2 lifecycle event. Fires when a session ends (all of its
@@ -678,7 +678,7 @@ class ChannelClosed(EventBase):
     class exists; SessionEnded-tied emission lands in a follow-up.
     """
 
-    event_type: Literal["channel.closed"] = "channel.closed"
+    event_type: Literal["channel.ended"] = "channel.ended"
     channel_id: str
     reason: str  # e.g., "session_ended" | "retention_prune"
 
@@ -706,19 +706,19 @@ class InstrumentConfigure(EventBase):
 
 
 # ---------------------------------------------------------------------------
-# Stream events (Phase 2+)
+# File events (Phase 2+)
 # ---------------------------------------------------------------------------
 
 
-class StreamStarted(EventBase):
+class FileStarted(EventBase):
     """Emitted when a FileStore streaming sink opens.
 
-    Once per ``stream_id``. Announces an open stream for discovery
+    Once per ``file_id``. Announces an open stream for discovery
     ("what streams are open / done"); the final ``file://`` URI is
-    announced via :class:`StreamEnded` at close (it can't be known until
+    announced via :class:`FileEnded` at close (it can't be known until
     the sink resolves a collision-free name).
 
-    **Stream events are lifecycle-only** (the FileStore parallel of
+    **File events are lifecycle-only** (the FileStore parallel of
     Position 2 for channels). Per-chunk events would flood the
     EventStore at high write rates (kHz captures, 30 fps video, etc.)
     for no real subscriber gain. Live consumers receive each chunk
@@ -726,23 +726,23 @@ class StreamStarted(EventBase):
     log); they use EventStore only for discovery.
     """
 
-    event_type: Literal["stream.started"] = "stream.started"
-    stream_id: UUID
+    event_type: Literal["file.started"] = "file.started"
+    file_id: UUID
     name: str = ""
     format: str = ""
 
 
-class StreamEnded(EventBase):
+class FileEnded(EventBase):
     """Emitted when a FileStore streaming sink closes.
 
-    Once per ``stream_id``. ``uri`` is the final ``file://`` claim that
+    Once per ``file_id``. ``uri`` is the final ``file://`` claim that
     callers can stash into vector ``out_*`` columns or hand to the
     artifact viewer. ``size_bytes`` is the total appended-byte count
     at close.
     """
 
-    event_type: Literal["stream.ended"] = "stream.ended"
-    stream_id: UUID
+    event_type: Literal["file.ended"] = "file.ended"
+    file_id: UUID
     uri: str | None = None
     size_bytes: int | None = None
 
@@ -751,7 +751,7 @@ class StreamCheckpoint(EventBase):
     """Low-rate liveness + progress marker from an active streaming producer.
 
     A stream's samples/frames ride the off-spine fan-out, so a long active
-    stream emits nothing durable between ``StreamStarted`` and ``StreamEnded``.
+    stream emits nothing durable between ``FileStarted`` and ``FileEnded``.
     The producer's write path emits one of these when more than the configured
     cadence (``StreamTuning.checkpoint_cadence``, default ``lease/3``) has
     elapsed since its last spine event, carrying the offset reached so far.
@@ -819,9 +819,9 @@ TEST_EVENTS = {
 }
 ROUTE_EVENTS = {RouteClosed, RouteOpened}
 INSTRUMENT_EVENTS = {InstrumentSet, InstrumentConfigure}
-CHANNEL_EVENTS = {ChannelStarted, ChannelClosed}
+CHANNEL_EVENTS = {ChannelStarted, ChannelEnded}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
-STREAM_EVENTS = {StreamStarted, StreamEnded, StreamCheckpoint}
+FILE_EVENTS = {FileStarted, FileEnded, StreamCheckpoint}
 DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
     SESSION_EVENTS
@@ -833,7 +833,7 @@ ALL_EVENTS = (
     | INSTRUMENT_EVENTS
     | CHANNEL_EVENTS
     | DIAGNOSTIC_EVENTS
-    | STREAM_EVENTS
+    | FILE_EVENTS
     | DIALOG_EVENTS
 )
 
@@ -863,11 +863,11 @@ Event = Annotated[
     | InstrumentSet
     | InstrumentConfigure
     | ChannelStarted
-    | ChannelClosed
+    | ChannelEnded
     | DiagnosticWarning
     | DiagnosticError
-    | StreamStarted
-    | StreamEnded
+    | FileStarted
+    | FileEnded
     | StreamCheckpoint
     | DialogOpened
     | DialogResponded,

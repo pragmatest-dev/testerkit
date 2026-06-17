@@ -113,7 +113,7 @@ server lease; everything reads the spine:
   `RunStarted`/measurement/`ChannelStarted`/`RunEnded` ("operations are heartbeats unto themselves";
   DDS assert-by-write). No dedicated heartbeat in the common case.
 - **Off-spine-streaming wrinkle:** high-rate frames ride the ephemeral fan-out, not the spine, so a
-  long stream emits nothing durable between `StreamStarted`/`StreamEnded`. Resolve with a coarse
+  long stream emits nothing durable between `FileStarted`/`FileEnded`. Resolve with a coarse
   **idle-only keep-alive** the **stream sink emits automatically**, **piggybacked on the write call**
   (on write, if > interval since last spine event → emit one durable spine event via `event_log`,
   carrying byte-offset-so-far) — **not a per-stream timer thread** (thread-budget hazard). Tunable
@@ -482,7 +482,7 @@ synthetic decrement, so the balance always converges and the seal is guaranteed 
 
 Shaped in a design session; this is the contract for Wave D. The big realization: **liveness is
 a byproduct of normal emission, not a separate mechanism.** Every existing emit site
-(`RunStarted`, `StepStarted`, every `measure`/`observe`, `ChannelStarted`/`ChannelClosed`,
+(`RunStarted`, `StepStarted`, every `measure`/`observe`, `ChannelStarted`/`ChannelEnded`,
 instrument connects) already flows through the spine; a reaper watching the spine resets that
 session's lease on each one — *no emit site gets a keep-alive call*. Emitting **is** asserting
 liveness (DDS assert-by-write). The **one** path that emits nothing durable while active is a

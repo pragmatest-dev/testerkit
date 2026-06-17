@@ -45,7 +45,7 @@ nothing off-loop touches UI.
 - **Operator detail page** — `src/litmus/ui/pages/channels/detail.py`. `refresh()`
   is `async` and runs `query_channel` via `run.io_bound`; live samples land in a
   page-level deque painted by a `ui.timer`; the `LiveBadge` is fed by
-  `channel.started`/`channel.closed` lifecycle events plus sample activity.
+  `channel.started`/`channel.ended` lifecycle events plus sample activity.
 - **Operator values panel** — `src/litmus/ui/components/channel_values.py`. The
   sample callback records a per-row holder (`_ChannelRow`); a `ui.timer` paints
   the rows that changed. Row add/close are structural and run on the loop via

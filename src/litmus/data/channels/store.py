@@ -41,7 +41,7 @@ from litmus.data.channels.models import (
     sample_schema,
     samples_to_batch,
 )
-from litmus.data.events import ChannelClosed, ChannelStarted, StreamCheckpoint
+from litmus.data.events import ChannelEnded, ChannelStarted, StreamCheckpoint
 from litmus.data.ref import classify_value, make_channel_uri
 from litmus.models.data_options import ChannelOptions
 
@@ -231,7 +231,7 @@ class ChannelStore:
         # (the existing single-writer model); not shared across threads.
         self._flight_writers: dict[str, flight.FlightStreamWriter] = {}
         # Position 2 (item 4b): ChannelStore owns ChannelStarted /
-        # ChannelClosed emission because per-(channel, session)
+        # ChannelEnded emission because per-(channel, session)
         # tracking lives here naturally — the registry already records
         # first write. Any writer path (observer.read /
         # Context.stream / channels.write / FileStore stream sink)
@@ -244,10 +244,10 @@ class ChannelStore:
         # off-spine writing, so a long active channel stream renews the session
         # lease instead of going silent on the spine. ``_last_spine_emit`` tracks
         # the store's most recent event-log emission (ChannelStarted / checkpoint
-        # / ChannelClosed) — any of them resets the cadence clock.
+        # / ChannelEnded) — any of them resets the cadence clock.
         self._checkpoint_cadence = checkpoint_cadence
         self._last_spine_emit: datetime | None = None
-        # First-write run_id per channel — pairs with ChannelClosed
+        # First-write run_id per channel — pairs with ChannelEnded
         # on session-end so the two events carry the same run context.
         # ``None`` for channels written outside any run (daemon writes,
         # interactive bringup).
@@ -1353,20 +1353,20 @@ class ChannelStore:
     def close(self) -> None:
         """Flush all writers, write channel registry, close.
 
-        Position 2 (item 4b): emits one :class:`ChannelClosed`
+        Position 2 (item 4b): emits one :class:`ChannelEnded`
         (``reason="session_ended"``) per channel that received at least
         one write in this session, paired with the ``ChannelStarted``
         that fired on first write. Idempotent — second close() emits
         nothing.
         """
-        # Position 2: emit ChannelClosed for every channel touched in
+        # Position 2: emit ChannelEnded for every channel touched in
         # this session — before tearing down Flight / writers so the
         # event log captures the lifecycle marker while the event log
         # is still live.
         if not self._closed and self._event_log is not None:
             for channel_id in list(self._registry):
                 self._event_log.emit(
-                    ChannelClosed(
+                    ChannelEnded(
                         session_id=self._session_id,
                         run_id=self._channel_run_ids.get(channel_id),
                         channel_id=channel_id,

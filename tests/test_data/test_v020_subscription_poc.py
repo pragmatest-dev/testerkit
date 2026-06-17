@@ -38,10 +38,10 @@ transport, without polling and without bespoke wiring.
 |-------------------|-------------------------------------------------|----------|
 | ``ChannelStarted``| First channel write per (channel, session)      | ✅       |
 | ``Observation``   | ``Context.observe(name, value)``                | ✅       |
-| ``StreamStarted`` | ``litmus.files.stream(...)`` open               | ✅       |
-| ``StreamEnded``   | ``litmus.files.stream(...)`` close              | ✅       |
-| ``ChannelClosed`` | (defined; SessionEnded-tied emission deferred — | ⏸       |
-|                   | see ``ChannelClosed`` docstring in events.py)   |          |
+| ``FileStarted``   | ``litmus.files.stream(...)`` open               | ✅       |
+| ``FileEnded``     | ``litmus.files.stream(...)`` close              | ✅       |
+| ``ChannelEnded``  | (defined; SessionEnded-tied emission deferred — | ⏸       |
+|                   | see ``ChannelEnded`` docstring in events.py)    |          |
 
 Per CLAUDE.md test conventions: in-process Flight server bound to
 ``tmp_path``; no daemon spawn.
@@ -64,9 +64,9 @@ from litmus.data.channels.store import ChannelStore
 from litmus.data.event_log import EventLog
 from litmus.data.events import (
     ChannelStarted,
+    FileEnded,
+    FileStarted,
     Observation,
-    StreamEnded,
-    StreamStarted,
 )
 from litmus.data.files import FileStore
 from litmus.data.files import _reset_for_tests as _reset_filestore
@@ -233,7 +233,7 @@ class TestEventSubscriptionPoC:
         assert f"/{session.session_id}/" in uri and uri.startswith("file://")
 
     def test_stream_lifecycle_lands_in_subscriber(self, session: Any) -> None:
-        """litmus.files.stream() emits StreamStarted + StreamEnded only."""
+        """litmus.files.stream() emits FileStarted + FileEnded only."""
         import litmus.files
 
         with litmus.files.stream(
@@ -243,15 +243,15 @@ class TestEventSubscriptionPoC:
             sink.write(b"chunk-2")
             sink.write(b"chunk-3")
 
-        stream_events = [e for e in session.events if isinstance(e, StreamStarted | StreamEnded)]
+        stream_events = [e for e in session.events if isinstance(e, FileStarted | FileEnded)]
         assert len(stream_events) == 2
-        assert isinstance(stream_events[0], StreamStarted)
+        assert isinstance(stream_events[0], FileStarted)
         assert stream_events[0].name == "daq_capture"
         assert stream_events[0].format == "raw"
         assert stream_events[0].run_id == session.run_id
 
-        assert isinstance(stream_events[1], StreamEnded)
-        assert stream_events[1].stream_id == stream_events[0].stream_id
+        assert isinstance(stream_events[1], FileEnded)
+        assert stream_events[1].file_id == stream_events[0].file_id
         assert stream_events[1].uri is not None and stream_events[1].uri.endswith(
             f"/{session.session_id}/daq_capture.bin"
         )
@@ -272,7 +272,7 @@ class TestEventSubscriptionPoC:
         # 3) observe blob → Observation + FileStore write
         session.ctx.observe("scope_capture", b"\x89PNG\r\n\x1a\nbytes")
 
-        # 4) files.stream → StreamStarted/Ended
+        # 4) files.stream → FileStarted/Ended
         with litmus.files.stream(
             "audio_capture",
             format="raw",
@@ -284,8 +284,8 @@ class TestEventSubscriptionPoC:
         types = [type(e).__name__ for e in session.events]
         assert types.count("ChannelStarted") == 1
         assert types.count("Observation") == 2
-        assert types.count("StreamStarted") == 1
-        assert types.count("StreamEnded") == 1
+        assert types.count("FileStarted") == 1
+        assert types.count("FileEnded") == 1
 
 
 # --------------------------------------------------------------------- #

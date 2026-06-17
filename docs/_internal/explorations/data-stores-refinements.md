@@ -260,7 +260,7 @@ Recommended library-by-format wrappers:
 | Parquet | **pyarrow** | already in stack |
 | Pickle (fallback) | stdlib | with RuntimeWarning |
 
-Each handler wraps an existing library's writer. FileStore handles path allocation, lifecycle events (`StreamStarted`/`StreamFrameIndex`/`StreamEnded`), metadata capture at close, and claim URI. The library handles encoding.
+Each handler wraps an existing library's writer. FileStore handles path allocation, lifecycle events (`FileStarted`/`StreamFrameIndex`/`FileEnded`), metadata capture at close, and claim URI. The library handles encoding.
 
 ---
 

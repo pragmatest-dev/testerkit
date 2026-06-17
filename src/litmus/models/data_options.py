@@ -100,8 +100,8 @@ class StreamTuning(BaseModel):
     durable checkpoint (settable in ``litmus.yaml`` under ``stream:``).
 
     A stream's samples/frames ride the off-spine fan-out, so a long active
-    stream would otherwise emit nothing durable between ``StreamStarted`` and
-    ``StreamEnded`` and the reaper couldn't tell a live stream from a dead one.
+    stream would otherwise emit nothing durable between ``FileStarted`` and
+    ``FileEnded`` and the reaper couldn't tell a live stream from a dead one.
     The sink emits one ``StreamCheckpoint`` (carrying offset-so-far) when this
     long has elapsed since its last spine event — bounded to one per cadence
     regardless of sample rate. Shared by the channel + file producers.

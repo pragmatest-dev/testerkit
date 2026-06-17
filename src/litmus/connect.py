@@ -110,7 +110,7 @@ class StationConnection:
 
         # ChannelStore is constructed now but opens lazily on first channel write
         # (no daemon spin for a zero-channel session). Pass event_log so it can
-        # emit ChannelStarted / ChannelClosed. Channel data options come from the
+        # emit ChannelStarted / ChannelEnded. Channel data options come from the
         # project config (litmus.yaml channels:), not the station config; absent →
         # ChannelOptions defaults.
         _stream_tuning = _proj[1].stream if _proj else StreamTuning()

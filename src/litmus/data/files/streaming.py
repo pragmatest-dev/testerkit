@@ -1,7 +1,7 @@
 """FileStore streaming sinks — build item 2 (C5).
 
 Streaming sinks open one file, accept chunks over time, finalize on
-close, and emit :class:`StreamStarted` / :class:`StreamEnded` lifecycle
+close, and emit :class:`FileStarted` / :class:`FileEnded` lifecycle
 events around it (build item 1b). The durable event log stays
 lifecycle-only; per-chunk **frames** fan out ephemerally through the
 files catalog daemon (not the event log) so live consumers range-read
@@ -50,7 +50,7 @@ from uuid import NAMESPACE_OID, UUID, uuid4, uuid5
 
 import orjson
 
-from litmus.data.events import StreamCheckpoint, StreamEnded, StreamStarted
+from litmus.data.events import FileEnded, FileStarted, StreamCheckpoint
 from litmus.data.files.catalog_manager import open_frame_relay
 
 # Optional-extra deps: nptdms (TDMS) and h5py (HDF5) are gated behind
@@ -97,7 +97,7 @@ class StreamingSink(Protocol):
     - own the open file handle (or its library equivalent)
     - publish an ephemeral frame notification per :meth:`write` (via the
       files daemon, not the event log)
-    - emit :class:`StreamEnded` exactly once on :meth:`close` (and
+    - emit :class:`FileEnded` exactly once on :meth:`close` (and
       tolerate repeated :meth:`close` calls — idempotent)
 
     Sinks are reusable as context managers via :func:`contextlib.closing`
@@ -106,7 +106,7 @@ class StreamingSink(Protocol):
     """
 
     @property
-    def stream_id(self) -> UUID: ...
+    def file_id(self) -> UUID: ...
 
     @property
     def uri(self) -> str:
@@ -202,8 +202,8 @@ class _BaseSink:
 
     Format-specific sinks subclass this, override :meth:`write` (which
     appends a chunk and returns bytes-written) and optionally hand a
-    ``finalizer`` that runs once before :class:`StreamEnded` emits.
-    All emit-side bookkeeping — stream_id, StreamStarted / StreamEnded
+    ``finalizer`` that runs once before :class:`FileEnded` emits.
+    All emit-side bookkeeping — file_id, FileStarted / FileEnded
     — lives here.
 
     Stream events are **lifecycle-only**. No per-chunk event flood;
@@ -236,14 +236,14 @@ class _BaseSink:
         self._session_id_str = session_id
         self._event_log = event_log
         self._run_id = run_id
-        self._stream_id = uuid4()
+        self._file_id = uuid4()
         self._byte_offset = 0
         self._closed = False
         # Stream liveness checkpoint: when set, the write path emits one
         # ``StreamCheckpoint`` (carrying byte_offset) per ``checkpoint_cadence``
         # so a long active file stream renews the session lease instead of going
         # silent on the spine. ``_last_spine_emit`` (monotonic) tracks the sink's
-        # most recent event-log emission — StreamStarted / checkpoint reset it.
+        # most recent event-log emission — FileStarted / checkpoint reset it.
         self._checkpoint_cadence = checkpoint_cadence
         self._last_spine_emit: float | None = None
         # Resolve the live frame fan-out ONCE (not per chunk). ``None`` when no
@@ -252,17 +252,17 @@ class _BaseSink:
         # relay so the per-chunk do_put never blocks the writer. Coalescing
         # tuning defaults from ``FileOptions`` (the single home for those knobs).
         self._relay = open_frame_relay(files_dir)
-        # Emit StreamStarted at construction (NOT at first write) so
+        # Emit FileStarted at construction (NOT at first write) so
         # the ``.uri`` property — valid from construction onward — is
         # never returned for a stream that hasn't announced itself to
         # the event log. Without this, ``observe(name, sink)`` could
-        # latch a URI to the vector before any StreamStarted event
+        # latch a URI to the vector before any FileStarted event
         # fired, breaking timeline ordering for subscribers.
         self._emit_started()
 
     @property
-    def stream_id(self) -> UUID:
-        return self._stream_id
+    def file_id(self) -> UUID:
+        return self._file_id
 
     @property
     def byte_offset(self) -> int:
@@ -320,10 +320,10 @@ class _BaseSink:
         if self._event_log is None:
             return
         self._event_log.emit(
-            StreamStarted(
+            FileStarted(
                 session_id=self._session_uuid(),
                 run_id=self._run_id,
-                stream_id=self._stream_id,
+                file_id=self._file_id,
                 name=self._name,
                 format=self._format_name,
             )
@@ -355,8 +355,8 @@ class _BaseSink:
     def _track_bytes(self, length: int, payload: bytes | None = None) -> None:
         """Advance the byte offset + push an ephemeral frame to subscribers.
 
-        The durable event log stays lifecycle-only (StreamStarted /
-        StreamEnded) — no per-chunk event. Each chunk instead fans out a
+        The durable event log stays lifecycle-only (FileStarted /
+        FileEnded) — no per-chunk event. Each chunk instead fans out a
         non-persisted frame via the files daemon carrying the new bytes
         (``payload``) so a live consumer receives them push-style (req 5) —
         never range-reading a still-growing object, which a remote backend
@@ -371,7 +371,7 @@ class _BaseSink:
         if self._relay is not None:
             self._relay.publish(
                 {
-                    "stream_id": str(self._stream_id),
+                    "file_id": str(self._file_id),
                     "uri": self._uri,
                     "byte_offset": prev,
                     "length": length,
@@ -382,7 +382,7 @@ class _BaseSink:
 
     def _emit_ended(self, uri: str) -> None:
         # Flush + stop the frame relay before announcing the stream closed, so a
-        # subscriber sees every frame before StreamEnded.
+        # subscriber sees every frame before FileEnded.
         if self._relay is not None:
             self._relay.close()
             self._relay = None
@@ -390,10 +390,10 @@ class _BaseSink:
             return
         size_bytes = self._byte_offset if self._byte_offset > 0 else None
         self._event_log.emit(
-            StreamEnded(
+            FileEnded(
                 session_id=self._session_uuid(),
                 run_id=self._run_id,
-                stream_id=self._stream_id,
+                file_id=self._file_id,
                 uri=uri,
                 size_bytes=size_bytes,
             )

@@ -1,7 +1,7 @@
 """Position 2 channel-lifecycle behavior — items 4b + 5.
 
 C1 in the v0.2.0 build-item cluster plan, **plus** the item-4b
-consolidation that moved ``ChannelStarted`` / ``ChannelClosed``
+consolidation that moved ``ChannelStarted`` / ``ChannelEnded``
 emission ownership from :class:`InstrumentEventBuilder` to
 :class:`ChannelStore` so any writer path (observer.read /
 Context.stream / channels.write / FileStore sink) gets the same
@@ -11,7 +11,7 @@ Verifies:
 
 - ``ChannelStarted`` fires once per (channel_id, session_id) on first
   write through ``observer.read``; subsequent writes don't re-emit.
-- ``ChannelClosed`` fires once per channel on ``ChannelStore.close()``,
+- ``ChannelEnded`` fires once per channel on ``ChannelStore.close()``,
   with reason ``"session_ended"``, paired with the original
   ChannelStarted's run_id.
 - ``InstrumentRead`` per-sample event is retired (no longer importable).
@@ -33,7 +33,7 @@ import pytest
 
 from litmus.data.channels.store import ChannelStore
 from litmus.data.event_log import EventLog
-from litmus.data.events import ChannelClosed, ChannelStarted
+from litmus.data.events import ChannelEnded, ChannelStarted
 from litmus.execution._state import push_current_context, reset_current_context
 from litmus.execution.harness import Context, TestHarness
 from litmus.instruments.observer import InstrumentEventBuilder
@@ -156,7 +156,7 @@ def test_two_writer_paths_to_same_channel_emit_one_started(session) -> None:
 
 
 # --------------------------------------------------------------------- #
-# item 4b — ChannelClosed lifecycle event (new in this cluster)         #
+# item 4b — ChannelEnded lifecycle event (new in this cluster)         #
 # --------------------------------------------------------------------- #
 
 
@@ -168,7 +168,7 @@ def test_close_emits_channel_closed_for_each_touched_channel(session) -> None:
 
     store.close()
 
-    closed = [e for e in log.emitted if isinstance(e, ChannelClosed)]
+    closed = [e for e in log.emitted if isinstance(e, ChannelEnded)]
     assert len(closed) == 2
     assert {e.channel_id for e in closed} == {"dmm.voltage", "dmm.current"}
     for ev in closed:
@@ -183,7 +183,7 @@ def test_close_emits_no_channel_closed_for_untouched_channels(session) -> None:
     # No writes at all
     store.close()
 
-    closed = [e for e in log.emitted if isinstance(e, ChannelClosed)]
+    closed = [e for e in log.emitted if isinstance(e, ChannelEnded)]
     assert closed == []
 
 
@@ -195,7 +195,7 @@ def test_close_is_idempotent_event_wise(session) -> None:
     store.close()
     store.close()  # second close emits nothing
 
-    closed = [e for e in log.emitted if isinstance(e, ChannelClosed)]
+    closed = [e for e in log.emitted if isinstance(e, ChannelEnded)]
     assert len(closed) == 1
 
 

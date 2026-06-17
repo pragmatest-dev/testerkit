@@ -1444,7 +1444,7 @@ def _derive_liveness(
     """Liveness for one registry row: lifecycle (event store) + recency staleness.
 
     A registry row's existence already implies "started", so only the terminal
-    signals are consulted — ``closed`` (ChannelClosed) and ``ended`` (SessionEnded).
+    signals are consulted — ``closed`` (ChannelEnded) and ``ended`` (SessionEnded).
     Otherwise the channel is open: ``live`` if a sample landed within
     ``stale_after`` seconds, else ``open_stale`` (open but quiet — e.g. a crashed
     producer whose session hasn't been closed yet).
@@ -1492,7 +1492,7 @@ def channels_liveness_query(
     ended: set[str] = set()
     try:
         es = EventStore(_data_dir=base)
-        for e in es.events(event_type="channel.closed"):
+        for e in es.events(event_type="channel.ended"):
             closed.add((str(e.get("session_id")), json.loads(e["json"]).get("channel_id", "")))
         for e in es.events(event_type="session.ended"):
             ended.add(str(e.get("session_id")))

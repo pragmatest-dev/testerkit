@@ -1,18 +1,18 @@
 """Live FileStore streams panel.
 
-Subscribes to :class:`~litmus.data.events.StreamStarted` and
-:class:`~litmus.data.events.StreamEnded` events from the EventStore
+Subscribes to :class:`~litmus.data.events.FileStarted` and
+:class:`~litmus.data.events.FileEnded` events from the EventStore
 and renders a row per stream: name / format / status (OPEN → DONE) /
 size / link to the artifact viewer once the stream closes.
 
-This is the **discovery** view per the lifecycle-only Stream event
+This is the **discovery** view per the lifecycle-only File event
 model (see ``data-stores.md`` §6). Sample data — i.e. the bytes
 themselves — flows on a separate transport (the file on disk;
 consumers range-read or format-decode it). The event log tells
 operators *what's open* and *what closed when*; clicking through
 to the artifact viewer hands them the bytes.
 
-Push-based: no polling — :func:`ui_subscribe` delivers each Stream*
+Push-based: no polling — :func:`ui_subscribe` delivers each File*
 event on the NiceGUI thread the moment it lands.
 """
 
@@ -39,9 +39,9 @@ def create_file_streams_panel(
 ) -> tuple[ui.column, Callable[[], None]]:
     """Live streams table — scoped to ``run_id`` when supplied.
 
-    A row appears when ``StreamStarted`` lands; its status flips from
+    A row appears when ``FileStarted`` lands; its status flips from
     OPEN → DONE and the size + artifact link populate when the
-    matching ``StreamEnded`` (by ``stream_id``) arrives.
+    matching ``FileEnded`` (by ``file_id``) arrives.
 
     ``run_id`` filters the subscription to events whose ``run_id``
     matches — used by ``/live/{run_id}`` so operators only see streams
@@ -51,7 +51,7 @@ def create_file_streams_panel(
     Returns ``(container, unsubscribe)`` so the caller can stop
     updates on page teardown.
     """
-    # stream_id → (status_label, size_label, link_container)
+    # file_id → (status_label, size_label, link_container)
     stream_rows: dict[str, tuple[ui.label, ui.label, ui.row]] = {}
 
     container = ui.column().classes("w-full gap-2")
@@ -73,7 +73,7 @@ def create_file_streams_panel(
     def _on_started(evt: dict) -> None:
         nonlocal placeholder_removed
 
-        sid = evt.get("stream_id")
+        sid = evt.get("file_id")
         if not sid:
             return
         if sid in stream_rows:
@@ -102,7 +102,7 @@ def create_file_streams_panel(
         stream_rows[sid] = (status_lbl, size_lbl, link_container)
 
     def _on_ended(evt: dict) -> None:
-        sid = evt.get("stream_id")
+        sid = evt.get("file_id")
         if not sid or sid not in stream_rows:
             return
         status_lbl, size_lbl, link_container = stream_rows[sid]
@@ -126,8 +126,8 @@ def create_file_streams_panel(
                     "text-xs text-blue-600 hover:underline"
                 )
 
-    unsub_started = ui_subscribe(store, _on_started, event_type="stream.started", run_id=run_id)
-    unsub_ended = ui_subscribe(store, _on_ended, event_type="stream.ended", run_id=run_id)
+    unsub_started = ui_subscribe(store, _on_started, event_type="file.started", run_id=run_id)
+    unsub_ended = ui_subscribe(store, _on_ended, event_type="file.ended", run_id=run_id)
 
     def unsubscribe() -> None:
         unsub_started()

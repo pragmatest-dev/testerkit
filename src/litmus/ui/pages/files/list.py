@@ -50,7 +50,7 @@ def _row_for_artifact(entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _row_for_open_stream(stream_id: str, info: dict[str, Any]) -> dict[str, Any]:
+def _row_for_open_stream(file_id: str, info: dict[str, Any]) -> dict[str, Any]:
     """A still-open stream: live, not yet in the catalog (no uri until close)."""
     return {
         "live": "● live",
@@ -58,7 +58,7 @@ def _row_for_open_stream(stream_id: str, info: dict[str, Any]) -> dict[str, Any]
         "mime": info.get("format") or "stream",
         "size": "—",
         "created_at": format_datetime(info.get("started_at")),
-        "uri": f"stream:{stream_id}",  # row key only — no link until close
+        "uri": f"stream:{file_id}",  # row key only — no link until close
         "detail_url": "",
         "download_url": "",
     }
@@ -171,7 +171,7 @@ def files_page(
     mime_options = _mime_options_from_entries(all_entries)
     initial_mime = mime if mime in mime_options else ""
 
-    # Live status: open streams arrive as stream.started / stream.ended events
+    # Live status: open streams arrive as file.started / file.ended events
     # (an open stream has no catalog row until it closes). Track them in a
     # holder; the event callbacks only flip a dirty flag, and a ui.timer
     # re-renders when it's set (no per-tick rebuild → no flicker). Best-effort:
@@ -182,7 +182,7 @@ def files_page(
         _event_store = EventStore.get_shared(resolve_data_dir())
 
         def _on_stream_started(evt: dict) -> None:
-            sid = evt.get("stream_id")
+            sid = evt.get("file_id")
             if sid:
                 open_streams[str(sid)] = {
                     "name": evt.get("name"),
@@ -192,18 +192,18 @@ def files_page(
                 live_dirty[0] = True
 
         def _on_stream_ended(evt: dict) -> None:
-            sid = evt.get("stream_id")
+            sid = evt.get("file_id")
             if sid and open_streams.pop(str(sid), None) is not None:
                 live_dirty[0] = True  # now an at-rest catalog row on re-walk
 
         # Live = from page-load onward. Without ``since`` the subscription
-        # replays every historical stream.started — old/never-closed test
+        # replays every historical file.started — old/never-closed test
         # streams would all show as "live". A stream already open at load shows
         # ○ done once it closes (catalog); the false-positive flood is the bug
         # to avoid here. (Same replay trap as the channel badge.)
         _since = datetime.now(UTC)
-        ui_subscribe(_event_store, _on_stream_started, event_type="stream.started", since=_since)
-        ui_subscribe(_event_store, _on_stream_ended, event_type="stream.ended", since=_since)
+        ui_subscribe(_event_store, _on_stream_started, event_type="file.started", since=_since)
+        ui_subscribe(_event_store, _on_stream_ended, event_type="file.ended", since=_since)
     except (OSError, RuntimeError):
         pass
 

@@ -920,7 +920,7 @@ class LiveBadge:
 
         badge = LiveBadge()                       # renders itself in place
         channel_data(ch_id).subscribe(lambda s: badge.ping())
-        # lifecycle from channel.started / channel.closed events:
+        # lifecycle from channel.started / channel.ended events:
         badge.mark_started(); badge.mark_closed()
     """
 
@@ -944,7 +944,7 @@ class LiveBadge:
         self._closed = False
 
     def mark_closed(self) -> None:
-        """Lifecycle: ``channel.closed`` / session ended — terminal."""
+        """Lifecycle: ``channel.ended`` / session ended — terminal."""
         self._closed = True
 
     def _fresh(self) -> bool:

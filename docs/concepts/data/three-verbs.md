@@ -18,7 +18,7 @@ The platform routes each call to the right store. You write the verb; the plumbi
 |---|---|---|
 | Unit of data | One call, one captured value | The channel itself; samples are unnamed appends |
 | Identity | Each call has a name, vector context, event | The channel has a name; samples don't |
-| Acknowledgment | Observation event per call | Lifecycle bookends only (`ChannelStarted` / `ChannelClosed`) |
+| Acknowledgment | Observation event per call | Lifecycle bookends only (`ChannelStarted` / `ChannelEnded`) |
 | Routable from parquet | Yes — `out_<name>` URI on the measurement vector | No — must navigate via channel + time window |
 | T&M shape | Triggered acquisition, scope capture, snapshot | Live sensor feed, free-run, continuous monitor |
 

@@ -28,7 +28,7 @@ _CATEGORIES: dict[str, tuple[str, str, str]] = {
     "instrument": ("bg-emerald-500", "bg-emerald-100 text-emerald-800", "Instrument"),
     "channel": ("bg-emerald-400", "bg-emerald-50 text-emerald-700", "Channel"),
     "diagnostic": ("bg-slate-400", "bg-slate-100 text-slate-600", "Diagnostic"),
-    "stream": ("bg-cyan-500", "bg-cyan-100 text-cyan-800", "Stream"),
+    "file": ("bg-cyan-500", "bg-cyan-100 text-cyan-800", "File"),
     "dialog": ("bg-pink-500", "bg-pink-100 text-pink-800", "Dialog"),
 }
 
@@ -103,9 +103,9 @@ _DETAIL_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "test.step_ended": _detail_step_ended,
     "run.ended": lambda e: e.get("outcome", ""),
     "channel.started": _detail_channel_started,
-    "channel.closed": lambda e: f"{e.get('channel_id', '')} ({e.get('reason', '')})",
-    "stream.started": _detail_stream_started,
-    "stream.ended": _detail_stream_ended,
+    "channel.ended": lambda e: f"{e.get('channel_id', '')} ({e.get('reason', '')})",
+    "file.started": _detail_stream_started,
+    "file.ended": _detail_stream_ended,
 }
 
 

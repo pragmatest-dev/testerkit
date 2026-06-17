@@ -61,7 +61,7 @@ shape. Present, not prevent.
 
 ### 6. Show live status of channels on the `/channels` list table
 The detail badge derives live from lifecycle events (`ChannelStarted ∧
-¬ChannelClosed`, latest-start vs latest-close); the **list** page has no live
+¬ChannelEnded`, latest-start vs latest-close); the **list** page has no live
 column (any liveness it derives is activity-based, not lifecycle). Add a Live
 column driven by lifecycle events — the channel twin of the new `/files` live
 table. Reuse `LiveBadge` pills + the holder+timer rule.

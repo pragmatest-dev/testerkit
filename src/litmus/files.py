@@ -166,11 +166,11 @@ def stream(
     stores can stream, with different granularity (file streams write
     bytes per chunk; channel streams write one typed sample per call).
 
-    The sink emits :class:`~litmus.data.events.StreamStarted` on open,
+    The sink emits :class:`~litmus.data.events.FileStarted` on open,
     :class:`~litmus.data.events.StreamFrameIndex` after each
     :meth:`StreamingSink.write` (carries ``byte_offset`` so live
     consumers range-read the new window), and
-    :class:`~litmus.data.events.StreamEnded` on close (carries the
+    :class:`~litmus.data.events.FileEnded` on close (carries the
     final ``file://`` URI).
 
     Args:
@@ -195,14 +195,14 @@ def stream(
         ``.write(chunk)``, ``.close()``, and (for context-manager
         exit) implicit close. The final URI is the return value of
         :meth:`StreamingSink.close`; sinks expose ``.byte_offset``
-        and ``.stream_id`` for callers that want to surface them.
+        and ``.file_id`` for callers that want to surface them.
 
     Example::
 
         with litmus.files.stream("daq_capture", format="raw") as sink:
             for chunk in daq.read_chunks():
                 sink.write(chunk)
-        # sink closed; URI emitted via StreamEnded event
+        # sink closed; URI emitted via FileEnded event
     """
     # Lazy: see write() — same data.files heavy chain.
     from litmus.data.files import get_filestore  # noqa: PLC0415

@@ -135,7 +135,7 @@ def test_file_stream_emits_checkpoint_once_per_cadence(tmp_path: Path):
         checkpoint_cadence=10.0,
     )
     assert isinstance(sink, _BaseSink)
-    sink.write(b"first")  # StreamStarted armed the clock at construction
+    sink.write(b"first")  # FileStarted armed the clock at construction
     assert _checkpoints(log) == []
     sink._last_spine_emit = time.monotonic() - 100.0  # age past cadence
     sink.write(b"second")

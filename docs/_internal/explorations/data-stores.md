@@ -608,7 +608,7 @@ Recommended wrappers:
 | Parquet | **pyarrow** | already in stack |
 | Pickle (fallback only) | stdlib | emits `RuntimeWarning` naming the type |
 
-FileStore handles path allocation, lifecycle events (`StreamStarted`/`StreamFrameIndex`/`StreamEnded`), metadata capture at close, claim URI generation. The library handles encoding. **Don't reinvent encoders.**
+FileStore handles path allocation, lifecycle events (`FileStarted`/`StreamFrameIndex`/`FileEnded`), metadata capture at close, claim URI generation. The library handles encoding. **Don't reinvent encoders.**
 
 ### Live read of FileStore streams
 
@@ -618,14 +618,14 @@ FileStore streaming sinks support **live read during write** — not just final-
 Producer:                              Live consumer:
 ─────────                              ──────────────
 filestore.stream(name, format)
-  → StreamStarted(path, …)        →   learn path from event
+  → FileStarted(path, …)          →   learn path from event
 sink.write(chunk1)
   → StreamFrameIndex(offset=N1)   →   range-read 0..N1 (HTTP Range header); decode; render
 sink.write(chunk2)
   → StreamFrameIndex(offset=N2)   →   range-read N1..N2; decode; render
 …
 sink.close()
-  → StreamEnded(file://…)         →   final URI; complete file
+  → FileEnded(file://…)           →   final URI; complete file
 ```
 
 Live consumers don't poll — they react to `StreamFrameIndex` events and range-read the new byte range. Standard HTTP `Range: bytes=N1-N2` requests; the `artifact_viewer.py` endpoint already supports this.
@@ -718,8 +718,8 @@ Every meaningful operation emits an event; each carries data inline (when small)
 | `stream(name, sample)` | `ChannelStarted` (first write per channel/session only) | ChannelStore (one row per call) | **NO per-sample event** — sample data via ChannelStore subscription only |
 | `channels.write(name, sample)` | `ChannelStarted` (first write per channel/session only) | ChannelStore (one row per call) | same — no per-sample event |
 | `observer.read(...)` (driver) | `ChannelStarted` (first write per channel/session only) + (existing) `InstrumentConnected` carries instrument identity at connect time | ChannelStore (one row per call) | same — no per-sample event |
-| `filestore.stream(name, format)` | `StreamStarted` / `StreamFrameIndex` ×N / `StreamEnded` | FileStore (one file, incremental) | `stream_id`, `format`, `path`, final `file://…` in `StreamEnded` |
-| Channel pruned (retention) | `ChannelClosed` | — | `channel_id`, `session_id`, `reason` |
+| `filestore.stream(name, format)` | `FileStarted` / `StreamFrameIndex` ×N / `FileEnded` | FileStore (one file, incremental) | `file_id`, `format`, `path`, final `file://…` in `FileEnded` |
+| Channel pruned (retention) | `ChannelEnded` | — | `channel_id`, `session_id`, `reason` |
 | Run / step / vector lifecycle | `RunStarted`, `StepStarted`, `VectorStarted`, `VectorEnded`, `StepEnded`, `RunEnded` | event itself | identifiers + timestamps |
 
 ### Channel events are lifecycle-only, not per-sample
@@ -753,13 +753,13 @@ class ChannelStarted(EventBase):
     method: str | None = None
     resource: str | None = None
 
-class ChannelClosed(EventBase):
+class ChannelEnded(EventBase):
     """Channel reached end of session OR was retention-pruned.
 
     Once per (channel_id, session_id). Useful for consumers tracking
     "channel is still being written to" vs "no more data coming".
     """
-    event_type: Literal["channel.closed"] = "channel.closed"
+    event_type: Literal["channel.ended"] = "channel.ended"
     channel_id: str
     reason: str  # "session_ended" | "retention_prune" | etc.
 ```
@@ -922,14 +922,14 @@ Neither mode needs new architecture — both ride the existing factory + consume
 
 ### Time sync — point measurements ↔ continuous artifacts
 
-A **measurement** is a point event — one `received_at` timestamp. A **vector / step / run** is a range — bracketed by `*Started`/`*Ended` events. A **continuous artifact** (video, audio, long DAQ file) is also a range — bracketed by `StreamStarted`/`StreamEnded`.
+A **measurement** is a point event — one `received_at` timestamp. A **vector / step / run** is a range — bracketed by `*Started`/`*Ended` events. A **continuous artifact** (video, audio, long DAQ file) is also a range — bracketed by `FileStarted`/`FileEnded`.
 
 Sync mechanic — same shared event clock; subtraction:
 
 | You want | Compute |
 |---|---|
-| Video moment for a single measurement | `measurement.received_at − StreamStarted.received_at` → one offset (seconds) |
-| Video segment for a vector | `(VectorStarted − StreamStarted, VectorEnded − StreamStarted)` |
+| Video moment for a single measurement | `measurement.received_at − FileStarted.received_at` → one offset (seconds) |
+| Video segment for a vector | `(VectorStarted − FileStarted, VectorEnded − FileStarted)` |
 | Channel samples concurrent with a measurement | `ChannelStore.query(channel_id, since=measurement.received_at − ε, until=measurement.received_at + ε)` |
 | Channel samples covering a vector | same query, keyed on vector's start/end |
 
@@ -1024,7 +1024,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 ## 11. Current gaps in source (the build items address these)
 
 1. **Images/blobs are dropped, not stored.** `InstrumentRead._serialize_with_claim_check` (`events.py:543`) claim-checks arrays to a channel but for blobs falls through to `data["value"] = repr(v)` — even though `EventLog.save_ref` is right there. The "finally picks up our images" fix.
-2. **No streaming sink.** `save_ref_to_dir` writes whole values. `StreamStarted` / `StreamEnded` / `StreamFrameIndex` events at `events.py:616` are defined but no writer backs them.
+2. **No streaming sink.** `save_ref_to_dir` writes whole values. `FileStarted` / `FileEnded` / `StreamFrameIndex` events at `events.py:616` are defined but no writer backs them.
 3. **No live home for produced files.** `_ref` at the RunStore is materialization-only; the EventLog `_ref` is live but unused for blobs. Produced files during a run are held in-memory — won't survive a crash, can't hold a video.
 4. **`observe()` emits no event.** `Context.observe()` (`harness.py:190`) writes arrays to the channel but emits no event — manually-observed captures are untraceable, invisible to live subscribers, missing from the timeline.
 5. **`observer.read` doesn't stamp the vector's `out_*`.** Scalar instrument readings link to verify rows only via the event log today, not via row columns. Breaks the polymorphic `observe`/`verify` symmetry. (Note: under Position 2 — see §8 — per-sample events are retired; stamping happens once per (vector, channel) pair on first write into that vector, not per sample.)
@@ -1043,7 +1043,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | Item | Title | Cluster | Status | PR |
 |---|---|---|---|---|
 | 1a | FileStore put API + URI scheme | C1a | ✅ DONE | #14 |
-| 1b | FileStore lifecycle Stream events (StreamStarted / StreamEnded — per-chunk FrameIndex DROPPED per Position 2 parity) | C5 | ✅ DONE | (this PR) |
+| 1b | FileStore lifecycle File events (FileStarted / FileEnded — per-chunk FrameIndex DROPPED per Position 2 parity) | C5 | ✅ DONE | (this PR) |
 | 1c | FileStore attributes + MIME typing | C4-partial | ✅ DONE | #23 |
 | 1d | Unify the two `_ref` dirs | C4-mid | ✅ DONE | #25 |
 | 1e | FileStore integration test | C4-remainder | ✅ DONE | (this PR) |
@@ -1051,7 +1051,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 | 3a | `Context.observe` blob → `file://` claim | 3a | ✅ DONE | #15 |
 | 3b | `observer.read` blob → `file://` + ChannelStore `scalar:str` | C-3b | ✅ DONE | #19 |
 | 4 | `observe()` emits Observation event | 4 | ✅ DONE | #16 |
-| 4b | `ChannelStarted`/`ChannelClosed`; retire `InstrumentRead` | C1 | ✅ DONE | #17 |
+| 4b | `ChannelStarted`/`ChannelEnded`; retire `InstrumentRead` | C1 | ✅ DONE | #17 |
 | 5 | `observer.read` stamps vector `out_*` (rename DEFERRED) | C1 | ✅ DONE | #17 |
 | 6 | Verb dispatch by value shape — `observe` is the polymorphic router (all shapes); `verify` is scalar-only and raises on non-scalar | C3a | ✅ DONE | (this PR) |
 | 7 | `stream(name, sample)` test-author verb (Context.stream + bare fixture) | C3b | ✅ DONE | (this PR) |
@@ -1083,7 +1083,7 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 - **Materialize-on-prune output format** — `materialize_channel_refs` writes channel data as `.arrow` IPC stream. Works fine for DuckDB / pyarrow / pandas; less idiomatic for R / Spark / BI tools where `.parquet` is the archive format. Item 14's typed leaf-types make per-shape format dispatch tractable: `.parquet` for scalar/struct/str channels, `.npz` for array channels with `sample_interval` (matches Waveform's existing serialization). Self-contained future cluster — extends the C6-remainder registry rather than changing item 1d. Not blocking the bundle's portability today (everything in FileStore is reachable; the format question is about which tool can crack a single file open).
 - **Cross-store retention coordination** — item 1d moves materialized artifacts from `runs/{stem}_ref/` (sibling to the parquet) to `files/{date}/{session_id}/` (separate tree). Today's retention only walks `runs/`. If a user prunes parquets, the FileStore artifacts they referenced get orphaned (dangling URIs); if they prune FileStore but keep parquets, parquet URIs break. Recommendation when retention gets real: walk both trees, intersect with surviving references, prune the diff. Closely related to L1 (which would make the reference-intersection an indexed query). Note in retention design when it next gets touched.
 - **Session-first layout reorg** — today's `data_dir/{runs,events,channels,files}/` is type-first; could become session-first `data_dir/sessions/{date}/{session_id}/{run.parquet,events/,channels/,files/}` for cleaner per-session retention + operator mental model. Net change: glob-pattern updates in 4 discovery loops (`runs/*/*.parquet` → `sessions/*/*/run.parquet`, etc.). Channel cross-session sharing constraint: `channels/{date}/{ch}_{sid}.arrow` files are intentionally per-channel-then-session so a long-running fixture channel accumulates across runs; session-first per-channel buckets would break that. Either keep channels separate, or design per-session channel writes + a cross-session view. Significant arch refactor — defer to v0.3.0 or late v0.2.0 cleanup. Discussed in 1d planning and explicitly deferred.
-- **Streaming as a capability both stores can offer** — surfaced in C4-remainder while scoping item 1b. ChannelStore is already streaming-shaped (append-only, subscribable, Flight `do_get`). FileStore becomes streaming-capable with item 2's sink (`open(key, format) -> sink; sink.write(chunk); sink.close() -> URI`). What gets streamed differs (typed samples vs byte chunks of one artifact), but the lifecycle pattern is symmetric. This shows up in two design questions: (a) the verb surface in C3 — `stream(name, sample)` should be uniform across both stores (item 7 + item 8 `channels.stream` / `filestore.stream`); (b) the lifecycle event types — today `ChannelStarted`/`ChannelClosed` (Position 2, channels) and `StreamStarted`/`StreamFrameIndex`/`StreamEnded` (for FileStore streams) do the same job for two stream types. Could collapse into one Stream* family with a `source` discriminator, or stay separate because the keying differs (channel_id stable across sessions vs stream_id per-instance UUID). Decide when C3 / C5 actually shape the verbs and the sink. Don't unify the events preemptively — that's a downstream consequence of the verb design, not an item 1b/2 decision.
+- **Streaming as a capability both stores can offer** — surfaced in C4-remainder while scoping item 1b. ChannelStore is already streaming-shaped (append-only, subscribable, Flight `do_get`). FileStore becomes streaming-capable with item 2's sink (`open(key, format) -> sink; sink.write(chunk); sink.close() -> URI`). What gets streamed differs (typed samples vs byte chunks of one artifact), but the lifecycle pattern is symmetric. This shows up in two design questions: (a) the verb surface in C3 — `stream(name, sample)` should be uniform across both stores (item 7 + item 8 `channels.stream` / `filestore.stream`); (b) the lifecycle event types — today `ChannelStarted`/`ChannelEnded` (Position 2, channels) and `FileStarted`/`StreamFrameIndex`/`FileEnded` (for FileStore streams) do the same job for two stream types. Could collapse into one lifecycle family with a `source` discriminator, or stay separate because the keying differs (channel_id stable across sessions vs file_id per-instance UUID). Decide when C3 / C5 actually shape the verbs and the sink. Don't unify the events preemptively — that's a downstream consequence of the verb design, not an item 1b/2 decision.
 - **Channels + files as test INPUTS (v0.3.0 follow-on — punted 2026-06-06)** — surfaced 2026-06-03 reviewing the v0.2.0 remaining-work scope; briefly pulled into v0.2.0 on 2026-06-05 then **punted back to v0.3.0 on 2026-06-06** after a deeper spitball revealed an alternative shape worth designing properly. The interesting question isn't "ship `channels.read` / `files.read` symmetric to write" — it's whether `in_*` columns can hold URIs the way `out_*` does, with `context.get_input(name)` polymorphically unpacking on access (scalar inline → return literal; URI → resolve and return unpacked value). That makes traceability inherent (the `in_*` column IS the trace, no `InputLinked` event needed) and makes test bodies symmetric on both sides. But it surfaces real questions about eager-vs-lazy timing, URI lookup ergonomics, and lifecycle/retention semantics that need user-facing patterns settled before code. **Decision**: ship v0.2.0 without inputs to avoid half-designing the polymorphic-input shape under release pressure. Re-open in v0.3.0 with both layers in scope: (a) imperative read verbs (`channels.read`, `files.read`) as plumbing; (b) `context.get_input` unpack-on-access as the test-author surface. See 2026-06-06 chat transcript for the spitball + tradeoff matrix. Today's verb surface (`observe`/`verify`/`stream`) is producer-only; ChannelStore and FileStore have read APIs (`store.query(...)`, `store.read(uri)`) but no test-author-facing way to consume prior data as test stimulus. Real T&M workflows pull historical data forward: reference-waveform comparison ("compare this UUT's response to a golden-unit waveform captured last week"), replay ("feed this recorded signal as stimulus"), calibration carry-over ("read the cal file attached to the last successful run on this fixture"), cross-session correlation ("compare to the same measurement across the last 10 runs of this part"). Without a first-class input surface, test authors hand-roll `ChannelStore(...).query(...)` (breaks layering, no traceability) or ship reference data in the repo (no audit trail). Design questions to settle when this is picked up: (a) surface shape — bare verbs (`load_channel(...)`) or attached namespaces (`channels.read(...)` / `files.read(...)` — likely the latter, symmetric with `channels.write` / `files.write` from item 8); (b) traceability — does loading emit a typed event (`InputLinked`?) so the run records its dependencies?; (c) retention contract — loud `MissingInputError` vs return `None` vs replay-from-archive when the referenced channel was pruned (ties to cross-store retention deliberation above); (d) lookup ergonomics — by URI, by `(session_id, channel_id)`, or by higher-level query ("the latest `measurement_name='vout_idle'` on `uut_serial='SN001'`"); the typed-column promotion from PR #39 makes that query cheap; (e) pin-aware loading for part-spec workflows ("the reference for this pin's vout characteristic" instead of channel_id). Out of scope for the initial design: comparison verbs on top of loads (that's `verify()` territory operating on loaded data), schema migration of prior-run data with old column layouts (loud-fail philosophy applies), multi-session aggregation (analysis/SPC territory). Defer to v0.3.0 — verb surface and store APIs need to settle in v0.2.0 first.
 
 ### MVP (initial release) — stores + API consistency + types
@@ -1093,12 +1093,12 @@ Nuance: channel data is **session-granular, not run-granular** (rows carry `sess
 Item 1 is the foundation; decomposed for execution clarity.
 
 1a. **FileStore put API + URI scheme.** Implement `filestore.put(name, value, attributes) -> file://…` and the URI/path layout. DoD: `tests/test_filestore_put.py` — put a Path / bytes / Waveform / Pydantic model; assert returned URI resolves to a file on disk; metadata roundtrips.
-1b. **FileStore live lifecycle + Stream events.** Wire `StreamStarted` / `StreamFrameIndex` / `StreamEnded` events around the put + streaming-sink paths. DoD: events emit in correct order with correct payloads; subscribers see them via the existing event subscription path.
+1b. **FileStore live lifecycle + File events.** Wire `FileStarted` / `StreamFrameIndex` / `FileEnded` events around the put + streaming-sink paths. DoD: events emit in correct order with correct payloads; subscribers see them via the existing event subscription path.
 1c. **FileStore attributes + MIME typing.** Capture attributes at put time (mime, extension, size, dimensions/duration where format library exposes them). DoD: `tests/test_filestore_attributes.py` covers each built-in format's metadata extraction.
 1d. **Unify the two `_ref` dirs.** Migrate `events/{session_id}_ref/` + `runs/{stem}_ref/` into one canonical FileStore layout. DoD: existing code paths that read from either location continue working (or are updated); single source of truth on disk.
 1e. **FileStore integration test.** End-to-end test that observe → file:// claim in event → materialized into parquet `out_*` column → range-served via artifact viewer. DoD: golden-path test passes; failure modes (missing file, malformed URI) raise typed errors.
 
-2. **Streaming sink** behind the existing `Stream*` events (`events.py:616-628`) — `open(key, format) -> sink; write(chunk); close()`. Wraps PyAV / soundfile / tifffile / nptdms / h5py / pyarrow per format. Final `file://` claim in `StreamEnded`. DoD: write video / audio / TDMS via the sink; subscribe to `StreamFrameIndex` events; range-read partial bytes during write.
+2. **Streaming sink** behind the existing `File*` events (`events.py:616-628`) — `open(key, format) -> sink; write(chunk); close()`. Wraps PyAV / soundfile / tifffile / nptdms / h5py / pyarrow per format. Final `file://` claim in `FileEnded`. DoD: write video / audio / TDMS via the sink; subscribe to `StreamFrameIndex` events; range-read partial bytes during write.
 
 **API consistency (fixes gaps 1, 3, 4, 5):**
 
@@ -1108,12 +1108,12 @@ Item 1 is the foundation; decomposed for execution clarity.
 
 (Sequenced: 3a now — independent. 3b after 4b + 14 land.)
 4. **`observe()` emits a claim event** the way `observer.read` does. Adds `Observation` event for every observe call (scalar inline; non-scalar carrying URI). DoD: every `observe()` call results in exactly one event in the EventStore; consumers can subscribe and react.
-4b. **Introduce `ChannelStarted` + `ChannelClosed` event classes; retire per-sample `InstrumentRead`.** (Position 2; see §8.) Two new event classes in `events.py`:
+4b. **Introduce `ChannelStarted` + `ChannelEnded` event classes; retire per-sample `InstrumentRead`.** (Position 2; see §8.) Two new event classes in `events.py`:
     - `ChannelStarted(channel_id, data_type, units?, instrument_role?, method?, resource?)` — fires once per `(channel_id, session_id)` on first write into a channel. Carries instrument fields when source is an instrument; null otherwise.
-    - `ChannelClosed(channel_id, reason)` — fires when a channel is sealed for a session (session_ended) or retention-pruned. Useful for consumers tracking "still being written to" vs "no more data coming".
+    - `ChannelEnded(channel_id, reason)` — fires when a channel is sealed for a session (session_ended) or retention-pruned. Useful for consumers tracking "still being written to" vs "no more data coming".
     - `InstrumentRead` itself is **retired** in v0.2.0 — per-sample events go away. Instrument identity moves to `ChannelStarted`'s optional fields + the existing `InstrumentConnected` (already fires once at connect time; carries `manufacturer`/`model`/`serial`/`firmware`/`cal_*`).
     - Per no-backcompat principle: no alias for `InstrumentRead`; consumers reading the old event type get migrated to read `ChannelStarted` / subscribe to ChannelStore directly for sample data.
-    - DoD: `tests/test_events_channel_lifecycle.py` covers `ChannelStarted` firing once per (channel, session), `ChannelClosed` firing on close, instrument-source vs non-instrument-source field population, and no per-sample event during a multi-sample channel write.
+    - DoD: `tests/test_events_channel_lifecycle.py` covers `ChannelStarted` firing once per (channel, session), `ChannelEnded` firing on close, instrument-source vs non-instrument-source field population, and no per-sample event during a multi-sample channel write.
 5. **`observer.read` stamps the vector's `out_*`** so scalar instrument readings link to verify rows via row columns, not just events. **Position 2 reshape:** per-sample events are retired (see §8 + new item 4b); stamping happens once per `(vector, channel_id)` pair on first write into that vector, not per sample event. `observer.read` itself: writes channel + emits `ChannelStarted` on first write per channel/session + stamps vector `out_*` on first write per vector. **This PR also renames `observer.read` → `record_read`** (the naming-smell rename rides this change since the file is touched). DoD: verify rows in a vector that had `observer.read` calls show `out_<channel_name>` columns; ChannelStarted event fires exactly once per (channel, session); rename grep returns zero old references.
 
 **Dispatch (fixes gap 6):**

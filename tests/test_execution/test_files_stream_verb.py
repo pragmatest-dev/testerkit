@@ -28,7 +28,7 @@ import orjson
 import pytest
 
 import litmus.files
-from litmus.data.events import StreamEnded
+from litmus.data.events import FileEnded
 from litmus.data.files import _reset_for_tests, get_filestore
 from litmus.execution._state import (
     get_current_run_scope,
@@ -143,7 +143,7 @@ class TestEventLogResolution:
 
         # Lifecycle-only: exactly the two events, in order.
         types = [type(e).__name__ for e in log.events]
-        assert types == ["StreamStarted", "StreamEnded"]
+        assert types == ["FileStarted", "FileEnded"]
 
         for event in log.events:
             assert event.run_id == run_id
@@ -229,8 +229,8 @@ class TestCloseOnContextExit:
                 captured_sink = sink
                 sink.write(b"partial")
                 raise ValueError("boom")
-        # Sink still got closed → StreamEnded emitted
-        ended = [e for e in log.events if isinstance(e, StreamEnded)]
+        # Sink still got closed → FileEnded emitted
+        ended = [e for e in log.events if isinstance(e, FileEnded)]
         assert len(ended) == 1
         # And the published artifact holds the partial bytes
         assert get_filestore().read(captured_sink.uri) == b"partial"
@@ -247,7 +247,7 @@ class TestCloseOnContextExit:
             sink.write(b"x")
         # Idempotent close — direct call after context exit
         sink.close()
-        ended = [e for e in log.events if isinstance(e, StreamEnded)]
+        ended = [e for e in log.events if isinstance(e, FileEnded)]
         assert len(ended) == 1
 
 
@@ -258,7 +258,7 @@ class TestCloseOnContextExit:
 
 class TestStreamReadbackAndLifecycle:
     """Lifecycle-only event model: the durable log carries exactly
-    StreamStarted + StreamEnded; live consumers receive each chunk
+    FileStarted + FileEnded; live consumers receive each chunk
     push-style via ephemeral frames (the files daemon, not the event
     log). The closed artifact reads back whole through the store."""
 
@@ -279,8 +279,8 @@ class TestStreamReadbackAndLifecycle:
 
         # Lifecycle-only — exactly two events, no per-chunk noise
         types = [type(e).__name__ for e in log.events]
-        assert types == ["StreamStarted", "StreamEnded"]
+        assert types == ["FileStarted", "FileEnded"]
 
         ended = log.events[-1]
-        assert isinstance(ended, StreamEnded)
+        assert isinstance(ended, FileEnded)
         assert ended.size_bytes == 18

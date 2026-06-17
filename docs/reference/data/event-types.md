@@ -362,7 +362,7 @@ A channel received its first sample in this session.
 | `method` | `str \| None` | `None` |
 | `resource` | `str \| None` | `None` |
 
-### `channel.closed` — `ChannelClosed`
+### `channel.ended` — `ChannelEnded`
 
 A channel was sealed for this session.
 
@@ -389,25 +389,25 @@ A channel was sealed for this session.
 | `message` | `str` | `''` |
 | `details` | `dict[str, Any]` | `{}` |
 
-## Stream events
+## File events
 
-### `stream.started` — `StreamStarted`
+### `file.started` — `FileStarted`
 
 Emitted when a FileStore streaming sink opens.
 
 | Field | Type | Default |
 |---|---|---|
-| `stream_id` | `UUID` | *required* |
+| `file_id` | `UUID` | *required* |
 | `name` | `str` | `''` |
 | `format` | `str` | `''` |
 
-### `stream.ended` — `StreamEnded`
+### `file.ended` — `FileEnded`
 
 Emitted when a FileStore streaming sink closes.
 
 | Field | Type | Default |
 |---|---|---|
-| `stream_id` | `UUID` | *required* |
+| `file_id` | `UUID` | *required* |
 | `uri` | `str \| None` | `None` |
 | `size_bytes` | `int \| None` | `None` |
 
@@ -459,7 +459,7 @@ from litmus.data.events import Event
 event = Event.model_validate(json_payload)   # picks the right subclass by event_type
 ```
 
-`ALL_EVENTS` (a set of every class) and the per-category sets (`SESSION_EVENTS`, `RUN_EVENTS`, `SLOT_EVENTS`, `FIXTURE_EVENTS`, `TEST_EVENTS`, `ROUTE_EVENTS`, `INSTRUMENT_EVENTS`, `DIAGNOSTIC_EVENTS`, `STREAM_EVENTS`, `DIALOG_EVENTS`) are also exported from `litmus.data.events` for subscribers that filter by category.
+`ALL_EVENTS` (a set of every class) and the per-category sets (`SESSION_EVENTS`, `RUN_EVENTS`, `SLOT_EVENTS`, `FIXTURE_EVENTS`, `TEST_EVENTS`, `ROUTE_EVENTS`, `INSTRUMENT_EVENTS`, `DIAGNOSTIC_EVENTS`, `FILE_EVENTS`, `DIALOG_EVENTS`) are also exported from `litmus.data.events` for subscribers that filter by category.
 
 ## See also
 

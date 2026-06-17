@@ -246,9 +246,9 @@ _EVENT_CATEGORIES: list[tuple[str, list[str]]] = [
         "Instrument (proxy traffic)",
         ["InstrumentSet", "InstrumentConfigure"],
     ),
-    ("Channel (lifecycle)", ["ChannelStarted", "ChannelClosed"]),
+    ("Channel (lifecycle)", ["ChannelStarted", "ChannelEnded"]),
     ("Diagnostic", ["DiagnosticWarning", "DiagnosticError"]),
-    ("Stream", ["StreamStarted", "StreamEnded", "StreamCheckpoint"]),
+    ("File", ["FileStarted", "FileEnded", "StreamCheckpoint"]),
     ("Dialog", ["DialogOpened", "DialogResponded"]),
 ]
 

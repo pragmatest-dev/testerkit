@@ -194,7 +194,7 @@ an accident of which store got an index, not the design.
    fix.** (Cuts directly at Diagnosis: a failure's captured image is
    evidence, and it's being thrown away.)
 2. **No streaming sink.** `save_ref_to_dir` writes whole values. The stream
-   events exist — `StreamStarted(stream_id, format, path)`, `StreamEnded`,
+   events exist — `FileStarted(file_id, format, path)`, `FileEnded`,
    `StreamFrameIndex` (`events.py:616`) — the claim vocabulary for
    "video/protocol streaming to a file destination" is defined, but no
    writer backs it.
@@ -271,7 +271,7 @@ before.
   unify the two `_ref` dirs.
 - **Streaming sink** — `open(key, format) -> sink; write(chunk); close()`
   for video / large captures; emits the existing
-  `StreamStarted`→`StreamFrameIndex`→`StreamEnded` events; final
+  `FileStarted`→`StreamFrameIndex`→`FileEnded` events; final
   `file://` claim in the closing event.
 - **`file://` claim-check from events and from materialized run
   archives** — fixes the image-drop (`InstrumentRead` blobs and
@@ -376,7 +376,7 @@ The synthesis of the verb table, the dispatch table, and the data-type taxonomy.
 | Force a first-class row for an artifact (alongside derived verifies) | `verify(name, v)` no limit | non-scalar | FileStore | `Measurement` w/ `file://` claim | explicit DONE row (`value=NULL`, `outcome=DONE`) |
 | Judge a derived stat computed from a captured artifact | `verify(name, derived_scalar, limit=L)` | `float` (computed from the artifact) | event payload | `Measurement` | judged row; sees source URI via `out_*` on the same vector |
 | Stream live numerics from an instrument | `observer.read(...)` (inside driver code) | scalar or array | ChannelStore row | `InstrumentRead` | no (channel data is not a measurement) |
-| Stream bytes incrementally to one file (video, large continuous capture) | `with filestore.stream(name, format) as sink:` | bytes via `sink.write(chunk)` | FileStore (one file written incrementally) | `StreamStarted` / `StreamFrameIndex` ×N / `StreamEnded` | no (artifact is not a measurement) |
+| Stream bytes incrementally to one file (video, large continuous capture) | `with filestore.stream(name, format) as sink:` | bytes via `sink.write(chunk)` | FileStore (one file written incrementally) | `FileStarted` / `StreamFrameIndex` ×N / `FileEnded` | no (artifact is not a measurement) |
 
 ### Quick decision tree
 
@@ -497,7 +497,7 @@ Every meaningful operation emits an event; each carries data inline (when small)
 | `verify(name, non_scalar)` | `Measurement` | FileStore | `name`, `value=NULL`, `outcome=DONE`, `file://…` claim |
 | `observer.read(scalar)` *(driver)* | `InstrumentRead` | ChannelStore row | scalar inline |
 | `observer.read(array)` *(driver)* | `InstrumentRead` | ChannelStore row | `channel://…` claim + `{length, sample_interval, min, max}` inline (`events.py:543`) |
-| `filestore.stream(name, format)` | `StreamStarted` / `StreamFrameIndex` ×N / `StreamEnded` (`events.py:616-628`) | FileStore (one file, written incrementally) | `stream_id` / `format` / `path`, final `file://…` in `StreamEnded` |
+| `filestore.stream(name, format)` | `FileStarted` / `StreamFrameIndex` ×N / `FileEnded` (`events.py:616-628`) | FileStore (one file, written incrementally) | `file_id` / `format` / `path`, final `file://…` in `FileEnded` |
 | Run / step / vector lifecycle | `RunStarted` / `StepStarted` / `VectorStarted` / `VectorEnded` / `StepEnded` / `RunEnded` | event itself | identifiers + timestamps |
 
 ### Three lifecycle phases — same events, three roles
@@ -514,15 +514,15 @@ The event IPC schema (`event_log.py:31-40`) is typed envelope columns (`event_nu
 
 ### Time sync between continuous artifacts and point measurements
 
-A **measurement** is a point event — one `received_at` timestamp, fired the moment `verify` was called. A **vector / step / run** is a range — bracketed by `VectorStarted`/`VectorEnded`, `StepStarted`/`StepEnded`, `RunStarted`/`RunEnded`. A **continuous artifact** (video, audio, long DAQ file) is also a range — bracketed by `StreamStarted`/`StreamEnded`.
+A **measurement** is a point event — one `received_at` timestamp, fired the moment `verify` was called. A **vector / step / run** is a range — bracketed by `VectorStarted`/`VectorEnded`, `StepStarted`/`StepEnded`, `RunStarted`/`RunEnded`. A **continuous artifact** (video, audio, long DAQ file) is also a range — bracketed by `FileStarted`/`FileEnded`.
 
 Given a continuous artifact and any of the above, the sync mechanic is the same — subtract on the shared event clock:
 
 | You want | Compute |
 |---|---|
-| Video moment for a single measurement | `measurement.received_at − StreamStarted.received_at` → one offset (seconds) |
-| Video segment for a vector | `(VectorStarted − StreamStarted, VectorEnded − StreamStarted)` → start/end offsets |
-| Video segment for a step | `(StepStarted − StreamStarted, StepEnded − StreamStarted)` |
+| Video moment for a single measurement | `measurement.received_at − FileStarted.received_at` → one offset (seconds) |
+| Video segment for a vector | `(VectorStarted − FileStarted, VectorEnded − FileStarted)` → start/end offsets |
+| Video segment for a step | `(StepStarted − FileStarted, StepEnded − FileStarted)` |
 | Channel samples concurrent with a measurement | `ChannelStore.query(channel_id, since=measurement.received_at − ε, until=measurement.received_at + ε)` |
 | Channel samples covering a vector | same query, keyed on the vector's start/end |
 
@@ -704,7 +704,7 @@ Each MVP lift names the **symptom** in current source it fixes. Order is concept
 **Stores**
 
 1. **Stand up the raw-data store (FileStore)** as a first-class, session-scoped peer of ChannelStore: durable `put(key, value, attrs) -> file://…`, live lifecycle, `file://` URI, attributes captured at put as self-description (mime / dtype / dimensions / size). Unify the two existing `_ref` dirs (`events/{session_id}_ref` + `runs/{stem}_ref` — `event_log.py:247`, `parquet.py:367`).
-2. **Streaming sink** behind the existing `Stream*` events (`events.py:616-628`) — `open(key, format) -> sink; write(chunk); close()` for video and large continuous captures. Final `file://` claim in `StreamEnded`.
+2. **Streaming sink** behind the existing `File*` events (`events.py:616-628`) — `open(key, format) -> sink; write(chunk); close()` for video and large continuous captures. Final `file://` claim in `FileEnded`.
 
 **API consistency (fix the four asymmetries)**
 

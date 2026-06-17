@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 
 from litmus.data.event_store import EventStore
-from litmus.data.events import SessionStarted, StreamStarted
+from litmus.data.events import FileStarted, SessionStarted
 
 
 @pytest.fixture(scope="module")
@@ -173,35 +173,35 @@ class TestSubscriptions:
         received = []
         unsub = store.on_event(
             lambda e: received.append(e),
-            event_type="stream.started",
+            event_type="file.started",
             run_id=my_run,
             replay="none",  # only count live events for clarity
         )
         try:
             # Same session, different runs — only ``my_run`` should land
             store.emit(
-                StreamStarted(
+                FileStarted(
                     session_id=sid,
                     run_id=other_run,
-                    stream_id=uuid4(),
+                    file_id=uuid4(),
                     name="other",
                     format="raw",
                 )
             )
             store.emit(
-                StreamStarted(
+                FileStarted(
                     session_id=sid,
                     run_id=my_run,
-                    stream_id=uuid4(),
+                    file_id=uuid4(),
                     name="mine",
                     format="raw",
                 )
             )
             store.emit(
-                StreamStarted(
+                FileStarted(
                     session_id=sid,
                     run_id=other_run,
-                    stream_id=uuid4(),
+                    file_id=uuid4(),
                     name="other2",
                     format="raw",
                 )
@@ -222,26 +222,26 @@ class TestSubscriptions:
         my_run = uuid4()
         other_run = uuid4()
         store.emit(
-            StreamStarted(
+            FileStarted(
                 session_id=sid,
                 run_id=my_run,
-                stream_id=uuid4(),
+                file_id=uuid4(),
                 name="mine_query",
                 format="raw",
             )
         )
         store.emit(
-            StreamStarted(
+            FileStarted(
                 session_id=sid,
                 run_id=other_run,
-                stream_id=uuid4(),
+                file_id=uuid4(),
                 name="other_query",
                 format="raw",
             )
         )
         store.flush()
 
-        rows = store.events(event_type="stream.started", run_id=my_run)
+        rows = store.events(event_type="file.started", run_id=my_run)
         names = {r.get("name") for r in rows}
         assert "mine_query" in names
         assert "other_query" not in names

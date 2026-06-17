@@ -63,11 +63,11 @@ multi-statement write is made atomic explicitly. That is the spine of this plan.
 |---|---|---|
 | One-shot artifact write | **not atomic** — `serializer.write(value, dest)` direct (`files/store.py:147`) | make artifact write atomic (temp+rename) **or** never expose it until the sidecar lands |
 | Sidecar write | atomic temp+rename one-shot (`:160-171`); **non-atomic** in streaming finalizer (`streaming.py:238-246`) | make the streaming sidecar atomic too |
-| artifact↔sidecar pair | **not atomic** — ~22-line window; reader can see artifact w/o metadata | **index row emitted only AFTER the sidecar atomic-rename (one-shot) / after `StreamEnded` (streaming)** |
+| artifact↔sidecar pair | **not atomic** — ~22-line window; reader can see artifact w/o metadata | **index row emitted only AFTER the sidecar atomic-rename (one-shot) / after `FileEnded` (streaming)** |
 | resolve_uri / list | O(days) date-walk + full `rglob` per call, no index (`store.py:277-305`, `ui/shared/services.py:1663-1721`) | warm index over sidecar metadata; queries prune by date |
 | live-read | `StreamFrameIndex` event **does not exist** (docstring-only); consumer rides the 500ms event poll; HTTP `/files` claims Range but reads whole file (`api/app.py:318-341`) | add `StreamFrameIndex` event + emit per write; consumer rides events push (Phase 2); implement real HTTP Range |
 
-**Rule F1:** Index visibility trails durability: emit the metadata `do_put` only after the artifact+sidecar are durable (one-shot: after rename; streaming: at `StreamEnded`). A query must never return a URI whose bytes/metadata aren't complete.
+**Rule F1:** Index visibility trails durability: emit the metadata `do_put` only after the artifact+sidecar are durable (one-shot: after rename; streaming: at `FileEnded`). A query must never return a URI whose bytes/metadata aren't complete.
 **Rule F2:** Make both the artifact and the streaming sidecar atomic (temp+rename).
 **Rule F3:** Add `StreamFrameIndex`; real HTTP Range; route resolve/list through the index.
 

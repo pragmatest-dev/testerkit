@@ -192,7 +192,7 @@ def push_artifact(files_dir: Path, row: dict[str, Any]) -> None:
 def publish_frame(
     files_dir: Path,
     *,
-    stream_id: str,
+    file_id: str,
     uri: str,
     byte_offset: int,
     length: int,
@@ -217,7 +217,7 @@ def publish_frame(
         tbl = pa.Table.from_pylist(
             [
                 {
-                    "stream_id": stream_id,
+                    "file_id": file_id,
                     "uri": uri,
                     "byte_offset": byte_offset,
                     "length": length,
@@ -295,7 +295,7 @@ def subscribe_frames(
     """Subscribe to live stream-frame notifications. Returns an unsub callable.
 
     Spawns a reader thread that calls ``callback`` with each frame dict
-    (``stream_id``/``uri``/``byte_offset``/``length``). Holds a daemon
+    (``file_id``/``uri``/``byte_offset``/``length``). Holds a daemon
     ref for the subscription's lifetime; ``unsub`` closes the stream and
     releases it. Uses a dedicated client so closing it cleanly interrupts
     the held-open ``do_get``.

@@ -66,8 +66,8 @@ system trades, then pick ours deliberately.
 **Reference implementation — `files.stream` (`data/files/streaming.py`):** opens
 **one** durable handle at construction; `write(chunk)` appends straight to it +
 flushes + fans the new bytes to live subscribers ephemerally (`publish_frame`,
-not the event log); emits **lifecycle events only** (`StreamStarted` at open,
-`StreamEnded` at close); writes the **catalog/index row only in `close()`**
+not the event log); emits **lifecycle events only** (`FileStarted` at open,
+`FileEnded` at close); writes the **catalog/index row only in `close()`**
 (S3 multipart completes there — the object-store model *forces* index-on-close).
 
 **What the channel "stream" actually is today (`channels.py` `_ChannelSink`):**
@@ -177,7 +177,7 @@ write-adjacent path; only at-rest *indexing* is what could ever move.
   `_index_row`, no INSERT.** The consumer's `do_get` GeneratorStream is already
   waiting.
 - **`close()`:** finalize the segment + index it (per the chosen strategy) +
-  `ChannelClosed`.
+  `ChannelEnded`.
 
 Result: stream throughput stops being daemon-index-bound (~470k shared ceiling)
 and becomes **append + socket bound — scales ~4× per worker** (the durable
@@ -604,7 +604,7 @@ together at the streaming step.
   `last_updated` advanced by the scan fold + live `ingest_batch`.
 - **P3 `9fb7b02`** — `do_get __registry__` verb + `ChannelClient.channel_registry()`
   + `channels_liveness_query` (mcp): registry rows × event-store terminal lifecycle
-  (`channel.closed`/`session.ended`), joined in-process → `{live, open_stale,
+  (`channel.ended`/`session.ended`), joined in-process → `{live, open_stale,
   closed, dead}`. Channel store = truth; event store = augmentation.
 - **P4 `9e16d0d`** — sessions self-heal: the orphan sweep emits
   `SessionEnded(outcome="aborted")` on **same-host + pid-death** (never the

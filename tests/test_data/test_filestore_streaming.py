@@ -1,11 +1,11 @@
-"""Build item 2 + 1b — FileStore streaming sink + Stream events.
+"""Build item 2 + 1b — FileStore streaming sink + File events.
 
 Tests:
 
-- ``FileStore.open_stream`` opens a sink and emits :class:`StreamStarted`.
+- ``FileStore.open_stream`` opens a sink and emits :class:`FileStarted`.
 - :meth:`StreamingSink.write` appends without emitting per-chunk events
   (lifecycle-only event model — see ``test_emits_lifecycle_events_only``).
-- :meth:`StreamingSink.close` finalizes + emits :class:`StreamEnded`
+- :meth:`StreamingSink.close` finalizes + emits :class:`FileEnded`
   with the final ``file://`` URI + ``size_bytes``.
 - Context-manager exit calls close exactly once (idempotent ``close``).
 - Sidecar metadata (item 1c) lands at close with correct MIME / size.
@@ -28,7 +28,7 @@ import orjson
 import pytest
 
 from litmus.data.event_log import EventLog
-from litmus.data.events import StreamEnded, StreamStarted
+from litmus.data.events import FileEnded, FileStarted
 from litmus.data.files import FileStore
 from litmus.data.files.streaming import (
     StreamFormat,
@@ -125,7 +125,7 @@ class TestFormatRegistry:
                 self._closed = False
                 self._finalizer = finalizer
                 self.byte_offset = 0
-                self.stream_id = uuid4()
+                self.file_id = uuid4()
 
             @property
             def uri(self) -> str:
@@ -191,7 +191,7 @@ class TestRawSink:
         assert files[0].read_bytes() == b"abcdefg"
 
     def test_emits_lifecycle_events_only(self, store: FileStore, log: CollectingLog) -> None:
-        """Lifecycle-only: StreamStarted + StreamEnded. No per-chunk events.
+        """Lifecycle-only: FileStarted + FileEnded. No per-chunk events.
 
         Per the Position-2 split for channels — the EventStore is for
         discovery (what streams are open / done), not per-write notifications.
@@ -208,17 +208,17 @@ class TestRawSink:
             sink.write(b"chunks")
 
         types = [type(e).__name__ for e in log.emitted]
-        assert types == ["StreamStarted", "StreamEnded"]
+        assert types == ["FileStarted", "FileEnded"]
 
         started = log.emitted[0]
-        assert isinstance(started, StreamStarted)
-        assert started.stream_id == sink.stream_id
+        assert isinstance(started, FileStarted)
+        assert started.file_id == sink.file_id
         assert started.name == "daq"
         assert started.format == "raw"
 
         ended = log.emitted[1]
-        assert isinstance(ended, StreamEnded)
-        assert ended.stream_id == sink.stream_id
+        assert isinstance(ended, FileEnded)
+        assert ended.file_id == sink.file_id
         assert ended.uri is not None and ended.uri.endswith(f"/{sid}/daq.bin")
         assert ended.size_bytes == len(b"abc" + b"defg" + b"more" + b"chunks")
 
@@ -266,8 +266,8 @@ class TestRawSink:
         uri2 = sink.close()
         assert uri1 == uri2
 
-        # Only one StreamEnded event despite double close
-        ended = [e for e in log.emitted if isinstance(e, StreamEnded)]
+        # Only one FileEnded event despite double close
+        ended = [e for e in log.emitted if isinstance(e, FileEnded)]
         assert len(ended) == 1
 
     def test_write_after_close_raises(self, store: FileStore, log: CollectingLog) -> None:
@@ -401,15 +401,15 @@ class TestTdmsSink:
             sink.write(nptdms.ChannelObject("daq", "ch1", np.array([2.0])))
 
         types = [type(e).__name__ for e in log.emitted]
-        assert types == ["StreamStarted", "StreamEnded"]
+        assert types == ["FileStarted", "FileEnded"]
 
         started = log.emitted[0]
-        assert isinstance(started, StreamStarted)
+        assert isinstance(started, FileStarted)
         assert started.format == "tdms"
 
         ended = log.emitted[1]
-        assert isinstance(ended, StreamEnded)
-        assert ended.stream_id == sink.stream_id
+        assert isinstance(ended, FileEnded)
+        assert ended.file_id == sink.file_id
         assert ended.uri is not None and ended.uri.endswith(f"/{sid}/capture.tdms")
         assert ended.size_bytes is not None and ended.size_bytes > 0
 
@@ -544,7 +544,7 @@ class TestStreamReadbackAndEventModel:
         assert store.read(uri) == b"hello-world"
 
         # Only lifecycle events — frames are ephemeral, never durable events.
-        non_lifecycle = [e for e in log.emitted if not isinstance(e, StreamStarted | StreamEnded)]
+        non_lifecycle = [e for e in log.emitted if not isinstance(e, FileStarted | FileEnded)]
         assert non_lifecycle == []
 
 

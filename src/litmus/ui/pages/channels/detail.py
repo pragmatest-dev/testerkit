@@ -143,7 +143,7 @@ def channel_detail_page(
                 _apply_lifecycle()
 
             ui_subscribe(event_store, _on_started, event_type="channel.started")
-            ui_subscribe(event_store, _on_closed, event_type="channel.closed")
+            ui_subscribe(event_store, _on_closed, event_type="channel.ended")
         except (OSError, RuntimeError) as exc:
             logger.debug("Channel lifecycle badge updates unavailable: %s", exc)
 

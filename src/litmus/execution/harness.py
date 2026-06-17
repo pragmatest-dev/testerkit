@@ -452,7 +452,7 @@ class Context:
 
         Returned by :meth:`stream` / :meth:`observe` / :meth:`verify`
         write callers so ChannelStore can stamp the right run context
-        on ``ChannelStarted`` / ``ChannelClosed`` lifecycle events.
+        on ``ChannelStarted`` / ``ChannelEnded`` lifecycle events.
         Returns ``None`` when called outside a run (interactive
         bringup, daemon-driven writes, bare unit tests).
         """

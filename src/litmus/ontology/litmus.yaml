@@ -1024,14 +1024,14 @@ concepts:
       - { kind: inherits_from, target: event_base }
       - { kind: references,    target: channel_descriptor }
 
-  - id: channel_closed
+  - id: channel_ended
     category: event
-    event_type: channel.closed
+    event_type: channel.ended
     summary: >
       A channel was sealed for this session — session ended OR retention
       pruned. Consumers tracking "still being written to" vs "no more
       data coming" key off this event.
-    model: litmus.data.events.ChannelClosed
+    model: litmus.data.events.ChannelEnded
     relationships:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
@@ -1055,23 +1055,23 @@ concepts:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
 
-  # ---- Stream events ----
+  # ---- File events ----
 
-  - id: stream_started
+  - id: file_started
     category: event
-    event_type: stream.started
-    summary: A stream began — stream_id, format, optional file path.
-    model: litmus.data.events.StreamStarted
+    event_type: file.started
+    summary: A stream began — file_id, format, optional file path.
+    model: litmus.data.events.FileStarted
     relationships:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }
-      - { kind: paired_with,   target: stream_ended }
+      - { kind: paired_with,   target: file_ended }
 
-  - id: stream_ended
+  - id: file_ended
     category: event
-    event_type: stream.ended
+    event_type: file.ended
     summary: A stream ended.
-    model: litmus.data.events.StreamEnded
+    model: litmus.data.events.FileEnded
     relationships:
       - { kind: stored_in,     target: event_store }
       - { kind: inherits_from, target: event_base }

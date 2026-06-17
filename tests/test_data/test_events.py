@@ -7,13 +7,13 @@ from litmus.data.events import (
     CHANNEL_EVENTS,
     DIAGNOSTIC_EVENTS,
     DIALOG_EVENTS,
+    FILE_EVENTS,
     FIXTURE_EVENTS,
     INSTRUMENT_EVENTS,
     ROUTE_EVENTS,
     RUN_EVENTS,
     SESSION_EVENTS,
     SLOT_EVENTS,
-    STREAM_EVENTS,
     TEST_EVENTS,
     InstrumentConnected,
     MeasurementRecorded,
@@ -193,6 +193,6 @@ class TestEventModels:
             + len(INSTRUMENT_EVENTS)
             + len(CHANNEL_EVENTS)
             + len(DIAGNOSTIC_EVENTS)
-            + len(STREAM_EVENTS)
+            + len(FILE_EVENTS)
             + len(DIALOG_EVENTS)
         )

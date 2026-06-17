@@ -225,17 +225,17 @@ class FileStore:
 
         - allocates the artifact's backend key (collision-safe via the
           same ``_unique_filename`` scheme as :meth:`write`)
-        - emits :class:`StreamStarted` on open
+        - emits :class:`FileStarted` on open
         - pushes the new bytes as an ephemeral frame after every
           :meth:`write` (via the files daemon, not the event log) so
           live consumers receive them push-style, no poll
-        - emits :class:`StreamEnded` on :meth:`close` (carries final
+        - emits :class:`FileEnded` on :meth:`close` (carries final
           ``file://`` URI + total size)
         - writes the item-1c sidecar metadata + catalog row on close
 
         Live consumers subscribe to the stream's frames and receive each
         new chunk push-style; the final URI arrives in
-        :class:`StreamEnded`. See the
+        :class:`FileEnded`. See the
         :mod:`litmus.data.files.streaming` module docstring for format
         coverage + caveats per format on partial-decode-during-write.
 

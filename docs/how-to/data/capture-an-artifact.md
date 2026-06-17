@@ -46,7 +46,7 @@ def test_thing(verify, psu):
 
 Available formats today: `raw` (binary append), `jsonl` (one JSON value per line), `tdms` (requires `[tdms]` extra), `h5` (requires `[hdf5]` extra). `format=` is the one place the platform makes you be explicit — it can't infer `mp4` vs `wav` vs `tdms` from opaque bytes.
 
-`StreamStarted` and `StreamEnded` lifecycle events bracket the sink session. The final `file://...` URI lands on the active vector's `out_<name>` column when the `with` block exits.
+`FileStarted` and `FileEnded` lifecycle events bracket the sink session. The final `file://...` URI lands on the active vector's `out_<name>` column when the `with` block exits.
 
 ## Step 3: Read it back
 

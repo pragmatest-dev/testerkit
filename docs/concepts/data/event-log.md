@@ -87,11 +87,11 @@ Litmus defines events across 11 categories.
 | `DiagnosticWarning` | `diagnostic.warning` | Non-fatal warning |
 | `DiagnosticError` | `diagnostic.error` | Error condition |
 
-### Stream (3 events)
+### File (3 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
-| `StreamStarted` | `stream.started` | A data stream begins |
-| `StreamEnded` | `stream.ended` | A data stream ends |
+| `FileStarted` | `file.started` | A data stream begins |
+| `FileEnded` | `file.ended` | A data stream ends |
 | `StreamFrameIndex` | `stream.frame_index` | Frame count update |
 
 ### Dialog (2 events)
