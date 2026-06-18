@@ -18,6 +18,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from litmus.data.backends._row_helpers import encode_lane_structs
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.ref import make_channel_uri
 from litmus.data.run_store import RunStore
@@ -77,24 +78,16 @@ def _measurement_row(
     return populated
 
 
-def _write_unified(path: Path, row: dict, *, extra_cols: dict | None = None) -> None:
-    """Write a single-row unified parquet, with optional dynamic columns
-    (e.g. ``out_waveform``) added alongside the schema fields."""
-    cols = {f.name: [row[f.name]] for f in RUN_ROW_SCHEMA}
-    schema_fields = list(RUN_ROW_SCHEMA)
-    extra_fields: list = []
-    if extra_cols:
-        for name, value in extra_cols.items():
-            cols[name] = [value]
-            # Dynamic columns infer string for None, otherwise from value type.
-            extra_fields.append(
-                pa.field(
-                    name,
-                    pa.string() if value is None or isinstance(value, str) else pa.float64(),
-                )
-            )
-    schema = pa.schema(schema_fields + extra_fields)
-    pq.write_table(pa.table(cols, schema=schema), path)
+def _write_unified(path: Path, row: dict, *, outputs: dict | None = None) -> None:
+    """Write a single-row unified parquet, encoding any ``outputs`` observations
+    into the row's nested ``outputs`` lane (the at-rest EAV form)."""
+    enriched = dict(row)
+    if outputs:
+        enriched["outputs"] = encode_lane_structs(
+            {k: v for k, v in outputs.items() if v is not None}
+        )
+    cols = {f.name: [enriched.get(f.name)] for f in RUN_ROW_SCHEMA}
+    pq.write_table(pa.table(cols, schema=RUN_ROW_SCHEMA), path)
 
 
 @pytest.fixture(scope="module")
@@ -128,7 +121,7 @@ def fixture_data() -> dict[str, str]:
             measurement_value=3.3,
             measurement_outcome="passed",
         ),
-        extra_cols={"out_waveform": uri},
+        outputs={"waveform": uri},
     )
 
     pq2 = runs_dir / f"{run_002}_SN002.parquet"
@@ -148,7 +141,7 @@ def fixture_data() -> dict[str, str]:
             measurement_value=2.8,
             measurement_outcome="failed",
         ),
-        extra_cols={"out_waveform": None},
+        outputs={"waveform": None},
     )
 
     return {

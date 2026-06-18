@@ -40,20 +40,17 @@ import pyarrow.parquet as pq
 from litmus.data._atomic import atomic_write_table
 from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.backends._row_helpers import (
-    CUSTOM_PREFIX,
     HAS_NUMPY,
-    INPUT_PREFIX,
     INSTRUMENT_ARRAY_KEYS,
-    OUTPUT_PREFIX,
     REF_PATH_PREFIX,
     build_row,
     build_run_metadata,
     build_run_row,
     build_step_manifest,
     build_step_row,
-    extract_prefixed_fields,
+    build_vector_row,
+    decode_lane_structs,
     run_context_from_run_started,
-    validate_observation_kinds,
 )
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import (
@@ -86,9 +83,14 @@ _STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_uut_pin", "_fixt
 OUTCOME_RANK: dict[str, int] = {"failed": 0, "errored": 1, "skipped": 2, "passed": 3}
 
 
-def _is_param_column(col: str) -> bool:
-    """True if col is an in_* param value, not signal-path metadata."""
-    return col.startswith(INPUT_PREFIX) and not any(col.endswith(s) for s in _STIMULUS_SUFFIXES)
+def _is_stimulus_key(name: str) -> bool:
+    """True if ``name`` is stimulus signal-path metadata, not a param value."""
+    return any(name.endswith(s) for s in _STIMULUS_SUFFIXES)
+
+
+def _params_from_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Split decoded inputs into vector params (drop stimulus signal-path keys)."""
+    return {k: v for k, v in inputs.items() if not _is_stimulus_key(k)}
 
 
 def _ensure_instrument_arrays(d: dict[str, Any]) -> dict[str, Any]:
@@ -266,13 +268,14 @@ class ParquetBackend:
         run_outcome = test_run.outcome.value if test_run.outcome else None
         run_ended_at = test_run.ended_at
         instruments = _ensure_instrument_arrays({})
+        ref_saver = self._filestore_ref_saver(test_run)
 
         # ``build_step_manifest`` produces one entry per (step, vector)
         # pair — same shape ``ParquetSubscriber._build_step_row``
         # consumes from ``StepManifest`` events. Routing both writers
         # through the shared ``build_step_row`` helper keeps them in
         # lock-step.
-        for entry in build_step_manifest(test_run):
+        for entry in build_step_manifest(test_run, ref_saver=ref_saver):
             rows.append(
                 build_step_row(
                     run_context=run_context,
@@ -301,33 +304,20 @@ class ParquetBackend:
         finally:
             store.close()
 
-    def _build_measurement_rows(
-        self,
-        test_run: TestRun,
-        instrument_arrays: dict[str, list] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Build one row per measurement with all metadata denormalized.
+    def _filestore_ref_saver(self, test_run: TestRun) -> Callable[[str, str, Any], str]:
+        """Build the FileStore-backed ref_saver for this run's blobs.
 
-        Item 9 (auto-promotion): a vector with 0 measurements + ≥1
-        observation produces one synthesized row per observation,
-        ``name=<obs>``, ``value=None``, ``outcome=DONE``. A vector
-        with ≥1 measurement produces verify rows only and the
-        observations ride along as ``out_*`` columns via
-        :func:`build_output_columns`.
+        Item 1d: ref writes route through FileStore (one canonical home
+        for all blobs) instead of the per-parquet sibling ``{stem}_ref/``.
+        The vector_id-shortened prefix on the FileStore filename preserves
+        the audit trail. Shared by the measurement, step-row, and
+        step_results-metadata writers so a blob is claim-checked the same
+        way regardless of which lane carries it.
 
-        Item 10 (kind-stable ``out_<name>``): the same name across
-        vectors must keep the same kind. A per-run registry catches
-        mixed-type violations at materialization with a clear
-        ``ValueError`` rather than letting parquet coerce / refuse.
+        Lazy import: ``data.files`` transitively pulls PIL / serializers
+        that are only needed when this writer runs. Top-level would add
+        load cost to every consumer that imports ParquetBackend.
         """
-
-        # Item 1d: ref writes route through FileStore (one canonical
-        # home for all blobs) instead of the per-parquet sibling
-        # ``{stem}_ref/``. The vector_id-shortened prefix on the
-        # FileStore filename preserves the audit trail.
-        # Lazy import: data.files transitively pulls PIL / serializers
-        # that are only needed when this writer runs. Top-level would
-        # add load cost to every consumer that imports ParquetBackend.
         from litmus.data.files import get_filestore  # noqa: PLC0415
 
         filestore = get_filestore()
@@ -340,6 +330,23 @@ class ParquetBackend:
                 session_id=session_id_str,
                 vector_id=vector_id,
             )
+
+        return ref_saver
+
+    def _build_measurement_rows(
+        self,
+        test_run: TestRun,
+        instrument_arrays: dict[str, list] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Build one row per measurement with all metadata denormalized.
+
+        A vector with 0 measurements produces NO measurement row — its
+        observations ride on the step/vector record's nested ``outputs``
+        lanes. Mixed-type names no longer raise: each value routes to its
+        own ``value_*`` lane (the lane absorbs the type difference).
+        """
+
+        ref_saver = self._filestore_ref_saver(test_run)
 
         def _build(
             measurement: Measurement,
@@ -379,42 +386,13 @@ class ParquetBackend:
 
         meta = build_run_metadata(test_run)
         rows: list[dict[str, Any]] = []
-        out_kind_registry: dict[str, str] = {}
         for step_idx, step in enumerate(test_run.steps):
             step_arrays = step.instrument_arrays or _ensure_instrument_arrays(
                 dict(instrument_arrays or {})
             )
             for vector in step.vectors:
-                # Item 10: validate observation kinds against the per-run
-                # registry. Raises ValueError on mismatch; caller surfaces.
-                validate_observation_kinds(
-                    out_kind_registry,
-                    vector.observations,
-                    where=f"vector {vector.index} of step {step.name!r}",
-                )
-
                 for measurement in vector.measurements:
                     rows.append(_build(measurement, step, step_idx, vector, step_arrays))
-
-                # Item 9: auto-promote a verify-less vector to ONE DONE
-                # placeholder row. An observation is not a measurement, so
-                # the row carries measurement_name=NULL / value=NULL /
-                # outcome=DONE; every observation rides along as out_<name>
-                # via the vector's existing out_* column projection.
-                non_underscore_obs = any(
-                    not obs_name.startswith("_") for obs_name in vector.observations
-                )
-                if not vector.measurements and non_underscore_obs:
-                    placeholder = Measurement(
-                        name="",
-                        value=None,
-                        outcome=Outcome.DONE,
-                    )
-                    promoted_row = _build(placeholder, step, step_idx, vector, step_arrays)
-                    promoted_row["measurement_name"] = None
-                    promoted_row["measurement_value"] = None
-                    promoted_row["measurement_outcome"] = Outcome.DONE.value
-                    rows.append(promoted_row)
         return rows
 
     def _build_run_row(
@@ -442,7 +420,9 @@ class ParquetBackend:
         """Build Parquet file-level metadata."""
         return _build_parquet_metadata(
             environment_json=test_run.environment_json,
-            step_results=build_step_manifest(test_run),
+            step_results=build_step_manifest(
+                test_run, ref_saver=self._filestore_ref_saver(test_run)
+            ),
             profile_facets=test_run.profile_facets or None,
         )
 
@@ -501,7 +481,7 @@ class ParquetBackend:
                     "part_id": m.get("part_id"),
                     "station_id": m.get("station_id"),
                 }
-                vector_info["params"] = {k[3:]: v for k, v in m.items() if _is_param_column(k)}
+                vector_info["params"] = _params_from_inputs(decode_lane_structs(m.get("inputs")))
                 vectors_seen[key] = vector_info
 
         return list(vectors_seen.values())
@@ -622,32 +602,27 @@ def _build_unified_rows_from_acc(
     drawn from its pool; not method-on-class because EventAccumulator is
     the pure projection and shouldn't know about output formats.
 
-    Items 9 + 10 (live materialization path):
-
-    - Item 10: validate ``out_<name>`` kind stability across all
-      observation events. Mismatches raise ``ValueError`` here rather
-      than letting parquet silently coerce / refuse.
-    - Item 9: synthesize DONE rows for verify-less vectors. Each
-      observation in a vector with 0 measurements promotes to a row
-      with ``value=None``, ``outcome="done"``; the observation value
-      itself rides on ``out_<name>``.
+    Record order: one ``run`` row, then ``measurement`` rows, then in-body
+    ``vector`` rows (Mode-2 only — keyed off VectorStarted/VectorEnded),
+    then ``step`` rows. No fabricated rows: a verify-less vector / assert
+    fail / observation-only execution is represented by its vector or step
+    record, never a synthesized measurement.
     """
     rows: list[dict[str, Any]] = []
     run_row = _build_run_row_from_acc(acc, run_ended_at=run_ended_at, run_outcome=run_outcome)
     if run_row is not None:
         rows.append(run_row)
-    # Item 10 — fail loudly on a kind mismatch before we synthesize.
-    acc._validate_observation_kinds()
     for event in acc._measurement_events:
         row = acc._build_row(event)
         row["run_ended_at"] = run_ended_at
         row["run_outcome"] = run_outcome
         rows.append(row)
-    # Item 9 — promote observations in verify-less vectors.
-    for promoted_row in acc._build_promoted_rows():
-        promoted_row["run_ended_at"] = run_ended_at
-        promoted_row["run_outcome"] = run_outcome
-        rows.append(promoted_row)
+    for entry in acc._build_vector_results_from_events():
+        vector_row = _build_vector_row_from_acc(
+            acc, entry, run_ended_at=run_ended_at, run_outcome=run_outcome
+        )
+        if vector_row is not None:
+            rows.append(vector_row)
     for entry in acc._build_step_results_from_events():
         step_row = _build_step_row_from_acc(
             acc, entry, run_ended_at=run_ended_at, run_outcome=run_outcome
@@ -683,6 +658,25 @@ def _build_step_row_from_acc(
     if not s:
         return None
     return build_step_row(
+        run_context=run_context_from_run_started(s, s, include_env=True),
+        entry=entry,
+        run_outcome=run_outcome,
+        run_ended_at=run_ended_at,
+        instruments=acc._build_instrument_arrays(),
+    )
+
+
+def _build_vector_row_from_acc(
+    acc: EventAccumulator,
+    entry: dict[str, Any],
+    *,
+    run_ended_at: datetime,
+    run_outcome: str,
+) -> dict[str, Any] | None:
+    s = acc._run_started
+    if not s:
+        return None
+    return build_vector_row(
         run_context=run_context_from_run_started(s, s, include_env=True),
         entry=entry,
         run_outcome=run_outcome,
@@ -1122,15 +1116,14 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
             meas_rows = [r for r in group_rows if r.get("record_type") == "measurement"]
             measurements: list[Measurement] = []
 
-            # Extract params from in_* columns (skipping signal-path metadata
-            # like in_vin_instrument) and observations from out_*. Use any
-            # row in the group — both kinds carry the denormalized in_*/
-            # out_* columns identically.
+            # Decode params from the nested inputs lanes (skipping signal-path
+            # metadata like vin_instrument) and observations from outputs. Use
+            # any row in the group — both kinds carry the same nested lanes.
             sample_row = group_rows[0]
-            params: dict[str, Any] = {
-                k[len(INPUT_PREFIX) :]: v for k, v in sample_row.items() if _is_param_column(k)
-            }
-            observations = extract_prefixed_fields(sample_row, OUTPUT_PREFIX)
+            params: dict[str, Any] = _params_from_inputs(
+                decode_lane_structs(sample_row.get("inputs"))
+            )
+            observations = decode_lane_structs(sample_row.get("outputs"))
 
             for mr in meas_rows:
                 outcome_str = mr.get("measurement_outcome")
@@ -1208,8 +1201,8 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
             )
         )
 
-    # Extract custom metadata from custom_* columns
-    custom_meta = extract_prefixed_fields(first, CUSTOM_PREFIX)
+    # Decode custom metadata from the nested custom lanes
+    custom_meta = decode_lane_structs(first.get("custom"))
 
     run_outcome_str = first.get("run_outcome")
     run_outcome = Outcome(run_outcome_str) if run_outcome_str else Outcome.PASSED

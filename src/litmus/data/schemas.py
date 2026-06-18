@@ -11,18 +11,40 @@ from typing import Any
 
 import pyarrow as pa
 
-from litmus.data.backends._row_helpers import INSTRUMENT_ARRAY_KEYS
+from litmus.data.backends._row_helpers import INSTRUMENT_ARRAY_KEYS, LANE_FIELDS
 
 __all__ = [
     "RUN_ROW_SCHEMA",
     "SCHEMA_VERSION",
     "_INSTR_ARRAY_TYPES",
+    "_LANE_LIST",
     "_SCHEMA_DICT",
     "_build_write_schema",
     "table_from_rows",
 ]
 
 SCHEMA_VERSION = "1.0"
+
+# EAV lane struct — the nested at-rest representation of one input / output /
+# custom entry. ``kind`` selects which ``value_*`` lane holds the value. Field
+# names must match ``_row_helpers.LANE_FIELDS`` / the encoder (guarded below).
+_LANE_STRUCT = pa.struct(
+    [
+        ("name", pa.string()),
+        ("kind", pa.string()),
+        ("value_int", pa.int64()),
+        ("value_double", pa.float64()),
+        ("value_bool", pa.bool_()),
+        ("value_text", pa.string()),
+        ("value_timestamp", pa.timestamp("us", tz="UTC")),
+        ("value_json", pa.string()),
+        ("unit", pa.string()),
+    ]
+)
+assert [f.name for f in _LANE_STRUCT] == list(LANE_FIELDS), (
+    "schemas._LANE_STRUCT drifted from _row_helpers.LANE_FIELDS"
+)
+_LANE_LIST = pa.list_(_LANE_STRUCT)
 
 # Canonical row schema for the unified per-run parquet. Every row carries
 # an explicit ``record_type`` discriminator with one of two values:
@@ -129,6 +151,11 @@ RUN_ROW_SCHEMA = pa.schema(
         ("python_version", pa.string()),
         ("litmus_version", pa.string()),
         ("env_fingerprint", pa.string()),
+        # Dynamic measurement attributes — nested EAV lanes (see _row_helpers).
+        # Names are values inside the structs, so there is no column explosion.
+        ("inputs", _LANE_LIST),
+        ("outputs", _LANE_LIST),
+        ("custom", _LANE_LIST),
     ]
 )
 
@@ -157,12 +184,12 @@ def _infer_type_from_value(value: Any) -> pa.DataType:
 
 
 def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
-    """Build complete Arrow schema: fixed canonical + dynamic columns.
+    """Build complete Arrow schema: fixed canonical + instrument arrays.
 
-    Fixed columns use RUN_ROW_SCHEMA types. Instrument arrays use
-    known list types. Dynamic columns (in_*, out_*, custom_*) are inferred
-    from the first non-None value. Passed to ``pa.Table.from_pylist()``
-    so Arrow validates at construction time.
+    Fixed columns (including the nested ``inputs``/``outputs``/``custom``
+    lanes) use RUN_ROW_SCHEMA types. Instrument arrays use known list types.
+    Any other stray column is inferred from its first non-None value. Passed
+    to ``pa.Table.from_pylist()`` so Arrow validates at construction time.
 
     Single pass over rows to collect keys and first non-None values.
     """
@@ -194,31 +221,11 @@ def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
 
 
 def table_from_rows(rows: list[dict[str, Any]], schema: pa.Schema) -> pa.Table:
-    """Build a PyArrow Table from row dicts with schema validation.
+    """Build a PyArrow Table from row dicts against ``schema``.
 
-    Wraps ``pa.Table.from_pylist`` with a descriptive error when dynamic
-    columns contain mixed types that Arrow cannot reconcile.
+    Wraps ``pa.Table.from_pylist`` so a build failure carries row context.
     """
     try:
         return pa.Table.from_pylist(rows, schema=schema)
     except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError) as exc:
-        mixed: list[str] = []
-        for field in schema:
-            if field.name in _SCHEMA_DICT:
-                continue
-            types_seen = {
-                type(row.get(field.name)) for row in rows if row.get(field.name) is not None
-            }
-            if len(types_seen) > 1:
-                type_names = ", ".join(
-                    t.__name__ for t in sorted(types_seen, key=lambda t: t.__name__)
-                )
-                mixed.append(f"  {field.name}: {type_names}")
-        detail = "\n".join(mixed) if mixed else "  (see original error)"
-        raise pa.ArrowInvalid(
-            f"Cannot build table — dynamic columns have mixed types:\n"
-            f"{detail}\n"
-            f"Ensure each in_*/out_*/custom_* column uses a consistent type "
-            f"across all measurements.\n"
-            f"Original error: {exc}"
-        ) from exc
+        raise pa.ArrowInvalid(f"Cannot build measurement table from rows: {exc}") from exc

@@ -110,14 +110,18 @@ class TestWriteRejectsTypeMismatch:
         with pytest.raises(pa.ArrowInvalid):
             table_from_rows(rows, schema)
 
-    def test_mixed_type_error_message(self):
+    def test_mixed_kind_lanes_do_not_raise(self):
+        """Same input name, different kinds across rows → no raise; each value
+        routes to its own value_* lane (the nested EAV at-rest shape)."""
+        from litmus.data.backends._row_helpers import encode_lane_structs
+
         rows = [
-            {"run_id": "r1", "in_voltage": 5.0},
-            {"run_id": "r2", "in_voltage": "high"},
+            {"run_id": "r1", "inputs": encode_lane_structs({"voltage": 5.0})},
+            {"run_id": "r2", "inputs": encode_lane_structs({"voltage": "high"})},
         ]
         schema = _build_write_schema(rows)
-        with pytest.raises(pa.ArrowInvalid, match="mixed types"):
-            table_from_rows(rows, schema)
+        table = table_from_rows(rows, schema)  # does not raise
+        assert table.num_rows == 2
 
 
 class TestRoundTripExplicitSchema:
@@ -151,7 +155,9 @@ class TestRoundTripExplicitSchema:
         assert table.schema.field("step_index").type == pa.int64()
 
     def test_dynamic_columns_round_trip(self, tmp_path):
-        """Dynamic in_* columns survive the full write path through RecordBatch."""
+        """Vector params survive the write path in the nested inputs lanes."""
+        from litmus.data.backends._row_helpers import decode_lane_structs
+
         m = Measurement(
             name="voltage",
             value=3.3,
@@ -175,19 +181,16 @@ class TestRoundTripExplicitSchema:
         path = backend.save_test_run(run)
 
         table = pq.read_table(path)
-        assert "in_voltage" in table.column_names
-        assert "in_mode" in table.column_names
-        assert table.schema.field("in_voltage").type == pa.float64()
-        assert table.schema.field("in_mode").type == pa.string()
-        # Unified schema: 1 run row + 1 measurement row + 1 step row.
-        # The measurement and step rows carry the denormalized ``in_*``
-        # columns; the run row carries NULL there (no vector context).
+        assert "inputs" in table.column_names
+        assert pa.types.is_list(table.schema.field("inputs").type)
+        # Unified schema: 1 run row + 1 measurement row + 1 step row. The
+        # measurement and step rows carry the inputs lanes; the run row's
+        # lanes are empty (no vector context).
         rows = table.to_pylist()
         assert len(rows) == 3
         non_run = [r for r in rows if r["record_type"] != "run"]
-        assert all(r["in_voltage"] == 5.0 for r in non_run)
-        assert all(r["in_mode"] == "fast" for r in non_run)
+        for r in non_run:
+            assert decode_lane_structs(r["inputs"]) == {"voltage": 5.0, "mode": "fast"}
         run_rows = [r for r in rows if r["record_type"] == "run"]
         assert len(run_rows) == 1
-        assert run_rows[0].get("in_voltage") is None
-        assert run_rows[0].get("in_mode") is None
+        assert decode_lane_structs(run_rows[0]["inputs"]) == {}

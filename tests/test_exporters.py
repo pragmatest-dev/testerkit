@@ -368,8 +368,10 @@ class TestMeasurementRow:
         assert isinstance(flat, dict)
         assert flat["run_id"] == str(sample_test_run.id)
         assert flat["measurement_name"] == "vout"
-        # Vector had params={"vin": 5.0} → should produce in_vin
-        assert flat["in_vin"] == 5.0
+        # Vector had params={"vin": 5.0} → encoded into the nested inputs lanes.
+        from litmus.data.backends._row_helpers import decode_lane_structs
+
+        assert decode_lane_structs(flat["inputs"])["vin"] == 5.0
 
     def test_iter_rows(self, sample_test_run: TestRun):
         """``iter_rows(test_run)`` yields a MeasurementRow per measurement."""

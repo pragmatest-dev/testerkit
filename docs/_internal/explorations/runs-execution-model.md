@@ -190,6 +190,45 @@ End-to-end across the runs pipeline. Measured touch surface:
 7. **Query API shape held stable** where possible; any change enumerated explicitly
    (it's the blast-radius firewall).
 
+## Phase 2 record spec — the "right parquet" (the scenario-test contract)
+
+Record grain: `record_type ∈ {run, step, vector, measurement}`, keyed
+`(step_path, parent_path, vector_index, retry)`; `inputs`/`outputs`/`custom` as
+nested `LIST<STRUCT<name, kind, value_int/double/bool/text/timestamp, value_json,
+unit>>`. **A `vector` record appears ONLY for Mode-2 in-body iterations** — Mode 1
+and containers fuse (the `step` record IS the step≡vector). A measurement's full
+condition = `inputs` merged up the `parent_path` chain.
+
+1. **single / unswept** (`def test_v(context)`): `run` + `step(test_v, vec=0,
+   retry=0)` + `measurement`. **No separate `vector` row** (fused).
+2. **parametrize (Mode 1)** (`@parametrize(vin=[3.3,5.0])`): one `step` per item,
+   distinct `node_id`, `vector_index` 0/1; measurements under each. No `vector` rows.
+3. **self-loop (Mode 2)** (`vectors` fixture, 3 rows): ONE `step` + **3 `vector`
+   rows** (`vector_index` 0/1/2 from `VectorStarted`) + measurements under each.
+4. **class container × method**: `step(TestC, vector_index=outer, inputs={temp})`
+   ⊃ `step(TestC/test_m, parent_path=TestC, vector_index=inner, inputs={vin})`;
+   measurement condition = `{temp, vin}` merged up `parent_path`.
+5. **retry**: Mode-1 → a second `step` row, `retry=1`. Mode-2 → a second `vector`
+   row, same `vector_index`, `retry=1`.
+6. **measurement-less**: assert-only → `step`/`vector` `outcome=FAIL`, **zero**
+   measurement rows, **no** `name="assert"` row. observation-only → `outputs=[…]`,
+   zero measurements, **no** NULL-named DONE row.
+
+**Files (each scoped):** `_row_helpers.py` (lane encode + `record_type` gains
+`vector` + `to_flat_dict` nested + `build_vector_row` + tree walk in
+`build_step_manifest`/`iter_rows`; delete the `name="assert"` synth at harness.py:1546
+keeping `vector.outcome=FAILED`); `schemas.py` (`RUN_ROW_SCHEMA` → 3 nested
+`LIST<STRUCT>` + `record_type` enum gains `vector`); `_event_accumulator.py`
+(dispatch `VectorStarted`/`VectorEnded` → vector rows; delete `_build_promoted_rows`;
+drop `retry_count = MAX(vector_retry)` reliance); `parquet.py` (materialize +
+reconstruct the 4 record types; converge with the accumulator snapshot).
+
+**Execution approach:** TDD — scenarios 1/3/5/6 via the offline `TestRun →
+materialize_run_to_parquet` path (no daemon); scenarios 2/4 via `pytester` (plugin
+expands them) reading the resulting parquet. The two paths MUST converge on
+identical records — that's the main correctness risk. The lane encoding can be
+lifted from `stash@{0}` (re-pointed at the vector grain).
+
 ## Evidence anchors (verified, so we don't re-litigate)
 
 - vector universal / outcome: models.py:289-295; logger.py:874-878; events.py:568

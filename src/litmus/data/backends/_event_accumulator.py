@@ -18,10 +18,11 @@ from litmus.data.backends._row_helpers import (
     INSTRUMENT_ARRAY_KEYS,
     MeasurementRow,
     _append_not_started,
+    _lane_value,
     _to_datetime,
     run_context_from_run_started,
     step_entry_dict,
-    validate_observation_kinds,
+    vector_entry_dict,
 )
 from litmus.data.events import (
     InstrumentConnected,
@@ -32,6 +33,8 @@ from litmus.data.events import (
     StepEnded,
     StepsDiscovered,
     StepStarted,
+    VectorEnded,
+    VectorStarted,
 )
 
 
@@ -51,6 +54,17 @@ def _step_key(event: Any) -> tuple[str, int]:
     """
     path = event.step_path or event.step_name or ""
     return (path, event.vector_index)
+
+
+def _vector_key(event: Any) -> tuple[str, int, int]:
+    """Stable accumulator key for a VectorStarted / VectorEnded event.
+
+    Keyed on ``(step_path, vector_index, retry)`` — an in-body loop shares
+    one ``step_path`` across iterations, so ``vector_index`` distinguishes
+    iterations and ``retry`` distinguishes re-executions of the same vector.
+    """
+    path = event.step_path or event.step_name or ""
+    return (path, event.vector_index, event.retry)
 
 
 class EventAccumulator:
@@ -92,9 +106,8 @@ class EventAccumulator:
         self._run_started: Any = None  # RunStarted event (run context)
         self._instruments: list[Any] = []  # InstrumentConnected events
         self._measurement_events: list[Any] = []  # MeasurementRecorded events
-        # Item 4 + item 9: ``observe()`` events accumulate here so the
-        # auto-promotion rule can synthesize DONE rows for vectors with
-        # 0 measurements + ≥1 observations at materialization time.
+        # ``observe()`` events accumulate here so a vector's observations
+        # can ride on its step/vector record's outputs lanes.
         self._observation_events: list[Any] = []
         # Step events keyed by (step_path, vector_index) so each sweep
         # variant — and each class-container iteration — gets its own
@@ -105,6 +118,11 @@ class EventAccumulator:
         # vector_index) key). step_path is unique end-to-end per step.
         self._step_starts: dict[tuple[str, int], Any] = {}
         self._step_ends: dict[tuple[str, int], Any] = {}
+        # In-body loop vectors (Mode 2) keyed by (step_path, vector_index,
+        # retry). Present ONLY when VectorStarted/VectorEnded were emitted;
+        # their presence is the Mode-2 signal that produces ``vector`` rows.
+        self._vector_starts: dict[tuple[str, int, int], Any] = {}
+        self._vector_ends: dict[tuple[str, int, int], Any] = {}
         self._run_ended: Any = None  # RunEnded event (None for in-flight)
         self._collected_items: list[dict[str, str | int | None]] = []
         # node_id → markers, populated when StepsDiscovered arrives so
@@ -139,6 +157,10 @@ class EventAccumulator:
             self._planned_vector_count = planned
         elif isinstance(event, StepStarted):
             self._step_starts[_step_key(event)] = event
+        elif isinstance(event, VectorStarted):
+            self._vector_starts[_vector_key(event)] = event
+        elif isinstance(event, VectorEnded):
+            self._vector_ends[_vector_key(event)] = event
         elif isinstance(event, MeasurementRecorded):
             self._measurement_events.append(event)
         elif isinstance(event, Observation):
@@ -243,21 +265,21 @@ class EventAccumulator:
     def snapshot_measurement_rows(self) -> list[dict[str, Any]]:
         """Return measurement rows matching the parquet measurements shape.
 
-        Includes promoted DONE rows for verify-less vectors (same as the
-        materialized path) and packs in_*/out_*/custom_* into dynamic_attrs.
+        Packs the nested inputs/outputs/custom lanes into dynamic_attrs.
         """
         if not self._run_started:
             return []
         ended_at = self._run_ended.occurred_at if self._run_ended else None
         outcome = self._run_ended.outcome if self._run_ended else None
         built = [self._build_row(e) for e in self._measurement_events]
-        built.extend(self._build_promoted_rows())
         rows: list[dict[str, Any]] = []
         for row in built:
             row["run_ended_at"] = ended_at
             row["run_outcome"] = outcome
             row["dynamic_attrs"] = {
-                k: _safe_str(v) for k, v in row.items() if k.startswith(("in_", "out_", "custom_"))
+                f"{side}_{e['name']}": _safe_str(_lane_value(e))
+                for side, prefix in (("in", "inputs"), ("out", "outputs"), ("custom", "custom"))
+                for e in (row.get(prefix) or [])
             }
             rows.append(row)
         return rows
@@ -291,137 +313,60 @@ class EventAccumulator:
         start = self._step_starts.get((step_path, vector_index))
         return getattr(start, attr, None) if start else None
 
-    def _validate_observation_kinds(self) -> None:
-        """Item 10: walk every accumulated Observation and validate kinds.
+    def _build_vector_results_from_events(self) -> list[dict[str, Any]]:
+        """Build in-body vector manifest entries from VectorStarted/VectorEnded.
 
-        Builds a per-run registry of ``name -> kind`` from the
-        accumulated observation events; raises ``ValueError`` if any
-        observation's kind disagrees with the registered kind for its
-        name. Called by :func:`_build_promoted_rows` before synthesis
-        so the materializer fails loudly rather than producing a
-        column with mixed types.
+        Present ONLY for Mode-2 in-body loops (the ``vectors`` fixture /
+        ``run_vector``) — their VectorStarted/VectorEnded events are the
+        signal. Mode 1 and class containers emit no such events and fuse
+        into the ``step`` record, so this returns ``[]`` for them.
 
-        The same validation also lives in
-        :meth:`ParquetBackend._build_measurement_rows` for the
-        pre-built TestRun path. Two paths, one rule.
+        One entry per ``(step_path, vector_index, retry)`` execution. The
+        enclosing leaf step's identity (node_id / file / class / function /
+        timing) is sourced from its StepStarted when present.
         """
-        registry: dict[str, str] = {}
-        for ev in self._observation_events:
-            path = ev.step_path or ev.step_name or ""
-            validate_observation_kinds(
-                registry,
-                {ev.name: ev.value},
-                where=f"vector {ev.vector_index} of step path {path!r}",
-            )
-
-    def _build_promoted_rows(self) -> list[dict[str, Any]]:
-        """Item 9: synthesize ONE DONE placeholder row per verify-less vector.
-
-        Walks the per-(step_path, vector_index) tally of measurement
-        vs observation events. For each vector with 0 measurements
-        and ≥1 (non-underscore) observations, emits a SINGLE row:
-        ``measurement_name = None``, ``measurement_value = None``,
-        ``measurement_outcome = "done"``. An observation is not a
-        measurement, so it gets no measurement_name — every
-        observation on the vector rides as ``out_<name>`` via the
-        row's ``outputs`` field.
-
-        Counterpart of the offline-path promotion in
-        :meth:`ParquetBackend._build_measurement_rows`. The same
-        manifestation rule applies to both materialization paths.
-        """
-        # Tally measurements per vector key — verify-less vectors are
-        # the ones whose key isn't in this set.
-        measured_keys = {
-            (e.step_path or e.step_name or "", e.vector_index) for e in self._measurement_events
-        }
-
-        # Group observations by their vector key for synthesis.
-        by_key: dict[tuple[str, int], list[Any]] = {}
-        for ev in self._observation_events:
-            key = (ev.step_path or ev.step_name or "", ev.vector_index)
-            by_key.setdefault(key, []).append(ev)
-
-        rows: list[dict[str, Any]] = []
-        for key, obs_events in by_key.items():
-            if key in measured_keys:
-                # Vector had ≥1 verify — observations ride on those rows
-                # as out_*; no DONE promotion (matches the §7 rule).
-                continue
-            visible = [obs for obs in obs_events if not obs.name.startswith("_")]
-            if not visible:
-                continue
-            rows.append(self._build_promoted_row(key, visible))
-        return rows
-
-    def _build_promoted_row(self, key: tuple[str, int], obs_events: list[Any]) -> dict[str, Any]:
-        """Synthesize the single DONE placeholder row for a verify-less vector.
-
-        Stamps the run/step context onto the row the same way
-        :meth:`_build_row` does for a verify row, but with the
-        measurement-side fields nulled (``name=None``, ``value=None``,
-        ``outcome="done"``) — an observation is not a measurement. Every
-        observation on the vector is carried as ``out_<name>`` in the
-        row's ``outputs``.
-        """
-        path, vec = key
-        ref = obs_events[0]
-        start = self._step_starts.get((path, vec))
-        end = self._step_ends.get((path, vec))
-        node_id = start.node_id if start else None
-        parent_path = (start.parent_path if start else (end.parent_path if end else "")) or ""
-        # Inputs come from StepStarted (set at vector entry); outputs
-        # come from StepEnded (the post-execution vector snapshot).
-        # Fall back to the observation events when neither has arrived
-        # yet (in-flight projection).
-        inputs = dict(start.inputs) if start and getattr(start, "inputs", None) else {}
-        outputs: dict[str, Any] = dict(end.outputs) if end and getattr(end, "outputs", None) else {}
-        # Always make sure every observation lands in outputs even if
-        # the StepEnded snapshot hasn't merged it yet.
-        for obs in obs_events:
-            outputs.setdefault(obs.name, obs.value)
-        row = MeasurementRow(
-            record_type="measurement",
-            **run_context_from_run_started(self._run_started, ref, include_env=True),
-            step_name=ref.step_name,
-            step_index=ref.step_index,
-            step_path=ref.step_path,
-            parent_path=parent_path,
-            step_started_at=start.occurred_at if start else None,
-            step_ended_at=end.occurred_at if end else None,
-            step_node_id=node_id,
-            step_module=self._step_start_field(path, vec, "module"),
-            step_file=self._step_start_field(path, vec, "file"),
-            step_class=self._step_start_field(path, vec, "class_name"),
-            step_function=self._step_start_field(path, vec, "function"),
-            step_markers=self._markers_by_node.get(node_id) if node_id else None,
-            step_outcome=end.outcome if end else None,
-            step_vector_count=(self._planned_vector_count.get(node_id or "", 1) if node_id else 1),
-            vector_index=vec,
-            vector_retry=ref.retry,
-            measurement_name=None,
-            measurement_timestamp=None,
-            measurement_value=None,
-            measurement_units=None,
-            measurement_outcome="done",
-            limit_low=None,
-            limit_high=None,
-            limit_nominal=None,
-            limit_comparator=None,
-            characteristic_id=None,
-            spec_ref=None,
-            uut_pin=None,
-            fixture_connection=None,
-            instrument_name=None,
-            instrument_resource=None,
-            instrument_channel=None,
-            run_outcome=None,
-            inputs=inputs,
-            outputs=outputs,
-            instruments=self._build_instrument_arrays(),
-            custom={},
+        entries: list[dict[str, Any]] = []
+        keys = sorted(
+            set(self._vector_starts) | set(self._vector_ends),
+            key=lambda k: (k[1], k[2], k[0]),
         )
-        return row.to_flat_dict()
+        for key in keys:
+            path, vec, retry = key
+            start = self._vector_starts.get(key)
+            end = self._vector_ends.get(key)
+            step_start = self._step_starts.get((path, vec)) or self._step_starts.get((path, 0))
+            ref = start or end
+            node_id = getattr(ref, "node_id", None) or (step_start.node_id if step_start else None)
+            inputs = dict(start.inputs) if start and getattr(start, "inputs", None) else {}
+            outputs = dict(end.outputs) if end and getattr(end, "outputs", None) else {}
+            entries.append(
+                vector_entry_dict(
+                    index=ref.step_index if ref else 0,
+                    name=ref.step_name if ref else "",
+                    node_id=node_id,
+                    file=step_start.file if step_start else None,
+                    function=step_start.function if step_start else None,
+                    class_name=step_start.class_name if step_start else None,
+                    module=step_start.module if step_start else None,
+                    step_path=ref.step_path if ref else path,
+                    parent_path=(step_start.parent_path if step_start else "") or "",
+                    markers=self._markers_by_node.get(node_id) if node_id else None,
+                    step_started_at=step_start.occurred_at if step_start else None,
+                    step_ended_at=self._step_end_occurred(path, vec),
+                    vector_index=vec,
+                    retry=retry,
+                    outcome=end.outcome if end else None,
+                    started_at=start.occurred_at if start else None,
+                    ended_at=end.occurred_at if end else None,
+                    inputs=inputs,
+                    outputs=outputs,
+                )
+            )
+        return entries
+
+    def _step_end_occurred(self, path: str, vector_index: int) -> Any:
+        end = self._step_ends.get((path, vector_index)) or self._step_ends.get((path, 0))
+        return end.occurred_at if end else None
 
     def _build_row(self, event: Any) -> dict[str, Any]:
         """Denormalize a MeasurementRecorded event into a flat row dict."""
@@ -492,15 +437,28 @@ class EventAccumulator:
         executed_vectors: set[tuple[str, int]] = set()
 
         meas_counts: dict[tuple[str, int], int] = {}
-        retry_counts: dict[tuple[str, int], int] = {}
         for e in self._measurement_events:
             key = (e.step_path or e.step_name or "", e.vector_index)
             meas_counts[key] = meas_counts.get(key, 0) + 1
-            retry_counts[key] = max(retry_counts.get(key, 0), e.retry or 0)
+
+        # retry_count = COUNT of re-executions, NOT a measurement-MAX rollup.
+        # Mode-2 vectors carry their own retry on VectorStarted/VectorEnded;
+        # Mode-1 re-execution rides on StepStarted.retry. A measurement-less
+        # retry is therefore still counted (the boundary event exists even
+        # when nothing was measured).
+        retries_seen: dict[tuple[str, int], set[int]] = {}
+        for ev in (*self._vector_starts.values(), *self._vector_ends.values()):
+            key = (ev.step_path or ev.step_name or "", ev.vector_index)
+            retries_seen.setdefault(key, set()).add(ev.retry or 0)
+        for ev in (*self._step_starts.values(), *self._step_ends.values()):
+            key = (ev.step_path or ev.step_name or "", ev.vector_index)
+            retries_seen.setdefault(key, set()).add(getattr(ev, "retry", 0) or 0)
+        retry_counts: dict[tuple[str, int], int] = {
+            key: max(retries) for key, retries in retries_seen.items()
+        }
 
         # Observations per vector key — merged into the step entry's outputs
-        # (as out_*) so the in-flight step row carries the same out_* the
-        # materialized step aggregates from its measurement/promoted rows.
+        # so the step record carries the vector's observations on its lanes.
         obs_by_key: dict[tuple[str, int], dict[str, Any]] = {}
         for ev in self._observation_events:
             if ev.name.startswith("_"):

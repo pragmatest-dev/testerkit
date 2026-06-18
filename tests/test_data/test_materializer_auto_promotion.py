@@ -1,28 +1,26 @@
-"""Build items 9 + 10 — auto-promotion rule + type-stable out_<name>.
+"""Verify-less vectors + mixed-type observation lanes (vector-grained model).
 
 Two materialization paths in the codebase:
 
 - **offline path** — :meth:`ParquetBackend._build_measurement_rows`
   walks a pre-built :class:`TestRun` (e.g. from ``LitmusClient``)
-  and emits rows from ``vector.measurements`` directly.
+  and emits one row per ``vector.measurements`` entry.
 - **live path** — :class:`EventAccumulator` projects an event
   stream; :func:`materialize_run_to_parquet` writes its state out
   at ``RunEnded``. Used by the runs daemon for real pytest runs.
 
-Item 9 (auto-promotion): per vector at materialization —
+The vector-grained model — per vector at materialization —
 
-| Vector contained | Row emission |
+| Vector contained | Measurement rows |
 |---|---|
-| ≥1 verify | verify rows only; observations ride as ``out_*`` |
-| 0 verify, ≥1 observe | ONE DONE row (name/value=NULL); each observation rides as ``out_*`` |
-| 0 of either | no row |
+| ≥1 verify | one per verify; observations ride on the step/vector record's ``outputs`` lanes |
+| 0 verify, ≥1 observe | NONE — observations ride on the step/vector record's ``outputs`` lanes |
+| 0 of either | none |
 
-Item 10 (kind stability): the first observation of a name pins
-its kind; subsequent observations of the same name must match. A
-mismatch raises ``ValueError`` at materialization rather than
-letting the parquet column carry mixed types.
-
-Both rules apply to **both paths** — covered here.
+There is no synthesized DONE measurement row, and mixed-type
+observations no longer raise — each value routes to its own ``value_*``
+lane (the lane absorbs the type difference). Both rules apply to both
+paths — covered here.
 """
 
 from __future__ import annotations
@@ -35,6 +33,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from litmus.data.backends._event_accumulator import EventAccumulator
+from litmus.data.backends._row_helpers import decode_lane_structs
 from litmus.data.backends.parquet import (
     ParquetBackend,
     materialize_run_to_parquet,
@@ -46,6 +45,8 @@ from litmus.data.events import (
     RunStarted,
     StepEnded,
     StepStarted,
+    VectorEnded,
+    VectorStarted,
 )
 from litmus.data.models import (
     UUT,
@@ -94,36 +95,35 @@ def _read_measurement_rows(parquet_path: Path) -> list[dict]:
     return [r for r in table.to_pylist() if r.get("record_type") == "measurement"]
 
 
+def _read_step_rows(parquet_path: Path) -> list[dict]:
+    table = pq.read_table(parquet_path)
+    return [r for r in table.to_pylist() if r.get("record_type") == "step"]
+
+
 # --------------------------------------------------------------------- #
 # Item 9 — offline path                                                  #
 # --------------------------------------------------------------------- #
 
 
 class TestAutoPromotionOffline:
-    def test_observation_only_vector_promotes_to_one_done_row(self, tmp_path: Path) -> None:
-        """Per spec §7: 0 verify + ≥1 observe → ONE nameless DONE row per
-        vector, with every observation carried as out_*."""
+    def test_observation_only_vector_emits_no_measurement_row(self, tmp_path: Path) -> None:
+        """0 verify + ≥1 observe → NO measurement row; observations ride on
+        the step record's outputs lanes (no fabricated DONE row)."""
         run = _run_with_vector(
             observations={"temperature": 23.5, "humidity": 45.0},
         )
         backend = ParquetBackend(data_dir=tmp_path)
         parquet_path = backend.save_test_run(run)
 
-        rows = _read_measurement_rows(parquet_path)
-        # An observation is not a measurement → one placeholder row, not one
-        # per observation.
-        assert len(rows) == 1
-        row = rows[0]
-        assert row["measurement_name"] is None
-        assert row["measurement_value"] is None
-        assert row["measurement_outcome"] == "done"
+        assert _read_measurement_rows(parquet_path) == []
 
-        # Both observation values ride as out_* on the single row
-        assert row["out_temperature"] == 23.5
-        assert row["out_humidity"] == 45.0
+        step_rows = _read_step_rows(parquet_path)
+        assert len(step_rows) == 1
+        outputs = decode_lane_structs(step_rows[0]["outputs"])
+        assert outputs == {"temperature": 23.5, "humidity": 45.0}
 
     def test_verify_present_no_done_promotion(self, tmp_path: Path) -> None:
-        """≥1 verify → verify rows only; observations ride along."""
+        """≥1 verify → verify rows only; observations ride on the step record."""
         run = _run_with_vector(
             measurements=[
                 Measurement(name="vout", value=3.3, outcome=Outcome.PASSED),
@@ -134,12 +134,12 @@ class TestAutoPromotionOffline:
         parquet_path = backend.save_test_run(run)
 
         rows = _read_measurement_rows(parquet_path)
-        # Only the verify row, no DONE promotion for the observation
         assert len(rows) == 1
         assert rows[0]["measurement_name"] == "vout"
         assert rows[0]["measurement_outcome"] == "passed"
-        # The observation still rides on the row as out_temperature
-        assert rows[0]["out_temperature"] == 23.5
+        # The observation rides on the step record's outputs lanes.
+        step_rows = _read_step_rows(parquet_path)
+        assert decode_lane_structs(step_rows[0]["outputs"]) == {"temperature": 23.5}
 
     def test_empty_vector_emits_no_measurement_rows(self, tmp_path: Path) -> None:
         """0 verify + 0 observe → no measurement rows."""
@@ -151,21 +151,17 @@ class TestAutoPromotionOffline:
         assert rows == []
 
     def test_underscore_observation_keys_skipped(self, tmp_path: Path) -> None:
-        """Internal keys (``_started_at`` etc.) don't ride as out_* and don't
-        on their own trigger a DONE row."""
+        """Internal keys (``_started_at`` etc.) don't ride on the outputs lanes."""
         run = _run_with_vector(
             observations={"_internal": "skip me", "temperature": 23.5},
         )
         backend = ParquetBackend(data_dir=tmp_path)
         parquet_path = backend.save_test_run(run)
 
-        rows = _read_measurement_rows(parquet_path)
-        assert len(rows) == 1
-        row = rows[0]
-        assert row["measurement_name"] is None
-        assert row["measurement_outcome"] == "done"
-        assert row["out_temperature"] == 23.5
-        assert "out__internal" not in row
+        assert _read_measurement_rows(parquet_path) == []
+        outputs = decode_lane_structs(_read_step_rows(parquet_path)[0]["outputs"])
+        assert outputs == {"temperature": 23.5}
+        assert "_internal" not in outputs
 
 
 # --------------------------------------------------------------------- #
@@ -174,8 +170,9 @@ class TestAutoPromotionOffline:
 
 
 class TestKindStabilityOffline:
-    def test_mismatched_kind_across_vectors_raises(self, tmp_path: Path) -> None:
-        """First observation registers kind; mismatch raises ValueError."""
+    def test_mismatched_kind_across_vectors_does_not_raise(self, tmp_path: Path) -> None:
+        """Same name, different kinds across vectors → no raise; each value
+        routes to its own value_* lane."""
         run = TestRun(
             id=uuid4(),
             started_at=datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC),
@@ -185,6 +182,7 @@ class TestKindStabilityOffline:
             steps=[
                 TestStep(
                     name="test_x",
+                    step_path="test_x",
                     outcome=Outcome.PASSED,
                     vectors=[
                         TestVector(
@@ -202,8 +200,11 @@ class TestKindStabilityOffline:
             ],
         )
         backend = ParquetBackend(data_dir=tmp_path)
-        with pytest.raises(ValueError, match="out_voltage kind mismatch"):
-            backend.save_test_run(run)
+        parquet_path = backend.save_test_run(run)  # does not raise
+        step_rows = _read_step_rows(parquet_path)
+        outputs_by_vec = {r["vector_index"]: decode_lane_structs(r["outputs"]) for r in step_rows}
+        assert outputs_by_vec[0] == {"voltage": 3.31}
+        assert outputs_by_vec[1] == {"voltage": [1, 2, 3]}
 
     def test_consistent_kind_across_vectors_ok(self, tmp_path: Path) -> None:
         """Same kind across vectors → no error."""
@@ -311,9 +312,9 @@ def _finalize(acc: EventAccumulator, ctx: dict, outputs: dict | None = None) -> 
 
 
 class TestAutoPromotionLive:
-    def test_observation_only_vector_promotes_to_done_row(self, tmp_path: Path) -> None:
-        """Live path mirrors offline: observation-only vector → ONE nameless
-        DONE row carrying the observation as out_*."""
+    def test_observation_only_vector_emits_no_measurement_row(self, tmp_path: Path) -> None:
+        """Live path mirrors offline: observation-only vector → NO measurement
+        row; the observation rides on the step record's outputs lanes."""
         acc, ctx = _seeded_accumulator()
         acc.on_event(
             Observation(
@@ -331,18 +332,12 @@ class TestAutoPromotionLive:
 
         parquet_path = materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
         assert parquet_path is not None
-        rows = _read_measurement_rows(parquet_path)
-
-        assert len(rows) == 1
-        row = rows[0]
-        assert row["measurement_name"] is None
-        assert row["measurement_value"] is None
-        assert row["measurement_outcome"] == "done"
-        # observation value rides as out_temperature
-        assert row["out_temperature"] == 23.5
+        assert _read_measurement_rows(parquet_path) == []
+        step_rows = _read_step_rows(parquet_path)
+        assert decode_lane_structs(step_rows[0]["outputs"]) == {"temperature": 23.5}
 
     def test_verify_present_no_done_promotion_live(self, tmp_path: Path) -> None:
-        """≥1 verify in a vector → no DONE promotion for the observation."""
+        """≥1 verify in a vector → no DONE row for the observation."""
         acc, ctx = _seeded_accumulator()
         acc.on_event(
             Observation(
@@ -376,16 +371,16 @@ class TestAutoPromotionLive:
         assert parquet_path is not None
         rows = _read_measurement_rows(parquet_path)
 
-        # Only the verify row; no DONE promotion
+        # Only the verify row; no DONE row
         assert len(rows) == 1
         assert rows[0]["measurement_name"] == "vout"
         assert rows[0]["measurement_outcome"] == "passed"
-        # observation still rides as out_*
-        assert rows[0]["out_temperature"] == 23.5
+        # observation rides on the measurement row's outputs lanes
+        assert decode_lane_structs(rows[0]["outputs"]) == {"temperature": 23.5}
 
-    def test_multiple_observations_promote_to_one_row(self, tmp_path: Path) -> None:
-        """Two observations in a verify-less vector → ONE DONE row carrying
-        both as out_* (an observation is not a measurement)."""
+    def test_multiple_observations_ride_on_step_record(self, tmp_path: Path) -> None:
+        """Two observations in a verify-less vector → NO measurement row; both
+        ride on the step record's outputs lanes."""
         acc, ctx = _seeded_accumulator()
         for name, value, micros in (
             ("temperature", 23.5, 300000),
@@ -407,14 +402,9 @@ class TestAutoPromotionLive:
 
         parquet_path = materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
         assert parquet_path is not None
-        rows = _read_measurement_rows(parquet_path)
-
-        assert len(rows) == 1
-        row = rows[0]
-        assert row["measurement_name"] is None
-        assert row["measurement_outcome"] == "done"
-        assert row["out_temperature"] == 23.5
-        assert row["out_humidity"] == 45.0
+        assert _read_measurement_rows(parquet_path) == []
+        outputs = decode_lane_structs(_read_step_rows(parquet_path)[0]["outputs"])
+        assert outputs == {"temperature": 23.5, "humidity": 45.0}
 
 
 # --------------------------------------------------------------------- #
@@ -423,39 +413,69 @@ class TestAutoPromotionLive:
 
 
 class TestKindStabilityLive:
-    def test_mismatched_kind_across_observation_events_raises(self, tmp_path: Path) -> None:
-        """Two observation events with same name + different kinds → ValueError."""
+    def test_mismatched_kind_across_observation_events_does_not_raise(self, tmp_path: Path) -> None:
+        """Two observation events with same name + different kinds → no raise;
+        each value routes to its own value_* lane."""
         acc, ctx = _seeded_accumulator()
-        # First obs: float
+        # First obs (vector 0): float
         acc.on_event(
-            Observation(
+            VectorStarted(
                 session_id=ctx["session_id"],
                 run_id=ctx["run_id"],
                 step_name=ctx["step_name"],
+                step_index=0,
                 step_path=ctx["step_path"],
                 vector_index=0,
-                name="voltage",
-                value=3.31,
-                occurred_at=datetime(2026, 5, 31, 12, 0, 0, 200000, tzinfo=UTC),
             )
         )
-        # Second obs same name, different kind (list)
         acc.on_event(
-            Observation(
+            VectorEnded(
                 session_id=ctx["session_id"],
                 run_id=ctx["run_id"],
                 step_name=ctx["step_name"],
+                step_index=0,
+                step_path=ctx["step_path"],
+                vector_index=0,
+                outcome="done",
+                outputs={"voltage": 3.31},
+            )
+        )
+        # Second obs (vector 1): list — different kind, same name
+        acc.on_event(
+            VectorStarted(
+                session_id=ctx["session_id"],
+                run_id=ctx["run_id"],
+                step_name=ctx["step_name"],
+                step_index=0,
                 step_path=ctx["step_path"],
                 vector_index=1,
-                name="voltage",
-                value=[1, 2, 3],
-                occurred_at=datetime(2026, 5, 31, 12, 0, 0, 300000, tzinfo=UTC),
+            )
+        )
+        acc.on_event(
+            VectorEnded(
+                session_id=ctx["session_id"],
+                run_id=ctx["run_id"],
+                step_name=ctx["step_name"],
+                step_index=0,
+                step_path=ctx["step_path"],
+                vector_index=1,
+                outcome="done",
+                outputs={"voltage": [1, 2, 3]},
             )
         )
         _finalize(acc, ctx)
 
-        with pytest.raises(ValueError, match="out_voltage kind mismatch"):
-            materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
+        parquet_path = materialize_run_to_parquet(
+            acc, tmp_path / "results", outcome="passed"
+        )  # does not raise
+        assert parquet_path is not None
+        vrows = {
+            r["vector_index"]: decode_lane_structs(r["outputs"])
+            for r in pq.read_table(parquet_path).to_pylist()
+            if r["record_type"] == "vector"
+        }
+        assert vrows[0] == {"voltage": 3.31}
+        assert vrows[1] == {"voltage": [1, 2, 3]}
 
     def test_consistent_kind_across_observations_ok(self, tmp_path: Path) -> None:
         """Same kind across observation events → no error."""

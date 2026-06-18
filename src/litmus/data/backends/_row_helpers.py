@@ -7,8 +7,9 @@ added in one place.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -51,21 +52,82 @@ REF_PATH_PREFIX = "_ref/"
 # Vector ID prefix length for filename namespacing in _ref/ directories.
 VECTOR_ID_LENGTH = 8
 
-# Dynamic-column prefixes for denormalized rows.
-INPUT_PREFIX = "in_"
-OUTPUT_PREFIX = "out_"
-CUSTOM_PREFIX = "custom_"
+# EAV lane struct — the at-rest nested representation of one input / output /
+# custom entry. ``kind`` is the value-type discriminator that selects which
+# ``value_*`` lane holds the value. The Arrow struct type in
+# ``schemas._LANE_STRUCT`` must match these names (guarded there).
+LANE_FIELDS: tuple[str, ...] = (
+    "name",
+    "kind",
+    "value_int",
+    "value_double",
+    "value_bool",
+    "value_text",
+    "value_timestamp",
+    "value_json",
+    "unit",
+)
 
 
-def extract_prefixed_fields(row: dict[str, Any], prefix: str) -> dict[str, Any]:
-    """Extract fields whose key starts with ``prefix`` and strip it.
+def _as_utc(value: datetime) -> datetime:
+    """Normalise a datetime to tz-aware UTC (assume UTC if naive)."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
-    Used by the parquet reconstruction path to invert the flattening
-    done by :class:`MeasurementRow.to_flat_dict` (``in_*`` / ``out_*`` /
-    ``custom_*``).
+
+def _lane_entry(name: str, value: Any) -> dict[str, Any]:
+    """Encode one ``(name, value)`` into an EAV lane struct dict.
+
+    ``observation_kind`` routes the value to exactly one ``value_*`` lane;
+    the others stay ``None``. ``unit`` is reserved (always ``None`` today).
     """
-    plen = len(prefix)
-    return {k[plen:]: v for k, v in row.items() if k.startswith(prefix)}
+    kind = observation_kind(value)
+    entry: dict[str, Any] = dict.fromkeys(LANE_FIELDS)
+    entry["name"] = name
+    entry["kind"] = kind
+    if kind == "scalar:bool":
+        entry["value_bool"] = bool(value)
+    elif kind == "scalar:int":
+        entry["value_int"] = int(value)
+    elif kind == "scalar:float":
+        entry["value_double"] = float(value)
+    elif kind == "scalar:datetime":
+        entry["value_timestamp"] = _as_utc(value)
+    elif kind in ("scalar:str", "uri"):
+        entry["value_text"] = str(value)
+    elif kind in ("list", "dict"):
+        entry["value_json"] = json.dumps(value, default=str)
+    else:  # other:*
+        entry["value_text"] = repr(value)
+    return entry
+
+
+def encode_lane_structs(values: dict[str, Any]) -> list[dict[str, Any]]:
+    """Encode an inputs / outputs / custom dict into a list of lane structs."""
+    return [_lane_entry(name, value) for name, value in values.items()]
+
+
+def _lane_value(entry: dict[str, Any]) -> Any:
+    """Inverse of :func:`_lane_entry` — read the value from its lane by ``kind``."""
+    kind = entry.get("kind")
+    if kind == "scalar:bool":
+        return entry.get("value_bool")
+    if kind == "scalar:int":
+        return entry.get("value_int")
+    if kind == "scalar:float":
+        return entry.get("value_double")
+    if kind == "scalar:datetime":
+        return entry.get("value_timestamp")
+    if kind in ("list", "dict"):
+        raw = entry.get("value_json")
+        return json.loads(raw) if raw is not None else None
+    return entry.get("value_text")  # scalar:str, uri, other:*
+
+
+def decode_lane_structs(entries: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Decode a list of lane structs back into a ``{name: value}`` dict."""
+    return {entry["name"]: _lane_value(entry) for entry in (entries or [])}
 
 
 def _to_datetime(value: Any) -> datetime | None:
@@ -111,7 +173,7 @@ class MeasurementRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # Discriminator
-    record_type: Literal["run", "step", "measurement"]
+    record_type: Literal["run", "step", "vector", "measurement"]
 
     # Session / run identity
     session_id: str
@@ -209,13 +271,12 @@ class MeasurementRow(BaseModel):
     custom: dict[str, Any] = Field(default_factory=dict)
 
     def to_flat_dict(self) -> dict[str, Any]:
-        """Flatten to denormalized dict for Parquet write boundary.
+        """Flatten to denormalized dict for the Parquet write boundary.
 
-        Merges dynamic columns back into the flat namespace:
-        - ``inputs`` keys are prefixed with ``in_`` (provide unprefixed keys)
-        - ``outputs`` keys are prefixed with ``out_`` (provide unprefixed keys)
-        - ``instruments`` keys pass through (already ``instr_``-prefixed)
-        - ``custom`` keys are prefixed with ``custom_`` (provide unprefixed keys)
+        ``inputs`` / ``outputs`` / ``custom`` are encoded as nested EAV lane
+        structs (``LIST<STRUCT>``; see :func:`encode_lane_structs`) under the
+        ``inputs`` / ``outputs`` / ``custom`` keys. ``instruments`` keys pass
+        through (already ``step_instruments_``-prefixed).
 
         Datetime values are left as ``datetime`` objects — callers must
         serialise them at the actual write boundary (e.g. ``.isoformat()``).
@@ -223,13 +284,10 @@ class MeasurementRow(BaseModel):
         row = self.model_dump(
             exclude={"inputs", "outputs", "instruments", "custom"},
         )
-        for k, v in self.inputs.items():
-            row[f"in_{k}"] = v
-        for k, v in self.outputs.items():
-            row[f"out_{k}"] = v
+        row["inputs"] = encode_lane_structs(self.inputs)
+        row["outputs"] = encode_lane_structs(self.outputs)
+        row["custom"] = encode_lane_structs(self.custom)
         row.update(self.instruments)
-        for k, v in self.custom.items():
-            row[f"custom_{k}"] = v
         return row
 
 
@@ -435,17 +493,16 @@ def build_input_columns(vector: TestVector) -> dict[str, Any]:
 
 
 def observation_kind(value: Any) -> str:
-    """Item 10: classify an observation value for parquet column kind-stability.
+    """Classify a value into its EAV value-type tag.
 
-    Returns a short tag describing the shape that ends up in the
-    parquet ``out_<name>`` column. Used by
-    :func:`validate_observation_kinds` to enforce that the first
-    observation of a name pins the kind and subsequent observations
-    must match — otherwise the column would carry mixed types.
+    Returns a short tag (``scalar:int`` / ``scalar:float`` / ``scalar:bool`` /
+    ``scalar:str`` / ``scalar:datetime`` / ``uri`` / ``list`` / ``dict`` /
+    ``other:*``) that :func:`_lane_entry` uses to route the value to its
+    ``value_*`` lane and that is stored as the ``kind`` field.
 
     URIs (``channel://`` and ``file://``) are tagged ``"uri"`` even
-    though they're str at the storage layer — keeps "this column is
-    a claim-check ref" distinct from "this column is a free string".
+    though they're ``str`` — keeps a claim-check ref distinct from a free
+    string (both share the ``value_text`` lane, disambiguated by ``kind``).
     """
     if is_ref(value):
         return "uri"
@@ -457,50 +514,13 @@ def observation_kind(value: Any) -> str:
         return "scalar:float"
     if isinstance(value, str):
         return "scalar:str"
+    if isinstance(value, datetime):
+        return "scalar:datetime"
     if isinstance(value, list):
         return "list"
     if isinstance(value, dict):
         return "dict"
     return f"other:{type(value).__name__}"
-
-
-def validate_observation_kinds(
-    registry: dict[str, str],
-    observations: dict[str, Any],
-    *,
-    where: str,
-) -> None:
-    """Item 10: register first-observation kinds; raise on mismatch.
-
-    Mutates ``registry`` in place — the materializer threads a
-    single registry through every vector in a run. ``where`` is
-    included in the error message (e.g.
-    ``"vector 3 of test_x"``) for diagnostic clarity.
-
-    Args:
-        registry: ``name -> kind`` map. First observation of each
-            name registers its kind; subsequent observations must
-            match.
-        observations: The vector's ``observations`` dict.
-        where: Diagnostic prefix used in the error message.
-
-    Raises:
-        ValueError: When an observation's kind disagrees with the
-            registered kind for its name.
-    """
-    for name, value in observations.items():
-        if name.startswith("_"):
-            continue
-        kind = observation_kind(value)
-        existing = registry.get(name)
-        if existing is None:
-            registry[name] = kind
-        elif existing != kind:
-            raise ValueError(
-                f"out_{name} kind mismatch at {where}: first observation "
-                f"registered '{existing}'; now seeing '{kind}'. "
-                "Item 10: out_<name> must be type-stable across vectors."
-            )
 
 
 def build_output_columns(
@@ -803,7 +823,119 @@ def build_step_row(
     return row.to_flat_dict()
 
 
-def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
+def build_vector_row(
+    *,
+    run_context: dict[str, Any],
+    entry: dict[str, Any],
+    run_outcome: str | None,
+    run_ended_at: datetime | None,
+    instruments: dict[str, list],
+) -> dict[str, Any]:
+    """Build one ``record_type = 'vector'`` row from a vector manifest entry.
+
+    A vector row appears ONLY for Mode-2 in-body iterations (the ``vectors``
+    fixture / ``run_vector`` loop) — Mode 1 and class containers fuse into
+    the ``step`` record. It carries the in-body iteration's own
+    ``(step_path, parent_path, vector_index, retry)`` identity, its
+    ``inputs`` (this iteration's conditions), ``outputs``, and
+    ``vector_outcome``. ``measurement_*`` columns are NULL.
+
+    ``entry`` is one vector manifest entry as produced by
+    ``vector_entry_dict``. Mirrors :func:`build_step_row` so both record
+    kinds share the same write boundary.
+    """
+    ctx = dict(run_context)
+    ctx["run_ended_at"] = run_ended_at
+    raw_vi = entry.get("vector_index")
+    raw_retry = entry.get("retry")
+    raw_idx = entry.get("index")
+    row = MeasurementRow(
+        record_type="vector",
+        **ctx,
+        step_name=entry.get("name") or "",
+        step_index=int(raw_idx) if raw_idx is not None else 0,
+        step_path=entry.get("step_path") or "",
+        parent_path=entry.get("parent_path") or "",
+        step_started_at=_to_datetime(entry.get("step_started_at")),
+        step_ended_at=_to_datetime(entry.get("step_ended_at")),
+        step_node_id=entry.get("node_id"),
+        step_module=entry.get("module"),
+        step_file=entry.get("file"),
+        step_class=entry.get("class_name"),
+        step_function=entry.get("function"),
+        step_markers=entry.get("markers"),
+        step_outcome=None,
+        step_vector_count=None,
+        vector_index=raw_vi if raw_vi is not None else 0,
+        vector_retry=raw_retry if raw_retry is not None else 0,
+        vector_started_at=_to_datetime(entry.get("started_at")),
+        vector_ended_at=_to_datetime(entry.get("ended_at")),
+        vector_outcome=entry.get("outcome"),
+        measurement_name=None,
+        run_outcome=run_outcome,
+        inputs=dict(entry.get("inputs") or {}),
+        outputs=dict(entry.get("outputs") or {}),
+        instruments=instruments,
+        custom={},
+    )
+    return row.to_flat_dict()
+
+
+def vector_entry_dict(
+    *,
+    index: int,
+    name: str,
+    node_id: str | None,
+    file: str | None,
+    function: str | None,
+    class_name: str | None,
+    module: str | None,
+    step_path: str,
+    parent_path: str = "",
+    markers: str | None,
+    step_started_at: datetime | None,
+    step_ended_at: datetime | None,
+    vector_index: int,
+    retry: int,
+    outcome: str | None,
+    started_at: datetime | None,
+    ended_at: datetime | None,
+    inputs: dict[str, Any] | None = None,
+    outputs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Single source of truth for one in-body vector manifest entry's shape.
+
+    Distinct from :func:`step_entry_dict` — a vector entry keys on
+    ``(step_path, vector_index, retry)`` and carries vector-grain timing
+    and outcome. Timestamps are serialised here.
+    """
+    return {
+        "index": index,
+        "name": name,
+        "node_id": node_id,
+        "file": file,
+        "function": function,
+        "class_name": class_name,
+        "module": module,
+        "step_path": step_path,
+        "parent_path": parent_path,
+        "markers": markers,
+        "step_started_at": step_started_at.isoformat() if step_started_at else None,
+        "step_ended_at": step_ended_at.isoformat() if step_ended_at else None,
+        "vector_index": vector_index,
+        "retry": retry,
+        "outcome": outcome,
+        "started_at": started_at.isoformat() if started_at else None,
+        "ended_at": ended_at.isoformat() if ended_at else None,
+        "inputs": inputs or {},
+        "outputs": outputs or {},
+    }
+
+
+def build_step_manifest(
+    test_run: TestRun,
+    ref_saver: Callable[[str, str, Any], str] | None = None,
+) -> list[dict[str, Any]]:
     """Build step manifest entries from all (step, vector) pairs in a TestRun.
 
     Returns one entry per ``(step_index, vector_index)`` execution so
@@ -811,6 +943,11 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
     (``EventAccumulator._build_step_results_from_events``). Executed
     entries come first; ``_append_not_started`` follows with entries
     for collected items / planned vectors that never ran.
+
+    ``ref_saver`` claim-checks blob observations through the same saver
+    the measurement path uses (``build_output_columns``) so a raw blob
+    never reaches the step-record lane structs or the ``step_results``
+    JSON metadata. Without it, blobs fall back to ``repr()``.
     """
     manifest: list[dict[str, Any]] = []
     executed_node_ids: set[str] = set()
@@ -837,6 +974,15 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
                 vector.index if vector is not None and vector.index is not None else vec_offset
             )
             inputs = dict(vector.params) if vector is not None else {}
+            # Vector observations ride on the step record's outputs lanes
+            # (Mode-1 fused) — same as the streaming path merges
+            # StepEnded.outputs / observations into its step entry. Routed
+            # through ``build_output_columns`` (same as the measurement
+            # path) so blobs are claim-checked via ``ref_saver`` rather
+            # than reaching the lane structs / step_results JSON raw.
+            outputs = (
+                build_output_columns(vector, ref_saver=ref_saver) if vector is not None else {}
+            )
             if step.node_id:
                 executed_node_ids.add(step.node_id)
             # ``executed_vectors`` is keyed by (step_path, vector_index) so
@@ -861,7 +1007,7 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
                     ended_at=step_ended,
                     vector_index=vec_idx,
                     inputs=inputs,
-                    outputs={},
+                    outputs=outputs,
                     has_measurements=measurement_count > 0,
                     measurement_count=measurement_count,
                     vector_count=len(step.vectors) if step.vectors else 1,

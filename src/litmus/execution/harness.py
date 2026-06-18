@@ -1610,10 +1610,6 @@ class TestHarness:
             test_vector.outcome = Outcome.FAILED
             msg = str(e) or "assertion failed"
             test_vector.error_message = msg
-            m = Measurement(name="assert", value=None, outcome=Outcome.FAILED)
-            test_vector.measurements.append(m)
-            if self._logger is not None:
-                self._logger.log_measurement(m)
             raise
         except Exception as e:
             test_vector.outcome = Outcome.ERRORED
