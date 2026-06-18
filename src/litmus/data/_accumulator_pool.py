@@ -48,6 +48,8 @@ from litmus.data.events import (
     StepEnded,
     StepsDiscovered,
     StepStarted,
+    VectorEnded,
+    VectorStarted,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,8 @@ _EVENT_CLASSES: dict[str, type] = {
     "test.step_ended": StepEnded,
     "test.measurement": MeasurementRecorded,
     "test.observation": Observation,
+    "test.vector_started": VectorStarted,
+    "test.vector_ended": VectorEnded,
     "fixture.instrument_connected": InstrumentConnected,
 }
 

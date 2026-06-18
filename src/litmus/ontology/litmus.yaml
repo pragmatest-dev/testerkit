@@ -954,6 +954,30 @@ concepts:
       - { kind: inherits_from, target: event_base }
       - { kind: records,         target: test_step }
 
+  - id: vector_started
+    category: event
+    event_type: test.vector_started
+    summary: >
+      An in-body loop vector (Mode 2: the vectors fixture or a run_vector
+      loop) is entered. One per iteration, so data-less vectors stay visible
+      and offline/streaming projections don't drift.
+    model: litmus.data.events.VectorStarted
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+      - { kind: paired_with,   target: vector_ended }
+
+  - id: vector_ended
+    category: event
+    event_type: test.vector_ended
+    summary: >
+      An in-body loop vector finished. Carries the vector's outcome and its
+      observations.
+    model: litmus.data.events.VectorEnded
+    relationships:
+      - { kind: stored_in,     target: event_store }
+      - { kind: inherits_from, target: event_base }
+
   - id: steps_discovered
     category: event
     event_type: test.steps_discovered

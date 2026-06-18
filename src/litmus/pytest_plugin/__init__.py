@@ -1154,9 +1154,15 @@ class _VectorIterator:
                 step.vectors.append(new_vector)
                 token = push_current_vector(new_vector)
                 self._consumed += 1
+                # Vector boundary (Mode 2): every in-body iteration announces
+                # itself so data-less vectors stay visible and offline/streaming
+                # don't drift. Emitted after the push so step/vector context
+                # resolves to this iteration.
+                self._ctx._emit_vector_started()
                 try:
                     yield vec
                 finally:
+                    self._ctx._emit_vector_ended()
                     reset_current_vector(token)
             else:
                 self._consumed += 1

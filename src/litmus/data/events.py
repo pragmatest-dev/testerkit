@@ -464,6 +464,10 @@ class StepStarted(EventBase):
     # subscribers need to disambiguate "test_efficiency starting" from
     # "test_efficiency starting at vin=2.0V".
     vector_index: int = 0
+    # 0-based retry of this execution. 0 for first run, N for the Nth retry.
+    # Meaningful for the Mode-1 fused step-execution≡vector boundary (parametrize
+    # item rerun, or class-container re-execution).
+    retry: int = 0
     inputs: dict[str, Any] = Field(default_factory=dict)
 
     # Code identity
@@ -565,6 +569,9 @@ class StepEnded(EventBase):
     # parameters for completeness; ``outputs`` carries vector-level
     # observations not tied to any specific measurement.
     vector_index: int = 0
+    # 0-based retry of this execution (Mode-1 fused boundary). Companion to
+    # ``StepStarted.retry``.
+    retry: int = 0
     vector_outcome: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
@@ -575,6 +582,46 @@ class StepEnded(EventBase):
     module: str | None = None
     class_name: str | None = None
     function: str | None = None
+
+
+class VectorStarted(EventBase):
+    """An in-body loop vector is entered (Mode 2: the ``vectors`` fixture or a
+    ``run_vector`` loop). One per iteration, so every vector — including ones
+    that record no measurement — announces itself, closing the data-less-vector
+    gap and the offline/streaming drift.
+
+    Mode 1 (parametrize / single) and class containers reuse ``StepStarted`` as
+    the fused step-execution≡vector boundary; this event is the in-body analog,
+    nested inside the enclosing leaf step. The measurement's full condition is
+    the merge of this vector's ``inputs`` with the enclosing steps' inputs along
+    ``parent_path``.
+    """
+
+    event_type: Literal["test.vector_started"] = "test.vector_started"
+    step_name: str
+    step_index: int
+    step_path: str = ""
+    vector_index: int = 0
+    retry: int = 0
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    node_id: str | None = None
+
+
+class VectorEnded(EventBase):
+    """Completion of an in-body loop vector (Mode 2). Carries the vector's
+    verdict and its observations, mirroring ``StepEnded`` at vector grain.
+    """
+
+    event_type: Literal["test.vector_ended"] = "test.vector_ended"
+    step_name: str
+    step_index: int
+    step_path: str = ""
+    vector_index: int = 0
+    retry: int = 0
+    outcome: str | None = None
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict)
+    node_id: str | None = None
 
 
 class StepsDiscovered(EventBase):
@@ -833,6 +880,8 @@ TEST_EVENTS = {
     MeasurementRecorded,
     Observation,
     StepEnded,
+    VectorStarted,
+    VectorEnded,
     StepsDiscovered,
 }
 ROUTE_EVENTS = {RouteClosed, RouteOpened}
@@ -875,6 +924,8 @@ Event = Annotated[
     | MeasurementRecorded
     | Observation
     | StepEnded
+    | VectorStarted
+    | VectorEnded
     | StepsDiscovered
     | RouteClosed
     | RouteOpened

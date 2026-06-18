@@ -78,6 +78,29 @@ vector (so we don't collapse step→vector).
 
 ## Decisions
 
+**A — RESOLVED (2026-06-18): recursive step-execution tree.** The model is NOT a
+single step→vector level. The unit is the **step-execution** `(step_path,
+vector_index, retry)`, recursive via `parent_path`. Every level carries its own
+`vector_index` (its iteration at that level) and `inputs` (that level's conditions):
+
+- **class container (outer sweep)** → a step-execution; `_ensure_class_container`
+  (hooks.py:1267) already emits it via `start_step(cls, inputs=outer_values,
+  vector_index=outer-iter)`, close+reopened per outer value. Existing
+  `StepStarted`/`StepEnded` (carry `parent_path` + `vector_index` + `inputs`).
+- **parametrize item / single (Mode 1)** → a leaf step-execution; existing
+  `StepStarted`/`StepEnded` — this IS the fused StepVector.
+- **in-body loop (Mode 2)** → one leaf `StepStarted`, then **N `VectorStarted`/
+  `VectorEnded`** (the new events) inside it — the in-body analog of a parametrize
+  item's StepStarted. This is the only place the new events are needed; it closes
+  the data-less-vector gap.
+- A measurement's full condition = `inputs` merged along its `parent_path` chain
+  (container outer ∪ leaf inner ∪ in-body row). `retry` rides on whichever boundary
+  re-executes (`StepStarted` for rerun/Mode-1, `VectorStarted` for the in-body loop).
+
+So `class → vector → step → vector` = `StepStarted(container, vector_index=outer) ⊃
+StepStarted(method, vector_index=inner)` — already modeled by the existing nesting;
+the new events are scoped to the Mode-2 in-body loop only.
+
 **Agreed:**
 - Vector is the organizing unit; `run → step → vector → measurement`.
 - Measurements stay first-class; inputs/outputs are vector-owned EAV context (long, not wide).
@@ -89,8 +112,20 @@ vector (so we don't collapse step→vector).
   logic is **unchanged** — it already computes these correctly; we only *emit* them.
 
 **Open:**
-- **A — class-level param:** merged into each vector's inputs (flat, current behavior)
-  vs. a container-level vector dimension (nested provenance).
+- **A — outer (container) vs inner (step) vectors. LOAD-BEARING — resolve before
+  Phase 1/2.** NOT hypothetical: `_resolve_sweep_dimensions` (hooks.py:550) already
+  splits sweep dims into **outer** (class-level `litmus_sweeps` → "the sequence
+  iterations a class container splits into") and **inner** (method-level sweeps /
+  `parametrize` / `vectors` fixture). So `class → vector → step → vector` is a real
+  nested structure today: a class container has its own vector dimension, each
+  containing the method's vectors. (Caveat verified: this outer/inner split is for
+  `litmus_sweeps`; a plain class-level `@pytest.mark.parametrize` currently falls
+  into *inner* and merges via `callspec.params`, autouse.py:154.) The model must
+  decide how container/outer vectors are represented — a step hierarchy where
+  intermediate (container) steps carry their own vectors — and `VectorStarted` must
+  be able to attach at the container level, not just the leaf. The flat
+  `run → step → vector → measurement` statement above is the single-level case; the
+  nested case is this decision.
 - **B — container (class) row:** its own record vs. `parent_path`-only (derive in projection).
 - **Condition dimension placement:** modeled at-rest (vector-as-referenced-entity)
   vs. projection-only dedup. (Leaning: referenced entity.)

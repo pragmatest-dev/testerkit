@@ -22,6 +22,8 @@ from litmus.data.events import (
     SessionStarted,
     StepEnded,
     StepStarted,
+    VectorEnded,
+    VectorStarted,
 )
 
 
@@ -196,3 +198,64 @@ class TestEventModels:
             + len(FILE_EVENTS)
             + len(DIALOG_EVENTS)
         )
+
+
+class TestVectorEvents:
+    """Phase 1 of the runs execution-model redesign: vector boundary events."""
+
+    def test_vector_started_fields(self):
+        e = VectorStarted(
+            step_name="test_x",
+            step_index=0,
+            step_path="C/test_x",
+            vector_index=2,
+            retry=1,
+            inputs={"vin": 3.3},
+        )
+        assert e.event_type == "test.vector_started"
+        assert e.vector_index == 2
+        assert e.retry == 1
+        assert e.inputs == {"vin": 3.3}
+
+    def test_vector_ended_fields(self):
+        e = VectorEnded(
+            step_name="test_x",
+            step_index=0,
+            vector_index=0,
+            outcome="PASSED",
+            outputs={"temp": 24.8},
+        )
+        assert e.event_type == "test.vector_ended"
+        assert e.outcome == "PASSED"
+        assert e.outputs == {"temp": 24.8}
+
+    def test_step_events_carry_retry(self):
+        # Additive: the Mode-1 fused step≡vector boundary records its attempt.
+        assert StepStarted(step_name="s", step_index=0).retry == 0
+        assert StepStarted(step_name="s", step_index=0, retry=3).retry == 3
+        assert StepEnded(step_name="s", step_index=0, retry=2).retry == 2
+
+    def test_vector_events_in_categories(self):
+        assert VectorStarted in TEST_EVENTS
+        assert VectorEnded in TEST_EVENTS
+        assert VectorStarted in ALL_EVENTS
+        assert VectorEnded in ALL_EVENTS
+
+    def test_vector_events_roundtrip_discriminated_union(self):
+        # The replay TypeAdapter(Event) must accept the new types, else a log
+        # containing them fails validation on replay.
+        from pydantic import TypeAdapter
+
+        from litmus.data.events import Event
+
+        adapter: TypeAdapter = TypeAdapter(Event)
+        for cls in (VectorStarted, VectorEnded):
+            evt = cls(step_name="s", step_index=0)
+            back = adapter.validate_python(evt.model_dump(mode="json"))
+            assert type(back) is cls
+
+    def test_accumulator_pool_reconstructs_vector_events(self):
+        from litmus.data._accumulator_pool import _EVENT_CLASSES
+
+        assert _EVENT_CLASSES["test.vector_started"] is VectorStarted
+        assert _EVENT_CLASSES["test.vector_ended"] is VectorEnded

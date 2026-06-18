@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from litmus.data.events import Observation
+from litmus.data.events import Observation, VectorEnded, VectorStarted
 from litmus.data.models import (
     Measurement,
     Outcome,
@@ -512,6 +512,69 @@ class Context:
                 retry=getattr(vector, "retry", 0) if vector else 0,
                 name=key,
                 value=value,
+            )
+        )
+
+    def _emit_vector_started(self) -> None:
+        """Emit a ``VectorStarted`` for the active in-body loop vector (Mode 2).
+
+        Call after the iteration's :class:`TestVector` is pushed onto the active
+        ContextVars, so step/vector context resolves to this iteration. No-op
+        outside a run scope (bare Context unit tests). Resolution mirrors
+        :meth:`_emit_observation` so in-body vectors land on the same timeline.
+        """
+        if self._session_id is None:
+            return
+        run_scope = get_current_run_scope()
+        event_log = getattr(run_scope, "event_log", None) if run_scope is not None else None
+        if event_log is None:
+            return
+        step = get_current_step()
+        vector = get_current_vector()
+        run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
+        event_log.emit(
+            VectorStarted(
+                session_id=self._session_id,
+                run_id=run_id,
+                step_name=getattr(step, "name", "") if step else "",
+                step_index=getattr(step, "step_index", 0) if step else 0,
+                step_path=getattr(step, "step_path", "") if step else "",
+                vector_index=getattr(vector, "index", 0) if vector else 0,
+                retry=getattr(vector, "retry", 0) if vector else 0,
+                inputs=dict(vector.params) if vector is not None else {},
+                node_id=getattr(step, "node_id", None) if step else None,
+            )
+        )
+
+    def _emit_vector_ended(self) -> None:
+        """Emit a ``VectorEnded`` for the active in-body loop vector (Mode 2).
+
+        Call before the iteration's ContextVars are reset. Pulls the vector's
+        outcome and observations from the active :class:`TestVector`.
+        """
+        if self._session_id is None:
+            return
+        run_scope = get_current_run_scope()
+        event_log = getattr(run_scope, "event_log", None) if run_scope is not None else None
+        if event_log is None:
+            return
+        step = get_current_step()
+        vector = get_current_vector()
+        run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
+        outcome = getattr(vector, "outcome", None) if vector is not None else None
+        event_log.emit(
+            VectorEnded(
+                session_id=self._session_id,
+                run_id=run_id,
+                step_name=getattr(step, "name", "") if step else "",
+                step_index=getattr(step, "step_index", 0) if step else 0,
+                step_path=getattr(step, "step_path", "") if step else "",
+                vector_index=getattr(vector, "index", 0) if vector else 0,
+                retry=getattr(vector, "retry", 0) if vector else 0,
+                outcome=outcome.value if outcome is not None else None,
+                inputs=dict(vector.params) if vector is not None else {},
+                outputs=dict(vector.observations) if vector is not None else {},
+                node_id=getattr(step, "node_id", None) if step else None,
             )
         )
 
@@ -1537,6 +1600,10 @@ class TestHarness:
         # first write per (vector, channel) — item 5 / Position 2.
         vector_token = push_current_vector(test_vector)
         context_token = push_current_context(self._vector_context)
+        # Vector boundary (Mode 2, programmatic path): mirror the pytest
+        # ``vectors``-fixture emission so harness-driven loops also announce
+        # each vector. No-op outside a run scope.
+        self._vector_context._emit_vector_started()
         try:
             yield test_vector
         except AssertionError as e:
@@ -1557,6 +1624,7 @@ class TestHarness:
             test_vector.params = self._vector_context.params
             test_vector.observations = self._vector_context.observations
             test_vector.ended_at = _utcnow()
+            self._vector_context._emit_vector_ended()
             reset_current_context(context_token)
             reset_current_vector(vector_token)
             # Save current context for next vector's change detection

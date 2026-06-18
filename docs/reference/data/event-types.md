@@ -221,6 +221,7 @@ Emitted when an instrument is disconnected during teardown.
 | `parent_path` | `str` | `''` |
 | `description` | `str \| None` | `None` |
 | `vector_index` | `int` | `0` |
+| `retry` | `int` | `0` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `node_id` | `str \| None` | `None` |
 | `file` | `str \| None` | `None` |
@@ -238,6 +239,7 @@ Emitted when an instrument is disconnected during teardown.
 | `parent_path` | `str` | `''` |
 | `outcome` | `str \| None` | `None` |
 | `vector_index` | `int` | `0` |
+| `retry` | `int` | `0` |
 | `vector_outcome` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `outputs` | `dict[str, Any]` | `{}` |
@@ -246,6 +248,36 @@ Emitted when an instrument is disconnected during teardown.
 | `module` | `str \| None` | `None` |
 | `class_name` | `str \| None` | `None` |
 | `function` | `str \| None` | `None` |
+
+### `test.vector_started` — `VectorStarted`
+
+An in-body loop vector is entered (Mode 2: the ``vectors`` fixture or a ``run_vector`` loop). One per iteration, so every vector — including ones that record no measurement — announces itself, closing the data-less-vector gap and the offline/streaming drift.
+
+| Field | Type | Default |
+|---|---|---|
+| `step_name` | `str` | *required* |
+| `step_index` | `int` | *required* |
+| `step_path` | `str` | `''` |
+| `vector_index` | `int` | `0` |
+| `retry` | `int` | `0` |
+| `inputs` | `dict[str, Any]` | `{}` |
+| `node_id` | `str \| None` | `None` |
+
+### `test.vector_ended` — `VectorEnded`
+
+Completion of an in-body loop vector (Mode 2). Carries the vector's verdict and its observations, mirroring ``StepEnded`` at vector grain.
+
+| Field | Type | Default |
+|---|---|---|
+| `step_name` | `str` | *required* |
+| `step_index` | `int` | *required* |
+| `step_path` | `str` | `''` |
+| `vector_index` | `int` | `0` |
+| `retry` | `int` | `0` |
+| `outcome` | `str \| None` | `None` |
+| `inputs` | `dict[str, Any]` | `{}` |
+| `outputs` | `dict[str, Any]` | `{}` |
+| `node_id` | `str \| None` | `None` |
 
 ### `test.measurement` — `MeasurementRecorded`
 

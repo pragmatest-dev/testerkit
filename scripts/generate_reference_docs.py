@@ -236,6 +236,8 @@ _EVENT_CATEGORIES: list[tuple[str, list[str]]] = [
         [
             "StepStarted",
             "StepEnded",
+            "VectorStarted",
+            "VectorEnded",
             "MeasurementRecorded",
             "Observation",
             "StepsDiscovered",
