@@ -46,27 +46,29 @@ assert [f.name for f in _LANE_STRUCT] == list(LANE_FIELDS), (
 )
 _LANE_LIST = pa.list_(_LANE_STRUCT)
 
-# Canonical row schema for the unified per-run parquet. Every row carries
-# an explicit ``record_type`` discriminator with one of two values:
-#   * ``record_type = 'step'`` — one row per ``(step_path, vector_index)``
-#     execution (or planned-but-unrun vector). Carries step identity,
-#     timing, outcome, and dynamic ``in_*``/``out_*`` columns.
-#     ``measurement_*`` columns are NULL.
-#   * ``record_type = 'measurement'`` — one row per recorded measurement.
-#     Carries the measurement payload plus the same denormalized step +
-#     run + UUT + station + fixture context as the corresponding step
-#     row, so cross-run measurement queries don't need self-joins.
+# Canonical row schema for the unified per-run parquet — a chronological
+# telling of the run. Every row carries an explicit ``record_type``
+# discriminator with one of four values:
+#   * ``record_type = 'run'`` — one row per run; run / UUT / station /
+#     environment context. Step / vector / measurement columns are NULL.
+#   * ``record_type = 'step'`` — one step-execution, keyed ``(step_path,
+#     vector_index, retry)`` and nestable via ``parent_path`` (a class
+#     container, a parametrize item, or a single/unswept run — the fused
+#     step≡vector boundary). ``measurement_*`` columns are NULL.
+#   * ``record_type = 'vector'`` — one in-body loop iteration (Mode 2: the
+#     ``vectors`` fixture / ``run_vector`` loop) under its leaf step. Mode 1
+#     and class containers fuse into the step row, so ``vector`` rows appear
+#     ONLY for in-body loops.
+#   * ``record_type = 'measurement'`` — one recorded measurement, with the
+#     denormalized step + run + UUT + station + fixture context so cross-run
+#     queries don't need self-joins.
 #
-# Both kinds share grain ``(run_id, step_path, vector_index)``; measurement
-# rows are further keyed by ``measurement_name``. A step that records N
-# measurements emits 1 step row + N measurement rows.
-#
-# Dynamic columns (in_*, out_*, step_instruments_*, custom_*) are NOT
-# listed here — they pass through with inferred types via
-# ``_build_write_schema``.
+# ``inputs`` / ``outputs`` / ``custom`` are nested ``LIST<STRUCT<lanes>>``
+# columns (see ``_LANE_STRUCT``), not wide ``in_*``/``out_*`` columns; the
+# DuckDB daemon projects them into ``in_*``/``out_*``/``custom_*`` for queries.
 RUN_ROW_SCHEMA = pa.schema(
     [
-        # Discriminator — 'step' or 'measurement'
+        # Discriminator — 'run', 'step', 'vector', or 'measurement'
         ("record_type", pa.string()),
         # Identity & timing
         ("session_id", pa.string()),

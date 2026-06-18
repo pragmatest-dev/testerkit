@@ -1,12 +1,13 @@
 # Parquet Storage Schema
 
-Each Litmus run produces **one Parquet file**. Every row carries an explicit `record_type` discriminator with one of three values:
+Each Litmus run produces **one Parquet file**. Every row carries an explicit `record_type` discriminator with one of four values:
 
 - `record_type = 'run'` — exactly one row per file. Carries run-level identity, timing, outcome, plus UUT / station / project / git / environment context.
-- `record_type = 'step'` — one row per `(step_path, vector_index)` execution. Step identity, timing, outcome, dynamic `in_*` / `out_*` columns. Measurement columns are NULL.
+- `record_type = 'step'` — one row per `(step_path, vector_index)` execution. Step identity, timing, outcome, and the vector's conditions and observations in nested `inputs` / `outputs` lane columns. Measurement columns are NULL.
+- `record_type = 'vector'` — one row per in-body vector iteration (Mode-2 `vectors`-fixture loops only). Carries the iteration's own `(step_path, vector_index, retry)` identity, conditions, observations, and `vector_outcome`. Measurement columns are NULL. Mode-1 tests (parametrize / single) fuse step and vector into one `step` row; no separate `vector` row is written.
 - `record_type = 'measurement'` — one row per recorded measurement. Carries the measurement payload plus the same denormalized step + run + UUT + station + fixture context as the corresponding step row.
 
-Step and measurement rows share grain `(run_id, step_path, vector_index)`; measurement rows are further keyed by `measurement_name`. A step that records N measurements emits 1 step row + N measurement rows.
+Step and measurement rows share grain `(run_id, step_path, vector_index)`; measurement rows are further keyed by `measurement_name`. A step that records N measurements emits 1 step row + N measurement rows. A Mode-2 step with M in-body iterations also emits M `vector` rows, one per `VectorStarted` / `VectorEnded` pair.
 
 The canonical schema lives at `src/litmus/data/schemas.py` (`RUN_ROW_SCHEMA`); this page is a human-readable mirror of it.
 
@@ -14,7 +15,7 @@ The canonical schema lives at `src/litmus/data/schemas.py` (`RUN_ROW_SCHEMA`); t
 
 ```
 <data_dir>/runs/{date}/
-├── {timestamp}_{serial}.parquet           # Run row + all step + measurement rows for one run
+├── {timestamp}_{serial}.parquet           # Run row + all step + vector + measurement rows for one run
 ├── {timestamp}.parquet                    # Same shape, no UUT serial (dev runs)
 └── {timestamp}_{serial}_ref/              # Reference data (waveforms, images, files)
     ├── {vector_id}_scope_waveform.npz
@@ -28,14 +29,15 @@ Timestamps are UTC and sort naturally. DuckDB / Spark / Polars / Pandas all read
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `record_type` | string | `'run'`, `'step'`, or `'measurement'` |
+| `record_type` | string | `'run'`, `'step'`, `'vector'`, or `'measurement'` |
 
-Every query starts here. Three values:
+Every query starts here. Four values:
 - `run` — one row per run carrying run-level metadata (start/end timestamps, UUT serial, station, outcome).
-- `step` — one row per (step, vector) combination.
+- `step` — one row per (step, vector) combination. For Mode-1 tests (parametrize / single / unswept), this row IS the fused step+vector.
+- `vector` — one row per in-body iteration for Mode-2 (`vectors`-fixture) tests. Not emitted for Mode-1.
 - `measurement` — one row per measurement name within a (step, vector).
 
-To list steps: `WHERE record_type = 'step'`. To list measurements: `WHERE record_type = 'measurement'`. All kinds: omit the filter.
+To list steps: `WHERE record_type = 'step'`. To list in-body iterations: `WHERE record_type = 'vector'`. To list measurements: `WHERE record_type = 'measurement'`. All kinds: omit the filter.
 
 ## Identity & timing
 
@@ -148,43 +150,54 @@ WHERE record_type = 'step';
 | `git_branch` | string | Branch at test time |
 | `git_remote` | string | Remote URL at test time |
 
-## Input conditions (dynamic `in_*`)
+## Input conditions (`inputs` lane — at-rest format)
 
-For each parametrize axis or sidecar sweep parameter, the writer emits a column. Types are inferred from values.
+At rest, each vector's commanded conditions are stored in the `inputs` column as a typed nested list: `LIST<STRUCT<name, kind, value_int, value_double, value_bool, value_text, value_timestamp, value_json, unit>>`. One struct per parameter; `kind` selects which `value_*` lane holds the actual value (`scalar:int`, `scalar:float`, `scalar:bool`, `scalar:str`, `scalar:datetime`, `uri`, `list`, `dict`).
 
-| Column pattern | Type | Description |
+The DuckDB daemon projects these lane structs into flat `in_{param}` columns when populating the query views. The `in_*` wide columns you see in query results are projections, not the at-rest representation.
+
+**Entry structure** (one item in the `inputs` list):
+
+| Field | Type | Description |
 |---|---|---|
-| `in_{param}` | float64 / int64 / string | Value commanded for that axis |
-| `in_{param}_instrument` | string | Instrument name |
-| `in_{param}_resource` | string | VISA address at test time |
-| `in_{param}_channel` | string | Channel on instrument |
-| `in_{param}_uut_pin` | string | UUT pin driven |
-| `in_{param}_fixture_connection` | string | Fixture routing connection |
+| `name` | string | Parameter name (e.g. `vin`, `temperature`) |
+| `kind` | string | Value type discriminator (`scalar:int`, `scalar:float`, `scalar:bool`, `scalar:str`, `scalar:datetime`, `uri`, `list`, `dict`) |
+| `value_int` | int64 | Set when `kind = 'scalar:int'`; NULL otherwise |
+| `value_double` | float64 | Set when `kind = 'scalar:float'`; NULL otherwise |
+| `value_bool` | bool | Set when `kind = 'scalar:bool'`; NULL otherwise |
+| `value_text` | string | Set when `kind` is `scalar:str` or `uri`; NULL otherwise |
+| `value_timestamp` | timestamp[us, UTC] | Set when `kind = 'scalar:datetime'`; NULL otherwise |
+| `value_json` | string | Set when `kind` is `list` or `dict`; NULL otherwise |
+| `unit` | string | Reserved; NULL today |
 
-**Naming convention:**
+**Naming convention** (applies to `name` inside each entry and to the projected `in_*` column names):
 
 | Type | Pattern | Examples |
 |------|---------|----------|
-| Spec conditions | bare name | `in_temperature`, `in_load`, `in_vin` |
-| Implementation details | fixture-prefixed | `in_psu.voltage`, `in_dmm.sample_count` |
+| Spec conditions | bare name | `temperature`, `load`, `vin` |
+| Implementation details | fixture-prefixed | `psu.voltage`, `dmm.sample_count` |
 
 Bare names are spec-relevant for condition matching; prefixed names are stimulus/settings. Convention is enforced by docs, not by the writer.
 
-## Observations (dynamic `out_*`)
+Stimulus signal-path sub-fields for each param (also stored in the `inputs` lane as separate entries with compound names):
 
-Observations are *measured* context — readings captured during the test, not commanded values.
+| Entry name pattern | Description |
+|---|---|
+| `{param}_instrument` | Instrument name |
+| `{param}_resource` | VISA address at test time |
+| `{param}_channel` | Channel on instrument |
+| `{param}_uut_pin` | UUT pin driven |
+| `{param}_fixture_connection` | Fixture routing connection |
 
-| Column pattern | Type | Description |
-|----------------|------|-------------|
-| `out_{key}` | varies | Observed value (scalar, array, or file reference) |
+## Observations (`outputs` lane — at-rest format)
 
-Examples: `out_temp_probe.temperature`, `out_temp_probe.humidity`, `out_scope.waveform`.
+Observations are *measured* context — readings captured during the test, not commanded values. Stored at rest in the `outputs` column with the same `LIST<STRUCT>` shape as `inputs`. The DuckDB daemon projects these into flat `out_{key}` query columns.
 
-For non-scalar payloads, the value is a `file://_ref/...` URI:
+Each struct entry encodes one observation under `name`. Non-scalar payloads route to the `_ref/` sibling directory and are stored as `file://` URIs with `kind = 'uri'` in the `value_text` lane:
 
-| Data Type | Storage format | Example column value |
+| Data Type | Storage format | `value_text` example |
 |-----------|----------------|----------------------|
-| Scalar (float / int / str / bool) | inline | `3.31` |
+| Scalar (float / int / str / bool) | inline in appropriate `value_*` lane | n/a — uses typed lane |
 | `Waveform` | `.npz` with t0, dt, Y, attrs | `file://_ref/{id}_scope_waveform.npz` |
 | `numpy.ndarray` | `.npy` compressed | `file://_ref/{id}_raw_samples.npy` |
 | `Path` | copied, extension preserved | `file://_ref/{id}_debug_log.txt` |
@@ -261,7 +274,7 @@ GROUP BY characteristic_id, part_id;
 
 ## Custom metadata
 
-Test code can add arbitrary columns via `run_context.set()`:
+Test code can add arbitrary run-level metadata via `run_context.set()`:
 
 ```python
 def test_example(run_context, psu, dmm, verify):
@@ -271,7 +284,7 @@ def test_example(run_context, psu, dmm, verify):
     ...
 ```
 
-Those become Parquet columns prefixed `custom_*` with inferred types.
+At rest, custom metadata is stored in the `custom` column using the same `LIST<STRUCT>` lane format as `inputs` and `outputs`. The DuckDB daemon projects these into flat `custom_*` query columns with inferred types.
 
 ## Outcome values
 
@@ -304,16 +317,23 @@ Source of truth: `src/litmus/data/models.py` (`Outcome`).
 
 ## Retries
 
-All retries are stored. Each retry produces measurement rows with the same `vector_index` and an incremented `vector_retry`:
+All retries are stored. Each retry produces a new record at the step or vector grain (not just additional measurement rows), so measurement-less retries are captured.
+
+**Mode-1 (parametrize / single / unswept):** each attempt is a separate `step` row with `vector_retry = 0, 1, 2, …`. Measurement rows under each attempt carry the same `vector_retry` value as their parent step.
 
 ```
-vector_index | vector_retry | measurement_name | measurement_value | measurement_outcome
-0            | 0            | output_voltage   | 3.50              | failed   ← first execution
-0            | 1            | output_voltage   | 3.48              | failed   ← first retry
-0            | 2            | output_voltage   | 3.30              | passed   ← second retry
+record_type | vector_index | vector_retry | step_outcome   | measurement_name | measurement_value
+step        | 0            | 0            | failed         | —                | —                  ← first attempt
+measurement | 0            | 0            | —              | output_voltage   | 3.50
+step        | 0            | 1            | failed         | —                | —                  ← first retry
+measurement | 0            | 1            | —              | output_voltage   | 3.48
+step        | 0            | 2            | passed         | —                | —                  ← second retry
+measurement | 0            | 2            | —              | output_voltage   | 3.30
 ```
 
-Filter to the final execution with `WHERE vector_retry = (SELECT MAX(vector_retry) ...)` or use the daemon's `runs` view, which already rolls `retry_count` per `(run_id, step_path, vector_index)`.
+**Mode-2 (`vectors` fixture):** each attempt at one in-body iteration is a separate `vector` row with the same `vector_index` and an incremented `vector_retry`.
+
+Filter to the final attempt with `WHERE vector_retry = (SELECT MAX(vector_retry) FROM … WHERE record_type IN ('step','vector') …)`, scoping by `(run_id, step_path, vector_index)`.
 
 ## File-level metadata
 

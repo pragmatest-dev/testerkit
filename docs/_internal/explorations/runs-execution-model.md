@@ -8,6 +8,18 @@ the projection phase of this larger model.
 **vector** (one condition set / one execution) is the organizing unit; persist a
 normalized **chronological telling** of the events; project that into DuckDB.
 
+**Progress (2026-06-18):** Phases 1-4 landed on `spike/runs-execution-model`,
+full suite green. P1 events `51cc244`; P2-4 (format + projection) `8f163b6`.
+Phase 5 verified no-op (no consumer reads a removed column). Phase 6 docs in
+progress. **Perf gate:** query SQL is UNCHANGED (the daemon rebuilds the
+`dynamic_attrs` MAP from the lanes), so query latency = today by code identity —
+the "≥ today" gate is met. The `measurements_dynamic` EAV long table is built and
+ingested but **queries are not yet repointed onto it**, so the EAV *speedup* (the
+"better") is wired-but-unrealized — repointing `_col_expr` to the long table is the
+remaining follow-up. Known gaps flagged: Mode-1 rerun retry_count not carried in
+the main parquet (only the `_steps` manifest); the direct-API `save_test_run` path
+can't emit Mode-2 `vector` rows (no Mode flag on `TestRun` — event/daemon path only).
+
 ## Why (the seam we found)
 
 Today outcome, retry, and conditions are all carried on the **measurement**

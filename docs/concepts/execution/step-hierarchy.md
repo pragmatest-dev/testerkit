@@ -101,9 +101,9 @@ StepStarted ("TestPower",            vi=1, inputs={voltage:2}, ...)
 
 `step_index` for the container is 0 (root-level), for each method is 0/1/2 within the `TestPower` class bucket — so `(step_index=1, vector_index=0)` uniquely points to `test_load[voltage=1, current=4]`.
 
-## `vectors` fixture — one step, many inner vectors
+## `vectors` fixture — one step, many in-body vectors (Mode 2)
 
-When the method uses the `vectors` fixture, pytest sees ONE item per outer iteration. The step has ONE outer identity (matching the outer-iteration position) and N inner TestVectors from the matrix:
+When the method uses the `vectors` fixture, pytest sees ONE item per outer iteration. The step has ONE outer identity (matching the outer-iteration position) and N in-body vector iterations, each bracketed by `VectorStarted` / `VectorEnded` events:
 
 ```python
 @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
@@ -117,14 +117,20 @@ class TestPower:
 Event stream:
 
 ```
-StepStarted("test_load",          vi=0, inputs={voltage:1})    # outer position
-MeasurementRecorded("vout", vi=0, inputs={voltage:1, current:4})
-MeasurementRecorded("vout", vi=1, inputs={voltage:1, current:5})
-MeasurementRecorded("vout", vi=2, inputs={voltage:1, current:6})
-StepEnded  ("test_load",          vi=0, vector_outcome=<aggregate across all inner vectors>)
+StepStarted   ("test_load", vi=0, inputs={voltage:1})         # outer position
+VectorStarted ("test_load", vi=0, inputs={voltage:1, current:4})
+MeasurementRecorded("vout", inputs={voltage:1, current:4})
+VectorEnded   ("test_load", vi=0, outcome=passed)
+VectorStarted ("test_load", vi=1, inputs={voltage:1, current:5})
+MeasurementRecorded("vout", inputs={voltage:1, current:5})
+VectorEnded   ("test_load", vi=1, outcome=passed)
+VectorStarted ("test_load", vi=2, inputs={voltage:1, current:6})
+MeasurementRecorded("vout", inputs={voltage:1, current:6})
+VectorEnded   ("test_load", vi=2, outcome=passed)
+StepEnded     ("test_load", vi=0, outcome=<rolled-up>)
 ```
 
-`StepStarted.vector_index` and `StepEnded.vector_index` agree (the outer iteration position). Measurements carry their own `vector_index` (inner counter 0/1/2) plus the full effective `inputs`.
+`StepStarted.vector_index` and `StepEnded.vector_index` agree (the outer iteration position). Each `VectorStarted`/`VectorEnded` pair is the in-body analog of a Mode-1 step boundary — it brackets one iteration's work and carries the full effective `inputs` for that iteration. In the materialized parquet, each `VectorStarted`/`VectorEnded` pair produces one `record_type = 'vector'` row; `record_type = 'step'` rows are NOT emitted for Mode-2 in-body iterations (only for the enclosing step itself).
 
 ## Outcome rollup chain
 
@@ -142,15 +148,17 @@ TestRun.outcome     (the run's overall verdict, on RunEnded)
 
 Severity ladder: `ABORTED > TERMINATED > ERRORED > FAILED > PASSED > DONE > SKIPPED`. Worst wins at every level. Full mapping and producer sites in [Outcomes](outcomes.md).
 
-## Materialized table identity
+## Materialized record identity
 
-The runs daemon materializes step events into a `steps_materialized` DuckDB table with primary key `(run_id, step_path, vector_index)`. Container steps and method steps share the table — discriminate by `parent_path`:
+The per-run parquet contains four `record_type` values: `run`, `step`, `vector`, and `measurement`. Container steps and method steps share the `step` record type — discriminate by `parent_path`:
 
 - `parent_path = ''` → root-level (run-level test functions or class containers)
 - `parent_path = '<class_name>'` → method directly under a class container
-- `parent_path = '<class>/<method>'` → would be a nested step (uncommon today; only via `harness.step()` self-loops)
+- `parent_path = '<class>/<method>'` → nested step (via `harness.step()` self-loops)
 
-`MAX(severity)` over rows sharing a `step_path` aggregates "did this class ever fail in this run" across its iterations. See the [results storage reference](../../reference/data/parquet-schema.md) for the full column schema.
+`vector` records appear only for Mode-2 in-body iterations (`vectors` fixture). They key on `(step_path, parent_path, vector_index, retry)` and sit below their enclosing `step` row. Mode-1 steps (parametrize / single) have no `vector` rows — the `step` row IS the fused step+vector.
+
+`MAX(severity)` over `step` rows sharing a `step_path` aggregates "did this class ever fail in this run" across its iterations. See the [results storage reference](../../reference/data/parquet-schema.md) for the full column schema.
 
 
 ## See also
