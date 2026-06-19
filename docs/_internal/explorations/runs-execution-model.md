@@ -20,6 +20,134 @@ remaining follow-up. Known gaps flagged: Mode-1 rerun retry_count not carried in
 the main parquet (only the `_steps` manifest); the direct-API `save_test_run` path
 can't emit Mode-2 `vector` rows (no Mode flag on `TestRun` — event/daemon path only).
 
+## v2 model — uniform vectors + vector-as-carrier (branch `spike/runs-execution-model-v2`)
+
+The discussion converged past v1 (the committed fused/Decision-A model) onto a
+cleaner v2. **This branch builds v2.** The rule and the seven decisions:
+
+**Grain rule — outcome is the discriminator:** outcome-bearing entities are ROWS
+(`run → step → vector → measurement`, the rollup hierarchy); outcomeless captured
+data are NESTED lanes (`inputs`/`outputs`/`custom`).
+
+1. **Uniform vectors.** Every execution materializes a `vector` row — no Mode-1
+   fusing. A non-looping step has exactly one (its scope vector); a self-loop adds
+   more. The vector is the universal execution unit, always present.
+2. **Vector = the canonical data carrier.** `inputs`/`outputs`/`custom` (nested
+   lanes) live on the **vector**; measurements are **children of the vector**. The
+   `step` carries ONLY code identity + timing + rolled-up outcome — it **sheds
+   `inputs`** (StepStarted/StepEnded drop the inputs field; conditions move to
+   VectorStarted).
+3. **Measurements stay rows, reference (don't copy) the vector.** A measurement row
+   carries only its intrinsic fields (value/units/limits/outcome/char/spec/signal-path)
+   and references its vector by key — NO in/out denormalization (kills the pivot).
+   Measurements are a **typed fact table, not an EAV** (numeric value, fixed schema);
+   only `inputs`/`outputs`/`custom` get the EAV.
+4. **Step-scope vector.** Data recorded in the step body but outside any inner loop
+   (setup/teardown/between) homes on the step's default **scope vector**; inner-loop
+   `context.vector()` iterations are **nested under** the scope vector (step → scope
+   vector → iteration vectors → measurements). Scope-vs-iteration indices never
+   collide because iterations are children of the scope vector.
+5. **Lineage — enclosing-vector key.** A vectorized class nests: class vector ⊃
+   method step ⊃ method vector ⊃ measurement. Each vector/measurement carries its
+   **enclosing-vector key** (not just `parent_path`), so the iteration is bound
+   exactly (not matched on value). The projection pre-assembles the **merged
+   condition** onto the leaf (direct condition queries, no per-row walk) AND keeps
+   the parent-vector link (structural up/down traversal).
+6. **Units — symmetric, optional, inline+config.** `configure("vin", 3.3, unit="V")`
+   and `observe("temp", 24.8, unit="°C")` — one optional `unit=` on both; inline is
+   primary, config (sweep `vectors:` for inputs, spec/characteristic for outputs)
+   supplies a default. Carries value+unit → the lane's `unit` field (already
+   reserved) → the EAV `unit` column (already present). No at-rest schema change for
+   the slot itself.
+7. **Projection unchanged in shape.** The daemon still produces `measurements_dynamic`
+   (in/out/custom EAV) + a measurements fact + steps; queries (incl. the committed
+   EAV repoint) read the same projection. v2 changes how it's fed (uniform vectors;
+   measurements reference; merged-condition assembled up the vector stack), not the
+   projection's output shape — public Query API stays byte-stable.
+
+v1 (the prose below) is retained for the rationale; where v1 says "Mode-1 fuses /
+measurements denormalize in/out / step carries inputs," **v2 supersedes it** per the
+above.
+
+**Resolved build decisions (2026-06-19):**
+- **Scope-vector production = (A) synthesize in the materializer.** The materializer
+  derives a scope `vector` per step and moves the conditions onto it, so the AT-REST
+  parquet is uniform (step rows shed inputs → onto the synthesized scope vector).
+  `StepStarted`/`StepEnded` keep `inputs` on the *wire* as the source the materializer
+  reads — NO emission rewrite. The durable/queried layer is uniform; the telling is a
+  normalized projection of the (unchanged) events. Promoting to real per-execution
+  emission (B) is a clean later seam, not built now.
+- **Lineage = reuse the existing vector key + merged condition; NO new at-rest column.**
+  The merged condition on the leaf (via context inheritance) serves group/filter-by-value;
+  `(step_path, vector_index, retry)` + `parent_path` carry the structure. An explicit
+  `enclosing_vector_key` is deferred (only needed to disambiguate same-value class
+  iterations — rare, and arguably the same condition).
+- **Units (decision 6):** proceed as specified.
+
+## v2 FINAL contract (post-discussion, 2026-06-19) — supersedes the above where they differ
+
+The design discussion converged past the as-built v2. **This is the authoritative
+contract.** Two layers, deliberately different shapes (the industry pattern —
+STDF/OpenHTF/TestStand all capture nested and query from an unpacked DB):
+
+- **At-rest = nested parquet** (the portable archive / source of truth).
+- **Query = unpacked typed tables** (the DuckDB projection: a flat measurement
+  **fact** + the in/out/custom **EAV**, with the outcome rollup).
+
+**Grain (at-rest):**
+```
+run    (row)
+└─ step   (row)   code identity + timing + rolled-up outcome; sheds inputs
+   └─ vector (row, uniform — one per execution; scope vector for non-looping,
+      │              nested iteration vectors for a self-loop)
+      │   inputs / outputs / custom : LIST<STRUCT<name, kind, value lanes, unit, uut_pin>>
+      └─ measurements : LIST<STRUCT< name, value, units, limits, outcome,
+                                      characteristic, spec, signal-path (uut_pin/…),
+                                      ref >>        ← NESTED under the vector
+```
+
+**Deltas from the as-built v2 (what still needs doing):**
+1. **Nest measurements UNDER the vector** (reverses as-built v2's separate
+   `record_type='measurement'` rows referencing the vector). Kills the empty-lane
+   sparsity; makes the per-pin array natural. The flat measurement **fact lives in
+   the projection** (daemon `UNNEST`s the nested measurements at ingest). The
+   outcome rollup is a **query-layer** aggregation, not a reason for at-rest rows.
+   *(Supersedes decision 3 "measurements stay rows".)*
+2. **Measurement raw `ref`** — optional `ref=` on `verify`/`measure`; the measurement
+   owns a `channel://`/`file://` URI to *its* raw signal (claim-checked). Structural
+   field on the measurement, NOT an output→measurement back-pointer. The
+   differentiating per-measurement-raw capability.
+3. **`unit=` on `verify`** (measurements) — symmetric with `configure`/`observe`
+   (already shipped). The measurement carries its unit.
+4. **Pin / signal-path on observations** — extend `_auto_traceability` (logger.py:125)
+   to the `observe` path so a pinned raw capture inside a `connections` loop gets
+   `uut_pin`/`fixture_connection`/`instrument_channel` stamped automatically (the
+   active-connection contextvar is already set). Add `uut_pin` to the lane struct.
+   Makes observations symmetric with measurements (both pin-able).
+5. **`uut_pin` grain-bearing for measurements** — per-pin MPR: same `measurement_name`,
+   shared limits, one record per pin, distinguished by `uut_pin` (NOT a name `[x]`
+   suffix, NOT a vector input). Pin comes from config via the connections iterator.
+6. **Projection: `UNNEST` nested measurements → the fact table** (+ in/out → EAV as
+   today). Mechanical; **query output shape stays byte-stable** — the committed
+   EAV-query repoint and all consumers (UI/CLI/MCP/Grafana) are untouched.
+
+**Already built on `spike/runs-execution-model-v2` (no change):** uniform vectors;
+vector carries inputs/outputs/custom; step sheds inputs; units on `configure`/`observe`;
+`_auto_traceability` auto-stamping the connection signal-path onto **measurements**;
+`ConnectionIterator`/`for_characteristic` per-pin loop from config; the EAV projection
++ dynamic-axis EAV-query speedup (parent branch).
+
+**Two distinct inner loops (model clarification):** the `vectors` fixture loop →
+new **conditions** → new vector rows; the `connections.for_characteristic` loop →
+same condition, different measurement point → new **measurements/observations within
+the vector** (the per-pin axis). The pin loop never creates vectors.
+
+**Net:** of the six deltas, only #1 (nest measurements) is a structural reversal of
+the branch; the rest are additive. After this, the at-rest is a clean nested archive
+(vector ⊃ inputs/outputs/custom lanes + a measurements array, each measurement
+optionally pinned and `ref`-linked to its raw), and the query layer is the unpacked
+fact + EAV.
+
 ## Why (the seam we found)
 
 Today outcome, retry, and conditions are all carried on the **measurement**
