@@ -1194,6 +1194,33 @@ test-engineering use case (load-curve specs, temperature-derated
 limits, formula-driven limits) — they're not aspirational, just
 not built yet.
 
+### What-if limit analysis — retune limits across history for yield (v0.3.0 analytics)
+
+A differentiating analytics surface: take an existing measurement and apply
+*hypothetical* limits to its full historical value distribution, then report the
+resulting yield (% pass) — so a test engineer can tune a limit against real data
+*before* committing it, and see exactly how much yield a tighter/looser bound buys
+or costs.
+
+- **Input:** a measurement (by name / characteristic) + candidate limit(s)
+  (low/high/nominal/comparator), optionally scoped by conditions (DUT / product /
+  station / date, or input-vector values).
+- **Output:** pass-rate over the matched historical values under the candidate
+  limits vs the current limits — a before/after **yield delta**, ideally with the
+  value distribution and where the proposed bounds cut.
+- **Extension:** sweep a limit across a range → plot **yield-vs-limit** (find the
+  knee / the bound that hits a target yield); Cpk under the candidate limits.
+
+Why it's differentiating: limit-setting today is intuition + guesswork; this turns
+it into a data-driven "what does this limit do to my yield?" answered from history.
+No mainstream HW-test stack offers it as a first-class loop.
+
+Enabled by the runs redesign: measurements are long-form with the raw typed
+``measurement_value``, and conditions are queryable via the EAV — so re-evaluating
+arbitrary limits across the historical value set is a scan + comparison, no re-run.
+Current limits live in config (``MeasurementLimitConfig``), so "current vs candidate"
+is a clean diff.
+
 ### Consumer-side ref materialization (waveform viewing)
 
 Surfaced by the Phase 6a.2 `data/backends/` design review: the
