@@ -2,9 +2,10 @@
 
 Each method sends SQL to the daemon over Arrow Flight against the
 ``measurements`` view (the ``measurements_materialized`` table plus the
-in-flight overlay). Dynamic in_*/out_*/custom_* columns are read from the
-``dynamic_attrs`` MAP. Returns typed rows (long-format, aggregated, or
-schema descriptions).
+in-flight overlay). Dynamic in_*/out_*/custom_* columns are read by anchoring
+on the core ``measurements`` view and LEFT JOINing the typed ``measurements_dynamic``
+EAV table per referenced column. Returns typed rows (long-format, aggregated,
+or schema descriptions).
 """
 
 from __future__ import annotations
@@ -42,26 +43,96 @@ def _safe_ident(name: str) -> str:
     return name
 
 
-_DYNAMIC_COL_PREFIXES: tuple[str, ...] = ("in_", "out_", "custom_")
+# Dynamic column prefix → ``measurements_dynamic.side`` tag. The bare lane
+# ``name`` is the column with the prefix stripped (``in_freq`` → side ``in``,
+# name ``freq``), matching how the daemon UNNESTs the nested lanes.
+_DYNAMIC_SIDE_BY_PREFIX: tuple[tuple[str, str], ...] = (
+    ("in_", "in"),
+    ("out_", "out"),
+    ("custom_", "custom"),
+)
+
+# The natural vector identity shared by the core ``measurements`` view (aliased
+# ``m``) and the EAV ``measurements_dynamic`` table — the join key per dynamic
+# column. ``vector_retry`` is NULL-bearing, so the join is NULL-safe.
+_VECTOR_KEY = (
+    "{a}.run_id = m.run_id"
+    " AND {a}.step_index = m.step_index"
+    " AND {a}.vector_index = m.vector_index"
+    " AND {a}.vector_retry IS NOT DISTINCT FROM m.vector_retry"
+)
+
+# Render one EAV lane row back to the same VARCHAR the ``dynamic_attrs`` MAP
+# would hold (the SQL twin of the daemon's ``_LANE_VALUE_VARCHAR``), so the
+# joined-lane read is byte-identical to the MAP read it replaces. ``{a}`` is the
+# per-column join alias.
+_LANE_VARCHAR = """CASE {a}.kind
+            WHEN 'scalar:bool' THEN CASE WHEN {a}.value_bool THEN 'true' ELSE 'false' END
+            WHEN 'scalar:int' THEN CAST({a}.value_int AS VARCHAR)
+            WHEN 'scalar:float' THEN CAST({a}.value_double AS VARCHAR)
+            WHEN 'scalar:datetime' THEN CAST({a}.value_timestamp AS VARCHAR)
+            WHEN 'list' THEN {a}.value_json
+            WHEN 'dict' THEN {a}.value_json
+            ELSE {a}.value_text
+        END"""
 
 
-def _col_expr(col: str, cast_as: str = "DOUBLE") -> str:
-    """SQL expression for a column reference in parametric queries.
+def _split_dynamic(col: str) -> tuple[str, str] | None:
+    """Split a dynamic column into ``(side, bare_name)`` or ``None`` if fixed."""
+    for prefix, side in _DYNAMIC_SIDE_BY_PREFIX:
+        if col.startswith(prefix):
+            return side, col[len(prefix) :]
+    return None
 
-    Fixed columns (``measurement_value``, ``run_started_at``, etc.) are
-    returned as validated bare identifiers. Dynamic columns
-    (``in_*``/``out_*``/``custom_*``) are MAP key lookups:
-    ``dynamic_attrs['key'][1]`` cast to the requested type.
 
-    ``cast_as='DOUBLE'`` for numeric Y/X axes. ``cast_as='VARCHAR'``
-    for string-typed use such as filtering ``WHERE in_mode = 'X'``
-    or grouping by a string input column.
+class _DynamicJoins:
+    """Collects the dynamic columns a query references and emits their joins.
+
+    The analytical read path anchors on the core ``measurements`` view (aliased
+    ``m``) and LEFT JOINs ``measurements_dynamic`` once per distinct dynamic
+    column on the vector key + ``side``/``name`` (the core-anchored-join in the
+    EAV design). ``col_expr`` registers a column and returns the lane expression
+    cast to the requested type; ``join_sql`` returns the JOIN clauses to splice
+    after ``FROM measurements m``. A missing lane row yields NULL — matching the
+    MAP's missing-key behavior, so results stay identical.
     """
-    _safe_ident(col)  # validate name is a bare identifier
-    if any(col.startswith(p) for p in _DYNAMIC_COL_PREFIXES):
-        safe_key = col.replace("'", "''")
-        return f"TRY_CAST(dynamic_attrs['{safe_key}'][1] AS {cast_as})"
-    return col
+
+    def __init__(self) -> None:
+        self._aliases: dict[str, tuple[str, str, str]] = {}  # col → (alias, side, name)
+
+    def col_expr(self, col: str, cast_as: str = "DOUBLE") -> str:
+        """Lane expression for ``col`` cast to ``cast_as``.
+
+        Fixed columns are qualified ``m.<col>`` — the EAV joins add a
+        ``measurements_dynamic`` alias that shares column names with the core
+        (``run_id``/``step_index``/``vector_index``/``vector_retry``), so an
+        unqualified reference would be ambiguous.
+        """
+        _safe_ident(col)
+        split = _split_dynamic(col)
+        if split is None:
+            return f"m.{col}"
+        side, name = split
+        entry = self._aliases.get(col)
+        if entry is None:
+            alias = f"md_{len(self._aliases)}"
+            self._aliases[col] = (alias, side, name)
+        else:
+            alias = entry[0]
+        lane_varchar = _LANE_VARCHAR.format(a=alias)
+        return f"TRY_CAST({lane_varchar} AS {cast_as})"
+
+    def join_sql(self) -> str:
+        """The LEFT JOIN clauses for every registered dynamic column."""
+        clauses = []
+        for alias, side, name in self._aliases.values():
+            vkey = _VECTOR_KEY.format(a=alias)
+            clauses.append(
+                f" LEFT JOIN measurements_dynamic {alias} ON {vkey}"
+                f" AND {alias}.side = '{sql_escape(side)}'"
+                f" AND {alias}.name = '{sql_escape(name)}'"
+            )
+        return "".join(clauses)
 
 
 def _filter_clauses(filters: FilterSet | None) -> list[str]:
@@ -667,10 +738,11 @@ class MeasurementsQuery:
         """Return the measurements schema: ``[{column_name, column_type}, ...]``.
 
         Returns fixed columns from ``measurements_materialized`` plus dynamic
-        column names discovered during ingest (from ``measurement_io_schema``).
-        Dynamic columns are reported as ``DOUBLE`` so the explore page's
-        classifier includes them as Y/X candidates; values are actually
-        ``VARCHAR`` in the MAP, with ``TRY_CAST`` applied at query time.
+        column names discovered during ingest (from the maintained
+        ``measurement_io_schema`` catalog — not a live scan). Dynamic columns are
+        reported as ``DOUBLE`` so the explore page's classifier includes them as
+        Y/X candidates; their typed lanes are joined from ``measurements_dynamic``
+        at query time.
         """
         fixed = self._query_dicts(
             "SELECT column_name, column_type"
@@ -715,9 +787,10 @@ class MeasurementsQuery:
         semantic as the other public methods. UI live views pass
         ``True`` to plot in-flight values.
         """
-        y_col = _col_expr(y)
-        x_col = _col_expr(x) if chart_type != "histogram" else None
-        group_col = _col_expr(group_by, "VARCHAR") if group_by else None
+        joins = _DynamicJoins()
+        y_col = joins.col_expr(y)
+        x_col = joins.col_expr(x) if chart_type != "histogram" else None
+        group_col = joins.col_expr(group_by, "VARCHAR") if group_by else None
 
         clauses = [f"{y_col} IS NOT NULL"]
         if x_col is not None:
@@ -726,6 +799,7 @@ class MeasurementsQuery:
             clauses.append("run_outcome IS NOT NULL")
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
+        frm = f"measurements m{joins.join_sql()}"
 
         group_expr = group_col if group_col else "''"
         group_clause = f", {group_col}" if group_col else ""
@@ -734,7 +808,7 @@ class MeasurementsQuery:
             sql = f"""
             WITH stats AS (
                 SELECT MIN({y_col}) AS lo, MAX({y_col}) AS hi
-                FROM measurements{where}
+                FROM {frm}{where}
             ),
             bucketed AS (
                 SELECT
@@ -745,7 +819,7 @@ class MeasurementsQuery:
                     ) AS bin,
                     stats.lo AS lo, stats.hi AS hi,
                     {group_expr} AS "group"
-                FROM measurements, stats{where}
+                FROM {frm}, stats{where}
             )
             SELECT
                 bin,
@@ -765,7 +839,7 @@ class MeasurementsQuery:
                 {x_col} AS x,
                 AVG({y_col}) AS y,
                 {group_expr} AS "group"
-            FROM measurements{where}
+            FROM {frm}{where}
             GROUP BY {x_col}{group_clause}
             ORDER BY {x_col}
             LIMIT {int(limit)}
@@ -778,7 +852,7 @@ class MeasurementsQuery:
                 {x_col} AS x,
                 {y_col} AS y,
                 {group_expr} AS "group"
-            FROM measurements{where}
+            FROM {frm}{where}
             {order}
             LIMIT {int(limit)}
             """
@@ -799,24 +873,26 @@ class MeasurementsQuery:
         X, ordered by X. A condition-indexed limit renders as a step
         band; a constant limit collapses to a flat one.
         """
-        x_col = _col_expr(x)
-        clauses = [f"{x_col} IS NOT NULL", "run_outcome IS NOT NULL"]
+        joins = _DynamicJoins()
+        x_col = joins.col_expr(x)
+        clauses = [f"{x_col} IS NOT NULL", "m.run_outcome IS NOT NULL"]
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
+        frm = f"measurements m{joins.join_sql()}"
         sql = f"""
         WITH latest AS (
-            SELECT run_id
-            FROM measurements{where}
-              AND (limit_low IS NOT NULL OR limit_high IS NOT NULL)
-            ORDER BY run_started_at DESC
+            SELECT m.run_id AS run_id
+            FROM {frm}{where}
+              AND (m.limit_low IS NOT NULL OR m.limit_high IS NOT NULL)
+            ORDER BY m.run_started_at DESC
             LIMIT 1
         )
         SELECT
             {x_col} AS x,
-            MAX(limit_low) AS low,
-            MAX(limit_high) AS high
-        FROM measurements{where}
-          AND run_id = (SELECT run_id FROM latest)
+            MAX(m.limit_low) AS low,
+            MAX(m.limit_high) AS high
+        FROM {frm}{where}
+          AND m.run_id = (SELECT run_id FROM latest)
         GROUP BY {x_col}
         ORDER BY {x_col}
         """

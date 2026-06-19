@@ -430,6 +430,69 @@ class TestParametric:
 
 
 @pytest.fixture(scope="module")
+def dynamic_axis_data() -> dict[str, str]:
+    """Two vectors with a swept input ``freq`` (in_*) and recorded ``vout``.
+
+    Exercises the EAV repoint: a dynamic ``in_freq`` axis is resolved by
+    joining ``measurements_dynamic`` on the vector key, not the MAP.
+    """
+    part = f"DYN-{uuid4().hex[:8]}"
+    canonical_runs = resolve_data_dir() / "runs" / "dyn" / "2026-03-01"
+    run = f"dyn-{uuid4()}"
+    rows = [
+        MeasurementRow(
+            record_type="measurement",
+            session_id="sess-dyn",
+            run_id=run,
+            run_started_at=datetime.fromisoformat("2026-03-01T10:00:00").replace(tzinfo=UTC),
+            run_ended_at=datetime.fromisoformat("2026-03-01T10:05:00").replace(tzinfo=UTC),
+            run_outcome="passed",
+            uut_serial="SN-DYN",
+            uut_part_number=part,
+            part_id=part,
+            test_phase="production",
+            step_name="sweep",
+            step_index=0,
+            vector_index=v,
+            measurement_name="vout",
+            measurement_value=3.30 + 0.01 * v,
+            measurement_outcome="passed",
+            inputs={"freq": freq},
+        )
+        for v, freq in enumerate((1000.0, 2000.0))
+    ]
+    _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
+    return {"part": part}
+
+
+class TestDynamicAxisEAV:
+    """The dynamic ``in_*``/``out_*`` axis path resolves via the EAV join."""
+
+    def _scope(self, part: str) -> FilterSet:
+        return FilterSet(string_filters={"part_id": [part]})
+
+    def test_dynamic_x_scatter(self, dynamic_axis_data):
+        store = MeasurementsQuery()
+        rows = store.parametric(
+            y="measurement_value", x="in_freq", filters=self._scope(dynamic_axis_data["part"])
+        )
+        by_x = {r.x: r.y for r in rows}
+        assert by_x == {1000.0: pytest.approx(3.30), 2000.0: pytest.approx(3.31)}
+
+    def test_dynamic_y_is_joined(self, dynamic_axis_data):
+        store = MeasurementsQuery()
+        rows = store.parametric(
+            y="in_freq", x="uut_serial", filters=self._scope(dynamic_axis_data["part"])
+        )
+        assert {r.y for r in rows} == {1000.0, 2000.0}
+
+    def test_dynamic_distinct_via_describe(self, dynamic_axis_data):
+        store = MeasurementsQuery()
+        names = {c["column_name"] for c in store.describe_columns()}
+        assert "in_freq" in names
+
+
+@pytest.fixture(scope="module")
 def limit_band_data() -> dict[str, str]:
     """Two runs of ``vout`` over two step_index points, with limits that
     tightened between runs and vary per step in the latest run.
