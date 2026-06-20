@@ -365,10 +365,14 @@ class Context:
             # route directly. Y → value; dt → sample_interval; t0 →
             # sampled_at; attributes → channel descriptor attributes.
             if isinstance(value, Waveform):
-                if self._channel_store is not None:
-                    resolved_unit = (
-                        unit if unit is not None else (value.attributes or {}).get("unit")
+                attr_unit = (value.attributes or {}).get("unit")
+                if unit is not None and attr_unit is not None and unit != attr_unit:
+                    raise ValueError(
+                        f"observe({full_key!r}, unit={unit!r}): conflicts with the "
+                        f"Waveform's attributes['unit']={attr_unit!r} — pass only one."
                     )
+                if self._channel_store is not None:
+                    resolved_unit = unit if unit is not None else attr_unit
                     uri = self._channel_store.write(
                         full_key,
                         value.Y,

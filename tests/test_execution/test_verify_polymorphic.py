@@ -257,3 +257,8 @@ class TestObserveChannelUnit:
         session.ctx.observe("scope.x", Waveform(Y=[1.0], dt=0.001), unit="V")
         with pytest.raises(ValueError, match="unit"):
             session.ctx.observe("scope.x", Waveform(Y=[2.0], dt=0.001), unit="A")
+
+    def test_observe_waveform_attr_unit_conflicts_with_explicit(self, session: Any) -> None:
+        wf = Waveform(Y=[1.0], dt=0.001, attributes={"unit": "A"})
+        with pytest.raises(ValueError, match="conflicts"):
+            session.ctx.observe("scope.z", wf, unit="V")

@@ -1013,6 +1013,11 @@ def observe(context: Context) -> Callable[..., None]:
         ``observe("scope.cap", wf)`` — Waveform → ChannelStore
         ``observe("voltage", 3.31, namespace="psu_a")`` — namespaced
         ``observe("temperature", 23.5, unit="degC")`` — scalar with unit
+
+    ``unit=`` stamps the engineering unit on the vector's ``observation_units``
+    (projected to the ``out_*`` lane); for a channel-routed value it also sets
+    the channel descriptor's unit (immutable per session), and is omitted to
+    inherit the channel's existing unit.
     """
 
     def _observe(
