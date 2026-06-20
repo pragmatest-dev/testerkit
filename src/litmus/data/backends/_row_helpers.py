@@ -122,18 +122,21 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def _lane_entry(name: str, value: Any, unit: str | None = None) -> dict[str, Any]:
+def _lane_entry(
+    name: str, value: Any, unit: str | None = None, uut_pin: str | None = None
+) -> dict[str, Any]:
     """Encode one ``(name, value)`` into an EAV lane struct dict.
 
     ``observation_kind`` routes the value to exactly one ``value_*`` lane;
-    the others stay ``None``. ``unit`` carries the optional engineering unit
-    for this slot (``"V"``, ``"°C"``, …) into the lane's reserved ``unit`` field.
+    the others stay ``None``. ``unit`` carries the optional engineering unit;
+    ``uut_pin`` carries the pin this observation belongs to (or None = all pins).
     """
     kind = observation_kind(value)
     entry: dict[str, Any] = dict.fromkeys(LANE_FIELDS)
     entry["name"] = name
     entry["kind"] = kind
     entry["unit"] = unit
+    entry["uut_pin"] = uut_pin
     if kind == "scalar:bool":
         entry["value_bool"] = bool(value)
     elif kind == "scalar:int":
@@ -152,15 +155,20 @@ def _lane_entry(name: str, value: Any, unit: str | None = None) -> dict[str, Any
 
 
 def encode_lane_structs(
-    values: dict[str, Any], units: dict[str, str] | None = None
+    values: dict[str, Any],
+    units: dict[str, str] | None = None,
+    pins: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Encode an inputs / outputs / custom dict into a list of lane structs.
 
-    ``units`` (optional) maps a slot name to its engineering unit; the unit
-    rides into the lane's ``unit`` field → the EAV ``unit`` column.
+    ``units`` maps a slot name to its engineering unit; ``pins`` maps a slot
+    name to its ``uut_pin``. Both ride into the lane's named fields.
     """
     units = units or {}
-    return [_lane_entry(name, value, units.get(name)) for name, value in values.items()]
+    pins = pins or {}
+    return [
+        _lane_entry(name, value, units.get(name), pins.get(name)) for name, value in values.items()
+    ]
 
 
 def _lane_value(entry: dict[str, Any]) -> Any:
@@ -326,6 +334,7 @@ class MeasurementRow(BaseModel):
     # flowed into the lane's ``unit`` field at encode time.
     input_units: dict[str, str] = Field(default_factory=dict)
     output_units: dict[str, str] = Field(default_factory=dict)
+    output_pins: dict[str, str] = Field(default_factory=dict)
     # Nested measurements carried on the vector row (LIST<STRUCT>).
     measurements: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -352,12 +361,13 @@ class MeasurementRow(BaseModel):
             "custom",
             "input_units",
             "output_units",
+            "output_pins",
         }
         if at_rest:
             exclude |= _MEASUREMENT_SCALAR_FIELDS
         row = self.model_dump(exclude=exclude)
         row["inputs"] = encode_lane_structs(self.inputs, self.input_units)
-        row["outputs"] = encode_lane_structs(self.outputs, self.output_units)
+        row["outputs"] = encode_lane_structs(self.outputs, self.output_units, self.output_pins)
         row["custom"] = encode_lane_structs(self.custom)
         row.update(self.instruments)
         return row
@@ -992,6 +1002,7 @@ def build_scope_vector_row(
         outputs=dict(entry.get("outputs") or {}),
         input_units=dict(entry.get("input_units") or {}),
         output_units=dict(entry.get("output_units") or {}),
+        output_pins=dict(entry.get("output_pins") or {}),
         measurements=entry.get("measurements") or [],
         instruments=instruments,
         custom={},
@@ -1053,6 +1064,7 @@ def build_vector_row(
         outputs=dict(entry.get("outputs") or {}),
         input_units=dict(entry.get("input_units") or {}),
         output_units=dict(entry.get("output_units") or {}),
+        output_pins=dict(entry.get("output_pins") or {}),
         measurements=entry.get("measurements") or [],
         instruments=instruments,
         custom={},
@@ -1083,6 +1095,7 @@ def vector_entry_dict(
     outputs: dict[str, Any] | None = None,
     input_units: dict[str, str] | None = None,
     output_units: dict[str, str] | None = None,
+    output_pins: dict[str, str] | None = None,
     measurements: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Single source of truth for one in-body vector manifest entry's shape.
@@ -1113,6 +1126,7 @@ def vector_entry_dict(
         "outputs": outputs or {},
         "input_units": input_units or {},
         "output_units": output_units or {},
+        "output_pins": output_pins or {},
         "measurements": measurements or [],
     }
 
@@ -1195,6 +1209,7 @@ def build_step_manifest(
                     outputs=outputs,
                     input_units=dict(vector.param_units) if vector is not None else {},
                     output_units=dict(vector.observation_units) if vector is not None else {},
+                    output_pins=dict(vector.observation_pins) if vector is not None else {},
                     measurements=[
                         build_measurement_struct(m)
                         for m in (vector.measurements if vector is not None else [])
@@ -1238,6 +1253,7 @@ def step_entry_dict(
     outputs: dict[str, Any] | None = None,
     input_units: dict[str, str] | None = None,
     output_units: dict[str, str] | None = None,
+    output_pins: dict[str, str] | None = None,
     measurements: list[dict[str, Any]] | None = None,
     has_measurements: bool,
     measurement_count: int,
@@ -1282,6 +1298,7 @@ def step_entry_dict(
         "outputs": outputs or {},
         "input_units": input_units or {},
         "output_units": output_units or {},
+        "output_pins": output_pins or {},
         "measurements": measurements or [],
         "has_measurements": has_measurements,
         "measurement_count": measurement_count,

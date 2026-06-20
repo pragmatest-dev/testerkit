@@ -813,6 +813,7 @@ class RunScope:
         inputs = coerce_dict(vec.params) if vec is not None else {}
         input_units = dict(vec.param_units) if vec is not None else {}
         output_units = dict(vec.observation_units) if vec is not None else {}
+        output_pins = dict(vec.observation_pins) if vec is not None else {}
         if is_start:
             event: StepStarted | StepEnded = StepStarted(
                 session_id=self._session_id,
@@ -854,6 +855,7 @@ class RunScope:
                 outputs=coerce_dict(vec.observations) if vec is not None else {},
                 input_units=input_units,
                 output_units=output_units,
+                output_pins=output_pins,
                 node_id=step.node_id,
                 file=step.file,
                 module=step.module,

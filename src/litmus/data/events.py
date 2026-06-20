@@ -549,6 +549,7 @@ class Observation(EventBase):
     name: str
     value: Any = None
     unit: str | None = None
+    uut_pin: str | None = None
 
 
 class StepEnded(EventBase):
@@ -579,9 +580,10 @@ class StepEnded(EventBase):
     vector_outcome: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
-    # Optional engineering unit per input / output name → the lane ``unit`` field.
+    # Optional engineering unit / pin per input / output name → the lane fields.
     input_units: dict[str, str] = Field(default_factory=dict)
     output_units: dict[str, str] = Field(default_factory=dict)
+    output_pins: dict[str, str] = Field(default_factory=dict)
 
     # Code identity
     node_id: str | None = None
@@ -631,6 +633,7 @@ class VectorEnded(EventBase):
     outputs: dict[str, Any] = Field(default_factory=dict)
     input_units: dict[str, str] = Field(default_factory=dict)
     output_units: dict[str, str] = Field(default_factory=dict)
+    output_pins: dict[str, str] = Field(default_factory=dict)
     node_id: str | None = None
 
 

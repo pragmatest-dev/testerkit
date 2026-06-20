@@ -397,12 +397,14 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             value_text      VARCHAR,
             value_timestamp TIMESTAMPTZ,
             value_json      VARCHAR,
-            unit            VARCHAR
+            unit            VARCHAR,
+            uut_pin         VARCHAR
         )
     """)
-    # Migrate a pre-unit measurements_dynamic table (CREATE IF NOT EXISTS
-    # won't add the column to an existing DB).
+    # Migrate pre-existing measurements_dynamic tables (CREATE IF NOT EXISTS
+    # won't add columns to an existing DB).
     conn.execute("ALTER TABLE measurements_dynamic ADD COLUMN IF NOT EXISTS unit VARCHAR")
+    conn.execute("ALTER TABLE measurements_dynamic ADD COLUMN IF NOT EXISTS uut_pin VARCHAR")
 
     # ── indexes ─────────────────────────────────────────────────────
     for index_sql in (
@@ -745,7 +747,7 @@ _DYNAMIC_SIDES: tuple[tuple[str, str], ...] = (
 )
 _LANE_SELECT = (
     "u.name, u.kind, u.value_int, u.value_double, u.value_bool, "
-    "u.value_text, u.value_timestamp, u.value_json, u.unit"
+    "u.value_text, u.value_timestamp, u.value_json, u.unit, u.uut_pin"
 )
 
 
@@ -1018,7 +1020,7 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
         SELECT DISTINCT
             '{escaped}' AS file_path, run_id, step_index, vector_index, vector_retry,
             side, name, kind, value_int, value_double, value_bool, value_text,
-            value_timestamp, value_json, unit
+            value_timestamp, value_json, unit, uut_pin
         FROM ({union_sql})
     """)
 
@@ -1589,7 +1591,7 @@ def _batch_insert_measurement_rows(
         SELECT DISTINCT
             filename AS file_path, run_id, step_index, vector_index, vector_retry,
             side, name, kind, value_int, value_double, value_bool, value_text,
-            value_timestamp, value_json, unit
+            value_timestamp, value_json, unit, uut_pin
         FROM ({union_sql})
     """)
 

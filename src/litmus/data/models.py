@@ -292,6 +292,7 @@ class TestVector(BaseModel):
     # Optional engineering unit per param / observation name → the lane unit field.
     param_units: dict[str, str] = Field(default_factory=dict)
     observation_units: dict[str, str] = Field(default_factory=dict)
+    observation_pins: dict[str, str] = Field(default_factory=dict)
     stimulus: list[StimulusRecord] = Field(default_factory=list)  # Stimulus signal paths
     retry: int = 0  # Retry counter — 0 for the first execution, N for the Nth retry
     max_retries: int = 0  # Maximum retries allowed (0 = no retries, single execution)

@@ -427,6 +427,7 @@ class EventAccumulator:
             output_units = (
                 dict(end.output_units) if end and getattr(end, "output_units", None) else {}
             )
+            output_pins = dict(end.output_pins) if end and getattr(end, "output_pins", None) else {}
             entries.append(
                 vector_entry_dict(
                     index=ref.step_index if ref else 0,
@@ -450,6 +451,7 @@ class EventAccumulator:
                     outputs=outputs,
                     input_units=input_units,
                     output_units=output_units,
+                    output_pins=output_pins,
                     measurements=by_retry.get(key, []),
                 )
             )
@@ -509,6 +511,7 @@ class EventAccumulator:
                     outputs=step_entry.get("outputs") or {},
                     input_units=step_entry.get("input_units") or {},
                     output_units=step_entry.get("output_units") or {},
+                    output_pins=step_entry.get("output_pins") or {},
                     measurements=by_vec.get((path, vec_idx), []),
                 )
             )
@@ -653,6 +656,7 @@ class EventAccumulator:
         # so the step record carries the vector's observations on its lanes.
         obs_by_key: dict[tuple[str, int], dict[str, Any]] = {}
         obs_units_by_key: dict[tuple[str, int], dict[str, str]] = {}
+        obs_pins_by_key: dict[tuple[str, int], dict[str, str]] = {}
         for ev in self._observation_events:
             if ev.name.startswith("_"):
                 continue
@@ -660,6 +664,8 @@ class EventAccumulator:
             obs_by_key.setdefault(okey, {}).setdefault(ev.name, ev.value)
             if getattr(ev, "unit", None):
                 obs_units_by_key.setdefault(okey, {}).setdefault(ev.name, ev.unit)
+            if getattr(ev, "uut_pin", None) is not None:
+                obs_pins_by_key.setdefault(okey, {}).setdefault(ev.name, ev.uut_pin)
 
         # Sort keys by the producer-assigned (step_index, vector_index) so
         # the resulting manifest preserves execution order regardless of the
@@ -692,6 +698,7 @@ class EventAccumulator:
                     retry_counts.get(key, 0),
                     obs_by_key.get(key, {}),
                     obs_units_by_key.get(key, {}),
+                    obs_pins_by_key.get(key, {}),
                 )
             )
 
@@ -712,6 +719,7 @@ class EventAccumulator:
         retry_count: int,
         observations: dict[str, Any],
         observation_units: dict[str, str] | None = None,
+        observation_pins: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Build one step manifest entry from cached StepStarted/StepEnded."""
         _, vec = key
@@ -737,6 +745,7 @@ class EventAccumulator:
             dict(start.input_units) if start and getattr(start, "input_units", None) else {}
         )
         output_units = dict(end.output_units) if end and getattr(end, "output_units", None) else {}
+        output_pins = dict(end.output_pins) if end and getattr(end, "output_pins", None) else {}
         # Merge accumulated observations for this vector so the in-flight
         # step row carries the same out_* the materialized step aggregates
         # (StepEnded.outputs already holds them once it arrives merged; this
@@ -745,6 +754,8 @@ class EventAccumulator:
             outputs.setdefault(obs_name, obs_value)
         for obs_name, obs_unit in (observation_units or {}).items():
             output_units.setdefault(obs_name, obs_unit)
+        for obs_name, obs_pin in (observation_pins or {}).items():
+            output_pins.setdefault(obs_name, obs_pin)
         return step_entry_dict(
             index=idx,
             name=start.step_name if start else (end.step_name if end else ""),
@@ -768,6 +779,7 @@ class EventAccumulator:
             outputs=outputs,
             input_units=input_units,
             output_units=output_units,
+            output_pins=output_pins,
             has_measurements=meas_count > 0,
             measurement_count=meas_count,
             vector_count=vector_count,

@@ -46,6 +46,7 @@ from litmus.execution._state import (
     reset_current_vector,
     resolve_session_id,
 )
+from litmus.execution.logger import _auto_traceability
 from litmus.execution.vectors import Vector, expand_vectors
 from litmus.execution.verify import _perform_measure, _perform_verify
 from litmus.models.test_config import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
@@ -208,6 +209,7 @@ class Context:
         # Optional engineering unit per configured / observed name.
         self._param_units: dict[str, str] = {}
         self._observation_units: dict[str, str] = {}
+        self._observation_pins: dict[str, str] = {}
         # ``connections`` iterates :class:`FixtureConnection` objects the
         # test declares via ``litmus_characteristics`` / ``litmus_connections``
         # markers. Populated by the pytest-native plugin's
@@ -319,6 +321,9 @@ class Context:
         full_key = f"{namespace}.{key}" if namespace else key
         if unit is not None:
             self._observation_units[full_key] = unit
+        trace = _auto_traceability(full_key)
+        if trace.get("uut_pin") is not None:
+            self._observation_pins[full_key] = trace["uut_pin"]
 
         if value is not None:
             # Reference latching (design doc §4): if the caller hands
@@ -460,7 +465,11 @@ class Context:
         vec_obs_units = getattr(vec, "observation_units", None)
         if unit is not None and isinstance(vec_obs_units, dict):
             vec_obs_units[key] = unit
-        self._emit_observation(key, value, unit)
+        pin = self._observation_pins.get(key)
+        vec_obs_pins = getattr(vec, "observation_pins", None)
+        if pin is not None and isinstance(vec_obs_pins, dict):
+            vec_obs_pins[key] = pin
+        self._emit_observation(key, value, unit, pin)
 
     def _current_run_id(self) -> UUID | None:
         """Pull the active run_id from the active RunScope ContextVar.
@@ -474,7 +483,9 @@ class Context:
         run_scope = get_current_run_scope()
         return getattr(getattr(run_scope, "test_run", None), "id", None)
 
-    def _emit_observation(self, key: str, value: Any, unit: str | None = None) -> None:
+    def _emit_observation(
+        self, key: str, value: Any, unit: str | None = None, uut_pin: str | None = None
+    ) -> None:
         """Emit an ``Observation`` event for the value that landed in ``_observations``.
 
         Item 4 in the v0.2.0 data-architecture lift. Pre-item-4 the
@@ -528,6 +539,7 @@ class Context:
                 name=key,
                 value=value,
                 unit=unit,
+                uut_pin=uut_pin,
             )
         )
 
@@ -593,6 +605,7 @@ class Context:
                 outputs=dict(vector.observations) if vector is not None else {},
                 input_units=dict(vector.param_units) if vector is not None else {},
                 output_units=dict(vector.observation_units) if vector is not None else {},
+                output_pins=dict(vector.observation_pins) if vector is not None else {},
                 node_id=getattr(step, "node_id", None) if step else None,
             )
         )

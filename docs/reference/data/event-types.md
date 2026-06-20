@@ -246,6 +246,7 @@ Emitted when an instrument is disconnected during teardown.
 | `outputs` | `dict[str, Any]` | `{}` |
 | `input_units` | `dict[str, str]` | `{}` |
 | `output_units` | `dict[str, str]` | `{}` |
+| `output_pins` | `dict[str, str]` | `{}` |
 | `node_id` | `str \| None` | `None` |
 | `file` | `str \| None` | `None` |
 | `module` | `str \| None` | `None` |
@@ -283,6 +284,7 @@ Completion of an in-body loop vector (Mode 2). Carries the vector's verdict and 
 | `outputs` | `dict[str, Any]` | `{}` |
 | `input_units` | `dict[str, str]` | `{}` |
 | `output_units` | `dict[str, str]` | `{}` |
+| `output_pins` | `dict[str, str]` | `{}` |
 | `node_id` | `str \| None` | `None` |
 
 ### `test.measurement` — `MeasurementRecorded`
@@ -330,6 +332,7 @@ Emitted by ``Context.observe(key, value)``.
 | `name` | `str` | *required* |
 | `value` | `Any` | `None` |
 | `unit` | `str \| None` | `None` |
+| `uut_pin` | `str \| None` | `None` |
 
 ### `test.steps_discovered` — `StepsDiscovered`
 
