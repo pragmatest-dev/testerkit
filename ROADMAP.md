@@ -121,6 +121,15 @@ and physical-channel-id (open design forks)._
   No backcompat; needs a `data/channels` clear. (Note: the `offset` →
   `sample_offset` column rename itself landed via `a6c11fc`; verify what
   remains before scoping.)
+- **Ephemeral (non-persisted) streams — channel and file.** A creation flag
+  ("this will not be persisted" / loss-acceptable, stream-only) that keeps the
+  live fan-out tier but skips the persistence tier: no segment/object writes, no
+  checkpointing, no at-rest registration, and no `run_id`/`session_id`
+  affiliation (which today exists to persist related data). Late subscribers get
+  no history; overflow drops (the bounded-queue overflow-gap model already in
+  place). Use case: transient interactive UI streams purely for data exchange,
+  unaffiliated with run IDs. More important for channels than files. Build on the
+  existing live-fan-out abstraction (live = push frames), not a bespoke side path.
 ### Channels — write-path & relay performance
 
 Source: `docs/_internal/explorations/channels-write-scaling.md`,
