@@ -168,8 +168,6 @@ def _load_extras_from_parquet(run_id: str, data_dir: str) -> dict[str, str]:
     finds it without reading other files. Returns empty dict for
     measurement-less runs.
     """
-    from pathlib import Path
-
     from litmus.data.run_store import RunStore
 
     store = RunStore(_data_dir=Path(data_dir))

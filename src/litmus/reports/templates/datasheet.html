@@ -261,7 +261,7 @@ document.querySelectorAll('.related-link').forEach(row => {
       {% for cond_name, cond in cap.conditions.items() %}
       <tr>
         <td>{{ cond_name | replace('_', ' ') | title }}</td>
-        <td>{% if cond.range %}{{ cond.range | fmt_range }}{% elif cond.options %}{% for o in cond.options %}{% if not loop.first %}, {% endif %}{% if o is number and cond.units %}{{ o|fmt_si(cond.units) }}{% else %}{{ o }}{% endif %}{% endfor %}{% else %}—{% endif %}</td>
+        <td>{% if cond.range %}{{ cond.range | fmt_range }}{% elif cond.options %}{% for o in cond.options %}{% if not loop.first %}, {% endif %}{% if o is number and cond.unit %}{{ o|fmt_si(cond.unit) }}{% else %}{{ o }}{% endif %}{% endfor %}{% else %}—{% endif %}</td>
       </tr>
       {% endfor %}
       </tbody>
@@ -280,7 +280,7 @@ document.querySelectorAll('.related-link').forEach(row => {
       {% for ctrl_name, ctrl in cap.controls.items() %}
       <tr>
         <td>{{ ctrl_name | replace('_', ' ') | title }}</td>
-        <td>{% if ctrl.range %}{{ ctrl.range | fmt_range }}{% elif ctrl.options %}{% for o in ctrl.options %}{% if not loop.first %}, {% endif %}{% if o is number and ctrl.units %}{{ o|fmt_si(ctrl.units) }}{% else %}{{ o }}{% endif %}{% endfor %}{% else %}—{% endif %}</td>
+        <td>{% if ctrl.range %}{{ ctrl.range | fmt_range }}{% elif ctrl.options %}{% for o in ctrl.options %}{% if not loop.first %}, {% endif %}{% if o is number and ctrl.unit %}{{ o|fmt_si(ctrl.unit) }}{% else %}{{ o }}{% endif %}{% endfor %}{% else %}—{% endif %}</td>
         {% if vc.resolution %}<td>{% if ctrl.resolution %}{{ ctrl.resolution | fmt_resolution }}{% else %}—{% endif %}</td>{% endif %}
         {% if vc.default %}<td>{{ ctrl.default if ctrl.default is not none else '—' }}</td>{% endif %}
       </tr>
