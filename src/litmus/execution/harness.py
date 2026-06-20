@@ -616,6 +616,7 @@ class Context:
         sample: Any,
         *,
         namespace: str | None = None,
+        unit: str | None = None,
     ) -> str:
         """Append one sample to a channel — sibling of observe / verify.
 
@@ -650,6 +651,8 @@ class Context:
                 event payload's ``name``. See
                 :meth:`observe` docstring for the canonical
                 description.
+            unit: Optional engineering unit for the channel — stamped
+                on the channel descriptor (immutable within a session).
 
         Returns:
             The ``channel://`` URI for this sample's channel.
@@ -665,7 +668,7 @@ class Context:
             )
         full_name = f"{namespace}.{name}" if namespace else name
         return self._channel_store.write(
-            full_name, sample, source="stream", run_id=self._current_run_id()
+            full_name, sample, source="stream", run_id=self._current_run_id(), unit=unit
         )
 
     def verify(

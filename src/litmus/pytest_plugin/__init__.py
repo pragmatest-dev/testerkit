@@ -963,7 +963,7 @@ def context(_run_scope: RunScope | None) -> Generator[Context, None, None]:
 
 @pytest.fixture
 def stream(context: Context) -> Callable[..., str]:
-    """Callable fixture: ``stream(name, sample[, namespace=...])`` — append a sample.
+    """Callable fixture: ``stream(name, sample[, namespace=, unit=])`` — append a sample.
 
     The third sibling test-author intent verb (alongside ``observe`` /
     ``verify``). Always routes to ChannelStore. Per §3 of the design
@@ -985,15 +985,17 @@ def stream(context: Context) -> Callable[..., str]:
                 stream("iv_curve.i", dmm.read_current())
     """
 
-    def _stream(name: str, sample: Any, *, namespace: str | None = None) -> str:
-        return context.stream(name, sample, namespace=namespace)
+    def _stream(
+        name: str, sample: Any, *, namespace: str | None = None, unit: str | None = None
+    ) -> str:
+        return context.stream(name, sample, namespace=namespace, unit=unit)
 
     return _stream
 
 
 @pytest.fixture
 def observe(context: Context) -> Callable[..., None]:
-    """Callable fixture: ``observe(name, value[, namespace=...])`` — stash in vector.
+    """Callable fixture: ``observe(name, value[, namespace=, unit=])`` — stash in vector.
 
     Per §3 of the design doc, ``observe`` is one of three sibling
     test-author verbs (``observe`` / ``verify`` / ``stream``).
@@ -1010,10 +1012,13 @@ def observe(context: Context) -> Callable[..., None]:
         ``observe("temperature", 23.5)`` — scalar lands inline
         ``observe("scope.cap", wf)`` — Waveform → ChannelStore
         ``observe("voltage", 3.31, namespace="psu_a")`` — namespaced
+        ``observe("temperature", 23.5, unit="degC")`` — scalar with unit
     """
 
-    def _observe(name: str, value: Any, *, namespace: str | None = None) -> None:
-        context.observe(name, value, namespace=namespace)
+    def _observe(
+        name: str, value: Any, *, namespace: str | None = None, unit: str | None = None
+    ) -> None:
+        context.observe(name, value, namespace=namespace, unit=unit)
 
     return _observe
 
