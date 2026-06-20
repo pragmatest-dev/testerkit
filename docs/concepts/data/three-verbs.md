@@ -58,11 +58,33 @@ Practical guidance:
 | Scalar (`int` / `float` / `bool` / `str`) | Inline → parquet `out_*` column on the measurement row | Results detail → Measurements tab (`/results/{run_id}`) |
 | Array of scalars (list / ndarray) | ChannelStore array row | `/channels/{id}` chart panel |
 | `Waveform` (Y + `sample_interval`) | ChannelStore array row + `sample_interval` | `/channels/{id}` chart panel |
+| `XYData` (paired x/y arrays with per-axis units) | FileStore as `.npz` | `/files`, `/files/{name}`; URI surfaces in parquet `out_*` column |
 | Blob (image / `bytes` / `Path` / Pydantic model) | FileStore via serializer registry | `/files`, `/files/{name}`; URIs also surface in parquet `out_*` columns on the run's measurements |
 
 The verb you call decides whether you get vector linkage + per-call event. The value's shape decides which store the bytes land in. They're orthogonal.
 
 `verify` is scalar-only. Passing a `Waveform`, array, or blob raises `TypeError` with a message pointing at `observe` and showing the two-verb pattern (`observe("scope_cap", wf)` first, then `verify("rise_time_us", derived, limit=…)`).
+
+## Engineering units
+
+All four verbs accept an optional `unit=` keyword. The unit is stored alongside the value in the parquet `inputs` / `outputs` columns and is visible in query results.
+
+```python
+context.configure("psu.voltage", 12.0, unit="V")
+context.observe("temp", 24.8, unit="°C")
+context.stream("current", sample, unit="A")
+verify("output_voltage", dmm.measure_dc_voltage(), Limit(low=4.75, high=5.25, unit="V"))
+```
+
+Scalars carry one unit. For multi-axis data (IV curves, S-parameter sweeps, optical spectra), use `XYData` — it carries `x_unit` and `y_unit` as separate per-axis fields. Pass an `XYData` instance to `observe` and it routes to FileStore as `.npz`.
+
+```python
+from litmus.data.models import XYData
+
+iv = XYData(x=[0.0, 0.5, 1.0, 1.5], y=[0.0, 2.1, 4.3, 6.8],
+            x_unit="V", y_unit="mA", x_name="Bias", y_name="Current")
+observe("iv_curve", iv)   # → FileStore .npz; out_iv_curve = file://... on the vector
+```
 
 ## How streams are stored — segmented per session, unified by channel
 
@@ -96,9 +118,9 @@ def test_psu_step_response(psu, scope, context):
                                                        # out_scope_cap = channel://... on this vector
 
     verify("rise_time_us", rise_time(wf),
-           limit=Limit(low=0, high=20, units="us"))   # scalar → parquet row, judged
+           limit=Limit(low=0, high=20, unit="us"))   # scalar → parquet row, judged
     verify("overshoot_v", overshoot(wf),
-           limit=Limit(low=0, high=0.05, units="V"))  # same vector, same out_scope_cap
+           limit=Limit(low=0, high=0.05, unit="V"))  # same vector, same out_scope_cap
 ```
 
 The parquet rows for `rise_time_us` and `overshoot_v` both carry `out_scope_cap = channel://scope_cap?session=…`. From any failing measurement on `/results/{run_id}` you can navigate directly to the supporting waveform.

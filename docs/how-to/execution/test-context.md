@@ -80,11 +80,11 @@ When a stimulus value isn't already a sweep param — for example, the PSU's *ac
 ```python
 def test_rails(self, context, psu, dmm, verify):
     psu.set_voltage(5.0)
-    context.configure("psu.actual_voltage", psu.read_voltage())
+    context.configure("psu.actual_voltage", psu.read_voltage(), unit="V")
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-Use bare names that match spec condition keys (`temperature`, `load`) when the value drives a band lookup; use a fixture prefix (`psu.actual_voltage`, `dmm.sample_count`) for implementation detail. Whatever you record is visible to `context.last("psu.actual_voltage")` on the next iteration.
+`unit=` is optional and is stored in the parquet `inputs` column alongside the value. Use bare names that match spec condition keys (`temperature`, `load`) when the value drives a band lookup; use a fixture prefix (`psu.actual_voltage`, `dmm.sample_count`) for implementation detail. Whatever you record is visible to `context.last("psu.actual_voltage")` on the next iteration.
 
 ## Record environmental readings with `observe()`
 
@@ -92,12 +92,14 @@ Use bare names that match spec condition keys (`temperature`, `load`) when the v
 
 ```python
 def test_output_voltage(self, context, dmm, temp_probe, verify):
-    context.observe("temp_probe.temperature", temp_probe.read())
-    context.observe("temp_probe.humidity",    temp_probe.read_humidity())
+    context.observe("temp_probe.temperature", temp_probe.read(), unit="°C")
+    context.observe("temp_probe.humidity",    temp_probe.read_humidity(), unit="%RH")
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-Large numeric arrays (raw waveforms, sample blocks) route to the [channel store](../data/querying-channels.md) automatically — `observe()` writes the array and stashes a `channel://` URI on the row. Scalars go straight onto the row.
+`unit=` is optional and is stored in the parquet `outputs` column alongside the value. Large numeric arrays (raw waveforms, sample blocks) route to the [channel store](../data/querying-channels.md) automatically — `observe()` writes the array and stashes a `channel://` URI on the row. Scalars go straight onto the row.
+
+Inside a `context.connections` loop, `observe()` auto-stamps `uut_pin` from the active connection — the same automatic pinning that `verify` gets. A raw capture (`observe("scope.cap", wf)`) recorded while iterating pins lands with the active pin's identity so you can later filter observations by `uut_pin`.
 
 For the parquet column mapping (`in_*` for `configure`, `out_*` for `observe`), see [Traceability](traceability.md).
 

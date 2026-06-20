@@ -1,43 +1,48 @@
 # Parquet Storage Schema
 
-Each Litmus run produces **one Parquet file**. Every row carries an explicit `record_type` discriminator with one of four values:
+Each Litmus run produces **one Parquet file**. The file has two layers: the at-rest format and the query projection.
+
+**At-rest — three row types.** Every row carries an explicit `record_type` discriminator with one of three values:
 
 - `record_type = 'run'` — exactly one row per file. Carries run-level identity, timing, outcome, plus UUT / station / project / git / environment context.
-- `record_type = 'step'` — one row per `(step_path, vector_index)` execution. Step identity, timing, outcome, and the vector's conditions and observations in nested `inputs` / `outputs` lane columns. Measurement columns are NULL.
-- `record_type = 'vector'` — one row per in-body vector iteration (Mode-2 `vectors`-fixture loops only). Carries the iteration's own `(step_path, vector_index, retry)` identity, conditions, observations, and `vector_outcome`. Measurement columns are NULL. Mode-1 tests (parametrize / single) fuse step and vector into one `step` row; no separate `vector` row is written.
-- `record_type = 'measurement'` — one row per recorded measurement. Carries the measurement payload plus the same denormalized step + run + UUT + station + fixture context as the corresponding step row.
+- `record_type = 'step'` — one row per `(step_path, vector_index)` execution. Step identity, timing, and rolled-up outcome. Conditions and observations are on the paired vector row, not here.
+- `record_type = 'vector'` — one row per execution. Every step execution has at least one vector row: a synthesized scope vector for the step itself. Mode-2 (`vectors`-fixture / `run_vector`) loops add one vector row per iteration. The vector row carries the `inputs` / `outputs` / `custom` lane columns and a nested `measurements` list (`LIST<STRUCT>`).
 
-Step and measurement rows share grain `(run_id, step_path, vector_index)`; measurement rows are further keyed by `measurement_name`. A step that records N measurements emits 1 step row + N measurement rows. A Mode-2 step with M in-body iterations also emits M `vector` rows, one per `VectorStarted` / `VectorEnded` pair.
+**Measurements are nested, not rows.** Measurements live inside the vector row's `measurements` column as a typed nested list (`LIST<STRUCT>`). Each struct holds `name`, `value`, `unit`, `outcome`, `timestamp`, `limit_*`, `characteristic_id`, `spec_ref`, and signal-path fields (`uut_pin`, `fixture_connection`, `instrument_*`). There is no at-rest `record_type = 'measurement'` row.
 
-The canonical schema lives at `src/litmus/data/schemas.py` (`RUN_ROW_SCHEMA`); this page is a human-readable mirror of it.
+**Query projection — four virtual types.** The DuckDB daemon UNNESTs the nested measurements from each vector row into a flat fact and presents a fourth virtual row type `record_type = 'measurement'` in query results. All `WHERE record_type = 'measurement'` queries target this projected view, not the at-rest file. The `in_*` / `out_*` / `custom_*` columns are also projections from the nested lane structs. Query output shape is byte-stable regardless of at-rest format changes.
+
+The canonical schema lives in `src/litmus/data/schemas.py` (`RUN_ROW_SCHEMA`); this page is a human-readable mirror of it.
 
 ## File layout
 
 ```
 <data_dir>/runs/{date}/
-├── {timestamp}_{serial}.parquet           # Run row + all step + vector + measurement rows for one run
-├── {timestamp}.parquet                    # Same shape, no UUT serial (dev runs)
-└── {timestamp}_{serial}_ref/              # Reference data (waveforms, images, files)
+├── {timestamp}_{run_id8}_{serial}.parquet  # Run + step + vector rows; measurements nested in vector rows
+├── {timestamp}_{run_id8}.parquet           # Same shape, no UUT serial (dev runs)
+└── {timestamp}_{run_id8}_{serial}_ref/     # Reference data (waveforms, images, files)
     ├── {vector_id}_scope_waveform.npz
     ├── {vector_id}_camera_image.png
     └── ...
 ```
 
-Timestamps are UTC and sort naturally. DuckDB / Spark / Polars / Pandas all read the file directly with `read_parquet`.
+Timestamps are UTC and sort naturally. The 8-char `run_id` sits right after the timestamp (the trailing serial is optional, so its absence never shifts the leading parts) and disambiguates two runs of the same serial that start in the same second. DuckDB / Spark / Polars / Pandas all read the file directly with `read_parquet`.
 
 ## Discriminator
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `record_type` | string | `'run'`, `'step'`, `'vector'`, or `'measurement'` |
+| `record_type` | string | At-rest: `'run'`, `'step'`, `'vector'`. Query projection also surfaces `'measurement'`. |
 
-Every query starts here. Four values:
-- `run` — one row per run carrying run-level metadata (start/end timestamps, UUT serial, station, outcome).
-- `step` — one row per (step, vector) combination. For Mode-1 tests (parametrize / single / unswept), this row IS the fused step+vector.
-- `vector` — one row per in-body iteration for Mode-2 (`vectors`-fixture) tests. Not emitted for Mode-1.
-- `measurement` — one row per measurement name within a (step, vector).
+**At-rest row types (three):**
+- `run` — one row per run; run-level metadata (start/end timestamps, UUT serial, station, outcome).
+- `step` — one row per `(step_path, vector_index)` execution; code identity, timing, rolled-up outcome.
+- `vector` — one row per execution, keyed `(step_path, vector_index, retry)`. Every step has at least one vector row: its scope vector. Mode-2 (`vectors`-fixture) loops add one iteration vector per pass. The vector row carries `inputs` / `outputs` / `custom` lane columns and a nested `measurements` list.
 
-To list steps: `WHERE record_type = 'step'`. To list in-body iterations: `WHERE record_type = 'vector'`. To list measurements: `WHERE record_type = 'measurement'`. All kinds: omit the filter.
+**Query projection (virtual fourth type):**
+- `measurement` — the daemon UNNESTs each vector's nested `measurements` list into a flat fact row stamped `record_type = 'measurement'`. These rows exist in query results but not in the at-rest file.
+
+To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type = 'vector'`. To list measurements: `WHERE record_type = 'measurement'`. All kinds: omit the filter.
 
 ## Identity & timing
 
@@ -168,7 +173,7 @@ The DuckDB daemon projects these lane structs into flat `in_{param}` columns whe
 | `value_text` | string | Set when `kind` is `scalar:str` or `uri`; NULL otherwise |
 | `value_timestamp` | timestamp[us, UTC] | Set when `kind = 'scalar:datetime'`; NULL otherwise |
 | `value_json` | string | Set when `kind` is `list` or `dict`; NULL otherwise |
-| `unit` | string | Reserved; NULL today |
+| `unit` | string | Engineering unit set via `context.configure(key, value, unit="V")` or `context.observe(key, value, unit="°C")` |
 
 **Naming convention** (applies to `name` inside each entry and to the projected `in_*` column names):
 
@@ -198,7 +203,8 @@ Each struct entry encodes one observation under `name`. Non-scalar payloads rout
 | Data Type | Storage format | `value_text` example |
 |-----------|----------------|----------------------|
 | Scalar (float / int / str / bool) | inline in appropriate `value_*` lane | n/a — uses typed lane |
-| `Waveform` | `.npz` with t0, dt, Y, attrs | `file://_ref/{id}_scope_waveform.npz` |
+| `Waveform` | `.npz` with t0, dt, Y, attributes | `file://_ref/{id}_scope_waveform.npz` |
+| `XYData` | `.npz` with x, y, x_unit, y_unit, x_name, y_name | `file://_ref/{id}_iv_curve.npz` |
 | `numpy.ndarray` | `.npy` compressed | `file://_ref/{id}_raw_samples.npy` |
 | `Path` | copied, extension preserved | `file://_ref/{id}_debug_log.txt` |
 | Pydantic model | `.json` | `file://_ref/{id}_protocol_trace.json` |
@@ -211,17 +217,19 @@ if is_file_reference(column_value):
     data = load_file(parquet_path, column_value)
 ```
 
-## Measurement core (on `record_type='measurement'` rows)
+## Measurement fields (projected from nested struct)
+
+At rest, measurements live in the vector row's `measurements` column as a `LIST<STRUCT>`. The fields below are exposed as flat columns on the projected `record_type = 'measurement'` rows the daemon surfaces.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `measurement_name` | string | `"output_voltage"`, `"efficiency"`, ... |
 | `measurement_timestamp` | timestamp[us, UTC] | When the measurement was recorded |
 | `measurement_value` | float64 | Measured value (scalar; non-scalar payloads go to `_ref/` via `out_*`) |
-| `measurement_units` | string | Units (`V`, `A`, `%`, ...) |
+| `measurement_unit` | string | Units (`V`, `A`, `%`, ...) |
 | `measurement_outcome` | string | `passed` / `failed` / `skipped` / `errored` / `aborted` / `terminated` / `done` |
 
-## Limits (on `record_type='measurement'` rows)
+## Limits (on projected `record_type='measurement'` rows)
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -317,18 +325,21 @@ Source of truth: `src/litmus/data/models.py` (`Outcome`).
 
 ## Retries
 
-All retries are stored. Each retry produces a new record at the step or vector grain (not just additional measurement rows), so measurement-less retries are captured.
+All retries are stored. Each retry produces a new step + vector pair at that execution's grain, so measurement-less retries are captured. Measurements stay nested in the paired vector row.
 
-**Mode-1 (parametrize / single / unswept):** each attempt is a separate `step` row with `vector_retry = 0, 1, 2, …`. Measurement rows under each attempt carry the same `vector_retry` value as their parent step.
+**Mode-1 (parametrize / single / unswept):** each attempt is a separate `step` row + scope `vector` row. `vector_retry` increments per attempt. In the query projection, the UNNESTed measurement rows carry the same `vector_retry` as their enclosing vector.
 
 ```
 record_type | vector_index | vector_retry | step_outcome   | measurement_name | measurement_value
-step        | 0            | 0            | failed         | —                | —                  ← first attempt
-measurement | 0            | 0            | —              | output_voltage   | 3.50
+step        | 0            | 0            | failed         | —                | —                  ← first attempt (at-rest)
+vector      | 0            | 0            | failed         | —                | —                  ← scope vector with nested measurements
+measurement | 0            | 0            | —              | output_voltage   | 3.50               ← projected (daemon UNNEST)
 step        | 0            | 1            | failed         | —                | —                  ← first retry
-measurement | 0            | 1            | —              | output_voltage   | 3.48
+vector      | 0            | 1            | failed         | —                | —
+measurement | 0            | 1            | —              | output_voltage   | 3.48               ← projected
 step        | 0            | 2            | passed         | —                | —                  ← second retry
-measurement | 0            | 2            | —              | output_voltage   | 3.30
+vector      | 0            | 2            | passed         | —                | —
+measurement | 0            | 2            | —              | output_voltage   | 3.30               ← projected
 ```
 
 **Mode-2 (`vectors` fixture):** each attempt at one in-body iteration is a separate `vector` row with the same `vector_index` and an incremented `vector_retry`.
@@ -359,48 +370,76 @@ print(f"Python {env.python_version}, Litmus {env.litmus_version}")
 
 ### Load a run with pandas
 
+Measurements are nested in vector rows at rest. Use DuckDB to UNNEST them first, then load into pandas:
+
 ```python
+import duckdb
 import pandas as pd
 
-df = pd.read_parquet("data/runs/2026-05-16/20260516T143025Z_SN001.parquet")
+# UNNEST the nested measurements from vector rows and join with run context
+con = duckdb.connect()
+df = con.execute("""
+    SELECT
+        v.run_id, v.uut_serial, v.station_hostname,
+        v.step_name, v.step_path, v.vector_index, v.vector_retry,
+        v.step_outcome, v.vector_outcome, v.run_outcome,
+        m.name  AS measurement_name,
+        m.value AS measurement_value,
+        m.unit  AS measurement_unit,
+        m.outcome AS measurement_outcome,
+        m.limit_low, m.limit_high, m.limit_nominal,
+        m.uut_pin, m.instrument_name
+    FROM read_parquet('data/runs/2026-05-16/20260516T143025Z_SN001.parquet') AS v,
+         UNNEST(v.measurements) AS t(m)
+    WHERE v.record_type = 'vector'
+""").df()
 
-# Step rows
-steps = df[df["record_type"] == "step"]
-# Measurement rows with full context
-measurements = df[df["record_type"] == "measurement"]
+# Step rows (direct — no UNNEST needed)
+steps = pd.read_parquet(
+    "data/runs/2026-05-16/20260516T143025Z_SN001.parquet"
+)
+steps = steps[steps["record_type"] == "step"]
 
-# Failures with full context
-failures = measurements[measurements["measurement_outcome"] == "failed"]
+# Failures
+failures = df[df["measurement_outcome"] == "failed"]
 print(failures[["step_name", "measurement_name", "measurement_value",
                 "limit_low", "limit_high", "uut_pin", "instrument_name"]])
 ```
 
-### Yield by station with DuckDB
+When using Litmus's [Query API](query-api.md), the daemon handles the UNNEST automatically — `WHERE record_type = 'measurement'` works as expected in daemon-mediated queries.
+
+### Yield by station with DuckDB (direct file — UNNEST required)
+
+Measurements are nested in vector rows. UNNEST them to get the flat measurement fact:
 
 ```sql
 SELECT
-    part_id,
-    station_id,
-    measurement_name,
+    v.part_id,
+    v.station_hostname,
+    m.name AS measurement_name,
     COUNT(*) AS total,
-    SUM(CASE WHEN measurement_outcome = 'passed' THEN 1 ELSE 0 END) AS passed,
-    ROUND(100.0 * SUM(CASE WHEN measurement_outcome = 'passed' THEN 1 ELSE 0 END) / COUNT(*), 2) AS yield_pct
-FROM read_parquet('data/runs/**/*.parquet')
-WHERE record_type = 'measurement'
+    SUM(CASE WHEN m.outcome = 'passed' THEN 1 ELSE 0 END) AS passed,
+    ROUND(100.0 * SUM(CASE WHEN m.outcome = 'passed' THEN 1 ELSE 0 END) / COUNT(*), 2) AS yield_pct
+FROM read_parquet('data/runs/**/*.parquet') AS v,
+     UNNEST(v.measurements) AS t(m)
+WHERE v.record_type = 'vector'
 GROUP BY 1, 2, 3
 ORDER BY yield_pct ASC;
 ```
 
-### Cross-run instrument-failure correlation
+When querying via the Litmus Query API or daemon, the UNNEST runs automatically and `WHERE record_type = 'measurement'` works as-is.
+
+### Cross-run instrument-failure correlation (direct file)
 
 ```sql
 SELECT
-    instrument_name,
-    instrument_resource,
+    m.instrument_name,
+    m.instrument_resource,
     COUNT(*) AS failures
-FROM read_parquet('data/runs/**/*.parquet')
-WHERE record_type = 'measurement'
-  AND measurement_outcome = 'failed'
+FROM read_parquet('data/runs/**/*.parquet') AS v,
+     UNNEST(v.measurements) AS t(m)
+WHERE v.record_type = 'vector'
+  AND m.outcome = 'failed'
 GROUP BY 1, 2
 ORDER BY failures DESC;
 ```
@@ -426,7 +465,7 @@ ORDER BY avg_seconds DESC;
 | `TestRun` (`run_id`) | `TestResults` |
 | `record_type='step'` | `TestGroup` |
 | `vector_index` | (Conditions) |
-| `record_type='measurement'` | `Data` |
+| projected measurement fact (`record_type='measurement'`) | `Data` |
 | `UUT` (`uut_*`) | `UUT` |
 | `measurement_outcome` | `OutcomeValue` |
 | `limit_comparator` | `Comparator` |

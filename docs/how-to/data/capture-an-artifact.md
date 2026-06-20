@@ -9,6 +9,7 @@ Attach a non-numeric artifact (image, vendor blob, Pydantic model, byte stream) 
 ```python
 from PIL import Image
 from pydantic import BaseModel
+from litmus.data.models import XYData
 
 
 class Report(BaseModel):
@@ -25,6 +26,11 @@ def test_thing(observe, verify, ...):
 
     # Pydantic model → FileStore JSON
     observe("report", Report(uut_serial="SN001", pass_rate=0.99))
+
+    # XYData (IV curve / S-param sweep / spectrum) → FileStore .npz
+    iv = XYData(x=[0.0, 0.5, 1.0], y=[0.0, 2.1, 4.3],
+                x_unit="V", y_unit="mA", x_name="Bias", y_name="Current")
+    observe("iv_curve", iv)
 ```
 
 The platform routes by value shape: scalars/arrays → ChannelStore, blobs → FileStore. Each call stamps `out_<name>` on the active vector with the resulting `file://...` URI. The verify row reached from `/results/{run_id}` shows all four `out_*` columns; clicking any opens the artifact.
@@ -41,7 +47,7 @@ def test_thing(verify, psu):
         psu.set_voltage(5.0)
         log.write({"event": "psu_off"})
 
-    verify("rail_v", psu.measure_voltage(), Limit(low=4.75, high=5.25, units="V"))
+    verify("rail_v", psu.measure_voltage(), Limit(low=4.75, high=5.25, unit="V"))
 ```
 
 Available formats today: `raw` (binary append), `jsonl` (one JSON value per line), `tdms` (requires `[tdms]` extra), `h5` (requires `[hdf5]` extra). `format=` is the one place the platform makes you be explicit — it can't infer `mp4` vs `wav` vs `tdms` from opaque bytes.
