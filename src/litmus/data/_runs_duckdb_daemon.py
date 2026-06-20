@@ -307,6 +307,10 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             last_attempt TIMESTAMPTZ NOT NULL DEFAULT now()
         )
     """)
+    # The daemon's FLAT measurement-fact projection — built at ingest by
+    # UNNESTing the nested ``measurements`` list off each at-rest vector row.
+    # The at-rest parquet has NO ``record_type='measurement'`` rows (only
+    # run/step/vector); the default below stamps the projected fact rows.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS measurements_materialized (
             file_path             VARCHAR NOT NULL,
