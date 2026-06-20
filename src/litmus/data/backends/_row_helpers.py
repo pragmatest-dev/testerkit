@@ -87,7 +87,6 @@ MEASUREMENT_STRUCT_FIELDS: tuple[str, ...] = (
     "instrument_name",
     "instrument_resource",
     "instrument_channel",
-    "ref",
 )
 
 # Flat measurement scalar columns — present on the flat-fact / overlay / export
@@ -567,7 +566,6 @@ def build_measurement_struct(measurement: Measurement) -> dict[str, Any]:
         "instrument_name": measurement.instrument_name,
         "instrument_resource": measurement.instrument_resource,
         "instrument_channel": measurement.instrument_channel,
-        "ref": None,
     }
 
 

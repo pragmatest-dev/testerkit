@@ -102,8 +102,8 @@ run    (row)
       │              nested iteration vectors for a self-loop)
       │   inputs / outputs / custom : LIST<STRUCT<name, kind, value lanes, unit, uut_pin>>
       └─ measurements : LIST<STRUCT< name, value, units, limits, outcome,
-                                      characteristic, spec, signal-path (uut_pin/…),
-                                      ref >>        ← NESTED under the vector
+                                      characteristic, spec, signal-path (uut_pin/…) >>
+                                                    ← NESTED under the vector
 ```
 
 **Deltas from the as-built v2 (what still needs doing):**

@@ -83,7 +83,6 @@ def _measurement_row(
                     "instrument_name": None,
                     "instrument_resource": None,
                     "instrument_channel": None,
-                    "ref": None,
                 }
             ],
         }

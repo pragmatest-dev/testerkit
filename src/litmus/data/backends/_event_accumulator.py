@@ -90,7 +90,6 @@ def _measurement_event_struct(event: Any) -> dict[str, Any]:
         "instrument_name": event.instrument_name,
         "instrument_resource": event.instrument_resource,
         "instrument_channel": event.instrument_channel,
-        "ref": None,
     }
 
 

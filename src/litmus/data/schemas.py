@@ -75,7 +75,6 @@ _MEASUREMENT_STRUCT = pa.struct(
         ("instrument_name", pa.string()),
         ("instrument_resource", pa.string()),
         ("instrument_channel", pa.string()),
-        ("ref", pa.string()),
     ]
 )
 assert [f.name for f in _MEASUREMENT_STRUCT] == list(MEASUREMENT_STRUCT_FIELDS), (
