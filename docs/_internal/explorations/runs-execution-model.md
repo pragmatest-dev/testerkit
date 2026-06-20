@@ -113,10 +113,6 @@ run    (row)
    the projection** (daemon `UNNEST`s the nested measurements at ingest). The
    outcome rollup is a **query-layer** aggregation, not a reason for at-rest rows.
    *(Supersedes decision 3 "measurements stay rows".)*
-2. **Measurement raw `ref`** — optional `ref=` on `verify`/`measure`; the measurement
-   owns a `channel://`/`file://` URI to *its* raw signal (claim-checked). Structural
-   field on the measurement, NOT an output→measurement back-pointer. The
-   differentiating per-measurement-raw capability.
 3. **`unit=` on `verify`** (measurements) — symmetric with `configure`/`observe`
    (already shipped). The measurement carries its unit.
 4. **Pin / signal-path on observations** — extend `_auto_traceability` (logger.py:125)
@@ -142,11 +138,10 @@ new **conditions** → new vector rows; the `connections.for_characteristic` loo
 same condition, different measurement point → new **measurements/observations within
 the vector** (the per-pin axis). The pin loop never creates vectors.
 
-**Net:** of the six deltas, only #1 (nest measurements) is a structural reversal of
+**Net:** of the five deltas, only #1 (nest measurements) is a structural reversal of
 the branch; the rest are additive. After this, the at-rest is a clean nested archive
 (vector ⊃ inputs/outputs/custom lanes + a measurements array, each measurement
-optionally pinned and `ref`-linked to its raw), and the query layer is the unpacked
-fact + EAV.
+optionally pinned), and the query layer is the unpacked fact + EAV.
 
 ### Observation pinning (#4 / #39) — grain & the EAV-field decision (2026-06-20)
 
