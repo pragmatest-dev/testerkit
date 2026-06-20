@@ -43,9 +43,9 @@ from litmus.data.backends._row_helpers import (
     HAS_NUMPY,
     INSTRUMENT_ARRAY_KEYS,
     REF_PATH_PREFIX,
-    build_row,
     build_run_metadata,
     build_run_row,
+    build_scope_vector_row,
     build_step_manifest,
     build_step_row,
     build_vector_row,
@@ -122,7 +122,11 @@ def _build_parquet_metadata(
     if environment_json:
         metadata[b"environment_json"] = environment_json.encode("utf-8")
     if step_results:
-        metadata[b"step_results"] = json.dumps(step_results).encode("utf-8")
+        # step_results is a step-level summary; the per-vector nested
+        # measurements (which carry raw datetimes) live in the parquet rows,
+        # not this JSON metadata.
+        slim = [{k: v for k, v in e.items() if k != "measurements"} for e in step_results]
+        metadata[b"step_results"] = json.dumps(slim).encode("utf-8")
     if profile_facets:
         metadata[b"profile_facets_json"] = json.dumps(profile_facets).encode("utf-8")
 
@@ -229,9 +233,6 @@ class ParquetBackend:
         # the entire parquet — naturally handles the placeholder case).
         rows: list[dict[str, Any]] = [self._build_run_row(test_run, instrument_arrays)]
 
-        # Build measurement rows (may create _ref/ directory for large data)
-        rows.extend(self._build_measurement_rows(test_run, instrument_arrays))
-
         # Append a ``record_type='step'`` row for every (step, vector)
         # — containers, action steps, swept variants, and
         # planned-but-unrun vectors all live in the same parquet under
@@ -252,14 +253,13 @@ class ParquetBackend:
         return parquet_path
 
     def _append_step_rows(self, test_run: TestRun, rows: list[dict[str, Any]]) -> None:
-        """Append a ``record_type='step'`` row for every (step, vector).
+        """Append a ``record_type='step'`` row plus its scope ``vector`` row.
 
-        Used by the batch writer (``save_test_run``). Emits a step row
-        for each manifest entry unconditionally — measurements get
-        their own ``record_type='measurement'`` rows, and queries
-        discriminate via the explicit kind column. Delegates to the
-        shared ``build_step_row`` helper so streaming and batch paths
-        produce identical step rows for the same logical step.
+        Used by the batch writer (``save_test_run``). Emits a step row and a
+        scope vector row for each manifest entry; the vector carries the
+        conditions/observations and nested measurements. Delegates to the
+        shared ``build_step_row`` / ``build_scope_vector_row`` helpers so the
+        streaming and batch paths produce identical rows for the same step.
         """
         if not test_run.steps:
             return
@@ -267,7 +267,7 @@ class ParquetBackend:
         run_context = build_run_metadata(test_run)
         run_outcome = test_run.outcome.value if test_run.outcome else None
         run_ended_at = test_run.ended_at
-        instruments = _ensure_instrument_arrays({})
+        empty_instruments = _ensure_instrument_arrays({})
         ref_saver = self._filestore_ref_saver(test_run)
 
         # ``build_step_manifest`` produces one entry per (step, vector)
@@ -276,8 +276,32 @@ class ParquetBackend:
         # through the shared ``build_step_row`` helper keeps them in
         # lock-step.
         for entry in build_step_manifest(test_run, ref_saver=ref_saver):
+            idx = entry.get("index")
+            step = (
+                test_run.steps[idx]
+                if isinstance(idx, int) and 0 <= idx < len(test_run.steps)
+                else None
+            )
+            instruments = (
+                _ensure_instrument_arrays(dict(step.instrument_arrays))
+                if step is not None and step.instrument_arrays
+                else empty_instruments
+            )
             rows.append(
                 build_step_row(
+                    run_context=run_context,
+                    entry=entry,
+                    run_outcome=run_outcome,
+                    run_ended_at=run_ended_at,
+                    instruments=instruments,
+                )
+            )
+            # v2: synthesize the scope vector carrying the conditions/
+            # observations the step record sheds (offline path has no
+            # in-body VectorStarted/Ended, so every manifest entry is a
+            # non-looping execution → one scope vector each).
+            rows.append(
+                build_scope_vector_row(
                     run_context=run_context,
                     entry=entry,
                     run_outcome=run_outcome,
@@ -332,68 +356,6 @@ class ParquetBackend:
             )
 
         return ref_saver
-
-    def _build_measurement_rows(
-        self,
-        test_run: TestRun,
-        instrument_arrays: dict[str, list] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Build one row per measurement with all metadata denormalized.
-
-        A vector with 0 measurements produces NO measurement row — its
-        observations ride on the step/vector record's nested ``outputs``
-        lanes. Mixed-type names no longer raise: each value routes to its
-        own ``value_*`` lane (the lane absorbs the type difference).
-        """
-
-        ref_saver = self._filestore_ref_saver(test_run)
-
-        def _build(
-            measurement: Measurement,
-            step: TestStep,
-            step_idx: int,
-            vector: TestVector,
-            step_arrays: dict[str, list],
-        ) -> dict[str, Any]:
-            row_model = build_row(
-                test_run,
-                measurement,
-                step.name,
-                step_idx,
-                vector,
-                step_arrays,
-                ref_saver=ref_saver,
-                # Fall back step_path → step.name so the daemon's
-                # GROUP BY (step_path, vector_index) gives each
-                # logical step its own row. Same fallback for
-                # step_started_at / step_ended_at — the daemon
-                # filters on ``ended_at IS NOT NULL`` by default,
-                # and a step row with no timing information is
-                # invisible to operator queries.
-                step_path=step.step_path or step.name,
-                step_started_at=step.started_at or test_run.started_at,
-                step_ended_at=step.ended_at or test_run.ended_at or test_run.started_at,
-                step_node_id=step.node_id,
-                step_module=step.module,
-                step_file=step.file,
-                step_class=step.class_name,
-                step_function=step.function,
-                step_markers=step.markers,
-                step_outcome=step.outcome.value if step.outcome else None,
-                meta=meta,
-            )
-            return row_model.to_flat_dict()
-
-        meta = build_run_metadata(test_run)
-        rows: list[dict[str, Any]] = []
-        for step_idx, step in enumerate(test_run.steps):
-            step_arrays = step.instrument_arrays or _ensure_instrument_arrays(
-                dict(instrument_arrays or {})
-            )
-            for vector in step.vectors:
-                for measurement in vector.measurements:
-                    rows.append(_build(measurement, step, step_idx, vector, step_arrays))
-        return rows
 
     def _build_run_row(
         self,
@@ -602,21 +564,25 @@ def _build_unified_rows_from_acc(
     drawn from its pool; not method-on-class because EventAccumulator is
     the pure projection and shouldn't know about output formats.
 
-    Record order: one ``run`` row, then ``measurement`` rows, then in-body
-    ``vector`` rows (Mode-2 only — keyed off VectorStarted/VectorEnded),
-    then ``step`` rows. No fabricated rows: a verify-less vector / assert
-    fail / observation-only execution is represented by its vector or step
-    record, never a synthesized measurement.
+    Record order: one ``run`` row, then ``vector`` rows (each carrying its
+    nested ``measurements``), then ``step`` rows. No fabricated rows: a
+    verify-less vector / assert fail / observation-only execution is
+    represented by its vector or step record, never a synthesized
+    measurement.
     """
     rows: list[dict[str, Any]] = []
     run_row = _build_run_row_from_acc(acc, run_ended_at=run_ended_at, run_outcome=run_outcome)
     if run_row is not None:
         rows.append(run_row)
-    for event in acc._measurement_events:
-        row = acc._build_row(event)
-        row["run_ended_at"] = run_ended_at
-        row["run_outcome"] = run_outcome
-        rows.append(row)
+    # v2: synthesized scope vectors (one per non-looping step execution) carry
+    # the conditions/observations the step record sheds; in-body iteration
+    # vectors (Mode 2) carry theirs at the iteration grain.
+    for entry in acc._build_scope_vector_results_from_events():
+        vector_row = _build_vector_row_from_acc(
+            acc, entry, run_ended_at=run_ended_at, run_outcome=run_outcome
+        )
+        if vector_row is not None:
+            rows.append(vector_row)
     for entry in acc._build_vector_results_from_events():
         vector_row = _build_vector_row_from_acc(
             acc, entry, run_ended_at=run_ended_at, run_outcome=run_outcome
@@ -1051,20 +1017,13 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
     raw_meta = pf.schema_arrow.metadata or {}
     file_meta = {k.decode(): v.decode() for k, v in raw_meta.items()}
 
-    # Group rows for reconstruction. Measurement rows group by
-    # (step_name, step_index) → (vector_index, vector_retry) — that's the
-    # measurement payload grain. Step rows are tracked separately by
-    # vector_index alone so they can backfill TestVectors that recorded
-    # no measurements (vector_retry is per-measurement; step rows
-    # carry None there and would otherwise create phantom vectors).
-    step_groups: dict[
-        tuple[str | None, int | None],
-        dict[tuple[int | None, int | None], list[dict]],
-    ] = defaultdict(lambda: defaultdict(list))
+    # Group rows for reconstruction. Vector rows are the carriers: each
+    # holds its conditions (inputs), context (outputs), and nested
+    # ``measurements``. Step rows supply step-level timing, outcome, and the
+    # instrument arrays. Keyed by ``(step_name, step_index)``.
+    step_vector_rows: dict[tuple[str | None, int | None], list[dict]] = defaultdict(list)
+    step_meta_rows: dict[tuple[str | None, int | None], dict] = {}
     step_timing: dict[tuple[str | None, int | None], dict[str, Any]] = {}
-    step_rows_by_vector: dict[tuple[str | None, int | None], dict[int | None, dict]] = defaultdict(
-        dict
-    )
 
     for row in rows:
         rt = row.get("record_type")
@@ -1079,110 +1038,78 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                 "started_at": row.get("step_started_at"),
                 "ended_at": row.get("step_ended_at"),
             }
-        if rt == "measurement":
-            vk = (row.get("vector_index"), row.get("vector_retry"))
-            step_groups[sk][vk].append(row)
-        else:
-            step_rows_by_vector[sk][row.get("vector_index")] = row
-
-    # Ensure measurement-free vectors still surface — for any step row
-    # whose (step, vector_index) has no measurement-group entry, seed
-    # an empty group keyed by ``(vector_index, None)``.
-    for sk, by_vec in step_rows_by_vector.items():
-        existing_vec_indices = {vk[0] for vk in step_groups[sk]}
-        for vec_idx, step_row in by_vec.items():
-            if vec_idx not in existing_vec_indices:
-                step_groups[sk][(vec_idx, None)].append(step_row)
+        if rt == "vector":
+            step_vector_rows[sk].append(row)
+        elif rt == "step":
+            step_meta_rows[sk] = row
 
     # Build steps
     steps: list[TestStep] = []
-    for sk in sorted(step_groups, key=lambda x: (x[1] or 0, x[0] or "")):
-        vector_groups = step_groups[sk]
-        vectors: list[TestVector] = []
+    all_sks = sorted(
+        set(step_vector_rows) | set(step_meta_rows),
+        key=lambda x: (x[1] or 0, x[0] or ""),
+    )
+    for sk in all_sks:
+        vector_rows = step_vector_rows.get(sk, [])
+        step_row = step_meta_rows.get(sk)
 
-        # One sample row for step-level extraction (step_instruments_* arrays)
-        step_sample_row = next(iter(vector_groups.values()))[0]
+        # Instrument arrays from the step row (fall back to a vector row).
+        instr_source = step_row or (vector_rows[0] if vector_rows else {})
         step_instr: dict[str, list] = {}
-        for col, val in step_sample_row.items():
-            if col.startswith("step_instruments_"):
-                if val is not None:
-                    step_instr[col] = val if isinstance(val, list) else [val]
+        for col, val in instr_source.items():
+            if col.startswith("step_instruments_") and val is not None:
+                step_instr[col] = val if isinstance(val, list) else [val]
 
-        for vk in sorted(vector_groups, key=lambda x: (x[0] or 0, x[1] or 0)):
-            group_rows = vector_groups[vk]
-            # Filter to measurement-kind rows for the payload loop.
-            # Step rows establish the (vector) presence even for
-            # measurement-free vectors but carry no measurement payload.
-            meas_rows = [r for r in group_rows if r.get("record_type") == "measurement"]
+        vectors: list[TestVector] = []
+        for vr in sorted(
+            vector_rows,
+            key=lambda r: (r.get("vector_index") or 0, r.get("vector_retry") or 0),
+        ):
+            params: dict[str, Any] = _params_from_inputs(decode_lane_structs(vr.get("inputs")))
+            observations = decode_lane_structs(vr.get("outputs"))
             measurements: list[Measurement] = []
-
-            # Decode params from the nested inputs lanes (skipping signal-path
-            # metadata like vin_instrument) and observations from outputs. Use
-            # any row in the group — both kinds carry the same nested lanes.
-            sample_row = group_rows[0]
-            params: dict[str, Any] = _params_from_inputs(
-                decode_lane_structs(sample_row.get("inputs"))
-            )
-            observations = decode_lane_structs(sample_row.get("outputs"))
-
-            for mr in meas_rows:
-                outcome_str = mr.get("measurement_outcome")
+            for ms in vr.get("measurements") or []:
+                outcome_str = ms.get("outcome")
                 m = Measurement(
-                    name=mr.get("measurement_name") or "",
-                    value=mr.get("measurement_value"),
-                    units=mr.get("measurement_units"),
-                    limit_low=mr.get("limit_low"),
-                    limit_high=mr.get("limit_high"),
-                    limit_nominal=mr.get("limit_nominal"),
-                    limit_comparator=mr.get("limit_comparator"),
+                    name=ms.get("name") or "",
+                    value=ms.get("value"),
+                    units=ms.get("units"),
+                    limit_low=ms.get("limit_low"),
+                    limit_high=ms.get("limit_high"),
+                    limit_nominal=ms.get("limit_nominal"),
+                    limit_comparator=ms.get("limit_comparator"),
                     outcome=Outcome(outcome_str) if outcome_str else None,
-                    characteristic_id=mr.get("characteristic_id"),
-                    spec_ref=mr.get("spec_ref"),
-                    uut_pin=mr.get("uut_pin"),
-                    instrument_name=mr.get("instrument_name"),
-                    instrument_resource=mr.get("instrument_resource"),
-                    instrument_channel=mr.get("instrument_channel"),
-                    fixture_connection=mr.get("fixture_connection"),
+                    characteristic_id=ms.get("characteristic_id"),
+                    spec_ref=ms.get("spec_ref"),
+                    uut_pin=ms.get("uut_pin"),
+                    instrument_name=ms.get("instrument_name"),
+                    instrument_resource=ms.get("instrument_resource"),
+                    instrument_channel=ms.get("instrument_channel"),
+                    fixture_connection=ms.get("fixture_connection"),
                 )
-                ts = mr.get("measurement_timestamp")
+                ts = ms.get("timestamp")
                 if ts is not None:
                     m.timestamp = ts
                 measurements.append(m)
 
-            # Vector outcome should be uniform across the vector's
-            # measurement rows (it's denormalized from the vector model).
-            # Warn if a row diverges so silent data corruption surfaces.
-            vec_outcomes = {
-                mr.get("vector_outcome") for mr in meas_rows if mr.get("vector_outcome")
-            }
-            if len(vec_outcomes) > 1:
-                logger.warning(
-                    "Vector %s has inconsistent vector_outcome values across rows: %s",
-                    vk,
-                    sorted(o for o in vec_outcomes if o is not None),
-                )
-            vec_outcome_str = min(
-                vec_outcomes, key=lambda o: OUTCOME_RANK.get(str(o), 99), default=None
-            )
+            vec_outcome_str = vr.get("vector_outcome")
             vectors.append(
                 TestVector(
-                    index=vk[0] or 0,
-                    retry=vk[1] if vk[1] is not None else 0,
+                    index=vr.get("vector_index") or 0,
+                    retry=vr.get("vector_retry") or 0,
                     params=params,
                     observations=observations,
                     outcome=Outcome(vec_outcome_str) if vec_outcome_str else Outcome.PASSED,
                     measurements=measurements,
-                    started_at=sample_row.get("vector_started_at") or run_started_at,
-                    ended_at=sample_row.get("vector_ended_at"),
+                    started_at=vr.get("vector_started_at") or run_started_at,
+                    ended_at=vr.get("vector_ended_at"),
                 )
             )
 
         timing = step_timing.get(sk, {})
-        # Prefer the stored step_outcome column (cascade rollup written
-        # at row-build time). Fall back to deriving from vector
-        # outcomes for older parquet files written before the column
-        # existed.
-        step_outcome_str = step_sample_row.get("step_outcome")
+        # Prefer the stored step_outcome column (cascade rollup written at
+        # row-build time); fall back to deriving from vector outcomes.
+        step_outcome_str = step_row.get("step_outcome") if step_row else None
         if step_outcome_str:
             step_outcome = Outcome(step_outcome_str)
         elif any(v.outcome == Outcome.FAILED for v in vectors):

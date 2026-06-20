@@ -11,13 +11,19 @@ from typing import Any
 
 import pyarrow as pa
 
-from litmus.data.backends._row_helpers import INSTRUMENT_ARRAY_KEYS, LANE_FIELDS
+from litmus.data.backends._row_helpers import (
+    INSTRUMENT_ARRAY_KEYS,
+    LANE_FIELDS,
+    MEASUREMENT_STRUCT_FIELDS,
+)
 
 __all__ = [
     "RUN_ROW_SCHEMA",
     "SCHEMA_VERSION",
     "_INSTR_ARRAY_TYPES",
     "_LANE_LIST",
+    "_MEASUREMENT_LIST",
+    "_MEASUREMENT_STRUCT",
     "_SCHEMA_DICT",
     "_build_write_schema",
     "table_from_rows",
@@ -39,6 +45,7 @@ _LANE_STRUCT = pa.struct(
         ("value_timestamp", pa.timestamp("us", tz="UTC")),
         ("value_json", pa.string()),
         ("unit", pa.string()),
+        ("uut_pin", pa.string()),
     ]
 )
 assert [f.name for f in _LANE_STRUCT] == list(LANE_FIELDS), (
@@ -46,29 +53,57 @@ assert [f.name for f in _LANE_STRUCT] == list(LANE_FIELDS), (
 )
 _LANE_LIST = pa.list_(_LANE_STRUCT)
 
+# Nested measurement struct — the at-rest representation of one measurement,
+# carried in the vector row's ``measurements`` LIST. Field names must match
+# ``_row_helpers.MEASUREMENT_STRUCT_FIELDS`` (guarded below). The daemon
+# UNNESTs these into the flat measurement fact at ingest.
+_MEASUREMENT_STRUCT = pa.struct(
+    [
+        ("name", pa.string()),
+        ("value", pa.float64()),
+        ("units", pa.string()),
+        ("outcome", pa.string()),
+        ("timestamp", pa.timestamp("us", tz="UTC")),
+        ("limit_low", pa.float64()),
+        ("limit_high", pa.float64()),
+        ("limit_nominal", pa.float64()),
+        ("limit_comparator", pa.string()),
+        ("characteristic_id", pa.string()),
+        ("spec_ref", pa.string()),
+        ("uut_pin", pa.string()),
+        ("fixture_connection", pa.string()),
+        ("instrument_name", pa.string()),
+        ("instrument_resource", pa.string()),
+        ("instrument_channel", pa.string()),
+        ("ref", pa.string()),
+    ]
+)
+assert [f.name for f in _MEASUREMENT_STRUCT] == list(MEASUREMENT_STRUCT_FIELDS), (
+    "schemas._MEASUREMENT_STRUCT drifted from _row_helpers.MEASUREMENT_STRUCT_FIELDS"
+)
+_MEASUREMENT_LIST = pa.list_(_MEASUREMENT_STRUCT)
+
 # Canonical row schema for the unified per-run parquet — a chronological
 # telling of the run. Every row carries an explicit ``record_type``
-# discriminator with one of four values:
+# discriminator with one of three values:
 #   * ``record_type = 'run'`` — one row per run; run / UUT / station /
-#     environment context. Step / vector / measurement columns are NULL.
+#     environment context. Step / vector columns are NULL.
 #   * ``record_type = 'step'`` — one step-execution, keyed ``(step_path,
-#     vector_index, retry)`` and nestable via ``parent_path`` (a class
-#     container, a parametrize item, or a single/unswept run — the fused
-#     step≡vector boundary). ``measurement_*`` columns are NULL.
-#   * ``record_type = 'vector'`` — one in-body loop iteration (Mode 2: the
-#     ``vectors`` fixture / ``run_vector`` loop) under its leaf step. Mode 1
-#     and class containers fuse into the step row, so ``vector`` rows appear
-#     ONLY for in-body loops.
-#   * ``record_type = 'measurement'`` — one recorded measurement, with the
-#     denormalized step + run + UUT + station + fixture context so cross-run
-#     queries don't need self-joins.
+#     vector_index, retry)`` and nestable via ``parent_path``; carries code
+#     identity + timing + rolled-up outcome.
+#   * ``record_type = 'vector'`` — one execution carrier (a synthesized scope
+#     vector for non-looping steps, or an in-body iteration vector for a
+#     ``vectors`` loop). Holds the ``inputs``/``outputs``/``custom`` lanes and
+#     the nested ``measurements`` list for that execution.
 #
 # ``inputs`` / ``outputs`` / ``custom`` are nested ``LIST<STRUCT<lanes>>``
 # columns (see ``_LANE_STRUCT``), not wide ``in_*``/``out_*`` columns; the
 # DuckDB daemon projects them into ``in_*``/``out_*``/``custom_*`` for queries.
+# ``measurements`` is a nested ``LIST<STRUCT>`` on the vector row; the daemon
+# UNNESTs it into the flat measurement fact for queries.
 RUN_ROW_SCHEMA = pa.schema(
     [
-        # Discriminator — 'run', 'step', 'vector', or 'measurement'
+        # Discriminator — 'run', 'step', or 'vector'
         ("record_type", pa.string()),
         # Identity & timing
         ("session_id", pa.string()),
@@ -125,26 +160,6 @@ RUN_ROW_SCHEMA = pa.schema(
         ("git_commit", pa.string()),
         ("git_branch", pa.string()),
         ("git_remote", pa.string()),
-        # Measurement core
-        ("measurement_name", pa.string()),
-        ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
-        ("measurement_value", pa.float64()),
-        ("measurement_units", pa.string()),
-        ("measurement_outcome", pa.string()),
-        # Limits
-        ("limit_low", pa.float64()),
-        ("limit_high", pa.float64()),
-        ("limit_nominal", pa.float64()),
-        ("limit_comparator", pa.string()),
-        # Spec traceability
-        ("characteristic_id", pa.string()),
-        ("spec_ref", pa.string()),
-        # Signal path
-        ("uut_pin", pa.string()),
-        ("fixture_connection", pa.string()),
-        ("instrument_name", pa.string()),
-        ("instrument_resource", pa.string()),
-        ("instrument_channel", pa.string()),
         # Rollup
         ("step_outcome", pa.string()),
         ("vector_outcome", pa.string()),
@@ -153,11 +168,14 @@ RUN_ROW_SCHEMA = pa.schema(
         ("python_version", pa.string()),
         ("litmus_version", pa.string()),
         ("env_fingerprint", pa.string()),
-        # Dynamic measurement attributes — nested EAV lanes (see _row_helpers).
-        # Names are values inside the structs, so there is no column explosion.
+        # Dynamic attributes — nested EAV lanes (see _row_helpers). Names are
+        # values inside the structs, so there is no column explosion.
         ("inputs", _LANE_LIST),
         ("outputs", _LANE_LIST),
         ("custom", _LANE_LIST),
+        # Nested measurements on the vector row; the daemon UNNESTs these into
+        # the flat measurement fact at ingest.
+        ("measurements", _MEASUREMENT_LIST),
     ]
 )
 

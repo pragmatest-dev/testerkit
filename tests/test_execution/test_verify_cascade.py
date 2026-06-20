@@ -92,9 +92,20 @@ def _read_measurement_row(serial: str, measurement_name: str, *, timeout: float 
         time.sleep(0.2)
     assert parquet is not None, f"no measurement parquet for serial={serial!r}"
     table = pq.read_table(parquet)
-    rows = [r for r in table.to_pylist() if r.get("measurement_name") == measurement_name]
-    assert rows, f"no row for {measurement_name!r} in {parquet}"
-    return rows[0]
+    # Measurements are nested on the vector row; return the vector context
+    # merged with the flat ``measurement_*`` keys (the fact shape callers use).
+    for r in table.to_pylist():
+        if r.get("record_type") != "vector":
+            continue
+        for m in r.get("measurements") or []:
+            if m["name"] == measurement_name:
+                return {
+                    **r,
+                    "measurement_name": m["name"],
+                    "measurement_value": m["value"],
+                    "measurement_outcome": m["outcome"],
+                }
+    raise AssertionError(f"no measurement {measurement_name!r} in {parquet}")
 
 
 @pytest.mark.parametrize(
@@ -235,6 +246,12 @@ def test_in_test_vector_iteration_allows_repeat_name(pytester: pytest.Pytester) 
         time.sleep(0.2)
     assert parquet is not None, f"no parquet for {serial}"
     table = pq.read_table(parquet)
-    rows = [r for r in table.to_pylist() if r.get("measurement_name") == "v_rail"]
-    assert len(rows) == 3, f"expected 3 rows (one per vector), got {len(rows)}"
-    assert {r["measurement_outcome"] for r in rows} == {"passed"}
+    rows = [
+        m
+        for r in table.to_pylist()
+        if r.get("record_type") == "vector"
+        for m in (r.get("measurements") or [])
+        if m["name"] == "v_rail"
+    ]
+    assert len(rows) == 3, f"expected 3 measurements (one per vector), got {len(rows)}"
+    assert {r["outcome"] for r in rows} == {"passed"}

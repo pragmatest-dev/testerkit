@@ -76,7 +76,7 @@ def _step_row(
     return populated
 
 
-def _measurement_row(
+def _vector_row(
     *,
     run_id: str,
     session_id: str,
@@ -87,14 +87,14 @@ def _measurement_row(
     step_ended_at: datetime,
     step_index: int,
     step_name: str,
-    measurement_name: str,
+    measurement_names: list[str],
     uut_serial: str,
 ) -> dict:
-    """Build one ``record_type='measurement'`` row in unified RUN_ROW_SCHEMA shape."""
+    """Build one ``record_type='vector'`` row carrying nested measurements."""
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
-            "record_type": "measurement",
+            "record_type": "vector",
             "run_id": run_id,
             "session_id": session_id,
             "run_started_at": run_started_at,
@@ -106,17 +106,35 @@ def _measurement_row(
             "parent_path": "",
             "step_started_at": step_started_at,
             "step_ended_at": step_ended_at,
-            "step_outcome": run_outcome,
-            "step_vector_count": 1,
             "vector_index": 0,
             "vector_retry": 0,
-            "measurement_name": measurement_name,
-            "measurement_value": 1.0,
-            "measurement_outcome": run_outcome,
+            "vector_outcome": run_outcome,
             "uut_serial": uut_serial,
             "station_id": "STA-01",
             "test_phase": "production",
             "part_id": "PN-100",
+            "measurements": [
+                {
+                    "name": name,
+                    "value": 1.0,
+                    "units": None,
+                    "outcome": run_outcome,
+                    "timestamp": None,
+                    "limit_low": None,
+                    "limit_high": None,
+                    "limit_nominal": None,
+                    "limit_comparator": None,
+                    "characteristic_id": None,
+                    "spec_ref": None,
+                    "uut_pin": None,
+                    "fixture_connection": None,
+                    "instrument_name": None,
+                    "instrument_resource": None,
+                    "instrument_channel": None,
+                    "ref": None,
+                }
+                for name in measurement_names
+            ],
         }
     )
     return populated
@@ -158,22 +176,21 @@ def _write_run(
                 uut_serial=uut_serial,
             )
         )
-        for meas_i in range(measurements_per_step):
-            rows.append(
-                _measurement_row(
-                    run_id=run_id,
-                    session_id=session_id,
-                    run_started_at=started,
-                    run_ended_at=run_ended,
-                    run_outcome=outcome,
-                    step_started_at=step_start,
-                    step_ended_at=step_end,
-                    step_index=step_i,
-                    step_name=f"step_{step_i}",
-                    measurement_name=f"meas_{step_i}_{meas_i}",
-                    uut_serial=uut_serial,
-                )
+        rows.append(
+            _vector_row(
+                run_id=run_id,
+                session_id=session_id,
+                run_started_at=started,
+                run_ended_at=run_ended,
+                run_outcome=outcome,
+                step_started_at=step_start,
+                step_ended_at=step_end,
+                step_index=step_i,
+                step_name=f"step_{step_i}",
+                measurement_names=[f"meas_{step_i}_{m}" for m in range(measurements_per_step)],
+                uut_serial=uut_serial,
             )
+        )
     cols = {f.name: [r[f.name] for r in rows] for f in RUN_ROW_SCHEMA}
     parquet_path = runs_dir / f"{run_id}.parquet"
     pq.write_table(pa.table(cols, schema=RUN_ROW_SCHEMA), parquet_path)

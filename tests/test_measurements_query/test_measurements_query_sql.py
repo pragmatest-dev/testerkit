@@ -31,6 +31,36 @@ from litmus.data.run_store import RunStore
 from litmus.data.schemas import _build_write_schema, table_from_rows
 
 
+def _meas_struct(
+    *,
+    name: str = "vout",
+    value: float | None = 3.3,
+    outcome: str = "passed",
+    limit_low: float | None = None,
+    limit_high: float | None = None,
+) -> dict:
+    """Build one nested measurement struct (the at-rest measurement shape)."""
+    return {
+        "name": name,
+        "value": value,
+        "units": None,
+        "outcome": outcome,
+        "timestamp": None,
+        "limit_low": limit_low,
+        "limit_high": limit_high,
+        "limit_nominal": None,
+        "limit_comparator": None,
+        "characteristic_id": None,
+        "spec_ref": None,
+        "uut_pin": None,
+        "fixture_connection": None,
+        "instrument_name": None,
+        "instrument_resource": None,
+        "instrument_channel": None,
+        "ref": None,
+    }
+
+
 def _row(
     *,
     run_id: str,
@@ -49,9 +79,9 @@ def _row(
     test_phase: str = "production",
     step_index: int = 0,
 ) -> MeasurementRow:
-    """Build a MeasurementRow with sensible defaults."""
+    """Build a vector MeasurementRow carrying one nested measurement."""
     return MeasurementRow(
-        record_type="measurement",
+        record_type="vector",
         session_id="sess-1",
         run_id=run_id,
         run_started_at=datetime.fromisoformat(run_started_at).replace(tzinfo=UTC),
@@ -64,12 +94,17 @@ def _row(
         test_phase=test_phase,
         step_name=step_name,
         step_index=step_index,
-        measurement_name=measurement_name,
-        measurement_value=value,
-        measurement_outcome=outcome,
-        limit_low=limit_low,
-        limit_high=limit_high,
+        vector_outcome=outcome,
         run_outcome=run_outcome,
+        measurements=[
+            _meas_struct(
+                name=measurement_name,
+                value=value,
+                outcome=outcome,
+                limit_low=limit_low,
+                limit_high=limit_high,
+            )
+        ],
     )
 
 
@@ -80,9 +115,9 @@ def _write_measurements(
     filename: str = "20260101T100000Z_SN001.parquet",
     notify: bool = True,
 ) -> Path:
-    """Write MeasurementRows to a parquet file and (optionally) notify the canonical daemon."""
+    """Write vector MeasurementRows to a parquet file and (optionally) notify the daemon."""
     runs_dir.mkdir(parents=True, exist_ok=True)
-    flat_rows = [r.to_flat_dict() for r in rows]
+    flat_rows = [r.to_flat_dict(at_rest=True) for r in rows]
     schema = _build_write_schema(flat_rows)
     table = table_from_rows(flat_rows, schema)
     path = runs_dir / filename
@@ -441,7 +476,7 @@ def dynamic_axis_data() -> dict[str, str]:
     run = f"dyn-{uuid4()}"
     rows = [
         MeasurementRow(
-            record_type="measurement",
+            record_type="vector",
             session_id="sess-dyn",
             run_id=run,
             run_started_at=datetime.fromisoformat("2026-03-01T10:00:00").replace(tzinfo=UTC),
@@ -454,10 +489,9 @@ def dynamic_axis_data() -> dict[str, str]:
             step_name="sweep",
             step_index=0,
             vector_index=v,
-            measurement_name="vout",
-            measurement_value=3.30 + 0.01 * v,
-            measurement_outcome="passed",
+            vector_outcome="passed",
             inputs={"freq": freq},
+            measurements=[_meas_struct(value=3.30 + 0.01 * v)],
         )
         for v, freq in enumerate((1000.0, 2000.0))
     ]

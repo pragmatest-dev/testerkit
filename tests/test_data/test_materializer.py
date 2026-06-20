@@ -62,18 +62,18 @@ class TestMaterializer:
         assert len(pq_files) == 1
 
         table = pq.read_table(pq_files[0])
-        # Run row + measurement row + step row (auto-emitted for the
-        # measurement-bearing step). No StepStarted/StepEnded events
-        # were emitted, so only one (step, vector_index=0) pair exists.
+        # Run row + vector row (carrying the nested measurement) + step row.
+        # No StepStarted/StepEnded events were emitted, so only one
+        # (step, vector_index=0) pair exists.
         rows_by_kind = {r["record_type"]: r for r in table.to_pylist()}
         assert "run" in rows_by_kind
-        assert "measurement" in rows_by_kind
-        meas_row = rows_by_kind["measurement"]
-        assert meas_row["measurement_name"] == "vout"
-        assert meas_row["measurement_value"] == 3.3
-        assert meas_row["station_id"] == "st1"
-        assert meas_row["uut_serial"] == "SN001"
-        assert meas_row["run_outcome"] == "passed"
+        assert "vector" in rows_by_kind
+        vec_row = rows_by_kind["vector"]
+        assert [m["name"] for m in vec_row["measurements"]] == ["vout"]
+        assert vec_row["measurements"][0]["value"] == 3.3
+        assert vec_row["station_id"] == "st1"
+        assert vec_row["uut_serial"] == "SN001"
+        assert vec_row["run_outcome"] == "passed"
 
     def test_instruments_cached(self, tmp_path):
         acc = EventAccumulator()
@@ -237,9 +237,9 @@ class TestMaterializer:
 
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         table = pq.read_table(pq_files[0])
-        # Pick the measurement row — step identity columns are denormalized
-        # onto it. The run row carries no step identity (NULL columns).
-        rows = [r for r in table.to_pylist() if r["record_type"] == "measurement"]
+        # Pick the vector row — step identity columns ride on it (it carries
+        # the nested measurement). The run row carries no step identity.
+        rows = [r for r in table.to_pylist() if r["record_type"] == "vector"]
         assert len(rows) == 1
         row = rows[0]
         assert row["step_node_id"] == "tests/test_power.py::TestPower::test_5v_rail"

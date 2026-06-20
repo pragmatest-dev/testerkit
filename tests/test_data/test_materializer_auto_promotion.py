@@ -91,13 +91,25 @@ def _run_with_vector(
 
 
 def _read_measurement_rows(parquet_path: Path) -> list[dict]:
+    """v2: measurements are nested on vector rows; return the nested structs."""
     table = pq.read_table(parquet_path)
-    return [r for r in table.to_pylist() if r.get("record_type") == "measurement"]
+    return [
+        m
+        for r in table.to_pylist()
+        if r.get("record_type") == "vector"
+        for m in (r.get("measurements") or [])
+    ]
 
 
 def _read_step_rows(parquet_path: Path) -> list[dict]:
     table = pq.read_table(parquet_path)
     return [r for r in table.to_pylist() if r.get("record_type") == "step"]
+
+
+def _read_vector_rows(parquet_path: Path) -> list[dict]:
+    """v2: conditions/observations ride on the (scope) vector record."""
+    table = pq.read_table(parquet_path)
+    return [r for r in table.to_pylist() if r.get("record_type") == "vector"]
 
 
 # --------------------------------------------------------------------- #
@@ -108,7 +120,7 @@ def _read_step_rows(parquet_path: Path) -> list[dict]:
 class TestAutoPromotionOffline:
     def test_observation_only_vector_emits_no_measurement_row(self, tmp_path: Path) -> None:
         """0 verify + ≥1 observe → NO measurement row; observations ride on
-        the step record's outputs lanes (no fabricated DONE row)."""
+        the scope vector record's outputs lanes (no fabricated DONE row)."""
         run = _run_with_vector(
             observations={"temperature": 23.5, "humidity": 45.0},
         )
@@ -117,13 +129,15 @@ class TestAutoPromotionOffline:
 
         assert _read_measurement_rows(parquet_path) == []
 
-        step_rows = _read_step_rows(parquet_path)
-        assert len(step_rows) == 1
-        outputs = decode_lane_structs(step_rows[0]["outputs"])
+        # v2: the step sheds outputs onto the scope vector.
+        vec_rows = _read_vector_rows(parquet_path)
+        assert len(vec_rows) == 1
+        outputs = decode_lane_structs(vec_rows[0]["outputs"])
         assert outputs == {"temperature": 23.5, "humidity": 45.0}
+        assert decode_lane_structs(_read_step_rows(parquet_path)[0]["outputs"]) == {}
 
     def test_verify_present_no_done_promotion(self, tmp_path: Path) -> None:
-        """≥1 verify → verify rows only; observations ride on the step record."""
+        """≥1 verify → verify rows only; observations ride on the scope vector."""
         run = _run_with_vector(
             measurements=[
                 Measurement(name="vout", value=3.3, outcome=Outcome.PASSED),
@@ -135,11 +149,11 @@ class TestAutoPromotionOffline:
 
         rows = _read_measurement_rows(parquet_path)
         assert len(rows) == 1
-        assert rows[0]["measurement_name"] == "vout"
-        assert rows[0]["measurement_outcome"] == "passed"
-        # The observation rides on the step record's outputs lanes.
-        step_rows = _read_step_rows(parquet_path)
-        assert decode_lane_structs(step_rows[0]["outputs"]) == {"temperature": 23.5}
+        assert rows[0]["name"] == "vout"
+        assert rows[0]["outcome"] == "passed"
+        # The observation rides on the scope vector record's outputs lanes.
+        vec_rows = _read_vector_rows(parquet_path)
+        assert decode_lane_structs(vec_rows[0]["outputs"]) == {"temperature": 23.5}
 
     def test_empty_vector_emits_no_measurement_rows(self, tmp_path: Path) -> None:
         """0 verify + 0 observe → no measurement rows."""
@@ -159,7 +173,7 @@ class TestAutoPromotionOffline:
         parquet_path = backend.save_test_run(run)
 
         assert _read_measurement_rows(parquet_path) == []
-        outputs = decode_lane_structs(_read_step_rows(parquet_path)[0]["outputs"])
+        outputs = decode_lane_structs(_read_vector_rows(parquet_path)[0]["outputs"])
         assert outputs == {"temperature": 23.5}
         assert "_internal" not in outputs
 
@@ -201,8 +215,8 @@ class TestKindStabilityOffline:
         )
         backend = ParquetBackend(data_dir=tmp_path)
         parquet_path = backend.save_test_run(run)  # does not raise
-        step_rows = _read_step_rows(parquet_path)
-        outputs_by_vec = {r["vector_index"]: decode_lane_structs(r["outputs"]) for r in step_rows}
+        vec_rows = _read_vector_rows(parquet_path)
+        outputs_by_vec = {r["vector_index"]: decode_lane_structs(r["outputs"]) for r in vec_rows}
         assert outputs_by_vec[0] == {"voltage": 3.31}
         assert outputs_by_vec[1] == {"voltage": [1, 2, 3]}
 
@@ -333,8 +347,8 @@ class TestAutoPromotionLive:
         parquet_path = materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
         assert parquet_path is not None
         assert _read_measurement_rows(parquet_path) == []
-        step_rows = _read_step_rows(parquet_path)
-        assert decode_lane_structs(step_rows[0]["outputs"]) == {"temperature": 23.5}
+        vec_rows = _read_vector_rows(parquet_path)
+        assert decode_lane_structs(vec_rows[0]["outputs"]) == {"temperature": 23.5}
 
     def test_verify_present_no_done_promotion_live(self, tmp_path: Path) -> None:
         """≥1 verify in a vector → no DONE row for the observation."""
@@ -371,16 +385,18 @@ class TestAutoPromotionLive:
         assert parquet_path is not None
         rows = _read_measurement_rows(parquet_path)
 
-        # Only the verify row; no DONE row
+        # Only the verify measurement (nested on the vector); no DONE row.
         assert len(rows) == 1
-        assert rows[0]["measurement_name"] == "vout"
-        assert rows[0]["measurement_outcome"] == "passed"
-        # observation rides on the measurement row's outputs lanes
-        assert decode_lane_structs(rows[0]["outputs"]) == {"temperature": 23.5}
+        assert rows[0]["name"] == "vout"
+        assert rows[0]["outcome"] == "passed"
+        # v2: the measurement carries no lanes; the observation rides on the
+        # scope vector record's outputs lanes.
+        vec_rows = _read_vector_rows(parquet_path)
+        assert decode_lane_structs(vec_rows[0]["outputs"]) == {"temperature": 23.5}
 
     def test_multiple_observations_ride_on_step_record(self, tmp_path: Path) -> None:
         """Two observations in a verify-less vector → NO measurement row; both
-        ride on the step record's outputs lanes."""
+        ride on the scope vector record's outputs lanes."""
         acc, ctx = _seeded_accumulator()
         for name, value, micros in (
             ("temperature", 23.5, 300000),
@@ -403,7 +419,7 @@ class TestAutoPromotionLive:
         parquet_path = materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
         assert parquet_path is not None
         assert _read_measurement_rows(parquet_path) == []
-        outputs = decode_lane_structs(_read_step_rows(parquet_path)[0]["outputs"])
+        outputs = decode_lane_structs(_read_vector_rows(parquet_path)[0]["outputs"])
         assert outputs == {"temperature": 23.5, "humidity": 45.0}
 
 

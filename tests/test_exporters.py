@@ -374,15 +374,15 @@ class TestMeasurementRow:
         assert decode_lane_structs(flat["inputs"])["vin"] == 5.0
 
     def test_iter_rows(self, sample_test_run: TestRun):
-        """``iter_rows(test_run)`` yields a MeasurementRow per measurement."""
+        """``iter_rows(test_run)`` yields a flat row dict per measurement."""
         from litmus.data.backends._row_helpers import iter_rows
 
         rows = list(iter_rows(sample_test_run))
         assert len(rows) == 2
-        assert all(isinstance(r, MeasurementRow) for r in rows)
-        assert rows[0].measurement_name == "vout"
-        assert rows[1].measurement_name == "iout"
-        assert rows[0].uut_serial == "UUT001"
+        assert all(isinstance(r, dict) for r in rows)
+        assert rows[0]["measurement_name"] == "vout"
+        assert rows[1]["measurement_name"] == "iout"
+        assert rows[0]["uut_serial"] == "UUT001"
 
 
 class TestEventSubscriberLifecycle:

@@ -1002,6 +1002,8 @@ A test vector execution with its input parameters and observations.
 | `index` | `int` | `0` |
 | `params` | `dict[str, Any]` | `{}` |
 | `observations` | `dict[str, Any]` | `{}` |
+| `param_units` | `dict[str, str]` | `{}` |
+| `observation_units` | `dict[str, str]` | `{}` |
 | `stimulus` | `list[StimulusRecord]` | `[]` |
 | `retry` | `int` | `0` |
 | `max_retries` | `int` | `0` |

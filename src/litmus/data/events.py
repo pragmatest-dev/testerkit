@@ -469,6 +469,9 @@ class StepStarted(EventBase):
     # item rerun, or class-container re-execution).
     retry: int = 0
     inputs: dict[str, Any] = Field(default_factory=dict)
+    # Optional engineering units per input name (``{"vin": "V"}``) — rides into
+    # the lane's ``unit`` field → the EAV ``unit`` column.
+    input_units: dict[str, str] = Field(default_factory=dict)
 
     # Code identity
     node_id: str | None = None
@@ -545,6 +548,7 @@ class Observation(EventBase):
     # Observation
     name: str
     value: Any = None
+    unit: str | None = None
 
 
 class StepEnded(EventBase):
@@ -575,6 +579,9 @@ class StepEnded(EventBase):
     vector_outcome: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
+    # Optional engineering units per input / output name → the lane ``unit`` field.
+    input_units: dict[str, str] = Field(default_factory=dict)
+    output_units: dict[str, str] = Field(default_factory=dict)
 
     # Code identity
     node_id: str | None = None
@@ -604,6 +611,7 @@ class VectorStarted(EventBase):
     vector_index: int = 0
     retry: int = 0
     inputs: dict[str, Any] = Field(default_factory=dict)
+    input_units: dict[str, str] = Field(default_factory=dict)
     node_id: str | None = None
 
 
@@ -621,6 +629,8 @@ class VectorEnded(EventBase):
     outcome: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
+    input_units: dict[str, str] = Field(default_factory=dict)
+    output_units: dict[str, str] = Field(default_factory=dict)
     node_id: str | None = None
 
 

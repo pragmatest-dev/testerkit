@@ -44,11 +44,11 @@ def _measurement_row(
     measurement_value: float,
     measurement_outcome: str,
 ) -> dict:
-    """One ``record_type='measurement'`` row in unified RUN_ROW_SCHEMA shape."""
+    """One ``record_type='vector'`` row carrying one nested measurement."""
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
-            "record_type": "measurement",
+            "record_type": "vector",
             "run_id": run_id,
             "session_id": session_id,
             "run_started_at": run_started_at,
@@ -62,17 +62,30 @@ def _measurement_row(
             "parent_path": "",
             "step_started_at": run_started_at,
             "step_ended_at": run_ended_at,
-            "step_outcome": run_outcome,
-            "step_vector_count": 1,
             "vector_index": 0,
             "vector_retry": 0,
-            "measurement_name": measurement_name,
-            "measurement_value": measurement_value,
-            "measurement_outcome": measurement_outcome,
-            "measurement_units": "V",
-            "limit_low": 3.1,
-            "limit_high": 3.5,
-            "limit_nominal": 3.3,
+            "vector_outcome": run_outcome,
+            "measurements": [
+                {
+                    "name": measurement_name,
+                    "value": measurement_value,
+                    "units": "V",
+                    "outcome": measurement_outcome,
+                    "timestamp": None,
+                    "limit_low": 3.1,
+                    "limit_high": 3.5,
+                    "limit_nominal": 3.3,
+                    "limit_comparator": None,
+                    "characteristic_id": None,
+                    "spec_ref": None,
+                    "uut_pin": None,
+                    "fixture_connection": None,
+                    "instrument_name": None,
+                    "instrument_resource": None,
+                    "instrument_channel": None,
+                    "ref": None,
+                }
+            ],
         }
     )
     return populated

@@ -396,9 +396,13 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             value_bool      BOOLEAN,
             value_text      VARCHAR,
             value_timestamp TIMESTAMPTZ,
-            value_json      VARCHAR
+            value_json      VARCHAR,
+            unit            VARCHAR
         )
     """)
+    # Migrate a pre-units measurements_dynamic table (CREATE IF NOT EXISTS
+    # won't add the column to an existing DB).
+    conn.execute("ALTER TABLE measurements_dynamic ADD COLUMN IF NOT EXISTS unit VARCHAR")
 
     # ── indexes ─────────────────────────────────────────────────────
     for index_sql in (
@@ -546,23 +550,6 @@ def _file_list_sql(paths: list[str]) -> str:
     return "[" + ", ".join(f"'{_sql_escape(p)}'" for p in paths) + "]"
 
 
-def _parquet_columns(conn: duckdb.DuckDBPyConnection, path: str) -> set[str]:
-    """Return TOP-LEVEL column names present in a parquet file.
-
-    Uses DESCRIBE rather than parquet_schema() — the latter returns nested
-    sub-field names (``element``, ``list``, ``key``, ``value``) for array/map
-    typed columns, which are not valid column references in a SELECT clause.
-    DESCRIBE returns only the top-level column names as DuckDB sees them.
-    """
-    escaped = _sql_escape(path)
-    return {
-        r[0]
-        for r in conn.execute(
-            f"DESCRIBE (SELECT * FROM read_parquet('{escaped}') LIMIT 0)"
-        ).fetchall()
-    }
-
-
 def _mark_ingested(
     conn: duckdb.DuckDBPyConnection,
     path_str: str,
@@ -640,7 +627,7 @@ def _index_io_and_refs(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None
                 SELECT ? AS file_path, step_index, measurement_name,
                        col_name, row_idx, uri, channel_id, session_short, session_id
                 FROM (
-                    SELECT step_index, measurement_name,
+                    SELECT step_index, NULL AS measurement_name,
                         'out_' || u.name AS col_name,
                         (row_number() OVER ()) - 1 AS row_idx,
                         u.value_text AS uri,
@@ -697,8 +684,6 @@ def _delete_file_rows(conn: duckdb.DuckDBPyConnection, path_str: str) -> None:
 # ── Bulk ingest ─────────────────────────────────────────────────────
 
 
-_OPTIONAL_MEAS_LIMITS = ("measurement_units", "limit_low", "limit_high", "limit_nominal")
-
 # The nested lane columns (parquet) → side tag (long EAV projection). The
 # ``dynamic_attrs`` MAP that the query layer consumes is also built from these
 # same lanes, so the projection and the MAP can never diverge.
@@ -709,7 +694,7 @@ _DYNAMIC_SIDES: tuple[tuple[str, str], ...] = (
 )
 _LANE_SELECT = (
     "u.name, u.kind, u.value_int, u.value_double, u.value_bool, "
-    "u.value_text, u.value_timestamp, u.value_json"
+    "u.value_text, u.value_timestamp, u.value_json, u.unit"
 )
 
 
@@ -832,6 +817,75 @@ _MEAS_FIXED_COLS: frozenset[str] = frozenset(
     }
 )
 
+# Fact columns sourced from the nested measurement struct (not from the vector
+# row's context columns) when UNNESTing measurements into the fact.
+_MEAS_MEASUREMENT_COLS: frozenset[str] = frozenset(
+    {
+        "measurement_name",
+        "measurement_value",
+        "measurement_outcome",
+        "measurement_units",
+        "measurement_timestamp",
+        "limit_low",
+        "limit_high",
+        "limit_nominal",
+        "limit_comparator",
+        "characteristic_id",
+        "spec_ref",
+        "uut_pin",
+        "fixture_connection",
+        "instrument_name",
+        "instrument_resource",
+        "instrument_channel",
+    }
+)
+
+# Nested struct field → fact column for the measurement UNNEST.
+_MEAS_STRUCT_TO_FACT: tuple[tuple[str, str], ...] = (
+    ("name", "measurement_name"),
+    ("value", "measurement_value"),
+    ("outcome", "measurement_outcome"),
+    ("units", "measurement_units"),
+    ("timestamp", "measurement_timestamp"),
+    ("limit_low", "limit_low"),
+    ("limit_high", "limit_high"),
+    ("limit_nominal", "limit_nominal"),
+    ("limit_comparator", "limit_comparator"),
+    ("characteristic_id", "characteristic_id"),
+    ("spec_ref", "spec_ref"),
+    ("uut_pin", "uut_pin"),
+    ("fixture_connection", "fixture_connection"),
+    ("instrument_name", "instrument_name"),
+    ("instrument_resource", "instrument_resource"),
+    ("instrument_channel", "instrument_channel"),
+)
+
+
+def _measurement_unnest_insert(src: str, *, file_path_expr: str) -> str:
+    """INSERT that UNNESTs nested measurements from vector rows into the fact.
+
+    Context columns come from the vector row ``v``; measurement columns from
+    the nested struct ``m``; ``dynamic_attrs`` from ``v``'s in/out/custom lanes
+    (the enclosing vector IS the measurement's condition context — this is the
+    co-located resolution of the old empty-lane measurement rows). ``INSERT BY
+    NAME`` aligns the SELECT output names with ``measurements_materialized``.
+    """
+    ctx_cols = sorted(_MEAS_FIXED_COLS - _MEAS_MEASUREMENT_COLS - {"record_type"})
+    ctx = ", ".join(f"v.{c}" for c in ctx_cols)
+    meas = ", ".join(f"m.{s} AS {f}" for s, f in _MEAS_STRUCT_TO_FACT)
+    map_expr = _dynamic_attrs_map_expr()
+    return f"""
+        INSERT INTO measurements_materialized BY NAME
+        SELECT
+            {file_path_expr} AS file_path,
+            'measurement' AS record_type,
+            {ctx},
+            {meas},
+            {map_expr} AS dynamic_attrs
+        FROM {src} AS v, UNNEST(v.measurements) AS t(m)
+        WHERE v.record_type = 'vector'
+    """
+
 
 def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[str]) -> None:
     """Bulk INSERT per-(file, step, measurement_name) aggregates into ``measurement_stats``.
@@ -842,54 +896,35 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
     names per file, etc.).
     """
     flist = _file_list_sql(meas_paths)
-    available = _parquet_columns(conn, meas_paths[0])
 
-    opt_group_all = ("step_index", "step_name", *_OPTIONAL_MEAS_LIMITS)
-    step_idx_expr = "step_index" if "step_index" in available else "NULL AS step_index"
-    step_name_expr = "step_name" if "step_name" in available else "NULL AS step_name"
-    limits_select = ", ".join(
-        c if c in available else f"NULL AS {c}" for c in _OPTIONAL_MEAS_LIMITS
-    )
-    opt_group_cols = [c for c in opt_group_all if c in available]
-    opt_group = (", " + ", ".join(opt_group_cols)) if opt_group_cols else ""
-
-    has_outcome = "measurement_outcome" in available
-    has_value = "measurement_value" in available
-    pass_expr = (
-        "SUM(CASE WHEN measurement_outcome = 'passed' THEN 1 ELSE 0 END)" if has_outcome else "0"
-    )
-    fail_expr = (
-        "SUM(CASE WHEN measurement_outcome = 'failed' THEN 1 ELSE 0 END)" if has_outcome else "0"
-    )
-    min_expr = "MIN(measurement_value)" if has_value else "NULL"
-    max_expr = "MAX(measurement_value)" if has_value else "NULL"
-    avg_expr = "AVG(measurement_value)" if has_value else "NULL"
-
-    # ``INSERT BY NAME`` matches SELECT output column names to
-    # destination column names — aliases are load-bearing. A
-    # missing / misspelled / misordered alias becomes a SQL error
-    # at INSERT time, not silently miscolumned data.
+    # ``INSERT BY NAME`` matches SELECT output column names to destination
+    # column names — aliases are load-bearing. Measurements are UNNESTed from
+    # the vector row's nested ``measurements`` list.
     conn.execute(f"""
         INSERT INTO measurement_stats BY NAME
         SELECT
-            filename AS file_path,
-            run_id,
-            session_id,
-            {step_idx_expr},
-            {step_name_expr},
-            measurement_name,
-            {limits_select},
+            v.filename AS file_path,
+            v.run_id,
+            v.session_id,
+            v.step_index,
+            v.step_name,
+            m.name AS measurement_name,
+            m.units AS measurement_units,
+            m.limit_low AS limit_low,
+            m.limit_high AS limit_high,
+            m.limit_nominal AS limit_nominal,
             COUNT(*) AS count,
-            {pass_expr} AS pass_count,
-            {fail_expr} AS fail_count,
-            {min_expr} AS min_value,
-            {max_expr} AS max_value,
-            {avg_expr} AS mean_value
-        FROM read_parquet({flist}, filename=true, union_by_name=true)
-        WHERE record_type = 'measurement'
+            SUM(CASE WHEN m.outcome = 'passed' THEN 1 ELSE 0 END) AS pass_count,
+            SUM(CASE WHEN m.outcome = 'failed' THEN 1 ELSE 0 END) AS fail_count,
+            MIN(m.value) AS min_value,
+            MAX(m.value) AS max_value,
+            AVG(m.value) AS mean_value
+        FROM read_parquet({flist}, filename=true, union_by_name=true) AS v,
+             UNNEST(v.measurements) AS t(m)
+        WHERE v.record_type = 'vector'
         GROUP BY
-            filename, run_id, session_id, step_index,
-            measurement_name{opt_group}
+            v.filename, v.run_id, v.session_id, v.step_index, v.step_name,
+            m.name, m.units, m.limit_low, m.limit_high, m.limit_nominal
     """)
 
 
@@ -904,37 +939,26 @@ def _bulk_insert_measurement_rows(conn: duckdb.DuckDBPyConnection, fkey: str) ->
     collapses the per-measurement-row denormalization). One-time cost at ingest;
     subsequent queries hit native tables instead of re-scanning parquet footers.
     """
-    fixed_select = ", ".join(sorted(_MEAS_FIXED_COLS))
     escaped = _sql_escape(fkey)
     src = f"read_parquet('{escaped}', union_by_name=true)"
-    map_expr = _dynamic_attrs_map_expr()
 
     # DELETE first so re-ingest is idempotent (file granularity — measurement
     # rows have no single-column unique key across files).
     conn.execute("DELETE FROM measurements_materialized WHERE file_path = ?", [fkey])
     conn.execute("DELETE FROM measurements_dynamic WHERE file_path = ?", [fkey])
 
-    conn.execute(f"""
-        INSERT INTO measurements_materialized BY NAME
-        SELECT
-            '{escaped}' AS file_path,
-            {fixed_select},
-            {map_expr} AS dynamic_attrs
-        FROM {src}
-        WHERE record_type = 'measurement'
-    """)
+    conn.execute(_measurement_unnest_insert(src, file_path_expr=f"'{escaped}'"))
 
-    # Long EAV projection — vector grain. Drawn from step + vector + measurement
-    # rows so a measurement-less vector's conditions are still captured; DISTINCT
-    # collapses the per-measurement denormalization back to one row per
+    # Long EAV projection — vector grain. Drawn from step + vector rows (the
+    # lane carriers); DISTINCT collapses any duplication back to one row per
     # (vector, side, name).
-    union_sql = _dynamic_unnest_union(src, where="record_type IN ('step', 'vector', 'measurement')")
+    union_sql = _dynamic_unnest_union(src, where="record_type IN ('step', 'vector')")
     conn.execute(f"""
         INSERT INTO measurements_dynamic
         SELECT DISTINCT
             '{escaped}' AS file_path, run_id, step_index, vector_index, vector_retry,
             side, name, kind, value_int, value_double, value_bool, value_text,
-            value_timestamp, value_json
+            value_timestamp, value_json, unit
         FROM ({union_sql})
     """)
 
@@ -962,8 +986,8 @@ def _bulk_insert_runs(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str])
             run_outcome AS outcome,
             run_started_at AS started_at,
             run_ended_at AS ended_at,
-            CAST(COUNT(*) FILTER (
-                WHERE record_type = 'measurement' AND measurement_name IS NOT NULL
+            CAST(COALESCE(
+                SUM(len(measurements)) FILTER (WHERE record_type = 'vector'), 0
             ) AS INTEGER)
                 AS num_measurements,
             CAST(COUNT(*) FILTER (WHERE record_type = 'step') AS INTEGER)
@@ -1012,12 +1036,11 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
     ``duration_s``).
     """
     flist = _file_list_sql(parquet_paths)
-    # ``dynamic_attrs`` is rebuilt per step row from its nested lanes (the step
-    # record carries the vector's inputs/outputs lanes). The step grain is
-    # (step_path, vector_index) and one step record exists per group, so
-    # ANY_VALUE of the per-row MAP is exact. Built from 'step' rows only — the
-    # 'vector'/'measurement' rows of a Mode-2 loop carry their own lanes that
-    # belong on the EAV table, not on the step summary.
+    # ``dynamic_attrs`` is rebuilt per step row from the vector record's nested
+    # lanes (v2: the step record sheds inputs/outputs onto its scope vector).
+    # The step grain is (step_path, vector_index); within a group the vector at
+    # that vector_index is the scope vector (non-looping step) or the iteration
+    # vector (Mode-2 loop), so ANY_VALUE of the per-'vector'-row MAP is exact.
     map_expr = _dynamic_attrs_map_expr()
     conn.execute(f"""
         INSERT INTO steps_materialized BY NAME
@@ -1031,23 +1054,31 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             slot_id,
             step_name,
             parent_path,
-            step_outcome AS outcome,
-            step_started_at AS started_at,
-            step_ended_at AS ended_at,
+            -- v2: step-level rollups live only on the 'step' record (the scope
+            -- 'vector' record sheds them), so aggregate via ANY_VALUE FILTER
+            -- rather than GROUP BY — otherwise the step row and its scope
+            -- vector (differing on these columns) split into two groups.
+            ANY_VALUE(step_outcome) FILTER (WHERE record_type = 'step') AS outcome,
+            ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step') AS started_at,
+            ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step') AS ended_at,
             CASE
-                WHEN step_ended_at IS NOT NULL AND step_started_at IS NOT NULL
-                THEN EPOCH(step_ended_at) - EPOCH(step_started_at)
+                WHEN ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step') IS NOT NULL
+                 AND ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step') IS NOT NULL
+                THEN EPOCH(ANY_VALUE(step_ended_at) FILTER (WHERE record_type = 'step'))
+                   - EPOCH(ANY_VALUE(step_started_at) FILTER (WHERE record_type = 'step'))
                 ELSE NULL
             END AS duration_s,
-            CAST(COUNT(*) FILTER (
-                WHERE record_type = 'measurement' AND measurement_name IS NOT NULL
+            CAST(COALESCE(
+                SUM(len(measurements)) FILTER (WHERE record_type = 'vector'), 0
             ) AS INTEGER)
                 AS measurement_count,
-            (COUNT(*) FILTER (
-                WHERE record_type = 'measurement' AND measurement_name IS NOT NULL
+            (COALESCE(
+                SUM(len(measurements)) FILTER (WHERE record_type = 'vector'), 0
             ) > 0)
                 AS has_measurements,
-            CAST(step_vector_count AS INTEGER) AS vector_count,
+            CAST(
+                ANY_VALUE(step_vector_count) FILTER (WHERE record_type = 'step') AS INTEGER
+            ) AS vector_count,
             -- retry_count = COUNT of re-executions (max retry seen on the
             -- vector boundary rows), NOT a MAX over measurement vector_retry.
             -- A measurement-less retry is a real 'vector' row, so it counts;
@@ -1057,10 +1088,10 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
                 COALESCE(MAX(vector_retry) FILTER (WHERE record_type = 'vector'), 0)
                 AS INTEGER
             ) AS retry_count,
-            step_markers AS markers,
+            ANY_VALUE(step_markers) FILTER (WHERE record_type = 'step') AS markers,
             uut_serial,
             station_id,
-            ANY_VALUE({map_expr}) FILTER (WHERE record_type = 'step') AS dynamic_attrs
+            ANY_VALUE({map_expr}) FILTER (WHERE record_type = 'vector') AS dynamic_attrs
         FROM read_parquet({flist}, filename=true, union_by_name=true)
         -- Exclude the run record (record_type='run', step_path=''): steps
         -- are aggregated from 'step' + 'vector' + 'measurement' rows only.
@@ -1070,8 +1101,6 @@ def _bulk_insert_steps(conn: duckdb.DuckDBPyConnection, parquet_paths: list[str]
             filename, run_id,
             step_path, vector_index, step_index,
             session_id, slot_id, step_name, parent_path,
-            step_outcome, step_started_at, step_ended_at,
-            step_vector_count, step_markers,
             uut_serial, station_id
         ON CONFLICT (run_id, step_path, vector_index) DO UPDATE SET
             step_index = excluded.step_index,
@@ -1487,34 +1516,23 @@ def _batch_insert_measurement_rows(
         paths,
     )
 
-    # Fixed columns listed explicitly so INSERT BY NAME has a stable
-    # ordering. ``union_by_name=true`` on read_parquet pads any column
-    # missing from the batch with NULL, so we trust RUN_ROW_SCHEMA
-    # rather than null-coalescing per-column. Same pattern as
-    # ``_bulk_insert_runs`` / ``_bulk_insert_steps``.
-    fixed_select = ", ".join(sorted(_MEAS_FIXED_COLS))
+    # ``union_by_name=true`` pads any column missing from the batch with NULL,
+    # so we trust RUN_ROW_SCHEMA rather than null-coalescing per-column.
+    # Measurements are UNNESTed from the vector row's nested ``measurements``
+    # list; ``filename`` (on the read) is the per-row file_path.
     src = f"read_parquet({flist}, union_by_name=true, filename=true)"
-    map_expr = _dynamic_attrs_map_expr()
 
-    conn.execute(f"""
-        INSERT INTO measurements_materialized BY NAME
-        SELECT
-            filename AS file_path,
-            {fixed_select},
-            {map_expr} AS dynamic_attrs
-        FROM {src}
-        WHERE record_type = 'measurement'
-    """)
+    conn.execute(_measurement_unnest_insert(src, file_path_expr="v.filename"))
 
     union_sql = _dynamic_unnest_union(
-        src, where="record_type IN ('step', 'vector', 'measurement')", with_filename=True
+        src, where="record_type IN ('step', 'vector')", with_filename=True
     )
     conn.execute(f"""
         INSERT INTO measurements_dynamic
         SELECT DISTINCT
             filename AS file_path, run_id, step_index, vector_index, vector_retry,
             side, name, kind, value_int, value_double, value_bool, value_text,
-            value_timestamp, value_json
+            value_timestamp, value_json, unit
         FROM ({union_sql})
     """)
 

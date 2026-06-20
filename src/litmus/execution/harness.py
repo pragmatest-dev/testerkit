@@ -205,6 +205,9 @@ class Context:
             )
         self._params: dict[str, Any] = {}
         self._observations: dict[str, Any] = {}
+        # Optional engineering units per configured / observed name.
+        self._param_units: dict[str, str] = {}
+        self._observation_units: dict[str, str] = {}
         # ``connections`` iterates :class:`FixtureConnection` objects the
         # test declares via ``litmus_characteristics`` / ``litmus_connections``
         # markers. Populated by the pytest-native plugin's
@@ -242,7 +245,7 @@ class Context:
     # Semantic API (preferred)
     # -------------------------------------------------------------------------
 
-    def configure(self, key: str, value: Any) -> None:
+    def configure(self, key: str, value: Any, *, unit: str | None = None) -> None:
         """Record a configuration/stimulus value (→ in_* column).
 
         Use for commanded values, setpoints, and settings.
@@ -250,10 +253,16 @@ class Context:
         Args:
             key: Parameter name (e.g., "psu.voltage", "temperature").
             value: The commanded value.
+            unit: Optional engineering unit for this input (``"V"``, ``"Hz"``).
+                Rides onto the vector's lane ``unit`` field → the EAV unit column.
         """
         self._params[key] = value
+        if unit is not None:
+            self._param_units[key] = unit
 
-    def observe(self, key: str, value: Any, *, namespace: str | None = None) -> None:
+    def observe(
+        self, key: str, value: Any, *, namespace: str | None = None, unit: str | None = None
+    ) -> None:
         """Record an observation/measurement context (→ out_* column).
 
         Per §3 + §4 of the design doc, ``observe`` is a polymorphic
@@ -308,6 +317,8 @@ class Context:
         # ChannelStore), the file artifact name (when written to
         # FileStore), and the Observation event's ``name``.
         full_key = f"{namespace}.{key}" if namespace else key
+        if unit is not None:
+            self._observation_units[full_key] = unit
 
         if value is not None:
             # Reference latching (design doc §4): if the caller hands
@@ -445,7 +456,11 @@ class Context:
         vec_obs = getattr(vec, "observations", None)
         if isinstance(vec_obs, dict):
             vec_obs[key] = value
-        self._emit_observation(key, value)
+        unit = self._observation_units.get(key)
+        vec_obs_units = getattr(vec, "observation_units", None)
+        if unit is not None and isinstance(vec_obs_units, dict):
+            vec_obs_units[key] = unit
+        self._emit_observation(key, value, unit)
 
     def _current_run_id(self) -> UUID | None:
         """Pull the active run_id from the active RunScope ContextVar.
@@ -459,7 +474,7 @@ class Context:
         run_scope = get_current_run_scope()
         return getattr(getattr(run_scope, "test_run", None), "id", None)
 
-    def _emit_observation(self, key: str, value: Any) -> None:
+    def _emit_observation(self, key: str, value: Any, unit: str | None = None) -> None:
         """Emit an ``Observation`` event for the value that landed in ``_observations``.
 
         Item 4 in the v0.2.0 data-architecture lift. Pre-item-4 the
@@ -512,6 +527,7 @@ class Context:
                 retry=getattr(vector, "retry", 0) if vector else 0,
                 name=key,
                 value=value,
+                unit=unit,
             )
         )
 
@@ -542,6 +558,7 @@ class Context:
                 vector_index=getattr(vector, "index", 0) if vector else 0,
                 retry=getattr(vector, "retry", 0) if vector else 0,
                 inputs=dict(vector.params) if vector is not None else {},
+                input_units=dict(vector.param_units) if vector is not None else {},
                 node_id=getattr(step, "node_id", None) if step else None,
             )
         )
@@ -574,6 +591,8 @@ class Context:
                 outcome=outcome.value if outcome is not None else None,
                 inputs=dict(vector.params) if vector is not None else {},
                 outputs=dict(vector.observations) if vector is not None else {},
+                input_units=dict(vector.param_units) if vector is not None else {},
+                output_units=dict(vector.observation_units) if vector is not None else {},
                 node_id=getattr(step, "node_id", None) if step else None,
             )
         )

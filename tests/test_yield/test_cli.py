@@ -39,7 +39,7 @@ def _row(
     test_phase: str = "production",
 ) -> MeasurementRow:
     return MeasurementRow(
-        record_type="measurement",
+        record_type="vector",
         session_id="sess-1",
         run_id=run_id,
         run_started_at=run_started_at,
@@ -52,19 +52,35 @@ def _row(
         test_phase=test_phase,
         step_name=step_name,
         step_index=0,
-        measurement_name=measurement_name,
-        measurement_value=value,
-        measurement_outcome=outcome,
-        limit_low=limit_low,
-        limit_high=limit_high,
+        vector_outcome=outcome,
         run_outcome=run_outcome,
-        measurement_units="V",
         uut_lot_number="LOT01",
+        measurements=[
+            {
+                "name": measurement_name,
+                "value": value,
+                "units": "V",
+                "outcome": outcome,
+                "timestamp": None,
+                "limit_low": limit_low,
+                "limit_high": limit_high,
+                "limit_nominal": None,
+                "limit_comparator": None,
+                "characteristic_id": None,
+                "spec_ref": None,
+                "uut_pin": None,
+                "fixture_connection": None,
+                "instrument_name": None,
+                "instrument_resource": None,
+                "instrument_channel": None,
+                "ref": None,
+            }
+        ],
     )
 
 
 def _write(runs_dir: Path, rows: list[MeasurementRow], filename: str) -> Path:
-    flat = [r.to_flat_dict() for r in rows]
+    flat = [r.to_flat_dict(at_rest=True) for r in rows]
     schema = _build_write_schema(flat)
     table = table_from_rows(flat, schema)
     path = runs_dir / filename

@@ -289,6 +289,9 @@ class TestVector(BaseModel):
     index: int = 0  # 0-based index in the parameter expansion
     params: dict[str, Any] = Field(default_factory=dict)  # Input parameter values (→ in_*)
     observations: dict[str, Any] = Field(default_factory=dict)  # Observed context (→ out_*)
+    # Optional engineering units per param / observation name → the lane unit field.
+    param_units: dict[str, str] = Field(default_factory=dict)
+    observation_units: dict[str, str] = Field(default_factory=dict)
     stimulus: list[StimulusRecord] = Field(default_factory=list)  # Stimulus signal paths
     retry: int = 0  # Retry counter — 0 for the first execution, N for the Nth retry
     max_retries: int = 0  # Maximum retries allowed (0 = no retries, single execution)

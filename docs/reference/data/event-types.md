@@ -223,6 +223,7 @@ Emitted when an instrument is disconnected during teardown.
 | `vector_index` | `int` | `0` |
 | `retry` | `int` | `0` |
 | `inputs` | `dict[str, Any]` | `{}` |
+| `input_units` | `dict[str, str]` | `{}` |
 | `node_id` | `str \| None` | `None` |
 | `file` | `str \| None` | `None` |
 | `module` | `str \| None` | `None` |
@@ -243,6 +244,8 @@ Emitted when an instrument is disconnected during teardown.
 | `vector_outcome` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `outputs` | `dict[str, Any]` | `{}` |
+| `input_units` | `dict[str, str]` | `{}` |
+| `output_units` | `dict[str, str]` | `{}` |
 | `node_id` | `str \| None` | `None` |
 | `file` | `str \| None` | `None` |
 | `module` | `str \| None` | `None` |
@@ -261,6 +264,7 @@ An in-body loop vector is entered (Mode 2: the ``vectors`` fixture or a ``run_ve
 | `vector_index` | `int` | `0` |
 | `retry` | `int` | `0` |
 | `inputs` | `dict[str, Any]` | `{}` |
+| `input_units` | `dict[str, str]` | `{}` |
 | `node_id` | `str \| None` | `None` |
 
 ### `test.vector_ended` — `VectorEnded`
@@ -277,6 +281,8 @@ Completion of an in-body loop vector (Mode 2). Carries the vector's verdict and 
 | `outcome` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `outputs` | `dict[str, Any]` | `{}` |
+| `input_units` | `dict[str, str]` | `{}` |
+| `output_units` | `dict[str, str]` | `{}` |
 | `node_id` | `str \| None` | `None` |
 
 ### `test.measurement` — `MeasurementRecorded`
@@ -323,6 +329,7 @@ Emitted by ``Context.observe(key, value)``.
 | `retry` | `int` | `0` |
 | `name` | `str` | *required* |
 | `value` | `Any` | `None` |
+| `unit` | `str \| None` | `None` |
 
 ### `test.steps_discovered` — `StepsDiscovered`
 

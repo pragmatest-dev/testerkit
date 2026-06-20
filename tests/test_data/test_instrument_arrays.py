@@ -248,12 +248,13 @@ class TestParquetRoundTrip:
         table = pq.read_table(parquet_path)
         rows = table.to_pylist()
 
-        # Unified schema: 1 run row + 1 measurement row + 1 step row.
-        # Inspect the measurement row for instrument-array round-trip.
+        # v2 nested schema: 1 run + 1 step + 1 scope vector (measurement nested
+        # on the vector). The scope vector carries the instrument arrays.
         assert len(rows) == 3
-        meas_rows = [r for r in rows if r["record_type"] == "measurement"]
-        assert len(meas_rows) == 1
-        row = meas_rows[0]
+        vec_rows = [r for r in rows if r["record_type"] == "vector"]
+        assert len(vec_rows) == 1
+        row = vec_rows[0]
+        assert [m["name"] for m in row["measurements"]] == ["vout"]
 
         # Verify instrument columns
         assert row["step_instruments_name"] == ["dmm"]

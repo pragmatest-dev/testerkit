@@ -811,6 +811,8 @@ class RunScope:
         vec = step.vectors[0] if step.vectors else None
         vec_index = vec.index if vec is not None else 0
         inputs = coerce_dict(vec.params) if vec is not None else {}
+        input_units = dict(vec.param_units) if vec is not None else {}
+        output_units = dict(vec.observation_units) if vec is not None else {}
         if is_start:
             event: StepStarted | StepEnded = StepStarted(
                 session_id=self._session_id,
@@ -822,6 +824,7 @@ class RunScope:
                 description=step.description,
                 vector_index=vec_index,
                 inputs=inputs,
+                input_units=input_units,
                 node_id=step.node_id,
                 file=step.file,
                 module=step.module,
@@ -849,6 +852,8 @@ class RunScope:
                 vector_outcome=vec_outcome,
                 inputs=inputs,
                 outputs=coerce_dict(vec.observations) if vec is not None else {},
+                input_units=input_units,
+                output_units=output_units,
                 node_id=step.node_id,
                 file=step.file,
                 module=step.module,

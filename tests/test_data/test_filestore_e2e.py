@@ -163,8 +163,9 @@ class TestMaterializeAndLoadBack:
 
         from litmus.data.backends._row_helpers import decode_lane_structs
 
+        # v2: observations ride on the (scope) vector record's outputs lanes.
         table = pq.read_table(parquet_path)
-        rows = [r for r in table.to_pylist() if r.get("record_type") == "measurement"]
+        rows = [r for r in table.to_pylist() if r.get("record_type") == "vector"]
         assert decode_lane_structs(rows[0]["outputs"])["screenshot"] == uri
 
         # Load it back via load_ref — gets the original bytes.
@@ -192,8 +193,9 @@ class TestMaterializeAndLoadBack:
 
         from litmus.data.backends._row_helpers import decode_lane_structs
 
+        # v2: observations ride on the (scope) vector record's outputs lanes.
         table = pq.read_table(parquet_path)
-        rows = [r for r in table.to_pylist() if r.get("record_type") == "measurement"]
+        rows = [r for r in table.to_pylist() if r.get("record_type") == "vector"]
 
         # ParquetBackend's ref_saver picked it up and routed through
         # FileStore (item 1d) — URI is in the new shape.

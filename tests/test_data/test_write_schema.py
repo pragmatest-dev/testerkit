@@ -62,18 +62,18 @@ class TestBuildWriteSchemaDynamic:
 class TestAllNoneColumn:
     """All-None columns in canonical schema still get correct types."""
 
-    def test_low_limit_all_none(self):
+    def test_timestamp_all_none(self):
         rows = [
-            {"run_id": "r1", "limit_low": None, "measurement_value": 1.0},
-            {"run_id": "r2", "limit_low": None, "measurement_value": 2.0},
+            {"run_id": "r1", "run_started_at": None},
+            {"run_id": "r2", "run_started_at": None},
         ]
         schema = _build_write_schema(rows)
-        assert schema.field("limit_low").type == pa.float64()
+        assert schema.field("run_started_at").type == pa.timestamp("us", tz="UTC")
 
-    def test_value_all_none(self):
-        rows = [{"run_id": "r1", "measurement_value": None}]
+    def test_int_all_none(self):
+        rows = [{"run_id": "r1", "step_index": None}]
         schema = _build_write_schema(rows)
-        assert schema.field("measurement_value").type == pa.float64()
+        assert schema.field("step_index").type == pa.int64()
 
     def test_dynamic_all_none_defaults_to_string(self):
         rows = [{"run_id": "r1", "in_unknown": None}]
@@ -104,8 +104,8 @@ class TestInstrArrayColumns:
 class TestWriteRejectsTypeMismatch:
     """Explicit schema makes Arrow reject invalid data at construction."""
 
-    def test_string_in_float_column_raises(self):
-        rows = [{"run_id": "r1", "measurement_value": "not_a_number"}]
+    def test_string_in_int_column_raises(self):
+        rows = [{"run_id": "r1", "step_index": "not_a_number"}]
         schema = _build_write_schema(rows)
         with pytest.raises(pa.ArrowInvalid):
             table_from_rows(rows, schema)
@@ -149,10 +149,13 @@ class TestRoundTripExplicitSchema:
         path = backend.save_test_run(run)
 
         table = pq.read_table(path)
-        assert table.schema.field("measurement_value").type == pa.float64()
-        assert table.schema.field("limit_low").type == pa.float64()
         assert table.schema.field("run_id").type == pa.string()
         assert table.schema.field("step_index").type == pa.int64()
+        # Measurements are nested on the vector row; the struct carries floats.
+        assert pa.types.is_list(table.schema.field("measurements").type)
+        meas_struct = table.schema.field("measurements").type.value_type
+        assert meas_struct.field("value").type == pa.float64()
+        assert meas_struct.field("limit_low").type == pa.float64()
 
     def test_dynamic_columns_round_trip(self, tmp_path):
         """Vector params survive the write path in the nested inputs lanes."""
@@ -183,14 +186,16 @@ class TestRoundTripExplicitSchema:
         table = pq.read_table(path)
         assert "inputs" in table.column_names
         assert pa.types.is_list(table.schema.field("inputs").type)
-        # Unified schema: 1 run row + 1 measurement row + 1 step row. The
-        # measurement and step rows carry the inputs lanes; the run row's
-        # lanes are empty (no vector context).
+        # v2 nested schema: 1 run + 1 step + 1 scope vector. The conditions live
+        # ONLY on the scope vector; the step record sheds them (empty inputs).
+        # The measurement is nested on the vector, not a separate row.
         rows = table.to_pylist()
         assert len(rows) == 3
-        non_run = [r for r in rows if r["record_type"] != "run"]
-        for r in non_run:
-            assert decode_lane_structs(r["inputs"]) == {"voltage": 5.0, "mode": "fast"}
-        run_rows = [r for r in rows if r["record_type"] == "run"]
-        assert len(run_rows) == 1
-        assert decode_lane_structs(run_rows[0]["inputs"]) == {}
+        vec_rows = [r for r in rows if r["record_type"] == "vector"]
+        assert len(vec_rows) == 1
+        assert decode_lane_structs(vec_rows[0]["inputs"]) == {"voltage": 5.0, "mode": "fast"}
+        assert [m["name"] for m in vec_rows[0]["measurements"]] == ["voltage"]
+        for rt in ("run", "step"):
+            rt_rows = [r for r in rows if r["record_type"] == rt]
+            assert len(rt_rows) == 1
+            assert decode_lane_structs(rt_rows[0]["inputs"]) == {}
