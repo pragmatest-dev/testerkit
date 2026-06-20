@@ -145,7 +145,7 @@ def create_sidebar():
             ui.separator().classes("bg-slate-700 my-2")
             ui.label("CONFIGURATION").classes("text-xs text-slate-500 px-3 pt-2")
 
-            _nav_item("/designer", "design_services", "System Designer")
+            _nav_item("/designer", "design_services", "System Designer", experimental=True)
             _nav_item("/stations", "settings_input_hdmi", "Stations")
             _nav_item("/parts", "inventory_2", "Parts")
             _nav_item("/fixtures", "hub", "Fixtures")
@@ -162,14 +162,20 @@ def create_sidebar():
     return drawer
 
 
-def _nav_item(target: str, icon: str, label: str):
-    """Create a navigation item."""
+def _nav_item(target: str, icon: str, label: str, *, experimental: bool = False):
+    """Create a navigation item.
+
+    ``experimental=True`` appends a small beaker marker so operators know the
+    area is less mature than the rest of the platform.
+    """
     with ui.link(target=target).classes("no-underline"):
         with ui.row().classes(
             "w-full px-3 py-2 rounded hover:bg-slate-800 items-center gap-3 cursor-pointer"
         ):
             ui.icon(icon).classes("text-slate-400")
             ui.label(label).classes("text-slate-200")
+            if experimental:
+                ui.icon("science").classes("text-amber-400 text-sm").tooltip("Experimental")
 
 
 def create_layout(title: str = "Litmus"):

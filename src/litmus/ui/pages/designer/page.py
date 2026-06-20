@@ -118,6 +118,13 @@ def designer_page(part: str = "", station: str = "", fixture: str = ""):
         update_url()
 
     with ui.column().classes("w-full p-6 gap-4"):
+        # --- Experimental marker — this area is less mature than the rest of Litmus ---
+        with ui.row().classes("items-center gap-2 text-amber-600"):
+            ui.icon("science").classes("text-base")
+            ui.label(
+                "Experimental — the System Designer is less mature than the rest of Litmus."
+            ).classes("text-sm")
+
         # --- Selection bar ---
         with ui.row().classes("w-full items-end gap-3 flex-wrap justify-between"):
             with ui.row().classes("items-end gap-3 flex-wrap"):
