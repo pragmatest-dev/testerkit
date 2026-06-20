@@ -148,6 +148,47 @@ the branch; the rest are additive. After this, the at-rest is a clean nested arc
 optionally pinned and `ref`-linked to its raw), and the query layer is the unpacked
 fact + EAV.
 
+### Observation pinning (#4 / #39) — grain & the EAV-field decision (2026-06-20)
+
+Settled framing for where the pin lives:
+
+- **Vector = the shared operating point** (conditions set once). **Pin = a leaf
+  attribute** on the measurement/lane — NOT a structural level, NOT a vector
+  coordinate. 8 pins at one condition = **one vector + 8 pin-rows**: the conditions are
+  not duplicated (they're genuinely shared), only the measurements multiply (they're
+  real, distinct per-pin data, not redundant). This is *why* the `dynamic_attrs` MAP is
+  legitimately vector-grained — putting pin at vector grain would wrongly duplicate the
+  shared conditions 8×.
+- **"8 pins feel like 1"** = one `for conn in connections` loop in test code; the
+  platform stamps the active pin per row. Uniform code, honest grain — "one setup, many
+  probes."
+- **Grain follows the loop expression:** `parametrize(pin)` → pin is a swept condition →
+  vector-per-pin; `for conn in connections` (same conditions) → intra-vector pin-rows.
+  Deliberately **no connection/pin container** between vector and measurement — pin is
+  the unit of unique data, not a unit of shared context.
+- **Optional, uniform across `verify`/`measure`/`observe`:** pin is stamped *iff* a
+  connection is active. No connection loop → `uut_pin` is simply absent (the plain
+  `observe("cap", wf)` / pure-pytest path stays simple). Mirrors `_auto_traceability`'s
+  existing empty fall-through.
+
+**The open decision — does observation-pin go in the EAV?** Measurements carry
+`uut_pin` on the **fact** (`measurements_materialized`), queryable via `WHERE uut_pin=…`
+without touching the EAV. **Observations have no fact row** — `observe` writes only an
+`out_<name>` lane — so an observation's pin can only live in the lane-derived
+structures: the EAV (`measurements_dynamic`) and/or the `dynamic_attrs` MAP. The EAV
+today has **no `uut_pin` column** (`_LANE_SELECT` drops it; the dynamic-axis catalog
+deliberately excludes `*_uut_pin` as traceability, not an axis). So #39 forks:
+
+- **Traceability-only** — pin rides the lane's `uut_pin` field; **no EAV schema change**;
+  consistent with "pin is not a dynamic axis"; but observation-pin is not
+  filterable/groupable in the dynamic-axis path.
+- **Queryable** — add `uut_pin` to the EAV (+ likely the MAP); real schema growth, and it
+  makes pin look like a dynamic axis (tensions with pin-as-leaf-attribute).
+
+**Status: UNRESOLVED — decide before implementing #39.** Lean: traceability-only, to keep
+the EAV a pure shared-vector-grained condition store; revisit if a real need to
+parametric-query observations by pin appears.
+
 ## Why (the seam we found)
 
 Today outcome, retry, and conditions are all carried on the **measurement**
