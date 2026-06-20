@@ -1007,6 +1007,7 @@ class RunScope:
         limit: Limit | dict[str, Any] | None = None,
         outcome: Outcome = Outcome.DONE,
         allow_repeat: bool = False,
+        unit: str | None = None,
     ) -> Measurement:
         """Record one measurement row.
 
@@ -1078,6 +1079,11 @@ class RunScope:
             meas_char_id = resolved_limit.characteristic_id
             meas_spec_ref = resolved_limit.spec_ref
             cmp_str = _stringify_comparator(resolved_limit.comparator)
+
+        # Inline unit= wins over the resolved limit's unit (symmetric with
+        # configure/observe: inline primary, config supplies the default).
+        if unit is not None:
+            meas_unit = unit
 
         # Auto-fill traceability from the active PartContext. A caller
         # (PartContext.check / legacy harness) may have pre-populated a

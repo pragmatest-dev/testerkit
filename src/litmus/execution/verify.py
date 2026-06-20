@@ -51,6 +51,7 @@ class VerifyFn(Protocol):
         limit: Limit | dict[str, Any] | None = ...,
         characteristic: str | None = ...,
         namespace: str | None = ...,
+        unit: str | None = ...,
     ) -> Measurement: ...
 
 
@@ -70,6 +71,7 @@ class MeasureFn(Protocol):
         limit: Limit | dict[str, Any] | None = ...,
         characteristic: str | None = ...,
         namespace: str | None = ...,
+        unit: str | None = ...,
     ) -> Measurement: ...
 
 
@@ -180,6 +182,7 @@ def _perform_verify(
     limit: Limit | dict[str, Any] | None = None,
     characteristic: str | None = None,
     namespace: str | None = None,
+    unit: str | None = None,
 ) -> Measurement:
     """The actual verify implementation. Called by both
     :meth:`Context.verify` (the method form) and the bare ``verify``
@@ -282,7 +285,7 @@ def _perform_verify(
 
             profile = get_active_profile()
             if profile is not None and profile.verify_requires_limit is False:
-                return run_scope.measure(name, value, limit=None)
+                return run_scope.measure(name, value, limit=None, unit=unit)
             raise MissingLimitError(
                 f"verify({name!r}, ...) has no limit to judge against. "
                 "Pass limit=Limit(...), configure a limit via "
@@ -294,7 +297,7 @@ def _perform_verify(
             float(value) if value is not None else None,
             effective_limit,
         )
-        measurement = run_scope.measure(name, value, limit=limit_obj, outcome=outcome)
+        measurement = run_scope.measure(name, value, limit=limit_obj, outcome=outcome, unit=unit)
 
     if outcome == Outcome.FAILED:
         raise LimitFailure(
@@ -325,6 +328,7 @@ def _perform_measure(
     limit: Limit | dict[str, Any] | None = None,
     characteristic: str | None = None,
     namespace: str | None = None,
+    unit: str | None = None,
 ) -> Measurement:
     """The actual measure implementation — ``verify`` minus the judgment.
 
@@ -366,7 +370,7 @@ def _perform_measure(
         else nullcontext()
     )
     with char_ctx:
-        return run_scope.measure(name, value, limit=limit_obj)
+        return run_scope.measure(name, value, limit=limit_obj, unit=unit)
 
 
 def build_measure_callable() -> MeasureFn:

@@ -192,3 +192,32 @@ class TestObserveThenVerifyPattern:
         assert m.outcome == Outcome.PASSED
         # The artifact URI is queryable from the vector via out_*
         assert session.ctx._observations.get("scope.cap", "").startswith("channel://scope.cap")
+
+
+# --------------------------------------------------------------------- #
+# unit= carries the engineering unit onto the measurement                #
+# --------------------------------------------------------------------- #
+
+
+class TestVerifyMeasureUnit:
+    """``unit=`` stamps the measurement's engineering unit — singular (one
+    quantity, one unit), symmetric with ``configure`` / ``observe``.
+    Inline ``unit=`` is primary; the resolved limit supplies the default.
+    """
+
+    def test_verify_unit_sets_measurement_unit(self, session: Any) -> None:
+        m = session.ctx.verify("vout", 3.3, {"low": 3.0, "high": 3.6, "unit": ""}, unit="V")
+        assert m.outcome == Outcome.PASSED
+        assert m.unit == "V"
+
+    def test_verify_inline_unit_overrides_limit_unit(self, session: Any) -> None:
+        m = session.ctx.verify("vout", 3.3, {"low": 3.0, "high": 3.6, "unit": "mV"}, unit="V")
+        assert m.unit == "V"
+
+    def test_verify_limit_supplies_default_unit(self, session: Any) -> None:
+        m = session.ctx.verify("iout", 1.2, {"low": 0.0, "high": 2.0, "unit": "A"})
+        assert m.unit == "A"
+
+    def test_measure_unit_sets_measurement_unit(self, session: Any) -> None:
+        m = session.ctx.measure("temp", 24.8, unit="degC")
+        assert m.unit == "degC"

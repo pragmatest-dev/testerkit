@@ -663,6 +663,7 @@ class Context:
         *,
         characteristic: str | None = None,
         namespace: str | None = None,
+        unit: str | None = None,
     ) -> Any:
         """Record + judge a measurement (→ measurement row).
 
@@ -706,6 +707,7 @@ class Context:
             limit=limit,
             characteristic=characteristic,
             namespace=namespace,
+            unit=unit,
         )
 
     def changed(self, key: str) -> bool:
@@ -940,6 +942,7 @@ class Context:
         *,
         characteristic: str | None = None,
         namespace: str | None = None,
+        unit: str | None = None,
     ) -> Measurement:
         """Record a measurement without judging it (→ measurement row).
 
@@ -982,6 +985,7 @@ class Context:
             limit=limit,
             characteristic=characteristic,
             namespace=namespace,
+            unit=unit,
         )
 
 
