@@ -388,11 +388,9 @@ class ChannelStore:
         """
         existing = self._registry.get(channel_id)
         if existing is not None:
-            if unit is not None and existing.unit is not None and unit != existing.unit:
-                raise ValueError(
-                    f"Channel '{channel_id}': unit {existing.unit!r} is fixed for this "
-                    f"session; cannot change to {unit!r}"
-                )
+            # Type is the more egregious conflict (a shape mismatch can't be
+            # stored consistently) — check it before the unit so the more
+            # fundamental error surfaces first when both conflict.
             if (
                 data_type is not None
                 and channel_id in self._writers
@@ -401,6 +399,11 @@ class ChannelStore:
                 raise ValueError(
                     f"Channel '{channel_id}': type {existing.data_type!r} is fixed for "
                     f"this session; cannot change to {data_type!r}"
+                )
+            if unit is not None and existing.unit is not None and unit != existing.unit:
+                raise ValueError(
+                    f"Channel '{channel_id}': unit {existing.unit!r} is fixed for this "
+                    f"session; cannot change to {unit!r}"
                 )
             # Declare-only so far (no writer): let the first write fill in type/unit.
             if channel_id not in self._writers:
