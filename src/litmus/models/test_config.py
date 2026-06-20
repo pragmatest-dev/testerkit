@@ -231,7 +231,7 @@ _COMPARATOR_CHECKS: dict[str, Callable[[Limit, float], bool]] = {
 
 
 class Limit(BaseModel):
-    """A test limit with units and optional spec reference.
+    """A test limit with unit and optional spec reference.
 
     The comparator field (per ATML/IEEE 1671) defines how the measured
     value is compared against the limits:
@@ -249,7 +249,7 @@ class Limit(BaseModel):
     low: float | None = None
     high: float | None = None
     nominal: float | None = None
-    units: str
+    unit: str
     characteristic_id: str | None = None  # Characteristic ID for structured traceability
     spec_ref: str | None = None  # Human-readable spec reference with conditions
     comparator: Comparator = Comparator.GELE
@@ -261,7 +261,7 @@ class Limit(BaseModel):
                 "low": 4.5,
                 "high": 5.5,
                 "nominal": 5.0,
-                "units": "V",
+                "unit": "V",
                 "characteristic_id": "output_voltage",
                 "spec_ref": "Table 4.2 @ temp=25, load=0.8",
                 "comparator": "GELE",
@@ -296,7 +296,7 @@ class Limit(BaseModel):
         low: float | None,
         high: float | None,
         nominal: float | None,
-        units: str | None,
+        unit: str | None,
         comparator: str | None,
         characteristic_id: str | None = None,
         spec_ref: str | None = None,
@@ -317,7 +317,7 @@ class Limit(BaseModel):
             low=low,
             high=high,
             nominal=nominal,
-            units=units or "",
+            unit=unit or "",
             characteristic_id=characteristic_id,
             spec_ref=spec_ref,
             comparator=cmp,
@@ -331,8 +331,8 @@ class Limit(BaseModel):
             parts.append(f"high={self.high}")
         if self.nominal is not None:
             parts.append(f"nominal={self.nominal}")
-        if self.units:
-            parts.append(f"units={self.units!r}")
+        if self.unit:
+            parts.append(f"unit={self.unit!r}")
         parts.append(f"comparator={self.comparator.value!r}")
         return f"Limit({', '.join(parts)})"
 
@@ -342,7 +342,7 @@ def coerce_limit(value: Limit | dict | None) -> Limit | None:
 
     Used by ``verify`` and ``logger.measure`` to accept the YAML /
     marker dict shape directly at the call site
-    (``limit={"low": ..., "high": ..., "units": "V"}``) without
+    (``limit={"low": ..., "high": ..., "unit": "V"}``) without
     forcing test authors to import ``Limit``. Pydantic owns the
     validation — bad keys raise ``ValidationError`` per
     ``Limit.model_config["extra"] == "forbid"``.
@@ -565,7 +565,7 @@ class LimitLookupConfig(BaseModel):
 
     key: str
     table: dict[str, Limit]
-    units: str | None = None
+    unit: str | None = None
 
 
 class LimitStepConfig(BaseModel):
@@ -578,11 +578,11 @@ class LimitStepConfig(BaseModel):
               param: load_current
               ranges:
                 - below: 0.5
-                  limit: { low: 3.2, high: 3.4, units: V }
+                  limit: { low: 3.2, high: 3.4, unit: V }
                 - below: 1.0
-                  limit: { low: 3.1, high: 3.5, units: V }
+                  limit: { low: 3.1, high: 3.5, unit: V }
                 - default:
-                  limit: { low: 3.0, high: 3.6, units: V }
+                  limit: { low: 3.0, high: 3.6, unit: V }
     """
 
     model_config = {"extra": "forbid"}
@@ -595,13 +595,13 @@ class MeasurementLimitConfig(BaseModel):
     """Per-measurement limit policy — direct, characteristic-derived, or banded.
 
     One config supports multiple shapes (resolved at measurement time):
-      * **Direct** — ``low`` / ``high`` / ``nominal`` / ``units`` literals.
+      * **Direct** — ``low`` / ``high`` / ``nominal`` / ``unit`` literals.
       * **Characteristic policy** — ``characteristic: <id>`` plus
         ``tolerance_pct`` / ``tolerance_abs`` derives a band from the
         characteristic's nominal at the active vector params. The
         characteristic also acts as a spec reference if no explicit
         ``low`` / ``high`` is given (inherits the characteristic's
-        nominal/units/spec_ref).
+        nominal/unit/spec_ref).
       * **Banded** — ``bands: [...]`` is an ordered list of nested
         :class:`MeasurementLimitConfig` entries, each with its own
         ``when:`` predicate. The first band whose ``when:`` matches
@@ -639,7 +639,7 @@ class MeasurementLimitConfig(BaseModel):
     low: float | None = None
     high: float | None = None
     nominal: float | None = None
-    units: str | None = None
+    unit: str | None = None
     # characteristic_id = characteristic id (structured traceability, stamped on Limit)
     # spec_ref = human-readable note about limit origin (documentation)
     characteristic_id: str | None = None
@@ -677,7 +677,7 @@ class MeasurementLimitConfig(BaseModel):
                 low=self.low,
                 high=self.high,
                 nominal=self.nominal,
-                units=self.units or "",
+                unit=self.unit or "",
                 characteristic_id=self.characteristic_id,
                 spec_ref=self.spec_ref,
             )

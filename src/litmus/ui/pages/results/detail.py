@@ -416,11 +416,11 @@ def _build_meas_rows(measurements: list) -> list[dict]:
 def _format_measurement_value(m: dict) -> str:
     """Prefer fixed-schema fields; fall back to legacy dynamic-attr expansion."""
     val = m.get("measurement_value") if m.get("measurement_value") is not None else m.get("value")
-    units = m.get("measurement_units") or m.get("units") or ""
+    unit = m.get("measurement_unit") or m.get("unit") or ""
     if val is None:
         return "—"
     formatted = f"{val:g}" if isinstance(val, float) else str(val)
-    return f"{formatted} {units}".strip() if units else formatted
+    return f"{formatted} {unit}".strip() if unit else formatted
 
 
 # ── Table factory functions (create once; updated via table.rows + update()) ──

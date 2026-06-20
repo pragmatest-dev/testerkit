@@ -220,7 +220,7 @@ def _resolve_single(
             low=low,
             high=high,
             nominal=nominal,
-            units=cfg.units or char.units or "",
+            unit=cfg.unit or char.unit or "",
             characteristic_id=char_id,
             spec_ref=char_id,
             comparator=Comparator.GELE,

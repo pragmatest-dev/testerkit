@@ -76,7 +76,7 @@ def _measurement_event_struct(event: Any) -> dict[str, Any]:
     return {
         "name": event.measurement_name,
         "value": event.value,
-        "units": event.units,
+        "unit": event.unit,
         "outcome": event.outcome,
         "timestamp": event.measurement_timestamp,
         "limit_low": event.limit_low,
@@ -585,7 +585,7 @@ class EventAccumulator:
             measurement_name=event.measurement_name,
             measurement_timestamp=event.measurement_timestamp,
             measurement_value=event.value,
-            measurement_units=event.units,
+            measurement_unit=event.unit,
             measurement_outcome=event.outcome,
             limit_low=event.limit_low,
             limit_high=event.limit_high,

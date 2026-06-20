@@ -1073,7 +1073,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                 m = Measurement(
                     name=ms.get("name") or "",
                     value=ms.get("value"),
-                    units=ms.get("units"),
+                    unit=ms.get("unit"),
                     limit_low=ms.get("limit_low"),
                     limit_high=ms.get("limit_high"),
                     limit_nominal=ms.get("limit_nominal"),

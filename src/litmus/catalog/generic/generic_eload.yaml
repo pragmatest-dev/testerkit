@@ -20,7 +20,7 @@ capabilities:
       range:
         min: 0
         max: 30
-        units: A
+        unit: A
 - function: dc_voltage
   direction: input
   signals:
@@ -28,4 +28,4 @@ capabilities:
       range:
         min: 0
         max: 150
-        units: V
+        unit: V

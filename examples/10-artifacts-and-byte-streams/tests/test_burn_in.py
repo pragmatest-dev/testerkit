@@ -111,4 +111,4 @@ def test_uut_burn_in(observe, verify, psu) -> None:
     # one click takes the analyst from the verify row to any
     # artifact.
     rail_mean = sum(readings) / len(readings)
-    verify("rail_v_mean", rail_mean, Limit(low=4.75, high=5.25, units="V"))
+    verify("rail_v_mean", rail_mean, Limit(low=4.75, high=5.25, unit="V"))

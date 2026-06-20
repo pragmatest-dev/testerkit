@@ -142,8 +142,8 @@ class JsonSubscriber(EventSubscriber):
                         "name": m.measurement_name,
                         "value": m.value,
                     }
-                    if m.units:
-                        md["units"] = m.units
+                    if m.unit:
+                        md["unit"] = m.unit
                     if m.outcome:
                         md["outcome"] = m.outcome
                     if m.limit_low is not None:

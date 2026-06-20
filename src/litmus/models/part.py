@@ -135,16 +135,16 @@ class PartCharacteristic(Capability):
         rail_3v3_output:
           function: dc_voltage
           direction: output
-          units: V
+          unit: V
           pin: VOUT
           parameters:
             voltage:
               value: 3.3
-              units: V
+              unit: V
           bands:
             - conditions:
-                temperature: {min: 25, max: 25, units: degC}
-                load: {min: 0.1, max: 0.1, units: A}
+                temperature: {min: 25, max: 25, unit: degC}
+                load: {min: 0.1, max: 0.1, unit: A}
               value: 3.3
               accuracy: {pct_reading: 3.0}
     """
@@ -240,7 +240,7 @@ class Part(BaseModel):
           rail_3v3_output:
             function: dc_voltage
             direction: output
-            units: V
+            unit: V
             pin: VOUT
             bands:
               - value: 3.3

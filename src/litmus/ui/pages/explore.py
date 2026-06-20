@@ -94,7 +94,7 @@ def _render_no_measurements_state() -> None:
                     <pre class="text-xs bg-slate-50 p-3 rounded mt-2 overflow-auto">"""
                     """from litmus.models.test_config import Limit\n\n"""
                     """def test_voltage_in_range(verify):\n"""
-                    """    verify("vout", 3.3, limit=Limit(low=3.0, high=3.6, units="V"))</pre>""",
+                    """    verify("vout", 3.3, limit=Limit(low=3.0, high=3.6, unit="V"))</pre>""",
                     sanitize=False,
                 )
                 ui.label(
@@ -811,7 +811,7 @@ def _x_axis_type(rows: list[dict[str, Any]]) -> str:
 
 
 def _x_axis_opt(label: str, x_type: str, *, data: list[Any] | None = None) -> dict[str, Any]:
-    """Standard X-axis with centered name, units-friendly gap, bold style."""
+    """Standard X-axis with centered name, unit-friendly gap, bold style."""
     opt: dict[str, Any] = {
         "type": x_type,
         "name": label,

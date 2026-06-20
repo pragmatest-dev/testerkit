@@ -1,7 +1,7 @@
 """Lantz observer for Feat/DictFeat descriptor-based instruments.
 
 Lantz uses ``Feat`` and ``DictFeat`` descriptors similar to PyMeasure
-properties but with Pint units and validation. ``Action`` decorator for methods.
+properties but with Pint unit and validation. ``Action`` decorator for methods.
 
 This observer reuses PyMeasureObserver's descriptor introspection since
 Lantz descriptors follow the same ``__get__``/``__set__`` protocol.

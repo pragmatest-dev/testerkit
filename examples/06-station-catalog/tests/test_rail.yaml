@@ -8,7 +8,7 @@
 #   demo has something to fail against.
 
 limits:
-  v_overvoltage: {low: 4.0, high: 5.0, units: V}    # raw band; OVP demo
+  v_overvoltage: {low: 4.0, high: 5.0, unit: V}    # raw band; OVP demo
 
 tests:
   test_rail_within_spec:

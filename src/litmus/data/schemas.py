@@ -61,7 +61,7 @@ _MEASUREMENT_STRUCT = pa.struct(
     [
         ("name", pa.string()),
         ("value", pa.float64()),
-        ("units", pa.string()),
+        ("unit", pa.string()),
         ("outcome", pa.string()),
         ("timestamp", pa.timestamp("us", tz="UTC")),
         ("limit_low", pa.float64()),

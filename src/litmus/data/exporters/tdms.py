@@ -10,7 +10,7 @@ EventSubscriber that accumulates events and writes TDMS on close.
           - vector_index: int channel
           - in_{param}: input parameter channels
           - out_{obs}: observation channels
-          - {meas_name}: measurement value channels (props: limits/units)
+          - {meas_name}: measurement value channels (props: limits/unit)
           - {meas_name}_outcome: outcome string channels
 
 Constants (station, UUT, operator) go in root/group properties.
@@ -140,8 +140,8 @@ def _build_step_channels(
     for mname in all_meas_names:
         fm = first_meas[mname]
         props: dict[str, object] = {}
-        if fm.units:
-            props["units"] = fm.units
+        if fm.unit:
+            props["unit"] = fm.unit
         if fm.limit_comparator:
             props["limit_comparator"] = fm.limit_comparator
         if fm.limit_low is not None:

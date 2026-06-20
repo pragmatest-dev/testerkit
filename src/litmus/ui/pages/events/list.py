@@ -243,13 +243,13 @@ def _summarize(event: dict[str, Any]) -> str:
     if et == "instrument.read":
         ch = event.get("channel_id") or ""
         val = event.get("value")
-        units = event.get("units") or ""
-        return f"{ch} = {val} {units}".strip()
+        unit = event.get("unit") or ""
+        return f"{ch} = {val} {unit}".strip()
     if et == "instrument.set":
         ch = event.get("channel_id") or ""
         val = event.get("value")
-        units = event.get("units") or ""
-        return f"{ch} ← {val} {units}".strip()
+        unit = event.get("unit") or ""
+        return f"{ch} ← {val} {unit}".strip()
     if et == "test.measurement":
         name = event.get("measurement_name") or ""
         val = event.get("value")

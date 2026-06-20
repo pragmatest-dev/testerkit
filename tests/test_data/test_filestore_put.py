@@ -111,7 +111,7 @@ def test_put_waveform_writes_npz_with_t0_dt_attrs(store: FileStore) -> None:
         Y=[1.0, 2.0, 3.0, 4.0],
         t0=t0,
         dt=1e-6,
-        attributes={"units": "V", "channel": "scope.ch1"},
+        attributes={"unit": "V", "channel": "scope.ch1"},
     )
 
     uri = store.write("scope.capture", wf, session_id=sid)
@@ -127,7 +127,7 @@ def test_put_waveform_writes_npz_with_t0_dt_attrs(store: FileStore) -> None:
     assert datetime.fromisoformat(str(npz["t0"])) == t0
     assert float(npz["dt"]) == pytest.approx(1e-6)
     # attrs get inlined as keys in the npz
-    assert str(npz["units"]) == "V"
+    assert str(npz["unit"]) == "V"
     assert str(npz["channel"]) == "scope.ch1"
 
 
@@ -162,7 +162,7 @@ def test_waveform_round_trip_through_load_file_preserves_t0_and_attributes(
         Y=[1.0, 2.0, 3.0, 4.0],
         t0=t0,
         dt=1e-6,
-        attributes={"units": "V", "channel": "scope.ch1"},
+        attributes={"unit": "V", "channel": "scope.ch1"},
     )
 
     uri = store.write("scope.capture", wf, session_id=sid)
@@ -172,7 +172,7 @@ def test_waveform_round_trip_through_load_file_preserves_t0_and_attributes(
     assert loaded.t0 == t0
     assert loaded.dt == pytest.approx(1e-6)
     assert loaded.Y == [1.0, 2.0, 3.0, 4.0]
-    assert loaded.attributes["units"] == "V"
+    assert loaded.attributes["unit"] == "V"
     assert loaded.attributes["channel"] == "scope.ch1"
 
 

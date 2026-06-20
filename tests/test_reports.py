@@ -51,7 +51,7 @@ def sample_run():
                             Measurement(
                                 name="vout",
                                 value=3.301,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 outcome=Outcome.PASSED,
@@ -59,7 +59,7 @@ def sample_run():
                             Measurement(
                                 name="vout_ripple",
                                 value=0.015,
-                                units="V",
+                                unit="V",
                                 limit_high=0.050,
                                 outcome=Outcome.PASSED,
                             ),
@@ -77,7 +77,7 @@ def sample_run():
                             Measurement(
                                 name="iout",
                                 value=2.5,
-                                units="A",
+                                unit="A",
                                 limit_low=0.0,
                                 limit_high=2.0,
                                 outcome=Outcome.FAILED,

@@ -167,7 +167,7 @@ class ChannelStore:
     Features:
     - Flexible per-channel schemas (inferred from first write)
     - Streaming writes (flush every N rows)
-    - Per-channel descriptors (units, role) on the segment schema metadata
+    - Per-channel descriptors (unit, role) on the segment schema metadata
     - Live in-process subscriptions via on_channel()
     - Mid-session query() merging flushed files + in-memory buffer
     """
@@ -360,7 +360,7 @@ class ChannelStore:
         channel_id: str,
         *,
         data_type: str | None = None,
-        units: str | None = None,
+        unit: str | None = None,
         instrument_role: str = "",
         resource: str = "",
         attributes: dict[str, Any] | None = None,
@@ -371,17 +371,17 @@ class ChannelStore:
         """Register a channel's identity once, or validate a re-declare / write
         against the established identity.
 
-        Identity is immutable within a session: a conflicting ``units`` (or
+        Identity is immutable within a session: a conflicting ``unit`` (or
         ``data_type``, once a writer has locked it) raises instead of being
-        silently ignored. Before the first write (declare-only), the type/units
+        silently ignored. Before the first write (declare-only), the type/unit
         are still open — the first write fills them in.
         """
         existing = self._registry.get(channel_id)
         if existing is not None:
-            if units is not None and existing.units is not None and units != existing.units:
+            if unit is not None and existing.unit is not None and unit != existing.unit:
                 raise ValueError(
-                    f"Channel '{channel_id}': unit {existing.units!r} is fixed for this "
-                    f"session; cannot change to {units!r}"
+                    f"Channel '{channel_id}': unit {existing.unit!r} is fixed for this "
+                    f"session; cannot change to {unit!r}"
                 )
             if (
                 data_type is not None
@@ -392,18 +392,18 @@ class ChannelStore:
                     f"Channel '{channel_id}': type {existing.data_type!r} is fixed for "
                     f"this session; cannot change to {data_type!r}"
                 )
-            # Declare-only so far (no writer): let the first write fill in type/units.
+            # Declare-only so far (no writer): let the first write fill in type/unit.
             if channel_id not in self._writers:
                 if data_type is not None:
                     existing.data_type = data_type
-                if units is not None and existing.units is None:
-                    existing.units = units
+                if unit is not None and existing.unit is None:
+                    existing.unit = unit
             return
 
         self._registry[channel_id] = ChannelDescriptor(
             channel_id=channel_id,
             data_type=data_type or "scalar:float",
-            units=units,
+            unit=unit,
             instrument_role=instrument_role,
             resource=resource,
             attributes=dict(attributes) if attributes else {},
@@ -418,7 +418,7 @@ class ChannelStore:
                     session_id=self._session_id,
                     run_id=run_id,
                     channel_id=channel_id,
-                    units=units,
+                    unit=unit,
                     instrument_role=instrument_role or None,
                     method=source or None,
                     resource=resource or None,
@@ -453,7 +453,7 @@ class ChannelStore:
         self,
         channel_id: str,
         *,
-        units: str | None = None,
+        unit: str | None = None,
         instrument_role: str = "",
         resource: str = "",
         attributes: dict[str, Any] | None = None,
@@ -462,10 +462,10 @@ class ChannelStore:
         """Declare a channel's identity for this session (the producer's
         establishing verb).
 
-        Sets ``units``/``instrument_role``/``resource``/``attributes`` once; the
+        Sets ``unit``/``instrument_role``/``resource``/``attributes`` once; the
         value type is locked by the first write. Idempotent for matching args;
         a conflicting unit raises. Optional — a first write auto-registers with
-        defaults — but it's the only way to attach units up front.
+        defaults — but it's the only way to attach unit up front.
         """
         if "/" in channel_id or "\\" in channel_id or ".." in channel_id:
             raise ValueError(
@@ -473,7 +473,7 @@ class ChannelStore:
             )
         self._register(
             channel_id,
-            units=units,
+            unit=unit,
             instrument_role=instrument_role,
             resource=resource,
             attributes=attributes,
@@ -485,7 +485,7 @@ class ChannelStore:
         channel_id: str,
         value: object,
         *,
-        units: str | None = None,
+        unit: str | None = None,
         sample_interval: float | None = None,
         source: str = "observe",
         instrument_role: str = "",
@@ -502,7 +502,7 @@ class ChannelStore:
         Args:
             channel_id: User-chosen channel name (e.g. "scope.ch1_waveform").
             value: Scalar, array, dict, string, bool, or numpy array.
-            units: Optional unit string.
+            unit: Optional unit string.
             sample_interval: For array data, seconds between samples.
             source: Source label for the channel registry.
             instrument_role: Station-config role of the instrument
@@ -519,8 +519,8 @@ class ChannelStore:
                 write time so analytics has a fallback. Most scope /
                 DAQ acquisitions carry a hardware timestamp; simple
                 DMM measure calls don't.
-            attributes: Channel-level metadata dict (units string is
-                redundant if also passed via ``units=``; richer fields
+            attributes: Channel-level metadata dict (unit string is
+                redundant if also passed via ``unit=``; richer fields
                 like coupling, channel name, trigger offset live
                 here). Stamped on the registry descriptor on first
                 write; subsequent writes' attributes are ignored (the
@@ -540,7 +540,7 @@ class ChannelStore:
             values=[value],
             sampled_ats=[sampled_at],
             source=source,
-            units=units,
+            unit=unit,
             sample_interval=sample_interval,
             instrument_role=instrument_role,
             resource=resource,
@@ -553,7 +553,7 @@ class ChannelStore:
         channel_id: str,
         samples: Sequence[Any],
         *,
-        units: str | None = None,
+        unit: str | None = None,
         sample_interval: float | None = None,
         source: str = "observe",
         instrument_role: str = "",
@@ -598,7 +598,7 @@ class ChannelStore:
             values=values,
             sampled_ats=sampled_ats,
             source=source,
-            units=units,
+            unit=unit,
             sample_interval=sample_interval,
             instrument_role=instrument_role,
             resource=resource,
@@ -617,7 +617,7 @@ class ChannelStore:
         values: Sequence[Any],
         sampled_ats: Sequence[datetime | None],
         source: str,
-        units: str | None = None,
+        unit: str | None = None,
         sample_interval: float | None = None,
         instrument_role: str = "",
         resource: str = "",
@@ -674,7 +674,7 @@ class ChannelStore:
             self._register(
                 channel_id,
                 data_type=data_type,
-                units=units,
+                unit=unit,
                 instrument_role=instrument_role,
                 resource=resource,
                 attributes=attributes,
@@ -710,7 +710,7 @@ class ChannelStore:
                         "sampled_at": sampled_col,
                         "value": pa.array([encode_value(v) for v in values], type=pa.utf8()),
                         "source_method": pa.array([source] * n, type=pa.utf8()),
-                        "units": pa.array([units or ""] * n, type=pa.utf8()),
+                        "unit": pa.array([unit or ""] * n, type=pa.utf8()),
                         "sample_interval": pa.array([sample_interval] * n, type=pa.float64()),
                         "session_id": pa.array([sid] * n, type=pa.utf8()),
                         "sample_offset": pa.array(offsets, type=pa.int64()),
@@ -724,7 +724,7 @@ class ChannelStore:
                         received_at=now,
                         sampled_at=sampled[i],
                         value=values[i],
-                        units=units,
+                        unit=unit,
                         sample_interval=sample_interval,
                         source_method=source,
                         session_id=sid,
@@ -749,7 +749,7 @@ class ChannelStore:
                 value,
                 now,
                 source,
-                units=units,
+                unit=unit,
                 sample_interval=sample_interval,
                 sampled_at=sampled[i],
             )
@@ -765,7 +765,7 @@ class ChannelStore:
         self._register(
             channel_id,
             data_type=data_type,
-            units=units,
+            unit=unit,
             instrument_role=instrument_role,
             resource=resource,
             attributes=attributes,
@@ -859,7 +859,7 @@ class ChannelStore:
         received_at: datetime,
         source: str,
         *,
-        units: str | None = None,
+        unit: str | None = None,
         sample_interval: float | None = None,
         sampled_at: datetime | None = None,
     ) -> tuple[str, dict | None, ChannelSample | None]:
@@ -916,7 +916,7 @@ class ChannelStore:
             received_at=received_at,
             sampled_at=sampled_at,
             value=sample_value,
-            units=units,
+            unit=unit,
             sample_interval=sample_interval,
             source_method=source,
             session_id=sid,

@@ -196,8 +196,8 @@ def _render_waveform(run_id: str, uri: str) -> None:
     dt = float(getattr(wfm, "dt", 1.0)) or 1.0
     x_axis = [t0 + i * dt for i in range(len(Y))]
     attrs = getattr(wfm, "attrs", {}) or {}
-    units = attrs.get("units")
-    y_label = f"value ({units})" if units else "value"
+    unit = attrs.get("unit")
+    y_label = f"value ({unit})" if unit else "value"
 
     ui.echart(
         {

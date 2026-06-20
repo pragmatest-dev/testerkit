@@ -45,7 +45,7 @@ class TestLoadPart:
 
         assert char.direction == Direction.OUTPUT
         assert char.function == MeasurementFunction.DC_VOLTAGE
-        assert char.units == "V"
+        assert char.unit == "V"
 
     def test_characteristic_direction_input(self, power_board_path):
         """Test that INPUT direction is parsed correctly."""
@@ -99,7 +99,7 @@ class TestIntegration:
         )
 
         assert limit.nominal == 3.3
-        assert limit.units == "V"
+        assert limit.unit == "V"
         assert limit.comparator == Comparator.GELE
 
         # 3% pct_reading accuracy: uncertainty = 3.3 * 0.03 = 0.099
@@ -124,7 +124,7 @@ class TestIntegration:
 
         assert char.direction == Direction.OUTPUT
         assert char.function == MeasurementFunction.DC_VOLTAGE
-        assert char.units == "V"
+        assert char.unit == "V"
 
 
 class TestPartNumber:

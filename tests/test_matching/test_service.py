@@ -47,14 +47,14 @@ def _make_req(
     signals=None,
     characteristic_name="test_char",
     pins=None,
-    units="V",
+    unit="V",
 ) -> CapabilityRequirement:
     return CapabilityRequirement(
         capability=PartCharacteristic(
             function=function,
             direction=direction,
             signals=signals or {},
-            units=units,
+            unit=unit,
             net=characteristic_name,  # Use net as synthetic physical interface
         ),
         characteristic_name=characteristic_name,
@@ -159,7 +159,7 @@ class TestCapabilitySatisfies:
             function=MeasurementFunction.DC_CURRENT,
             direction=Direction.OUTPUT,
             characteristic_name="output_current",
-            units="A",
+            unit="A",
         )
         assert capability_satisfies(station, required) is False
 
@@ -183,7 +183,7 @@ class TestCapabilitySatisfies:
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0.0001, max=1000, units="V"),
+                    range=RangeSpec(min=0.0001, max=1000, unit="V"),
                 )
             },
         )
@@ -191,7 +191,7 @@ class TestCapabilitySatisfies:
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             signals={
-                "voltage": Signal(value=3.3, units="V"),
+                "voltage": Signal(value=3.3, unit="V"),
             },
             characteristic_name="rail_3v3",
         )
@@ -204,7 +204,7 @@ class TestCapabilitySatisfies:
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=10, units="V"),
+                    range=RangeSpec(min=0, max=10, unit="V"),
                 )
             },
         )
@@ -212,7 +212,7 @@ class TestCapabilitySatisfies:
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             signals={
-                "voltage": Signal(value=48.0, units="V"),
+                "voltage": Signal(value=48.0, unit="V"),
             },
             characteristic_name="rail_48v",
         )
@@ -225,7 +225,7 @@ class TestCapabilitySatisfies:
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=1000, units="V"),
+                    range=RangeSpec(min=0, max=1000, unit="V"),
                 )
             },
         )
@@ -234,7 +234,7 @@ class TestCapabilitySatisfies:
             direction=Direction.OUTPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=50, units="V"),
+                    range=RangeSpec(min=0, max=50, unit="V"),
                 ),
             },
             characteristic_name="rail_48v",
@@ -248,7 +248,7 @@ class TestCapabilitySatisfies:
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=10, units="V"),
+                    range=RangeSpec(min=0, max=10, unit="V"),
                 )
             },
         )
@@ -257,7 +257,7 @@ class TestCapabilitySatisfies:
             direction=Direction.OUTPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=50, units="V"),
+                    range=RangeSpec(min=0, max=50, unit="V"),
                 ),
             },
             characteristic_name="rail_48v",
@@ -275,7 +275,7 @@ class TestCapabilitySatisfies:
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             signals={
-                "voltage": Signal(value=3.3, units="V"),
+                "voltage": Signal(value=3.3, unit="V"),
             },
             characteristic_name="rail_3v3",
         )
@@ -310,7 +310,7 @@ class TestMatchCapabilities:
                 function=MeasurementFunction.DC_CURRENT,
                 direction=Direction.OUTPUT,
                 characteristic_name="output_current",
-                units="A",
+                unit="A",
             ),
         ]
         available = [
@@ -343,7 +343,7 @@ class TestMatchCapabilities:
                 function=MeasurementFunction.DC_CURRENT,
                 direction=Direction.INPUT,
                 characteristic_name="input_current",
-                units="A",
+                unit="A",
             ),
         ]
         available = [
@@ -406,7 +406,7 @@ class TestGetRequiredCapabilities:
                 "rail_3v3": PartCharacteristic(
                     function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
-                    units="V",
+                    unit="V",
                     pin="VOUT",
                     bands=[
                         SpecBand(
@@ -436,19 +436,19 @@ class TestGetRequiredCapabilities:
                 "rail_3v3": PartCharacteristic(
                     function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
-                    units="V",
+                    unit="V",
                     pin="VOUT_3V3",
                 ),
                 "rail_5v": PartCharacteristic(
                     function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
-                    units="V",
+                    unit="V",
                     pin="VOUT_5V",
                 ),
                 "input_current": PartCharacteristic(
                     function=MeasurementFunction.DC_CURRENT,
                     direction=Direction.INPUT,
-                    units="A",
+                    unit="A",
                     pin="VIN",
                 ),
             },
@@ -482,7 +482,7 @@ class TestGetStationCapabilities:
                         "function": "dc_voltage",
                         "direction": "input",
                         "signals": {
-                            "voltage": {"range": {"min": 0, "max": 1000, "units": "V"}},
+                            "voltage": {"range": {"min": 0, "max": 1000, "unit": "V"}},
                         },
                     }
                 ),
@@ -491,7 +491,7 @@ class TestGetStationCapabilities:
                         "function": "dc_current",
                         "direction": "input",
                         "signals": {
-                            "current": {"range": {"min": 0, "max": 10, "units": "A"}},
+                            "current": {"range": {"min": 0, "max": 10, "unit": "A"}},
                         },
                     }
                 ),

@@ -24,7 +24,7 @@ class StimulusRecord(BaseModel):
     Captures the full signal path when an instrument sets an input condition:
     - param: The parameter name (e.g., "vin", "load", "temp")
     - value: The commanded value
-    - units: Units of the value
+    - unit: Unit of the value
     - instrument: Station config name (e.g., "psu_main")
     - resource: VISA address or connection string
     - channel: Channel on instrument (e.g., "CH1")
@@ -34,7 +34,7 @@ class StimulusRecord(BaseModel):
 
     param: str
     value: float | None = None
-    units: str | None = None
+    unit: str | None = None
     instrument: str | None = None  # Station config name (e.g., "psu_main")
     resource: str | None = None  # VISA address or connection string
     channel: str | None = None  # Channel on instrument (e.g., "CH1")
@@ -208,7 +208,7 @@ class Measurement(BaseModel):
     name: str
     step_path: str = ""
     value: float | None
-    units: str | None = None
+    unit: str | None = None
     limit_low: float | None = None
     limit_high: float | None = None
     limit_nominal: float | None = None
@@ -248,7 +248,7 @@ class Measurement(BaseModel):
             low=self.limit_low,
             high=self.limit_high,
             nominal=self.limit_nominal,
-            units=self.units,
+            unit=self.unit,
             comparator=self.limit_comparator,
             characteristic_id=self.characteristic_id,
             spec_ref=self.spec_ref,
@@ -289,7 +289,7 @@ class TestVector(BaseModel):
     index: int = 0  # 0-based index in the parameter expansion
     params: dict[str, Any] = Field(default_factory=dict)  # Input parameter values (→ in_*)
     observations: dict[str, Any] = Field(default_factory=dict)  # Observed context (→ out_*)
-    # Optional engineering units per param / observation name → the lane unit field.
+    # Optional engineering unit per param / observation name → the lane unit field.
     param_units: dict[str, str] = Field(default_factory=dict)
     observation_units: dict[str, str] = Field(default_factory=dict)
     stimulus: list[StimulusRecord] = Field(default_factory=list)  # Stimulus signal paths
@@ -500,7 +500,7 @@ class Waveform(BaseModel):
             to the trigger's absolute time.
         dt: Sample interval (seconds).
         Y: Sample values (voltage, current, etc.).
-        attributes: Metadata (units, channel, coupling, trigger
+        attributes: Metadata (unit, channel, coupling, trigger
             offset, etc.). Renamed from ``attrs`` in build item 17 for
             cross-schema vocabulary consistency (matches
             FileArtifactMetadata.attributes and
@@ -559,15 +559,15 @@ class XYData(BaseModel):
     Attributes:
         x: Independent-axis values.
         y: Dependent-axis values. Must have the same length as ``x``.
-        x_units: Optional units for the x axis ("V", "Hz", "dBm").
-        y_units: Optional units for the y axis.
+        x_unit: Optional unit for the x axis ("V", "Hz", "dBm").
+        y_unit: Optional unit for the y axis.
         x_name: Optional human label for the x axis ("Bias voltage").
         y_name: Optional human label for the y axis.
     """
 
     x: list[float]
     y: list[float]
-    x_units: str | None = None
-    y_units: str | None = None
+    x_unit: str | None = None
+    y_unit: str | None = None
     x_name: str | None = None
     y_name: str | None = None

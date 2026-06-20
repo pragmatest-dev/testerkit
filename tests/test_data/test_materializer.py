@@ -48,7 +48,7 @@ class TestMaterializer:
                 step_index=0,
                 measurement_name="vout",
                 value=3.3,
-                units="V",
+                unit="V",
                 outcome="passed",
                 limit_low=3.0,
                 limit_high=3.6,

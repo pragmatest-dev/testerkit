@@ -59,7 +59,7 @@ def _row(
             {
                 "name": measurement_name,
                 "value": value,
-                "units": "V",
+                "unit": "V",
                 "outcome": outcome,
                 "timestamp": None,
                 "limit_low": limit_low,

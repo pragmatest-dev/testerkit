@@ -207,7 +207,7 @@ class RunStore:
             logger.debug("Failed to query measurements for %s: %s", run_id, exc)
             return []
         # Expand dynamic_attrs MAP into top-level keys so callers can access
-        # dynamic columns (out_*, in_*, value, units, etc.) as regular dict keys.
+        # dynamic columns (out_*, in_*, value, unit, etc.) as regular dict keys.
         # DuckDB MAP(VARCHAR,VARCHAR) arrives from Arrow as a list of (key, value)
         # tuples rather than a Python dict. Numeric strings are coerced to float
         # for backwards compatibility with callers expecting native types.

@@ -4,7 +4,7 @@
 
 # File-wide: applied to every test in test_rail.py.
 limits:
-  v_rail: {low: 3.2, high: 3.4, units: V}
+  v_rail: {low: 3.2, high: 3.4, unit: V}
 
 # tests: mirrors pytest's node-id structure. A class is a branch with
 # its own marker fields (applied to every nested method) plus a
@@ -15,7 +15,7 @@ limits:
 tests:
   TestIdle:
     limits:
-      i_idle: {low: 0.0, high: 0.1, units: A}
+      i_idle: {low: 0.0, high: 0.1, unit: A}
 
   test_rail_holds_across_input:
     sweeps:

@@ -588,12 +588,12 @@ def test_vectors_fixture_outcome_rollup(tmp_path: Path) -> None:
                     if v["target"] < 25:
                         verify(
                             "reading", float(v["target"]),
-                            limit=Limit(low=0, high=20, units="V"),
+                            limit=Limit(low=0, high=20, unit="V"),
                         )
                     else:
                         verify(
                             "reading", float(v["target"]),
-                            limit=Limit(low=25, high=40, units="V"),
+                            limit=Limit(low=25, high=40, unit="V"),
                         )
         """,
     )

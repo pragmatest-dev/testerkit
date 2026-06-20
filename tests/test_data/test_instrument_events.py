@@ -25,14 +25,14 @@ class TestSerialization:
             instrument_role="dmm",
             method="measure_dc_voltage",
             resource="GPIB0::22::INSTR",
-            units="V",
+            unit="V",
         )
         data = json.loads(event.model_dump_json())
         assert data["event_type"] == "channel.started"
         assert data["channel_id"] == "dmm.dc_voltage"
         assert data["instrument_role"] == "dmm"
         assert data["method"] == "measure_dc_voltage"
-        assert data["units"] == "V"
+        assert data["unit"] == "V"
 
     def test_instrument_set_roundtrip(self):
         event = InstrumentSet(

@@ -20,7 +20,7 @@ capabilities:
       range:
         min: 0.001
         max: 1000
-        units: V
+        unit: V
 - function: ac_voltage
   direction: input
   signals:
@@ -28,13 +28,13 @@ capabilities:
       range:
         min: 0.001
         max: 750
-        units: V
+        unit: V
   attributes:
     bandwidth:
       range:
         min: 3
         max: 300000
-        units: Hz
+        unit: Hz
 - function: dc_current
   direction: input
   signals:
@@ -42,7 +42,7 @@ capabilities:
       range:
         min: 1.0e-07
         max: 10
-        units: A
+        unit: A
 - function: ac_current
   direction: input
   signals:
@@ -50,7 +50,7 @@ capabilities:
       range:
         min: 1.0e-06
         max: 10
-        units: A
+        unit: A
 - function: resistance
   direction: input
   signals:
@@ -58,4 +58,4 @@ capabilities:
       range:
         min: 0.01
         max: 100000000
-        units: ohm
+        unit: ohm

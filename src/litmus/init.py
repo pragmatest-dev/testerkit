@@ -497,7 +497,7 @@ def _create_starter_files(path: Path) -> list[str]:
                 "output_voltage": {
                     "function": "dc_voltage",
                     "direction": "output",
-                    "units": "V",
+                    "unit": "V",
                     "pin": "TP_VOUT",
                     "bands": [
                         {
@@ -611,7 +611,7 @@ def test_output_voltage(context, psu, dmm, verify) -> None:
             "# marker applied to every test in this module. Per-test\n"
             "# overrides go under the ``tests:`` tree.\n"
             "#\n"
-            "# Graduate to spec-driven limits by replacing low/high/units\n"
+            "# Graduate to spec-driven limits by replacing low/high/unit\n"
             "# with ``characteristic: output_voltage, tolerance_pct: 2``\n"
             "# — the resolver reads the band from\n"
             "# parts/example_part.yaml. Doing so also auto-derives\n"
@@ -624,7 +624,7 @@ def test_output_voltage(context, psu, dmm, verify) -> None:
             "      output_voltage:\n"
             "        low: 3.234\n"
             "        high: 3.366\n"
-            "        units: V\n"
+            "        unit: V\n"
         )
         sidecar_file.write_text(sidecar_text)
         created_files.append("tests/test_example.yaml")
@@ -667,7 +667,7 @@ def test_rail_inline(dmm, verify) -> None:
     verify(
         "v_rail",
         float(dmm.measure_dc_voltage()),
-        limit={"low": 3.2, "high": 3.4, "nominal": 3.3, "units": "V"},
+        limit={"low": 3.2, "high": 3.4, "nominal": 3.3, "unit": "V"},
     )
 
 
@@ -693,11 +693,11 @@ def test_current_draw(psu, verify) -> None:
             "    low: 3.2\n"
             "    high: 3.4\n"
             "    nominal: 3.3\n"
-            "    units: V\n"
+            "    unit: V\n"
             "  i_in:\n"
             "    low: 0.0\n"
             "    high: 0.5\n"
-            "    units: A\n"
+            "    unit: A\n"
         )
         created_files.append("tests/test_smoke.yaml")
 

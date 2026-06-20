@@ -469,7 +469,7 @@ class StepStarted(EventBase):
     # item rerun, or class-container re-execution).
     retry: int = 0
     inputs: dict[str, Any] = Field(default_factory=dict)
-    # Optional engineering units per input name (``{"vin": "V"}``) — rides into
+    # Optional engineering unit per input name (``{"vin": "V"}``) — rides into
     # the lane's ``unit`` field → the EAV ``unit`` column.
     input_units: dict[str, str] = Field(default_factory=dict)
 
@@ -502,7 +502,7 @@ class MeasurementRecorded(EventBase):
     measurement_name: str
     measurement_timestamp: datetime | None = None
     value: float | None = None
-    units: str | None = None
+    unit: str | None = None
     outcome: str | None = None
     limit_low: float | None = None
     limit_high: float | None = None
@@ -579,7 +579,7 @@ class StepEnded(EventBase):
     vector_outcome: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
-    # Optional engineering units per input / output name → the lane ``unit`` field.
+    # Optional engineering unit per input / output name → the lane ``unit`` field.
     input_units: dict[str, str] = Field(default_factory=dict)
     output_units: dict[str, str] = Field(default_factory=dict)
 
@@ -716,7 +716,7 @@ class ChannelStarted(EventBase):
 
     event_type: Literal["channel.started"] = "channel.started"
     channel_id: str
-    units: str | None = None
+    unit: str | None = None
     # Instrument source fields — populated for observer.read; null otherwise.
     instrument_role: str | None = None
     method: str | None = None
@@ -767,7 +767,7 @@ class InstrumentSet(EventBase):
     channel_id: str
     attribute: str
     value: Any = None
-    units: str | None = None
+    unit: str | None = None
     resource: str = ""
 
 

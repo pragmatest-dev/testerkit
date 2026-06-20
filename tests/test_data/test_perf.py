@@ -367,7 +367,7 @@ class TestChannelStorePerf:
 
         def write_all():
             for i in range(n_samples):
-                store.write("sensor.temp", 25.0 + i * 0.01, units="°C")
+                store.write("sensor.temp", 25.0 + i * 0.01, unit="°C")
 
         benchmark(write_all)
         store.close()
@@ -379,7 +379,7 @@ class TestChannelStorePerf:
         store = ChannelStore(tmp_path, uuid4(), flush_threshold=100)
         store.open()
         for i in range(n_samples):
-            store.write("sensor.temp", 25.0 + i * 0.01, units="°C")
+            store.write("sensor.temp", 25.0 + i * 0.01, unit="°C")
 
         def query():
             return store.query("sensor.temp")
@@ -394,7 +394,7 @@ class TestChannelStorePerf:
         store = ChannelStore(tmp_path, uuid4(), flush_threshold=100)
         store.open()
         for i in range(10_000):
-            store.write("sensor.temp", 25.0 + i * 0.01, units="°C")
+            store.write("sensor.temp", 25.0 + i * 0.01, unit="°C")
 
         def query_decimated():
             return store.query("sensor.temp", max_points=500)
@@ -751,7 +751,7 @@ def _writer_event_worker(n_events: int, seed: int) -> tuple[float, int]:
                     step_index=i % 10,
                     measurement_name=f"voltage_{seed}_{i}",
                     value=3.3 + ((seed * 1000 + i) % 100) * 0.01,
-                    units="V",
+                    unit="V",
                     outcome="passed",
                     limit_low=3.0,
                     limit_high=3.6,

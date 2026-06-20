@@ -211,8 +211,8 @@ class Hdf5Subscriber(EventSubscriber):
                     )
                     ds.attrs["value_missing"] = True
 
-                if m.units:
-                    ds.attrs["units"] = m.units
+                if m.unit:
+                    ds.attrs["unit"] = m.unit
                 if m.limit_comparator:
                     ds.attrs["limit_comparator"] = m.limit_comparator
                 if m.limit_low is not None:

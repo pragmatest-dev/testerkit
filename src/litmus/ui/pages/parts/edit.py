@@ -184,7 +184,7 @@ def _render_characteristics_tab(form_data: dict, saver: AutoSaver):
                             direction = char_data.get("direction", "")
                             labeled_input("Function", char_data.get("function", ""), readonly=True)
                             labeled_input("Direction", direction, readonly=True)
-                            labeled_input("Units", char_data.get("units", ""), readonly=True)
+                            labeled_input("Units", char_data.get("unit", ""), readonly=True)
 
                         conditions = char_data.get("conditions", [])
                         if conditions:
@@ -217,8 +217,8 @@ def _render_condition(index: int, cond: dict):
                                 parts.append(str(spec["value"]))
                             elif "values" in spec:
                                 parts.append(str(spec["values"]))
-                            if spec.get("units"):
-                                parts.append(spec["units"])
+                            if spec.get("unit"):
+                                parts.append(spec["unit"])
                             ui.chip(" ".join(parts)).props("outline")
                         else:
                             ui.chip(f"{key}: {spec}").props("outline")
@@ -273,7 +273,7 @@ def _show_add_char_dialog(on_add: Callable):
     from litmus.models.enums import Direction, MeasurementFunction
 
     function_options = [f.value for f in MeasurementFunction]
-    char_form = {"name": "", "function": "dc_voltage", "direction": "output", "units": "V"}
+    char_form = {"name": "", "function": "dc_voltage", "direction": "output", "unit": "V"}
 
     with ui.dialog() as dialog, ui.card().classes("w-96"):
         with ui.card_section():
@@ -293,7 +293,7 @@ def _show_add_char_dialog(on_add: Callable):
                 on_change=lambda e: char_form.update({"direction": e.value}),
             )
             labeled_input(
-                "Units", value="V", on_change=lambda e: char_form.update({"units": e.value})
+                "Units", value="V", on_change=lambda e: char_form.update({"unit": e.value})
             )
         with ui.card_actions().classes("justify-end"):
             ui.button("Cancel", on_click=dialog.close).props("flat")

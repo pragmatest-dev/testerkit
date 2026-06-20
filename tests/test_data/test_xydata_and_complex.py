@@ -62,8 +62,8 @@ class TestXYDataModel:
         xy = XYData(x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0])
         assert xy.x == [1.0, 2.0, 3.0]
         assert xy.y == [4.0, 5.0, 6.0]
-        assert xy.x_units is None
-        assert xy.y_units is None
+        assert xy.x_unit is None
+        assert xy.y_unit is None
         assert xy.x_name is None
         assert xy.y_name is None
 
@@ -71,13 +71,13 @@ class TestXYDataModel:
         xy = XYData(
             x=[0.0, 1.0, 2.0],
             y=[0.0, 4.0, 16.0],
-            x_units="V",
-            y_units="A",
+            x_unit="V",
+            y_unit="A",
             x_name="Bias voltage",
             y_name="Diode current",
         )
-        assert xy.x_units == "V"
-        assert xy.y_units == "A"
+        assert xy.x_unit == "V"
+        assert xy.y_unit == "A"
         assert xy.x_name == "Bias voltage"
         assert xy.y_name == "Diode current"
 
@@ -109,8 +109,8 @@ class TestXYDataSerializerRegistration:
         np.testing.assert_array_equal(archive["x"], [1.0, 2.0, 3.0])
         np.testing.assert_array_equal(archive["y"], [10.0, 20.0, 30.0])
         # No optional keys when not set
-        assert "x_units" not in archive.files
-        assert "y_units" not in archive.files
+        assert "x_unit" not in archive.files
+        assert "y_unit" not in archive.files
         assert "x_name" not in archive.files
         assert "y_name" not in archive.files
 
@@ -119,8 +119,8 @@ class TestXYDataSerializerRegistration:
         xy = XYData(
             x=[0.0, 1.0],
             y=[0.0, 4.0],
-            x_units="V",
-            y_units="A",
+            x_unit="V",
+            y_unit="A",
             x_name="Bias",
             y_name="Current",
         )
@@ -129,8 +129,8 @@ class TestXYDataSerializerRegistration:
         filename = _filename_from_uri(uri, sid)
         archive = np.load(_session_dir(store, sid) / filename)
 
-        assert str(archive["x_units"]) == "V"
-        assert str(archive["y_units"]) == "A"
+        assert str(archive["x_unit"]) == "V"
+        assert str(archive["y_unit"]) == "A"
         assert str(archive["x_name"]) == "Bias"
         assert str(archive["y_name"]) == "Current"
 
@@ -204,8 +204,8 @@ class TestComplexArrayRoundTrip:
         eye = XYData(
             x=[-1.0, -0.5, 0.0, 0.5, 1.0],
             y=[0.0, 0.5, 1.0, 0.5, 0.0],
-            x_units="UI",
-            y_units="V",
+            x_unit="UI",
+            y_unit="V",
             x_name="time",
             y_name="amplitude",
         )
@@ -216,4 +216,4 @@ class TestComplexArrayRoundTrip:
 
         np.testing.assert_array_equal(archive["x"], [-1.0, -0.5, 0.0, 0.5, 1.0])
         np.testing.assert_array_equal(archive["y"], [0.0, 0.5, 1.0, 0.5, 0.0])
-        assert str(archive["x_units"]) == "UI"
+        assert str(archive["x_unit"]) == "UI"

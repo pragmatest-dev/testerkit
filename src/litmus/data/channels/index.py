@@ -136,7 +136,7 @@ class ChannelIndex:
 
     _REGISTRY_COLUMNS = (
         "channel_id, session_id, hostname, data_type, instrument_role, "
-        "resource, units, first_seen, last_updated"
+        "resource, unit, first_seen, last_updated"
     )
 
     def __init__(self, channels_dir: Path) -> None:
@@ -254,7 +254,7 @@ class ChannelIndex:
                 data_type VARCHAR,
                 instrument_role VARCHAR,
                 resource VARCHAR,
-                units VARCHAR,
+                unit VARCHAR,
                 first_seen TIMESTAMPTZ,
                 last_updated TIMESTAMPTZ,
                 PRIMARY KEY (channel_id, session_id)
@@ -359,7 +359,7 @@ class ChannelIndex:
                 """
                 INSERT INTO channel_registry
                     (channel_id, session_id, hostname, data_type, instrument_role,
-                     resource, units, first_seen, last_updated)
+                     resource, unit, first_seen, last_updated)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
                 ON CONFLICT (channel_id, session_id) DO NOTHING
                 """,
@@ -370,7 +370,7 @@ class ChannelIndex:
                     desc.data_type,
                     desc.instrument_role,
                     desc.resource,
-                    desc.units,
+                    desc.unit,
                     desc.first_seen,
                 ],
             )

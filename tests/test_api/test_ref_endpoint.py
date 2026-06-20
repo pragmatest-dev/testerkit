@@ -30,13 +30,13 @@ class TestSerializeRef:
 
     def test_waveform_returns_model_dump(self) -> None:
         t0 = datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC)
-        wfm = Waveform(t0=t0, dt=0.001, Y=[1.0, 2.0, 3.0], attributes={"units": "V"})
+        wfm = Waveform(t0=t0, dt=0.001, Y=[1.0, 2.0, 3.0], attributes={"unit": "V"})
         result = _serialize_ref(wfm)
         assert result == {
             "t0": t0,
             "dt": 0.001,
             "Y": [1.0, 2.0, 3.0],
-            "attributes": {"units": "V"},
+            "attributes": {"unit": "V"},
         }
 
     def test_arbitrary_basemodel_returns_model_dump(self) -> None:

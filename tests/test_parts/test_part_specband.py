@@ -18,14 +18,14 @@ class TestBandMatchesPartPointSpec:
 
     def test_point_spec_matches_exact(self):
         band = SpecBand(
-            when={"frequency": PointSpec(value=1000.0, units="Hz")},
+            when={"frequency": PointSpec(value=1000.0, unit="Hz")},
             value=3.3,
         )
         assert band_matches(band, {"frequency": 1000.0})
 
     def test_point_spec_rejects_different_value(self):
         band = SpecBand(
-            when={"frequency": PointSpec(value=1000.0, units="Hz")},
+            when={"frequency": PointSpec(value=1000.0, unit="Hz")},
             value=3.3,
         )
         assert not band_matches(band, {"frequency": 2000.0})
@@ -43,7 +43,7 @@ class TestBandMatchesPartListSpec:
 
     def test_list_spec_matches_member(self):
         band = SpecBand(
-            when={"impedance": ListSpec(values=[50, 600], units="ohm")},
+            when={"impedance": ListSpec(values=[50, 600], unit="ohm")},
             value=1.0,
             accuracy=AccuracySpec(pct_reading=1.0),
         )
@@ -51,7 +51,7 @@ class TestBandMatchesPartListSpec:
 
     def test_list_spec_rejects_non_member(self):
         band = SpecBand(
-            when={"impedance": ListSpec(values=[50, 600], units="ohm")},
+            when={"impedance": ListSpec(values=[50, 600], unit="ohm")},
             value=1.0,
         )
         assert not band_matches(band, {"impedance": 75})
@@ -71,8 +71,8 @@ class TestBandMatchesPartMixed:
     def test_range_and_point_combined(self):
         band = SpecBand(
             when={
-                "temperature": RangeSpec(min=0, max=50, units="degC"),
-                "frequency": PointSpec(value=1e6, units="Hz"),
+                "temperature": RangeSpec(min=0, max=50, unit="degC"),
+                "frequency": PointSpec(value=1e6, unit="Hz"),
             },
             value=3.3,
         )

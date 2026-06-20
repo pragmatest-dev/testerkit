@@ -40,14 +40,14 @@ def _make_req(
     signals=None,
     characteristic_name="test_char",
     pins=None,
-    units="V",
+    unit="V",
 ) -> CapabilityRequirement:
     return CapabilityRequirement(
         capability=PartCharacteristic(
             function=function,
             direction=direction,
             signals=signals or {},
-            units=units,
+            unit=unit,
             net=characteristic_name,
         ),
         characteristic_name=characteristic_name,
@@ -92,7 +92,7 @@ class TestPerChannelExpansion:
                 direction=Direction.OUTPUT,
                 signals={
                     "voltage": Signal(
-                        range=RangeSpec(min=0, max=6.18, units="V"),
+                        range=RangeSpec(min=0, max=6.18, unit="V"),
                     ),
                 },
                 instrument_type="power_supply",
@@ -107,7 +107,7 @@ class TestPerChannelExpansion:
                 direction=Direction.OUTPUT,
                 signals={
                     "voltage": Signal(
-                        range=RangeSpec(min=0, max=25.75, units="V"),
+                        range=RangeSpec(min=0, max=25.75, unit="V"),
                     ),
                 },
                 instrument_type="power_supply",
@@ -122,7 +122,7 @@ class TestPerChannelExpansion:
                 direction=Direction.OUTPUT,
                 signals={
                     "voltage": Signal(
-                        range=RangeSpec(min=0, max=25.75, units="V"),
+                        range=RangeSpec(min=0, max=25.75, unit="V"),
                     ),
                 },
                 instrument_type="power_supply",
@@ -141,7 +141,7 @@ class TestPerChannelExpansion:
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=12, units="V"),
+                    range=RangeSpec(min=0, max=12, unit="V"),
                 ),
             },
             characteristic_name="input_12v",
@@ -165,7 +165,7 @@ class TestPerChannelExpansion:
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=5, units="V"),
+                    range=RangeSpec(min=0, max=5, unit="V"),
                 ),
             },
             characteristic_name="input_5v",
@@ -183,7 +183,7 @@ class TestPerChannelExpansion:
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=12, units="V"),
+                    range=RangeSpec(min=0, max=12, unit="V"),
                 ),
             },
             characteristic_name="input_12v_a",
@@ -193,7 +193,7 @@ class TestPerChannelExpansion:
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=12, units="V"),
+                    range=RangeSpec(min=0, max=12, unit="V"),
                 ),
             },
             characteristic_name="input_12v_b",
@@ -221,7 +221,7 @@ class TestPerChannelExpansion:
                 direction=Direction.INPUT,
                 signals={
                     "voltage": Signal(
-                        range=RangeSpec(min=0, max=12, units="V"),
+                        range=RangeSpec(min=0, max=12, unit="V"),
                     ),
                 },
                 characteristic_name=f"input_12v_{i}",
@@ -245,7 +245,7 @@ class TestPerChannelExpansion:
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=5, units="V"),
+                    range=RangeSpec(min=0, max=5, unit="V"),
                 ),
             },
             characteristic_name="input_5v",
@@ -255,7 +255,7 @@ class TestPerChannelExpansion:
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=12, units="V"),
+                    range=RangeSpec(min=0, max=12, unit="V"),
                 ),
             },
             characteristic_name="input_12v",
@@ -576,7 +576,7 @@ class TestDesignerAutoSuggest:
                         "direction": "output",
                         "channels": ["1"],
                         "signals": {
-                            "voltage": {"range": {"min": 0, "max": 30, "units": "V"}},
+                            "voltage": {"range": {"min": 0, "max": 30, "unit": "V"}},
                         },
                     },
                     {
@@ -585,7 +585,7 @@ class TestDesignerAutoSuggest:
                         "readback": True,  # PSU readback
                         "channels": ["1"],
                         "signals": {
-                            "voltage": {"range": {"min": 0, "max": 30, "units": "V"}},
+                            "voltage": {"range": {"min": 0, "max": 30, "unit": "V"}},
                         },
                     },
                 ],
@@ -600,7 +600,7 @@ class TestDesignerAutoSuggest:
                         "direction": "input",
                         "channels": ["1"],
                         "signals": {
-                            "voltage": {"range": {"min": 0, "max": 1000, "units": "V"}},
+                            "voltage": {"range": {"min": 0, "max": 1000, "unit": "V"}},
                         },
                     },
                 ],

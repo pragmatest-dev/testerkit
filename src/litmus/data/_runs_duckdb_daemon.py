@@ -251,7 +251,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             step_index INTEGER,
             step_name VARCHAR,
             measurement_name VARCHAR NOT NULL,
-            measurement_units VARCHAR,
+            measurement_unit VARCHAR,
             limit_low DOUBLE,
             limit_high DOUBLE,
             limit_nominal DOUBLE,
@@ -340,7 +340,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             measurement_name      VARCHAR,
             measurement_value     DOUBLE,
             measurement_outcome   VARCHAR,
-            measurement_units     VARCHAR,
+            measurement_unit     VARCHAR,
             measurement_timestamp TIMESTAMPTZ,
             limit_low             DOUBLE,
             limit_high            DOUBLE,
@@ -400,7 +400,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             unit            VARCHAR
         )
     """)
-    # Migrate a pre-units measurements_dynamic table (CREATE IF NOT EXISTS
+    # Migrate a pre-unit measurements_dynamic table (CREATE IF NOT EXISTS
     # won't add the column to an existing DB).
     conn.execute("ALTER TABLE measurements_dynamic ADD COLUMN IF NOT EXISTS unit VARCHAR")
 
@@ -525,7 +525,7 @@ _MEASUREMENTS_PERSISTED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("measurement_name", "VARCHAR"),
     ("measurement_value", "DOUBLE"),
     ("measurement_outcome", "VARCHAR"),
-    ("measurement_units", "VARCHAR"),
+    ("measurement_unit", "VARCHAR"),
     ("measurement_timestamp", "TIMESTAMPTZ"),
     ("limit_low", "DOUBLE"),
     ("limit_high", "DOUBLE"),
@@ -801,7 +801,7 @@ _MEAS_FIXED_COLS: frozenset[str] = frozenset(
         "measurement_name",
         "measurement_value",
         "measurement_outcome",
-        "measurement_units",
+        "measurement_unit",
         "measurement_timestamp",
         "limit_low",
         "limit_high",
@@ -824,7 +824,7 @@ _MEAS_MEASUREMENT_COLS: frozenset[str] = frozenset(
         "measurement_name",
         "measurement_value",
         "measurement_outcome",
-        "measurement_units",
+        "measurement_unit",
         "measurement_timestamp",
         "limit_low",
         "limit_high",
@@ -845,7 +845,7 @@ _MEAS_STRUCT_TO_FACT: tuple[tuple[str, str], ...] = (
     ("name", "measurement_name"),
     ("value", "measurement_value"),
     ("outcome", "measurement_outcome"),
-    ("units", "measurement_units"),
+    ("unit", "measurement_unit"),
     ("timestamp", "measurement_timestamp"),
     ("limit_low", "limit_low"),
     ("limit_high", "limit_high"),
@@ -909,7 +909,7 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
             v.step_index,
             v.step_name,
             m.name AS measurement_name,
-            m.units AS measurement_units,
+            m.unit AS measurement_unit,
             m.limit_low AS limit_low,
             m.limit_high AS limit_high,
             m.limit_nominal AS limit_nominal,
@@ -924,7 +924,7 @@ def _bulk_insert_measurements(conn: duckdb.DuckDBPyConnection, meas_paths: list[
         WHERE v.record_type = 'vector'
         GROUP BY
             v.filename, v.run_id, v.session_id, v.step_index, v.step_name,
-            m.name, m.units, m.limit_low, m.limit_high, m.limit_nominal
+            m.name, m.unit, m.limit_low, m.limit_high, m.limit_nominal
     """)
 
 
@@ -1427,7 +1427,7 @@ def _create_views(conn: duckdb.DuckDBPyConnection) -> None:
             step_started_at, step_ended_at,
             vector_index, vector_retry, vector_outcome,
             measurement_name, measurement_value, measurement_outcome,
-            measurement_units, measurement_timestamp,
+            measurement_unit, measurement_timestamp,
             limit_low, limit_high, limit_nominal, limit_comparator,
             characteristic_id, spec_ref, uut_pin, fixture_connection,
             instrument_name, instrument_resource, instrument_channel,

@@ -36,14 +36,14 @@ def _write_part(pytester: pytest.Pytester) -> None:
               rail_3v3:
                 function: dc_voltage
                 direction: output
-                units: V
+                unit: V
                 pin: TP_VOUT
                 bands:
                   - value: 3.3
               dropout:
                 function: dc_voltage
                 direction: output
-                units: V
+                unit: V
                 pins: [TP_VIN, TP_VOUT]
                 bands:
                   - value: 1.1
@@ -108,7 +108,7 @@ def test_simple_path_absolute_limits_no_part(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             limits:
-              v_rail: {low: 3.2, high: 3.4, units: V}
+              v_rail: {low: 3.2, high: 3.4, unit: V}
             """
         )
     )
@@ -142,7 +142,7 @@ def test_connections_marker_iterates_and_stamps_pin(pytester: pytest.Pytester) -
               test_rail:
                 connections: [vout_measure]
                 limits:
-                  v_rail: {low: 3.2, high: 3.4, units: V}
+                  v_rail: {low: 3.2, high: 3.4, unit: V}
             """
         )
     )
@@ -238,7 +238,7 @@ def test_unconsumed_connections_iterator_fails_loudly(pytester: pytest.Pytester)
               test_rail:
                 connections: [vout_measure]
                 limits:
-                  v_rail: {low: 3.2, high: 3.4, units: V}
+                  v_rail: {low: 3.2, high: 3.4, unit: V}
             """
         )
     )
@@ -262,7 +262,7 @@ def test_no_markers_ctx_connections_is_none(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             limits:
-              v_rail: {low: 3.2, high: 3.4, units: V}
+              v_rail: {low: 3.2, high: 3.4, unit: V}
             """
         )
     )
@@ -288,14 +288,14 @@ def _write_two_char_part(pytester: pytest.Pytester) -> None:
               rail_3v3:
                 function: dc_voltage
                 direction: output
-                units: V
+                unit: V
                 pin: TP_VOUT
                 bands:
                   - value: 3.3
               idle_current:
                 function: dc_current
                 direction: input
-                units: A
+                unit: A
                 pin: TP_VIN
                 bands:
                   - value: 0.05
@@ -570,14 +570,14 @@ def test_per_function_matching_routes_to_correct_connection(
               rail_3v3:
                 function: dc_voltage
                 direction: output
-                units: V
+                unit: V
                 pin: TP_VOUT
                 bands:
                   - value: 3.3
               rail_3v3_ripple:
                 function: ac_voltage
                 direction: output
-                units: V
+                unit: V
                 pin: TP_VOUT
                 bands:
                   - value: 0.05
@@ -658,7 +658,7 @@ def test_function_unset_connection_is_fallback(
               rail_3v3:
                 function: dc_voltage
                 direction: output
-                units: V
+                unit: V
                 pin: TP_VOUT
                 bands:
                   - value: 3.3

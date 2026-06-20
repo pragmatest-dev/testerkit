@@ -36,10 +36,10 @@ class _ChannelRow:
     """Per-channel row: label handles + the latest reading the timer paints."""
 
     val_lbl: ui.label
-    units_lbl: ui.label
+    unit_lbl: ui.label
     ts_lbl: ui.label
     value: object = None
-    units: str = ""
+    unit: str = ""
     ts: str = ""
     closed: bool = False
     dirty: bool = True
@@ -105,17 +105,17 @@ def create_channel_values_panel(
             with ui.row().classes("w-full px-3 py-1.5 border-b border-slate-100 items-center"):
                 ui.label(ch_id).classes("w-1/3 text-sm font-mono text-slate-700")
                 val_lbl = ui.label("—").classes("w-1/4 text-sm font-mono font-semibold")
-                units_lbl = ui.label(evt.get("units") or "").classes("w-1/6 text-xs text-slate-500")
+                unit_lbl = ui.label(evt.get("unit") or "").classes("w-1/6 text-xs text-slate-500")
                 ts_lbl = ui.label("").classes("w-1/4 text-xs text-slate-400")
 
-        row = _ChannelRow(val_lbl, units_lbl, ts_lbl, units=evt.get("units") or "")
+        row = _ChannelRow(val_lbl, unit_lbl, ts_lbl, unit=evt.get("unit") or "")
         rows[ch_id] = row
 
         # Sample callback: record the reading only — no UI mutation here.
         def _on_sample(sample: ChannelSample, _row: _ChannelRow = row) -> None:
             _row.value = sample.value
-            if sample.units:
-                _row.units = sample.units
+            if sample.unit:
+                _row.unit = sample.unit
             _row.ts = format_time_short(sample.received_at.isoformat())
             _row.dirty = True
 
@@ -136,7 +136,7 @@ def create_channel_values_panel(
                 continue
             row.dirty = False
             row.val_lbl.set_text(_format_value(row.value))
-            row.units_lbl.set_text(row.units)
+            row.unit_lbl.set_text(row.unit)
             if row.closed:
                 row.ts_lbl.classes(add="italic")
                 row.ts_lbl.set_text(f"closed · {row.ts}" if row.ts else "closed")

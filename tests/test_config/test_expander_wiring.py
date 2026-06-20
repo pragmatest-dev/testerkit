@@ -54,7 +54,7 @@ class TestLoadPartWiring:
           rail:
             function: dc_voltage
             direction: output
-            units: V
+            unit: V
             pin: TP
             bands:
               - when: {load: {linspace: [0.1, 0.8, 4]}}

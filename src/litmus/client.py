@@ -17,8 +17,8 @@ Basic usage:
 
     # Add a test step with measurements
     with run.step("measure_5v_rail") as step:
-        step.measure("rail_voltage", 5.02, units="V", low=4.75, high=5.25)
-        step.measure("rail_current", 0.150, units="A", high=0.5)
+        step.measure("rail_voltage", 5.02, unit="V", low=4.75, high=5.25)
+        step.measure("rail_current", 0.150, unit="A", high=0.5)
 
     # Finish and save
     run.finish()
@@ -29,7 +29,7 @@ For parametrized tests (multiple vectors per step):
         for voltage in [3.3, 5.0, 12.0]:
             with step.vector(input_voltage=voltage) as vec:
                 output = measure_output(voltage)
-                vec.measure("output_voltage", output, units="V")
+                vec.measure("output_voltage", output, unit="V")
 
 The client automatically:
 - Generates UUIDs for runs, steps, vectors
@@ -86,7 +86,7 @@ class VectorBuilder:
         name: str,
         value: float | int | None,
         *,
-        units: str | None = None,
+        unit: str | None = None,
         low: float | int | None = None,
         high: float | int | None = None,
         nominal: float | int | None = None,
@@ -98,7 +98,7 @@ class VectorBuilder:
         Args:
             name: Measurement name (e.g., "rail_voltage")
             value: Measured value
-            units: Unit of measurement (e.g., "V", "A", "ohm")
+            unit: Unit of measurement (e.g., "V", "A", "ohm")
             low: Low limit (inclusive by default)
             high: High limit (inclusive by default)
             nominal: Nominal/expected value (for EQ/NE comparators)
@@ -112,7 +112,7 @@ class VectorBuilder:
         m = Measurement(
             name=name,
             value=_to_float(value),
-            units=units,
+            unit=unit,
             limit_low=_to_float(low),
             limit_high=_to_float(high),
             limit_nominal=_to_float(nominal),
@@ -191,7 +191,7 @@ class StepBuilder:
         name: str,
         value: float | int | None,
         *,
-        units: str | None = None,
+        unit: str | None = None,
         low: float | int | None = None,
         high: float | int | None = None,
         nominal: float | int | None = None,
@@ -206,7 +206,7 @@ class StepBuilder:
         Args:
             name: Measurement name
             value: Measured value
-            units: Unit of measurement
+            unit: Unit of measurement
             low: Low limit
             high: High limit
             nominal: Nominal value
@@ -224,7 +224,7 @@ class StepBuilder:
         return self._default_vector.measure(
             name=name,
             value=value,
-            units=units,
+            unit=unit,
             low=low,
             high=high,
             nominal=nominal,
@@ -300,7 +300,7 @@ class RunBuilder:
 
         Example:
             with run.step("measure_voltages", "Signal all power rails") as step:
-                step.measure("5v_rail", 5.02, units="V", low=4.75, high=5.25)
+                step.measure("5v_rail", 5.02, unit="V", low=4.75, high=5.25)
         """
         builder = StepBuilder(self, name, description)
         try:
@@ -353,7 +353,7 @@ class LitmusClient:
         )
 
         with run.step("voltage_check") as step:
-            step.measure("vcc", 3.31, units="V", low=3.0, high=3.6)
+            step.measure("vcc", 3.31, unit="V", low=3.0, high=3.6)
 
         run.finish()
     """

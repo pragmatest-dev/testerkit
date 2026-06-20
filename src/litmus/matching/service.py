@@ -769,7 +769,7 @@ def recommend_from_catalog(
 
     Args:
         requirements: List of dicts with keys: function, direction,
-            range_max, range_min, units (all optional except function/direction).
+            range_max, range_min, unit (all optional except function/direction).
         project: Project root for locating catalog dirs. Defaults to cwd.
 
     Returns:
@@ -872,13 +872,13 @@ def _parse_requirements(
         # Build a range measure from range_min/range_max if provided
         range_min = r.get("range_min")
         range_max = r.get("range_max")
-        units = r.get("units", "")
+        unit = r.get("unit", "")
 
         measure_name = function.value.replace("dc_", "").replace("ac_", "")
 
         if range_min is not None or range_max is not None:
             signals[measure_name] = Signal(
-                range=RangeSpec(min=range_min, max=range_max, units=units),
+                range=RangeSpec(min=range_min, max=range_max, unit=unit),
             )
 
         # Apply accuracy to the signal if provided
@@ -905,7 +905,7 @@ def _parse_requirements(
             direction=direction,
             signals=signals,
             conditions=conditions,
-            units=units or None,
+            unit=unit or None,
             net=f"req_{i}",  # Synthetic physical interface
         )
 

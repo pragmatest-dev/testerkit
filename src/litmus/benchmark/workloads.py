@@ -3,7 +3,7 @@
 Both ``litmus benchmark`` and the perf test suite build their cases from
 this module, so user numbers and CI numbers come from identical code.
 
-Each operation is swept across a list of ``scales`` (units of work) and,
+Each operation is swept across a list of ``scales`` (unit of work) and,
 for writes, a list of ``writers`` (concurrency) — every combination is a
 separate :class:`Workload` case, hence a separate row in the report.
 
@@ -48,7 +48,7 @@ def make_measurement(session_id: UUID, i: int):
         step_index=i % 10,
         measurement_name=f"voltage_{i}",
         value=3.3 + (i % 100) * 0.01,
-        units="V",
+        unit="V",
         outcome="passed",
         limit_low=3.0,
         limit_high=3.6,
@@ -219,7 +219,7 @@ def _setup_channels_write(scale: int) -> Callable[[BenchContext], Callable[[], o
 
         def write_all() -> None:
             for i in range(scale):
-                store.write("sensor.temp", 25.0 + i * 0.01, units="C")
+                store.write("sensor.temp", 25.0 + i * 0.01, unit="C")
 
         return write_all
 
@@ -240,7 +240,7 @@ def _setup_channels_query(scale: int) -> Callable[[BenchContext], Callable[[], o
         producer.open()
         ctx.track(producer)
         for i in range(scale):
-            producer.write(channel_id, 25.0 + i * 0.01, units="C")
+            producer.write(channel_id, 25.0 + i * 0.01, unit="C")
 
         channels_dir = ctx.data_dir / "channels"
         location = flight_manager.acquire(channels_dir)
@@ -387,7 +387,7 @@ def _setup_channels_block(scale: int) -> Callable[[BenchContext], Callable[[], o
 
 
 # ---------------------------------------------------------------------------
-# Case registry — sweep scales (units) and writers (concurrency)
+# Case registry — sweep scales (unit) and writers (concurrency)
 # ---------------------------------------------------------------------------
 
 

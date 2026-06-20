@@ -46,7 +46,7 @@ def _make_part_yaml(pytester: pytest.Pytester, name: str, *, part_number: str = 
               v_rail:
                 function: dc_voltage
                 direction: output
-                units: V
+                unit: V
                 pin: TP_VOUT
                 bands:
                   - value: 3.3

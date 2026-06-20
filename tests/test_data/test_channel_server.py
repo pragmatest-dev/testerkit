@@ -83,15 +83,15 @@ class TestInProcessServer:
         store.close()
 
     def test_channels_carry_full_descriptor(self, tmp_path: Path) -> None:
-        """list_flights serves the full descriptor (units/role) via app_metadata."""
+        """list_flights serves the full descriptor (unit/role) via app_metadata."""
         store = _make_store(tmp_path)
-        store.write("dmm.voltage", 3.3, units="V", instrument_role="dmm")
+        store.write("dmm.voltage", 3.3, unit="V", instrument_role="dmm")
         server, location = start_server_background(store)
 
         client = ChannelClient(location)
         (desc,) = client.channels()
         assert desc.channel_id == "dmm.voltage"
-        assert desc.units == "V"
+        assert desc.unit == "V"
         assert desc.instrument_role == "dmm"
         assert desc.data_type == "scalar:float"
 

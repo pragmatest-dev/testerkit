@@ -240,7 +240,7 @@ def run_benchmark(
         report.storage = _measure_storage(data_dir)
         progress("measuring concurrent-write capacity (per store) ...")
         writer_counts = [1, 2, 4, 8] if options.tier == "full" else [1, 2, 4]
-        # (store label, concurrency op, units per writer). One sweep per row —
+        # (store label, concurrency op, unit per writer). One sweep per row —
         # each gets its own scaling curve and per-writer efficiency. Channels
         # shows BOTH paths so the contrast is explicit: "channels capture" is the
         # durable write (serve=False → local IPC segments, no shared daemon →
@@ -340,8 +340,8 @@ def _short_os(platform_str: object) -> str:
 
 
 # Curated friendly names + how to read each op's cost (NO "headroom").
-#   write  -> per-record time + sustained units/s
-#   query  -> call latency + sustained units/s
+#   write  -> per-record time + sustained unit/s
+#   query  -> call latency + sustained unit/s
 #   block  -> per-block latency + points/s
 #   stream -> per-chunk latency + MB/s
 _OP_LABELS: list[tuple[str, str, str]] = [

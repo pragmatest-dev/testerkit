@@ -24,12 +24,12 @@ capabilities:
       range:
         min: 0.001
         max: 10
-        units: Vpp
+        unit: Vpp
     frequency:
       range:
         min: 0.001
         max: 25000000
-        units: Hz
+        unit: Hz
   attributes:
     waveforms:
       options:
@@ -50,7 +50,7 @@ capabilities:
       range:
         min: -10
         max: 10
-        units: V
+        unit: V
   channels:
   - CH1
   - CH2

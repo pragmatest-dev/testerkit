@@ -201,7 +201,7 @@ def test_batch_round_trip_preserves_both_timestamps() -> None:
         received_at=received,
         sampled_at=sampled,
         value=2.71,
-        units="V",
+        unit="V",
     )
 
     batch = sample_to_batch(original)
@@ -211,7 +211,7 @@ def test_batch_round_trip_preserves_both_timestamps() -> None:
     assert recovered.received_at == received
     assert recovered.sampled_at == sampled
     assert recovered.value == 2.71
-    assert recovered.units == "V"
+    assert recovered.unit == "V"
 
 
 def test_batch_round_trip_with_null_sampled_at() -> None:

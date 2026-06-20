@@ -84,8 +84,8 @@ Write the initial YAML to `{{YAML_PATH}}`:
 - Use MeasurementFunction enum values for naming guidance
 
 **Board-level attribute format:**
-- Scalar: `warmup_time: {value: 30, units: min}`
-- Range: `operating_temperature: {range: {min: 0, max: 55, units: degC}}`
+- Scalar: `warmup_time: {value: 30, unit: min}`
+- Range: `operating_temperature: {range: {min: 0, max: 55, unit: degC}}`
 
 ### Step 4: Validate the scaffold loads
 

@@ -393,7 +393,7 @@ Part capability + physical interface + traceability (ATML: UUT Characteristic).
 | `conditions` | `dict[str, Condition]` | `{}` |
 | `controls` | `dict[str, Control]` | `{}` |
 | `attributes` | `dict[str, Attribute]` | `{}` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `bands` | `list[SpecBand]` | `[]` |
 | `pin` | `str \| None` | `None` |
 | `pins` | `str \| list[str]` | `[]` |
@@ -533,14 +533,14 @@ Top-level shape of a test-module sidecar YAML.
 
 #### `Limit` {#model-limit}
 
-A test limit with units and optional spec reference.
+A test limit with unit and optional spec reference.
 
 | Field | Type | Default |
 |---|---|---|
 | `low` | `float \| None` | `None` |
 | `high` | `float \| None` | `None` |
 | `nominal` | `float \| None` | `None` |
-| `units` | `str` | *required* |
+| `unit` | `str` | *required* |
 | `characteristic_id` | `str \| None` | `None` |
 | `spec_ref` | `str \| None` | `None` |
 | `comparator` | `Comparator` | `Comparator.GELE` |
@@ -617,7 +617,7 @@ Configuration for lookup-table based limits.
 |---|---|---|
 | `key` | `str` | *required* |
 | `table` | `dict[str, Limit]` | *required* |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 
 #### `LimitStepConfig` {#model-limitstepconfig}
 
@@ -639,7 +639,7 @@ Per-measurement limit policy — direct, characteristic-derived, or banded.
 | `low` | `float \| None` | `None` |
 | `high` | `float \| None` | `None` |
 | `nominal` | `float \| None` | `None` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `characteristic_id` | `str \| None` | `None` |
 | `spec_ref` | `str \| None` | `None` |
 | `characteristic` | `str \| None` | `None` |
@@ -662,25 +662,25 @@ Specification for measurement or output range.
 |---|---|---|
 | `min` | `float \| None` | `None` |
 | `max` | `float \| None` | `None` |
-| `units` | `str` | `''` |
+| `unit` | `str` | `''` |
 
 #### `PointSpec` {#model-pointspec}
 
-A single numeric value with optional units.
+A single numeric value with optional unit.
 
 | Field | Type | Default |
 |---|---|---|
 | `value` | `float` | *required* |
-| `units` | `str` | `''` |
+| `unit` | `str` | `''` |
 
 #### `ListSpec` {#model-listspec}
 
-A discrete set of allowed values with optional units.
+A discrete set of allowed values with optional unit.
 
 | Field | Type | Default |
 |---|---|---|
 | `values` | `list[str \| float \| bool]` | *required* |
-| `units` | `str` | `''` |
+| `unit` | `str` | `''` |
 
 #### `AccuracySpec` {#model-accuracyspec}
 
@@ -691,7 +691,7 @@ Specification for measurement accuracy.
 | `pct_reading` | `float \| None` | `None` |
 | `pct_range` | `float \| None` | `None` |
 | `absolute` | `float \| None` | `None` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 
 #### `ResolutionSpec` {#model-resolutionspec}
 
@@ -702,7 +702,7 @@ Specification for measurement resolution.
 | `bits` | `int \| None` | `None` |
 | `digits` | `float \| None` | `None` |
 | `value` | `float \| None` | `None` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 
 #### `ChannelTopology` {#model-channeltopology}
 
@@ -726,7 +726,7 @@ Condition-dependent specification override for a parameter.
 | `when` | `dict[str, RangeSpec \| PointSpec \| ListSpec \| str \| float \| bool \| list[str \| float \| bool]]` | `{}` |
 | `range` | `RangeSpec \| None` | `None` |
 | `value` | `float \| str \| None` | `None` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `accuracy` | `AccuracySpec \| None` | `None` |
 | `resolution` | `ResolutionSpec \| None` | `None` |
 | `qualifier` | `SpecQualifier \| None` | `None` |
@@ -741,7 +741,7 @@ A measurable/sourceable parameter — the primary signal dimension.
 | `accuracy` | `AccuracySpec \| None` | `None` |
 | `resolution` | `ResolutionSpec \| None` | `None` |
 | `value` | `float \| None` | `None` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `bands` | `list[SpecBand] \| None` | `None` |
 | `qualifier` | `SpecQualifier \| None` | `None` |
 
@@ -753,7 +753,7 @@ An operating condition that affects accuracy of other parameters.
 |---|---|---|
 | `range` | `RangeSpec \| None` | `None` |
 | `options` | `list[float \| str \| bool] \| None` | `None` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `default` | `float \| str \| bool \| None` | `None` |
 | `bands` | `list[SpecBand] \| None` | `None` |
 
@@ -765,7 +765,7 @@ A user-configurable knob or setting.
 |---|---|---|
 | `range` | `RangeSpec \| None` | `None` |
 | `options` | `list[float \| str \| bool] \| None` | `None` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `default` | `float \| str \| bool \| None` | `None` |
 | `resolution` | `ResolutionSpec \| None` | `None` |
 | `bands` | `list[SpecBand] \| None` | `None` |
@@ -779,7 +779,7 @@ A fixed hardware fact or performance characteristic.
 | `value` | `float \| str \| bool \| None` | `None` |
 | `range` | `RangeSpec \| None` | `None` |
 | `options` | `list[float \| str \| bool] \| None` | `None` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `bands` | `list[SpecBand] \| None` | `None` |
 | `qualifier` | `SpecQualifier \| None` | `None` |
 
@@ -795,7 +795,7 @@ What a signal endpoint can do — shared by parts and instruments.
 | `conditions` | `dict[str, Condition]` | `{}` |
 | `controls` | `dict[str, Control]` | `{}` |
 | `attributes` | `dict[str, Attribute]` | `{}` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `bands` | `list[SpecBand]` | `[]` |
 
 #### `InstrumentCapability` {#model-instrumentcapability}
@@ -810,7 +810,7 @@ Instrument capability + channels + operational metadata.
 | `conditions` | `dict[str, Condition]` | `{}` |
 | `controls` | `dict[str, Control]` | `{}` |
 | `attributes` | `dict[str, Attribute]` | `{}` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `bands` | `list[SpecBand]` | `[]` |
 | `channels` | `str \| list[str]` | `[]` |
 | `readback` | `bool` | `False` |
@@ -960,7 +960,7 @@ Record of a stimulus applied during test execution.
 |---|---|---|
 | `param` | `str` | *required* |
 | `value` | `float \| None` | `None` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `instrument` | `str \| None` | `None` |
 | `resource` | `str \| None` | `None` |
 | `channel` | `str \| None` | `None` |
@@ -976,7 +976,7 @@ A single measurement with optional limit checking.
 | `name` | `str` | *required* |
 | `step_path` | `str` | `''` |
 | `value` | `float \| None` | *required* |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `limit_low` | `float \| None` | `None` |
 | `limit_high` | `float \| None` | `None` |
 | `limit_nominal` | `float \| None` | `None` |
@@ -1148,8 +1148,8 @@ Paired x/y arrays for related-but-non-time-series data (item 15).
 |---|---|---|
 | `x` | `list[float]` | *required* |
 | `y` | `list[float]` | *required* |
-| `x_units` | `str \| None` | `None` |
-| `y_units` | `str \| None` | `None` |
+| `x_unit` | `str \| None` | `None` |
+| `y_unit` | `str \| None` | `None` |
 | `x_name` | `str \| None` | `None` |
 | `y_name` | `str \| None` | `None` |
 
@@ -1179,7 +1179,7 @@ Metadata for a single channel, written once when first seen.
 | `data_type` | `str` | `'scalar:float'` |
 | `instrument_role` | `str` | `''` |
 | `resource` | `str` | `''` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `hostname` | `str` | `''` |
 | `session_id` | `str` | `''` |
 | `attributes` | `dict[str, Any]` | `{}` |
@@ -1195,7 +1195,7 @@ A single channel data point delivered to subscribers.
 | `received_at` | `datetime` | *required* |
 | `sampled_at` | `datetime \| None` | `None` |
 | `value` | `Any` | *required* |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `sample_interval` | `float \| None` | `None` |
 | `source_method` | `str` | `''` |
 | `session_id` | `str \| None` | `None` |

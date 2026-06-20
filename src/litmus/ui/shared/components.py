@@ -966,9 +966,9 @@ class LiveBadge:
             self._label.classes(replace=cls)
 
 
-def _format_range(r: dict[str, Any], units: str = "") -> str:
+def _format_range(r: dict[str, Any], unit: str = "") -> str:
     """Format a min/max range dict as a human-readable string."""
-    u = r.get("units") or units
+    u = r.get("unit") or unit
     rmin, rmax = r.get("min"), r.get("max")
     if rmin is not None and rmax is not None:
         return f"{rmin}–{rmax} {u}".strip()
@@ -984,9 +984,9 @@ def render_capability_detail(cap: dict[str, Any]) -> None:
 
     Args:
         cap: Capability dict (from model_dump or raw YAML) with optional keys:
-             signals, conditions, controls, attributes, specs, units.
+             signals, conditions, controls, attributes, specs, unit.
     """
-    units = cap.get("units", "")
+    unit = cap.get("unit", "")
 
     # Signals
     signals = cap.get("signals", {})
@@ -997,7 +997,7 @@ def render_capability_detail(cap: dict[str, Any]) -> None:
             if isinstance(sig, dict):
                 r = sig.get("range")
                 if r and isinstance(r, dict):
-                    fmt = _format_range(r, units)
+                    fmt = _format_range(r, unit)
                     if fmt:
                         parts.append(fmt)
                 v = sig.get("value")
@@ -1062,7 +1062,7 @@ def render_capability_detail(cap: dict[str, Any]) -> None:
         for name, attr in attributes.items():
             if isinstance(attr, dict):
                 val = attr.get("value", "")
-                u = attr.get("units", "")
+                u = attr.get("unit", "")
                 ui.label(f"  {name}: {val} {u}".strip()).classes("text-sm font-mono ml-2")
             else:
                 ui.label(f"  {name}: {attr}").classes("text-sm font-mono ml-2")

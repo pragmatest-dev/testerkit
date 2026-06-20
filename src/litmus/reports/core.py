@@ -311,7 +311,7 @@ def _write_csv(data: ReportData, output: Path) -> None:
         "step_name",
         "measurement_name",
         "value",
-        "units",
+        "unit",
         "limit_low",
         "limit_high",
         "nominal",

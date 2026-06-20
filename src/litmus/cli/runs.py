@@ -164,11 +164,11 @@ def show(
         for m in data.measurements:
             name = m.get("measurement_name") or ""
             value = m.get("value")
-            units = m.get("units")
+            unit = m.get("unit")
             outcome = m.get("outcome") or ""
             value_str = str(value) if value is not None else "—"
-            units_str = f" {units}" if units else ""
-            click.echo(f"  {name}: {value_str}{units_str} [{outcome}]")
+            unit_str = f" {unit}" if unit else ""
+            click.echo(f"  {name}: {value_str}{unit_str} [{outcome}]")
 
     if env:
         from litmus.sbom import environment_from_parquet, format_environment_table

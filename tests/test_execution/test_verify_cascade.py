@@ -132,7 +132,7 @@ def test_verify_cascade_to_streaming_row(
             from litmus.models.test_config import Limit
 
             def test_rail(verify):
-                verify("v_rail", {value}, limit=Limit(low=3.0, high=3.6, units="V"))
+                verify("v_rail", {value}, limit=Limit(low=3.0, high=3.6, unit="V"))
             """
         )
     )
@@ -205,7 +205,7 @@ def test_in_test_vector_iteration_allows_repeat_name(pytester: pytest.Pytester) 
 
             def test_rails(vectors, verify):
                 for v in vectors:
-                    verify("v_rail", 3.3, limit=Limit(low=3.0, high=3.6, units="V"))
+                    verify("v_rail", 3.3, limit=Limit(low=3.0, high=3.6, unit="V"))
             """
         )
     )

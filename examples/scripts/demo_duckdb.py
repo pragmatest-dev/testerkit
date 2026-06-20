@@ -44,7 +44,7 @@ print(
     db.sql(f"""
     SELECT
         measurement_name,
-        units,
+        unit,
         COUNT(*) AS n,
         ROUND(AVG(value), 4) AS mean,
         ROUND(STDDEV(value), 4) AS stddev,
@@ -52,7 +52,7 @@ print(
         ROUND(MAX(value), 4) AS max_val
     FROM "{parquet}"
     WHERE value IS NOT NULL
-    GROUP BY measurement_name, units
+    GROUP BY measurement_name, unit
     ORDER BY measurement_name
 """)
 )
@@ -104,7 +104,7 @@ section("Full traceability (last measurement)")
 print(
     db.sql(f"""
     SELECT
-        measurement_name, value, units, outcome,
+        measurement_name, value, unit, outcome,
         uut_serial, station_id, git_commit,
         meas_instrument, meas_instrument_channel,
         instr_serial, instr_cal_due,

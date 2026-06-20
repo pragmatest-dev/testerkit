@@ -68,7 +68,7 @@ def derive_limit(
         low=final_low,
         high=final_high,
         nominal=nominal,
-        units=char.units or "",
+        unit=char.unit or "",
         comparator=comparator,
         characteristic_id=characteristic_id,
         spec_ref=spec_ref,

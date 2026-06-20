@@ -117,7 +117,7 @@ def _vector_row(
                 {
                     "name": name,
                     "value": 1.0,
-                    "units": None,
+                    "unit": None,
                     "outcome": run_outcome,
                     "timestamp": None,
                     "limit_low": None,

@@ -101,7 +101,7 @@ def failed_measurements():
             ROUND(value, 4) as value,
             ROUND(low_limit, 4) as low,
             ROUND(high_limit, 4) as high,
-            units,
+            unit,
             uut_serial,
             run_started_at::DATE as date
         FROM read_parquet('{RESULTS_GLOB}', union_by_name=true)

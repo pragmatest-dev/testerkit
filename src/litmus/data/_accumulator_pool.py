@@ -401,7 +401,7 @@ INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
         ("measurement_name", pa.string()),
         ("measurement_value", pa.float64()),
         ("measurement_outcome", pa.string()),
-        ("measurement_units", pa.string()),
+        ("measurement_unit", pa.string()),
         ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
         ("limit_low", pa.float64()),
         ("limit_high", pa.float64()),

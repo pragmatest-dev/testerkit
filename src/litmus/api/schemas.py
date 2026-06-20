@@ -58,7 +58,7 @@ class MeasurementView(BaseModel):
     measurement_name: str
     measurement_timestamp: datetime | None = None
     value: float | None = None
-    units: str | None = None
+    unit: str | None = None
     outcome: str | None = None
     limit_low: float | None = None
     limit_high: float | None = None
@@ -201,7 +201,7 @@ def _measurements_for_step(
             measurement_name=row.get("measurement_name") or "",
             measurement_timestamp=row.get("measurement_timestamp"),
             value=row.get("measurement_value"),
-            units=row.get("measurement_units"),
+            unit=row.get("measurement_unit"),
             outcome=row.get("measurement_outcome"),
             limit_low=row.get("limit_low"),
             limit_high=row.get("limit_high"),

@@ -43,7 +43,7 @@ def _meas_struct(
     return {
         "name": name,
         "value": value,
-        "units": None,
+        "unit": None,
         "outcome": outcome,
         "timestamp": None,
         "limit_low": limit_low,

@@ -22,7 +22,7 @@ class TestBuildWriteSchemaFixed:
             "run_id": "r1",
             "step_name": "test_v",
             "measurement_value": 3.3,
-            "measurement_units": "V",
+            "measurement_unit": "V",
             "measurement_outcome": "PASS",
             "step_index": 0,
         }
@@ -131,7 +131,7 @@ class TestRoundTripExplicitSchema:
         m = Measurement(
             name="voltage",
             value=3.3,
-            units="V",
+            unit="V",
             limit_low=3.0,
             limit_high=3.6,
             outcome=Outcome.PASSED,
@@ -164,7 +164,7 @@ class TestRoundTripExplicitSchema:
         m = Measurement(
             name="voltage",
             value=3.3,
-            units="V",
+            unit="V",
             outcome=Outcome.PASSED,
         )
         v = TestVector(

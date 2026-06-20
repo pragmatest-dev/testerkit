@@ -1,7 +1,7 @@
 """Limits derive from the part datasheet — no fixture YAML yet.
 
 The part spec (``parts/buck_3v3.yaml``) declares each
-characteristic's nominal value and units once. Sidecar limits point
+characteristic's nominal value and unit once. Sidecar limits point
 at a characteristic and add a ``tolerance_pct``; the resolver reads
 the band from the part at measurement time. Each row carries
 ``characteristic_id`` for spec traceability without the test code

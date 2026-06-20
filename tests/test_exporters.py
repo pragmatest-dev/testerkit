@@ -52,7 +52,7 @@ def sample_test_run() -> TestRun:
                             Measurement(
                                 name="vout",
                                 value=3.3,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 outcome=Outcome.PASSED,
@@ -60,7 +60,7 @@ def sample_test_run() -> TestRun:
                             Measurement(
                                 name="iout",
                                 value=0.5,
-                                units="A",
+                                unit="A",
                                 limit_low=0.0,
                                 limit_high=1.0,
                                 outcome=Outcome.PASSED,
@@ -139,7 +139,7 @@ class TestCsvSubscriber:
         assert len(rows) == 2  # Two measurements
         assert rows[0]["measurement_name"] == "vout"
         assert rows[0]["value"] == "3.3"
-        assert rows[0]["units"] == "V"
+        assert rows[0]["unit"] == "V"
         assert rows[1]["measurement_name"] == "iout"
 
     def test_includes_dynamic_columns(self, sample_test_run: TestRun, tmp_path: Path):
@@ -242,7 +242,7 @@ class TestExporterRobustness:
                                 Measurement(
                                     name="v",
                                     value=float("nan"),
-                                    units="V",
+                                    unit="V",
                                     outcome=Outcome.ERRORED,
                                 ),
                             ],
@@ -346,7 +346,7 @@ class TestMeasurementRow:
         assert row.step_name == "test_voltage"
         assert row.measurement_name == "vout"
         assert row.measurement_value == 3.3
-        assert row.measurement_units == "V"
+        assert row.measurement_unit == "V"
         assert row.measurement_outcome == "passed"
 
     def test_to_flat_dict(self, sample_test_run: TestRun):
@@ -551,7 +551,7 @@ class TestReconstructTestRun:
         for orig_m, rebuilt_m in zip(orig_vec.measurements, rebuilt_vec.measurements):
             assert rebuilt_m.name == orig_m.name
             assert rebuilt_m.value == orig_m.value
-            assert rebuilt_m.units == orig_m.units
+            assert rebuilt_m.unit == orig_m.unit
             assert rebuilt_m.outcome == orig_m.outcome
             assert rebuilt_m.limit_low == orig_m.limit_low
             assert rebuilt_m.limit_high == orig_m.limit_high

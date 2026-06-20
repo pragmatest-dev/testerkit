@@ -299,7 +299,7 @@ A single measurement. Normalized: carries only measurement-specific fields.
 | `measurement_name` | `str` | *required* |
 | `measurement_timestamp` | `datetime \| None` | `None` |
 | `value` | `float \| None` | `None` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `outcome` | `str \| None` | `None` |
 | `limit_low` | `float \| None` | `None` |
 | `limit_high` | `float \| None` | `None` |
@@ -373,7 +373,7 @@ Emitted when a driver set method is called via proxy.
 | `channel_id` | `str` | *required* |
 | `attribute` | `str` | *required* |
 | `value` | `Any` | `None` |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `resource` | `str` | `''` |
 
 ### `instrument.configure` — `InstrumentConfigure`
@@ -396,7 +396,7 @@ A channel received its first sample in this session.
 | Field | Type | Default |
 |---|---|---|
 | `channel_id` | `str` | *required* |
-| `units` | `str \| None` | `None` |
+| `unit` | `str \| None` | `None` |
 | `instrument_role` | `str \| None` | `None` |
 | `method` | `str \| None` | `None` |
 | `resource` | `str \| None` | `None` |

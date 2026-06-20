@@ -105,18 +105,18 @@ def _normalize_comparator(val: Any) -> Any:
     return Comparator(val)
 
 
-def _limit_from_dict(spec: Any, *, units_override: str | None = None) -> Limit:
-    """Build a :class:`Limit` from a mapping of low/high/nominal/units/comparator.
+def _limit_from_dict(spec: Any, *, unit_override: str | None = None) -> Limit:
+    """Build a :class:`Limit` from a mapping of low/high/nominal/unit/comparator.
 
     Shared by sidecar parsing (``plugin._parse_limits_block``) and any
-    future dict-shaped limit source. The ``units_override`` lets callers
-    prefer a caller-supplied unit when the dict itself has no ``units``.
+    future dict-shaped limit source. The ``unit_override`` lets callers
+    prefer a caller-supplied unit when the dict itself has no ``unit``.
     """
     return Limit(
         low=spec.get("low"),
         high=spec.get("high"),
         nominal=spec.get("nominal"),
-        units=spec.get("units", units_override or ""),
+        unit=spec.get("unit", unit_override or ""),
         spec_ref=spec.get("spec_ref"),
         comparator=_normalize_comparator(spec.get("comparator")),
     )
@@ -216,7 +216,7 @@ def _resolve_measurement_limit(
     nominal: float | None,
     comparator: Any,
     limit: Limit | None,
-    units: str | None,
+    unit: str | None,
 ) -> Limit | None:
     """Return a Limit or None per :meth:`RunScope.measure`'s resolution chain.
 
@@ -238,7 +238,7 @@ def _resolve_measurement_limit(
                 "low": low,
                 "high": high,
                 "nominal": nominal,
-                "units": units or "",
+                "unit": unit or "",
                 "comparator": comparator,
             }
         )
@@ -951,7 +951,7 @@ class RunScope:
                 measurement_name=measurement.name,
                 measurement_timestamp=measurement.timestamp,
                 value=measurement.value,
-                units=measurement.units,
+                unit=measurement.unit,
                 outcome=measurement.outcome.value if measurement.outcome else None,
                 limit_low=measurement.limit_low,
                 limit_high=measurement.limit_high,
@@ -1047,7 +1047,7 @@ class RunScope:
             nominal=None,
             comparator=None,
             limit=limit_obj,
-            units=None,
+            unit=None,
         )
 
         # Ensure a step exists *before* the dedup check — otherwise the
@@ -1066,7 +1066,7 @@ class RunScope:
         limit_high: float | None = None
         nom: float | None = None
         cmp_str: str | None = None
-        meas_units: str | None = None
+        meas_unit: str | None = None
         meas_char_id: str | None = None
         meas_spec_ref: str | None = None
 
@@ -1074,7 +1074,7 @@ class RunScope:
             limit_low = resolved_limit.low
             limit_high = resolved_limit.high
             nom = resolved_limit.nominal
-            meas_units = resolved_limit.units
+            meas_unit = resolved_limit.unit
             meas_char_id = resolved_limit.characteristic_id
             meas_spec_ref = resolved_limit.spec_ref
             cmp_str = _stringify_comparator(resolved_limit.comparator)
@@ -1088,7 +1088,7 @@ class RunScope:
         measurement = Measurement(
             name=name,
             value=float(value) if value is not None else None,
-            units=meas_units,
+            unit=meas_unit,
             limit_low=limit_low,
             limit_high=limit_high,
             limit_nominal=nom,

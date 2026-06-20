@@ -2,7 +2,7 @@
 
 Each round spawns ``writers`` subprocesses (spawn start method, so they
 hit the real daemon RPC path the way separate stations would), each
-writing ``scale`` units. Workers return their ``(start, end)`` on
+writing ``scale`` unit. Workers return their ``(start, end)`` on
 ``CLOCK_MONOTONIC`` (system-wide on Linux, so comparable across
 processes); the round's wall is the TRUE overlapped span,
 ``max(end) - min(start)`` — not the slowest worker's self-timed loop,
@@ -46,7 +46,7 @@ def _event_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]:
                     step_index=i % 10,
                     measurement_name=f"voltage_{seed}_{i}",
                     value=3.3 + ((seed * 1000 + i) % 100) * 0.01,
-                    units="V",
+                    unit="V",
                     outcome="passed",
                     limit_low=3.0,
                     limit_high=3.6,
@@ -230,7 +230,7 @@ _WORKERS = {
 def run_concurrency(
     data_dir: Path, op: str, scale: int, writers: int, *, rounds: int
 ) -> list[float]:
-    """Run ``op`` at ``scale`` units in ``writers`` subprocesses, ``rounds``
+    """Run ``op`` at ``scale`` unit in ``writers`` subprocesses, ``rounds``
     times. Returns per-round wall times — the TRUE overlapped span
     (``max(end) - min(start)`` across workers), so throughput reflects real
     concurrency rather than the slowest worker's self-timed loop.

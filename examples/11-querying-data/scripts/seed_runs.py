@@ -56,7 +56,7 @@ def main() -> None:
             step.measure(
                 "v_rail",
                 v,
-                units="V",
+                unit="V",
                 low=target_v * 0.95,
                 high=target_v * 1.05,
             )
@@ -67,7 +67,7 @@ def main() -> None:
             step.measure(
                 "i_q",
                 i_q,
-                units="A",
+                unit="A",
                 low=0.0,
                 high=0.060,
             )

@@ -116,7 +116,7 @@ def _sine_waveform(freq_hz: float = 100.0, sample_rate_hz: float = 100_000.0) ->
         t0=datetime.now(UTC),
         dt=dt,
         Y=[math.sin(omega * i * dt) for i in range(n)],
-        attributes={"units": "V", "channel": "scope1"},
+        attributes={"unit": "V", "channel": "scope1"},
     )
 
 
@@ -160,7 +160,7 @@ def main() -> None:
                             Measurement(
                                 name="rail_voltage",
                                 value=3.301,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 outcome=Outcome.PASSED,

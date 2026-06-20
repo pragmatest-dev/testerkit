@@ -97,7 +97,7 @@ def _build_ptr(
     comparator: str | None,
     limit_low: float | None,
     limit_high: float | None,
-    units: str | None,
+    unit: str | None,
 ) -> bytes:
     """Build and pack a single PTR record."""
     ptr = PTR()
@@ -116,8 +116,8 @@ def _build_ptr(
         ptr.set_value("LO_LIMIT", limit_low)
     if limit_high is not None:
         ptr.set_value("HI_LIMIT", limit_high)
-    if units:
-        ptr.set_value("UNITS", units)
+    if unit:
+        ptr.set_value("UNITS", unit)
     return _pack_record(ptr)
 
 
@@ -216,7 +216,7 @@ class StdfSubscriber(EventSubscriber):
                     m.limit_comparator,
                     m.limit_low,
                     m.limit_high,
-                    m.units,
+                    m.unit,
                 )
             )
             if m.outcome == "failed":

@@ -204,7 +204,7 @@ class TestRunsAndShow:
         assert "Measurements:" in result.stdout
 
     def test_show_no_none_values(self, starter_project: tuple[Path, Path]):
-        """Bug regression: litmus show must not print 'None' for units/limits."""
+        """Bug regression: litmus show must not print 'None' for unit/limits."""
         project, home = starter_project
         runs = _litmus("runs", cwd=project, home=home)
         run_id = runs.stdout.strip().split("\n")[-1].split()[0]

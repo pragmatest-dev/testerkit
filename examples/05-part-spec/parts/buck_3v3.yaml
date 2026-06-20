@@ -23,7 +23,7 @@ characteristics:
   input_voltage:
     function: dc_voltage
     direction: input
-    units: V
+    unit: V
     pin: TP_VIN
     bands:
       - value: 5.0
@@ -31,7 +31,7 @@ characteristics:
   rail_3v3:
     function: dc_voltage
     direction: output
-    units: V
+    unit: V
     pin: TP_VOUT
     bands:
       - value: 3.3
@@ -39,7 +39,7 @@ characteristics:
   idle_current:
     function: dc_current
     direction: input
-    units: A
+    unit: A
     pin: TP_VIN
     bands:
       - value: 0.05

@@ -5,7 +5,7 @@ characteristics:
   output_voltage:
     function: dc_voltage
     direction: output
-    units: V
+    unit: V
     pin: VOUT
     bands:
     - value: 3.3

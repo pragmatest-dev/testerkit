@@ -527,7 +527,7 @@ concepts:
   - id: limit
     category: primitive
     summary: >
-      A resolved test limit — low/high/nominal + units + comparator (GELE,
+      A resolved test limit — low/high/nominal + unit + comparator (GELE,
       EQ, LE, …) + optional traceability (characteristic_id, spec_ref).
       Per-comparator membership check via Limit.__contains__.
     model: litmus.models.test_config.Limit
@@ -603,7 +603,7 @@ concepts:
   - id: measurement
     category: runtime
     summary: >
-      Single measurement — name, value, units, limit fields, outcome.
+      Single measurement — name, value, unit, limit fields, outcome.
       Carries full signal path (uut_pin, instrument_name, resource,
       channel, fixture_connection) for traceability. check_limit() is
       the single comparator-aware judgment path.
@@ -617,7 +617,7 @@ concepts:
   - id: stimulus_record
     category: runtime
     summary: >
-      Captured stimulus (commanded inputs) — param/value/units +
+      Captured stimulus (commanded inputs) — param/value/unit +
       instrument/resource/channel + uut_pin + fixture_connection.
     model: litmus.data.models.StimulusRecord
 
@@ -689,7 +689,7 @@ concepts:
     category: runtime
     summary: >
       Metadata for a live channel — data_type (scalar/array),
-      instrument_role, resource, units. Written once when first seen.
+      instrument_role, resource, unit. Written once when first seen.
     model: litmus.data.channels.models.ChannelDescriptor
     relationships:
       - { kind: stored_in,  target: channel_store }
@@ -699,7 +699,7 @@ concepts:
     category: runtime
     summary: >
       Single channel data point delivered to subscribers — channel_id,
-      timestamp, value, units, sample_interval, source_method.
+      timestamp, value, unit, sample_interval, source_method.
     model: litmus.data.channels.models.ChannelSample
     relationships:
       - { kind: stored_in,  target: channel_store }
@@ -922,7 +922,7 @@ concepts:
     category: event
     event_type: test.measurement
     summary: >
-      One measurement landed — name, value, units, outcome, limits, full
+      One measurement landed — name, value, unit, outcome, limits, full
       signal path, plus dynamic vector columns (inputs/outputs/custom).
     model: litmus.data.events.MeasurementRecorded
     relationships:
@@ -1365,15 +1365,15 @@ slices:
 
 ontology_ignored:
   - model: litmus.models.capability.RangeSpec
-    reason: Scalar shape primitive (min/max/units). Reusable inside many models; no semantic identity worth a concept node.
+    reason: Scalar shape primitive (min/max/unit). Reusable inside many models; no semantic identity worth a concept node.
   - model: litmus.models.capability.PointSpec
-    reason: Scalar shape primitive (value + units).
+    reason: Scalar shape primitive (value + unit).
   - model: litmus.models.capability.ListSpec
-    reason: Scalar shape primitive (items + units).
+    reason: Scalar shape primitive (items + unit).
   - model: litmus.models.capability.AccuracySpec
     reason: Scalar shape primitive — accuracy fields (pct_reading, pct_range, absolute, floor).
   - model: litmus.models.capability.ResolutionSpec
-    reason: Scalar shape primitive — bits/digits/value/units.
+    reason: Scalar shape primitive — bits/digits/value/unit.
   - model: litmus.models.capability.SpecQualifier
     reason: Enum used only inside SpecBand; not authored on its own.
   - model: litmus.models.capability.ConditionKey

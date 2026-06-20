@@ -123,7 +123,7 @@ def _render_characteristics_tab(characteristics: dict):
                         with ui.row().classes("gap-4"):
                             with ui.column().classes("gap-0"):
                                 ui.label("Units").classes("text-xs text-slate-500 uppercase")
-                                ui.label(char.get("units", "—")).classes("font-mono")
+                                ui.label(char.get("unit", "—")).classes("font-mono")
                             with ui.column().classes("gap-0"):
                                 ui.label("SpecBands").classes("text-xs text-slate-500 uppercase")
                                 ui.label(str(len(char.get("specs", [])))).classes("font-mono")

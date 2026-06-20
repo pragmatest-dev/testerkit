@@ -8,7 +8,7 @@ from litmus.cli.root import main
 
 
 @main.command("benchmark")
-@click.option("--full", is_flag=True, help="Run the full sweep (100/1k/10k units, 1/2/4 writers)")
+@click.option("--full", is_flag=True, help="Run the full sweep (100/1k/10k unit, 1/2/4 writers)")
 @click.option("--rounds", default=None, type=int, help="Timed rounds per case (override)")
 @click.option(
     "-o",

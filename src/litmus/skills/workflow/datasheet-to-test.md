@@ -242,7 +242,7 @@ Notes for good generation:
 </step>
 
 <step id="4.2">
-Create a **sidecar YAML** (`tests/test_<part>.yaml`) with any combination of `sweeps:`, `limits:`, `mocks:`, `characteristics:`. Sidecar is for operator-editable values; inline markers are for values that belong with the code. Limit shapes: `{low, high, units, nominal?, comparator?}` for an explicit band, or `{characteristic: <id>, tolerance_pct: <n>}` to bind to a part characteristic.
+Create a **sidecar YAML** (`tests/test_<part>.yaml`) with any combination of `sweeps:`, `limits:`, `mocks:`, `characteristics:`. Sidecar is for operator-editable values; inline markers are for values that belong with the code. Limit shapes: `{low, high, unit, nominal?, comparator?}` for an explicit band, or `{characteristic: <id>, tolerance_pct: <n>}` to bind to a part characteristic.
 
 Example:
 
@@ -252,7 +252,7 @@ vectors:
   vin: [4.5, 5.0, 5.5]
   load: [0.1, 0.4, 0.8]
 limits:
-  efficiency:     {low: 55, high: 100, units: "%"}
+  efficiency:     {low: 55, high: 100, unit: "%"}
   output_voltage: {ref: "output_voltage"}    # delegates to part spec
 mocks:
   dmm.measure_dc_voltage: 3.3

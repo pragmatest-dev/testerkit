@@ -73,7 +73,7 @@ LANE_FIELDS: tuple[str, ...] = (
 MEASUREMENT_STRUCT_FIELDS: tuple[str, ...] = (
     "name",
     "value",
-    "units",
+    "unit",
     "outcome",
     "timestamp",
     "limit_low",
@@ -98,7 +98,7 @@ _MEASUREMENT_SCALAR_FIELDS: frozenset[str] = frozenset(
         "measurement_name",
         "measurement_timestamp",
         "measurement_value",
-        "measurement_units",
+        "measurement_unit",
         "measurement_outcome",
         "limit_low",
         "limit_high",
@@ -298,7 +298,7 @@ class MeasurementRow(BaseModel):
     measurement_name: str | None = None
     measurement_timestamp: datetime | None = None
     measurement_value: float | None = None
-    measurement_units: str | None = None
+    measurement_unit: str | None = None
     measurement_outcome: str | None = None
     limit_low: float | None = None
     limit_high: float | None = None
@@ -322,7 +322,7 @@ class MeasurementRow(BaseModel):
     outputs: dict[str, Any] = Field(default_factory=dict)
     instruments: dict[str, list[str | bool | None]] = Field(default_factory=dict)
     custom: dict[str, Any] = Field(default_factory=dict)
-    # Optional per-slot engineering units for inputs / outputs (name → unit),
+    # Optional per-slot engineering unit for inputs / outputs (name → unit),
     # flowed into the lane's ``unit`` field at encode time.
     input_units: dict[str, str] = Field(default_factory=dict)
     output_units: dict[str, str] = Field(default_factory=dict)
@@ -513,7 +513,7 @@ def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
         "measurement_name": measurement.name,
         "measurement_timestamp": measurement.timestamp,
         "measurement_value": measurement.value,
-        "measurement_units": measurement.units,
+        "measurement_unit": measurement.unit,
         # measurement.outcome is contractually set by log_measurement
         # (RuntimeError raised in execution/logger.py if None reaches here).
         "measurement_outcome": measurement.outcome.value if measurement.outcome else None,
@@ -543,7 +543,7 @@ def build_measurement_struct(measurement: Measurement) -> dict[str, Any]:
     return {
         "name": measurement.name,
         "value": measurement.value,
-        "units": measurement.units,
+        "unit": measurement.unit,
         "outcome": measurement.outcome.value if measurement.outcome else None,
         "timestamp": measurement.timestamp,
         "limit_low": measurement.limit_low,

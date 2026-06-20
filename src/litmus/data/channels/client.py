@@ -69,7 +69,7 @@ class ChannelClient:
         value: object,
         *,
         source: str = "remote",
-        units: str | None = None,
+        unit: str | None = None,
         sample_interval: float | None = None,
         sampled_at: datetime | None = None,
         session_id: str | None = None,
@@ -91,7 +91,7 @@ class ChannelClient:
                 "sampled_at": [sampled_at],
                 "value": [value_str],
                 "source_method": [source],
-                "units": [units or ""],
+                "unit": [unit or ""],
                 "sample_interval": [sample_interval],
                 "session_id": [session_id],
                 "sample_offset": [seq],
@@ -204,7 +204,7 @@ class ChannelClient:
     def channels(self) -> list[ChannelDescriptor]:
         """List available channels with their descriptors.
 
-        The daemon serves the full ``ChannelDescriptor`` (units, role, …) as a
+        The daemon serves the full ``ChannelDescriptor`` (unit, role, …) as a
         JSON row per channel over the ``__channels__`` enumeration verb.
         """
         ticket = flight.Ticket(f"{CHANNELS_FLIGHT_DB}\0__channels__".encode())

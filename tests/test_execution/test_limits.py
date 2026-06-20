@@ -18,7 +18,7 @@ class TestDeriveLimit:
         return PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             pin="VOUT",
             datasheet_ref="DS-001 Section 7.3",
             bands=[
@@ -58,7 +58,7 @@ class TestDeriveLimit:
 
         assert isinstance(limit, Limit)
         assert limit.nominal == 3.3
-        assert limit.units == "V"
+        assert limit.unit == "V"
         # 3% of reading: 3.3 * 0.03 = 0.099
         assert limit.low == pytest.approx(3.201)
         assert limit.high == pytest.approx(3.399)
@@ -103,7 +103,7 @@ class TestDeriveLimit:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             pin="VOUT",
             bands=[
                 SpecBand(
@@ -129,7 +129,7 @@ class TestDeriveLimit:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_CURRENT,
             direction=Direction.INPUT,
-            units="A",
+            unit="A",
             pin="VIN",
             bands=[
                 SpecBand(
@@ -186,7 +186,7 @@ class TestDeriveLimit:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_CURRENT,
             direction=Direction.INPUT,
-            units="A",
+            unit="A",
             pin="VIN",
             bands=[
                 SpecBand(
@@ -213,7 +213,7 @@ class TestDeriveLimit:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             pin="VOUT",
             bands=[
                 SpecBand(
@@ -240,7 +240,7 @@ class TestDeriveLimit:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             pin="VOUT",
             bands=[
                 SpecBand(
@@ -269,7 +269,7 @@ class TestGuardbandEdgeCases:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             pin="VOUT",
             bands=[
                 SpecBand(
@@ -294,7 +294,7 @@ class TestGuardbandEdgeCases:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             pin="VOUT",
             bands=[
                 SpecBand(

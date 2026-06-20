@@ -48,7 +48,7 @@ class InstrumentCatalogEntry(BaseModel):
             direction: input
             signals:
               voltage:
-                range: {min: 0.0001, max: 1000, units: V}
+                range: {min: 0.0001, max: 1000, unit: V}
                 accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
                 resolution: {digits: 6.5}
     """

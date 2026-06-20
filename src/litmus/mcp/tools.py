@@ -691,7 +691,7 @@ tests:
       quiescent_current:
         high: 100
         comparator: LE
-        units: uA
+        unit: uA
   test_load_regulation:
     limits:
       output_voltage:
@@ -756,7 +756,7 @@ capabilities:
     direction: input
     parameters:
       voltage:
-        range: {{min: 0, max: 1000, units: V}}
+        range: {{min: 0, max: 1000, unit: V}}
 
 scpi_commands:
   identify: "*IDN?"

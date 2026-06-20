@@ -73,33 +73,33 @@ class RangeSpec(BaseModel):
 
     min: float | None = None
     max: float | None = None
-    units: str = ""
+    unit: str = ""
 
 
 class PointSpec(BaseModel):
-    """A single numeric value with optional units.
+    """A single numeric value with optional unit.
 
-    Used in SpecBand ``when`` clauses when a point value needs explicit units
-    (e.g., ``frequency: {value: 100000000, units: Hz}``).
+    Used in SpecBand ``when`` clauses when a point value needs explicit unit
+    (e.g., ``frequency: {value: 100000000, unit: Hz}``).
     """
 
     model_config = {"extra": "forbid"}
 
     value: float
-    units: str = ""
+    unit: str = ""
 
 
 class ListSpec(BaseModel):
-    """A discrete set of allowed values with optional units.
+    """A discrete set of allowed values with optional unit.
 
     Used in SpecBand ``when`` clauses for membership matching
-    (e.g., ``impedance: {values: [50, 600], units: ohm}``).
+    (e.g., ``impedance: {values: [50, 600], unit: ohm}``).
     """
 
     model_config = {"extra": "forbid"}
 
     values: list[str | float | bool]
-    units: str = ""
+    unit: str = ""
 
 
 class AccuracySpec(BaseModel):
@@ -110,7 +110,7 @@ class AccuracySpec(BaseModel):
     pct_reading: float | None = None  # % of reading
     pct_range: float | None = None  # % of range
     absolute: float | None = None  # Fixed offset
-    units: str | None = None  # Units of absolute value (e.g., "dB") when different from signal
+    unit: str | None = None  # Units of absolute value (e.g., "dB") when different from signal
 
     def total_uncertainty(self, value: float, range_max: float) -> float:
         """Calculate total uncertainty at a given value and range.
@@ -140,7 +140,7 @@ class ResolutionSpec(BaseModel):
     bits: int | None = None  # ADC resolution
     digits: float | None = None  # Display digits (e.g., 6.5)
     value: float | None = None  # Absolute resolution
-    units: str | None = None
+    unit: str | None = None
 
 
 class ChannelTopology(BaseModel):
@@ -181,14 +181,14 @@ class SpecBand(BaseModel):
     Example YAML (accuracy varies with frequency):
         specs:
           - when:
-              frequency: {min: 3, max: 5, units: Hz}
+              frequency: {min: 3, max: 5, unit: Hz}
             accuracy: {pct_reading: 0.35, pct_range: 0.03}
 
     Example YAML (range derated at high frequency):
         specs:
           - when:
-              frequency: {min: 3e9, max: 6e9, units: Hz}
-            range: {min: -130, max: 5, units: dBm}
+              frequency: {min: 3e9, max: 6e9, unit: Hz}
+            range: {min: -130, max: 5, unit: dBm}
             accuracy: {absolute: 0.8}
     """
 
@@ -200,7 +200,7 @@ class SpecBand(BaseModel):
     ] = Field(default_factory=dict)
     range: RangeSpec | None = None  # Derated range at this operating point
     value: float | str | None = None  # Nominal/typical at this operating point
-    units: str | None = None  # Override parent units for this band
+    unit: str | None = None  # Override parent unit for this band
     accuracy: AccuracySpec | None = None
     resolution: ResolutionSpec | None = None
     qualifier: SpecQualifier | None = None
@@ -222,19 +222,19 @@ class Signal(BaseModel):
     Example YAML (instrument):
         signals:
           voltage:
-            range: {min: 0.1, max: 1000, units: V}
+            range: {min: 0.1, max: 1000, unit: V}
             accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
             resolution: {digits: 6.5}
             bands:
               - when:
-                  frequency: {min: 3, max: 5, units: Hz}
+                  frequency: {min: 3, max: 5, unit: Hz}
                 accuracy: {pct_reading: 0.35, pct_range: 0.03}
 
     Example YAML (part):
         signals:
           voltage:
             value: 3.3
-            units: V
+            unit: V
     """
 
     model_config = {"extra": "forbid"}
@@ -243,7 +243,7 @@ class Signal(BaseModel):
     accuracy: AccuracySpec | None = None
     resolution: ResolutionSpec | None = None
     value: float | None = None
-    units: str | None = None
+    unit: str | None = None
     bands: list[SpecBand] | None = None
     qualifier: SpecQualifier | None = None
 
@@ -258,7 +258,7 @@ class Condition(BaseModel):
     Example YAML (continuous):
         conditions:
           frequency:
-            range: {min: 3, max: 300000, units: Hz}
+            range: {min: 3, max: 300000, unit: Hz}
 
     Example YAML (discrete):
         conditions:
@@ -270,7 +270,7 @@ class Condition(BaseModel):
 
     range: RangeSpec | None = None
     options: list[float | str | bool] | None = None
-    units: str | None = None
+    unit: str | None = None
     default: float | str | bool | None = None
     bands: list[SpecBand] | None = None
 
@@ -290,7 +290,7 @@ class Control(BaseModel):
     Example YAML:
         controls:
           position:
-            range: {min: 0, max: 300, units: mm}
+            range: {min: 0, max: 300, unit: mm}
           coupling:
             options: ["AC", "DC"]
             default: "DC"
@@ -303,7 +303,7 @@ class Control(BaseModel):
 
     range: RangeSpec | None = None
     options: list[float | str | bool] | None = None
-    units: str | None = None
+    unit: str | None = None
     default: float | str | bool | None = None
     resolution: ResolutionSpec | None = None
     bands: list[SpecBand] | None = None
@@ -323,12 +323,12 @@ class Attribute(BaseModel):
         attributes:
           bandwidth:
             value: 200000000
-            units: Hz
+            unit: Hz
           operating_temperature:
-            range: {min: 0, max: 55, units: degC}
+            range: {min: 0, max: 55, unit: degC}
           test_current:
             value: 0.001
-            units: A
+            unit: A
             bands:
               - when: {range: 100}
                 value: 0.001
@@ -345,7 +345,7 @@ class Attribute(BaseModel):
     value: float | str | bool | None = None
     range: RangeSpec | None = None
     options: list[float | str | bool] | None = None
-    units: str | None = None
+    unit: str | None = None
     bands: list[SpecBand] | None = None
     qualifier: SpecQualifier | None = None
 
@@ -438,7 +438,7 @@ class Capability(BaseModel):
     - ``signals``: What's being measured/sourced (range + accuracy + resolution + specs)
     - ``conditions``: What affects accuracy (range only, feeds SpecBand lookup)
     - ``controls``: User-configurable knobs (range or options)
-    - ``attributes``: Fixed hardware facts (value + units + compare)
+    - ``attributes``: Fixed hardware facts (value + unit + compare)
     """
 
     model_config = {"extra": "forbid"}
@@ -449,7 +449,7 @@ class Capability(BaseModel):
     conditions: dict[str, Condition] = Field(default_factory=dict)
     controls: dict[str, Control] = Field(default_factory=dict)
     attributes: dict[str, Attribute] = Field(default_factory=dict)
-    units: str | None = None
+    unit: str | None = None
     bands: list[SpecBand] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -490,29 +490,29 @@ class Capability(BaseModel):
                             f"'{key}' (known: {sorted(known)})"
                         )
 
-        # Build units lookup from siblings: signal/condition/control name → units
+        # Build units lookup from siblings: signal/condition/control name → unit
         units_map: dict[str, str] = {}
         for name, sig in self.signals.items():
-            if sig.range and sig.range.units:
-                units_map[name] = sig.range.units
+            if sig.range and sig.range.unit:
+                units_map[name] = sig.range.unit
         for name, cond in self.conditions.items():
-            if cond.range and cond.range.units:
-                units_map[name] = cond.range.units
+            if cond.range and cond.range.unit:
+                units_map[name] = cond.range.unit
         for name, ctrl in self.controls.items():
-            if ctrl.range and ctrl.range.units:
-                units_map[name] = ctrl.range.units
+            if ctrl.range and ctrl.range.unit:
+                units_map[name] = ctrl.range.unit
 
         def _resolve_band_when_units(bands: list[SpecBand] | None) -> None:
             if not bands:
                 return
             for band in bands:
                 for key, val in band.when.items():
-                    if isinstance(val, RangeSpec) and not val.units and key in units_map:
-                        val.units = units_map[key]
-                    elif isinstance(val, PointSpec) and not val.units and key in units_map:
-                        val.units = units_map[key]
-                    elif isinstance(val, ListSpec) and not val.units and key in units_map:
-                        val.units = units_map[key]
+                    if isinstance(val, RangeSpec) and not val.unit and key in units_map:
+                        val.unit = units_map[key]
+                    elif isinstance(val, PointSpec) and not val.unit and key in units_map:
+                        val.unit = units_map[key]
+                    elif isinstance(val, ListSpec) and not val.unit and key in units_map:
+                        val.unit = units_map[key]
 
         for sig_name, sig in self.signals.items():
             _check_bands(f"signal '{sig_name}'", sig.bands)
@@ -537,12 +537,12 @@ class InstrumentCapability(Capability):
           direction: input
           signals:
             voltage:
-              range: {min: 0.0001, max: 1000, units: V}
+              range: {min: 0.0001, max: 1000, unit: V}
               accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
               resolution: {digits: 6.5}
           conditions:
             frequency:
-              range: {min: 3, max: 300000, units: Hz}
+              range: {min: 3, max: 300000, unit: Hz}
           channels: ["1"]
           readback: false
     """

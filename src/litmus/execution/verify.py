@@ -101,8 +101,8 @@ class LimitFailure(AssertionError):
         super().__init__(self._format())
 
     def _format(self) -> str:
-        units = f" {self.limit.units}" if self.limit.units else ""
-        lines = [f"{self.name} = {self.value}{units} fails {self.limit!r}"]
+        unit = f" {self.limit.unit}" if self.limit.unit else ""
+        lines = [f"{self.name} = {self.value}{unit} fails {self.limit!r}"]
         trailer: list[str] = []
         if self.uut_pin:
             trailer.append(f"pin: {self.uut_pin}")
@@ -269,7 +269,7 @@ def _perform_verify(
             nominal=None,
             comparator=None,
             limit=limit_obj,
-            units=None,
+            unit=None,
         )
         if effective_limit is None:
             # Characterization / record-only profile opt-in:

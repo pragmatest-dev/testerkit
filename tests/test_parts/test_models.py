@@ -16,19 +16,19 @@ class TestPartCharacteristic:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             pin="VOUT",
         )
         assert char.direction == Direction.OUTPUT
         assert char.function == MeasurementFunction.DC_VOLTAGE
-        assert char.units == "V"
+        assert char.unit == "V"
 
     def test_characteristic_with_specs(self):
         """Test characteristic with SpecBand list."""
         char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             pin="VOUT",
             bands=[
                 SpecBand(
@@ -50,7 +50,7 @@ class TestPartCharacteristic:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             pin="VOUT",
             bands=[
                 SpecBand(
@@ -74,7 +74,7 @@ class TestPartCharacteristic:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             pin="VOUT",
             bands=[
                 SpecBand(
@@ -91,7 +91,7 @@ class TestPartCharacteristic:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             pin="VOUT",
             bands=[
                 SpecBand(value=3.3),
@@ -109,7 +109,7 @@ class TestPartCharacteristic:
             PartCharacteristic(
                 function=MeasurementFunction.DC_VOLTAGE,
                 direction=Direction.OUTPUT,
-                units="V",
+                unit="V",
             )
 
     def test_net_satisfies_physical_interface(self):
@@ -117,7 +117,7 @@ class TestPartCharacteristic:
         char = PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
-            units="V",
+            unit="V",
             net="VOUT_3V3",
         )
         assert char.net == "VOUT_3V3"
@@ -127,7 +127,7 @@ class TestPartCharacteristic:
         char = PartCharacteristic(
             function=MeasurementFunction.DIGITAL_IO,
             direction=Direction.BIDIR,
-            units="V",
+            unit="V",
             signal_group="i2c_main",
         )
         assert char.signal_group == "i2c_main"
@@ -156,7 +156,7 @@ class TestPart:
                 "rail_3v3_output": PartCharacteristic(
                     function=MeasurementFunction.DC_VOLTAGE,
                     direction=Direction.OUTPUT,
-                    units="V",
+                    unit="V",
                     pin="VOUT",
                     datasheet_ref="DS-001 Section 7.3",
                     bands=[

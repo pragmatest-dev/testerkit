@@ -236,6 +236,6 @@ def test_waveform_attributes_settable_via_kwarg() -> None:
         t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC),
         dt=1e-6,
         Y=[1.0],
-        attributes={"units": "V"},
+        attributes={"unit": "V"},
     )
-    assert wf.attributes == {"units": "V"}
+    assert wf.attributes == {"unit": "V"}

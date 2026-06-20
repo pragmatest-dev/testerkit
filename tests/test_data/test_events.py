@@ -54,14 +54,14 @@ class TestEventModels:
             step_index=0,
             measurement_name="vout",
             value=3.3,
-            units="V",
+            unit="V",
             outcome="passed",
             limit_low=3.0,
             limit_high=3.6,
         )
         assert e.event_type == "test.measurement"
         assert e.value == 3.3
-        assert e.units == "V"
+        assert e.unit == "V"
         assert e.run_id == run_id
 
     def test_instrument_connected(self):

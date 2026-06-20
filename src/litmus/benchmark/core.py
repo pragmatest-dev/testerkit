@@ -1,8 +1,8 @@
 """Core benchmark primitives — the case contract and the timing loop.
 
 A :class:`Workload` is ONE measurable case: an operation at a specific
-number of ``units`` of work and a specific number of concurrent
-``writers``. The benchmark sweeps units (100 / 1k / 10k …) and writers
+number of ``unit`` of work and a specific number of concurrent
+``writers``. The benchmark sweeps unit (100 / 1k / 10k …) and writers
 (1 / 2 / 4) by emitting a *separate case per combination*, so every row
 in the report is a distinct, real measurement — not a collapsed average.
 
@@ -66,18 +66,18 @@ class BenchContext:
 
 @dataclass(frozen=True)
 class Workload:
-    """One measurable case: ``op`` at ``scale`` units with ``writers`` writers.
+    """One measurable case: ``op`` at ``scale`` unit with ``writers`` writers.
 
     ``writers == 1`` runs in-process via ``setup`` (which returns the
-    callable to time, performing ``scale`` units of work per call).
-    ``writers > 1`` runs ``scale`` units in each of N subprocesses via the
+    callable to time, performing ``scale`` unit of work per call).
+    ``writers > 1`` runs ``scale`` unit in each of N subprocesses via the
     concurrency runner (``setup`` is unused there).
     """
 
     op: str  # e.g. "events.emit"
     store: str  # "events" | "runs" | "channels" | "files"
     unit: str  # "events" | "samples" | "runs" | "files" | "queries" | ...
-    scale: int  # units of work attempted (per writer)
+    scale: int  # unit of work attempted (per writer)
     writers: int = 1
     setup: Callable[[BenchContext], Callable[[], object]] | None = None
     tier: str = "fast"
@@ -97,7 +97,7 @@ class WorkloadResult:
     op: str
     store: str
     unit: str
-    scale: int  # units attempted per writer
+    scale: int  # unit attempted per writer
     writers: int
     rounds: int
     min_s: float

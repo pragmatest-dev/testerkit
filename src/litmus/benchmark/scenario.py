@@ -111,7 +111,7 @@ class StorageFootprint:
 @dataclass(frozen=True)
 class ConcurrencyPoint:
     writers: int
-    throughput_per_s: float  # aggregate units/s across all writers
+    throughput_per_s: float  # aggregate unit/s across all writers
 
 
 @dataclass(frozen=True)

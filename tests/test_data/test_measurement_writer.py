@@ -13,14 +13,14 @@ def _make_batch() -> pa.RecordBatch:
             "run_id": ["r1"],
             "step_name": ["test_v"],
             "value": [3.3],
-            "units": ["V"],
+            "unit": ["V"],
         },
         schema=pa.schema(
             [
                 ("run_id", pa.string()),
                 ("step_name", pa.string()),
                 ("value", pa.float64()),
-                ("units", pa.string()),
+                ("unit", pa.string()),
             ]
         ),
     )

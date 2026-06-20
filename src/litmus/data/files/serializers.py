@@ -119,7 +119,7 @@ def _write_waveform(value: Waveform, dest: Path) -> None:
 def _write_xydata(value: XYData, dest: Path) -> None:
     """Item 15: pack paired x/y arrays into a single ``.npz``.
 
-    Optional units / names land as scalar string entries in the same
+    Optional unit / names land as scalar string entries in the same
     archive so a reader (UI plot, materializer ref-deref) can
     reconstruct axis labels without a sidecar lookup. Only set keys
     are written — readers should treat absent keys as None.
@@ -128,10 +128,10 @@ def _write_xydata(value: XYData, dest: Path) -> None:
         import numpy as np
 
         kwargs: dict[str, Any] = {"x": value.x, "y": value.y}
-        if value.x_units is not None:
-            kwargs["x_units"] = value.x_units
-        if value.y_units is not None:
-            kwargs["y_units"] = value.y_units
+        if value.x_unit is not None:
+            kwargs["x_unit"] = value.x_unit
+        if value.y_unit is not None:
+            kwargs["y_unit"] = value.y_unit
         if value.x_name is not None:
             kwargs["x_name"] = value.x_name
         if value.y_name is not None:

@@ -25,12 +25,12 @@ capabilities:
       range:
         min: 0
         max: 30
-        units: V
+        unit: V
     current:
       range:
         min: 0
         max: 5
-        units: A
+        unit: A
   channels:
   - CH1
   - CH2
@@ -41,12 +41,12 @@ capabilities:
       range:
         min: 0
         max: 5
-        units: A
+        unit: A
     voltage:
       range:
         min: 0
         max: 30
-        units: V
+        unit: V
   channels:
   - CH1
   - CH2
@@ -58,7 +58,7 @@ capabilities:
       range:
         min: 0
         max: 30
-        units: V
+        unit: V
   channels:
   - CH1
   - CH2
@@ -70,7 +70,7 @@ capabilities:
       range:
         min: 0
         max: 5
-        units: A
+        unit: A
   channels:
   - CH1
   - CH2

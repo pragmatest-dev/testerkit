@@ -229,7 +229,7 @@ This is COLLABORATIVE — propose and wait for approval at each step.
    - Read the schema carefully. Part YAML has three top-level keys:
      `part:` (header), `pins:` (physical interface), `characteristics:` (specs)
    - Characteristics use `function` (MeasurementFunction enum), `direction`,
-     `units`, `pin`/`pins`, and `specs` (list of SpecBand)
+     `unit`, `pin`/`pins`, and `specs` (list of SpecBand)
    - SpecBand has: `value`, `accuracy` (pct_reading/pct_range/absolute), `when` (dict of RangeSpec)
 
 3. **Extract & Save Part Spec**: Parse datasheet, propose characteristics,
@@ -379,12 +379,12 @@ def create_mcp_server() -> FastMCP:
         Requirements format (for catalog recommendations):
         ```python
         litmus_match(requirements=[
-            {"function": "dc_voltage", "direction": "input", "range_max": 50, "units": "V"},
-            {"function": "dc_voltage", "direction": "output", "range_max": 12, "units": "V"},
-            {"function": "dc_voltage", "direction": "input", "range_max": 50, "units": "V",
+            {"function": "dc_voltage", "direction": "input", "range_max": 50, "unit": "V"},
+            {"function": "dc_voltage", "direction": "output", "range_max": 12, "unit": "V"},
+            {"function": "dc_voltage", "direction": "input", "range_max": 50, "unit": "V",
              "accuracy": {"pct_reading": 0.01, "pct_range": 0.005}},
-            {"function": "ac_voltage", "direction": "input", "range_max": 10, "units": "V",
-             "conditions": {"frequency": {"min": 1000, "max": 100000, "units": "Hz"}}},
+            {"function": "ac_voltage", "direction": "input", "range_max": 10, "unit": "V",
+             "conditions": {"frequency": {"min": 1000, "max": 100000, "unit": "Hz"}}},
             {"function": "dc_voltage", "direction": "input",
              "resolution": {"digits": 6.5}},
         ], project=".")
@@ -396,10 +396,10 @@ def create_mcp_server() -> FastMCP:
             fixture_id: Fixture ID to find compatible stations
             requirements: Ad-hoc capability requirements for catalog instrument
                 recommendations. Each dict: function (required), direction (required),
-                range_max, range_min, units (optional), accuracy (optional dict with
+                range_max, range_min, unit (optional), accuracy (optional dict with
                 pct_reading/pct_range/absolute), resolution (optional dict with
-                digits/bits/value/units), conditions (optional dict of condition
-                dicts with min/max/units).
+                digits/bits/value/unit), conditions (optional dict of condition
+                dicts with min/max/unit).
             project: Project root path (required for fixture/requirements matching)
 
         Returns:

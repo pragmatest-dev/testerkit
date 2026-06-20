@@ -95,7 +95,7 @@ def test_file_level_markers_apply_to_every_test(pytester: pytest.Pytester) -> No
         textwrap.dedent(
             """
             limits:
-              v_rail: {low: 3.2, high: 3.4, units: V}
+              v_rail: {low: 3.2, high: 3.4, unit: V}
             """
         )
     )
@@ -123,11 +123,11 @@ def test_per_test_marker_tightens_file_level(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             limits:
-              v_rail: {low: 3.0, high: 3.6, units: V}
+              v_rail: {low: 3.0, high: 3.6, unit: V}
             tests:
               test_tight:
                 limits:
-                  v_rail: {low: 3.2, high: 3.4, units: V}
+                  v_rail: {low: 3.2, high: 3.4, unit: V}
             """
         )
     )
@@ -156,7 +156,7 @@ def test_class_scoped_markers_apply_to_every_method(pytester: pytest.Pytester) -
             tests:
               TestRails:
                 limits:
-                  v_rail: {low: 3.2, high: 3.4, units: V}
+                  v_rail: {low: 3.2, high: 3.4, unit: V}
             """
         )
     )
@@ -185,11 +185,11 @@ def test_qualified_test_entry_tightens_class_level(pytester: pytest.Pytester) ->
             tests:
               TestRails:
                 limits:
-                  v_rail: {low: 3.0, high: 3.6, units: V}
+                  v_rail: {low: 3.0, high: 3.6, unit: V}
                 tests:
                   test_strict:
                     limits:
-                      v_rail: {low: 3.2, high: 3.4, units: V}
+                      v_rail: {low: 3.2, high: 3.4, unit: V}
             """
         )
     )

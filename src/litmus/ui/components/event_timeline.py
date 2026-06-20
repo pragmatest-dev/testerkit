@@ -41,12 +41,12 @@ def _category_for(event_type: str) -> str:
 def _detail_measurement(e: dict) -> str:
     val = e.get("value")
     val_str = f"{val:.4g}" if isinstance(val, (int, float)) else str(val)
-    units = e.get("units") or ""
-    return f"{e.get('measurement_name', '')} = {val_str} {units} [{e.get('outcome', '')}]"
+    unit = e.get("unit") or ""
+    return f"{e.get('measurement_name', '')} = {val_str} {unit} [{e.get('outcome', '')}]"
 
 
 def _detail_read(e: dict) -> str:
-    return f"{e.get('channel_id', '')} → {e.get('value', '')} {e.get('units', '')}"
+    return f"{e.get('channel_id', '')} → {e.get('value', '')} {e.get('unit', '')}"
 
 
 def _detail_set(e: dict) -> str:

@@ -37,14 +37,14 @@ class TestMeasurement:
         m = Measurement(name="voltage", value=5.0)
         assert m.name == "voltage"
         assert m.value == 5.0
-        assert m.units is None
+        assert m.unit is None
         assert m.outcome is None
 
     def test_measurement_with_limits(self):
         m = Measurement(
             name="voltage",
             value=5.0,
-            units="V",
+            unit="V",
             limit_low=4.5,
             limit_high=5.5,
         )

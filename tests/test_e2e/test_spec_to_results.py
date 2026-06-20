@@ -50,7 +50,7 @@ class TestPartContext:
         limit = spec.get_limit(char_id, **conditions)
 
         # Verify limit structure
-        assert limit.units is not None
+        assert limit.unit is not None
         assert limit.spec_ref is not None
         # At least one bound should be set
         assert limit.low is not None or limit.high is not None or limit.nominal is not None
@@ -246,7 +246,7 @@ class TestHarnessSpecIntegration:
         explicit_limit = Limit(
             low=0.0,
             high=100.0,
-            units="V",
+            unit="V",
             spec_ref="EXPLICIT_OVERRIDE",
         )
 
@@ -415,7 +415,7 @@ class TestMinimalSpec:
         limit = spec.get_limit(char_id)
 
         # Should have valid limit
-        assert limit.units is not None
+        assert limit.unit is not None
         assert limit.low is not None or limit.high is not None or limit.nominal is not None
 
     def test_minimal_spec_harness(self):

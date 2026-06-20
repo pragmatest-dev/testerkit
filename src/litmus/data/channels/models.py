@@ -52,7 +52,7 @@ class ChannelDescriptor(BaseModel):
     data_type: str = "scalar:float"  # "{shape}:{leaf}" — see class docstring
     instrument_role: str = ""
     resource: str = ""
-    units: str | None = None
+    unit: str | None = None
     # Producing session's host + id, stamped at registration. The registry keys
     # identity on (hostname, channel) so it survives a producer restart.
     hostname: str = ""
@@ -82,7 +82,7 @@ class ChannelSample(BaseModel):
     received_at: datetime
     sampled_at: datetime | None = None
     value: Any
-    units: str | None = None
+    unit: str | None = None
     sample_interval: float | None = None
     source_method: str = ""
     session_id: str | None = None
@@ -304,7 +304,7 @@ def sample_schema() -> pa.Schema:
             pa.field("sampled_at", pa.timestamp("us", tz="UTC"), nullable=True),
             pa.field("value", pa.utf8()),  # JSON-encoded for flexibility
             pa.field("source_method", pa.utf8()),
-            pa.field("units", pa.utf8()),
+            pa.field("unit", pa.utf8()),
             pa.field("sample_interval", pa.float64()),
             pa.field("session_id", pa.utf8()),
             pa.field("sample_offset", pa.int64()),
@@ -326,7 +326,7 @@ def samples_to_batch(samples: list[ChannelSample]) -> pa.RecordBatch:
             "sampled_at": [s.sampled_at for s in samples],
             "value": [encode_value(s.value) for s in samples],
             "source_method": [s.source_method for s in samples],
-            "units": [s.units or "" for s in samples],
+            "unit": [s.unit or "" for s in samples],
             "sample_interval": [s.sample_interval for s in samples],
             "session_id": [s.session_id for s in samples],
             "sample_offset": [s.sample_offset for s in samples],
@@ -345,7 +345,7 @@ def sample_to_batch(sample: ChannelSample) -> pa.RecordBatch:
             "sampled_at": [sample.sampled_at],
             "value": [value_str],
             "source_method": [sample.source_method],
-            "units": [sample.units or ""],
+            "unit": [sample.unit or ""],
             "sample_interval": [sample.sample_interval],
             "session_id": [sample.session_id],
             "sample_offset": [sample.sample_offset],
@@ -361,7 +361,7 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
     server (writing remote do_put batches into the local store) and
     the client (delivering subscription updates back to user
     callbacks). The ``value`` column is JSON-decoded; non-JSON
-    strings pass through. Optional columns (``units``,
+    strings pass through. Optional columns (``unit``,
     ``sample_interval``, ``source_method``, ``sampled_at``) read
     defensively for trimmed schemas.
     """
@@ -372,9 +372,9 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
     except (json.JSONDecodeError, TypeError):
         value = value_raw
 
-    units: str | None = None
-    if "units" in columns:
-        units = batch.column("units")[i].as_py() or None
+    unit: str | None = None
+    if "unit" in columns:
+        unit = batch.column("unit")[i].as_py() or None
 
     sample_interval: float | None = None
     if "sample_interval" in columns:
@@ -403,7 +403,7 @@ def batch_row_to_sample(batch: pa.RecordBatch, i: int) -> ChannelSample:
         received_at=batch.column("received_at")[i].as_py(),
         sampled_at=sampled_at,
         value=value,
-        units=units,
+        unit=unit,
         sample_interval=sample_interval,
         source_method=source_method,
         session_id=session_id,

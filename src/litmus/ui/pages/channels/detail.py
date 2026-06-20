@@ -269,7 +269,7 @@ def _render_descriptor_card(descriptor: dict[str, Any]) -> None:
                 info_field("Data type", descriptor.get("data_type") or "")
                 info_field("Instrument role", descriptor.get("instrument_role") or "")
                 info_field("Resource", descriptor.get("resource") or "")
-                info_field("Units", descriptor.get("units") or "")
+                info_field("Units", descriptor.get("unit") or "")
                 info_field("First seen", format_datetime(descriptor.get("first_seen")))
                 attrs = descriptor.get("attributes") or {}
                 if attrs:
@@ -310,8 +310,8 @@ def _render_chart(
             return None
 
         x_values = [_axis_tick(r.get("received_at")) for r in rows]
-        units = descriptor.get("units") or ""
-        y_label = f"value ({units})" if units else "value"
+        unit = descriptor.get("unit") or ""
+        y_label = f"value ({unit})" if unit else "value"
 
         # Array-of-items capture: rows carry a ``value`` list (e.g.
         # scope.waveform's per-trigger waveform). Plot the most recent

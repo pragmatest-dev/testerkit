@@ -262,7 +262,7 @@ def _get_channels_satisfying(
 def _signals_satisfy(cap_measures: dict[str, Signal], req_measures: dict[str, Signal]) -> bool:
     """Check if capability signals satisfy required signals.
 
-    Numeric comparisons are normalised to SI base units so that e.g.
+    Numeric comparisons are normalised to SI base unit so that e.g.
     a 6 mA requirement is correctly compared against a 5 A capability.
     """
     for measure_name, req_measure in req_measures.items():
@@ -276,11 +276,11 @@ def _signals_satisfy(cap_measures: dict[str, Signal], req_measures: dict[str, Si
 
         # Determine unit scale factor: convert requirement values into
         # the capability's unit scale so numbers are directly comparable.
-        req_units = req_measure.units
-        cap_units = cap_signal.units or (cap_range.units if cap_range else None)
-        scale = _unit_scale_factor(req_units, cap_units)
+        req_unit = req_measure.unit
+        cap_unit = cap_signal.unit or (cap_range.unit if cap_range else None)
+        scale = _unit_scale_factor(req_unit, cap_unit)
 
-        # Check value containment (scale requirement value to cap units)
+        # Check value containment (scale requirement value to cap unit)
         if req_measure.value is not None and cap_range:
             scaled_val = req_measure.value * scale
             if cap_range.min is not None and scaled_val < cap_range.min:
@@ -288,7 +288,7 @@ def _signals_satisfy(cap_measures: dict[str, Signal], req_measures: dict[str, Si
             if cap_range.max is not None and scaled_val > cap_range.max:
                 return False
 
-        # Check range containment (scale requirement range to cap units)
+        # Check range containment (scale requirement range to cap unit)
         if req_measure.range is not None and cap_range:
             if (
                 req_measure.range.min is not None
@@ -363,7 +363,7 @@ def _parse_si_unit(unit_str: str | None) -> tuple[float, str]:
         if rest in _BASE_UNITS and prefix in _SI_PREFIXES:
             return _SI_PREFIXES[prefix], rest
 
-    # Two-char base units with prefix (e.g. "kHz", "MHz")
+    # Two-char base unit with prefix (e.g. "kHz", "MHz")
     if len(unit_str) >= 3:
         prefix, rest = unit_str[0], unit_str[1:]
         if rest in _BASE_UNITS and prefix in _SI_PREFIXES:
@@ -373,20 +373,20 @@ def _parse_si_unit(unit_str: str | None) -> tuple[float, str]:
     return 1.0, unit_str
 
 
-def _unit_scale_factor(req_units: str | None, cap_units: str | None) -> float:
-    """Return the multiplier to convert a requirement value into capability units.
+def _unit_scale_factor(req_unit: str | None, cap_unit: str | None) -> float:
+    """Return the multiplier to convert a requirement value into capability unit.
 
     If both units share the same base (e.g. mA and A), returns the ratio
-    so that ``req_value * scale`` is in cap_units.  If units are absent or
+    so that ``req_value * scale`` is in cap_unit.  If units are absent or
     incompatible (different base), returns 1.0 (no scaling).
     """
-    if not req_units or not cap_units:
+    if not req_unit or not cap_unit:
         return 1.0
-    if req_units == cap_units:
+    if req_unit == cap_unit:
         return 1.0
 
-    req_mult, req_base = _parse_si_unit(req_units)
-    cap_mult, cap_base = _parse_si_unit(cap_units)
+    req_mult, req_base = _parse_si_unit(req_unit)
+    cap_mult, cap_base = _parse_si_unit(cap_unit)
 
     if req_base != cap_base or not req_base:
         return 1.0  # Different physical quantities — no conversion

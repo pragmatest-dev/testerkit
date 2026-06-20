@@ -29,7 +29,7 @@ _SI_PREFIXES = [
 _SI_UNITS = {"Hz", "V", "A", "W", "Ohm", "s", "S", "F", "H", "m", "g", "B"}
 
 
-def fmt_si(value: float | int | None, units: str = "") -> str:
+def fmt_si(value: float | int | None, unit: str = "") -> str:
     """Format a numeric value with SI prefix.
 
     Examples:
@@ -41,16 +41,16 @@ def fmt_si(value: float | int | None, units: str = "") -> str:
     if value is None:
         return "—"
 
-    # Only apply SI prefixes for known SI-compatible units
-    base_unit = (units[:-1] if units.endswith("s") else units) if units else ""
-    if base_unit not in _SI_UNITS and units not in _SI_UNITS:
+    # Only apply SI prefixes for known SI-compatible unit
+    base_unit = (unit[:-1] if unit.endswith("s") else unit) if unit else ""
+    if base_unit not in _SI_UNITS and unit not in _SI_UNITS:
         if isinstance(value, float) and value == int(value) and abs(value) < 1e15:
-            return f"{int(value)} {units}".strip()
-        return f"{value} {units}".strip()
+            return f"{int(value)} {unit}".strip()
+        return f"{value} {unit}".strip()
 
     abs_val = abs(value)
     if abs_val == 0:
-        return f"0 {units}".strip()
+        return f"0 {unit}".strip()
 
     # Find best prefix
     for threshold, prefix in _SI_PREFIXES:
@@ -65,10 +65,10 @@ def fmt_si(value: float | int | None, units: str = "") -> str:
                 scaled = round(scaled, 2)
             else:
                 scaled = round(scaled, 3)
-            return f"{scaled} {prefix}{units}".strip()
+            return f"{scaled} {prefix}{unit}".strip()
 
     # Fallback for very large values
-    return f"{value} {units}".strip()
+    return f"{value} {unit}".strip()
 
 
 def fmt_accuracy(acc: dict[str, Any] | None) -> str:
@@ -76,7 +76,7 @@ def fmt_accuracy(acc: dict[str, Any] | None) -> str:
 
     Examples:
         {"pct_reading": 0.05, "pct_range": 0.01} → "±0.05% rdg + 0.01% rng"
-        {"absolute": 0.6, "units": "dB"} → "±0.6 dB"
+        {"absolute": 0.6, "unit": "dB"} → "±0.6 dB"
     """
     if not acc:
         return "—"
@@ -87,7 +87,7 @@ def fmt_accuracy(acc: dict[str, Any] | None) -> str:
     if acc.get("pct_range") is not None:
         parts.append(f"{acc['pct_range']}% rng")
     if acc.get("absolute") is not None:
-        unit = acc.get("units") or ""
+        unit = acc.get("unit") or ""
         parts.append(f"{acc['absolute']} {unit}".strip())
 
     if not parts:
@@ -100,31 +100,31 @@ def fmt_range(rng: dict[str, Any] | None, use_si: bool = True) -> str:
     """Format a RangeSpec dict as a readable string.
 
     Examples:
-        {"min": 0.1, "max": 1000, "units": "V"} → "0.1 – 1000 V"
-        {"min": 250000, "max": 20000000000, "units": "Hz"} → "250 kHz – 20 GHz"
+        {"min": 0.1, "max": 1000, "unit": "V"} → "0.1 – 1000 V"
+        {"min": 250000, "max": 20000000000, "unit": "Hz"} → "250 kHz – 20 GHz"
     """
     if not rng:
         return "—"
 
     lo = rng.get("min")
     hi = rng.get("max")
-    units = rng.get("units", "")
+    unit = rng.get("unit", "")
 
     if lo is None and hi is None:
         return "—"
 
-    if use_si and units:
+    if use_si and unit:
         if lo is not None and hi is not None:
-            return f"{fmt_si(lo, units)} – {fmt_si(hi, units)}"
+            return f"{fmt_si(lo, unit)} – {fmt_si(hi, unit)}"
         if lo is not None:
-            return f"≥ {fmt_si(lo, units)}"
-        return f"≤ {fmt_si(hi, units)}"
+            return f"≥ {fmt_si(lo, unit)}"
+        return f"≤ {fmt_si(hi, unit)}"
 
     if lo is not None and hi is not None:
-        return f"{_fmt_num(lo)} – {_fmt_num(hi)} {units}".strip()
+        return f"{_fmt_num(lo)} – {_fmt_num(hi)} {unit}".strip()
     if lo is not None:
-        return f"≥ {_fmt_num(lo)} {units}".strip()
-    return f"≤ {_fmt_num(hi)} {units}".strip()
+        return f"≥ {_fmt_num(lo)} {unit}".strip()
+    return f"≤ {_fmt_num(hi)} {unit}".strip()
 
 
 def _fmt_num(v: float | int | None) -> str:
@@ -138,25 +138,25 @@ def _fmt_num(v: float | int | None) -> str:
 def fmt_when_value(v: Any, key: str = "") -> str:
     """Format a single when-clause value as a human-readable label.
 
-    If key is provided, infers SI units from the key name for numeric values.
+    If key is provided, infers SI unit from the key name for numeric values.
     """
     if v is None:
         return "—"
     if isinstance(v, dict):
-        # Point value: {value: X} or {value: X, units: Y}
+        # Point value: {value: X} or {value: X, unit: Y}
         if "value" in v:
-            units = v.get("units") or (_infer_units(key) if key else "")
+            unit = v.get("unit") or (_infer_unit(key) if key else "")
             val = v["value"]
             # Try parsing string-encoded numbers (e.g. "2.4e9" from YAML)
             if isinstance(val, str):
                 try:
                     val = float(val)
                 except (ValueError, TypeError):
-                    return f"{val} {units}".strip() if units else str(val)
-            if isinstance(val, (int, float)) and units:
-                return fmt_si(val, units)
+                    return f"{val} {unit}".strip() if unit else str(val)
+            if isinstance(val, (int, float)) and unit:
+                return fmt_si(val, unit)
             return _fmt_num(val) if isinstance(val, (int, float)) else str(val)
-        # Range dict: {min, max, units}
+        # Range dict: {min, max, unit}
         # Also handle string-encoded min/max
         rng = dict(v)
         for k in ("min", "max"):
@@ -169,14 +169,14 @@ def fmt_when_value(v: Any, key: str = "") -> str:
     if isinstance(v, list):
         return ", ".join(str(x) for x in v)
     if isinstance(v, (int, float)):
-        units = _infer_units(key) if key else ""
-        if units:
-            return fmt_si(v, units)
+        unit = _infer_unit(key) if key else ""
+        if unit:
+            return fmt_si(v, unit)
         return _fmt_num(v)
     return str(v)
 
 
-# Key name patterns → SI units for when-clause scalar values
+# Key name patterns → SI unit for when-clause scalar values
 _KEY_UNIT_MAP = {
     "frequency": "Hz",
     "offset_frequency": "Hz",
@@ -191,12 +191,12 @@ _KEY_UNIT_MAP = {
 }
 
 
-def _infer_units(key: str) -> str:
-    """Infer SI units from a when-clause key name."""
+def _infer_unit(key: str) -> str:
+    """Infer SI unit from a when-clause key name."""
     k = key.lower()
-    for pattern, units in _KEY_UNIT_MAP.items():
+    for pattern, unit in _KEY_UNIT_MAP.items():
         if pattern in k:
-            return units
+            return unit
     return ""
 
 
@@ -212,20 +212,20 @@ def fmt_resolution(res: dict[str, Any] | None) -> str:
     if res.get("digits") is not None:
         return f"{res['digits']} digits"
     if res.get("value") is not None:
-        units = res.get("units", "")
-        if units:
-            return fmt_si(res["value"], units)
+        unit = res.get("unit", "")
+        if unit:
+            return fmt_si(res["value"], unit)
         return _fmt_num(res["value"])
     return "—"
 
 
-def _fmt_value(v: Any, units: str = "") -> str:
+def _fmt_value(v: Any, unit: str = "") -> str:
     """Format a value with optional SI prefix for numeric types."""
-    if isinstance(v, (int, float)) and units:
-        return fmt_si(v, units)
+    if isinstance(v, (int, float)) and unit:
+        return fmt_si(v, unit)
     if isinstance(v, (int, float)):
         return _fmt_num(v)
-    return f"{v} {units}".strip() if units else str(v)
+    return f"{v} {unit}".strip() if unit else str(v)
 
 
 def fmt_attr(attr: dict[str, Any] | None) -> str:
@@ -233,7 +233,7 @@ def fmt_attr(attr: dict[str, Any] | None) -> str:
     if not attr:
         return "—"
     if attr.get("value") is not None:
-        return _fmt_value(attr["value"], attr.get("units", ""))
+        return _fmt_value(attr["value"], attr.get("unit", ""))
     if attr.get("range"):
         return fmt_range(attr["range"])
     if attr.get("options"):
@@ -241,14 +241,14 @@ def fmt_attr(attr: dict[str, Any] | None) -> str:
     return "—"
 
 
-def _fmt_attr_band_value(band: dict[str, Any], parent_units: str = "") -> str:
-    """Format an attribute spec band's value, inheriting units from parent."""
+def _fmt_attr_band_value(band: dict[str, Any], parent_unit: str = "") -> str:
+    """Format an attribute spec band's value, inheriting unit from parent."""
     v = band.get("value")
     if v is None:
         if band.get("range"):
             return fmt_range(band["range"])
         return "—"
-    return _fmt_value(v, band.get("units") or parent_units)
+    return _fmt_value(v, band.get("unit") or parent_unit)
 
 
 def _when_keys(bands: list[dict[str, Any]]) -> list[str]:
@@ -472,16 +472,16 @@ def build_attr_render(attr_name: str, attr: dict[str, Any]) -> dict[str, Any]:
       - tables: list of 1d/2d/grouped render table dicts
     """
     headline = fmt_attr(attr)
-    parent_units = attr.get("units", "") or ""
+    parent_unit = attr.get("unit", "") or ""
 
     bands = attr.get("bands") or []
     if not bands:
         return {"headline": headline, "tables": []}
 
     # All attribute bands share the same output type: value
-    # Build a cell formatter that inherits parent units
+    # Build a cell formatter that inherits parent unit
     def _cell(band: dict[str, Any]) -> str:
-        return _fmt_attr_band_value(band, parent_units)
+        return _fmt_attr_band_value(band, parent_unit)
 
     tables = _build_tables_from_bands(bands, attr_name, "value", _cell)
 

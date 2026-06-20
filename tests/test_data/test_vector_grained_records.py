@@ -687,7 +687,7 @@ def test_scenario_8_vector_with_unit(tmp_path):
     kinds = _by_kind(_materialize(acc, tmp_path))
     assert len(kinds["vector"]) == 1
     v = kinds["vector"][0]
-    # Symmetric units: an input unit AND an output unit, both on the lanes.
+    # Symmetric unit: an input unit AND an output unit, both on the lanes.
     assert _lane_units(v["inputs"]) == {"vin": "V"}
     assert _lane_units(v["outputs"]) == {"temp": "°C"}
     assert decode_lane_structs(v["inputs"]) == {"vin": 3.3}

@@ -28,14 +28,14 @@ import pytest
 class TestPowerSequence:
     """Sequence: warmup → load test → cooldown, run once per voltage."""
 
-    @pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 5.5, "units": "V"})
+    @pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 5.5, "unit": "V"})
     def test_warmup(self, voltage: float, verify, psu, dmm) -> None:
         psu.set_voltage(voltage)
         psu.enable_output()
         verify("v_rail", dmm.measure_dc_voltage())
 
     @pytest.mark.litmus_sweeps([{"current": [0.1, 0.5]}])  # method-level inner
-    @pytest.mark.litmus_limits(v_rail={"low": 3.0, "high": 5.5, "units": "V"})
+    @pytest.mark.litmus_limits(v_rail={"low": 3.0, "high": 5.5, "unit": "V"})
     def test_load_regulation(self, voltage: float, current: float, verify, psu, dmm) -> None:
         # Outer voltage × inner current = 4 executions of this method,
         # interleaved with the surrounding methods condition-first.
@@ -65,7 +65,7 @@ class TestPowerSequenceWithInnerLoop:
     """
 
     @pytest.mark.litmus_sweeps([{"current": [0.1, 0.3, 0.5]}])  # consumed by vectors fixture
-    @pytest.mark.litmus_limits(v_rail={"low": 3.0, "high": 5.5, "units": "V"})
+    @pytest.mark.litmus_limits(v_rail={"low": 3.0, "high": 5.5, "unit": "V"})
     def test_load_sweep(self, voltage: float, vectors, verify, psu, dmm) -> None:
         # ``voltage`` arrives via pytest parametrize (outer).
         # ``vectors`` iterates the inner ``current`` matrix.

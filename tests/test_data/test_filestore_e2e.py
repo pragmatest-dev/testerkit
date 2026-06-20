@@ -90,7 +90,7 @@ class TestObserveToFileStore:
             t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC),
             dt=1e-6,
             Y=[1.0, 2.0, 3.0],
-            attributes={"units": "V"},
+            attributes={"unit": "V"},
         )
         ctx.observe("scope.waveform", wf)
 

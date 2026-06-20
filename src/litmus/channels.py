@@ -108,7 +108,7 @@ def write(name: str, sample: Any, *, namespace: str | None = None) -> str:
 def declare(
     name: str,
     *,
-    units: str | None = None,
+    unit: str | None = None,
     instrument_role: str = "",
     resource: str = "",
     attributes: dict[str, Any] | None = None,
@@ -116,15 +116,15 @@ def declare(
 ) -> None:
     """Declare a channel's identity for this session before writing data.
 
-    Sets ``units``/``instrument_role``/``resource``/``attributes`` once; the
+    Sets ``unit``/``instrument_role``/``resource``/``attributes`` once; the
     value type is locked by the first write. Optional — a first :func:`write`
-    auto-registers with defaults — but it's how you attach units to a channel.
+    auto-registers with defaults — but it's how you attach unit to a channel.
     Identity is immutable within the session: a conflicting unit raises.
     """
     full_name = f"{namespace}.{name}" if namespace else name
     _resolve_store().declare(
         full_name,
-        units=units,
+        unit=unit,
         instrument_role=instrument_role,
         resource=resource,
         attributes=attributes,
@@ -369,7 +369,7 @@ def _throttle_batches(
 def _history_to_wire_batch(channel_id: str, table: pa.Table) -> pa.RecordBatch | None:
     """Reshape a ``query`` result into one live-shaped RecordBatch.
 
-    ``query`` returns decoded values and drops ``channel_id``/``units``;
+    ``query`` returns decoded values and drops ``channel_id``/``unit``;
     ``window`` delivers the history prefill in the same shape ``live`` uses so
     the consumer's batch handler is identical for prefill and live tail.
     """
@@ -388,7 +388,7 @@ def _history_to_wire_batch(channel_id: str, table: pa.Table) -> pa.RecordBatch |
             "sampled_at": _col("sampled_at", None),
             "value": [encode_value(v) for v in _col("value", None)],
             "source_method": [s or "" for s in _col("source_method", "")],
-            "units": [""] * n,
+            "unit": [""] * n,
             "sample_interval": _col("sample_interval", None),
             "session_id": _col("session_id", None),
             "sample_offset": _col("sample_offset", -1),

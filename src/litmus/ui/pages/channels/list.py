@@ -399,7 +399,7 @@ def _build_table(rows: list[dict[str, Any]], *, session_id: str = "") -> ui.tabl
         time_columns=["last_updated"],
     )
     # ``latest`` and ``spark`` cells carry HTML strings (number with
-    # units, inline SVG) that q-table renders as text by default.
+    # unit, inline SVG) that q-table renders as text by default.
     table.add_slot(
         "body-cell-latest",
         '<q-td :props="props"><span v-html="props.value"></span></q-td>',
@@ -434,7 +434,7 @@ def _show_empty_state(slot: ui.column, *, has_data: bool = False) -> None:
 
 
 def _row_for_channel(channel_id: str, descriptor: dict[str, Any]) -> dict[str, Any]:
-    units = descriptor.get("units") or ""
+    unit = descriptor.get("unit") or ""
     recent = descriptor.get("recent") or {}
     samples = recent.get("samples") or []
     latest_value = recent.get("latest")
@@ -444,25 +444,25 @@ def _row_for_channel(channel_id: str, descriptor: dict[str, Any]) -> dict[str, A
         "channel_id": channel_id,
         "data_type": descriptor.get("data_type") or "",
         "instrument_role": descriptor.get("instrument_role") or "",
-        "units": units,
+        "unit": unit,
         "last_updated": format_datetime(last_updated),
-        "latest": _format_latest(latest_value, units),
+        "latest": _format_latest(latest_value, unit),
         "spark": _sparkline_svg(samples),
     }
 
 
-def _format_latest(value: Any, units: str) -> str:
-    """Render the most recent sample as a small inline value+units."""
+def _format_latest(value: Any, unit: str) -> str:
+    """Render the most recent sample as a small inline value+unit."""
     if value is None:
         return '<span class="text-slate-400">—</span>'
     if isinstance(value, (int, float)):
         rendered = f"{value:.6g}"
     else:
         rendered = str(value)
-    if units:
+    if unit:
         return (
             f'<span class="font-mono">{rendered}</span>'
-            f' <span class="text-xs text-slate-500">{units}</span>'
+            f' <span class="text-xs text-slate-500">{unit}</span>'
         )
     return f'<span class="font-mono">{rendered}</span>'
 

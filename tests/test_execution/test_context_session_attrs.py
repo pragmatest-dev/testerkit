@@ -118,7 +118,7 @@ def test_context_part_resolves_when_loaded(pytester: pytest.Pytester) -> None:
               v_rail:
                 function: dc_voltage
                 direction: output
-                units: V
+                unit: V
                 pin: TP1
                 bands:
                   - value: 3.3

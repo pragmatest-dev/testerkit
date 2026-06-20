@@ -366,7 +366,7 @@ def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> N
                 def test_records(self, measure):
                     m = measure(
                         "v_out", 3.5,
-                        limit=Limit(low=3.2, high=3.4, units="V", nominal=3.3),
+                        limit=Limit(low=3.2, high=3.4, unit="V", nominal=3.3),
                     )
                     # Recorder, not judge: outcome is DONE (recorded), and
                     # limit fields are stamped on the row for analysis.
@@ -390,7 +390,7 @@ def test_verify_raises_on_fail(pytester: pytest.Pytester) -> None:
 
             class TestSeq:
                 def test_fails(self, verify):
-                    verify("v_out", 3.5, Limit(low=3.2, high=3.4, units="V"))
+                    verify("v_out", 3.5, Limit(low=3.2, high=3.4, unit="V"))
             """
         ),
     )
@@ -410,7 +410,7 @@ def test_duplicate_measurement_name_in_step_errors(
 
             class TestSeq:
                 def test_dup(self, measure):
-                    lim = Limit(low=3.2, high=3.4, units="V")
+                    lim = Limit(low=3.2, high=3.4, unit="V")
                     measure("v_out", 3.3, limit=lim)
                     measure("v_out", 3.35, limit=lim)
             """
@@ -439,7 +439,7 @@ def test_allow_repeat_streams_same_name(pytester: pytest.Pytester) -> None:
 
             class TestSeq:
                 def test_stream(self):
-                    lim = Limit(low=3.2, high=3.4, units="V")
+                    lim = Limit(low=3.2, high=3.4, unit="V")
                     run = get_current_run_scope()
                     for _ in range(10):
                         run.measure("v_sample", 3.3, limit=lim, allow_repeat=True)
@@ -467,7 +467,7 @@ def test_sidecar_limits_auto_resolve(pytester: pytest.Pytester) -> None:
               v_out:
                 low: 3.2
                 high: 3.4
-                units: V
+                unit: V
             """
         ),
     )
@@ -555,13 +555,13 @@ def test_litmus_limits_marker_on_method_resolves(pytester: pytest.Pytester) -> N
 
             class TestSeq:
                 @pytest.mark.litmus_limits(
-                    output_voltage={"low": 3.2, "high": 3.4, "units": "V"},
+                    output_voltage={"low": 3.2, "high": 3.4, "unit": "V"},
                 )
                 def test_passes(self, verify):
                     verify("output_voltage", 3.3)
 
                 @pytest.mark.litmus_limits(
-                    output_voltage={"low": 3.2, "high": 3.4, "units": "V"},
+                    output_voltage={"low": 3.2, "high": 3.4, "unit": "V"},
                 )
                 def test_fails(self, verify):
                     verify("output_voltage", 3.5)
@@ -590,14 +590,14 @@ def test_litmus_limits_marker_method_overrides_class(pytester: pytest.Pytester) 
             import pytest
 
             @pytest.mark.litmus_limits(
-                rail={"low": 3.2, "high": 3.4, "units": "V"},  # tight (class default)
+                rail={"low": 3.2, "high": 3.4, "unit": "V"},  # tight (class default)
             )
             class TestSeq:
                 def test_tight_class_limit(self, verify):
                     verify("rail", 3.5)  # fails tight class limit
 
                 @pytest.mark.litmus_limits(
-                    rail={"low": 3.0, "high": 3.6, "units": "V"},  # loose override
+                    rail={"low": 3.0, "high": 3.6, "unit": "V"},  # loose override
                 )
                 def test_loose_method_limit(self, verify):
                     verify("rail", 3.5)  # passes loose method limit
@@ -627,7 +627,7 @@ def test_limits_fixture_destructured_access(pytester: pytest.Pytester) -> None:
 
             class TestSeq:
                 @pytest.mark.litmus_limits(
-                    rail={"low": 3.2, "high": 3.4, "units": "V"},
+                    rail={"low": 3.2, "high": 3.4, "unit": "V"},
                 )
                 def test_reads_limits(self, limits):
                     assert "rail" in limits

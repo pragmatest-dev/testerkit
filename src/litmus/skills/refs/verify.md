@@ -31,12 +31,12 @@ through their native shapes.
 verify coerces dicts via `Limit.model_validate(...)`:
 
 ```python
-verify("v_rail", v, limit={"low": 3.135, "high": 3.465, "units": "V"})
+verify("v_rail", v, limit={"low": 3.135, "high": 3.465, "unit": "V"})
 ```
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `units` | `str` | **yes** | e.g. `"V"`, `"A"`, `"ohm"` |
+| `unit` | `str` | **yes** | e.g. `"V"`, `"A"`, `"ohm"` |
 | `low` | `float \| None` | no | Lower bound (inclusive by default) |
 | `high` | `float \| None` | no | Upper bound (inclusive by default) |
 | `nominal` | `float \| None` | no | Target value; required for `EQ` / `NE` |
@@ -51,7 +51,7 @@ type-checking):
 
 ```python
 from litmus import Limit
-V_RAIL = Limit(low=3.135, high=3.465, units="V")
+V_RAIL = Limit(low=3.135, high=3.465, unit="V")
 ```
 
 ## Limit resolution chain
@@ -73,7 +73,7 @@ limits:
   v_rail:
     low: 3.135
     high: 3.465
-    units: V
+    unit: V
   output_voltage:
     characteristic: rail_3v3      # delegate to PartContext['rail_3v3']
     tolerance_pct: 5.0            # ±5 % around the spec's nominal
@@ -81,8 +81,8 @@ limits:
 
 Three resolution shapes live under one key:
 
-- **Absolute bounds:** `{low, high, units}` (and optionally `nominal`, `comparator`)
-- **Part delegate:** `{characteristic: <id>}` — copies the characteristic's `low/high/units/nominal/spec_ref`
+- **Absolute bounds:** `{low, high, unit}` (and optionally `nominal`, `comparator`)
+- **Part delegate:** `{characteristic: <id>}` — copies the characteristic's `low/high/unit/nominal/spec_ref`
 - **Tolerance band:** `{characteristic: <id>, tolerance_pct: N}` — derives `low`/`high` from the spec's `nominal` ± `N %`
 
 ## Outcomes

@@ -249,7 +249,7 @@ class TestQuery:
 class TestWrite:
     def test_write_scalar(self, tmp_path: Path):
         store = _make_store(tmp_path)
-        uri = store.write("temp.reading", 24.5, units="°C")
+        uri = store.write("temp.reading", 24.5, unit="°C")
         assert uri.startswith("channel://")
         assert "temp.reading" in uri
 

@@ -2,14 +2,14 @@
 
 The Litmus pytest plugin provides the ``verify`` fixture. Every call
 to ``verify(name, value, limit=...)`` writes a row with the name,
-value, units, limit, and pass/fail outcome — so you get the ``value``
+value, unit, limit, and pass/fail outcome — so you get the ``value``
 persisted, not just a pass/fail.
 
 Test vectors are introduced here too: ``@pytest.mark.litmus_sweeps``
 is the runner-neutral name for declaring sweep axes. Each kwarg is
 one axis; multiple kwargs cross-product — same family shape as
 ``litmus_limits``. Limits are still inline in Python here
-(``limit={"low": ..., "high": ..., "units": ...}``); later stages
+(``limit={"low": ..., "high": ..., "unit": ...}``); later stages
 move them to YAML.
 
 ``litmus_retry`` lands here too. Real benches misbehave — VISA
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-V_RAIL = {"low": 3.2, "high": 3.4, "units": "V"}
+V_RAIL = {"low": 3.2, "high": 3.4, "unit": "V"}
 
 
 def test_rail_within_spec(verify, psu, dmm) -> None:

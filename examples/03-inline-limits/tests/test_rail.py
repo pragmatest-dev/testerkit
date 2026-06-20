@@ -25,7 +25,7 @@ import pytest
 from litmus import linspace
 
 
-@pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4, "units": "V"})
+@pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4, "unit": "V"})
 def test_rail_within_spec(verify, psu, dmm) -> None:
     """Marker supplies ``v_rail``; ``verify`` resolves it by name."""
     psu.set_voltage(5.0)
@@ -34,7 +34,7 @@ def test_rail_within_spec(verify, psu, dmm) -> None:
 
 
 @pytest.mark.litmus_sweeps([{"vin": linspace(3.3, 5.5, 5)}])
-@pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4, "units": "V"})
+@pytest.mark.litmus_limits(v_rail={"low": 3.2, "high": 3.4, "unit": "V"})
 def test_rail_holds_across_input(verify, psu, dmm, vin: float) -> None:
     """Single-axis sweep over five vin points; ``linspace`` returns a list."""
     psu.set_voltage(vin)

@@ -20,7 +20,7 @@ Each tier is additive. To go from Tier 1 → Tier 2:
 
 1. `litmus init --tier bench` in a sibling directory and copy the
    `stations/`, `parts/`, `fixtures/` layout it scaffolds.
-2. Swap the sidecar `limits: {low, high, units}` shape for
+2. Swap the sidecar `limits: {low, high, unit}` shape for
    `limits: {characteristic: <id>, tolerance_pct: N}`. The `low/high`
    form keeps working, but `characteristic:` lets the part YAML
    own the spec value.

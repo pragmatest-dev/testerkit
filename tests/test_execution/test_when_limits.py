@@ -42,7 +42,7 @@ def test_single_band_empty_when_always_matches(pytester: pytest.Pytester) -> Non
             """
             limits:
                 v_rail:
-                  units: V
+                  unit: V
                   bands:
                     - {when: {}, low: 3.2, high: 3.4}
 """
@@ -73,7 +73,7 @@ def test_multi_band_selects_matching_by_parametrize(pytester: pytest.Pytester) -
             """
             limits:
                 v_rail:
-                  units: V
+                  unit: V
                   bands:
                     - {when: {vin: 5.0}, low: 3.2, high: 3.4}
                     - {when: {vin: 3.3}, low: 3.1, high: 3.5}
@@ -174,7 +174,7 @@ def test_no_band_matches_falls_back_to_siblings(pytester: pytest.Pytester) -> No
                 v_rail:
                   low: 3.0
                   high: 3.6
-                  units: V
+                  unit: V
                   bands:
                     - {when: {vin: 5.0}, low: 3.2, high: 3.4}
                     - {when: {vin: 3.3}, low: 3.1, high: 3.5}
@@ -268,7 +268,7 @@ def test_scalar_dict_shape_still_resolves(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             limits:
-                v_rail: {low: 3.2, high: 3.4, units: V}
+                v_rail: {low: 3.2, high: 3.4, unit: V}
             """
         )
     )
@@ -296,7 +296,7 @@ def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -
               rail_3v3:
                 function: dc_voltage
                 direction: output
-                units: V
+                unit: V
                 pin: TP_VOUT
                 bands:
                   - value: 3.3

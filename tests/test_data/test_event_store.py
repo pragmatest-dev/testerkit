@@ -101,7 +101,7 @@ class TestEmitAndQuery:
         # Branch 3: role= matches via channel_id LIKE 'dmm.%' (ChannelStarted
         # uses ``instrument_role`` too, so use a no-instrument-role variant
         # to prove the prefix branch independently).
-        store.emit(ChannelStarted(session_id=sid, channel_id="dmm.ch1", units="V"))
+        store.emit(ChannelStarted(session_id=sid, channel_id="dmm.ch1", unit="V"))
         # Negative: a role= filter must not match unrelated events
         store.emit(_make_session_started(sid))
 

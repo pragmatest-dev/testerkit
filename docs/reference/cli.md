@@ -26,7 +26,7 @@ Measure this machine's per-store performance.
 
 | Argument / option | Type | Description |
 |---|---|---|
-| `--full` | `flag` | Run the full sweep (100/1k/10k units, 1/2/4 writers) |
+| `--full` | `flag` | Run the full sweep (100/1k/10k unit, 1/2/4 writers) |
 | `--rounds` | `integer` | Timed rounds per case (override) |
 | `-o`/`--output` | `text` | Directory for the result folder  *(default: `.benchmarks`)* |
 | `--no-save` | `flag` | Print the summary but don't write a result folder |

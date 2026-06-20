@@ -134,12 +134,12 @@ class TestObserveWaveformRoutesToChannelStore:
     ) -> None:
         """Waveform.attributes → ChannelDescriptor.attributes (no data loss)."""
         ctx, store = context_with_channel_store
-        wf = Waveform(dt=1e-6, Y=[1.0], attributes={"units": "V", "channel": "ch1"})
+        wf = Waveform(dt=1e-6, Y=[1.0], attributes={"unit": "V", "channel": "ch1"})
 
         ctx.observe("scope.cap", wf)
 
         descriptor = store._registry["scope.cap"]
-        assert descriptor.attributes == {"units": "V", "channel": "ch1"}
+        assert descriptor.attributes == {"unit": "V", "channel": "ch1"}
 
     def test_waveform_with_default_t0_and_no_attributes(self, context_with_channel_store) -> None:
         """Bare ``Waveform(dt=..., Y=[...])`` writes with sampled_at=None and empty attributes."""

@@ -369,7 +369,7 @@ class StationConnection:
         key: str,
         value: object,
         *,
-        units: str | None = None,
+        unit: str | None = None,
         sample_interval: float | None = None,
     ) -> str:
         """Write an observation to the ChannelStore.
@@ -379,7 +379,7 @@ class StationConnection:
         Args:
             key: Channel name (e.g. "scope.ch1_waveform", "temp_reading").
             value: Scalar or numeric array.
-            units: Optional unit string.
+            unit: Optional unit string.
             sample_interval: For array data, seconds between samples.
 
         Returns:
@@ -395,7 +395,7 @@ class StationConnection:
         return self._channel_store.write(
             key,
             value,
-            units=units,
+            unit=unit,
             sample_interval=sample_interval,
         )
 

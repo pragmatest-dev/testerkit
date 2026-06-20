@@ -137,7 +137,7 @@ class TestVerifyRejectsNonScalars:
             _perform_verify(
                 "artifact",
                 [1.0, 2.0, 3.0],  # type: ignore[arg-type]
-                limit=Limit(low=0, high=10, units="V"),
+                limit=Limit(low=0, high=10, unit="V"),
             )
 
 
@@ -148,7 +148,7 @@ class TestVerifyRejectsNonScalars:
 
 class TestScalarPathStillWorks:
     def test_scalar_with_limit_judges_pass(self, session: Any) -> None:
-        m = _perform_verify("vout", 3.3, limit=Limit(low=3.0, high=3.6, units="V"))
+        m = _perform_verify("vout", 3.3, limit=Limit(low=3.0, high=3.6, unit="V"))
         assert m.outcome == Outcome.PASSED
         assert m.value == 3.3
 
@@ -156,7 +156,7 @@ class TestScalarPathStillWorks:
         from litmus.execution.verify import LimitFailure
 
         with pytest.raises(LimitFailure):
-            _perform_verify("vout", 12.0, limit=Limit(low=3.0, high=3.6, units="V"))
+            _perform_verify("vout", 12.0, limit=Limit(low=3.0, high=3.6, unit="V"))
 
     def test_scalar_without_limit_raises_missing_limit(self, session: Any) -> None:
         from litmus.execution.verify import MissingLimitError
@@ -167,7 +167,7 @@ class TestScalarPathStillWorks:
     def test_none_value_with_limit_errors_outcome(self, session: Any) -> None:
         """value=None (couldn't measure) is a recordable scalar outcome:
         ERRORED, per design (``_compute_outcome`` returns ERRORED on None)."""
-        m = _perform_verify("vout", None, limit=Limit(low=3.0, high=3.6, units="V"))
+        m = _perform_verify("vout", None, limit=Limit(low=3.0, high=3.6, unit="V"))
         assert m.outcome == Outcome.ERRORED
 
 
@@ -188,7 +188,7 @@ class TestObserveThenVerifyPattern:
         session.ctx.observe("scope.cap", wf)
         # peak metric extracted from the artifact, judged against a limit
         peak = max(wf.Y)
-        m = _perform_verify("peak", peak, limit=Limit(low=0.0, high=5.0, units="V"))
+        m = _perform_verify("peak", peak, limit=Limit(low=0.0, high=5.0, unit="V"))
         assert m.outcome == Outcome.PASSED
         # The artifact URI is queryable from the vector via out_*
         assert session.ctx._observations.get("scope.cap", "").startswith("channel://scope.cap")

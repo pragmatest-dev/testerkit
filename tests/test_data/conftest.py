@@ -75,7 +75,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="vout",
                                 value=3.30,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GELE",
@@ -87,7 +87,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="iout",
                                 value=0.50,
-                                units="A",
+                                unit="A",
                                 limit_low=0.0,
                                 limit_high=1.0,
                                 limit_comparator="GELT",
@@ -97,7 +97,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="vout_exclusive",
                                 value=3.31,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GTLT",
@@ -106,7 +106,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="vout_gt_low",
                                 value=3.31,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GTLE",
@@ -126,7 +126,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="vout",
                                 value=3.29,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GELE",
@@ -135,7 +135,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="vref_eq",
                                 value=1.25,
-                                units="V",
+                                unit="V",
                                 limit_nominal=1.25,
                                 limit_comparator="EQ",
                                 outcome=Outcome.PASSED,
@@ -164,7 +164,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="ilimit",
                                 value=2.5,
-                                units="A",
+                                unit="A",
                                 limit_high=2.0,
                                 limit_comparator="LE",
                                 outcome=Outcome.FAILED,
@@ -172,7 +172,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="threshold_ne",
                                 value=0.0,
-                                units="V",
+                                unit="V",
                                 limit_nominal=0.0,
                                 limit_comparator="NE",
                                 outcome=Outcome.FAILED,
@@ -180,7 +180,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="dropout_lt",
                                 value=0.3,
-                                units="V",
+                                unit="V",
                                 limit_high=0.5,
                                 limit_comparator="LT",
                                 outcome=Outcome.PASSED,
@@ -188,7 +188,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="bias_ge",
                                 value=1.0,
-                                units="mA",
+                                unit="mA",
                                 limit_low=0.5,
                                 limit_comparator="GE",
                                 outcome=Outcome.PASSED,
@@ -196,7 +196,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="leakage_gt",
                                 value=0.01,
-                                units="uA",
+                                unit="uA",
                                 limit_low=0.001,
                                 limit_comparator="GT",
                                 outcome=Outcome.PASSED,
@@ -205,7 +205,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="broken_sensor",
                                 value=None,
-                                units="V",
+                                unit="V",
                                 limit_low=0.0,
                                 limit_high=5.0,
                                 limit_comparator="GELE",
@@ -308,7 +308,7 @@ def _replay_events(
                         retry=vector.retry,
                         measurement_name=meas.name,
                         value=meas.value,
-                        units=meas.units,
+                        unit=meas.unit,
                         outcome=str(meas.outcome) if meas.outcome else None,
                         limit_low=meas.limit_low,
                         limit_high=meas.limit_high,

@@ -22,12 +22,12 @@ capabilities:
       range:
         min: -20
         max: 20
-        units: V
+        unit: V
     current:
       range:
         min: 0
         max: 0.1
-        units: A
+        unit: A
 - function: dc_current
   direction: output
   signals:
@@ -35,12 +35,12 @@ capabilities:
       range:
         min: -0.1
         max: 0.1
-        units: A
+        unit: A
     voltage:
       range:
         min: 0
         max: 20
-        units: V
+        unit: V
 - function: dc_voltage
   direction: input
   signals:
@@ -48,7 +48,7 @@ capabilities:
       range:
         min: -20
         max: 20
-        units: V
+        unit: V
       accuracy:
         pct_reading: 0.015
         pct_range: 0.005
@@ -59,7 +59,7 @@ capabilities:
       range:
         min: -0.1
         max: 0.1
-        units: A
+        unit: A
       accuracy:
         pct_reading: 0.05
         pct_range: 0.01
@@ -70,4 +70,4 @@ capabilities:
       range:
         min: 0.01
         max: 100000000
-        units: ohm
+        unit: ohm

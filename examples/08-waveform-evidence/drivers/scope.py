@@ -91,5 +91,5 @@ def synthesize_psu_step_response() -> Waveform:
         t0=t0,
         dt=_SAMPLE_INTERVAL_S,
         Y=samples,
-        attributes={"units": "V", "channel": "ch1", "trigger": "rising"},
+        attributes={"unit": "V", "channel": "ch1", "trigger": "rising"},
     )

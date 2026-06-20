@@ -205,7 +205,7 @@ class Context:
             )
         self._params: dict[str, Any] = {}
         self._observations: dict[str, Any] = {}
-        # Optional engineering units per configured / observed name.
+        # Optional engineering unit per configured / observed name.
         self._param_units: dict[str, str] = {}
         self._observation_units: dict[str, str] = {}
         # ``connections`` iterates :class:`FixtureConnection` objects the
@@ -1267,7 +1267,7 @@ class TestHarness:
             callable_str: Either a dotted module path
                 (e.g., "myproject.limits.output_voltage") or inline
                 Python code (e.g., "Limit(high=ctx.get_param('vin') * 0.01,
-                units='V')")
+                unit='V')")
 
         Returns:
             Resolved Limit object.
@@ -1341,7 +1341,7 @@ class TestHarness:
         self,
         name: str,
         value: float | None,
-        units: str | None = None,
+        unit: str | None = None,
         limit: Limit | None = None,
         uut_pin: str | None = None,
         instrument_channel: str | None = None,
@@ -1352,7 +1352,7 @@ class TestHarness:
         Args:
             name: Measurement name.
             value: Measured value.
-            units: Units (optional, uses limit.units if available).
+            unit: Units (optional, uses limit.unit if available).
             limit: Explicit limit (optional, overrides config lookup).
             uut_pin: UUT pin being measured (optional, auto-resolved from spec).
             instrument_channel: Instrument channel used (optional).
@@ -1388,7 +1388,7 @@ class TestHarness:
         measurement = Measurement(
             name=name,
             value=value,
-            units=units or (resolved_limit.units if resolved_limit else None),
+            unit=unit or (resolved_limit.unit if resolved_limit else None),
             limit_low=resolved_limit.low if resolved_limit else None,
             limit_high=resolved_limit.high if resolved_limit else None,
             limit_nominal=resolved_limit.nominal if resolved_limit else None,
