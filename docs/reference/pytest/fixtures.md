@@ -38,7 +38,7 @@ def test_rail(dmm, verify):
 
 def test_rail_inline(dmm, verify):
     verify("vout", dmm.measure_dc_voltage(),
-           limit={"low": 3.2, "high": 3.4, "units": "V"})         # inline dict literal
+           limit={"low": 3.2, "high": 3.4, "unit": "V"})          # inline dict literal
 ```
 
 Same record-side effect as `measure`; the only difference is `verify` raises on FAIL. Use `verify` when a fail should stop the line. With no resolvable limit, `verify` raises `MissingLimitError` — unless the active profile sets `verify_requires_limit: false`, in which case it falls back to `measure` semantics (record-only, `Outcome.DONE`).
@@ -50,7 +50,7 @@ Callable: `measure(name, value, limit=None, characteristic=None)`. The record-on
 ```python
 def test_voltage(dmm, measure):
     v = dmm.measure_dc_voltage()
-    measure("output_voltage", v, limit={"low": 3.2, "high": 3.4, "units": "V"})
+    measure("output_voltage", v, limit={"low": 3.2, "high": 3.4, "unit": "V"})
 ```
 
 `limit=` accepts either a `Limit` model or a dict literal. Same recording path as `verify`, just no FAIL-side effect — use it when a failing measurement shouldn't abort the test.

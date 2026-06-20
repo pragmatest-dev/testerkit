@@ -9,7 +9,7 @@ measurement_name:
   low: 3.135          # lower limit
   high: 3.465         # upper limit
   nominal: 3.3        # expected / target (for EQ/NE)
-  units: V
+  unit: V
   comparator: GELE    # default; see table below
   spec_ref: "..."          # optional traceability pointer
   characteristic: "..."    # delegate to a part-spec characteristic
@@ -22,16 +22,16 @@ A limit needs at least one policy field that tells `verify` what to check. The f
 | `low`            | *        | Lower limit (* at least one policy field: low / high / nominal / characteristic / bands / tolerance_pct / tolerance_abs / expr / lookup / steps / callable) |
 | `high`           | *        | Upper limit                                     |
 | `nominal`        |          | Expected value (EQ/NE comparators)              |
-| `units`          |          | Unit of measure (for reporting)                 |
+| `unit`           |          | Unit of measure (for reporting)                 |
 | `comparator`     |          | Comparison type (default `GELE`)                |
 | `spec_ref`       |          | Traceability annotation (free-form string)      |
-| `characteristic` |          | Delegate to `part.<char_name>` (inherits limits, units) |
+| `characteristic` |          | Delegate to `part.<char_name>` (inherits limits, unit) |
 
 ## Where limits come from
 
 Both `verify(name, value)` and `measure(name, value)` go through the same resolver. When `limit=` is passed explicitly, that value short-circuits the rest — every other source is ignored. Otherwise the resolver checks, in this order, and the **first match wins**:
 
-1. **Explicit `limit=`** — `verify("v", val, limit={"low": ..., "high": ..., "units": "V"})` or `measure(...)` with the same kwarg. The kwarg accepts either a dict literal or a `Limit(...)` model. Short-circuits everything below.
+1. **Explicit `limit=`** — `verify("v", val, limit={"low": ..., "high": ..., "unit": "V"})` or `measure(...)` with the same kwarg. The kwarg accepts either a dict literal or a `Limit(...)` model. Short-circuits everything below.
 2. **Active limits entry for `name`** — populated from the sidecar / marker / profile cascade (merged into one entry per measurement name at test setup; details below).
 3. **Active part spec** — if the cascade has nothing and `verify` is in play, the resolver tries the active `PartContext` for a characteristic named `name`. This works for unconditional characteristics; condition-indexed bands need the explicit `characteristic:` delegation in step 2 to forward sweep params correctly (see [Spec-driven testing](spec-driven-testing.md#condition-indexed-example-when-accuracy-varies-with-operating-point)).
 4. **None** — characterization mode. `measure` records the value with `outcome = DONE`. `verify` raises `MissingLimitError` — judgment-bearing calls don't silently fall through unless the active profile sets `verify_requires_limit: false`, which routes `verify` to the same record-only fallback.
@@ -55,9 +55,9 @@ This may feel inverted relative to other Python config libraries: sidecar overri
 import pytest
 
 @pytest.mark.litmus_limits(
-    output_voltage={"low": 3.234, "high": 3.366, "units": "V"},
+    output_voltage={"low": 3.234, "high": 3.366, "unit": "V"},
     efficiency={"characteristic": "efficiency"},    # delegate to part spec
-    startup_current={"high": 50, "comparator": "LE", "units": "mA"},
+    startup_current={"high": 50, "comparator": "LE", "unit": "mA"},
 )
 def test_rails(context, measure, dmm):
     measure("output_voltage", dmm.measure_dc_voltage())
@@ -80,9 +80,9 @@ class TestPowerBoard:
 ```yaml
 # tests/test_power_board.yaml
 limits:
-  output_voltage:  {low: 3.135, high: 3.465, units: V}
+  output_voltage:  {low: 3.135, high: 3.465, unit: V}
   efficiency:      {characteristic: efficiency}   # part-spec delegation
-  startup_current: {high: 50, comparator: LE, units: mA}
+  startup_current: {high: 50, comparator: LE, unit: mA}
 ```
 
 The same `limits:` field works at class-branch scope
@@ -100,7 +100,7 @@ When a single measurement needs different limits under different conditions, add
 # test_power_board.yaml
 limits:
   output_voltage:
-    units: V                              # default for every band
+    unit: V                               # default for every band
     low: 3.0                              # catch-all (used when no band matches)
     high: 3.6
     bands:
@@ -119,7 +119,7 @@ Matching rules:
 
 The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and Litmus sweeps — every iteration re-resolves against the active row.
 
-The default cascade keeps repetition out of the YAML. Common fields (`units`, `characteristic`) live once at the top; bands carry only what changes. Bands can use any policy field a flat limit supports, including `tolerance_pct` against a part characteristic:
+The default cascade keeps repetition out of the YAML. Common fields (`unit`, `characteristic`) live once at the top; bands carry only what changes. Bands can use any policy field a flat limit supports, including `tolerance_pct` against a part characteristic:
 
 ```yaml
 limits:
@@ -135,7 +135,7 @@ A limit without `bands:` is the flat scalar shape (`output_voltage: {low: 3.2, h
 ## Explicit `limit=` kwarg
 
 ```python
-measure("v", val, limit={"low": 3.2, "high": 3.4, "units": "V"})
+measure("v", val, limit={"low": 3.2, "high": 3.4, "unit": "V"})
 ```
 
 Same shape works on `verify(name, value, limit={...})`. Need the model object for type-checking or as a shared constant? Import from the top-level package: `from litmus import Limit`.

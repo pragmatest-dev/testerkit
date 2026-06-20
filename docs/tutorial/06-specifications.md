@@ -47,7 +47,7 @@ characteristics:
   input_voltage:
     direction: input
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VIN]
     bands:
       - value: 5.0
@@ -56,7 +56,7 @@ characteristics:
   output_voltage:
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VOUT]
     bands:
       - value: 3.3
@@ -95,7 +95,7 @@ characteristics:
   output_voltage:
     direction: output      # UUT outputs this
     function: dc_voltage   # DC voltage measurement
-    units: V
+    unit: V
     pins: [VOUT]           # Measured at this pin
     bands:
       - value: 3.3         # Expected value
@@ -120,7 +120,7 @@ limits:
     low: 3.135
     high: 3.465
     nominal: 3.3
-    units: V
+    unit: V
     spec_ref: "output_voltage @ tolerance_pct=5"  # Traceability!
 ```
 
@@ -159,7 +159,7 @@ characteristics:
   output_voltage:
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
@@ -213,7 +213,7 @@ characteristics:
   input_voltage:
     direction: input
     function: dc_voltage
-    units: V
+    unit: V
     bands:
       - value: 5.0
         accuracy: {pct_reading: 10}
@@ -221,7 +221,7 @@ characteristics:
   output_voltage:
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
@@ -234,7 +234,7 @@ limits:
     low: 3.152
     high: 3.449
     nominal: 3.3
-    units: V
+    unit: V
     spec_ref: "output_voltage @ guardband=10%"
 mocks:
   - target: dmm.measure_dc_voltage

@@ -85,7 +85,7 @@ mocks:
   - {target: dmm.measure_dc_voltage, return_value: 3.31}
   - {target: psu.measure_current, return_value: 0.5}
 limits:
-  test_output_voltage: {low: 3.2, high: 3.4, units: V}
+  test_output_voltage: {low: 3.2, high: 3.4, unit: V}
 ```
 
 ## Mock Value Priority
@@ -199,7 +199,7 @@ limits:
     low: 3.135
     high: 3.465
     nominal: 3.3
-    units: V
+    unit: V
 mocks:
   - target: dmm.measure_dc_voltage
     return_value: 3.31

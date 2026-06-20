@@ -69,7 +69,7 @@ def sync_to_database(run_id: str, db_connection):
         )
 ```
 
-`run` is a Pydantic `RunSummary` — use attribute access. `measurements` is a list of dicts keyed by parquet column names (`measurement_name`, `measurement_value`, `measurement_units`, `measurement_outcome`, `limit_low`, `limit_high`, etc. — see [parquet-schema.md](../../reference/data/parquet-schema.md) for the full list).
+`run` is a Pydantic `RunSummary` — use attribute access. `measurements` is a list of dicts keyed by parquet column names (`measurement_name`, `measurement_value`, `measurement_unit`, `measurement_outcome`, `limit_low`, `limit_high`, etc. — see [parquet-schema.md](../../reference/data/parquet-schema.md) for the full list).
 
 ## Upload a sealed run to cloud storage
 

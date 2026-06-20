@@ -138,8 +138,8 @@ step = harness.run_all(measure_rail, step_name="output_voltage")
 harness.measure(
     name="output_voltage",
     value=3.31,
-    units="V",                  # optional — defaults to limit.units
-    limit=Limit(low=3.135, high=3.465, units="V"),  # optional — explicit override
+    unit="V",                   # optional — defaults to limit.unit
+    limit=Limit(low=3.135, high=3.465, unit="V"),   # optional — explicit override
     uut_pin="VOUT",             # optional — auto-resolved from part_context
     instrument_channel="CH1",   # optional
     fixture_connection="vout_dmm",  # optional
@@ -153,7 +153,7 @@ Limit resolution order (when `limit=` is not passed):
 3. The active part context's `get_limit(name, **vector_params)` — vector params are passed as condition kwargs so the right `SpecBand` is selected
 4. `None` — measurement recorded as unchecked
 
-Pass a `Limit` object (`from litmus import Limit`) for explicit limits. The sidecar-style dict shape (`{"low": 3.0, "high": 3.6, "units": "V"}`) goes in `config["limits"]`, not as the `limit=` kwarg.
+Pass a `Limit` object (`from litmus import Limit`) for explicit limits. The sidecar-style dict shape (`{"low": 3.0, "high": 3.6, "unit": "V"}`) goes in `config["limits"]`, not as the `limit=` kwarg.
 
 ## Steps
 

@@ -25,8 +25,8 @@ run = client.start_run(
 
 # Add measurements
 with run.step("voltage_check") as step:
-    step.measure("vcc", 3.31, units="V", low=3.0, high=3.6)
-    step.measure("vdd", 1.81, units="V", low=1.7, high=1.9)
+    step.measure("vcc", 3.31, unit="V", low=3.0, high=3.6)
+    step.measure("vdd", 1.81, unit="V", low=1.7, high=1.9)
 
 # Save results
 run.finish()
@@ -86,7 +86,7 @@ Returned by `run.step()` context manager.
 
 ```python
 with run.step("voltage_check", "Verify all voltage rails") as step:
-    step.measure("vcc", 3.31, units="V", low=3.0, high=3.6)
+    step.measure("vcc", 3.31, unit="V", low=3.0, high=3.6)
 ```
 
 **Methods:**
@@ -104,7 +104,7 @@ with run.step("voltage_check", "Verify all voltage rails") as step:
 step.measure(
     name="vcc",              # Measurement name
     value=3.31,              # Measured value
-    units="V",               # Optional: units
+    unit="V",                # Optional: unit
     low=3.0,                 # Optional: low limit
     high=3.6,                # Optional: high limit
     nominal=3.3,             # Optional: nominal value
@@ -134,7 +134,7 @@ with run.step("voltage_sweep") as step:
     for voltage in [3.3, 5.0, 12.0]:
         with step.vector(input_voltage=voltage) as vec:
             output = measure_output(voltage)
-            vec.measure("output_voltage", output, units="V")
+            vec.measure("output_voltage", output, unit="V")
 ```
 
 **Methods:**
@@ -164,15 +164,15 @@ def run_production_test(serial_number: str):
 
     # Simple measurements
     with run.step("power_rails") as step:
-        step.measure("vcc_3v3", read_voltage("VCC"), units="V", low=3.1, high=3.5)
-        step.measure("vdd_1v8", read_voltage("VDD"), units="V", low=1.7, high=1.9)
+        step.measure("vcc_3v3", read_voltage("VCC"), unit="V", low=3.1, high=3.5)
+        step.measure("vdd_1v8", read_voltage("VDD"), unit="V", low=1.7, high=1.9)
 
     # Parametrized test
     with run.step("current_sweep") as step:
         for load_ma in [0, 100, 500, 1000]:
             set_load(load_ma)
             with step.vector(load_ma=load_ma) as vec:
-                vec.measure("efficiency", calc_efficiency(), units="%", low=80)
+                vec.measure("efficiency", calc_efficiency(), unit="%", low=80)
 
     # Finish and save
     result = run.finish()
@@ -192,7 +192,7 @@ API in a small helper:
 from litmus import LitmusClient
 
 def submit_labview_run(serial, station, measurements):
-    """measurements: list of dicts with name, value, low, high, units."""
+    """measurements: list of dicts with name, value, low, high, unit."""
     client = LitmusClient()
     run = client.start_run(uut_serial=serial, station_id=station, test_phase="production")
     with run.step("labview_results") as step:
@@ -249,7 +249,7 @@ run = client.start_run(
 )
 
 with run.step("voltage") as step:
-    step.measure("vcc", voltage, units="V", low=4.5, high=5.5)
+    step.measure("vcc", voltage, unit="V", low=4.5, high=5.5)
 
 result = run.finish()
 sys.exit(0 if result.outcome == "passed" else 1)
@@ -271,7 +271,7 @@ print(run)
 # Get measurements — returns list[dict] using parquet column names
 measurements = client.get_measurements("abc12345")
 for m in measurements:
-    print(f"{m['measurement_name']}: {m['measurement_value']} {m['measurement_units']}")
+    print(f"{m['measurement_name']}: {m['measurement_value']} {m['measurement_unit']}")
 ```
 
 ## Next Steps

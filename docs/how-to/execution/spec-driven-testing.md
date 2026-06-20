@@ -26,7 +26,7 @@ characteristics:
   output_voltage:
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VOUT]
     datasheet_ref: "Section 7.2"
     bands:
@@ -58,7 +58,7 @@ characteristics:
   output_voltage:
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VOUT]
     datasheet_ref: "Section 7.2"
     bands:
@@ -144,7 +144,7 @@ Every `verify` records:
 |------------------|-------------------------------------------------------|
 | `measurement_name` | the `name` arg                                      |
 | `measurement_value` | the `value` arg                                    |
-| `limit_low` / `limit_high` / `limit_nominal` / `measurement_units` | spec characteristic + tolerance |
+| `limit_low` / `limit_high` / `limit_nominal` / `measurement_unit` | spec characteristic + tolerance |
 | `measurement_outcome` | `passed` / `failed` (lowercase enum value)        |
 | `spec_ref`       | e.g. `"Section 7.2 @ load=0.5, temperature=25"` (`datasheet_ref` or `"spec"` + conditions sorted alphabetically) |
 | `uut_pin`        | `Part.pins[primary_pin_id].name` (the human pin designator, e.g. `"J1.3"`) |

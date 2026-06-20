@@ -351,7 +351,7 @@ limits:
     low: 3.135
     high: 3.465
     nominal: 3.3
-    units: V
+    unit: V
 ```
 
 ### Use realistic values

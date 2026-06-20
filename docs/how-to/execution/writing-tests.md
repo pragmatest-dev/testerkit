@@ -150,7 +150,7 @@ When `measure(name, value)` is called without `limit=`, resolution
 walks the marker merge cascade (see *Merge cascade* below) looking for
 the closest `litmus_limits` entry by measurement name, falling back to:
 
-1. Explicit limit — `measure("v", val, limit={"low": ..., "high": ..., "units": "V"})` (dict literal or `Limit(...)` both work)
+1. Explicit limit — `measure("v", val, limit={"low": ..., "high": ..., "unit": "V"})` (dict literal or `Limit(...)` both work)
 2. Any `litmus_limits` marker (inline decorator, sidecar, profile) whose
    key matches `name`
 3. Part spec via `characteristic: "<name>"` delegation
@@ -158,7 +158,7 @@ the closest `litmus_limits` entry by measurement name, falling back to:
 
 ```python
 @pytest.mark.litmus_limits(
-    output_voltage={"low": 3.234, "high": 3.366, "units": "V"},
+    output_voltage={"low": 3.234, "high": 3.366, "unit": "V"},
     efficiency={"characteristic": "efficiency"},   # delegate to part spec
 )
 def test_rails(context, verify, measure, dmm):
@@ -264,7 +264,7 @@ tests:
     tests:
       test_efficiency:                            # nested method
         limits:
-          efficiency: {low: 55, high: 100, units: "%"}
+          efficiency: {low: 55, high: 100, unit: "%"}
 
   test_standalone:                                # module-level test (leaf)
     runner:
@@ -333,7 +333,7 @@ All three config sources are independent — tests work under any combination:
 
 | Sidecar | Spec | Shape                                                          |
 |---------|------|----------------------------------------------------------------|
-| —       | —    | `measure("v", val, limit={"low": ..., "high": ..., "units": "V"})` — explicit |
+| —       | —    | `measure("v", val, limit={"low": ..., "high": ..., "unit": "V"})` — explicit |
 | —       | ✓    | `verify("output_voltage", val)`                            |
 | ✓       | —    | `measure("efficiency", eff)` — auto-resolves            |
 | ✓       | ✓    | `verify` for characteristics; `measure` for procedure |

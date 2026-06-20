@@ -70,7 +70,7 @@ profiles:
         - flaky:
             reruns: 2
     limits:                                   # session-wide limits
-      output_voltage: {low: 3.2, high: 3.4, units: V}
+      output_voltage: {low: 3.2, high: 3.4, unit: V}
     tests:                                    # recursive per-class / per-method overrides
       test_thermal:
         sweeps:
@@ -256,7 +256,7 @@ characteristics:                      # dict[name, PartCharacteristic]
   rail_3v3_output:
     function: dc_voltage              # MeasurementFunction enum
     direction: output                 # input | output | bidir | transform
-    units: V
+    unit: V
     pin: VOUT                         # at least one of: pin, pins, net, signal_group
     datasheet_ref: "Table 4.2"
     bands:                            # list[SpecBand]
@@ -264,13 +264,13 @@ characteristics:                      # dict[name, PartCharacteristic]
         value: 3.3
         accuracy: {pct_reading: 3.0}
       - when:
-          temperature: {min: 0, max: 70, units: degC}
+          temperature: {min: 0, max: 70, unit: degC}
         value: 3.3
         accuracy: {pct_reading: 2.0}
 ```
 
 - `bands:` lives inside each characteristic. There is no top-level `bands:` on `Part`.
-- `PartCharacteristic` fields: `function`, `direction`, `units`, `pin`, `pins`, `net`, `signal_group`, `datasheet_ref`, plus the inherited `signals`/`conditions`/`controls`/`attributes`/`bands` from `Capability`. There is no `channel:` / `channels:` / `schematic_ref:` on characteristics — the loader rejects unknown keys.
+- `PartCharacteristic` fields: `function`, `direction`, `unit`, `pin`, `pins`, `net`, `signal_group`, `datasheet_ref`, plus the inherited `signals`/`conditions`/`controls`/`attributes`/`bands` from `Capability`. There is no `channel:` / `channels:` / `schematic_ref:` on characteristics — the loader rejects unknown keys.
 - `base:` lets a part inherit from another. The loader searches the parts directory for a file whose stem matches the `base:` value first, then scans every part YAML for an `id:` match. Circular and missing-base references raise an error at load time.
 
 See [tutorial/06-specifications.md](../tutorial/06-specifications.md) for the workflow and [how-to/spec-driven-testing.md](../how-to/execution/spec-driven-testing.md) for spec-driven verify.
@@ -282,8 +282,8 @@ Co-located with each test module. Validated by [`SidecarConfig`](models.md#model
 ```yaml
 # tests/test_power.yaml — sibling to tests/test_power.py
 limits:                               # dict[measurement_name, MeasurementLimitConfig]
-  output_voltage: {low: 3.2, high: 3.4, units: V}
-  ripple_mv:    {high: 50, units: mV, characteristic: ripple_spec}
+  output_voltage: {low: 3.2, high: 3.4, unit: V}
+  ripple_mv:    {high: 50, unit: mV, characteristic: ripple_spec}
 
 sweeps:                               # list[SweepEntry] — vector cross-products
   - {vin: [4.5, 5.0, 5.5], load: [0.1, 0.5, 1.0]}
@@ -313,14 +313,14 @@ runner: {}                            # opaque per-runner config
 tests:                                # recursive — keyed by pytest node-id segment
   TestRails:                          # class-level entry — overrides apply to its methods
     limits:
-      output_voltage: {low: 3.25, high: 3.35, units: V}
+      output_voltage: {low: 3.25, high: 3.35, unit: V}
     tests:                            # per-method entries live under another `tests:` key
       test_rail_under_load:           # most specific
         sweeps:
           - {load: [0.1, 1.0, 2.0]}
 ```
 
-- `limits:` value shape: see [`MeasurementLimitConfig`](models.md#model-measurementlimitconfig). Supports direct `{low, high, nominal, units}`, characteristic-driven `{characteristic, tolerance_pct}`, conditional `{bands: [...]}`, callable, lookup tables, and stepped — see [how-to/limits.md](../how-to/execution/limits.md).
+- `limits:` value shape: see [`MeasurementLimitConfig`](models.md#model-measurementlimitconfig). Supports direct `{low, high, nominal, unit}`, characteristic-driven `{characteristic, tolerance_pct}`, conditional `{bands: [...]}`, callable, lookup tables, and stepped — see [how-to/limits.md](../how-to/execution/limits.md).
 - `sweeps:` value shape is a list of dicts; each dict maps param name → list of values. Multiple dicts in the list compose as axes (cross-product).
 - `retry:` field names are `max_retries` and `delay`, not `max_attempts` / `delay_seconds`.
 
@@ -358,7 +358,7 @@ capabilities:
     direction: input
     signals:
       voltage:
-        range: {min: 0.0001, max: 1000, units: V}
+        range: {min: 0.0001, max: 1000, unit: V}
         accuracy: {pct_reading: 0.0024, pct_range: 0.0005}
 ```
 

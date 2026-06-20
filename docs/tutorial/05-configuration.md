@@ -20,7 +20,7 @@ A **sidecar** is a YAML file next to your test module (`test_foo.py` → `test_f
 ```yaml
 # tests/test_power.yaml
 limits:
-  output_voltage: {low: 3.135, high: 3.465, nominal: 3.3, units: "V"}
+  output_voltage: {low: 3.135, high: 3.465, nominal: 3.3, unit: "V"}
 mocks:
   - {target: dmm.measure_dc_voltage, return_value: 3.31}
 tests:
@@ -54,7 +54,7 @@ import pytest
 
 
 @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
-@pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})
+@pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "unit": "V"})
 def test_output_voltage(vin, context, psu, dmm, measure):
     psu.set_voltage(vin)
     psu.enable_output()

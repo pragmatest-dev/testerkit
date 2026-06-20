@@ -98,7 +98,7 @@ def test_rail(dmm, verify):
     verify(
         "v_rail",
         float(dmm.measure_dc_voltage()),
-        limit={"low": 3.2, "high": 3.4, "nominal": 3.3, "units": "V"},
+        limit={"low": 3.2, "high": 3.4, "nominal": 3.3, "unit": "V"},
     )
 ```
 

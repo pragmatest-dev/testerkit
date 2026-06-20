@@ -201,7 +201,7 @@ tests:
         high: 3.465
         nominal: 3.3
         comparator: GELE  # Default: inclusive range
-        units: V
+        unit: V
         spec_ref: "output_voltage @ tolerance_pct=5"
 
   test_minimum_current:
@@ -209,14 +209,14 @@ tests:
       load_current:
         low: 0.1
         comparator: GE  # Only lower bound: must be >= 0.1A
-        units: A
+        unit: A
 
   test_exact_value:
     limits:
       calibration_ref:
         nominal: 1.000
         comparator: EQ  # Exact match required
-        units: V
+        unit: V
 ```
 
 ## Querying Traceable Results

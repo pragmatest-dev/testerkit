@@ -37,7 +37,7 @@ def test_output_voltage(psu, dmm, measure):
     psu.set_voltage(5.0)
     psu.enable_output()
     v = dmm.measure_dc_voltage()
-    measure("output_voltage", v, limit={"low": 3.2, "high": 3.4, "units": "V"})
+    measure("output_voltage", v, limit={"low": 3.2, "high": 3.4, "unit": "V"})
     assert 3.2 <= v <= 3.4
 ```
 
@@ -52,7 +52,7 @@ def test_output_voltage(psu, dmm, verify):
     psu.set_voltage(5.0)
     psu.enable_output()
     verify("output_voltage", dmm.measure_dc_voltage(),
-           limit={"low": 3.2, "high": 3.4, "units": "V"})
+           limit={"low": 3.2, "high": 3.4, "unit": "V"})
 ```
 
 For one-off tests, passing `limit=` inline is fine. The cleaner home for limits is the part spec or the sidecar YAML — both arrive in later steps.
@@ -67,11 +67,11 @@ class TestPowerUp:
         psu.set_voltage(5.0)
         psu.enable_output()
         verify("input_voltage", psu.measure_voltage(),
-               limit={"low": 4.5, "high": 5.5, "units": "V"})
+               limit={"low": 4.5, "high": 5.5, "unit": "V"})
 
     def test_output_voltage(self, dmm, verify):
         verify("output_voltage", dmm.measure_dc_voltage(),
-               limit={"low": 3.2, "high": 3.4, "units": "V"})
+               limit={"low": 3.2, "high": 3.4, "unit": "V"})
 ```
 
 Methods run in source order. Each emits its own [step](../concepts/execution/step-hierarchy.md) events; the class container's [outcome](../reference/data/models.md#enum-outcome) rolls up from the worst child outcome.
@@ -89,7 +89,7 @@ def test_output_voltage(vin, psu, dmm, verify):
     psu.set_voltage(vin)
     psu.enable_output()
     verify("output_voltage", dmm.measure_dc_voltage(),
-           limit={"low": 3.2, "high": 3.4, "units": "V"})
+           limit={"low": 3.2, "high": 3.4, "unit": "V"})
 ```
 
 The `vin` value lands in each measurement row's `in_vin` column (an example of the `in_*` [traceability](../how-to/execution/traceability.md) columns — every parametrized input lands in its own `in_<name>` column), so you can later query "how did output_voltage track vin?" without re-instrumenting the test. Sweeping from YAML instead of inline arrives in step 5.
@@ -113,11 +113,11 @@ Each `verify` or `measure` call records one measurement. Call them as many times
 ```python
 def test_power_analysis(psu, dmm, verify):
     verify("input_voltage",  psu.measure_voltage(),
-           limit={"low": 4.5, "high": 5.5, "units": "V"})
+           limit={"low": 4.5, "high": 5.5, "unit": "V"})
     verify("input_current",  psu.measure_current(),
-           limit={"high": 0.5, "units": "A"})
+           limit={"high": 0.5, "unit": "A"})
     verify("output_voltage", dmm.measure_dc_voltage(),
-           limit={"low": 3.2, "high": 3.4, "units": "V"})
+           limit={"low": 3.2, "high": 3.4, "unit": "V"})
 ```
 
 ## Streaming samples under one name
@@ -131,7 +131,7 @@ def test_stability(dmm, measure):
         measure(
             "voltage_sample",
             dmm.measure_dc_voltage(),
-            limit={"low": 3.2, "high": 3.4, "units": "V"},
+            limit={"low": 3.2, "high": 3.4, "unit": "V"},
             allow_repeat=True,
         )
         time.sleep(1)
@@ -160,7 +160,7 @@ Each measurement row carries:
 |--------|-------------|
 | `measurement_name` | name passed to `verify` / `measure` |
 | `measurement_value` | the measured value |
-| `measurement_units` | units (from `limit.units` or the explicit `units=` kwarg) |
+| `measurement_unit` | unit (from `limit.unit`) |
 | `measurement_outcome` | `passed` / `failed` / `skipped` / `errored` |
 | `limit_low`, `limit_high`, `limit_nominal`, `limit_comparator` | the active limit |
 | `measurement_timestamp` | when it was recorded |
@@ -170,7 +170,7 @@ Full schema in [Parquet storage schema](../reference/data/parquet-schema.md).
 
 ## What you learned
 
-- `measure(name, value, limit={"low": ..., "high": ..., "units": "V"})` records a measurement explicitly
+- `measure(name, value, limit={"low": ..., "high": ..., "unit": "V"})` records a measurement explicitly
 - `verify(name, value, limit=...)` does the same plus pass/fail + raise on FAIL
 - Pytest classes group related tests; methods run in source order
 - Parametrize works as it always does; values land in `in_*` columns

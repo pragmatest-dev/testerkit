@@ -14,22 +14,22 @@ Worked recipes for the recurring datasheet shapes you'll meet when authoring `ca
   channels: [input]
   signals:
     voltage:
-      range: {min: 0, max: 750, units: V}
+      range: {min: 0, max: 750, unit: V}
       accuracy: {pct_reading: 0.05, pct_range: 0.01}  # best-case default
       resolution: {digits: 6.5}
       bands:
         - when:
-            frequency: {min: 20, max: 100, units: Hz}
+            frequency: {min: 20, max: 100, unit: Hz}
           accuracy: {pct_reading: 0.1, pct_range: 0.02}
         - when:
-            frequency: {min: 100, max: 20000, units: Hz}
+            frequency: {min: 100, max: 20000, unit: Hz}
           accuracy: {pct_reading: 0.05, pct_range: 0.01}
         - when:
-            frequency: {min: 20000, max: 100000, units: Hz}
+            frequency: {min: 20000, max: 100000, unit: Hz}
           accuracy: {pct_reading: 0.2, pct_range: 0.05}
   conditions:
     frequency:
-      range: {min: 20, max: 100000, units: Hz}
+      range: {min: 20, max: 100000, unit: Hz}
 ```
 
 ## 2. Multi-row performance table → SpecBands (NEVER flat attributes)
@@ -49,19 +49,19 @@ Any table where a value varies by a condition MUST become SpecBands on a signal.
 # RIGHT — SpecBands on a signal:
   signals:
     reading_rate:
-      range: {min: 5.5, max: 28, units: readings/s}
+      range: {min: 5.5, max: 28, unit: readings/s}
       bands:
         - when:
             acquisition_mode: {min: 0, max: 0}
-            fundamental_frequency: {min: 20, max: 100, units: Hz}
+            fundamental_frequency: {min: 20, max: 100, unit: Hz}
           value: 14
         - when:
             acquisition_mode: {min: 0, max: 0}
-            fundamental_frequency: {min: 100, max: 1000, units: Hz}
+            fundamental_frequency: {min: 100, max: 1000, unit: Hz}
           value: 24
         - when:
             acquisition_mode: {min: 1, max: 1}
-            fundamental_frequency: {min: 400, max: 20000, units: Hz}
+            fundamental_frequency: {min: 400, max: 20000, unit: Hz}
           value: 6.6
   controls:
     acquisition_mode:
@@ -75,13 +75,13 @@ Same pattern applies to sweep time, settling time, or ANY table with rows:
 #   5 freqs: 0.2 s, 30 freqs: 1.1 s, 100 freqs: 3.5 s, 200 freqs: 6.9 s
 #
 # WRONG — flat attributes:
-#   sweep_time_5_freq: {value: 0.2, units: s}
-#   sweep_time_30_freq: {value: 1.1, units: s}
+#   sweep_time_5_freq: {value: 0.2, unit: s}
+#   sweep_time_30_freq: {value: 1.1, unit: s}
 #
 # RIGHT — SpecBands:
   signals:
     sweep_time:
-      range: {min: 0.2, max: 6.9, units: s}
+      range: {min: 0.2, max: 6.9, unit: s}
       bands:
         - when: {num_frequencies: {min: 5, max: 5}}
           value: 0.2
@@ -103,15 +103,15 @@ Same pattern applies to sweep time, settling time, or ANY table with rows:
 # These are alternate representations of the same fixed hardware floor.
 # Create BOTH as attributes:
 attributes:
-  residual_distortion_pct: {value: 0.004, units: pct}
-  residual_distortion_dB: {value: -87, units: dB}
+  residual_distortion_pct: {value: 0.004, unit: pct}
+  residual_distortion_dB: {value: -87, unit: dB}
 ```
 
-## 4. Accuracy with units different from signal
+## 4. Accuracy with unit different from signal
 
 ```yaml
 # When the datasheet specifies accuracy in DIFFERENT units than the signal range,
-# add `units:` to AccuracySpec. This applies to ANY measurement where accuracy
+# add `unit:` to AccuracySpec. This applies to ANY measurement where accuracy
 # is expressed in a different unit system than the signal itself.
 #
 # Common cases:
@@ -122,15 +122,15 @@ attributes:
 # Example: signal range in percent, accuracy specified as ±0.8 dB
 signals:
   distortion:
-    range: {min: 0, max: 100, units: pct}
-    accuracy: {absolute: 0.8, units: dB}
-    resolution: {value: 0.0001, units: pct}
+    range: {min: 0, max: 100, unit: pct}
+    accuracy: {absolute: 0.8, unit: dB}
+    resolution: {value: 0.0001, unit: pct}
 
 # Example: signal in watts, accuracy in dBm
 signals:
   power:
-    range: {min: 0, max: 10, units: W}
-    accuracy: {absolute: 0.5, units: dBm}
+    range: {min: 0, max: 10, unit: W}
+    accuracy: {absolute: 0.5, unit: dBm}
 ```
 
 ## 5. Use typed models — NEVER flatten structured values into attributes
@@ -143,7 +143,7 @@ The schema has typed models: `AccuracySpec`, `ResolutionSpec`, `RangeSpec`. If a
 #
 # WRONG — flat attribute:
 attributes:
-  frequency_accuracy_pct_reading: {value: 0.01, units: pct}
+  frequency_accuracy_pct_reading: {value: 0.01, unit: pct}
 #
 # RIGHT — if a frequency signal exists on this capability:
 signals:
@@ -153,7 +153,7 @@ signals:
 # RIGHT — if no frequency signal exists (subsystem spec), keep as attribute
 # but the name must NOT encode the accuracy type:
 attributes:
-  frequency_accuracy: {value: 0.01, units: pct_reading}
+  frequency_accuracy: {value: 0.01, unit: pct_reading}
 ```
 
 ```yaml
@@ -178,13 +178,13 @@ signals:
 # Schema: "Frequency range, bandwidth" → conditions.X.range
 #
 # WRONG — flat attributes:
-#   harmonic_frequency_min: {value: 40, units: Hz}
-#   harmonic_frequency_max: {value: 50000, units: Hz}
+#   harmonic_frequency_min: {value: 40, unit: Hz}
+#   harmonic_frequency_max: {value: 50000, unit: Hz}
 #
 # RIGHT — condition:
 conditions:
   harmonic_frequency:
-    range: {min: 40, max: 50000, units: Hz}
+    range: {min: 40, max: 50000, unit: Hz}
 ```
 
 ## 7. Shared controls — follow inventory "Applies To" EXACTLY
@@ -205,7 +205,7 @@ conditions:
   controls:
     range:
       options: [0.1, 1, 10, 100]
-      units: V
+      unit: V
     averaging_count:       # cap_A only per inventory
       range: {min: 1, max: 100}
 
@@ -213,7 +213,7 @@ conditions:
   controls:
     range:
       options: [0.1, 1, 10, 100]
-      units: V
+      unit: V
     filter_type:           # cap_B and cap_C only per inventory
       options: ["none", "lowpass", "highpass"]
 
@@ -221,7 +221,7 @@ conditions:
   controls:
     range:
       options: [0.1, 1, 10, 100]
-      units: V
+      unit: V
     filter_type:           # cap_B and cap_C only per inventory
       options: ["none", "lowpass", "highpass"]
 
@@ -237,13 +237,13 @@ conditions:
 # different capabilities on the same instrument can have different impedances.
 - function: thd
   attributes:
-    input_impedance: {value: 1000000, units: ohm}
-    input_capacitance: {value: 100, units: pF}
+    input_impedance: {value: 1000000, unit: ohm}
+    input_capacitance: {value: 100, unit: pF}
 
 - function: ac_voltage
   attributes:
-    input_impedance: {value: 1000000, units: ohm}  # repeated
-    input_capacitance: {value: 100, units: pF}      # repeated
+    input_impedance: {value: 1000000, unit: ohm}   # repeated
+    input_capacitance: {value: 100, unit: pF}       # repeated
 ```
 
 ## 9. Board-level vs capability-level attributes
@@ -255,14 +255,14 @@ conditions:
 # Board-level (catalog_entry.attributes) — use range for min/max, value for scalars:
 catalog_entry:
   attributes:
-    operating_temperature: {range: {min: 0, max: 55, units: degC}}
-    storage_temperature: {range: {min: -40, max: 71, units: degC}}
-    weight: {value: 157, units: g}
-    warmup_time: {value: 15, units: min}
+    operating_temperature: {range: {min: 0, max: 55, unit: degC}}
+    storage_temperature: {range: {min: -40, max: 71, unit: degC}}
+    weight: {value: 157, unit: g}
+    warmup_time: {value: 15, unit: min}
 #
 # WRONG — _min/_max suffix pairs:
-#   operating_temp_min: {value: 0, units: degC}
-#   operating_temp_max: {value: 55, units: degC}
+#   operating_temp_min: {value: 0, unit: degC}
+#   operating_temp_max: {value: 55, unit: degC}
 #
 # Capability-level (on each capability):
 #   input_impedance, input_capacitance, sample_rate, bandwidth
@@ -281,15 +281,15 @@ catalog_entry:
 #   10 MΩ range: 500 nA
 #
 # WRONG — name-encoded antipattern:
-#   test_current_100ohm: {value: 0.001, units: A}
-#   test_current_10kohm: {value: 0.0001, units: A}
-#   test_current_1mohm: {value: 0.000005, units: A}
+#   test_current_100ohm: {value: 0.001, unit: A}
+#   test_current_10kohm: {value: 0.0001, unit: A}
+#   test_current_1mohm: {value: 0.000005, unit: A}
 #
 # RIGHT — conditional attribute with bands:
 attributes:
   test_current:
     value: 0.001              # default / best-case
-    units: A
+    unit: A
     bands:
       - when: {range: 100}
         value: 0.001
@@ -317,7 +317,7 @@ accuracy: {absolute: 1.5}  # ±1.5 dB, 100 Hz–20 kHz
 accuracy: {absolute: 1.5}
 conditions:
   fundamental_frequency:
-    range: {min: 100, max: 20000, units: Hz}
+    range: {min: 100, max: 20000, unit: Hz}
 ```
 
 ## 12. Condition ranges must match the inventory
@@ -327,29 +327,29 @@ conditions:
 # WRONG:
 conditions:
   fundamental_frequency:
-    range: {min: 20, max: 20000, units: Hz}  # 20 Hz is wrong!
+    range: {min: 20, max: 20000, unit: Hz}   # 20 Hz is wrong!
 
 # RIGHT:
 conditions:
   fundamental_frequency:
-    range: {min: 100, max: 20000, units: Hz}  # matches inventory
+    range: {min: 100, max: 20000, unit: Hz}  # matches inventory
 ```
 
-## 13. Resolution — match signal units
+## 13. Resolution — match signal unit
 
 ```yaml
 # Inventory: "Resolution: 0.0001% or 0.00001 dB"
 # Signal uses dB → use dB form:
 signals:
   distortion:
-    range: {min: -120, max: 0, units: dB}
-    resolution: {value: 0.00001, units: dB}
+    range: {min: -120, max: 0, unit: dB}
+    resolution: {value: 0.00001, unit: dB}
 
 # Signal uses pct → use pct form:
 signals:
   distortion:
-    range: {min: 0, max: 100, units: pct}
-    resolution: {value: 0.0001, units: pct}
+    range: {min: 0, max: 100, unit: pct}
+    resolution: {value: 0.0001, unit: pct}
 ```
 
 ## 14. Redundant SpecBands — don't repeat top-level accuracy
@@ -365,7 +365,7 @@ signals:
     accuracy: {absolute: 0.8}
     bands:
       - when:
-          fundamental_frequency: {min: 20, max: 20000, units: Hz}
+          fundamental_frequency: {min: 20, max: 20000, unit: Hz}
         accuracy: {absolute: 0.8}  # same as top-level!
 
 # RIGHT — just use top-level, no SpecBand needed:

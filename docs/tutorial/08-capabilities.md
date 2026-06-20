@@ -48,12 +48,12 @@ characteristics:
   input_voltage:
     function: dc_voltage
     direction: input       # UUT needs input voltage
-    units: V
+    unit: V
 
   output_voltage:
     function: dc_voltage
     direction: output      # UUT outputs voltage
-    units: V
+    unit: V
 ```
 
 **Station provides capabilities:** (`catalog_ref` points at an entry in the instrument catalog — `catalog/*.yaml` — that declares this instrument model's full capability shape. See [reference/catalog-schema](../reference/catalog/schema.md).)
@@ -130,7 +130,7 @@ characteristics:
   output_voltage:
     function: dc_voltage
     direction: output
-    units: V
+    unit: V
     bands:
       - value: 3.3
         accuracy: {pct_reading: 5}
@@ -138,7 +138,7 @@ characteristics:
   output_current:
     function: dc_current
     direction: output
-    units: A
+    unit: A
     bands:
       - value: 0.5
         accuracy: {pct_reading: 10}

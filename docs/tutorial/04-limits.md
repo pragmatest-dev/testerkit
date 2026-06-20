@@ -15,7 +15,7 @@ limit = {
     "low": 3.135,    # Minimum acceptable value
     "high": 3.465,   # Maximum acceptable value
     "nominal": 3.3,  # Expected value (optional)
-    "units": "V",    # Unit of measure
+    "unit": "V",     # Unit of measure
 }
 ```
 
@@ -24,7 +24,7 @@ Both `verify(name, value, limit=...)` and `measure(name, value, limit=...)` acce
 ```python
 from litmus import Limit
 
-V_RAIL = Limit(low=3.135, high=3.465, units="V")
+V_RAIL = Limit(low=3.135, high=3.465, unit="V")
 ```
 
 The dict form is the canonical idiom in tutorials and examples; reach for `Limit(...)` when you want the model object.
@@ -54,7 +54,7 @@ def test_output_voltage(dmm, verify):
     verify(
         "output_voltage",
         dmm.measure_dc_voltage(),
-        limit={"low": 3.135, "high": 3.465, "units": "V"},
+        limit={"low": 3.135, "high": 3.465, "unit": "V"},
     )
 ```
 
@@ -68,7 +68,7 @@ Inline limits are fine for one-off tests. They clutter the test body when limits
 import pytest
 
 @pytest.mark.litmus_limits(
-    output_voltage={"low": 3.135, "high": 3.465, "units": "V"},
+    output_voltage={"low": 3.135, "high": 3.465, "unit": "V"},
 )
 def test_output_voltage(dmm, verify):
     verify("output_voltage", dmm.measure_dc_voltage())
@@ -82,13 +82,13 @@ By default, limits use `GELE` (greater-or-equal to low, less-or-equal to high): 
 
 ```python
 # Upper limit only
-limit = {"high": 1.0, "units": "A", "comparator": "LE"}     # value <= 1.0
+limit = {"high": 1.0, "unit": "A", "comparator": "LE"}      # value <= 1.0
 
 # Lower limit only
-limit = {"low": 0.0, "units": "V", "comparator": "GE"}      # value >= 0.0
+limit = {"low": 0.0, "unit": "V", "comparator": "GE"}       # value >= 0.0
 
 # Must equal nominal
-limit = {"nominal": 5.0, "units": "V", "comparator": "EQ"}
+limit = {"nominal": 5.0, "unit": "V", "comparator": "EQ"}
 ```
 
 Full list:
@@ -125,7 +125,7 @@ For [condition-indexed bands](../how-to/execution/limits.md#condition-indexed-ba
 
 ## What you learned
 
-- The limit dict — `low`, `high`, `nominal`, `units`, `comparator`
+- The limit dict — `low`, `high`, `nominal`, `unit`, `comparator`
 - Inline limits via `verify(..., limit={...})` or `measure(..., limit={...})`
 - The `litmus_limits` marker for class/function-level limit binding
 - The `Outcome` ladder and what each value means

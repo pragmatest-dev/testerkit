@@ -122,11 +122,11 @@ limits:
     low: 4.5
     high: 5.5
     nominal: 5.0
-    units: V
+    unit: V
   output_voltage:
     low: 3.135
     high: 3.465
-    units: V
+    unit: V
 
 mocks:
   - target: psu.measure_voltage
@@ -193,7 +193,7 @@ characteristics:
   output_voltage:
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VOUT]
     bands:
       - value: 3.3
@@ -293,7 +293,7 @@ table = pq.read_table("data/runs")                # recurses into date subdirs
 rows = table.to_pylist()
 # Filter to measurement rows (vs. step rows)
 for row in (r for r in rows if r["record_type"] == "measurement"):
-    print(f"{row['measurement_name']}: {row['measurement_value']} {row['measurement_units']}")
+    print(f"{row['measurement_name']}: {row['measurement_value']} {row['measurement_unit']}")
 ```
 
 ## Full Traceability

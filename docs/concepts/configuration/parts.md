@@ -26,7 +26,7 @@ characteristics:
   input_voltage:
     direction: input       # UUT receives this
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VIN]
     bands:
       - value: 5.0
@@ -36,7 +36,7 @@ characteristics:
   output_voltage:
     direction: output      # UUT provides this
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VOUT]
     bands:
       - value: 3.3
@@ -106,7 +106,7 @@ characteristics:
     pins: [VOUT]
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     bands:
       - value: 3.3
         accuracy:
@@ -116,7 +116,7 @@ characteristics:
     pins: [VOUT]           # Same pin, different measurement
     direction: output
     function: ac_voltage
-    units: mV
+    unit: mV
     bands:
       - value: 0
         accuracy:
@@ -132,7 +132,7 @@ characteristics:
   output_voltage:
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VOUT]
     bands:
       - when:
@@ -200,7 +200,7 @@ characteristics:
   output_voltage:
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VOUT]
     bands:
       - value: 5.0
@@ -235,7 +235,7 @@ characteristics:
   output_voltage:
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VOUT]
     bands:
       - value: 3.3

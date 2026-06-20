@@ -684,7 +684,7 @@ def test_meas_rows_split(tmp_path):
         f"INSERT INTO measurements_dynamic SELECT DISTINCT "
         f"'{escaped}' AS file_path, run_id, step_index, vector_index, vector_retry, "
         f"side, name, kind, value_int, value_double, value_bool, value_text, "
-        f"value_timestamp, value_json, unit FROM ({union_sql})"
+        f"value_timestamp, value_json, unit, uut_pin FROM ({union_sql})"
     )
 
     def _ms(sql: str) -> float:

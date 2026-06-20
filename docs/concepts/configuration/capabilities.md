@@ -39,7 +39,7 @@ capabilities:
     direction: input      # Instrument measures (receives signal)
     signals:
       voltage:
-        range: {min: 0.0001, max: 1000, units: V}
+        range: {min: 0.0001, max: 1000, unit: V}
         accuracy: {pct_reading: 0.0035, pct_range: 0.0006}
         resolution: {digits: 6.5}
 
@@ -47,13 +47,13 @@ capabilities:
     direction: input
     signals:
       current:
-        range: {min: 0.000001, max: 10, units: A}
+        range: {min: 0.000001, max: 10, unit: A}
 
   - function: resistance
     direction: input
     signals:
       resistance:
-        range: {min: 0.01, max: 100000000, units: Ohm}
+        range: {min: 0.01, max: 100000000, unit: Ohm}
 ```
 
 ### Example: Power Supply Capabilities
@@ -71,9 +71,9 @@ capabilities:
     direction: output     # Instrument sources (provides signal)
     signals:
       voltage:
-        range: {min: 0, max: 30, units: V}
+        range: {min: 0, max: 30, unit: V}
       current:
-        range: {min: 0, max: 5, units: A}
+        range: {min: 0, max: 5, unit: A}
     channels: ["1", "2"]  # References to top-level channel keys
 
   - function: dc_voltage
@@ -81,7 +81,7 @@ capabilities:
     readback: true        # Excluded from auto-matching
     signals:
       voltage:
-        range: {min: 0, max: 30, units: V}
+        range: {min: 0, max: 30, unit: V}
     channels: ["1", "2"]
 ```
 
@@ -264,21 +264,21 @@ Instrument accuracy often varies with operating conditions. A DMM's AC voltage a
 ```yaml
 signals:
   voltage:
-    range: {min: 0.1, max: 750, units: V}
+    range: {min: 0.1, max: 750, unit: V}
     accuracy: {pct_reading: 0.07, pct_range: 0.02}  # default
     bands:
       - when:
-          frequency: {min: 3, max: 5, units: Hz}
+          frequency: {min: 3, max: 5, unit: Hz}
         accuracy: {pct_reading: 0.35, pct_range: 0.03}
       - when:
-          frequency: {min: 5, max: 300, units: Hz}
+          frequency: {min: 5, max: 300, unit: Hz}
         accuracy: {pct_reading: 0.07, pct_range: 0.02}
       - when:
-          frequency: {min: 300, max: 300000, units: Hz}
+          frequency: {min: 300, max: 300000, unit: Hz}
         accuracy: {pct_reading: 0.14, pct_range: 0.05}
 conditions:
   frequency:
-    range: {min: 3, max: 300000, units: Hz}
+    range: {min: 3, max: 300000, unit: Hz}
 ```
 
 The `when:` keys reference the flat union of `signals`, `conditions`, and `controls` on the parent capability — any sibling dimension name is valid. Multiple keys are ANDed (all must match). When no band matches, the top-level accuracy/resolution applies as a default.
@@ -403,7 +403,7 @@ capabilities:
     direction: input
     signals:
       temperature:
-        range: {min: -200, max: 850, units: "°C"}
+        range: {min: -200, max: 850, unit: "°C"}
     channels: ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]
 ```
 
@@ -423,7 +423,7 @@ catalog_entry:
       direction: input             │  Capability
       signals:                     │  (shared base class)
         voltage:                   │
-          range: {min: 0, max: 1000, units: V}
+          range: {min: 0, max: 1000, unit: V}
           accuracy: {pct_reading: 0.0035}
           resolution: {digits: 6.5}
 
@@ -441,7 +441,7 @@ characteristics:
     signals:                       │
       voltage:                     │
         value: 3.3                 │
-        units: V                   │
+        unit: V                    │
     bands:                         │
       - when:                      │
           load: {min: 0, max: 1}   │

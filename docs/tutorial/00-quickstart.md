@@ -72,7 +72,7 @@ characteristics:
   output_voltage:
     function: dc_voltage
     direction: output
-    units: V
+    unit: V
     bands:
       - when: {temperature: 25}
         value: 3.3
@@ -149,7 +149,7 @@ class TestMyPart:
         verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-For measurements that don't come from the part spec, use `measure(name, value, limit={"low": ..., "high": ..., "units": "V"})` with inline limits or a sidecar `test_<module>.yaml`.
+For measurements that don't come from the part spec, use `measure(name, value, limit={"low": ..., "high": ..., "unit": "V"})` with inline limits or a sidecar `test_<module>.yaml`.
 
 ### Sidecar (`tests/test_my_part.yaml`)
 
@@ -162,7 +162,7 @@ limits:
     low: 3.234
     high: 3.366
     nominal: 3.3
-    units: V
+    unit: V
 tests:
   TestMyPart:
     sweeps:

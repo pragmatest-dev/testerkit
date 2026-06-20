@@ -187,7 +187,7 @@ litmus_project(action="save", type="part", id="tps54302", content={
         "output_voltage": {
             "function": "dc_voltage",
             "direction": "output",
-            "units": "V",
+            "unit": "V",
             "pin": "VOUT",
             "bands": [
                 {"when": {"temperature": 25, "load": 0.5},
@@ -201,7 +201,7 @@ litmus_project(action="save", type="part", id="tps54302", content={
         "quiescent_current": {
             "function": "dc_current",
             "direction": "input",
-            "units": "mA",
+            "unit": "mA",
             "pin": "VIN",
             "bands": [
                 {"when": {"temperature": 25, "load": 0},
@@ -222,8 +222,8 @@ The station YAML declares what instruments live on this bench and what `mock_con
 # Optionally, ask the matcher for compatible instruments first
 matches = litmus_match(
     requirements=[
-        {"function": "dc_voltage", "direction": "output", "range_max": 20, "units": "V"},
-        {"function": "dc_voltage", "direction": "input",  "range_max": 50, "units": "V"},
+        {"function": "dc_voltage", "direction": "output", "range_max": 20, "unit": "V"},
+        {"function": "dc_voltage", "direction": "input",  "range_max": 50, "unit": "V"},
     ],
     project=project,
 )
@@ -379,15 +379,15 @@ A sidecar `limits:` entry (or the kwargs to `@pytest.mark.litmus_limits`) is a `
 
 | Shape | Example | When |
 |---|---|---|
-| Direct | `{low: 3.2, high: 3.4, units: V}` | Static numeric limits |
-| Nominal + tolerance | `{nominal: 3.3, tolerance_pct: 5, units: V}` | Symmetric tolerance around a nominal |
+| Direct | `{low: 3.2, high: 3.4, unit: V}` | Static numeric limits |
+| Nominal + tolerance | `{nominal: 3.3, tolerance_pct: 5, unit: V}` | Symmetric tolerance around a nominal |
 | Characteristic delegation | `{characteristic: "output_voltage", tolerance_pct: 10}` | Pull nominal + accuracy from the part spec (resolves per-vector via SpecBand match). `characteristic:` is the **auto-derive trigger**; `spec_ref:` is a free-form annotation only — it does NOT look anything up. |
 | Bands | `{bands: [{when: {temperature: 25}, low: 3.2, high: 3.4}, ...]}` | Condition-dependent inline bands evaluated against the vector |
 | Comparator override | `{nominal: 5.0, comparator: EQ}` | Pick an ATML comparator (`EQ`/`NE`/`LT`/`LE`/`GT`/`GE`/`GELE`/`GELT`/`GTLE`/`GTLT`) |
 
 Most common for AI-driven tests: **characteristic delegation** (when there's a part spec) and **direct** (when there isn't). See [limits how-to](../execution/limits.md) for the full resolution chain.
 
-The plain `Limit` model (also in `test_config.py`) is what the resolver hands the runtime — it carries only the resolved `low / high / nominal / units / characteristic_id / spec_ref / comparator`. `tolerance_pct`, `bands:`, and `characteristic:` live on `MeasurementLimitConfig` (the sidecar/marker shape).
+The plain `Limit` model (also in `test_config.py`) is what the resolver hands the runtime — it carries only the resolved `low / high / nominal / unit / characteristic_id / spec_ref / comparator`. `tolerance_pct`, `bands:`, and `characteristic:` live on `MeasurementLimitConfig` (the sidecar/marker shape).
 
 ## Test code pattern
 

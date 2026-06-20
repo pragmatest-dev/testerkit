@@ -29,8 +29,8 @@ Pin a `Limit` per measurement name. Both `verify(name, value)` and `measure(name
 
 ```python
 @pytest.mark.litmus_limits(
-    output_voltage={"low": 3.135, "high": 3.465, "units": "V"},
-    output_current={"high": 0.5, "units": "A"},
+    output_voltage={"low": 3.135, "high": 3.465, "unit": "V"},
+    output_current={"high": 0.5, "unit": "A"},
 )
 def test_power_rail(dmm, psu, verify):
     verify("output_voltage", dmm.measure_dc_voltage())
@@ -41,11 +41,11 @@ def test_power_rail(dmm, psu, verify):
 
 ```yaml
 limits:
-  output_voltage: {low: 3.135, high: 3.465, units: V}
-  output_current: {high: 0.5, units: A}
+  output_voltage: {low: 3.135, high: 3.465, unit: V}
+  output_current: {high: 0.5, unit: A}
 ```
 
-**Full shape:** `low`, `high`, `nominal`, `units`, `comparator`, plus the alternative `characteristic:` / `tolerance_pct:` / `tolerance_abs:` derivation, and the `bands:` list for condition-indexed limits. See [`MeasurementLimitConfig`](../data/models.md) for the full schema and [Test limits](../../how-to/execution/limits.md#condition-indexed-bands) for the band semantics.
+**Full shape:** `low`, `high`, `nominal`, `unit`, `comparator`, plus the alternative `characteristic:` / `tolerance_pct:` / `tolerance_abs:` derivation, and the `bands:` list for condition-indexed limits. See [`MeasurementLimitConfig`](../data/models.md) for the full schema and [Test limits](../../how-to/execution/limits.md#condition-indexed-bands) for the band semantics.
 
 ---
 
@@ -214,8 +214,8 @@ Same vocabulary, three delivery channels:
 
 | Channel | Example |
 |---|---|
-| Inline decorator | `@pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "units": "V"})` |
-| Sidecar YAML (`tests/test_<module>.yaml`) | `limits: { output_voltage: { low: 3.135, high: 3.465, units: V } }` |
+| Inline decorator | `@pytest.mark.litmus_limits(output_voltage={"low": 3.135, "high": 3.465, "unit": "V"})` |
+| Sidecar YAML (`tests/test_<module>.yaml`) | `limits: { output_voltage: { low: 3.135, high: 3.465, unit: V } }` |
 | Profile YAML (`profiles/*.yaml`) | Same shape; applies session-wide via `--test-profile=<name>` |
 
 Resolution order (least → most specific): inline marker (class then method) → sidecar file-level → sidecar class/method → profile chain. Sidecar overrides inline because sidecar markers are applied after inline decorators and the resolver is last-wins. CLI flags (`-k`, `-m`, `--mock-instruments`, etc.) compose with this chain rather than overriding it wholesale. See [Test configuration](configuration.md#sidecar-yaml) for the full merge semantics.

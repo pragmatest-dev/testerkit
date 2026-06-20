@@ -69,7 +69,7 @@ run = client.start_run(
 )
 
 with run.step("output_voltage") as step:
-    step.measure("output_voltage", 3.31, units="V", low=3.135, high=3.465)
+    step.measure("output_voltage", 3.31, unit="V", low=3.135, high=3.465)
 
 run.finish()
 ```

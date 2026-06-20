@@ -95,7 +95,7 @@ limits:                        # applied to every test in the file
   voltage:
     low: 3.0
     high: 3.6
-    units: V
+    unit: V
 
 tests:
   test_power_rails:            # per-test overrides nested under tests:
@@ -103,7 +103,7 @@ tests:
       vcc:
         low: 3.2
         high: 3.4
-        units: V
+        unit: V
 ```
 
 Top-level keys must be [SidecarConfig fields](../../reference/configuration.md#sidecar-yaml) (`limits`, `sweeps`, `mocks`, `prompts`, `retry`, `connections`, `characteristics`, `tests`, `runner`). A test name at the YAML root fails validation because the model rejects unknown keys.
@@ -138,7 +138,7 @@ run = client.start_run(uut_serial="SN001", station_id="bench_1", test_phase="pro
 
 with run.step("voltage_check") as step:
     voltage = your_existing_measure_function()
-    step.measure("voltage", voltage, units="V", low=3.0, high=3.6)
+    step.measure("voltage", voltage, unit="V", low=3.0, high=3.6)
     assert 3.0 <= voltage <= 3.6   # your existing assertion stays
 
 run.finish()
@@ -166,11 +166,11 @@ harness = TestHarness(logger=logger)
 with harness.step("test_power_rails"):
     vcc = measure_vcc()
     vdd = measure_vdd()
-    harness.measure("vcc", vcc, limit=Limit(low=3.2, high=3.4, units="V"))
-    harness.measure("vdd", vdd, limit=Limit(low=1.7, high=1.9, units="V"))
+    harness.measure("vcc", vcc, limit=Limit(low=3.2, high=3.4, unit="V"))
+    harness.measure("vdd", vdd, limit=Limit(low=1.7, high=1.9, unit="V"))
 ```
 
-`TestHarness.measure()` takes `name`, `value`, optional `units`, `limit` (a `Limit` model — no `low=` / `high=` kwargs), `uut_pin`, `instrument_channel`, `fixture_connection`. When `limit=` is not passed, the harness resolves limits from its `limits=` / `config["limits"]` (whichever you provided at construction) and the active `part_context`; see [integration/harness.md → Recording measurements](harness.md#recording-measurements).
+`TestHarness.measure()` takes `name`, `value`, optional `unit`, `limit` (a `Limit` model — no `low=` / `high=` kwargs), `uut_pin`, `instrument_channel`, `fixture_connection`. When `limit=` is not passed, the harness resolves limits from its `limits=` / `config["limits"]` (whichever you provided at construction) and the active `part_context`; see [integration/harness.md → Recording measurements](harness.md#recording-measurements).
 
 - Pros: the most direct way to drive Litmus from non-pytest Python (Robot Framework, unittest, ad-hoc scripts).
 - Trade-off: don't construct `RunScope` at module-import time — it captures git state and the hostname for the `TestRun` record at construction, and you'd rather that snapshot happen at session start, not module load. Open the event log explicitly afterward (`logger.event_log = store.get_event_log(...)`) so it lines up with the session boundary. That work belongs in a session-start hook or `pytest_sessionstart`, not at import.
