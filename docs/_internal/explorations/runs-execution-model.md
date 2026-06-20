@@ -209,6 +209,34 @@ genuinely *per-pin OR all-pins*. **Query consequence:** a per-pin view must trea
 match — `WHERE uut_pin = :pin OR uut_pin IS NULL`, never bare equality — or the all-pins rows
 that legitimately apply to that pin get silently dropped.
 
+### `dynamic_attrs` MAP vs the EAV — two projections, not redundancy (KEEP, 2026-06-20)
+
+Investigated whether the inline `dynamic_attrs MAP(VARCHAR,VARCHAR)` on
+`measurements_materialized`/`steps_materialized` can be dropped in favour of pivoting the typed
+`measurements_dynamic` EAV (measure-first, #43). **Conclusion: KEEP — they are two projections for
+two access patterns, not a lossy duplicate.**
+
+- **MAP = row-wise, overlay-uniform, single-run.** `runs`/`steps`/`measurements` are UNION VIEWS
+  (`_runs_duckdb_daemon.py` `_create_views`, ~1451) splicing the `*_materialized` tables with
+  `overlay.inflight_*` (an attached in-memory DB fed by `AccumulatorPool`). The overlay carries the
+  MAP directly (`_accumulator_pool.py:357,417`; built in `_event_accumulator.snapshot_step_rows`
+  ~281/329). The two row-wise readers — `steps_query.py:171`, `run_store.py:215` — read the MAP off
+  the unified view, so they work identically for finalized AND in-flight runs in one columnar fetch,
+  no join.
+- **EAV = column-wise, cross-run.** `measurements_dynamic` is populated ONLY at parquet ingest
+  (`INSERT INTO measurements_dynamic` at ~1019 and ~1590) — there is **no inflight EAV tier** and it
+  is not in the UNION view chain. It serves the parametric/explore/cross-run dynamic-axis queries.
+- **Removal is blocked on correctness, not taste.** Pivoting the EAV from the row-wise readers would
+  return empty in_/out_ for every in-flight run (silent live-run data loss). Restoring that would mean
+  building a parallel in-memory EAV overlay fed by `AccumulatorPool` — equivalent scope to what the MAP
+  already does, plus a GROUP BY on every read.
+- **No perf incentive either.** Measured single materialized run (20 steps × 10 in_/out_ lanes):
+  MAP read+expand **541µs median**; equivalent EAV pivot+expand **905µs median** (~1.67× slower). The
+  MAP is pre-computed at ingest; the pivot pays an aggregate per read.
+
+So "why does the MAP exist / why keep it" = it is the live-uniform row-wise read path; the EAV is the
+cross-run analytical path. Neither is legacy.
+
 ## Why (the seam we found)
 
 Today outcome, retry, and conditions are all carried on the **measurement**
