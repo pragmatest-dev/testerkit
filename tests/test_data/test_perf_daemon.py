@@ -612,7 +612,7 @@ def test_ingest_phase_breakdown(tmp_path):
     conn.close()
 
 
-def _seed_phase_parquet(tmp_path, n_vec: int, n_meas: int) -> str:
+def _seed_phase_parquet(tmp_path, n_vec: int, n_meas: int, serial: str = "PHASE-001") -> str:
     from datetime import UTC, datetime
     from uuid import uuid4
 
@@ -625,7 +625,7 @@ def _seed_phase_parquet(tmp_path, n_vec: int, n_meas: int) -> str:
         id=uuid4(),
         started_at=t0d,
         ended_at=t1d,
-        uut=UUT(serial="PHASE-001"),
+        uut=UUT(serial=serial),
         part_id="phase",
         outcome=Outcome.PASSED,
         steps=[
@@ -703,3 +703,91 @@ def test_meas_rows_split(tmp_path):
     print(f"  fact insert (with MAP)     {withmap:7.1f} ms")
     print(f"  -> MAP build cost (delta)  {withmap - base:7.1f} ms")
     print(f"  EAV insert (meas_dynamic)  {eav_ms:7.1f} ms")
+
+
+def test_batch_io_refs_matches_per_file(tmp_path):
+    """The batched io+refs path must produce identical measurement_io_schema /
+    measurement_refs rows as the per-file path — catchup correctness guard for
+    the filename-as-file_path + PARTITION BY filename rewrite. Deterministic,
+    in-process (no daemon); runs in the normal suite."""
+    from litmus.data._runs_duckdb_daemon import (
+        _batch_index_io_and_refs,
+        _ensure_schema,
+        _index_io_and_refs,
+        _open_index,
+    )
+
+    paths = [
+        _seed_phase_parquet(tmp_path, n_vec=4, n_meas=2, serial=f"IOREF-{i}") for i in range(3)
+    ]
+
+    cb, _ = _open_index(tmp_path / "batch.duckdb")
+    _ensure_schema(cb)
+    _batch_index_io_and_refs(cb, paths)
+    io_b = cb.execute("SELECT * FROM measurement_io_schema ORDER BY ALL").fetchall()
+    refs_b = cb.execute("SELECT * FROM measurement_refs ORDER BY ALL").fetchall()
+    cb.close()
+
+    cp, _ = _open_index(tmp_path / "perfile.duckdb")
+    _ensure_schema(cp)
+    for p in paths:
+        _index_io_and_refs(cp, p)
+    io_p = cp.execute("SELECT * FROM measurement_io_schema ORDER BY ALL").fetchall()
+    refs_p = cp.execute("SELECT * FROM measurement_refs ORDER BY ALL").fetchall()
+    cp.close()
+
+    assert io_b == io_p
+    assert refs_b == refs_p
+
+
+@pytest.mark.benchmark(group="daemon-catchup")
+def test_catchup_throughput(tmp_path):
+    """Cold batch-ingest of a backlog of N on-disk parquets — the catchup path
+    (``_ingest_file_batch``) a daemon runs on startup/recovery. Fresh DB, no
+    daemon process. Run: -m benchmark -k catchup -s. Scale via
+    LITMUS_CATCHUP_RUNS / LITMUS_CATCHUP_VEC / LITMUS_CATCHUP_MEAS."""
+    import time as _t
+
+    from litmus.data._runs_duckdb_daemon import (
+        _batch_index_io_and_refs,
+        _batch_insert_measurement_rows,
+        _bulk_insert_measurements,
+        _bulk_insert_runs,
+        _bulk_insert_steps,
+        _ensure_schema,
+        _open_index,
+    )
+
+    n = int(os.environ.get("LITMUS_CATCHUP_RUNS", "50"))
+    n_vec = int(os.environ.get("LITMUS_CATCHUP_VEC", "10"))
+    n_meas = int(os.environ.get("LITMUS_CATCHUP_MEAS", "10"))
+    paths = [_seed_phase_parquet(tmp_path, n_vec, n_meas, serial=f"CU-{i:05d}") for i in range(n)]
+
+    conn, _ = _open_index(tmp_path / "idx.duckdb")
+    _ensure_schema(conn)
+
+    phases = [
+        ("runs", lambda: _bulk_insert_runs(conn, paths)),
+        ("steps", lambda: _bulk_insert_steps(conn, paths)),
+        ("measurement_stats", lambda: _bulk_insert_measurements(conn, paths)),
+        ("meas_rows (fact+EAV)", lambda: _batch_insert_measurement_rows(conn, paths)),
+        ("io+refs (batched)", lambda: _batch_index_io_and_refs(conn, paths)),
+    ]
+    conn.execute("BEGIN")
+    total = 0.0
+    print(f"\nCATCHUP: {n} files x {n_vec}x{n_meas} = {n * n_vec * n_meas} meas")
+    for label, fn in phases:
+        t = _t.perf_counter()
+        fn()
+        ms = (_t.perf_counter() - t) * 1000
+        total += ms
+        print(f"  {label:26s} {ms:7.1f} ms")
+    conn.execute("COMMIT")
+    res = conn.execute("SELECT COUNT(*) FROM measurements_materialized").fetchone()
+    rows = res[0] if res else 0
+    conn.close()
+    print(
+        f"  {'TOTAL':26s} {total:7.1f} ms  =  {n / (total / 1000):.1f} runs/s, "
+        f"{total / n:.1f} ms/run"
+    )
+    assert rows >= n * n_vec * n_meas * 0.9

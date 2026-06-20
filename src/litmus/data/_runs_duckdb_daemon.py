@@ -655,6 +655,57 @@ def _index_io_and_refs(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None
         return str(exc)
 
 
+def _batch_index_io_and_refs(conn: duckdb.DuckDBPyConnection, paths: list[str]) -> None:
+    """Batched io_schema + refs indexing — one ``read_parquet([...])`` for the
+    whole batch (``filename`` carries each row's file_path), instead of opening
+    each parquet per file. Same rows as ``_index_io_and_refs``; this is the
+    dominant catchup phase, so batching it is the big startup-drain win. The
+    caller already holds the batch transaction; per-file fallback handles a
+    corrupt file in the set.
+    """
+    if not paths:
+        return
+    src = f"read_parquet({_file_list_sql(paths)}, filename=true, union_by_name=true)"
+    try:
+        io_parts = [
+            f"SELECT DISTINCT filename, step_index, '{prefix}' || u.name AS column_name, "
+            f"'{category}' AS category "
+            f"FROM {src}, UNNEST({col}) AS t(u) "
+            f"WHERE u.name IS NOT NULL AND {_SIGNAL_PATH_SUFFIX_PRED}"
+            for col, prefix, category in _IO_SIDES
+        ]
+        conn.execute(f"""
+            INSERT INTO measurement_io_schema
+            SELECT filename AS file_path, step_index, column_name, category
+            FROM ({" UNION ALL ".join(io_parts)})
+        """)
+    except duckdb.Error as exc:
+        warnings.warn(f"Could not batch-index I/O schema: {exc}", stacklevel=2)
+
+    try:
+        conn.execute(f"""
+            INSERT INTO measurement_refs
+            SELECT filename AS file_path, step_index, measurement_name,
+                   col_name, row_idx, uri, channel_id, session_short, session_id
+            FROM (
+                SELECT filename, step_index, NULL AS measurement_name,
+                    'out_' || u.name AS col_name,
+                    (row_number() OVER (PARTITION BY filename)) - 1 AS row_idx,
+                    u.value_text AS uri,
+                    regexp_extract(u.value_text, 'channel://([^?]+)', 1) AS channel_id,
+                    regexp_extract(u.value_text, '[?&]session=([^&]+)', 1) AS session_id,
+                    left(regexp_extract(u.value_text, '[?&]session=([^&]+)', 1), 8)
+                        AS session_short
+                FROM {src}, UNNEST(outputs) AS t(u)
+                WHERE u.value_text IS NOT NULL
+                  AND u.value_text LIKE 'channel://%'
+                  AND regexp_extract(u.value_text, 'channel://([^?]+)', 1) != ''
+            )
+        """)
+    except duckdb.Error as exc:
+        warnings.warn(f"Could not batch-scan refs: {exc}", stacklevel=2)
+
+
 # ── Cascade delete when a parquet file vanishes ─────────────────────
 
 _INDEX_TABLES_BY_FILE_PATH = (
@@ -1322,10 +1373,7 @@ def _ingest_file_batch(
         _bulk_insert_steps(conn, paths)
         _bulk_insert_measurements(conn, paths)
         _batch_insert_measurement_rows(conn, paths)
-        for fkey in paths:
-            io_error = _index_io_and_refs(conn, fkey)
-            if io_error:
-                warnings.warn(f"io/refs indexing partial for {fkey}: {io_error}", stacklevel=2)
+        _batch_index_io_and_refs(conn, paths)
         for path_str, _mtime, _size, stat in batch:
             _mark_ingested(conn, path_str, stat, "ok", None)
         conn.execute("COMMIT")
