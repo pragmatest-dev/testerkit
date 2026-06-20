@@ -5,9 +5,14 @@ metadata denormalized for easy querying with DuckDB, Spark, Polars, etc.
 
 Directory structure:
     results/runs/{date}/
-    ├── {timestamp}_{serial}.parquet     # With serial (production)
-    ├── {timestamp}.parquet              # Without serial (dev/debug)
-    └── {timestamp}_{serial}_ref/        # Reference data (waveforms, images)
+    ├── {timestamp}_{run_id8}_{serial}.parquet   # With serial (production)
+    ├── {timestamp}_{run_id8}.parquet            # Without serial (dev/debug)
+    └── {timestamp}_{run_id8}_{serial}_ref/      # Reference data (waveforms, images)
+
+The run_id (8-char prefix) sits in a fixed position right after the
+timestamp so the optional serial can trail without shifting it; it
+disambiguates two runs of the same serial that start in the same second
+(otherwise the second would silently overwrite the first).
 
 All timestamps are UTC for consistent cross-timezone analysis.
 
@@ -81,6 +86,22 @@ _STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_uut_pin", "_fixt
 # Outcome priority for deterministic worst-case selection from a set.
 # Lower rank = worse outcome. Ties (same rank) pick the same "worst" value.
 OUTCOME_RANK: dict[str, int] = {"failed": 0, "errored": 1, "skipped": 2, "passed": 3}
+
+
+def _run_parquet_filename(timestamp: str, run_id: str, serial: str) -> str:
+    """Per-run parquet filename: ``{timestamp}_{run_id8}[_{serial}]``.
+
+    The 8-char run_id sits in a fixed position right after the timestamp; the
+    optional serial trails so its absence never shifts the leading parts. The
+    run_id prefix disambiguates two runs of the same serial that start in the
+    same second — without it the second would silently overwrite the first.
+    """
+    parts = [timestamp]
+    if run_id:
+        parts.append(run_id[:8])
+    if serial:
+        parts.append(serial)
+    return "_".join(parts) + ".parquet"
 
 
 def _is_stimulus_key(name: str) -> bool:
@@ -216,11 +237,10 @@ class ParquetBackend:
         date_dir = self._runs_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
-        # Filename: timestamp first, serial if present
-        if uut_serial:
-            filename = f"{timestamp}_{uut_serial}.parquet"
-        else:
-            filename = f"{timestamp}.parquet"
+        # timestamp, then run_id (always present, fixed position), then the
+        # optional serial last — so serial's absence never shifts the leading
+        # parts and the run_id breaks same-second same-serial collisions.
+        filename = _run_parquet_filename(timestamp, str(test_run.id), uut_serial)
 
         # Determine parquet path for _ref/ directory creation
         parquet_path = date_dir / filename
@@ -499,6 +519,7 @@ class ParquetBackend:
         rows: list[dict[str, Any]],
         started_at: datetime,
         uut_serial: str,
+        run_id: str,
         file_metadata: dict[bytes, bytes] | None = None,
     ) -> Path:
         """Save pre-built flat row dicts to Parquet.
@@ -516,10 +537,7 @@ class ParquetBackend:
         date_dir = self._runs_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
-        if uut_serial:
-            filename = f"{timestamp}_{uut_serial}.parquet"
-        else:
-            filename = f"{timestamp}.parquet"
+        filename = _run_parquet_filename(timestamp, run_id, uut_serial)
 
         parquet_path = date_dir / filename
 
@@ -698,6 +716,7 @@ def materialize_run_to_parquet(
         rows,
         started_at=s.occurred_at,
         uut_serial=s.uut_serial,
+        run_id=str(s.run_id) if s.run_id else "",
         file_metadata=_build_file_metadata_from_acc(acc),
     )
 

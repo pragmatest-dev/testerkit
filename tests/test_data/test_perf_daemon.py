@@ -718,7 +718,10 @@ def test_batch_io_refs_matches_per_file(tmp_path):
     )
 
     paths = [
-        _seed_phase_parquet(tmp_path, n_vec=4, n_meas=2, serial=f"IOREF-{i}") for i in range(3)
+        # Same serial on purpose — distinct files come from the run_id in the
+        # filename, so this also guards that the run_id keeps them apart.
+        _seed_phase_parquet(tmp_path, n_vec=4, n_meas=2)
+        for _ in range(3)
     ]
 
     cb, _ = _open_index(tmp_path / "batch.duckdb")
@@ -761,7 +764,8 @@ def test_catchup_throughput(tmp_path):
     n = int(os.environ.get("LITMUS_CATCHUP_RUNS", "50"))
     n_vec = int(os.environ.get("LITMUS_CATCHUP_VEC", "10"))
     n_meas = int(os.environ.get("LITMUS_CATCHUP_MEAS", "10"))
-    paths = [_seed_phase_parquet(tmp_path, n_vec, n_meas, serial=f"CU-{i:05d}") for i in range(n)]
+    # Same serial — distinct files come from the run_id in the filename.
+    paths = [_seed_phase_parquet(tmp_path, n_vec, n_meas) for _ in range(n)]
 
     conn, _ = _open_index(tmp_path / "idx.duckdb")
     _ensure_schema(conn)
