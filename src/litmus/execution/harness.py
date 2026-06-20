@@ -366,6 +366,9 @@ class Context:
             # sampled_at; attributes → channel descriptor attributes.
             if isinstance(value, Waveform):
                 if self._channel_store is not None:
+                    resolved_unit = (
+                        unit if unit is not None else (value.attributes or {}).get("unit")
+                    )
                     uri = self._channel_store.write(
                         full_key,
                         value.Y,
@@ -374,7 +377,9 @@ class Context:
                         attributes=value.attributes or None,
                         source="observe",
                         run_id=self._current_run_id(),
+                        unit=resolved_unit,
                     )
+                    self._default_lane_unit_from_channel(full_key)
                     self._stamp_observation(full_key, uri)
                     return
                 # No channel store wired (bare Context test): fall through
@@ -396,8 +401,9 @@ class Context:
                         "block that wires the ChannelStore ContextVar."
                     )
                 uri = self._channel_store.write(
-                    full_key, value, source="observe", run_id=self._current_run_id()
+                    full_key, value, source="observe", run_id=self._current_run_id(), unit=unit
                 )
+                self._default_lane_unit_from_channel(full_key)
                 self._stamp_observation(full_key, uri)
                 return
             if vtype == "blob":
@@ -425,6 +431,20 @@ class Context:
                 return
 
         self._stamp_observation(full_key, value)
+
+    def _default_lane_unit_from_channel(self, key: str) -> None:
+        """Default an observation's lane unit from the channel it routed to.
+
+        Only fills when the author passed no explicit ``unit=`` — the channel
+        descriptor is the single source of truth (set on first write, immutable
+        per session), so ``out_<name>`` carries the channel's unit without the
+        author re-typing it.
+        """
+        if self._observation_units.get(key) is not None or self._channel_store is None:
+            return
+        ch_unit = self._channel_store.channel_unit(key)
+        if ch_unit is not None:
+            self._observation_units[key] = ch_unit
 
     def _stamp_observation(self, key: str, value: Any) -> None:
         """Persist an observation to ``_observations`` AND mirror to the active vector.

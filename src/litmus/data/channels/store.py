@@ -325,6 +325,16 @@ class ChannelStore:
             return SCALAR_SCHEMA
         return None
 
+    def channel_unit(self, channel_id: str) -> str | None:
+        """Return the registered engineering unit for a channel, or None.
+
+        Plain in-memory read over the registry descriptor — no I/O, no daemon.
+        Lets ``observe`` default an observation's lane unit from the channel it
+        routed to.
+        """
+        desc = self._registry.get(channel_id)
+        return desc.unit if desc is not None else None
+
     def _ensure_writer(
         self,
         channel_id: str,

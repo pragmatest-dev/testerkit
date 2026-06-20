@@ -221,3 +221,39 @@ class TestVerifyMeasureUnit:
     def test_measure_unit_sets_measurement_unit(self, session: Any) -> None:
         m = session.ctx.measure("temp", 24.8, unit="degC")
         assert m.unit == "degC"
+
+
+# --------------------------------------------------------------------- #
+# observe unit= unifies with the channel (#45) — fail-loud like stream   #
+# --------------------------------------------------------------------- #
+
+
+class TestObserveChannelUnit:
+    """A channel-routed ``observe`` unifies its unit with the channel: the
+    unit lands on the channel descriptor (set-once, immutable per session)
+    and the observation lane defaults FROM the channel when unit= is omitted.
+    A contradicting unit fails loud, same as ``stream``.
+    """
+
+    def test_observe_unit_lands_on_channel_and_lane(self, session: Any) -> None:
+        session.ctx.observe("scope.v", Waveform(Y=[1.0, 2.0, 3.0], dt=0.001), unit="V")
+        assert session.channel_store.channel_unit("scope.v") == "V"
+        assert session.ctx._observation_units["scope.v"] == "V"
+
+    def test_observe_unit_from_waveform_attributes(self, session: Any) -> None:
+        wf = Waveform(Y=[1.0, 2.0], dt=0.001, attributes={"unit": "A"})
+        session.ctx.observe("scope.i", wf)  # no explicit unit → attributes win
+        assert session.channel_store.channel_unit("scope.i") == "A"
+        assert session.ctx._observation_units["scope.i"] == "A"
+
+    def test_observe_lane_defaults_from_existing_channel_unit(self, session: Any) -> None:
+        # Channel unit set via stream (sets the channel, not a lane); array
+        # sample so the type matches the subsequent Waveform observe.
+        session.ctx.stream("scope.temp", [24.0, 24.1], unit="degC")
+        session.ctx.observe("scope.temp", Waveform(Y=[24.2, 24.3], dt=0.001))  # no unit
+        assert session.ctx._observation_units["scope.temp"] == "degC"
+
+    def test_observe_contradicting_unit_raises(self, session: Any) -> None:
+        session.ctx.observe("scope.x", Waveform(Y=[1.0], dt=0.001), unit="V")
+        with pytest.raises(ValueError, match="unit"):
+            session.ctx.observe("scope.x", Waveform(Y=[2.0], dt=0.001), unit="A")
