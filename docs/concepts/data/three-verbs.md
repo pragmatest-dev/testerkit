@@ -44,6 +44,17 @@ Litmus exposes the data-write surface at two layers. Pick the layer that matches
 
 The test-author verbs are built ON TOP OF the store-direct verbs. `observe` internally calls `channels.write` or `files.write` based on value shape. What `observe` adds is **test-context bookkeeping**: stamping `out_<name>` on the vector, emitting an `Observation` event, handling URI latching. None of that makes sense outside a test, so the store-direct surface skips it.
 
+**`stream` does not auto-associate with the vector.** Only `observe` stamps `out_<name>`. A `stream` (channel or file) writes to its store but does *not* land on the vector's `outputs` — so to contextualize a streamed channel/file on a measurement, pass its sink (or URI) to `observe`:
+
+```python
+with channels.stream("scope.cap") as sink:
+    for s in samples:
+        sink.write(s)
+    observe("scope.cap", sink)   # ← stamps out_scope_cap = channel://… on the vector
+```
+
+(Auto-stamping a stream's URI onto the vector on open is a deferred enhancement — see ROADMAP; for now the association is the explicit `observe(sink)`.)
+
 Practical guidance:
 
 - **In a pytest test**: always use `verify` / `observe` / `stream`. They handle vector context for you.

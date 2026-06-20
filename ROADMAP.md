@@ -130,6 +130,14 @@ and physical-channel-id (open design forks)._
   place). Use case: transient interactive UI streams purely for data exchange,
   unaffiliated with run IDs. More important for channels than files. Build on the
   existing live-fan-out abstraction (live = push frames), not a bespoke side path.
+- **Auto-associate a stream with the vector (`stream` → `out_<name>`).** Today only
+  `observe` stamps the vector's `outputs`; a `stream` opened in a vector scope must be
+  manually `observe(sink)`-d to contextualize. Could auto-stamp `out_<name> = channel://|file://`
+  once on stream open (URI is stable; no per-sample churn), unifying `stream` with `observe`.
+  Discuss-first (see task notes): the lifecycle/checkpoint events carry `run_id`+`uri` but
+  NO step/vector coords (would need time-correlation or new fields); open questions —
+  multiple streams per vector iteration, async/external streams not in the vector's scope,
+  and name collision with an explicit `observe`. Punted from 0.2.0; add later if needed.
 ### Channels — write-path & relay performance
 
 Source: `docs/_internal/explorations/channels-write-scaling.md`,
