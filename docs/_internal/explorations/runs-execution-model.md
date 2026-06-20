@@ -182,12 +182,32 @@ deliberately excludes `*_uut_pin` as traceability, not an axis). So #39 forks:
 - **Traceability-only** — pin rides the lane's `uut_pin` field; **no EAV schema change**;
   consistent with "pin is not a dynamic axis"; but observation-pin is not
   filterable/groupable in the dynamic-axis path.
-- **Queryable** — add `uut_pin` to the EAV (+ likely the MAP); real schema growth, and it
-  makes pin look like a dynamic axis (tensions with pin-as-leaf-attribute).
+- **Queryable** — add `uut_pin` to the EAV; cheap (the lanes already carry it at-rest, so
+  it's projection-only; additive column; the pre-release index rebuild is free).
 
-**Status: UNRESOLVED — decide before implementing #39.** Lean: traceability-only, to keep
-the EAV a pure shared-vector-grained condition store; revisit if a real need to
-parametric-query observations by pin appears.
+**Resolved (2026-06-20): queryable, via an EAV `uut_pin` column.** No strong reason against,
+and it's cheap because the lane is a **shaped record** — `name, kind, value_int/double/bool/
+text/timestamp/json, unit` — and **`unit` is the precedent**. `uut_pin` is just one more field
+on that shape, taking the *identical* path `unit` already took: at-rest lane → `_LANE_SELECT`
+→ EAV column (+ insert SELECT). The at-rest lanes already carry `uut_pin`; `_LANE_SELECT` only
+drops it today. Keep it a **filter column, NOT a dynamic axis** — the catalog already excludes
+`*_uut_pin`, so pin stays *indexed traceability*, not a condition.
+
+The `dynamic_attrs` MAP is a **separate, lossy `VARCHAR→VARCHAR` collapse** (`_LANE_VALUE_VARCHAR`
+flattens the typed value to one string) — it **already drops `unit`**, and the row-wise consumers
+(`steps_query`/`run_store`) read name→value and don't need it. So pin doesn't belong in the MAP
+any more than `unit` does; there's no MAP "rework" to defer — the MAP simply isn't pin's home,
+the shaped EAV is.
+
+Watch the DISTINCT grain (NULL-pin conditions stay one row) and byte-stable output (filter-only;
+don't surface the column in existing query outputs).
+
+**`uut_pin = NULL` means "applies to ALL pins", not "unknown".** A capture taken outside a
+connection loop — e.g. one multi-channel file covering every channel at once — is pinless by
+nature; its measurements carry `uut_pin = NULL` meaning board-/all-pins scope. The field is
+genuinely *per-pin OR all-pins*. **Query consequence:** a per-pin view must treat NULL as a
+match — `WHERE uut_pin = :pin OR uut_pin IS NULL`, never bare equality — or the all-pins rows
+that legitimately apply to that pin get silently dropped.
 
 ## Why (the seam we found)
 
