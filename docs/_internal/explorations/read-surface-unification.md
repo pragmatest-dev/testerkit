@@ -1,135 +1,96 @@
-# Read-surface unification — one consistent way to query each resource
+# Store + Query interface consistency
 
-**Status:** PROPOSAL, 2026-06-21. Needs a design decision before any build. Supersedes the
-narrow framing of task #3 ("add Channel/File/Event `*Query` classes") with the broader
-question it's really pointing at. Nothing here is built.
+**Status:** PROPOSAL, 2026-06-21 (reframed). Two *internal* consistency passes — NOT adding
+classes, NOT collapsing layers. Needs a decision before any build. Nothing here is built.
 
 ---
 
-## 1. The problem, precisely
+## 1. The model (settled)
 
-Litmus has seven read-able resources. The way you read each one is **inconsistent on three
-tiers**:
+Two distinct layers, each correct as-is; they are **not** meant to be 1:1:
 
-| Resource | Analytical `*Query` | `*Store` | In public `litmus.queries`? | How you read it today |
+- **`*Query` = a specific entity / analytical band.** `RunsQuery`, `StepsQuery`,
+  `MeasurementsQuery` help you ask *questions within a grain* (aggregations, cross-row reads
+  over the DuckDB daemon). The existing three are right. You do **not** add a `*Query` per
+  storage type.
+- **`*Store` = all the stored data of one kind.** `RunStore`, `EventStore`, `ChannelStore`,
+  `FileStore` are the persistence layer (write + read + lifecycle for that data). The four
+  are right.
+
+Consequences (corrections to earlier framing):
+- **No `ChannelQuery`/`FileQuery`/`EventQuery`** — those are storage kinds, not analytical
+  entity-bands. A query there was a category error.
+- **`RunStore` vs `RunsQuery` is NOT a duplication to collapse** — they're correctly
+  *different layers* (storage access vs analytical band). The overlap on `list`/`get` is
+  fine; they serve different purposes.
+
+So the only real work is two consistency passes, each *within* a layer.
+
+## 2. Pass A — Store interface consistency
+
+The four stores grew separately; their interfaces diverge on construction + lifecycle (not on
+*what* they store, which legitimately differs):
+
+| | ctor arg | singleton | open | close |
 |---|---|---|---|---|
-| Run | `RunsQuery` | `RunStore` | `RunsQuery` | **two paths** (daemon *and* file) |
-| Step | `StepsQuery` | — (in run parquet) | `StepsQuery` | `StepsQuery` (daemon) |
-| Measurement | `MeasurementsQuery` | — (in run parquet) | `MeasurementsQuery` | `MeasurementsQuery` (daemon) |
-| Event | — | `EventStore` | **`EventStore`** | a *Store* re-exported as a "query peer" |
-| File | — | `FileStore` | ❌ | reach into `FileStore` directly |
-| Channel | — | `ChannelStore` | ❌ | reach into `ChannelStore` directly |
+| `RunStore` | `_data_dir` | — | — | `close() -> None` |
+| `EventStore` | `_data_dir` | `get_shared()` | — | `close() -> None` |
+| `ChannelStore` | (complex multi-arg) | — | `open()` | `close() -> int` |
+| `FileStore` | `data_dir` | — | — | (none) |
 
-Two distinct smells fall out:
+Inconsistencies: ctor arg name (`_data_dir` vs `data_dir` vs multi-arg); `get_shared` only on
+Event; `open()` only on Channel; `close()` returns `int` on Channel, `None`/absent elsewhere;
+no shared base/Protocol. Read-method naming also differs per store (`get_run`/`list_runs` vs
+`events`/`sessions` vs `list_channel_info`/`query` vs `read`/`read_range`).
 
-1. **Channel / File / Event have no `*Query`.** Events get re-exported from `litmus.queries`
-   as a bare `*Store` (the "odd one out" the module docstring admits); Channels and Files
-   aren't on the public query surface at all — callers reach into the stores.
-2. **Run has *two* read surfaces that overlap and even disagree on return type.**
-   `RunStore.get_run → RunSummary` (reads parquet files directly); `RunsQuery.get → RunRow`
-   (reads the DuckDB daemon over Flight). Same data, two code paths, two shapes.
+**Target:** a consistent store contract — uniform ctor (`data_dir` resolution), uniform
+lifecycle (decide one: context-manager vs explicit `close`; whether `get_shared` is the norm
+or the exception), a shared `Store` Protocol/base for the common shape, and a naming
+convention for read methods. Behavior unchanged — interface alignment only.
 
-## 2. The key distinction (why this isn't just "add three classes")
+## 3. Pass B — Query interface consistency / purpose
 
-The existing `*Query` classes are **not thin wrappers** — they're a genuine **DuckDB-daemon
-analytical layer**: aggregation and cross-row queries (`failure_pareto`, `count_by_outcome`,
-`usage_stats`, `cpk`, `parametric`, yield) over the parquet that the stores write. That layer
-earns its existence for Runs/Steps/Measurements.
+The three `*Query` classes share lifecycle (`__init__(*, _data_dir=)`, `close`, `__enter__` —
+already consistent ✓) but drift on naming + return shape:
 
-Channel / File / Event are **different in kind**:
-- `ChannelStore` already has `query()` / `query_registry()` over its **own** Flight daemon — a
-  `ChannelQuery` would mostly re-expose those.
-- `FileStore` is blob storage (`read`/`read_range`/`size`/`read_attributes`) — no analytical
-  layer exists or is wanted; a `FileQuery` is a pure facade.
-- `EventStore` already *is* the read API (`events()`/`sessions()`) — an `EventQuery` adds
-  almost nothing.
+- "list" naming: `RunsQuery.list_recent` vs `StepsQuery.list_for_run` / `list_for_session` vs
+  `RunsQuery.find_for_session` — "list" vs "find", `_recent` vs `_for_X`.
+- `MeasurementsQuery.pareto` vs `RunsQuery`/`StepsQuery`.`failure_pareto` — same operation,
+  two names.
+- `RunsQuery.distinct_filter_values` vs `MeasurementsQuery.distinct_values`.
+- `describe_columns` → `list[dict]` on Runs/Steps but typed **`ColumnSchema`** on Measurements
+  (the typed model, added in the role redesign, is the better target — align the other two up
+  to it).
 
-So the honest finding: **Channel/File/Event don't need an analytical query layer.** What's
-inconsistent is not "they lack aggregation" — it's "there's no uniform *entry point* and
-*shape* for reading a resource." The fix is about the **public surface and naming**, not new
-analytical machinery.
+**Target:** a consistent query vocabulary — one verb for "list by run/session" (`list_for_*`),
+one name for the pareto/distinct/describe operations, and `describe_columns -> ColumnSchema`
+everywhere. Purpose stays "analytical reads over the daemon for entity X"; only the surface
+aligns. Behavior unchanged.
 
-## 3. What "consistent" should mean
+## 4. Backend-portability guardrail (unchanged by this)
 
-The resource-centric principle (already followed by the MCP layer: `litmus_runs` /
-`litmus_steps` / `litmus_events` / `litmus_channels` / `litmus_files`) says: **one obvious
-read entry point per resource, reachable from one place.** Today `litmus.queries` is that
-place for Runs/Steps/Measurements (+ a re-exported EventStore), but Channels/Files are
-missing and Events are shaped differently.
+The `*Query` classes embed raw DuckDB-dialect SQL (`_YIELD_SQL`/`_PARETO_SQL`/…); mostly
+Postgres-compatible (`DISTINCT ON`/`DATE_TRUNC`/`FILTER (WHERE)`/`STDDEV_SAMP`/`::casts`), a
+couple need a dialect swap (`QUANTILE_CONT`, `EPOCH()`). The engine-specific machinery
+(`MAP`/`UNNEST`/`read_parquet`) is in the daemon projection layer. A backend swap =
+re-implement the projection + substitute those few functions; the EAV schema and the `*Query`
+*public API* (and all consumers) stay unchanged (see
+[`query-by-role-name.md`](query-by-role-name.md) §9). **Guardrail:** keep DuckDB SQL contained
+behind the engine-neutral `*Query` public surface — these consistency passes are interface
+alignment and must not leak dialect/types through the API.
 
-Two things are worth separating:
-- **(a) Analytical reads** (aggregate, cross-row) — a real capability that only
-  Runs/Steps/Measurements have and need. Keep as `*Query`.
-- **(b) Resource access** (list/get/read one resource's data) — every resource needs this; the
-  stores already provide it.
+## 5. Open decisions (yours)
 
-The inconsistency is that (a) and (b) are conflated in the public surface: `litmus.queries`
-mixes analytical clients (`RunsQuery`) with a raw store (`EventStore`), and omits two
-resources entirely.
+1. **Lifecycle convention for stores** — context-manager (like the `*Query` classes) or
+   explicit `open`/`close`? Is `get_shared` (process-shared singleton) the norm or an
+   Event-specific exception? This is the load-bearing store decision.
+2. **Naming convention** — `list_for_*` for both layers? `pareto` vs `failure_pareto`? a
+   single `distinct_values` name?
+3. **`describe_columns -> ColumnSchema`** on `RunsQuery`/`StepsQuery` too (align up)?
+4. **Pre-1.0 rename freedom** — both passes are pure renames/signature alignment with no
+   users, so they're cheap now and breaking later. Do both now, or park?
 
-## 4. Options
+## 6. Scope guard
 
-### Option A — Minimal: make `litmus.queries` a consistent, documented entry point (no new classes)
-Re-export the read surfaces uniformly and document the two categories. Add `ChannelStore` /
-`FileStore` (read methods) to `litmus.queries` alongside the analytical `*Query` classes,
-with the module docstring stating plainly: "*Query = analytical (daemon); *Store = direct
-resource access." EventStore stays (already there).
-- **Pros:** smallest change, no indirection, honest about the two categories.
-- **Cons:** the surface still mixes `Query` and `Store` names; doesn't resolve the Run double-read.
-
-### Option B — Full facades: `ChannelQuery` / `FileQuery` / `EventQuery` (the original #3)
-Thin read-only facades over each store; demote the `EventStore` re-export to `EventQuery`.
-Uniform `*Query` naming everywhere.
-- **Pros:** uniform naming; one mental model ("import a `*Query` for any resource").
-- **Cons:** three facades that mostly forward to already-clean stores — indirection for
-  cosmetic uniformity. Doesn't touch the Run double-read.
-
-### Option C — Also consolidate the Run double-read
-On top of A or B: pick ONE run-read surface. Either `RunsQuery` becomes the single public run
-reader (and `RunStore` is explicitly the *backend-internal* file layer the `ParquetBackend`
-owns — not public), or unify the return types (`RunSummary` vs `RunRow`).
-- **Pros:** removes the genuine duplication + shape disagreement.
-- **Cons:** `RunStore` and `RunsQuery` serve different *architectural layers* (backend file
-  I/O for the save/load + reports path, vs the daemon analytical/UI path) — the split is
-  partly justified; collapsing it may couple the backend to the daemon. Needs care.
-
-## 5. Recommendation
-
-**A + C-lite, skip B.** Concretely:
-- **Don't build the three thin facades** (B) — they add indirection without function.
-  Channel/File/Event reads stay on their stores.
-- **Make `litmus.queries` the one consistent, documented entry point** (A): expose every
-  resource's read path there with a docstring that names the two categories (analytical
-  `*Query` vs direct `*Store`), so there are no "missing" or "reach-in" resources.
-- **Clarify the Run split** (C-lite, not full C): document `RunStore` as the
-  backend-internal file layer and `RunsQuery` as the public analytical reader; reconcile the
-  `RunSummary`/`RunRow` shapes if cheap, but do **not** force-collapse the two layers.
-
-This treats the real problem (inconsistent *public surface*) without manufacturing analytical
-classes for resources that have nothing to aggregate.
-
-## 6. Open decisions (yours)
-
-1. **A, B, or C?** (My lean: A + C-lite.)
-2. If facades are wanted (B): exact curated read-method set per `*Query`, and lifecycle — the
-   `*Query` classes are Flight-connection context managers, but `EventStore` is a
-   process-shared singleton; an `EventQuery` would have to reconcile that.
-3. Run double-read: leave as-is (documented), reconcile shapes, or fully consolidate?
-4. Priority: this is pure consistency — nothing is blocked. Worth doing now, or park it?
-
-## 7. Backend-portability guardrail
-
-The `*Query` classes embed raw DuckDB-dialect SQL (`_YIELD_SQL`/`_PARETO_SQL`/`_CPK_SQL`/…).
-Most of it is Postgres-compatible (DuckDB mirrors Postgres: `DISTINCT ON`, `DATE_TRUNC`,
-`FILTER (WHERE)`, `STDDEV_SAMP`, `::casts`); a couple of functions would need a dialect swap
-(`QUANTILE_CONT`, `EPOCH()`). The truly engine-specific machinery (`MAP`, `UNNEST` of
-`LIST<STRUCT>`, `read_parquet`) is in the daemon **projection** layer. A backend swap =
-re-implement the projection + substitute those few dialect functions; the **EAV schema** and
-the **`*Query` public API** (method signatures, `FieldRef`, Pydantic returns) and all
-consumers stay unchanged (see [`query-by-role-name.md`](query-by-role-name.md) §9).
-
-**Guardrail for whatever option is chosen here:** keep DuckDB SQL *contained* behind the
-engine-neutral `*Query` public surface — never leak DuckDB types or dialect through the
-public read API. Option A keeps this cleanest (no new layers). This is purely a read-surface
-question — no storage/schema/write-path changes; the role/value_type redesign is done and
-independent.
+Interface alignment only — no storage, schema, or write-path *behavior* changes; no new
+classes; no layer collapse. Pure consistency, nothing blocked.
