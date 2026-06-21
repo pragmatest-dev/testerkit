@@ -3,6 +3,11 @@
 Mirrors EventStore's pattern: parquet files are the source of truth,
 a DuckDB daemon indexes them, and RunStore provides a clean query API.
 ParquetBackend keeps the write path; RunStore owns reads + ref management.
+
+Construct once and reuse across notebook cells or long-running scripts.
+The analytical daemon is a separate process with its own PID-ref and idle
+timeout, so forgetting to call ``close()`` does not leak it. ``close()``
+and ``with`` are optional.
 """
 
 from __future__ import annotations
@@ -44,6 +49,10 @@ class RunStore:
 
     Uses a ref-counted in-memory DuckDB daemon for indexed queries — same
     lifecycle pattern as EventStore. Queries go via Arrow Flight (gRPC).
+
+    Construct once and reuse across calls. ``close()`` / ``with`` are optional
+    — the daemon is a separate process that self-manages via PID-ref and idle
+    timeout, so forgetting to close does not leak it.
     """
 
     def __init__(self, *, _data_dir: Path | None = None) -> None:
@@ -307,3 +316,9 @@ class RunStore:
             runs_duckdb_manager.release(self._runs_dir)
         except Exception as exc:
             warnings.warn(f"runs_duckdb_manager.release failed: {exc}", stacklevel=2)
+
+    def __enter__(self) -> RunStore:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()

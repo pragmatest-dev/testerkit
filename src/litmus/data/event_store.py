@@ -126,7 +126,13 @@ class _Subscription:
 
 
 class EventStore:
-    """Storage-agnostic event API. Callers never see paths, files, or SQL."""
+    """Storage-agnostic event API. Callers never see paths, files, or SQL.
+
+    Construct once and reuse. ``close()`` / ``with`` are optional — the
+    daemon is a separate process that self-manages via PID-ref and idle
+    timeout. Use ``get_shared()`` to share the watcher thread across callers
+    in the same process.
+    """
 
     _shared: dict[Path, EventStore] = {}
 
@@ -729,3 +735,9 @@ class EventStore:
             duckdb_manager.release(self._events_dir)
         except Exception as exc:
             warnings.warn(f"duckdb_manager.release failed: {exc}", stacklevel=2)
+
+    def __enter__(self) -> EventStore:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
