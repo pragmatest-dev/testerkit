@@ -541,6 +541,17 @@ Re-point every `out_<name>` / `in_<name>` assertion → `(role, name)` / `FieldR
   → fixed via a `_coerce_group` validator. Verified: full selected suite 2142 passed / 0 failed;
   perf-daemon green. `units`→`unit` confirmed Pyright-only (suite green) → task #7 downgraded.
   #1 code+tests DONE (Phases 1–4). Remaining: Phase 5 (docs).
+- **2026-06-21 (overnight)** — Committed #1 (`1472ad1`). Then persevered through follow-ups:
+  **#6 DONE** — un-fused `RunStore.get_measurements` → role-split inputs/outputs (`7ae5bdf`),
+  updated the 5 straddling docs pages + `harness` docstrings (`7658611`); run-detail path now
+  fully role-model. **#4 DONE** — channels `data_type`→`value_type` name-only rename across
+  models/index/store/UI/ontology/tests + regenerated `models.md` (`b46a86d`); behavior
+  preserved, full suite green. Each task reviewed (review caught: a dead `cast_as`/`_field_sql_expr`
+  earlier, the `get_vectors` decode fix, the `traceability` run_context-vs-custom_metadata error,
+  the channels UI consumers). **Deferred to the user (need judgment, not auto-doable):** #3
+  (new public `*Query` API — design surface), #7 (unit= API consistency — a design decision;
+  project pyright/suite already clean), #2 (screenshot regen — output needs visual review). All
+  three advanced to decision-ready in the task list. Full suite 2143 passed throughout.
 - **2026-06-20 (cont. 2)** — Full `type`-vs-`kind` audit. Rule confirmed: `<noun>_type` =
   "type of \<noun\>" (event_type/station_type/column_type); `Kind` reserved for variant enums
   (FacetKind/ChannelKind/VerbKind/outcome_kind). The value-datatype tag was the outlier
