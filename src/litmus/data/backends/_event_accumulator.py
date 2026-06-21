@@ -42,6 +42,14 @@ def _safe_str(value: Any) -> str | None:
     return str(value) if value else None
 
 
+def _pack_dynamic_attrs(inputs: dict[str, Any], outputs: dict[str, Any]) -> dict[str, str | None]:
+    """Build the dynamic_attrs MAP from inputs/outputs lane dicts."""
+    return {
+        **{f"in_{k}": _safe_str(v) for k, v in inputs.items()},
+        **{f"out_{k}": _safe_str(v) for k, v in outputs.items()},
+    }
+
+
 def _step_key(event: Any) -> tuple[str, int]:
     """Stable accumulator key for a StepStarted / StepEnded event.
 
@@ -277,13 +285,10 @@ class EventAccumulator:
                     "file_path": None,
                     "run_outcome": outcome,
                     "run_ended_at": ended_at,
-                    "dynamic_attrs": {
-                        **{f"in_{k}": _safe_str(v) for k, v in (entry.get("inputs") or {}).items()},
-                        **{
-                            f"out_{k}": _safe_str(v)
-                            for k, v in (entry.get("outputs") or {}).items()
-                        },
-                    },
+                    "dynamic_attrs": _pack_dynamic_attrs(
+                        entry.get("inputs") or {},
+                        entry.get("outputs") or {},
+                    ),
                 }
             )
         return rows
@@ -325,10 +330,7 @@ class EventAccumulator:
             ) or vectors_by_key.get((path, event.vector_index, 0))
             in_lanes = (entry.get("inputs") if entry else None) or {}
             out_lanes = (entry.get("outputs") if entry else None) or {}
-            row["dynamic_attrs"] = {
-                **{f"in_{k}": _safe_str(v) for k, v in in_lanes.items()},
-                **{f"out_{k}": _safe_str(v) for k, v in out_lanes.items()},
-            }
+            row["dynamic_attrs"] = _pack_dynamic_attrs(in_lanes, out_lanes)
             # Mirror the daemon UNNEST: the fact's vector/step rollup context
             # comes from the ENCLOSING vector row, not the measurement event.
             # Vector rows shed the step rollup (step_outcome lives on the 'step'
@@ -607,7 +609,6 @@ class EventAccumulator:
             inputs={},
             outputs={},
             instruments=self._build_instrument_arrays(),
-            custom=dict(event.custom),
         )
         flat = row.to_flat_dict()
         flat["record_type"] = "measurement"

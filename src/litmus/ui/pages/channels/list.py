@@ -37,7 +37,7 @@ _SAMPLES_PER_CHANNEL = 50
 @ui.page("/channels")
 def channels_page(
     name: str = "",
-    data_type: str = "",
+    value_type: str = "",
     instrument: str = "",
     session_id: str = "",
     since: str = "",
@@ -153,7 +153,7 @@ def channels_page(
             instrument_options: dict[str, str] = {"": "(any)"}
             has_unassigned = False
             for descriptor in channels.values():
-                dt = descriptor.get("data_type") or ""
+                dt = descriptor.get("value_type") or ""
                 if dt and dt not in type_options:
                     type_options[dt] = dt
                 role = descriptor.get("instrument_role") or ""
@@ -193,7 +193,7 @@ def channels_page(
                     # changes via the page-level param, not a widget.
                     "session_id": session_id,
                     "name": filters.name(),
-                    "data_type": filters.data_type(),
+                    "value_type": filters.value_type(),
                     "instrument": filters.instrument(),
                     "since": filters.since(),
                     "until": filters.until(),
@@ -204,7 +204,7 @@ def channels_page(
             filtered = _apply_filters(
                 all_rows,
                 name=filters.name(),
-                data_type=filters.data_type(),
+                value_type=filters.value_type(),
                 instrument=filters.instrument(),
                 since=filters.since(),
                 until=filters.until(),
@@ -263,9 +263,9 @@ def channels_page(
 
         # Apply URL-driven initial filter values before the first walk
         # so the count + table reflect the deep-linked state.
-        if data_type:
-            filters.type_select.options = {"": "(any)", data_type: data_type}
-            filters.type_select.value = data_type
+        if value_type:
+            filters.type_select.options = {"": "(any)", value_type: value_type}
+            filters.type_select.value = value_type
             filters.type_select.update()
         if instrument:
             label = "(none)" if instrument == _INSTRUMENT_NONE_SENTINEL else instrument
@@ -310,7 +310,7 @@ class _Filters:
     def name(self) -> str:
         return (self.name_input.value or "").strip()
 
-    def data_type(self) -> str:
+    def value_type(self) -> str:
         return (str(self.type_select.value) if self.type_select.value else "").strip()
 
     def instrument(self) -> str:
@@ -334,7 +334,7 @@ def _apply_filters(
     rows: list[dict[str, Any]],
     *,
     name: str,
-    data_type: str,
+    value_type: str,
     instrument: str,
     since: str,
     until: str,
@@ -345,7 +345,7 @@ def _apply_filters(
     for r in rows:
         if name_lower and name_lower not in r["channel_id"].lower():
             continue
-        if data_type and r["data_type"] != data_type:
+        if value_type and r["value_type"] != value_type:
             continue
         if instrument:
             row_instr = r["instrument_role"]
@@ -375,7 +375,7 @@ def _build_table(rows: list[dict[str, Any]], *, session_id: str = "") -> ui.tabl
         {"name": "channel_id", "label": "Channel ID", "field": "channel_id", "align": "left"},
         {"name": "latest", "label": "Latest", "field": "latest", "align": "right"},
         {"name": "spark", "label": "History", "field": "spark", "align": "left"},
-        {"name": "data_type", "label": "Type", "field": "data_type", "align": "left"},
+        {"name": "value_type", "label": "Type", "field": "value_type", "align": "left"},
         {
             "name": "instrument_role",
             "label": "Instrument",
@@ -442,7 +442,7 @@ def _row_for_channel(channel_id: str, descriptor: dict[str, Any]) -> dict[str, A
 
     return {
         "channel_id": channel_id,
-        "data_type": descriptor.get("data_type") or "",
+        "value_type": descriptor.get("value_type") or "",
         "instrument_role": descriptor.get("instrument_role") or "",
         "unit": unit,
         "last_updated": format_datetime(last_updated),

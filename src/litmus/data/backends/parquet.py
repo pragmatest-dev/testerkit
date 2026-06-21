@@ -19,8 +19,8 @@ All timestamps are UTC for consistent cross-timezone analysis.
 Schema design:
 - One row per measurement
 - All metadata denormalized onto each row
-- Dynamic in_* columns for stimulus conditions
-- Dynamic out_* columns for observations (scalars inline, large data in _ref/)
+- Inputs lane: LIST<STRUCT> of stimulus conditions (role='input')
+- Outputs lane: LIST<STRUCT> of observations (scalars inline, URIs for large data)
 - Config snapshots in Parquet file-level metadata
 """
 
@@ -79,8 +79,9 @@ from litmus.data.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Suffix patterns for stimulus signal-path columns (in_{param}_{suffix}).
-# A column like "in_vin_instrument" is metadata, not a param value.
+# Suffix patterns that identify signal-path metadata keys in the
+# dynamic_attrs MAP. A key ending in one of these suffixes is metadata,
+# not a stimulus value.
 _STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_uut_pin", "_fixture_connection")
 
 # Outcome priority for deterministic worst-case selection from a set.
@@ -130,6 +131,7 @@ def _ensure_instrument_arrays(d: dict[str, Any]) -> dict[str, Any]:
 def _build_parquet_metadata(
     *,
     environment_json: str | None = None,
+    custom_metadata: dict[str, Any] | None = None,
     step_results: list[dict[str, Any]] | None = None,
     profile_facets: dict[str, str] | None = None,
 ) -> dict[bytes, bytes]:
@@ -142,6 +144,8 @@ def _build_parquet_metadata(
 
     if environment_json:
         metadata[b"environment_json"] = environment_json.encode("utf-8")
+    if custom_metadata:
+        metadata[b"custom_metadata"] = json.dumps(custom_metadata, default=str).encode("utf-8")
     if step_results:
         # step_results is a step-level summary; the per-vector nested
         # measurements (which carry raw datetimes) live in the parquet rows,
@@ -193,7 +197,7 @@ class ParquetBackend:
     Key design principles:
     1. One row per measurement - enables flexible queries
     2. All metadata denormalized - no joins needed
-    3. Dynamic schema - in_* columns vary per test
+    3. Dynamic schema - inputs/outputs lanes vary per test
     4. Config snapshots in file metadata - full reconstruction possible
     """
 
@@ -385,8 +389,7 @@ class ParquetBackend:
         """Build the single ``record_type='run'`` row for the parquet.
 
         Carries run-level identity / UUT / station / fixture / environment
-        columns plus ``custom_metadata`` (flattened to ``custom_*``).
-        Step and measurement columns are NULL. Always present (one per
+        columns. Step and measurement columns are NULL. Always present (one per
         parquet); for empty runs it is the entire parquet.
         """
         instruments = _ensure_instrument_arrays(dict(instrument_arrays or {}))
@@ -395,13 +398,13 @@ class ParquetBackend:
             run_outcome=test_run.outcome.value if test_run.outcome else None,
             run_ended_at=test_run.ended_at,
             instruments=instruments,
-            custom=dict(test_run.custom_metadata),
         )
 
     def _build_file_metadata(self, test_run: TestRun) -> dict[bytes, bytes]:
         """Build Parquet file-level metadata."""
         return _build_parquet_metadata(
             environment_json=test_run.environment_json,
+            custom_metadata=dict(test_run.custom_metadata) or None,
             step_results=build_step_manifest(
                 test_run, ref_saver=self._filestore_ref_saver(test_run)
             ),
@@ -423,10 +426,10 @@ class ParquetBackend:
         with self._run_store_ctx() as store:
             return store.get_run(run_id)
 
-    def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict[str, Any]]:
+    def get_measurements(self, run_id: str) -> list[dict[str, Any]]:
         """Get all measurements for a specific test run. Delegates to RunStore."""
         with self._run_store_ctx() as store:
-            return store.get_measurements(run_id, _file=_file)
+            return store.get_measurements(run_id)
 
     def get_measurement(
         self,
@@ -463,7 +466,7 @@ class ParquetBackend:
                     "part_id": m.get("part_id"),
                     "station_id": m.get("station_id"),
                 }
-                vector_info["params"] = _params_from_inputs(decode_lane_structs(m.get("inputs")))
+                vector_info["params"] = _params_from_inputs(m.get("inputs") or {})
                 vectors_seen[key] = vector_info
 
         return list(vectors_seen.values())
@@ -627,7 +630,6 @@ def _build_run_row_from_acc(
         run_outcome=run_outcome,
         run_ended_at=run_ended_at,
         instruments=acc._build_instrument_arrays(),
-        custom=dict(getattr(s, "custom_metadata", None) or {}),
     )
 
 
@@ -676,6 +678,7 @@ def _build_file_metadata_from_acc(acc: EventAccumulator) -> dict[bytes, bytes]:
     results = acc._build_step_results_from_events() or None
     return _build_parquet_metadata(
         environment_json=s.environment_json,
+        custom_metadata=dict(s.custom_metadata) or None,
         step_results=results,
     )
 
@@ -968,9 +971,10 @@ def is_file_reference(value: Any) -> bool:
 def extract_refs(parquet_path: Path) -> tuple[set[tuple[str, str]], set[str]]:
     """Channel ``(channel_id, session_id)`` pairs + ``file://`` keys a run references.
 
-    Scans the run's string columns (``out_*`` etc.) for ``channel://`` / ``file://``
-    URIs — the run's full reachable set, both schemes. Used by promote (carry a
-    run's data) and retention (reference-aware file pruning).
+    Scans the run's string columns (outputs lane structs and others) for
+    ``channel://`` / ``file://`` URIs — the run's full reachable set, both
+    schemes. Used by promote (carry a run's data) and retention (reference-aware
+    file pruning).
     """
     channels: set[tuple[str, str]] = set()
     files: set[str] = set()
@@ -1147,9 +1151,6 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
             )
         )
 
-    # Decode custom metadata from the nested custom lanes
-    custom_meta = decode_lane_structs(first.get("custom"))
-
     run_outcome_str = first.get("run_outcome")
     run_outcome = Outcome(run_outcome_str) if run_outcome_str else Outcome.PASSED
 
@@ -1179,5 +1180,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         outcome=run_outcome,
         steps=steps,
         environment_json=file_meta.get("environment_json"),
-        custom_metadata=custom_meta or {},
+        custom_metadata=(
+            json.loads(file_meta["custom_metadata"]) if file_meta.get("custom_metadata") else {}
+        ),
     )

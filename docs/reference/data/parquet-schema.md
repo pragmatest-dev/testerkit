@@ -6,11 +6,11 @@ Each Litmus run produces **one Parquet file**. The file has two layers: the at-r
 
 - `record_type = 'run'` — exactly one row per file. Carries run-level identity, timing, outcome, plus UUT / station / project / git / environment context.
 - `record_type = 'step'` — one row per `(step_path, vector_index)` execution. Step identity, timing, and rolled-up outcome. Conditions and observations are on the paired vector row, not here.
-- `record_type = 'vector'` — one row per execution. Every step execution has at least one vector row: a synthesized scope vector for the step itself. Mode-2 (`vectors`-fixture / `run_vector`) loops add one vector row per iteration. The vector row carries the `inputs` / `outputs` / `custom` lane columns and a nested `measurements` list (`LIST<STRUCT>`).
+- `record_type = 'vector'` — one row per execution. Every step execution has at least one vector row: a synthesized scope vector for the step itself. Mode-2 (`vectors`-fixture / `run_vector`) loops add one vector row per iteration. The vector row carries the `inputs` / `outputs` lane columns and a nested `measurements` list (`LIST<STRUCT>`).
 
 **Measurements are nested, not rows.** Measurements live inside the vector row's `measurements` column as a typed nested list (`LIST<STRUCT>`). Each struct holds `name`, `value`, `unit`, `outcome`, `timestamp`, `limit_*`, `characteristic_id`, `spec_ref`, and signal-path fields (`uut_pin`, `fixture_connection`, `instrument_*`). There is no at-rest `record_type = 'measurement'` row.
 
-**Query projection — four virtual types.** The DuckDB daemon UNNESTs the nested measurements from each vector row into a flat fact and presents a fourth virtual row type `record_type = 'measurement'` in query results. All `WHERE record_type = 'measurement'` queries target this projected view, not the at-rest file. The `in_*` / `out_*` / `custom_*` columns are also projections from the nested lane structs. Query output shape is byte-stable regardless of at-rest format changes.
+**Query projection — four virtual types.** The DuckDB daemon UNNESTs the nested measurements from each vector row into a flat fact and presents a fourth virtual row type `record_type = 'measurement'` in query results. All `WHERE record_type = 'measurement'` queries target this projected view, not the at-rest file. The `inputs` / `outputs` lanes are also projected into the `measurements_dynamic` EAV table (keyed by `role` and `name`) for query-time access. Query output shape is byte-stable regardless of at-rest format changes.
 
 The canonical schema lives in `src/litmus/data/schemas.py` (`RUN_ROW_SCHEMA`); this page is a human-readable mirror of it.
 
@@ -37,7 +37,7 @@ Timestamps are UTC and sort naturally. The 8-char `run_id` sits right after the 
 **At-rest row types (three):**
 - `run` — one row per run; run-level metadata (start/end timestamps, UUT serial, station, outcome).
 - `step` — one row per `(step_path, vector_index)` execution; code identity, timing, rolled-up outcome.
-- `vector` — one row per execution, keyed `(step_path, vector_index, retry)`. Every step has at least one vector row: its scope vector. Mode-2 (`vectors`-fixture) loops add one iteration vector per pass. The vector row carries `inputs` / `outputs` / `custom` lane columns and a nested `measurements` list.
+- `vector` — one row per execution, keyed `(step_path, vector_index, retry)`. Every step has at least one vector row: its scope vector. Mode-2 (`vectors`-fixture) loops add one iteration vector per pass. The vector row carries `inputs` / `outputs` lane columns and a nested `measurements` list.
 
 **Query projection (virtual fourth type):**
 - `measurement` — the daemon UNNESTs each vector's nested `measurements` list into a flat fact row stamped `record_type = 'measurement'`. These rows exist in query results but not in the at-rest file.
@@ -157,25 +157,26 @@ WHERE record_type = 'step';
 
 ## Input conditions (`inputs` lane — at-rest format)
 
-At rest, each vector's commanded conditions are stored in the `inputs` column as a typed nested list: `LIST<STRUCT<name, kind, value_int, value_double, value_bool, value_text, value_timestamp, value_json, unit>>`. One struct per parameter; `kind` selects which `value_*` lane holds the actual value (`scalar:int`, `scalar:float`, `scalar:bool`, `scalar:str`, `scalar:datetime`, `uri`, `list`, `dict`).
+At rest, each vector's commanded conditions are stored in the `inputs` column as a typed nested list: `LIST<STRUCT<name, value_type, value_int, value_double, value_bool, value_text, value_timestamp, value_json, unit, uut_pin>>`. One struct per parameter; `value_type` selects which `value_*` field holds the actual value.
 
-The DuckDB daemon projects these lane structs into flat `in_{param}` columns when populating the query views. The `in_*` wide columns you see in query results are projections, not the at-rest representation.
+The DuckDB daemon projects these lane structs into the `measurements_dynamic` EAV table (keyed by `role='input'` and `name`) for query-time access. See [Query API](query-api.md) for how to select input fields in analysis.
 
 **Entry structure** (one item in the `inputs` list):
 
 | Field | Type | Description |
 |---|---|---|
 | `name` | string | Parameter name (e.g. `vin`, `temperature`) |
-| `kind` | string | Value type discriminator (`scalar:int`, `scalar:float`, `scalar:bool`, `scalar:str`, `scalar:datetime`, `uri`, `list`, `dict`) |
-| `value_int` | int64 | Set when `kind = 'scalar:int'`; NULL otherwise |
-| `value_double` | float64 | Set when `kind = 'scalar:float'`; NULL otherwise |
-| `value_bool` | bool | Set when `kind = 'scalar:bool'`; NULL otherwise |
-| `value_text` | string | Set when `kind` is `scalar:str` or `uri`; NULL otherwise |
-| `value_timestamp` | timestamp[us, UTC] | Set when `kind = 'scalar:datetime'`; NULL otherwise |
-| `value_json` | string | Set when `kind` is `list` or `dict`; NULL otherwise |
-| `unit` | string | Engineering unit set via `context.configure(key, value, unit="V")` or `context.observe(key, value, unit="°C")` |
+| `value_type` | string | Value type tag: `scalar:int`, `scalar:float`, `scalar:bool`, `scalar:str`, `scalar:datetime`, `uri`, `list`, `dict`, or `other:<type>` for any other Python type (e.g. `other:Waveform`) |
+| `value_int` | int64 | Set when `value_type = 'scalar:int'`; NULL otherwise |
+| `value_double` | float64 | Set when `value_type = 'scalar:float'`; NULL otherwise |
+| `value_bool` | bool | Set when `value_type = 'scalar:bool'`; NULL otherwise |
+| `value_text` | string | Set when `value_type` is `scalar:str` or `uri`; NULL otherwise |
+| `value_timestamp` | timestamp[us, UTC] | Set when `value_type = 'scalar:datetime'`; NULL otherwise |
+| `value_json` | string | Set when `value_type` is `list` or `dict`; NULL otherwise |
+| `unit` | string | Engineering unit set via `context.configure(key, value, unit="V")` |
+| `uut_pin` | string | UUT pin driven by this input (NULL if not applicable) |
 
-**Naming convention** (applies to `name` inside each entry and to the projected `in_*` column names):
+**Naming convention** (applies to `name` inside each entry):
 
 | Type | Pattern | Examples |
 |------|---------|----------|
@@ -196,13 +197,13 @@ Stimulus signal-path sub-fields for each param (also stored in the `inputs` lane
 
 ## Observations (`outputs` lane — at-rest format)
 
-Observations are *measured* context — readings captured during the test, not commanded values. Stored at rest in the `outputs` column with the same `LIST<STRUCT>` shape as `inputs`. The DuckDB daemon projects these into flat `out_{key}` query columns.
+Observations are measured context — readings captured during the test, not commanded values. Stored at rest in the `outputs` column with the same `LIST<STRUCT>` shape as `inputs`. The DuckDB daemon projects these into the `measurements_dynamic` EAV table with `role='output'`.
 
-Each struct entry encodes one observation under `name`. Non-scalar payloads route to the `_ref/` sibling directory and are stored as `file://` URIs with `kind = 'uri'` in the `value_text` lane:
+Each struct entry encodes one observation under `name`. Non-scalar payloads route to the `_ref/` sibling directory and are stored as `file://` URIs with `value_type = 'uri'` in the `value_text` field:
 
 | Data Type | Storage format | `value_text` example |
 |-----------|----------------|----------------------|
-| Scalar (float / int / str / bool) | inline in appropriate `value_*` lane | n/a — uses typed lane |
+| Scalar (float / int / str / bool) | inline in appropriate `value_*` field | n/a — uses typed field |
 | `Waveform` | `.npz` with t0, dt, Y, attributes | `file://_ref/{id}_scope_waveform.npz` |
 | `XYData` | `.npz` with x, y, x_unit, y_unit, x_name, y_name | `file://_ref/{id}_iv_curve.npz` |
 | `numpy.ndarray` | `.npy` compressed | `file://_ref/{id}_raw_samples.npy` |
@@ -225,7 +226,7 @@ At rest, measurements live in the vector row's `measurements` column as a `LIST<
 |--------|------|-------------|
 | `measurement_name` | string | `"output_voltage"`, `"efficiency"`, ... |
 | `measurement_timestamp` | timestamp[us, UTC] | When the measurement was recorded |
-| `measurement_value` | float64 | Measured value (scalar; non-scalar payloads go to `_ref/` via `out_*`) |
+| `measurement_value` | float64 | Measured value (scalar; non-scalar payloads go to `_ref/` via the `outputs` lane) |
 | `measurement_unit` | string | Units (`V`, `A`, `%`, ...) |
 | `measurement_outcome` | string | `passed` / `failed` / `skipped` / `errored` / `aborted` / `terminated` / `done` |
 
@@ -292,7 +293,31 @@ def test_example(run_context, psu, dmm, verify):
     ...
 ```
 
-At rest, custom metadata is stored in the `custom` column using the same `LIST<STRUCT>` lane format as `inputs` and `outputs`. The DuckDB daemon projects these into flat `custom_*` query columns with inferred types.
+At rest, custom metadata is stored as a JSON blob in the Parquet **file-level metadata** under the key `custom_metadata` — not as a column in the row data. It is run-scoped (one blob per file, not one entry per measurement).
+
+## `measurements_dynamic` EAV table (query projection)
+
+The daemon projects all `inputs` and `outputs` lane entries into a long EAV table named `measurements_dynamic`. This is what the [Query API](query-api.md) reads when you select inputs or outputs by name.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `role` | string | `'input'` or `'output'` — which lane the entry came from |
+| `name` | string | Entry name as passed to `configure()` or `observe()` |
+| `value_type` | string | Value type tag (e.g. `scalar:float`, `scalar:int`, `scalar:bool`, `scalar:str`, `scalar:datetime`, `uri`, `list`, `dict`) |
+| `value_int` | int64 | Populated when `value_type = 'scalar:int'` |
+| `value_double` | float64 | Populated when `value_type = 'scalar:float'` |
+| `value_bool` | bool | Populated when `value_type = 'scalar:bool'` |
+| `value_text` | string | Populated when `value_type` is `scalar:str` or `uri` |
+| `value_timestamp` | timestamp[us, UTC] | Populated when `value_type = 'scalar:datetime'` |
+| `value_json` | string | Populated when `value_type` is `list` or `dict` |
+| `unit` | string | Engineering unit |
+| `uut_pin` | string | UUT pin (for input-side stimulus entries) |
+| `run_id` | string | Links back to the run |
+| `step_index` | int32 | Step position within the run |
+| `vector_index` | int64 | 0-based index within the step's sweep |
+| `vector_retry` | int64 | Retry counter |
+
+Querying this table directly is rarely needed — use the [Query API](query-api.md) (`FieldRef.input("vin")`, `FieldRef.output("v_rail")`) which joins it for you and handles type coherence (fails loud if a name carries mixed `value_type`s in scope; auto-resolves when unambiguous).
 
 ## Outcome values
 
@@ -353,8 +378,9 @@ Beyond columns, each Parquet file carries metadata:
 | Key | Description |
 |-----|-------------|
 | `environment_json` | Full environment snapshot (Python version, OS, Litmus version, top-level deps, lockfile hash) |
+| `custom_metadata` | Run-level custom metadata set via `run_context.set()`, serialized as a JSON object |
 | `litmus_version` | Litmus version that produced this file |
-| `schema_version` | Schema version (`"1.0"` at time of writing — see `SCHEMA_VERSION` in `src/litmus/data/schemas.py`) |
+| `schema_version` | Schema version (`"2.0"` — see `SCHEMA_VERSION` in `src/litmus/data/schemas.py`) |
 
 ```python
 import pyarrow.parquet as pq
@@ -365,6 +391,17 @@ metadata = pf.schema_arrow.metadata
 env = EnvironmentSnapshot.model_validate_json(metadata[b"environment_json"])
 print(f"Python {env.python_version}, Litmus {env.litmus_version}")
 ```
+
+## Export column naming
+
+When exporting runs to CSV or HDF5, input and output lane entries use `input_` / `output_` prefixes on the field name:
+
+| At-rest lane | Export column / attribute |
+|---|---|
+| `inputs` entry named `vin` | `input_vin` |
+| `outputs` entry named `v_rail` | `output_v_rail` |
+
+Run-level `custom_metadata` keys are also exported, each as a `custom_<key>` column (CSV).
 
 ## Querying examples
 
@@ -476,4 +513,5 @@ ORDER BY avg_seconds DESC;
 
 - [Models](models.md) — Pydantic model index + ERD
 - [Event types](event-types.md) — the event-log payloads that source these rows
+- [Query API](query-api.md) — how to select inputs and outputs by role and name in analysis
 - [Measurement traceability](../../how-to/execution/traceability.md) — how the signal-path columns get populated

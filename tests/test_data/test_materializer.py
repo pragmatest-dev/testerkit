@@ -14,6 +14,7 @@ from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.backends.parquet import (
     materialize_run_to_parquet,
     read_step_results,
+    reconstruct_test_run_from_file,
 )
 from litmus.data.events import (
     InstrumentConnected,
@@ -358,3 +359,36 @@ class TestMaterializer:
         runs_dir = tmp_path / "results" / "runs"
         pq_files = list(runs_dir.rglob("*.parquet")) if runs_dir.exists() else []
         assert len(pq_files) == 0
+
+    def test_custom_metadata_roundtrip_materializer_path(self, tmp_path):
+        """custom_metadata on RunStarted survives materializer → reconstruct."""
+        acc = EventAccumulator()
+        run_id = uuid4()
+        session_id = uuid4()
+
+        acc.on_event(
+            RunStarted(
+                session_id=session_id,
+                run_id=run_id,
+                uut_serial="SN-CUSTOM",
+                occurred_at=datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC),
+                custom_metadata={"badge": "EMP-999", "batch": "Q2-2026"},
+            )
+        )
+        acc.on_event(
+            MeasurementRecorded(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="test_voltage",
+                step_index=0,
+                measurement_name="vout",
+                value=3.3,
+                outcome="passed",
+            )
+        )
+
+        parquet_path = materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
+
+        assert parquet_path is not None
+        rebuilt = reconstruct_test_run_from_file(parquet_path)
+        assert rebuilt.custom_metadata == {"badge": "EMP-999", "batch": "Q2-2026"}

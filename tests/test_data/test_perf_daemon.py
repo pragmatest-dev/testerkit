@@ -28,7 +28,7 @@ from typing import Any
 
 import pytest
 
-from litmus.analysis.measurement_facets import FilterSet
+from litmus.analysis.measurement_facets import ColumnSchema, FieldRef, FilterSet
 from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.analysis.runs_query import RunsQuery
 from litmus.data import runs_duckdb_manager
@@ -177,7 +177,7 @@ def test_measurements_describe_columns(benchmark, warm_daemon):
             return q.describe_columns()
 
     result = benchmark(_query)
-    assert isinstance(result, list)
+    assert isinstance(result, ColumnSchema)
 
 
 @pytest.mark.benchmark(group="daemon-queries", warmup=True, min_rounds=30, disable_gc=True)
@@ -350,7 +350,7 @@ def parametric_dataset() -> str:
             n = len(
                 q.parametric(
                     y="measurement_value",
-                    x="in_temperature",
+                    x=FieldRef.input("temperature"),
                     filters=filters,
                     limit=_PARAM_EXPECTED + 100,
                 )
@@ -368,7 +368,9 @@ def test_parametric_scatter_by_condition(benchmark, parametric_dataset):
 
     def _q():
         with MeasurementsQuery() as q:
-            return q.parametric(y="measurement_value", x="in_temperature", filters=filters)
+            return q.parametric(
+                y="measurement_value", x=FieldRef.input("temperature"), filters=filters
+            )
 
     rows = benchmark(_q)
     # Tolerate async-ingest lag, and the scatter's own row limit (5000) at
@@ -384,7 +386,10 @@ def test_parametric_group_by_condition(benchmark, parametric_dataset):
     def _q():
         with MeasurementsQuery() as q:
             return q.parametric(
-                y="measurement_value", x="in_temperature", group_by="in_vin", filters=filters
+                y="measurement_value",
+                x=FieldRef.input("temperature"),
+                group_by=FieldRef.input("vin", value_type="scalar:float"),
+                filters=filters,
             )
 
     rows = benchmark(_q)
@@ -398,9 +403,7 @@ def test_parametric_histogram(benchmark, parametric_dataset):
 
     def _q():
         with MeasurementsQuery() as q:
-            return q.parametric(
-                y="measurement_value", x="in_temperature", chart_type="histogram", filters=filters
-            )
+            return q.histogram(field="measurement_value", filters=filters)
 
     rows = benchmark(_q)
     assert rows
@@ -683,7 +686,7 @@ def test_meas_rows_split(tmp_path):
     eav = (
         f"INSERT INTO measurements_dynamic SELECT DISTINCT "
         f"'{escaped}' AS file_path, run_id, step_index, vector_index, vector_retry, "
-        f"side, name, kind, value_int, value_double, value_bool, value_text, "
+        f"role, name, value_type, value_int, value_double, value_bool, value_text, "
         f"value_timestamp, value_json, unit, uut_pin FROM ({union_sql})"
     )
 

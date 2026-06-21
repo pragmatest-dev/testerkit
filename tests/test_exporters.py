@@ -143,7 +143,7 @@ class TestCsvSubscriber:
         assert rows[1]["measurement_name"] == "iout"
 
     def test_includes_dynamic_columns(self, sample_test_run: TestRun, tmp_path: Path):
-        """CSV includes in_* columns from event inputs."""
+        """CSV includes input_* columns from event inputs."""
         sub = CsvSubscriber(tmp_path)
         sub.open()
         _replay_events(sample_test_run, sub)
@@ -155,8 +155,8 @@ class TestCsvSubscriber:
             reader = csv.DictReader(f)
             rows = list(reader)
 
-        assert "in_vin" in rows[0]
-        assert rows[0]["in_vin"] == "5.0"
+        assert "input_vin" in rows[0]
+        assert rows[0]["input_vin"] == "5.0"
 
     def test_includes_custom_metadata(self, sample_test_run: TestRun, tmp_path: Path):
         """CSV includes custom_* columns from RunStarted."""

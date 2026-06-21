@@ -91,8 +91,8 @@ planned, and setup-only steps.
 | Outcome | Colored chip showing the step's outcome. Beyond the final-state vocabulary listed for the header chip, step rows can also show `RUNNING` (step in flight), `WAITING` (queued / setup-only), `NEVER RAN` (collected but never started), and `PLANNED` (in the run manifest but the run ended first). |
 | Duration (s) | Wall-clock duration in seconds, formatted to 3 decimals. `—` when the step hasn't finished. |
 | Measurements | Number of measurements recorded inside this step |
-| Inputs | Commanded sweep parameters for this step / vector, rendered as compact `key=value` pairs. Blank for non-swept steps. |
-| Outputs | Recorded vector-level observations (the `out_*` columns), in the same compact form. Blank when none were stamped. |
+| Inputs | Commanded sweep parameters for this step / vector, rendered as compact `key=value` pairs (bare parameter names, e.g. `freq=1000.0, level=-10.0`). Blank for non-swept steps. |
+| Outputs | Recorded vector-level observations for this step / vector, in the same compact `key=value` form. Blank when none were stamped. |
 
 Empty steps render the `No steps recorded yet.` message in the table
 body until the first row arrives.

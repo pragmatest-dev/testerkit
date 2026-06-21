@@ -460,7 +460,7 @@ class StepStarted(EventBase):
     # Vector context — which sweep condition this execution is.
     # vector_index 0 (the default) is the natural value for non-swept steps;
     # for sweep variants it identifies the specific condition. ``inputs``
-    # carries the commanded sweep parameters (in_*) for this vector — what
+    # carries the commanded sweep parameters for this vector — what
     # subscribers need to disambiguate "test_efficiency starting" from
     # "test_efficiency starting at vin=2.0V".
     vector_index: int = 0
@@ -518,19 +518,19 @@ class MeasurementRecorded(EventBase):
     instrument_resource: str | None = None
     instrument_channel: str | None = None
 
-    # Dynamic columns (vector-specific, not available elsewhere)
+    # Carried by in-flight events (live daemon path). At rest, parquet
+    # reconstruction reads conditions from the enclosing vector record.
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
-    custom: dict[str, Any] = Field(default_factory=dict)
 
 
 class Observation(EventBase):
     """Emitted by ``Context.observe(key, value)``.
 
-    Carries the observation that landed in the vector's ``out_<name>``
-    column. Value is the scalar inline when scalar, or the claim URI
-    string (``channel://…`` or ``file://…``) when the value was
-    routed to a store.
+    Carries the observation that landed in the vector's outputs lane
+    (role ``output``, name = the observation key). Value is the scalar
+    inline when scalar, or the claim URI string (``channel://…`` or
+    ``file://…``) when the value was routed to a store.
 
     Item 4 in the v0.2.0 data-architecture lift — closes the gap
     where ``observe()`` calls were silent on the event timeline.
@@ -815,7 +815,7 @@ class FileEnded(EventBase):
     """Emitted when a FileStore streaming sink closes.
 
     Once per ``file_id``. ``uri`` is the final ``file://`` claim that
-    callers can stash into vector ``out_*`` columns or hand to the
+    callers can stash into the vector's outputs lane or hand to the
     artifact viewer. ``size_bytes`` is the total appended-byte count
     at close.
     """

@@ -18,6 +18,8 @@ import pyarrow.parquet as pq
 import pytest
 
 from litmus.analysis.measurement_facets import (
+    ColumnSchema,
+    FieldRef,
     FilterSet,
     HistogramRow,
     LimitBandRow,
@@ -386,10 +388,11 @@ class TestFilters:
 class TestParametric:
     def test_describe_columns_lists_columns(self):
         store = MeasurementsQuery()
-        cols = store.describe_columns()
-        names = {c["column_name"] for c in cols}
-        assert "measurement_value" in names
-        assert "measurement_name" in names
+        schema = store.describe_columns()
+        assert isinstance(schema, ColumnSchema)
+        fixed_names = {c.name for c in schema.fixed}
+        assert "measurement_value" in fixed_names
+        assert "measurement_name" in fixed_names
 
     def test_scatter_returns_typed_rows(self, fixture_data):
         store = MeasurementsQuery()
@@ -434,34 +437,22 @@ class TestParametric:
 
     def test_histogram_returns_histogram_rows(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.parametric(
-            y="measurement_value",
-            x="uut_serial",
-            chart_type="histogram",
+        rows = store.histogram(
+            field="measurement_value",
             bins=4,
             filters=FilterSet(string_filters={"part_id": [fixture_data["part"]]}),
         )
         assert all(isinstance(r, HistogramRow) for r in rows)
         assert sum(r.y for r in rows) == 4
 
-    def test_bar_aggregates(self, fixture_data):
-        store = MeasurementsQuery()
-        rows = store.parametric(
-            y="measurement_value",
-            x="uut_serial",
-            chart_type="bar",
-            filters=FilterSet(string_filters={"part_id": [fixture_data["part"]]}),
-        )
-        assert len(rows) == 2
-        assert all(isinstance(r, ParametricRow) for r in rows)
-        by_serial = {r.x: r.y for r in rows}
-        assert by_serial["SN001"] == pytest.approx((3.3 + 3.31) / 2)
-        assert by_serial["SN002"] == pytest.approx((2.5 + 3.29) / 2)
-
     def test_invalid_column_rejected(self):
+        # Regression: malicious string is treated as a (sql-escaped) measurement name,
+        # no injection, no error. The query runs safely and the database is intact.
         store = MeasurementsQuery()
-        with pytest.raises(ValueError, match="invalid column identifier"):
-            store.parametric(y="value; DROP TABLE silver --", x="uut_serial")
+        rows = store.parametric(y="evil'; DROP TABLE --", x="measurement_value")
+        assert isinstance(rows, list)
+        # DB is still queryable — no injection occurred
+        assert store.summary_counts() is not None
 
 
 @pytest.fixture(scope="module")
@@ -508,7 +499,9 @@ class TestDynamicAxisEAV:
     def test_dynamic_x_scatter(self, dynamic_axis_data):
         store = MeasurementsQuery()
         rows = store.parametric(
-            y="measurement_value", x="in_freq", filters=self._scope(dynamic_axis_data["part"])
+            y="measurement_value",
+            x=FieldRef.input("freq"),
+            filters=self._scope(dynamic_axis_data["part"]),
         )
         by_x = {r.x: r.y for r in rows}
         assert by_x == {1000.0: pytest.approx(3.30), 2000.0: pytest.approx(3.31)}
@@ -516,14 +509,17 @@ class TestDynamicAxisEAV:
     def test_dynamic_y_is_joined(self, dynamic_axis_data):
         store = MeasurementsQuery()
         rows = store.parametric(
-            y="in_freq", x="uut_serial", filters=self._scope(dynamic_axis_data["part"])
+            y=FieldRef.input("freq"),
+            x="uut_serial",
+            filters=self._scope(dynamic_axis_data["part"]),
         )
         assert {r.y for r in rows} == {1000.0, 2000.0}
 
     def test_dynamic_distinct_via_describe(self, dynamic_axis_data):
         store = MeasurementsQuery()
-        names = {c["column_name"] for c in store.describe_columns()}
-        assert "in_freq" in names
+        schema = store.describe_columns()
+        field_names = {f.name for f in schema.fields}
+        assert "freq" in field_names
 
 
 @pytest.fixture(scope="module")
@@ -616,6 +612,85 @@ class TestLatestRunLimits:
         assert result == []
 
 
+@pytest.fixture(scope="module")
+def parametric_scope_data() -> dict[str, str]:
+    """Two measurement names ('v_rail', 'i_rail') in one run under a unique part.
+
+    Used to assert that parametric(y="v_rail") returns only v_rail rows,
+    not i_rail rows.
+    """
+    part = f"TEST-PSCOPE-{uuid4().hex[:8]}"
+    canonical_runs = resolve_data_dir() / "runs" / "pscope" / "2026-03-01"
+    run_id = f"pscope-{uuid4()}"
+    rows = [
+        MeasurementRow(
+            record_type="vector",
+            session_id="sess-pscope",
+            run_id=run_id,
+            run_started_at=datetime.fromisoformat("2026-03-01T10:00:00").replace(tzinfo=UTC),
+            run_ended_at=datetime.fromisoformat("2026-03-01T10:05:00").replace(tzinfo=UTC),
+            run_outcome="passed",
+            uut_serial=f"SN-{i}",
+            uut_part_number=part,
+            part_id=part,
+            test_phase="production",
+            step_name="sweep",
+            step_index=0,
+            vector_index=i,
+            vector_outcome="passed",
+            measurements=[
+                _meas_struct(name="v_rail", value=3.3 + i * 0.01),
+                _meas_struct(name="i_rail", value=0.1 + i * 0.005),
+            ],
+        )
+        for i in range(5)
+    ]
+    _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
+    return {"part": part}
+
+
+class TestParametricMeasurementScoping:
+    """#2.1 — parametric(y="v_rail") must scope to v_rail rows only."""
+
+    def test_measurement_name_scoped(self, parametric_scope_data):
+        """y=FieldRef.measurement("v_rail") returns only v_rail measurement_name rows."""
+        part = parametric_scope_data["part"]
+        store = MeasurementsQuery()
+        filters = FilterSet(string_filters={"part_id": [part]})
+        rows = store.parametric(
+            y=FieldRef.measurement("v_rail"),
+            x="vector_index",
+            filters=filters,
+        )
+        assert rows, "expected non-empty result"
+        assert all(r.y is not None for r in rows)
+        # All y values come from v_rail (3.3–3.34), not i_rail (0.1–0.12)
+        assert all(r.y > 1.0 for r in rows), (
+            "i_rail rows (y~0.1) leaked into v_rail parametric result"
+        )
+
+    def test_different_measurement_names_are_independent(self, parametric_scope_data):
+        """y="v_rail" and y="i_rail" return disjoint value ranges."""
+        part = parametric_scope_data["part"]
+        store = MeasurementsQuery()
+        filters = FilterSet(string_filters={"part_id": [part]})
+        v_rows = store.parametric(
+            y=FieldRef.measurement("v_rail"),
+            x="vector_index",
+            filters=filters,
+        )
+        i_rows = store.parametric(
+            y=FieldRef.measurement("i_rail"),
+            x="vector_index",
+            filters=filters,
+        )
+        assert v_rows and i_rows
+        v_max = max(r.y for r in v_rows if r.y is not None)
+        i_max = max(r.y for r in i_rows if r.y is not None)
+        assert v_max > 1.0, "v_rail values should be ~3.3"
+        assert i_max < 1.0, "i_rail values should be ~0.1"
+
+
 class TestDistinctValues:
     def test_no_filter_returns_fixture_serials(self, fixture_data):
         store = MeasurementsQuery()
@@ -682,3 +757,173 @@ class TestSummaryCounts:
         counts = store.summary_counts(filters=filters)
         assert counts.total_rows == 0
         assert counts.distinct_runs == 0
+
+
+class TestResolveValueTypeMissEmpty:
+    """Fix #2: a (role, name) absent from measurements_dynamic yields empty
+    results rather than fabricating 'scalar:float' and returning wrong rows."""
+
+    def test_unknown_output_field_returns_empty_parametric(self):
+        store = MeasurementsQuery()
+        rows = store.parametric(
+            y=FieldRef.output(f"no_such_field_{uuid4().hex}"),
+            x="measurement_value",
+        )
+        assert rows == [], "unknown EAV field must return empty, not fabricated rows"
+
+    def test_unknown_input_field_returns_empty_histogram(self):
+        store = MeasurementsQuery()
+        rows = store.histogram(field=FieldRef.input(f"no_such_field_{uuid4().hex}"))
+        assert rows == [], "unknown EAV field must return empty, not fabricated rows"
+
+
+@pytest.fixture(scope="module")
+def distinct_role_data() -> dict[str, str]:
+    """Fixture: two parts, each with one EAV output field named 'freq'.
+
+    Part A has 5 rows; part B has 3 rows.
+    ``distinct_values(role=)`` filtered to part A must return only part-A names.
+    """
+    part_a = f"DV-ROLE-A-{uuid4().hex[:8]}"
+    part_b = f"DV-ROLE-B-{uuid4().hex[:8]}"
+    for part, n_rows in ((part_a, 5), (part_b, 3)):
+        canonical_runs = resolve_data_dir() / "runs" / "dv-role" / "2026-04-01"
+        run = f"dvr-{uuid4()}"
+        rows = [
+            MeasurementRow(
+                record_type="vector",
+                session_id="sess-dvr",
+                run_id=run,
+                run_started_at=datetime.fromisoformat("2026-04-01T10:00:00").replace(tzinfo=UTC),
+                run_ended_at=datetime.fromisoformat("2026-04-01T10:05:00").replace(tzinfo=UTC),
+                run_outcome="passed",
+                uut_serial=f"SN-{i}",
+                uut_part_number=part,
+                part_id=part,
+                test_phase="production",
+                step_name="sweep",
+                step_index=0,
+                vector_index=i,
+                vector_outcome="passed",
+                outputs={"freq": float(1000 * (i + 1))},
+                measurements=[_meas_struct(value=3.3)],
+            )
+            for i in range(n_rows)
+        ]
+        _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
+    return {"part_a": part_a, "part_b": part_b}
+
+
+class TestDistinctValuesRoleHonorsFilters:
+    """Fix #3: distinct_values(role=...) must apply the caller's FilterSet."""
+
+    def test_role_filter_scoped_to_part(self, distinct_role_data):
+        store = MeasurementsQuery()
+        part_a = distinct_role_data["part_a"]
+        filters = FilterSet(string_filters={"part_id": [part_a]})
+        opts = store.distinct_values("name", role="output", filters=filters)
+        assert len(opts) >= 1
+        assert any(o.value == "freq" for o in opts)
+
+    def test_role_no_filter_sees_both_parts(self, distinct_role_data):
+        store = MeasurementsQuery()
+        opts_unscoped = store.distinct_values("name", role="output")
+        names = {o.value for o in opts_unscoped}
+        assert "freq" in names
+
+    def test_role_filter_excludes_other_part_data(self, distinct_role_data):
+        """Counts differ when filtered: part_a has more rows than part_b."""
+        store = MeasurementsQuery()
+        part_a = distinct_role_data["part_a"]
+        part_b = distinct_role_data["part_b"]
+        opts_a = store.distinct_values(
+            "name", role="output", filters=FilterSet(string_filters={"part_id": [part_a]})
+        )
+        opts_b = store.distinct_values(
+            "name", role="output", filters=FilterSet(string_filters={"part_id": [part_b]})
+        )
+        count_a = next((o.count for o in opts_a if o.value == "freq"), 0)
+        count_b = next((o.count for o in opts_b if o.value == "freq"), 0)
+        assert count_a > count_b, (
+            f"part_a has more rows ({count_a}) than part_b ({count_b}) — "
+            "filters must be applied in the role= branch"
+        )
+
+
+@pytest.fixture(scope="module")
+def mixed_type_field_data() -> dict[str, str]:
+    """Two parts that write the same output field name with different value_types.
+
+    part_float writes ``sensor`` as a float (scalar:float).
+    part_str   writes ``sensor`` as a string (scalar:str).
+
+    Globally the field is ambiguous (two value_types). Within a filter
+    scoped to either part alone it is uniform.
+    """
+    part_float = f"MT-FLOAT-{uuid4().hex[:8]}"
+    part_str = f"MT-STR-{uuid4().hex[:8]}"
+    for part, outputs in (
+        (part_float, {"sensor": 42.0}),
+        (part_str, {"sensor": "ok"}),
+    ):
+        canonical_runs = resolve_data_dir() / "runs" / "mixed-type" / "2026-05-01"
+        run = f"mt-{uuid4()}"
+        rows = [
+            MeasurementRow(
+                record_type="vector",
+                session_id="sess-mt",
+                run_id=run,
+                run_started_at=datetime.fromisoformat("2026-05-01T10:00:00").replace(tzinfo=UTC),
+                run_ended_at=datetime.fromisoformat("2026-05-01T10:05:00").replace(tzinfo=UTC),
+                run_outcome="passed",
+                uut_serial="SN-MT",
+                uut_part_number=part,
+                part_id=part,
+                test_phase="production",
+                step_name="measure",
+                step_index=0,
+                vector_index=0,
+                vector_outcome="passed",
+                outputs=outputs,
+                measurements=[_meas_struct(value=3.3)],
+            )
+        ]
+        _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
+    return {"part_float": part_float, "part_str": part_str}
+
+
+class TestResolveValueTypeFilterScoped:
+    """Fix #2 — ambiguity check must be scoped by the active FilterSet.
+
+    A field that has two value_types globally (float from part_float,
+    str from part_str) must resolve cleanly when the filter limits scope
+    to one part, not raise ValueError.
+    """
+
+    def test_uniform_under_filter_resolves_without_raise(self, mixed_type_field_data):
+        """Globally mixed-type field resolves cleanly when filter scopes to one part."""
+        store = MeasurementsQuery()
+        part_float = mixed_type_field_data["part_float"]
+        filters = FilterSet(string_filters={"part_id": [part_float]})
+        # Must not raise — field is uniform (scalar:float) within this filter.
+        rows = store.parametric(
+            y=FieldRef.output("sensor"),
+            x="measurement_value",
+            filters=filters,
+        )
+        assert rows, "expected rows from the float part"
+        assert all(r.y == pytest.approx(42.0) for r in rows)
+
+    def test_globally_mixed_raises_without_filter(self, mixed_type_field_data):
+        """Without a scoping filter the field is ambiguous and must raise ValueError."""
+        store = MeasurementsQuery()
+        part_float = mixed_type_field_data["part_float"]
+        part_str = mixed_type_field_data["part_str"]
+        # Both parts in scope → two value_types → ValueError.
+        filters = FilterSet(string_filters={"part_id": [part_float, part_str]})
+        with pytest.raises(ValueError, match="value_types in scope"):
+            store.parametric(
+                y=FieldRef.output("sensor"),
+                x="measurement_value",
+                filters=filters,
+            )

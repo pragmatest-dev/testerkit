@@ -135,7 +135,7 @@ class ChannelIndex:
     _RUNTIME_SCAN_INTERVAL = 1.0
 
     _REGISTRY_COLUMNS = (
-        "channel_id, session_id, hostname, data_type, instrument_role, "
+        "channel_id, session_id, hostname, value_type, instrument_role, "
         "resource, unit, first_seen, last_updated"
     )
 
@@ -251,7 +251,7 @@ class ChannelIndex:
                 channel_id VARCHAR,
                 session_id VARCHAR,
                 hostname VARCHAR,
-                data_type VARCHAR,
+                value_type VARCHAR,
                 instrument_role VARCHAR,
                 resource VARCHAR,
                 unit VARCHAR,
@@ -358,7 +358,7 @@ class ChannelIndex:
             self._index_db.execute(
                 """
                 INSERT INTO channel_registry
-                    (channel_id, session_id, hostname, data_type, instrument_role,
+                    (channel_id, session_id, hostname, value_type, instrument_role,
                      resource, unit, first_seen, last_updated)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
                 ON CONFLICT (channel_id, session_id) DO NOTHING
@@ -367,7 +367,7 @@ class ChannelIndex:
                     desc.channel_id,
                     desc.session_id,
                     desc.hostname,
-                    desc.data_type,
+                    desc.value_type,
                     desc.instrument_role,
                     desc.resource,
                     desc.unit,

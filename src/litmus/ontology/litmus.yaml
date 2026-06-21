@@ -688,7 +688,7 @@ concepts:
   - id: channel_descriptor
     category: runtime
     summary: >
-      Metadata for a live channel — data_type (scalar/array),
+      Metadata for a live channel — value_type (scalar/array),
       instrument_role, resource, unit. Written once when first seen.
     model: litmus.data.channels.models.ChannelDescriptor
     relationships:

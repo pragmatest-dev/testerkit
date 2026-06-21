@@ -181,20 +181,14 @@ class RunStore:
                     logger.debug("Failed to enrich run %s from parquet: %s", run_id, exc)
         return summary
 
-    def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict[str, Any]]:
+    def get_measurements(self, run_id: str) -> list[dict[str, Any]]:
         """Get all measurements for a specific test run.
 
         Goes through the daemon's ``measurements`` view (a parquet glob
         with ``union_by_name=true``) instead of reading the parquet file
         directly — DuckDB does the multi-file scan in C++ with predicate
         pushdown on ``run_id`` and avoids client-side parquet decoding.
-
-        ``_file`` is no longer honored (was a test-only escape hatch);
-        callers should pass ``run_id`` and trust the daemon to find the
-        rows. Kept in the signature for backwards-compat at the call
-        sites that pass it as keyword.
         """
-        _ = _file  # ignore — daemon resolves run_id directly
         prefix = self._id_prefix(run_id)
         try:
             rows = self._flight_query(f"""
@@ -206,26 +200,35 @@ class RunStore:
         except Exception as exc:
             logger.debug("Failed to query measurements for %s: %s", run_id, exc)
             return []
-        # Expand dynamic_attrs MAP into top-level keys so callers can access
-        # dynamic columns (out_*, in_*, value, unit, etc.) as regular dict keys.
-        # DuckDB MAP(VARCHAR,VARCHAR) arrives from Arrow as a list of (key, value)
-        # tuples rather than a Python dict. Numeric strings are coerced to float
-        # for backwards compatibility with callers expecting native types.
+
+        # Un-fuse dynamic_attrs MAP into role-split inputs/outputs dicts.
+        # dynamic_attrs MAP(VARCHAR,VARCHAR) arrives from Arrow as either a
+        # plain dict or a list of (key, value) tuples. Keys are prefixed
+        # in_<name> (stimulus) and out_<name> (observation); we strip the
+        # prefix and coerce VARCHAR numerics back to float.
+        def _coerce(v: Any) -> Any:
+            if isinstance(v, str):
+                try:
+                    return float(v)
+                except ValueError:
+                    return v
+            return v
+
         for row in rows:
             da = row.pop("dynamic_attrs", None)
-            if not da:
-                continue
-            items = da.items() if isinstance(da, dict) else da
-            for k, v in items:
-                if k is None:
-                    continue
-                if isinstance(v, str):
-                    try:
-                        row[k] = float(v)
-                    except ValueError:
-                        row[k] = v
-                else:
-                    row[k] = v
+            inputs: dict[str, Any] = {}
+            outputs: dict[str, Any] = {}
+            if da:
+                items = da.items() if isinstance(da, dict) else da
+                for k, v in items:
+                    if k is None or v is None:
+                        continue
+                    if k.startswith("in_"):
+                        inputs[k[3:]] = _coerce(v)
+                    elif k.startswith("out_"):
+                        outputs[k[4:]] = _coerce(v)
+            row["inputs"] = inputs
+            row["outputs"] = outputs
         return rows
 
     # --- Ref management (for materialize) ---
@@ -251,7 +254,7 @@ class RunStore:
         quoted = ", ".join(f"'{_sql_escape(s)}'" for s in session_shorts)
         return self._flight_query(f"""
             SELECT file_path, step_index, measurement_name, col_name,
-                   row_idx, uri, channel_id, session_short, session_id
+                   role, row_idx, uri, channel_id, session_short, session_id
             FROM measurement_refs
             WHERE session_short IN ({quoted})
         """)

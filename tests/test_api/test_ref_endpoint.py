@@ -158,19 +158,15 @@ def app_with_run():
 
 
 def _find_ref_uri(rows: list[dict], suffix: str) -> str | None:
-    """Walk parquet rows looking for an out_* column whose value ends in *suffix*.
+    """Walk measurement rows looking for an output whose value ends in *suffix*.
 
-    Item 1d: matches both legacy ``file://_ref/{filename}`` and new
+    Reads from the ``outputs`` dict (bare names) on each row.
+    Matches both legacy ``file://_ref/{filename}`` and new
     ``file://{session_id}/{filename}`` URI shapes.
     """
     for row in rows:
-        for key, value in row.items():
-            if (
-                key.startswith("out_")
-                and isinstance(value, str)
-                and value.startswith("file://")
-                and value.endswith(suffix)
-            ):
+        for value in (row.get("outputs") or {}).values():
+            if isinstance(value, str) and value.startswith("file://") and value.endswith(suffix):
                 return value
     return None
 

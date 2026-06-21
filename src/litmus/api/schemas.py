@@ -26,6 +26,10 @@ from typing import Any
 from pydantic import BaseModel
 
 
+def _opt_str(v: Any) -> str | None:
+    return str(v) if v else None
+
+
 class InstrumentView(BaseModel):
     """An instrument as connected during a test step.
 
@@ -72,10 +76,9 @@ class MeasurementView(BaseModel):
     instrument_name: str | None = None
     instrument_resource: str | None = None
     instrument_channel: str | None = None
-    # Typed dicts rehydrated from in_*/out_*/custom_* flat columns
+    # Typed dicts decoded from the dynamic_attrs MAP (role-split into inputs/outputs)
     inputs: dict[str, Any] = {}
     outputs: dict[str, Any] = {}
-    custom: dict[str, Any] = {}
 
 
 class StepView(BaseModel):
@@ -154,12 +157,9 @@ def _instruments_from_step_rows(rows: list[dict[str, Any]]) -> list[InstrumentVi
         if name is None:
             continue
 
-        def _opt_str(v: Any) -> str | None:
-            return str(v) if v else None
-
-        def _get(col: str, idx: int = i, r: dict = source_row) -> Any:
-            lst = r.get(col) or []
-            return lst[idx] if idx < len(lst) else None
+        def _get(col: str, *, _i: int = i, _r: dict = source_row) -> Any:
+            lst = _r.get(col) or []
+            return lst[_i] if _i < len(lst) else None
 
         instruments.append(
             InstrumentView(
@@ -184,17 +184,11 @@ def _instruments_from_step_rows(rows: list[dict[str, Any]]) -> list[InstrumentVi
 
 def _measurements_for_step(
     step_rows: list[dict[str, Any]],
-    *,
-    in_keys: list[str],
-    out_keys: list[str],
-    custom_keys: list[str],
 ) -> list[MeasurementView]:
     """Build MeasurementViews for one step from its measurement rows.
 
-    Rehydrates the dynamic ``in_*`` / ``out_*`` / ``custom_*`` parquet
-    columns into typed dicts on each MeasurementView. The prefix-key
-    lists are precomputed by the caller once per run (the parquet
-    schema is uniform across all rows of a run).
+    ``inputs``/``outputs`` are already role-split dicts on each row
+    (bare names, values coerced from VARCHAR by ``RunStore.get_measurements``).
     """
     return [
         MeasurementView(
@@ -214,9 +208,8 @@ def _measurements_for_step(
             instrument_name=row.get("instrument_name"),
             instrument_resource=row.get("instrument_resource"),
             instrument_channel=row.get("instrument_channel"),
-            inputs={k[3:]: row[k] for k in in_keys if row[k] is not None},
-            outputs={k[4:]: row[k] for k in out_keys if row[k] is not None},
-            custom={k[7:]: row[k] for k in custom_keys if row[k] is not None},
+            inputs=row.get("inputs") or {},
+            outputs=row.get("outputs") or {},
         )
         for row in step_rows
     ]
@@ -262,17 +255,6 @@ def build_run_view(
             continue
         rows_by_step[int(row.get("step_index") or 0)].append(row)
 
-    # Prefix-key lists are uniform across rows of a run; precompute
-    # once and reuse per step (avoids scanning row keys 5k× for large runs).
-    in_keys: list[str] = []
-    out_keys: list[str] = []
-    custom_keys: list[str] = []
-    if measurement_rows:
-        first = measurement_rows[0]
-        in_keys = [k for k in first if k.startswith("in_")]
-        out_keys = [k for k in first if k.startswith("out_")]
-        custom_keys = [k for k in first if k.startswith("custom_")]
-
     step_views: list[StepView] = []
     for step in sorted(steps, key=lambda s: s.step_index or 0):
         step_idx = int(step.step_index or 0)
@@ -286,12 +268,7 @@ def build_run_view(
                 ended_at=step.ended_at,
                 outcome=step.outcome,
                 instruments=_instruments_from_step_rows(step_rows),
-                measurements=_measurements_for_step(
-                    step_rows,
-                    in_keys=in_keys,
-                    out_keys=out_keys,
-                    custom_keys=custom_keys,
-                ),
+                measurements=_measurements_for_step(step_rows),
             )
         )
 

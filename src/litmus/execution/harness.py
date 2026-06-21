@@ -134,8 +134,8 @@ class Context:
     - **Vector level**: Data visible only to that vector
 
     The context provides semantic methods for data capture:
-    - configure(): Record configuration/stimulus values (→ in_*)
-    - observe(): Record measured context/observations (→ out_*)
+    - configure(): Record configuration/stimulus values (→ inputs lane)
+    - observe(): Record measured context/observations (→ outputs lane)
 
     Example usage:
         def test_output_voltage(psu, dmm, temp_probe, context):
@@ -248,7 +248,7 @@ class Context:
     # -------------------------------------------------------------------------
 
     def configure(self, key: str, value: Any, *, unit: str | None = None) -> None:
-        """Record a configuration/stimulus value (→ in_* column).
+        """Record a configuration/stimulus value (an input — role ``input``).
 
         Use for commanded values, setpoints, and settings.
 
@@ -265,18 +265,18 @@ class Context:
     def observe(
         self, key: str, value: Any, *, namespace: str | None = None, unit: str | None = None
     ) -> None:
-        """Record an observation/measurement context (→ out_* column).
+        """Record an observation/measurement context (an output — role ``output``).
 
         Per §3 + §4 of the design doc, ``observe`` is a polymorphic
         intent verb — the author writes one call and the framework
         picks the store by value shape:
 
         - **scalar** (int/float/bool/str/None) → inline in
-          ``_observations``; lands in the parquet ``out_*`` column
-          directly.
+          ``_observations``; lands in the vector's outputs lane
+          (role ``output``) directly.
         - **Waveform** → ChannelStore (item 6 verb-layer unpack:
           writes ``wf.Y`` as the array payload with
-          ``sample_interval=wf.dt``); ``out_<name>`` carries the
+          ``sample_interval=wf.dt``); the outputs lane carries the
           ``channel://`` URI. **Caveat**: ``t0`` and
           ``Waveform.attributes`` have no row-level home in today's
           schema (open per design doc §15) — they're dropped with a
@@ -284,9 +284,9 @@ class Context:
           ``filestore.write(name, wf)`` if you need them preserved.
         - **numeric_array** (list/tuple/ndarray of bool/int/float/str
           leaves, plus dict struct shapes) → ChannelStore;
-          ``out_<name>`` carries the ``channel://`` URI.
+          the outputs lane carries the ``channel://`` URI.
         - **blob** (bytes/Path/PIL.Image/Pydantic/anything else) →
-          FileStore via :func:`get_filestore().put`; ``out_<name>``
+          FileStore via :func:`get_filestore().put`; the outputs lane
           carries the ``file://`` URI.
         - **URI string** (``channel://...`` / ``file://...``) → stamped
           as-is (no re-write).
@@ -396,7 +396,7 @@ class Context:
                     # ChannelStore would land in ``_observations`` as a
                     # raw list/ndarray and break parquet serialization
                     # at row-build time. Fail loud at the call site
-                    # instead of writing garbage to ``out_*``.
+                    # instead of writing garbage to the outputs lane.
                     raise RuntimeError(
                         f"observe({full_key!r}): value classified as "
                         f"{vtype!r} but no ChannelStore is wired on this "
@@ -441,8 +441,8 @@ class Context:
 
         Only fills when the author passed no explicit ``unit=`` — the channel
         descriptor is the single source of truth (set on first write, immutable
-        per session), so ``out_<name>`` carries the channel's unit without the
-        author re-typing it.
+        per session), so the outputs lane entry carries the channel's unit
+        without the author re-typing it.
         """
         if self._observation_units.get(key) is not None or self._channel_store is None:
             return
@@ -453,13 +453,12 @@ class Context:
     def _stamp_observation(self, key: str, value: Any) -> None:
         """Persist an observation to ``_observations`` AND mirror to the active vector.
 
-        The mirror is what makes ``out_*`` columns land on the parquet
-        ``record_type='measurement'`` row at row-build time.
-        ``build_output_columns`` (in ``_row_helpers``) reads from
-        ``vector.observations``, not ``Context._observations``; without
-        the mirror, every ``out_*`` column was empty when a measurement
-        was emitted in the middle of a test body (before vector teardown
-        could snapshot from the context).
+        The mirror is what makes output lane entries land on the parquet
+        vector row at row-build time. ``build_output_columns`` (in
+        ``_row_helpers``) reads from ``vector.observations``, not
+        ``Context._observations``; without the mirror, every outputs-lane
+        entry was empty when a measurement was emitted mid-test-body
+        (before vector teardown could snapshot from the context).
 
         **Mirror caveat — observations outside a vector scope are
         parquet-invisible.** This method reads ``get_current_vector()``
@@ -469,7 +468,7 @@ class Context:
         without a TestHarness vector pushed), the observation is
         stashed on ``self._observations`` but NEVER lands on a
         ``TestVector.observations`` dict — and so never reaches the
-        parquet ``out_*`` columns. Production pytest tests and
+        parquet outputs lane. Production pytest tests and
         ``TestHarness.run_vector(...)`` are inside a vector scope by
         construction; non-standard test patterns (observations in
         autouse fixtures, helpers called before the step opens) lose
@@ -653,8 +652,8 @@ class Context:
         own machinery; subsequent writes are ChannelStore-only (no
         per-sample event).
 
-        Unlike :meth:`observe`, ``stream`` never stamps ``out_*`` on
-        the vector — it's an append-to-stream operation, not a
+        Unlike :meth:`observe`, ``stream`` never writes to the outputs
+        lane on the vector — it's an append-to-stream operation, not a
         "stash this on my current context" operation. Per §3 line
         236: ``stream`` and ``observe`` are strictly orthogonal.
         Author wires the channel to the vector explicitly via
@@ -795,7 +794,7 @@ class Context:
         """Record multiple configuration values at once.
 
         Args:
-            values: Dict of key-value pairs for in_* columns.
+            values: Dict of key-value pairs written to the inputs lane.
         """
         for key, value in values.items():
             self.configure(key, value)
@@ -804,7 +803,7 @@ class Context:
         """Record multiple observations at once.
 
         Args:
-            values: Dict of key-value pairs for out_* columns.
+            values: Dict of key-value pairs written to the outputs lane.
         """
         for key, value in values.items():
             self.observe(key, value)
@@ -1659,8 +1658,8 @@ class TestHarness:
             current_step.vectors.append(test_vector)
 
         # Set contextvars for concurrency-safe resolution. The context
-        # var lets observer.read stamp this vector's out_<channel> on
-        # first write per (vector, channel) — item 5 / Position 2.
+        # var lets observer.read stamp this vector's outputs lane entry
+        # for the channel on first write per (vector, channel) — item 5 / Position 2.
         vector_token = push_current_vector(test_vector)
         context_token = push_current_context(self._vector_context)
         # Vector boundary (Mode 2, programmatic path): mirror the pytest

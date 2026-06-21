@@ -129,7 +129,7 @@ class TestDescriptor:
         desc = ChannelDescriptor.model_validate_json(meta[b"litmus.channel_descriptor"])
         assert desc.channel_id == "dmm.dc_voltage"
         # Build item 14: typed leaf — ``3.3`` is ``float`` → ``"scalar:float"``.
-        assert desc.data_type == "scalar:float"
+        assert desc.value_type == "scalar:float"
 
     def test_no_registry_json_written(self, tmp_path: Path):
         store = _make_store(tmp_path)

@@ -34,13 +34,13 @@ __all__ = [
 # 1.0 flat measurement-row schema. Stamped into parquet metadata.
 SCHEMA_VERSION = "2.0"
 
-# EAV lane struct — the nested at-rest representation of one input / output /
-# custom entry. ``kind`` selects which ``value_*`` lane holds the value. Field
+# EAV lane struct — the nested at-rest representation of one input / output
+# entry. ``value_type`` selects which ``value_*`` lane holds the value. Field
 # names must match ``_row_helpers.LANE_FIELDS`` / the encoder (guarded below).
 _LANE_STRUCT = pa.struct(
     [
         ("name", pa.string()),
-        ("kind", pa.string()),
+        ("value_type", pa.string()),
         ("value_int", pa.int64()),
         ("value_double", pa.float64()),
         ("value_bool", pa.bool_()),
@@ -95,14 +95,14 @@ _MEASUREMENT_LIST = pa.list_(_MEASUREMENT_STRUCT)
 #     identity + timing + rolled-up outcome.
 #   * ``record_type = 'vector'`` — one execution carrier (a synthesized scope
 #     vector for non-looping steps, or an in-body iteration vector for a
-#     ``vectors`` loop). Holds the ``inputs``/``outputs``/``custom`` lanes and
-#     the nested ``measurements`` list for that execution.
+#     ``vectors`` loop). Holds the ``inputs``/``outputs`` lanes and the
+#     nested ``measurements`` list for that execution.
 #
-# ``inputs`` / ``outputs`` / ``custom`` are nested ``LIST<STRUCT<lanes>>``
-# columns (see ``_LANE_STRUCT``), not wide ``in_*``/``out_*`` columns; the
-# DuckDB daemon projects them into ``in_*``/``out_*``/``custom_*`` for queries.
-# ``measurements`` is a nested ``LIST<STRUCT>`` on the vector row; the daemon
-# UNNESTs it into the flat measurement fact for queries.
+# ``inputs`` / ``outputs`` are nested ``LIST<STRUCT<lanes>>`` columns (see
+# ``_LANE_STRUCT``), not wide ``in_*``/``out_*`` columns; the DuckDB daemon
+# projects them into the ``dynamic_attrs`` MAP and ``measurements_dynamic``
+# EAV table for queries. ``measurements`` is a nested ``LIST<STRUCT>`` on the
+# vector row; the daemon UNNESTs it into the flat measurement fact for queries.
 RUN_ROW_SCHEMA = pa.schema(
     [
         # Discriminator — 'run', 'step', or 'vector'
@@ -174,7 +174,6 @@ RUN_ROW_SCHEMA = pa.schema(
         # values inside the structs, so there is no column explosion.
         ("inputs", _LANE_LIST),
         ("outputs", _LANE_LIST),
-        ("custom", _LANE_LIST),
         # Nested measurements on the vector row; the daemon UNNESTs these into
         # the flat measurement fact at ingest.
         ("measurements", _MEASUREMENT_LIST),
@@ -208,10 +207,10 @@ def _infer_type_from_value(value: Any) -> pa.DataType:
 def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
     """Build complete Arrow schema: fixed canonical + instrument arrays.
 
-    Fixed columns (including the nested ``inputs``/``outputs``/``custom``
-    lanes) use RUN_ROW_SCHEMA types. Instrument arrays use known list types.
-    Any other stray column is inferred from its first non-None value. Passed
-    to ``pa.Table.from_pylist()`` so Arrow validates at construction time.
+    Fixed columns (including the nested ``inputs``/``outputs`` lanes) use
+    RUN_ROW_SCHEMA types. Instrument arrays use known list types. Any other
+    stray column is inferred from its first non-None value. Passed to
+    ``pa.Table.from_pylist()`` so Arrow validates at construction time.
 
     Single pass over rows to collect keys and first non-None values.
     """
