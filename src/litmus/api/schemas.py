@@ -183,16 +183,11 @@ def _instruments_from_step_rows(rows: list[dict[str, Any]]) -> list[InstrumentVi
 
 def _measurements_for_step(
     step_rows: list[dict[str, Any]],
-    *,
-    in_keys: list[str],
-    out_keys: list[str],
 ) -> list[MeasurementView]:
     """Build MeasurementViews for one step from its measurement rows.
 
-    Rehydrates the dynamic ``in_*`` / ``out_*`` parquet columns into
-    typed dicts on each MeasurementView. The prefix-key lists are
-    precomputed by the caller once per run (the parquet schema is
-    uniform across all rows of a run).
+    ``inputs``/``outputs`` are already role-split dicts on each row
+    (bare names, values coerced from VARCHAR by ``RunStore.get_measurements``).
     """
     return [
         MeasurementView(
@@ -212,8 +207,8 @@ def _measurements_for_step(
             instrument_name=row.get("instrument_name"),
             instrument_resource=row.get("instrument_resource"),
             instrument_channel=row.get("instrument_channel"),
-            inputs={k[3:]: row[k] for k in in_keys if row[k] is not None},
-            outputs={k[4:]: row[k] for k in out_keys if row[k] is not None},
+            inputs=row.get("inputs") or {},
+            outputs=row.get("outputs") or {},
         )
         for row in step_rows
     ]
@@ -259,15 +254,6 @@ def build_run_view(
             continue
         rows_by_step[int(row.get("step_index") or 0)].append(row)
 
-    # Prefix-key lists are uniform across rows of a run; precompute
-    # once and reuse per step (avoids scanning row keys 5k× for large runs).
-    in_keys: list[str] = []
-    out_keys: list[str] = []
-    if measurement_rows:
-        first = measurement_rows[0]
-        in_keys = [k for k in first if k.startswith("in_")]
-        out_keys = [k for k in first if k.startswith("out_")]
-
     step_views: list[StepView] = []
     for step in sorted(steps, key=lambda s: s.step_index or 0):
         step_idx = int(step.step_index or 0)
@@ -281,11 +267,7 @@ def build_run_view(
                 ended_at=step.ended_at,
                 outcome=step.outcome,
                 instruments=_instruments_from_step_rows(step_rows),
-                measurements=_measurements_for_step(
-                    step_rows,
-                    in_keys=in_keys,
-                    out_keys=out_keys,
-                ),
+                measurements=_measurements_for_step(step_rows),
             )
         )
 

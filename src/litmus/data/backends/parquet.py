@@ -465,7 +465,7 @@ class ParquetBackend:
                     "part_id": m.get("part_id"),
                     "station_id": m.get("station_id"),
                 }
-                vector_info["params"] = _params_from_inputs(decode_lane_structs(m.get("inputs")))
+                vector_info["params"] = _params_from_inputs(m.get("inputs") or {})
                 vectors_seen[key] = vector_info
 
         return list(vectors_seen.values())

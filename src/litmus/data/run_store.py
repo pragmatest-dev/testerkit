@@ -206,26 +206,35 @@ class RunStore:
         except Exception as exc:
             logger.debug("Failed to query measurements for %s: %s", run_id, exc)
             return []
-        # Expand dynamic_attrs MAP into top-level keys so callers can access
-        # dynamic columns (out_*, in_*, value, unit, etc.) as regular dict keys.
-        # DuckDB MAP(VARCHAR,VARCHAR) arrives from Arrow as a list of (key, value)
-        # tuples rather than a Python dict. Numeric strings are coerced to float
-        # for backwards compatibility with callers expecting native types.
+
+        # Un-fuse dynamic_attrs MAP into role-split inputs/outputs dicts.
+        # dynamic_attrs MAP(VARCHAR,VARCHAR) arrives from Arrow as either a
+        # plain dict or a list of (key, value) tuples. Keys are prefixed
+        # in_<name> (stimulus) and out_<name> (observation); we strip the
+        # prefix and coerce VARCHAR numerics back to float.
+        def _coerce(v: Any) -> Any:
+            if isinstance(v, str):
+                try:
+                    return float(v)
+                except ValueError:
+                    return v
+            return v
+
         for row in rows:
             da = row.pop("dynamic_attrs", None)
-            if not da:
-                continue
-            items = da.items() if isinstance(da, dict) else da
-            for k, v in items:
-                if k is None:
-                    continue
-                if isinstance(v, str):
-                    try:
-                        row[k] = float(v)
-                    except ValueError:
-                        row[k] = v
-                else:
-                    row[k] = v
+            inputs: dict[str, Any] = {}
+            outputs: dict[str, Any] = {}
+            if da:
+                items = da.items() if isinstance(da, dict) else da
+                for k, v in items:
+                    if k is None or v is None:
+                        continue
+                    if k.startswith("in_"):
+                        inputs[k[3:]] = _coerce(v)
+                    elif k.startswith("out_"):
+                        outputs[k[4:]] = _coerce(v)
+            row["inputs"] = inputs
+            row["outputs"] = outputs
         return rows
 
     # --- Ref management (for materialize) ---
