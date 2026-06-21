@@ -142,10 +142,10 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
       parquet ingest. ``runs`` / ``steps`` are UNION VIEWS (created
       in :func:`_create_views`) that splice these tables with the
       in-memory ``AccumulatorPool`` snapshot.
-    - ``measurements`` — VIEW over the parquet glob. Dynamic
-      ``in_*`` / ``out_*`` MAP columns make table materialization
-      impractical; aggregates for the hot path live in
-      ``measurement_stats``.
+    - ``measurements`` — VIEW over the parquet glob. The
+      ``dynamic_attrs`` MAP (with ``in_``/``out_``-prefixed keys)
+      makes table materialization impractical; aggregates for the
+      hot path live in ``measurement_stats``.
     - ``measurement_stats`` — TABLE of per-(file, step, measurement)
       aggregates for cardinality / pareto / Cpk queries.
     - ``measurement_io_schema``, ``measurement_refs`` — secondary
@@ -278,29 +278,26 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
             step_index INTEGER,
             measurement_name VARCHAR,
             col_name VARCHAR NOT NULL,
+            role VARCHAR NOT NULL DEFAULT 'output',
             row_idx INTEGER NOT NULL,
             uri VARCHAR NOT NULL,
             channel_id VARCHAR NOT NULL,
             session_short VARCHAR NOT NULL,
-            -- Item 1d: full session_id (UUID) is what FileStore.write
-            -- needs to scope materialized channel refs into the right
-            -- session dir. session_short stays for compatibility with
-            -- channel-store path naming (8-char prefix).
             session_id VARCHAR
         )
     """)
-    # Item 1d schema migration: pre-1d DuckDB files have a
-    # ``measurement_refs`` table without ``session_id``. CREATE TABLE
-    # IF NOT EXISTS won't add the column to an existing table — do it
-    # explicitly. ALTER TABLE … ADD COLUMN IF NOT EXISTS is a no-op
-    # when the column already exists, so this is safe across versions.
-    conn.execute("""
-        ALTER TABLE measurement_refs ADD COLUMN IF NOT EXISTS session_id VARCHAR
-    """)
+    # Schema migrations for measurement_refs: pre-existing DuckDB files may
+    # be missing columns added since. ALTER TABLE … ADD COLUMN IF NOT EXISTS
+    # is a no-op when the column already exists.
+    conn.execute("ALTER TABLE measurement_refs ADD COLUMN IF NOT EXISTS session_id VARCHAR")
+    conn.execute(
+        "ALTER TABLE measurement_refs ADD COLUMN IF NOT EXISTS role VARCHAR DEFAULT 'output'"
+    )
     # measurement_io_schema migration: older builds stored ``column_name``
     # (prefixed, e.g. ``out_v_rail``) + ``category``. New schema stores
     # ``(role, name, value_type)`` directly. Add the new columns; old rows
     # keep NULL values for them (pre-1b data, harmless).
+    # TODO(post-0.2.0): DROP COLUMN column_name, category once installs are upgraded.
     for col_def in (
         "role VARCHAR",
         "name VARCHAR",
@@ -595,6 +592,8 @@ _SIGNAL_PATH_SUFFIX_PRED = (
     "AND u.name NOT LIKE '%\\_uut\\_pin' ESCAPE '\\' "
     "AND u.name NOT LIKE '%\\_fixture\\_connection' ESCAPE '\\'"
 )
+# Distinct from _DYNAMIC_ROLES (same values, different use): _IO_ROLES drives
+# io_schema/refs indexing; _DYNAMIC_ROLES drives the EAV unnest.
 _IO_ROLES: tuple[tuple[str, str], ...] = (
     ("inputs", "input"),
     ("outputs", "output"),
@@ -635,22 +634,20 @@ def _index_io_and_refs(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | None
             conn.execute(
                 f"""
                 INSERT INTO measurement_refs
-                SELECT ? AS file_path, step_index, measurement_name,
-                       col_name, row_idx, uri, channel_id, session_short, session_id
-                FROM (
-                    SELECT step_index, NULL AS measurement_name,
-                        'out_' || u.name AS col_name,
-                        (row_number() OVER ()) - 1 AS row_idx,
-                        u.value_text AS uri,
-                        regexp_extract(u.value_text, 'channel://([^?]+)', 1) AS channel_id,
-                        regexp_extract(u.value_text, '[?&]session=([^&]+)', 1) AS session_id,
-                        left(regexp_extract(u.value_text, '[?&]session=([^&]+)', 1), 8)
-                            AS session_short
-                    FROM {src}, UNNEST(outputs) AS t(u)
-                    WHERE u.value_text IS NOT NULL
-                      AND u.value_text LIKE 'channel://%'
-                      AND regexp_extract(u.value_text, 'channel://([^?]+)', 1) != ''
-                )
+                    (file_path, step_index, measurement_name, col_name, role,
+                     row_idx, uri, channel_id, session_short, session_id)
+                SELECT ? AS file_path, step_index, NULL AS measurement_name,
+                       u.name AS col_name, 'output' AS role,
+                       (row_number() OVER ()) - 1 AS row_idx,
+                       u.value_text AS uri,
+                       regexp_extract(u.value_text, 'channel://([^?]+)', 1) AS channel_id,
+                       left(regexp_extract(u.value_text, '[?&]session=([^&]+)', 1), 8)
+                           AS session_short,
+                       regexp_extract(u.value_text, '[?&]session=([^&]+)', 1) AS session_id
+                FROM {src}, UNNEST(outputs) AS t(u)
+                WHERE u.value_text IS NOT NULL
+                  AND u.value_text LIKE 'channel://%'
+                  AND regexp_extract(u.value_text, 'channel://([^?]+)', 1) != ''
             """,
                 [fkey],
             )
@@ -696,22 +693,20 @@ def _batch_index_io_and_refs(conn: duckdb.DuckDBPyConnection, paths: list[str]) 
     try:
         conn.execute(f"""
             INSERT INTO measurement_refs
-            SELECT filename AS file_path, step_index, measurement_name,
-                   col_name, row_idx, uri, channel_id, session_short, session_id
-            FROM (
-                SELECT filename, step_index, NULL AS measurement_name,
-                    'out_' || u.name AS col_name,
-                    (row_number() OVER (PARTITION BY filename)) - 1 AS row_idx,
-                    u.value_text AS uri,
-                    regexp_extract(u.value_text, 'channel://([^?]+)', 1) AS channel_id,
-                    regexp_extract(u.value_text, '[?&]session=([^&]+)', 1) AS session_id,
-                    left(regexp_extract(u.value_text, '[?&]session=([^&]+)', 1), 8)
-                        AS session_short
-                FROM {src}, UNNEST(outputs) AS t(u)
-                WHERE u.value_text IS NOT NULL
-                  AND u.value_text LIKE 'channel://%'
-                  AND regexp_extract(u.value_text, 'channel://([^?]+)', 1) != ''
-            )
+                (file_path, step_index, measurement_name, col_name, role,
+                 row_idx, uri, channel_id, session_short, session_id)
+            SELECT filename AS file_path, step_index, NULL AS measurement_name,
+                   u.name AS col_name, 'output' AS role,
+                   (row_number() OVER (PARTITION BY filename)) - 1 AS row_idx,
+                   u.value_text AS uri,
+                   regexp_extract(u.value_text, 'channel://([^?]+)', 1) AS channel_id,
+                   left(regexp_extract(u.value_text, '[?&]session=([^&]+)', 1), 8)
+                       AS session_short,
+                   regexp_extract(u.value_text, '[?&]session=([^&]+)', 1) AS session_id
+            FROM {src}, UNNEST(outputs) AS t(u)
+            WHERE u.value_text IS NOT NULL
+              AND u.value_text LIKE 'channel://%'
+              AND regexp_extract(u.value_text, 'channel://([^?]+)', 1) != ''
         """)
     except duckdb.Error as exc:
         warnings.warn(f"Could not batch-scan refs: {exc}", stacklevel=2)
@@ -1348,8 +1343,8 @@ def _index_unified_parquet(conn: duckdb.DuckDBPyConnection, fkey: str) -> str | 
         vector_index)``, aggregated; sweep variants get distinct rows.
       * ``measurement_stats`` — per-(file, step, name) rollup over
         rows where ``record_type = 'measurement'``.
-      * ``measurements_materialized`` — raw measurement rows packed
-        with dynamic in_*/out_* MAP columns.
+      * ``measurements_materialized`` — raw measurement rows with a
+        ``dynamic_attrs`` MAP (``in_``/``out_``-prefixed keys).
       * ``measurement_io_schema`` / ``measurement_refs`` — IO schema
         cache + ref-path index for the measurement rows in this file.
 

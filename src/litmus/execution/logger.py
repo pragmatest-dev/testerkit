@@ -311,22 +311,21 @@ class RunContext:
     ``RunContext`` persists for the entire session and stores metadata that
     applies to the whole run (operator badge, fixture serial, etc.).
 
-    Allows test architects to add custom fields that become columns in Parquet:
+    Custom fields are stored in the run's ``custom_metadata`` dict, which is
+    written as Parquet file-level metadata under the key ``b"custom_metadata"``.
+    They are not row columns. Operators commonly use a ``custom_`` prefix as a
+    naming convention — the framework does not enforce any prefix.
+
+    Example::
 
         def test_output_voltage(context, psu, dmm, verify, run_context):
-            # Add custom fields - become columns in Parquet
             run_context.set("operator_badge", badge_id)
             run_context.set("operator_shift", "day")
-            run_context.set("chamber_humidity", 45.2)
+            run_context.set("custom_chamber_humidity", 45.2)
             run_context.set("fixture_serial", "FIX-001")
 
-            # Normal test...
             psu.set_voltage(context.get_param("vin"))
             verify("output_voltage", float(dmm.measure_dc_voltage()))
-
-    Custom fields are prefixed with their entity or use a `custom_` prefix:
-    - `operator_badge`, `operator_shift` → grouped with operator
-    - `custom_chamber_humidity` → explicit custom namespace
     """
 
     def __init__(self, test_run: TestRun):
@@ -341,8 +340,7 @@ class RunContext:
         """Set a custom metadata field.
 
         Args:
-            key: Field name. Will be stored as-is if it contains a prefix
-                 (e.g., "operator_badge") or prefixed with "custom_" otherwise.
+            key: Field name, stored as-is in the run's custom_metadata.
             value: Field value (must be JSON-serializable for Parquet).
         """
         self._test_run.custom_metadata[key] = value
@@ -667,7 +665,7 @@ class RunScope:
 
         * sweep variants of the same logical step share one ``step_index``
           (sequence-relative position) and differ only by ``vector_index``;
-        * the commanded sweep parameters (``in_*``) reach the StepStarted event
+        * the commanded sweep parameters reach the StepStarted event via the inputs lane
           and the step row directly, without subscribers having to wait for a
           measurement to arrive.
 

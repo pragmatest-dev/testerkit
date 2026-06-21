@@ -181,20 +181,14 @@ class RunStore:
                     logger.debug("Failed to enrich run %s from parquet: %s", run_id, exc)
         return summary
 
-    def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict[str, Any]]:
+    def get_measurements(self, run_id: str) -> list[dict[str, Any]]:
         """Get all measurements for a specific test run.
 
         Goes through the daemon's ``measurements`` view (a parquet glob
         with ``union_by_name=true``) instead of reading the parquet file
         directly — DuckDB does the multi-file scan in C++ with predicate
         pushdown on ``run_id`` and avoids client-side parquet decoding.
-
-        ``_file`` is no longer honored (was a test-only escape hatch);
-        callers should pass ``run_id`` and trust the daemon to find the
-        rows. Kept in the signature for backwards-compat at the call
-        sites that pass it as keyword.
         """
-        _ = _file  # ignore — daemon resolves run_id directly
         prefix = self._id_prefix(run_id)
         try:
             rows = self._flight_query(f"""
@@ -260,7 +254,7 @@ class RunStore:
         quoted = ", ".join(f"'{_sql_escape(s)}'" for s in session_shorts)
         return self._flight_query(f"""
             SELECT file_path, step_index, measurement_name, col_name,
-                   row_idx, uri, channel_id, session_short, session_id
+                   role, row_idx, uri, channel_id, session_short, session_id
             FROM measurement_refs
             WHERE session_short IN ({quoted})
         """)

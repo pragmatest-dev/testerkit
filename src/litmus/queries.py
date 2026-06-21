@@ -42,6 +42,12 @@ All four are also accessible via their original deep paths under
 ``litmus.analysis.*`` / ``litmus.data.event_store`` — those remain
 the contributor-facing form. User-facing tools (docs, examples,
 external scripts) should import from this module instead.
+
+API note: ``MeasurementsQuery`` exposes a ``FieldRef``-based axis API
+(``parametric``, ``histogram``, ``latest_run_limits``) for typed
+field selection. ``RunsQuery`` and ``StepsQuery`` still use bare column
+string APIs. Unification of the three onto a common FieldRef surface
+is deferred.
 """
 
 from __future__ import annotations

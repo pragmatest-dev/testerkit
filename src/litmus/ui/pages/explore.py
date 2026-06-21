@@ -235,7 +235,7 @@ async def explore_page(request: Request):
     plus ``y``/``y_name``/``y_role``/``y_value_type``, ``x``/``x_name``/
     ``x_role``/``x_value_type``, ``group_by``/``group_by_name``/
     ``group_by_role``, ``chart_type``, ``bins``, ``limit``, ``since``,
-    ``until``, and ``role`` (role facet).
+    and ``until``.
     """
     data_dir = str(resolve_data_dir())
     create_layout("Measurements")
@@ -245,7 +245,6 @@ async def explore_page(request: Request):
     is_bare_url = not qd
     initial_filters = FilterSet.from_url_params(qd)
     initial_chart_type = qp.get("chart_type", "scatter")
-    initial_role_filter: list[str] = qd.get("role", [])
     try:
         initial_bins = int(qp.get("bins") or DEFAULT_BINS)
     except ValueError:
@@ -299,7 +298,6 @@ async def explore_page(request: Request):
         "group_label": initial_group_label,
         "bins": initial_bins,
         "limit": initial_limit,
-        "role_filter": list(initial_role_filter),
         # value_type overrides when user picks from the picker
         "y_value_type": qp.get("y_value_type") or None,
         "x_value_type": qp.get("x_value_type") or None,
@@ -348,8 +346,6 @@ async def explore_page(request: Request):
             params["bins"] = str(state["bins"])
         if state["limit"] != DEFAULT_LIMIT:
             params["limit"] = str(state["limit"])
-        for role_val in state["role_filter"]:
-            params.setdefault("role", []).append(role_val)
         push_url_state("/explore", params)
 
     async def _refresh_string_facets() -> None:
@@ -539,10 +535,6 @@ async def explore_page(request: Request):
         state["filter_set"].until = result
         await _refresh_all()
 
-    async def _on_role_filter_change(e: Any) -> None:
-        state["role_filter"] = list(e.value or [])
-        await _refresh_all()
-
     # ── Layout ──────────────────────────────────────────────────────
     with ui.column().classes("w-full p-6 gap-4"):
         with ui.row().classes("items-center gap-2"):
@@ -562,21 +554,6 @@ async def explore_page(request: Request):
                         on_since_change=_on_since_change,
                         on_until_change=_on_until_change,
                     )
-                # Role facet — multiselect of input/output/measurement
-                role_widget = (
-                    ui.select(
-                        [r.value for r in FieldRole],
-                        multiple=True,
-                        value=state["role_filter"],
-                        label="Role",
-                        with_input=False,
-                        on_change=_on_role_filter_change,
-                    )
-                    .classes("w-56")
-                    .props("use-chips dense outlined")
-                )
-                role_widget.tooltip("Field role: input / output / measurement")
-                facet_widgets["role"] = role_widget
             cardinality_label = ui.label("…").classes("text-sm text-slate-600 italic mt-2")
 
         # PLOT section
@@ -729,17 +706,13 @@ def _fetch_initial_schema(
     try:
         with MeasurementsQuery(_data_dir=data_dir) as q:
             schema: ColumnSchema = q.describe_columns()
+            initial_counts = q.summary_counts()
     except FlightPermanentError:
         return None
     except (OSError, ValueError, RuntimeError) as exc:
         return str(exc)
 
-    try:
-        with MeasurementsQuery(_data_dir=data_dir) as q:
-            initial_counts = q.summary_counts()
-    except (OSError, ValueError, RuntimeError):
-        initial_counts = None
-    if initial_counts is not None and initial_counts.total_rows == 0:
+    if initial_counts.total_rows == 0:
         return None
 
     y_map, x_map, group_map, field_desc = _build_axis_options(schema)

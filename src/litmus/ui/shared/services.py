@@ -1392,9 +1392,7 @@ def get_run_detail(run_id: str):
 
     run = _run_row_to_summary(run_row)
 
-    measurements: list[dict] = (
-        backend.get_measurements(run_id, _file=run.file_path) if run.file_path else []
-    )
+    measurements: list[dict] = backend.get_measurements(run_id) if run.file_path else []
 
     with StepsQuery(_data_dir=backend.data_dir) as q:
         steps = q.list_for_run(run_id, include_incomplete=True)

@@ -158,7 +158,7 @@ def encode_lane_structs(
     units: dict[str, str] | None = None,
     pins: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Encode an inputs / outputs / custom dict into a list of lane structs.
+    """Encode an inputs or outputs dict into a list of lane structs.
 
     ``units`` maps a slot name to its engineering unit; ``pins`` maps a slot
     name to its ``uut_pin``. Both ride into the lane's named fields.
@@ -569,7 +569,8 @@ def build_measurement_struct(measurement: Measurement) -> dict[str, Any]:
 def build_input_columns(vector: TestVector) -> dict[str, Any]:
     """Build inputs dict from vector params and stimulus records.
 
-    Keys are unprefixed (e.g. ``"vin"``); ``to_flat_dict()`` adds the ``in_`` prefix.
+    Keys are unprefixed (e.g. ``"vin"``); the result is encoded as the
+    ``inputs`` lane struct list by ``to_flat_dict()``.
     """
     cols: dict[str, Any] = {}
 
@@ -633,8 +634,8 @@ def build_output_columns(
 ) -> dict[str, Any]:
     """Build outputs dict from vector observations.
 
-    Keys are unprefixed (e.g. ``"temperature"``); ``to_flat_dict()`` adds
-    the ``out_`` prefix.
+    Keys are unprefixed (e.g. ``"temperature"``); the result is encoded as
+    the ``outputs`` lane struct list by ``to_flat_dict()``.
 
     By the time this runs, observations already contain URIs (from
     Context.observe() writing to ChannelStore) or inline scalars.

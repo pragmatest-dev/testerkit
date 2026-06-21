@@ -19,8 +19,8 @@ All timestamps are UTC for consistent cross-timezone analysis.
 Schema design:
 - One row per measurement
 - All metadata denormalized onto each row
-- Dynamic in_* columns for stimulus conditions
-- Dynamic out_* columns for observations (scalars inline, large data in _ref/)
+- Inputs lane: LIST<STRUCT> of stimulus conditions (role='input')
+- Outputs lane: LIST<STRUCT> of observations (scalars inline, URIs for large data)
 - Config snapshots in Parquet file-level metadata
 """
 
@@ -79,8 +79,9 @@ from litmus.data.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Suffix patterns for stimulus signal-path columns (in_{param}_{suffix}).
-# A column like "in_vin_instrument" is metadata, not a param value.
+# Suffix patterns that identify signal-path metadata keys in the
+# dynamic_attrs MAP. A key ending in one of these suffixes is metadata,
+# not a stimulus value.
 _STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_uut_pin", "_fixture_connection")
 
 # Outcome priority for deterministic worst-case selection from a set.
@@ -196,7 +197,7 @@ class ParquetBackend:
     Key design principles:
     1. One row per measurement - enables flexible queries
     2. All metadata denormalized - no joins needed
-    3. Dynamic schema - in_* columns vary per test
+    3. Dynamic schema - inputs/outputs lanes vary per test
     4. Config snapshots in file metadata - full reconstruction possible
     """
 
@@ -425,10 +426,10 @@ class ParquetBackend:
         with self._run_store_ctx() as store:
             return store.get_run(run_id)
 
-    def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict[str, Any]]:
+    def get_measurements(self, run_id: str) -> list[dict[str, Any]]:
         """Get all measurements for a specific test run. Delegates to RunStore."""
         with self._run_store_ctx() as store:
-            return store.get_measurements(run_id, _file=_file)
+            return store.get_measurements(run_id)
 
     def get_measurement(
         self,
@@ -970,9 +971,10 @@ def is_file_reference(value: Any) -> bool:
 def extract_refs(parquet_path: Path) -> tuple[set[tuple[str, str]], set[str]]:
     """Channel ``(channel_id, session_id)`` pairs + ``file://`` keys a run references.
 
-    Scans the run's string columns (``out_*`` etc.) for ``channel://`` / ``file://``
-    URIs — the run's full reachable set, both schemes. Used by promote (carry a
-    run's data) and retention (reference-aware file pruning).
+    Scans the run's string columns (outputs lane structs and others) for
+    ``channel://`` / ``file://`` URIs — the run's full reachable set, both
+    schemes. Used by promote (carry a run's data) and retention (reference-aware
+    file pruning).
     """
     channels: set[tuple[str, str]] = set()
     files: set[str] = set()

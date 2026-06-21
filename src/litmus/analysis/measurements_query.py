@@ -116,23 +116,32 @@ _PLOTTABLE_FIXED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("step_name", "VARCHAR"),
 )
 
+assert all(  # noqa: S101
+    name in _FIXED_COLUMNS for name, _ in _PLOTTABLE_FIXED_COLUMNS
+), "Drift: _PLOTTABLE_FIXED_COLUMNS contains names absent from _FIXED_COLUMNS"
 
-def _resolve_selector(selector: str | FieldRef) -> FieldRef:
-    """Normalize a bare string or FieldRef to a FieldRef.
 
-    A bare string resolves to ``FieldRef.measurement(name)`` unless it
-    matches a fixed infrastructure column, in which case it stays as-is
-    (the caller handles fixed columns directly via ``m.<col>``).
+def _resolve_selector(selector: str | FieldRef) -> str | FieldRef:
+    """Normalize a bare string or FieldRef.
+
+    Returns a bare ``str`` when the selector names a fixed infrastructure
+    column (caller uses ``m.<col>`` directly). Returns a ``FieldRef`` for
+    real EAV/measurement fields.
     """
     if isinstance(selector, str):
         if selector in _FIXED_COLUMNS:
-            return FieldRef(role=FieldRole.MEASUREMENT, name=selector, value_type="__fixed__")
+            return selector
         return FieldRef.measurement(selector)
     return selector
 
 
 def _eav_typed_expr(ref: FieldRef, alias: str) -> str:
-    """Typed SQL expression selecting the correct value_* column from an EAV alias."""
+    """Typed SQL expression selecting the correct value_* column from an EAV alias.
+
+    When ``value_type`` is ``None`` (field absent from ``measurements_dynamic``),
+    returns a typed-NULL expression so callers' ``IS NOT NULL`` filters yield
+    empty results rather than a SQL type error.
+    """
     vt = ref.value_type or ""
     if vt == "scalar:bool":
         return f"{alias}.value_bool"
@@ -144,15 +153,22 @@ def _eav_typed_expr(ref: FieldRef, alias: str) -> str:
         return f"{alias}.value_timestamp"
     if vt in ("list", "dict"):
         return f"{alias}.value_json"
+    if not vt:
+        return "CAST(NULL AS DOUBLE)"
     return f"{alias}.value_text"
 
 
 class _EAVJoins:
-    """Collects EAV joins for input/output FieldRefs and emits their SQL."""
+    """Collects EAV joins for input/output FieldRefs and emits their SQL.
+
+    Also accumulates measurement-name predicates for MEASUREMENT-role
+    FieldRefs so ``parametric(y="v_rail")`` scopes to that measurement.
+    """
 
     def __init__(self) -> None:
         self._joins: list[tuple[str, FieldRef]] = []  # (alias, ref)
         self._seen: dict[tuple[str, str, str | None], str] = {}
+        self._meas_name_predicates: list[str] = []
 
     def register(self, ref: FieldRef) -> str:
         """Register a FieldRef and return its join alias."""
@@ -164,6 +180,16 @@ class _EAVJoins:
         self._joins.append((alias, ref))
         self._seen[key] = alias
         return alias
+
+    def add_meas_name_predicate(self, name: str) -> None:
+        """Record a measurement_name scoping predicate for a MEASUREMENT FieldRef."""
+        pred = f"m.measurement_name = '{sql_escape(name)}'"
+        if pred not in self._meas_name_predicates:
+            self._meas_name_predicates.append(pred)
+
+    def meas_name_clauses(self) -> list[str]:
+        """Return accumulated measurement_name predicates for the WHERE clause."""
+        return list(self._meas_name_predicates)
 
     def join_sql(self) -> str:
         clauses = []
@@ -693,13 +719,18 @@ class MeasurementsQuery:
         """
         name_clause = ""
         if field is not None:
-            ref = _resolve_selector(field)
-            if ref.role is not FieldRole.MEASUREMENT and ref.value_type != "__fixed__":
-                raise ValueError(
-                    f"cpk() requires a measurement FieldRef; got role={ref.role.value!r}. "
-                    "Outputs and inputs have no limits — use histogram() for distributions."
-                )
-            name_clause = f"\n    AND measurement_name = '{sql_escape(ref.name)}'"
+            resolved = _resolve_selector(field)
+            if isinstance(resolved, str):
+                # Fixed column — treat as a measurement_name filter
+                name_clause = f"\n    AND measurement_name = '{sql_escape(resolved)}'"
+            else:
+                ref = resolved
+                if ref.role is not FieldRole.MEASUREMENT:
+                    raise ValueError(
+                        f"cpk() requires a measurement FieldRef; got role={ref.role.value!r}. "
+                        "Outputs and inputs have no limits — use histogram() for distributions."
+                    )
+                name_clause = f"\n    AND measurement_name = '{sql_escape(ref.name)}'"
         base_and = _build_and_clauses(
             part=part,
             station=station,
@@ -830,39 +861,83 @@ class MeasurementsQuery:
         self,
         selector: str | FieldRef,
         joins: _EAVJoins,
+        filters: FilterSet | None = None,
     ) -> str:
         """Resolve a selector to a SQL column expression, registering any EAV join.
 
-        For input/output FieldRefs without an explicit value_type, performs a
-        type-coherence check against the catalog. Raises loudly on mixed types.
+        A bare ``str`` from ``_resolve_selector`` is a fixed infrastructure
+        column — returned as ``m.<col>`` directly. A ``FieldRef`` with role
+        MEASUREMENT maps to ``m.measurement_value`` and registers a
+        ``measurement_name`` predicate on ``joins`` so the query scopes to
+        that measurement (e.g. ``parametric(y="v_rail")`` returns only v_rail
+        rows). A bare fixed column resolved as a plain ``str`` gets no
+        predicate. Input/output FieldRefs get a typed EAV join; type
+        coherence is checked when ``value_type`` is not specified.
+
+        ``filters`` is forwarded to ``_resolve_value_type`` so ambiguity is
+        judged within the caller's active filter scope, not globally.
         """
-        ref = _resolve_selector(selector)
-        if ref.role is FieldRole.MEASUREMENT or ref.value_type == "__fixed__":
-            col = ref.name if ref.value_type == "__fixed__" else "measurement_value"
-            _safe_ident(col)
-            return f"m.{col}"
+        resolved = _resolve_selector(selector)
+        if isinstance(resolved, str):
+            _safe_ident(resolved)
+            return f"m.{resolved}"
+
+        ref = resolved
+        if ref.role is FieldRole.MEASUREMENT:
+            joins.add_meas_name_predicate(ref.name)
+            return "m.measurement_value"
 
         # input/output: check type coherence if value_type not specified
         if ref.value_type is None:
-            vt = self._resolve_value_type(ref)
+            vt = self._resolve_value_type(ref, filters=filters)
             ref = FieldRef(role=ref.role, name=ref.name, value_type=vt)
 
         alias = joins.register(ref)
         return _eav_typed_expr(ref, alias)
 
-    def _resolve_value_type(self, ref: FieldRef) -> str:
-        """Resolve the value_type for a (role, name) pair. Raises on ambiguity."""
-        rows = self._query_dicts(
-            f"SELECT value_type, COUNT(*) AS cnt"
-            f" FROM measurements_dynamic"
-            f" WHERE role = '{sql_escape(ref.role.value)}'"
-            f"   AND name = '{sql_escape(ref.name)}'"
-            f" GROUP BY value_type"
-        )
+    def _resolve_value_type(
+        self,
+        ref: FieldRef,
+        filters: FilterSet | None = None,
+    ) -> str | None:
+        """Resolve the value_type for a (role, name) pair within the active filter scope.
+
+        Returns ``None`` when the field has no rows in ``measurements_dynamic``
+        within the filtered scope (the query will yield empty results — correct
+        absence-as-empty behaviour). Raises ``ValueError`` when multiple
+        value_types are present within the scope (ambiguity requires the caller
+        to supply an explicit ``value_type=`` on ``FieldRef``).
+
+        ``filters`` scopes the lookup via a join on ``measurements`` so a field
+        that is mixed-type globally but uniform within the user's active filter
+        (e.g. a date range or part filter) resolves cleanly without raising.
+        """
+        filter_clauses = _filter_clauses(filters)
+        if filter_clauses:
+            filter_join = f" JOIN measurements m ON {_VECTOR_KEY.format(a='measurements_dynamic')}"
+            filter_where = " AND ".join(filter_clauses)
+            sql = (
+                f"SELECT value_type, COUNT(*) AS cnt"
+                f" FROM measurements_dynamic{filter_join}"
+                f" WHERE measurements_dynamic.role = '{sql_escape(ref.role.value)}'"
+                f"   AND measurements_dynamic.name = '{sql_escape(ref.name)}'"
+                f"   AND {filter_where}"
+                f" GROUP BY value_type"
+            )
+        else:
+            sql = (
+                f"SELECT value_type, COUNT(*) AS cnt"
+                f" FROM measurements_dynamic"
+                f" WHERE role = '{sql_escape(ref.role.value)}'"
+                f"   AND name = '{sql_escape(ref.name)}'"
+                f" GROUP BY value_type"
+            )
+        rows = self._query_dicts(sql)
         if not rows:
-            return "scalar:float"
+            return None
         if len(rows) == 1:
-            return str(rows[0]["value_type"] or "scalar:float")
+            vt = rows[0]["value_type"]
+            return str(vt) if vt else None
         breakdown = ", ".join(f"{r['value_type']} ({r['cnt']})" for r in rows)
         raise ValueError(
             f"{ref.role.value} {ref.name!r} has {len(rows)} value_types in scope: "
@@ -891,12 +966,12 @@ class MeasurementsQuery:
         owning run has not finalized. UI live views pass ``True``.
         """
         joins = _EAVJoins()
-        y_col = self._resolve_eav_field(y, joins)
-        x_col = self._resolve_eav_field(x, joins)
+        y_col = self._resolve_eav_field(y, joins, filters=filters)
+        x_col = self._resolve_eav_field(x, joins, filters=filters)
         group_col: str | None = None
         if group_by is not None:
             if isinstance(group_by, FieldRef):
-                group_col = self._resolve_eav_field(group_by, joins)
+                group_col = self._resolve_eav_field(group_by, joins, filters=filters)
             else:
                 _safe_ident(group_by)
                 group_col = f"m.{group_by}"
@@ -904,6 +979,7 @@ class MeasurementsQuery:
         clauses = [f"{y_col} IS NOT NULL", f"{x_col} IS NOT NULL"]
         if not include_incomplete:
             clauses.append("m.run_outcome IS NOT NULL")
+        clauses.extend(joins.meas_name_clauses())
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
         frm = f"measurements m{joins.join_sql()}"
@@ -934,16 +1010,17 @@ class MeasurementsQuery:
         string (fixed column name) or a ``FieldRef`` for EAV role fields.
         """
         joins = _EAVJoins()
-        field_col = self._resolve_eav_field(field, joins)
+        field_col = self._resolve_eav_field(field, joins, filters=filters)
         group_col: str | None = None
         if group_by is not None:
             if isinstance(group_by, FieldRef):
-                group_col = self._resolve_eav_field(group_by, joins)
+                group_col = self._resolve_eav_field(group_by, joins, filters=filters)
             else:
                 _safe_ident(group_by)
                 group_col = f"m.{group_by}"
 
         clauses = [f"{field_col} IS NOT NULL", "m.run_outcome IS NOT NULL"]
+        clauses.extend(joins.meas_name_clauses())
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
         frm = f"measurements m{joins.join_sql()}"
@@ -992,8 +1069,9 @@ class MeasurementsQuery:
         band; a constant limit collapses to a flat one.
         """
         joins = _EAVJoins()
-        x_col = self._resolve_eav_field(x, joins)
+        x_col = self._resolve_eav_field(x, joins, filters=filters)
         clauses = [f"{x_col} IS NOT NULL", "m.run_outcome IS NOT NULL"]
+        clauses.extend(joins.meas_name_clauses())
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
         frm = f"measurements m{joins.join_sql()}"
@@ -1042,11 +1120,21 @@ class MeasurementsQuery:
         col = _safe_ident(column)
         if role is not None:
             role_val = FieldRole(role) if isinstance(role, str) else role
+            scoped = _filters_excluding(filters, column) if exclude_self else filters
+            filter_clauses = _filter_clauses(scoped)
             role_clause = f" AND role = '{sql_escape(role_val.value)}'"
-            dyn_where = f" WHERE {col} IS NOT NULL{role_clause}"
+            clauses = [f"{col} IS NOT NULL", *filter_clauses]
+            # measurements_dynamic has no run-level columns; join measurements
+            # to apply FilterSet predicates when filters are present.
+            join_sql = (
+                f" JOIN measurements m ON {_VECTOR_KEY.format(a='measurements_dynamic')}"
+                if filter_clauses
+                else ""
+            )
+            dyn_where = " WHERE " + " AND ".join(clauses) + role_clause
             sql = f"""
             SELECT {col} AS value, COUNT(*) AS count
-            FROM measurements_dynamic{dyn_where}
+            FROM measurements_dynamic{join_sql}{dyn_where}
             GROUP BY {col}
             ORDER BY count DESC, value ASC
             LIMIT {int(limit)}

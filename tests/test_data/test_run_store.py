@@ -208,12 +208,13 @@ def test_get_measurements(runs_store: RunStore, fixture_data: dict[str, str]) ->
 
 
 def test_find_channel_refs(runs_store: RunStore, fixture_data: dict[str, str]) -> None:
-    """RunStore.find_channel_refs finds channel:// URIs in out_* columns."""
+    """RunStore.find_channel_refs finds channel:// URIs in the outputs lane."""
     refs = runs_store.find_channel_refs({fixture_data["session_short"]})
     assert any(
         r["channel_id"] == "scope.ch1.waveform"
         and r["session_short"] == fixture_data["session_short"]
-        and r["col_name"] == "out_waveform"
+        and r["col_name"] == "waveform"
+        and r["role"] == "output"
         for r in refs
     ), f"expected scope.ch1.waveform ref for session {fixture_data['session_short']}, got {refs}"
 

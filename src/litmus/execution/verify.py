@@ -37,11 +37,13 @@ class VerifyFn(Protocol):
     **Verbs separate cleanly**: ``verify`` judges scalars; ``observe``
     handles all shapes (routing + URI). To capture an artifact AND
     judge a metric, use both: ``observe("scope.cap", wf)`` to land the
-    capture in ChannelStore (URI rides as ``out_scope.cap`` on the
-    vector), then ``verify("overshoot", overshoot(wf), Limit(...))``
-    to judge the scalar metric. The artifact is queryable via
-    ``WHERE out_scope.cap IS NOT NULL`` — by data presence, not row
-    name (design doc §7).
+    capture in ChannelStore — the resulting URI is written to the
+    outputs lane under the name ``scope.cap`` (role ``output``) — then
+    ``verify("overshoot", overshoot(wf), Limit(...))`` to judge the
+    scalar metric. The artifact is queryable via
+    ``FieldRef.output("scope.cap")`` in a ``parametric`` or
+    ``histogram`` call (EAV join on role + name) — by data presence,
+    not a flat ``out_<name>`` column (design doc §7).
     """
 
     def __call__(
@@ -203,20 +205,22 @@ def _perform_verify(
       ``observe``.
     * ``observe`` handles **all shapes** — scalar / array / Waveform /
       blob. Non-scalars route to the right store; the resulting URI
-      rides on the active vector's ``out_<name>`` for downstream
-      query via ``WHERE out_<name> IS NOT NULL`` (design doc §7).
+      lands in the output lane under ``<name>`` for downstream
+      query via ``role='output' AND name=<name>`` (design doc §7).
 
     To capture an artifact AND judge a metric in the same step::
 
-        observe("scope.ch1.capture", wf)                      # URI on out_*
+        # URI lands in the outputs lane under name "scope.ch1.capture" (role "output")
+        observe("scope.ch1.capture", wf)
         verify("overshoot", overshoot(wf), Limit(low=0, high=0.5))
 
-    The artifact's presence is queryable by ``out_scope.ch1.capture``
-    on any row in the vector — by data presence, not row name.
+    The artifact is queryable via ``FieldRef.output("scope.ch1.capture")``
+    in ``parametric`` / ``histogram`` (EAV join on role + name) — by data
+    presence, not a flat ``out_scope_ch1_capture`` column.
     """
     # Item 16: namespace= prefix sugar. The effective name (used for
-    # limit lookup, measurement_name on the row, and any downstream
-    # out_<name> projection) is "{namespace}.{name}". Pure opt-in.
+    # limit lookup, measurement_name on the row, and the outputs lane
+    # key) is "{namespace}.{name}". Pure opt-in.
     if namespace:
         name = f"{namespace}.{name}"
     from contextlib import nullcontext
@@ -246,8 +250,8 @@ def _perform_verify(
             "judgment-bearing — it judges a scalar against a limit. To "
             "capture a non-scalar artifact, use ``observe(name, value)`` "
             "which routes by shape (Waveform / array → ChannelStore; "
-            "bytes / Path → FileStore) and stamps the resulting URI on "
-            "the active vector's out_<name>. To verify a metric of the "
+            "bytes / Path → FileStore) and stamps the resulting URI in "
+            "the active vector's outputs lane. To verify a metric of the "
             "artifact, extract a scalar first: "
             "``verify('overshoot', overshoot(wf), Limit(...))``."
         )

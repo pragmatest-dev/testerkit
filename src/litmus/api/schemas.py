@@ -26,6 +26,10 @@ from typing import Any
 from pydantic import BaseModel
 
 
+def _opt_str(v: Any) -> str | None:
+    return str(v) if v else None
+
+
 class InstrumentView(BaseModel):
     """An instrument as connected during a test step.
 
@@ -72,7 +76,7 @@ class MeasurementView(BaseModel):
     instrument_name: str | None = None
     instrument_resource: str | None = None
     instrument_channel: str | None = None
-    # Typed dicts rehydrated from in_*/out_* flat columns
+    # Typed dicts decoded from the dynamic_attrs MAP (role-split into inputs/outputs)
     inputs: dict[str, Any] = {}
     outputs: dict[str, Any] = {}
 
@@ -153,12 +157,9 @@ def _instruments_from_step_rows(rows: list[dict[str, Any]]) -> list[InstrumentVi
         if name is None:
             continue
 
-        def _opt_str(v: Any) -> str | None:
-            return str(v) if v else None
-
-        def _get(col: str, idx: int = i, r: dict = source_row) -> Any:
-            lst = r.get(col) or []
-            return lst[idx] if idx < len(lst) else None
+        def _get(col: str, *, _i: int = i, _r: dict = source_row) -> Any:
+            lst = _r.get(col) or []
+            return lst[_i] if _i < len(lst) else None
 
         instruments.append(
             InstrumentView(
