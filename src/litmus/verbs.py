@@ -74,7 +74,7 @@ def _active_context() -> Any:
     return ctx
 
 
-def observe(key: str, value: Any, *, namespace: str | None = None) -> None:
+def observe(key: str, value: Any, *, namespace: str | None = None, unit: str | None = None) -> None:
     """Record an observation (→ ``out_*`` column).
 
     Thin top-level pass-through to
@@ -82,7 +82,7 @@ def observe(key: str, value: Any, *, namespace: str | None = None) -> None:
     for the full polymorphic dispatch rules (scalar / Waveform /
     numeric_array / blob / URI / sink-handle).
     """
-    _active_context().observe(key, value, namespace=namespace)
+    _active_context().observe(key, value, namespace=namespace, unit=unit)
 
 
 def verify(
@@ -92,6 +92,7 @@ def verify(
     *,
     characteristic: str | None = None,
     namespace: str | None = None,
+    unit: str | None = None,
 ) -> Any:
     """Record + judge a measurement (→ measurement row).
 
@@ -100,7 +101,7 @@ def verify(
     for limit-resolution rules + ``MissingLimitError`` semantics.
     """
     return _active_context().verify(
-        name, value, limit, characteristic=characteristic, namespace=namespace
+        name, value, limit, characteristic=characteristic, namespace=namespace, unit=unit
     )
 
 
@@ -111,6 +112,7 @@ def measure(
     *,
     characteristic: str | None = None,
     namespace: str | None = None,
+    unit: str | None = None,
 ) -> Any:
     """Record a measurement without judging it (→ measurement row).
 
@@ -121,11 +123,11 @@ def measure(
     pass-through to :meth:`litmus.execution.harness.Context.measure`.
     """
     return _active_context().measure(
-        name, value, limit, characteristic=characteristic, namespace=namespace
+        name, value, limit, characteristic=characteristic, namespace=namespace, unit=unit
     )
 
 
-def stream(name: str, sample: Any, *, namespace: str | None = None) -> str:
+def stream(name: str, sample: Any, *, namespace: str | None = None, unit: str | None = None) -> str:
     """Append one sample to a channel (→ ``channel://`` URI).
 
     Thin top-level pass-through to
@@ -134,7 +136,7 @@ def stream(name: str, sample: Any, *, namespace: str | None = None) -> str:
     vector; wire to a vector explicitly via ``observe(name, sink)`` if
     association is wanted.
     """
-    return _active_context().stream(name, sample, namespace=namespace)
+    return _active_context().stream(name, sample, namespace=namespace, unit=unit)
 
 
 __all__ = ["observe", "verify", "measure", "stream"]

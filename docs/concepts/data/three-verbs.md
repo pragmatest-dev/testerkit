@@ -141,14 +141,17 @@ The test-author verbs are built on top of the store-direct calls. What `observe`
 
 ## Engineering units
 
-`configure`, `observe`, `verify`, `measure`, and `stream` all accept an optional `unit=` keyword. The unit is stored alongside the value and is visible in query results:
+`configure`, `observe`, `verify`, `measure`, and `stream` all accept an optional `unit=` keyword across every call shape — top-level verb, pytest fixture, and `Context` method. The unit is stored alongside the value and is visible in query results:
 
 ```python
 context.configure("psu.voltage", 12.0, unit="V")
 observe("temp", 24.8, unit="°C")
 stream("current", sample, unit="A")
 verify("output_voltage", dmm.measure_dc_voltage(), Limit(low=4.75, high=5.25, unit="V"))
+measure("quiescent_current", psu.measure_current(), unit="A")
 ```
+
+For `verify`, the unit can come from `unit=` on the call, from `Limit(unit=)`, or from both when they agree. If both are provided and they differ, Litmus raises `ValueError` immediately — it does not silently let one override the other.
 
 For multi-axis data (IV curves, S-parameter sweeps, optical spectra), use `XYData` — it carries `x_unit` and `y_unit` as separate per-axis fields:
 

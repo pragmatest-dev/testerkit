@@ -200,27 +200,57 @@ class TestObserveThenVerifyPattern:
 
 
 class TestVerifyMeasureUnit:
-    """``unit=`` stamps the measurement's engineering unit — singular (one
-    quantity, one unit), symmetric with ``configure`` / ``observe``.
-    Inline ``unit=`` is primary; the resolved limit supplies the default.
+    """``unit=`` stamps the measurement's engineering unit.
+
+    Rule: unit from ``unit=`` OR from ``Limit(unit=)``. If both are
+    provided and they differ, ``verify`` raises ``ValueError`` immediately
+    (fail-loud-on-unit-conflict — consistent with channels store pattern).
+    If only one is provided, that one wins. If neither, unit stays None.
     """
 
-    def test_verify_unit_sets_measurement_unit(self, session: Any) -> None:
+    def test_verify_unit_kwarg_sets_measurement_unit(self, session: Any) -> None:
         m = session.ctx.verify("vout", 3.3, {"low": 3.0, "high": 3.6, "unit": ""}, unit="V")
         assert m.outcome == Outcome.PASSED
         assert m.unit == "V"
 
-    def test_verify_inline_unit_overrides_limit_unit(self, session: Any) -> None:
-        m = session.ctx.verify("vout", 3.3, {"low": 3.0, "high": 3.6, "unit": "mV"}, unit="V")
+    def test_verify_unit_conflict_raises(self, session: Any) -> None:
+        """Both unit= and Limit(unit=) provided and they differ → ValueError."""
+        with pytest.raises(ValueError, match="conflicts"):
+            session.ctx.verify("vout", 3.3, {"low": 3.0, "high": 3.6, "unit": "mV"}, unit="V")
+
+    def test_verify_unit_agrees_no_raise(self, session: Any) -> None:
+        """Both unit= and Limit(unit=) provided and they agree → no raise."""
+        m = session.ctx.verify("vout2", 3.3, {"low": 3.0, "high": 3.6, "unit": "V"}, unit="V")
         assert m.unit == "V"
 
-    def test_verify_limit_supplies_default_unit(self, session: Any) -> None:
+    def test_verify_limit_supplies_unit_when_kwarg_absent(self, session: Any) -> None:
         m = session.ctx.verify("iout", 1.2, {"low": 0.0, "high": 2.0, "unit": "A"})
         assert m.unit == "A"
 
     def test_measure_unit_sets_measurement_unit(self, session: Any) -> None:
         m = session.ctx.measure("temp", 24.8, unit="degC")
         assert m.unit == "degC"
+
+    def test_top_level_verify_forwards_unit(self, session: Any) -> None:
+        """Top-level litmus.verify forwards unit= to the Context."""
+        from litmus.execution.verify import _perform_verify
+
+        m = _perform_verify("rail", 5.0, Limit(low=4.75, high=5.25, unit="V"), unit="V")
+        assert m.unit == "V"
+
+    def test_top_level_verify_unit_conflict_raises(self, session: Any) -> None:
+        """Top-level verify raises ValueError on unit conflict."""
+        from litmus.execution.verify import _perform_verify
+
+        with pytest.raises(ValueError, match="conflicts"):
+            _perform_verify("rail", 5.0, Limit(low=4.75, high=5.25, unit="mV"), unit="V")
+
+    def test_top_level_measure_forwards_unit(self, session: Any) -> None:
+        """Top-level litmus.measure forwards unit= to the Context."""
+        from litmus.execution.verify import _perform_measure
+
+        m = _perform_measure("ripple", 0.02, unit="Vpp")
+        assert m.unit == "Vpp"
 
 
 # --------------------------------------------------------------------- #

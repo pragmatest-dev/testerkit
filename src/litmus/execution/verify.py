@@ -255,6 +255,14 @@ def _perform_verify(
     # Accept dict literals at the call site (shared with ``logger.measure``).
     limit_obj = coerce_limit(limit)
 
+    # Fail loud when unit= and Limit(unit=) conflict — identical to
+    # the channels store's unit-conflict guard (fail-loud pattern).
+    if unit is not None and limit_obj is not None and limit_obj.unit and limit_obj.unit != unit:
+        raise ValueError(
+            f"verify({name!r}): unit={unit!r} conflicts with "
+            f"Limit(unit={limit_obj.unit!r}). Pass unit= to only one."
+        )
+
     # Resolve limit + record under the same ``characteristic`` context
     # so the limit chain and auto-traceability both see the override.
     char_ctx = (
