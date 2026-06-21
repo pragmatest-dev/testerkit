@@ -92,9 +92,9 @@ def test_output_voltage(vin, psu, dmm, verify):
            limit={"low": 3.2, "high": 3.4, "unit": "V"})
 ```
 
-The `vin` value lands in each measurement row's `in_vin` column (an example of the `in_*` [traceability](../how-to/execution/traceability.md) columns — every parametrized input lands in its own `in_<name>` column), so you can later query "how did output_voltage track vin?" without re-instrumenting the test. Sweeping from YAML instead of inline arrives in step 5.
+Each parametrized `vin` value is recorded as an **input** named `vin` on the measurement (its role is `input` — see [traceability](../how-to/execution/traceability.md)), so you can later query "how did output_voltage track vin?" — inputs are addressable by name and role — without re-instrumenting the test. Sweeping from YAML instead of inline arrives in step 5.
 
-Litmus also adds a native sweep marker, `@pytest.mark.litmus_sweeps`, that feeds the same `in_*` columns and supports range expanders (`linspace`, `arange`, `logspace`):
+Litmus also adds a native sweep marker, `@pytest.mark.litmus_sweeps`, that records the same inputs and supports range expanders (`linspace`, `arange`, `logspace`):
 
 ```python
 import pytest
@@ -173,7 +173,7 @@ Full schema in [Parquet storage schema](../reference/data/parquet-schema.md).
 - `measure(name, value, limit={"low": ..., "high": ..., "unit": "V"})` records a measurement explicitly
 - `verify(name, value, limit=...)` does the same plus pass/fail + raise on FAIL
 - Pytest classes group related tests; methods run in source order
-- Parametrize works as it always does; values land in `in_*` columns
+- Parametrize works as it always does; values are recorded as inputs (role `input`)
 
 ## Continue
 

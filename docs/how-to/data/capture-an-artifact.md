@@ -33,7 +33,7 @@ def test_thing(observe, verify, ...):
     observe("iv_curve", iv)
 ```
 
-The platform routes by value shape: scalars/arrays → ChannelStore, blobs → FileStore. Each call stamps `out_<name>` on the active vector with the resulting `file://...` URI. The verify row reached from `/results/{run_id}` shows all four `out_*` columns; clicking any opens the artifact.
+The platform routes by value shape: scalars/arrays → ChannelStore, blobs → FileStore. Each call records an OUTPUT named `<name>` on the active vector, carrying the resulting `file://...` URI. The measurement detail reached from `/results/{run_id}` shows each output by name; clicking any URI opens the artifact.
 
 ## Step 2: Continuous byte stream — `files.stream(name, format=...)`
 
@@ -52,13 +52,13 @@ def test_thing(verify, psu):
 
 Available formats today: `raw` (binary append), `jsonl` (one JSON value per line), `tdms` (requires `[tdms]` extra), `h5` (requires `[hdf5]` extra). `format=` is the one place the platform makes you be explicit — it can't infer `mp4` vs `wav` vs `tdms` from opaque bytes.
 
-`FileStarted` and `FileEnded` lifecycle events bracket the sink session. The final `file://...` URI lands on the active vector's `out_<name>` column when the `with` block exits.
+`FileStarted` and `FileEnded` lifecycle events bracket the sink session. When the `with` block exits, the `file://...` URI is recorded as an OUTPUT named `<name>` on the active vector.
 
 ## Step 3: Read it back
 
 In the operator UI:
 
-- `/results/{run_id}` — verify rows show every `out_*` column with `file://...` URI as clickable link
+- `/results/{run_id}` — each measurement shows its named outputs; `file://...` URIs render as clickable links
 - Inline view by MIME: PNG renders as `<img>`, JSON is pretty-printed, text shown plain, binary falls back to download
 
 In code:

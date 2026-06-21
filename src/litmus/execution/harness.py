@@ -248,7 +248,7 @@ class Context:
     # -------------------------------------------------------------------------
 
     def configure(self, key: str, value: Any, *, unit: str | None = None) -> None:
-        """Record a configuration/stimulus value (→ in_* column).
+        """Record a configuration/stimulus value (an input — role ``input``).
 
         Use for commanded values, setpoints, and settings.
 
@@ -265,7 +265,7 @@ class Context:
     def observe(
         self, key: str, value: Any, *, namespace: str | None = None, unit: str | None = None
     ) -> None:
-        """Record an observation/measurement context (→ out_* column).
+        """Record an observation/measurement context (an output — role ``output``).
 
         Per §3 + §4 of the design doc, ``observe`` is a polymorphic
         intent verb — the author writes one call and the framework

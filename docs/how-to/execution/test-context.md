@@ -101,7 +101,7 @@ def test_output_voltage(self, context, dmm, temp_probe, verify):
 
 Inside a `context.connections` loop, `observe()` auto-stamps `uut_pin` from the active connection — the same automatic pinning that `verify` gets. A raw capture (`observe("scope.cap", wf)`) recorded while iterating pins lands with the active pin's identity so you can later filter observations by `uut_pin`.
 
-For the parquet column mapping (`in_*` for `configure`, `out_*` for `observe`), see [Traceability](traceability.md).
+For how inputs and outputs land on measurement rows and how to query them by role and name, see [Traceability](traceability.md).
 
 ## Read back what you set last iteration
 
@@ -205,7 +205,7 @@ class TestPowerBoard:
 
 - [Writing tests](writing-tests.md) — end-to-end pytest patterns
 - [Test vectors](vector-expansion.md) — sweep shapes, axis ordering, `changed()` patterns
-- [Traceability](traceability.md) — how `configure` / `observe` map to `in_*` / `out_*` parquet columns
+- [Traceability](traceability.md) — how `configure` / `observe` land as inputs and outputs on measurement rows, and how to query them by role and name
 - [Limits](limits.md) — resolution order for `get_limit()`
 - [Litmus fixtures](../../reference/pytest/fixtures.md) — every plugin fixture with signature
 - [Parquet schema](../../reference/data/parquet-schema.md) — the row shape that holds these values
