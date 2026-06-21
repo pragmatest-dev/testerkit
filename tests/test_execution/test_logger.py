@@ -11,7 +11,7 @@ from litmus.execution._state import (
     reset_current_step,
     reset_current_vector,
 )
-from litmus.execution.logger import RunScope
+from litmus.execution.run_scope import RunScope
 
 
 class TestRunScope:

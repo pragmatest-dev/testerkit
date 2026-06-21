@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from litmus.data.events import InstrumentConnected
-from litmus.execution.logger import (
+from litmus.execution.run_scope import (
     RunScope,
     instrument_cal_fields,
     instrument_info_fields,

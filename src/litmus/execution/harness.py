@@ -46,7 +46,7 @@ from litmus.execution._state import (
     reset_current_vector,
     resolve_session_id,
 )
-from litmus.execution.logger import _auto_traceability
+from litmus.execution.run_scope import _auto_traceability
 from litmus.execution.vectors import Vector, expand_vectors
 from litmus.execution.verify import _perform_measure, _perform_verify
 from litmus.models.test_config import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
@@ -56,7 +56,7 @@ _log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from litmus.data.models import TestRun
-    from litmus.execution.logger import RunScope
+    from litmus.execution.run_scope import RunScope
     from litmus.models.part import Part
     from litmus.models.station import StationConfig
     from litmus.parts.context import PartContext

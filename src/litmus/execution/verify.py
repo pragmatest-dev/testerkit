@@ -229,7 +229,7 @@ def _perform_verify(
         get_current_run_scope,
         pushed_active_characteristic,
     )
-    from litmus.execution.logger import _resolve_measurement_limit
+    from litmus.execution.run_scope import _resolve_measurement_limit
 
     run_scope = get_current_run_scope()
     if run_scope is None:

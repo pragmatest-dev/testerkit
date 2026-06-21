@@ -521,7 +521,7 @@ def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
         "measurement_value": measurement.value,
         "measurement_unit": measurement.unit,
         # measurement.outcome is contractually set by log_measurement
-        # (RuntimeError raised in execution/logger.py if None reaches here).
+        # (RuntimeError raised in execution/run_scope.py if None reaches here).
         "measurement_outcome": measurement.outcome.value if measurement.outcome else None,
         # Limits
         "limit_low": measurement.limit_low,
