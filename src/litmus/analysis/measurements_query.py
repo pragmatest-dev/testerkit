@@ -17,6 +17,7 @@ from typing import Any
 
 from litmus.analysis.measurement_facets import (
     ColumnSchema,
+    CpkRow,
     DynamicFieldDescriptor,
     FacetOption,
     FieldRef,
@@ -26,7 +27,12 @@ from litmus.analysis.measurement_facets import (
     HistogramRow,
     LimitBandRow,
     ParametricRow,
+    ParetoRow,
+    RetestRow,
     SummaryCounts,
+    TimeLossRow,
+    TrendRow,
+    YieldRow,
 )
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
@@ -653,7 +659,7 @@ class MeasurementsQuery:
         since: str | None = None,
         until: str | None = None,
         period: str = "day",
-    ) -> list[dict[str, Any]]:
+    ) -> list[YieldRow]:
         """Yield summary: FPY, final yield, run counts, duration stats.
 
         Returns one row per (part, station, phase, period).
@@ -669,7 +675,7 @@ class MeasurementsQuery:
             period_expr=_period_col(period),
             where=where,
         )
-        return self._query_dicts(sql)
+        return [YieldRow(**r) for r in self._query_dicts(sql)]
 
     def pareto(
         self,
@@ -680,7 +686,7 @@ class MeasurementsQuery:
         since: str | None = None,
         until: str | None = None,
         top_n: int = 10,
-    ) -> list[dict[str, Any]]:
+    ) -> list[ParetoRow]:
         """Pareto analysis: top failure modes by count.
 
         Returns one row per (part, station, step, measurement).
@@ -695,7 +701,7 @@ class MeasurementsQuery:
             ),
             top_n=int(top_n),
         )
-        return self._query_dicts(sql)
+        return [ParetoRow(**r) for r in self._query_dicts(sql)]
 
     def cpk(
         self,
@@ -707,7 +713,7 @@ class MeasurementsQuery:
         since: str | None = None,
         until: str | None = None,
         min_samples: int = 10,
-    ) -> list[dict[str, Any]]:
+    ) -> list[CpkRow]:
         """Process capability (Cpk/Cp) per measurement.
 
         ``field`` selects which measurement to scope — a bare string or
@@ -742,7 +748,7 @@ class MeasurementsQuery:
             and_clauses=base_and + name_clause,
             min_samples=int(min_samples),
         )
-        return self._query_dicts(sql)
+        return [CpkRow(**r) for r in self._query_dicts(sql)]
 
     def trend(
         self,
@@ -753,7 +759,7 @@ class MeasurementsQuery:
         since: str | None = None,
         until: str | None = None,
         period: str = "day",
-    ) -> list[dict[str, Any]]:
+    ) -> list[TrendRow]:
         """Yield trend over time.
 
         Returns one row per (part, station, phase, period).
@@ -769,7 +775,7 @@ class MeasurementsQuery:
             period_expr=_period_col(period),
             where=where,
         )
-        return self._query_dicts(sql)
+        return [TrendRow(**r) for r in self._query_dicts(sql)]
 
     def retest(
         self,
@@ -780,7 +786,7 @@ class MeasurementsQuery:
         since: str | None = None,
         until: str | None = None,
         period: str = "day",
-    ) -> list[dict[str, Any]]:
+    ) -> list[RetestRow]:
         """Retest rates: how often UUTs require multiple attempts.
 
         Returns one row per (part, station, phase, period).
@@ -796,7 +802,7 @@ class MeasurementsQuery:
             period_expr=_period_col(period),
             where=where,
         )
-        return self._query_dicts(sql)
+        return [RetestRow(**r) for r in self._query_dicts(sql)]
 
     def time_loss(
         self,
@@ -807,7 +813,7 @@ class MeasurementsQuery:
         since: str | None = None,
         until: str | None = None,
         period: str = "day",
-    ) -> list[dict[str, Any]]:
+    ) -> list[TimeLossRow]:
         """Time lost to failures and errors.
 
         Returns one row per (part, station, phase, period).
@@ -823,7 +829,7 @@ class MeasurementsQuery:
             period_expr=_period_col(period),
             where=where,
         )
-        return self._query_dicts(sql)
+        return [TimeLossRow(**r) for r in self._query_dicts(sql)]
 
     # ------------------------------------------------------------------
     # Parametric viewer — generic Y/X query over measurements

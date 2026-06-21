@@ -1781,16 +1781,22 @@ def metrics_tool(
     with MeasurementsQuery(_data_dir=data_dir) as store:
         match action:
             case "summary":
-                return {"data": store.yield_summary(**kwargs, period=period)}
+                rows = store.yield_summary(**kwargs, period=period)
+                return {"data": [r.model_dump() for r in rows]}
             case "pareto":
-                return {"data": store.pareto(**kwargs, top_n=top_n)}
+                rows = store.pareto(**kwargs, top_n=top_n)
+                return {"data": [r.model_dump() for r in rows]}
             case "cpk":
-                return {"data": store.cpk(**kwargs, min_samples=min_samples)}
+                rows = store.cpk(**kwargs, min_samples=min_samples)
+                return {"data": [r.model_dump() for r in rows]}
             case "trend":
-                return {"data": store.trend(**kwargs, period=period)}
+                rows = store.trend(**kwargs, period=period)
+                return {"data": [r.model_dump() for r in rows]}
             case "retest":
-                return {"data": store.retest(**kwargs, period=period)}
+                rows = store.retest(**kwargs, period=period)
+                return {"data": [r.model_dump() for r in rows]}
             case "time_loss":
-                return {"data": store.time_loss(**kwargs, period=period)}
+                rows = store.time_loss(**kwargs, period=period)
+                return {"data": [r.model_dump() for r in rows]}
             case _:
                 return {"error": f"Unknown action '{action}'"}

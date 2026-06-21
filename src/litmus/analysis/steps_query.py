@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from litmus.analysis.measurement_facets import ColumnSchema, FixedColumnDescriptor
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import multi_filter_clauses, sql_escape
@@ -277,6 +278,11 @@ class StepsQuery:
                 roots.append(node)
         return roots
 
-    def describe_columns(self) -> list[dict[str, str]]:
-        """Return the ``steps`` table's columns: ``[{name, type}, ...]``."""
-        return self._query_dicts("DESCRIBE steps")
+    def describe_columns(self) -> ColumnSchema:
+        """Return the ``steps`` table's column schema."""
+        rows = self._query_dicts("DESCRIBE steps")
+        fixed = [
+            FixedColumnDescriptor(name=str(r["column_name"]), column_type=str(r["column_type"]))
+            for r in rows
+        ]
+        return ColumnSchema(fixed=fixed, fields=[])

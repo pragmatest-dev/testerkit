@@ -17,6 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from litmus.analysis.measurement_facets import ColumnSchema, FixedColumnDescriptor
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import multi_filter_clauses, sql_escape
@@ -402,6 +403,11 @@ class RunsQuery:
         """
         return self._query_dicts(sql)
 
-    def describe_columns(self) -> list[dict[str, str]]:
-        """Return the ``runs`` table's columns: ``[{name, type}, ...]``."""
-        return self._query_dicts("DESCRIBE runs")
+    def describe_columns(self) -> ColumnSchema:
+        """Return the ``runs`` table's column schema."""
+        rows = self._query_dicts("DESCRIBE runs")
+        fixed = [
+            FixedColumnDescriptor(name=str(r["column_name"]), column_type=str(r["column_type"]))
+            for r in rows
+        ]
+        return ColumnSchema(fixed=fixed, fields=[])

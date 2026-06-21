@@ -197,15 +197,15 @@ class TestYieldSummary:
         store = MeasurementsQuery()
         rows = store.yield_summary(phase="all", part=fixture_data["part"])
         assert len(rows) >= 1
-        total_runs = sum(r["total_runs"] for r in rows)
+        total_runs = sum(r.total_runs for r in rows)
         assert total_runs == 4
 
     def test_fpy_matches_python(self, fixture_data):
         """Gold FPY must match metrics.calculate_fpy on same data."""
         store = MeasurementsQuery()
         rows = store.yield_summary(phase="all", part=fixture_data["part"])
-        fp_total = sum(r["first_pass_total"] for r in rows)
-        fp_passed = sum(r["first_pass_passed"] for r in rows)
+        fp_total = sum(r.first_pass_total for r in rows)
+        fp_passed = sum(r.first_pass_passed for r in rows)
         gold_fpy = fp_passed / fp_total if fp_total else 0.0
 
         # fmt: off
@@ -222,22 +222,22 @@ class TestYieldSummary:
     def test_final_yield(self, fixture_data):
         store = MeasurementsQuery()
         rows = store.yield_summary(phase="all", part=fixture_data["part"])
-        final_passed = sum(r["final_passed"] for r in rows)
-        unique_serials = sum(r["unique_serials"] for r in rows)
+        final_passed = sum(r.final_passed for r in rows)
+        unique_serials = sum(r.unique_serials for r in rows)
         final_yield = final_passed / unique_serials if unique_serials else 0.0
         assert final_yield == pytest.approx(1.0)
 
     def test_phase_filter(self, fixture_data):
         store = MeasurementsQuery()
         rows = store.yield_summary(part=fixture_data["part"])
-        assert all(r["phase"] != "development" for r in rows)
+        assert all(r.phase != "development" for r in rows)
 
     def test_duration_stats(self, fixture_data):
         store = MeasurementsQuery()
         rows = store.yield_summary(phase="all", part=fixture_data["part"])
         for r in rows:
-            assert r["avg_duration_s"] is not None
-            assert r["avg_duration_s"] > 0
+            assert r.avg_duration_s is not None
+            assert r.avg_duration_s > 0
 
 
 class TestPareto:
@@ -245,8 +245,8 @@ class TestPareto:
         store = MeasurementsQuery()
         rows = store.pareto(phase="all", part=fixture_data["part"])
         assert len(rows) == 1
-        assert rows[0]["fail_count"] == 1
-        assert rows[0]["measurement_name"] == "vout"
+        assert rows[0].fail_count == 1
+        assert rows[0].measurement_name == "vout"
 
     def test_no_failures(self):
         part = f"TEST-MQS-NF-{uuid4().hex[:8]}"
@@ -281,7 +281,7 @@ class TestCpk:
         store = MeasurementsQuery()
         gold_rows = store.cpk(phase="all", part=part, min_samples=5)
         assert len(gold_rows) >= 1
-        gold_cpk = gold_rows[0]["cpk"]
+        gold_cpk = gold_rows[0].cpk
 
         python_result = calculate_cpk(values, lsl=3.0, usl=3.6, min_samples=5)
         assert gold_cpk == pytest.approx(python_result["cpk"], abs=0.01)
@@ -313,9 +313,9 @@ class TestTrend:
         rows = store.trend(phase="all", part=fixture_data["part"])
         assert len(rows) >= 1
         for r in rows:
-            assert "period" in r
-            assert "total" in r
-            assert "yield_pct" in r
+            assert r.period is not None
+            assert r.total >= 0
+            assert r.yield_pct is not None
 
     def test_weekly_period(self, fixture_data):
         store = MeasurementsQuery()
@@ -328,8 +328,8 @@ class TestRetest:
         store = MeasurementsQuery()
         rows = store.retest(phase="all", part=fixture_data["part"])
         assert len(rows) >= 1
-        total_serials = sum(r["total_serials"] for r in rows)
-        retested = sum(r["retested_count"] for r in rows)
+        total_serials = sum(r.total_serials for r in rows)
+        retested = sum(r.retested_count for r in rows)
         assert total_serials == 2
         assert retested == 2
 
@@ -339,8 +339,8 @@ class TestTimeLoss:
         store = MeasurementsQuery()
         rows = store.time_loss(phase="all", part=fixture_data["part"])
         assert len(rows) >= 1
-        total = sum(r["total_time_s"] or 0 for r in rows)
-        fail = sum(r["fail_time_s"] or 0 for r in rows)
+        total = sum(r.total_time_s or 0 for r in rows)
+        fail = sum(r.fail_time_s or 0 for r in rows)
         assert total > 0
         assert fail > 0
 
@@ -361,14 +361,14 @@ class TestFilters:
     def test_part_filter(self, fixture_data):
         store = MeasurementsQuery()
         rows = store.yield_summary(part=fixture_data["part"], phase="all")
-        assert all(r["part"] == fixture_data["part"] for r in rows)
+        assert all(r.part == fixture_data["part"] for r in rows)
 
     def test_station_filter(self, fixture_data):
         store = MeasurementsQuery()
         rows = store.yield_summary(
             station=fixture_data["station"], part=fixture_data["part"], phase="all"
         )
-        assert all(r["station"] == fixture_data["station"] for r in rows)
+        assert all(r.station == fixture_data["station"] for r in rows)
 
     def test_nonexistent_part(self):
         store = MeasurementsQuery()

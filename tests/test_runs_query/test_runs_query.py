@@ -474,7 +474,10 @@ class TestListForSession:
 class TestDescribeColumns:
     def test_returns_table_columns(self, fixture_data):
         """``DESCRIBE runs`` exposes the expected schema columns."""
+        from litmus.analysis.measurement_facets import ColumnSchema
+
         with RunsQuery() as q:
-            cols = q.describe_columns()
-        names = {c["column_name"] for c in cols}
+            schema = q.describe_columns()
+        assert isinstance(schema, ColumnSchema)
+        names = {c.name for c in schema.fixed}
         assert {"run_id", "session_id", "outcome", "started_at", "num_steps"} <= names

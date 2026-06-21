@@ -180,6 +180,90 @@ class HistogramRow(BaseModel):
     group: str = ""
 
 
+class YieldRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.yield_summary` — one (part, station, phase, period)."""
+
+    part: str
+    station: str
+    phase: str
+    period: object  # date from DuckDB — typed as object to accept date/str
+    total_runs: int
+    passed: int
+    failed: int
+    errored: int
+    unique_serials: int
+    first_pass_total: int
+    first_pass_passed: int
+    final_passed: int
+    avg_duration_s: float | None = None
+    p95_duration_s: float | None = None
+
+
+class ParetoRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.pareto` — one (part, station, step, measurement)."""
+
+    part: str
+    station: str
+    step_name: str | None = None
+    measurement_name: str | None = None
+    total_count: int
+    fail_count: int
+    fail_rate: float | None = None
+
+
+class CpkRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.cpk` — one (part, station, measurement_name)."""
+
+    part: str
+    station: str
+    measurement_name: str
+    n: int
+    mean: float | None = None
+    sigma: float | None = None
+    lsl: float | None = None
+    usl: float | None = None
+    cp: float | None = None
+    cpk: float | None = None
+
+
+class TrendRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.trend` — one (part, station, phase, period)."""
+
+    part: str
+    station: str
+    phase: str
+    period: object  # date from DuckDB — typed as object to accept date/str
+    total: int
+    passed: int
+    yield_pct: float | None = None
+
+
+class RetestRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.retest` — one (part, station, phase, period)."""
+
+    part: str
+    station: str
+    phase: str
+    period: object  # date from DuckDB — typed as object to accept date/str
+    total_serials: int
+    retested_count: int
+    retest_rate: float | None = None
+    avg_retries: float | None = None
+
+
+class TimeLossRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.time_loss` — one (part, station, phase, period)."""
+
+    part: str
+    station: str
+    phase: str
+    period: object  # date from DuckDB — typed as object to accept date/str
+    total_time_s: float | None = None
+    pass_time_s: float | None = None
+    fail_time_s: float | None = None
+    error_time_s: float | None = None
+
+
 class LimitBandRow(BaseModel):
     """One point of a measurement's limit envelope, keyed by the chart's X.
 

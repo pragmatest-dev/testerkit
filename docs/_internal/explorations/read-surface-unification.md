@@ -207,3 +207,9 @@ the engine-neutral `*Query` surface.
   `_decode_dynamic_attrs_map`. The two un-fuse sites differed — `RunStore` recovered floats
   only, `StepsQuery` recovered bools+floats. Unified on bool+float (user-approved): `RunStore`
   now recovers native bools too (latent under-coercion fixed). suite 2156, pyright 0.
+- **2026-06-21** — Phase B2 done (Phase B complete): typed returns — `describe_columns→ColumnSchema`
+  on Runs/Steps; 6 MeasurementsQuery aggregates (`yield_summary`/`pareto`/`cpk`/`trend`/`retest`/
+  `time_loss`) → Row models (fields mirror SQL keys); consumers (cli/api/mcp/ui/tests) → attribute
+  access + `model_dump()` at JSON boundaries. Reference docs regenerated. suite 2156, pyright 0.
+  OPEN (flagged, deferred): `RunsQuery.pareto`/`StepsQuery.pareto`/`usage_stats`/`count_by_outcome`
+  remain `list[dict]` — inconsistent with the typed Measurements aggregates; decide whether to type.

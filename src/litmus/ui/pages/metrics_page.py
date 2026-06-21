@@ -33,8 +33,8 @@ class MetricsDashboardData(TypedDict):
     total_runs: int
     total_failed: int
     pareto_data: list[dict]
-    cpk_data: list[dict]
-    trend_data: list[dict]
+    cpk_data: list[Any]
+    trend_data: list[Any]
     time_stats: dict[str, Any]
 
 
@@ -514,12 +514,12 @@ def _fetch_yield_data(
         if not summary_rows:
             return None
 
-        total_runs = sum(r.get("total_runs", 0) for r in summary_rows)
-        total_failed = sum(r.get("failed", 0) for r in summary_rows)
-        fp_total = sum(r.get("first_pass_total", 0) for r in summary_rows)
-        fp_passed = sum(r.get("first_pass_passed", 0) for r in summary_rows)
-        final_passed = sum(r.get("final_passed", 0) for r in summary_rows)
-        unique_serials = sum(r.get("unique_serials", 0) for r in summary_rows)
+        total_runs = sum(r.total_runs for r in summary_rows)
+        total_failed = sum(r.failed for r in summary_rows)
+        fp_total = sum(r.first_pass_total for r in summary_rows)
+        fp_passed = sum(r.first_pass_passed for r in summary_rows)
+        final_passed = sum(r.final_passed for r in summary_rows)
+        unique_serials = sum(r.unique_serials for r in summary_rows)
 
         fpy = fp_passed / fp_total if fp_total else 0.0
         final_yield = final_passed / unique_serials if unique_serials else 0.0
@@ -533,16 +533,16 @@ def _fetch_yield_data(
             top_n=10,
         )
         pareto_data = []
-        total_fails = sum(r.get("fail_count", 0) for r in pareto_rows)
+        total_fails = sum(r.fail_count for r in pareto_rows)
         cumulative = 0.0
         for r in pareto_rows:
-            pct = r["fail_count"] / total_fails * 100 if total_fails else 0
+            pct = r.fail_count / total_fails * 100 if total_fails else 0
             cumulative += pct
             pareto_data.append(
                 {
-                    "step_name": r.get("step_name", ""),
-                    "measurement_name": r.get("measurement_name", ""),
-                    "count": r.get("fail_count", 0),
+                    "step_name": r.step_name or "",
+                    "measurement_name": r.measurement_name or "",
+                    "count": r.fail_count,
                     "pct": round(pct, 1),
                     "cumulative_pct": round(cumulative, 1),
                 }
@@ -565,8 +565,8 @@ def _fetch_yield_data(
             period="day",
         )
 
-    durations = [r["avg_duration_s"] for r in summary_rows if r.get("avg_duration_s") is not None]
-    p95s = [r["p95_duration_s"] for r in summary_rows if r.get("p95_duration_s") is not None]
+    durations = [r.avg_duration_s for r in summary_rows if r.avg_duration_s is not None]
+    p95s = [r.p95_duration_s for r in summary_rows if r.p95_duration_s is not None]
     time_stats = {
         "avg_s": round(sum(durations) / len(durations), 2) if durations else None,
         "min_s": round(min(durations), 2) if durations else None,
@@ -679,7 +679,7 @@ def _safe_metric_query(
     since: str | None,
     until: str | None,
     method: str,
-) -> list[dict]:
+) -> list[Any]:
     """Run a MeasurementsQuery method, returning [] on any failure."""
     try:
         with MeasurementsQuery(_data_dir=data_dir) as store:
@@ -822,14 +822,14 @@ def _metric_card(label: str, value: str, icon: str, color: str) -> None:
             ui.label(value).classes("text-3xl font-bold text-slate-800")
 
 
-def _normalize_measurement_pareto_rows(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _normalize_measurement_pareto_rows(raw: list[Any]) -> list[dict[str, Any]]:
     """Normalize MeasurementsQuery.pareto rows to the shared failure-pareto shape."""
     return [
         {
-            "bucket": f"{r.get('step_name', '')}: {r.get('measurement_name', '')}",
-            "failed_count": r.get("fail_count", 0),
-            "total": r.get("total_count", 0),
-            "fail_rate_pct": r.get("fail_rate"),
+            "bucket": f"{r.step_name or ''}: {r.measurement_name or ''}",
+            "failed_count": r.fail_count,
+            "total": r.total_count,
+            "fail_rate_pct": r.fail_rate,
         }
         for r in raw
     ]
@@ -911,7 +911,7 @@ def _render_failure_pareto_chart(
         ).classes("w-full h-96")
 
 
-def _render_cpk_table(container: Any, cpk_data: list[dict[str, Any]]) -> None:
+def _render_cpk_table(container: Any, cpk_data: list[Any]) -> None:
     """Render Cpk table with color coding."""
     container.clear()
 
@@ -938,13 +938,13 @@ def _render_cpk_table(container: Any, cpk_data: list[dict[str, Any]]) -> None:
 
             rows = []
             for item in cpk_data[:15]:
-                cpk_val = item.get("cpk")
+                cpk_val = item.cpk
                 row = {
-                    "measurement": item["measurement_name"],
+                    "measurement": item.measurement_name,
                     "cpk": f"{cpk_val:.2f}" if cpk_val is not None else "N/A",
-                    "mean": f"{(item.get('mean') or 0):.3f}",
-                    "sigma": f"{(item.get('sigma') or 0):.3f}",
-                    "n": str(item.get("n", 0)),
+                    "mean": f"{(item.mean or 0):.3f}",
+                    "sigma": f"{(item.sigma or 0):.3f}",
+                    "n": str(item.n),
                 }
                 rows.append(row)
 
@@ -965,7 +965,7 @@ def _render_cpk_table(container: Any, cpk_data: list[dict[str, Any]]) -> None:
             )
 
 
-def _render_trend_chart(container: Any, trend_data: list[dict[str, Any]]) -> None:
+def _render_trend_chart(container: Any, trend_data: list[Any]) -> None:
     """Render yield trend over time."""
     container.clear()
 
@@ -977,8 +977,8 @@ def _render_trend_chart(container: Any, trend_data: list[dict[str, Any]]) -> Non
         with ui.card().classes("w-full"):
             ui.label("Yield Trend Over Time").classes("text-lg font-semibold mb-4")
 
-            dates = [item["period"] for item in trend_data]
-            yields = [item["yield_pct"] for item in trend_data]
+            dates = [str(item.period) for item in trend_data]
+            yields = [item.yield_pct for item in trend_data]
 
             ui.echart(
                 {
@@ -1032,7 +1032,7 @@ def _time_stat_card(label: str, value: str) -> None:
         ui.label(value).classes("text-xl font-bold text-slate-800 mt-1")
 
 
-def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
+def _render_retest_body(container: Any, rows: list[Any]) -> None:
     """Render the Retest tab from pre-fetched rows."""
     container.clear()
     if not rows:
@@ -1057,7 +1057,7 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
                 "grid": {"left": 50, "right": 30, "top": 30, "bottom": 50},
                 "xAxis": {
                     "type": "category",
-                    "data": [str(r.get("period", "")) for r in rows],
+                    "data": [str(r.period) for r in rows],
                     "name": "period",
                     "nameLocation": "middle",
                     "nameGap": 28,
@@ -1070,7 +1070,7 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
                 "series": [
                     {
                         "type": "bar",
-                        "data": [r.get("retest_rate", 0) for r in rows],
+                        "data": [r.retest_rate or 0 for r in rows],
                         "itemStyle": {"color": "#f59e0b"},
                     }
                 ],
@@ -1093,11 +1093,11 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
             rows=[
                 {
                     "id": str(idx),
-                    "period": str(r.get("period", "")),
-                    "serials": r.get("total_serials", 0),
-                    "retested": r.get("retested_count", 0),
-                    "rate": f"{r.get('retest_rate', 0):.1f}%",
-                    "avg_retries": f"{r.get('avg_retries', 0):.2f}",
+                    "period": str(r.period),
+                    "serials": r.total_serials,
+                    "retested": r.retested_count,
+                    "rate": f"{r.retest_rate or 0:.1f}%",
+                    "avg_retries": f"{r.avg_retries or 0:.2f}",
                 }
                 for idx, r in enumerate(rows)
             ],
@@ -1105,7 +1105,7 @@ def _render_retest_body(container: Any, rows: list[dict[str, Any]]) -> None:
         )
 
 
-def _render_time_loss_body(container: Any, rows: list[dict[str, Any]]) -> None:
+def _render_time_loss_body(container: Any, rows: list[Any]) -> None:
     """Render the Time-loss tab from pre-fetched rows."""
     container.clear()
     if not rows:
@@ -1130,7 +1130,7 @@ def _render_time_loss_body(container: Any, rows: list[dict[str, Any]]) -> None:
                 "grid": {"left": 60, "right": 30, "top": 40, "bottom": 50},
                 "xAxis": {
                     "type": "category",
-                    "data": [str(r.get("period", "")) for r in rows],
+                    "data": [str(r.period) for r in rows],
                     "name": "period",
                     "nameLocation": "middle",
                     "nameGap": 28,
@@ -1142,21 +1142,21 @@ def _render_time_loss_body(container: Any, rows: list[dict[str, Any]]) -> None:
                         "type": "bar",
                         "stack": "time",
                         "itemStyle": {"color": "#10b981"},
-                        "data": [r.get("pass_time_s", 0) or 0 for r in rows],
+                        "data": [r.pass_time_s or 0 for r in rows],
                     },
                     {
                         "name": "fail",
                         "type": "bar",
                         "stack": "time",
                         "itemStyle": {"color": "#ef4444"},
-                        "data": [r.get("fail_time_s", 0) or 0 for r in rows],
+                        "data": [r.fail_time_s or 0 for r in rows],
                     },
                     {
                         "name": "error",
                         "type": "bar",
                         "stack": "time",
                         "itemStyle": {"color": "#f59e0b"},
-                        "data": [r.get("error_time_s", 0) or 0 for r in rows],
+                        "data": [r.error_time_s or 0 for r in rows],
                     },
                 ],
             }
@@ -1173,11 +1173,11 @@ def _render_time_loss_body(container: Any, rows: list[dict[str, Any]]) -> None:
             rows=[
                 {
                     "id": str(idx),
-                    "period": str(r.get("period", "")),
-                    "total": f"{(r.get('total_time_s', 0) or 0):.1f}",
-                    "pass_s": f"{(r.get('pass_time_s', 0) or 0):.1f}",
-                    "fail_s": f"{(r.get('fail_time_s', 0) or 0):.1f}",
-                    "error_s": f"{(r.get('error_time_s', 0) or 0):.1f}",
+                    "period": str(r.period),
+                    "total": f"{(r.total_time_s or 0):.1f}",
+                    "pass_s": f"{(r.pass_time_s or 0):.1f}",
+                    "fail_s": f"{(r.fail_time_s or 0):.1f}",
+                    "error_s": f"{(r.error_time_s or 0):.1f}",
                 }
                 for idx, r in enumerate(rows)
             ],
