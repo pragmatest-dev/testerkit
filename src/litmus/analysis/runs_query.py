@@ -181,7 +181,7 @@ class RunsQuery:
         """)
         return RunRow(**rows[0]) if rows else None
 
-    def find_for_session(
+    def list_for_session(
         self,
         session_id: str,
         *,
@@ -202,7 +202,7 @@ class RunsQuery:
         """)
         return [RunRow(**r) for r in rows]
 
-    def failure_pareto(
+    def pareto(
         self,
         *,
         group_by: str = "uut_part_number",
@@ -320,7 +320,7 @@ class RunsQuery:
         rows = self._query_dicts(f"SELECT COUNT(*) AS n FROM runs{where}")
         return int(rows[0]["n"]) if rows else 0
 
-    def distinct_filter_values(self) -> dict[str, list[str]]:
+    def distinct_values(self) -> dict[str, list[str]]:
         """Return distinct values for each filterable run column.
 
         Used by the /results filter strip to populate the

@@ -101,7 +101,7 @@ def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, gro
 
         store = StepsQuery(_data_dir=data_dir or None)
         try:
-            rows = store.failure_pareto(
+            rows = store.pareto(
                 top_n=top_n,
                 phase=phase,
                 part=part,
@@ -117,7 +117,7 @@ def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, gro
 
         store = RunsQuery(_data_dir=data_dir or None)
         try:
-            rows = store.failure_pareto(
+            rows = store.pareto(
                 group_by="uut_part_number",
                 top_n=top_n,
                 phase=phase,

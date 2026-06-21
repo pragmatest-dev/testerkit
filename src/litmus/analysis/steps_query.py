@@ -21,23 +21,10 @@ from pydantic import BaseModel, Field
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import multi_filter_clauses, sql_escape
+from litmus.data.backends._row_helpers import _decode_dynamic_attrs_map
 from litmus.data.data_dir import resolve_data_dir
 
 logger = logging.getLogger(__name__)
-
-
-def _coerce(v: Any) -> Any:
-    """dynamic_attrs values are VARCHAR; recover bool/float scalars."""
-    if not isinstance(v, str):
-        return v
-    if v == "true":
-        return True
-    if v == "false":
-        return False
-    try:
-        return float(v)
-    except ValueError:
-        return v
 
 
 class StepRow(BaseModel):
@@ -168,18 +155,11 @@ class StepsQuery:
         step_rows: list[StepRow] = []
         for r in rows:
             sr = StepRow(**r)
-            da = r.get("dynamic_attrs")
-            pairs = da.items() if isinstance(da, dict) else (da or [])
-            sr.inputs = {
-                k[3:]: _coerce(v) for k, v in pairs if k.startswith("in_") and v is not None
-            }
-            sr.outputs = {
-                k[4:]: _coerce(v) for k, v in pairs if k.startswith("out_") and v is not None
-            }
+            sr.inputs, sr.outputs = _decode_dynamic_attrs_map(r.get("dynamic_attrs"))
             step_rows.append(sr)
         return step_rows
 
-    def failure_pareto(
+    def pareto(
         self,
         *,
         top_n: int = 10,

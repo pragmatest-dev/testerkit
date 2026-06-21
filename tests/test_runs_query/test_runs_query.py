@@ -234,18 +234,18 @@ def _wait_for_ingest(session_id: str, expected: int) -> list[RunRow]:
     """Poll the canonical daemon until the synthetic runs land.
 
     The daemon ingests parquet files asynchronously on its own
-    cadence; tests poll ``find_for_session`` until the expected
+    cadence; tests poll ``list_for_session`` until the expected
     row count appears. Same eventual-consistency model the UI sees.
     """
     deadline = time.monotonic() + _INGEST_TIMEOUT_S
     while time.monotonic() < deadline:
         with RunsQuery() as q:
-            rows = q.find_for_session(session_id, include_incomplete=True)
+            rows = q.list_for_session(session_id, include_incomplete=True)
         if len(rows) >= expected:
             return rows
         time.sleep(0.2)
     with RunsQuery() as q:
-        return q.find_for_session(session_id, include_incomplete=True)
+        return q.list_for_session(session_id, include_incomplete=True)
 
 
 @pytest.fixture(scope="module")
@@ -314,8 +314,8 @@ class TestListRecent:
     def test_returns_typed_rows_newest_first(self, fixture_data):
         """Within this fixture's session, runs come back newest-first."""
         with RunsQuery() as q:
-            session_a_rows = q.find_for_session(fixture_data["session_a"])
-            session_b_rows = q.find_for_session(fixture_data["session_b"])
+            session_a_rows = q.list_for_session(fixture_data["session_a"])
+            session_b_rows = q.list_for_session(fixture_data["session_b"])
         all_rows = sorted(
             session_a_rows + session_b_rows,
             key=lambda r: r.started_at or datetime.min.replace(tzinfo=UTC),
@@ -425,13 +425,13 @@ class TestIncludeIncomplete:
     def test_default_excludes_in_flight(self, fixture_data_with_in_flight):
         """``include_incomplete=False`` (default) skips ended_at=NULL rows."""
         with RunsQuery() as q:
-            rows = q.find_for_session(fixture_data_with_in_flight["session_live"])
+            rows = q.list_for_session(fixture_data_with_in_flight["session_live"])
         assert rows == []
 
     def test_include_incomplete_true_surfaces_in_flight(self, fixture_data_with_in_flight):
         """``include_incomplete=True`` returns rows with ended_at=NULL."""
         with RunsQuery() as q:
-            rows = q.find_for_session(
+            rows = q.list_for_session(
                 fixture_data_with_in_flight["session_live"],
                 include_incomplete=True,
             )
@@ -457,18 +457,18 @@ class TestGet:
             assert q.get("00000000-no-such-run") is None
 
 
-class TestFindForSession:
+class TestListForSession:
     def test_returns_session_siblings(self, fixture_data):
         """All runs sharing a session_id come back."""
         with RunsQuery() as q:
-            rows = q.find_for_session(fixture_data["session_a"])
+            rows = q.list_for_session(fixture_data["session_a"])
         assert {r.run_id for r in rows} == {fixture_data["run_a"], fixture_data["run_b"]}
 
     def test_unknown_session_returns_empty(self, fixture_data):
         """A session id that no run carries returns an empty list."""
         unknown = str(uuid4())
         with RunsQuery() as q:
-            assert q.find_for_session(unknown) == []
+            assert q.list_for_session(unknown) == []
 
 
 class TestDescribeColumns:

@@ -614,7 +614,7 @@ def _fetch_pareto_data(
     if group_by == "step":
         try:
             with StepsQuery(_data_dir=data_dir) as q:
-                rows = q.failure_pareto(
+                rows = q.pareto(
                     top_n=15,
                     phase=phase,
                     part=part,
@@ -652,7 +652,7 @@ def _fetch_pareto_data(
     else:  # part (default)
         try:
             with RunsQuery(_data_dir=data_dir) as q:
-                rows = q.failure_pareto(
+                rows = q.pareto(
                     group_by="uut_part_number",
                     top_n=15,
                     phase=phase,

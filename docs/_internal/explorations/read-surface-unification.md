@@ -202,3 +202,8 @@ the engine-neutral `*Query` surface.
 - **2026-06-21** — Phase C done (`221293b`): `logger.py`→`run_scope.py`, ~18 sites, suite 2156.
 - **2026-06-21** — Phase A1 done: FileStore `data_dir`→private `_data_dir`, 26 call sites,
   suite 2156, pyright 0.
+- **2026-06-21** — Phase B1 done: query renames (`find_for_session→list_for_session`,
+  `failure_pareto→pareto`, `distinct_filter_values→distinct_values`) + extracted shared
+  `_decode_dynamic_attrs_map`. The two un-fuse sites differed — `RunStore` recovered floats
+  only, `StepsQuery` recovered bools+floats. Unified on bool+float (user-approved): `RunStore`
+  now recovers native bools too (latent under-coercion fixed). suite 2156, pyright 0.

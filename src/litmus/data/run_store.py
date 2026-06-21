@@ -19,6 +19,7 @@ import pyarrow.parquet as pq
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient, call_options
 from litmus.data._sql_helpers import sql_escape as _sql_escape
+from litmus.data.backends._row_helpers import _decode_dynamic_attrs_map
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import RunSummary
 
@@ -201,34 +202,10 @@ class RunStore:
             logger.debug("Failed to query measurements for %s: %s", run_id, exc)
             return []
 
-        # Un-fuse dynamic_attrs MAP into role-split inputs/outputs dicts.
-        # dynamic_attrs MAP(VARCHAR,VARCHAR) arrives from Arrow as either a
-        # plain dict or a list of (key, value) tuples. Keys are prefixed
-        # in_<name> (stimulus) and out_<name> (observation); we strip the
-        # prefix and coerce VARCHAR numerics back to float.
-        def _coerce(v: Any) -> Any:
-            if isinstance(v, str):
-                try:
-                    return float(v)
-                except ValueError:
-                    return v
-            return v
-
         for row in rows:
-            da = row.pop("dynamic_attrs", None)
-            inputs: dict[str, Any] = {}
-            outputs: dict[str, Any] = {}
-            if da:
-                items = da.items() if isinstance(da, dict) else da
-                for k, v in items:
-                    if k is None or v is None:
-                        continue
-                    if k.startswith("in_"):
-                        inputs[k[3:]] = _coerce(v)
-                    elif k.startswith("out_"):
-                        outputs[k[4:]] = _coerce(v)
-            row["inputs"] = inputs
-            row["outputs"] = outputs
+            row["inputs"], row["outputs"] = _decode_dynamic_attrs_map(
+                row.pop("dynamic_attrs", None)
+            )
         return rows
 
     # --- Ref management (for materialize) ---

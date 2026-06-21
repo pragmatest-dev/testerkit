@@ -50,15 +50,15 @@ Return one page of recent runs, most recent first.
 
 Return one run by id-prefix (8-char) or ``None`` if not found.
 
-### `RunsQuery.find_for_session` {#runsquery-find_for_session}
+### `RunsQuery.list_for_session` {#runsquery-list_for_session}
 
-`find_for_session(session_id: str, *, include_incomplete: bool = False) → list[RunRow]`
+`list_for_session(session_id: str, *, include_incomplete: bool = False) → list[RunRow]`
 
 Return all runs sharing a ``session_id`` (multi-UUT siblings).
 
-### `RunsQuery.failure_pareto` {#runsquery-failure_pareto}
+### `RunsQuery.pareto` {#runsquery-pareto}
 
-`failure_pareto(*, group_by: str = 'uut_part_number', top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
+`pareto(*, group_by: str = 'uut_part_number', top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
 
 Pareto of failing runs grouped by ``group_by`` column.
 
@@ -68,9 +68,9 @@ Pareto of failing runs grouped by ``group_by`` column.
 
 Total number of runs matching the same filters as :meth:`list_recent`.
 
-### `RunsQuery.distinct_filter_values` {#runsquery-distinct_filter_values}
+### `RunsQuery.distinct_values` {#runsquery-distinct_values}
 
-`distinct_filter_values() → dict[str, list[str]]`
+`distinct_values() → dict[str, list[str]]`
 
 Return distinct values for each filterable run column.
 
@@ -110,9 +110,9 @@ Release daemon ref and close Flight client.
 
 Return every step row for a run, ordered by ``step_index``.
 
-### `StepsQuery.failure_pareto` {#stepsquery-failure_pareto}
+### `StepsQuery.pareto` {#stepsquery-pareto}
 
-`failure_pareto(*, top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
+`pareto(*, top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
 
 Pareto of failing steps grouped by ``step_path``.
 

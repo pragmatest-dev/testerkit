@@ -114,6 +114,49 @@ _MEASUREMENT_SCALAR_FIELDS: frozenset[str] = frozenset(
 )
 
 
+def _decode_dynamic_attrs_map(
+    dynamic_attrs: dict | list | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split a ``dynamic_attrs`` MAP into ``(inputs, outputs)`` dicts.
+
+    Shared by :meth:`RunStore.get_measurements` and
+    :meth:`StepsQuery.list_for_run`. Both call sites receive the MAP
+    as either a plain ``dict`` (DuckDB Arrow conversion) or a list of
+    ``(key, value)`` tuples. Keys prefixed ``in_<name>`` go to
+    ``inputs`` (prefix stripped); ``out_<name>`` go to ``outputs``.
+    ``None`` keys or values are skipped. VARCHAR values are coerced:
+    ``"true"``/``"false"`` → ``bool``; numeric strings → ``float``.
+    """
+    inputs: dict[str, Any] = {}
+    outputs: dict[str, Any] = {}
+    if not dynamic_attrs:
+        return inputs, outputs
+    pairs = dynamic_attrs.items() if isinstance(dynamic_attrs, dict) else dynamic_attrs
+    for k, v in pairs:
+        if k is None or v is None:
+            continue
+        v = _coerce_dynamic_attr(v)
+        if k.startswith("in_"):
+            inputs[k[3:]] = v
+        elif k.startswith("out_"):
+            outputs[k[4:]] = v
+    return inputs, outputs
+
+
+def _coerce_dynamic_attr(v: Any) -> Any:
+    """Coerce a dynamic_attrs VARCHAR value to its native Python type."""
+    if not isinstance(v, str):
+        return v
+    if v == "true":
+        return True
+    if v == "false":
+        return False
+    try:
+        return float(v)
+    except ValueError:
+        return v
+
+
 def _as_utc(value: datetime) -> datetime:
     """Normalise a datetime to tz-aware UTC (assume UTC if naive)."""
     if value.tzinfo is None:
