@@ -607,7 +607,6 @@ class EventAccumulator:
             inputs={},
             outputs={},
             instruments=self._build_instrument_arrays(),
-            custom=dict(event.custom),
         )
         flat = row.to_flat_dict()
         flat["record_type"] = "measurement"

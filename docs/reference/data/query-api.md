@@ -160,7 +160,7 @@ Pareto analysis: top failure modes by count.
 
 ### `MeasurementsQuery.cpk` {#measurementsquery-cpk}
 
-`cpk(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, min_samples: int = 10) → list[dict[str, Any]]`
+`cpk(field: str | FieldRef | None = None, *, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, min_samples: int = 10) → list[dict[str, Any]]`
 
 Process capability (Cpk/Cp) per measurement.
 
@@ -184,25 +184,31 @@ Time lost to failures and errors.
 
 ### `MeasurementsQuery.describe_columns` {#measurementsquery-describe_columns}
 
-`describe_columns() → list[dict[str, str]]`
+`describe_columns() → ColumnSchema`
 
-Return the measurements schema: ``[{column_name, column_type}, ...]``.
+Return the plottable column schema — curated fixed columns plus role-keyed fields.
 
 ### `MeasurementsQuery.parametric` {#measurementsquery-parametric}
 
-`parametric(*, y: str, x: str, filters: FilterSet | None = None, group_by: str | None = None, chart_type: str = 'scatter', bins: int = 30, limit: int = 5000, include_incomplete: bool = False) → list[ParametricRow] | list[HistogramRow]`
+`parametric(*, y: str | FieldRef, x: str | FieldRef, filters: FilterSet | None = None, group_by: str | FieldRef | None = None, limit: int = 5000, include_incomplete: bool = False) → list[ParametricRow]`
 
-Generic Y vs X query over measurements, optionally split by ``group_by``.
+Y vs X scatter/line points over measurements, optionally split by ``group_by``.
+
+### `MeasurementsQuery.histogram` {#measurementsquery-histogram}
+
+`histogram(*, field: str | FieldRef, bins: int = 30, group_by: str | FieldRef | None = None, filters: FilterSet | None = None) → list[HistogramRow]`
+
+Distribution of one field's values, bucketed into ``bins`` bins.
 
 ### `MeasurementsQuery.latest_run_limits` {#measurementsquery-latest_run_limits}
 
-`latest_run_limits(*, x: str, filters: FilterSet | None = None) → list[LimitBandRow]`
+`latest_run_limits(*, x: str | FieldRef, filters: FilterSet | None = None) → list[LimitBandRow]`
 
 Limit envelope from the most recent run, keyed by the chart's X.
 
 ### `MeasurementsQuery.distinct_values` {#measurementsquery-distinct_values}
 
-`distinct_values(column: str, *, filters: FilterSet | None = None, exclude_self: bool = True, limit: int = 500) → list[FacetOption]`
+`distinct_values(column: str, *, role: FieldRole | str | None = None, filters: FilterSet | None = None, exclude_self: bool = True, limit: int = 500) → list[FacetOption]`
 
 Return distinct values for ``column`` with their counts.
 

@@ -46,13 +46,17 @@ external scripts) should import from this module instead.
 
 from __future__ import annotations
 
+from litmus.analysis.measurement_facets import ColumnSchema, FieldRef, FieldRole
 from litmus.analysis.measurements_query import MeasurementsQuery
 from litmus.analysis.runs_query import RunsQuery
 from litmus.analysis.steps_query import StepsQuery
 from litmus.data.event_store import EventStore
 
 __all__ = [
+    "ColumnSchema",
     "EventStore",
+    "FieldRef",
+    "FieldRole",
     "MeasurementsQuery",
     "RunsQuery",
     "StepsQuery",

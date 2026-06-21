@@ -52,13 +52,13 @@ REF_PATH_PREFIX = "_ref/"
 # Vector ID prefix length for filename namespacing in _ref/ directories.
 VECTOR_ID_LENGTH = 8
 
-# EAV lane struct — the at-rest nested representation of one input / output /
-# custom entry. ``kind`` is the value-type discriminator that selects which
+# EAV lane struct — the at-rest nested representation of one input / output
+# entry. ``value_type`` is the value-type discriminator that selects which
 # ``value_*`` lane holds the value. The Arrow struct type in
 # ``schemas._LANE_STRUCT`` must match these names (guarded there).
 LANE_FIELDS: tuple[str, ...] = (
     "name",
-    "kind",
+    "value_type",
     "value_int",
     "value_double",
     "value_bool",
@@ -130,23 +130,23 @@ def _lane_entry(
     the others stay ``None``. ``unit`` carries the optional engineering unit;
     ``uut_pin`` carries the pin this observation belongs to (or None = all pins).
     """
-    kind = observation_kind(value)
+    value_type = observation_kind(value)
     entry: dict[str, Any] = dict.fromkeys(LANE_FIELDS)
     entry["name"] = name
-    entry["kind"] = kind
+    entry["value_type"] = value_type
     entry["unit"] = unit
     entry["uut_pin"] = uut_pin
-    if kind == "scalar:bool":
+    if value_type == "scalar:bool":
         entry["value_bool"] = bool(value)
-    elif kind == "scalar:int":
+    elif value_type == "scalar:int":
         entry["value_int"] = int(value)
-    elif kind == "scalar:float":
+    elif value_type == "scalar:float":
         entry["value_double"] = float(value)
-    elif kind == "scalar:datetime":
+    elif value_type == "scalar:datetime":
         entry["value_timestamp"] = _as_utc(value)
-    elif kind in ("scalar:str", "uri"):
+    elif value_type in ("scalar:str", "uri"):
         entry["value_text"] = str(value)
-    elif kind in ("list", "dict"):
+    elif value_type in ("list", "dict"):
         entry["value_json"] = json.dumps(value, default=str)
     else:  # other:*
         entry["value_text"] = repr(value)
@@ -171,17 +171,17 @@ def encode_lane_structs(
 
 
 def _lane_value(entry: dict[str, Any]) -> Any:
-    """Inverse of :func:`_lane_entry` — read the value from its lane by ``kind``."""
-    kind = entry.get("kind")
-    if kind == "scalar:bool":
+    """Inverse of :func:`_lane_entry` — read the value from its lane by ``value_type``."""
+    value_type = entry.get("value_type")
+    if value_type == "scalar:bool":
         return entry.get("value_bool")
-    if kind == "scalar:int":
+    if value_type == "scalar:int":
         return entry.get("value_int")
-    if kind == "scalar:float":
+    if value_type == "scalar:float":
         return entry.get("value_double")
-    if kind == "scalar:datetime":
+    if value_type == "scalar:datetime":
         return entry.get("value_timestamp")
-    if kind in ("list", "dict"):
+    if value_type in ("list", "dict"):
         raw = entry.get("value_json")
         return json.loads(raw) if raw is not None else None
     return entry.get("value_text")  # scalar:str, uri, other:*
@@ -223,8 +223,8 @@ class MeasurementRow(BaseModel):
     * ``record_type = 'step'`` — one per ``(step_path, vector_index)``
       execution; carries code identity + timing + rolled-up outcome.
     * ``record_type = 'vector'`` — one execution carrier; holds the
-      ``inputs``/``outputs``/``custom`` lanes and the nested
-      ``measurements`` list for that execution.
+      ``inputs``/``outputs`` lanes and the nested ``measurements``
+      list for that execution.
 
     Run rows are keyed by ``run_id``; steps and vectors share grain
     ``(run_id, step_path, vector_index)``.
@@ -328,7 +328,6 @@ class MeasurementRow(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
     instruments: dict[str, list[str | bool | None]] = Field(default_factory=dict)
-    custom: dict[str, Any] = Field(default_factory=dict)
     # Optional per-slot engineering unit for inputs / outputs (name → unit),
     # flowed into the lane's ``unit`` field at encode time.
     input_units: dict[str, str] = Field(default_factory=dict)
@@ -340,11 +339,11 @@ class MeasurementRow(BaseModel):
     def to_flat_dict(self, *, at_rest: bool = False) -> dict[str, Any]:
         """Flatten to denormalized dict for the Parquet write boundary.
 
-        ``inputs`` / ``outputs`` / ``custom`` are encoded as nested EAV lane
-        structs (``LIST<STRUCT>``; see :func:`encode_lane_structs`) under the
-        ``inputs`` / ``outputs`` / ``custom`` keys. ``input_units`` /
-        ``output_units`` ride into each lane's ``unit`` field. ``instruments``
-        keys pass through (already ``step_instruments_``-prefixed).
+        ``inputs`` / ``outputs`` are encoded as nested EAV lane structs
+        (``LIST<STRUCT>``; see :func:`encode_lane_structs`) under the
+        ``inputs`` / ``outputs`` keys. ``input_units`` / ``output_units``
+        ride into each lane's ``unit`` field. ``instruments`` keys pass
+        through (already ``step_instruments_``-prefixed).
 
         ``at_rest=True`` drops the flat measurement scalar columns: at rest a
         measurement lives in the vector row's nested ``measurements`` list, not
@@ -357,7 +356,6 @@ class MeasurementRow(BaseModel):
             "inputs",
             "outputs",
             "instruments",
-            "custom",
             "input_units",
             "output_units",
             "output_pins",
@@ -367,7 +365,6 @@ class MeasurementRow(BaseModel):
         row = self.model_dump(exclude=exclude)
         row["inputs"] = encode_lane_structs(self.inputs, self.input_units)
         row["outputs"] = encode_lane_structs(self.outputs, self.output_units, self.output_pins)
-        row["custom"] = encode_lane_structs(self.custom)
         row.update(self.instruments)
         return row
 
@@ -605,11 +602,11 @@ def observation_kind(value: Any) -> str:
     Returns a short tag (``scalar:int`` / ``scalar:float`` / ``scalar:bool`` /
     ``scalar:str`` / ``scalar:datetime`` / ``uri`` / ``list`` / ``dict`` /
     ``other:*``) that :func:`_lane_entry` uses to route the value to its
-    ``value_*`` lane and that is stored as the ``kind`` field.
+    ``value_*`` lane and that is stored as the ``value_type`` field.
 
     URIs (``channel://`` and ``file://``) are tagged ``"uri"`` even
     though they're ``str`` — keeps a claim-check ref distinct from a free
-    string (both share the ``value_text`` lane, disambiguated by ``kind``).
+    string (both share the ``value_text`` lane, disambiguated by ``value_type``).
     """
     if is_ref(value):
         return "uri"
@@ -777,7 +774,6 @@ def build_row(
             build_output_columns(vector, ref_saver=ref_saver) if denormalize_conditions else {}
         ),
         instruments=instrument_arrays,
-        custom=dict(test_run.custom_metadata),
     )
 
 
@@ -827,13 +823,11 @@ def build_run_row(
     run_outcome: str | None,
     run_ended_at: datetime | None,
     instruments: dict[str, list],
-    custom: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the single ``record_type = 'run'`` row for a parquet.
 
     Carries run-level identity / UUT / station / fixture / environment
-    columns plus run-level ``custom_metadata`` (flattened to
-    ``custom_*``). Step and measurement columns stay NULL. Provides an
+    columns. Step and measurement columns stay NULL. Provides an
     addressable run-row inside the unified per-run parquet so lakehouse
     adopters can ``WHERE record_type = 'run'`` for clean ingest into a
     ``runs`` table without ``SELECT DISTINCT`` over the denormalized
@@ -872,7 +866,6 @@ def build_run_row(
         inputs={},
         outputs={},
         instruments=instruments,
-        custom=dict(custom or {}),
     )
     return row.to_flat_dict(at_rest=True)
 
@@ -940,7 +933,6 @@ def build_step_row(
         inputs={},
         outputs={},
         instruments=instruments,
-        custom={},
     )
     return row.to_flat_dict(at_rest=True)
 
@@ -1003,7 +995,6 @@ def build_scope_vector_row(
         output_pins=dict(entry.get("output_pins") or {}),
         measurements=entry.get("measurements") or [],
         instruments=instruments,
-        custom={},
     )
     return row.to_flat_dict(at_rest=True)
 
@@ -1065,7 +1056,6 @@ def build_vector_row(
         output_pins=dict(entry.get("output_pins") or {}),
         measurements=entry.get("measurements") or [],
         instruments=instruments,
-        custom={},
     )
     return row.to_flat_dict(at_rest=True)
 

@@ -190,11 +190,11 @@ class Hdf5Subscriber(EventSubscriber):
                 # ``not in vec_grp.attrs`` guard just avoids redundant
                 # h5py writes.
                 for k, v in m.inputs.items():
-                    attr_key = f"in_{k}"
+                    attr_key = f"input_{k}"
                     if attr_key not in vec_grp.attrs:
                         vec_grp.attrs[attr_key] = _h5_attr(v)
                 for k, v in m.outputs.items():
-                    attr_key = f"out_{k}"
+                    attr_key = f"output_{k}"
                     if attr_key not in vec_grp.attrs:
                         vec_grp.attrs[attr_key] = _h5_attr(v)
 

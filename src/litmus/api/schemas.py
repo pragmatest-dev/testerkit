@@ -72,10 +72,9 @@ class MeasurementView(BaseModel):
     instrument_name: str | None = None
     instrument_resource: str | None = None
     instrument_channel: str | None = None
-    # Typed dicts rehydrated from in_*/out_*/custom_* flat columns
+    # Typed dicts rehydrated from in_*/out_* flat columns
     inputs: dict[str, Any] = {}
     outputs: dict[str, Any] = {}
-    custom: dict[str, Any] = {}
 
 
 class StepView(BaseModel):
@@ -187,14 +186,13 @@ def _measurements_for_step(
     *,
     in_keys: list[str],
     out_keys: list[str],
-    custom_keys: list[str],
 ) -> list[MeasurementView]:
     """Build MeasurementViews for one step from its measurement rows.
 
-    Rehydrates the dynamic ``in_*`` / ``out_*`` / ``custom_*`` parquet
-    columns into typed dicts on each MeasurementView. The prefix-key
-    lists are precomputed by the caller once per run (the parquet
-    schema is uniform across all rows of a run).
+    Rehydrates the dynamic ``in_*`` / ``out_*`` parquet columns into
+    typed dicts on each MeasurementView. The prefix-key lists are
+    precomputed by the caller once per run (the parquet schema is
+    uniform across all rows of a run).
     """
     return [
         MeasurementView(
@@ -216,7 +214,6 @@ def _measurements_for_step(
             instrument_channel=row.get("instrument_channel"),
             inputs={k[3:]: row[k] for k in in_keys if row[k] is not None},
             outputs={k[4:]: row[k] for k in out_keys if row[k] is not None},
-            custom={k[7:]: row[k] for k in custom_keys if row[k] is not None},
         )
         for row in step_rows
     ]
@@ -266,12 +263,10 @@ def build_run_view(
     # once and reuse per step (avoids scanning row keys 5k× for large runs).
     in_keys: list[str] = []
     out_keys: list[str] = []
-    custom_keys: list[str] = []
     if measurement_rows:
         first = measurement_rows[0]
         in_keys = [k for k in first if k.startswith("in_")]
         out_keys = [k for k in first if k.startswith("out_")]
-        custom_keys = [k for k in first if k.startswith("custom_")]
 
     step_views: list[StepView] = []
     for step in sorted(steps, key=lambda s: s.step_index or 0):
@@ -290,7 +285,6 @@ def build_run_view(
                     step_rows,
                     in_keys=in_keys,
                     out_keys=out_keys,
-                    custom_keys=custom_keys,
                 ),
             )
         )

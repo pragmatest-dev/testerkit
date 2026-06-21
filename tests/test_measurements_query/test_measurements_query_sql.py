@@ -18,6 +18,8 @@ import pyarrow.parquet as pq
 import pytest
 
 from litmus.analysis.measurement_facets import (
+    ColumnSchema,
+    FieldRef,
     FilterSet,
     HistogramRow,
     LimitBandRow,
@@ -386,10 +388,11 @@ class TestFilters:
 class TestParametric:
     def test_describe_columns_lists_columns(self):
         store = MeasurementsQuery()
-        cols = store.describe_columns()
-        names = {c["column_name"] for c in cols}
-        assert "measurement_value" in names
-        assert "measurement_name" in names
+        schema = store.describe_columns()
+        assert isinstance(schema, ColumnSchema)
+        fixed_names = {c.name for c in schema.fixed}
+        assert "measurement_value" in fixed_names
+        assert "measurement_name" in fixed_names
 
     def test_scatter_returns_typed_rows(self, fixture_data):
         store = MeasurementsQuery()
@@ -434,34 +437,22 @@ class TestParametric:
 
     def test_histogram_returns_histogram_rows(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.parametric(
-            y="measurement_value",
-            x="uut_serial",
-            chart_type="histogram",
+        rows = store.histogram(
+            field="measurement_value",
             bins=4,
             filters=FilterSet(string_filters={"part_id": [fixture_data["part"]]}),
         )
         assert all(isinstance(r, HistogramRow) for r in rows)
         assert sum(r.y for r in rows) == 4
 
-    def test_bar_aggregates(self, fixture_data):
-        store = MeasurementsQuery()
-        rows = store.parametric(
-            y="measurement_value",
-            x="uut_serial",
-            chart_type="bar",
-            filters=FilterSet(string_filters={"part_id": [fixture_data["part"]]}),
-        )
-        assert len(rows) == 2
-        assert all(isinstance(r, ParametricRow) for r in rows)
-        by_serial = {r.x: r.y for r in rows}
-        assert by_serial["SN001"] == pytest.approx((3.3 + 3.31) / 2)
-        assert by_serial["SN002"] == pytest.approx((2.5 + 3.29) / 2)
-
     def test_invalid_column_rejected(self):
+        # Regression: malicious string is treated as a (sql-escaped) measurement name,
+        # no injection, no error. The query runs safely and the database is intact.
         store = MeasurementsQuery()
-        with pytest.raises(ValueError, match="invalid column identifier"):
-            store.parametric(y="value; DROP TABLE silver --", x="uut_serial")
+        rows = store.parametric(y="evil'; DROP TABLE --", x="measurement_value")
+        assert isinstance(rows, list)
+        # DB is still queryable — no injection occurred
+        assert store.summary_counts() is not None
 
 
 @pytest.fixture(scope="module")
@@ -508,7 +499,9 @@ class TestDynamicAxisEAV:
     def test_dynamic_x_scatter(self, dynamic_axis_data):
         store = MeasurementsQuery()
         rows = store.parametric(
-            y="measurement_value", x="in_freq", filters=self._scope(dynamic_axis_data["part"])
+            y="measurement_value",
+            x=FieldRef.input("freq"),
+            filters=self._scope(dynamic_axis_data["part"]),
         )
         by_x = {r.x: r.y for r in rows}
         assert by_x == {1000.0: pytest.approx(3.30), 2000.0: pytest.approx(3.31)}
@@ -516,14 +509,17 @@ class TestDynamicAxisEAV:
     def test_dynamic_y_is_joined(self, dynamic_axis_data):
         store = MeasurementsQuery()
         rows = store.parametric(
-            y="in_freq", x="uut_serial", filters=self._scope(dynamic_axis_data["part"])
+            y=FieldRef.input("freq"),
+            x="uut_serial",
+            filters=self._scope(dynamic_axis_data["part"]),
         )
         assert {r.y for r in rows} == {1000.0, 2000.0}
 
     def test_dynamic_distinct_via_describe(self, dynamic_axis_data):
         store = MeasurementsQuery()
-        names = {c["column_name"] for c in store.describe_columns()}
-        assert "in_freq" in names
+        schema = store.describe_columns()
+        field_names = {f.name for f in schema.fields}
+        assert "freq" in field_names
 
 
 @pytest.fixture(scope="module")

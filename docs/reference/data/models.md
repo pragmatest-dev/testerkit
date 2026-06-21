@@ -1523,6 +1523,44 @@ One node in a hierarchical step tree, built from ``step_path``.
 
 ### Query API facets & filters — `litmus.analysis.measurement_facets`
 
+#### `FieldRef` {#model-fieldref}
+
+Reference to a named field, identified by (role, name).
+
+| Field | Type | Default |
+|---|---|---|
+| `role` | `FieldRole` | *required* |
+| `name` | `str` | *required* |
+| `value_type` | `str \| None` | `None` |
+
+#### `FixedColumnDescriptor` {#model-fixedcolumndescriptor}
+
+One plottable fixed column from the measurements view.
+
+| Field | Type | Default |
+|---|---|---|
+| `name` | `str` | *required* |
+| `column_type` | `str` | *required* |
+
+#### `DynamicFieldDescriptor` {#model-dynamicfielddescriptor}
+
+One role-keyed field discovered in the catalog.
+
+| Field | Type | Default |
+|---|---|---|
+| `role` | `FieldRole` | *required* |
+| `name` | `str` | *required* |
+| `value_types` | `list[str]` | *required* |
+
+#### `ColumnSchema` {#model-columnschema}
+
+Return type of ``MeasurementsQuery.describe_columns()``.
+
+| Field | Type | Default |
+|---|---|---|
+| `fixed` | `list[FixedColumnDescriptor]` | *required* |
+| `fields` | `list[DynamicFieldDescriptor]` | *required* |
+
 #### `FacetSpec` {#model-facetspec}
 
 Self-describing definition of one filter facet.
@@ -1596,6 +1634,16 @@ Current filter state — URL-shareable, validated against ``MEASUREMENT_FACETS``
 | `enum_filters` | `dict[str, list[str]]` | `{}` |
 | `since` | `date \| None` | `None` |
 | `until` | `date \| None` | `None` |
+
+#### `FieldRole` {#enum-fieldrole}
+
+Which role a recorded field plays in a measurement vector.
+
+| Value | Description |
+|---|---|
+| `'input'` |  |
+| `'output'` |  |
+| `'measurement'` |  |
 
 #### `FacetKind` {#enum-facetkind}
 

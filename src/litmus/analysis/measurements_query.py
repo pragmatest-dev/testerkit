@@ -2,10 +2,10 @@
 
 Each method sends SQL to the daemon over Arrow Flight against the
 ``measurements`` view (the ``measurements_materialized`` table plus the
-in-flight overlay). Dynamic in_*/out_*/custom_* columns are read by anchoring
-on the core ``measurements`` view and LEFT JOINing the typed ``measurements_dynamic``
-EAV table per referenced column. Returns typed rows (long-format, aggregated,
-or schema descriptions).
+in-flight overlay). Dynamic input/output fields are read by anchoring on
+the core ``measurements`` view and LEFT JOINing the typed
+``measurements_dynamic`` EAV table per referenced field. Returns typed
+rows (long-format, aggregated, or schema descriptions).
 """
 
 from __future__ import annotations
@@ -16,8 +16,13 @@ from pathlib import Path
 from typing import Any
 
 from litmus.analysis.measurement_facets import (
+    ColumnSchema,
+    DynamicFieldDescriptor,
     FacetOption,
+    FieldRef,
+    FieldRole,
     FilterSet,
+    FixedColumnDescriptor,
     HistogramRow,
     LimitBandRow,
     ParametricRow,
@@ -32,29 +37,15 @@ _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _safe_ident(name: str) -> str:
-    """Reject any identifier that isn't a bare SQL column name.
-
-    Parametric queries take user-chosen Y/X/group_by columns. We only
-    accept the measurements view's flat column names — no dotted
-    paths, no quotes, no expressions.
-    """
+    """Reject any identifier that isn't a bare SQL column name."""
     if not _IDENT_RE.match(name):
         raise ValueError(f"invalid column identifier: {name!r}")
     return name
 
 
-# Dynamic column prefix → ``measurements_dynamic.side`` tag. The bare lane
-# ``name`` is the column with the prefix stripped (``in_freq`` → side ``in``,
-# name ``freq``), matching how the daemon UNNESTs the nested lanes.
-_DYNAMIC_SIDE_BY_PREFIX: tuple[tuple[str, str], ...] = (
-    ("in_", "in"),
-    ("out_", "out"),
-    ("custom_", "custom"),
-)
-
 # The natural vector identity shared by the core ``measurements`` view (aliased
-# ``m``) and the EAV ``measurements_dynamic`` table — the join key per dynamic
-# column. ``vector_retry`` is NULL-bearing, so the join is NULL-safe.
+# ``m``) and the EAV ``measurements_dynamic`` table. ``vector_retry`` is
+# NULL-bearing so the join uses IS NOT DISTINCT FROM.
 _VECTOR_KEY = (
     "{a}.run_id = m.run_id"
     " AND {a}.step_index = m.step_index"
@@ -62,75 +53,132 @@ _VECTOR_KEY = (
     " AND {a}.vector_retry IS NOT DISTINCT FROM m.vector_retry"
 )
 
-# Render one EAV lane row back to the same VARCHAR the ``dynamic_attrs`` MAP
-# would hold (the SQL twin of the daemon's ``_LANE_VALUE_VARCHAR``), so the
-# joined-lane read is byte-identical to the MAP read it replaces. ``{a}`` is the
-# per-column join alias.
-_LANE_VARCHAR = """CASE {a}.kind
-            WHEN 'scalar:bool' THEN CASE WHEN {a}.value_bool THEN 'true' ELSE 'false' END
-            WHEN 'scalar:int' THEN CAST({a}.value_int AS VARCHAR)
-            WHEN 'scalar:float' THEN CAST({a}.value_double AS VARCHAR)
-            WHEN 'scalar:datetime' THEN CAST({a}.value_timestamp AS VARCHAR)
-            WHEN 'list' THEN {a}.value_json
-            WHEN 'dict' THEN {a}.value_json
-            ELSE {a}.value_text
-        END"""
+# Fixed infrastructure columns that a bare string selector resolves to
+# directly, bypassing the FieldRef.measurement() default.
+_FIXED_COLUMNS: frozenset[str] = frozenset(
+    {
+        "vector_index",
+        "vector_retry",
+        "step_index",
+        "run_started_at",
+        "run_ended_at",
+        "step_started_at",
+        "step_ended_at",
+        "measurement_timestamp",
+        "limit_low",
+        "limit_high",
+        "limit_nominal",
+        "measurement_value",
+        "measurement_name",
+        "measurement_outcome",
+        "measurement_unit",
+        "run_outcome",
+        "step_outcome",
+        "vector_outcome",
+        "uut_serial",
+        "uut_part_number",
+        "uut_revision",
+        "uut_lot_number",
+        "test_phase",
+        "step_name",
+        "step_path",
+        "limit_comparator",
+        "uut_pin",
+    }
+)
+
+# Registry of operator-meaningful fixed columns exposed as plot axes by
+# describe_columns(). Excludes identity/admin columns (UUIDs, file_path, etc.).
+_PLOTTABLE_FIXED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("run_started_at", "TIMESTAMPTZ"),
+    ("run_ended_at", "TIMESTAMPTZ"),
+    ("step_started_at", "TIMESTAMPTZ"),
+    ("step_ended_at", "TIMESTAMPTZ"),
+    ("measurement_timestamp", "TIMESTAMPTZ"),
+    ("vector_index", "BIGINT"),
+    ("vector_retry", "BIGINT"),
+    ("step_index", "INTEGER"),
+    ("measurement_value", "DOUBLE"),
+    ("measurement_name", "VARCHAR"),
+    ("measurement_outcome", "VARCHAR"),
+    ("measurement_unit", "VARCHAR"),
+    ("run_outcome", "VARCHAR"),
+    ("step_outcome", "VARCHAR"),
+    ("vector_outcome", "VARCHAR"),
+    ("limit_low", "DOUBLE"),
+    ("limit_high", "DOUBLE"),
+    ("limit_nominal", "DOUBLE"),
+    ("limit_comparator", "VARCHAR"),
+    ("uut_serial", "VARCHAR"),
+    ("uut_part_number", "VARCHAR"),
+    ("uut_pin", "VARCHAR"),
+    ("test_phase", "VARCHAR"),
+    ("step_name", "VARCHAR"),
+)
 
 
-def _split_dynamic(col: str) -> tuple[str, str] | None:
-    """Split a dynamic column into ``(side, bare_name)`` or ``None`` if fixed."""
-    for prefix, side in _DYNAMIC_SIDE_BY_PREFIX:
-        if col.startswith(prefix):
-            return side, col[len(prefix) :]
-    return None
+def _resolve_selector(selector: str | FieldRef) -> FieldRef:
+    """Normalize a bare string or FieldRef to a FieldRef.
 
-
-class _DynamicJoins:
-    """Collects the dynamic columns a query references and emits their joins.
-
-    The analytical read path anchors on the core ``measurements`` view (aliased
-    ``m``) and LEFT JOINs ``measurements_dynamic`` once per distinct dynamic
-    column on the vector key + ``side``/``name`` (the core-anchored-join in the
-    EAV design). ``col_expr`` registers a column and returns the lane expression
-    cast to the requested type; ``join_sql`` returns the JOIN clauses to splice
-    after ``FROM measurements m``. A missing lane row yields NULL — matching the
-    MAP's missing-key behavior, so results stay identical.
+    A bare string resolves to ``FieldRef.measurement(name)`` unless it
+    matches a fixed infrastructure column, in which case it stays as-is
+    (the caller handles fixed columns directly via ``m.<col>``).
     """
+    if isinstance(selector, str):
+        if selector in _FIXED_COLUMNS:
+            return FieldRef(role=FieldRole.MEASUREMENT, name=selector, value_type="__fixed__")
+        return FieldRef.measurement(selector)
+    return selector
+
+
+def _eav_typed_expr(ref: FieldRef, alias: str) -> str:
+    """Typed SQL expression selecting the correct value_* column from an EAV alias."""
+    vt = ref.value_type or ""
+    if vt == "scalar:bool":
+        return f"{alias}.value_bool"
+    if vt == "scalar:int":
+        return f"CAST({alias}.value_int AS DOUBLE)"
+    if vt == "scalar:float":
+        return f"{alias}.value_double"
+    if vt == "scalar:datetime":
+        return f"{alias}.value_timestamp"
+    if vt in ("list", "dict"):
+        return f"{alias}.value_json"
+    return f"{alias}.value_text"
+
+
+class _EAVJoins:
+    """Collects EAV joins for input/output FieldRefs and emits their SQL."""
 
     def __init__(self) -> None:
-        self._aliases: dict[str, tuple[str, str, str]] = {}  # col → (alias, side, name)
+        self._joins: list[tuple[str, FieldRef]] = []  # (alias, ref)
+        self._seen: dict[tuple[str, str, str | None], str] = {}
 
-    def col_expr(self, col: str, cast_as: str = "DOUBLE") -> str:
-        """Lane expression for ``col`` cast to ``cast_as``.
-
-        Fixed columns are qualified ``m.<col>`` — the EAV joins add a
-        ``measurements_dynamic`` alias that shares column names with the core
-        (``run_id``/``step_index``/``vector_index``/``vector_retry``), so an
-        unqualified reference would be ambiguous.
-        """
-        _safe_ident(col)
-        split = _split_dynamic(col)
-        if split is None:
-            return f"m.{col}"
-        side, name = split
-        entry = self._aliases.get(col)
-        if entry is None:
-            alias = f"md_{len(self._aliases)}"
-            self._aliases[col] = (alias, side, name)
-        else:
-            alias = entry[0]
-        lane_varchar = _LANE_VARCHAR.format(a=alias)
-        return f"TRY_CAST({lane_varchar} AS {cast_as})"
+    def register(self, ref: FieldRef) -> str:
+        """Register a FieldRef and return its join alias."""
+        key = (ref.role.value, ref.name, ref.value_type)
+        existing = self._seen.get(key)
+        if existing is not None:
+            return existing
+        alias = f"eav_{len(self._joins)}"
+        self._joins.append((alias, ref))
+        self._seen[key] = alias
+        return alias
 
     def join_sql(self) -> str:
-        """The LEFT JOIN clauses for every registered dynamic column."""
         clauses = []
-        for alias, side, name in self._aliases.values():
+        for alias, ref in self._joins:
             vkey = _VECTOR_KEY.format(a=alias)
+            role_pred = f" AND {alias}.role = '{sql_escape(ref.role.value)}'"
+            name_pred = f" AND {alias}.name = '{sql_escape(ref.name)}'"
+            vtype_pred = (
+                f" AND {alias}.value_type = '{sql_escape(ref.value_type)}'"
+                if ref.value_type
+                else ""
+            )
             clauses.append(
                 f" LEFT JOIN measurements_dynamic {alias} ON {vkey}"
-                f" AND {alias}.side = '{sql_escape(side)}'"
-                f" AND {alias}.name = '{sql_escape(name)}'"
+                f"{role_pred}{name_pred}{vtype_pred}"
             )
         return "".join(clauses)
 
@@ -625,6 +673,7 @@ class MeasurementsQuery:
 
     def cpk(
         self,
+        field: str | FieldRef | None = None,
         *,
         part: str | list[str] | None = None,
         station: str | list[str] | None = None,
@@ -635,16 +684,31 @@ class MeasurementsQuery:
     ) -> list[dict[str, Any]]:
         """Process capability (Cpk/Cp) per measurement.
 
+        ``field`` selects which measurement to scope — a bare string or
+        ``FieldRef.measurement(...)``. Passing a non-measurement FieldRef
+        is an error (outputs have no limits). ``None`` includes all
+        measurements (existing behavior).
+
         Returns one row per (part, station, measurement_name).
         """
+        name_clause = ""
+        if field is not None:
+            ref = _resolve_selector(field)
+            if ref.role is not FieldRole.MEASUREMENT and ref.value_type != "__fixed__":
+                raise ValueError(
+                    f"cpk() requires a measurement FieldRef; got role={ref.role.value!r}. "
+                    "Outputs and inputs have no limits — use histogram() for distributions."
+                )
+            name_clause = f"\n    AND measurement_name = '{sql_escape(ref.name)}'"
+        base_and = _build_and_clauses(
+            part=part,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until,
+        )
         sql = _CPK_SQL.format(
-            and_clauses=_build_and_clauses(
-                part=part,
-                station=station,
-                phase=phase,
-                since=since,
-                until=until,
-            ),
+            and_clauses=base_and + name_clause,
             min_samples=int(min_samples),
         )
         return self._query_dicts(sql)
@@ -734,134 +798,188 @@ class MeasurementsQuery:
     # Parametric viewer — generic Y/X query over measurements
     # ------------------------------------------------------------------
 
-    def describe_columns(self) -> list[dict[str, str]]:
-        """Return the measurements schema: ``[{column_name, column_type}, ...]``.
+    def describe_columns(self) -> ColumnSchema:
+        """Return the plottable column schema — curated fixed columns plus role-keyed fields.
 
-        Returns fixed columns from ``measurements_materialized`` plus dynamic
-        column names discovered during ingest (from the maintained
-        ``measurement_io_schema`` catalog — not a live scan). Dynamic columns are
-        reported as ``DOUBLE`` so the explore page's classifier includes them as
-        Y/X candidates; their typed lanes are joined from ``measurements_dynamic``
-        at query time.
+        Fixed columns are operator-meaningful (excludes identity/admin columns).
+        Dynamic fields are sourced from the ``measurement_io_schema`` catalog and
+        grouped by ``(role, name)`` with their observed ``value_type`` set.
         """
-        fixed = self._query_dicts(
-            "SELECT column_name, column_type"
-            " FROM (DESCRIBE measurements_materialized)"
-            " WHERE column_name NOT IN ('file_path', 'dynamic_attrs')"
+        fixed = [
+            FixedColumnDescriptor(name=name, column_type=col_type)
+            for name, col_type in _PLOTTABLE_FIXED_COLUMNS
+        ]
+        raw_fields = self._query_dicts(
+            "SELECT role, name, value_type FROM measurement_io_schema"
+            " WHERE role IS NOT NULL AND name IS NOT NULL"
         )
-        dynamic = self._query_dicts(
-            "SELECT DISTINCT column_name, 'DOUBLE' AS column_type FROM measurement_io_schema"
+        by_key: dict[tuple[str, str], list[str]] = {}
+        for row in raw_fields:
+            key = (str(row["role"]), str(row["name"]))
+            vt = str(row["value_type"]) if row.get("value_type") else ""
+            by_key.setdefault(key, [])
+            if vt and vt not in by_key[key]:
+                by_key[key].append(vt)
+        fields = [
+            DynamicFieldDescriptor(role=FieldRole(role), name=name, value_types=vts)
+            for (role, name), vts in by_key.items()
+        ]
+        return ColumnSchema(fixed=fixed, fields=fields)
+
+    def _resolve_eav_field(
+        self,
+        selector: str | FieldRef,
+        joins: _EAVJoins,
+    ) -> str:
+        """Resolve a selector to a SQL column expression, registering any EAV join.
+
+        For input/output FieldRefs without an explicit value_type, performs a
+        type-coherence check against the catalog. Raises loudly on mixed types.
+        """
+        ref = _resolve_selector(selector)
+        if ref.role is FieldRole.MEASUREMENT or ref.value_type == "__fixed__":
+            col = ref.name if ref.value_type == "__fixed__" else "measurement_value"
+            _safe_ident(col)
+            return f"m.{col}"
+
+        # input/output: check type coherence if value_type not specified
+        if ref.value_type is None:
+            vt = self._resolve_value_type(ref)
+            ref = FieldRef(role=ref.role, name=ref.name, value_type=vt)
+
+        alias = joins.register(ref)
+        return _eav_typed_expr(ref, alias)
+
+    def _resolve_value_type(self, ref: FieldRef) -> str:
+        """Resolve the value_type for a (role, name) pair. Raises on ambiguity."""
+        rows = self._query_dicts(
+            f"SELECT value_type, COUNT(*) AS cnt"
+            f" FROM measurements_dynamic"
+            f" WHERE role = '{sql_escape(ref.role.value)}'"
+            f"   AND name = '{sql_escape(ref.name)}'"
+            f" GROUP BY value_type"
         )
-        return [*fixed, *dynamic]
+        if not rows:
+            return "scalar:float"
+        if len(rows) == 1:
+            return str(rows[0]["value_type"] or "scalar:float")
+        breakdown = ", ".join(f"{r['value_type']} ({r['cnt']})" for r in rows)
+        raise ValueError(
+            f"{ref.role.value} {ref.name!r} has {len(rows)} value_types in scope: "
+            f"{breakdown}. Specify value_type= on FieldRef to disambiguate."
+        )
 
     def parametric(
         self,
         *,
-        y: str,
-        x: str,
+        y: str | FieldRef,
+        x: str | FieldRef,
         filters: FilterSet | None = None,
-        group_by: str | None = None,
-        chart_type: str = "scatter",
-        bins: int = 30,
+        group_by: str | FieldRef | None = None,
         limit: int = 5000,
         include_incomplete: bool = False,
-    ) -> list[ParametricRow] | list[HistogramRow]:
-        """Generic Y vs X query over measurements, optionally split by ``group_by``.
+    ) -> list[ParametricRow]:
+        """Y vs X scatter/line points over measurements, optionally split by ``group_by``.
 
-        Returns long-format rows. Shape depends on ``chart_type``:
+        Returns ``ParametricRow`` per measurement. Scatter vs line is a render
+        choice — pass the same points to either. ``group_by`` accepts a bare
+        string (fixed column name) or a ``FieldRef`` for EAV role fields.
+        ``y`` and ``x`` accept a bare string (measurement shorthand) or an
+        explicit ``FieldRef``.
 
-        - ``scatter`` / ``line``: ``ParametricRow`` per measurement.
-          ``line`` orders by X.
-        - ``bar``: ``ParametricRow`` per (X, group) with ``y`` = AVG.
-        - ``histogram``: ``HistogramRow`` per (bin, group) with ``y``
-          = COUNT, ``x`` = bin midpoint. The ``x`` argument is ignored
-          for histograms.
-
-        ``filters`` is a validated ``FilterSet`` — multi-value, mixing
-        string and enum facets plus optional date range. Column names
-        are validated as bare identifiers, values escape via
-        :func:`sql_escape`.
-
-        ``include_incomplete`` (default ``False``) excludes
-        measurements whose owning run has not finalized — same
-        semantic as the other public methods. UI live views pass
-        ``True`` to plot in-flight values.
+        ``include_incomplete`` (default ``False``) excludes measurements whose
+        owning run has not finalized. UI live views pass ``True``.
         """
-        joins = _DynamicJoins()
-        y_col = joins.col_expr(y)
-        x_col = joins.col_expr(x) if chart_type != "histogram" else None
-        group_col = joins.col_expr(group_by, "VARCHAR") if group_by else None
+        joins = _EAVJoins()
+        y_col = self._resolve_eav_field(y, joins)
+        x_col = self._resolve_eav_field(x, joins)
+        group_col: str | None = None
+        if group_by is not None:
+            if isinstance(group_by, FieldRef):
+                group_col = self._resolve_eav_field(group_by, joins)
+            else:
+                _safe_ident(group_by)
+                group_col = f"m.{group_by}"
 
-        clauses = [f"{y_col} IS NOT NULL"]
-        if x_col is not None:
-            clauses.append(f"{x_col} IS NOT NULL")
+        clauses = [f"{y_col} IS NOT NULL", f"{x_col} IS NOT NULL"]
         if not include_incomplete:
-            clauses.append("run_outcome IS NOT NULL")
+            clauses.append("m.run_outcome IS NOT NULL")
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
         frm = f"measurements m{joins.join_sql()}"
-
         group_expr = group_col if group_col else "''"
-        group_clause = f", {group_col}" if group_col else ""
-
-        if chart_type == "histogram":
-            sql = f"""
-            WITH stats AS (
-                SELECT MIN({y_col}) AS lo, MAX({y_col}) AS hi
-                FROM {frm}{where}
-            ),
-            bucketed AS (
-                SELECT
-                    LEAST(
-                        CAST(FLOOR(({y_col} - stats.lo)
-                            / NULLIF((stats.hi - stats.lo) / {int(bins)}, 0)) AS INTEGER),
-                        {int(bins) - 1}
-                    ) AS bin,
-                    stats.lo AS lo, stats.hi AS hi,
-                    {group_expr} AS "group"
-                FROM {frm}, stats{where}
-            )
-            SELECT
-                bin,
-                lo + (bin + 0.5) * (hi - lo) / {int(bins)} AS x,
-                COUNT(*) AS y,
-                "group"
-            FROM bucketed
-            GROUP BY bin, lo, hi, "group"
-            ORDER BY "group", bin
-            """
-            return [HistogramRow(**row) for row in self._query_dicts(sql)]
-
-        if chart_type == "bar":
-            assert x_col is not None
-            sql = f"""
-            SELECT
-                {x_col} AS x,
-                AVG({y_col}) AS y,
-                {group_expr} AS "group"
-            FROM {frm}{where}
-            GROUP BY {x_col}{group_clause}
-            ORDER BY {x_col}
-            LIMIT {int(limit)}
-            """
-        else:
-            assert x_col is not None
-            order = f"ORDER BY {x_col}" if chart_type == "line" else ""
-            sql = f"""
-            SELECT
-                {x_col} AS x,
-                {y_col} AS y,
-                {group_expr} AS "group"
-            FROM {frm}{where}
-            {order}
-            LIMIT {int(limit)}
-            """
+        sql = f"""
+        SELECT
+            {x_col} AS x,
+            {y_col} AS y,
+            {group_expr} AS "group"
+        FROM {frm}{where}
+        LIMIT {int(limit)}
+        """
         return [ParametricRow(**row) for row in self._query_dicts(sql)]
+
+    def histogram(
+        self,
+        *,
+        field: str | FieldRef,
+        bins: int = 30,
+        group_by: str | FieldRef | None = None,
+        filters: FilterSet | None = None,
+    ) -> list[HistogramRow]:
+        """Distribution of one field's values, bucketed into ``bins`` bins.
+
+        Returns one ``HistogramRow`` per (bin, group) with ``y`` = count and
+        ``x`` = bin midpoint. ``field`` accepts a bare string (measurement
+        shorthand) or an explicit ``FieldRef``. ``group_by`` accepts a bare
+        string (fixed column name) or a ``FieldRef`` for EAV role fields.
+        """
+        joins = _EAVJoins()
+        field_col = self._resolve_eav_field(field, joins)
+        group_col: str | None = None
+        if group_by is not None:
+            if isinstance(group_by, FieldRef):
+                group_col = self._resolve_eav_field(group_by, joins)
+            else:
+                _safe_ident(group_by)
+                group_col = f"m.{group_by}"
+
+        clauses = [f"{field_col} IS NOT NULL", "m.run_outcome IS NOT NULL"]
+        clauses.extend(_filter_clauses(filters))
+        where = " WHERE " + " AND ".join(clauses)
+        frm = f"measurements m{joins.join_sql()}"
+        group_expr = group_col if group_col else "''"
+
+        sql = f"""
+        WITH stats AS (
+            SELECT MIN({field_col}) AS lo, MAX({field_col}) AS hi
+            FROM {frm}{where}
+        ),
+        bucketed AS (
+            SELECT
+                LEAST(
+                    CAST(FLOOR(({field_col} - stats.lo)
+                        / NULLIF((stats.hi - stats.lo) / {int(bins)}, 0)) AS INTEGER),
+                    {int(bins) - 1}
+                ) AS bin,
+                stats.lo AS lo, stats.hi AS hi,
+                {group_expr} AS "group"
+            FROM {frm}, stats{where}
+        )
+        SELECT
+            bin,
+            lo + (bin + 0.5) * (hi - lo) / {int(bins)} AS x,
+            COUNT(*) AS y,
+            "group"
+        FROM bucketed
+        GROUP BY bin, lo, hi, "group"
+        ORDER BY "group", bin
+        """
+        return [HistogramRow(**row) for row in self._query_dicts(sql)]
 
     def latest_run_limits(
         self,
         *,
-        x: str,
+        x: str | FieldRef,
         filters: FilterSet | None = None,
     ) -> list[LimitBandRow]:
         """Limit envelope from the most recent run, keyed by the chart's X.
@@ -873,8 +991,8 @@ class MeasurementsQuery:
         X, ordered by X. A condition-indexed limit renders as a step
         band; a constant limit collapses to a flat one.
         """
-        joins = _DynamicJoins()
-        x_col = joins.col_expr(x)
+        joins = _EAVJoins()
+        x_col = self._resolve_eav_field(x, joins)
         clauses = [f"{x_col} IS NOT NULL", "m.run_outcome IS NOT NULL"]
         clauses.extend(_filter_clauses(filters))
         where = " WHERE " + " AND ".join(clauses)
@@ -902,6 +1020,7 @@ class MeasurementsQuery:
         self,
         column: str,
         *,
+        role: FieldRole | str | None = None,
         filters: FilterSet | None = None,
         exclude_self: bool = True,
         limit: int = 500,
@@ -913,20 +1032,36 @@ class MeasurementsQuery:
         otherwise selecting one value would collapse the option list
         to that one value.
 
+        ``role`` filters the ``measurements_dynamic`` EAV table when
+        ``column`` is ``"name"`` — use it to enumerate only input or
+        output field names.
+
         Counts are aggregated so the UI can show "PN-100 (12,304)" —
         useful for spotting which buckets actually have data.
         """
         col = _safe_ident(column)
-        scoped = _filters_excluding(filters, column) if exclude_self else filters
-        clauses = [f"{col} IS NOT NULL", *_filter_clauses(scoped)]
-        where = " WHERE " + " AND ".join(clauses)
-        sql = f"""
-        SELECT {col} AS value, COUNT(*) AS count
-        FROM measurements{where}
-        GROUP BY {col}
-        ORDER BY count DESC, value ASC
-        LIMIT {int(limit)}
-        """
+        if role is not None:
+            role_val = FieldRole(role) if isinstance(role, str) else role
+            role_clause = f" AND role = '{sql_escape(role_val.value)}'"
+            dyn_where = f" WHERE {col} IS NOT NULL{role_clause}"
+            sql = f"""
+            SELECT {col} AS value, COUNT(*) AS count
+            FROM measurements_dynamic{dyn_where}
+            GROUP BY {col}
+            ORDER BY count DESC, value ASC
+            LIMIT {int(limit)}
+            """
+        else:
+            scoped = _filters_excluding(filters, column) if exclude_self else filters
+            clauses = [f"{col} IS NOT NULL", *_filter_clauses(scoped)]
+            where = " WHERE " + " AND ".join(clauses)
+            sql = f"""
+            SELECT {col} AS value, COUNT(*) AS count
+            FROM measurements{where}
+            GROUP BY {col}
+            ORDER BY count DESC, value ASC
+            LIMIT {int(limit)}
+            """
         return [
             FacetOption(value=str(row["value"]), count=int(row["count"]))
             for row in self._query_dicts(sql)

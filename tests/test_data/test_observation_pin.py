@@ -290,7 +290,7 @@ def _query_eav(run_id: str) -> list[dict]:
         f"""
         SELECT name, unit, uut_pin
         FROM measurements_dynamic
-        WHERE run_id = '{run_id}' AND side = 'out'
+        WHERE run_id = '{run_id}' AND role = 'output'
         ORDER BY name
         """
     )

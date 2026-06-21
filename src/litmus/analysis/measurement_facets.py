@@ -1,4 +1,4 @@
-"""Filter facets for the parametric viewer — model-driven registry.
+"""Filter facets and field-reference types for the parametric viewer.
 
 The ``/explore`` page lets users scope cross-run measurement queries by
 filtering on columns of the ``measurements`` view. This module is the
@@ -30,6 +30,81 @@ from pydantic import BaseModel, Field, model_validator
 
 from litmus.data.models import Outcome
 from litmus.models.enums import Comparator
+
+# ---------------------------------------------------------------------------
+# Field identity — role + name + optional value_type
+# ---------------------------------------------------------------------------
+
+
+class FieldRole(StrEnum):
+    """Which role a recorded field plays in a measurement vector."""
+
+    INPUT = "input"
+    OUTPUT = "output"
+    MEASUREMENT = "measurement"
+
+
+class FieldRef(BaseModel):
+    """Reference to a named field, identified by (role, name).
+
+    Use the classmethod constructors for everyday code::
+
+        FieldRef.measurement("v_rail")
+        FieldRef.output("v_rail")
+        FieldRef.input("vin")
+
+    The plain constructor also works and is used at wire boundaries::
+
+        FieldRef(role=FieldRole.OUTPUT, name="v_rail")
+        FieldRef(role="output", name="v_rail")  # FieldRole coerces from str
+
+    ``value_type`` is an open string (not an enum) — it reflects the
+    stored tag (e.g. ``"scalar:float"``, ``"scalar:int"``) and is only
+    required when a (role, name) pair has mixed value_types in scope.
+    """
+
+    role: FieldRole
+    name: str
+    value_type: str | None = None
+
+    @classmethod
+    def input(cls, name: str, value_type: str | None = None) -> FieldRef:
+        return cls(role=FieldRole.INPUT, name=name, value_type=value_type)
+
+    @classmethod
+    def output(cls, name: str, value_type: str | None = None) -> FieldRef:
+        return cls(role=FieldRole.OUTPUT, name=name, value_type=value_type)
+
+    @classmethod
+    def measurement(cls, name: str, value_type: str | None = None) -> FieldRef:
+        return cls(role=FieldRole.MEASUREMENT, name=name, value_type=value_type)
+
+
+# ---------------------------------------------------------------------------
+# describe_columns() result models
+# ---------------------------------------------------------------------------
+
+
+class FixedColumnDescriptor(BaseModel):
+    """One plottable fixed column from the measurements view."""
+
+    name: str
+    column_type: str
+
+
+class DynamicFieldDescriptor(BaseModel):
+    """One role-keyed field discovered in the catalog."""
+
+    role: FieldRole
+    name: str
+    value_types: list[str]
+
+
+class ColumnSchema(BaseModel):
+    """Return type of ``MeasurementsQuery.describe_columns()``."""
+
+    fixed: list[FixedColumnDescriptor]
+    fields: list[DynamicFieldDescriptor]
 
 
 class FacetKind(StrEnum):
@@ -79,12 +154,21 @@ class ParametricRow(BaseModel):
 
     ``x`` widens to accept datetime / date because measurements view
     columns include timestamps; the chart layer coerces these to
-    epoch ms for ECharts ``time`` axes.
+    epoch ms for ECharts ``time`` axes. ``group`` is always coerced to
+    str so numeric EAV fields used as group_by axes render as labels.
     """
 
     x: float | str | datetime | date | None = None
     y: float
     group: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_group(cls, data: object) -> object:
+        if isinstance(data, dict) and "group" in data and data["group"] is not None:
+            data = dict(data)
+            data["group"] = str(data["group"])
+        return data
 
 
 class HistogramRow(BaseModel):

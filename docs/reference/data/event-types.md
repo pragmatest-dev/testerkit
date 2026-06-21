@@ -316,7 +316,6 @@ A single measurement. Normalized: carries only measurement-specific fields.
 | `instrument_channel` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `outputs` | `dict[str, Any]` | `{}` |
-| `custom` | `dict[str, Any]` | `{}` |
 
 ### `test.observation` — `Observation`
 

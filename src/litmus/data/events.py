@@ -521,7 +521,6 @@ class MeasurementRecorded(EventBase):
     # Dynamic columns (vector-specific, not available elsewhere)
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
-    custom: dict[str, Any] = Field(default_factory=dict)
 
 
 class Observation(EventBase):

@@ -121,15 +121,15 @@ class CsvSubscriber(EventSubscriber):
                 "operator_id": s.operator_id or "",
                 "test_phase": s.test_phase,
             }
-            # Dynamic columns from inputs/outputs/custom
+            # Dynamic columns from inputs/outputs
             for k, v in m.inputs.items():
-                key = f"in_{k}"
+                key = f"input_{k}"
                 row[key] = v
                 if key not in seen:
                     seen.add(key)
                     extra_keys.append(key)
             for k, v in m.outputs.items():
-                key = f"out_{k}"
+                key = f"output_{k}"
                 row[key] = v
                 if key not in seen:
                     seen.add(key)

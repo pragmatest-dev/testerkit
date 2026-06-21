@@ -972,7 +972,6 @@ class RunScope:
                     vector,
                     ref_saver=self._make_ref_saver(),
                 ),
-                custom=dict(self.test_run.custom_metadata),
             )
             self._event_log.emit(event)
 
