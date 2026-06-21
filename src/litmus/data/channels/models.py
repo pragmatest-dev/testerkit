@@ -1,7 +1,7 @@
 """Data models for the channel store.
 
 Channel metadata (ChannelDescriptor) is written once per channel.
-Raw data uses typed Arrow schemas based on data_type.
+Raw data uses typed Arrow schemas based on value_type.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ CHANNELS_PUT_COMMAND = b"channels\0live"
 class ChannelDescriptor(BaseModel):
     """Metadata for a single channel, written once when first seen.
 
-    ``data_type`` carries the channel's shape AND leaf type after
+    ``value_type`` carries the channel's shape AND leaf type after
     build item 14 — examples: ``"scalar:float"``, ``"scalar:int"``,
     ``"scalar:bool"``, ``"scalar:str"``, ``"array:float"``,
     ``"array:int"``, ``"array:bool"``, ``"array:str"``. Legacy bare
@@ -49,7 +49,7 @@ class ChannelDescriptor(BaseModel):
     """
 
     channel_id: str
-    data_type: str = "scalar:float"  # "{shape}:{leaf}" — see class docstring
+    value_type: str = "scalar:float"  # "{shape}:{leaf}" — see class docstring
     instrument_role: str = ""
     resource: str = ""
     unit: str | None = None
@@ -145,11 +145,11 @@ def _infer_field_type(value: object) -> pa.DataType:
     return pa.utf8()  # fallback: store repr
 
 
-def _data_type_for(value: object) -> str:
-    """Return the ``ChannelDescriptor.data_type`` string for a value.
+def _value_type_for(value: object) -> str:
+    """Return the ``ChannelDescriptor.value_type`` string for a value.
 
     Format: ``"{shape}:{leaf}"`` — e.g., ``"scalar:int"``, ``"array:bool"``.
-    Used by the registry to record the channel's kind at first write.
+    Used by the registry to record the channel's value type at first write.
     """
     if isinstance(value, dict):
         return "struct"
@@ -167,7 +167,7 @@ def _data_type_for(value: object) -> str:
 
 
 def _leaf_name_from_pytype(value: object) -> str:
-    """Map a Python value to a leaf-type name for ``data_type``."""
+    """Map a Python value to a leaf-type name for ``value_type``."""
     if isinstance(value, bool):
         return "bool"
     if isinstance(value, int):
@@ -180,7 +180,7 @@ def _leaf_name_from_pytype(value: object) -> str:
 
 
 def _leaf_name(dtype: Any) -> str:
-    """Map a numpy dtype to a leaf-type name for ``data_type``."""
+    """Map a numpy dtype to a leaf-type name for ``value_type``."""
     kind = getattr(dtype, "kind", None)
     if kind == "b":
         return "bool"

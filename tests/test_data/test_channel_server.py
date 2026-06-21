@@ -93,7 +93,7 @@ class TestInProcessServer:
         assert desc.channel_id == "dmm.voltage"
         assert desc.unit == "V"
         assert desc.instrument_role == "dmm"
-        assert desc.data_type == "scalar:float"
+        assert desc.value_type == "scalar:float"
 
         client.close()
         server.shutdown()

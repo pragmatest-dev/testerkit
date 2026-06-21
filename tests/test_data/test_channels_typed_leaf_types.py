@@ -9,7 +9,7 @@ After item 14: leaf types preserve through to the column dtype.
 - scalar: bool / int / float / str all typed correctly
 - array: list<bool>, list<int>, list<float>, list<str> all typed via
   first element OR numpy dtype
-- ChannelDescriptor.data_type carries shape AND leaf type
+- ChannelDescriptor.value_type carries shape AND leaf type
   (``"scalar:int"`` / ``"array:bool"`` / etc.)
 """
 
@@ -22,9 +22,9 @@ import pytest
 
 from litmus.data.channels.models import (
     ChannelDescriptor,
-    _data_type_for,
     _infer_field_type,
     _infer_schema,
+    _value_type_for,
 )
 
 # --------------------------------------------------------------------- #
@@ -112,47 +112,47 @@ def test_numpy_float_array_preserves_float() -> None:
 
 
 # --------------------------------------------------------------------- #
-# _data_type_for — channel descriptor data_type string                  #
+# _value_type_for — channel descriptor value_type string                #
 # --------------------------------------------------------------------- #
 
 
-def test_data_type_for_scalar_int() -> None:
-    assert _data_type_for(42) == "scalar:int"
+def test_value_type_for_scalar_int() -> None:
+    assert _value_type_for(42) == "scalar:int"
 
 
-def test_data_type_for_scalar_bool() -> None:
-    assert _data_type_for(True) == "scalar:bool"
+def test_value_type_for_scalar_bool() -> None:
+    assert _value_type_for(True) == "scalar:bool"
 
 
-def test_data_type_for_scalar_float() -> None:
-    assert _data_type_for(3.14) == "scalar:float"
+def test_value_type_for_scalar_float() -> None:
+    assert _value_type_for(3.14) == "scalar:float"
 
 
-def test_data_type_for_scalar_str() -> None:
-    assert _data_type_for("ALICE") == "scalar:str"
+def test_value_type_for_scalar_str() -> None:
+    assert _value_type_for("ALICE") == "scalar:str"
 
 
-def test_data_type_for_array_bool() -> None:
+def test_value_type_for_array_bool() -> None:
     """Digital waveform → ``array:bool``."""
-    assert _data_type_for([True, False, True]) == "array:bool"
+    assert _value_type_for([True, False, True]) == "array:bool"
 
 
-def test_data_type_for_array_int() -> None:
-    assert _data_type_for([1, 2, 3]) == "array:int"
+def test_value_type_for_array_int() -> None:
+    assert _value_type_for([1, 2, 3]) == "array:int"
 
 
-def test_data_type_for_array_float() -> None:
-    assert _data_type_for([1.0, 2.0, 3.0]) == "array:float"
+def test_value_type_for_array_float() -> None:
+    assert _value_type_for([1.0, 2.0, 3.0]) == "array:float"
 
 
-def test_data_type_for_array_str() -> None:
-    assert _data_type_for(["IDLE", "RUNNING"]) == "array:str"
+def test_value_type_for_array_str() -> None:
+    assert _value_type_for(["IDLE", "RUNNING"]) == "array:str"
 
 
-def test_data_type_for_numpy_bool_array() -> None:
+def test_value_type_for_numpy_bool_array() -> None:
     np = pytest.importorskip("numpy")
     arr = np.array([True, False], dtype=np.bool_)
-    assert _data_type_for(arr) == "array:bool"
+    assert _value_type_for(arr) == "array:bool"
 
 
 # --------------------------------------------------------------------- #
@@ -210,10 +210,10 @@ def test_channel_descriptor_attributes_settable() -> None:
     assert d.attributes == {"calibration": "2026-05-01"}
 
 
-def test_channel_descriptor_data_type_default_carries_leaf() -> None:
-    """Default ``data_type`` is the typed form, not bare ``"scalar"``."""
+def test_channel_descriptor_value_type_default_carries_leaf() -> None:
+    """Default ``value_type`` is the typed form, not bare ``"scalar"``."""
     d = ChannelDescriptor(channel_id="x")
-    assert d.data_type == "scalar:float"
+    assert d.value_type == "scalar:float"
 
 
 # --------------------------------------------------------------------- #

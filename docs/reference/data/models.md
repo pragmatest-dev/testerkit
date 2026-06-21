@@ -1177,7 +1177,7 @@ Metadata for a single channel, written once when first seen.
 | Field | Type | Default |
 |---|---|---|
 | `channel_id` | `str` | *required* |
-| `data_type` | `str` | `'scalar:float'` |
+| `value_type` | `str` | `'scalar:float'` |
 | `instrument_role` | `str` | `''` |
 | `resource` | `str` | `''` |
 | `unit` | `str \| None` | `None` |

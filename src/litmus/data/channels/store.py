@@ -34,8 +34,8 @@ from litmus.data.channels.models import (
     SCALAR_SCHEMA,
     ChannelDescriptor,
     ChannelSample,
-    _data_type_for,
     _infer_schema,
+    _value_type_for,
     batch_row_to_sample,
     encode_value,
     sample_schema,
@@ -59,7 +59,7 @@ class _ChannelWriter(BufferedIPCWriter):
     def __init__(
         self,
         channel_id: str,
-        data_type: str,
+        value_type: str,
         schema: pa.Schema,
         path: Path,
         flush_threshold: int = 100,
@@ -72,7 +72,7 @@ class _ChannelWriter(BufferedIPCWriter):
             flush_interval=flush_interval,
         )
         self.channel_id = channel_id
-        self.data_type = data_type
+        self.value_type = value_type
         # Template: /dir/channel_id_session.arrow → segments append _NNN
         self._path_template = path
         self._segment = 0
@@ -341,7 +341,7 @@ class ChannelStore:
         channel_id: str,
         first_value: object,
         sample_interval: float | None,
-        data_type: str,
+        value_type: str,
     ) -> _ChannelWriter:
         """Return the channel's segment writer, creating it (schema inferred from
         ``first_value``) on first use. ``_register`` must have run first — the
@@ -357,7 +357,7 @@ class ChannelStore:
         path = self._channels_dir / today / f"{channel_id}_{session_short}.arrow"
         writer = _ChannelWriter(
             channel_id,
-            data_type,
+            value_type,
             schema,
             path,
             self._flush_threshold,
@@ -370,7 +370,7 @@ class ChannelStore:
         self,
         channel_id: str,
         *,
-        data_type: str | None = None,
+        value_type: str | None = None,
         unit: str | None = None,
         instrument_role: str = "",
         resource: str = "",
@@ -383,7 +383,7 @@ class ChannelStore:
         against the established identity.
 
         Identity is immutable within a session: a conflicting ``unit`` (or
-        ``data_type``, once a writer has locked it) raises instead of being
+        ``value_type``, once a writer has locked it) raises instead of being
         silently ignored. Before the first write (declare-only), the type/unit
         are still open — the first write fills them in.
         """
@@ -393,13 +393,13 @@ class ChannelStore:
             # stored consistently) — check it before the unit so the more
             # fundamental error surfaces first when both conflict.
             if (
-                data_type is not None
+                value_type is not None
                 and channel_id in self._writers
-                and existing.data_type != data_type
+                and existing.value_type != value_type
             ):
                 raise ValueError(
-                    f"Channel '{channel_id}': type {existing.data_type!r} is fixed for "
-                    f"this session; cannot change to {data_type!r}"
+                    f"Channel '{channel_id}': type {existing.value_type!r} is fixed for "
+                    f"this session; cannot change to {value_type!r}"
                 )
             if unit is not None and existing.unit is not None and unit != existing.unit:
                 raise ValueError(
@@ -408,15 +408,15 @@ class ChannelStore:
                 )
             # Declare-only so far (no writer): let the first write fill in type/unit.
             if channel_id not in self._writers:
-                if data_type is not None:
-                    existing.data_type = data_type
+                if value_type is not None:
+                    existing.value_type = value_type
                 if unit is not None and existing.unit is None:
                     existing.unit = unit
             return
 
         self._registry[channel_id] = ChannelDescriptor(
             channel_id=channel_id,
-            data_type=data_type or "scalar:float",
+            value_type=value_type or "scalar:float",
             unit=unit,
             instrument_role=instrument_role,
             resource=resource,
@@ -684,10 +684,10 @@ class ChannelStore:
 
         if isinstance(first, (bool, int, float, str)):
             # ---- Scalar fast path: columnar, no per-row objects ----
-            data_type = _data_type_for(first)
+            value_type = _value_type_for(first)
             self._register(
                 channel_id,
-                data_type=data_type,
+                value_type=value_type,
                 unit=unit,
                 instrument_role=instrument_role,
                 resource=resource,
@@ -696,7 +696,7 @@ class ChannelStore:
                 run_id=run_id,
                 now=now,
             )
-            writer = self._ensure_writer(channel_id, first, None, data_type)
+            writer = self._ensure_writer(channel_id, first, None, value_type)
             received = pa.array([now] * n, type=pa.timestamp("us", tz="UTC"))
             sampled_col = pa.array(sampled, type=pa.timestamp("us", tz="UTC"))
             # Durable segment FIRST — typed columns, one pa.array each.
@@ -756,7 +756,7 @@ class ChannelStore:
         # ---- Array / struct / dict: per-row build (the envelope needs it) ----
         rows: list[dict] = []
         samples = []
-        data_type = "scalar:float"
+        value_type = "scalar:float"
         for i, value in enumerate(values):
             dt, row, sample = self._to_arrow_row(
                 channel_id,
@@ -770,7 +770,7 @@ class ChannelStore:
             if row is None:
                 raise ValueError(f"Channel {channel_id}: could not classify value")
             if i == 0:
-                data_type = dt
+                value_type = dt
             row["sample_offset"] = offsets[i]
             if sample is not None:
                 sample.sample_offset = offsets[i]
@@ -778,7 +778,7 @@ class ChannelStore:
             rows.append(row)
         self._register(
             channel_id,
-            data_type=data_type,
+            value_type=value_type,
             unit=unit,
             instrument_role=instrument_role,
             resource=resource,
@@ -787,7 +787,7 @@ class ChannelStore:
             run_id=run_id,
             now=now,
         )
-        writer = self._ensure_writer(channel_id, first, sample_interval, data_type)
+        writer = self._ensure_writer(channel_id, first, sample_interval, value_type)
         writer.append_batch(
             pa.record_batch(
                 {col: [r[col] for r in rows] for col in writer.schema.names},
@@ -905,18 +905,18 @@ class ChannelStore:
             # for arbitrary structured records (the dict shape).
             payload = normalized.get("value")
             if isinstance(payload, list) and "sample_interval" in normalized:
-                data_type = _data_type_for(payload)
+                value_type = _value_type_for(payload)
             else:
-                data_type = "struct"
+                value_type = "struct"
             sample_value = normalized
         elif isinstance(normalized, (bool, int, float, str)):
             # Per build item 14, leaf type is preserved on the row's
             # ``value`` column (no more int → float cast). The order
             # ``bool, int, float, str`` matters: ``True`` is also an
             # ``int`` in Python, so the bool branch must come first via
-            # the ``isinstance`` tuple ordering plus ``_data_type_for``.
+            # the ``isinstance`` tuple ordering plus ``_value_type_for``.
             row = {**common, "value": normalized}
-            data_type = _data_type_for(normalized)
+            value_type = _value_type_for(normalized)
             sample_value = normalized
         else:
             warnings.warn(
@@ -935,7 +935,7 @@ class ChannelStore:
             source_method=source,
             session_id=sid,
         )
-        return data_type, row, sample
+        return value_type, row, sample
 
     def _notify(self, channel_id: str, sample: ChannelSample) -> None:
         """Notify channel and global subscribers.
@@ -1203,7 +1203,7 @@ class ChannelStore:
                 self._index.bump_last_updated(channel_id, sids[0], max(recv))
 
         desc = self._index.descriptor(channel_id) if self._index is not None else None
-        is_scalar = desc is not None and desc.data_type.startswith("scalar:")
+        is_scalar = desc is not None and desc.value_type.startswith("scalar:")
         has_sample_subs = bool(self._subscribers.get(channel_id) or self._global_subscribers)
         # Columnar fast path: for a scalar channel with no per-sample in-process
         # subscriber, the wire ``value`` (JSON utf8) is already the index

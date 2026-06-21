@@ -266,7 +266,7 @@ def _render_descriptor_card(descriptor: dict[str, Any]) -> None:
     with ui.card().classes("w-full"):
         with ui.card_section():
             with ui.grid(columns=4).classes("gap-4"):
-                info_field("Data type", descriptor.get("data_type") or "")
+                info_field("Data type", descriptor.get("value_type") or "")
                 info_field("Instrument role", descriptor.get("instrument_role") or "")
                 info_field("Resource", descriptor.get("resource") or "")
                 info_field("Units", descriptor.get("unit") or "")
@@ -316,7 +316,7 @@ def _render_chart(
         # Array-of-items capture: rows carry a ``value`` list (e.g.
         # scope.waveform's per-trigger waveform). Plot the most recent
         # capture as a single series. We detect array rows from the
-        # row shape rather than the registry's declared ``data_type``,
+        # row shape rather than the registry's declared ``value_type``,
         # since channels written by older sessions can come back
         # classified as ``"struct"`` while still being array-shaped.
         # Note: scalar rows also have a ``value`` column post-C3a-pre,
