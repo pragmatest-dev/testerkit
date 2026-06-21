@@ -156,7 +156,7 @@ def _measure_storage(data_dir: Path) -> StorageFootprint | None:
 
         f_dir = data_dir / "files"
         b0 = _dir_bytes(f_dir)
-        fs = FileStore(data_dir=data_dir)
+        fs = FileStore(_data_dir=data_dir)
         size = 1024 * 1024
         fs.write(f"store_probe_{uuid4().hex[:8]}", b"a" * size, session_id=uuid4().hex)
         file_byte_ratio = max(1.0, _dir_bytes(f_dir) - b0) / size

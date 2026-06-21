@@ -116,7 +116,7 @@ def test_list_recent_files_carries_mime_from_sidecar(canonical_files: FileStore)
 def test_store_reads_back_existing_artifact(tmp_path) -> None:
     """FileStore byte API round-trips without a daemon (tmp_path store)."""
     _reset_for_tests()
-    store = FileStore(data_dir=tmp_path)
+    store = FileStore(_data_dir=tmp_path)
     sid = str(uuid4())
     uri = store.write("art", b"x", session_id=sid)
 
@@ -126,5 +126,5 @@ def test_store_reads_back_existing_artifact(tmp_path) -> None:
 
 def test_store_returns_none_for_missing(tmp_path) -> None:
     _reset_for_tests()
-    store = FileStore(data_dir=tmp_path)
+    store = FileStore(_data_dir=tmp_path)
     assert store.read(f"file://{uuid4()}/ghost.bin") is None

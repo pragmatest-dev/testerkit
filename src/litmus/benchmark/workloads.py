@@ -298,7 +298,7 @@ def _setup_files_write(scale: int) -> Callable[[BenchContext], Callable[[], obje
         from litmus.data.files.store import FileStore
 
         _acquire_catalog(ctx)
-        store = FileStore(data_dir=ctx.data_dir)
+        store = FileStore(_data_dir=ctx.data_dir)
         sid = uuid4().hex
         payload = b"x" * (100 * 1024)  # 100 KB blobs
 
@@ -317,7 +317,7 @@ def _setup_files_resolve(scale: int) -> Callable[[BenchContext], Callable[[], ob
         from litmus.data.files.store import FileStore
 
         files_dir = _acquire_catalog(ctx)
-        store = FileStore(data_dir=ctx.data_dir)
+        store = FileStore(_data_dir=ctx.data_dir)
         uri = store.write("resolveme", b"x" * 256, session_id=uuid4().hex)
 
         def resolve() -> object:
@@ -334,7 +334,7 @@ def _setup_files_list(scale: int) -> Callable[[BenchContext], Callable[[], objec
         from litmus.data.files.store import FileStore
 
         files_dir = _acquire_catalog(ctx)
-        store = FileStore(data_dir=ctx.data_dir)
+        store = FileStore(_data_dir=ctx.data_dir)
         sid = uuid4().hex
         for i in range(scale):
             store.write(f"list_{i}_{uuid4().hex[:6]}", b"y" * 128, session_id=sid)
@@ -351,7 +351,7 @@ def _setup_files_stream_raw(scale: int) -> Callable[[BenchContext], Callable[[],
     def setup(ctx: BenchContext) -> Callable[[], object]:
         from litmus.data.files.store import FileStore
 
-        store = FileStore(data_dir=ctx.data_dir)
+        store = FileStore(_data_dir=ctx.data_dir)
         sid = uuid4().hex
         chunk = b"a" * (64 * 1024)  # 64 KB chunks
 

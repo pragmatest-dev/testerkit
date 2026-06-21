@@ -49,7 +49,7 @@ def _filename_from_uri(uri: str, sid: str) -> str:
 
 @pytest.fixture
 def store(tmp_path: Path) -> FileStore:
-    return FileStore(data_dir=tmp_path)
+    return FileStore(_data_dir=tmp_path)
 
 
 # --------------------------------------------------------------------- #

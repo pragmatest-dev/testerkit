@@ -121,7 +121,7 @@ def session(tmp_path: Path):
     _orig_resolve = fstore_module.resolve_data_dir
     fstore_module.resolve_data_dir = lambda _=None: tmp_path  # type: ignore[assignment]
     _reset_filestore()
-    fstore = FileStore(data_dir=tmp_path)
+    fstore = FileStore(_data_dir=tmp_path)
 
     # 4) Real RunScope with our EventLog attached. The pytest plugin's
     #    own hooks read TestRun fields off the active logger, so a stub

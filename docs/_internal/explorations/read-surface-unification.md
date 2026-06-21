@@ -198,4 +198,7 @@ the engine-neutral `*Query` surface.
 ### Progress log
 - **2026-06-21** — Decisions locked (§5: lifecycle=(c) optional-close handle; naming=`list_for_*`;
   `describe_columns→ColumnSchema` all three; do-now). Branch created off `c5a901e`. Plan
-  written. Nothing executed yet.
+  written.
+- **2026-06-21** — Phase C done (`221293b`): `logger.py`→`run_scope.py`, ~18 sites, suite 2156.
+- **2026-06-21** — Phase A1 done: FileStore `data_dir`→private `_data_dir`, 26 call sites,
+  suite 2156, pyright 0.

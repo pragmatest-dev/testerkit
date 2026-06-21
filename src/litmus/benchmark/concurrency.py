@@ -131,7 +131,7 @@ def _channel_stream_worker(data_dir: str, scale: int, seed: int) -> tuple[float,
 def _file_worker(data_dir: str, scale: int, seed: int) -> tuple[float, float]:
     from litmus.data.files.store import FileStore
 
-    store = FileStore(data_dir=Path(data_dir))
+    store = FileStore(_data_dir=Path(data_dir))
     sid = uuid4().hex
     payload = b"z" * (100 * 1024)
     t0 = _now()
@@ -144,7 +144,7 @@ def _file_stream_worker(data_dir: str, scale: int, seed: int) -> tuple[float, fl
     """Stream ``scale`` 64 KB chunks through a real append sink (one stream)."""
     from litmus.data.files.store import FileStore
 
-    store = FileStore(data_dir=Path(data_dir))
+    store = FileStore(_data_dir=Path(data_dir))
     sid = uuid4().hex
     chunk = b"a" * (64 * 1024)
     t0 = _now()

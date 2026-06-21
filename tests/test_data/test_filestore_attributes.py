@@ -37,7 +37,7 @@ def _session_id() -> str:
 
 @pytest.fixture
 def store(tmp_path: Path) -> FileStore:
-    return FileStore(data_dir=tmp_path)
+    return FileStore(_data_dir=tmp_path)
 
 
 # --------------------------------------------------------------------- #
