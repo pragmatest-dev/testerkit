@@ -117,8 +117,19 @@ classes for resources that have nothing to aggregate.
 3. Run double-read: leave as-is (documented), reconcile shapes, or fully consolidate?
 4. Priority: this is pure consistency — nothing is blocked. Worth doing now, or park it?
 
-## 7. Scope guard
+## 7. Backend-portability guardrail
 
-Whatever is chosen, it's a **read-surface** change only — no storage, schema, or write-path
-changes. The role/value_type redesign ([`query-by-role-name.md`](query-by-role-name.md)) is
-done and independent of this.
+The `*Query` classes embed raw DuckDB-dialect SQL (`_YIELD_SQL`/`_PARETO_SQL`/`_CPK_SQL`/…).
+Most of it is Postgres-compatible (DuckDB mirrors Postgres: `DISTINCT ON`, `DATE_TRUNC`,
+`FILTER (WHERE)`, `STDDEV_SAMP`, `::casts`); a couple of functions would need a dialect swap
+(`QUANTILE_CONT`, `EPOCH()`). The truly engine-specific machinery (`MAP`, `UNNEST` of
+`LIST<STRUCT>`, `read_parquet`) is in the daemon **projection** layer. A backend swap =
+re-implement the projection + substitute those few dialect functions; the **EAV schema** and
+the **`*Query` public API** (method signatures, `FieldRef`, Pydantic returns) and all
+consumers stay unchanged (see [`query-by-role-name.md`](query-by-role-name.md) §9).
+
+**Guardrail for whatever option is chosen here:** keep DuckDB SQL *contained* behind the
+engine-neutral `*Query` public surface — never leak DuckDB types or dialect through the
+public read API. Option A keeps this cleanest (no new layers). This is purely a read-surface
+question — no storage/schema/write-path changes; the role/value_type redesign is done and
+independent.

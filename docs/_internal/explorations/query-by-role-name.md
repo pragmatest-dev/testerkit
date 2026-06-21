@@ -482,8 +482,17 @@ Re-point every `out_<name>` / `in_<name>` assertion → `(role, name)` / `FieldR
   contract**. Only the nested `LIST<STRUCT>` at-rest encoding + the `read_parquet`/`UNNEST`
   projection SQL are DuckDB/parquet-specific. Because the query client reads only the
   daemon's projected views (never parquet directly — store-boundary rule), a move to e.g.
-  Postgres is *re-implement the projection layer onto the same schema*, with `MeasurementsQuery`
-  / `FieldRef` unchanged. Bounded, not drop-in; the EAV is what buys it. Northstar, not #52.
+  Postgres is *re-implement the projection layer onto the same schema*. Bounded, not drop-in;
+  the EAV is what buys it. Northstar, not #52. **Correction (2026-06-21):** the `*Query`
+  *public API* (`FieldRef`, method signatures, Pydantic returns) and all consumers stay
+  unchanged, but the `*Query` *SQL bodies* embed raw DuckDB-dialect SQL — mostly
+  Postgres-compatible (DuckDB mirrors Postgres: `DISTINCT ON`/`DATE_TRUNC`/`FILTER (WHERE)`/
+  `STDDEV_SAMP`/`::casts`), with ~2 functions needing a dialect swap (`QUANTILE_CONT`→
+  `percentile_cont … WITHIN GROUP`, `EPOCH()`→`EXTRACT(EPOCH …)`). So a swap = re-implement the
+  projection layer (the DuckDB-specific `MAP`/`UNNEST`/`read_parquet`) + substitute those few
+  dialect functions in the `*Query` SQL. The contract that stays neutral: EAV schema + the
+  `*Query` public surface. Guardrail: keep DuckDB SQL contained behind the engine-neutral
+  `*Query` API — never leak DuckDB types/dialect through the public surface.
 - **Unify resources under a consistent `*Query`** (separate cleanup, NOT this task). Today
   only Run/Step/Measurement have a `*Query`; Event/Channel/File are read via their `*Store`
   (and `queries.py` re-exports `EventStore` as a query peer). Resource-centric in spirit but
