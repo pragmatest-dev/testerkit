@@ -43,10 +43,22 @@ Event; `open()` only on Channel; `close()` returns `int` on Channel, `None`/abse
 no shared base/Protocol. Read-method naming also differs per store (`get_run`/`list_runs` vs
 `events`/`sessions` vs `list_channel_info`/`query` vs `read`/`read_range`).
 
-**Target:** a consistent store contract — uniform ctor (`data_dir` resolution), uniform
-lifecycle (decide one: context-manager vs explicit `close`; whether `get_shared` is the norm
-or the exception), a shared `Store` Protocol/base for the common shape, and a naming
-convention for read methods. Behavior unchanged — interface alignment only.
+**Target:** a consistent store contract — uniform ctor, uniform lifecycle (decide one:
+context-manager vs explicit `close`; whether `get_shared` is the norm or the exception), a
+shared `Store` Protocol/base for the common shape, and a naming convention for read methods.
+Behavior unchanged — interface alignment only.
+
+**DECIDED — `data_dir` is internal (2026-06-21).** Infrastructure paths resolve from
+`ProjectConfig`; the public API must not expose `data_dir` for callers to rely on (matches
+the CLAUDE.md no-data-dir-leak rule). Convention: resolve from config internally; the only
+param is a **private keyword-only `_data_dir`** override (tests/benchmarks). Status per store:
+- `RunStore`, `EventStore`, all `*Query` — already comply (`_data_dir`). ✓
+- `FileStore` — the offender: public optional `data_dir` → rename to private `_data_dir`
+  (only `benchmark/` passes it; production already resolves). Clean fix.
+- `ChannelStore` — `data_dir` is a *required positional* (a producer-process construction
+  detail passed by the harness/benchmarks, never by users — already "internal" in the
+  reliance sense). Aligning it to resolve-from-config + `_data_dir` override is a deeper
+  change on the tuned machine; lower urgency, handle carefully if at all.
 
 ## 3. Pass B — Query interface consistency / purpose
 
