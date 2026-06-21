@@ -73,11 +73,37 @@ already consistent ✓) but drift on naming + return shape:
 - `describe_columns` → `list[dict]` on Runs/Steps but typed **`ColumnSchema`** on Measurements
   (the typed model, added in the role redesign, is the better target — align the other two up
   to it).
+- **Untyped aggregate returns** (from the role-redesign design review, deferred here): the
+  `MeasurementsQuery` aggregates `yield_summary`/`pareto`/`cpk`/`trend`/`retest`/`time_loss`
+  return `list[dict[str, Any]]`, while `parametric`/`histogram` return typed rows
+  (`ParametricRow`/`HistogramRow`). Inconsistent + no stable field contract. Target: model them
+  (`YieldRow`/`ParetoRow`/`CpkRow`/…) in `measurement_facets.py`. NOTE consumer blast radius —
+  cli/metrics, mcp, ui index those dicts (`row["fail_count"]` etc.); typing them ripples to
+  every consumer, which is exactly why this belongs in the consistency pass, not the
+  role-redesign branch.
 
 **Target:** a consistent query vocabulary — one verb for "list by run/session" (`list_for_*`),
 one name for the pareto/distinct/describe operations, and `describe_columns -> ColumnSchema`
 everywhere. Purpose stays "analytical reads over the daemon for entity X"; only the surface
 aligns. Behavior unchanged.
+
+## 3c. Pass C — module naming (`logger.py` → `run_scope.py`)
+
+`src/litmus/execution/logger.py` is **misnamed**. Its contents are `RunScope` (run lifecycle +
+event emission + measurement recording + step management — lines ~376-1186), `RunContext`
+(run-level `custom_metadata`), and measurement/limit/traceability helpers. None of it is a
+"logger" in the `logging` sense (that's the unrelated per-module `_log = logging.getLogger`).
+The class was historically `TestRunLogger`, **renamed to `RunScope`** (with the logger-fixture
+→ `_run_scope` change), but the file kept the old name.
+
+**Target:** rename `logger.py` → `run_scope.py` (or `scope.py`) — module name matches the
+`RunScope` it centers on. ~8 import sites to update (`execution/__init__.py`,
+`instrument_events.py`, `verify.py`, `harness.py`, `_state.py`, `pytest_plugin/autouse.py` +
+`__init__.py`, `_row_helpers.py` comment). Pure rename, no behavior change.
+
+This also dissolves design-review finding 5.1 ("move `RunContext` out of `logger.py`"): once the
+file is `run_scope.py`, `RunContext` sitting beside `RunScope` is correct — both are run-scope
+concepts. So the real fix is the file rename, not moving the class.
 
 ## 4. Backend-portability guardrail (unchanged by this)
 
