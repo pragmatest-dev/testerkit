@@ -25,6 +25,7 @@ import json as json_mod
 import logging
 import threading
 import warnings
+import weakref
 from collections import OrderedDict
 from collections.abc import Callable
 from datetime import datetime
@@ -87,6 +88,22 @@ def _is_before(evt: dict, cutoff: datetime) -> bool:
         return False
     parsed = _parse_timestamp(ts)
     return parsed is not None and parsed < cutoff
+
+
+def _finalize_event_store(put_stream, watcher_stop, event_logs):
+    """Best-effort teardown for an EventStore that was never close()d.
+    Bound via weakref.finalize to the resource objects, never to self."""
+    watcher_stop.set()  # the daemon watcher thread exits on its next poll
+    for log in list(event_logs.values()):
+        try:
+            log.close()
+        except Exception:
+            pass
+    event_logs.clear()
+    try:
+        put_stream.close()
+    except Exception:
+        pass
 
 
 class _Subscription:
@@ -157,11 +174,16 @@ class EventStore:
         # Start daemon and get gRPC location for Flight queries
         self._location = duckdb_manager.acquire(self._events_dir)
 
+        # Capture as a local so the reacquire lambdas close over a Path, not
+        # self — breaking the reference cycle that would prevent GC from
+        # collecting this EventStore when the user forgets to call close().
+        _events_dir = self._events_dir
+
         # Flight query client (shared retry logic with RunStore)
         self._flight = FlightQueryClient(
             self._location,
             "events",
-            reacquire=lambda: duckdb_manager.acquire(self._events_dir),
+            reacquire=lambda: duckdb_manager.acquire(_events_dir),
             label="EventStore",
         )
 
@@ -173,7 +195,7 @@ class EventStore:
             self._location,
             "events",
             "events",
-            reacquire=lambda: duckdb_manager.acquire(self._events_dir),
+            reacquire=lambda: duckdb_manager.acquire(_events_dir),
         )
 
         # Internal writer per session (created lazily via get_event_log)
@@ -194,6 +216,12 @@ class EventStore:
         # Cross-process watcher
         self._watcher_thread: threading.Thread | None = None
         self._watcher_stop = threading.Event()
+
+        # weakref.finalize fires on GC OR interpreter exit, so the lazy notebook
+        # path (never close()) is covered without a separate atexit.
+        self._finalizer = weakref.finalize(
+            self, _finalize_event_store, self._put_stream, self._watcher_stop, self._event_logs
+        )
 
     def _flight_query(self, sql: str) -> list[dict[str, Any]]:
         """Execute a SQL query via Flight and return list of dicts.
@@ -705,6 +733,7 @@ class EventStore:
 
     def close(self) -> None:
         """Stop watchers, release resources. Safe to call multiple times."""
+        self._finalizer.detach()
         self._watcher_stop.set()
         if self._watcher_thread is not None:
             self._watcher_thread.join(timeout=2.0)

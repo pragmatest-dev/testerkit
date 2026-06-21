@@ -238,3 +238,8 @@ measures behind one call. Build on `FailureParetoRow` as the failure-measure spe
 - **2026-06-21** — Phase A2a done: optional-close contract (`__enter__`/`__exit__` on
   RunStore/EventStore; close() untouched) + lean `Store` Protocol (`data/_store.py`, lifecycle
   only) + queries.py docstring leads with construct-and-reuse. suite 2156, pyright 0.
+- **2026-06-21** — Phase A2b done: EventStore finalizer net — `weakref.finalize` bound to the
+  resource objects (`_put_stream`/`_watcher_stop`/`_event_logs`), never `self`; fires on GC OR
+  interpreter exit; `close()` detaches it. FIXED a latent ref-cycle (the `reacquire` lambdas
+  captured `self` → would've blocked GC → finalizer never fires; now capture the `_events_dir`
+  Path). 4 new tests incl. a GC-fires assertion; 10/10 resilience-test hammer; suite 2160, pyright 0.
