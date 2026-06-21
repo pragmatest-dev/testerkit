@@ -211,5 +211,27 @@ the engine-neutral `*Query` surface.
   on Runs/Steps; 6 MeasurementsQuery aggregates (`yield_summary`/`pareto`/`cpk`/`trend`/`retest`/
   `time_loss`) → Row models (fields mirror SQL keys); consumers (cli/api/mcp/ui/tests) → attribute
   access + `model_dump()` at JSON boundaries. Reference docs regenerated. suite 2156, pyright 0.
-  OPEN (flagged, deferred): `RunsQuery.pareto`/`StepsQuery.pareto`/`usage_stats`/`count_by_outcome`
-  remain `list[dict]` — inconsistent with the typed Measurements aggregates; decide whether to type.
+  OPEN (flagged): `RunsQuery.pareto`/`StepsQuery.pareto`/`usage_stats`/`count_by_outcome`
+  remain `list[dict]`.
+- **2026-06-21** — B correction (pareto naming): `pareto` over-claimed — all three are *failure*
+  paretos (RunsQuery: "Pareto of failing runs"; StepsQuery: failed_count by step_path;
+  MeasurementsQuery: "top failure modes by count"). B1 had unified on the less-accurate name.
+  Fix: rename `pareto → failure_pareto` on all three + `ParetoRow → FailureParetoRow`. Runs/Steps
+  `failure_pareto` stay `list[dict]` for now — their bucket shape (`bucket/failed_count/total/
+  fail_rate`) differs from Measurements' multi-dim shape; typing + shape-unification rides with
+  the generic-pareto work below (resolves the B3 flag as deferred).
+
+### Northstar — generic `pareto` (0.3.0)
+Reserve the bare name `pareto` for a *generic* primitive; do NOT squat it with failure-only
+logic. Pareto = the 80/20 "what's worth investigating": rank top-N contributors **by a chosen
+measure** (failures, time loss, retest churn, cycle time …), descending, with cumulative % and
+an **"Other"** bucket summarizing the tail. Shape like `parametric` — **the caller specifies
+what to count and how to group; the result is shaped to the ask** (long-format rows), not a
+fixed failure schema. It would unify today's `failure_pareto` / `time_loss` / `retest` as
+measures behind one call. Build on `FailureParetoRow` as the failure-measure specialization.
+
+- **2026-06-21** — Phase B3 done: `pareto → failure_pareto` (method, 3 classes, 9 call sites) +
+  `ParetoRow → FailureParetoRow`. Ref docs regenerated. suite 2156, pyright 0. OPEN (flagged):
+  the *external* metric NAME `"pareto"` (MCP/CLI/HTTP dispatch `case "pareto":`) was left as-is —
+  only the internal method renamed. Honest-external-name (`"pareto"→"failure_pareto"`) is a
+  separate decision (external blast radius: MCP agents, HTTP clients, CLI, docs).

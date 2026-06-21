@@ -856,7 +856,7 @@ def create_api_router() -> APIRouter:
             return {
                 "data": [
                     r.model_dump()
-                    for r in q.pareto(
+                    for r in q.failure_pareto(
                         part=part,
                         station=station,
                         phase=phase,

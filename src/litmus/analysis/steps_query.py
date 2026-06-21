@@ -160,7 +160,7 @@ class StepsQuery:
             step_rows.append(sr)
         return step_rows
 
-    def pareto(
+    def failure_pareto(
         self,
         *,
         top_n: int = 10,
@@ -170,11 +170,11 @@ class StepsQuery:
         since: str | None = None,
         until: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Pareto of failing steps grouped by ``step_path``.
+        """Failure pareto of failing steps grouped by ``step_path``.
 
         Cross-run aggregate: which test step name has the most
         failures across the matching set of runs. Same semantic as
-        :meth:`MeasurementsQuery.pareto` but at step-level instead
+        :meth:`MeasurementsQuery.failure_pareto` but at step-level instead
         of measurement-level — useful when the operator wants to
         spot a flaky test rather than a flaky measurement within a
         test.

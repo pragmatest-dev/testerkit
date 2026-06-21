@@ -243,7 +243,7 @@ class TestYieldSummary:
 class TestPareto:
     def test_failure_count(self, fixture_data):
         store = MeasurementsQuery()
-        rows = store.pareto(phase="all", part=fixture_data["part"])
+        rows = store.failure_pareto(phase="all", part=fixture_data["part"])
         assert len(rows) == 1
         assert rows[0].fail_count == 1
         assert rows[0].measurement_name == "vout"
@@ -257,7 +257,7 @@ class TestPareto:
             filename=f"{part}_main.parquet",
         )
         store = MeasurementsQuery()
-        assert store.pareto(phase="all", part=part) == []
+        assert store.failure_pareto(phase="all", part=part) == []
 
 
 class TestCpk:
@@ -350,7 +350,7 @@ class TestEmptyDataset:
         unknown = f"TEST-MQS-NONE-{uuid4().hex[:8]}"
         store = MeasurementsQuery()
         assert store.yield_summary(part=unknown, phase="all") == []
-        assert store.pareto(part=unknown, phase="all") == []
+        assert store.failure_pareto(part=unknown, phase="all") == []
         assert store.cpk(part=unknown, phase="all") == []
         assert store.trend(part=unknown, phase="all") == []
         assert store.retest(part=unknown, phase="all") == []

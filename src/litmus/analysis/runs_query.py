@@ -203,7 +203,7 @@ class RunsQuery:
         """)
         return [RunRow(**r) for r in rows]
 
-    def pareto(
+    def failure_pareto(
         self,
         *,
         group_by: str = "uut_part_number",

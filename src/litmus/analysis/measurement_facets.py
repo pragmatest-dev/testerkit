@@ -199,8 +199,11 @@ class YieldRow(BaseModel):
     p95_duration_s: float | None = None
 
 
-class ParetoRow(BaseModel):
-    """One row from :meth:`MeasurementsQuery.pareto` — one (part, station, step, measurement)."""
+class FailureParetoRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.failure_pareto`.
+
+    Represents one (part, station, step, measurement) failure bucket.
+    """
 
     part: str
     station: str

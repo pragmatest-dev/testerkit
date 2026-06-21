@@ -20,6 +20,7 @@ from litmus.analysis.measurement_facets import (
     CpkRow,
     DynamicFieldDescriptor,
     FacetOption,
+    FailureParetoRow,
     FieldRef,
     FieldRole,
     FilterSet,
@@ -27,7 +28,6 @@ from litmus.analysis.measurement_facets import (
     HistogramRow,
     LimitBandRow,
     ParametricRow,
-    ParetoRow,
     RetestRow,
     SummaryCounts,
     TimeLossRow,
@@ -677,7 +677,7 @@ class MeasurementsQuery:
         )
         return [YieldRow(**r) for r in self._query_dicts(sql)]
 
-    def pareto(
+    def failure_pareto(
         self,
         *,
         part: str | list[str] | None = None,
@@ -686,8 +686,8 @@ class MeasurementsQuery:
         since: str | None = None,
         until: str | None = None,
         top_n: int = 10,
-    ) -> list[ParetoRow]:
-        """Pareto analysis: top failure modes by count.
+    ) -> list[FailureParetoRow]:
+        """Failure pareto analysis: top failure modes by count.
 
         Returns one row per (part, station, step, measurement).
         """
@@ -701,7 +701,7 @@ class MeasurementsQuery:
             ),
             top_n=int(top_n),
         )
-        return [ParetoRow(**r) for r in self._query_dicts(sql)]
+        return [FailureParetoRow(**r) for r in self._query_dicts(sql)]
 
     def cpk(
         self,

@@ -524,7 +524,7 @@ def _fetch_yield_data(
         fpy = fp_passed / fp_total if fp_total else 0.0
         final_yield = final_passed / unique_serials if unique_serials else 0.0
 
-        pareto_rows = store.pareto(
+        pareto_rows = store.failure_pareto(
             part=part,
             station=station,
             phase=phase,
@@ -614,7 +614,7 @@ def _fetch_pareto_data(
     if group_by == "step":
         try:
             with StepsQuery(_data_dir=data_dir) as q:
-                rows = q.pareto(
+                rows = q.failure_pareto(
                     top_n=15,
                     phase=phase,
                     part=part,
@@ -633,7 +633,7 @@ def _fetch_pareto_data(
     elif group_by == "measurement":
         try:
             with MeasurementsQuery(_data_dir=data_dir) as q:
-                raw = q.pareto(
+                raw = q.failure_pareto(
                     part=part,
                     station=station,
                     phase=phase,
@@ -652,7 +652,7 @@ def _fetch_pareto_data(
     else:  # part (default)
         try:
             with RunsQuery(_data_dir=data_dir) as q:
-                rows = q.pareto(
+                rows = q.failure_pareto(
                     group_by="uut_part_number",
                     top_n=15,
                     phase=phase,
@@ -823,7 +823,7 @@ def _metric_card(label: str, value: str, icon: str, color: str) -> None:
 
 
 def _normalize_measurement_pareto_rows(raw: list[Any]) -> list[dict[str, Any]]:
-    """Normalize MeasurementsQuery.pareto rows to the shared failure-pareto shape."""
+    """Normalize MeasurementsQuery.failure_pareto rows to the shared failure-pareto shape."""
     return [
         {
             "bucket": f"{r.step_name or ''}: {r.measurement_name or ''}",
