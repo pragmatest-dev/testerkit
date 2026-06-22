@@ -36,11 +36,11 @@ Not everything is event-sourced — that would be the wrong shape for some data.
 
 | Data shape | Pattern | Why |
 |---|---|---|
-| Configuration (`litmus.yaml`, `station.yaml`, products, catalog) | CRUD via YAML, hand-edited | Operators evolve them deliberately over time |
+| Configuration (`litmus.yaml`, `station.yaml`, parts, catalog) | CRUD via YAML, hand-edited | Operators evolve them deliberately over time |
 | Test execution data (runs, steps, measurements, events) | Append-only events → derived projections | Immutable historical record |
 | Channel sample data (high-rate time-series) | Append-only sample streams (event-log carries metadata) | Same domain semantics, different physics — too large for the WAL (write-ahead log) |
 
-Configuration *should* be mutable: you add a station, change a limit, update a product spec. Execution data *shouldn't* be mutable: a run happened on a date with an outcome, and that doesn't change. Channel data is execution data with a size exception — sample streams at kHz–MHz rates can't fit through the event WAL, so they get their own append-only log with event-log metadata referencing them.
+Configuration *should* be mutable: you add a station, change a limit, update a part spec. Execution data *shouldn't* be mutable: a run happened on a date with an outcome, and that doesn't change. Channel data is execution data with a size exception — sample streams at kHz–MHz rates can't fit through the event WAL, so they get their own append-only log with event-log metadata referencing them.
 
 Annotations, retroactive flags, and RMA links don't break this — they're "new facts about old runs," not edits. The event-sourced answer is to emit a new event type for the new fact (e.g. a future `RunFlagged` or `MeasurementAnnotated`) and let projections incorporate it. You're not mutating the past, you're recording new observations about it.
 

@@ -10,10 +10,10 @@ EventSubscriber that accumulates events and writes TDMS on close.
           - vector_index: int channel
           - in_{param}: input parameter channels
           - out_{obs}: observation channels
-          - {meas_name}: measurement value channels (props: limits/units)
+          - {meas_name}: measurement value channels (props: limits/unit)
           - {meas_name}_outcome: outcome string channels
 
-Constants (station, DUT, operator) go in root/group properties.
+Constants (station, UUT, operator) go in root/group properties.
 Only per-vector-varying data becomes channels.
 """
 
@@ -140,8 +140,8 @@ def _build_step_channels(
     for mname in all_meas_names:
         fm = first_meas[mname]
         props: dict[str, object] = {}
-        if fm.units:
-            props["units"] = fm.units
+        if fm.unit:
+            props["unit"] = fm.unit
         if fm.limit_comparator:
             props["limit_comparator"] = fm.limit_comparator
         if fm.limit_low is not None:
@@ -241,10 +241,10 @@ class TdmsSubscriber(EventSubscriber):
             "station_id": s.station_id,
             "project_name": s.project_name or "",
             "test_phase": s.test_phase or "",
-            "dut_serial": s.dut_serial,
+            "uut_serial": s.uut_serial,
         }
-        if s.dut_part_number:
-            root_props["dut_part_number"] = s.dut_part_number
+        if s.uut_part_number:
+            root_props["uut_part_number"] = s.uut_part_number
         if s.operator_id:
             root_props["operator_id"] = s.operator_id
         if s.station_name:

@@ -27,9 +27,9 @@ pytest's fixture model is unchanged.
 - **All four scopes work.** `function`, `class`, `module`, `session` — choose the one that matches your resource cost.
 - **Resolution by name.** Take a fixture in the test signature; pytest resolves it from the nearest `conftest.py` upward, then from registered plugins (Litmus included).
 - **Yield fixtures, finalizers, request injection** all work as pytest documents them.
-- **`autouse=True`** works. Litmus's own `logger` fixture is autouse-session so every test sees an active logger without taking it as an argument.
+- **`autouse=True`** works. Litmus uses an autouse-session fixture internally so every test records measurements without taking a recording fixture as an argument.
 
-You can write your own fixtures in `conftest.py` alongside Litmus's. A common pattern is a project-local `dut` factory wrapping the Litmus `dut` session fixture, or a per-class hardware-setup fixture that takes `instruments` as a dependency.
+You can write your own fixtures in `conftest.py` alongside Litmus's. A common pattern is a project-local `uut` factory wrapping the Litmus `uut` session fixture, or a per-class hardware-setup fixture that takes `instruments` as a dependency.
 
 The 20 fixtures the Litmus plugin contributes are documented in [Litmus fixtures](../pytest/litmus-fixtures.md).
 
@@ -54,7 +54,7 @@ The seven `@pytest.mark.litmus_*` markers Litmus adds live in the same registry 
 
 Works as pytest documents it. Place a `conftest.py` in `tests/` (or a subdirectory) for fixtures and hooks that apply to that scope. Common uses with Litmus:
 
-- Project-local fixtures that wrap or extend Litmus's (a typed `dut` accessor, a per-class measurement helper).
+- Project-local fixtures that wrap or extend Litmus's (a typed `uut` accessor, a per-class measurement helper).
 - `pytest_addoption` for project-specific CLI flags.
 - `pytest_collection_modifyitems` for project-specific item filtering. (Litmus's hook is in the plugin and runs alongside, not instead of, yours.)
 - `pytest_runtest_setup` / `_teardown` for per-test setup beyond what fixtures express.
@@ -82,22 +82,22 @@ Litmus adds the flags below. The table is generated from `pytest_addoption` in `
 <!-- GENERATED:pytest-plugin-flags:start -->
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dut-serial` | `text` | `'DUT001'` | DUT serial number |
-| `--dut-serials` | `text` |  | Per-slot DUT serials: slot_1=SN1,slot_2=SN2 |
-| `--slot` | `text` |  | Physical fixture slot for this single-process run (e.g. ``slot_1``, ``slot_2``). Use this when running a single DUT against a specific position in a multi-slot fixture so the run records which slot was exercised. Multi-slot orchestration uses ``--dut-serials`` instead — supplying both is an error. |
-| `--dut-part-number` | `text` |  | DUT part number |
-| `--dut-revision` | `text` |  | DUT revision |
-| `--dut-lot-number` | `text` |  | DUT lot/batch number (mirrors LITMUS_DUT_LOT_NUMBER env var) |
+| `--uut-serial` | `text` | `'UUT001'` | UUT serial number |
+| `--uut-serials` | `text` |  | Per-slot UUT serials: slot_1=SN1,slot_2=SN2 |
+| `--slot` | `text` |  | Physical fixture slot for this single-process run (e.g. ``slot_1``, ``slot_2``). Use this when running a single UUT against a specific position in a multi-slot fixture so the run records which slot was exercised. Multi-slot orchestration uses ``--uut-serials`` instead — supplying both is an error. |
+| `--uut-part-number` | `text` |  | UUT part number |
+| `--uut-revision` | `text` |  | UUT revision |
+| `--uut-lot-number` | `text` |  | UUT lot/batch number (mirrors LITMUS_UUT_LOT_NUMBER env var) |
 | `--station` | `text` |  | Station ID or YAML path. Bare id looks up ``stations/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml`` is used as an explicit path. When unset, the resolver tries hostname auto-match against stations/*.yaml ``hostname:`` fields, then falls back to ``ProjectConfig.default_station``. |
 | `--operator` | `text` |  | Operator name |
 | `--data-dir` | `text` | *resolved at runtime* | Directory for Parquet results (default: platform data dir) |
-| `--product` | `text` |  | Product ID or YAML path. Bare id looks up ``products/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml`` is used as an explicit path. |
+| `--part` | `text` |  | Part ID or YAML path. Bare id looks up ``parts/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml`` is used as an explicit path. |
 | `--guardband` | `text` | `'0'` | Default guardband percentage |
 | `--mock-instruments` | `flag` | `False` | Use mock instruments instead of real hardware. Resolution: this flag > LITMUS_MOCK_INSTRUMENTS env var > litmus.yaml `mock_instruments:` > false. |
 | `--no-mock-instruments` | `flag` (inverse) | `True` | Use real hardware (overrides LITMUS_MOCK_INSTRUMENTS env and litmus.yaml `mock_instruments: true`). |
 | `--fixture` | `text` |  | Fixture ID or YAML path. Bare id looks up ``fixtures/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml`` is used as an explicit path. When unset, the resolver tries the active profile's ``fixture:`` field, then ``ProjectConfig.default_fixture``, then the single-file fallback in ``fixtures/``. |
 | `--test-phase` | `text` |  | Test phase (development, validation, characterization, production). If not specified, auto-detects from git status. |
-| `--strict-traceability` | `flag` | `False` | Fail tests whose measurements lack required traceability fields (run_id, step_name, and spec_ref/dut_pin when a spec is active). |
+| `--strict-traceability` | `flag` | `False` | Fail tests whose measurements lack required traceability fields (run_id, step_name, and spec_ref/uut_pin when a spec is active). |
 | `--test-profile` | `text` | *resolved at runtime* | Named profile from litmus.yaml `profiles:` (overrides vectors, limits, markers, and filter for the session). |
 | `--no-test-profile` | `flag` | `False` | Skip profile resolution. Use when profiles are declared but you want to run with bare project defaults (ad-hoc runs). |
 
@@ -118,7 +118,7 @@ Plus dynamic flags generated from `litmus.yaml`: every `profiles[*].facets:` key
 Two things to keep separate:
 
 - **Discovery** is pytest's: what `tests/test_*.py` files match, what items they expose. Litmus has no opinion here.
-- **Activation** is Litmus's: which station, product, fixture, profile is loaded for the session. Driven by the CLI flags above (or by `default_station:` / `default_profile:` in `litmus.yaml`).
+- **Activation** is Litmus's: which station, part, fixture, profile is loaded for the session. Driven by the CLI flags above (or by `default_station:` / `default_profile:` in `litmus.yaml`).
 
 A test that runs on a bringup tier with no station YAML and a test that runs on a factory tier with full traceability are **collected identically**. The activation context decides what fixtures resolve to and what limits `verify` finds.
 

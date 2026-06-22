@@ -11,14 +11,14 @@ Basic usage:
 
     # Start a test run
     run = client.start_run(
-        dut_serial="ABC123",
+        uut_serial="ABC123",
         station_id="station_001",
     )
 
     # Add a test step with measurements
     with run.step("measure_5v_rail") as step:
-        step.measure("rail_voltage", 5.02, units="V", low=4.75, high=5.25)
-        step.measure("rail_current", 0.150, units="A", high=0.5)
+        step.measure("rail_voltage", 5.02, unit="V", low=4.75, high=5.25)
+        step.measure("rail_current", 0.150, unit="A", high=0.5)
 
     # Finish and save
     run.finish()
@@ -29,7 +29,7 @@ For parametrized tests (multiple vectors per step):
         for voltage in [3.3, 5.0, 12.0]:
             with step.vector(input_voltage=voltage) as vec:
                 output = measure_output(voltage)
-                vec.measure("output_voltage", output, units="V")
+                vec.measure("output_voltage", output, unit="V")
 
 The client automatically:
 - Generates UUIDs for runs, steps, vectors
@@ -47,7 +47,7 @@ from uuid import UUID
 
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import (
-    DUT,
+    UUT,
     Measurement,
     Outcome,
     RunSummary,
@@ -86,7 +86,7 @@ class VectorBuilder:
         name: str,
         value: float | int | None,
         *,
-        units: str | None = None,
+        unit: str | None = None,
         low: float | int | None = None,
         high: float | int | None = None,
         nominal: float | int | None = None,
@@ -98,7 +98,7 @@ class VectorBuilder:
         Args:
             name: Measurement name (e.g., "rail_voltage")
             value: Measured value
-            units: Unit of measurement (e.g., "V", "A", "ohm")
+            unit: Unit of measurement (e.g., "V", "A", "ohm")
             low: Low limit (inclusive by default)
             high: High limit (inclusive by default)
             nominal: Nominal/expected value (for EQ/NE comparators)
@@ -112,7 +112,7 @@ class VectorBuilder:
         m = Measurement(
             name=name,
             value=_to_float(value),
-            units=units,
+            unit=unit,
             limit_low=_to_float(low),
             limit_high=_to_float(high),
             limit_nominal=_to_float(nominal),
@@ -191,7 +191,7 @@ class StepBuilder:
         name: str,
         value: float | int | None,
         *,
-        units: str | None = None,
+        unit: str | None = None,
         low: float | int | None = None,
         high: float | int | None = None,
         nominal: float | int | None = None,
@@ -206,7 +206,7 @@ class StepBuilder:
         Args:
             name: Measurement name
             value: Measured value
-            units: Unit of measurement
+            unit: Unit of measurement
             low: Low limit
             high: High limit
             nominal: Nominal value
@@ -224,7 +224,7 @@ class StepBuilder:
         return self._default_vector.measure(
             name=name,
             value=value,
-            units=units,
+            unit=unit,
             low=low,
             high=high,
             nominal=nominal,
@@ -249,8 +249,9 @@ class StepBuilder:
         # Finalize default vector if it exists
         if self._default_vector is not None:
             self._test_step.vectors.append(self._default_vector._finish())
-            if self._default_vector._vector.outcome == Outcome.FAILED:
-                self._test_step.outcome = Outcome.FAILED
+            self._test_step.outcome = escalate_outcome(
+                self._test_step.outcome, self._default_vector._vector.outcome
+            )
 
         self._test_step.ended_at = datetime.now(UTC)
         return self._test_step
@@ -265,23 +266,23 @@ class RunBuilder:
     def __init__(
         self,
         client: "LitmusClient",
-        dut_serial: str,
+        uut_serial: str,
         station_id: str,
         *,
-        dut_part_number: str | None = None,
-        dut_revision: str | None = None,
-        dut_lot_number: str | None = None,
+        uut_part_number: str | None = None,
+        uut_revision: str | None = None,
+        uut_lot_number: str | None = None,
         station_type: str | None = None,
         operator: str | None = None,
         test_phase: str | None = None,
     ):
         self._client = client
         self._test_run = TestRun(
-            dut=DUT(
-                serial=dut_serial,
-                part_number=dut_part_number,
-                revision=dut_revision,
-                lot_number=dut_lot_number,
+            uut=UUT(
+                serial=uut_serial,
+                part_number=uut_part_number,
+                revision=uut_revision,
+                lot_number=uut_lot_number,
             ),
             station_id=station_id,
             station_type=station_type,
@@ -300,7 +301,7 @@ class RunBuilder:
 
         Example:
             with run.step("measure_voltages", "Signal all power rails") as step:
-                step.measure("5v_rail", 5.02, units="V", low=4.75, high=5.25)
+                step.measure("5v_rail", 5.02, unit="V", low=4.75, high=5.25)
         """
         builder = StepBuilder(self, name, description)
         try:
@@ -348,12 +349,12 @@ class LitmusClient:
         client = LitmusClient()
 
         run = client.start_run(
-            dut_serial="SN12345",
+            uut_serial="SN12345",
             station_id="bench_1",
         )
 
         with run.step("voltage_check") as step:
-            step.measure("vcc", 3.31, units="V", low=3.0, high=3.6)
+            step.measure("vcc", 3.31, unit="V", low=3.0, high=3.6)
 
         run.finish()
     """
@@ -368,12 +369,12 @@ class LitmusClient:
 
     def start_run(
         self,
-        dut_serial: str,
+        uut_serial: str,
         station_id: str,
         *,
-        dut_part_number: str | None = None,
-        dut_revision: str | None = None,
-        dut_lot_number: str | None = None,
+        uut_part_number: str | None = None,
+        uut_revision: str | None = None,
+        uut_lot_number: str | None = None,
         station_type: str | None = None,
         operator: str | None = None,
         test_phase: str | None = None,
@@ -381,11 +382,11 @@ class LitmusClient:
         """Start a new test run.
 
         Args:
-            dut_serial: Device under test serial number.
+            uut_serial: Device under test serial number.
             station_id: Test station identifier.
-            dut_part_number: Optional DUT part number.
-            dut_revision: Optional DUT revision.
-            dut_lot_number: Optional DUT lot/batch number.
+            uut_part_number: Optional UUT part number.
+            uut_revision: Optional UUT revision.
+            uut_lot_number: Optional UUT lot/batch number.
             station_type: Optional station type.
             operator: Optional operator name/ID.
             test_phase: Test phase (e.g. "production", "characterization").
@@ -395,11 +396,11 @@ class LitmusClient:
         """
         return RunBuilder(
             self,
-            dut_serial=dut_serial,
+            uut_serial=uut_serial,
             station_id=station_id,
-            dut_part_number=dut_part_number,
-            dut_revision=dut_revision,
-            dut_lot_number=dut_lot_number,
+            uut_part_number=uut_part_number,
+            uut_revision=uut_revision,
+            uut_lot_number=uut_lot_number,
             station_type=station_type,
             operator=operator,
             test_phase=test_phase,

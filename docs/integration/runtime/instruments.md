@@ -53,10 +53,10 @@ instruments:
 The pytest plugin will instantiate the driver and make it available as a fixture:
 
 ```python
-def test_voltage(dmm, logger):
+def test_voltage(dmm, measure):
     # dmm is a pyvisa MessageBasedResource
     voltage = float(dmm.query("MEAS:VOLT:DC?"))
-    logger.measure("voltage", voltage)
+    measure("voltage", voltage)
 ```
 
 ## Using PyMeasure Drivers
@@ -85,12 +85,12 @@ instruments:
 ```
 
 ```python
-def test_output_voltage(psu, dmm, logger):
+def test_output_voltage(psu, dmm, measure):
     # PyMeasure provides high-level methods
     psu.voltage = 5.0
     psu.output_enabled = True
 
-    logger.measure("output_voltage", dmm.voltage_dc)
+    measure("output_voltage", dmm.voltage_dc)
 
     psu.output_enabled = False
 ```
@@ -101,7 +101,7 @@ For testing without hardware, Litmus provides a `Mock` factory that works with a
 
 ```python
 from pymeasure.instruments.keithley import Keithley2400
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 
 # Create mock that passes isinstance checks
 smu = Mock(Keithley2400, voltage=5.0, current=1.5e-6)
@@ -115,7 +115,7 @@ assert smu.voltage == 5.0
 Mock supports three value types:
 
 ```python
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 
 # Simple values - always returned
 dmm = Mock(object, measure_voltage=3.31)
@@ -162,7 +162,7 @@ instruments:
 
 Run with mocks:
 ```bash
-pytest tests/ --station=dev_station --mock-instruments --dut-serial=TEST001
+pytest tests/ --station=dev_station --mock-instruments --uut-serial=TEST001
 ```
 
 ## Discovery
@@ -194,10 +194,10 @@ Station roles become fixtures automatically:
 
 ```python
 # Station config has dmm and psu → fixtures auto-registered
-def test_output_voltage(context, psu, dmm, logger):
+def test_output_voltage(context, psu, dmm, measure):
     psu.voltage = context.get_param("vin", 5.0)
     psu.output_enabled = True
-    logger.measure("output_voltage", dmm.voltage_dc)
+    measure("output_voltage", dmm.voltage_dc)
 ```
 
 ### Custom Fixture Override
@@ -222,7 +222,7 @@ def psu(instruments):
 ```python
 #!/usr/bin/env python3
 import pyvisa
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 
 def measure_voltage(resource: str, mock: bool = False) -> float:
     if mock:

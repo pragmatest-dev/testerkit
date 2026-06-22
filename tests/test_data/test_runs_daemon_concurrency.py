@@ -6,10 +6,9 @@ Two failure modes these tests catch:
    daemon signals ready blows past ``_SPAWN_TIMEOUT`` (30s) on a fresh
    index with many parquets.
 
-2. Background-ingest deadlock — the runs daemon's ``pre_query_hook``
-   (``live_subscriber.refresh``) calls ``conn.register()`` on the main
-   connection while a background ingest thread on a separate
-   connection holds DuckDB write transactions. Two-connection contention
+2. Background-ingest deadlock — a background ingest thread on a
+   separate connection holds DuckDB write transactions while a Flight
+   query handler touches the main connection. Two-connection contention
    on DuckDB's global catalog lock under GIL deadlocks the daemon, and
    any Flight query hangs indefinitely.
 
@@ -38,7 +37,7 @@ from litmus.data.schemas import RUN_ROW_SCHEMA
 
 
 def _step_row(
-    *, run_id: str, session_id: str, started: datetime, dut_serial: str = "SN001"
+    *, run_id: str, session_id: str, started: datetime, uut_serial: str = "SN001"
 ) -> dict:
     """Minimal ``record_type='step'`` row in unified RUN_ROW_SCHEMA shape."""
     ended = started + timedelta(seconds=1)
@@ -61,10 +60,10 @@ def _step_row(
             "run_started_at": started,
             "run_ended_at": ended,
             "run_outcome": "passed",
-            "dut_serial": dut_serial,
+            "uut_serial": uut_serial,
             "station_id": "test-station",
             "test_phase": "production",
-            "product_id": "PN-100",
+            "part_id": "PN-100",
         }
     )
     return populated

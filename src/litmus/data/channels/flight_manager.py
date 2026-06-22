@@ -8,10 +8,11 @@ actual port to a file, which ``acquire()`` reads and stores in state.
 from __future__ import annotations
 
 import sys
-import time
+import warnings
 from pathlib import Path
 
-from litmus.data._daemon_lifecycle import DaemonManager
+from litmus.data._daemon_lifecycle import DaemonManager, wait_for_location
+from litmus.data._flight_query import probe_sql
 
 
 class FlightDaemonManager(DaemonManager):
@@ -50,22 +51,25 @@ class FlightDaemonManager(DaemonManager):
     def acquire_location(self) -> str:
         """Acquire a reference and return the gRPC location string.
 
-        Reuse-path acquires can land before the daemon has written its
-        location into state on slow CI runners — poll briefly so the
-        transient case doesn't leak as a RuntimeError. Mirrors the
-        same retry on :func:`litmus.data.runs_duckdb_manager.acquire`.
+        Probes the daemon after acquiring (via the lock-free ``__ping__`` verb —
+        connectivity, not data; only an exception is dead): a wedged or dead
+        Flight thread is killed and respawned so callers get a working
+        connection. The ping must NOT touch the store/index — a probe that took
+        ``_index_lock`` under write load would false-fail and respawn a healthy
+        busy daemon. Shares ``probe_sql`` with every other store on the shared
+        server, differing only in the lock-free payload.
         """
         super().acquire()
-        deadline = time.monotonic() + 5.0
-        while True:
-            location = self.read_state().get("location")
-            if location:
-                return location
-            if time.monotonic() >= deadline:
-                raise RuntimeError(
-                    f"Flight daemon started but no location in state after 5s: {self._dir}"
-                )
-            time.sleep(0.05)
+        location = wait_for_location(self, self._dir, "channels")
+        if not probe_sql(location, "channels", payload="__ping__"):
+            warnings.warn(
+                f"Channels Flight daemon at {location} is not responding — killing and respawning.",
+                stacklevel=2,
+            )
+            self.force_restart()
+            super().acquire()
+            location = wait_for_location(self, self._dir, "channels")
+        return location
 
 
 # Module-level convenience API

@@ -8,37 +8,58 @@ the pytest plugin fixtures.
 from __future__ import annotations
 
 import importlib
+import logging
 import time
+import warnings
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
-from litmus.data.models import Measurement, Outcome, TestStep, TestVector, _utcnow, escalate_outcome
-from litmus.data.ref import classify_value
+from litmus.data.events import Observation, VectorEnded, VectorStarted
+from litmus.data.models import (
+    Measurement,
+    Outcome,
+    TestStep,
+    TestVector,
+    Waveform,
+    _utcnow,
+    escalate_outcome,
+)
+from litmus.data.ref import Latchable, classify_value, is_ref
 from litmus.execution._state import (
     get_active_characteristic,
     get_active_limits,
-    get_active_product_context,
+    get_active_part_context,
     get_active_station_config,
     get_active_test_characteristics,
     get_current_code_identity,
-    get_current_logger,
+    get_current_run_scope,
     get_current_step,
     get_current_vector,
+    no_active_resource_error,
+    push_current_context,
     push_current_step,
     push_current_vector,
+    reset_current_context,
     reset_current_step,
     reset_current_vector,
+    resolve_session_id,
 )
+from litmus.execution.run_scope import _auto_traceability
 from litmus.execution.vectors import Vector, expand_vectors
+from litmus.execution.verify import _perform_measure, _perform_verify
 from litmus.models.test_config import Limit, MeasurementLimitConfig, PromptConfig, RetryConfig
 from litmus.prompts import ask
 
+_log = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from litmus.data.models import TestRun
-    from litmus.execution.logger import TestRunLogger
+    from litmus.execution.run_scope import RunScope
+    from litmus.models.part import Part
     from litmus.models.station import StationConfig
-    from litmus.products.context import ProductContext
+    from litmus.parts.context import PartContext
 
 
 class LimitsView(Mapping[str, MeasurementLimitConfig]):
@@ -113,8 +134,8 @@ class Context:
     - **Vector level**: Data visible only to that vector
 
     The context provides semantic methods for data capture:
-    - configure(): Record configuration/stimulus values (→ in_*)
-    - observe(): Record measured context/observations (→ out_*)
+    - configure(): Record configuration/stimulus values (→ inputs lane)
+    - observe(): Record measured context/observations (→ outputs lane)
 
     Example usage:
         def test_output_voltage(psu, dmm, temp_probe, context):
@@ -139,6 +160,7 @@ class Context:
         prev: Context | None = None,
         harness: TestHarness | None = None,
         channel_store: Any | None = None,
+        session_id: UUID | None = None,
     ):
         """Initialize context with optional parent for inheritance.
 
@@ -147,13 +169,47 @@ class Context:
             prev: Previous sibling context (for change detection across vectors).
             harness: TestHarness reference for accessing limits and other harness features.
             channel_store: Optional ChannelStore for direct writes of numeric data.
+            session_id: Session this context belongs to. Required for blob observations
+                (routed through FileStore.write which is session-scoped). Production
+                paths pull from the active session; some test paths leave None.
         """
         self._parent = parent
         self._prev = prev
         self._harness = harness
         self._channel_store = channel_store
+        # session_id: single resolution rule lives in
+        # ``litmus.execution._state.resolve_session_id`` so harness /
+        # files.py / future call sites all share one precedence order
+        # (explicit > harness > parent > active ContextVar).
+        #
+        # ``fallback_to_active`` is OFF here (the default). A freshly
+        # constructed Context with no parent/harness/explicit session_id
+        # MUST NOT silently inherit the ambient ContextVar — bare-Context
+        # unit tests should resolve to None, not to whatever session the
+        # surrounding pytest run happens to have wired. The opt-in path
+        # is in ``litmus.files.py:_resolve_session_id``, where
+        # ``fallback_to_active=True`` is correct because ``files.write``
+        # is a user-facing module-level surface and reading from the
+        # active ContextVar is the documented contract there.
+        resolved = resolve_session_id(session_id, harness=harness, parent=parent)
+        self._session_id: UUID | None = resolved  # type: ignore[assignment]
+        # Surface a debug log if the Context is fully unwired (no
+        # session_id, no harness, no parent) — the only blob path
+        # available is then raising RuntimeError at first observe(blob).
+        # Production paths always populate session_id; this trips
+        # only in bare-Context unit tests.
+        if self._session_id is None and harness is None and parent is None:
+            _log.debug(
+                "Context constructed with session_id=None and no harness/parent. "
+                "Blob observations (PIL.Image / bytes / Pydantic / ...) will raise "
+                "at runtime. Pass session_id= explicitly to enable the blob path."
+            )
         self._params: dict[str, Any] = {}
         self._observations: dict[str, Any] = {}
+        # Optional engineering unit per configured / observed name.
+        self._param_units: dict[str, str] = {}
+        self._observation_units: dict[str, str] = {}
+        self._observation_pins: dict[str, str] = {}
         # ``connections`` iterates :class:`FixtureConnection` objects the
         # test declares via ``litmus_characteristics`` / ``litmus_connections``
         # markers. Populated by the pytest-native plugin's
@@ -167,6 +223,21 @@ class Context:
     def child(self) -> Context:
         """Create a child context that inherits from this one.
 
+        Inherits ``harness``, ``channel_store``, and ``session_id``
+        from the parent. Does NOT capture the current vector —
+        observations called on the child use the active vector from
+        ``get_current_vector()`` (the ContextVar) at observe-time.
+
+        **Caveat for nested-context patterns**: if a child Context
+        outlives a vector iteration (e.g., created inside a self-loop
+        body and used after ``__next__`` rolls to the next vector),
+        observations on the child mirror to whichever vector is
+        currently on the ContextVar — which may be a different vector
+        than the one the child was created in. For most patterns
+        (child created and used within the same vector scope) this
+        is fine. Cross-iteration child contexts are rare and the
+        caller is responsible for ensuring vector scope matches.
+
         Returns:
             New Context with this context as parent.
         """
@@ -176,35 +247,507 @@ class Context:
     # Semantic API (preferred)
     # -------------------------------------------------------------------------
 
-    def configure(self, key: str, value: Any) -> None:
-        """Record a configuration/stimulus value (→ in_* column).
+    def configure(self, key: str, value: Any, *, unit: str | None = None) -> None:
+        """Record a configuration/stimulus value (an input — role ``input``).
 
         Use for commanded values, setpoints, and settings.
 
         Args:
             key: Parameter name (e.g., "psu.voltage", "temperature").
             value: The commanded value.
+            unit: Optional engineering unit for this input (``"V"``, ``"Hz"``).
+                Rides onto the vector's lane ``unit`` field → the EAV unit column.
         """
         self._params[key] = value
+        if unit is not None:
+            self._param_units[key] = unit
 
-    def observe(self, key: str, value: Any) -> None:
-        """Record an observation/measurement context (→ out_* column).
+    def observe(
+        self, key: str, value: Any, *, namespace: str | None = None, unit: str | None = None
+    ) -> None:
+        """Record an observation/measurement context (an output — role ``output``).
 
-        Use for measured environmental data, raw readings, and context.
-        Numeric arrays are written to ChannelStore directly and a URI is stored.
+        Per §3 + §4 of the design doc, ``observe`` is a polymorphic
+        intent verb — the author writes one call and the framework
+        picks the store by value shape:
+
+        - **scalar** (int/float/bool/str/None) → inline in
+          ``_observations``; lands in the vector's outputs lane
+          (role ``output``) directly.
+        - **Waveform** → ChannelStore (item 6 verb-layer unpack:
+          writes ``wf.Y`` as the array payload with
+          ``sample_interval=wf.dt``); the outputs lane carries the
+          ``channel://`` URI. **Caveat**: ``t0`` and
+          ``Waveform.attributes`` have no row-level home in today's
+          schema (open per design doc §15) — they're dropped with a
+          ``RuntimeWarning`` when non-default. Use
+          ``filestore.write(name, wf)`` if you need them preserved.
+        - **numeric_array** (list/tuple/ndarray of bool/int/float/str
+          leaves, plus dict struct shapes) → ChannelStore;
+          the outputs lane carries the ``channel://`` URI.
+        - **blob** (bytes/Path/PIL.Image/Pydantic/anything else) →
+          FileStore via :func:`get_filestore().put`; the outputs lane
+          carries the ``file://`` URI.
+        - **URI string** (``channel://...`` / ``file://...``) → stamped
+          as-is (no re-write).
+        - **Sink handle** (``_ChannelSink`` from
+          :func:`litmus.channels.stream`, ``_BaseSink`` from
+          :func:`litmus.files.stream`, or any object satisfying the
+          :class:`~litmus.data.ref.Latchable` Protocol) → ``.uri``
+          stamped as-is (no re-write — the sink already wrote its
+          data).
 
         Args:
-            key: Observation name (e.g., "temp_probe.temperature", "scope.waveform").
-            value: The observed value. Large arrays go to ChannelStore, blobs to file store.
+            key: Observation name (e.g., "temperature", "scope.waveform").
+            value: The observed value (any of the four shapes above).
+            namespace: Item 16 — optional prefix sugar. When set, the
+                effective name becomes ``"{namespace}.{key}"``
+                (e.g., ``observe("voltage", v, namespace="psu_under_test")``
+                → effective name ``"psu_under_test.voltage"``). Pure
+                opt-in; nothing automatic.
+
+                **Scope (same on observe / verify / stream):** the
+                prefix applies uniformly to (1) the effective key
+                used for store resolution, (2) the channel_id
+                (ChannelStore writes) or file artifact name (FileStore
+                writes), and (3) the event payload's ``name``. It
+                does NOT affect vector parameters, limit lookup keys,
+                run-context fields, or any other namespace.
         """
-        if self._channel_store is not None and value is not None:
-            vtype = classify_value(value)
-            if vtype in ("numeric_array", "channel"):
-                uri = self._channel_store.write(key, value, source="observe")
-                self._observations[key] = uri
+        # Item 16: namespace= prefix sugar. Applies uniformly to the
+        # observations dict key, the channel_id (when written to
+        # ChannelStore), the file artifact name (when written to
+        # FileStore), and the Observation event's ``name``.
+        full_key = f"{namespace}.{key}" if namespace else key
+        if unit is not None:
+            self._observation_units[full_key] = unit
+        trace = _auto_traceability(full_key)
+        if trace.get("uut_pin") is not None:
+            self._observation_pins[full_key] = trace["uut_pin"]
+
+        if value is not None:
+            # Reference latching (design doc §4): if the caller hands
+            # us something that's already in a store — a URI string or
+            # a handle exposing ``.uri`` — stamp the URI without
+            # re-writing. Checked BEFORE shape dispatch so a ``str``
+            # URI doesn't fall through to the scalar-stash path and a
+            # sink handle doesn't get pickled as a blob.
+            if is_ref(value):
+                self._stamp_observation(full_key, value)
+                return
+            if isinstance(value, Latchable):
+                # Closed-sink check: a Latchable's ``.uri`` is stable
+                # before / during / after the sink's write window, so
+                # nothing prevents ``observe(name, sink)`` after the
+                # sink has been ``.close()``d. The URI is technically
+                # valid (file is on disk) but the sequencing is odd —
+                # latching a closed sink usually means the test code
+                # is shaped wrong (observe should usually come during
+                # the write window, before close). Warn instead of
+                # raising so a working pattern still works; lets
+                # operators discover the issue without breaking flows.
+                if getattr(value, "_closed", False):
+                    warnings.warn(
+                        f"observe({full_key!r}, sink): sink is already "
+                        f"closed. The URI ({value.uri!r}) is still valid, "
+                        "but latching a closed sink usually means observe() "
+                        "was called after the ``with`` block exited — "
+                        "consider moving observe() inside the with-block.",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                self._stamp_observation(full_key, value.uri)
                 return
 
+            # Item 6: Waveform routes to ChannelStore via verb-layer
+            # unpack. classify_value reports Waveform as ``blob`` (no
+            # ``tolist``); the design doc §4 says channel-shaped, so we
+            # route directly. Y → value; dt → sample_interval; t0 →
+            # sampled_at; attributes → channel descriptor attributes.
+            if isinstance(value, Waveform):
+                attr_unit = (value.attributes or {}).get("unit")
+                if unit is not None and attr_unit is not None and unit != attr_unit:
+                    raise ValueError(
+                        f"observe({full_key!r}, unit={unit!r}): conflicts with the "
+                        f"Waveform's attributes['unit']={attr_unit!r} — pass only one."
+                    )
+                if self._channel_store is not None:
+                    resolved_unit = unit if unit is not None else attr_unit
+                    uri = self._channel_store.write(
+                        full_key,
+                        value.Y,
+                        sample_interval=value.dt,
+                        sampled_at=value.t0,
+                        attributes=value.attributes or None,
+                        source="observe",
+                        run_id=self._current_run_id(),
+                        unit=resolved_unit,
+                    )
+                    self._default_lane_unit_from_channel(full_key)
+                    self._stamp_observation(full_key, uri)
+                    return
+                # No channel store wired (bare Context test): fall through
+                # to the FileStore path; Waveform becomes a .npz blob.
+
+            vtype = classify_value(value)
+            if vtype in ("numeric_array", "channel"):
+                if self._channel_store is None:
+                    # Exhaustiveness: array/channel values without a
+                    # ChannelStore would land in ``_observations`` as a
+                    # raw list/ndarray and break parquet serialization
+                    # at row-build time. Fail loud at the call site
+                    # instead of writing garbage to the outputs lane.
+                    raise RuntimeError(
+                        f"observe({full_key!r}): value classified as "
+                        f"{vtype!r} but no ChannelStore is wired on this "
+                        "Context. Construct Context with a ``channel_store=``, "
+                        "or run inside a pytest session / ``connect(...)`` "
+                        "block that wires the ChannelStore ContextVar."
+                    )
+                uri = self._channel_store.write(
+                    full_key, value, source="observe", run_id=self._current_run_id(), unit=unit
+                )
+                self._default_lane_unit_from_channel(full_key)
+                self._stamp_observation(full_key, uri)
+                return
+            if vtype == "blob":
+                # Item 3a — fixes half of the image-drop. Route blobs through
+                # FileStore.write; stash the resulting URI in observations.
+                # Pre-3a: blobs were silently stashed as raw values, never
+                # written to disk except via the at-RunEnded materializer
+                # _ref path (and the latter only when run materialization
+                # actually ran — blobs were lost on crash).
+                if self._session_id is None:
+                    raise no_active_resource_error(
+                        f"session_id (observing blob {full_key!r} of type {type(value).__name__})",
+                        explicit_arg="session_id",
+                    )
+                # Lazy: data.files chain pulls PIL / serializers; only
+                # paid when this blob path actually runs.
+                from litmus.data.files import get_filestore  # noqa: PLC0415
+
+                uri = get_filestore().write(
+                    name=full_key,
+                    value=value,
+                    session_id=str(self._session_id),
+                )
+                self._stamp_observation(full_key, uri)
+                return
+
+        self._stamp_observation(full_key, value)
+
+    def _default_lane_unit_from_channel(self, key: str) -> None:
+        """Default an observation's lane unit from the channel it routed to.
+
+        Only fills when the author passed no explicit ``unit=`` — the channel
+        descriptor is the single source of truth (set on first write, immutable
+        per session), so the outputs lane entry carries the channel's unit
+        without the author re-typing it.
+        """
+        if self._observation_units.get(key) is not None or self._channel_store is None:
+            return
+        ch_unit = self._channel_store.channel_unit(key)
+        if ch_unit is not None:
+            self._observation_units[key] = ch_unit
+
+    def _stamp_observation(self, key: str, value: Any) -> None:
+        """Persist an observation to ``_observations`` AND mirror to the active vector.
+
+        The mirror is what makes output lane entries land on the parquet
+        vector row at row-build time. ``build_output_columns`` (in
+        ``_row_helpers``) reads from ``vector.observations``, not
+        ``Context._observations``; without the mirror, every outputs-lane
+        entry was empty when a measurement was emitted mid-test-body
+        (before vector teardown could snapshot from the context).
+
+        **Mirror caveat — observations outside a vector scope are
+        parquet-invisible.** This method reads ``get_current_vector()``
+        from the ContextVar. When that returns ``None`` (called before
+        ``pytest_runtest_call`` opens a step, in a session-scoped
+        helper that runs before any test body, or interactively
+        without a TestHarness vector pushed), the observation is
+        stashed on ``self._observations`` but NEVER lands on a
+        ``TestVector.observations`` dict — and so never reaches the
+        parquet outputs lane. Production pytest tests and
+        ``TestHarness.run_vector(...)`` are inside a vector scope by
+        construction; non-standard test patterns (observations in
+        autouse fixtures, helpers called before the step opens) lose
+        observations silently. Document this in any test helper that
+        wraps observations.
+        """
         self._observations[key] = value
+        vec = get_current_vector()
+        # Defensive ``getattr``: production paths always push TestVector
+        # (logger.start_step, harness.run_vector, _VectorIterator) so the
+        # mirror lands; the guard tolerates duck-typed test fakes that
+        # only expose ``index``/``retry`` for the emit_observation event.
+        vec_obs = getattr(vec, "observations", None)
+        if isinstance(vec_obs, dict):
+            vec_obs[key] = value
+        unit = self._observation_units.get(key)
+        vec_obs_units = getattr(vec, "observation_units", None)
+        if unit is not None and isinstance(vec_obs_units, dict):
+            vec_obs_units[key] = unit
+        pin = self._observation_pins.get(key)
+        vec_obs_pins = getattr(vec, "observation_pins", None)
+        if pin is not None and isinstance(vec_obs_pins, dict):
+            vec_obs_pins[key] = pin
+        self._emit_observation(key, value, unit, pin)
+
+    def _current_run_id(self) -> UUID | None:
+        """Pull the active run_id from the active RunScope ContextVar.
+
+        Returned by :meth:`stream` / :meth:`observe` / :meth:`verify`
+        write callers so ChannelStore can stamp the right run context
+        on ``ChannelStarted`` / ``ChannelEnded`` lifecycle events.
+        Returns ``None`` when called outside a run (interactive
+        bringup, daemon-driven writes, bare unit tests).
+        """
+        run_scope = get_current_run_scope()
+        return getattr(getattr(run_scope, "test_run", None), "id", None)
+
+    def _emit_observation(
+        self, key: str, value: Any, unit: str | None = None, uut_pin: str | None = None
+    ) -> None:
+        """Emit an ``Observation`` event for the value that landed in ``_observations``.
+
+        Item 4 in the v0.2.0 data-architecture lift. Pre-item-4 the
+        observe path was silent on the event timeline; subscribers
+        couldn't see captures. After item 4, each observe call
+        produces exactly one ``Observation`` event with the value
+        (or claim URI) plus step/vector context pulled from the
+        active ContextVars.
+
+        Skips emit silently when there's no active logger /
+        event_log / session — observe() should still work outside
+        an event-logged context (e.g., bare unit tests of Context).
+        Emits a debug log so the no-emit case is visible to anyone
+        debugging "I called observe() but nothing appeared on the
+        timeline."
+        """
+        if self._session_id is None:
+            _log.debug(
+                "Observation %r not emitted: Context.session_id is None "
+                "(value still stashed in Context._observations and mirrored to "
+                "active vector). Construct Context inside a session "
+                "(pytest fixture or connect()) for event-timeline visibility.",
+                key,
+            )
+            return
+        run_scope = get_current_run_scope()
+        event_log = getattr(run_scope, "event_log", None) if run_scope is not None else None
+        if event_log is None:
+            _log.debug(
+                "Observation %r not emitted: no active RunScope / event_log. "
+                "Run inside a run-scope context to land observations on the event timeline.",
+                key,
+            )
+            return
+
+        # Pull step/vector context from active ContextVars; defaults
+        # are fine when called outside a step/vector (defensive).
+        step = get_current_step()
+        vector = get_current_vector()
+        run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
+
+        event_log.emit(
+            Observation(
+                session_id=self._session_id,
+                run_id=run_id,
+                step_name=getattr(step, "name", "") if step else "",
+                step_index=getattr(step, "step_index", 0) if step else 0,
+                step_path=getattr(step, "step_path", "") if step else "",
+                vector_index=getattr(vector, "index", 0) if vector else 0,
+                retry=getattr(vector, "retry", 0) if vector else 0,
+                name=key,
+                value=value,
+                unit=unit,
+                uut_pin=uut_pin,
+            )
+        )
+
+    def _emit_vector_started(self) -> None:
+        """Emit a ``VectorStarted`` for the active in-body loop vector (Mode 2).
+
+        Call after the iteration's :class:`TestVector` is pushed onto the active
+        ContextVars, so step/vector context resolves to this iteration. No-op
+        outside a run scope (bare Context unit tests). Resolution mirrors
+        :meth:`_emit_observation` so in-body vectors land on the same timeline.
+        """
+        if self._session_id is None:
+            return
+        run_scope = get_current_run_scope()
+        event_log = getattr(run_scope, "event_log", None) if run_scope is not None else None
+        if event_log is None:
+            return
+        step = get_current_step()
+        vector = get_current_vector()
+        run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
+        event_log.emit(
+            VectorStarted(
+                session_id=self._session_id,
+                run_id=run_id,
+                step_name=getattr(step, "name", "") if step else "",
+                step_index=getattr(step, "step_index", 0) if step else 0,
+                step_path=getattr(step, "step_path", "") if step else "",
+                vector_index=getattr(vector, "index", 0) if vector else 0,
+                retry=getattr(vector, "retry", 0) if vector else 0,
+                inputs=dict(vector.params) if vector is not None else {},
+                input_units=dict(vector.param_units) if vector is not None else {},
+                node_id=getattr(step, "node_id", None) if step else None,
+            )
+        )
+
+    def _emit_vector_ended(self) -> None:
+        """Emit a ``VectorEnded`` for the active in-body loop vector (Mode 2).
+
+        Call before the iteration's ContextVars are reset. Pulls the vector's
+        outcome and observations from the active :class:`TestVector`.
+        """
+        if self._session_id is None:
+            return
+        run_scope = get_current_run_scope()
+        event_log = getattr(run_scope, "event_log", None) if run_scope is not None else None
+        if event_log is None:
+            return
+        step = get_current_step()
+        vector = get_current_vector()
+        run_id = getattr(getattr(run_scope, "test_run", None), "id", None)
+        outcome = getattr(vector, "outcome", None) if vector is not None else None
+        event_log.emit(
+            VectorEnded(
+                session_id=self._session_id,
+                run_id=run_id,
+                step_name=getattr(step, "name", "") if step else "",
+                step_index=getattr(step, "step_index", 0) if step else 0,
+                step_path=getattr(step, "step_path", "") if step else "",
+                vector_index=getattr(vector, "index", 0) if vector else 0,
+                retry=getattr(vector, "retry", 0) if vector else 0,
+                outcome=outcome.value if outcome is not None else None,
+                inputs=dict(vector.params) if vector is not None else {},
+                outputs=dict(vector.observations) if vector is not None else {},
+                input_units=dict(vector.param_units) if vector is not None else {},
+                output_units=dict(vector.observation_units) if vector is not None else {},
+                output_pins=dict(vector.observation_pins) if vector is not None else {},
+                node_id=getattr(step, "node_id", None) if step else None,
+            )
+        )
+
+    def stream(
+        self,
+        name: str,
+        sample: Any,
+        *,
+        namespace: str | None = None,
+        unit: str | None = None,
+    ) -> str:
+        """Append one sample to a channel — sibling of observe / verify.
+
+        Per §3 of the design doc, ``stream`` is the third sibling
+        test-author intent verb. Always routes to ChannelStore (never
+        FileStore — that's the operational-verb split that gives
+        ``stream`` its commitment: subscribers know channels are
+        where to look). Per Position 2: emits ``ChannelStarted`` once
+        per (channel, session) on first write via the channel store's
+        own machinery; subsequent writes are ChannelStore-only (no
+        per-sample event).
+
+        Unlike :meth:`observe`, ``stream`` never writes to the outputs
+        lane on the vector — it's an append-to-stream operation, not a
+        "stash this on my current context" operation. Per §3 line
+        236: ``stream`` and ``observe`` are strictly orthogonal.
+        Author wires the channel to the vector explicitly via
+        ``observe(name, channel_handle_or_URI)`` when association is
+        wanted.
+
+        Args:
+            name: Channel name.
+            sample: One sample to append. Same shape rules as
+                ``observe``'s array-handling path — scalar, list,
+                ndarray, dict (struct). Blobs raise ``ValueError``
+                at the ChannelStore gate; use ``filestore.write`` for
+                blobs.
+            namespace: Optional prefix sugar — effective channel_id
+                is ``"{namespace}.{name}"``. Scope rules are shared
+                across observe / verify / stream: prefix applies to
+                (1) the effective key (here: channel_id), (2) the
+                event payload's ``name``. See
+                :meth:`observe` docstring for the canonical
+                description.
+            unit: Optional engineering unit for the channel — stamped
+                on the channel descriptor (immutable within a session).
+
+        Returns:
+            The ``channel://`` URI for this sample's channel.
+
+        Raises:
+            RuntimeError: When no ChannelStore is wired to the Context.
+        """
+        if self._channel_store is None:
+            raise RuntimeError(
+                f"Context.stream({name!r}, ...): no ChannelStore wired. "
+                "Construct a TestHarness with channel_store explicitly, "
+                "or run inside an active Litmus session."
+            )
+        full_name = f"{namespace}.{name}" if namespace else name
+        return self._channel_store.write(
+            full_name, sample, source="stream", run_id=self._current_run_id(), unit=unit
+        )
+
+    def verify(
+        self,
+        name: str,
+        value: float | int | None,
+        limit: Any = None,
+        *,
+        characteristic: str | None = None,
+        namespace: str | None = None,
+        unit: str | None = None,
+    ) -> Any:
+        """Record + judge a measurement (→ measurement row).
+
+        Polymorphic intent verb symmetric with :meth:`observe`. Per §3
+        of the design doc, ``verify`` is one of three sibling
+        test-author verbs — exposed both as a method on Context (for
+        programmatic / non-pytest use) and as a bare pytest fixture
+        (for idiomatic pytest tests). Both shapes route through the
+        same underlying ``_perform_verify`` implementation.
+
+        Args:
+            name: Measurement name.
+            value: The measured value (scalar). Non-scalar dispatch
+                is a deferred follow-up — see design doc §4 and the
+                C3a scope decision.
+            limit: Optional ``Limit`` (or dict) to judge against. When
+                omitted, falls through to ``logger.measure`` (DONE
+                outcome) when the active profile sets
+                ``verify_requires_limit: false``; otherwise raises
+                ``MissingLimitError``.
+            characteristic: Override the active characteristic for
+                limit resolution.
+            namespace: Item 16 — optional prefix sugar. When set, the
+                effective name becomes ``"{namespace}.{name}"`` for
+                limit lookup, measurement row, and event payload.
+                Same scope rule across observe / verify / stream —
+                see :meth:`observe` docstring for the canonical
+                description.
+
+        Returns:
+            The recorded :class:`Measurement`.
+
+        Raises:
+            LimitFailure: When the value falls outside the limit.
+            MissingLimitError: When no limit is configured and the
+                active profile requires one.
+        """
+        return _perform_verify(
+            name,
+            value,
+            limit=limit,
+            characteristic=characteristic,
+            namespace=namespace,
+            unit=unit,
+        )
 
     def changed(self, key: str) -> bool:
         """Check if an input parameter changed from the previous vector.
@@ -251,7 +794,7 @@ class Context:
         """Record multiple configuration values at once.
 
         Args:
-            values: Dict of key-value pairs for in_* columns.
+            values: Dict of key-value pairs written to the inputs lane.
         """
         for key, value in values.items():
             self.configure(key, value)
@@ -260,7 +803,7 @@ class Context:
         """Record multiple observations at once.
 
         Args:
-            values: Dict of key-value pairs for out_* columns.
+            values: Dict of key-value pairs written to the outputs lane.
         """
         for key, value in values.items():
             self.observe(key, value)
@@ -366,14 +909,14 @@ class Context:
     def run(self) -> TestRun | None:
         """Active :class:`TestRun` record, or ``None`` outside a run.
 
-        Carries run identity (id, started_at) plus DUT, station, fixture,
-        product, profile, operator, and git fields. ``ctx.run.dut.serial``
-        is the canonical path to DUT identity — there is intentionally no
-        ``ctx.dut`` attribute (the bare ``dut`` fixture is the live DUT
+        Carries run identity (id, started_at) plus UUT, station, fixture,
+        part, profile, operator, and git fields. ``ctx.run.uut.serial``
+        is the canonical path to UUT identity — there is intentionally no
+        ``ctx.uut`` attribute (the bare ``uut`` fixture is the live UUT
         driver, a different concept).
         """
-        logger = get_current_logger()
-        return logger.test_run if logger is not None else None
+        run_scope = get_current_run_scope()
+        return run_scope.test_run if run_scope is not None else None
 
     @property
     def station(self) -> StationConfig | None:
@@ -389,15 +932,15 @@ class Context:
         return get_active_station_config()
 
     @property
-    def product(self) -> ProductContext | None:
-        """Active :class:`ProductContext`, or ``None`` when no product is loaded.
+    def part(self) -> Part | None:
+        """Active :class:`Part` definition, or ``None`` when no part is loaded.
 
-        Mirrors the ``product_context`` session fixture but lets tests
-        reach for it via ``ctx.product`` without taking the fixture as
-        an argument. Useful inside helpers / verify wrappers that
-        already have a ``Context`` reference.
+        Mirrors the ``part`` session fixture but lets tests reach for it
+        via ``ctx.part`` without taking the fixture as an argument. For
+        derived limits use ``ctx.get_limit(name)`` or the ``limits`` fixture.
         """
-        return get_active_product_context()
+        pc = get_active_part_context()
+        return pc.part if pc else None
 
     # -------------------------------------------------------------------------
     # Limit access
@@ -409,9 +952,9 @@ class Context:
         Resolves limit using the same logic as harness.measure():
         1. Check harness._limits for direct/config limits
         2. Try MeasurementLimitConfig.to_limit() for direct values
-        3. Try spec reference via ProductContext
+        3. Try spec reference via PartContext
         4. Try callable limit evaluation
-        5. Fall back to ProductContext characteristic lookup
+        5. Fall back to PartContext characteristic lookup
 
         Args:
             name: Measurement name to get limit for.
@@ -433,45 +976,55 @@ class Context:
     def measure(
         self,
         name: str,
-        value: float | None,
-        units: str | None = None,
+        value: float | int | None,
         limit: Limit | None = None,
-        dut_pin: str | None = None,
-        instrument_channel: str | None = None,
-        fixture_connection: str | None = None,
+        *,
+        characteristic: str | None = None,
+        namespace: str | None = None,
+        unit: str | None = None,
     ) -> Measurement:
-        """Record an explicit measurement by name.
+        """Record a measurement without judging it (→ measurement row).
 
-        Use when the measurement name differs from the step name,
-        or when producing multiple measurements from one test.
+        The record-only sibling of :meth:`verify` — stamps one
+        measurement row with :attr:`Outcome.DONE` and never raises on a
+        missing limit. Use when a value should be captured but not
+        pass/fail judged (characterization, diagnostics, logged
+        context). Auto-traceability (``uut_pin`` / ``instrument_*`` /
+        ``characteristic_id`` / ``spec_ref``) is pulled from the active
+        :class:`PartContext` by measurement name — callers never pass it.
+
+        Like :meth:`verify` / :meth:`observe`, routes through the active
+        logger (ContextVar) via the shared ``_perform_measure`` body, so
+        the method form and the bare ``measure`` fixture behave
+        identically and work in pytest-native tests and programmatic
+        paths alike.
 
         Args:
             name: Measurement name (e.g., "output_voltage").
-            value: Measured value.
-            units: Units (optional, uses limit.units if available).
-            limit: Explicit limit (optional, overrides config lookup).
-            dut_pin: DUT pin being measured (optional).
-            instrument_channel: Instrument channel used (optional).
-            fixture_connection: Named fixture connection used (optional).
+            value: Measured value (scalar).
+            limit: Optional ``Limit`` recorded on the row (so analysis
+                sees the active band) but never evaluated.
+            characteristic: Override the active characteristic for
+                limit/spec resolution.
+            namespace: Optional prefix sugar — the effective name
+                becomes ``"{namespace}.{name}"``. Same rule across
+                observe / verify / measure.
 
         Returns:
-            Measurement object with outcome set.
+            The recorded :class:`Measurement` (``Outcome.DONE``).
 
         Example:
             def test_power_supply(context, dmm, psu):
                 context.measure("output_voltage", dmm.measure_dc_voltage())
                 context.measure("quiescent_current", psu.measure_current())
         """
-        if self._harness is None:
-            raise RuntimeError("No harness attached to context")
-        return self._harness.measure(
+        return _perform_measure(
             name,
             value,
-            units=units,
             limit=limit,
-            dut_pin=dut_pin,
-            instrument_channel=instrument_channel,
-            fixture_connection=fixture_connection,
+            characteristic=characteristic,
+            namespace=namespace,
+            unit=unit,
         )
 
 
@@ -505,36 +1058,42 @@ class TestHarness:
     def __init__(
         self,
         config: Mapping[str, Any] | None = None,
-        logger: TestRunLogger | None = None,
+        logger: RunScope | None = None,
         step_name: str = "test",
         retry: RetryConfig | None = None,
         limits: dict[str, MeasurementLimitConfig | Limit] | None = None,
-        product_context: ProductContext | None = None,
+        part_context: PartContext | None = None,
         instruments: dict[str, Any] | None = None,
         mock_instruments: bool = False,
         channel_store: Any | None = None,
+        session_id: UUID | None = None,
     ):
         """Initialize harness.
 
         Args:
             config: Test configuration dict with 'vectors', 'retry', 'limits' keys.
-            logger: TestRunLogger for accumulating results.
+            logger: RunScope for accumulating results.
             step_name: Name for the test step.
             retry: Retry configuration (overrides config if provided).
             limits: Limit configurations by measurement name (overrides config).
-            product_context: ProductContext for spec-driven limit derivation and
+            part_context: PartContext for spec-driven limit derivation and
                          channel traceability.
             instruments: Dictionary of instrument instances for mock configuration.
             mock_instruments: Whether using mock instruments.
             channel_store: Optional ChannelStore for direct writes of numeric data.
+            session_id: Session this harness's contexts belong to. Production paths
+                (pytest plugin, connect.py, slot_runner) pass the active session;
+                test paths can leave None when the blob-observation path isn't
+                exercised.
         """
         self._config = config or {}
         self._logger = logger
         self._step_name = step_name
-        self._product_context = product_context
+        self._part_context = part_context
         self._instruments = instruments or {}
         self._mock_instruments = mock_instruments
         self._channel_store = channel_store
+        self._session_id = session_id
         self._test_level_mock = self._config.get("mocks", {})
 
         # Parse retry config
@@ -651,8 +1210,8 @@ class TestHarness:
         1. Per-vector _limits (if current vector has _limits.{name})
         2. Direct Limit object in self._limits
         3. MeasurementLimitConfig with direct values
-        4. MeasurementLimitConfig with spec ref (uses ProductContext)
-        5. ProductContext characteristic lookup (name matches char_id)
+        4. MeasurementLimitConfig with spec ref (uses PartContext)
+        5. PartContext characteristic lookup (name matches char_id)
 
         Args:
             name: Measurement name.
@@ -688,14 +1247,14 @@ class TestHarness:
                 if result is not None:
                     return result
 
-        # Try ProductContext direct lookup (measurement name = characteristic ID)
-        if self._product_context:
+        # Try PartContext direct lookup (measurement name = characteristic ID)
+        if self._part_context:
             try:
                 conditions = {}
                 if self._current_vector:
                     conditions = self._current_vector.params()
 
-                return self._product_context.get_limit(name, **conditions)
+                return self._part_context.get_limit(name, **conditions)
             except (KeyError, ValueError):
                 pass  # No matching characteristic
 
@@ -720,14 +1279,14 @@ class TestHarness:
 
         # Characteristic-only resolution (no tolerance — fetch the
         # characteristic's spec band straight off the active context).
-        if config.characteristic and self._product_context:
+        if config.characteristic and self._part_context:
             try:
                 conditions = {}
                 if self._current_vector:
                     conditions = self._current_vector.params()
 
                 guardband = config.guardband_pct or 0.0
-                return self._product_context.get_limit(
+                return self._part_context.get_limit(
                     config.characteristic,
                     guardband_pct=guardband,
                     comparator=config.comparator,
@@ -751,7 +1310,7 @@ class TestHarness:
             callable_str: Either a dotted module path
                 (e.g., "myproject.limits.output_voltage") or inline
                 Python code (e.g., "Limit(high=ctx.get_param('vin') * 0.01,
-                units='V')")
+                unit='V')")
 
         Returns:
             Resolved Limit object.
@@ -825,9 +1384,9 @@ class TestHarness:
         self,
         name: str,
         value: float | None,
-        units: str | None = None,
+        unit: str | None = None,
         limit: Limit | None = None,
-        dut_pin: str | None = None,
+        uut_pin: str | None = None,
         instrument_channel: str | None = None,
         fixture_connection: str | None = None,
     ) -> Measurement:
@@ -836,9 +1395,9 @@ class TestHarness:
         Args:
             name: Measurement name.
             value: Measured value.
-            units: Units (optional, uses limit.units if available).
+            unit: Units (optional, uses limit.unit if available).
             limit: Explicit limit (optional, overrides config lookup).
-            dut_pin: DUT pin being measured (optional, auto-resolved from spec).
+            uut_pin: UUT pin being measured (optional, auto-resolved from spec).
             instrument_channel: Instrument channel used (optional).
             fixture_connection: Named fixture connection used (optional).
 
@@ -852,15 +1411,15 @@ class TestHarness:
         # Resolve limit
         resolved_limit = limit or self._resolve_limit(name)
 
-        # Resolve channel traceability from ProductContext if not provided
-        resolved_dut_pin = dut_pin
+        # Resolve channel traceability from PartContext if not provided
+        resolved_uut_pin = uut_pin
         resolved_instrument_channel = instrument_channel
         resolved_fixture_connection = fixture_connection
 
-        if self._product_context and not all([dut_pin, instrument_channel, fixture_connection]):
-            pin_info = self._product_context.get_pin_info(name)
+        if self._part_context and not all([uut_pin, instrument_channel, fixture_connection]):
+            pin_info = self._part_context.get_pin_info(name)
             if pin_info:
-                resolved_dut_pin = resolved_dut_pin or pin_info.get("dut_pin")
+                resolved_uut_pin = resolved_uut_pin or pin_info.get("uut_pin")
                 resolved_instrument_channel = resolved_instrument_channel or pin_info.get(
                     "instrument_channel"
                 )
@@ -872,14 +1431,14 @@ class TestHarness:
         measurement = Measurement(
             name=name,
             value=value,
-            units=units or (resolved_limit.units if resolved_limit else None),
+            unit=unit or (resolved_limit.unit if resolved_limit else None),
             limit_low=resolved_limit.low if resolved_limit else None,
             limit_high=resolved_limit.high if resolved_limit else None,
             limit_nominal=resolved_limit.nominal if resolved_limit else None,
             limit_comparator=resolved_limit.comparator if resolved_limit else None,
             characteristic_id=resolved_limit.characteristic_id if resolved_limit else None,
             spec_ref=resolved_limit.spec_ref if resolved_limit else None,
-            dut_pin=resolved_dut_pin,
+            uut_pin=resolved_uut_pin,
             instrument_channel=resolved_instrument_channel,
             fixture_connection=resolved_fixture_connection,
         )
@@ -943,16 +1502,6 @@ class TestHarness:
             # Single value: infer name from spec ref → limit key → step name
             name = self._infer_measurement_name()
             self.measure(name, result)
-
-    def record(self, key: str, value: Any) -> None:
-        """Emit a key/value record event via the logger.
-
-        Args:
-            key: Record key (e.g., "firmware_version").
-            value: Record value (must be JSON-serializable).
-        """
-        if self._logger:
-            self._logger.record(key, value)
 
     def _infer_measurement_name(self) -> str:
         """Infer measurement name from limits config.
@@ -1108,18 +1657,21 @@ class TestHarness:
         if current_step is not None:
             current_step.vectors.append(test_vector)
 
-        # Set contextvar for concurrency-safe resolution
+        # Set contextvars for concurrency-safe resolution. The context
+        # var lets observer.read stamp this vector's outputs lane entry
+        # for the channel on first write per (vector, channel) — item 5 / Position 2.
         vector_token = push_current_vector(test_vector)
+        context_token = push_current_context(self._vector_context)
+        # Vector boundary (Mode 2, programmatic path): mirror the pytest
+        # ``vectors``-fixture emission so harness-driven loops also announce
+        # each vector. No-op outside a run scope.
+        self._vector_context._emit_vector_started()
         try:
             yield test_vector
         except AssertionError as e:
             test_vector.outcome = Outcome.FAILED
             msg = str(e) or "assertion failed"
             test_vector.error_message = msg
-            m = Measurement(name="assert", value=None, outcome=Outcome.FAILED)
-            test_vector.measurements.append(m)
-            if self._logger is not None:
-                self._logger.log_measurement(m)
             raise
         except Exception as e:
             test_vector.outcome = Outcome.ERRORED
@@ -1130,6 +1682,8 @@ class TestHarness:
             test_vector.params = self._vector_context.params
             test_vector.observations = self._vector_context.observations
             test_vector.ended_at = _utcnow()
+            self._vector_context._emit_vector_ended()
+            reset_current_context(context_token)
             reset_current_vector(vector_token)
             # Save current context for next vector's change detection
             self._prev_vector_context = self._vector_context

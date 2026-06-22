@@ -40,7 +40,6 @@ litmus export abc123 -f stdf -o exports/stdf/          # STDF (requires [stdf])
 litmus export abc123 -f hdf5 -o exports/hdf5/          # HDF5 (requires [hdf5])
 litmus export abc123 -f tdms -o exports/tdms/          # TDMS (requires [tdms])
 litmus export abc123 -f mdf4 -o exports/mdf4/          # MDF4 (requires [mdf4])
-litmus export abc123 -f atml -o exports/atml/          # ATML (built-in XML)
 ```
 
 ## Available formats
@@ -55,7 +54,6 @@ litmus export abc123 -f atml -o exports/atml/          # ATML (built-in XML)
 | hdf5 | `litmus export` | h5py | `pip install litmus-test[hdf5]` | Scientific |
 | tdms | `litmus export` | npTDMS | `pip install litmus-test[tdms]` | NI/LabVIEW |
 | mdf4 | `litmus export` | asammdf | `pip install litmus-test[mdf4]` | Automotive |
-| atml | `litmus export` | stdlib | *(built-in)* | Aerospace/defense |
 
 Bundle: `pip install litmus-test[all-exporters]` installs `stdf`, `hdf5`, `tdms`, `mdf4` together.
 
@@ -70,7 +68,7 @@ Canonical recipes — see [Lakehouse Import](../../integration/data/lakehouse-im
 
 ## Subscribers — internal mechanism
 
-The `EventSubscriber` class in `litmus.data.event_log` powers the exporter subscribers (`CsvSubscriber`, `JsonSubscriber`, `Hdf5Subscriber`, `Mdf4Subscriber`, `StdfSubscriber`, `AtmlSubscriber`) and the `litmus export` replay path. The canonical run parquet is produced by `materialize_run_to_parquet()` rather than a subscriber — it runs from the runs daemon's `AccumulatorPool` on `RunEnded`. This is not a public extension protocol: third-party packages should not register subscribers via entry points or any other mechanism. The set of supported formats is fixed by the package and surfaced through `litmus show` / `litmus export`.
+The `EventSubscriber` class in `litmus.data.event_log` powers the exporter subscribers (`CsvSubscriber`, `JsonSubscriber`, `Hdf5Subscriber`, `Mdf4Subscriber`, `StdfSubscriber`) and the `litmus export` replay path. The canonical run parquet is produced by `materialize_run_to_parquet()` rather than a subscriber — it runs from the runs daemon's `AccumulatorPool` on `RunEnded`. This is not a public extension protocol: third-party packages should not register subscribers via entry points or any other mechanism. The set of supported formats is fixed by the package and surfaced through `litmus show` / `litmus export`.
 
 
 ## See also

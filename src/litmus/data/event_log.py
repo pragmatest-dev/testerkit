@@ -11,6 +11,7 @@ Storage: ``results/events/{date}/{session_id}-{pid}[_{segment}].arrow``
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import warnings
@@ -18,17 +19,24 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pyarrow as pa
 
 from litmus.data._event_filters import event_matches_role
 from litmus.data._ipc_writer import BufferedIPCWriter, read_ipc_batches
-from litmus.data.backends._row_helpers import save_ref_to_dir
-from litmus.data.events import EventBase
+from litmus.data.events import TYPED_PAYLOAD_COLUMNS, EventBase
 
 # Schema for the index columns stored in IPC files.
-# Full event JSON is kept in the ``json`` column for lossless replay.
+#
+# Envelope fields (id, event_type, occurred_at, received_at,
+# session_id, run_id) and the lossless ``json`` payload always exist.
+# In addition, every identifier and name field used for cross-event
+# traversal is promoted into its own VARCHAR column — see
+# :data:`litmus.data.events.TYPED_PAYLOAD_COLUMNS` for the rationale
+# and the list. Promotion duplicates the value (it remains inside
+# ``json``) but lets the daemon push WHERE filters down into DuckDB
+# instead of returning rows for Python to post-filter.
 _IPC_SCHEMA = pa.schema(
     [
         ("id", pa.string()),
@@ -37,7 +45,19 @@ _IPC_SCHEMA = pa.schema(
         ("received_at", pa.timestamp("us", tz="UTC")),
         ("session_id", pa.string()),
         ("run_id", pa.string()),
+        # Emit order, stamped by the writer (the emitting client) at append.
+        # A writer is one EventLog instance; writer_key (uuid, per instance)
+        # keeps concurrent writers of the same session from colliding,
+        # event_offset is that writer's monotonic position. Consumers order by
+        # (session_id, writer_key, event_offset) — order lives in the DATA, so
+        # it's immune to the do_put/ingest insert race (#228) and survives a
+        # backend swap. event_number (daemon nextval) stays the insert-order
+        # resume cursor, never an emit-order key. Provenance (which station /
+        # slot) is the existing typed columns, not this key.
+        ("writer_key", pa.string()),
+        ("event_offset", pa.int64()),
         ("json", pa.string()),
+        *((col, pa.string()) for col in TYPED_PAYLOAD_COLUMNS),
     ]
 )
 
@@ -169,7 +189,7 @@ class EventLog:
         on_flush: Callable[[pa.RecordBatch], None] | None = None,
     ) -> None:
         self.log_dir = log_dir
-        self.session_id = session_id
+        self._session_id = session_id
         self._on_emit = on_emit
         self._on_flush = on_flush
         date_dir = self.log_dir / date.today().isoformat()
@@ -182,7 +202,25 @@ class EventLog:
         )
         self._subscribers: list[EventSubscriber] = []
         self._failed: set[EventSubscriber] = set()
-        self._ref_dir = date_dir / f"{session_id}_ref"
+        # This EventLog is one writer of its session. writer_key (uuid, per
+        # instance) disambiguates concurrent writers of the same session;
+        # event_offset is this writer's monotonic emit position. next() on an
+        # itertools.count is atomic in CPython, so concurrent emits get
+        # distinct, ordered offsets without a lock.
+        self._writer_key = str(uuid4())
+        self._offset_counter = itertools.count()
+        # Item 1d: events no longer own a ref dir. Pre-Position-2 events
+        # held raw blob payloads and ``save_ref`` wrote them under
+        # ``events/{date}/{session_id}_ref/``. Under Position 2 + C-3b
+        # all blobs route through FileStore at the verb layer
+        # (Context.observe / observer._store_value); events carry the
+        # ``file://`` URI string and the EventLog has nothing of its own
+        # to claim-check.
+
+    @property
+    def session_id(self) -> UUID:
+        """The session this log writes for — set at construction, immutable."""
+        return self._session_id
 
     @property
     def path(self) -> Path:
@@ -196,17 +234,19 @@ class EventLog:
         """
         event.received_at = datetime.now(UTC)
 
-        batch = self._ipc.append(
-            {
-                "id": str(event.id),
-                "event_type": event.event_type,  # type: ignore[attr-defined]
-                "occurred_at": event.occurred_at,
-                "received_at": event.received_at,
-                "session_id": str(event.session_id),
-                "run_id": str(event.run_id) if event.run_id else None,
-                "json": event.model_dump_json(),
-            }
-        )
+        row = {
+            "id": str(event.id),
+            "event_type": event.event_type,  # type: ignore[attr-defined]
+            "occurred_at": event.occurred_at,
+            "received_at": event.received_at,
+            "session_id": str(event.session_id),
+            "run_id": str(event.run_id) if event.run_id else None,
+            "writer_key": self._writer_key,
+            "event_offset": next(self._offset_counter),
+            "json": event.model_dump_json(),
+        }
+        row.update(event.typed_payload_values())
+        batch = self._ipc.append(row)
 
         for sub in self._subscribers:
             if sub in self._failed:
@@ -243,11 +283,6 @@ class EventLog:
         """
         sub.open()
         self._subscribers.append(sub)
-
-    def save_ref(self, vector_id: str, key: str, value: Any) -> str:
-        """Save large data to _ref/ subdirectory."""
-        self._ref_dir.mkdir(exist_ok=True)
-        return save_ref_to_dir(self._ref_dir, vector_id, key, value)
 
     def events(
         self,

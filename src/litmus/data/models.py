@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
+
+from litmus.models.test_config import Limit
 
 
 def _utcnow() -> datetime:
@@ -22,21 +24,21 @@ class StimulusRecord(BaseModel):
     Captures the full signal path when an instrument sets an input condition:
     - param: The parameter name (e.g., "vin", "load", "temp")
     - value: The commanded value
-    - units: Units of the value
+    - unit: Unit of the value
     - instrument: Station config name (e.g., "psu_main")
     - resource: VISA address or connection string
     - channel: Channel on instrument (e.g., "CH1")
-    - dut_pin: DUT pin being driven
+    - uut_pin: UUT pin being driven
     - fixture_connection: Named fixture connection
     """
 
     param: str
     value: float | None = None
-    units: str | None = None
+    unit: str | None = None
     instrument: str | None = None  # Station config name (e.g., "psu_main")
     resource: str | None = None  # VISA address or connection string
     channel: str | None = None  # Channel on instrument (e.g., "CH1")
-    dut_pin: str | None = None  # DUT pin being driven
+    uut_pin: str | None = None  # UUT pin being driven
     fixture_connection: str | None = None  # Named fixture connection
 
 
@@ -206,7 +208,7 @@ class Measurement(BaseModel):
     name: str
     step_path: str = ""
     value: float | None
-    units: str | None = None
+    unit: str | None = None
     limit_low: float | None = None
     limit_high: float | None = None
     limit_nominal: float | None = None
@@ -217,7 +219,7 @@ class Measurement(BaseModel):
     timestamp: datetime = Field(default_factory=_utcnow)
 
     # Traceability (ATML: signal routing)
-    dut_pin: str | None = None  # Which DUT pin was measured
+    uut_pin: str | None = None  # Which UUT pin was measured
     instrument_name: str | None = None  # Station config name (e.g., "dmm_main")
     instrument_resource: str | None = None  # VISA address or connection string
     instrument_channel: str | None = None  # Channel on instrument (e.g., "CH1")
@@ -239,8 +241,6 @@ class Measurement(BaseModel):
         * ``PASSED`` / ``FAILED`` — value evaluated against the
           reconstructed limit per its comparator.
         """
-        from litmus.models.test_config import Limit  # noqa: PLC0415
-
         if self.value is None:
             self.outcome = Outcome.ERRORED
             return self.outcome
@@ -248,7 +248,7 @@ class Measurement(BaseModel):
             low=self.limit_low,
             high=self.limit_high,
             nominal=self.limit_nominal,
-            units=self.units,
+            unit=self.unit,
             comparator=self.limit_comparator,
             characteristic_id=self.characteristic_id,
             spec_ref=self.spec_ref,
@@ -289,6 +289,10 @@ class TestVector(BaseModel):
     index: int = 0  # 0-based index in the parameter expansion
     params: dict[str, Any] = Field(default_factory=dict)  # Input parameter values (→ in_*)
     observations: dict[str, Any] = Field(default_factory=dict)  # Observed context (→ out_*)
+    # Optional engineering unit per param / observation name → the lane unit field.
+    param_units: dict[str, str] = Field(default_factory=dict)
+    observation_units: dict[str, str] = Field(default_factory=dict)
+    observation_pins: dict[str, str] = Field(default_factory=dict)
     stimulus: list[StimulusRecord] = Field(default_factory=list)  # Stimulus signal paths
     retry: int = 0  # Retry counter — 0 for the first execution, N for the Nth retry
     max_retries: int = 0  # Maximum retries allowed (0 = no retries, single execution)
@@ -381,7 +385,7 @@ class CollectedItem(BaseModel):
     vector_count_planned: int = 1
 
 
-class DUT(BaseModel):
+class UUT(BaseModel):
     """Device under test identification."""
 
     serial: str
@@ -398,9 +402,9 @@ class RunSummary(BaseModel):
     slot_id: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
-    dut_serial: str | None = None
-    dut_part_number: str | None = None
-    product_id: str | None = None
+    uut_serial: str | None = None
+    uut_part_number: str | None = None
+    part_id: str | None = None
     station_id: str | None = None
     station_name: str | None = None
     station_type: str | None = None
@@ -425,13 +429,13 @@ class TestRun(BaseModel):
     started_at: datetime = Field(default_factory=_utcnow)
     ended_at: datetime | None = None
 
-    # DUT identification
-    dut: DUT
+    # UUT identification
+    uut: UUT
 
-    # Product traceability
-    product_id: str | None = None
-    product_name: str | None = None
-    product_revision: str | None = None
+    # Part traceability
+    part_id: str | None = None
+    part_name: str | None = None
+    part_revision: str | None = None
 
     # Station traceability — ``station_id`` is None for bringup tier
     # runs (no station YAML on disk; tests use conftest-defined
@@ -485,20 +489,29 @@ class TestRun(BaseModel):
 class Waveform(BaseModel):
     """Time-series waveform data with metadata.
 
-    Uses compressed representation where time axis is reconstructed
-    from t0 + i*dt instead of storing paired timestamps.
+    Uses compressed representation where the time axis is reconstructed
+    from ``t0 + i * dt`` instead of storing paired timestamps.
 
     Attributes:
-        t0: Start time (seconds from trigger)
-        dt: Sample interval (seconds)
-        Y: Sample values (voltage, current, etc.)
-        attrs: Metadata (units, channel, coupling, etc.)
+        t0: Absolute UTC timestamp of the first sample. ``None`` when
+            the producer doesn't know the wall-clock time (e.g. a
+            synthesized or hardware-trigger-relative capture). For
+            scope captures where samples are relative to a trigger,
+            store the trigger offset in ``attributes`` and set ``t0``
+            to the trigger's absolute time.
+        dt: Sample interval (seconds).
+        Y: Sample values (voltage, current, etc.).
+        attributes: Metadata (unit, channel, coupling, trigger
+            offset, etc.). Renamed from ``attrs`` in build item 17 for
+            cross-schema vocabulary consistency (matches
+            FileArtifactMetadata.attributes and
+            ChannelDescriptor.attributes).
     """
 
-    t0: float = 0.0
+    t0: datetime | None = None
     dt: float
     Y: list[float]  # Sample values
-    attrs: dict[str, Any] = Field(default_factory=dict)
+    attributes: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def num_samples(self) -> int:
@@ -510,6 +523,52 @@ class Waveform(BaseModel):
         """Total duration in seconds."""
         return self.num_samples * self.dt
 
-    def time_axis(self) -> list[float]:
-        """Reconstruct time axis: t = t0 + i*dt."""
-        return [self.t0 + i * self.dt for i in range(self.num_samples)]
+    def time_axis(self) -> list[datetime]:
+        """Reconstruct the absolute time axis: ``t0 + i * dt`` for each sample.
+
+        Raises ``ValueError`` if ``t0`` is None — without an anchor,
+        the absolute axis can't be reconstructed. Callers that only
+        need relative time should compute ``[i * dt for i in
+        range(num_samples)]`` directly.
+        """
+        if self.t0 is None:
+            raise ValueError(
+                "Waveform.time_axis() requires t0 to be set. "
+                "For relative-only time, use [i * dt for i in range(num_samples)]."
+            )
+        return [self.t0 + timedelta(seconds=i * self.dt) for i in range(self.num_samples)]
+
+
+class XYData(BaseModel):
+    """Paired x/y arrays for related-but-non-time-series data (item 15).
+
+    For data the test author thinks of as one artifact rather than two
+    parallel channels: IV curves, eye diagrams, S-parameter sweeps,
+    optical spectra. Per the §4 manifestation rules, this is "Pattern
+    B" — one discrete artifact per vector that routes to FileStore.
+
+    ``observe(name, XYData(...))`` registers via the serializer
+    registry (build item 12) and lands on disk as a single ``.npz``
+    holding ``x``, ``y``, and any of the optional unit/name keys
+    that were set. The MIME convention (build item 13) is
+    ``application/x-numpy-npz``.
+
+    Use parallel channels (`stream`) instead when the data is
+    continuous over time and you want it live-subscribable — see §4
+    Pattern A.
+
+    Attributes:
+        x: Independent-axis values.
+        y: Dependent-axis values. Must have the same length as ``x``.
+        x_unit: Optional unit for the x axis ("V", "Hz", "dBm").
+        y_unit: Optional unit for the y axis.
+        x_name: Optional human label for the x axis ("Bias voltage").
+        y_name: Optional human label for the y axis.
+    """
+
+    x: list[float]
+    y: list[float]
+    x_unit: str | None = None
+    y_unit: str | None = None
+    x_name: str | None = None
+    y_name: str | None = None

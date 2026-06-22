@@ -9,9 +9,11 @@ DuckDB index is rebuilt from IPC files on every daemon start.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
-from litmus.data._daemon_lifecycle import DaemonManager
+from litmus.data._daemon_lifecycle import DaemonManager, wait_for_location
+from litmus.data._flight_query import probe_sql
 
 
 class DuckDBDaemonManager(DaemonManager):
@@ -31,13 +33,21 @@ class DuckDBDaemonManager(DaemonManager):
 def acquire(events_dir: Path) -> str:
     """Acquire a reference to the DuckDB daemon, starting it if needed.
 
-    Returns the gRPC location string for Flight queries.
+    Returns the gRPC location string for Flight queries. Probes the daemon
+    after acquiring: if its Flight thread is wedged or dead (PID alive but not
+    responding), it's killed and respawned so callers get a working connection.
     """
     mgr = DuckDBDaemonManager(events_dir)
     mgr.acquire()
-    location = mgr.read_state().get("location")
-    if not location:
-        raise RuntimeError(f"DuckDB daemon started but no location in state: {events_dir}")
+    location = wait_for_location(mgr, events_dir, "events")
+    if not probe_sql(location, "events"):
+        warnings.warn(
+            f"Events daemon at {location} is not responding — killing and respawning.",
+            stacklevel=2,
+        )
+        mgr.force_restart()
+        mgr.acquire()
+        location = wait_for_location(mgr, events_dir, "events")
     return location
 
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.instruments.observer import EventEmitter
+from litmus.instruments.observer import InstrumentEventBuilder
 from litmus.instruments.observers.descriptor import DescriptorObserver
 
 _MOVE_METHODS = frozenset(
@@ -34,7 +34,7 @@ class MotionObserver(DescriptorObserver):
         self,
         driver_class: type,
         role: str,
-        emit: EventEmitter,
+        emit: InstrumentEventBuilder,
         yaml_overrides: dict[str, str] | None = None,
         driver_instance: Any = None,
     ) -> None:

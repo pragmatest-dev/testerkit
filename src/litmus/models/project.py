@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from litmus.models.data_options import ChannelOptions, FileOptions, SessionOptions, StreamTuning
 from litmus.models.test_config import PromptConfig, TestEntry
 
 
@@ -49,7 +50,7 @@ class ProfileConfig(TestEntry):
     fixture: str | None = None
     # When unset / True (default), ``verify(name, value)`` raises
     # ``MissingLimitError`` if no limit resolves from any source
-    # (inline / marker / sidecar / profile / product spec). Set to
+    # (inline / marker / sidecar / profile / part spec). Set to
     # ``False`` on a characterization-style profile to record values
     # without judging — verify() with no resolved limit falls back to
     # ``logger.measure`` semantics (Outcome.DONE). Affects ``verify``
@@ -84,6 +85,12 @@ class ProjectConfig(BaseModel):
 
     name: str
     data_dir: str | None = None
+    # Producer-local data options (buffering / push tuning + the files blob
+    # backend; session liveness / will defaults).
+    channels: ChannelOptions = Field(default_factory=ChannelOptions)
+    files: FileOptions = Field(default_factory=FileOptions)
+    session: SessionOptions = Field(default_factory=SessionOptions)
+    stream: StreamTuning = Field(default_factory=StreamTuning)
     # Optional fallback station id when no ``--station`` is passed
     # and hostname auto-match doesn't fire.
     # Set this to a real station id in your project; leaving it

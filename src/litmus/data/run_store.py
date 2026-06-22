@@ -3,12 +3,16 @@
 Mirrors EventStore's pattern: parquet files are the source of truth,
 a DuckDB daemon indexes them, and RunStore provides a clean query API.
 ParquetBackend keeps the write path; RunStore owns reads + ref management.
+
+Construct once and reuse across notebook cells or long-running scripts.
+The analytical daemon is a separate process with its own PID-ref and idle
+timeout, so forgetting to call ``close()`` does not leak it. ``close()``
+and ``with`` are optional.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import warnings
 from pathlib import Path
 from typing import Any
@@ -18,8 +22,9 @@ import pyarrow.flight as flight
 import pyarrow.parquet as pq
 
 from litmus.data import runs_duckdb_manager
-from litmus.data._flight_query import FlightQueryClient
+from litmus.data._flight_query import FlightQueryClient, call_options
 from litmus.data._sql_helpers import sql_escape as _sql_escape
+from litmus.data.backends._row_helpers import _decode_dynamic_attrs_map
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import RunSummary
 
@@ -44,9 +49,13 @@ class RunStore:
 
     Uses a ref-counted in-memory DuckDB daemon for indexed queries — same
     lifecycle pattern as EventStore. Queries go via Arrow Flight (gRPC).
+
+    Construct once and reuse across calls. ``close()`` / ``with`` are optional
+    — the daemon is a separate process that self-manages via PID-ref and idle
+    timeout, so forgetting to close does not leak it.
     """
 
-    def __init__(self, *, _data_dir: Path | None = None) -> None:
+    def __init__(self, *, _data_dir: Path | str | None = None) -> None:
         data_dir = resolve_data_dir(_data_dir)
 
         self._runs_dir = data_dir / "runs"
@@ -77,9 +86,9 @@ class RunStore:
     def list_runs(self, limit: int = 50) -> list[RunSummary]:
         """List recent test runs, most recent first."""
         rows = self._flight_query(f"""
-            SELECT file_path, run_id, session_id, dut_serial, station_id,
+            SELECT file_path, run_id, session_id, uut_serial, station_id,
                    outcome, started_at, num_measurements,
-                   test_phase, product_id, operator_id,
+                   test_phase, part_id, operator_id,
                    project_name
             FROM runs
             ORDER BY started_at DESC
@@ -91,12 +100,12 @@ class RunStore:
                 test_run_id=r["run_id"],
                 session_id=r.get("session_id"),
                 started_at=r.get("started_at"),
-                dut_serial=r.get("dut_serial"),
+                uut_serial=r.get("uut_serial"),
                 station_id=r.get("station_id"),
                 outcome=r.get("outcome"),
                 total_measurements=r.get("num_measurements", 0),
                 test_phase=r.get("test_phase"),
-                product_id=r.get("product_id"),
+                part_id=r.get("part_id"),
                 operator=r.get("operator_id"),
                 project_name=r.get("project_name"),
                 file_path=r.get("file_path"),
@@ -150,9 +159,9 @@ class RunStore:
             session_id=r.get("session_id"),
             started_at=r.get("started_at"),
             ended_at=r.get("ended_at"),
-            dut_serial=r.get("dut_serial"),
-            dut_part_number=r.get("dut_part_number"),
-            product_id=r.get("product_id"),
+            uut_serial=r.get("uut_serial"),
+            uut_part_number=r.get("uut_part_number"),
+            part_id=r.get("part_id"),
             station_id=r.get("station_id"),
             station_name=r.get("station_name"),
             station_hostname=r.get("station_hostname"),
@@ -182,20 +191,14 @@ class RunStore:
                     logger.debug("Failed to enrich run %s from parquet: %s", run_id, exc)
         return summary
 
-    def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict[str, Any]]:
+    def get_measurements(self, run_id: str) -> list[dict[str, Any]]:
         """Get all measurements for a specific test run.
 
         Goes through the daemon's ``measurements`` view (a parquet glob
         with ``union_by_name=true``) instead of reading the parquet file
         directly — DuckDB does the multi-file scan in C++ with predicate
         pushdown on ``run_id`` and avoids client-side parquet decoding.
-
-        ``_file`` is no longer honored (was a test-only escape hatch);
-        callers should pass ``run_id`` and trust the daemon to find the
-        rows. Kept in the signature for backwards-compat at the call
-        sites that pass it as keyword.
         """
-        _ = _file  # ignore — daemon resolves run_id directly
         prefix = self._id_prefix(run_id)
         try:
             rows = self._flight_query(f"""
@@ -207,26 +210,12 @@ class RunStore:
         except Exception as exc:
             logger.debug("Failed to query measurements for %s: %s", run_id, exc)
             return []
-        # Expand dynamic_attrs MAP into top-level keys so callers can access
-        # dynamic columns (out_*, in_*, value, units, etc.) as regular dict keys.
-        # DuckDB MAP(VARCHAR,VARCHAR) arrives from Arrow as a list of (key, value)
-        # tuples rather than a Python dict. Numeric strings are coerced to float
-        # for backwards compatibility with callers expecting native types.
+
         for row in rows:
-            da = row.pop("dynamic_attrs", None)
-            if not da:
-                continue
-            items = da.items() if isinstance(da, dict) else da
-            for k, v in items:
-                if k is None:
-                    continue
-                if isinstance(v, str):
-                    try:
-                        row[k] = float(v)
-                    except ValueError:
-                        row[k] = v
-                else:
-                    row[k] = v
+            # pop removes dynamic_attrs from the dict before returning it
+            row["inputs"], row["outputs"] = _decode_dynamic_attrs_map(
+                row.pop("dynamic_attrs", None)
+            )
         return rows
 
     # --- Ref management (for materialize) ---
@@ -252,7 +241,7 @@ class RunStore:
         quoted = ", ".join(f"'{_sql_escape(s)}'" for s in session_shorts)
         return self._flight_query(f"""
             SELECT file_path, step_index, measurement_name, col_name,
-                   row_idx, uri, channel_id, session_short
+                   role, row_idx, uri, channel_id, session_short, session_id
             FROM measurement_refs
             WHERE session_short IN ({quoted})
         """)
@@ -292,38 +281,6 @@ class RunStore:
             )
             return []
 
-    def rewrite_refs(self, file_path: Path, replacements: dict[str, dict[int, str]]) -> None:
-        """Atomic parquet column rewrite. Reads, replaces URIs, write-tmp, os.replace."""
-        if not replacements:
-            return
-
-        table = pq.read_table(file_path)
-        arrays: dict[str, list[object]] = {}
-        for col_name, row_map in replacements.items():
-            col = table.column(col_name)
-            new_values = [v.as_py() for v in col]
-            for row_idx, new_uri in row_map.items():
-                new_values[row_idx] = new_uri
-            arrays[col_name] = new_values
-
-        new_columns = []
-        for name in table.column_names:
-            if name in arrays:
-                new_columns.append(pa.array(arrays[name], type=pa.string()))
-            else:
-                new_columns.append(table.column(name))
-
-        new_table = pa.table({name: col for name, col in zip(table.column_names, new_columns)})
-
-        # Preserve parquet file-level metadata
-        orig_meta = pq.read_metadata(file_path)
-        if orig_meta.metadata:
-            new_table = new_table.replace_schema_metadata(orig_meta.metadata)
-
-        tmp_path = file_path.with_suffix(".tmp.parquet")
-        pq.write_table(new_table, tmp_path)
-        os.replace(tmp_path, file_path)
-
     @staticmethod
     def ref_dir_for(file_path: Path) -> Path:
         """Return _ref/ sidecar dir path for a parquet file."""
@@ -337,7 +294,7 @@ class RunStore:
             descriptor = flight.FlightDescriptor.for_command(b"runs\0runs")
             table = pa.table({"file_path": paths})
             batches = table.to_batches()
-            writer, reader = client.do_put(descriptor, table.schema)
+            writer, reader = client.do_put(descriptor, table.schema, options=call_options())
             for batch in batches:
                 writer.write_batch(batch)
             # Drain ACKs — each ACK confirms the server committed one batch,
@@ -360,3 +317,9 @@ class RunStore:
             runs_duckdb_manager.release(self._runs_dir)
         except Exception as exc:
             warnings.warn(f"runs_duckdb_manager.release failed: {exc}", stacklevel=2)
+
+    def __enter__(self) -> RunStore:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()

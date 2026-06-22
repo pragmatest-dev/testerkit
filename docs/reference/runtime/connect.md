@@ -7,7 +7,7 @@ Source: `src/litmus/connect.py`.
 ## Function signature
 
 ```python
-from litmus.connect import connect
+from litmus import connect
 
 connect(
     station: str | None = None,
@@ -28,7 +28,7 @@ Returns a `StationConnection`. Usable as a context manager (`with connect(...) a
 ## Quick start
 
 ```python
-from litmus.connect import connect
+from litmus import connect
 
 # Context-manager form — typical for scripts
 with connect("cell-7", mock=True) as station:
@@ -87,8 +87,8 @@ Constructor: `StationConnection(station_config: StationConfig, *, data_dir: Path
 |---|---|---|
 | `events(*, event_type=None, role=None)` | `list[dict]` | Read events from this session's log. Both filters are optional. |
 | `on_event(callback, *, event_type=None, role=None, since=None)` | `Callable[[], None]` (unsubscribe) | Subscribe to events. Replays matching past events first, then pushes new ones as they arrive. |
-| `observe(key, value, *, units=None, sample_interval=None)` | `str` (`channel://` URI) | Append a sample to the `ChannelStore`. Returns the claim-check URI other events can reference. |
-| `sync(name, timeout: float \| None = None)` | `None` | Wait at a named sync point. Used for multi-DUT slot coordination. |
+| `observe(key, value, *, unit=None, sample_interval=None)` | `str` (`channel://` URI) | Append a sample to the `ChannelStore`. Returns the claim-check URI other events can reference. |
+| `sync(name, timeout: float \| None = None)` | `None` | Wait at a named sync point. Used for multi-UUT slot coordination. |
 
 ### Context-manager protocol
 

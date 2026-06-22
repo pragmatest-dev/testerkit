@@ -131,6 +131,23 @@ class BufferedIPCWriter:
         self._on_flush(batch)
         return batch
 
+    def append_batch(self, batch: pa.RecordBatch) -> pa.RecordBatch:
+        """Bulk path: write a pre-built multi-row batch directly to the stream.
+
+        Drains any dict-buffered single rows first so ordering is preserved,
+        then writes ``batch`` in one shot — the columnar fast path used by
+        ``write_many`` (no per-row dict build). Fires ``_on_flush`` like a
+        normal flush so segment rotation / push hooks still run.
+        """
+        with self._lock:
+            self._cancel_timer()
+            self._flush_unlocked()
+            writer = self._ensure_writer()
+            writer.write_batch(batch)
+            self._row_count += batch.num_rows
+            self._on_flush(batch)
+            return batch
+
     def _on_flush(self, batch: pa.RecordBatch) -> None:
         """Hook called after each flush. Override for post-flush behavior."""
 

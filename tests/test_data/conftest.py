@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 
 
 @pytest.fixture
@@ -21,14 +21,14 @@ def realistic_test_run() -> TestRun:
       - All 10 comparator types spread across measurements
       - value=None measurement (error case)
       - Nested step_path ("power/output/voltage")
-      - DUT with all fields, custom_metadata, instrument_arrays
+      - UUT with all fields, custom_metadata, instrument_arrays
     """
     return TestRun(
         id=uuid4(),
         started_at=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 3, 4, 10, 5, 0, tzinfo=UTC),
-        dut=DUT(
-            serial="DUT-001",
+        uut=UUT(
+            serial="UUT-001",
             part_number="PN-200",
             revision="B",
             lot_number="LOT-42",
@@ -37,9 +37,9 @@ def realistic_test_run() -> TestRun:
         station_name="Alpha Bench",
         station_type="power_test",
         station_location="Lab 3",
-        product_id="PROD-100",
-        product_name="Widget Pro",
-        product_revision="2.1",
+        part_id="PROD-100",
+        part_name="Widget Pro",
+        part_revision="2.1",
         fixture_id="FIX-007",
         test_phase="qualification",
         project_name="seq_power_validation",
@@ -75,19 +75,19 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="vout",
                                 value=3.30,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GELE",
                                 outcome=Outcome.PASSED,
-                                dut_pin="VOUT",
+                                uut_pin="VOUT",
                                 instrument_name="DMM_01",
                                 characteristic_id="SPEC-001",
                             ),
                             Measurement(
                                 name="iout",
                                 value=0.50,
-                                units="A",
+                                unit="A",
                                 limit_low=0.0,
                                 limit_high=1.0,
                                 limit_comparator="GELT",
@@ -97,7 +97,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="vout_exclusive",
                                 value=3.31,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GTLT",
@@ -106,7 +106,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="vout_gt_low",
                                 value=3.31,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GTLE",
@@ -126,7 +126,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="vout",
                                 value=3.29,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 limit_comparator="GELE",
@@ -135,7 +135,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="vref_eq",
                                 value=1.25,
-                                units="V",
+                                unit="V",
                                 limit_nominal=1.25,
                                 limit_comparator="EQ",
                                 outcome=Outcome.PASSED,
@@ -164,7 +164,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="ilimit",
                                 value=2.5,
-                                units="A",
+                                unit="A",
                                 limit_high=2.0,
                                 limit_comparator="LE",
                                 outcome=Outcome.FAILED,
@@ -172,7 +172,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="threshold_ne",
                                 value=0.0,
-                                units="V",
+                                unit="V",
                                 limit_nominal=0.0,
                                 limit_comparator="NE",
                                 outcome=Outcome.FAILED,
@@ -180,7 +180,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="dropout_lt",
                                 value=0.3,
-                                units="V",
+                                unit="V",
                                 limit_high=0.5,
                                 limit_comparator="LT",
                                 outcome=Outcome.PASSED,
@@ -188,7 +188,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="bias_ge",
                                 value=1.0,
-                                units="mA",
+                                unit="mA",
                                 limit_low=0.5,
                                 limit_comparator="GE",
                                 outcome=Outcome.PASSED,
@@ -196,7 +196,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="leakage_gt",
                                 value=0.01,
-                                units="uA",
+                                unit="uA",
                                 limit_low=0.001,
                                 limit_comparator="GT",
                                 outcome=Outcome.PASSED,
@@ -205,7 +205,7 @@ def realistic_test_run() -> TestRun:
                             Measurement(
                                 name="broken_sensor",
                                 value=None,
-                                units="V",
+                                unit="V",
                                 limit_low=0.0,
                                 limit_high=5.0,
                                 limit_comparator="GELE",
@@ -259,13 +259,13 @@ def _replay_events(
             station_name=test_run.station_name,
             station_type=test_run.station_type,
             station_location=test_run.station_location,
-            dut_serial=test_run.dut.serial,
-            dut_part_number=test_run.dut.part_number,
-            dut_revision=test_run.dut.revision,
-            dut_lot_number=test_run.dut.lot_number,
-            product_id=test_run.product_id,
-            product_name=test_run.product_name,
-            product_revision=test_run.product_revision,
+            uut_serial=test_run.uut.serial,
+            uut_part_number=test_run.uut.part_number,
+            uut_revision=test_run.uut.revision,
+            uut_lot_number=test_run.uut.lot_number,
+            part_id=test_run.part_id,
+            part_name=test_run.part_name,
+            part_revision=test_run.part_revision,
             operator_id=test_run.operator_id,
             operator_name=test_run.operator_name,
             fixture_id=test_run.fixture_id,
@@ -308,7 +308,7 @@ def _replay_events(
                         retry=vector.retry,
                         measurement_name=meas.name,
                         value=meas.value,
-                        units=meas.units,
+                        unit=meas.unit,
                         outcome=str(meas.outcome) if meas.outcome else None,
                         limit_low=meas.limit_low,
                         limit_high=meas.limit_high,
@@ -316,7 +316,7 @@ def _replay_events(
                         limit_comparator=meas.limit_comparator,
                         characteristic_id=meas.characteristic_id,
                         spec_ref=meas.spec_ref,
-                        dut_pin=meas.dut_pin,
+                        uut_pin=meas.uut_pin,
                         instrument_name=meas.instrument_name,
                         instrument_resource=meas.instrument_resource,
                         instrument_channel=meas.instrument_channel,

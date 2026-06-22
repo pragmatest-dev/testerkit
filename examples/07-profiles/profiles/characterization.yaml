@@ -1,7 +1,7 @@
 # Characterization — wide sweep, no limits (record-only).
 #
 # verify_requires_limit: false makes verify() with no resolved limit
-# fall back to logger.measure semantics (Outcome.DONE) instead of
+# fall back to measure() semantics (Outcome.DONE) instead of
 # raising MissingLimitError. The same test code that judges in the
 # dev/production profiles records data in this one.
 facets:

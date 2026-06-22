@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 
 from litmus.data.event_store import EventStore
-from litmus.data.events import SessionStarted
+from litmus.data.events import FileStarted, SessionStarted
 
 
 @pytest.fixture(scope="module")
@@ -65,6 +65,55 @@ class TestEmitAndQuery:
         assert len(sessions) == 1
         assert sessions[0]["station_id"] == "test-station"
 
+    def test_role_filter_pushdown_matches_three_branches(self, store: EventStore):
+        """``role=`` pushes into SQL as ``role OR instrument_role OR channel_id LIKE``.
+
+        Each of the three branches in :func:`event_matches_role` is
+        exercised by a different event class; the query must return
+        all three. Events with no role linkage are excluded.
+        """
+        from litmus.data.events import (
+            ChannelStarted,
+            InstrumentConnected,
+            InstrumentSet,
+        )
+
+        sid = uuid4()
+        # Branch 1: role= matches on the ``role`` column (InstrumentConnected)
+        store.emit(
+            InstrumentConnected(
+                session_id=sid,
+                role="dmm",
+                instrument_id="dmm_a",
+                resource="GPIB::1",
+            )
+        )
+        # Branch 2: role= matches on ``instrument_role`` (InstrumentSet)
+        store.emit(
+            InstrumentSet(
+                session_id=sid,
+                instrument_role="dmm",
+                channel_id="dmm.range",
+                attribute="range",
+                value=10.0,
+            )
+        )
+        # Branch 3: role= matches via channel_id LIKE 'dmm.%' (ChannelStarted
+        # uses ``instrument_role`` too, so use a no-instrument-role variant
+        # to prove the prefix branch independently).
+        store.emit(ChannelStarted(session_id=sid, channel_id="dmm.ch1", unit="V"))
+        # Negative: a role= filter must not match unrelated events
+        store.emit(_make_session_started(sid))
+
+        results = store.events(session_id=sid, role="dmm")
+        assert len(results) == 3
+        kinds = {r["event_type"] for r in results}
+        assert kinds == {
+            "fixture.instrument_connected",
+            "instrument.set",
+            "channel.started",
+        }
+
 
 class TestSubscriptions:
     def test_on_event_replays_existing(self, store: EventStore):
@@ -111,6 +160,91 @@ class TestSubscriptions:
         store.emit(_make_session_started(sid))
         assert len(received) == 0
         unsub()
+
+    def test_on_event_filters_by_run_id(self, store: EventStore):
+        """run_id filter: only events with matching run_id reach the subscriber.
+
+        Live `/live/{run_id}` pages rely on this so operators only see
+        streams from the run they navigated to.
+        """
+        sid = uuid4()
+        my_run = uuid4()
+        other_run = uuid4()
+        received = []
+        unsub = store.on_event(
+            lambda e: received.append(e),
+            event_type="file.started",
+            run_id=my_run,
+            replay="none",  # only count live events for clarity
+        )
+        try:
+            # Same session, different runs — only ``my_run`` should land
+            store.emit(
+                FileStarted(
+                    session_id=sid,
+                    run_id=other_run,
+                    file_id=uuid4(),
+                    name="other",
+                    format="raw",
+                )
+            )
+            store.emit(
+                FileStarted(
+                    session_id=sid,
+                    run_id=my_run,
+                    file_id=uuid4(),
+                    name="mine",
+                    format="raw",
+                )
+            )
+            store.emit(
+                FileStarted(
+                    session_id=sid,
+                    run_id=other_run,
+                    file_id=uuid4(),
+                    name="other2",
+                    format="raw",
+                )
+            )
+
+            # Drain — give the in-process dispatcher a tick
+            time.sleep(0.05)
+
+            assert len(received) == 1
+            assert received[0]["name"] == "mine"
+            assert received[0]["run_id"] == str(my_run)
+        finally:
+            unsub()
+
+    def test_events_query_filters_by_run_id(self, store: EventStore):
+        """``events(run_id=...)`` returns only that run's events."""
+        sid = uuid4()
+        my_run = uuid4()
+        other_run = uuid4()
+        store.emit(
+            FileStarted(
+                session_id=sid,
+                run_id=my_run,
+                file_id=uuid4(),
+                name="mine_query",
+                format="raw",
+            )
+        )
+        store.emit(
+            FileStarted(
+                session_id=sid,
+                run_id=other_run,
+                file_id=uuid4(),
+                name="other_query",
+                format="raw",
+            )
+        )
+        store.flush()
+
+        rows = store.events(event_type="file.started", run_id=my_run)
+        names = {r.get("name") for r in rows}
+        assert "mine_query" in names
+        assert "other_query" not in names
 
 
 class TestGetEventLog:

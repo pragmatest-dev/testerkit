@@ -1,196 +1,131 @@
 # Measurement Traceability
 
-Litmus provides ATML-style traceability for every measurement, enabling compliance reporting, root cause analysis, and calibration tracking.
+Every measurement Litmus records carries a fixed set of traceability fields. The platform stamps them automatically — you don't add them by hand unless you're passing raw values without using the `verify` fixture or a fixture connection.
 
-**The framework automatically captures ALL metadata when a measurement is produced.** No user effort required.
+## What gets recorded
 
-## What is ATML?
+### Per-measurement fields
 
-**ATML (Automatic Test Markup Language)** is an IEEE standard (IEEE 1671) for exchanging test information. It defines:
-
-- Standard vocabulary for test outcomes (IEEE-1671 uses PASS / FAIL / SKIP / ERROR; Litmus maps these onto its lowercase `passed / failed / skipped / errored / done / terminated / aborted` enum)
-- Standard comparator types (GELE, GTLT, EQ, NE, etc.)
-- Signal routing concepts (how measurements trace back to DUT pins and instruments)
-
-Litmus adopts ATML terminology and concepts to enable interoperability with other test systems and compliance with industry standards.
-
-## Traceability Fields
-
-Every Measurement in Litmus includes traceability fields:
-
-### Measurement Signal Path
+These fields attach to each individual measurement. They come from the `verify` / `measure` call site, the active fixture connection, and the station config.
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| `spec_ref` | Reference to specification | `"output_voltage"` |
-| `dut_pin` | Which DUT pin was measured | `"J1.3"`, `"TP_VOUT"` |
-| `instrument_name` | Station config instrument name | `"dmm"`, `"dmm_main"` |
-| `instrument_resource` | VISA address or connection | `"TCPIP::192.168.1.100::INSTR"` |
-| `instrument_channel` | Channel on the instrument | `"CH1"`, `"ai0"`, `"1"` |
+| `measurement_name` | Name passed to `verify` / `measure` | `"output_voltage"` |
+| `measurement_value` | Numeric result | `3.312` |
+| `measurement_unit` | Unit string | `"V"` |
+| `measurement_outcome` | Pass / fail verdict | `"passed"` |
+| `uut_pin` | UUT pin the measurement was taken at | `"J1.3"`, `"TP_VOUT"` |
+| `instrument_name` | Station-config logical name for the instrument | `"dmm"`, `"dmm_main"` |
+| `instrument_resource` | VISA address or connection string | `"TCPIP::192.168.1.100::INSTR"` |
+| `instrument_channel` | Channel on the instrument | `"CH1"`, `"ai0"` |
 | `fixture_connection` | Fixture connection name | `"VOUT"`, `"VIN_SENSE"` |
+| `characteristic_id` | Part-spec characteristic key | `"output_voltage"` |
+| `spec_ref` | Spec reference string | `"output_voltage @ tolerance_pct=5"` |
+| `limit_low` | Lower limit | `3.135` |
+| `limit_high` | Upper limit | `3.465` |
+| `limit_nominal` | Nominal value | `3.3` |
+| `limit_comparator` | How value is compared to limits | `"GELE"` |
 
-### Stimulus Signal Path (Dynamic)
+### Stimulus inputs and environmental readings
 
-For each input parameter, Litmus captures the full signal path:
+Values recorded with `context.configure()` (stimulus) and `context.observe()` (environmental readings) are stored in the parquet `inputs` and `outputs` nested columns. Each entry carries `name`, `value`, `unit`, and `uut_pin` for that specific entry. There are no per-input `instrument_name` or `resource` columns — instrument identity for measurements is on the measurement row itself.
 
-| Column Pattern | Description | Example |
-|----------------|-------------|---------|
-| `in_{param}` | Value commanded | `in_vin = 12.0` |
-| `in_{param}_instrument` | Instrument name | `in_vin_instrument = "psu_main"` |
-| `in_{param}_resource` | VISA address | `in_vin_resource = "TCPIP::..."` |
-| `in_{param}_channel` | Channel | `in_vin_channel = "CH1"` |
-| `in_{param}_dut_pin` | DUT pin driven | `in_vin_dut_pin = "VIN"` |
-| `in_{param}_fixture_connection` | Fixture routing | `in_vin_fixture_connection = "vin_supply"` |
+The `inputs` and `outputs` columns are EAV (entity-attribute-value) lists, not wide columns. The DuckDB daemon projects them into the `measurements_dynamic` table for queries, keyed by `(role, name)` where `role` is `"input"` or `"output"`.
 
-## The Traceability Chain
+### Run context
 
-Every measurement can be traced from result back to source:
+Every measurement row also carries the run's context fields — `uut_serial`, `uut_part_number`, `station_hostname`, `operator_id`, `test_phase`, `git_commit`, and others. These come from the run record, not from individual test functions.
 
-```mermaid
-flowchart LR
-    meas["Measurement Output"]
-    spec["Product Spec<br/>(products/id.yaml)<br/><sub>Characteristic ID from datasheet</sub>"]
-    pin["Product Pin Definition<br/><sub>Physical location: J1.3, net: VOUT</sub>"]
-    fix["Fixture Config<br/>(fixture.yaml)<br/><sub>Maps DUT pin to instrument</sub>"]
-    sta["Station Config<br/>(station.yaml)<br/><sub>Logical name: dmm_main</sub>"]
-    res["Physical Connection<br/><sub>VISA: TCPIP::192.168.1.100::INSTR</sub>"]
-    ch["Instrument Channel<br/><sub>Specific input: CH1, ai0</sub>"]
+## Setting traceability in tests
 
-    meas -- spec_ref --> spec
-    meas -- dut_pin --> pin
-    meas -- fixture_connection --> fix
-    meas -- instrument_name --> sta
-    meas -- instrument_resource --> res
-    meas -- instrument_channel --> ch
+### Automatic (via `verify` with fixture connections)
 
-    stim["Stimulus Inputs<br/>(in_&#123;param&#125;)"]
-    sinstr["Source instrument"]
-    sres["VISA address"]
-    sch["Channel on instrument"]
-    spin["DUT pin driven"]
-    sfix["Fixture routing"]
-
-    stim -- in_{param}_instrument --> sinstr
-    stim -- in_{param}_resource --> sres
-    stim -- in_{param}_channel --> sch
-    stim -- in_{param}_dut_pin --> spin
-    stim -- in_{param}_fixture_connection --> sfix
-```
-
-## Setting Traceability in Tests
-
-### Automatic (via Fixture)
-
-When you use the `pins` fixture, traceability is captured automatically:
+When your test uses `context.connections` or declares `@pytest.mark.litmus_characteristics`, `verify` stamps `uut_pin` and `characteristic_id` automatically from the active connection.
 
 ```python
-def test_output_voltage(pins, logger):
-    # pins["VOUT"] knows:
-    # - dut_pin (from product spec)
-    # - instrument_name (from fixture)
-    # - instrument_resource (from station)
-    # - instrument_channel (from fixture)
-    logger.measure("output_voltage", pins["VOUT"].measure_voltage())
+@pytest.mark.litmus_characteristics(["rail_3v3", "rail_5v"])
+def test_all_rails(self, context, dmm, verify):
+    for conn in context.connections:
+        verify("voltage", dmm.measure_dc_voltage())
+        # uut_pin and characteristic_id are stamped from conn
 ```
 
-### Manual (Direct Instruments)
+### Manual instrument traceability
 
-When using instruments directly, set traceability manually:
+When using instruments directly without fixture connections, pass traceability fields to `verify`:
 
 ```python
-def test_output_voltage(dmm, logger):
+def test_output_voltage(self, dmm, verify):
     voltage = dmm.measure_dc_voltage()
-
-    logger.measure(
+    verify(
         "output_voltage",
         voltage,
-        dut_pin="J1.3",
+        uut_pin="J1.3",
         instrument_name="dmm",
         instrument_channel="CH1",
     )
 ```
 
-### Using ProductContext
+### Recording stimulus conditions with `configure()`
 
-For spec-driven traceability:
+Stamp stimulus values that aren't already sweep params using `context.configure()`. These land in the `inputs` lane on the measurement row.
 
 ```python
-def test_output_voltage(dmm, verify):
-    # verify resolves the limit and traceability from the active
-    # ProductContext (configured via --product=products/power_board.yaml)
+def test_rails(self, context, psu, dmm, verify):
+    psu.set_voltage(5.0)
+    actual = psu.read_voltage()
+    context.configure("psu.actual_voltage", actual, unit="V")
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-### Hierarchical Context
+See [Read and write the test context](test-context.md) for the full `configure()` / `observe()` API.
 
-The [harness](../../integration/runtime/harness.md) (Litmus's runner-agnostic execution wrapper) provides hierarchical context with scoped inheritance:
+### Custom run-level metadata with `run_context`
 
-```python
-from litmus.execution.harness import TestHarness
-
-harness = TestHarness(step_name="my_test")
-
-# Run-level: visible to all steps and vectors
-harness.run_context.configure("operator", "jane")
-
-with harness.step():
-    # Step-level: visible to all vectors in this step
-    harness.context.configure("fixture.id", "FIX-01")
-
-    with harness.run_vector(vector) as tv:
-        # Vector-level: inherits from step and run
-        harness.context.observe("temp_probe.temp", 24.8)
-
-        # tv.params includes: operator, fixture.id, temp
-```
-
-### Custom Metadata with run_context
-
-Add custom traceability fields that become Parquet columns:
+Add metadata that should appear on every measurement row in the run:
 
 ```python
-def test_with_context(run_context, psu, dmm, logger):
-    # Custom fields for your organization's needs
+def test_with_metadata(self, run_context, psu, dmm, verify):
     run_context.set("operator_badge", "EMP-12345")
     run_context.set("fixture_serial", "FIX-001")
     run_context.set("ambient_temp", 23.5)
-    run_context.set("calibration_due", "2026-06-15")
 
-    # Normal test code...
     psu.set_voltage(5.0)
-    logger.measure("output_voltage", dmm.measure_dc_voltage())
+    verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-## Comparators (ATML/IEEE 1671)
+`run_context.set(...)` fields are run-level `custom_metadata` — stored in the parquet file's metadata (and exported as `custom_<key>` columns in CSV), not on the per-measurement rows.
 
-The `comparator` field defines how values are compared against limits:
+## Comparators (IEEE 1671)
 
-### Range Comparators
+The `limit_comparator` field controls how the measured value is checked against limits.
 
-| Comparator | Meaning | Pass Condition |
-|------------|---------|----------------|
-| `GELE` | Greater-equal, less-equal (default) | `low <= value <= high` |
-| `GELT` | Greater-equal, less-than | `low <= value < high` |
-| `GTLE` | Greater-than, less-equal | `low < value <= high` |
-| `GTLT` | Greater-than, less-than | `low < value < high` |
+### Range comparators
 
-### Single-Bound Comparators
+| Comparator | Pass condition |
+|------------|----------------|
+| `GELE` | `low <= value <= high` (default) |
+| `GELT` | `low <= value < high` |
+| `GTLE` | `low < value <= high` |
+| `GTLT` | `low < value < high` |
 
-| Comparator | Meaning | Pass Condition |
-|------------|---------|----------------|
-| `GE` | Greater-equal | `value >= low` |
-| `GT` | Greater-than | `value > low` |
-| `LE` | Less-equal | `value <= high` |
-| `LT` | Less-than | `value < high` |
+### Single-bound comparators
 
-### Equality Comparators
+| Comparator | Pass condition |
+|------------|----------------|
+| `GE` | `value >= low` |
+| `GT` | `value > low` |
+| `LE` | `value <= high` |
+| `LT` | `value < high` |
 
-| Comparator | Meaning | Pass Condition |
-|------------|---------|----------------|
-| `EQ` | Equal | `value == nominal` |
-| `NE` | Not equal | `value != nominal` |
+### Equality comparators
 
-### Setting Comparators in `tests/test_<module>.yaml`
+| Comparator | Pass condition |
+|------------|----------------|
+| `EQ` | `value == nominal` |
+| `NE` | `value != nominal` |
+
+Set the comparator in the sidecar YAML alongside the limit:
 
 ```yaml
 tests:
@@ -200,146 +135,127 @@ tests:
         low: 3.135
         high: 3.465
         nominal: 3.3
-        comparator: GELE  # Default: inclusive range
-        units: V
-        spec_ref: "output_voltage @ tolerance_pct=5"
+        comparator: GELE
+        unit: V
 
   test_minimum_current:
     limits:
       load_current:
         low: 0.1
-        comparator: GE  # Only lower bound: must be >= 0.1A
-        units: A
-
-  test_exact_value:
-    limits:
-      calibration_ref:
-        nominal: 1.000
-        comparator: EQ  # Exact match required
-        units: V
+        comparator: GE
+        unit: A
 ```
 
-## Querying Traceable Results
+## Querying traceable results
 
-Results are stored in Parquet files at `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet` (UTC timestamps).
+### From the CSV export
 
-### By DUT Pin
+The CSV exporter writes one row per measurement with fixed columns plus dynamic `input_{name}` and `output_{name}` columns from `context.configure()` and `context.observe()`.
 
 ```python
 import pandas as pd
 
-df = pd.read_parquet("data/runs/2026-01-15/20260115T143025Z_SN001.parquet")
+df = pd.read_csv("reports/abc12345.csv")
 
-# Find all measurements on pin J1.3
-j1_3_measurements = df[df["dut_pin"] == "J1.3"]
+# Filter by UUT pin
+j1_3 = df[df["uut_pin"] == "J1.3"]
 
-# Find failures on specific pin
-failures = df[(df["dut_pin"] == "J1.3") & (df["measurement_outcome"] == "failed")]
+# Filter by instrument
+dmm_rows = df[df["instrument_name"] == "dmm_main"]
+
+# Find failures at a specific stimulus condition
+# (assuming you recorded vin via context.configure("vin", ...))
+failures = df[(df["outcome"] == "failed") & (df["input_vin"] == 12.0)]
 ```
 
-### By Instrument
+Key CSV columns: `measurement_name`, `value`, `unit`, `outcome`, `uut_pin`, `instrument_name`, `spec_ref`, `characteristic_id`, `limit_low`, `limit_high`, `limit_comparator`, `uut_serial`, `step_name`. Dynamic inputs appear as `input_{name}` and dynamic outputs as `output_{name}`.
+
+### From the DuckDB query API
+
+For cross-run analytics, use `MeasurementsQuery`. The `measurements` view exposes fixed columns (`measurement_name`, `measurement_value`, `measurement_outcome`, `uut_pin`, `instrument_name`, etc.) directly. Input and output fields live in the `measurements_dynamic` EAV table and are accessed via `FieldRef`:
 
 ```python
-# Find all measurements from the main DMM
-dmm_measurements = df[df["instrument_name"] == "dmm_main"]
+from litmus.analysis.measurements_query import MeasurementsQuery
+from litmus.analysis.measurement_facets import FieldRef, FilterSet
 
-# Find measurements from specific VISA address
-visa_measurements = df[df["instrument_resource"] == "TCPIP::192.168.1.100::INSTR"]
+with MeasurementsQuery() as q:
+    # Yield summary by part
+    rows = q.yield_summary(part="PN-123", period="week")
+
+    # Ppk for a specific measurement
+    ppk_rows = q.ppk(field="output_voltage", part="PN-123")
+
+    # Parametric: output_voltage vs vin (input) across runs
+    points = q.parametric(
+        y=FieldRef.measurement("output_voltage"),
+        x=FieldRef.input("vin"),
+    )
 ```
 
-### By Spec Reference
+`FieldRef.input("vin")` selects values recorded via `context.configure("vin", ...)`. `FieldRef.output("temp")` selects values recorded via `context.observe("temp", ...)`. `FieldRef.measurement("output_voltage")` selects a named measurement's value column.
 
-```python
-# Find all measurements for output_voltage characteristic
-output_v = df[df["spec_ref"] == "output_voltage"]
-```
+### Direct DuckDB (advanced)
 
-### By Input Conditions
-
-```python
-# Find measurements at specific input voltage
-high_vin = df[df["in_vin"] == 12.0]
-
-# Find measurements across input conditions
-print(df.groupby(["in_vin", "in_load"])["measurement_value"].mean())
-```
-
-### Cross-Run Queries (DuckDB)
+For ad-hoc queries, the `measurements_materialized` table in the DuckDB index carries the full flattened measurement fact. Dynamic inputs and outputs are in `measurements_dynamic` (EAV, keyed by `run_id, step_index, vector_index, vector_retry, role, name`):
 
 ```sql
--- Query all runs with full traceability
+-- All failed measurements with their UUT pin and instrument
 SELECT
-    dut_serial,
+    uut_serial,
     measurement_name,
-    value,
+    measurement_value,
     instrument_name,
-    dut_pin,
-    in_vin,
-    in_load
-FROM read_parquet('data/runs/**/*.parquet')
+    uut_pin,
+    spec_ref
+FROM measurements_materialized
 WHERE measurement_outcome = 'failed';
+
+-- Measurements joined with a specific input condition (vin)
+SELECT
+    m.uut_serial,
+    m.measurement_name,
+    m.measurement_value,
+    d.value_double AS vin
+FROM measurements_materialized m
+LEFT JOIN measurements_dynamic d
+    ON  d.run_id       = m.run_id
+    AND d.step_index   = m.step_index
+    AND d.vector_index = m.vector_index
+    AND d.vector_retry IS NOT DISTINCT FROM m.vector_retry
+    AND d.role         = 'input'
+    AND d.name         = 'vin'
+WHERE m.measurement_outcome = 'failed';
 ```
 
-## Compliance Reporting
+> **Note:** Direct parquet queries via `read_parquet()` see the nested `inputs` / `outputs` list columns (EAV structs), not flat `input_vin` columns. Use the DuckDB index (`measurements_materialized` + `measurements_dynamic`) for flat access, or use the CSV export for pandas workflows.
 
-Traceability enables compliance reports that link:
+## The traceability chain
 
-1. **Measurement** → **Spec Requirement** (via `spec_ref`)
-2. **Measurement** → **Test Equipment** (via `instrument_name*` fields)
-3. **Measurement** → **DUT** (via `dut_pin` and `dut_serial`)
-4. **Stimulus** → **Source Equipment** (via `in_*` fields)
+```mermaid
+flowchart LR
+    meas["Measurement row"]
+    spec["Part spec\n(parts/id.yaml)"]
+    pin["UUT pin definition"]
+    fix["Fixture config\n(fixture.yaml)"]
+    sta["Station config\n(station.yaml)"]
+    res["Physical instrument\n(VISA address)"]
 
-Example compliance report structure:
+    meas -- spec_ref / characteristic_id --> spec
+    meas -- uut_pin --> pin
+    meas -- fixture_connection --> fix
+    meas -- instrument_name --> sta
+    meas -- instrument_resource --> res
 
+    inputs["inputs lane\n(configure())"]
+    outputs["outputs lane\n(observe())"]
+
+    meas -- inputs: name / value / unit / uut_pin --> inputs
+    meas -- outputs: name / value / unit / uut_pin --> outputs
 ```
-Test Report: SN12345
-──────────────────────────────────────────────────────
-Requirement: output_voltage
-  Source: products/power_board.yaml
-  DUT Pin: J1.3 (VOUT_3V3)
-  Instrument: dmm_main (Keithley 2000)
-  Resource: TCPIP::192.168.1.100::INSTR
-  Channel: CH1
-
-  Input Conditions:
-    VIN: 12.0V via psu_main (TCPIP::192.168.1.101::INSTR)
-    Load: 0.5A via eload_main (USB0::0x1234::INSTR)
-
-  Measured: 3.31 V
-  Limits: 3.135 V to 3.465 V
-  Outcome: passed
-──────────────────────────────────────────────────────
-```
-
-## Benefits of Traceability
-
-1. **Root Cause Analysis** — When a test fails, identify exactly which instrument and channel were involved, plus the input conditions that triggered the failure
-
-2. **Calibration Tracking** — Link measurements to instrument calibration records via `instrument_resource`
-
-3. **Fixture Debugging** — Verify signal routing through the fixture via `fixture_connection`
-
-4. **Specification Compliance** — Prove that measurements satisfy specific spec requirements via `spec_ref`
-
-5. **Audit Trail** — Complete chain from measurement to DUT pin to datasheet reference
-
-6. **Stimulus Correlation** — Understand how input conditions affect outputs via `in_*` columns
-
-## Best Practices
-
-1. **Let the framework capture traceability** — Most fields are auto-captured when using fixtures and ProductContext
-
-2. **Use `run_context` for custom fields** — Add organization-specific metadata that becomes queryable columns
-
-3. **Use fixtures for complex routing** — Let the framework handle signal path traceability automatically
-
-4. **Use meaningful DUT pin names** — Match your schematic/PCB designators in product spec
-
-5. **Query with DuckDB for big data** — Use glob patterns to analyze across all runs:
-   ```sql
-   SELECT * FROM read_parquet('data/runs/**/*.parquet')
-   ```
 
 ## See also
-- [Parquet Schema Reference](../../reference/data/parquet-schema.md) — Complete column definitions
-- [Test Harness](../../integration/runtime/harness.md) — Recording measurements with traceability
+
+- [Read and write the test context](test-context.md) — `configure()`, `observe()`, and how inputs and outputs land on measurement rows
+- [Test limits](limits.md) — comparator shapes, condition-indexed bands
+- [Spec-driven testing](spec-driven-testing.md) — `characteristic_id` and `spec_ref` from the part YAML
+- [Parquet schema reference](../../reference/data/parquet-schema.md) — complete column definitions for the at-rest format

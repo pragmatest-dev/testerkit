@@ -17,7 +17,7 @@ id: generic_psu
 manufacturer: Generic
 model: "PSU"
 name: "Generic DC Power Supply"
-description: "Programmable DC power supply for sourcing voltage and current to DUT"
+description: "Programmable DC power supply for sourcing voltage and current to UUT"
 type: psu                      # dmm | psu | scope | fgen | smu | eload | …
 interfaces: [usb, lan, gpib]   # optional — supported control interfaces
 form_factor: bench             # optional — bench | pxi | modular | …
@@ -30,7 +30,7 @@ channels:                      # dict[name, ChannelTopology]
     connector: binding_post
     ground: floating
 attributes:                    # dict[name, Attribute] — board-level facts
-  weight: {value: 157, units: g}
+  weight: {value: 157, unit: g}
 capabilities:                  # list[InstrumentCapability]
   - function: dc_voltage
     direction: output
@@ -85,7 +85,7 @@ capabilities:
     direction: input             # input | output | bidir | transform
     channels: ["1", "2"]         # explicit list or range syntax "ai[0:7]"
     readback: false              # optional — true marks a built-in meter rather than the primary measurement
-    units: V                     # optional fallback when every signal shares units
+    unit: V                      # optional fallback when every signal shares units
     signals: { ... }             # what's being measured / sourced
     conditions: { ... }          # what affects the spec but the user doesn't dial
     controls: { ... }            # user-adjustable knobs
@@ -95,7 +95,7 @@ capabilities:
 
 The four parameter dicts (`signals`, `conditions`, `controls`, `attributes`) are mutually exclusive: a single name may not appear in `signals` and `conditions`, `signals` and `controls`, or `conditions` and `controls`. (Names in `attributes` are not cross-checked against the other three — `attributes` describes inherent facts, while the other three describe operating parameters.)
 
-The capability-level `units:` field is informational. Consumers fall back to it only when the signal's own units aren't set; the model itself accepts whatever you write.
+The capability-level `unit:` field is informational. Consumers fall back to it only when the signal's own unit isn't set; the model itself accepts whatever you write.
 
 ### signals — measured or sourced dimensions
 
@@ -104,11 +104,11 @@ Each `Signal` carries a `range`, optional `accuracy` and `resolution`, and optio
 ```yaml
 signals:
   voltage:
-    range:      {min: -10, max: 10, units: V}
+    range:      {min: -10, max: 10, unit: V}
     accuracy:   {pct_reading: 0.05, pct_range: 0.01, absolute: 0.001}
-    resolution: {digits: 6.5}                  # OR {bits: 16} OR {value: 0.001, units: V}
+    resolution: {digits: 6.5}                  # OR {bits: 16} OR {value: 0.001, unit: V}
     bands:                                     # apply only when the when-clause matches
-      - when:     {frequency: {min: 3, max: 5, units: Hz}}
+      - when:     {frequency: {min: 3, max: 5, unit: Hz}}
         accuracy: {pct_reading: 0.35, pct_range: 0.03}
       - when:     {nplc: {min: 10, max: 100}}
         accuracy: {pct_reading: 0.01, pct_range: 0.005}
@@ -119,14 +119,14 @@ signals:
 | `range` | `RangeSpec` |
 | `accuracy` | `AccuracySpec` |
 | `resolution` | `ResolutionSpec` |
-| `value` | `float` (product-side scalar — instruments use `range`) |
-| `units` | `str` |
+| `value` | `float` (part-side scalar — instruments use `range`) |
+| `unit` | `str` |
 | `bands` | `list[SpecBand]` |
 | `qualifier` | `SpecQualifier` |
 
-**`AccuracySpec`** — `pct_reading`, `pct_range`, `absolute`, `units` (optional; only when the absolute term's units differ from the signal's, e.g. dB on a percent-range signal).
+**`AccuracySpec`** — `pct_reading`, `pct_range`, `absolute`, `unit` (optional; only when the absolute term's unit differs from the signal's, e.g. dB on a percent-range signal).
 
-**`ResolutionSpec`** — `bits`, `digits`, `value`, `units`. Pick one of `bits` / `digits` / `value` to describe how the instrument quantizes — combining them isn't validated but isn't meaningful either.
+**`ResolutionSpec`** — `bits`, `digits`, `value`, `unit`. Pick one of `bits` / `digits` / `value` to describe how the instrument quantizes — combining them isn't validated but isn't meaningful either.
 
 ### conditions — operating conditions that affect accuracy
 
@@ -135,9 +135,9 @@ Continuous (`range`) or discrete (`options`), with optional `bands` for nested o
 ```yaml
 conditions:
   frequency:
-    range: {min: 3, max: 300000, units: Hz}
+    range: {min: 3, max: 300000, unit: Hz}
   temperature:
-    range: {min: 18, max: 28, units: degC}
+    range: {min: 18, max: 28, unit: degC}
   calibration_interval:
     options: ["24_hour", "90_day", "1_year", "2_year"]
 ```
@@ -152,13 +152,13 @@ controls:
     options: ["AC", "DC", "GND"]
     default: "DC"
   v_per_div:
-    range:      {min: 0.001, max: 10, units: V/div}
-    resolution: {value: 0.001, units: V/div}
+    range:      {min: 0.001, max: 10, unit: V/div}
+    resolution: {value: 0.001, unit: V/div}
   power:
-    range: {min: -20, max: 20, units: dBm}
+    range: {min: -20, max: 20, unit: dBm}
     bands:
       - when:  {frequency: {min: 250000, max: 3200000000}}
-        range: {min: -20, max: 25, units: dBm}
+        range: {min: -20, max: 25, unit: dBm}
 ```
 
 ### attributes (per-capability) — fixed hardware facts
@@ -169,12 +169,12 @@ Capability-scoped facts that don't change with operating point — bandwidth, sa
 attributes:
   sample_rate:
     value: 5000000000
-    units: Sa/s
+    unit: Sa/s
   scpi_version:
     value: "1997.0"
   test_current:
     value: 0.001
-    units: A
+    unit: A
     bands:
       - when:  {range: 100}
         value: 0.001
@@ -190,14 +190,14 @@ Device-wide facts that don't belong to any single capability live at the root, *
 
 ```yaml
 attributes:
-  operating_temperature: {range: {min: 0, max: 55, units: degC}}
-  storage_temperature:   {range: {min: -40, max: 71, units: degC}}
-  weight:                {value: 157, units: g}
-  warmup_time:           {value: 15, units: min}
-  calibration_interval:  {value: 2, units: yr}
-  max_working_voltage:   {value: 11, units: V}
+  operating_temperature: {range: {min: 0, max: 55, unit: degC}}
+  storage_temperature:   {range: {min: -40, max: 71, unit: degC}}
+  weight:                {value: 157, unit: g}
+  warmup_time:           {value: 15, unit: min}
+  calibration_interval:  {value: 2, unit: yr}
+  max_working_voltage:   {value: 11, unit: V}
   pollution_degree:      {value: 2}
-  max_altitude:          {value: 2000, units: m}
+  max_altitude:          {value: 2000, unit: m}
 ```
 
 Conventional names (not enforced, but consistent across vendors): `operating_temperature`, `storage_temperature`, `operating_humidity`, `storage_humidity` (use `range`); `weight`, `dimension_*`, `warmup_time`, `calibration_interval`, `pollution_degree`, `max_altitude`, `power_*`, `usb_bus_speed`, `max_working_voltage`.
@@ -214,12 +214,12 @@ bands:
     accuracy: {pct_reading: 0.10}
   - when:
       output_impedance: 50                      # scalar float match
-    range: {min: 0, max: 2, units: Vrms}
+    range: {min: 0, max: 2, unit: Vrms}
   - when:
       output_impedance: [50, 600]               # list membership
     accuracy: {pct_reading: 0.3}
   - when:
-      frequency: {value: 100000000, units: Hz}  # point with explicit units
+      frequency: {value: 100000000, unit: Hz}   # point with explicit unit
     accuracy: {pct_reading: 0.05}
 ```
 
@@ -230,14 +230,14 @@ bands:
 | YAML shape | Match logic |
 |---|---|
 | `{min: 20, max: 300}` | `RangeSpec` — `min <= val <= max` |
-| `{value: 100e6, units: Hz}` | `PointSpec` — exact equality with explicit units |
-| `{values: [50, 600], units: ohm}` | `ListSpec` — membership with explicit units |
+| `{value: 100e6, unit: Hz}` | `PointSpec` — exact equality with explicit unit |
+| `{values: [50, 600], unit: ohm}` | `ListSpec` — membership with explicit unit |
 | `"SLOW"` | bare string — exact equality |
 | `50` | bare scalar — exact equality |
 | `true` | bare bool — exact equality |
 | `[50, 600, "HiZ"]` | bare list — membership |
 
-When a `RangeSpec` / `PointSpec` / `ListSpec` `when:` value omits `units:`, the validator copies them from the sibling whose `range.units` the key references. Bare scalars and lists carry no units — only use them when the sibling units are unambiguous.
+When a `RangeSpec` / `PointSpec` / `ListSpec` `when:` value omits `unit:`, the validator copies it from the sibling whose `range.unit` the key references. Bare scalars and lists carry no unit — only use them when the sibling unit is unambiguous.
 
 Multiple `when:` keys are ANDed (every clause must match). An empty `when: {}` is unconditional and always applies.
 
@@ -256,10 +256,10 @@ Multiple `when:` keys are ANDed (every clause must match). An empty `when: {}` i
 ```yaml
 signals:
   voltage:
-    range:     {min: -10, max: 10, units: V}
+    range:     {min: -10, max: 10, unit: V}
     qualifier: guaranteed
     bands:
-      - when:      {frequency: {min: 3, max: 5, units: Hz}}
+      - when:      {frequency: {min: 3, max: 5, unit: Hz}}
         accuracy:  {pct_reading: 0.35}
         qualifier: typical
 ```
@@ -315,7 +315,7 @@ capabilities:
   - function: rf_cw
     direction: output
     signals:
-      power: {range: {min: -20, max: 20, units: dBm}}
+      power: {range: {min: -20, max: 20, unit: dBm}}
 ```
 
 ```yaml
@@ -327,7 +327,7 @@ capabilities:
   - function: rf_cw
     direction: output
     signals:
-      power: {range: {min: -20, max: 25, units: dBm}}   # higher output, same shape
+      power: {range: {min: -20, max: 25, unit: dBm}}    # higher output, same shape
 ```
 
 `base:` resolution searches the same directory first, then the catalog root. Circular inheritance and missing-base references raise `ValueError` at load time.

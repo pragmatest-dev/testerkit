@@ -1,6 +1,6 @@
 """View buttons + dialogs for measurement-output ref artifacts.
 
-Walks each measurement's ``out_*`` columns; for any value that is a
+Walks each measurement's ``outputs`` dict; for any value that is a
 ``file://_ref/...`` or ``channel://...`` URI, renders a "View ..."
 button. Clicking opens a NiceGUI dialog with an extension-driven
 viewer:
@@ -61,13 +61,15 @@ _VIEWER_BY_EXT: dict[str, tuple[str, str]] = {
 
 
 def list_artifacts(measurement: dict[str, Any]) -> list[tuple[str, str]]:
-    """Return ``[(output_key, uri)]`` for every ref-typed ``out_*`` column."""
+    """Return ``[(name, uri)]`` for every ref-typed output on a measurement row.
+
+    Reads from the ``outputs`` dict (bare names) produced by
+    ``RunStore.get_measurements``.
+    """
     refs: list[tuple[str, str]] = []
-    for key, value in measurement.items():
-        if not key.startswith("out_") or not isinstance(value, str):
-            continue
-        if value.startswith("file://_ref/") or value.startswith("channel://"):
-            refs.append((key.removeprefix("out_"), value))
+    for name, value in (measurement.get("outputs") or {}).items():
+        if isinstance(value, str) and value.startswith(("file://", "channel://")):
+            refs.append((name, value))
     return refs
 
 
@@ -191,8 +193,8 @@ def _render_waveform(run_id: str, uri: str) -> None:
     dt = float(getattr(wfm, "dt", 1.0)) or 1.0
     x_axis = [t0 + i * dt for i in range(len(Y))]
     attrs = getattr(wfm, "attrs", {}) or {}
-    units = attrs.get("units")
-    y_label = f"value ({units})" if units else "value"
+    unit = attrs.get("unit")
+    y_label = f"value ({unit})" if unit else "value"
 
     ui.echart(
         {

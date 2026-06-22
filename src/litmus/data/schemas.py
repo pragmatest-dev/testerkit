@@ -11,40 +11,101 @@ from typing import Any
 
 import pyarrow as pa
 
-from litmus.data.backends._row_helpers import INSTRUMENT_ARRAY_KEYS
+from litmus.data.backends._row_helpers import (
+    INSTRUMENT_ARRAY_KEYS,
+    LANE_FIELDS,
+    MEASUREMENT_STRUCT_FIELDS,
+)
 
 __all__ = [
     "RUN_ROW_SCHEMA",
     "SCHEMA_VERSION",
     "_INSTR_ARRAY_TYPES",
+    "_LANE_LIST",
+    "_MEASUREMENT_LIST",
+    "_MEASUREMENT_STRUCT",
     "_SCHEMA_DICT",
     "_build_write_schema",
     "table_from_rows",
 ]
 
-SCHEMA_VERSION = "1.0"
+# Bumped to 2.0 for the v2 at-rest reshape (nested measurements under
+# vector rows; run/step/vector record types) — a breaking change from the
+# 1.0 flat measurement-row schema. Stamped into parquet metadata.
+SCHEMA_VERSION = "2.0"
 
-# Canonical row schema for the unified per-run parquet. Every row carries
-# an explicit ``record_type`` discriminator with one of two values:
-#   * ``record_type = 'step'`` — one row per ``(step_path, vector_index)``
-#     execution (or planned-but-unrun vector). Carries step identity,
-#     timing, outcome, and dynamic ``in_*``/``out_*`` columns.
-#     ``measurement_*`` columns are NULL.
-#   * ``record_type = 'measurement'`` — one row per recorded measurement.
-#     Carries the measurement payload plus the same denormalized step +
-#     run + DUT + station + fixture context as the corresponding step
-#     row, so cross-run measurement queries don't need self-joins.
+# EAV lane struct — the nested at-rest representation of one input / output
+# entry. ``value_type`` selects which ``value_*`` lane holds the value. Field
+# names must match ``_row_helpers.LANE_FIELDS`` / the encoder (guarded below).
+_LANE_STRUCT = pa.struct(
+    [
+        ("name", pa.string()),
+        ("value_type", pa.string()),
+        ("value_int", pa.int64()),
+        ("value_double", pa.float64()),
+        ("value_bool", pa.bool_()),
+        ("value_text", pa.string()),
+        ("value_timestamp", pa.timestamp("us", tz="UTC")),
+        ("value_json", pa.string()),
+        ("unit", pa.string()),
+        ("uut_pin", pa.string()),
+    ]
+)
+assert [f.name for f in _LANE_STRUCT] == list(LANE_FIELDS), (
+    "schemas._LANE_STRUCT drifted from _row_helpers.LANE_FIELDS"
+)
+_LANE_LIST = pa.list_(_LANE_STRUCT)
+
+# Nested measurement struct — the at-rest representation of one measurement,
+# carried in the vector row's ``measurements`` LIST. Field names must match
+# ``_row_helpers.MEASUREMENT_STRUCT_FIELDS`` (guarded below). The daemon
+# UNNESTs these into the flat measurement fact at ingest.
+_MEASUREMENT_STRUCT = pa.struct(
+    [
+        ("name", pa.string()),
+        ("value", pa.float64()),
+        ("unit", pa.string()),
+        ("outcome", pa.string()),
+        ("timestamp", pa.timestamp("us", tz="UTC")),
+        ("limit_low", pa.float64()),
+        ("limit_high", pa.float64()),
+        ("limit_nominal", pa.float64()),
+        ("limit_comparator", pa.string()),
+        ("characteristic_id", pa.string()),
+        ("spec_ref", pa.string()),
+        ("uut_pin", pa.string()),
+        ("fixture_connection", pa.string()),
+        ("instrument_name", pa.string()),
+        ("instrument_resource", pa.string()),
+        ("instrument_channel", pa.string()),
+    ]
+)
+assert [f.name for f in _MEASUREMENT_STRUCT] == list(MEASUREMENT_STRUCT_FIELDS), (
+    "schemas._MEASUREMENT_STRUCT drifted from _row_helpers.MEASUREMENT_STRUCT_FIELDS"
+)
+_MEASUREMENT_LIST = pa.list_(_MEASUREMENT_STRUCT)
+
+# Canonical row schema for the unified per-run parquet — a chronological
+# telling of the run. Every row carries an explicit ``record_type``
+# discriminator with one of three values:
+#   * ``record_type = 'run'`` — one row per run; run / UUT / station /
+#     environment context. Step / vector columns are NULL.
+#   * ``record_type = 'step'`` — one step-execution, keyed ``(step_path,
+#     vector_index, retry)`` and nestable via ``parent_path``; carries code
+#     identity + timing + rolled-up outcome.
+#   * ``record_type = 'vector'`` — one execution carrier (a synthesized scope
+#     vector for non-looping steps, or an in-body iteration vector for a
+#     ``vectors`` loop). Holds the ``inputs``/``outputs`` lanes and the
+#     nested ``measurements`` list for that execution.
 #
-# Both kinds share grain ``(run_id, step_path, vector_index)``; measurement
-# rows are further keyed by ``measurement_name``. A step that records N
-# measurements emits 1 step row + N measurement rows.
-#
-# Dynamic columns (in_*, out_*, step_instruments_*, custom_*) are NOT
-# listed here — they pass through with inferred types via
-# ``_build_write_schema``.
+# ``inputs`` / ``outputs`` are nested ``LIST<STRUCT<lanes>>`` columns (see
+# ``_LANE_STRUCT``), not wide ``in_*``/``out_*`` columns; the DuckDB daemon
+# projects them into the ``dynamic_attrs`` MAP and ``measurements_dynamic``
+# EAV table for queries. ``measurements`` is a nested ``LIST<STRUCT>`` on the
+# vector row; the daemon UNNESTs it into the flat measurement fact for queries.
 RUN_ROW_SCHEMA = pa.schema(
     [
-        # Discriminator — 'step' or 'measurement'
+        # Discriminator — 'run', 'step', or 'vector'
         ("record_type", pa.string()),
         # Identity & timing
         ("session_id", pa.string()),
@@ -78,15 +139,15 @@ RUN_ROW_SCHEMA = pa.schema(
         # Who
         ("operator_id", pa.string()),
         ("operator_name", pa.string()),
-        # DUT
-        ("dut_serial", pa.string()),
-        ("dut_part_number", pa.string()),
-        ("dut_revision", pa.string()),
-        ("dut_lot_number", pa.string()),
-        # Product
-        ("product_id", pa.string()),
-        ("product_name", pa.string()),
-        ("product_revision", pa.string()),
+        # UUT
+        ("uut_serial", pa.string()),
+        ("uut_part_number", pa.string()),
+        ("uut_revision", pa.string()),
+        ("uut_lot_number", pa.string()),
+        # Part
+        ("part_id", pa.string()),
+        ("part_name", pa.string()),
+        ("part_revision", pa.string()),
         # Station
         ("station_id", pa.string()),
         ("station_name", pa.string()),
@@ -101,26 +162,6 @@ RUN_ROW_SCHEMA = pa.schema(
         ("git_commit", pa.string()),
         ("git_branch", pa.string()),
         ("git_remote", pa.string()),
-        # Measurement core
-        ("measurement_name", pa.string()),
-        ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
-        ("measurement_value", pa.float64()),
-        ("measurement_units", pa.string()),
-        ("measurement_outcome", pa.string()),
-        # Limits
-        ("limit_low", pa.float64()),
-        ("limit_high", pa.float64()),
-        ("limit_nominal", pa.float64()),
-        ("limit_comparator", pa.string()),
-        # Spec traceability
-        ("characteristic_id", pa.string()),
-        ("spec_ref", pa.string()),
-        # Signal path
-        ("dut_pin", pa.string()),
-        ("fixture_connection", pa.string()),
-        ("instrument_name", pa.string()),
-        ("instrument_resource", pa.string()),
-        ("instrument_channel", pa.string()),
         # Rollup
         ("step_outcome", pa.string()),
         ("vector_outcome", pa.string()),
@@ -129,6 +170,13 @@ RUN_ROW_SCHEMA = pa.schema(
         ("python_version", pa.string()),
         ("litmus_version", pa.string()),
         ("env_fingerprint", pa.string()),
+        # Dynamic attributes — nested EAV lanes (see _row_helpers). Names are
+        # values inside the structs, so there is no column explosion.
+        ("inputs", _LANE_LIST),
+        ("outputs", _LANE_LIST),
+        # Nested measurements on the vector row; the daemon UNNESTs these into
+        # the flat measurement fact at ingest.
+        ("measurements", _MEASUREMENT_LIST),
     ]
 )
 
@@ -157,12 +205,12 @@ def _infer_type_from_value(value: Any) -> pa.DataType:
 
 
 def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
-    """Build complete Arrow schema: fixed canonical + dynamic columns.
+    """Build complete Arrow schema: fixed canonical + instrument arrays.
 
-    Fixed columns use RUN_ROW_SCHEMA types. Instrument arrays use
-    known list types. Dynamic columns (in_*, out_*, custom_*) are inferred
-    from the first non-None value. Passed to ``pa.Table.from_pylist()``
-    so Arrow validates at construction time.
+    Fixed columns (including the nested ``inputs``/``outputs`` lanes) use
+    RUN_ROW_SCHEMA types. Instrument arrays use known list types. Any other
+    stray column is inferred from its first non-None value. Passed to
+    ``pa.Table.from_pylist()`` so Arrow validates at construction time.
 
     Single pass over rows to collect keys and first non-None values.
     """
@@ -194,31 +242,11 @@ def _build_write_schema(rows: list[dict[str, Any]]) -> pa.Schema:
 
 
 def table_from_rows(rows: list[dict[str, Any]], schema: pa.Schema) -> pa.Table:
-    """Build a PyArrow Table from row dicts with schema validation.
+    """Build a PyArrow Table from row dicts against ``schema``.
 
-    Wraps ``pa.Table.from_pylist`` with a descriptive error when dynamic
-    columns contain mixed types that Arrow cannot reconcile.
+    Wraps ``pa.Table.from_pylist`` so a build failure carries row context.
     """
     try:
         return pa.Table.from_pylist(rows, schema=schema)
     except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError) as exc:
-        mixed: list[str] = []
-        for field in schema:
-            if field.name in _SCHEMA_DICT:
-                continue
-            types_seen = {
-                type(row.get(field.name)) for row in rows if row.get(field.name) is not None
-            }
-            if len(types_seen) > 1:
-                type_names = ", ".join(
-                    t.__name__ for t in sorted(types_seen, key=lambda t: t.__name__)
-                )
-                mixed.append(f"  {field.name}: {type_names}")
-        detail = "\n".join(mixed) if mixed else "  (see original error)"
-        raise pa.ArrowInvalid(
-            f"Cannot build table — dynamic columns have mixed types:\n"
-            f"{detail}\n"
-            f"Ensure each in_*/out_*/custom_* column uses a consistent type "
-            f"across all measurements.\n"
-            f"Original error: {exc}"
-        ) from exc
+        raise pa.ArrowInvalid(f"Cannot build measurement table from rows: {exc}") from exc

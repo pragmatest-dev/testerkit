@@ -20,7 +20,7 @@ Azure SQL transient-error docs:
   same daemon re-produces the same error and burns time.
 
 Conflating the two is what made one bad column ("Binder Error:
-``dut_lot_number`` does not exist") hang the /results page handler
+``uut_lot_number`` does not exist") hang the /results page handler
 for ~7s and surface as ``ERR_EMPTY_RESPONSE``.
 
 References
@@ -142,6 +142,17 @@ def classify(exc: Exception) -> FlightErrorKind:
     if isinstance(exc, OSError):
         return FlightErrorKind.TRANSIENT
 
+    # Typed connection-level Flight errors — a client-set deadline firing on a
+    # wedged/dead daemon, an unavailable channel, or a cancelled call. Check by
+    # TYPE before message-substring matching: it's more reliable than parsing
+    # the serialized string, and it's what makes the client timeout recoverable
+    # (the deadline raises FlightTimedOutError → TRANSIENT → with_retry).
+    if isinstance(
+        exc,
+        flight.FlightTimedOutError | flight.FlightUnavailableError | flight.FlightCancelledError,
+    ):
+        return FlightErrorKind.TRANSIENT
+
     if isinstance(exc, flight.FlightError):
         msg = str(exc).lower()
 
@@ -186,24 +197,3 @@ def wrap(exc: Exception) -> FlightQueryError:
     if kind is FlightErrorKind.TRANSIENT:
         return FlightTransientError(str(exc), cause=exc)
     return FlightPermanentError(str(exc), cause=exc)
-
-
-# ---------------------------------------------------------------------------
-# Backwards-compat alias
-# ---------------------------------------------------------------------------
-
-
-# ``IndexOutOfDate`` was the catch-all for any Binder Error before
-# we split transient vs permanent. New code should raise
-# ``FlightPermanentError`` directly. Old call-sites can keep
-# catching ``IndexOutOfDate`` until they migrate; subclass-of
-# ``FlightPermanentError`` means a ``except FlightPermanentError``
-# catches both.
-class IndexOutOfDate(FlightPermanentError):
-    """Deprecated alias for :class:`FlightPermanentError`.
-
-    Kept so existing ``except IndexOutOfDate`` blocks
-    (``cli.py``, ``services.py``, ``explore.py``,
-    ``runs_query.py``) still compile. Prefer the typed kinds in
-    new code.
-    """

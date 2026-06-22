@@ -2,7 +2,7 @@
 
 Canonical example of a Litmus station UI. Demonstrates:
 
-- **Channel data** via ``ui_channel_data`` — PSU readback, DMM readings,
+- **Channel data** via ``channel_data`` — PSU readback, DMM readings,
   scope waveforms all update live from any process (this UI, pytest, scripts).
 - **Session events** via ``ui_subscribe`` — instrument activity log and
   session table stream cross-process events from the shared EventStore.
@@ -24,20 +24,22 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from nicegui import app, ui
+from nicegui import app, background_tasks, run, ui
 
 # Ensure the parent repo is importable when running from examples/
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import litmus
+
+# ``connect()`` returns a ``StationConnection`` context manager; the
+# type is reached via ``litmus.connect.StationConnection`` only when a
+# script needs an explicit type annotation.
 from litmus.connect import StationConnection
 from litmus.data.channels.models import ChannelSample
+from litmus.models.station import StationInstrumentConfig
+from litmus.ui import bind_channel_store, channel_data
 from litmus.ui.components import create_instrument_activity, create_session_table
 from litmus.ui.shared.components import InstrumentToggle
-from litmus.ui.shared.event_binding import (
-    bind_channel_store,
-    ui_channel_data,
-)
 
 # ---------------------------------------------------------------------------
 # UI channel definitions — what the user wants to show, per instrument type.
@@ -192,11 +194,10 @@ def main_page() -> None:
 def _build_readback_card(
     station: StationConnection,
     role: str,
-    inst_config: object,
+    inst_config: StationInstrumentConfig,
 ) -> None:
-    desc = getattr(inst_config, "description", "") or role.upper()
-    inst_type = getattr(inst_config, "type", "")
-    layout = _CARD_LAYOUTS.get(inst_type, CardLayout())
+    desc = inst_config.description or role.upper()
+    layout = _CARD_LAYOUTS.get(inst_config.type, CardLayout())
 
     with ui.card().classes("flex-1"):
         with ui.row().classes("items-center justify-between w-full mb-2"):
@@ -220,7 +221,7 @@ def _build_readback_card(
             )
 
         for ch in layout.reads:
-            ui_channel_data(f"{role}.{ch.channel}").subscribe(_on_sample)
+            channel_data(f"{role}.{ch.channel}").subscribe(_on_sample)
 
         ui.separator()
 
@@ -265,9 +266,9 @@ def _build_readback_card(
 def _build_scope_card(
     station: StationConnection,
     role: str,
-    inst_config: object,
+    inst_config: StationInstrumentConfig,
 ) -> None:
-    desc = getattr(inst_config, "description", "") or role.upper()
+    desc = inst_config.description or role.upper()
 
     with ui.card().classes("w-full"):
         with ui.row().classes("items-center justify-between w-full mb-2"):
@@ -329,21 +330,16 @@ def _build_scope_card(
                 add="text-indigo-700",
             )
 
-        ui_channel_data(f"{role}.waveform").subscribe(_on_waveform)
+        channel_data(f"{role}.waveform").subscribe(_on_waveform)
 
         running = {"active": False, "task": None}
 
         async def _continuous() -> None:
-            loop = asyncio.get_event_loop()
             while running["active"]:
                 if not toggle.connected:
                     await asyncio.sleep(0.1)
                     continue
-                await loop.run_in_executor(
-                    None,
-                    toggle.driver.fetch_waveform,
-                    "CH1",
-                )
+                await run.io_bound(toggle.driver.fetch_waveform, "CH1")
                 await asyncio.sleep(0.05)
 
         def _start() -> None:
@@ -351,7 +347,7 @@ def _build_scope_card(
                 return
             station.configure(role, "start_continuous", channel="CH1")
             running["active"] = True
-            running["task"] = asyncio.ensure_future(_continuous())
+            running["task"] = background_tasks.create(_continuous())
             run_btn.props(remove="color=green", add="color=red")
             run_btn.text = "Stop"
 

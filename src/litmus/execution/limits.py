@@ -1,6 +1,6 @@
-"""Limit derivation from product specifications.
+"""Limit derivation from part specifications.
 
-This module provides functions to derive test limits from product
+This module provides functions to derive test limits from part
 characteristics and spec bands, including guardband application.
 """
 
@@ -8,12 +8,12 @@ from typing import Any
 
 from litmus.models.capability import SpecBand
 from litmus.models.enums import Comparator
-from litmus.models.product import ProductCharacteristic
+from litmus.models.part import PartCharacteristic
 from litmus.models.test_config import Limit
 
 
 def derive_limit(
-    char: ProductCharacteristic,
+    char: PartCharacteristic,
     conditions: dict[str, Any] | None = None,
     guardband_pct: float = 0.0,
     comparator: Comparator = Comparator.GELE,
@@ -30,7 +30,7 @@ def derive_limit(
     4. Sets characteristic_id for structured traceability
 
     Args:
-        char: The product characteristic containing spec values.
+        char: The part characteristic containing spec values.
         conditions: Operating point parameters (e.g., {"temperature": 25}).
         guardband_pct: Percentage to tighten limits (0-100).
         comparator: How to compare measured value against limits.
@@ -68,7 +68,7 @@ def derive_limit(
         low=final_low,
         high=final_high,
         nominal=nominal,
-        units=char.units or "",
+        unit=char.unit or "",
         comparator=comparator,
         characteristic_id=characteristic_id,
         spec_ref=spec_ref,
@@ -145,7 +145,7 @@ def _apply_guardband(
     return spec_low, spec_high
 
 
-def _build_spec_ref(char: ProductCharacteristic, conditions: dict[str, Any]) -> str:
+def _build_spec_ref(char: PartCharacteristic, conditions: dict[str, Any]) -> str:
     """Build a spec reference string for traceability."""
     base_ref = char.datasheet_ref or "spec"
     if conditions:

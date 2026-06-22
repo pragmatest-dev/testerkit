@@ -20,7 +20,7 @@ calibration before that batch?").
 | Filter | What it does | Notes |
 |---|---|---|
 | Session ID | Restrict to events for one session | Free-text. Full or short (first 8 chars) UUID works. |
-| Event type | Pick one of 15 curated event types, or `(any)` for all | The store can hold any event type; this dropdown lists the categories worth a one-click filter — it is **not exhaustive**. Other event types (e.g. `fixture.dut_scanned`, `route.*`, `slot.*`, `stream.*`, `test.record`) only appear under `(any)`. See the [Event types reference](../event-types.md) for the full list. |
+| Event type | Pick one of 15 curated event types, or `(any)` for all | The store can hold any event type; this dropdown lists the categories worth a one-click filter — it is **not exhaustive**. Other event types (e.g. `fixture.uut_scanned`, `route.*`, `slot.*`, `stream.*`) only appear under `(any)`. See the [Event types reference](../event-types.md) for the full list. |
 | Role | Filter by instrument role (e.g. `dmm`, `psu`) | Free-text. |
 | Since (ISO) | Earliest event timestamp | ISO-8601 string. |
 | Limit | Maximum events fetched | Default 100, range 1–10,000. |
@@ -40,7 +40,7 @@ how many events matched.
 | Session | First 8 chars of the session UUID |
 | Run | First 8 chars of the run UUID (when present) |
 | Role | Instrument role for instrument.* events; otherwise blank |
-| Summary | A type-specific one-liner — channel + value for instrument reads/writes, measurement name + value + outcome for measurements, station id for session events, DUT serial for run events, step name for step events |
+| Summary | A type-specific one-liner — channel + value for instrument reads/writes, measurement name + value + outcome for measurements, station id for session events, UUT serial for run events, step name for step events |
 
 Click a row to open a detail dialog showing the full event JSON
 (every field on the event record).

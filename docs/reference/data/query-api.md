@@ -6,19 +6,19 @@ Three classes, one per materialized table. Every call goes through the runs Duck
 
 | Class | Table | Use for |
 |---|---|---|
-| [`RunsQuery`](#runsquery) | `runs` (one row per run) | Recent runs, per-run summary, run-level filters (phase, product, station, lot, outcome, date range) |
+| [`RunsQuery`](#runsquery) | `runs` (one row per run) | Recent runs, per-run summary, run-level filters (phase, part, station, lot, outcome, date range) |
 | [`StepsQuery`](#stepsquery) | `steps` (one row per pytest item × vector, plus container rows for class- and module-scoped step paths) | Step-level results, per-run step list, step-tree views, failure pareto by step |
-| [`MeasurementsQuery`](#measurementsquery) | `measurements` view | Yield, Cpk, retest rates, parametric histograms, time-loss analytics |
+| [`MeasurementsQuery`](#measurementsquery) | `measurements` view | Yield, Ppk, retest rates, parametric histograms, time-loss analytics |
 
 Open one with no args to read the active project's data dir — resolution is `_data_dir=<path>` arg → project `litmus.yaml` `data_dir:` → `LITMUS_HOME` env var → platform default. Pass `_data_dir=<path>` to point elsewhere. Always close it (the daemon ref-counts open clients):
 
 ```python
-from litmus.analysis.runs_query import RunsQuery
+from litmus.queries import RunsQuery
 
 with RunsQuery() as q:
     recent = q.list_recent(limit=20, outcome="failed")
     for r in recent:
-        print(r.run_id, r.dut_serial, r.outcome)
+        print(r.run_id, r.uut_serial, r.outcome)
 ```
 
 Row records returned by these methods live in [models.md](models.md) — see `RunRow`, `StepRow`, `StepNode`. Filter shapes (`FilterSet`, `FacetSpec`, `FacetOption`) also have field tables there.
@@ -30,7 +30,7 @@ For low-level DuckDB queries against the parquet files directly, see [Querying e
 
 Read-only client over the runs daemon's ``runs`` table.
 
-Source: `litmus.analysis.runs_query`. Import: `from litmus.analysis.runs_query import RunsQuery`.
+Source: `litmus.analysis.runs_query`. Import: `from litmus.queries import RunsQuery`.
 
 ### `RunsQuery.close` {#runsquery-close}
 
@@ -40,7 +40,7 @@ Release daemon ref and close Flight client.
 
 ### `RunsQuery.list_recent` {#runsquery-list_recent}
 
-`list_recent(limit: int = 50, *, offset: int = 0, include_incomplete: bool = False, phase: str | list[str] | None = None, product: str | list[str] | None = None, station: str | list[str] | None = None, lot: str | list[str] | None = None, outcome: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[RunRow]`
+`list_recent(limit: int = 50, *, offset: int = 0, include_incomplete: bool = False, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, lot: str | list[str] | None = None, outcome: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[RunRow]`
 
 Return one page of recent runs, most recent first.
 
@@ -50,21 +50,21 @@ Return one page of recent runs, most recent first.
 
 Return one run by id-prefix (8-char) or ``None`` if not found.
 
-### `RunsQuery.find_for_session` {#runsquery-find_for_session}
+### `RunsQuery.list_for_session` {#runsquery-list_for_session}
 
-`find_for_session(session_id: str, *, include_incomplete: bool = False) → list[RunRow]`
+`list_for_session(session_id: str, *, include_incomplete: bool = False) → list[RunRow]`
 
-Return all runs sharing a ``session_id`` (multi-DUT siblings).
+Return all runs sharing a ``session_id`` (multi-UUT siblings).
 
-### `RunsQuery.failure_pareto` {#runsquery-failure_pareto}
+### `RunsQuery.pareto` {#runsquery-pareto}
 
-`failure_pareto(*, group_by: str = 'dut_part_number', top_n: int = 10, phase: str | list[str] | None = None, product: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
+`pareto(*, group_by: str = 'uut_part_number', top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
 
 Pareto of failing runs grouped by ``group_by`` column.
 
 ### `RunsQuery.count` {#runsquery-count}
 
-`count(*, include_incomplete: bool = False, phase: str | list[str] | None = None, product: str | list[str] | None = None, station: str | list[str] | None = None, lot: str | list[str] | None = None, outcome: str | list[str] | None = None, since: str | None = None, until: str | None = None) → int`
+`count(*, include_incomplete: bool = False, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, lot: str | list[str] | None = None, outcome: str | list[str] | None = None, since: str | None = None, until: str | None = None) → int`
 
 Total number of runs matching the same filters as :meth:`list_recent`.
 
@@ -88,15 +88,15 @@ Aggregate run stats grouped by a column, entirely in SQL.
 
 ### `RunsQuery.describe_columns` {#runsquery-describe_columns}
 
-`describe_columns() → list[dict[str, str]]`
+`describe_columns() → ColumnSchema`
 
-Return the ``runs`` table's columns: ``[{name, type}, ...]``.
+Return the ``runs`` table's column schema.
 
 ## `StepsQuery` {#stepsquery}
 
 Read-only client over the runs daemon's ``steps`` table.
 
-Source: `litmus.analysis.steps_query`. Import: `from litmus.analysis.steps_query import StepsQuery`.
+Source: `litmus.analysis.steps_query`. Import: `from litmus.queries import StepsQuery`.
 
 ### `StepsQuery.close` {#stepsquery-close}
 
@@ -110,11 +110,11 @@ Release daemon ref and close Flight client.
 
 Return every step row for a run, ordered by ``step_index``.
 
-### `StepsQuery.failure_pareto` {#stepsquery-failure_pareto}
+### `StepsQuery.pareto` {#stepsquery-pareto}
 
-`failure_pareto(*, top_n: int = 10, phase: str | list[str] | None = None, product: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
+`pareto(*, top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
 
-Pareto of failing steps grouped by ``step_path``.
+Failure pareto of failing steps grouped by ``step_path``.
 
 ### `StepsQuery.list_for_session` {#stepsquery-list_for_session}
 
@@ -130,15 +130,15 @@ Return the step tree for a run, built from ``step_path``.
 
 ### `StepsQuery.describe_columns` {#stepsquery-describe_columns}
 
-`describe_columns() → list[dict[str, str]]`
+`describe_columns() → ColumnSchema`
 
-Return the ``steps`` table's columns: ``[{name, type}, ...]``.
+Return the ``steps`` table's column schema.
 
 ## `MeasurementsQuery` {#measurementsquery}
 
 Read-only client over the runs DuckDB daemon's ``measurements`` view.
 
-Source: `litmus.analysis.measurements_query`. Import: `from litmus.analysis.measurements_query import MeasurementsQuery`.
+Source: `litmus.analysis.measurements_query`. Import: `from litmus.queries import MeasurementsQuery`.
 
 ### `MeasurementsQuery.close` {#measurementsquery-close}
 
@@ -148,55 +148,73 @@ Release daemon ref and close Flight client.
 
 ### `MeasurementsQuery.yield_summary` {#measurementsquery-yield_summary}
 
-`yield_summary(*, product: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[dict[str, Any]]`
+`yield_summary(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[YieldRow]`
 
 Yield summary: FPY, final yield, run counts, duration stats.
 
+### `MeasurementsQuery.yield_overall` {#measurementsquery-yield_overall}
+
+`yield_overall(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None) → YieldRow | None`
+
+Pooled yield metrics over the entire filtered set — no part/station/period grouping.
+
 ### `MeasurementsQuery.pareto` {#measurementsquery-pareto}
 
-`pareto(*, product: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, top_n: int = 10) → list[dict[str, Any]]`
+`pareto(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, top_n: int = 10) → list[ParetoRow]`
 
-Pareto analysis: top failure modes by count.
+Failure pareto analysis: top failure modes by count.
 
-### `MeasurementsQuery.cpk` {#measurementsquery-cpk}
+### `MeasurementsQuery.ppk` {#measurementsquery-ppk}
 
-`cpk(*, product: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, min_samples: int = 10) → list[dict[str, Any]]`
+`ppk(field: str | FieldRef | None = None, *, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, min_samples: int = 10) → list[PpkRow]`
 
-Process capability (Cpk/Cp) per measurement.
+Process performance (Ppk/Pp) per measurement.
 
 ### `MeasurementsQuery.trend` {#measurementsquery-trend}
 
-`trend(*, product: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[dict[str, Any]]`
+`trend(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[TrendRow]`
 
 Yield trend over time.
 
 ### `MeasurementsQuery.retest` {#measurementsquery-retest}
 
-`retest(*, product: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[dict[str, Any]]`
+`retest(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[RetestRow]`
 
-Retest rates: how often DUTs require multiple attempts.
+Retest rates: how often UUTs require multiple attempts.
 
 ### `MeasurementsQuery.time_loss` {#measurementsquery-time_loss}
 
-`time_loss(*, product: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[dict[str, Any]]`
+`time_loss(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[TimeLossRow]`
 
 Time lost to failures and errors.
 
 ### `MeasurementsQuery.describe_columns` {#measurementsquery-describe_columns}
 
-`describe_columns() → list[dict[str, str]]`
+`describe_columns() → ColumnSchema`
 
-Return the measurements schema: ``[{column_name, column_type}, ...]``.
+Return the plottable column schema — curated fixed columns plus role-keyed fields.
 
 ### `MeasurementsQuery.parametric` {#measurementsquery-parametric}
 
-`parametric(*, y: str, x: str, filters: FilterSet | None = None, group_by: str | None = None, chart_type: str = 'scatter', bins: int = 30, limit: int = 5000, include_incomplete: bool = False) → list[ParametricRow] | list[HistogramRow]`
+`parametric(*, y: str | FieldRef, x: str | FieldRef, filters: FilterSet | None = None, group_by: str | FieldRef | None = None, limit: int = 5000, include_incomplete: bool = False) → list[ParametricRow]`
 
-Generic Y vs X query over measurements, optionally split by ``group_by``.
+Y vs X scatter/line points over measurements, optionally split by ``group_by``.
+
+### `MeasurementsQuery.histogram` {#measurementsquery-histogram}
+
+`histogram(*, field: str | FieldRef, bins: int = 30, group_by: str | FieldRef | None = None, filters: FilterSet | None = None) → list[HistogramRow]`
+
+Distribution of one field's values, bucketed into ``bins`` bins.
+
+### `MeasurementsQuery.latest_run_limits` {#measurementsquery-latest_run_limits}
+
+`latest_run_limits(*, x: str | FieldRef, filters: FilterSet | None = None) → list[LimitBandRow]`
+
+Limit envelope from the most recent run, keyed by the chart's X.
 
 ### `MeasurementsQuery.distinct_values` {#measurementsquery-distinct_values}
 
-`distinct_values(column: str, *, filters: FilterSet | None = None, exclude_self: bool = True, limit: int = 500) → list[FacetOption]`
+`distinct_values(column: str, *, role: FieldRole | str | None = None, filters: FilterSet | None = None, exclude_self: bool = True, limit: int = 500) → list[FacetOption]`
 
 Return distinct values for ``column`` with their counts.
 

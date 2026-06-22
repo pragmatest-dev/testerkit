@@ -10,17 +10,17 @@
 
 -- 1. Recent test runs: what ran, what passed?
 SELECT
-    dut_serial,
+    uut_serial,
     station_id,
     run_outcome,
     COUNT(DISTINCT measurement_name) AS measurements,
     run_started_at::DATE AS date
 FROM '~/.local/share/litmus/data/runs/**/*.parquet'
-GROUP BY run_id, dut_serial, station_id, run_outcome, run_started_at
+GROUP BY run_id, uut_serial, station_id, run_outcome, run_started_at
 ORDER BY run_started_at DESC
 LIMIT 10;
 
--- 2. All measurements for a specific DUT
+-- 2. All measurements for a specific UUT
 SELECT
     step_name,
     measurement_name,
@@ -30,7 +30,7 @@ SELECT
     low_limit,
     high_limit
 FROM '~/.local/share/litmus/data/runs/**/*.parquet'
-WHERE dut_serial = 'DEMO-PWR-001'
+WHERE uut_serial = 'DEMO-PWR-001'
 ORDER BY step_started_at, measurement_name;
 
 -- 3. Pass rate by step (which tests fail most?)

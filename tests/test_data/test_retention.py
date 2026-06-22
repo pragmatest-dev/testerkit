@@ -85,26 +85,54 @@ class TestPruneAll:
         monkeypatch.chdir(tmp_path)
         return tmp_path / "data"
 
-    def test_prunes_all_subdirs(self, project_dir: Path):
+    def _seg(self, channels_dir: Path, date_str: str, channel_id: str, sess: str) -> Path:
+        d = channels_dir / date_str
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / f"{channel_id}_{sess}.arrow"
+        p.write_bytes(b"seg")
+        return p
+
+    def test_prunes_unreferenced_channels_and_event_dirs(self, project_dir: Path):
         old = (date.today() - timedelta(days=60)).isoformat()
-        for sub in ("channels", "events"):
-            (project_dir / sub / old).mkdir(parents=True)
+        # No runs/ dir → nothing is referenced → the old segment ages out.
+        seg = self._seg(project_dir / "channels", old, "scope.ch1", "abcdef12")
+        (project_dir / "events" / old).mkdir(parents=True)
 
         result = prune_all(project_dir, "30d")
-        for sub in ("channels", "events"):
-            assert len(result[sub]) == 1
-            assert not (project_dir / sub / old).exists()
+        # channel segment pruned (unreferenced); its now-empty date dir cleaned up
+        assert seg in result["channels"]
+        assert not seg.exists()
+        assert not (project_dir / "channels" / old).exists()
+        # event date dir pruned (whole-dir, as before)
+        assert len(result["events"]) == 1
+        assert not (project_dir / "events" / old).exists()
 
-    def test_prunes_specific_types(self, project_dir: Path):
+    def test_ref_aware_pins_referenced_channel(
+        self, project_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         old = (date.today() - timedelta(days=60)).isoformat()
-        for sub in ("channels", "events"):
-            (project_dir / sub / old).mkdir(parents=True)
+        ch = project_dir / "channels"
+        kept = self._seg(ch, old, "scope.ch1", "aaaaaaaa")  # referenced → pinned
+        gone = self._seg(ch, old, "scope.ch2", "bbbbbbbb")  # unreferenced → pruned
 
+        # A run references (scope.ch1, aaaaaaaa): it's evidence, must be kept.
+        monkeypatch.setattr(
+            "litmus.data.retention._referenced_pairs",
+            lambda *_a: {("scope.ch1", "aaaaaaaa")},
+        )
         result = prune_all(project_dir, "30d", data_types=("channels",))
-        assert len(result) == 1
-        assert len(result["channels"]) == 1
-        # events untouched
-        assert (project_dir / "events" / old).exists()
+
+        assert kept.exists()  # pinned — no copy, the channel:// ref stays valid
+        assert not gone.exists()  # unreferenced — aged out
+        assert gone in result["channels"] and kept not in result["channels"]
+        assert (ch / old).exists()  # date dir retained (still holds the pinned slice)
+
+    def test_recent_channels_untouched(self, project_dir: Path):
+        recent = (date.today() - timedelta(days=5)).isoformat()
+        seg = self._seg(project_dir / "channels", recent, "scope.ch1", "abcdef12")
+        result = prune_all(project_dir, "30d", data_types=("channels",))
+        assert seg.exists()
+        assert result["channels"] == []
 
     def test_refuses_unowned_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """Pruning a dir not owned by any project should fail."""
@@ -117,3 +145,68 @@ class TestPruneAll:
         target.mkdir()
         with pytest.raises(PermissionError, match="project-owned"):
             prune_all(target, "30d")
+
+
+class TestFilesRefAware:
+    @pytest.fixture()
+    def project_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        (tmp_path / "litmus.yaml").write_text(f"name: test\ndata_dir: {tmp_path / 'data'}\n")
+        monkeypatch.chdir(tmp_path)
+        return tmp_path / "data"
+
+    def test_pins_referenced_prunes_orphan(self, project_dir: Path) -> None:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        old = (date.today() - timedelta(days=60)).isoformat()
+        sid = "abcdef1234567890"
+
+        # A run parquet referencing files/{old}/{sid}/kept.bin.
+        runs = project_dir / "runs" / "runs" / old
+        runs.mkdir(parents=True)
+        pq.write_table(
+            pa.table({"out_x": [f"file://{old}/{sid}/kept.bin"]}),
+            runs / "120000_UUT.parquet",
+        )
+
+        fdir = project_dir / "files" / old / sid
+        fdir.mkdir(parents=True)
+        kept = fdir / "kept.bin"
+        kept.write_bytes(b"keep")
+        (fdir / "kept.bin.meta.json").write_text("{}")
+        orphan = fdir / "orphan.bin"
+        orphan.write_bytes(b"gone")
+        (fdir / "orphan.bin.meta.json").write_text("{}")
+
+        result = prune_all(project_dir, "30d", data_types=("files",))
+
+        assert kept.exists()  # pinned — a run references it (no copy)
+        assert (fdir / "kept.bin.meta.json").exists()
+        assert not orphan.exists()  # unreferenced orphan aged out
+        assert not (fdir / "orphan.bin.meta.json").exists()  # sidecar went with it
+        assert orphan in result["files"]
+
+    def test_recent_files_untouched(self, project_dir: Path) -> None:
+        recent = (date.today() - timedelta(days=5)).isoformat()
+        fdir = project_dir / "files" / recent / "sess"
+        fdir.mkdir(parents=True)
+        f = fdir / "x.bin"
+        f.write_bytes(b"x")
+        result = prune_all(project_dir, "30d", data_types=("files",))
+        assert f.exists()
+        assert result["files"] == []
+
+    def test_ext_filter_prunes_only_matching_type(self, project_dir: Path) -> None:
+        old = (date.today() - timedelta(days=60)).isoformat()
+        fdir = project_dir / "files" / old / "sess"
+        fdir.mkdir(parents=True)
+        tdms = fdir / "raw.tdms"
+        tdms.write_bytes(b"raw")
+        png = fdir / "shot.png"
+        png.write_bytes(b"img")
+
+        # No runs/ → both unreferenced; --ext tdms ages out the raw, keeps the image.
+        result = prune_all(project_dir, "30d", data_types=("files",), exts=frozenset({"tdms"}))
+        assert not tdms.exists()  # matched the type filter → pruned
+        assert png.exists()  # other type → kept (tiered retention)
+        assert tdms in result["files"]

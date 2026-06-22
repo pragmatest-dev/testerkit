@@ -37,10 +37,10 @@ def _step_row(
     step_ended_at: datetime | None,
     step_index: int = 0,
     step_name: str = "test_step",
-    dut_serial: str = "SN001",
+    uut_serial: str = "SN001",
     station_id: str = "STA-01",
     test_phase: str = "production",
-    product_id: str = "PN-100",
+    part_id: str = "PN-100",
 ) -> dict:
     """Build one ``record_type='step'`` row in unified RUN_ROW_SCHEMA shape.
 
@@ -67,16 +67,16 @@ def _step_row(
             "step_vector_count": 1,
             "vector_index": 0,
             "measurement_name": None,
-            "dut_serial": dut_serial,
+            "uut_serial": uut_serial,
             "station_id": station_id,
             "test_phase": test_phase,
-            "product_id": product_id,
+            "part_id": part_id,
         }
     )
     return populated
 
 
-def _measurement_row(
+def _vector_row(
     *,
     run_id: str,
     session_id: str,
@@ -87,14 +87,14 @@ def _measurement_row(
     step_ended_at: datetime,
     step_index: int,
     step_name: str,
-    measurement_name: str,
-    dut_serial: str,
+    measurement_names: list[str],
+    uut_serial: str,
 ) -> dict:
-    """Build one ``record_type='measurement'`` row in unified RUN_ROW_SCHEMA shape."""
+    """Build one ``record_type='vector'`` row carrying nested measurements."""
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
-            "record_type": "measurement",
+            "record_type": "vector",
             "run_id": run_id,
             "session_id": session_id,
             "run_started_at": run_started_at,
@@ -106,17 +106,35 @@ def _measurement_row(
             "parent_path": "",
             "step_started_at": step_started_at,
             "step_ended_at": step_ended_at,
-            "step_outcome": run_outcome,
-            "step_vector_count": 1,
             "vector_index": 0,
             "vector_retry": 0,
-            "measurement_name": measurement_name,
-            "measurement_value": 1.0,
-            "measurement_outcome": run_outcome,
-            "dut_serial": dut_serial,
+            "vector_outcome": run_outcome,
+            "uut_serial": uut_serial,
             "station_id": "STA-01",
             "test_phase": "production",
-            "product_id": "PN-100",
+            "part_id": "PN-100",
+            "measurements": [
+                {
+                    "name": name,
+                    "value": 1.0,
+                    "unit": None,
+                    "outcome": run_outcome,
+                    "timestamp": None,
+                    "limit_low": None,
+                    "limit_high": None,
+                    "limit_nominal": None,
+                    "limit_comparator": None,
+                    "characteristic_id": None,
+                    "spec_ref": None,
+                    "uut_pin": None,
+                    "fixture_connection": None,
+                    "instrument_name": None,
+                    "instrument_resource": None,
+                    "instrument_channel": None,
+                    "ref": None,
+                }
+                for name in measurement_names
+            ],
         }
     )
     return populated
@@ -132,7 +150,7 @@ def _write_run(
     outcome: str,
     n_steps: int = 2,
     measurements_per_step: int = 10,
-    dut_serial: str = "SN001",
+    uut_serial: str = "SN001",
 ) -> None:
     """Write a unified per-run parquet (n_steps × measurements_per_step rows)
     and notify the daemon to ingest it."""
@@ -155,25 +173,24 @@ def _write_run(
                 step_ended_at=step_end,
                 step_index=step_i,
                 step_name=f"step_{step_i}",
-                dut_serial=dut_serial,
+                uut_serial=uut_serial,
             )
         )
-        for meas_i in range(measurements_per_step):
-            rows.append(
-                _measurement_row(
-                    run_id=run_id,
-                    session_id=session_id,
-                    run_started_at=started,
-                    run_ended_at=run_ended,
-                    run_outcome=outcome,
-                    step_started_at=step_start,
-                    step_ended_at=step_end,
-                    step_index=step_i,
-                    step_name=f"step_{step_i}",
-                    measurement_name=f"meas_{step_i}_{meas_i}",
-                    dut_serial=dut_serial,
-                )
+        rows.append(
+            _vector_row(
+                run_id=run_id,
+                session_id=session_id,
+                run_started_at=started,
+                run_ended_at=run_ended,
+                run_outcome=outcome,
+                step_started_at=step_start,
+                step_ended_at=step_end,
+                step_index=step_i,
+                step_name=f"step_{step_i}",
+                measurement_names=[f"meas_{step_i}_{m}" for m in range(measurements_per_step)],
+                uut_serial=uut_serial,
             )
+        )
     cols = {f.name: [r[f.name] for r in rows] for f in RUN_ROW_SCHEMA}
     parquet_path = runs_dir / f"{run_id}.parquet"
     pq.write_table(pa.table(cols, schema=RUN_ROW_SCHEMA), parquet_path)
@@ -204,7 +221,7 @@ def _write_in_flight_run(
         step_ended_at=None,
         step_index=0,
         step_name="in_flight_step",
-        dut_serial="SN-LIVE",
+        uut_serial="SN-LIVE",
     )
     cols = {f.name: [populated[f.name]] for f in RUN_ROW_SCHEMA}
     pq.write_table(
@@ -217,18 +234,18 @@ def _wait_for_ingest(session_id: str, expected: int) -> list[RunRow]:
     """Poll the canonical daemon until the synthetic runs land.
 
     The daemon ingests parquet files asynchronously on its own
-    cadence; tests poll ``find_for_session`` until the expected
+    cadence; tests poll ``list_for_session`` until the expected
     row count appears. Same eventual-consistency model the UI sees.
     """
     deadline = time.monotonic() + _INGEST_TIMEOUT_S
     while time.monotonic() < deadline:
         with RunsQuery() as q:
-            rows = q.find_for_session(session_id, include_incomplete=True)
+            rows = q.list_for_session(session_id, include_incomplete=True)
         if len(rows) >= expected:
             return rows
         time.sleep(0.2)
     with RunsQuery() as q:
-        return q.find_for_session(session_id, include_incomplete=True)
+        return q.list_for_session(session_id, include_incomplete=True)
 
 
 @pytest.fixture(scope="module")
@@ -266,7 +283,7 @@ def fixture_data():
             started=base + timedelta(minutes=10),
             outcome="failed",
             n_steps=3,
-            dut_serial="SN002",
+            uut_serial="SN002",
         )
         _write_run(
             runs_dir,
@@ -297,8 +314,8 @@ class TestListRecent:
     def test_returns_typed_rows_newest_first(self, fixture_data):
         """Within this fixture's session, runs come back newest-first."""
         with RunsQuery() as q:
-            session_a_rows = q.find_for_session(fixture_data["session_a"])
-            session_b_rows = q.find_for_session(fixture_data["session_b"])
+            session_a_rows = q.list_for_session(fixture_data["session_a"])
+            session_b_rows = q.list_for_session(fixture_data["session_b"])
         all_rows = sorted(
             session_a_rows + session_b_rows,
             key=lambda r: r.started_at or datetime.min.replace(tzinfo=UTC),
@@ -367,7 +384,7 @@ def fixture_data_with_in_flight():
             started=base + timedelta(minutes=10),
             outcome="failed",
             n_steps=3,
-            dut_serial="SN002",
+            uut_serial="SN002",
         )
         _write_run(
             runs_dir,
@@ -408,13 +425,13 @@ class TestIncludeIncomplete:
     def test_default_excludes_in_flight(self, fixture_data_with_in_flight):
         """``include_incomplete=False`` (default) skips ended_at=NULL rows."""
         with RunsQuery() as q:
-            rows = q.find_for_session(fixture_data_with_in_flight["session_live"])
+            rows = q.list_for_session(fixture_data_with_in_flight["session_live"])
         assert rows == []
 
     def test_include_incomplete_true_surfaces_in_flight(self, fixture_data_with_in_flight):
         """``include_incomplete=True`` returns rows with ended_at=NULL."""
         with RunsQuery() as q:
-            rows = q.find_for_session(
+            rows = q.list_for_session(
                 fixture_data_with_in_flight["session_live"],
                 include_incomplete=True,
             )
@@ -440,24 +457,27 @@ class TestGet:
             assert q.get("00000000-no-such-run") is None
 
 
-class TestFindForSession:
+class TestListForSession:
     def test_returns_session_siblings(self, fixture_data):
         """All runs sharing a session_id come back."""
         with RunsQuery() as q:
-            rows = q.find_for_session(fixture_data["session_a"])
+            rows = q.list_for_session(fixture_data["session_a"])
         assert {r.run_id for r in rows} == {fixture_data["run_a"], fixture_data["run_b"]}
 
     def test_unknown_session_returns_empty(self, fixture_data):
         """A session id that no run carries returns an empty list."""
         unknown = str(uuid4())
         with RunsQuery() as q:
-            assert q.find_for_session(unknown) == []
+            assert q.list_for_session(unknown) == []
 
 
 class TestDescribeColumns:
     def test_returns_table_columns(self, fixture_data):
         """``DESCRIBE runs`` exposes the expected schema columns."""
+        from litmus.analysis.measurement_facets import ColumnSchema
+
         with RunsQuery() as q:
-            cols = q.describe_columns()
-        names = {c["column_name"] for c in cols}
+            schema = q.describe_columns()
+        assert isinstance(schema, ColumnSchema)
+        names = {c.name for c in schema.fixed}
         assert {"run_id", "session_id", "outcome", "started_at", "num_steps"} <= names

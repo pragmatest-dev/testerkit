@@ -26,11 +26,11 @@ Author and run tests.
 - [Writing tests](execution/writing-tests.md) — pytest classes, sidecar YAML, the `verify` pattern
 - [Test limits](execution/limits.md) — limit shapes, condition-indexed bands, comparator semantics
 - [Test vectors & sweeps](execution/vector-expansion.md) — sidecar `sweeps:`, `@parametrize`, the `vectors` fixture
-- [Spec-driven testing](execution/spec-driven-testing.md) — derive limits from the product YAML
+- [Spec-driven testing](execution/spec-driven-testing.md) — derive limits from the part YAML
 - [Read and write the test context](execution/test-context.md) — what the `context` fixture knows and how to use it from inside a test
 - [Profiles — named config sets](execution/profiles.md) — select which tests run and how
 - [Managing sessions](execution/managing-sessions.md) — connect/disconnect lifecycle for instrument usage
-- [Multi-DUT testing](execution/multi-dut-testing.md) — subprocess-per-slot, shared instruments
+- [Multi-UUT testing](execution/multi-uut-testing.md) — subprocess-per-slot, shared instruments
 - [Measurement traceability](execution/traceability.md) — ATML / IEEE 1671 metadata captured automatically
 - [Operator prompts](execution/operator-prompts.md) — design guide for the `litmus_prompts` marker and the `prompt` fixture
 
@@ -42,7 +42,7 @@ Pull data out of the runtime — query, debug, export, dashboard.
 - [Querying channel data](data/querying-channels.md) — time-series data plane
 - [Find flaky tests](data/find-flaky-tests.md) — use Metrics → Retest and Results detail to spot intermittents
 - [Compare two runs](data/compare-runs.md) — diff known-good vs failing with two tabs + a DuckDB query
-- [Export results](data/export-results.md) — `litmus show -f` for reports (HTML/PDF/JSON/CSV) and `litmus export -f` for interchange (STDF/HDF5/TDMS/MDF4/ATML)
+- [Export results](data/export-results.md) — `litmus show -f` for reports (HTML/PDF/JSON/CSV) and `litmus export -f` for interchange (STDF/HDF5/TDMS/MDF4)
 - [Query runs and metrics via MCP](data/mcp-query-runs.md) — `litmus_runs` / `litmus_steps` / `litmus_metrics` recipes
 - [Debug failures via MCP](data/mcp-debug-failures.md) — chained investigative workflow when a run fails
 - [Grafana dashboards](data/grafana-dashboards.md) — pre-built dashboards for results, events, channels

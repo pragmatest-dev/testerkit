@@ -18,6 +18,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from litmus.data.backends._row_helpers import encode_lane_structs
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.ref import make_channel_uri
 from litmus.data.run_store import RunStore
@@ -35,7 +36,7 @@ def _measurement_row(
     run_started_at: datetime,
     run_ended_at: datetime,
     run_outcome: str,
-    dut_serial: str,
+    uut_serial: str,
     station_id: str,
     step_name: str,
     step_index: int,
@@ -43,17 +44,17 @@ def _measurement_row(
     measurement_value: float,
     measurement_outcome: str,
 ) -> dict:
-    """One ``record_type='measurement'`` row in unified RUN_ROW_SCHEMA shape."""
+    """One ``record_type='vector'`` row carrying one nested measurement."""
     populated: dict = {f.name: None for f in RUN_ROW_SCHEMA}
     populated.update(
         {
-            "record_type": "measurement",
+            "record_type": "vector",
             "run_id": run_id,
             "session_id": session_id,
             "run_started_at": run_started_at,
             "run_ended_at": run_ended_at,
             "run_outcome": run_outcome,
-            "dut_serial": dut_serial,
+            "uut_serial": uut_serial,
             "station_id": station_id,
             "step_name": step_name,
             "step_index": step_index,
@@ -61,40 +62,44 @@ def _measurement_row(
             "parent_path": "",
             "step_started_at": run_started_at,
             "step_ended_at": run_ended_at,
-            "step_outcome": run_outcome,
-            "step_vector_count": 1,
             "vector_index": 0,
             "vector_retry": 0,
-            "measurement_name": measurement_name,
-            "measurement_value": measurement_value,
-            "measurement_outcome": measurement_outcome,
-            "measurement_units": "V",
-            "limit_low": 3.1,
-            "limit_high": 3.5,
-            "limit_nominal": 3.3,
+            "vector_outcome": run_outcome,
+            "measurements": [
+                {
+                    "name": measurement_name,
+                    "value": measurement_value,
+                    "unit": "V",
+                    "outcome": measurement_outcome,
+                    "timestamp": None,
+                    "limit_low": 3.1,
+                    "limit_high": 3.5,
+                    "limit_nominal": 3.3,
+                    "limit_comparator": None,
+                    "characteristic_id": None,
+                    "spec_ref": None,
+                    "uut_pin": None,
+                    "fixture_connection": None,
+                    "instrument_name": None,
+                    "instrument_resource": None,
+                    "instrument_channel": None,
+                }
+            ],
         }
     )
     return populated
 
 
-def _write_unified(path: Path, row: dict, *, extra_cols: dict | None = None) -> None:
-    """Write a single-row unified parquet, with optional dynamic columns
-    (e.g. ``out_waveform``) added alongside the schema fields."""
-    cols = {f.name: [row[f.name]] for f in RUN_ROW_SCHEMA}
-    schema_fields = list(RUN_ROW_SCHEMA)
-    extra_fields: list = []
-    if extra_cols:
-        for name, value in extra_cols.items():
-            cols[name] = [value]
-            # Dynamic columns infer string for None, otherwise from value type.
-            extra_fields.append(
-                pa.field(
-                    name,
-                    pa.string() if value is None or isinstance(value, str) else pa.float64(),
-                )
-            )
-    schema = pa.schema(schema_fields + extra_fields)
-    pq.write_table(pa.table(cols, schema=schema), path)
+def _write_unified(path: Path, row: dict, *, outputs: dict | None = None) -> None:
+    """Write a single-row unified parquet, encoding any ``outputs`` observations
+    into the row's nested ``outputs`` lane (the at-rest EAV form)."""
+    enriched = dict(row)
+    if outputs:
+        enriched["outputs"] = encode_lane_structs(
+            {k: v for k, v in outputs.items() if v is not None}
+        )
+    cols = {f.name: [enriched.get(f.name)] for f in RUN_ROW_SCHEMA}
+    pq.write_table(pa.table(cols, schema=RUN_ROW_SCHEMA), path)
 
 
 @pytest.fixture(scope="module")
@@ -120,7 +125,7 @@ def fixture_data() -> dict[str, str]:
             run_started_at=_dt("2026-03-01T10:00:00Z"),
             run_ended_at=_dt("2026-03-01T10:05:00Z"),
             run_outcome="passed",
-            dut_serial="SN001",
+            uut_serial="SN001",
             station_id="station-1",
             step_name="test_voltage",
             step_index=0,
@@ -128,7 +133,7 @@ def fixture_data() -> dict[str, str]:
             measurement_value=3.3,
             measurement_outcome="passed",
         ),
-        extra_cols={"out_waveform": uri},
+        outputs={"waveform": uri},
     )
 
     pq2 = runs_dir / f"{run_002}_SN002.parquet"
@@ -140,7 +145,7 @@ def fixture_data() -> dict[str, str]:
             run_started_at=_dt("2026-03-01T11:00:00Z"),
             run_ended_at=_dt("2026-03-01T11:05:00Z"),
             run_outcome="failed",
-            dut_serial="SN002",
+            uut_serial="SN002",
             station_id="station-1",
             step_name="test_voltage",
             step_index=0,
@@ -148,7 +153,7 @@ def fixture_data() -> dict[str, str]:
             measurement_value=2.8,
             measurement_outcome="failed",
         ),
-        extra_cols={"out_waveform": None},
+        outputs={"waveform": None},
     )
 
     return {
@@ -178,7 +183,7 @@ def test_get_run(runs_store: RunStore, fixture_data: dict[str, str]) -> None:
     run = runs_store.get_run(fixture_data["run_001"][:8])
     assert run is not None
     assert run.test_run_id == fixture_data["run_001"]
-    assert run.dut_serial == "SN001"
+    assert run.uut_serial == "SN001"
     assert run.outcome == "passed"
 
 
@@ -203,12 +208,13 @@ def test_get_measurements(runs_store: RunStore, fixture_data: dict[str, str]) ->
 
 
 def test_find_channel_refs(runs_store: RunStore, fixture_data: dict[str, str]) -> None:
-    """RunStore.find_channel_refs finds channel:// URIs in out_* columns."""
+    """RunStore.find_channel_refs finds channel:// URIs in the outputs lane."""
     refs = runs_store.find_channel_refs({fixture_data["session_short"]})
     assert any(
         r["channel_id"] == "scope.ch1.waveform"
         and r["session_short"] == fixture_data["session_short"]
-        and r["col_name"] == "out_waveform"
+        and r["col_name"] == "waveform"
+        and r["role"] == "output"
         for r in refs
     ), f"expected scope.ch1.waveform ref for session {fixture_data['session_short']}, got {refs}"
 
@@ -242,7 +248,7 @@ def test_notify_new_run(runs_store: RunStore) -> None:
             run_started_at=_dt("2026-03-08T12:00:00Z"),
             run_ended_at=_dt("2026-03-08T12:01:00Z"),
             run_outcome="passed",
-            dut_serial="SN099",
+            uut_serial="SN099",
             station_id="station-2",
             step_name="test_current",
             step_index=0,
@@ -259,4 +265,4 @@ def test_notify_new_run(runs_store: RunStore) -> None:
     found = runs_store.get_run(run_id[:8])
     assert found is not None
     assert found.test_run_id == run_id
-    assert found.dut_serial == "SN099"
+    assert found.uut_serial == "SN099"

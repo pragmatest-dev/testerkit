@@ -80,10 +80,10 @@ def create_connection(data_dir: Path) -> duckdb.DuckDBPyConnection:
         "SELECT run_id, first(session_id) AS session_id, "
         "min(run_started_at) AS started_at, "
         "max(run_ended_at) AS ended_at, "
-        "first(run_outcome) AS outcome, first(dut_serial) AS dut_serial, "
-        "first(dut_part_number) AS part_number, first(dut_lot_number) AS lot, "
+        "first(run_outcome) AS outcome, first(uut_serial) AS uut_serial, "
+        "first(uut_part_number) AS part_number, first(uut_lot_number) AS lot, "
         "first(station_id) AS station_id, first(station_name) AS station_name, "
-        "first(product_id) AS product_id, first(product_name) AS product_name, "
+        "first(part_id) AS part_id, first(part_name) AS part_name, "
         "first(test_phase) AS phase, count(*) AS num_measurements "
         "FROM measurements GROUP BY run_id"
     )
@@ -103,7 +103,12 @@ _IPC_TABLES: list[tuple[str, str, str]] = [
         "occurred_at AT TIME ZONE 'UTC' AS occurred_at, "
         "received_at AT TIME ZONE 'UTC' AS received_at",
     ),
-    ("channels", "channels", "timestamp AT TIME ZONE 'UTC' AS timestamp"),
+    (
+        "channels",
+        "channels",
+        "received_at AT TIME ZONE 'UTC' AS received_at, "
+        "sampled_at AT TIME ZONE 'UTC' AS sampled_at",
+    ),
 ]
 
 

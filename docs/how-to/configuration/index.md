@@ -8,6 +8,6 @@ Get hardware on the bench, wire it into a station, and run the same code with or
 
 ## See also
 
-- [Concepts → Configuration](../../concepts/configuration/index.md) — the product / station / fixture / capability model behind these recipes
+- [Concepts → Configuration](../../concepts/configuration/index.md) — the part / station / fixture / capability model behind these recipes
 - [Reference → Configuration](../../reference/configuration.md) — YAML schemas for every entity
 - [Tutorial → Step 7: Real Instruments](../../tutorial/07-real-instruments.md) — the canonical end-to-end walkthrough

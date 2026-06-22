@@ -36,11 +36,16 @@ _CANONICAL_RESULTS = resolve_data_dir()
 
 
 def _make_store(data_dir: Path, *, serve: bool = False) -> ChannelStore:
+    # ``index = not serve``: a serve=False store here is wrapped in an
+    # in-process server (it plays the daemon → owns the warm index);
+    # a serve=True store is a producer connecting to the real daemon
+    # (which owns the index), so it must NOT build its own (Opt 1).
     store = ChannelStore(
         data_dir,
         uuid4(),
         flush_threshold=10,
         serve=serve,
+        index=not serve,
     )
     store.open()
     return store
@@ -76,6 +81,46 @@ class TestInProcessServer:
         client.close()
         server.shutdown()
         store.close()
+
+    def test_channels_carry_full_descriptor(self, tmp_path: Path) -> None:
+        """list_flights serves the full descriptor (unit/role) via app_metadata."""
+        store = _make_store(tmp_path)
+        store.write("dmm.voltage", 3.3, unit="V", instrument_role="dmm")
+        server, location = start_server_background(store)
+
+        client = ChannelClient(location)
+        (desc,) = client.channels()
+        assert desc.channel_id == "dmm.voltage"
+        assert desc.unit == "V"
+        assert desc.instrument_role == "dmm"
+        assert desc.value_type == "scalar:float"
+
+        client.close()
+        server.shutdown()
+        store.close()
+
+    def test_registry_verb_round_trip(self, tmp_path: Path) -> None:
+        # A producer writes a closed segment; an index store scans it and serves
+        # the (hostname, channel, session) registry over the __registry__ verb.
+        prod = ChannelStore(tmp_path, uuid4(), flush_threshold=1, station_hostname="h1")
+        prod.open()
+        prod.write("dmm.voltage", 3.3)
+        prod.close()
+
+        store = ChannelStore(tmp_path, uuid4(), index=True)
+        store.open()
+        server, location = start_server_background(store)
+
+        client = ChannelClient(location)
+        rows = client.channel_registry().to_pylist()
+        client.close()
+        server.shutdown()
+        store.close()
+
+        assert len(rows) == 1
+        assert rows[0]["hostname"] == "h1"
+        assert rows[0]["channel_id"] == "dmm.voltage"
+        assert rows[0]["session_id"]
 
     def test_remote_write_persists(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
@@ -181,7 +226,7 @@ class TestInProcessServer:
         table = client.query("ts.ch", max_points=5)
         assert len(table) == 5
 
-        all_ts = store.query("ts.ch").column("timestamp").to_pylist()
+        all_ts = store.query("ts.ch").column("received_at").to_pylist()
         mid = all_ts[5]
         table_windowed = client.query("ts.ch", start=mid)
         assert len(table_windowed) == 5
@@ -197,6 +242,38 @@ class TestInProcessServer:
 # ---------------------------------------------------------------------------
 # Daemon lifecycle tests
 # ---------------------------------------------------------------------------
+
+
+class TestIndexNoDrift:
+    """The warm index must read the same whether a sample arrived live
+    (do_put → pending buffer) or was scanned from a closed segment on a
+    fresh daemon start. A live row and a disk-scanned row of the same
+    data must query identically — the channels analog of Phase B's
+    inflight==materialized no-drift guard.
+    """
+
+    def test_live_ingest_matches_disk_scan(self, tmp_path: Path) -> None:
+        # Store A indexes via the write→index hook (live/pending path)
+        # and persists segments to disk.
+        store_a = ChannelStore(tmp_path, uuid4(), flush_threshold=10, index=True)
+        store_a.open()
+        store_a.write("nd.scalar", 1.5)
+        store_a.write("nd.scalar", 2.5)
+        store_a.write("nd.arr", [1.0, 2.0, 3.0])
+        live_scalar = store_a.query("nd.scalar").column("value").to_pylist()
+        live_arr = store_a.query("nd.arr").column("value").to_pylist()
+        store_a.close()  # flush remaining segments to disk
+
+        # Store B rebuilds the index purely from the disk scan.
+        store_b = ChannelStore(tmp_path, uuid4(), index=True)
+        store_b.open()
+        disk_scalar = store_b.query("nd.scalar").column("value").to_pylist()
+        disk_arr = store_b.query("nd.arr").column("value").to_pylist()
+        store_b.close()
+
+        # Live path and disk-scan path agree, and types round-trip.
+        assert live_scalar == disk_scalar == [1.5, 2.5]
+        assert live_arr == disk_arr == [[1.0, 2.0, 3.0]]
 
 
 class TestDaemonLifecycle:

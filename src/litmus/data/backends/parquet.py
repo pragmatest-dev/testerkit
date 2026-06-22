@@ -5,31 +5,37 @@ metadata denormalized for easy querying with DuckDB, Spark, Polars, etc.
 
 Directory structure:
     results/runs/{date}/
-    ├── {timestamp}_{serial}.parquet     # With serial (production)
-    ├── {timestamp}.parquet              # Without serial (dev/debug)
-    └── {timestamp}_{serial}_ref/        # Reference data (waveforms, images)
+    ├── {timestamp}_{run_id8}_{serial}.parquet   # With serial (production)
+    ├── {timestamp}_{run_id8}.parquet            # Without serial (dev/debug)
+    └── {timestamp}_{run_id8}_{serial}_ref/      # Reference data (waveforms, images)
+
+The run_id (8-char prefix) sits in a fixed position right after the
+timestamp so the optional serial can trail without shifting it; it
+disambiguates two runs of the same serial that start in the same second
+(otherwise the second would silently overwrite the first).
 
 All timestamps are UTC for consistent cross-timezone analysis.
 
 Schema design:
 - One row per measurement
 - All metadata denormalized onto each row
-- Dynamic in_* columns for stimulus conditions
-- Dynamic out_* columns for observations (scalars inline, large data in _ref/)
+- Inputs lane: LIST<STRUCT> of stimulus conditions (role='input')
+- Outputs lane: LIST<STRUCT> of observations (scalars inline, URIs for large data)
 - Config snapshots in Parquet file-level metadata
 """
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import pickle
 from collections import defaultdict
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePosixPath
+from typing import Any, BinaryIO
 from uuid import UUID
 
 import pyarrow as pa
@@ -39,25 +45,21 @@ import pyarrow.parquet as pq
 from litmus.data._atomic import atomic_write_table
 from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.backends._row_helpers import (
-    CUSTOM_PREFIX,
     HAS_NUMPY,
-    INPUT_PREFIX,
     INSTRUMENT_ARRAY_KEYS,
-    OUTPUT_PREFIX,
     REF_PATH_PREFIX,
-    VECTOR_ID_LENGTH,
-    build_row,
     build_run_metadata,
     build_run_row,
+    build_scope_vector_row,
     build_step_manifest,
     build_step_row,
-    extract_prefixed_fields,
+    build_vector_row,
+    decode_lane_structs,
     run_context_from_run_started,
-    save_ref_to_dir,
 )
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import (
-    DUT,
+    UUT,
     Measurement,
     Outcome,
     RunSummary,
@@ -77,18 +79,40 @@ from litmus.data.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Suffix patterns for stimulus signal-path columns (in_{param}_{suffix}).
-# A column like "in_vin_instrument" is metadata, not a param value.
-_STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_dut_pin", "_fixture_connection")
+# Suffix patterns that identify signal-path metadata keys in the
+# dynamic_attrs MAP. A key ending in one of these suffixes is metadata,
+# not a stimulus value.
+_STIMULUS_SUFFIXES = ("_instrument", "_resource", "_channel", "_uut_pin", "_fixture_connection")
 
 # Outcome priority for deterministic worst-case selection from a set.
 # Lower rank = worse outcome. Ties (same rank) pick the same "worst" value.
 OUTCOME_RANK: dict[str, int] = {"failed": 0, "errored": 1, "skipped": 2, "passed": 3}
 
 
-def _is_param_column(col: str) -> bool:
-    """True if col is an in_* param value, not signal-path metadata."""
-    return col.startswith(INPUT_PREFIX) and not any(col.endswith(s) for s in _STIMULUS_SUFFIXES)
+def _run_parquet_filename(timestamp: str, run_id: str, serial: str) -> str:
+    """Per-run parquet filename: ``{timestamp}_{run_id8}[_{serial}]``.
+
+    The 8-char run_id sits in a fixed position right after the timestamp; the
+    optional serial trails so its absence never shifts the leading parts. The
+    run_id prefix disambiguates two runs of the same serial that start in the
+    same second — without it the second would silently overwrite the first.
+    """
+    parts = [timestamp]
+    if run_id:
+        parts.append(run_id[:8])
+    if serial:
+        parts.append(serial)
+    return "_".join(parts) + ".parquet"
+
+
+def _is_stimulus_key(name: str) -> bool:
+    """True if ``name`` is stimulus signal-path metadata, not a param value."""
+    return any(name.endswith(s) for s in _STIMULUS_SUFFIXES)
+
+
+def _params_from_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Split decoded inputs into vector params (drop stimulus signal-path keys)."""
+    return {k: v for k, v in inputs.items() if not _is_stimulus_key(k)}
 
 
 def _ensure_instrument_arrays(d: dict[str, Any]) -> dict[str, Any]:
@@ -107,6 +131,7 @@ def _ensure_instrument_arrays(d: dict[str, Any]) -> dict[str, Any]:
 def _build_parquet_metadata(
     *,
     environment_json: str | None = None,
+    custom_metadata: dict[str, Any] | None = None,
     step_results: list[dict[str, Any]] | None = None,
     profile_facets: dict[str, str] | None = None,
 ) -> dict[bytes, bytes]:
@@ -119,8 +144,14 @@ def _build_parquet_metadata(
 
     if environment_json:
         metadata[b"environment_json"] = environment_json.encode("utf-8")
+    if custom_metadata:
+        metadata[b"custom_metadata"] = json.dumps(custom_metadata, default=str).encode("utf-8")
     if step_results:
-        metadata[b"step_results"] = json.dumps(step_results).encode("utf-8")
+        # step_results is a step-level summary; the per-vector nested
+        # measurements (which carry raw datetimes) live in the parquet rows,
+        # not this JSON metadata.
+        slim = [{k: v for k, v in e.items() if k != "measurements"} for e in step_results]
+        metadata[b"step_results"] = json.dumps(slim).encode("utf-8")
     if profile_facets:
         metadata[b"profile_facets_json"] = json.dumps(profile_facets).encode("utf-8")
 
@@ -166,7 +197,7 @@ class ParquetBackend:
     Key design principles:
     1. One row per measurement - enables flexible queries
     2. All metadata denormalized - no joins needed
-    3. Dynamic schema - in_* columns vary per test
+    3. Dynamic schema - inputs/outputs lanes vary per test
     4. Config snapshots in file metadata - full reconstruction possible
     """
 
@@ -204,17 +235,16 @@ class ParquetBackend:
         # UTC timestamp for filename (compact ISO 8601 basic format)
         timestamp = test_run.started_at.strftime("%Y%m%dT%H%M%SZ")
         date_str = test_run.started_at.strftime("%Y-%m-%d")
-        dut_serial = test_run.dut.serial.strip() if test_run.dut.serial else ""
+        uut_serial = test_run.uut.serial.strip() if test_run.uut.serial else ""
 
         # Create date directory under runs/
         date_dir = self._runs_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
-        # Filename: timestamp first, serial if present
-        if dut_serial:
-            filename = f"{timestamp}_{dut_serial}.parquet"
-        else:
-            filename = f"{timestamp}.parquet"
+        # timestamp, then run_id (always present, fixed position), then the
+        # optional serial last — so serial's absence never shifts the leading
+        # parts and the run_id breaks same-second same-serial collisions.
+        filename = _run_parquet_filename(timestamp, str(test_run.id), uut_serial)
 
         # Determine parquet path for _ref/ directory creation
         parquet_path = date_dir / filename
@@ -226,9 +256,6 @@ class ParquetBackend:
         # no steps or measurements (in which case the run row alone is
         # the entire parquet — naturally handles the placeholder case).
         rows: list[dict[str, Any]] = [self._build_run_row(test_run, instrument_arrays)]
-
-        # Build measurement rows (may create _ref/ directory for large data)
-        rows.extend(self._build_measurement_rows(test_run, parquet_path, instrument_arrays))
 
         # Append a ``record_type='step'`` row for every (step, vector)
         # — containers, action steps, swept variants, and
@@ -250,14 +277,13 @@ class ParquetBackend:
         return parquet_path
 
     def _append_step_rows(self, test_run: TestRun, rows: list[dict[str, Any]]) -> None:
-        """Append a ``record_type='step'`` row for every (step, vector).
+        """Append a ``record_type='step'`` row plus its scope ``vector`` row.
 
-        Used by the batch writer (``save_test_run``). Emits a step row
-        for each manifest entry unconditionally — measurements get
-        their own ``record_type='measurement'`` rows, and queries
-        discriminate via the explicit kind column. Delegates to the
-        shared ``build_step_row`` helper so streaming and batch paths
-        produce identical step rows for the same logical step.
+        Used by the batch writer (``save_test_run``). Emits a step row and a
+        scope vector row for each manifest entry; the vector carries the
+        conditions/observations and nested measurements. Delegates to the
+        shared ``build_step_row`` / ``build_scope_vector_row`` helpers so the
+        streaming and batch paths produce identical rows for the same step.
         """
         if not test_run.steps:
             return
@@ -265,16 +291,41 @@ class ParquetBackend:
         run_context = build_run_metadata(test_run)
         run_outcome = test_run.outcome.value if test_run.outcome else None
         run_ended_at = test_run.ended_at
-        instruments = _ensure_instrument_arrays({})
+        empty_instruments = _ensure_instrument_arrays({})
+        ref_saver = self._filestore_ref_saver(test_run)
 
         # ``build_step_manifest`` produces one entry per (step, vector)
         # pair — same shape ``ParquetSubscriber._build_step_row``
         # consumes from ``StepManifest`` events. Routing both writers
         # through the shared ``build_step_row`` helper keeps them in
         # lock-step.
-        for entry in build_step_manifest(test_run):
+        for entry in build_step_manifest(test_run, ref_saver=ref_saver):
+            idx = entry.get("index")
+            step = (
+                test_run.steps[idx]
+                if isinstance(idx, int) and 0 <= idx < len(test_run.steps)
+                else None
+            )
+            instruments = (
+                _ensure_instrument_arrays(dict(step.instrument_arrays))
+                if step is not None and step.instrument_arrays
+                else empty_instruments
+            )
             rows.append(
                 build_step_row(
+                    run_context=run_context,
+                    entry=entry,
+                    run_outcome=run_outcome,
+                    run_ended_at=run_ended_at,
+                    instruments=instruments,
+                )
+            )
+            # v2: synthesize the scope vector carrying the conditions/
+            # observations the step record sheds (offline path has no
+            # in-body VectorStarted/Ended, so every manifest entry is a
+            # non-looping execution → one scope vector each).
+            rows.append(
+                build_scope_vector_row(
                     run_context=run_context,
                     entry=entry,
                     run_outcome=run_outcome,
@@ -301,70 +352,34 @@ class ParquetBackend:
         finally:
             store.close()
 
-    def _build_measurement_rows(
-        self,
-        test_run: TestRun,
-        parquet_path: Path,
-        instrument_arrays: dict[str, list] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Build one row per measurement with all metadata denormalized."""
+    def _filestore_ref_saver(self, test_run: TestRun) -> Callable[[str, str, Any], str]:
+        """Build the FileStore-backed ref_saver for this run's blobs.
+
+        Item 1d: ref writes route through FileStore (one canonical home
+        for all blobs) instead of the per-parquet sibling ``{stem}_ref/``.
+        The vector_id-shortened prefix on the FileStore filename preserves
+        the audit trail. Shared by the measurement, step-row, and
+        step_results-metadata writers so a blob is claim-checked the same
+        way regardless of which lane carries it.
+
+        Lazy import: ``data.files`` transitively pulls PIL / serializers
+        that are only needed when this writer runs. Top-level would add
+        load cost to every consumer that imports ParquetBackend.
+        """
+        from litmus.data.files import get_filestore  # noqa: PLC0415
+
+        filestore = get_filestore()
+        session_id_str = str(test_run.session_id)
 
         def ref_saver(vector_id: str, key: str, value: Any) -> str:
-            return self._save_file(parquet_path, vector_id, key, value)
-
-        meta = build_run_metadata(test_run)
-        rows: list[dict[str, Any]] = []
-        for step_idx, step in enumerate(test_run.steps):
-            step_arrays = step.instrument_arrays or _ensure_instrument_arrays(
-                dict(instrument_arrays or {})
+            return filestore.write(
+                key,
+                value,
+                session_id=session_id_str,
+                vector_id=vector_id,
             )
-            for vector in step.vectors:
-                for measurement in vector.measurements:
-                    row_model = build_row(
-                        test_run,
-                        measurement,
-                        step.name,
-                        step_idx,
-                        vector,
-                        step_arrays,
-                        ref_saver=ref_saver,
-                        # Fall back step_path → step.name so the daemon's
-                        # GROUP BY (step_path, vector_index) gives each
-                        # logical step its own row. Same fallback for
-                        # step_started_at / step_ended_at — the daemon
-                        # filters on ``ended_at IS NOT NULL`` by default,
-                        # and a step row with no timing information is
-                        # invisible to operator queries.
-                        step_path=step.step_path or step.name,
-                        step_started_at=step.started_at or test_run.started_at,
-                        step_ended_at=step.ended_at or test_run.ended_at or test_run.started_at,
-                        step_node_id=step.node_id,
-                        step_module=step.module,
-                        step_file=step.file,
-                        step_class=step.class_name,
-                        step_function=step.function,
-                        step_markers=step.markers,
-                        step_outcome=step.outcome.value if step.outcome else None,
-                        meta=meta,
-                    )
-                    rows.append(row_model.to_flat_dict())
-        return rows
 
-    def _get_ref_dir(self, parquet_path: Path) -> Path:
-        """Get or create the _ref directory for a parquet file."""
-        # Replace .parquet with _ref
-        ref_dir = parquet_path.parent / (parquet_path.stem + "_ref")
-        ref_dir.mkdir(parents=True, exist_ok=True)
-        return ref_dir
-
-    def _save_file(self, parquet_path: Path, vector_id: str, key: str, value: Any) -> str:
-        """Save file in format appropriate for the data type.
-
-        Returns:
-            Path reference string like "_ref/abc123_scope_waveform.npz"
-        """
-        ref_dir = self._get_ref_dir(parquet_path)
-        return save_ref_to_dir(ref_dir, vector_id[:VECTOR_ID_LENGTH], key, value)
+        return ref_saver
 
     def _build_run_row(
         self,
@@ -373,9 +388,8 @@ class ParquetBackend:
     ) -> dict[str, Any]:
         """Build the single ``record_type='run'`` row for the parquet.
 
-        Carries run-level identity / DUT / station / fixture / environment
-        columns plus ``custom_metadata`` (flattened to ``custom_*``).
-        Step and measurement columns are NULL. Always present (one per
+        Carries run-level identity / UUT / station / fixture / environment
+        columns. Step and measurement columns are NULL. Always present (one per
         parquet); for empty runs it is the entire parquet.
         """
         instruments = _ensure_instrument_arrays(dict(instrument_arrays or {}))
@@ -384,14 +398,16 @@ class ParquetBackend:
             run_outcome=test_run.outcome.value if test_run.outcome else None,
             run_ended_at=test_run.ended_at,
             instruments=instruments,
-            custom=dict(test_run.custom_metadata),
         )
 
     def _build_file_metadata(self, test_run: TestRun) -> dict[bytes, bytes]:
         """Build Parquet file-level metadata."""
         return _build_parquet_metadata(
             environment_json=test_run.environment_json,
-            step_results=build_step_manifest(test_run),
+            custom_metadata=dict(test_run.custom_metadata) or None,
+            step_results=build_step_manifest(
+                test_run, ref_saver=self._filestore_ref_saver(test_run)
+            ),
             profile_facets=test_run.profile_facets or None,
         )
 
@@ -410,10 +426,10 @@ class ParquetBackend:
         with self._run_store_ctx() as store:
             return store.get_run(run_id)
 
-    def get_measurements(self, run_id: str, *, _file: str | None = None) -> list[dict[str, Any]]:
+    def get_measurements(self, run_id: str) -> list[dict[str, Any]]:
         """Get all measurements for a specific test run. Delegates to RunStore."""
         with self._run_store_ctx() as store:
-            return store.get_measurements(run_id, _file=_file)
+            return store.get_measurements(run_id)
 
     def get_measurement(
         self,
@@ -446,11 +462,11 @@ class ParquetBackend:
                     "outcome": m.get("vector_outcome"),
                     "started_at": m.get("vector_started_at"),
                     "ended_at": m.get("vector_ended_at"),
-                    "dut_serial": m.get("dut_serial"),
-                    "product_id": m.get("product_id"),
+                    "uut_serial": m.get("uut_serial"),
+                    "part_id": m.get("part_id"),
                     "station_id": m.get("station_id"),
                 }
-                vector_info["params"] = {k[3:]: v for k, v in m.items() if _is_param_column(k)}
+                vector_info["params"] = _params_from_inputs(m.get("inputs") or {})
                 vectors_seen[key] = vector_info
 
         return list(vectors_seen.values())
@@ -505,7 +521,8 @@ class ParquetBackend:
         self,
         rows: list[dict[str, Any]],
         started_at: datetime,
-        dut_serial: str,
+        uut_serial: str,
+        run_id: str,
         file_metadata: dict[bytes, bytes] | None = None,
     ) -> Path:
         """Save pre-built flat row dicts to Parquet.
@@ -518,15 +535,12 @@ class ParquetBackend:
 
         timestamp = started_at.strftime("%Y%m%dT%H%M%SZ")
         date_str = started_at.strftime("%Y-%m-%d")
-        dut_serial = dut_serial.strip() if dut_serial else ""
+        uut_serial = uut_serial.strip() if uut_serial else ""
 
         date_dir = self._runs_dir / date_str
         date_dir.mkdir(parents=True, exist_ok=True)
 
-        if dut_serial:
-            filename = f"{timestamp}_{dut_serial}.parquet"
-        else:
-            filename = f"{timestamp}.parquet"
+        filename = _run_parquet_filename(timestamp, run_id, uut_serial)
 
         parquet_path = date_dir / filename
 
@@ -570,16 +584,32 @@ def _build_unified_rows_from_acc(
     Free-standing because the daemon calls it with accumulator instances
     drawn from its pool; not method-on-class because EventAccumulator is
     the pure projection and shouldn't know about output formats.
+
+    Record order: one ``run`` row, then ``vector`` rows (each carrying its
+    nested ``measurements``), then ``step`` rows. No fabricated rows: a
+    verify-less vector / assert fail / observation-only execution is
+    represented by its vector or step record, never a synthesized
+    measurement.
     """
     rows: list[dict[str, Any]] = []
     run_row = _build_run_row_from_acc(acc, run_ended_at=run_ended_at, run_outcome=run_outcome)
     if run_row is not None:
         rows.append(run_row)
-    for event in acc._measurement_events:
-        row = acc._build_row(event)
-        row["run_ended_at"] = run_ended_at
-        row["run_outcome"] = run_outcome
-        rows.append(row)
+    # v2: synthesized scope vectors (one per non-looping step execution) carry
+    # the conditions/observations the step record sheds; in-body iteration
+    # vectors (Mode 2) carry theirs at the iteration grain.
+    for entry in acc._build_scope_vector_results_from_events():
+        vector_row = _build_vector_row_from_acc(
+            acc, entry, run_ended_at=run_ended_at, run_outcome=run_outcome
+        )
+        if vector_row is not None:
+            rows.append(vector_row)
+    for entry in acc._build_vector_results_from_events():
+        vector_row = _build_vector_row_from_acc(
+            acc, entry, run_ended_at=run_ended_at, run_outcome=run_outcome
+        )
+        if vector_row is not None:
+            rows.append(vector_row)
     for entry in acc._build_step_results_from_events():
         step_row = _build_step_row_from_acc(
             acc, entry, run_ended_at=run_ended_at, run_outcome=run_outcome
@@ -600,7 +630,6 @@ def _build_run_row_from_acc(
         run_outcome=run_outcome,
         run_ended_at=run_ended_at,
         instruments=acc._build_instrument_arrays(),
-        custom=dict(getattr(s, "custom_metadata", None) or {}),
     )
 
 
@@ -623,6 +652,25 @@ def _build_step_row_from_acc(
     )
 
 
+def _build_vector_row_from_acc(
+    acc: EventAccumulator,
+    entry: dict[str, Any],
+    *,
+    run_ended_at: datetime,
+    run_outcome: str,
+) -> dict[str, Any] | None:
+    s = acc._run_started
+    if not s:
+        return None
+    return build_vector_row(
+        run_context=run_context_from_run_started(s, s, include_env=True),
+        entry=entry,
+        run_outcome=run_outcome,
+        run_ended_at=run_ended_at,
+        instruments=acc._build_instrument_arrays(),
+    )
+
+
 def _build_file_metadata_from_acc(acc: EventAccumulator) -> dict[bytes, bytes]:
     s = acc._run_started
     if not s:
@@ -630,6 +678,7 @@ def _build_file_metadata_from_acc(acc: EventAccumulator) -> dict[bytes, bytes]:
     results = acc._build_step_results_from_events() or None
     return _build_parquet_metadata(
         environment_json=s.environment_json,
+        custom_metadata=dict(s.custom_metadata) or None,
         step_results=results,
     )
 
@@ -669,17 +718,56 @@ def materialize_run_to_parquet(
     return backend.save_from_rows(
         rows,
         started_at=s.occurred_at,
-        dut_serial=s.dut_serial,
+        uut_serial=s.uut_serial,
+        run_id=str(s.run_id) if s.run_id else "",
         file_metadata=_build_file_metadata_from_acc(acc),
     )
 
 
-def load_file(parquet_path: Path, ref: str) -> Any:
+def _resolve_ref_to_path(parquet_path: Path | None, ref: str) -> Path | None:
+    """Resolve a file ref to an on-disk path. Item 1d dual-path.
+
+    Returns ``None`` for non-file references (channel://, plain
+    strings) or unresolvable URIs. Callers decide what to do with
+    the un-resolution (typically return the ref as-is).
+
+    ``parquet_path`` is only consulted for legacy
+    ``file://_ref/{filename}`` URIs (per-parquet sidecar layout).
+    New FileStore-shape URIs (``file://{date}/{session_id}/{filename}``)
+    resolve without it.
+    """
+    raw = ref
+    if raw.startswith("file://"):
+        raw = raw[len("file://") :]
+
+    # Legacy: starts with the per-parquet ``_ref/`` prefix.
+    if raw.startswith(REF_PATH_PREFIX):
+        if parquet_path is None:
+            return None
+        filename = raw[len(REF_PATH_PREFIX) :]
+        return parquet_path.parent / (parquet_path.stem + "_ref") / filename
+
+    # New (item 1d) FileStore refs (``file://{date}/{session_id}/{filename}``) are
+    # NOT path-resolved here — ``load_file`` reads them as bytes through the
+    # blob backend (the store owns where they live; no path crosses out).
+    return None
+
+
+def load_file(parquet_path: Path | None, ref: str) -> Any:
     """Load a file reference (``file://`` URI or legacy ``_ref/`` path).
 
+    Dual-path post-item-1d:
+
+    - New: ``file://{date}/{session_id}/{filename}`` — resolves through
+      FileStore (canonical home for all artifacts).
+    - Legacy: ``file://_ref/{filename}`` or bare ``_ref/{filename}`` —
+      resolves to the parquet's sibling ``{stem}_ref/`` directory.
+      Stays for the lifetime of pre-1d parquets on disk.
+
     Args:
-        parquet_path: Path to the parquet file (used to locate _ref/ dir).
-        ref: Reference string — ``"file://_ref/abc.npz"`` or legacy ``"_ref/abc.npz"``.
+        parquet_path: Path to the parquet file (used to locate the
+            legacy ``_ref/`` sibling dir).
+        ref: Reference string — any of the three shapes above.
 
     Returns:
         Loaded data in appropriate format:
@@ -687,67 +775,95 @@ def load_file(parquet_path: Path, ref: str) -> Any:
         - .npy → numpy array
         - .json → dict or Pydantic model
         - .bin → bytes
+        - .arrow → Arrow Table
         - .pkl → pickled object
         - Other → raw file path
     """
-    # Normalize: strip file:// prefix if present
-    raw = ref
-    if raw.startswith("file://"):
-        raw = raw[len("file://") :]
+    # FileStore artifact ref → read the bytes through the backend (the store
+    # owns where they live: local disk or a remote object store). Legacy
+    # ``file://_ref/`` / bare ``_ref/`` refs predate FileStore and stay
+    # path-based (a per-parquet sibling dir).
+    raw = ref[len("file://") :] if ref.startswith("file://") else ref
+    if ref.startswith("file://") and not raw.startswith(REF_PATH_PREFIX):
+        from litmus.data.files import get_filestore  # noqa: PLC0415
 
-    if not raw.startswith(REF_PATH_PREFIX):
-        return ref  # Not a file reference, return as-is
+        payload = get_filestore().read(ref)
+        if payload is None:
+            return ref  # Unresolved / missing artifact
+        return _deserialize_ref(
+            PurePosixPath(raw).suffix.lower(),
+            lambda: io.BytesIO(payload),
+            ref,
+            fallback=payload,
+        )
 
-    # Get path relative to parquet file
-    ref_dir = parquet_path.parent / (parquet_path.stem + "_ref")
-    filename = raw[len(REF_PATH_PREFIX) :]
-    path = ref_dir / filename
-    ext = path.suffix.lower()
+    path = _resolve_ref_to_path(parquet_path, ref)
+    if path is None or not path.exists():
+        return ref  # Not a file reference, unresolved, or missing
+    return _deserialize_ref(path.suffix.lower(), lambda: path.open("rb"), ref, fallback=path)
 
-    if not path.exists():
-        return ref  # File not found, return reference
 
+def _deserialize_ref(
+    ext: str,
+    open_stream: Callable[[], BinaryIO],
+    ref: str,
+    *,
+    fallback: Any,
+) -> Any:
+    """Deserialize a file ref by extension from a binary stream.
+
+    Source-agnostic: ``open_stream`` yields a fresh readable for either a
+    FileStore artifact (``io.BytesIO`` over backend bytes) or a legacy
+    on-disk ref (the file handle). ``fallback`` is returned for unknown
+    extensions or when numpy is absent (the raw bytes for a FileStore ref,
+    the on-disk path for a legacy ref); a decode error returns ``ref``.
+    """
     try:
         if ext == ".npz":
             if not HAS_NUMPY:
-                return path
+                return fallback
+            # numpy import is deliberately deferred — top-level numpy imports
+            # add ~150ms to every consumer of this module (RunsQuery,
+            # MeasurementsQuery, the runs daemon). Readers that never touch
+            # .npz blobs should not pay it.
             import numpy as np  # noqa: PLC0415
 
-            data = dict(np.load(path, allow_pickle=True))
-            # Check if this looks like a Waveform
+            with open_stream() as f:
+                data = dict(np.load(f, allow_pickle=True))
             if "Y" in data and "t0" in data and "dt" in data:
-                attrs = {k: v for k, v in data.items() if k not in ("Y", "t0", "dt")}
+                attributes = {k: v for k, v in data.items() if k not in ("Y", "t0", "dt")}
+                # t0 is stored as ISO-8601 string by the serializer (datetime
+                # can't go into np.savez directly). Empty string = "unknown".
+                t0_str = str(data["t0"])
+                t0_val = datetime.fromisoformat(t0_str) if t0_str else None
                 return Waveform(
                     Y=data["Y"].tolist(),
-                    t0=float(data["t0"]),
+                    t0=t0_val,
                     dt=float(data["dt"]),
-                    attrs=attrs,
+                    attributes=attributes,
                 )
             return data
-
         elif ext == ".npy":
             if not HAS_NUMPY:
-                return path
+                return fallback
             import numpy as np  # noqa: PLC0415
 
-            return np.load(path)
-
+            with open_stream() as f:
+                return np.load(f)
         elif ext == ".json":
-            return json.loads(path.read_text())
-
+            with open_stream() as f:
+                return json.loads(f.read())
         elif ext == ".bin":
-            return path.read_bytes()
-
+            with open_stream() as f:
+                return f.read()
         elif ext == ".arrow":
-            return ipc.open_file(path).read_all()
-
+            with open_stream() as f:
+                return ipc.open_file(f).read_all()
         elif ext == ".pkl":
-            with open(path, "rb") as f:
+            with open_stream() as f:
                 return pickle.load(f)
-
         else:
-            # Return path for other file types
-            return path
+            return fallback
     except (
         OSError,
         ValueError,
@@ -756,7 +872,7 @@ def load_file(parquet_path: Path, ref: str) -> Any:
         EOFError,
         pa.ArrowInvalid,
     ) as exc:
-        logger.warning("Failed to load reference %s: %s", path, exc)
+        logger.warning("Failed to load reference %s: %s", ref, exc)
         return ref
 
 
@@ -814,15 +930,28 @@ def load_ref(
     scheme = ref_scheme(value)
 
     if scheme == "file":
-        if parquet_path is None:
-            return value
+        # Item 1d: new FileStore-shape URIs resolve without
+        # parquet_path (FileStore walks date dirs itself). Legacy
+        # ``file://_ref/...`` URIs still need parquet_path for the
+        # per-parquet sibling-dir resolution.
         return load_file(parquet_path, value)
 
     if scheme == "channel":
         if channel_store is None:
             return value
-        channel_id, session_id = parse_channel_uri(value)
-        return channel_store.query(channel_id, session_id=session_id or None)
+        try:
+            ticket = parse_channel_uri(value)
+            return channel_store.query(
+                ticket.channel_id,
+                session_id=ticket.session_id or None,
+                sample_offset=ticket.sample_offset,
+            )
+        except Exception:  # noqa: BLE001
+            # A dangling or unreachable channel degrades to "unavailable" (return
+            # the URI) — never crash the caller/UI. Mirrors load_file's missing-
+            # artifact behaviour: a clean failure surfaced, not silent corruption.
+            logger.debug("Channel ref %r could not be resolved (unavailable)", value)
+            return value
 
     # Unknown scheme — return as-is
     return value
@@ -837,6 +966,38 @@ def is_file_reference(value: Any) -> bool:
     if is_ref(value) and ref_scheme(value) == "file":
         return True
     return False
+
+
+def extract_refs(parquet_path: Path) -> tuple[set[tuple[str, str]], set[str]]:
+    """Channel ``(channel_id, session_id)`` pairs + ``file://`` keys a run references.
+
+    Scans the run's string columns (outputs lane structs and others) for
+    ``channel://`` / ``file://`` URIs — the run's full reachable set, both
+    schemes. Used by promote (carry a run's data) and retention (reference-aware
+    file pruning).
+    """
+    channels: set[tuple[str, str]] = set()
+    files: set[str] = set()
+    try:
+        table = pq.read_table(parquet_path)
+    except (OSError, pa.ArrowException):
+        return channels, files
+    for name in table.column_names:
+        col = table.column(name)
+        if not (pa.types.is_string(col.type) or pa.types.is_large_string(col.type)):
+            continue
+        for v in col.to_pylist():
+            if not is_ref(v):
+                continue
+            if v.startswith("channel://"):
+                # Retention is per-(channel, session): a channel is reachable if
+                # any ticket references it, regardless of offset. Drop the offset.
+                ticket = parse_channel_uri(v)
+                if ticket.channel_id and ticket.session_id:
+                    channels.add((ticket.channel_id, ticket.session_id))
+            else:  # file://
+                files.add(v[len("file://") :])
+    return channels, files
 
 
 def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
@@ -879,20 +1040,13 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
     raw_meta = pf.schema_arrow.metadata or {}
     file_meta = {k.decode(): v.decode() for k, v in raw_meta.items()}
 
-    # Group rows for reconstruction. Measurement rows group by
-    # (step_name, step_index) → (vector_index, vector_retry) — that's the
-    # measurement payload grain. Step rows are tracked separately by
-    # vector_index alone so they can backfill TestVectors that recorded
-    # no measurements (vector_retry is per-measurement; step rows
-    # carry None there and would otherwise create phantom vectors).
-    step_groups: dict[
-        tuple[str | None, int | None],
-        dict[tuple[int | None, int | None], list[dict]],
-    ] = defaultdict(lambda: defaultdict(list))
+    # Group rows for reconstruction. Vector rows are the carriers: each
+    # holds its conditions (inputs), context (outputs), and nested
+    # ``measurements``. Step rows supply step-level timing, outcome, and the
+    # instrument arrays. Keyed by ``(step_name, step_index)``.
+    step_vector_rows: dict[tuple[str | None, int | None], list[dict]] = defaultdict(list)
+    step_meta_rows: dict[tuple[str | None, int | None], dict] = {}
     step_timing: dict[tuple[str | None, int | None], dict[str, Any]] = {}
-    step_rows_by_vector: dict[tuple[str | None, int | None], dict[int | None, dict]] = defaultdict(
-        dict
-    )
 
     for row in rows:
         rt = row.get("record_type")
@@ -907,111 +1061,78 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
                 "started_at": row.get("step_started_at"),
                 "ended_at": row.get("step_ended_at"),
             }
-        if rt == "measurement":
-            vk = (row.get("vector_index"), row.get("vector_retry"))
-            step_groups[sk][vk].append(row)
-        else:
-            step_rows_by_vector[sk][row.get("vector_index")] = row
-
-    # Ensure measurement-free vectors still surface — for any step row
-    # whose (step, vector_index) has no measurement-group entry, seed
-    # an empty group keyed by ``(vector_index, None)``.
-    for sk, by_vec in step_rows_by_vector.items():
-        existing_vec_indices = {vk[0] for vk in step_groups[sk]}
-        for vec_idx, step_row in by_vec.items():
-            if vec_idx not in existing_vec_indices:
-                step_groups[sk][(vec_idx, None)].append(step_row)
+        if rt == "vector":
+            step_vector_rows[sk].append(row)
+        elif rt == "step":
+            step_meta_rows[sk] = row
 
     # Build steps
     steps: list[TestStep] = []
-    for sk in sorted(step_groups, key=lambda x: (x[1] or 0, x[0] or "")):
-        vector_groups = step_groups[sk]
-        vectors: list[TestVector] = []
+    all_sks = sorted(
+        set(step_vector_rows) | set(step_meta_rows),
+        key=lambda x: (x[1] or 0, x[0] or ""),
+    )
+    for sk in all_sks:
+        vector_rows = step_vector_rows.get(sk, [])
+        step_row = step_meta_rows.get(sk)
 
-        # One sample row for step-level extraction (step_instruments_* arrays)
-        step_sample_row = next(iter(vector_groups.values()))[0]
+        # Instrument arrays from the step row (fall back to a vector row).
+        instr_source = step_row or (vector_rows[0] if vector_rows else {})
         step_instr: dict[str, list] = {}
-        for col, val in step_sample_row.items():
-            if col.startswith("step_instruments_"):
-                if val is not None:
-                    step_instr[col] = val if isinstance(val, list) else [val]
+        for col, val in instr_source.items():
+            if col.startswith("step_instruments_") and val is not None:
+                step_instr[col] = val if isinstance(val, list) else [val]
 
-        for vk in sorted(vector_groups, key=lambda x: (x[0] or 0, x[1] or 0)):
-            group_rows = vector_groups[vk]
-            # Filter to measurement-kind rows for the payload loop.
-            # Step rows establish the (vector) presence even for
-            # measurement-free vectors but carry no measurement payload.
-            meas_rows = [r for r in group_rows if r.get("record_type") == "measurement"]
+        vectors: list[TestVector] = []
+        for vr in sorted(
+            vector_rows,
+            key=lambda r: (r.get("vector_index") or 0, r.get("vector_retry") or 0),
+        ):
+            params: dict[str, Any] = _params_from_inputs(decode_lane_structs(vr.get("inputs")))
+            observations = decode_lane_structs(vr.get("outputs"))
             measurements: list[Measurement] = []
-
-            # Extract params from in_* columns (skipping signal-path metadata
-            # like in_vin_instrument) and observations from out_*. Use any
-            # row in the group — both kinds carry the denormalized in_*/
-            # out_* columns identically.
-            sample_row = group_rows[0]
-            params: dict[str, Any] = {
-                k[len(INPUT_PREFIX) :]: v for k, v in sample_row.items() if _is_param_column(k)
-            }
-            observations = extract_prefixed_fields(sample_row, OUTPUT_PREFIX)
-
-            for mr in meas_rows:
-                outcome_str = mr.get("measurement_outcome")
+            for ms in vr.get("measurements") or []:
+                outcome_str = ms.get("outcome")
                 m = Measurement(
-                    name=mr.get("measurement_name") or "",
-                    value=mr.get("measurement_value"),
-                    units=mr.get("measurement_units"),
-                    limit_low=mr.get("limit_low"),
-                    limit_high=mr.get("limit_high"),
-                    limit_nominal=mr.get("limit_nominal"),
-                    limit_comparator=mr.get("limit_comparator"),
+                    name=ms.get("name") or "",
+                    value=ms.get("value"),
+                    unit=ms.get("unit"),
+                    limit_low=ms.get("limit_low"),
+                    limit_high=ms.get("limit_high"),
+                    limit_nominal=ms.get("limit_nominal"),
+                    limit_comparator=ms.get("limit_comparator"),
                     outcome=Outcome(outcome_str) if outcome_str else None,
-                    characteristic_id=mr.get("characteristic_id"),
-                    spec_ref=mr.get("spec_ref"),
-                    dut_pin=mr.get("dut_pin"),
-                    instrument_name=mr.get("instrument_name"),
-                    instrument_resource=mr.get("instrument_resource"),
-                    instrument_channel=mr.get("instrument_channel"),
-                    fixture_connection=mr.get("fixture_connection"),
+                    characteristic_id=ms.get("characteristic_id"),
+                    spec_ref=ms.get("spec_ref"),
+                    uut_pin=ms.get("uut_pin"),
+                    instrument_name=ms.get("instrument_name"),
+                    instrument_resource=ms.get("instrument_resource"),
+                    instrument_channel=ms.get("instrument_channel"),
+                    fixture_connection=ms.get("fixture_connection"),
                 )
-                ts = mr.get("measurement_timestamp")
+                ts = ms.get("timestamp")
                 if ts is not None:
                     m.timestamp = ts
                 measurements.append(m)
 
-            # Vector outcome should be uniform across the vector's
-            # measurement rows (it's denormalized from the vector model).
-            # Warn if a row diverges so silent data corruption surfaces.
-            vec_outcomes = {
-                mr.get("vector_outcome") for mr in meas_rows if mr.get("vector_outcome")
-            }
-            if len(vec_outcomes) > 1:
-                logger.warning(
-                    "Vector %s has inconsistent vector_outcome values across rows: %s",
-                    vk,
-                    sorted(o for o in vec_outcomes if o is not None),
-                )
-            vec_outcome_str = min(
-                vec_outcomes, key=lambda o: OUTCOME_RANK.get(str(o), 99), default=None
-            )
+            vec_outcome_str = vr.get("vector_outcome")
             vectors.append(
                 TestVector(
-                    index=vk[0] or 0,
-                    retry=vk[1] if vk[1] is not None else 0,
+                    index=vr.get("vector_index") or 0,
+                    retry=vr.get("vector_retry") or 0,
                     params=params,
                     observations=observations,
                     outcome=Outcome(vec_outcome_str) if vec_outcome_str else Outcome.PASSED,
                     measurements=measurements,
-                    started_at=sample_row.get("vector_started_at") or run_started_at,
-                    ended_at=sample_row.get("vector_ended_at"),
+                    started_at=vr.get("vector_started_at") or run_started_at,
+                    ended_at=vr.get("vector_ended_at"),
                 )
             )
 
         timing = step_timing.get(sk, {})
-        # Prefer the stored step_outcome column (cascade rollup written
-        # at row-build time). Fall back to deriving from vector
-        # outcomes for older parquet files written before the column
-        # existed.
-        step_outcome_str = step_sample_row.get("step_outcome")
+        # Prefer the stored step_outcome column (cascade rollup written at
+        # row-build time); fall back to deriving from vector outcomes.
+        step_outcome_str = step_row.get("step_outcome") if step_row else None
         if step_outcome_str:
             step_outcome = Outcome(step_outcome_str)
         elif any(v.outcome == Outcome.FAILED for v in vectors):
@@ -1030,9 +1151,6 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
             )
         )
 
-    # Extract custom metadata from custom_* columns
-    custom_meta = extract_prefixed_fields(first, CUSTOM_PREFIX)
-
     run_outcome_str = first.get("run_outcome")
     run_outcome = Outcome(run_outcome_str) if run_outcome_str else Outcome.PASSED
 
@@ -1040,15 +1158,15 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         id=UUID(run_id_str),
         started_at=run_started_at,
         ended_at=first.get("run_ended_at"),
-        dut=DUT(
-            serial=first.get("dut_serial") or "",
-            part_number=first.get("dut_part_number"),
-            revision=first.get("dut_revision"),
-            lot_number=first.get("dut_lot_number"),
+        uut=UUT(
+            serial=first.get("uut_serial") or "",
+            part_number=first.get("uut_part_number"),
+            revision=first.get("uut_revision"),
+            lot_number=first.get("uut_lot_number"),
         ),
-        product_id=first.get("product_id"),
-        product_name=first.get("product_name"),
-        product_revision=first.get("product_revision"),
+        part_id=first.get("part_id"),
+        part_name=first.get("part_name"),
+        part_revision=first.get("part_revision"),
         station_id=first.get("station_id"),
         station_name=first.get("station_name"),
         station_type=first.get("station_type"),
@@ -1062,5 +1180,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         outcome=run_outcome,
         steps=steps,
         environment_json=file_meta.get("environment_json"),
-        custom_metadata=custom_meta or {},
+        custom_metadata=(
+            json.loads(file_meta["custom_metadata"]) if file_meta.get("custom_metadata") else {}
+        ),
     )

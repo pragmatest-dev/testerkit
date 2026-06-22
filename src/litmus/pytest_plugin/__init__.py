@@ -13,7 +13,6 @@ import pytest
 
 from litmus.data.models import TestVector
 from litmus.execution._state import (
-    _active_vector_index_var,
     get_active_facets,
     get_active_limits,
     get_active_profile,
@@ -23,35 +22,39 @@ from litmus.execution._state import (
     get_event_store,
     get_instrument_records,
     get_session_inputs,
+    push_current_context,
     push_current_vector,
+    reset_current_context,
+    reset_current_vector,
     set_active_instruments,
-    set_active_product_context,
+    set_active_part_context,
     set_active_vector_index,
     set_active_vector_params,
-    set_channel_store,
-    set_current_logger,
-    set_event_store,
+    set_current_run_scope,
     set_instrument_records,
 )
 from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.connections import ConnectionIterator
 from litmus.execution.harness import Context
 from litmus.execution.instrument_events import emit_instrument_events
-from litmus.execution.logger import RunContext, TestRunLogger
 from litmus.execution.metadata import build_run_metadata
 from litmus.execution.profiles import resolve_test_phase
+from litmus.execution.run_scope import RunContext, RunScope
 from litmus.execution.verify import (
     LimitsFn,
+    MeasureFn,
     VerifyFn,
+    build_measure_callable,
     build_verify_callable,
 )
 from litmus.fixtures.manager import FixtureManager, PinAccessor
 from litmus.instruments.pool import InstrumentPool
 from litmus.instruments.route_manager import RouteManager
 from litmus.models.instrument import InstrumentRecord
+from litmus.models.part import Part
 from litmus.models.station import StationConfig
 from litmus.models.test_config import FixtureConfig, PromptConfig
-from litmus.products.context import ProductContext
+from litmus.parts.context import PartContext
 from litmus.prompts import ask as ask_prompt
 
 # Pytest discovers fixtures by attribute lookup on the plugin module —
@@ -63,7 +66,7 @@ from litmus.pytest_plugin.autouse import (
     _litmus_push_limits,  # noqa: F401
     _litmus_push_params,  # noqa: F401
     _litmus_resolve_connections,  # noqa: F401
-    _reseat_current_logger,  # noqa: F401
+    _reseat_current_run_scope,  # noqa: F401
     _route_cleanup,  # noqa: F401
 )
 from litmus.pytest_plugin.helpers import (
@@ -136,7 +139,7 @@ def _prompt_for_slot_serials(
     slot_ids: list[str],
     test_phase: str,
 ) -> dict[str, str]:
-    """Prompt for DUT serial for each slot.
+    """Prompt for UUT serial for each slot.
 
     Args:
         slot_ids: Ordered list of slot IDs from fixture config.
@@ -196,14 +199,14 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
         )
 
     return build_run_metadata(
-        dut_serial=request.config.getoption("--dut-serial"),
-        dut_part_number=request.config.getoption("--dut-part-number"),
-        dut_revision=request.config.getoption("--dut-revision"),
-        dut_lot_number=request.config.getoption("--dut-lot-number"),
+        uut_serial=request.config.getoption("--uut-serial"),
+        uut_part_number=request.config.getoption("--uut-part-number"),
+        uut_revision=request.config.getoption("--uut-revision"),
+        uut_lot_number=request.config.getoption("--uut-lot-number"),
         station_id=_resolve_station_id(request.config),
         station_config=station_config,
         fixture_config=fixture_config,
-        product_context=_safe_get_session_fixture(request, "product_context"),
+        part=_safe_get_session_fixture(request, "part"),
         operator_id=request.config.getoption("--operator"),
         project_dir=request.config.rootpath,
         data_dir=request.config.getoption("--data-dir"),
@@ -215,69 +218,18 @@ def _build_run_metadata(request: pytest.FixtureRequest) -> dict[str, Any]:
     )
 
 
-def _is_multi_slot_worker() -> bool:
-    """Return True when this process is one of N>1 workers in a multi-slot run."""
-    return (
-        os.environ.get("_LITMUS_SLOT_ID") is not None
-        and int(os.environ.get("_LITMUS_SLOT_COUNT", "1")) > 1
-    )
+def _emit_run_start_events(run_scope: RunScope) -> None:
+    """Emit RunStarted + per-instrument + StepsDiscovered.
 
-
-def _setup_event_log_and_subscribers(
-    logger: TestRunLogger, results_path: Path, session_id: UUID
-) -> Any:
-    """Wire EventStore + EventLog + default subscribers.
-
-    The events bus is the source of truth for the test run. The runs
-    daemon subscribes to it and materializes parquets in its own process
-    (see :mod:`litmus.data._runs_duckdb_daemon`). The pytest process
-    just emits events; ``event_store.close()`` at teardown flushes them
-    durably to the events daemon. Materialization happens async after
-    pytest exits.
-
-    Returns the EventStore (existing or newly created) so the teardown
-    helper can close it after the run.
+    Session lifecycle (SessionStarted / stores) is opened at
+    ``pytest_sessionstart`` (see ``hooks._open_session_for_pytest``); this
+    fixture-side helper emits only the RUN-scoped events.
     """
-    from litmus.data.channels.store import ChannelStore
-    from litmus.data.event_store import EventStore
+    from litmus.data.events import RunStarted, StepsDiscovered
 
-    event_store = get_event_store()
-    if event_store is None:
-        event_store = EventStore(_data_dir=results_path)
-        set_event_store(event_store)
-
-    event_log = event_store.get_event_log(session_id)
-    logger.event_log = event_log
-
-    channel_store = ChannelStore(results_path, session_id, serve=True)
-    channel_store.open()
-    set_channel_store(channel_store)
-
-    return event_store
-
-
-def _emit_session_start_events(logger: TestRunLogger) -> None:
-    """Emit SessionStarted (orchestrator only) + RunStarted + per-instrument + StepsDiscovered."""
-    from litmus.data.events import RunStarted, SessionStarted, StepsDiscovered
-
-    event_log = logger.event_log
+    event_log = run_scope.event_log
     if event_log is None:
         return
-
-    if not _is_multi_slot_worker():
-        event_log.emit(
-            SessionStarted.from_station(
-                session_id=logger._session_id,
-                station_id=logger.test_run.station_id,
-                station_name=logger.test_run.station_name,
-                station_type=logger.test_run.station_type,
-                station_location=logger.test_run.station_location,
-                station_hostname=logger.test_run.station_hostname,
-                operator_id=logger.test_run.operator_id,
-                operator_name=logger.test_run.operator_name,
-                fixture_id=logger.test_run.fixture_id,
-            )
-        )
 
     from litmus.execution._state import get_current_slot_id
 
@@ -287,101 +239,85 @@ def _emit_session_start_events(logger: TestRunLogger) -> None:
 
     event_log.emit(
         RunStarted(
-            session_id=logger._session_id,
-            run_id=logger.test_run.id,
+            session_id=run_scope._session_id,
+            run_id=run_scope.test_run.id,
             slot_id=slot_id,
             slot_index=env_slot_index,
-            station_id=logger.test_run.station_id,
-            station_name=logger.test_run.station_name,
-            station_type=logger.test_run.station_type,
-            station_location=logger.test_run.station_location,
-            station_hostname=logger.test_run.station_hostname,
-            dut_serial=logger.test_run.dut.serial,
-            dut_part_number=logger.test_run.dut.part_number,
-            dut_revision=logger.test_run.dut.revision,
-            dut_lot_number=logger.test_run.dut.lot_number,
-            product_id=logger.test_run.product_id,
-            product_name=logger.test_run.product_name,
-            product_revision=logger.test_run.product_revision,
-            operator_id=logger.test_run.operator_id,
-            operator_name=logger.test_run.operator_name,
-            fixture_id=logger.test_run.fixture_id,
-            test_phase=logger.test_run.test_phase,
-            project_name=logger.test_run.project_name,
-            git_commit=logger.test_run.git_commit,
-            git_branch=logger.test_run.git_branch,
-            git_remote=logger.test_run.git_remote,
-            environment_json=logger.test_run.environment_json,
-            custom_metadata=dict(logger.test_run.custom_metadata),
+            station_id=run_scope.test_run.station_id,
+            station_name=run_scope.test_run.station_name,
+            station_type=run_scope.test_run.station_type,
+            station_location=run_scope.test_run.station_location,
+            station_hostname=run_scope.test_run.station_hostname,
+            uut_serial=run_scope.test_run.uut.serial,
+            uut_part_number=run_scope.test_run.uut.part_number,
+            uut_revision=run_scope.test_run.uut.revision,
+            uut_lot_number=run_scope.test_run.uut.lot_number,
+            part_id=run_scope.test_run.part_id,
+            part_name=run_scope.test_run.part_name,
+            part_revision=run_scope.test_run.part_revision,
+            operator_id=run_scope.test_run.operator_id,
+            operator_name=run_scope.test_run.operator_name,
+            fixture_id=run_scope.test_run.fixture_id,
+            test_phase=run_scope.test_run.test_phase,
+            project_name=run_scope.test_run.project_name,
+            git_commit=run_scope.test_run.git_commit,
+            git_branch=run_scope.test_run.git_branch,
+            git_remote=run_scope.test_run.git_remote,
+            environment_json=run_scope.test_run.environment_json,
+            custom_metadata=dict(run_scope.test_run.custom_metadata),
             pid=os.getpid(),
         )
     )
 
-    _emit_instrument_events(logger, event_log)
+    _emit_instrument_events(run_scope, event_log)
 
     collected = get_collected_items()
     if collected:
         event_log.emit(
             StepsDiscovered(
-                session_id=logger._session_id,
-                run_id=logger.test_run.id,
+                session_id=run_scope._session_id,
+                run_id=run_scope.test_run.id,
                 items=[ci.model_dump() for ci in collected],
             )
         )
 
 
-def _teardown_logger(logger: TestRunLogger, event_store: Any) -> None:
-    """Close subscribers, finalize the run, emit SessionEnded."""
-    from litmus.data.events import SessionEnded
+def _finalize_run(run_scope: RunScope) -> None:
+    """Finalize the run (emit RunEnded). Session close is handled at sessionfinish.
 
-    # ChannelStore closes before the event log so its subscribers see the
-    # final flush before the event log shuts subscribers down.
-    cs = get_channel_store()
-    if cs is not None:
-        cs.close()
-        set_channel_store(None)
-
-    # Close any still-open class container BEFORE finalize() so the
-    # container's StepEnded carries its rolled-up outcome (the rollup
-    # walks the run's steps and folds children via the severity ladder).
-    # pytest_sessionfinish fires AFTER session-fixture teardown, so it's
-    # too late to consult the logger there.
-    _close_open_class_container(logger)
-
+    Close any still-open class container BEFORE finalize() so the
+    container's StepEnded carries its rolled-up outcome (the rollup walks
+    the run's steps and folds children via the severity ladder).
+    ``finalize()`` is idempotent — on a KeyboardInterrupt, ``pytest_sessionfinish``
+    finalizes first (it runs before this session-scoped fixture's teardown),
+    and this call is then a no-op.
+    """
+    _close_open_class_container(run_scope)
     # finalize() emits RunEnded; it does not close the event log itself.
-    test_run = logger.finalize()
-
-    if logger.event_log is not None:
-        if not _is_multi_slot_worker():
-            logger.event_log.emit(
-                SessionEnded(
-                    session_id=logger._session_id,
-                    outcome=test_run.outcome.value if test_run.outcome else None,
-                )
-            )
-        logger.event_log.close()
-
-    if event_store is not None:
-        event_store.close()
-        set_event_store(None)
+    run_scope.finalize()
 
 
 @pytest.fixture(scope="session", autouse=True)
-def logger(request) -> Generator[TestRunLogger, None, None]:
-    """Provide test run logger for the session.
+def _run_scope(request) -> Generator[RunScope, None, None]:
+    """Provide the test run scope for the session.
 
     Autouse so every test (and the ``verify`` / ``context`` fixtures
-    that route through ``set_current_logger``) sees an active logger.
+    that route through ``set_current_run_scope``) sees an active run scope.
     Snapshots config at run start; emits to the always-on parquet +
     channels stores. Post-hoc rendering / format conversion happens
     via ``litmus show -f X`` and ``litmus export <run> -f X``.
 
-    The body delegates to focused helpers — :func:`_setup_event_log_and_subscribers`
-    wires the event log, :func:`_emit_session_start_events` fires the
-    Session/Run/StepsDiscovered triplet, :func:`_teardown_logger` closes
-    everything in the right order at session end.
+    Session lifecycle (SessionStarted / stores open / SessionEnded / stores close)
+    is handled by ``pytest_sessionstart`` / ``pytest_sessionfinish``. This fixture
+    attaches the run to the already-open session and emits only RunStarted /
+    RunEnded (+ instrument events + StepsDiscovered).
     """
     from litmus.data.data_dir import resolve_data_dir
+    from litmus.pytest_plugin.hooks import (
+        _RUN_SCOPE_KEY,
+        _SESSION_ID_KEY,
+        _SESSION_SCOPE_KEY,
+    )
 
     meta = _build_run_metadata(request)
     data_dir = meta["data_dir"]
@@ -389,38 +325,48 @@ def logger(request) -> Generator[TestRunLogger, None, None]:
         data_dir = str(resolve_data_dir())
         meta["data_dir"] = data_dir
 
-    env_session_id = os.environ.get("_LITMUS_SESSION_ID")
-    session_id = UUID(env_session_id) if env_session_id else uuid4()
+    # Session_id is minted by _open_session_for_pytest at sessionstart and stashed.
+    # Fall back to env/uuid4 for collect-only / headless paths where no session opened.
+    stash_session_id = request.session.stash.get(_SESSION_ID_KEY, None)
+    if stash_session_id is not None:
+        session_id = stash_session_id
+    else:
+        env_session_id = os.environ.get("_LITMUS_SESSION_ID")
+        session_id = UUID(env_session_id) if env_session_id else uuid4()
     meta["session_id"] = session_id
 
-    env_dut_serial = os.environ.get("LITMUS_DUT_SERIAL")
-    if env_dut_serial:
-        meta["dut_serial"] = env_dut_serial
+    env_uut_serial = os.environ.get("LITMUS_UUT_SERIAL")
+    if env_uut_serial:
+        meta["uut_serial"] = env_uut_serial
 
-    logger = TestRunLogger(**meta)
+    run_scope = RunScope(**meta)
+    # Store this session's run so pytest_sessionfinish finalizes THIS run on a
+    # KeyboardInterrupt — not get_current_run_scope() (a nested pytester run
+    # restores that to the outer run, which we must not seal mid-suite).
+    request.session.stash[_RUN_SCOPE_KEY] = run_scope
 
-    event_store: Any = None
-    if data_dir:
-        event_store = _setup_event_log_and_subscribers(logger, Path(data_dir), session_id)
-        _emit_session_start_events(logger)
+    scope = request.session.stash.get(_SESSION_SCOPE_KEY, None)
+    if scope is not None:
+        run_scope.event_log = scope.event_log
+        _emit_run_start_events(run_scope)
 
-    set_current_logger(logger)
+    set_current_run_scope(run_scope)
     try:
-        yield logger
+        yield run_scope
     finally:
         # Capture not-started steps onto the run manifest before finalize.
-        logger.test_run.collected_items = get_collected_items()
-        _teardown_logger(logger, event_store)
-        set_current_logger(None)
+        run_scope.test_run.collected_items = get_collected_items()
+        _finalize_run(run_scope)
+        set_current_run_scope(None)
 
 
-def _emit_instrument_events(logger: TestRunLogger, event_log: Any) -> None:
+def _emit_instrument_events(run_scope: RunScope, event_log: Any) -> None:
     """Pytest adapter — read ContextVar records, delegate to runner-neutral emitter."""
-    emit_instrument_events(logger, event_log, get_instrument_records())
+    emit_instrument_events(run_scope, event_log, get_instrument_records())
 
 
 @pytest.fixture(scope="session")
-def run_context(logger) -> RunContext:
+def run_context(_run_scope) -> RunContext:
     """Provide run context for adding custom metadata.
 
     This is the run-level context that persists across all tests in the session.
@@ -431,76 +377,82 @@ def run_context(logger) -> RunContext:
             run_context.set("operator_badge", "EMP-12345")
             run_context.set("fixture_serial", "FIX-001")
     """
-    return logger.run_context
+    return _run_scope.run_context
 
 
 @pytest.fixture(scope="session")
-def product_context(request) -> ProductContext | None:
-    """Provide product context for spec-driven testing.
+def part(request) -> Part | None:
+    """The active :class:`Part` definition for spec-driven testing.
 
     Resolution chain (first match wins):
 
-    1. ``--product <id-or-path>`` — bare id looks up
-       ``products/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml``
+    1. ``--part <id-or-path>`` — bare id looks up
+       ``parts/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml``
        is used as an explicit path. Mirrors ``--station``/``--fixture``
        resolution shape.
-    2. ``--dut-part-number <pn>`` — content match against
-       ``product.part_number:`` across ``products/*.yaml``.
-    3. Single-file fallback when ``products/`` holds exactly one file.
-    4. ``None`` — bringup tier without a product YAML.
+    2. ``--uut-part-number <pn>`` — content match against
+       ``part.part_number:`` across ``parts/*.yaml``.
+    3. Single-file fallback when ``parts/`` holds exactly one file.
+    4. ``None`` — bringup tier without a part YAML.
+
+    Exposes the part's identity, pins, and characteristics. For derived
+    limits use the ``limits`` fixture or ``context.get_limit(name)``; for
+    everything else the test can reach, use the ``context`` fixture.
 
     Usage in tests:
-        def test_voltage(product_context, dmm):
-            limit = product_context.get_limit("output_voltage", temperature=25)
-            value = dmm.measure_dc_voltage()
-            # Use limit for validation...
+        def test_voltage(part, context, dmm):
+            assert part.part_number == "DEMO-BUCK-3V3"
+            limit = context.get_limit("output_voltage", temperature=25)
 
     Returns:
-        :class:`ProductContext`, or ``None`` if no product YAML is loaded.
+        :class:`Part`, or ``None`` if no part YAML is loaded.
     """
     from litmus.pytest_plugin.helpers import is_yaml_path
 
-    product_value = request.config.getoption("--product")
+    part_value = request.config.getoption("--part")
     guardband = float(request.config.getoption("--guardband"))
-    part_number = request.config.getoption("--dut-part-number")
+    part_number = request.config.getoption("--uut-part-number")
 
     ctx = None
 
-    if product_value:
-        if is_yaml_path(product_value):
-            ctx = ProductContext.from_file(product_value, guardband_pct=guardband)
+    if part_value:
+        if is_yaml_path(part_value):
+            ctx = PartContext.from_file(part_value, guardband_pct=guardband)
         else:
-            product_path = _find_yaml_in_subdir(request.config, "products", f"{product_value}.yaml")
-            if product_path is None:
+            part_path = _find_yaml_in_subdir(request.config, "parts", f"{part_value}.yaml")
+            if part_path is None:
                 raise pytest.UsageError(
-                    f"--product={product_value!r} did not find "
-                    f"products/{product_value}.yaml. Pass an explicit path "
-                    "(e.g. --product=path/to/foo.yaml) for files outside "
-                    "the project's ``products/`` directory."
+                    f"--part={part_value!r} did not find "
+                    f"parts/{part_value}.yaml. Pass an explicit path "
+                    "(e.g. --part=path/to/foo.yaml) for files outside "
+                    "the project's ``parts/`` directory."
                 )
-            ctx = ProductContext.from_file(product_path, guardband_pct=guardband)
+            ctx = PartContext.from_file(part_path, guardband_pct=guardband)
     else:
-        ctx = _autodiscover_product(request.config, guardband, part_number)
+        ctx = _autodiscover_part(request.config, guardband, part_number)
 
-    set_active_product_context(ctx)
-    return ctx
+    # The PartContext stays the internal derivation engine (limit resolution
+    # reaches it via the active-part-context ContextVar); the fixture exposes
+    # the Part definition itself.
+    set_active_part_context(ctx)
+    return ctx.part if ctx else None
 
 
-def _autodiscover_product(
+def _autodiscover_part(
     config: pytest.Config,
     guardband: float,
     part_number: str | None,
-) -> ProductContext | None:
-    """Pick a product YAML from ``products/`` in the project or cwd.
+) -> PartContext | None:
+    """Pick a part YAML from ``parts/`` in the project or cwd.
 
     Selection rules:
-    1. If ``--dut-part-number`` is set and exactly one product's
+    1. If ``--uut-part-number`` is set and exactly one part's
        ``part_number:`` matches (case-insensitive), use it.
-    2. If ``--dut-part-number`` is set but no file matches, raise
+    2. If ``--uut-part-number`` is set but no file matches, raise
        ``pytest.UsageError`` — a typo in the selector is worse than a
-       silent wrong-product pick.
-    3. Otherwise, take the first sorted ``products/*.yaml`` file. If
-       the directory holds multiple products and ``--dut-part-number``
+       silent wrong-part pick.
+    3. Otherwise, take the first sorted ``parts/*.yaml`` file. If
+       the directory holds multiple parts and ``--uut-part-number``
        was not provided, raise ``pytest.UsageError`` — Rev-B flows
        need an explicit selector.
     """
@@ -509,51 +461,49 @@ def _autodiscover_product(
         Path(config.invocation_params.dir),
     ]
 
-    product_files: list[Path] = []
+    part_files: list[Path] = []
     for root in search_roots:
-        products_dir = root / "products"
-        if not products_dir.exists():
+        parts_dir = root / "parts"
+        if not parts_dir.exists():
             continue
-        product_files = [
-            p for p in sorted(products_dir.rglob("*.yaml")) if not p.name.startswith("_")
-        ]
-        if product_files:
+        part_files = [p for p in sorted(parts_dir.rglob("*.yaml")) if not p.name.startswith("_")]
+        if part_files:
             break
 
-    if not product_files:
+    if not part_files:
         return None
 
     if part_number:
         matches: list[Path] = []
         pn_lower = part_number.lower()
-        for yaml_file in product_files:
+        for yaml_file in part_files:
             try:
-                loaded = ProductContext.from_file(yaml_file, guardband_pct=guardband)
+                loaded = PartContext.from_file(yaml_file, guardband_pct=guardband)
             except (ValueError, OSError):
                 continue
-            if (loaded.product.part_number or "").lower() == pn_lower:
+            if (loaded.part.part_number or "").lower() == pn_lower:
                 matches.append(yaml_file)
         if len(matches) == 1:
-            return ProductContext.from_file(matches[0], guardband_pct=guardband)
+            return PartContext.from_file(matches[0], guardband_pct=guardband)
         if not matches:
             raise pytest.UsageError(
-                f"--dut-part-number={part_number!r} did not match any product in "
-                f"products/. Available: " + ", ".join(sorted(p.stem for p in product_files))
+                f"--uut-part-number={part_number!r} did not match any part in "
+                f"parts/. Available: " + ", ".join(sorted(p.stem for p in part_files))
             )
         raise pytest.UsageError(
-            f"--dut-part-number={part_number!r} matched multiple products: "
+            f"--uut-part-number={part_number!r} matched multiple parts: "
             + ", ".join(sorted(str(m.relative_to(m.parents[1])) for m in matches))
-            + ". Use --product=<path> to disambiguate."
+            + ". Use --part=<path> to disambiguate."
         )
 
-    if len(product_files) > 1:
+    if len(part_files) > 1:
         raise pytest.UsageError(
-            f"products/ has {len(product_files)} YAML files "
-            f"({', '.join(p.stem for p in product_files)}); "
-            "pass --product <id-or-path> or --dut-part-number <pn> to choose one."
+            f"parts/ has {len(part_files)} YAML files "
+            f"({', '.join(p.stem for p in part_files)}); "
+            "pass --part <id-or-path> or --uut-part-number <pn> to choose one."
         )
 
-    return ProductContext.from_file(product_files[0], guardband_pct=guardband)
+    return PartContext.from_file(part_files[0], guardband_pct=guardband)
 
 
 @pytest.fixture(scope="session")
@@ -633,11 +583,11 @@ def fixture_config(request) -> FixtureConfig | None:
                 id=fc.id,
                 name=fc.name,
                 description=fc.description,
-                product_id=fc.product_id,
-                product_family=fc.product_family,
-                product_revision=fc.product_revision,
+                part_id=fc.part_id,
+                part_family=fc.part_family,
+                part_revision=fc.part_revision,
                 connections=slot.connections,
-                dut_resource=slot.dut_resource,
+                uut_resource=slot.uut_resource,
             )
 
     return fc
@@ -694,7 +644,7 @@ def instrument_records(request, station_config, mock_instruments) -> dict[str, I
 
 @pytest.fixture(scope="session")
 def instruments(
-    station_config, mock_instruments, instrument_records, logger
+    station_config, mock_instruments, instrument_records, _run_scope
 ) -> Generator[dict[str, Any], None, None]:
     """Create instrument instances from station configuration.
 
@@ -731,9 +681,9 @@ def instruments(
         return
 
     inst_configs = station_config.instruments or {}
-    session_id = logger._session_id if logger else None
-    run_id = logger.test_run.id if logger else None
-    event_log = logger.event_log if logger else None
+    session_id = _run_scope._session_id if _run_scope else None
+    run_id = _run_scope.test_run.id if _run_scope else None
+    event_log = _run_scope.event_log if _run_scope else None
 
     pool = InstrumentPool(
         session_id=session_id,
@@ -774,34 +724,34 @@ def instrument(instruments, instrument_records) -> InstrumentAccessor:
 
 
 @pytest.fixture(scope="session")
-def dut(
-    product_context,
+def uut(
+    part,
     fixture_config,
     mock_instruments,
 ) -> Generator[Any, None, None]:
-    """Instantiate and yield the DUT communication driver.
+    """Instantiate and yield the UUT communication driver.
 
-    Resolves the driver class from ``Product.driver`` (loaded via product_context)
-    and connects using ``FixtureConfig.dut_resource``. Follows the same pattern
+    Resolves the driver class from ``Part.driver`` (the ``part`` fixture)
+    and connects using ``FixtureConfig.uut_resource``. Follows the same pattern
     as instrument fixtures — session-scoped, auto-disconnected at teardown.
 
     Usage in tests:
-        def test_firmware_version(dut):
-            assert dut.get_version().startswith("2.")
+        def test_firmware_version(uut):
+            assert uut.get_version().startswith("2.")
 
     Returns:
-        Connected DUT driver instance, or None if product has no driver.
+        Connected UUT driver instance, or None if part has no driver.
     """
-    if not product_context or not product_context.product.driver:
+    if not part or not part.driver:
         yield None
         return
 
-    from litmus.products.loader import load_product_driver
+    from litmus.parts.loader import load_part_driver
 
-    driver_class = load_product_driver(product_context.product)
+    driver_class = load_part_driver(part)
     if driver_class is None:
         warnings.warn(
-            f"DUT driver {product_context.product.driver!r} could not be imported",
+            f"UUT driver {part.driver!r} could not be imported",
             UserWarning,
             stacklevel=2,
         )
@@ -809,7 +759,7 @@ def dut(
         return
 
     # Resolve connection resource from fixture config
-    dut_resource = fixture_config.dut_resource if fixture_config else None
+    uut_resource = fixture_config.uut_resource if fixture_config else None
 
     if mock_instruments:
         from litmus.instruments.mocks import Mock
@@ -818,8 +768,8 @@ def dut(
         yield inst
         return
 
-    if dut_resource:
-        inst = driver_class(dut_resource)
+    if uut_resource:
+        inst = driver_class(uut_resource)
     else:
         inst = driver_class()
 
@@ -836,14 +786,14 @@ def dut(
         elif hasattr(inst, "close"):
             inst.close()
     except (OSError, RuntimeError) as exc:
-        warnings.warn(f"Failed to cleanup DUT driver: {exc}", stacklevel=2)
+        warnings.warn(f"Failed to cleanup UUT driver: {exc}", stacklevel=2)
 
 
 @pytest.fixture(scope="session")
 def _route_manager(
     instruments,
     fixture_config,
-    logger,
+    _run_scope,
 ) -> Generator[RouteManager | None, None, None]:
     """Session-scoped route manager for switched signal routing.
 
@@ -854,9 +804,9 @@ def _route_manager(
         yield None
         return
 
-    session_id = logger._session_id if logger else None
-    event_log = logger.event_log if logger else None
-    station_id = logger.test_run.station_id or "" if logger else ""
+    session_id = _run_scope._session_id if _run_scope else None
+    event_log = _run_scope.event_log if _run_scope else None
+    station_id = _run_scope.test_run.station_id or "" if _run_scope else ""
 
     rm = RouteManager(
         connections=fixture_config.connections,
@@ -898,7 +848,7 @@ def routes(request) -> Generator[RouteManager | None, None, None]:
 def pins(instruments, fixture_config, _route_manager) -> PinAccessor:
     """UUT-centric pin accessor for tests.
 
-    Resolves DUT pin names to instrument instances. When fixture points
+    Resolves UUT pin names to instrument instances. When fixture points
     have switch routes, instruments are wrapped in RoutedProxy for
     transparent route activation on first use.
 
@@ -940,8 +890,8 @@ def fixture_manager(instruments, fixture_config, _route_manager) -> FixtureManag
 
 
 @pytest.fixture(scope="session")
-def sync(logger):
-    """Provide sync point for multi-DUT test coordination.
+def sync(_run_scope):
+    """Provide sync point for multi-UUT test coordination.
 
     In worker mode (_LITMUS_SLOT_ID set), returns a SyncPoint that
     blocks until all slots arrive. In single-slot mode, returns None.
@@ -953,7 +903,7 @@ def sync(logger):
             v = dmm.measure_voltage()
             assert v > 3.0
     """
-    del logger  # dependency-only: forces the session EventStore to exist
+    del _run_scope  # dependency-only: forces the session EventStore to exist
     from litmus.execution.slot_runner import is_worker_mode
 
     if not is_worker_mode():
@@ -972,9 +922,110 @@ from litmus.execution.vectors import Vector  # noqa: E402
 
 
 @pytest.fixture
-def context() -> Context:
-    """Context exposed to tests for ``context.get_param("...")`` / ``.changed()``."""
-    return Context()
+def context(_run_scope: RunScope | None) -> Generator[Context, None, None]:
+    """Context exposed to tests for ``context.get_param("...")`` / ``.changed()``.
+
+    Wires the active ChannelStore + session_id from the pytest plugin's
+    session setup so the ``observe`` fixture (which routes through this
+    context) can dispatch typed-array values (``Waveform``, ndarray,
+    list-of-scalars) to ChannelStore and blob values to FileStore.
+    Without this wiring, a bare ``Context()`` has no channel store, so
+    every Waveform falls through to the FileStore blob path and then
+    fails on the session_id guard.
+
+    Also pushes the constructed Context onto the
+    ``_current_context_var`` ContextVar so module-level surfaces that
+    resolve session via that var (``litmus.files.write``,
+    ``litmus.files.stream``, ``litmus.channels.stream`` indirectly)
+    find the active session. The push is per-test (no leakage between
+    tests); the token-based reset restores the prior context on
+    teardown.
+
+    ``_run_scope`` is annotated as ``RunScope | None`` because some
+    pytester subtests deliberately override the ``_run_scope`` autouse
+    fixture to yield ``None`` (neutralizes the duckdb dependency in
+    child processes). Falls back to a bare ``Context()`` when the run
+    scope is unwired — matches the pre-wiring behaviour for that case.
+    """
+    if _run_scope is None:
+        ctx = Context()
+    else:
+        ctx = Context(
+            channel_store=get_channel_store(),
+            session_id=_run_scope._session_id,
+        )
+    token = push_current_context(ctx)
+    try:
+        yield ctx
+    finally:
+        reset_current_context(token)
+
+
+@pytest.fixture
+def stream(context: Context) -> Callable[..., str]:
+    """Callable fixture: ``stream(name, sample[, namespace=, unit=])`` — append a sample.
+
+    The third sibling test-author intent verb (alongside ``observe`` /
+    ``verify``). Always routes to ChannelStore. Per §3 of the design
+    doc — explicit per-store streaming, never auto-associates with
+    the active vector. Use ``observe(name, channel_handle)`` to
+    associate a stream with a vector.
+
+    Both shapes are available — this bare callable (pytest-idiomatic)
+    and :meth:`Context.stream` (programmatic / non-pytest). Both
+    route through the same ``Context.stream`` body so the verb
+    behaves identically.
+
+    Example::
+
+        def test_iv_curve(stream, observe, psu, dmm):
+            observe("iv_curve.i", "channel://iv_curve.i")   # vector association
+            for v in [0.0, 0.5, 1.0, 1.5, 2.0]:
+                psu.set_voltage(v)
+                stream("iv_curve.i", dmm.read_current())
+    """
+
+    def _stream(
+        name: str, sample: Any, *, namespace: str | None = None, unit: str | None = None
+    ) -> str:
+        return context.stream(name, sample, namespace=namespace, unit=unit)
+
+    return _stream
+
+
+@pytest.fixture
+def observe(context: Context) -> Callable[..., None]:
+    """Callable fixture: ``observe(name, value[, namespace=, unit=])`` — stash in vector.
+
+    Per §3 of the design doc, ``observe`` is one of three sibling
+    test-author verbs (``observe`` / ``verify`` / ``stream``).
+    Exposed both as a method on Context (``context.observe(...)``,
+    for programmatic / non-pytest use) and as this bare callable
+    fixture (the pytest-idiomatic shape).
+
+    Both shapes route through the same :meth:`Context.observe`
+    implementation, so the verb behaves identically regardless of
+    which surface the test author reaches for. Symmetric with the
+    ``verify`` fixture (which has always been bare).
+
+    Examples:
+        ``observe("temperature", 23.5)`` — scalar lands inline
+        ``observe("scope.cap", wf)`` — Waveform → ChannelStore
+        ``observe("voltage", 3.31, namespace="psu_a")`` — namespaced
+        ``observe("temperature", 23.5, unit="degC")`` — scalar with unit
+
+    ``unit=`` stamps the engineering unit on the vector's ``observation_units``
+    (projected to the ``out_*`` lane); for a channel-routed value it also sets
+    the channel descriptor's unit (immutable per session), and is omitted to
+    inherit the channel's existing unit.
+    """
+
+    def _observe(
+        name: str, value: Any, *, namespace: str | None = None, unit: str | None = None
+    ) -> None:
+        context.observe(name, value, namespace=namespace, unit=unit)
+
+    return _observe
 
 
 @pytest.fixture
@@ -1018,6 +1069,28 @@ def verify() -> VerifyFn:
 
 
 @pytest.fixture
+def measure() -> MeasureFn:
+    """Callable fixture: ``measure(name, value[, limit=])`` — record-only.
+
+    The record-only sibling of ``verify`` (alongside ``observe`` /
+    ``stream``). Stamps one measurement row with ``Outcome.DONE`` and
+    never judges or raises on a missing limit — use it when a value
+    should be captured but not pass/fail checked (characterization,
+    diagnostics, logged context). Same row primitive underneath as
+    ``verify``::
+
+        def test_characterize(measure, dmm):
+            measure("vout", dmm.measure_dc_voltage())
+
+    Thin pytest wrapper around the runner-neutral
+    :func:`litmus.execution.verify.build_measure_callable`. Both shapes
+    — this bare callable and :meth:`Context.measure` — route through the
+    same body so the verb behaves identically.
+    """
+    return build_measure_callable()
+
+
+@pytest.fixture
 def limits() -> LimitsFn:
     """Read-only ``name → Limit`` mapping for the active test.
 
@@ -1053,48 +1126,57 @@ class _VectorIterator:
     def __init__(self, matrix: list[Vector], ctx: Context) -> None:
         self._matrix = matrix
         self._ctx = ctx
-        self._i = 0
         self._consumed = 0
-        self._prev_snapshot: Context | None = None
-
-    def __iter__(self) -> _VectorIterator:
-        return self
 
     def __len__(self) -> int:
         return len(self._matrix)
 
-    def __next__(self) -> Vector:
-        if self._i >= len(self._matrix):
-            raise StopIteration
+    def __iter__(self) -> Iterator[Vector]:
+        # Generator: each yield wraps push_current_vector in its own
+        # try/finally so the token's lifetime is exactly the iteration
+        # body. No tokens are held across iterations and no out-of-band
+        # cleanup is needed — ContextVar push/reset symmetry is preserved
+        # naturally by the generator frame.
+        prev_snapshot: Context | None = None
+        for i, vec in enumerate(self._matrix):
+            params = vec.params()
 
-        vec = self._matrix[self._i]
-        params = vec.params()
+            set_active_vector_params(dict(params))
+            set_active_vector_index(i)
 
-        set_active_vector_params(dict(params))
-        set_active_vector_index(self._i)
+            # Chain prev-context for ``context.changed()`` / ``.last()``.
+            if prev_snapshot is not None:
+                self._ctx._prev = prev_snapshot
+            self._ctx._params.clear()
+            self._ctx._params.update(params)
 
-        # Chain prev-context for ``context.changed()`` / ``.last()``.
-        if self._prev_snapshot is not None:
-            self._ctx._prev = self._prev_snapshot
-        self._ctx._params.clear()
-        self._ctx._params.update(params)
+            snapshot = Context(channel_store=self._ctx._channel_store)
+            snapshot._params = dict(params)
+            prev_snapshot = snapshot
 
-        snapshot = Context(channel_store=self._ctx._channel_store)
-        snapshot._params = dict(params)
-        self._prev_snapshot = snapshot
-
-        # Fresh TestVector per iteration so vector_index / params stamp
-        # distinctly. Only do this if a step already exists (logger may
-        # still auto-create the first one lazily on measure).
-        step = get_current_step()
-        if step is not None:
-            new_vector = TestVector(index=self._i, params=dict(params))
-            step.vectors.append(new_vector)
-            push_current_vector(new_vector)
-
-        self._i += 1
-        self._consumed += 1
-        return vec
+            # Fresh TestVector per iteration so vector_index / params
+            # stamp distinctly. Only push when a step already exists
+            # (logger may still auto-create the first one lazily on
+            # measure).
+            step = get_current_step()
+            if step is not None:
+                new_vector = TestVector(index=i, params=dict(params))
+                step.vectors.append(new_vector)
+                token = push_current_vector(new_vector)
+                self._consumed += 1
+                # Vector boundary (Mode 2): every in-body iteration announces
+                # itself so data-less vectors stay visible and offline/streaming
+                # don't drift. Emitted after the push so step/vector context
+                # resolves to this iteration.
+                self._ctx._emit_vector_started()
+                try:
+                    yield vec
+                finally:
+                    self._ctx._emit_vector_ended()
+                    reset_current_vector(token)
+            else:
+                self._consumed += 1
+                yield vec
 
     @property
     def consumed(self) -> int:
@@ -1133,10 +1215,7 @@ def vectors(request: pytest.FixtureRequest) -> Iterator[_VectorIterator]:
         yield it
     finally:
         set_active_vector_params({})
-        try:
-            _active_vector_index_var.set(0)
-        except LookupError:
-            pass
+        set_active_vector_index(0)
         if len(matrix) > 0 and it.consumed == 0:
             pytest.fail(
                 f"{request.node.nodeid}: ``vectors`` fixture was not iterated "
@@ -1155,7 +1234,7 @@ def prompt(request: pytest.FixtureRequest) -> Callable[..., Any]:
     Each marker carries one or more entries keyed by name::
 
         @pytest.mark.litmus_prompts(
-            operator_setup={"message": "Insert DUT", "prompt_type": "confirm"},
+            operator_setup={"message": "Insert UUT", "prompt_type": "confirm"},
             pick_fixture={"message": "Pick fixture", "prompt_type": "choice",
                           "choices": ["bench_01", "bench_02"]},
         )

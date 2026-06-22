@@ -12,7 +12,7 @@ Your `conftest.py` already returns driver instances. Wrap them in `litmus.instru
 # tests/conftest.py
 import pytest
 from drivers import DMM, PSU
-from litmus.instruments.mocks import Mock
+from litmus import Mock
 
 
 @pytest.fixture(scope="session")
@@ -83,6 +83,6 @@ In later steps you'll lift this conftest conditional into station YAML (step 7) 
 
 ## Continue
 
-Now let's adopt three of [Litmus's per-test fixtures](../reference/pytest/fixtures.md) — `context`, `verify`, `logger` — to start recording measurements with limits.
+Now let's adopt three of [Litmus's per-test fixtures](../reference/pytest/fixtures.md) — `context`, `verify`, `measure` — to start recording measurements with limits.
 
 ← [Step 1: Run Something](01-first-test.md)  |  [Step 3: pytest-native tests →](03-fixtures.md)

@@ -3,9 +3,9 @@
 import pytest
 
 from litmus.analysis.metrics import (
-    calculate_cpk,
     calculate_final_yield,
     calculate_fpy,
+    calculate_ppk,
     calculate_rty,
     pareto_analysis,
     timing_stats,
@@ -20,30 +20,30 @@ from litmus.analysis.metrics import (
 class TestFPY:
     def test_all_pass(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "B", "run_outcome": "passed", "run_started_at": "2026-01-01T00:01:00Z"},
+            {"uut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "B", "run_outcome": "passed", "run_started_at": "2026-01-01T00:01:00Z"},
         ]
         assert calculate_fpy(runs) == 1.0
 
     def test_all_fail(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
         ]
         assert calculate_fpy(runs) == 0.0
 
     def test_retest_pass_after_fail(self):
         """First run fails, second passes — FPY should be 0 for that serial."""
         runs = [
-            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T01:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T01:00:00Z"},
         ]
         assert calculate_fpy(runs) == 0.0
 
     def test_mixed(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "B", "run_outcome": "failed", "run_started_at": "2026-01-01T00:01:00Z"},
-            {"dut_serial": "C", "run_outcome": "passed", "run_started_at": "2026-01-01T00:02:00Z"},
+            {"uut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "B", "run_outcome": "failed", "run_started_at": "2026-01-01T00:01:00Z"},
+            {"uut_serial": "C", "run_outcome": "passed", "run_started_at": "2026-01-01T00:02:00Z"},
         ]
         assert calculate_fpy(runs) == pytest.approx(2 / 3)
 
@@ -60,15 +60,15 @@ class TestFinalYield:
     def test_retest_pass(self):
         """First run fails, second passes — final yield should be 100%."""
         runs = [
-            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T01:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T01:00:00Z"},
         ]
         assert calculate_final_yield(runs) == 1.0
 
     def test_final_fail(self):
         runs = [
-            {"dut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
-            {"dut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T01:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "passed", "run_started_at": "2026-01-01T00:00:00Z"},
+            {"uut_serial": "A", "run_outcome": "failed", "run_started_at": "2026-01-01T01:00:00Z"},
         ]
         assert calculate_final_yield(runs) == 0.0
 
@@ -90,49 +90,49 @@ class TestRTY:
 
 
 # ---------------------------------------------------------------------------
-# Cpk
+# Ppk
 # ---------------------------------------------------------------------------
 
 
-class TestCpk:
+class TestPpk:
     def test_centered_process(self):
         """Perfectly centered with tight distribution."""
         values = [10.0] * 50  # zero variance edge case
-        result = calculate_cpk(values, lsl=9.0, usl=11.0)
+        result = calculate_ppk(values, lsl=9.0, usl=11.0)
         assert result["warning"] == "zero variance"
-        assert result["cpk"] is None
+        assert result["ppk"] is None
 
     def test_normal_process(self):
         import random
 
         random.seed(42)
         values = [10.0 + random.gauss(0, 0.1) for _ in range(100)]
-        result = calculate_cpk(values, lsl=9.5, usl=10.5)
-        assert result["cpk"] is not None
-        assert result["cpk"] > 1.0  # should be capable
-        assert result["cp"] is not None
+        result = calculate_ppk(values, lsl=9.5, usl=10.5)
+        assert result["ppk"] is not None
+        assert result["ppk"] > 1.0  # should be capable
+        assert result["pp"] is not None
         assert result["n"] == 100
         assert result["warning"] is None
 
     def test_one_sided_upper(self):
         values = [5.0, 5.1, 4.9, 5.05, 4.95]
-        result = calculate_cpk(values, lsl=None, usl=6.0)
-        assert result["cpk"] is not None
-        assert result["cp"] is None  # one-sided
+        result = calculate_ppk(values, lsl=None, usl=6.0)
+        assert result["ppk"] is not None
+        assert result["pp"] is None  # one-sided
 
     def test_insufficient_data(self):
-        result = calculate_cpk([1.0], lsl=0.0, usl=2.0)
-        assert result["cpk"] is None
+        result = calculate_ppk([1.0], lsl=0.0, usl=2.0)
+        assert result["ppk"] is None
         assert result["warning"] == "insufficient data"
 
     def test_below_min_samples(self):
         values = [1.0, 1.1, 0.9, 1.05, 0.95]
-        result = calculate_cpk(values, lsl=0.0, usl=2.0, min_samples=30)
+        result = calculate_ppk(values, lsl=0.0, usl=2.0, min_samples=30)
         assert "only 5 samples" in result["warning"]
 
     def test_no_limits(self):
-        result = calculate_cpk([1.0, 2.0, 3.0], lsl=None, usl=None)
-        assert result["cpk"] is None
+        result = calculate_ppk([1.0, 2.0, 3.0], lsl=None, usl=None)
+        assert result["ppk"] is None
         assert result["warning"] == "no limits defined"
 
 

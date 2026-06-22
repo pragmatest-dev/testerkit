@@ -7,8 +7,8 @@ Each Litmus run produces **one sealed parquet** at
 
 | `record_type` | Cardinality | Carries |
 |---|---|---|
-| `'run'` | Exactly one per file | Run-level identity, timing, outcome — start/end timestamps, DUT, station, project, git, environment |
-| `'step'` | One per `(step_path, vector_index)` | Step identity + outcome + timing + denormalized run / DUT / station context; measurement columns NULL |
+| `'run'` | Exactly one per file | Run-level identity, timing, outcome — start/end timestamps, UUT, station, project, git, environment |
+| `'step'` | One per `(step_path, vector_index)` | Step identity + outcome + timing + denormalized run / UUT / station context; measurement columns NULL |
 | `'measurement'` | One per recorded measurement | Full measurement payload + the same denormalized step + run context |
 
 Run-level identity is also denormalized onto step and measurement rows,
@@ -28,7 +28,7 @@ into the logical tables your warehouse expects.
 -- One file → three tables. Run identity is denormalized; derive runs from DISTINCT.
 INSERT INTO runs
 SELECT DISTINCT run_id, session_id, run_started_at, run_ended_at,
-       dut_serial, dut_part_number, station_id, station_hostname,
+       uut_serial, uut_part_number, station_id, station_hostname,
        run_outcome, project_name, git_commit
 FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_SN001.parquet');
 
@@ -57,7 +57,7 @@ CREATE OR REPLACE STAGE litmus_runs
 
 -- runs is derived via DISTINCT — run identity is denormalized onto every row
 COPY INTO runs FROM (
-  SELECT DISTINCT $1:run_id::STRING, $1:dut_serial::STRING, /* ... */
+  SELECT DISTINCT $1:run_id::STRING, $1:uut_serial::STRING, /* ... */
   FROM @litmus_runs/2026-05-08/20260508T120000Z_SN001.parquet
   (FILE_FORMAT => 'PARQUET')
 );
@@ -81,7 +81,7 @@ OPTIONS (
 
 -- Materialize three logical tables: runs via DISTINCT, others via record_type filter
 INSERT INTO litmus.runs
-SELECT DISTINCT run_id, dut_serial, station_hostname, run_started_at, run_ended_at,
+SELECT DISTINCT run_id, uut_serial, station_hostname, run_started_at, run_ended_at,
        run_outcome, /* ... */
 FROM litmus.run_rows;
 
@@ -97,7 +97,7 @@ import pyspark.sql.functions as F
 df = spark.read.parquet("s3://my-bucket/data/runs/")
 
 # runs is the DISTINCT projection of run-level columns from any row
-(df.select("run_id", "dut_serial", "station_hostname",
+(df.select("run_id", "uut_serial", "station_hostname",
            "run_started_at", "run_ended_at", "run_outcome").distinct()
    .write.mode("append").format("delta").saveAsTable("litmus.runs"))
 
@@ -115,7 +115,7 @@ df = spark.read.parquet("s3://my-bucket/data/runs/")
 ```sql
 -- Register the parquet directory as an external Iceberg table
 CREATE TABLE litmus.run_rows (
-  record_type VARCHAR, run_id VARCHAR, dut_serial VARCHAR, /* full schema … */
+  record_type VARCHAR, run_id VARCHAR, uut_serial VARCHAR, /* full schema … */
 )
 WITH (
   external_location = 's3://my-bucket/data/runs/',
@@ -123,7 +123,7 @@ WITH (
 );
 
 -- runs is the DISTINCT projection; steps / measurements filter by record_type
-INSERT INTO litmus.runs         SELECT DISTINCT run_id, dut_serial, … FROM litmus.run_rows;
+INSERT INTO litmus.runs         SELECT DISTINCT run_id, uut_serial, … FROM litmus.run_rows;
 INSERT INTO litmus.steps        SELECT … FROM litmus.run_rows WHERE record_type = 'step';
 INSERT INTO litmus.measurements SELECT … FROM litmus.run_rows WHERE record_type = 'measurement';
 ```
@@ -136,7 +136,7 @@ import duckdb
 # Three logical views over the parquet glob.
 # runs is DISTINCT over the denormalized run-identity columns; the other
 # two filter by record_type.
-runs   = duckdb.sql("SELECT DISTINCT run_id, dut_serial, station_hostname, run_started_at, run_ended_at, run_outcome FROM read_parquet('data/runs/*/*.parquet')").df()
+runs   = duckdb.sql("SELECT DISTINCT run_id, uut_serial, station_hostname, run_started_at, run_ended_at, run_outcome FROM read_parquet('data/runs/*/*.parquet')").df()
 steps  = duckdb.sql("SELECT * FROM read_parquet('data/runs/*/*.parquet') WHERE record_type = 'step'").df()
 meas   = duckdb.sql("SELECT * FROM read_parquet('data/runs/*/*.parquet') WHERE record_type = 'measurement'").df()
 ```

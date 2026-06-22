@@ -14,6 +14,7 @@ from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.backends.parquet import (
     materialize_run_to_parquet,
     read_step_results,
+    reconstruct_test_run_from_file,
 )
 from litmus.data.events import (
     InstrumentConnected,
@@ -35,7 +36,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -48,7 +49,7 @@ class TestMaterializer:
                 step_index=0,
                 measurement_name="vout",
                 value=3.3,
-                units="V",
+                unit="V",
                 outcome="passed",
                 limit_low=3.0,
                 limit_high=3.6,
@@ -62,18 +63,18 @@ class TestMaterializer:
         assert len(pq_files) == 1
 
         table = pq.read_table(pq_files[0])
-        # Run row + measurement row + step row (auto-emitted for the
-        # measurement-bearing step). No StepStarted/StepEnded events
-        # were emitted, so only one (step, vector_index=0) pair exists.
+        # Run row + vector row (carrying the nested measurement) + step row.
+        # No StepStarted/StepEnded events were emitted, so only one
+        # (step, vector_index=0) pair exists.
         rows_by_kind = {r["record_type"]: r for r in table.to_pylist()}
         assert "run" in rows_by_kind
-        assert "measurement" in rows_by_kind
-        meas_row = rows_by_kind["measurement"]
-        assert meas_row["measurement_name"] == "vout"
-        assert meas_row["measurement_value"] == 3.3
-        assert meas_row["station_id"] == "st1"
-        assert meas_row["dut_serial"] == "SN001"
-        assert meas_row["run_outcome"] == "passed"
+        assert "vector" in rows_by_kind
+        vec_row = rows_by_kind["vector"]
+        assert [m["name"] for m in vec_row["measurements"]] == ["vout"]
+        assert vec_row["measurements"][0]["value"] == 3.3
+        assert vec_row["station_id"] == "st1"
+        assert vec_row["uut_serial"] == "SN001"
+        assert vec_row["run_outcome"] == "passed"
 
     def test_instruments_cached(self, tmp_path):
         acc = EventAccumulator()
@@ -85,7 +86,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -130,7 +131,7 @@ class TestMaterializer:
             RunStarted(
                 run_id=run_id,
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -167,7 +168,7 @@ class TestMaterializer:
             RunStarted(
                 run_id=uuid4(),
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -182,7 +183,7 @@ class TestMaterializer:
         assert len(rows) == 1
         assert rows[0]["record_type"] == "run"
         assert rows[0]["station_id"] == "st1"
-        assert rows[0]["dut_serial"] == "SN001"
+        assert rows[0]["uut_serial"] == "SN001"
 
     def test_step_identity_columns(self, tmp_path):
         """Step code identity fields appear in Parquet rows."""
@@ -195,7 +196,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -237,9 +238,9 @@ class TestMaterializer:
 
         pq_files = list((tmp_path / "results" / "runs").rglob("*.parquet"))
         table = pq.read_table(pq_files[0])
-        # Pick the measurement row — step identity columns are denormalized
-        # onto it. The run row carries no step identity (NULL columns).
-        rows = [r for r in table.to_pylist() if r["record_type"] == "measurement"]
+        # Pick the vector row — step identity columns ride on it (it carries
+        # the nested measurement). The run row carries no step identity.
+        rows = [r for r in table.to_pylist() if r["record_type"] == "vector"]
         assert len(rows) == 1
         row = rows[0]
         assert row["step_node_id"] == "tests/test_power.py::TestPower::test_5v_rail"
@@ -259,7 +260,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                dut_serial="SN001",
+                uut_serial="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -300,18 +301,18 @@ class TestMaterializer:
             StepStarted(
                 session_id=session_id,
                 run_id=run_id,
-                step_name="configure_dut",
+                step_name="configure_uut",
                 step_index=1,
-                node_id="tests/test_hw.py::configure_dut",
+                node_id="tests/test_hw.py::configure_uut",
                 file="tests/test_hw.py",
-                function="configure_dut",
+                function="configure_uut",
             )
         )
         acc.on_event(
             StepEnded(
                 session_id=session_id,
                 run_id=run_id,
-                step_name="configure_dut",
+                step_name="configure_uut",
                 step_index=1,
                 outcome="passed",
             )
@@ -329,10 +330,10 @@ class TestMaterializer:
         assert manifest[0]["name"] == "test_voltage"
         assert manifest[0]["has_measurements"] is True
         assert manifest[0]["measurement_count"] == 1
-        assert manifest[1]["name"] == "configure_dut"
+        assert manifest[1]["name"] == "configure_uut"
         assert manifest[1]["has_measurements"] is False
         assert manifest[1]["measurement_count"] == 0
-        assert manifest[1]["node_id"] == "tests/test_hw.py::configure_dut"
+        assert manifest[1]["node_id"] == "tests/test_hw.py::configure_uut"
 
     def test_measurement_before_run_started(self, tmp_path):
         """Graceful fallback when RunStarted never arrives.
@@ -358,3 +359,36 @@ class TestMaterializer:
         runs_dir = tmp_path / "results" / "runs"
         pq_files = list(runs_dir.rglob("*.parquet")) if runs_dir.exists() else []
         assert len(pq_files) == 0
+
+    def test_custom_metadata_roundtrip_materializer_path(self, tmp_path):
+        """custom_metadata on RunStarted survives materializer → reconstruct."""
+        acc = EventAccumulator()
+        run_id = uuid4()
+        session_id = uuid4()
+
+        acc.on_event(
+            RunStarted(
+                session_id=session_id,
+                run_id=run_id,
+                uut_serial="SN-CUSTOM",
+                occurred_at=datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC),
+                custom_metadata={"badge": "EMP-999", "batch": "Q2-2026"},
+            )
+        )
+        acc.on_event(
+            MeasurementRecorded(
+                session_id=session_id,
+                run_id=run_id,
+                step_name="test_voltage",
+                step_index=0,
+                measurement_name="vout",
+                value=3.3,
+                outcome="passed",
+            )
+        )
+
+        parquet_path = materialize_run_to_parquet(acc, tmp_path / "results", outcome="passed")
+
+        assert parquet_path is not None
+        rebuilt = reconstruct_test_run_from_file(parquet_path)
+        assert rebuilt.custom_metadata == {"badge": "EMP-999", "batch": "Q2-2026"}

@@ -24,7 +24,7 @@ Each event type adds a `Literal` `event_type` field used as a discriminator for 
 
 ## Event Categories
 
-Litmus defines events across 11 categories.
+Litmus defines events across 12 categories.
 
 ### Session (2 events)
 | Event | Type String | Description |
@@ -35,17 +35,17 @@ Litmus defines events across 11 categories.
 ### Run (3 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
-| `RunStarted` | `run.started` | Full run context: DUT, product, operator, config snapshots |
+| `RunStarted` | `run.started` | Full run context: UUT, part, operator, config snapshots |
 | `RunEnded` | `run.ended` | Run outcome |
 | `RunMaterialized` | `run.materialized` | Parquet file written; ready for downstream consumers (defined but not currently in the `Event` discriminated union). |
 
-### Slot (2 events — multi-DUT)
+### Slot (2 events — multi-UUT)
 | Event | Type String | Description |
 |-------|-------------|-------------|
-| `SlotStarted` | `slot.started` | A multi-DUT slot subprocess begins |
-| `SlotCompleted` | `slot.completed` | A multi-DUT slot subprocess finishes |
+| `SlotStarted` | `slot.started` | A multi-UUT slot subprocess begins |
+| `SlotCompleted` | `slot.completed` | A multi-UUT slot subprocess finishes |
 
-### Sync (2 events — multi-DUT)
+### Sync (2 events — multi-UUT)
 | Event | Type String | Description |
 |-------|-------------|-------------|
 | `SyncArrived` | `sync.arrived` | A worker reached a synchronization barrier |
@@ -63,16 +63,15 @@ Litmus defines events across 11 categories.
 | `InstrumentConnected` | `fixture.instrument_connected` | Instrument identified and connected |
 | `IdentityVerified` | `fixture.identity_verified` | Expected vs actual instrument identity |
 | `CalibrationWarning` | `fixture.calibration_warning` | Calibration due date approaching |
-| `DutScanned` | `fixture.dut_scanned` | DUT serial barcode scanned |
+| `UutScanned` | `fixture.uut_scanned` | UUT serial barcode scanned |
 | `InstrumentDisconnected` | `fixture.instrument_disconnected` | Instrument released during teardown |
 
-### Test (5 events)
+### Test (4 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
 | `StepsDiscovered` | `test.steps_discovered` | Full list of collected test items |
 | `StepStarted` | `test.step_started` | A test step begins execution |
 | `MeasurementRecorded` | `test.measurement` | A single measurement with limits and outcome |
-| `RecordEvent` | `test.record` | A key/value record from `harness.record()` |
 | `StepEnded` | `test.step_ended` | A test step finishes |
 
 ### Instrument (3 events)
@@ -88,12 +87,19 @@ Litmus defines events across 11 categories.
 | `DiagnosticWarning` | `diagnostic.warning` | Non-fatal warning |
 | `DiagnosticError` | `diagnostic.error` | Error condition |
 
-### Stream (3 events)
+### Channel (3 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
-| `StreamStarted` | `stream.started` | A data stream begins |
-| `StreamEnded` | `stream.ended` | A data stream ends |
-| `StreamFrameIndex` | `stream.frame_index` | Frame count update |
+| `ChannelStarted` | `channel.started` | A channel received its first sample in this session |
+| `ChannelEnded` | `channel.ended` | A channel was sealed for this session |
+| `ChannelCheckpoint` | `channel.checkpoint` | Liveness + progress marker from an active channel producer |
+
+### File (3 events)
+| Event | Type String | Description |
+|-------|-------------|-------------|
+| `FileStarted` | `file.started` | A data stream begins |
+| `FileEnded` | `file.ended` | A data stream ends |
+| `FileCheckpoint` | `file.checkpoint` | Liveness + progress marker from an active file sink |
 
 ### Dialog (2 events)
 | Event | Type String | Description |
@@ -107,7 +113,7 @@ A typical test session emits events in this order:
 
 ```
 SessionStarted          # Session-wide metadata (station, operator)
-├── RunStarted          # Run context (DUT, product, config snapshots)
+├── RunStarted          # Run context (UUT, part, config snapshots)
 ├── InstrumentConnected # One per instrument role
 ├── IdentityVerified    # Optional identity check
 ├── StepsDiscovered     # Full list of collected test items

@@ -8,7 +8,6 @@ Tools:
 - litmus_open: Get browser URL
 """
 
-import json
 import logging
 import subprocess
 import sys
@@ -16,7 +15,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from litmus.utils.enum_meta import lookup_enum as _lookup_enum_fn
 from litmus.utils.enum_meta import render_enum_reference as _render_enum_reference_fn
@@ -212,7 +211,7 @@ def _init_project(
         "next_steps": [
             "Run 'uv sync' to install dependencies",
             "Use litmus_project(action='read', path='template:test') to see test pattern",
-            "Create a product with litmus_project(action='save', type='product', ...)",
+            "Create a part with litmus_project(action='save', type='part', ...)",
         ],
     }
 
@@ -223,7 +222,7 @@ def _init_project(
 
 ENTITY_TYPES = [
     "station",
-    "product",
+    "part",
     "fixture",
     "catalog",
     "instrument_asset",
@@ -232,7 +231,7 @@ ENTITY_TYPES = [
 # Everything except "run" (read-only test results) can be saved.
 SAVEABLE_TYPES = [
     "station",
-    "product",
+    "part",
     "fixture",
     "catalog",
     "instrument_asset",
@@ -247,7 +246,7 @@ def _list_entities(entity_type: str, project: str) -> dict[str, Any]:
 
     handlers = {
         "station": _list_stations,
-        "product": _list_products,
+        "part": _list_parts,
         "fixture": _list_fixtures,
         "catalog": _list_catalog_entries,
         "instrument_asset": _list_instrument_assets,
@@ -304,9 +303,9 @@ def _list_stations(project: str) -> list[dict[str, Any]]:
     )
 
 
-def _list_products(project: str) -> list[dict[str, Any]]:
-    """List all product specifications from products/ directory."""
-    from litmus.store import list_products
+def _list_parts(project: str) -> list[dict[str, Any]]:
+    """List all part specifications from parts/ directory."""
+    from litmus.store import list_parts
 
     root = get_project_root(project)
     return [
@@ -317,7 +316,7 @@ def _list_products(project: str) -> list[dict[str, Any]]:
             "revision": p.revision,
             "characteristics_count": len(p.characteristics),
         }
-        for p in list_products(project_root=root)
+        for p in list_parts(project_root=root)
     ]
 
 
@@ -332,7 +331,7 @@ def _list_fixtures(project: str) -> list[dict[str, Any]]:
         lambda f, yf: {
             "id": f.id,
             "name": f.name or yf.stem,
-            "product_id": f.product_id,
+            "part_id": f.part_id,
             "point_count": len(f.points),
         },
     )
@@ -382,7 +381,7 @@ def _get_entity(entity_type: str, id: str, project: str) -> dict[str, Any]:
 
     handlers = {
         "station": _get_station,
-        "product": _get_product,
+        "part": _get_part,
         "fixture": _get_fixture,
         "catalog": _get_catalog_entry,
         "instrument_asset": _get_instrument_asset,
@@ -425,16 +424,16 @@ def _get_station(station_id: str, project: str) -> dict[str, Any]:
     return _get_yaml_entity(station_id, project, "stations", "Station", load_station)
 
 
-def _get_product(product_id: str, project: str) -> dict[str, Any]:
-    """Get product specification from products/{product_id}.yaml."""
-    from litmus.store import get_product
+def _get_part(part_id: str, project: str) -> dict[str, Any]:
+    """Get part specification from parts/{part_id}.yaml."""
+    from litmus.store import get_part
 
     root = get_project_root(project)
-    product = get_product(product_id, project_root=root)
+    part = get_part(part_id, project_root=root)
 
-    if product is None:
-        return {"error": f"Product '{product_id}' not found in products/"}
-    return product.model_dump()
+    if part is None:
+        return {"error": f"Part '{part_id}' not found in parts/"}
+    return part.model_dump()
 
 
 def _get_fixture(fixture_id: str, project: str) -> dict[str, Any]:
@@ -568,11 +567,11 @@ def _save_entity(
             res["warnings"] = type_warnings
         return res
 
-    if entity_type == "product":
-        from litmus.models.product import Product
-        from litmus.store import save_product
+    if entity_type == "part":
+        from litmus.models.part import Part
+        from litmus.store import save_part
 
-        return _save_generic_yaml(Product, save_product, "products", id, content, project)
+        return _save_generic_yaml(Part, save_part, "parts", id, content, project)
 
     if entity_type == "fixture":
         from litmus.models.test_config import FixtureConfig
@@ -611,7 +610,7 @@ def _save_test(path: str, content: dict[str, Any], project: str) -> dict[str, An
     root = get_project_root(project)
 
     # Support both absolute-ish paths and relative paths
-    if path.startswith("products/") or path.startswith("tests/"):
+    if path.startswith("parts/") or path.startswith("tests/"):
         filepath = root / path
     else:
         filepath = root / "tests" / path
@@ -634,13 +633,13 @@ def _save_test(path: str, content: dict[str, Any], project: str) -> dict[str, An
 
 TEST_TEMPLATE = '''
 ================================================================================
-FILE 1: tests/test_{product_id}.py
+FILE 1: tests/test_{part_id}.py
 ================================================================================
 
-"""Tests for {product_name}.
+"""Tests for {part_name}.
 
 Tests are plain pytest functions. Vectors, limits, and mocks live in
-the sidecar YAML next to this file (``test_{product_id}.yaml``). The
+the sidecar YAML next to this file (``test_{part_id}.yaml``). The
 ``context`` and ``verify`` fixtures come from the Litmus pytest plugin.
 """
 
@@ -676,7 +675,7 @@ def test_load_regulation(context, psu, dmm, eload, verify) -> None:
 
 
 ================================================================================
-FILE 2: tests/test_{product_id}.yaml
+FILE 2: tests/test_{part_id}.yaml
 ================================================================================
 
 # Sidecar: vectors/limits/mocks keyed by test function name.
@@ -692,7 +691,7 @@ tests:
       quiescent_current:
         high: 100
         comparator: LE
-        units: uA
+        unit: uA
   test_load_regulation:
     limits:
       output_voltage:
@@ -708,7 +707,7 @@ NOTES
 - Vectors: use ``@pytest.mark.parametrize`` or sidecar ``vectors:``.
   Sidecar overrides decorator at collection time.
 - Limits: declared per-measurement in sidecar; use ``ref:`` to derive
-  from a product characteristic, or inline ``low/high`` for direct
+  from a part characteristic, or inline ``low/high`` for direct
   bounds. Condition-indexed bands (``when:``) also supported.
 - Mocks: sidecar ``mocks:`` installs per-test. Use
   ``--mock-instruments`` to run without hardware.
@@ -757,7 +756,7 @@ capabilities:
     direction: input
     parameters:
       voltage:
-        range: {{min: 0, max: 1000, units: V}}
+        range: {{min: 0, max: 1000, unit: V}}
 
 scpi_commands:
   identify: "*IDN?"
@@ -809,7 +808,7 @@ def _read_file(path: str, project: str) -> dict[str, Any]:
         return {
             "type": "template",
             "name": "test",
-            "content": TEST_TEMPLATE.format(product_name="ProductName", product_id="product_id"),
+            "content": TEST_TEMPLATE.format(part_name="PartName", part_id="part_id"),
             "notes": [
                 "Tests are plain pytest functions; use context/verify fixtures",
                 "Vectors, limits, and mocks live in the sidecar YAML next to the test",
@@ -958,16 +957,16 @@ def discover_tool(protocols: list[str] | None = None) -> dict[str, Any]:
 
 
 def match_tool(
-    product_id: str | None = None,
+    part_id: str | None = None,
     station_id: str | None = None,
     fixture_id: str | None = None,
     requirements: list[dict[str, Any]] | None = None,
     project: str | None = None,
 ) -> dict[str, Any]:
-    """Check compatibility between products, stations, and fixtures.
+    """Check compatibility between parts, stations, and fixtures.
 
     Args:
-        product_id: Product ID to check compatibility for
+        part_id: Part ID to check compatibility for
         station_id: Station ID for detailed check
         fixture_id: Fixture ID to find compatible stations
         requirements: Ad-hoc capability requirements for catalog recommendations
@@ -978,7 +977,7 @@ def match_tool(
         find_compatible_stations,
         get_required_capabilities,
     )
-    from litmus.store import get_product
+    from litmus.store import get_part
 
     # Requirements mode: recommend catalog instruments
     if requirements is not None:
@@ -987,14 +986,14 @@ def match_tool(
         project_path = get_project_root(project) if project else None
         return recommend_from_catalog(requirements, project_path)
 
-    # Just product_id: find compatible stations
-    if product_id and not station_id and not fixture_id:
+    # Just part_id: find compatible stations
+    if part_id and not station_id and not fixture_id:
         root = get_project_root(project) if project else None
-        product = get_product(product_id, project_root=root)
-        if not product:
-            return {"error": f"Product '{product_id}' not found"}
+        part = get_part(part_id, project_root=root)
+        if not part:
+            return {"error": f"Part '{part_id}' not found"}
 
-        cap_reqs = get_required_capabilities(product)
+        cap_reqs = get_required_capabilities(part)
         req_list = [
             {
                 "characteristic": req.characteristic_name,
@@ -1004,7 +1003,7 @@ def match_tool(
             for req in cap_reqs
         ]
 
-        matches = find_compatible_stations(product)
+        matches = find_compatible_stations(part)
         stations = [
             {
                 "station_id": m.station_id,
@@ -1015,17 +1014,17 @@ def match_tool(
         ]
 
         return {
-            "product_id": product_id,
+            "part_id": part_id,
             "required_capabilities": req_list,
             "compatible_stations": stations,
         }
 
-    # Product + station: detailed check
-    if product_id and station_id:
+    # Part + station: detailed check
+    if part_id and station_id:
         project_root = get_project_root(project) if project else None
-        result = check_station_compatibility(product_id, station_id, project_root)
+        result = check_station_compatibility(part_id, station_id, project_root)
         if not result:
-            return {"error": "Product or station not found"}
+            return {"error": "Part or station not found"}
         return result
 
     # Fixture: find stations with required instruments
@@ -1068,7 +1067,7 @@ def match_tool(
             "stations": compatible,
         }
 
-    return {"error": "Provide product_id, product_id+station_id, or fixture_id"}
+    return {"error": "Provide part_id, part_id+station_id, or fixture_id"}
 
 
 # =============================================================================
@@ -1082,7 +1081,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
     Args:
         test: Test file path relative to project root
         station: Station ID
-        serial: DUT serial number
+        serial: UUT serial number
         project: Project root path (required)
     """
     if not project:
@@ -1102,7 +1101,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
         # Try to find test file
         possible_paths = [
             root / "tests" / f"test_{test}.py",
-            root / "products" / test / "tests" / f"test_{test}.py",
+            root / "parts" / test / "tests" / f"test_{test}.py",
         ]
         test_targets = []
         for p in possible_paths:
@@ -1121,7 +1120,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
     cmd = [
         str(pytest_path),
         *test_targets,
-        f"--dut-serial={serial}",
+        f"--uut-serial={serial}",
         f"--station={station}",
         "--data-dir=results",
         "-v",
@@ -1186,7 +1185,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
 def open_tool(entity_type: str, id: str, base_url: str = "http://localhost:8000") -> dict[str, Any]:
     """Get URL to open entity in browser UI."""
     routes = {
-        "product": f"/products/{id}",
+        "part": f"/parts/{id}",
         "station": f"/stations/{id}",
         "run": f"/results/{id}",
         "fixture": f"/fixtures/{id}",
@@ -1308,41 +1307,79 @@ def channels_query(
 ) -> dict[str, Any]:
     """Query channel data from the channel store.
 
-    Shared implementation for HTTP API and MCP tool.
+    Shared implementation for HTTP API and MCP tool. Each row carries its
+    ``sample_offset`` — the sample's per-session position. That's part of the
+    channel ticket (``channel://…&sample_offset=N``), so it travels with the data.
     """
-    from litmus.data.channels.store import ChannelStore
+    from litmus.data.channels.client import channel_query_client
     from litmus.data.data_dir import resolve_data_dir
 
     base = data_dir if data_dir else resolve_data_dir()
     if not (base / "channels").exists():
         return {"channel_id": channel_id, "data": []}
 
-    store = ChannelStore(base, uuid4())
     since_dt = datetime.fromisoformat(since) if since else None
     until_dt = datetime.fromisoformat(until) if until else None
-    table = store.query(
-        channel_id,
-        session_id=session_id,
-        start=since_dt,
-        end=until_dt,
-        last_n=last_n,
-        max_points=max_points,
-    )
+    with channel_query_client(base / "channels") as client:
+        table = client.query(
+            channel_id,
+            session_id=session_id,
+            start=since_dt,
+            end=until_dt,
+            last_n=last_n,
+            max_points=max_points,
+        )
     return {"channel_id": channel_id, "data": table.to_pylist()}
 
 
-def channels_list_query(*, data_dir: Path | None = None) -> dict[str, Any]:
-    """List known channels from the channel registry.
+def files_query(
+    uri: str | None = None,
+    session_id: str | None = None,
+    run_id: str | None = None,
+    limit: int = 50,
+    *,
+    data_dir: Path | None = None,
+) -> dict[str, Any]:
+    """List FileStore artifacts from the file catalog.
 
-    Shared implementation for HTTP API and MCP tool.
+    Shared implementation for the HTTP API and MCP tool. Returns catalog
+    rows (uri, name, format, session_id, run_id, created_at, ...) newest
+    first. ``uri`` returns the single matching artifact; ``session_id``
+    / ``run_id`` filter the listing. An artifact's bytes are fetched
+    separately by its ``file://`` URI.
     """
+    from litmus.data.data_dir import resolve_data_dir
+    from litmus.data.files import catalog_manager
+
+    base = data_dir if data_dir else resolve_data_dir()
+    files_dir = base / "files"
+    if not files_dir.exists():
+        return {"files": []}
+    rows = catalog_manager.list_artifacts(
+        files_dir,
+        uri=uri,
+        session_id=session_id,
+        run_id=run_id,
+        limit=limit,
+    )
+    return {"files": rows}
+
+
+def channels_list_query(*, data_dir: Path | None = None) -> dict[str, Any]:
+    """List known channels with their descriptors, served by the daemon.
+
+    Shared implementation for HTTP API and MCP tool. Reads the daemon's
+    descriptor map (Flight ``list_flights``), never the channel store's files.
+    """
+    from litmus.data.channels.client import channel_query_client
     from litmus.data.data_dir import resolve_data_dir
 
     base = data_dir if data_dir else resolve_data_dir()
-    registry_path = base / "channels" / "_registry.json"
-    if not registry_path.exists():
+    if not (base / "channels").exists():
         return {"channels": {}}
-    return {"channels": json.loads(registry_path.read_text())}
+    with channel_query_client(base / "channels") as client:
+        descriptors = client.channels()
+    return {"channels": {d.channel_id: d.model_dump(mode="json") for d in descriptors}}
 
 
 def channels_recent_query(
@@ -1362,37 +1399,120 @@ def channels_recent_query(
     ``samples`` as the per-capture-time scalar series (one point per
     capture; the array contents themselves aren't sparkline-friendly).
     """
-    from litmus.data.channels.store import ChannelStore
+    from litmus.data.channels.client import channel_query_client
     from litmus.data.data_dir import resolve_data_dir
 
     base = data_dir if data_dir else resolve_data_dir()
-    registry_path = base / "channels" / "_registry.json"
-    if not (base / "channels").exists() or not registry_path.exists():
+    if not (base / "channels").exists():
         return {"channels": {}}
 
-    registry: dict[str, dict[str, Any]] = json.loads(registry_path.read_text())
-    store = ChannelStore(base, uuid4())
-
     out: dict[str, dict[str, Any]] = {}
-    for channel_id, descriptor in registry.items():
-        try:
-            table = store.query(channel_id, last_n=last_n)
-            rows = table.to_pylist()
-        except (OSError, ValueError, RuntimeError):
-            rows = []
+    with channel_query_client(base / "channels") as client:
+        registry = {d.channel_id: d.model_dump(mode="json") for d in client.channels()}
+        for channel_id, descriptor in registry.items():
+            try:
+                table = client.query(channel_id, last_n=last_n)
+                rows = table.to_pylist()
+            except (OSError, ValueError, RuntimeError):
+                rows = []
 
-        samples, latest = _build_recent_series(rows)
-        last_updated = str(rows[-1]["timestamp"]) if rows and rows[-1].get("timestamp") else None
+            samples, latest = _build_recent_series(rows)
+            last_updated = (
+                str(rows[-1]["received_at"]) if rows and rows[-1].get("received_at") else None
+            )
 
-        out[channel_id] = {
-            **descriptor,
-            "recent": {
-                "latest": latest,
-                "samples": samples,
-                "last_updated": last_updated,
-            },
-        }
+            out[channel_id] = {
+                **descriptor,
+                "recent": {
+                    "latest": latest,
+                    "samples": samples,
+                    "last_updated": last_updated,
+                },
+            }
     return {"channels": out}
+
+
+def _derive_liveness(
+    session_id: str,
+    channel_id: str,
+    last_updated: datetime | None,
+    closed: set[tuple[str, str]],
+    ended: set[str],
+    now: datetime,
+    stale_after: float,
+) -> str:
+    """Liveness for one registry row: lifecycle (event store) + recency staleness.
+
+    A registry row's existence already implies "started", so only the terminal
+    signals are consulted — ``closed`` (ChannelEnded) and ``ended`` (SessionEnded).
+    Otherwise the channel is open: ``live`` if a sample landed within
+    ``stale_after`` seconds, else ``open_stale`` (open but quiet — e.g. a crashed
+    producer whose session hasn't been closed yet).
+    """
+    if (session_id, channel_id) in closed:
+        return "closed"
+    if session_id in ended:
+        return "dead"
+    if last_updated is not None and (now - last_updated).total_seconds() <= stale_after:
+        return "live"
+    return "open_stale"
+
+
+def channels_liveness_query(
+    *,
+    stale_after: float = 30.0,
+    data_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Channel registry rows with a derived liveness, for discovery dashboards.
+
+    One row per ``(hostname, channel, session)`` version, each tagged
+    ``liveness ∈ {live, open_stale, closed, dead}``. The descriptor and
+    ``last_updated`` come from the channel store's own registry (the source of
+    truth); the terminal lifecycle signals come from the event store (the
+    authority on session/channel close) as augmentation. ``stale_after`` is the
+    freshness window — there is no universal "live" without a rate expectation,
+    so a channel with no sample within it reads ``open_stale``, not ``live``.
+    """
+    import json
+
+    from litmus.data.channels.client import channel_query_client
+    from litmus.data.data_dir import resolve_data_dir
+    from litmus.data.event_store import EventStore
+
+    base = data_dir if data_dir else resolve_data_dir()
+    if not (base / "channels").exists():
+        return {"channels": []}
+
+    with channel_query_client(base / "channels") as client:
+        registry = client.channel_registry().to_pylist()
+
+    # Terminal lifecycle signals (augmentation). If the event store is
+    # unreachable, fall back to recency alone (closed/ended stay empty).
+    closed: set[tuple[str, str]] = set()
+    ended: set[str] = set()
+    try:
+        with EventStore(_data_dir=base) as es:
+            for e in es.events(event_type="channel.ended"):
+                closed.add((str(e.get("session_id")), json.loads(e["json"]).get("channel_id", "")))
+            for e in es.events(event_type="session.ended"):
+                ended.add(str(e.get("session_id")))
+    except Exception:  # noqa: BLE001
+        pass
+
+    now = datetime.now(UTC)
+    rows: list[dict[str, Any]] = []
+    for r in registry:
+        sid, cid = str(r.get("session_id")), r.get("channel_id", "")
+        live = _derive_liveness(sid, cid, r.get("last_updated"), closed, ended, now, stale_after)
+        rows.append(
+            {
+                **r,
+                "first_seen": str(r["first_seen"]) if r.get("first_seen") else None,
+                "last_updated": str(r["last_updated"]) if r.get("last_updated") else None,
+                "liveness": live,
+            }
+        )
+    return {"channels": rows}
 
 
 def _build_recent_series(rows: list[dict[str, Any]]) -> tuple[list[Any], Any]:
@@ -1400,18 +1520,19 @@ def _build_recent_series(rows: list[dict[str, Any]]) -> tuple[list[Any], Any]:
 
     Two cases:
 
-    * **Waveform / array rows** — the most recent row carries a
-      ``samples`` list. The sparkline is that capture's samples
+    * **Array rows** — the most recent row carries a list-typed
+      ``value`` (post-C3a-pre rename; pre-rename this was
+      ``samples``). The sparkline is that capture's values
       directly (the within-capture trace), and ``latest`` is the
       array's final value. This matches what an operator wants to
       see for scope traces: the actual waveform shape.
     * **Scalar rows** — each row's ``value`` (or ``y`` / ``reading``)
-      contributes one point to the sparkline keyed by timestamp.
+      contributes one point to the sparkline keyed by ``received_at``.
       ``latest`` is the most recent point's value.
 
     The sparkline output is ``[(ts_str, value), ...]`` for scalars
-    and ``[value, ...]`` for waveforms (no timestamp per intra-
-    capture sample). The UI's sparkline renderer accepts either —
+    and ``[value, ...]`` for arrays (no timestamp per intra-
+    capture value). The UI's sparkline renderer accepts either —
     it pulls the second element of tuples and treats bare numbers
     as a value sequence.
     """
@@ -1419,16 +1540,19 @@ def _build_recent_series(rows: list[dict[str, Any]]) -> tuple[list[Any], Any]:
         return [], None
 
     last_row = rows[-1]
-    last_samples = last_row.get("samples")
-    if isinstance(last_samples, list) and last_samples:
-        numeric = [v for v in last_samples if isinstance(v, (int, float))]
+    last_value = last_row.get("value")
+    # Distinguish array rows from scalar rows by payload shape: a
+    # list-typed ``value`` means "this row holds N inner values"
+    # (array channel); anything else is a scalar row.
+    if isinstance(last_value, list) and last_value:
+        numeric = [v for v in last_value if isinstance(v, (int, float))]
         latest_value = numeric[-1] if numeric else None
         return list(numeric), latest_value
 
     samples: list[tuple[str, Any]] = []
     latest: Any = None
     for row in rows:
-        ts = row.get("timestamp")
+        ts = row.get("received_at")
         value = _channel_row_scalar(row)
         if ts is not None and value is not None:
             samples.append((str(ts), value))
@@ -1438,9 +1562,14 @@ def _build_recent_series(rows: list[dict[str, Any]]) -> tuple[list[Any], Any]:
 
 
 def _channel_row_scalar(row: dict[str, Any]) -> Any:
-    """Pull a single scalar from a channel row, or ``None`` if none stamped."""
+    """Pull a single scalar from a channel row, or ``None`` if none stamped.
+
+    Post-C3a-pre: a row's ``value`` can be a scalar (scalar channel)
+    OR a list (array channel). This helper returns scalars only; for
+    array rows the caller handles the list shape separately.
+    """
     for key in ("value", "y", "reading"):
-        if key in row and row[key] is not None:
+        if key in row and row[key] is not None and not isinstance(row[key], list):
             return row[key]
     return None
 
@@ -1485,6 +1614,23 @@ def channels_tool(
         session_id=session_id,
         last_n=last_n,
         max_points=max_points,
+        data_dir=_resolve_data_dir(project),
+    )
+
+
+def files_tool(
+    uri: str | None = None,
+    session_id: str | None = None,
+    run_id: str | None = None,
+    limit: int = 50,
+    project: str | None = None,
+) -> dict[str, Any]:
+    """List FileStore artifacts (MCP tool wrapper)."""
+    return files_query(
+        uri=uri,
+        session_id=session_id,
+        run_id=run_id,
+        limit=limit,
         data_dir=_resolve_data_dir(project),
     )
 
@@ -1549,7 +1695,7 @@ def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
     before saving it.
 
     Args:
-        yaml_type: A file type from SCHEMA_MAP (e.g. catalog, product,
+        yaml_type: A file type from SCHEMA_MAP (e.g. catalog, part,
             station, fixture, instrument_asset, project).
             If None, returns the list of available types.
 
@@ -1580,11 +1726,11 @@ def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
 # Tool 10: litmus_metrics — manufacturing-test analytics
 # ---------------------------------------------------------------------------
 
-MetricsAction = Literal["summary", "pareto", "cpk", "trend", "retest", "time_loss"]
+MetricsAction = Literal["summary", "pareto", "ppk", "trend", "retest", "time_loss"]
 _METRICS_ACTIONS: tuple[MetricsAction, ...] = (
     "summary",
     "pareto",
-    "cpk",
+    "ppk",
     "trend",
     "retest",
     "time_loss",
@@ -1593,7 +1739,7 @@ _METRICS_ACTIONS: tuple[MetricsAction, ...] = (
 
 def metrics_tool(
     action: str,
-    product: str | None = None,
+    part: str | None = None,
     station: str | None = None,
     phase: str | None = None,
     since: str | None = None,
@@ -1606,15 +1752,18 @@ def metrics_tool(
     """Query manufacturing-test analytics (DuckDB SQL aggregated from parquet rows).
 
     Args:
-        action: One of: summary, pareto, cpk, trend, retest, time_loss.
-        product: Filter by product/part number.
+        action: One of: summary, pareto, ppk, trend, retest, time_loss.
+            ``summary`` returns yield rows with FPY, final yield, run counts,
+            duration stats, RTY (rolled throughput yield), DPMO (defects per
+            million step opportunities), and DPPM (defective parts per million).
+        part: Filter by part/part number.
         station: Filter by station name.
         phase: Filter by test phase (default: exclude development, 'all' = no filter).
         since: Start date (ISO format, inclusive).
         until: End date (ISO format, inclusive).
         period: Time bucket — day, week, or month (default: day).
         top_n: Number of top failures for pareto (default: 10).
-        min_samples: Minimum sample count for cpk (default: 10).
+        min_samples: Minimum sample count for ppk (default: 10).
         project: Project root path.
     """
     if action not in _METRICS_ACTIONS:
@@ -1623,28 +1772,34 @@ def metrics_tool(
     from litmus.analysis.measurements_query import MeasurementsQuery
 
     data_dir = _resolve_data_dir(project)
-    store = MeasurementsQuery(_data_dir=data_dir)
 
     kwargs: dict[str, Any] = {
-        "product": product,
+        "part": part,
         "station": station,
         "phase": phase,
         "since": since,
         "until": until,
     }
 
-    match action:
-        case "summary":
-            return {"data": store.yield_summary(**kwargs, period=period)}
-        case "pareto":
-            return {"data": store.pareto(**kwargs, top_n=top_n)}
-        case "cpk":
-            return {"data": store.cpk(**kwargs, min_samples=min_samples)}
-        case "trend":
-            return {"data": store.trend(**kwargs, period=period)}
-        case "retest":
-            return {"data": store.retest(**kwargs, period=period)}
-        case "time_loss":
-            return {"data": store.time_loss(**kwargs, period=period)}
-        case _:
-            return {"error": f"Unknown action '{action}'"}
+    with MeasurementsQuery(_data_dir=data_dir) as store:
+        match action:
+            case "summary":
+                rows = store.yield_summary(**kwargs, period=period)
+                return {"data": [r.model_dump() for r in rows]}
+            case "pareto":
+                rows = store.pareto(**kwargs, top_n=top_n)
+                return {"data": [r.model_dump() for r in rows]}
+            case "ppk":
+                rows = store.ppk(**kwargs, min_samples=min_samples)
+                return {"data": [r.model_dump() for r in rows]}
+            case "trend":
+                rows = store.trend(**kwargs, period=period)
+                return {"data": [r.model_dump() for r in rows]}
+            case "retest":
+                rows = store.retest(**kwargs, period=period)
+                return {"data": [r.model_dump() for r in rows]}
+            case "time_loss":
+                rows = store.time_loss(**kwargs, period=period)
+                return {"data": [r.model_dump() for r in rows]}
+            case _:
+                return {"error": f"Unknown action '{action}'"}

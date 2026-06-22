@@ -56,8 +56,8 @@ def fixtures_page(filter: str = "All"):
                     "text-xl text-slate-600 mt-4"
                 )
                 ui.label(
-                    "Fixtures define how DUT pins connect to station instruments. "
-                    "Each fixture is tied to a product family and maps pin names to "
+                    "Fixtures define how UUT pins connect to station instruments. "
+                    "Each fixture is tied to a part family and maps pin names to "
                     "instrument names."
                 ).classes("text-slate-500 mt-2")
                 ui.button(
@@ -78,9 +78,9 @@ def fixtures_page(filter: str = "All"):
             {"name": "id", "label": "ID", "field": "id", "align": "left", "sortable": True},
             {"name": "name", "label": "Name", "field": "name", "align": "left", "sortable": True},
             {
-                "name": "product",
-                "label": "Product",
-                "field": "product",
+                "name": "part",
+                "label": "Part",
+                "field": "part",
                 "align": "left",
                 "sortable": True,
             },
@@ -108,7 +108,7 @@ def fixtures_page(filter: str = "All"):
             return {
                 "id": r.id,
                 "name": r.name,
-                "product": r.product,
+                "part": r.part,
                 "revision": r.revision,
                 "connections": r.connections if r.provenance != "observed_only" else "—",
                 "runs": r.runs,

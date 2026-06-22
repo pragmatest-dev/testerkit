@@ -24,14 +24,14 @@ from pydantic import BaseModel
 
 from litmus.models.catalog import InstrumentCatalogEntry
 from litmus.models.instrument_asset import InstrumentAssetFile
-from litmus.models.product import Product
+from litmus.models.part import Part
 from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.models.station import StationConfig
 from litmus.models.test_config import FixtureConfig, SidecarConfig
 
 FileType = Literal[
     "catalog",
-    "product",
+    "part",
     "station",
     "fixture",
     "instrument_asset",
@@ -42,7 +42,7 @@ FileType = Literal[
 
 SCHEMA_MAP: dict[FileType, type[BaseModel]] = {
     "catalog": InstrumentCatalogEntry,
-    "product": Product,
+    "part": Part,
     "station": StationConfig,
     "fixture": FixtureConfig,
     "instrument_asset": InstrumentAssetFile,
@@ -54,7 +54,7 @@ SCHEMA_MAP: dict[FileType, type[BaseModel]] = {
 
 GLOB_MAP: dict[FileType, list[str]] = {
     "project": ["litmus.yaml"],
-    "product": ["products/**/*.yaml"],
+    "part": ["parts/**/*.yaml"],
     "catalog": ["catalog/**/*.yaml"],
     "station": ["stations/**/*.yaml"],
     "fixture": ["fixtures/**/*.yaml"],

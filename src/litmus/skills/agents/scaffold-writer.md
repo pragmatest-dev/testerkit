@@ -34,7 +34,7 @@ Read ONLY the pages listed above (overview, connector, general spec pages). Read
 From the overview pages, extract:
 - Manufacturer name
 - Model number and variants
-- Product description (1-2 sentences)
+- Part description (1-2 sentences)
 
 From the connector/I/O pages, extract:
 - Every physical connector: name, type, terminal configuration, ground topology
@@ -84,8 +84,8 @@ Write the initial YAML to `{{YAML_PATH}}`:
 - Use MeasurementFunction enum values for naming guidance
 
 **Board-level attribute format:**
-- Scalar: `warmup_time: {value: 30, units: min}`
-- Range: `operating_temperature: {range: {min: 0, max: 55, units: degC}}`
+- Scalar: `warmup_time: {value: 30, unit: min}`
+- Range: `operating_temperature: {range: {min: 0, max: 55, unit: degC}}`
 
 ### Step 4: Validate the scaffold loads
 

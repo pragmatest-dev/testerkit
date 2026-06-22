@@ -1,19 +1,19 @@
 id: buck_3v3_bench
 name: Buck 3.3 V Bench Fixture
 description: Direct-wire bench fixture — PSU on VIN, DMM on VOUT.
-product_id: buck_3v3
+part_id: buck_3v3
 station_types: [bench]
 connections:
   vin_source:
     name: vin_source
-    dut_pin: TP_VIN
+    uut_pin: TP_VIN
     net: VIN_5V
     instrument: psu
     instrument_channel: CH1
     instrument_terminal: hi
   vout_measure:
     name: vout_measure
-    dut_pin: TP_VOUT
+    uut_pin: TP_VOUT
     net: VOUT_3V3
     instrument: dmm
     instrument_channel: '1'

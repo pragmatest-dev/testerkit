@@ -30,6 +30,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from litmus.data.models import CollectedItem
 from litmus.models.instrument import InstrumentRecord
@@ -37,21 +38,25 @@ from litmus.models.project import ProfileConfig
 from litmus.models.test_config import FixtureConnection
 
 if TYPE_CHECKING:
-    from litmus.execution.logger import TestRunLogger
+    from litmus.execution.run_scope import RunScope
     from litmus.models.station import StationConfig
 
-# Step/vector — stack-like, push/pop with token. Used by logger.py + harness.py.
+# Step/vector — stack-like, push/pop with token. Used by run_scope.py + harness.py.
 _current_step_var: ContextVar[Any] = ContextVar("current_step", default=None)
 _current_vector_var: ContextVar[Any] = ContextVar("current_vector", default=None)
+# The active ``Context`` (harness.Context, not to be confused with PartContext).
+# Pushed by the harness around vector execution; consumed by ``observer.read`` to
+# stamp channel URIs onto the active vector's ``out_*`` columns (item 5).
+_current_context_var: ContextVar[Any] = ContextVar("current_context", default=None)
 
-# Active TestRunLogger — session singleton, set once per test by the runner.
-_current_logger_var: ContextVar[TestRunLogger | None] = ContextVar("_current_logger", default=None)
+# Active RunScope — session singleton, set once per test by the runner.
+_current_run_scope_var: ContextVar[RunScope | None] = ContextVar("_current_run_scope", default=None)
 
 _active_instruments_var: ContextVar[dict[str, Any]] = ContextVar("_active_instruments")
 _instrument_records_var: ContextVar[dict[str, InstrumentRecord]] = ContextVar("_instrument_records")
 _current_step_aliases_var: ContextVar[dict[str, str]] = ContextVar("_current_step_aliases")
 _current_step_config_var: ContextVar[dict[str, Any]] = ContextVar("_current_step_config")
-_active_product_context_var: ContextVar[Any] = ContextVar("_active_product_context")
+_active_part_context_var: ContextVar[Any] = ContextVar("_active_part_context")
 _active_station_config_var: ContextVar[Any] = ContextVar("_active_station_config")
 _test_node_aliases_var: ContextVar[dict[str, dict[str, str]]] = ContextVar("_test_node_aliases")
 _test_node_configs_var: ContextVar[dict[str, dict[str, Any]]] = ContextVar("_test_node_configs")
@@ -139,10 +144,10 @@ def get_current_step_config() -> dict[str, Any]:
         return {}
 
 
-def get_active_product_context() -> Any:
+def get_active_part_context() -> Any:
     """Return None if not set."""
     try:
-        return _active_product_context_var.get()
+        return _active_part_context_var.get()
     except LookupError:
         return None
 
@@ -188,14 +193,29 @@ def reset_current_vector(token: Token[Any]) -> None:
     _current_vector_var.reset(token)
 
 
-def get_current_logger() -> TestRunLogger | None:
-    """Return the active :class:`TestRunLogger`, or ``None`` if no run is in progress."""
-    return _current_logger_var.get()
+def get_current_context() -> Any:
+    """Return the active harness :class:`Context`, or ``None`` outside one."""
+    return _current_context_var.get()
 
 
-def set_current_logger(logger: TestRunLogger | None) -> None:
-    """Set the active :class:`TestRunLogger`. Returns ``None``."""
-    _current_logger_var.set(logger)
+def push_current_context(context: Any) -> Token[Any]:
+    """Set the active context; returns a token for :func:`reset_current_context`."""
+    return _current_context_var.set(context)
+
+
+def reset_current_context(token: Token[Any]) -> None:
+    """Restore the prior active context using a token from :func:`push_current_context`."""
+    _current_context_var.reset(token)
+
+
+def get_current_run_scope() -> RunScope | None:
+    """Return the active :class:`RunScope`, or ``None`` if no run is in progress."""
+    return _current_run_scope_var.get()
+
+
+def set_current_run_scope(run_scope: RunScope | None) -> None:
+    """Set the active :class:`RunScope`. Returns ``None``."""
+    _current_run_scope_var.set(run_scope)
 
 
 # --- Setters ---
@@ -221,9 +241,9 @@ def set_current_step_config(value: dict[str, Any]) -> None:
     _current_step_config_var.set(value)
 
 
-def set_active_product_context(value: Any) -> None:
+def set_active_part_context(value: Any) -> None:
     """Set value. Returns None."""
-    _active_product_context_var.set(value)
+    _active_part_context_var.set(value)
 
 
 def set_active_station_config(value: StationConfig | None) -> None:
@@ -250,8 +270,27 @@ def get_channel_store() -> Any:
 
 
 def set_channel_store(value: Any) -> None:
-    """Set value. Returns None."""
+    """Set value. Returns None.
+
+    Blanket set; used only by the session-end safety net (pytest_sessionfinish)
+    and benchmarks. Producers use :func:`push_channel_store` /
+    :func:`reset_channel_store` so a nested session restores the outer binding.
+    """
     _channel_store_var.set(value)
+
+
+def push_channel_store(value: Any) -> Token[Any]:
+    """Set the active ChannelStore; returns a token for :func:`reset_channel_store`.
+
+    Token discipline (not blanket ``set``) so a nested session's close restores
+    the outer session's store instead of clobbering it to ``None``.
+    """
+    return _channel_store_var.set(value)
+
+
+def reset_channel_store(token: Token[Any]) -> None:
+    """Restore the prior ChannelStore using a token from :func:`push_channel_store`."""
+    _channel_store_var.reset(token)
 
 
 def get_active_limits() -> dict[str, Any]:
@@ -421,7 +460,7 @@ def get_active_vector_params() -> dict[str, Any]:
     """Return the active test's vector params (parametrize + markers + sidecar).
 
     Returns throwaway empty; never stored. Populated by
-    ``_litmus_push_params`` at test start so ``TestRunLogger.measure``
+    ``_litmus_push_params`` at test start so ``RunScope.measure``
     can stamp ``TestVector.params`` without the harness wiring.
     """
     try:
@@ -490,8 +529,28 @@ def get_event_store() -> Any:
 
 
 def set_event_store(value: Any) -> None:
-    """Set the session EventStore. Returns None."""
+    """Set the session EventStore. Returns None.
+
+    Blanket set; used only by the session-end safety net (pytest_sessionfinish).
+    The session primitive uses :func:`push_event_store` / :func:`reset_event_store`
+    so a nested session restores the outer binding instead of clobbering it.
+    """
     _event_store_var.set(value)
+
+
+def push_event_store(value: Any) -> Token[Any]:
+    """Set the active EventStore; returns a token for :func:`reset_event_store`.
+
+    Token discipline (not blanket ``set``) so a nested session's close restores
+    the outer session's EventStore instead of clobbering it to ``None`` — the
+    fix for the cross-session contextvar clobber.
+    """
+    return _event_store_var.set(value)
+
+
+def reset_event_store(token: Token[Any]) -> None:
+    """Restore the prior EventStore using a token from :func:`push_event_store`."""
+    _event_store_var.reset(token)
 
 
 def get_collected_items() -> list[CollectedItem]:
@@ -525,7 +584,7 @@ def get_current_slot_id() -> str | None:
 
     In multi-slot worker children, set from the ``_LITMUS_SLOT_ID`` env
     var at session start. In single-process operator-targeted runs, set
-    from the ``--slot`` CLI flag. ``None`` for non-fixtured single-DUT
+    from the ``--slot`` CLI flag. ``None`` for non-fixtured single-UUT
     runs. Read by the plugin to stamp ``slot_id`` on run rows.
     """
     return _slot_id_var.get()
@@ -550,3 +609,91 @@ def get_active_slot_runner() -> Any:
 def set_active_slot_runner(value: Any) -> None:
     """Set the active slot runner. Returns None."""
     _active_slot_runner_var.set(value)
+
+
+# -----------------------------------------------------------------------------
+# Error message factory — consistent "no active X" RuntimeError text
+# -----------------------------------------------------------------------------
+
+
+def resolve_session_id(
+    explicit: UUID | str | None,
+    *,
+    context: Any = None,
+    harness: Any = None,
+    parent: Any = None,
+    fallback_to_active: bool = False,
+) -> UUID | str | None:
+    """Resolve a session_id from the active sources, in precedence order.
+
+    Single resolution rule used by every code path that needs to find
+    "the current session" without forcing the caller to thread it
+    explicitly. Order is fixed and documented here so additions stay
+    consistent:
+
+    1. ``explicit`` argument (if non-None — caller knows best)
+    2. ``context._session_id`` (a Context object already in scope)
+    3. ``harness._session_id`` (a TestHarness was passed in)
+    4. ``parent._session_id`` (a parent Context inherited from)
+    5. *(only when ``fallback_to_active=True``)*
+       ``get_current_context()._session_id`` (the active ContextVar
+       set by pytest's ``context`` fixture or ``connect()``)
+    6. ``None`` (no session available — caller decides whether that's
+       an error)
+
+    ``fallback_to_active`` is OFF by default so call sites that
+    construct a fresh Context with no parent do NOT silently inherit
+    the surrounding test's session_id. Callers that DO want the
+    inheritance (the ``litmus.files.write`` user-facing surface, for
+    example) opt in explicitly.
+
+    Callers that need an error on miss should use
+    :func:`no_active_resource_error` after this returns ``None``.
+    """
+    if explicit is not None:
+        return explicit
+    for source in (context, harness, parent):
+        if source is not None:
+            sid = getattr(source, "_session_id", None)
+            if sid is not None:
+                return sid
+    if fallback_to_active:
+        ctx = get_current_context()
+        if ctx is not None:
+            return getattr(ctx, "_session_id", None)
+    return None
+
+
+def no_active_resource_error(resource: str, *, explicit_arg: str = "") -> RuntimeError:
+    """Build a consistent ``RuntimeError`` for "no active X" code paths.
+
+    Used by the four sites that resolve a session-scoped resource
+    from a ContextVar and fail when nothing is wired:
+
+    - ``Context.observe(blob)`` when ``session_id is None``
+    - ``Context.stream()`` when no ``ChannelStore`` wired
+    - ``channels.write/stream`` when ``get_channel_store()`` returns None
+    - ``files.write/stream`` when no active session_id resolvable
+
+    Standardizing the message means operators recognize the pattern
+    (always "no active X. Wire one by ..." with the same three
+    remedies) and find the right fix faster.
+
+    Args:
+        resource: Human label for the missing resource — e.g.
+            ``"ChannelStore"``, ``"session_id"``, ``"Litmus context"``.
+        explicit_arg: Optional name of an explicit kwarg the caller
+            could pass to bypass the lookup (e.g. ``"session_id"``,
+            ``"channel_store"``). Empty string omits the third bullet.
+
+    Returns:
+        ``RuntimeError`` with a uniformly-formatted message ready to
+        ``raise`` from the call site.
+    """
+    bullets = [
+        "  - Run inside a pytest session (the ``context`` fixture wires it).",
+        "  - Open a connection: ``with connect(<station>) as station: ...``.",
+    ]
+    if explicit_arg:
+        bullets.append(f"  - Pass an explicit ``{explicit_arg}=`` argument.")
+    return RuntimeError(f"No active {resource}.\n" + "\n".join(bullets))

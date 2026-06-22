@@ -50,7 +50,7 @@ Defined in `src/litmus/mcp/server.py` via `@mcp.tool(name=...)`.
 | `litmus_discover` | Scan for connected VISA instruments | Returns the list of resources VISA can see on this host |
 | `litmus_match` | Find compatible instruments and stations | Two modes: requirements (catalog recommendation) and station (compatibility check) |
 | `litmus_run` | Execute a test file via pytest, return exit summary | [details below](#litmus_run) |
-| `litmus_open` | Get a browser URL for the operator UI | Allowed `type`: `product`, `station`, `run`, `fixture` |
+| `litmus_open` | Get a browser URL for the operator UI | Allowed `type`: `part`, `station`, `run`, `fixture` |
 | `litmus_schema` | Get the JSON Schema for a YAML type | For AI clients that want to validate before saving |
 | `litmus_events` | Query the event store | Filter by session / event type |
 | `litmus_sessions` | List sessions with metadata | Each session = one `connect()` lifetime or pytest run |
@@ -71,24 +71,24 @@ result = litmus_project(action="init", path="~/my-project")
 project = result["project_root"]
 
 # List entities of a type
-litmus_project(action="list", type="product", project=project)
+litmus_project(action="list", type="part", project=project)
 
 # Get one entity
-litmus_project(action="get", type="product", id="tps54302", project=project)
+litmus_project(action="get", type="part", id="tps54302", project=project)
 
 # Save an entity (validated against schema)
-litmus_project(action="save", type="product", id="tps54302",
+litmus_project(action="save", type="part", id="tps54302",
                content={...}, project=project)
 
 # Read a file or a template
-litmus_project(action="read", path="products/tps54302.yaml", project=project)
+litmus_project(action="read", path="parts/tps54302.yaml", project=project)
 litmus_project(action="read", path="template:test", project=project)
 ```
 
 **Entity types depend on the action** (`src/litmus/mcp/tools.py:224-240`):
 
-- `list` / `get` accept: `station`, `product`, `fixture`, `catalog`, `instrument_asset`, `run`
-- `save` accepts: `station`, `product`, `fixture`, `catalog`, `instrument_asset`, `test`
+- `list` / `get` accept: `station`, `part`, `fixture`, `catalog`, `instrument_asset`, `run`
+- `save` accepts: `station`, `part`, `fixture`, `catalog`, `instrument_asset`, `test`
 
 `test` is save-only; `run` is read-only. `project` is not a type — it's the path argument every other call passes.
 
@@ -153,19 +153,19 @@ result = litmus_project(action="init", path="~/my-hardware-tests")
 project = result["project_root"]
 ```
 
-Creates the project skeleton: `pyproject.toml`, `litmus.yaml`, `conftest.py`, and the directories `products/`, `stations/`, `fixtures/`, `instruments/`, `tests/`, `results/`, `reports/` (`bringup` tier only creates `tests/`, `results/`, `reports/`).
+Creates the project skeleton: `pyproject.toml`, `litmus.yaml`, `conftest.py`, and the directories `parts/`, `stations/`, `fixtures/`, `instruments/`, `tests/`, `results/`, `reports/` (`bringup` tier only creates `tests/`, `results/`, `reports/`).
 
 After this, **you** (the human) need to drop to a terminal and run `uv sync` to install dependencies. The AI assistant cannot do this for you — running shell commands requires explicit user action.
 
-### Step 1 — Create a product spec from the datasheet
+### Step 1 — Create a part spec from the datasheet
 
-A product spec declares the DUT's pins and its [characteristics](../../concepts/configuration/capabilities.md) (measurable properties + their spec bands). The spec is what `verify(name, value)` resolves limits against later.
+A part spec declares the UUT's pins and its [characteristics](../../concepts/configuration/capabilities.md) (measurable properties + their spec bands). The spec is what `verify(name, value)` resolves limits against later.
 
 Key concepts in datasheet vocabulary:
 
 | Litmus term | Datasheet vocabulary | What it captures |
 |---|---|---|
-| Characteristic | An Electrical Characteristic table row | A measurable DUT property — output voltage, quiescent current, etc. |
+| Characteristic | An Electrical Characteristic table row | A measurable UUT property — output voltage, quiescent current, etc. |
 | SpecBand | One condition row in the EC table | A nominal value + tolerance at a specific operating point |
 | `when:` clause | The "Conditions" column entry for that row | The operating point this band applies at (temperature, load, frequency) |
 | `accuracy:` | The `±tol` and `(min, typ, max)` columns | How tight the band is around the nominal |
@@ -173,7 +173,7 @@ Key concepts in datasheet vocabulary:
 Worked example for a TPS54302 buck converter:
 
 ```python
-litmus_project(action="save", type="product", id="tps54302", content={
+litmus_project(action="save", type="part", id="tps54302", content={
     "id": "tps54302",
     "name": "TPS54302 3A Synchronous Buck Converter",
     "part_number": "TPS54302DSGR",
@@ -187,7 +187,7 @@ litmus_project(action="save", type="product", id="tps54302", content={
         "output_voltage": {
             "function": "dc_voltage",
             "direction": "output",
-            "units": "V",
+            "unit": "V",
             "pin": "VOUT",
             "bands": [
                 {"when": {"temperature": 25, "load": 0.5},
@@ -201,7 +201,7 @@ litmus_project(action="save", type="product", id="tps54302", content={
         "quiescent_current": {
             "function": "dc_current",
             "direction": "input",
-            "units": "mA",
+            "unit": "mA",
             "pin": "VIN",
             "bands": [
                 {"when": {"temperature": 25, "load": 0},
@@ -212,7 +212,7 @@ litmus_project(action="save", type="product", id="tps54302", content={
 }, project=project)
 ```
 
-For the full product schema see [configuration reference → product](../../reference/configuration.md#product-specification). For the band-matching and `accuracy:` semantics see [capabilities → condition-dependent specs](../../concepts/configuration/capabilities.md#condition-dependent-specs-specband).
+For the full part schema see [configuration reference → part](../../reference/configuration.md#part-specification). For the band-matching and `accuracy:` semantics see [capabilities → condition-dependent specs](../../concepts/configuration/capabilities.md#condition-dependent-specs-specband).
 
 ### Step 2 — Set up the test station
 
@@ -222,8 +222,8 @@ The station YAML declares what instruments live on this bench and what `mock_con
 # Optionally, ask the matcher for compatible instruments first
 matches = litmus_match(
     requirements=[
-        {"function": "dc_voltage", "direction": "output", "range_max": 20, "units": "V"},
-        {"function": "dc_voltage", "direction": "input",  "range_max": 50, "units": "V"},
+        {"function": "dc_voltage", "direction": "output", "range_max": 20, "unit": "V"},
+        {"function": "dc_voltage", "direction": "input",  "range_max": 50, "unit": "V"},
     ],
     project=project,
 )
@@ -286,7 +286,7 @@ def test_output_voltage(context, psu, dmm, verify):
     psu.set_voltage(vin)
     psu.enable_output()
 
-    # verify() resolves the limit from the product spec at this vector
+    # verify() resolves the limit from the part spec at this vector
     # condition and raises LimitFailure if the value is out of band.
     verify("output_voltage", dmm.measure_dc_voltage())
 
@@ -302,7 +302,7 @@ def test_quiescent_current(context, psu, dmm, verify):
 
 The `context`, `psu`, `dmm`, `verify` test arguments are all [pytest fixtures the plugin synthesizes](../../reference/pytest/fixtures.md):
 
-- `verify(name, value)` — resolve limit from product/sidecar, record measurement row, raise on FAIL
+- `verify(name, value)` — resolve limit from part/sidecar, record measurement row, raise on FAIL
 - `context.get_param(name, default)` — read the active vector's parameter value
 - `psu` / `dmm` — [per-role auto-fixtures](../../reference/pytest/fixtures.md#per-role-auto-fixtures) synthesized from the station YAML
 
@@ -318,7 +318,7 @@ tests:
     characteristics: [output_voltage]
     limits:
       output_voltage:
-        characteristic: output_voltage  # auto-derive from product SpecBand at vector conditions
+        characteristic: output_voltage  # auto-derive from part SpecBand at vector conditions
         tolerance_pct: 10               # widen to manufacturing margin
         comparator: GELE                # low <= value <= high
 
@@ -337,7 +337,7 @@ tests:
 
 For each vector (e.g. `temperature=25, load=0.5`):
 
-1. The matcher finds the product `SpecBand` whose `when:` clause matches the vector.
+1. The matcher finds the part `SpecBand` whose `when:` clause matches the vector.
 2. The resolver derives a nominal + accuracy from that band and applies the sidecar's `tolerance_pct` to widen it into a production limit.
 3. The test body runs, `dmm.measure_dc_voltage()` returns a value, `verify` checks it against the resolved limit, and the result lands as a parquet row with `outcome=PASSED` or `FAILED`.
 
@@ -379,15 +379,15 @@ A sidecar `limits:` entry (or the kwargs to `@pytest.mark.litmus_limits`) is a `
 
 | Shape | Example | When |
 |---|---|---|
-| Direct | `{low: 3.2, high: 3.4, units: V}` | Static numeric limits |
-| Nominal + tolerance | `{nominal: 3.3, tolerance_pct: 5, units: V}` | Symmetric tolerance around a nominal |
-| Characteristic delegation | `{characteristic: "output_voltage", tolerance_pct: 10}` | Pull nominal + accuracy from the product spec (resolves per-vector via SpecBand match). `characteristic:` is the **auto-derive trigger**; `spec_ref:` is a free-form annotation only — it does NOT look anything up. |
+| Direct | `{low: 3.2, high: 3.4, unit: V}` | Static numeric limits |
+| Nominal + tolerance | `{nominal: 3.3, tolerance_pct: 5, unit: V}` | Symmetric tolerance around a nominal |
+| Characteristic delegation | `{characteristic: "output_voltage", tolerance_pct: 10}` | Pull nominal + accuracy from the part spec (resolves per-vector via SpecBand match). `characteristic:` is the **auto-derive trigger**; `spec_ref:` is a free-form annotation only — it does NOT look anything up. |
 | Bands | `{bands: [{when: {temperature: 25}, low: 3.2, high: 3.4}, ...]}` | Condition-dependent inline bands evaluated against the vector |
 | Comparator override | `{nominal: 5.0, comparator: EQ}` | Pick an ATML comparator (`EQ`/`NE`/`LT`/`LE`/`GT`/`GE`/`GELE`/`GELT`/`GTLE`/`GTLT`) |
 
-Most common for AI-driven tests: **characteristic delegation** (when there's a product spec) and **direct** (when there isn't). See [limits how-to](../execution/limits.md) for the full resolution chain.
+Most common for AI-driven tests: **characteristic delegation** (when there's a part spec) and **direct** (when there isn't). See [limits how-to](../execution/limits.md) for the full resolution chain.
 
-The plain `Limit` model (also in `test_config.py`) is what the resolver hands the runtime — it carries only the resolved `low / high / nominal / units / characteristic_id / spec_ref / comparator`. `tolerance_pct`, `bands:`, and `characteristic:` live on `MeasurementLimitConfig` (the sidecar/marker shape).
+The plain `Limit` model (also in `test_config.py`) is what the resolver hands the runtime — it carries only the resolved `low / high / nominal / unit / characteristic_id / spec_ref / comparator`. `tolerance_pct`, `bands:`, and `characteristic:` live on `MeasurementLimitConfig` (the sidecar/marker shape).
 
 ## Test code pattern
 
@@ -434,14 +434,14 @@ def test_output():
 
 ## Checklist before generating tests
 
-- [ ] Product spec exists with characteristics whose `bands:` cover every operating point you want to sweep.
+- [ ] Part spec exists with characteristics whose `bands:` cover every operating point you want to sweep.
 - [ ] Each band has `when:`, `value`, and `accuracy:` populated.
 - [ ] Station configured with real or mock instruments. `mock_config:` keys are method names, not signal names.
 - [ ] Pulled the current test template: `litmus_project(action="read", path="template:test")`.
-- [ ] Test functions are plain `def test_*(...)` taking `context`, `verify`, `logger`, and the per-role instrument fixtures as needed.
+- [ ] Test functions are plain `def test_*(...)` taking `context`, `verify`, `measure`, and the per-role instrument fixtures as needed.
 - [ ] Test reads vector parameters via `context.get_param("key", default)` — no hardcoded stimulus values.
-- [ ] Test records measurements via `verify(name, value)` (raises on FAIL) or `logger.measure(name, value)` (records without judgment).
-- [ ] Sidecar limits use `characteristic:` to delegate to the product spec (not `spec_ref:`, which is annotation-only).
+- [ ] Test records measurements via `verify(name, value)` (raises on FAIL) or `measure(name, value)` (records without judgment).
+- [ ] Sidecar limits use `characteristic:` to delegate to the part spec (not `spec_ref:`, which is annotation-only).
 - [ ] `tolerance_pct` applied where the spec tolerance needs widening for production margin.
 - [ ] Sidecar YAML written to disk as a real `.yaml` file alongside `test_<module>.py` — not via `litmus_project(action="save", type="test")` (which forces `.py`).
 
@@ -449,11 +449,11 @@ def test_output():
 
 - [api.md → MCP tools](../../reference/runtime/api.md#tools) — full per-tool reference: parameters, return shapes, every keyword
 - [cli.md → litmus setup](../../reference/cli.md#cli-setup) — `litmus setup show` and the `--print-only` flag
-- [litmus-fixtures.md → context, verify, logger](../../reference/pytest/fixtures.md) — every pytest fixture this page references
+- [litmus-fixtures.md → context, verify, measure](../../reference/pytest/fixtures.md) — every pytest fixture this page references
 - [outcomes](../../concepts/execution/outcomes.md) — what each `run_outcome` / `step_outcome` / `measurement_outcome` value means
 - [capabilities](../../concepts/configuration/capabilities.md) — characteristics, SpecBand, the matching model
-- [limits](../execution/limits.md) — the full limit-resolution chain (sidecar / marker / product spec / inline)
+- [limits](../execution/limits.md) — the full limit-resolution chain (sidecar / marker / part spec / inline)
 - [vector-expansion](../execution/vector-expansion.md) — `sweeps:` shape (cross-product vs zipped), range expanders
-- [spec-driven-testing](../execution/spec-driven-testing.md) — `litmus_characteristics` + product-spec workflow
+- [spec-driven-testing](../execution/spec-driven-testing.md) — `litmus_characteristics` + part-spec workflow
 - [mock-mode](../configuration/mock-mode.md) — `--mock-instruments`, `mock_config:`, the substitution pipeline
 - [writing-tests](../execution/writing-tests.md) — pytest-test authoring patterns (for tests written by hand, not by an AI agent)

@@ -7,9 +7,9 @@ after the fact, without needing a live test session.
 Usage::
 
     from litmus.data.subscribers.replay import replay_to_subscriber
-    from litmus.data.exporters.atml import AtmlSubscriber
+    from litmus.data.exporters.json_exporter import JsonSubscriber
 
-    sub = AtmlSubscriber(output_dir=Path("out"))
+    sub = JsonSubscriber(output_dir=Path("out"))
     replay_to_subscriber(sub, event_dicts)
 """
 

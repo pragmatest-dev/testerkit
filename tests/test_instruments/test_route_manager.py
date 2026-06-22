@@ -41,7 +41,7 @@ def _make_connections(**overrides):
             name="vout_measure",
             instrument="dmm",
             instrument_channel="1",
-            dut_pin="VOUT",
+            uut_pin="VOUT",
             route=SwitchRoute(switch="matrix", channels=["r0c0"]),
         ),
     }
@@ -71,7 +71,7 @@ class TestHasRoutes:
 
     def test_has_routes_false(self):
         connections = {
-            "vout": FixtureConnection(name="vout", instrument="dmm", dut_pin="VOUT"),
+            "vout": FixtureConnection(name="vout", instrument="dmm", uut_pin="VOUT"),
         }
         rm = _make_manager(connections=connections)
         assert rm.has_routes is False
@@ -116,7 +116,7 @@ class TestActivateDeactivate:
                 name="iout_measure",
                 instrument="dmm",
                 instrument_channel="2",
-                dut_pin="IOUT",
+                uut_pin="IOUT",
                 route=SwitchRoute(switch="matrix", channels=["r1c0"]),
             ),
         )
@@ -139,7 +139,7 @@ class TestActivateDeactivate:
 
     def test_activate_connection_without_route_raises(self):
         connections = {
-            "direct": FixtureConnection(name="direct", instrument="dmm", dut_pin="VIN"),
+            "direct": FixtureConnection(name="direct", instrument="dmm", uut_pin="VIN"),
         }
         rm = _make_manager(connections=connections)
         with pytest.raises(KeyError, match="no switch route"):
@@ -166,14 +166,14 @@ class TestConflictDetection:
                 name="conn_a",
                 instrument="dmm",
                 instrument_channel="1",
-                dut_pin="A",
+                uut_pin="A",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"]),
             ),
             "conn_b": FixtureConnection(
                 name="conn_b",
                 instrument="psu",
                 instrument_channel="1",
-                dut_pin="B",
+                uut_pin="B",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"]),
             ),
         }
@@ -196,14 +196,14 @@ class TestConflictDetection:
                 name="conn_a",
                 instrument="dmm",
                 instrument_channel="1",
-                dut_pin="A",
+                uut_pin="A",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"]),
             ),
             "conn_b": FixtureConnection(
                 name="conn_b",
                 instrument="dmm",
                 instrument_channel="1",
-                dut_pin="B",
+                uut_pin="B",
                 route=SwitchRoute(switch="matrix", channels=["r1c0"]),
             ),
         }
@@ -222,14 +222,14 @@ class TestConflictDetection:
                 name="conn_a",
                 instrument="dmm",
                 instrument_channel="1",
-                dut_pin="A",
+                uut_pin="A",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"]),
             ),
             "conn_b": FixtureConnection(
                 name="conn_b",
                 instrument="dmm",
                 instrument_channel="2",
-                dut_pin="B",
+                uut_pin="B",
                 route=SwitchRoute(switch="matrix", channels=["r1c0"]),
             ),
         }
@@ -283,7 +283,7 @@ class TestSettling:
             "vout": FixtureConnection(
                 name="vout",
                 instrument="dmm",
-                dut_pin="VOUT",
+                uut_pin="VOUT",
                 route=SwitchRoute(switch="matrix", channels=["r0c0"], settling_ms=50),
             ),
         }

@@ -14,7 +14,7 @@ import pytest
 from litmus.data.backends._row_helpers import MeasurementRow, build_row
 from litmus.data.exporters.csv_exporter import CsvSubscriber
 from litmus.data.exporters.json_exporter import JsonSubscriber
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 from litmus.data.subscribers._base import get_subscriber_class, list_subscribers
 from tests.test_data.conftest import _replay_events
 
@@ -26,7 +26,7 @@ def sample_test_run() -> TestRun:
         id=uuid4(),
         started_at=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 3, 4, 10, 5, 0, tzinfo=UTC),
-        dut=DUT(serial="DUT001", part_number="PN-100", revision="A"),
+        uut=UUT(serial="UUT001", part_number="PN-100", revision="A"),
         station_id="station_001",
         test_phase="development",
         outcome=Outcome.PASSED,
@@ -52,7 +52,7 @@ def sample_test_run() -> TestRun:
                             Measurement(
                                 name="vout",
                                 value=3.3,
-                                units="V",
+                                unit="V",
                                 limit_low=3.0,
                                 limit_high=3.6,
                                 outcome=Outcome.PASSED,
@@ -60,7 +60,7 @@ def sample_test_run() -> TestRun:
                             Measurement(
                                 name="iout",
                                 value=0.5,
-                                units="A",
+                                unit="A",
                                 limit_low=0.0,
                                 limit_high=1.0,
                                 outcome=Outcome.PASSED,
@@ -139,11 +139,11 @@ class TestCsvSubscriber:
         assert len(rows) == 2  # Two measurements
         assert rows[0]["measurement_name"] == "vout"
         assert rows[0]["value"] == "3.3"
-        assert rows[0]["units"] == "V"
+        assert rows[0]["unit"] == "V"
         assert rows[1]["measurement_name"] == "iout"
 
     def test_includes_dynamic_columns(self, sample_test_run: TestRun, tmp_path: Path):
-        """CSV includes in_* columns from event inputs."""
+        """CSV includes input_* columns from event inputs."""
         sub = CsvSubscriber(tmp_path)
         sub.open()
         _replay_events(sample_test_run, sub)
@@ -155,8 +155,8 @@ class TestCsvSubscriber:
             reader = csv.DictReader(f)
             rows = list(reader)
 
-        assert "in_vin" in rows[0]
-        assert rows[0]["in_vin"] == "5.0"
+        assert "input_vin" in rows[0]
+        assert rows[0]["input_vin"] == "5.0"
 
     def test_includes_custom_metadata(self, sample_test_run: TestRun, tmp_path: Path):
         """CSV includes custom_* columns from RunStarted."""
@@ -195,9 +195,83 @@ class TestJsonSubscriber:
 
         data = json.loads(json_file.read_text())
         assert data["station_id"] == "station_001"
-        assert data["dut"]["serial"] == "DUT001"
+        assert data["uut"]["serial"] == "UUT001"
         assert len(data["steps"]) == 1
         assert len(data["steps"][0]["vectors"][0]["measurements"]) == 2
+
+
+def _reject_constant(token: str) -> float:
+    # json.loads is lenient and parses NaN/Infinity (invalid JSON) back to
+    # floats; firing here on those tokens turns json.loads into a strict
+    # validity check.
+    raise ValueError(f"non-JSON constant in export output: {token}")
+
+
+class TestExporterRobustness:
+    """Regression: exporters survive NaN values and non-primitive metadata.
+
+    Previously a NaN measurement emitted the bare ``NaN`` token (invalid JSON)
+    and a ``datetime``/``UUID`` in ``custom_metadata`` raised ``TypeError``
+    mid-export (JSON) or on attribute write (HDF5).
+    """
+
+    def _edge_run(self) -> TestRun:
+        ts = datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC)
+        return TestRun(
+            id=uuid4(),
+            started_at=ts,
+            ended_at=ts,
+            uut=UUT(serial="UUT001"),
+            station_id="s1",
+            test_phase="development",
+            outcome=Outcome.ERRORED,
+            custom_metadata={"captured_at": ts, "trace_id": uuid4()},
+            steps=[
+                TestStep(
+                    name="t",
+                    started_at=ts,
+                    ended_at=ts,
+                    outcome=Outcome.ERRORED,
+                    vectors=[
+                        TestVector(
+                            index=0,
+                            retry=0,
+                            params={},
+                            outcome=Outcome.ERRORED,
+                            measurements=[
+                                Measurement(
+                                    name="v",
+                                    value=float("nan"),
+                                    unit="V",
+                                    outcome=Outcome.ERRORED,
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+    def test_json_nan_and_nonprimitive_metadata(self, tmp_path: Path):
+        sub = JsonSubscriber(tmp_path)
+        sub.open()
+        _replay_events(self._edge_run(), sub)
+        sub.close()
+        text = next(tmp_path.glob("*.json")).read_text()
+        data = json.loads(text, parse_constant=_reject_constant)  # raises on NaN/Inf
+        meas = data["steps"][0]["vectors"][0]["measurements"][0]
+        assert meas["value"] is None  # NaN -> null
+        assert "custom_metadata" in data  # datetime/UUID didn't crash the dump
+
+    def test_hdf5_nonprimitive_metadata_does_not_crash(self, tmp_path: Path):
+        pytest.importorskip("h5py")
+        from litmus.data.exporters.hdf5 import Hdf5Subscriber
+
+        sub = Hdf5Subscriber(tmp_path)
+        sub.open()
+        _replay_events(self._edge_run(), sub)
+        sub.close()
+        assert list(tmp_path.iterdir())  # a file was written => no crash
 
 
 class TestPluginWarnings:
@@ -267,12 +341,12 @@ class TestMeasurementRow:
 
         assert isinstance(row, MeasurementRow)
         assert row.run_id == str(sample_test_run.id)
-        assert row.dut_serial == "DUT001"
+        assert row.uut_serial == "UUT001"
         assert row.station_id == "station_001"
         assert row.step_name == "test_voltage"
         assert row.measurement_name == "vout"
         assert row.measurement_value == 3.3
-        assert row.measurement_units == "V"
+        assert row.measurement_unit == "V"
         assert row.measurement_outcome == "passed"
 
     def test_to_flat_dict(self, sample_test_run: TestRun):
@@ -294,19 +368,21 @@ class TestMeasurementRow:
         assert isinstance(flat, dict)
         assert flat["run_id"] == str(sample_test_run.id)
         assert flat["measurement_name"] == "vout"
-        # Vector had params={"vin": 5.0} → should produce in_vin
-        assert flat["in_vin"] == 5.0
+        # Vector had params={"vin": 5.0} → encoded into the nested inputs lanes.
+        from litmus.data.backends._row_helpers import decode_lane_structs
+
+        assert decode_lane_structs(flat["inputs"])["vin"] == 5.0
 
     def test_iter_rows(self, sample_test_run: TestRun):
-        """``iter_rows(test_run)`` yields a MeasurementRow per measurement."""
+        """``iter_rows(test_run)`` yields a flat row dict per measurement."""
         from litmus.data.backends._row_helpers import iter_rows
 
         rows = list(iter_rows(sample_test_run))
         assert len(rows) == 2
-        assert all(isinstance(r, MeasurementRow) for r in rows)
-        assert rows[0].measurement_name == "vout"
-        assert rows[1].measurement_name == "iout"
-        assert rows[0].dut_serial == "DUT001"
+        assert all(isinstance(r, dict) for r in rows)
+        assert rows[0]["measurement_name"] == "vout"
+        assert rows[1]["measurement_name"] == "iout"
+        assert rows[0]["uut_serial"] == "UUT001"
 
 
 class TestEventSubscriberLifecycle:
@@ -413,7 +489,7 @@ class TestSaveRefToDir:
         ref_dir = tmp_path / "_ref"
         ref_dir.mkdir()
 
-        wfm = Waveform(t0=0.0, dt=0.001, Y=[1.0, 2.0, 3.0])
+        wfm = Waveform(t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC), dt=0.001, Y=[1.0, 2.0, 3.0])
         ref = save_ref_to_dir(ref_dir, "abc", "wfm", wfm)
         # npz if numpy available, json otherwise — either is valid
         assert ref.startswith("file://_ref/abc_wfm.")
@@ -425,20 +501,20 @@ class TestSaveRefToDir:
         ref_dir = tmp_path / "_ref"
         ref_dir.mkdir()
 
-        model = DUT(serial="DUT001", part_number="PN-100")
-        ref = save_ref_to_dir(ref_dir, "abc", "dut", model)
-        assert ref == "file://_ref/abc_dut.json"
-        content = json.loads((ref_dir / "abc_dut.json").read_text())
-        assert content["serial"] == "DUT001"
+        model = UUT(serial="UUT001", part_number="PN-100")
+        ref = save_ref_to_dir(ref_dir, "abc", "uut", model)
+        assert ref == "file://_ref/abc_uut.json"
+        content = json.loads((ref_dir / "abc_uut.json").read_text())
+        assert content["serial"] == "UUT001"
 
 
 class TestInstrumentArrayKeys:
     def test_keys_match_build_output(self):
         """INSTRUMENT_ARRAY_KEYS stays in sync with build_instrument_arrays()."""
-        from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS, TestRunLogger
+        from litmus.execution.run_scope import INSTRUMENT_ARRAY_KEYS, RunScope
 
-        logger = TestRunLogger(
-            dut_serial="DUT001",
+        logger = RunScope(
+            uut_serial="UUT001",
             station_id="station_001",
         )
         arrays = logger.build_instrument_arrays()
@@ -458,7 +534,7 @@ class TestReconstructTestRun:
 
         # Compare key fields
         assert rebuilt.id == sample_test_run.id
-        assert rebuilt.dut.serial == sample_test_run.dut.serial
+        assert rebuilt.uut.serial == sample_test_run.uut.serial
         assert rebuilt.station_id == sample_test_run.station_id
         assert rebuilt.outcome == sample_test_run.outcome
         assert len(rebuilt.steps) == len(sample_test_run.steps)
@@ -475,7 +551,7 @@ class TestReconstructTestRun:
         for orig_m, rebuilt_m in zip(orig_vec.measurements, rebuilt_vec.measurements):
             assert rebuilt_m.name == orig_m.name
             assert rebuilt_m.value == orig_m.value
-            assert rebuilt_m.units == orig_m.units
+            assert rebuilt_m.unit == orig_m.unit
             assert rebuilt_m.outcome == orig_m.outcome
             assert rebuilt_m.limit_low == orig_m.limit_low
             assert rebuilt_m.limit_high == orig_m.limit_high
@@ -529,10 +605,10 @@ class TestHarnessLoggerIntegration:
         from litmus.data.event_log import EventLog, EventSubscriber
         from litmus.data.events import MeasurementRecorded
         from litmus.execution.harness import TestHarness
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.run_scope import RunScope
 
-        logger = TestRunLogger(
-            dut_serial="DUT001",
+        logger = RunScope(
+            uut_serial="UUT001",
             station_id="station_001",
         )
 
@@ -571,10 +647,10 @@ class TestHarnessLoggerIntegration:
     def test_harness_measure_no_double_append_to_vector(self):
         """Measurement should appear exactly once in the vector."""
         from litmus.execution.harness import TestHarness
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.run_scope import RunScope
 
-        logger = TestRunLogger(
-            dut_serial="DUT001",
+        logger = RunScope(
+            uut_serial="UUT001",
             station_id="station_001",
         )
         harness = TestHarness(logger=logger, step_name="test_voltage")

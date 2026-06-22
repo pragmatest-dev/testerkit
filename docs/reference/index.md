@@ -13,7 +13,7 @@ The foundational pages — pytest mechanics every Litmus test uses, plus the inv
 
 The YAML schemas every entity validates against, plus the catalog (its own thing because the catalog is shared across projects).
 
-- [Configuration](configuration.md) — `litmus.yaml`, station YAML, fixture YAML, product YAML, sidecar YAML, profile YAML — all schemas the fixtures and markers read from (generated from the Pydantic models).
+- [Configuration](configuration.md) — `litmus.yaml`, station YAML, fixture YAML, part YAML, sidecar YAML, profile YAML — all schemas the fixtures and markers read from (generated from the Pydantic models).
 - [Catalog → schema](catalog/schema.md) — every field in a `catalog/<vendor>/<model>.yaml` entry, the rules, the "what goes WHERE" decision tree.
 - [Catalog → cookbook](catalog/cookbook.md) — worked recipes for the recurring datasheet shapes (accuracy bands, dual-unit values, shared controls, conditional attributes, etc.).
 
@@ -31,7 +31,7 @@ The shapes the system writes. If you're reading parquet, the event log, or any e
 - [Models](data/models.md) — every public Pydantic model + ERD of how they reference each other (generated).
 - [Event types](data/event-types.md) — every typed event payload the runtime emits (generated).
 - [Parquet schema](data/parquet-schema.md) — every column in the run parquet, the `record_type` discriminator, how retries land.
-- [Output formats](data/outputs.md) — what `litmus show -f <fmt>` and `litmus export` produce for HTML / PDF / JSON / CSV / STDF / HDF5 / TDMS / MDF4 / ATML.
+- [Output formats](data/outputs.md) — what `litmus show -f <fmt>` and `litmus export` produce for HTML / PDF / JSON / CSV / STDF / HDF5 / TDMS / MDF4.
 - [Query API](data/query-api.md) — `RunsQuery`, `StepsQuery`, `MeasurementsQuery`. The public read path the UI and HTTP API both use (generated).
 
 ## Runtime
@@ -56,9 +56,10 @@ Per-screen reference for the browser surface. For orientation, see the [Tour of 
 - [Events](operator-ui/events.md) — `/events`
 - [Channels — list](operator-ui/channels/list.md) — `/channels`
 - [Channels — detail](operator-ui/channels/detail.md) — `/channels/{channel}`
+- [Files](operator-ui/files.md) — `/files`
 - [System Designer](operator-ui/designer.md) — `/designer`
 - [Stations](operator-ui/stations.md) — `/stations`
-- [Products](operator-ui/products.md) — `/products`
+- [Parts](operator-ui/parts.md) — `/parts`
 - [Fixtures](operator-ui/fixtures.md) — `/fixtures`
 - [Instruments](operator-ui/instruments.md) — `/instruments`
 - [Tests](operator-ui/tests.md) — `/tests`

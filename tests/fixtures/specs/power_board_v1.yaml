@@ -8,7 +8,7 @@ characteristics:
   rail_5v_input:
     function: dc_voltage
     direction: input
-    units: V
+    unit: V
     net: VIN
     datasheet_ref: DS-001 Section 7.2, Table 3
     bands:
@@ -33,7 +33,7 @@ characteristics:
   rail_3v3_output:
     function: dc_voltage
     direction: output
-    units: V
+    unit: V
     net: VOUT_3V3
     datasheet_ref: DS-001 Section 7.3
     bands:
@@ -68,7 +68,7 @@ characteristics:
   quiescent_current:
     function: dc_current
     direction: input
-    units: A
+    unit: A
     net: IIN
     datasheet_ref: DS-001 Section 7.4
     bands:
@@ -83,7 +83,7 @@ characteristics:
   efficiency:
     function: dc_power
     direction: output
-    units: '%'
+    unit: '%'
     pins:
     - VIN
     - VOUT

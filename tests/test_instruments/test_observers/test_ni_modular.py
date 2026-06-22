@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
 from litmus.instruments.observers.ni_modular import NiModularObserver
 
 from .conftest import make_observer
@@ -13,7 +13,7 @@ class TestNiModularRead:
         obs, log = make_observer(NiModularObserver, role="scope")
         obs.on_call("measure", (), {}, 3.3)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].channel_id == "scope.measure"
 
     def test_fetch_waveform(self):

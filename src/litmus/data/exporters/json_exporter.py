@@ -7,9 +7,12 @@ JSON file on close.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from litmus.data.event_log import EventSubscriber
 from litmus.data.events import (
@@ -20,6 +23,30 @@ from litmus.data.events import (
     StepStarted,
 )
 from litmus.data.subscribers._output_file import OutputFile
+
+
+def _jsonable(obj: Any) -> Any:
+    """Coerce a value tree to valid-JSON-safe form before ``json.dumps``.
+
+    Non-finite floats (``NaN``/``Inf`` are not valid JSON) become ``null``;
+    ``datetime`` / ``UUID`` / ``bytes`` / ``set`` — which can appear in the
+    free-form ``custom_metadata`` / ``inputs`` / ``outputs`` dicts — become
+    strings/lists. Without this a NaN measurement emits invalid JSON and a
+    datetime in custom metadata raises ``TypeError`` mid-export.
+    """
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return [_jsonable(v) for v in obj]
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, UUID):
+        return str(obj)
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", "replace")
+    return obj
 
 
 class JsonSubscriber(EventSubscriber):
@@ -115,8 +142,8 @@ class JsonSubscriber(EventSubscriber):
                         "name": m.measurement_name,
                         "value": m.value,
                     }
-                    if m.units:
-                        md["units"] = m.units
+                    if m.unit:
+                        md["unit"] = m.unit
                     if m.outcome:
                         md["outcome"] = m.outcome
                     if m.limit_low is not None:
@@ -129,8 +156,8 @@ class JsonSubscriber(EventSubscriber):
                         md["limit_comparator"] = m.limit_comparator
                     if m.characteristic_id:
                         md["characteristic_id"] = m.characteristic_id
-                    if m.dut_pin:
-                        md["dut_pin"] = m.dut_pin
+                    if m.uut_pin:
+                        md["uut_pin"] = m.uut_pin
                     if m.instrument_name:
                         md["instrument_name"] = m.instrument_name
                     measurements.append(md)
@@ -173,11 +200,11 @@ class JsonSubscriber(EventSubscriber):
         data: dict[str, Any] = {
             "run_id": str(s.run_id) if s.run_id else None,
             "station_id": s.station_id,
-            "dut": {
-                "serial": s.dut_serial,
-                "part_number": s.dut_part_number,
-                "revision": s.dut_revision,
-                "lot_number": s.dut_lot_number,
+            "uut": {
+                "serial": s.uut_serial,
+                "part_number": s.uut_part_number,
+                "revision": s.uut_revision,
+                "lot_number": s.uut_lot_number,
             },
             "project_name": s.project_name,
             "test_phase": s.test_phase,
@@ -191,12 +218,12 @@ class JsonSubscriber(EventSubscriber):
             data["operator_name"] = s.operator_name
         if s.station_name:
             data["station_name"] = s.station_name
-        if s.product_id:
-            data["product_id"] = s.product_id
+        if s.part_id:
+            data["part_id"] = s.part_id
         if s.custom_metadata:
             data["custom_metadata"] = dict(s.custom_metadata)
 
-        out_file.write_text(json.dumps(data, indent=2) + "\n")
+        out_file.write_text(json.dumps(_jsonable(data), indent=2) + "\n")
 
         if self._on_output:
             self._on_output(OutputFile(path=out_file, format="json", run_id=run_id))

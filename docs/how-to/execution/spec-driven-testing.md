@@ -1,21 +1,21 @@
 # Spec-Driven Testing
 
-Derive test limits and [traceability](traceability.md) from the [product specification](../../concepts/configuration/products.md). The `verify` fixture resolves the limit, DUT pin, and spec reference automatically from the active `product_context` (a [`ProductContext`](../../concepts/configuration/products.md) — the loaded-product container exposed to tests) — you just call `verify(name, value)`.
+Derive test limits and [traceability](traceability.md) from the [part specification](../../concepts/configuration/parts.md). The `verify` fixture resolves the limit, UUT pin, and spec reference automatically from the active part (loaded from `parts/*.yaml`; the `part` fixture exposes that [`Part`](../../concepts/configuration/parts.md) definition) — you just call `verify(name, value)`.
 
-> **Prerequisites.** A `products/<id>.yaml` file with at least one characteristic (see [tutorial step 6](../../tutorial/06-specifications.md)). The product context must be active — pass `--product=<id>` / `--product=<path>`, or `--dut-part-number=<pn>` to look it up by part number, or rely on single-file autodiscovery when there's exactly one product YAML in `products/`. Limits also flow from sidecar YAML / markers / profiles — this page focuses on the product-spec path.
+> **Prerequisites.** A `parts/<id>.yaml` file with at least one characteristic (see [tutorial step 6](../../tutorial/06-specifications.md)). The part context must be active — pass `--part=<id>` / `--part=<path>`, or `--uut-part-number=<pn>` to look it up by part number, or rely on single-file autodiscovery when there's exactly one part YAML in `parts/`. Limits also flow from sidecar YAML / markers / profiles — this page focuses on the part-spec path.
 
 ## The workflow
 
-1. Define the product YAML with typed characteristics, pins, and operating conditions
-2. Run with `--product=<id>` (looks up `products/<id>.yaml`) or `--product=<path>` (explicit path)
+1. Define the part YAML with typed characteristics, pins, and operating conditions
+2. Run with `--part=<id>` (looks up `parts/<id>.yaml`) or `--part=<path>` (explicit path)
 3. Call `verify(name, value)` from the test body — everything else flows through
 
 ## Minimal example — unconditional characteristic
 
-The simplest case: one band, no `when:` clauses. `verify("name", value)` picks up the limit straight from the product spec.
+The simplest case: one band, no `when:` clauses. `verify("name", value)` picks up the limit straight from the part spec.
 
 ```yaml
-# products/power_board.yaml
+# parts/power_board.yaml
 id: power_board
 name: "5V to 3.3V Converter"
 pins:
@@ -26,7 +26,7 @@ characteristics:
   output_voltage:
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VOUT]
     datasheet_ref: "Section 7.2"
     bands:
@@ -42,23 +42,23 @@ def test_output_voltage(dmm, verify):
 
 `verify` resolves the limit (3.3 V ± 5 % → 3.135..3.465), records the row, and raises `LimitFailure` on fail. The recorded fields:
 
-- `dut_pin = "J1.3"` — copied from the pin's `name:` field (the human designator), not from the dict key (`VOUT`) you reference it by.
+- `uut_pin = "J1.3"` — copied from the pin's `name:` field (the human designator), not from the dict key (`VOUT`) you reference it by.
 - `spec_ref = "Section 7.2"` — built from the characteristic's `datasheet_ref:`. When `datasheet_ref:` is absent, the literal string `"spec"` is used instead.
 - `characteristic_id = "output_voltage"` — the dict key under `characteristics:`.
 
 ## Condition-indexed example — when accuracy varies with operating point
 
-When a characteristic's bands have `when:` clauses (different accuracy bands per temperature / load / etc.), `verify("name", value)` on its own won't pick the right band. The product-spec-only path inside `verify` doesn't forward your active sweep params to the band matcher, so condition-indexed lookups raise `ValueError` ("No spec band matches: …").
+When a characteristic's bands have `when:` clauses (different accuracy bands per temperature / load / etc.), `verify("name", value)` on its own won't pick the right band. The part-spec-only path inside `verify` doesn't forward your active sweep params to the band matcher, so condition-indexed lookups raise `ValueError` ("No spec band matches: …").
 
 Bind through `@pytest.mark.litmus_limits` (or sidecar) using `characteristic:`. That route reads the active vector params, picks the matching band, and passes the limit back to `verify`:
 
 ```yaml
-# products/power_board.yaml
+# parts/power_board.yaml
 characteristics:
   output_voltage:
     direction: output
     function: dc_voltage
-    units: V
+    unit: V
     pins: [VOUT]
     datasheet_ref: "Section 7.2"
     bands:
@@ -97,14 +97,14 @@ spec_ref = "Section 7.2 @ load=0.5, temperature=25"
 Apply a manufacturing-margin tightening at session level:
 
 ```bash
-pytest --product=products/power_board.yaml --guardband=10 ...
+pytest --part=parts/power_board.yaml --guardband=10 ...
 ```
 
 Or inline on the spec load:
 
 ```python
-from litmus.products.context import ProductContext
-spec = ProductContext.from_file("products/power_board.yaml", guardband_pct=10.0)
+from litmus.parts.context import PartContext
+spec = PartContext.from_file("parts/power_board.yaml", guardband_pct=10.0)
 ```
 
 ```
@@ -118,8 +118,8 @@ When a test reports a value under a different name than the spec, delegate via `
 
 ```python
 @pytest.mark.litmus_limits(rail_3v3={"characteristic": "output_voltage"})
-def test_output(context, dmm, logger):
-    logger.measure("rail_3v3", dmm.measure_dc_voltage())
+def test_output(context, dmm, measure):
+    measure("rail_3v3", dmm.measure_dc_voltage())
 ```
 
 Same effect in sidecar:
@@ -144,25 +144,25 @@ Every `verify` records:
 |------------------|-------------------------------------------------------|
 | `measurement_name` | the `name` arg                                      |
 | `measurement_value` | the `value` arg                                    |
-| `limit_low` / `limit_high` / `limit_nominal` / `measurement_units` | spec characteristic + tolerance |
+| `limit_low` / `limit_high` / `limit_nominal` / `measurement_unit` | spec characteristic + tolerance |
 | `measurement_outcome` | `passed` / `failed` (lowercase enum value)        |
 | `spec_ref`       | e.g. `"Section 7.2 @ load=0.5, temperature=25"` (`datasheet_ref` or `"spec"` + conditions sorted alphabetically) |
-| `dut_pin`        | `Product.pins[primary_pin_id].name` (the human pin designator, e.g. `"J1.3"`) |
+| `uut_pin`        | `Part.pins[primary_pin_id].name` (the human pin designator, e.g. `"J1.3"`) |
 | `fixture_connection`  | from the active fixture YAML                          |
 | `instrument_*`   | ambient ContextVars from the driver layer             |
 
 No manual threading of traceability fields — they're injected by the plugin.
 
-## When to reach for `verify` vs `logger.measure`
+## When to reach for `verify` vs `measure`
 
 | Scenario                                               | Use                                     |
 |--------------------------------------------------------|-----------------------------------------|
-| Measurement maps to a product-spec characteristic      | `verify("output_voltage", v)`       |
-| Procedure-only measurement (no product characteristic) | `logger.measure("startup_time", t, ...)` |
+| Measurement maps to a part-spec characteristic      | `verify("output_voltage", v)`       |
+| Procedure-only measurement (no part characteristic) | `measure("startup_time", t, ...)` |
 | Dynamic limit from conditions                          | Callable limit via marker / sidecar     |
-| No limits, data collection only                        | `logger.measure(...)` with no limits    |
+| No limits, data collection only                        | `measure(...)` with no limits    |
 
-`verify` raises `MissingLimitError` (from `litmus.execution.verify`) when none of the resolution sources — markers, sidecar, profile, or product spec — produce a limit for the named measurement. This is intentional: a `verify` call with no spec is a config bug, not a silent "unchecked" recording. Use `logger.measure` for characterization sweeps where unchecked rows are the point.
+`verify` raises `MissingLimitError` (from `litmus.execution.verify`) when none of the resolution sources — markers, sidecar, profile, or part spec — produce a limit for the named measurement. This is intentional: a `verify` call with no spec is a config bug, not a silent "unchecked" recording. Use `measure` for characterization sweeps where unchecked rows are the point.
 
 ## See also
 

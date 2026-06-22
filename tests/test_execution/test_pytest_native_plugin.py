@@ -301,28 +301,28 @@ def test_method_vec_id_uses_param_values(pytester: pytest.Pytester) -> None:
 _MEASURE_CONFTEST = textwrap.dedent(
     """
     import pytest
-    from litmus.execution._state import get_current_logger, set_current_logger
-    from litmus.execution.logger import TestRunLogger
+    from litmus.execution._state import get_current_run_scope, set_current_run_scope
+    from litmus.execution.run_scope import RunScope
 
     # Session-scoped so the main plugin's session-scoped fixtures that
-    # depend on ``logger`` (e.g. ``instruments``) can resolve it without
+    # depend on ``_run_scope`` (e.g. ``instruments``) can resolve it without
     # a ScopeMismatch.
     @pytest.fixture(scope="session", autouse=True)
-    def _active_logger():
-        prev = get_current_logger()
-        _logger = TestRunLogger(
-            dut_serial="SN001",
+    def _active_run_scope():
+        prev = get_current_run_scope()
+        run_scope = RunScope(
+            uut_serial="SN001",
             station_id="station_001",
         )
-        set_current_logger(_logger)
+        set_current_run_scope(run_scope)
         try:
-            yield _logger
+            yield run_scope
         finally:
-            set_current_logger(prev)
+            set_current_run_scope(prev)
 
     @pytest.fixture(scope="session")
-    def logger(_active_logger):
-        return _active_logger
+    def _run_scope(_active_run_scope):
+        return _active_run_scope
     """
 )
 
@@ -332,7 +332,7 @@ def _write_measure_test(
     test_body: str,
     sidecar: str | None = None,
 ) -> None:
-    """Write a pytester project with an active TestRunLogger for measure() calls."""
+    """Write a pytester project with an active RunScope for measure() calls."""
     pytester.makeini(
         textwrap.dedent(
             """
@@ -349,10 +349,10 @@ def _write_measure_test(
 
 
 def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> None:
-    """``logger.measure`` records and stamps DONE — never raises on out-of-limit.
+    """``measure`` records and stamps DONE — never raises on out-of-limit.
 
     Judgment lives on ``verify`` (the one verb that judges, raises, and
-    cascades FAILED). ``logger.measure`` is the recorder: the row gets
+    cascades FAILED). ``measure`` is the recorder: the row gets
     ``Outcome.DONE`` so it shows up in analytics as "ran, no judgment."
     """
     _write_measure_test(
@@ -363,10 +363,10 @@ def test_measure_records_outcome_without_raising(pytester: pytest.Pytester) -> N
             from litmus.models.test_config import Limit
 
             class TestSeq:
-                def test_records(self, logger):
-                    m = logger.measure(
+                def test_records(self, measure):
+                    m = measure(
                         "v_out", 3.5,
-                        limit=Limit(low=3.2, high=3.4, units="V", nominal=3.3),
+                        limit=Limit(low=3.2, high=3.4, unit="V", nominal=3.3),
                     )
                     # Recorder, not judge: outcome is DONE (recorded), and
                     # limit fields are stamped on the row for analysis.
@@ -390,7 +390,7 @@ def test_verify_raises_on_fail(pytester: pytest.Pytester) -> None:
 
             class TestSeq:
                 def test_fails(self, verify):
-                    verify("v_out", 3.5, Limit(low=3.2, high=3.4, units="V"))
+                    verify("v_out", 3.5, Limit(low=3.2, high=3.4, unit="V"))
             """
         ),
     )
@@ -409,10 +409,10 @@ def test_duplicate_measurement_name_in_step_errors(
             from litmus.models.test_config import Limit
 
             class TestSeq:
-                def test_dup(self, logger):
-                    lim = Limit(low=3.2, high=3.4, units="V")
-                    logger.measure("v_out", 3.3, limit=lim)
-                    logger.measure("v_out", 3.35, limit=lim)
+                def test_dup(self, measure):
+                    lim = Limit(low=3.2, high=3.4, unit="V")
+                    measure("v_out", 3.3, limit=lim)
+                    measure("v_out", 3.35, limit=lim)
             """
         ),
     )
@@ -423,18 +423,26 @@ def test_duplicate_measurement_name_in_step_errors(
 
 
 def test_allow_repeat_streams_same_name(pytester: pytest.Pytester) -> None:
-    """Inner-loop streaming requires allow_repeat on every call."""
+    """Inner-loop streaming requires allow_repeat on every call.
+
+    ``allow_repeat`` is a low-level recorder escape hatch on the run-scope
+    primitive — not exposed on the public ``measure`` verb (the idiomatic
+    loop path is the ``vectors`` fixture). This test reaches the primitive
+    directly to cover that escape hatch.
+    """
     _write_measure_test(
         pytester,
         textwrap.dedent(
             """
+            from litmus.execution._state import get_current_run_scope
             from litmus.models.test_config import Limit
 
             class TestSeq:
-                def test_stream(self, logger):
-                    lim = Limit(low=3.2, high=3.4, units="V")
+                def test_stream(self):
+                    lim = Limit(low=3.2, high=3.4, unit="V")
+                    run = get_current_run_scope()
                     for _ in range(10):
-                        logger.measure("v_sample", 3.3, limit=lim, allow_repeat=True)
+                        run.measure("v_sample", 3.3, limit=lim, allow_repeat=True)
             """
         ),
     )
@@ -443,14 +451,14 @@ def test_allow_repeat_streams_same_name(pytester: pytest.Pytester) -> None:
 
 
 def test_sidecar_limits_auto_resolve(pytester: pytest.Pytester) -> None:
-    """`logger.measure(name, value)` picks up the sidecar limit by name."""
+    """`measure(name, value)` picks up the sidecar limit by name."""
     _write_measure_test(
         pytester,
         textwrap.dedent(
             """
             class TestSeq:
-                def test_resolves(self, logger):
-                    logger.measure("v_out", 3.25)  # no inline limit
+                def test_resolves(self, measure):
+                    measure("v_out", 3.25)  # no inline limit
             """
         ),
         sidecar=textwrap.dedent(
@@ -459,7 +467,7 @@ def test_sidecar_limits_auto_resolve(pytester: pytest.Pytester) -> None:
               v_out:
                 low: 3.2
                 high: 3.4
-                units: V
+                unit: V
             """
         ),
     )
@@ -547,13 +555,13 @@ def test_litmus_limits_marker_on_method_resolves(pytester: pytest.Pytester) -> N
 
             class TestSeq:
                 @pytest.mark.litmus_limits(
-                    output_voltage={"low": 3.2, "high": 3.4, "units": "V"},
+                    output_voltage={"low": 3.2, "high": 3.4, "unit": "V"},
                 )
                 def test_passes(self, verify):
                     verify("output_voltage", 3.3)
 
                 @pytest.mark.litmus_limits(
-                    output_voltage={"low": 3.2, "high": 3.4, "units": "V"},
+                    output_voltage={"low": 3.2, "high": 3.4, "unit": "V"},
                 )
                 def test_fails(self, verify):
                     verify("output_voltage", 3.5)
@@ -582,14 +590,14 @@ def test_litmus_limits_marker_method_overrides_class(pytester: pytest.Pytester) 
             import pytest
 
             @pytest.mark.litmus_limits(
-                rail={"low": 3.2, "high": 3.4, "units": "V"},  # tight (class default)
+                rail={"low": 3.2, "high": 3.4, "unit": "V"},  # tight (class default)
             )
             class TestSeq:
                 def test_tight_class_limit(self, verify):
                     verify("rail", 3.5)  # fails tight class limit
 
                 @pytest.mark.litmus_limits(
-                    rail={"low": 3.0, "high": 3.6, "units": "V"},  # loose override
+                    rail={"low": 3.0, "high": 3.6, "unit": "V"},  # loose override
                 )
                 def test_loose_method_limit(self, verify):
                     verify("rail", 3.5)  # passes loose method limit
@@ -619,7 +627,7 @@ def test_limits_fixture_destructured_access(pytester: pytest.Pytester) -> None:
 
             class TestSeq:
                 @pytest.mark.litmus_limits(
-                    rail={"low": 3.2, "high": 3.4, "units": "V"},
+                    rail={"low": 3.2, "high": 3.4, "unit": "V"},
                 )
                 def test_reads_limits(self, limits):
                     assert "rail" in limits

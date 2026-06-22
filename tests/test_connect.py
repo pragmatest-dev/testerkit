@@ -140,7 +140,7 @@ class TestStationConnection:
         assert conn.event_log is not None
         conn.stop()
 
-    def test_context_manager_error_outcome(self):
+    def test_context_manager_emits_session_ended_on_error(self):
         station = _make_station()
         log_path = None
         with pytest.raises(ValueError):
@@ -156,7 +156,7 @@ class TestStationConnection:
         assert log_path is not None
         events = _read_events_from_ipc(log_path)
         ended = [e for e in events if e["event_type"] == "session.ended"]
-        assert ended[0]["outcome"] == "errored"
+        assert len(ended) == 1
 
 
 class TestSessionStartedFields:
@@ -189,6 +189,25 @@ class TestSessionStartedFields:
         events = _read_events_from_ipc(log_path)
         started = events[0]
         assert started["session_type"] == "interactive"
+
+    def test_interactive_session_stamps_patient_will(self):
+        from litmus.data._process import process_uuid
+
+        station = _make_station()
+        with StationConnection(
+            station,
+            data_dir=_CANONICAL_DATA,
+            mock=True,
+        ) as conn:
+            assert conn.event_log is not None
+            log_path = conn.event_log.path
+
+        started = _read_events_from_ipc(log_path)[0]
+        # The owner stamps its will; an interactive owner declares a patient
+        # lease (>= the interactive floor) so a human pause isn't reaped.
+        assert started["process_uuid"] == process_uuid()
+        assert started["idle_lease_seconds"] >= 3600.0
+        assert started["abandon_reason"] == "abandoned"
 
     def test_session_started_no_run_id(self):
         station = _make_station()

@@ -1,0 +1,446 @@
+"""FileStore.write() — type dispatch, URI shape, collision handling.
+
+Covers DoD for build item 1a (FileStore put API + URI scheme):
+- put() returns ``file://{session_id}/{filename}``
+- type dispatch: Path / Waveform / bytes / BaseModel / ndarray / fallback
+- filename includes vector_id_short prefix when vector_id passed
+- collision handling: same name twice produces distinct URIs + files
+- on-disk layout: ``{data_dir}/files/{date}/{session_id}/{filename}``
+
+Per CLAUDE.md test conventions: uses ``resolve_data_dir()`` (canonical)
++ uuid4 session_ids for per-test isolation. FileStore writes don't spawn
+daemons, so no daemon-budget concern.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
+
+import numpy as np
+import pytest
+from pydantic import BaseModel
+
+from litmus.data.data_dir import resolve_data_dir
+from litmus.data.files import FileStore
+from litmus.data.models import Waveform
+
+# --------------------------------------------------------------------- #
+# helpers                                                               #
+# --------------------------------------------------------------------- #
+
+
+def _session_id() -> str:
+    """Unique session_id per test (isolation by identifier)."""
+    return f"test-{uuid4().hex[:12]}"
+
+
+def _vector_id() -> str:
+    """Unique vector_id per test."""
+    return uuid4().hex
+
+
+def _expected_session_dir(store: FileStore, session_id: str) -> Path:
+    """Reproduce the FileStore's session-dir computation for assertions."""
+    today = datetime.now(UTC).date().isoformat()
+    return resolve_data_dir() / "files" / today / session_id
+
+
+def _parse_uri(uri: str) -> tuple[str, str]:
+    """Return (session_id, filename) for a ``file://{date}/{session}/{filename}`` URI.
+
+    The URI carries the full backend key (date included) so it self-locates.
+    """
+    assert uri.startswith("file://"), uri
+    parts = uri[len("file://") :].split("/")
+    assert len(parts) == 3, uri  # date / session_id / filename
+    return parts[1], parts[2]
+
+
+@pytest.fixture
+def store() -> FileStore:
+    return FileStore()
+
+
+# --------------------------------------------------------------------- #
+# type dispatch                                                         #
+# --------------------------------------------------------------------- #
+
+
+def test_put_path_copies_with_suffix_preserved(store: FileStore, tmp_path: Path) -> None:
+    """Path values are copied; original suffix is preserved on disk."""
+    sid = _session_id()
+    src = tmp_path / "uut.tdms"
+    src.write_bytes(b"\x00\x01\x02fake-tdms-bytes")
+
+    uri = store.write("uut_capture", src, session_id=sid)
+
+    parsed_sid, filename = _parse_uri(uri)
+    assert parsed_sid == sid
+    assert filename.endswith(".tdms")
+    landed = _expected_session_dir(store, sid) / filename
+    assert landed.read_bytes() == b"\x00\x01\x02fake-tdms-bytes"
+
+
+def test_put_path_unsuffixed_defaults_to_bin(store: FileStore, tmp_path: Path) -> None:
+    """Path with no suffix → ``.bin`` (matches save_ref_to_dir behavior)."""
+    sid = _session_id()
+    src = tmp_path / "no_suffix"
+    src.write_bytes(b"data")
+
+    uri = store.write("blob", src, session_id=sid)
+
+    _, filename = _parse_uri(uri)
+    assert filename.endswith(".bin")
+
+
+def test_put_bytes_writes_bin(store: FileStore) -> None:
+    sid = _session_id()
+    uri = store.write("payload", b"\xde\xad\xbe\xef", session_id=sid)
+
+    _, filename = _parse_uri(uri)
+    assert filename.endswith(".bin")
+    assert (_expected_session_dir(store, sid) / filename).read_bytes() == b"\xde\xad\xbe\xef"
+
+
+def test_put_waveform_writes_npz_with_t0_dt_attrs(store: FileStore) -> None:
+    sid = _session_id()
+    t0 = datetime(2026, 6, 3, 12, 34, 56, tzinfo=UTC)
+    wf = Waveform(
+        Y=[1.0, 2.0, 3.0, 4.0],
+        t0=t0,
+        dt=1e-6,
+        attributes={"unit": "V", "channel": "scope.ch1"},
+    )
+
+    uri = store.write("scope.capture", wf, session_id=sid)
+
+    _, filename = _parse_uri(uri)
+    assert filename.endswith(".npz")
+    npz = np.load(_expected_session_dir(store, sid) / filename)
+    assert list(npz["Y"]) == [1.0, 2.0, 3.0, 4.0]
+    # t0 is stored as ISO-8601 string (np.savez can't take a datetime
+    # directly). Round-trip back to datetime via fromisoformat to
+    # confirm the wire shape is consumable.
+    assert str(npz["t0"]) == t0.isoformat()
+    assert datetime.fromisoformat(str(npz["t0"])) == t0
+    assert float(npz["dt"]) == pytest.approx(1e-6)
+    # attrs get inlined as keys in the npz
+    assert str(npz["unit"]) == "V"
+    assert str(npz["channel"]) == "scope.ch1"
+
+
+def test_put_waveform_with_t0_none_writes_empty_iso_string(store: FileStore) -> None:
+    """When the producer doesn't know the wall-clock time (t0=None), the
+    npz stores an empty string for t0 — the parquet read-back parses
+    that back to None.
+    """
+    sid = _session_id()
+    wf = Waveform(Y=[1.0, 2.0, 3.0], dt=1e-6)  # t0 defaults to None
+
+    uri = store.write("scope.capture", wf, session_id=sid)
+
+    _, filename = _parse_uri(uri)
+    npz = np.load(_expected_session_dir(store, sid) / filename)
+    assert str(npz["t0"]) == ""
+
+
+def test_waveform_round_trip_through_load_file_preserves_t0_and_attributes(
+    store: FileStore,
+) -> None:
+    """End-to-end: write a Waveform with t0 + attributes → read it back
+    via ``load_file`` → fields match. Exercises both the np.savez
+    ISO-string serialization and the ``datetime.fromisoformat`` parse
+    in ``parquet.py:_load_file``.
+    """
+    from litmus.data.backends.parquet import load_file  # noqa: PLC0415
+
+    sid = _session_id()
+    t0 = datetime(2026, 6, 3, 12, 34, 56, tzinfo=UTC)
+    wf = Waveform(
+        Y=[1.0, 2.0, 3.0, 4.0],
+        t0=t0,
+        dt=1e-6,
+        attributes={"unit": "V", "channel": "scope.ch1"},
+    )
+
+    uri = store.write("scope.capture", wf, session_id=sid)
+    loaded = load_file(parquet_path=None, ref=uri)
+
+    assert isinstance(loaded, Waveform)
+    assert loaded.t0 == t0
+    assert loaded.dt == pytest.approx(1e-6)
+    assert loaded.Y == [1.0, 2.0, 3.0, 4.0]
+    assert loaded.attributes["unit"] == "V"
+    assert loaded.attributes["channel"] == "scope.ch1"
+
+
+def test_waveform_round_trip_with_t0_none_preserves_none(store: FileStore) -> None:
+    """Round-trip of a Waveform without t0 → load_file returns t0=None
+    (the empty ISO string in the npz parses cleanly to None).
+    """
+    from litmus.data.backends.parquet import load_file  # noqa: PLC0415
+
+    sid = _session_id()
+    wf = Waveform(Y=[1.0, 2.0], dt=1e-6)
+
+    uri = store.write("scope.capture", wf, session_id=sid)
+    loaded = load_file(parquet_path=None, ref=uri)
+
+    assert isinstance(loaded, Waveform)
+    assert loaded.t0 is None
+    assert loaded.dt == pytest.approx(1e-6)
+    assert loaded.Y == [1.0, 2.0]
+
+
+def test_put_pydantic_model_writes_json(store: FileStore) -> None:
+    sid = _session_id()
+
+    class Capture(BaseModel):
+        sensor: str
+        value: float
+
+    cap = Capture(sensor="thermistor", value=23.5)
+    uri = store.write("ambient", cap, session_id=sid)
+
+    _, filename = _parse_uri(uri)
+    assert filename.endswith(".json")
+    roundtrip = Capture.model_validate_json(
+        (_expected_session_dir(store, sid) / filename).read_text()
+    )
+    assert roundtrip == cap
+
+
+def test_put_ndarray_writes_npy(store: FileStore) -> None:
+    sid = _session_id()
+    arr = np.array([0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float64)
+
+    uri = store.write("samples", arr, session_id=sid)
+
+    _, filename = _parse_uri(uri)
+    assert filename.endswith(".npy")
+    loaded = np.load(_expected_session_dir(store, sid) / filename)
+    np.testing.assert_array_equal(loaded, arr)
+
+
+class _CustomPickleType:
+    """Module-level (picklable) custom type for the pickle-fallback test."""
+
+    def __init__(self, x: int = 0, y: str = "") -> None:
+        self.x = x
+        self.y = y
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _CustomPickleType) and self.x == other.x and self.y == other.y
+
+
+def test_put_unrecognized_value_falls_back_to_pickle(store: FileStore) -> None:
+    """Anything the dispatch doesn't recognize lands as ``.pkl``.
+
+    Future build item 12 promotes save_ref_to_dir to a registry and
+    emits a ``RuntimeWarning`` here naming the type; for 1a we just
+    verify the bytes round-trip.
+    """
+    import pickle
+
+    sid = _session_id()
+    val = _CustomPickleType(42, "hello")
+
+    uri = store.write("custom", val, session_id=sid)
+
+    _, filename = _parse_uri(uri)
+    assert filename.endswith(".pkl")
+    with open(_expected_session_dir(store, sid) / filename, "rb") as f:
+        loaded = pickle.load(f)
+    assert loaded == val
+
+
+# --------------------------------------------------------------------- #
+# URI shape + filename conventions                                      #
+# --------------------------------------------------------------------- #
+
+
+def test_uri_shape_is_date_session_filename(store: FileStore) -> None:
+    """URI is ``file://{date}/{session_id}/{filename}`` — the full backend key.
+
+    The reference carries the whole key (date included), so it self-locates:
+    a point read parses it straight to the backend key, no catalog/scan/daemon.
+    """
+    sid = _session_id()
+    uri = store.write("name", b"x", session_id=sid)
+
+    assert uri.startswith("file://")
+    date, parsed_sid, filename = uri[len("file://") :].split("/")
+    assert date == datetime.now(UTC).date().isoformat()
+    assert parsed_sid == sid
+    assert filename == "name.bin"
+
+
+def test_vector_id_prefix_in_filename(store: FileStore) -> None:
+    """When ``vector_id`` is passed, first 8 chars prefix the filename."""
+    sid = _session_id()
+    vid = _vector_id()
+
+    uri = store.write("scope.capture", b"x", session_id=sid, vector_id=vid)
+
+    _, filename = _parse_uri(uri)
+    assert filename.startswith(f"{vid[:8]}_scope.capture")
+    assert filename.endswith(".bin")
+
+
+def test_no_vector_id_means_no_prefix(store: FileStore) -> None:
+    """Without ``vector_id``, the filename is just ``{name}.{ext}``."""
+    sid = _session_id()
+    uri = store.write("scope.capture", b"x", session_id=sid)
+
+    _, filename = _parse_uri(uri)
+    assert filename == "scope.capture.bin"
+
+
+# --------------------------------------------------------------------- #
+# collision handling                                                    #
+# --------------------------------------------------------------------- #
+
+
+def test_repeated_put_same_name_creates_distinct_uris(store: FileStore) -> None:
+    """Two puts with the same name → two distinct URIs + files.
+
+    Preserves claim-check immutability: a put never silently
+    overwrites an existing artifact's bytes.
+    """
+    sid = _session_id()
+
+    uri_a = store.write("scope.capture", b"first", session_id=sid)
+    uri_b = store.write("scope.capture", b"second", session_id=sid)
+
+    assert uri_a != uri_b
+    _, fname_a = _parse_uri(uri_a)
+    _, fname_b = _parse_uri(uri_b)
+    assert fname_a == "scope.capture.bin"
+    assert fname_b == "scope.capture_2.bin"
+
+    session_dir = _expected_session_dir(store, sid)
+    assert (session_dir / fname_a).read_bytes() == b"first"
+    assert (session_dir / fname_b).read_bytes() == b"second"
+
+
+def test_three_collisions_use_sequential_suffixes(store: FileStore) -> None:
+    sid = _session_id()
+    uri_a = store.write("dup", b"a", session_id=sid)
+    uri_b = store.write("dup", b"b", session_id=sid)
+    uri_c = store.write("dup", b"c", session_id=sid)
+
+    _, fname_a = _parse_uri(uri_a)
+    _, fname_b = _parse_uri(uri_b)
+    _, fname_c = _parse_uri(uri_c)
+    assert fname_a == "dup.bin"
+    assert fname_b == "dup_2.bin"
+    assert fname_c == "dup_3.bin"
+
+
+def test_collision_under_vector_prefix(store: FileStore) -> None:
+    """Collision suffix applies after the full ``{vector}_{name}`` stem."""
+    sid = _session_id()
+    vid = _vector_id()
+
+    uri_a = store.write("capture", b"a", session_id=sid, vector_id=vid)
+    uri_b = store.write("capture", b"b", session_id=sid, vector_id=vid)
+
+    _, fname_a = _parse_uri(uri_a)
+    _, fname_b = _parse_uri(uri_b)
+    assert fname_a == f"{vid[:8]}_capture.bin"
+    assert fname_b == f"{vid[:8]}_capture_2.bin"
+
+
+# --------------------------------------------------------------------- #
+# on-disk layout                                                        #
+# --------------------------------------------------------------------- #
+
+
+def test_on_disk_layout_is_files_date_session(store: FileStore) -> None:
+    """Files land at ``{data_dir}/files/{date}/{session_id}/{filename}``."""
+    sid = _session_id()
+    today = datetime.now(UTC).date().isoformat()
+
+    uri = store.write("x", b"y", session_id=sid)
+
+    _, filename = _parse_uri(uri)
+    expected_path = resolve_data_dir() / "files" / today / sid / filename
+    assert expected_path.exists()
+    assert expected_path.read_bytes() == b"y"
+
+
+def test_two_sessions_isolate_in_separate_subdirs(store: FileStore) -> None:
+    """Different sessions write into different subdirs (no name conflict)."""
+    sid_a = _session_id()
+    sid_b = _session_id()
+
+    store.write("shared_name", b"from_a", session_id=sid_a)
+    store.write("shared_name", b"from_b", session_id=sid_b)
+
+    today = datetime.now(UTC).date().isoformat()
+    base = resolve_data_dir() / "files" / today
+    assert (base / sid_a / "shared_name.bin").read_bytes() == b"from_a"
+    assert (base / sid_b / "shared_name.bin").read_bytes() == b"from_b"
+
+
+# --------------------------------------------------------------------- #
+# attributes parameter — persisted to sidecar (item 1c)                  #
+# --------------------------------------------------------------------- #
+
+
+def test_attributes_argument_persisted_to_sidecar(store: FileStore) -> None:
+    """Item 1c: ``attributes`` round-trips through a sidecar .meta.json."""
+    sid = _session_id()
+
+    user_attrs = {"camera": "scope-a", "scale_v_div": 0.5}
+    uri = store.write("x", b"y", session_id=sid, attributes=user_attrs)
+
+    _, filename = _parse_uri(uri)
+    session_dir = _expected_session_dir(store, sid)
+    assert (session_dir / filename).exists()
+
+    # Sidecar lands next to the artifact (item 1c)
+    sidecar_path = session_dir / f"{filename}.meta.json"
+    assert sidecar_path.exists()
+    metadata = store.read_attributes(uri)
+    assert metadata is not None
+    assert metadata.attributes == user_attrs
+
+
+# --------------------------------------------------------------------- #
+# atomic write (D2): no partial artifact on serializer failure          #
+# --------------------------------------------------------------------- #
+
+
+def test_write_atomic_no_partial_on_serializer_failure(store: FileStore, monkeypatch) -> None:
+    """A serializer that raises mid-write leaves no artifact at the dest.
+
+    The blob is serialized to a sibling temp and atomic-replaced, so a
+    crash mid-serialize leaves (at most) a stray ``.part-`` temp, never a
+    partial file the catalog could point at.
+    """
+    from litmus.data.files.serializers import Serializer
+
+    def _boom_write(value: object, dest: Path) -> None:
+        dest.write_bytes(b"partial-bytes")  # land bytes in the temp...
+        raise RuntimeError("boom mid-serialize")  # ...then fail
+
+    monkeypatch.setattr(
+        "litmus.data.files.store.find_serializer",
+        lambda _v: Serializer(extension=".bin", mime="application/octet-stream", write=_boom_write),
+    )
+
+    sid = _session_id()
+    with pytest.raises(RuntimeError, match="boom"):
+        store.write("boom", object(), session_id=sid)
+
+    session_dir = _expected_session_dir(store, sid)
+    if session_dir.exists():
+        finals = [
+            p.name
+            for p in session_dir.iterdir()
+            if not p.name.endswith(".meta.json") and ".part-" not in p.name
+        ]
+        assert finals == [], f"partial artifact landed: {finals}"

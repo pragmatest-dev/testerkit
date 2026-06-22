@@ -16,13 +16,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import duckdb
-import pyarrow as pa
 from pydantic import BaseModel, Field
 
+from litmus.analysis.measurement_facets import ColumnSchema, FixedColumnDescriptor
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import multi_filter_clauses, sql_escape
+from litmus.data.backends._row_helpers import _decode_dynamic_attrs_map
 from litmus.data.data_dir import resolve_data_dir
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ class StepRow(BaseModel):
     # finds anything that retried.
     retry_count: int | None = None
     markers: str | None = None
-    dut_serial: str | None = None
+    uut_serial: str | None = None
     station_id: str | None = None
     # Per-vector commanded inputs (in_*) and recorded outputs (out_*) —
     # populated by the daemon by aggregating the unified parquet's
@@ -89,12 +89,16 @@ class StepNode(BaseModel):
 class StepsQuery:
     """Read-only client over the runs daemon's ``steps`` table.
 
-    Usage::
+    Construct once and reuse — no explicit close needed::
 
         q = StepsQuery()
         rows = q.list_for_run("run-001-abc")
         tree = q.tree_for_run("run-001-abc")
-        q.close()
+
+    Or use as a context manager for deterministic cleanup::
+
+        with StepsQuery() as q:
+            rows = q.list_for_run("run-001-abc")
     """
 
     def __init__(self, *, _data_dir: Path | str | None = None) -> None:
@@ -153,86 +157,24 @@ class StepsQuery:
             {ended_clause}
             ORDER BY step_index
         """)
-        step_rows = [StepRow(**r) for r in rows]
-        self._enrich_io(step_rows)
+        step_rows: list[StepRow] = []
+        for r in rows:
+            sr = StepRow(**r)
+            sr.inputs, sr.outputs = _decode_dynamic_attrs_map(r.get("dynamic_attrs"))
+            step_rows.append(sr)
         return step_rows
 
-    def _enrich_io(self, step_rows: list[StepRow]) -> None:
-        """Populate ``inputs`` / ``outputs`` on each step row.
-
-        Reads in_*/out_* dynamic columns from the unified parquet
-        keyed by (step_path, vector_index). Same value across every
-        row in a (step, vector) group by construction (commanded
-        sweep params and recorded outputs are denormalized onto
-        every measurement row + the step-summary row), so taking the
-        first row's values is sufficient.
-        """
-        # Group rows by file_path so we read each parquet once.
-        by_file: dict[str, list[StepRow]] = {}
-        for sr in step_rows:
-            if sr.file_path:
-                by_file.setdefault(sr.file_path, []).append(sr)
-        for fpath, rows in by_file.items():
-            try:
-                raw = self._query_dicts(f"""
-                    SELECT *
-                    FROM read_parquet('{sql_escape(fpath)}', union_by_name=true)
-                    WHERE run_id LIKE '{sql_escape(rows[0].run_id or "")[:8]}%'
-                """)
-            except (OSError, duckdb.Error, pa.ArrowInvalid) as exc:
-                # File missing, parquet corrupt, daemon transient error —
-                # leave inputs/outputs empty and move on. Real bugs
-                # (TypeError, KeyError, etc.) propagate.
-                logger.debug("Could not enrich IO for %s: %s", fpath, exc)
-                continue
-            # First-seen row per (step_path, vector_index) wins. The
-            # unified parquet PK guarantees uniqueness within a file
-            # by construction; duplicates would indicate a producer
-            # bug or upstream corruption — surface them via a warning
-            # rather than silently dedup.
-            by_key: dict[tuple[str, int], dict[str, Any]] = {}
-            for r in raw:
-                raw_vi = r.get("vector_index")
-                key = (
-                    r.get("step_path") or "",
-                    int(raw_vi) if raw_vi is not None else 0,
-                )
-                if key in by_key:
-                    logger.warning(
-                        "Duplicate (step_path=%r, vector_index=%r) in unified parquet %s "
-                        "— violates the (run_id, step_path, vector_index) PK invariant",
-                        key[0],
-                        key[1],
-                        fpath,
-                    )
-                    continue
-                by_key[key] = r
-            for sr in rows:
-                key = (
-                    sr.step_path or "",
-                    sr.vector_index if sr.vector_index is not None else 0,
-                )
-                r = by_key.get(key)
-                if r is None:
-                    continue
-                sr.inputs = {
-                    k[3:]: v for k, v in r.items() if k.startswith("in_") and v is not None
-                }
-                sr.outputs = {
-                    k[4:]: v for k, v in r.items() if k.startswith("out_") and v is not None
-                }
-
-    def failure_pareto(
+    def pareto(
         self,
         *,
         top_n: int = 10,
         phase: str | list[str] | None = None,
-        product: str | list[str] | None = None,
+        part: str | list[str] | None = None,
         station: str | list[str] | None = None,
         since: str | None = None,
         until: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Pareto of failing steps grouped by ``step_path``.
+        """Failure pareto of failing steps grouped by ``step_path``.
 
         Cross-run aggregate: which test step name has the most
         failures across the matching set of runs. Same semantic as
@@ -242,12 +184,12 @@ class StepsQuery:
         test.
 
         ``failed_count`` includes ``failed`` + ``errored`` outcomes.
-        Optional filters scope to product / phase / station / time
+        Optional filters scope to part / phase / station / time
         window — same shape the rest of the metrics tabs use.
 
         Note: filters apply to the runs context (joined via
         ``run_id``), not to the steps directly, so a "production
-        phase / product PN-100" view shows only the failures from
+        phase / part PN-100" view shows only the failures from
         runs matching those facets.
         """
         run_filters = ["runs.ended_at IS NOT NULL"]
@@ -258,7 +200,7 @@ class StepsQuery:
             multi_filter_clauses(
                 {
                     "runs.test_phase": phase,
-                    "runs.dut_part_number": product,
+                    "runs.uut_part_number": part,
                     "runs.station_hostname": station,
                 }
             )
@@ -311,7 +253,12 @@ class StepsQuery:
             {ended_clause}
             ORDER BY slot_id, step_index
         """)
-        return [StepRow(**r) for r in rows]
+        step_rows: list[StepRow] = []
+        for r in rows:
+            sr = StepRow(**r)
+            sr.inputs, sr.outputs = _decode_dynamic_attrs_map(r.get("dynamic_attrs"))
+            step_rows.append(sr)
+        return step_rows
 
     def tree_for_run(self, run_id: str) -> list[StepNode]:
         """Return the step tree for a run, built from ``step_path``.
@@ -340,6 +287,11 @@ class StepsQuery:
                 roots.append(node)
         return roots
 
-    def describe_columns(self) -> list[dict[str, str]]:
-        """Return the ``steps`` table's columns: ``[{name, type}, ...]``."""
-        return self._query_dicts("DESCRIBE steps")
+    def describe_columns(self) -> ColumnSchema:
+        """Return the ``steps`` table's column schema."""
+        rows = self._query_dicts("DESCRIBE steps")
+        fixed = [
+            FixedColumnDescriptor(name=str(r["column_name"]), column_type=str(r["column_type"]))
+            for r in rows
+        ]
+        return ColumnSchema(fixed=fixed, fields=[])

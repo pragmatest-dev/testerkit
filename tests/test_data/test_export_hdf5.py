@@ -70,11 +70,11 @@ class TestHdf5Subscriber:
         )
         with h5py.File(result, "r") as f:
             assert f.attrs["station_id"] == "station_alpha"
-            assert f.attrs["dut_serial"] == "DUT-001"
-            assert f.attrs["dut_part_number"] == "PN-200"
+            assert f.attrs["uut_serial"] == "UUT-001"
+            assert f.attrs["uut_part_number"] == "PN-200"
             assert f.attrs["test_phase"] == "qualification"
             assert f.attrs["operator_id"] == "OP-42"
-            assert f.attrs["product_id"] == "PROD-100"
+            assert f.attrs["part_id"] == "PROD-100"
 
     def test_custom_metadata(
         self,
@@ -121,13 +121,13 @@ class TestHdf5Subscriber:
         with h5py.File(result, "r") as f:
             vout = _dataset(f["steps/power/output/voltage/vectors/0/measurements/vout"])
             assert abs(float(vout[()]) - 3.30) < 0.01
-            assert vout.attrs["units"] == "V"
+            assert vout.attrs["unit"] == "V"
             assert vout.attrs["limit_comparator"] == "GELE"
             assert vout.attrs["limit_low"] == 3.0
             assert vout.attrs["limit_high"] == 3.6
             assert vout.attrs["outcome"] == "passed"
             assert vout.attrs["characteristic_id"] == "SPEC-001"
-            assert vout.attrs["dut_pin"] == "VOUT"
+            assert vout.attrs["uut_pin"] == "VOUT"
             assert vout.attrs["instrument_name"] == "DMM_01"
 
     def test_inputs_as_vec_attrs(
@@ -144,8 +144,8 @@ class TestHdf5Subscriber:
         )
         with h5py.File(result, "r") as f:
             vec0 = f["steps/power/output/voltage/vectors/0"]
-            assert vec0.attrs["in_vin"] == 5.0
-            assert vec0.attrs["in_load"] == 100.0
+            assert vec0.attrs["input_vin"] == 5.0
+            assert vec0.attrs["input_load"] == 100.0
 
     def test_null_value_stored_as_nan(
         self,

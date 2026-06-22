@@ -139,7 +139,7 @@ class TestInitProject:
         project = tmp_path / "proj"
         project.mkdir()
         init_project(project, git=False)
-        for d in ["products", "stations", "fixtures", "instruments", "tests"]:
+        for d in ["parts", "stations", "fixtures", "instruments", "tests"]:
             assert (project / d).is_dir(), f"Missing directory: {d}"
 
     def test_creates_litmus_yaml(self, tmp_path):
@@ -176,7 +176,7 @@ class TestInitProject:
         assert cfg["mock_instruments"] is True
 
     def test_tier_bringup_minimal_scaffold(self, tmp_path):
-        """--tier bringup writes conftest mocks + smoke test + sidecar, no station/product YAML."""
+        """--tier bringup writes conftest mocks + smoke test + sidecar, no station/part YAML."""
         project = tmp_path / "proj"
         project.mkdir()
         init_project(project, git=False, tier="bringup", name="proj")
@@ -186,7 +186,7 @@ class TestInitProject:
         assert "MagicMock" in (project / "tests" / "conftest.py").read_text()
         # Bringup skips the Tier 2+ folders
         assert not (project / "stations").exists()
-        assert not (project / "products").exists()
+        assert not (project / "parts").exists()
         assert not (project / "fixtures").exists()
         # pyproject.toml has no --station addopts
         pyproject = (project / "pyproject.toml").read_text()

@@ -10,9 +10,9 @@ A test framework's job ends at "run the test." A test platform's job is everythi
 
 The infrastructure pieces a hardware-test team needs whether they're running pytest, a hand-written loop, or a bridge from a non-Python runner:
 
-- **Configuration** — `litmus.yaml` (project), `stations/*.yaml` (benches), `fixtures/*.yaml` (DUT routing), `products/*.yaml` (specs), `catalog/*.yaml` (instrument capabilities). All YAML, all Pydantic-validated, all editable without touching test code.
+- **Configuration** — `litmus.yaml` (project), `stations/*.yaml` (benches), `fixtures/*.yaml` (UUT routing), `parts/*.yaml` (specs), `catalog/*.yaml` (instrument capabilities). All YAML, all Pydantic-validated, all editable without touching test code.
 - **Instrument plumbing** — auto-fixtures from station YAML, the `Mock` substitution for hardware-free tests, switch-route activation through fixture connections. Drivers themselves are user-supplied (PyMeasure, PyVISA, vendor SDK).
-- **Capability matching** — does this station have what this product needs? See [capabilities](../configuration/capabilities.md).
+- **Capability matching** — does this station have what this part needs? See [capabilities](../configuration/capabilities.md).
 - **Results storage** — three stores feeding one queryable surface: the [event log](../data/event-log.md), the parquet runs store, and the channel store for time-series. See [three stores](../data/three-stores.md) for the layout and tradeoffs.
 - **Operator surface** — NiceGUI web UI, operator prompts during a test, real-time dashboards.
 - **AI surface** — MCP server exposing tools an agent can drive: discovery, matching, run launching, results query. Platform never calls an LLM itself.
@@ -28,7 +28,7 @@ Because Litmus is a platform, you can access it through multiple entry points:
 
 | Entry Point | Use Case | How It Works |
 |-------------|----------|--------------|
-| **pytest** | New test development | pytest-native: [`context`](../../how-to/execution/test-context.md), `verify`, `logger` [fixtures](../../reference/pytest/fixtures.md) |
+| **pytest** | New test development | pytest-native: [`context`](../../how-to/execution/test-context.md), `verify`, `measure` [fixtures](../../reference/pytest/fixtures.md) |
 | **CLI** | Operations, debugging | `litmus runs`, `litmus show` |
 | **HTTP API** | CI/CD, dashboards | `POST /api/runs`, `GET /api/runs/{id}` |
 | **MCP Server** | AI integration | Claude Code, other AI agents |
@@ -42,7 +42,7 @@ All entry points share the same:
 
 ## pytest integration (primary path)
 
-For new projects, use the pytest plugin. Station YAML declares your instruments; the plugin auto-registers a fixture per role (`dmm`, `psu`, etc.) and supplies `context` / `verify` / `logger` for the test body:
+For new projects, use the pytest plugin. Station YAML declares your instruments; the plugin auto-registers a fixture per role (`dmm`, `psu`, etc.) and supplies `context` / `verify` / `measure` for the test body:
 
 ```python
 def test_output_voltage(context, psu, dmm, verify):
@@ -58,18 +58,18 @@ def test_output_voltage(context, psu, dmm, verify):
 For any test source that isn't pytest — LabVIEW shelling out, TestStand step calling Python, an ad-hoc characterization script:
 
 ```python
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 client = LitmusClient()
 
 run = client.start_run(
-    dut_serial="SN123",
+    uut_serial="SN123",
     station_id="bench_01",
     test_phase="production",
 )
 
 with run.step("output_voltage") as step:
-    step.measure("output_voltage", 3.31, units="V", low=3.135, high=3.465)
+    step.measure("output_voltage", 3.31, unit="V", low=3.135, high=3.465)
 
 run.finish()
 ```
@@ -95,7 +95,7 @@ flowchart TB
 
 | Scenario | Approach |
 |---|---|
-| New pytest project | pytest-native tests with `context` / `verify` / `logger` fixtures (see [tutorial step 3](../../tutorial/03-fixtures.md)). |
+| New pytest project | pytest-native tests with `context` / `verify` / `measure` fixtures (see [tutorial step 3](../../tutorial/03-fixtures.md)). |
 | Existing pytest tests | Drop in Litmus fixtures + sidecar YAML incrementally — see [integration/pytest-existing](../../integration/runtime/pytest-existing.md). |
 | LabVIEW / TestStand / non-pytest runners | Use [`LitmusClient`](../../reference/runtime/client.md) to write run results from any Python boundary the other runner can shell out to. |
 | AI-assisted test authoring | Run the [MCP server](../../how-to/overview/mcp-integration.md) and point Claude Code / Cursor / Cline at it. |
@@ -120,7 +120,7 @@ flowchart TB
         match["Matching"]
         results["Results"]
         dialogs["Dialogs"]
-        products["Products"]
+        parts["Parts"]
     end
 
     subgraph Storage["STORAGE LAYER"]

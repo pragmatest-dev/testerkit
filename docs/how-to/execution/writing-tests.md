@@ -2,26 +2,26 @@
 
 Litmus tests are **plain pytest** — pytest classes or loose module-level functions that consume a few Litmus-provided fixtures. For everything that isn't Litmus-specific (fixtures, conftest, CLI, markers, the basics of parametrize for vanilla projects), refer to the official pytest docs at <https://docs.pytest.org/>.
 
-## `verify` vs `logger.measure` — pick one
+## `verify` vs `measure` — pick one
 
 Both produce identical rows on PASS. They differ only on FAIL:
 
-- **`verify(name, value)`** — records the measurement row (value, units, limits, traceability), resolves a limit, stamps `measurement_outcome`, and **raises `AssertionError`** when the value is out of range. Same record-side effect as `logger.measure`; the only difference is that `verify` raises on FAIL.
-- **`logger.measure(name, value)`** — records a row with `outcome = DONE` and **never raises**. Use this for characterization sweeps where you want all points captured regardless of pass/fail.
+- **`verify(name, value)`** — records the measurement row (value, units, limits, traceability), resolves a limit, stamps `measurement_outcome`, and **raises `AssertionError`** when the value is out of range. Same record-side effect as `measure`; the only difference is that `verify` raises on FAIL.
+- **`measure(name, value)`** — records a row with `outcome = DONE` and **never raises**. Use this for characterization sweeps where you want all points captured regardless of pass/fail.
 
-Rule of thumb: _would a fail here stop the line?_ → `verify`. Else → `logger.measure`.
+Rule of thumb: _would a fail here stop the line?_ → `verify`. Else → `measure`.
 
-`verify` also raises `MissingLimitError` (from `litmus.execution.verify`) when no limit can be resolved for the measurement — markers, sidecar, profile, and product spec are all checked, and an empty result is a config bug rather than an "unchecked" path. Switch to `logger.measure` if you intentionally want to record a value without judging it.
+`verify` also raises `MissingLimitError` (from `litmus.execution.verify`) when no limit can be resolved for the measurement — markers, sidecar, profile, and part spec are all checked, and an empty result is a config bug rather than an "unchecked" path. Switch to `measure` if you intentionally want to record a value without judging it.
 
 ## The core per-test fixtures
 
 | Fixture   | Role                                         | Typical verbs |
 |-----------|----------------------------------------------|---------------|
-| `context` | Ambient test context — run / DUT / station / vector params (when sweeping) / observations / fixture-connection state. Always available, whether the test is parametrized or not. | `get_param`, `changed`, `last`, `observe`, `configure` |
+| `context` | Ambient test context — run / UUT / station / vector params (when sweeping) / observations / fixture-connection state. Always available, whether the test is parametrized or not. | `get_param`, `changed`, `last`, `observe`, `configure` |
 | `verify`  | Limit check + record + raise on FAIL         | `verify(name, value, limit=..., characteristic=...)` |
-| `logger`  | Measurement/event sink                       | `measure(name, value, ...)`, `record(k, v)` |
+| `measure` | Record-only measurement — no judgment, never raises | `measure(name, value, limit=...)` |
 
-Data flow is one-way: `test → spec → logger`. Logger snapshots ambient [ContextVars](https://docs.python.org/3/library/contextvars.html) (Python's built-in async-safe scoped state — Litmus uses them for run id, station, DUT, active instruments) at write time.
+Data flow is one-way: `test → spec → measurement row`. The recording path snapshots ambient [ContextVars](https://docs.python.org/3/library/contextvars.html) (Python's built-in async-safe scoped state — Litmus uses them for run id, station, UUT, active instruments) at write time.
 
 ## Minimum viable test
 
@@ -33,7 +33,7 @@ class TestPowerUp:
         verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`verify` resolves the limit from the product YAML, writes a measurement via `logger`, and raises `AssertionError` on fail. Instrument fixtures (`psu`, `dmm`) are auto-registered from the station config — define a same-named `conftest.py` fixture only if you need custom setup/teardown.
+`verify` resolves the limit from the part YAML, writes a measurement row, and raises `AssertionError` on fail. Instrument fixtures (`psu`, `dmm`) are auto-registered from the station config — define a same-named `conftest.py` fixture only if you need custom setup/teardown.
 
 ## Test classes are sequences
 
@@ -44,7 +44,7 @@ This matches the way TestStand (National Instruments' commercial test executive)
 ```python
 @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])      # class becomes the outer loop
 class TestPowerSequence:
-    def test_warmup(self, voltage, psu, dut):
+    def test_warmup(self, voltage, psu, uut):
         psu.set_voltage(voltage)
         ...
     def test_load_regulation(self, voltage, eload, dmm, verify):
@@ -114,13 +114,13 @@ Hardware reconfig dominates multi-parameter sweeps (PSU settle 500 ms, DMM range
     {"vin": [5.0, 5.5]},              # middle
     {"load": [0.1, 0.4]},             # inner
 ])
-def test_rails(temp, vin, load, context, psu, chamber, dut_load, dmm, verify):
+def test_rails(temp, vin, load, context, psu, chamber, uut_load, dmm, verify):
     if context.changed("temp"):
         chamber.set_temperature(temp)
         chamber.wait_for_soak()          # 20 min — skipped when temp unchanged
     if context.changed("vin"):
         psu.set_voltage(vin)
-    dut_load.set(load)
+    uut_load.set(load)
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
@@ -146,23 +146,23 @@ and row stamping behave the same as in parametrized mode.
 
 ## Limits
 
-When `logger.measure(name, value)` is called without `limit=`, resolution
+When `measure(name, value)` is called without `limit=`, resolution
 walks the marker merge cascade (see *Merge cascade* below) looking for
 the closest `litmus_limits` entry by measurement name, falling back to:
 
-1. Explicit limit — `logger.measure("v", val, limit={"low": ..., "high": ..., "units": "V"})` (dict literal or `Limit(...)` both work)
+1. Explicit limit — `measure("v", val, limit={"low": ..., "high": ..., "unit": "V"})` (dict literal or `Limit(...)` both work)
 2. Any `litmus_limits` marker (inline decorator, sidecar, profile) whose
    key matches `name`
-3. Product spec via `characteristic: "<name>"` delegation
+3. Part spec via `characteristic: "<name>"` delegation
 4. None — unchecked, recorded anyway (characterization mode)
 
 ```python
 @pytest.mark.litmus_limits(
-    output_voltage={"low": 3.234, "high": 3.366, "units": "V"},
-    efficiency={"characteristic": "efficiency"},   # delegate to product spec
+    output_voltage={"low": 3.234, "high": 3.366, "unit": "V"},
+    efficiency={"characteristic": "efficiency"},   # delegate to part spec
 )
-def test_rails(context, verify, logger, dmm):
-    logger.measure("output_voltage", dmm.measure_dc_voltage())
+def test_rails(context, verify, measure, dmm):
+    measure("output_voltage", dmm.measure_dc_voltage())
     verify("efficiency", compute_eff(...))
 ```
 
@@ -172,7 +172,7 @@ def test_rails(context, verify, logger, dmm):
 |-----------------------------------|---------------------------------------------------------------|
 | `litmus_sweeps([{argname: values, ...}, ...])` | Sweep one or more parameters across values (multiple keys in one dict = zipped; multiple dicts = cross-product) |
 | `litmus_limits(**by_name)`        | Limits by measurement name (supports `when:`-keyed bands)     |
-| `litmus_characteristics([<id>, ...])` | Bind the test to one or more product characteristics (limits + DUT pin auto-resolve) |
+| `litmus_characteristics([<id>, ...])` | Bind the test to one or more part characteristics (limits + UUT pin auto-resolve) |
 | `litmus_connections([name, ...])` or `litmus_connections(**by_instrument)` | Bind to fixture-connection names (positional list, like `litmus_characteristics`) OR to raw instrument channels (kwargs by instrument, like `litmus_limits`) |
 | `litmus_mocks([{target: ..., ...}, ...])` | Patch one or more methods for the test (uses `unittest.mock.patch.object`) |
 | `litmus_prompts(message=...)`      | Manual operator setup at a lifecycle point                    |
@@ -192,13 +192,13 @@ For pytest's own markers and ecosystem plugins:
 | Test-to-test dependencies  | `@pytest.mark.dependency(...)` — `pytest-dependency`        |
 | Retry transient failures   | `@pytest.mark.flaky(reruns=N)` — `pytest-rerunfailures` (or use `litmus_retry` for runner-neutral form) |
 
-Product is session-global: pick it with `--product=<id>` (looks up
-`products/<id>.yaml`) or `--product=<path>` (explicit path). There is no
-per-test product override marker.
+Part is session-global: pick it with `--part=<id>` (looks up
+`parts/<id>.yaml`) or `--part=<path>` (explicit path). There is no
+per-test part override marker.
 
 ## `litmus_characteristics` × `litmus_connections` resolution
 
-The two markers below are the two halves of selecting which pins/connections a test iterates over: `litmus_characteristics` says *which characteristic* on the product, and `litmus_connections` says *which fixture connections* to bind. The matrix exists because they're independent — every combination of "present / absent / by-name / by-channel / fixture loaded / fixture absent" gets a defined behaviour. Skim the table for the case that matches your test.
+The two markers below are the two halves of selecting which pins/connections a test iterates over: `litmus_characteristics` says *which characteristic* on the part, and `litmus_connections` says *which fixture connections* to bind. The matrix exists because they're independent — every combination of "present / absent / by-name / by-channel / fixture loaded / fixture absent" gets a defined behaviour. Skim the table for the case that matches your test.
 
 `litmus_characteristics` and `litmus_connections` are independent markers that
 compose into the iterable connection set on `ctx.connections`. `litmus_connections`
@@ -217,21 +217,21 @@ loaded for the run:
 | Case | `litmus_characteristics` | `litmus_connections` | Fixture loaded? | Result |
 |------|---------------|----------------------|-----------------|--------|
 | 1 | — | — | any | No markers → `ctx.connections` is `None`; test runs once with no connection context. |
-| 2 | `characteristic: X` | — | yes | Iterate every fixture connection whose `dut_pin` (or `net`) is in `X.resolved_pins`. Fixture-order. |
+| 2 | `characteristic: X` | — | yes | Iterate every fixture connection whose `uut_pin` (or `net`) is in `X.resolved_pins`. Fixture-order. |
 | 3 | `characteristic: X` | — | no | Empty iterator (no connections to bind to). Test still iterates `ctx.connections` and gets zero rounds. |
 | 4 | — | `[a, b, …]` (by name) | yes | Iterate the listed connections in user-listed order. Unknown name → `UsageError`. |
 | 5 | — | `[a, b, …]` (by name) | no | `UsageError` — connection names are nonsense without a fixture YAML. |
 | 6 | — | `{inst: [ch, …]}` (by channel) | yes | Match each `(inst, ch)` against fixture connections; user-listed order. No match → `UsageError`. `'all'` → all connections on that instrument. |
-| 7 | — | `{inst: [ch, …]}` (by channel) | no | Synthesize `FixtureConnection` stubs (`name=f"{inst}_ch{ch}"`, no `dut_pin`). Iterable for early bringup. `'all'` → `UsageError` (nothing to enumerate). |
-| 8 | `characteristic: X` | `[a, b, …]` (by name) | yes | Resolve as case 4, then validate every selected connection's `dut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
+| 7 | — | `{inst: [ch, …]}` (by channel) | no | Synthesize `FixtureConnection` stubs (`name=f"{inst}_ch{ch}"`, no `uut_pin`). Iterable for early bringup. `'all'` → `UsageError` (nothing to enumerate). |
+| 8 | `characteristic: X` | `[a, b, …]` (by name) | yes | Resolve as case 4, then validate every selected connection's `uut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
 | 9 | `characteristic: X` | `[a, b, …]` (by name) | no | `UsageError` (case 5 — fixture required for connection names). |
-| 10 | `characteristic: X` | `{inst: [ch, …]}` (by channel) | yes | Resolve as case 6, then validate every match's `dut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
-| 11 | `characteristic: X` | `{inst: [ch, …]}` (by channel) | no | Synthesize stubs (case 7). No `dut_pin` mapping exists, so spec membership cannot be enforced — stubs pass through. |
+| 10 | `characteristic: X` | `{inst: [ch, …]}` (by channel) | yes | Resolve as case 6, then validate every match's `uut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
+| 11 | `characteristic: X` | `{inst: [ch, …]}` (by channel) | no | Synthesize stubs (case 7). No `uut_pin` mapping exists, so spec membership cannot be enforced — stubs pass through. |
 
 Invariants across the matrix:
 
-- **Missing spec context** (cases 2/3/8/10/11 with no product loaded): `UsageError`.
-- **Unknown characteristic** on the product: `UsageError`.
+- **Missing spec context** (cases 2/3/8/10/11 with no part loaded): `UsageError`.
+- **Unknown characteristic** on the part: `UsageError`.
 - **Iteration order**: when `litmus_connections` is present, follows the
   user-listed order; spec-only (case 2) follows fixture iteration order.
 - **Zero remaining connections** after spec × connections filtering:
@@ -252,7 +252,7 @@ marker name.
 ```yaml
 # test_power_board.yaml
 limits:                                           # applied to every test in file
-  output_voltage: {characteristic: output_voltage}   # delegates to product spec
+  output_voltage: {characteristic: output_voltage}   # delegates to part spec
 mocks:
   - {target: "dmm.measure_dc_voltage", return_value: 3.3}
 
@@ -264,7 +264,7 @@ tests:
     tests:
       test_efficiency:                            # nested method
         limits:
-          efficiency: {low: 55, high: 100, units: "%"}
+          efficiency: {low: 55, high: 100, unit: "%"}
 
   test_standalone:                                # module-level test (leaf)
     runner:
@@ -325,7 +325,7 @@ Tests are independent by default — there is no implicit prereq chain. Reach fo
 
 ## Duplicate-name guard
 
-`logger.measure` maintains a `seen_names` set per step. A second call with the same name raises `DuplicateMeasurementError` — typical trigger is `verify("v")` followed by a stray `logger.measure("v", ...)`. For intentional streaming, opt in with `allow_repeat=True`.
+Recording a measurement maintains a `seen_names` set per step. A second call with the same name raises `DuplicateMeasurementError` — typical trigger is `verify("v")` followed by a stray `measure("v", ...)`. For intentional streaming, opt in with `allow_repeat=True`.
 
 ## Graceful degradation
 
@@ -333,10 +333,10 @@ All three config sources are independent — tests work under any combination:
 
 | Sidecar | Spec | Shape                                                          |
 |---------|------|----------------------------------------------------------------|
-| —       | —    | `logger.measure("v", val, limit={"low": ..., "high": ..., "units": "V"})` — explicit |
+| —       | —    | `measure("v", val, limit={"low": ..., "high": ..., "unit": "V"})` — explicit |
 | —       | ✓    | `verify("output_voltage", val)`                            |
-| ✓       | —    | `logger.measure("efficiency", eff)` — auto-resolves            |
-| ✓       | ✓    | `verify` for characteristics; `logger.measure` for procedure |
+| ✓       | —    | `measure("efficiency", eff)` — auto-resolves            |
+| ✓       | ✓    | `verify` for characteristics; `measure` for procedure |
 | —       | —    | `assert 3.2 <= val <= 3.4` — pure pytest, no Litmus machinery  |
 
 ## Instrument access
@@ -351,7 +351,7 @@ def test_a(psu, dmm, verify): ...
 def test_b(instrument):
     dmm = instrument("dmm")
 
-# By DUT pin (requires a fixture YAML)
+# By UUT pin (requires a fixture YAML)
 def test_c(pins, verify):
     pins["VIN"].set_voltage(5.0)
     verify("output_voltage", pins["VOUT"].measure_voltage())
@@ -361,7 +361,7 @@ def test_c(pins, verify):
 
 ```bash
 pytest tests/ \
-  --dut-serial=SN12345 \
+  --uut-serial=SN12345 \
   --station=bench_1 \
   --operator="Jane Doe" \
   --test-phase=production \
@@ -373,12 +373,12 @@ Everything else is standard pytest — see <https://docs.pytest.org/en/stable/re
 
 ## Best practices
 
-1. Prefer `verify(name, v)` when a product spec exists — limits, DUT pin, and spec ref resolve automatically
-2. Use `logger.measure` with inline kwargs or a sidecar `litmus_limits` marker for procedure-only measurements
+1. Prefer `verify(name, v)` when a part spec exists — limits, UUT pin, and spec ref resolve automatically
+2. Use `measure` with inline kwargs or a sidecar `litmus_limits` marker for procedure-only measurements
 3. Use `context.changed()` to skip expensive reconfig across sweep iterations
 4. Prefer inline `@pytest.mark.litmus_limits` for code-owned sweeps; sidecar YAML for operator-edited sweeps
 5. Keep one measurement focus per test — let `litmus_sweeps` expand sweeps, not in-function loops
-6. Never hardcode limits in `assert` — put them in a `litmus_limits` marker, sidecar, or product spec
+6. Never hardcode limits in `assert` — put them in a `litmus_limits` marker, sidecar, or part spec
 
 ## Same tests, different labs
 

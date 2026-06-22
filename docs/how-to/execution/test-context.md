@@ -1,6 +1,6 @@
 # Read and write the test context
 
-The `context` fixture is the test's view of what's active right now: the run record, the station, the product, the current sweep iteration's params, the resolved limits, and the active fixture connections. It also has two writer methods — `configure()` for stimulus values and `observe()` for environmental readings — that stash data on the same context object so the next sweep iteration can read it back via `last()`.
+The `context` fixture is the test's view of what's active right now: the run record, the station, the part, the current sweep iteration's params, the resolved limits, and the active fixture connections. It also has two writer methods — `configure()` for stimulus values and `observe()` for environmental readings — that stash data on the same context object so the next sweep iteration can read it back via `last()`.
 
 Take `context` as a test argument when you need any of that. If a test only takes a single measurement against a single setpoint and never sweeps, you can skip it.
 
@@ -10,7 +10,7 @@ def test_rails(self, context, psu, dmm, verify):
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-DUT identity is at `context.run.dut` — the bare `dut` fixture is a different thing (the live driver). See [Litmus fixtures](../../reference/pytest/fixtures.md) for the full per-test entry points.
+UUT identity is at `context.run.uut` — the bare `uut` fixture is a different thing (the live driver). See [Litmus fixtures](../../reference/pytest/fixtures.md) for the full per-test entry points.
 
 ## Skip expensive setup across a sweep
 
@@ -22,13 +22,13 @@ DUT identity is at `context.run.dut` — the bare `dut` fixture is a different t
     {"vin": [4.5, 5.0, 5.5]},          # middle
     {"load": [0.1, 0.4]},              # inner (fast)
 ])
-def test_rails(temperature, vin, load, context, psu, chamber, dut_load, dmm, verify):
+def test_rails(temperature, vin, load, context, psu, chamber, uut_load, dmm, verify):
     if context.changed("temperature"):
         chamber.set_temperature(temperature)
         chamber.wait_for_stable()      # 20 min — skipped when temperature unchanged
     if context.changed("vin"):
         psu.set_voltage(vin)
-    dut_load.set(load)
+    uut_load.set(load)
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
@@ -53,13 +53,13 @@ You can also take the param as a regular pytest argument (`def test_rails(self, 
 
 `context.get_param(name, default)` returns the default if no sweep / parametrize was declared. `context.params[name]` raises `KeyError` instead — pick by whether a missing param is an error or just absent.
 
-## Read run, station, and product
+## Read run, station, and part
 
 Three properties surface the entities that are active for this test.
 
 ```python
 def test_serial_stamp(self, context, verify):
-    serial = context.run.dut.serial            # str (DUT.serial is required); context.run itself is None outside a run
+    serial = context.run.uut.serial            # str (UUT.serial is required); context.run itself is None outside a run
     verify("serial_present", bool(serial))
 ```
 
@@ -67,11 +67,11 @@ def test_serial_stamp(self, context, verify):
 |-------------------|----------------------------|--------------------------|
 | `context.run`     | `TestRun \| None`          | (no fixture — read here) |
 | `context.station` | `StationConfig \| None`    | `station_config`         |
-| `context.product` | `ProductContext \| None`   | `product_context`        |
+| `context.part` | `Part \| None`   | `part`        |
 
-Each returns `None` when the corresponding tier is absent. Bringup tests (no `stations/` YAML) get `context.station is None`; tests that don't load a product get `context.product is None`. Guard with `if context.station:` before reaching for fields, or take the typed fixture (`station_config`) when the test only runs with a station present — pytest will skip it otherwise.
+Each returns `None` when the corresponding tier is absent. Bringup tests (no `stations/` YAML) get `context.station is None`; tests that don't load a part get `context.part is None`. Guard with `if context.station:` before reaching for fields, or take the typed fixture (`station_config`) when the test only runs with a station present — pytest will skip it otherwise.
 
-See [Stations](../../concepts/configuration/stations.md) and [Products](../../concepts/configuration/products.md) for the underlying entities.
+See [Stations](../../concepts/configuration/stations.md) and [Parts](../../concepts/configuration/parts.md) for the underlying entities.
 
 ## Record stimulus inputs with `configure()`
 
@@ -80,11 +80,11 @@ When a stimulus value isn't already a sweep param — for example, the PSU's *ac
 ```python
 def test_rails(self, context, psu, dmm, verify):
     psu.set_voltage(5.0)
-    context.configure("psu.actual_voltage", psu.read_voltage())
+    context.configure("psu.actual_voltage", psu.read_voltage(), unit="V")
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-Use bare names that match spec condition keys (`temperature`, `load`) when the value drives a band lookup; use a fixture prefix (`psu.actual_voltage`, `dmm.sample_count`) for implementation detail. Whatever you record is visible to `context.last("psu.actual_voltage")` on the next iteration.
+`unit=` is optional and is stored in the parquet `inputs` column alongside the value. Use bare names that match spec condition keys (`temperature`, `load`) when the value drives a band lookup; use a fixture prefix (`psu.actual_voltage`, `dmm.sample_count`) for implementation detail. Whatever you record is visible to `context.last("psu.actual_voltage")` on the next iteration.
 
 ## Record environmental readings with `observe()`
 
@@ -92,14 +92,16 @@ Use bare names that match spec condition keys (`temperature`, `load`) when the v
 
 ```python
 def test_output_voltage(self, context, dmm, temp_probe, verify):
-    context.observe("temp_probe.temperature", temp_probe.read())
-    context.observe("temp_probe.humidity",    temp_probe.read_humidity())
+    context.observe("temp_probe.temperature", temp_probe.read(), unit="°C")
+    context.observe("temp_probe.humidity",    temp_probe.read_humidity(), unit="%RH")
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-Large numeric arrays (raw waveforms, sample blocks) route to the [channel store](../data/querying-channels.md) automatically — `observe()` writes the array and stashes a `channel://` URI on the row. Scalars go straight onto the row.
+`unit=` is optional and is stored in the parquet `outputs` column alongside the value. Large numeric arrays (raw waveforms, sample blocks) route to the [channel store](../data/querying-channels.md) automatically — `observe()` writes the array and stashes a `channel://` URI on the row. Scalars go straight onto the row.
 
-For the parquet column mapping (`in_*` for `configure`, `out_*` for `observe`), see [Traceability](traceability.md).
+Inside a `context.connections` loop, `observe()` auto-stamps `uut_pin` from the active connection — the same automatic pinning that `verify` gets. A raw capture (`observe("scope.cap", wf)`) recorded while iterating pins lands with the active pin's identity so you can later filter observations by `uut_pin`.
+
+For how inputs and outputs land on measurement rows and how to query them by role and name, see [Traceability](traceability.md).
 
 ## Read back what you set last iteration
 
@@ -139,22 +141,22 @@ def test_adaptive(self, context, dmm, verify):
 
 The `Limit` object exposes `low` / `high` / `nominal` / `units` / `comparator` plus traceability fields — see [`Limit` in the models reference](../../reference/data/models.md#model-limit) for the full surface. `get_limit` returns `None` when no limit is defined for that name. For *applying* a limit to a measurement, just pass `limit=...` to `verify` — the resolver runs there automatically.
 
-See [Limits](limits.md) for limit resolution order and [Spec-driven testing](spec-driven-testing.md) for how product specs feed in.
+See [Limits](limits.md) for limit resolution order and [Spec-driven testing](spec-driven-testing.md) for how part specs feed in.
 
 ## Iterate active fixture connections
 
-A fixture connection wires a single DUT pin (or net) to a specific instrument channel — and optionally through a switch route. When the test declares `@pytest.mark.litmus_characteristics([...])` or `@pytest.mark.litmus_connections(...)`, iterating `context.connections` is what *physically moves the bench* between measurements: each step of the loop closes the switch matrix to that connection's pin, so the same `dmm.measure_dc_voltage()` call lands on a different rail every time around. The platform also stamps the measurement row with the connection's `dut_pin` and the matching characteristic id, so the test body stays the same shape no matter how many rails you're walking.
+A fixture connection wires a single UUT pin (or net) to a specific instrument channel — and optionally through a switch route. When the test declares `@pytest.mark.litmus_characteristics([...])` or `@pytest.mark.litmus_connections(...)`, iterating `context.connections` is what *physically moves the bench* between measurements: each step of the loop closes the switch matrix to that connection's pin, so the same `dmm.measure_dc_voltage()` call lands on a different rail every time around. The platform also stamps the measurement row with the connection's `uut_pin` and the matching characteristic id, so the test body stays the same shape no matter how many rails you're walking.
 
 ```python
 @pytest.mark.litmus_characteristics(["rail_3v3", "rail_5v"])
 def test_all_rails(self, context, dmm, verify):
     for conn in context.connections:
-        # Switch matrix is now routed to conn.dut_pin; verify stamps the row
-        # with dut_pin + the matching characteristic_id automatically.
+        # Switch matrix is now routed to conn.uut_pin; verify stamps the row
+        # with uut_pin + the matching characteristic_id automatically.
         verify("voltage", dmm.measure_dc_voltage())
 ```
 
-The loop variable `conn` carries the connection's `dut_pin`, `instrument`, `instrument_channel`, and `instrument_terminal` if you need them for diagnostics or per-rail setup — but for the measurement itself, the platform handles routing and traceability stamping. Test code reads the same whether you have one rail or ten.
+The loop variable `conn` carries the connection's `uut_pin`, `instrument`, `instrument_channel`, and `instrument_terminal` if you need them for diagnostics or per-rail setup — but for the measurement itself, the platform handles routing and traceability stamping. Test code reads the same whether you have one rail or ten.
 
 To walk one characteristic at a time when several are in scope, scope the iteration with `for_characteristic`:
 
@@ -193,7 +195,7 @@ class TestPowerBoard:
 
 ## Common mistakes
 
-- **`context.dut` is an `AttributeError`.** DUT identity is at `context.run.dut`. The bare `dut` fixture is the live driver — a different concept.
+- **`context.uut` is an `AttributeError`.** UUT identity is at `context.run.uut`. The bare `uut` fixture is the live driver — a different concept.
 - **`context.changed("foo")` is `True` on the first iteration.** Use `context.last("foo") is not None` if you mean "from the second iteration onward."
 - **`context.last("output_voltage")` returns `None` when you `verify`d but didn't `configure`/`observe`.** It reads the prior context's `configure` / `observe` stash, not the measurement log.
 - **`context.limits["x"]` is the config, not the resolved limit.** Use `context.get_limit("x")` for `low` / `high` / `nominal`.
@@ -203,7 +205,7 @@ class TestPowerBoard:
 
 - [Writing tests](writing-tests.md) — end-to-end pytest patterns
 - [Test vectors](vector-expansion.md) — sweep shapes, axis ordering, `changed()` patterns
-- [Traceability](traceability.md) — how `configure` / `observe` map to `in_*` / `out_*` parquet columns
+- [Traceability](traceability.md) — how `configure` / `observe` land as inputs and outputs on measurement rows, and how to query them by role and name
 - [Limits](limits.md) — resolution order for `get_limit()`
 - [Litmus fixtures](../../reference/pytest/fixtures.md) — every plugin fixture with signature
 - [Parquet schema](../../reference/data/parquet-schema.md) — the row shape that holds these values

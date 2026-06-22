@@ -8,7 +8,7 @@ Litmus is a Python-native hardware test platform for the AI-assisted era.
 |---------|-------------|
 | [Tutorial](tutorial/) | Engineer's First Project - progressive learning path |
 | [How-To Guides](how-to/execution/writing-tests.md) | Step-by-step guides for common tasks |
-| [Concepts](concepts/) | Products, stations, capabilities, fixtures, and matching |
+| [Concepts](concepts/) | Parts, stations, capabilities, fixtures, and matching |
 | [Reference](reference/runtime/api.md) | MCP tools, HTTP endpoints, CLI, models |
 | [Integration](integration/) | Adopt Litmus with existing tests and infrastructure |
 | [Examples](https://github.com/pragmatest-dev/litmus/tree/main/examples) | Seven runnable example projects, each one rung of the framework adoption ladder (01-vanilla → 07-profiles) |
@@ -47,7 +47,7 @@ flowchart TB
         cfg["Config Loader"]
         drv["Instrument Drivers"]
         match["Matching Service"]
-        product["Product Specs"]
+        part["Part Specs"]
         station["Station Configs"]
         data["Data Backend"]
     end
@@ -70,7 +70,7 @@ flowchart TB
 
 - **pytest integration** — Use familiar pytest patterns with hardware
 - **Config-driven** — YAML configuration, Pydantic validation
-- **Capability matching** — Automatically match products to compatible stations
+- **Capability matching** — Automatically match parts to compatible stations
 - **Simulated mode** — Develop without hardware
 - **AI-ready** — MCP server for Claude Code, Cursor, Cline
 - **Event log** — Typed event stream with Arrow IPC storage and DuckDB queries
@@ -96,8 +96,8 @@ Jump to [Reference](reference/runtime/api.md) for API documentation, configurati
 
 ```
 litmus/
-├── models/          # Pydantic models for every YAML entity (project, station, product, capability, ...)
-├── store.py         # Canonical YAML I/O — every read/write of catalog / station / product / fixture YAML
+├── models/          # Pydantic models for every YAML entity (project, station, part, capability, ...)
+├── store.py         # Canonical YAML I/O — every read/write of catalog / station / part / fixture YAML
 ├── instruments/     # Instrument base classes (Instrument, VisaInstrument) + Mock factory
 ├── matching/        # Capability matching service
 ├── pytest_plugin/   # pytest plugin (fixtures, markers, sidecar loader)

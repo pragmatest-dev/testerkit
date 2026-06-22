@@ -15,15 +15,15 @@ def _range(cond: object) -> RangeSpec:
 def test_parse_parameter_with_specs():
     """SpecBand list parsed from YAML dict."""
     data = {
-        "range": {"min": 0.1, "max": 750, "units": "V"},
+        "range": {"min": 0.1, "max": 750, "unit": "V"},
         "accuracy": {"pct_reading": 0.07, "pct_range": 0.02},
         "bands": [
             {
-                "when": {"frequency": {"min": 3, "max": 5, "units": "Hz"}},
+                "when": {"frequency": {"min": 3, "max": 5, "unit": "Hz"}},
                 "accuracy": {"pct_reading": 0.35, "pct_range": 0.03},
             },
             {
-                "when": {"frequency": {"min": 5, "max": 300, "units": "Hz"}},
+                "when": {"frequency": {"min": 5, "max": 300, "unit": "Hz"}},
                 "accuracy": {"pct_reading": 0.07, "pct_range": 0.02},
             },
         ],
@@ -44,7 +44,7 @@ def test_parse_parameter_with_specs():
 def test_parse_parameter_without_specs():
     """Backward compat: no specs field → specs=None."""
     data = {
-        "range": {"min": 0, "max": 100, "units": "V"},
+        "range": {"min": 0, "max": 100, "unit": "V"},
         "accuracy": {"pct_reading": 0.01},
     }
     param = Signal(**data)

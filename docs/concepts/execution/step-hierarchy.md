@@ -9,16 +9,16 @@ TestRun                              ← one per pytest session
 └── Step                             ← class container (when the class is swept, one per outer iteration)
     └── Step                         ← test method (one per pytest item)
         └── TestVector               ← one per inner iteration (1 for normal swept tests; N for `vectors`-fixture tests)
-            └── Measurement          ← one per `logger.measure` / `verify` call
+            └── Measurement          ← one per `measure` / `verify` call
 ```
 
-Each level emits its own event in the run log. Each level rolls its outcome up to the next level via the severity-max ladder (see [Outcomes](outcomes.md)). `verify` and `logger.measure` are pytest [fixtures](../../reference/pytest/fixtures.md); `vectors` is the [self-loop fixture](../../how-to/execution/vector-expansion.md).
+Each level emits its own event in the run log. Each level rolls its outcome up to the next level via the severity-max ladder (see [Outcomes](outcomes.md)). `verify` and `measure` are pytest [fixtures](../../reference/pytest/fixtures.md); `vectors` is the [self-loop fixture](../../how-to/execution/vector-expansion.md).
 
 ## What each level is
 
 ### TestRun
 
-One run = one pytest session. Wraps a session_id, run_id, dut_serial, station, fixture, operator — all of it is the run-level context.
+One run = one pytest session. Wraps a session_id, run_id, uut_serial, station, fixture, operator — all of it is the run-level context.
 
 Events: `RunStarted` at session start, `RunEnded` at session end. The session also emits `SessionStarted` / `SessionEnded`, but those are session-scoped (could span multiple runs in a multi-slot harness).
 
@@ -44,7 +44,7 @@ For tests using the `vectors` fixture, the test body iterates the matrix itself.
 
 ### Measurement — one recorded value
 
-A `logger.measure("vin_voltage", 3.30)` or a `verify(...)` call. Carries the value, units, limit, characteristic_id, and dut_pin / instrument_resource / fixture_connection traceability fields.
+A `measure("vin_voltage", 3.30)` or a `verify(...)` call. Carries the value, units, limit, characteristic_id, and uut_pin / instrument_resource / fixture_connection traceability fields.
 
 Events: `MeasurementRecorded`. Carries the full effective `inputs` dict — outer step params **merged with** the current vector's inner params — so analytics queries can filter on either dimension without joining back to the step.
 
@@ -67,15 +67,15 @@ Events: `MeasurementRecorded`. Carries the full effective `inputs` dict — oute
 ```python
 @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])      # class-level → outer
 class TestPower:
-    def test_warmup(self, voltage):
-        logger.measure("vin_warmup", voltage)
+    def test_warmup(self, voltage, measure):
+        measure("vin_warmup", voltage)
 
     @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])  # method-level → inner
-    def test_load(self, voltage, current):
-        logger.measure("vout_load", voltage * 1.1)
+    def test_load(self, voltage, current, measure):
+        measure("vout_load", voltage * 1.1)
 
-    def test_cooldown(self, voltage):
-        logger.measure("vin_cooldown", 0)
+    def test_cooldown(self, voltage, measure):
+        measure("vin_cooldown", 0)
 ```
 
 Event stream (condition-first):
@@ -101,30 +101,36 @@ StepStarted ("TestPower",            vi=1, inputs={voltage:2}, ...)
 
 `step_index` for the container is 0 (root-level), for each method is 0/1/2 within the `TestPower` class bucket — so `(step_index=1, vector_index=0)` uniquely points to `test_load[voltage=1, current=4]`.
 
-## `vectors` fixture — one step, many inner vectors
+## `vectors` fixture — one step, many in-body vectors (Mode 2)
 
-When the method uses the `vectors` fixture, pytest sees ONE item per outer iteration. The step has ONE outer identity (matching the outer-iteration position) and N inner TestVectors from the matrix:
+When the method uses the `vectors` fixture, pytest sees ONE item per outer iteration. The step has ONE outer identity (matching the outer-iteration position) and N in-body vector iterations, each bracketed by `VectorStarted` / `VectorEnded` events:
 
 ```python
 @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
 class TestPower:
     @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])
-    def test_load(self, voltage, vectors, logger):
+    def test_load(self, voltage, vectors, measure):
         for v in vectors:
-            logger.measure("vout", voltage * v["current"])
+            measure("vout", voltage * v["current"])
 ```
 
 Event stream:
 
 ```
-StepStarted("test_load",          vi=0, inputs={voltage:1})    # outer position
-MeasurementRecorded("vout", vi=0, inputs={voltage:1, current:4})
-MeasurementRecorded("vout", vi=1, inputs={voltage:1, current:5})
-MeasurementRecorded("vout", vi=2, inputs={voltage:1, current:6})
-StepEnded  ("test_load",          vi=0, vector_outcome=<aggregate across all inner vectors>)
+StepStarted   ("test_load", vi=0, inputs={voltage:1})         # outer position
+VectorStarted ("test_load", vi=0, inputs={voltage:1, current:4})
+MeasurementRecorded("vout", inputs={voltage:1, current:4})
+VectorEnded   ("test_load", vi=0, outcome=passed)
+VectorStarted ("test_load", vi=1, inputs={voltage:1, current:5})
+MeasurementRecorded("vout", inputs={voltage:1, current:5})
+VectorEnded   ("test_load", vi=1, outcome=passed)
+VectorStarted ("test_load", vi=2, inputs={voltage:1, current:6})
+MeasurementRecorded("vout", inputs={voltage:1, current:6})
+VectorEnded   ("test_load", vi=2, outcome=passed)
+StepEnded     ("test_load", vi=0, outcome=<rolled-up>)
 ```
 
-`StepStarted.vector_index` and `StepEnded.vector_index` agree (the outer iteration position). Measurements carry their own `vector_index` (inner counter 0/1/2) plus the full effective `inputs`.
+`StepStarted.vector_index` and `StepEnded.vector_index` agree (the outer iteration position). Each `VectorStarted`/`VectorEnded` pair is the in-body analog of a Mode-1 step boundary — it brackets one iteration's work and carries the full effective `inputs` for that iteration. In the materialized parquet, each `VectorStarted`/`VectorEnded` pair produces one `record_type = 'vector'` row; `record_type = 'step'` rows are NOT emitted for Mode-2 in-body iterations (only for the enclosing step itself).
 
 ## Outcome rollup chain
 
@@ -142,15 +148,17 @@ TestRun.outcome     (the run's overall verdict, on RunEnded)
 
 Severity ladder: `ABORTED > TERMINATED > ERRORED > FAILED > PASSED > DONE > SKIPPED`. Worst wins at every level. Full mapping and producer sites in [Outcomes](outcomes.md).
 
-## Materialized table identity
+## Materialized record identity
 
-The runs daemon materializes step events into a `steps_materialized` DuckDB table with primary key `(run_id, step_path, vector_index)`. Container steps and method steps share the table — discriminate by `parent_path`:
+The per-run parquet contains four `record_type` values: `run`, `step`, `vector`, and `measurement`. Container steps and method steps share the `step` record type — discriminate by `parent_path`:
 
 - `parent_path = ''` → root-level (run-level test functions or class containers)
 - `parent_path = '<class_name>'` → method directly under a class container
-- `parent_path = '<class>/<method>'` → would be a nested step (uncommon today; only via `harness.step()` self-loops)
+- `parent_path = '<class>/<method>'` → nested step (via `harness.step()` self-loops)
 
-`MAX(severity)` over rows sharing a `step_path` aggregates "did this class ever fail in this run" across its iterations. See the [results storage reference](../../reference/data/parquet-schema.md) for the full column schema.
+`vector` records appear only for Mode-2 in-body iterations (`vectors` fixture). They key on `(step_path, parent_path, vector_index, retry)` and sit below their enclosing `step` row. Mode-1 steps (parametrize / single) have no `vector` rows — the `step` row IS the fused step+vector.
+
+`MAX(severity)` over `step` rows sharing a `step_path` aggregates "did this class ever fail in this run" across its iterations. See the [results storage reference](../../reference/data/parquet-schema.md) for the full column schema.
 
 
 ## See also

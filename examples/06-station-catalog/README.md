@@ -16,7 +16,7 @@ limits from stage 5 still apply.
   (referenced from stations).
 - Added ``stations/bench_01.yaml`` — a specific bench, wiring driver
   class → catalog entry → mock values.
-- Added ``fixtures/buck_3v3_bench.yaml`` — connections that route DUT
+- Added ``fixtures/buck_3v3_bench.yaml`` — connections that route UUT
   pins to station instrument channels.
 - Tests gained ``for connection in ctx.connections:`` loops; sidecar
   added ``characteristics: [rail_3v3]`` per test so the resolver
@@ -85,7 +85,7 @@ straight to ``unittest.mock.patch.object``, so ``side_effect``,
 
 ## ``prompts`` — operator in the loop
 
-Hardware test routinely needs a human in the loop: confirm the DUT
+Hardware test routinely needs a human in the loop: confirm the UUT
 is seated, pick a fixture variant, acknowledge a high-voltage step.
 The ``prompt`` fixture resolves named entries declared by ``prompts``
 fields (sidecar) or ``@pytest.mark.litmus_prompts`` decorators
@@ -99,11 +99,11 @@ fields (sidecar) or ``@pytest.mark.litmus_prompts`` decorators
         "choices": ["bench_01", "bench_02"],
     }
 )
-def test_operator_choice_inline(logger, prompt, psu, dmm):
+def test_operator_choice_inline(measure, prompt, psu, dmm):
     chosen = prompt("pick_fixture")
     assert chosen == "bench_01"          # auto-confirm returns first choice
     psu.set_voltage(5.0)
-    logger.measure("v_rail", dmm.measure_dc_voltage())  # no limit → DONE
+    measure("v_rail", dmm.measure_dc_voltage())  # no limit → DONE
 ```
 
 Sidecar form (same effect):

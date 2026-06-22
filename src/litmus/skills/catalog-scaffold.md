@@ -149,7 +149,7 @@ Claude: I know this instrument well (high confidence):
 User: scaffold Acme XYZ-9000
 
 Claude: I don't have reliable information about the Acme XYZ-9000.
-I recommend using /catalog-from-datasheet with the product datasheet
+I recommend using /catalog-from-datasheet with the part datasheet
 to ensure accurate specifications.
 ```
 

@@ -17,7 +17,7 @@ Design contract (see ``project_followup_parametrized_step_nesting``):
 
 Each test spawns a pytest subprocess with ``_LITMUS_SESSION_ID`` set so
 queries scope precisely to this run's events. Event ordering assertions
-read the events table (chronological via ``event_number``); structural
+read the events table (emit order via ``(writer_key, event_offset)``); structural
 assertions read the materialized steps table via :class:`StepsQuery`.
 """
 
@@ -66,7 +66,7 @@ def _wait_for_run(session_id: str, *, timeout: float = 15.0) -> str:
     runs_q = RunsQuery()
     try:
         while time.monotonic() < deadline:
-            runs = runs_q.find_for_session(session_id)
+            runs = runs_q.list_for_session(session_id)
             if runs:
                 assert runs[0].run_id is not None
                 return runs[0].run_id
@@ -94,7 +94,10 @@ def _read_step_events(session_id: str) -> list[dict[str, Any]]:
     sess_uuid = UUID(session_id)
     started = store.events(session_id=sess_uuid, event_type="test.step_started")
     ended = store.events(session_id=sess_uuid, event_type="test.step_ended")
-    merged = sorted(started + ended, key=lambda e: e.get("event_number", 0))
+    merged = sorted(
+        started + ended,
+        key=lambda e: (e.get("writer_key", ""), e.get("event_offset", 0)),
+    )
     return merged
 
 
@@ -494,9 +497,9 @@ def test_swept_class_with_vectors_fixture_inner_sweep(tmp_path: Path) -> None:
         @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])
         class TestSeq:
             @pytest.mark.litmus_sweeps([{"current": [4, 5, 6]}])
-            def test_b(self, voltage, vectors, logger):
+            def test_b(self, voltage, vectors, measure):
                 for v in vectors:
-                    logger.measure("vout", voltage * v["current"])
+                    measure("vout", voltage * v["current"])
         """,
     )
     result = _run_pytest(test_file, session_id=session_id)
@@ -585,12 +588,12 @@ def test_vectors_fixture_outcome_rollup(tmp_path: Path) -> None:
                     if v["target"] < 25:
                         verify(
                             "reading", float(v["target"]),
-                            limit=Limit(low=0, high=20, units="V"),
+                            limit=Limit(low=0, high=20, unit="V"),
                         )
                     else:
                         verify(
                             "reading", float(v["target"]),
-                            limit=Limit(low=25, high=40, units="V"),
+                            limit=Limit(low=25, high=40, unit="V"),
                         )
         """,
     )

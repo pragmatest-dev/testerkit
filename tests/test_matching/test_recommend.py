@@ -39,14 +39,14 @@ def _make_cap(
     direction: str,
     range_max: float | None = None,
     range_min: float | None = None,
-    units: str = "V",
+    unit: str = "V",
     channels: list[str] | None = None,
 ) -> InstrumentCapability:
     params = {}
     param_name = function.replace("dc_", "").replace("ac_", "")
     if range_max is not None or range_min is not None:
         params[param_name] = Signal(
-            range=RangeSpec(min=range_min or 0, max=range_max, units=units),
+            range=RangeSpec(min=range_min or 0, max=range_max, unit=unit),
         )
     return InstrumentCapability(
         function=MeasurementFunction(function),
@@ -63,8 +63,8 @@ FAKE_DMM = _make_entry(
     "dmm",
     [
         _make_cap("dc_voltage", "input", range_max=1000, range_min=0.0001),
-        _make_cap("dc_current", "input", range_max=3, range_min=0, units="A"),
-        _make_cap("resistance", "input", range_max=1e9, range_min=0, units="Ohm"),
+        _make_cap("dc_current", "input", range_max=3, range_min=0, unit="A"),
+        _make_cap("resistance", "input", range_max=1e9, range_min=0, unit="Ohm"),
     ],
 )
 
@@ -75,7 +75,7 @@ FAKE_PSU = _make_entry(
     "psu",
     [
         _make_cap("dc_voltage", "output", range_max=25),
-        _make_cap("dc_current", "output", range_max=1, units="A"),
+        _make_cap("dc_current", "output", range_max=1, unit="A"),
     ],
 )
 
@@ -108,7 +108,7 @@ class TestRecommendFromCatalog:
         catalog = {"keysight_34461a": FAKE_DMM, "keysight_e36312a": FAKE_PSU}
         with _patch_dirs(), _patch_catalog(catalog):
             result = recommend_from_catalog(
-                [{"function": "dc_voltage", "direction": "input", "range_max": 50, "units": "V"}]
+                [{"function": "dc_voltage", "direction": "input", "range_max": 50, "unit": "V"}]
             )
         ids = [r["catalog_id"] for r in result["recommendations"]]
         assert "keysight_34461a" in ids
@@ -120,7 +120,7 @@ class TestRecommendFromCatalog:
         with _patch_dirs(), _patch_catalog(catalog):
             # DMM max current is 3A, asking for 10A should not match
             result = recommend_from_catalog(
-                [{"function": "dc_current", "direction": "input", "range_max": 10, "units": "A"}]
+                [{"function": "dc_current", "direction": "input", "range_max": 10, "unit": "A"}]
             )
         assert result["recommendations"] == []
 
@@ -128,7 +128,7 @@ class TestRecommendFromCatalog:
         catalog = {"keysight_e36312a": FAKE_PSU}
         with _patch_dirs(), _patch_catalog(catalog):
             result = recommend_from_catalog(
-                [{"function": "dc_voltage", "direction": "output", "range_max": 12, "units": "V"}]
+                [{"function": "dc_voltage", "direction": "output", "range_max": 12, "unit": "V"}]
             )
         assert len(result["recommendations"]) == 1
         assert result["recommendations"][0]["catalog_id"] == "keysight_e36312a"
@@ -139,8 +139,8 @@ class TestRecommendFromCatalog:
             "keysight_e36312a": FAKE_PSU,
         }
         reqs = [
-            {"function": "dc_voltage", "direction": "input", "range_max": 50, "units": "V"},
-            {"function": "dc_voltage", "direction": "output", "range_max": 12, "units": "V"},
+            {"function": "dc_voltage", "direction": "input", "range_max": 50, "unit": "V"},
+            {"function": "dc_voltage", "direction": "output", "range_max": 12, "unit": "V"},
         ]
         with _patch_dirs(), _patch_catalog(catalog):
             result = recommend_from_catalog(reqs)
@@ -164,8 +164,8 @@ class TestRecommendFromCatalog:
             "tektronix_mso44": FAKE_SCOPE,
         }
         reqs = [
-            {"function": "dc_voltage", "direction": "input", "range_max": 50, "units": "V"},
-            {"function": "dc_current", "direction": "input", "range_max": 2, "units": "A"},
+            {"function": "dc_voltage", "direction": "input", "range_max": 50, "unit": "V"},
+            {"function": "dc_current", "direction": "input", "range_max": 2, "unit": "A"},
         ]
         with _patch_dirs(), _patch_catalog(catalog):
             result = recommend_from_catalog(reqs)
@@ -190,7 +190,7 @@ PRECISE_DMM = _make_entry(
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=1000, units="V"),
+                    range=RangeSpec(min=0, max=1000, unit="V"),
                     accuracy=AccuracySpec(pct_reading=0.01, pct_range=0.002),
                     resolution=ResolutionSpec(digits=6.5),
                 )
@@ -210,7 +210,7 @@ ROUGH_DMM = _make_entry(
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=1000, units="V"),
+                    range=RangeSpec(min=0, max=1000, unit="V"),
                     accuracy=AccuracySpec(pct_reading=0.1, pct_range=0.05),
                     resolution=ResolutionSpec(digits=5.5),
                 )
@@ -230,21 +230,21 @@ AC_DMM = _make_entry(
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=750, units="V"),
+                    range=RangeSpec(min=0, max=750, unit="V"),
                     accuracy=AccuracySpec(pct_reading=0.1),
                     bands=[
                         SpecBand(
-                            when={"frequency": RangeSpec(min=20, max=50000, units="Hz")},
+                            when={"frequency": RangeSpec(min=20, max=50000, unit="Hz")},
                             accuracy=AccuracySpec(pct_reading=0.05),
                         ),
                         SpecBand(
-                            when={"frequency": RangeSpec(min=50000, max=300000, units="Hz")},
+                            when={"frequency": RangeSpec(min=50000, max=300000, unit="Hz")},
                             accuracy=AccuracySpec(pct_reading=0.2),
                         ),
                     ],
                 )
             },
-            conditions={"frequency": Condition(range=RangeSpec(min=3, max=300000, units="Hz"))},
+            conditions={"frequency": Condition(range=RangeSpec(min=3, max=300000, unit="Hz"))},
         )
     ],
 )
@@ -259,7 +259,7 @@ class TestAccuracyFiltering:
                 "function": "dc_voltage",
                 "direction": "input",
                 "range_max": 100,
-                "units": "V",
+                "unit": "V",
                 "accuracy": {"pct_reading": 0.05},
             }
         ]
@@ -277,7 +277,7 @@ class TestAccuracyFiltering:
                 "function": "dc_voltage",
                 "direction": "input",
                 "range_max": 100,
-                "units": "V",
+                "unit": "V",
                 "accuracy": {"pct_reading": 0.5},
             }
         ]
@@ -297,7 +297,7 @@ class TestResolutionFiltering:
                 "function": "dc_voltage",
                 "direction": "input",
                 "range_max": 100,
-                "units": "V",
+                "unit": "V",
                 "resolution": {"digits": 6.5},
             }
         ]
@@ -317,8 +317,8 @@ class TestConditionFiltering:
                 "function": "ac_voltage",
                 "direction": "input",
                 "range_max": 10,
-                "units": "V",
-                "conditions": {"frequency": {"min": 1000, "max": 50000, "units": "Hz"}},
+                "unit": "V",
+                "conditions": {"frequency": {"min": 1000, "max": 50000, "unit": "Hz"}},
             }
         ]
         with _patch_dirs(), _patch_catalog(catalog):
@@ -336,9 +336,9 @@ class TestConditionFiltering:
                 "function": "ac_voltage",
                 "direction": "input",
                 "range_max": 10,
-                "units": "V",
+                "unit": "V",
                 "accuracy": {"pct_reading": 0.06},
-                "conditions": {"frequency": {"min": 1000, "max": 50000, "units": "Hz"}},
+                "conditions": {"frequency": {"min": 1000, "max": 50000, "unit": "Hz"}},
             }
         ]
         with _patch_dirs(), _patch_catalog(catalog):
@@ -354,9 +354,9 @@ class TestConditionFiltering:
                 "function": "ac_voltage",
                 "direction": "input",
                 "range_max": 10,
-                "units": "V",
+                "unit": "V",
                 "accuracy": {"pct_reading": 0.01},
-                "conditions": {"frequency": {"min": 100000, "max": 200000, "units": "Hz"}},
+                "conditions": {"frequency": {"min": 100000, "max": 200000, "unit": "Hz"}},
             }
         ]
         with _patch_dirs(), _patch_catalog(catalog):
@@ -381,10 +381,10 @@ class TestGracefulDegradation:
                 "function": "dc_voltage",
                 "direction": "input",
                 "range_max": 100,
-                "units": "V",
+                "unit": "V",
                 "accuracy": {"pct_reading": 0.05},
             },
-            {"function": "dc_voltage", "direction": "output", "range_max": 12, "units": "V"},
+            {"function": "dc_voltage", "direction": "output", "range_max": 12, "unit": "V"},
         ]
         with _patch_dirs(), _patch_catalog(catalog):
             result = recommend_from_catalog(reqs)

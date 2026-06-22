@@ -47,6 +47,21 @@ _SPAWN_TIMEOUT = float(os.environ.get("LITMUS_DAEMON_SPAWN_TIMEOUT", "30"))
 _acquired: dict[str, DaemonManager] = {}
 
 
+def _daemon_log_tail(log_path: Path, n: int = 25) -> str:
+    """Return the last ``n`` significant lines of a daemon log for error context.
+
+    Drops the high-volume Arrow Acero alignment warnings so a real traceback
+    (e.g. a DuckDB BinderException from a schema-drifted index) isn't buried.
+    """
+    try:
+        lines = log_path.read_text(errors="replace").splitlines()
+    except OSError:
+        return "(no daemon log)"
+    significant = [ln for ln in lines if "poorly aligned" not in ln]
+    tail = (significant or lines)[-n:]
+    return "--- daemon log tail ---\n" + "\n".join(tail)
+
+
 def _installed_version() -> str:
     """Return the installed litmus version string."""
     from litmus import __version__
@@ -355,12 +370,18 @@ class DaemonManager:
         while time.monotonic() < deadline:
             if ready_file.exists():
                 return
+            if proc.poll() is not None:
+                raise RuntimeError(
+                    f"Daemon exited (code {proc.returncode}) before signaling ready. "
+                    f"dir={self._dir}, cmd={cmd}\n{_daemon_log_tail(log_path)}"
+                )
             time.sleep(0.05)
 
         proc.kill()
         proc.wait(timeout=2)
         raise RuntimeError(
-            f"Daemon failed to start within {_SPAWN_TIMEOUT}s. dir={self._dir}, cmd={cmd}"
+            f"Daemon failed to start within {_SPAWN_TIMEOUT}s. dir={self._dir}, "
+            f"cmd={cmd}\n{_daemon_log_tail(log_path)}"
         )
 
     def _read_pid(self) -> int:
@@ -395,3 +416,21 @@ class DaemonManager:
         # No signal handlers — release() is a no-op so there is nothing
         # to do on SIGINT/SIGTERM. pytest and uvicorn both manage their
         # own signal handling; installing a handler here only interferes.
+
+
+def wait_for_location(mgr: DaemonManager, store_dir: Path, label: str) -> str:
+    """Poll the daemon's state file until it writes its Flight location (up to 5s).
+
+    Shared by every store's manager (events / runs / files). ``label`` names
+    the store in the timeout error.
+    """
+    deadline = time.monotonic() + 5.0
+    while True:
+        location = mgr.read_state().get("location")
+        if location:
+            return location
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"{label} daemon started but no location in state after 5s: {store_dir}"
+            )
+        time.sleep(0.05)

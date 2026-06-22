@@ -138,7 +138,7 @@ class TestQuickstart:
         assert (project / "litmus.yaml").exists()
         assert (project / "tests" / "test_example.py").exists()
         assert (project / "stations" / "starter_station.yaml").exists()
-        assert (project / "products" / "example_product.yaml").exists()
+        assert (project / "parts" / "example_part.yaml").exists()
         assert (project / "fixtures" / "example_fixture.yaml").exists()
         assert (project / "pyproject.toml").exists()
 
@@ -204,7 +204,7 @@ class TestRunsAndShow:
         assert "Measurements:" in result.stdout
 
     def test_show_no_none_values(self, starter_project: tuple[Path, Path]):
-        """Bug regression: litmus show must not print 'None' for units/limits."""
+        """Bug regression: litmus show must not print 'None' for unit/limits."""
         project, home = starter_project
         runs = _litmus("runs", cwd=project, home=home)
         run_id = runs.stdout.strip().split("\n")[-1].split()[0]
@@ -261,11 +261,11 @@ class TestMetricsAnalytics:
         result = _litmus("metrics", "pareto", "--phase", "all", cwd=project, home=home)
         assert result.returncode == 0
 
-    def test_metrics_cpk(self, starter_project: tuple[Path, Path]):
+    def test_metrics_ppk(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
         result = _litmus(
             "metrics",
-            "cpk",
+            "ppk",
             "--phase",
             "all",
             "--min-samples",

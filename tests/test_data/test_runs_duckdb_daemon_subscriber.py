@@ -13,10 +13,13 @@ in-flight run — which is exactly what was reported. These tests pin
 the wiring end-to-end: real events daemon, real runs daemon, real
 Flight RPCs, real watcher loop. No mocks of subscription plumbing.
 
-Latency budget per assertion: the test process buffers events with a
-1s flush timer + the daemon's watcher polls every 500ms, so each
-upsert takes up to ~2s to land. We poll with a generous timeout
-rather than sleeping a fixed duration.
+Latency budget per assertion: the test flushes events to the events
+daemon, which stamps each with a monotonic position; the runs daemon's
+watcher receives them over a held-open push stream (no poll). The only
+cold-start cost is the attach handshake — the runs daemon's attach loop
+notices a fresh events daemon within ~0.5s, then subscribes and replays
+anything already in flight. We poll the query side with a generous
+timeout rather than sleeping a fixed duration.
 """
 
 from __future__ import annotations
@@ -143,8 +146,8 @@ def _emit_run_started(
             station_id="bench-01",
             station_name="Bench 1",
             station_hostname="bench-01.local",
-            dut_serial="SN-LIVE-001",
-            dut_part_number="PN-100",
+            uut_serial="SN-LIVE-001",
+            uut_part_number="PN-100",
             test_phase="production",
             project_name="demo",
             pid=os.getpid(),
@@ -213,7 +216,7 @@ class TestLiveRunVisibility:
         assert row.run_id == str(run_id)
         assert row.ended_at is None
         assert row.outcome is None
-        assert row.dut_serial == "SN-LIVE-001"
+        assert row.uut_serial == "SN-LIVE-001"
         assert row.station_hostname == "bench-01.local"
 
     def test_run_ended_finalizes_row(self):

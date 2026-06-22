@@ -30,7 +30,7 @@ from litmus.data.subscribers._output_file import OutputFile
 
 def _build_comment(
     meas_name: str,
-    units: str | None,
+    unit: str | None,
     comparator: str | None,
     low: float | None,
     high: float | None,
@@ -38,8 +38,8 @@ def _build_comment(
 ) -> str:
     """Build XML comment fragment with limit metadata."""
     parts = [f'<measurement name="{meas_name}">']
-    if units:
-        parts.append(f"  <units>{units}</units>")
+    if unit:
+        parts.append(f"  <unit>{unit}</unit>")
     if comparator:
         parts.append(f"  <comparator>{comparator}</comparator>")
     if low is not None:
@@ -71,7 +71,7 @@ def _signals_from_measurements(
         if mname not in meas_data:
             meas_data[mname] = {}
             meas_meta[mname] = {
-                "units": m.units if isinstance(m.units, str) else None,
+                "unit": m.unit if isinstance(m.unit, str) else None,
                 "limit_comparator": m.limit_comparator,
                 "limit_low": m.limit_low,
                 "limit_high": m.limit_high,
@@ -96,7 +96,7 @@ def _signals_from_measurements(
         meta = meas_meta[mname]
         comment = _build_comment(
             mname,
-            meta["units"],
+            meta["unit"],
             meta["limit_comparator"],
             meta["limit_low"],
             meta["limit_high"],
@@ -107,7 +107,7 @@ def _signals_from_measurements(
                 samples=samples,
                 timestamps=timestamps,
                 name=mname,
-                unit=meta["units"] or "",
+                unit=meta["unit"] or "",
                 comment=comment,
             )
         )

@@ -6,27 +6,33 @@ import json
 from uuid import uuid4
 
 from litmus.data.events import (
+    ChannelStarted,
     InstrumentConfigure,
     InstrumentDisconnected,
-    InstrumentRead,
     InstrumentSet,
 )
 
 
 class TestSerialization:
-    def test_instrument_read_roundtrip(self):
-        event = InstrumentRead(
+    def test_channel_started_roundtrip(self):
+        # Position 2 / v0.2.0: per-sample InstrumentRead was retired.
+        # ChannelStarted fires once per (channel_id, session_id) on
+        # first write. Carries the instrument identity when source is
+        # an instrument observer; sample data lives in ChannelStore.
+        event = ChannelStarted(
             session_id=uuid4(),
-            instrument_role="dmm",
             channel_id="dmm.dc_voltage",
+            instrument_role="dmm",
             method="measure_dc_voltage",
-            value=3.3,
-            units="V",
+            resource="GPIB0::22::INSTR",
+            unit="V",
         )
         data = json.loads(event.model_dump_json())
-        assert data["event_type"] == "instrument.read"
-        assert data["value"] == 3.3
-        assert data["units"] == "V"
+        assert data["event_type"] == "channel.started"
+        assert data["channel_id"] == "dmm.dc_voltage"
+        assert data["instrument_role"] == "dmm"
+        assert data["method"] == "measure_dc_voltage"
+        assert data["unit"] == "V"
 
     def test_instrument_set_roundtrip(self):
         event = InstrumentSet(

@@ -1,14 +1,14 @@
 ---
 name: datasheet-to-test
-description: Create hardware tests from a product datasheet using Litmus MCP tools. Guides through spec extraction, station setup, and test generation with step-by-step approval.
+description: Create hardware tests from a part datasheet using Litmus MCP tools. Guides through spec extraction, station setup, and test generation with step-by-step approval.
 ---
 
 # Datasheet to Test Workflow
 
 <overview>
-Create hardware tests from a product datasheet using Litmus.
+Create hardware tests from a part datasheet using Litmus.
 
-Flow: Datasheet → Product Spec → Station → Tests → Results
+Flow: Datasheet → Part Spec → Station → Tests → Results
          1           2            3         4        5
 
 This is a COLLABORATIVE workflow — the user approves at every gate.
@@ -21,16 +21,16 @@ This is a COLLABORATIVE workflow — the user approves at every gate.
 - Present choices as numbered lists at the END of your message.
 - ALWAYS use ask_user_input_v0 (or AskUserQuestion in Claude Code) at approval gates — never present options as text like [A]pprove [E]dit.
 - Pass project= to ALL MCP calls after init.
-- Product characteristics use the full Capability schema (signals, conditions, controls, attributes). See docs/capability-schema.md.
+- Part characteristics use the full Capability schema (signals, conditions, controls, attributes). See docs/capability-schema.md.
 </rules>
 
 <tools>
 | Tool | Purpose |
 |------|---------|
 | litmus_project(action="init", path="...") | Initialize project, returns project_root |
-| litmus_project(action="save", type="...", id="...", content={...}, project=...) | Save product/station/test |
+| litmus_project(action="save", type="...", id="...", content={...}, project=...) | Save part/station/test |
 | litmus_project(action="read", path="...", project=...) | Read files or templates |
-| litmus_match(product_id, station_id, project) | Check compatibility |
+| litmus_match(part_id, station_id, project) | Check compatibility |
 | litmus_run(test="...", station="...", serial="...", project=...) | Execute tests |
 | litmus_open(type="...", id="...") | Get browser URL for viewing/editing |
 | litmus_project(action="lookup_enum", id="FRES") | Resolve datasheet abbreviation to enum value |
@@ -63,7 +63,7 @@ Use litmus_project(action="lookup_enum", id="...") to resolve datasheet abbrevia
 
 <step id="1.5">
 Extract key information:
-- Product ID, name, description
+- Part ID, name, description
 - Pin definitions (name, role, net)
 - Electrical characteristics (voltage, current, power, timing)
 - Test conditions (temperature, load, input voltage)
@@ -75,7 +75,7 @@ signal (measured/stimulated, default), reference (voltage ref, not driven).
 
 <step id="1.6">
 Show the user:
-1. Product summary with part number, name, datasheet info
+1. Part summary with part number, name, datasheet info
 2. Pin table (name, role, net, purpose)
 3. Characteristics table (name, function, direction, nominal value, test conditions)
 4. Confidence assessment (0-100%, list any ambiguities or uncertain specs)
@@ -92,21 +92,21 @@ Emit: <gate-result phase="1" action="approved|revised" />
 
 ---
 
-<phase id="2" name="Save Product Spec">
+<phase id="2" name="Save Part Spec">
 
 Goal: Save the extracted spec and let user refine it.
 
 <step id="2.1">
 Show the draft spec structure (YAML preview).
 Highlight any uncertainties or missing fields.
-Use ``litmus_project(action="schema", type="product")`` to fetch the live
-product schema (server-side Pydantic). Characteristics use the
+Use ``litmus_project(action="schema", type="part")`` to fetch the live
+part schema (server-side Pydantic). Characteristics use the
 Capability schema — same four dicts (signals, conditions, controls,
 attributes) and SpecBand matching as catalog entries.
 </step>
 
 <step id="2.2">
-Save with litmus_project(action="save", type="product", ...) — schema is validated server-side.
+Save with litmus_project(action="save", type="part", ...) — schema is validated server-side.
 </step>
 
 <step id="2.3">
@@ -132,14 +132,14 @@ Emit: <gate-result phase="2" action="approved|revised" />
 Goal: Find catalog instruments that can measure/source the extracted characteristics.
 
 <step id="2b.1">
-Consider passive components first: Not every DUT pin needs a programmable instrument.
+Consider passive components first: Not every UUT pin needs a programmable instrument.
 A power resistor or voltage divider may suffice for fixed operating points.
 Only recommend programmable instruments when the test needs dynamic control.
 </step>
 
 <step id="2b.2">
-Call litmus_match(product_id="<product_id>", project=project_root) —
-the platform derives requirements from the saved product characteristics automatically.
+Call litmus_match(part_id="<part_id>", project=project_root) —
+the platform derives requirements from the saved part characteristics automatically.
 Do NOT build requirements manually.
 </step>
 
@@ -219,39 +219,41 @@ Generate **pytest-native** test code. Tests are plain pytest — no decorator, n
 Skeleton to follow:
 
 ```python
-# tests/test_<product>.py
+# tests/test_<part>.py
 import pytest
 
 class TestRails:
     @pytest.mark.parametrize("load", [0.1, 0.4])
     @pytest.mark.parametrize("vin", [4.5, 5.0, 5.5])
-    def test_output_voltage(self, vin, load, context, verify, psu, dmm, dut_load):
+    def test_output_voltage(self, vin, load, context, verify, psu, dmm, uut_load):
         if context.changed("vin"):
             psu.set_voltage(vin)
-        dut_load.set(load)
+        uut_load.set(load)
         verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Notes for good generation:
-- Use `verify(name, v)` for judgment-bearing measurements — limits resolve from active product/sidecar/profile; raises `LimitFailure` on out-of-band, `MissingLimitError` if no limit configured
-- Use `logger.measure(name, v)` for record-only measurements (setup readouts, characterization) — stamps `Outcome.DONE`, never raises
+- Use `verify(name, v)` for judgment-bearing measurements — limits resolve from active part/sidecar/profile; raises `LimitFailure` on out-of-band, `MissingLimitError` if no limit configured
+- Use `observe(name, v)` for record-only measurements and evidence (setup readouts, characterization, captures) — no judgment, never raises. Routes by shape: scalars land inline, arrays / `Waveform` go to ChannelStore, blobs / images go to FileStore as a `file://` artifact auto-linked from the run
+- Use `stream(name, sample)` to push one time-series sample to ChannelStore across a sweep (e.g. a rail logged under increasing load)
+- `observe` / `verify` / `stream` are the three test-author verbs — see `litmus refs show observe`
 - Use `context.changed(k)` in parametrized sweeps to skip expensive reconfig
 - Prefer native `@pytest.mark.parametrize` for code-owned sweeps; use sidecar `vectors:` for operator-edited sweeps
 </step>
 
 <step id="4.2">
-Create a **sidecar YAML** (`tests/test_<product>.yaml`) with any combination of `sweeps:`, `limits:`, `mocks:`, `characteristics:`. Sidecar is for operator-editable values; inline markers are for values that belong with the code. Limit shapes: `{low, high, units, nominal?, comparator?}` for an explicit band, or `{characteristic: <id>, tolerance_pct: <n>}` to bind to a product characteristic.
+Create a **sidecar YAML** (`tests/test_<part>.yaml`) with any combination of `sweeps:`, `limits:`, `mocks:`, `characteristics:`. Sidecar is for operator-editable values; inline markers are for values that belong with the code. Limit shapes: `{low, high, unit, nominal?, comparator?}` for an explicit band, or `{characteristic: <id>, tolerance_pct: <n>}` to bind to a part characteristic.
 
 Example:
 
 ```yaml
-# tests/test_<product>.yaml
+# tests/test_<part>.yaml
 vectors:
   vin: [4.5, 5.0, 5.5]
   load: [0.1, 0.4, 0.8]
 limits:
-  efficiency:     {low: 55, high: 100, units: "%"}
-  output_voltage: {ref: "output_voltage"}    # delegates to product spec
+  efficiency:     {low: 55, high: 100, unit: "%"}
+  output_voltage: {ref: "output_voltage"}    # delegates to part spec
 mocks:
   dmm.measure_dc_voltage: 3.3
 ```

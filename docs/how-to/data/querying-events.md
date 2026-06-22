@@ -44,7 +44,7 @@ curl "http://localhost:8000/api/events?since=2026-03-10T14:00:00Z&limit=50"
 ```python
 from uuid import UUID
 from datetime import datetime
-from litmus.data.event_store import EventStore
+from litmus.queries import EventStore
 
 store = EventStore()
 try:

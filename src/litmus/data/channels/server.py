@@ -1,247 +1,161 @@
-"""Arrow Flight server for cross-process channel streaming.
+"""Wire a ChannelStore onto the shared ``DuckDBFlightServer``.
 
-Wraps a ChannelStore instance. Handles:
-- do_put: remote writes → store.write() → persist + fan-out
-- do_get: subscribe → stream batches as they arrive
-- list_flights: enumerate active channels
-- get_flight_info: channel schema + metadata
+Channels has no SQL-over-one-table read and no plain-insert write, so it rides
+the shared server through its two extension seams:
+
+- **do_put → put-hook** (``ingest_batch``): index the live samples + return the
+  batch for per-subscriber fan-out. The wire batch carries the ``channel_id``
+  column, so the shared server's per-subscription equality filter routes each
+  subscriber its channel with no client-side broadcast noise.
+- **do_get → query-hook**: the typed read verb (range / last-N / decimate /
+  ``session_id``) plus the ``__registry__`` and ``__channels__`` discovery
+  verbs — so a channels db needs no DuckDB connection on the server.
+
+Live subscribe uses the shared per-subscription buffer with a ``channel_id``
+predicate; channels registers NO ``replay_sql``, so the buffer is lossy
+(drop-oldest + gap, recover from the durable segment) — the channels contract.
+Client-chosen ``LATEST`` conflation rides the buffer's ``conflate`` flag.
 """
 
 from __future__ import annotations
 
-import queue
 import threading
 import warnings
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
 import pyarrow as pa
-import pyarrow.flight as flight
 
-from litmus.data.channels.models import (
-    ChannelSample,
-    batch_row_to_sample,
-    sample_schema,
-    sample_to_batch,
-)
+from litmus.data._duckdb_flight_server import DuckDBFlightServer
+from litmus.data.channels.models import CHANNELS_FLIGHT_DB, sample_schema
 
 if TYPE_CHECKING:
     from litmus.data.channels.store import ChannelStore
 
+_REGISTRY_VERB = "__registry__"
+_CHANNELS_VERB = "__channels__"
+# Lock-free liveness verb: answers without touching the store/index, so a busy
+# daemon (writers holding _index_lock) is never falsely declared dead. A probe
+# routed through store.query would contend on _index_lock under write load and
+# trigger a spurious kill-and-respawn — the channels concurrent-write collapse.
+_PING_VERB = "__ping__"
 
-class ChannelFlightServer(flight.FlightServerBase):
-    """Arrow Flight server for cross-process channel streaming."""
 
-    def __init__(
-        self,
-        store: ChannelStore,
-        location: str = "grpc://127.0.0.1:0",
-    ) -> None:
-        super().__init__(location)
-        self._store = store
-        self._lock = threading.Lock()
-        # channel_id → list of queues for active do_get subscribers
-        self._flight_subscribers: dict[str, list[queue.Queue[pa.RecordBatch | None]]] = {}
-        # Register a global on_channel callback to fan out to Flight subscribers
-        self._unsub = store.on_channel(None, self._on_sample)
+def _channel_descriptors_table(store: ChannelStore) -> pa.Table:
+    """Enumeration verb result: one ``descriptor`` JSON row per active channel.
 
-    def _on_sample(self, sample: ChannelSample) -> None:
-        """Fan out new samples to channel-specific and wildcard subscribers."""
-        with self._lock:
-            batch: pa.RecordBatch | None = None
-            # Deliver to channel-specific and wildcard ("*") subscribers
-            for key in (sample.channel_id, "*"):
-                queues = self._flight_subscribers.get(key)
-                if not queues:
-                    continue
-                if batch is None:
-                    batch = sample_to_batch(sample)
-                dead: list[queue.Queue[pa.RecordBatch | None]] = []
-                for q in queues:
-                    try:
-                        q.put_nowait(batch)
-                    except queue.Full:
-                        dead.append(q)
-                for q in dead:
-                    queues.remove(q)
+    Replaces the old ``list_flights`` app_metadata carrier — the client rebuilds
+    each ``ChannelDescriptor`` from the JSON.
+    """
+    descs = [desc for desc, _schema in store.list_channel_info()]
+    return pa.table({"descriptor": pa.array([d.model_dump_json() for d in descs], type=pa.utf8())})
 
-    def do_put(
-        self,
-        _context: flight.ServerCallContext,
-        descriptor: flight.FlightDescriptor,
-        reader: flight.MetadataRecordBatchReader,
-        _writer: flight.FlightMetadataWriter,
-    ) -> None:
-        """Remote producer writes data to a channel."""
-        channel_id = descriptor.command.decode("utf-8")
-        for chunk in reader:
-            batch = chunk.data
+
+def _make_query_hook(store: ChannelStore):  # type: ignore[no-untyped-def]
+    """do_get verb router: discovery verbs, else ``channel_id?params`` → query."""
+
+    def hook(payload: str) -> pa.Table:
+        if payload == _PING_VERB:
+            return pa.table({"ok": pa.array([1], type=pa.int8())})
+        if payload == _REGISTRY_VERB:
+            return store.query_registry()
+        if payload == _CHANNELS_VERB:
+            return _channel_descriptors_table(store)
+        channel_id, _, query_str = payload.partition("?")
+        params = parse_qs(query_str)
+        kwargs: dict[str, object] = {}
+        if "session_id" in params:
+            kwargs["session_id"] = params["session_id"][0]
+        if "max_points" in params:
+            kwargs["max_points"] = int(params["max_points"][0])
+        if "last_n" in params:
+            kwargs["last_n"] = int(params["last_n"][0])
+        if "start" in params:
+            kwargs["start"] = datetime.fromisoformat(params["start"][0])
+        if "end" in params:
+            kwargs["end"] = datetime.fromisoformat(params["end"][0])
+        return store.query(channel_id, **kwargs)  # type: ignore[arg-type]
+
+    return hook
+
+
+def _make_put_hook(store: ChannelStore):  # type: ignore[no-untyped-def]
+    """do_put handler: absorb the descriptor, index the batch.
+
+    Returns ``None`` — fan-out is NOT driven off the hook return. Both the do_put
+    path (here, via ``ingest_batch``) and an in-process ``store.write`` funnel
+    through the store's ``_notify_batch``, and the ``on_batch`` bridge registered
+    in :func:`register_channel_hooks` is the single fan-out into the server's
+    subscribers. The producer pushes one channel per ``do_put``, so the batch is
+    single-``channel_id``.
+    """
+
+    def hook(table: pa.Table) -> pa.Table | None:
+        if table.num_rows == 0:
+            return None
+        channel_id = table.column("channel_id")[0].as_py()
+        # Absorb the descriptor ONCE per channel (the bespoke server did it once
+        # per stream-open). After the first batch the registry holds it, so the
+        # per-batch hot path skips the metadata parse + the registry INSERT under
+        # _index_lock — and keeps ingest_batch's columnar fast path alive (it
+        # needs the registered scalar descriptor to take the columnar branch).
+        if store._index is not None and not store._index.has(channel_id):
+            store._index.absorb_descriptor(channel_id, table.schema)
+        for batch in table.to_batches():
             try:
-                _write_batch_to_store(self._store, channel_id, batch)
+                store.ingest_batch(channel_id, batch)
             except (OSError, ValueError, pa.ArrowException) as exc:
                 warnings.warn(
-                    f"Flight do_put failed for '{channel_id}': {exc}",
+                    f"Channel ingest failed for {channel_id!r}: {exc}",
                     stacklevel=2,
                 )
+        return None
 
-    def do_get(
-        self,
-        _context: flight.ServerCallContext,
-        ticket: flight.Ticket,
-    ) -> flight.GeneratorStream:
-        """Consumer subscribes to live channel data, or queries historical."""
-        raw = ticket.ticket.decode("utf-8")
-
-        # Historical query: channel_id?start=...&end=...&max_points=...
-        if "?" in raw:
-            channel_id, query_str = raw.split("?", 1)
-            params = parse_qs(query_str)
-            kwargs: dict[str, Any] = {}
-            if "session_id" in params:
-                kwargs["session_id"] = params["session_id"][0]
-            if "max_points" in params:
-                kwargs["max_points"] = int(params["max_points"][0])
-            if "last_n" in params:
-                kwargs["last_n"] = int(params["last_n"][0])
-            if "start" in params:
-                try:
-                    kwargs["start"] = datetime.fromisoformat(params["start"][0])
-                except ValueError as exc:
-                    raise flight.FlightServerError(
-                        f"Invalid 'start' timestamp: {params['start'][0]!r} ({exc})"
-                    ) from exc
-            if "end" in params:
-                try:
-                    kwargs["end"] = datetime.fromisoformat(params["end"][0])
-                except ValueError as exc:
-                    raise flight.FlightServerError(
-                        f"Invalid 'end' timestamp: {params['end'][0]!r} ({exc})"
-                    ) from exc
-            table = self._store.query(channel_id, **kwargs)
-            batches = table.to_batches()
-            if batches:
-                return flight.RecordBatchStream(table)
-            return flight.GeneratorStream(table.schema, iter([]))
-
-        # Live subscription
-        channel_id = raw
-        q: queue.Queue[pa.RecordBatch | None] = queue.Queue(maxsize=10_000)
-
-        with self._lock:
-            self._flight_subscribers.setdefault(channel_id, []).append(q)
-
-        def _generate():  # type: ignore[no-untyped-def]
-            try:
-                while True:
-                    try:
-                        batch = q.get(timeout=1.0)
-                    except queue.Empty:
-                        continue
-                    if batch is None:
-                        break
-                    yield batch
-            finally:
-                with self._lock:
-                    subs = self._flight_subscribers.get(channel_id, [])
-                    try:
-                        subs.remove(q)
-                    except ValueError:
-                        pass
-
-        # Use a schema that covers common cases; actual batches may vary
-        schema = sample_schema()
-        return flight.GeneratorStream(schema, _generate())
-
-    def list_flights(
-        self,
-        _context: flight.ServerCallContext,
-        criteria: bytes,
-    ) -> list[flight.FlightInfo]:
-        """List active channels with their schemas."""
-        result = []
-        for desc, schema in self._store.list_channel_info():
-            fi = flight.FlightInfo(
-                schema,
-                flight.FlightDescriptor.for_command(desc.channel_id.encode("utf-8")),
-                [],
-                -1,
-                -1,
-            )
-            result.append(fi)
-        return result
-
-    def get_flight_info(
-        self,
-        _context: flight.ServerCallContext,
-        descriptor: flight.FlightDescriptor,
-    ) -> flight.FlightInfo:
-        """Return schema and metadata for a channel."""
-        channel_id = descriptor.command.decode("utf-8")
-        schema = self._store.get_channel_schema(channel_id)
-        if schema is None:
-            raise flight.FlightUnavailableError(f"Unknown channel: {channel_id}")
-        return flight.FlightInfo(
-            schema,
-            descriptor,
-            [],
-            -1,
-            -1,
-        )
-
-    def shutdown(self) -> None:
-        """Stop the server and clean up subscribers."""
-        # Signal all subscriber queues to stop
-        with self._lock:
-            for queues in self._flight_subscribers.values():
-                for q in queues:
-                    try:
-                        q.put_nowait(None)
-                    except queue.Full:
-                        pass
-            self._flight_subscribers.clear()
-        self._unsub()
-        super().shutdown()
+    return hook
 
 
-def _write_batch_to_store(
-    store: ChannelStore,
-    channel_id: str,
-    batch: pa.RecordBatch,
-) -> None:
-    """Write a Flight batch into the store, row by row.
+def register_channel_hooks(server: DuckDBFlightServer, store: ChannelStore) -> None:
+    """Register the channels put/query/subscribe seams on a shared server.
 
-    Channel id comes from the descriptor (caller), not the batch — a
-    remote producer addresses one channel per do_put. Per-row metadata
-    (units, sample_interval, source_method) flows through the shared
-    :func:`batch_row_to_sample` helper.
+    The ``on_batch`` bridge is the one fan-out into the server's subscribers:
+    every batch the store produces — a remote ``do_put`` (via the put-hook's
+    ``ingest_batch``) or an in-process ``store.write`` — fires ``_notify_batch``,
+    which the bridge relays to ``_publish``; the per-subscription ``channel_id``
+    predicate then routes each subscriber its channel.
     """
-    for i in range(batch.num_rows):
-        sample = batch_row_to_sample(batch, i)
-        kwargs: dict[str, object] = {"source": sample.source_method}
-        if sample.units is not None:
-            kwargs["units"] = sample.units
-        if sample.sample_interval is not None:
-            kwargs["sample_interval"] = sample.sample_interval
-        store.write(channel_id, sample.value, **kwargs)  # type: ignore[arg-type]
+    server.register_put_hook(CHANNELS_FLIGHT_DB, _make_put_hook(store))
+    server.register_query_hook(CHANNELS_FLIGHT_DB, _make_query_hook(store))
+    # No replay_sql → the subscribe buffer is lossy (drop-oldest + gap), the
+    # channels live-tail contract. The stream yields sample_schema batches.
+    server.register_subscribe_schema(CHANNELS_FLIGHT_DB, sample_schema())
+
+    def _relay(_channel_id: str, batch: pa.RecordBatch) -> None:
+        # Skip the table-build + publish when nobody is subscribed — the daemon's
+        # ingest hot path (a pure-write workload has no live subscribers) pays
+        # nothing for fan-out it won't do.
+        if server.has_subscribers(CHANNELS_FLIGHT_DB):
+            server._publish(CHANNELS_FLIGHT_DB, pa.Table.from_batches([batch]))
+
+    store.on_batch(None, _relay)
 
 
 def start_server_background(
     store: ChannelStore,
     location: str = "grpc://127.0.0.1:0",
-) -> tuple[ChannelFlightServer, str]:
-    """Start a ChannelFlightServer in a background thread.
+) -> tuple[DuckDBFlightServer, str]:
+    """Start a shared Flight server wired for ``store`` in a background thread.
 
-    Returns (server, actual_location) where actual_location includes the
-    OS-assigned port if port was 0. The host is preserved from the
-    input ``location`` so callers binding to a non-localhost address
-    get the right URL back.
+    Returns ``(server, actual_location)`` with the OS-assigned port substituted
+    when ``location`` requested port 0, preserving the requested host.
     """
-    server = ChannelFlightServer(store, location)
-    # Parse "grpc://host:port" → preserve host, substitute actual bound port
+    # parallel=True so concurrent producers' do_put isn't serialized on a
+    # server-wide lock channels doesn't need (the store owns its index locking)
+    # — matches the daemon and the bespoke server's lock-free do_put.
+    server = DuckDBFlightServer(location, parallel=True)
+    register_channel_hooks(server, store)
     parsed = urlparse(location)
     host = parsed.hostname or "127.0.0.1"
     actual_location = f"grpc://{host}:{server.port}"
-    thread = threading.Thread(target=server.serve, daemon=True, name="channel-flight")
-    thread.start()
+    threading.Thread(target=server.serve, daemon=True, name="channel-flight").start()
     return server, actual_location

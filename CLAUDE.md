@@ -14,7 +14,7 @@ Litmus is a Python-native hardware test **platform** for the AI-assisted era. It
 2. **Integrate, don't reinvent** — Use popular libraries (pytest, Pydantic, FastAPI, PyVISA) that LLMs know deeply
 3. **Configuration as source of truth** — Non-developers can modify test behavior without touching code
 4. **AI-ready, not AI-dependent** — Expose MCP tools and HTTP APIs for external agents; platform does NOT call LLMs
-5. **Starts simple, grows with you** — After install, `pytest` passes on any machine — no server, no account, no hardware needed to begin. Add what you need as you need it: measurement logging, station config, product specs, capability matching — in whatever order fits your project.
+5. **Starts simple, grows with you** — After install, `pytest` passes on any machine — no server, no account, no hardware needed to begin. Add what you need as you need it: measurement logging, station config, part specs, capability matching — in whatever order fits your project.
 
 ## Common Commands
 
@@ -36,7 +36,7 @@ litmus mcp serve               # Start MCP server
 ## Folder Convention
 
 Entity-aligned folders contain YAML configuration files. Code folders contain Python scripts.
-- **YAML config**: `catalog/`, `instruments/`, `stations/`, `products/`, `fixtures/`, `sequences/`
+- **YAML config**: `catalog/`, `instruments/`, `stations/`, `parts/`, `fixtures/`, `sequences/`
 - **Python code**: `drivers/`, `tests/`
 
 ## Test Storage Convention
@@ -44,7 +44,7 @@ Entity-aligned folders contain YAML configuration files. Code folders contain Py
 Tests in this repo write to the project-local data dir
 (`<repo>/data/`, scoped by the repo's `litmus.yaml`). Per-test
 isolation is by **identifier** (uuid4 `run_id`, `session_id`,
-unique `dut_serial` / `product_id`), NEVER by `tmp_path` for any
+unique `uut_serial` / `part_id`), NEVER by `tmp_path` for any
 constructor that spawns a daemon.
 
 **Forbidden** (each spawns a per-test daemon, ~100 gRPC threads;
@@ -131,7 +131,7 @@ When planning a new feature or significant change for Litmus, always follow this
 3. **Write the plan** — Create the implementation plan with tasks, files to create/modify, and verification steps
 4. **Exit plan mode** — Present the plan for user approval
 
-IMPORTANT: Always invoke `/agent-os:shape-spec` before finalizing the plan.
+**Shaping style (preferred):** shape plans as an *interactive teaching session* — start high-level, then go one level deeper per topic, a few paragraphs at a time, pausing for questions before advancing — rather than dumping a long plan doc for review. Build the plan file incrementally as decisions settle; reserve plan-mode exit for when the model is fully walked and the decisions are locked. Approved plans are encoded as a living **execution diary** (design contract + progress log) committed under `docs/_internal/explorations/` for cross-session execution. (Plans are shaped via direct discussion + plan mode; the agent-os step above is no longer used.)
 
 ## Plan Adherence — NO DESIGN DEVIATIONS
 

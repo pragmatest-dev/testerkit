@@ -22,12 +22,14 @@ What we assert here:
 from __future__ import annotations
 
 import textwrap
+from collections.abc import Iterator
 from uuid import uuid4
 
 import pyarrow.parquet as pq
 import pytest
 
 from litmus.data.data_dir import resolve_data_dir
+from litmus.data.run_store import RunStore
 
 pytest_plugins = ["pytester"]
 
@@ -43,6 +45,29 @@ _INI = textwrap.dedent(
 
 # Project-local results via repo ``litmus.yaml``.
 _CANONICAL_RESULTS = resolve_data_dir()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _runs_daemon_for_verify_cascade() -> Iterator[None]:
+    """Keep the runs daemon alive for this module's pytester-subprocess tests.
+
+    These tests run pytest in a subprocess, which emits events to the
+    canonical events tree but doesn't directly spawn the runs daemon
+    (the subprocess doesn't construct a RunStore that would acquire
+    it). The materialization the tests poll for happens *inside* the
+    runs daemon — so without an acquire-on-this-process, the daemon
+    never spawns and no parquets get materialized.
+
+    Running the test file in isolation surfaces the gap; running the
+    full suite hides it because some earlier test acquires a RunStore.
+    This module-scoped fixture pins the daemon as a ref so it stays
+    alive throughout, regardless of which order the file runs in.
+    """
+    store = RunStore()
+    try:
+        yield
+    finally:
+        store.close()
 
 
 def _read_measurement_row(serial: str, measurement_name: str, *, timeout: float = 15.0) -> dict:
@@ -67,9 +92,20 @@ def _read_measurement_row(serial: str, measurement_name: str, *, timeout: float 
         time.sleep(0.2)
     assert parquet is not None, f"no measurement parquet for serial={serial!r}"
     table = pq.read_table(parquet)
-    rows = [r for r in table.to_pylist() if r.get("measurement_name") == measurement_name]
-    assert rows, f"no row for {measurement_name!r} in {parquet}"
-    return rows[0]
+    # Measurements are nested on the vector row; return the vector context
+    # merged with the flat ``measurement_*`` keys (the fact shape callers use).
+    for r in table.to_pylist():
+        if r.get("record_type") != "vector":
+            continue
+        for m in r.get("measurements") or []:
+            if m["name"] == measurement_name:
+                return {
+                    **r,
+                    "measurement_name": m["name"],
+                    "measurement_value": m["value"],
+                    "measurement_outcome": m["outcome"],
+                }
+    raise AssertionError(f"no measurement {measurement_name!r} in {parquet}")
 
 
 @pytest.mark.parametrize(
@@ -96,13 +132,13 @@ def test_verify_cascade_to_streaming_row(
             from litmus.models.test_config import Limit
 
             def test_rail(verify):
-                verify("v_rail", {value}, limit=Limit(low=3.0, high=3.6, units="V"))
+                verify("v_rail", {value}, limit=Limit(low=3.0, high=3.6, unit="V"))
             """
         )
     )
     serial = f"test-{uuid4().hex[:8]}"
     result = pytester.runpytest_subprocess(
-        f"--dut-serial={serial}",
+        f"--uut-serial={serial}",
         "--mock-instruments",
         "-q",
     )
@@ -124,10 +160,10 @@ def test_verify_cascade_to_streaming_row(
     assert row["run_outcome"] == expected_outcome
 
 
-def test_logger_measure_alone_still_stamps_done(pytester: pytest.Pytester) -> None:
-    """``logger.measure`` (no verify) keeps the recorder default DONE.
+def test_measure_alone_still_stamps_done(pytester: pytest.Pytester) -> None:
+    """``measure`` (no verify) keeps the recorder default DONE.
 
-    The cascade fix is verify-specific. Plain ``logger.measure`` calls
+    The cascade fix is verify-specific. Plain ``measure`` calls
     must continue to produce DONE rows (the recorder semantic — "ran,
     no judgment").
     """
@@ -135,14 +171,14 @@ def test_logger_measure_alone_still_stamps_done(pytester: pytest.Pytester) -> No
     pytester.makepyfile(
         test_seq=textwrap.dedent(
             """
-            def test_rail(logger):
-                logger.measure("v_rail", 3.3)
+            def test_rail(measure):
+                measure("v_rail", 3.3)
             """
         )
     )
     serial = f"test-{uuid4().hex[:8]}"
     result = pytester.runpytest_subprocess(
-        f"--dut-serial={serial}",
+        f"--uut-serial={serial}",
         "--mock-instruments",
         "-q",
     )
@@ -169,7 +205,7 @@ def test_in_test_vector_iteration_allows_repeat_name(pytester: pytest.Pytester) 
 
             def test_rails(vectors, verify):
                 for v in vectors:
-                    verify("v_rail", 3.3, limit=Limit(low=3.0, high=3.6, units="V"))
+                    verify("v_rail", 3.3, limit=Limit(low=3.0, high=3.6, unit="V"))
             """
         )
     )
@@ -185,7 +221,7 @@ def test_in_test_vector_iteration_allows_repeat_name(pytester: pytest.Pytester) 
     )
     serial = f"test-{uuid4().hex[:8]}"
     result = pytester.runpytest_subprocess(
-        f"--dut-serial={serial}",
+        f"--uut-serial={serial}",
         "--mock-instruments",
         "-q",
     )
@@ -210,6 +246,12 @@ def test_in_test_vector_iteration_allows_repeat_name(pytester: pytest.Pytester) 
         time.sleep(0.2)
     assert parquet is not None, f"no parquet for {serial}"
     table = pq.read_table(parquet)
-    rows = [r for r in table.to_pylist() if r.get("measurement_name") == "v_rail"]
-    assert len(rows) == 3, f"expected 3 rows (one per vector), got {len(rows)}"
-    assert {r["measurement_outcome"] for r in rows} == {"passed"}
+    rows = [
+        m
+        for r in table.to_pylist()
+        if r.get("record_type") == "vector"
+        for m in (r.get("measurements") or [])
+        if m["name"] == "v_rail"
+    ]
+    assert len(rows) == 3, f"expected 3 measurements (one per vector), got {len(rows)}"
+    assert {r["outcome"] for r in rows} == {"passed"}

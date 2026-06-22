@@ -12,8 +12,8 @@ For the full field-by-field reference of each model, see [models.md](models.md).
 | `litmus.yaml` | [`ProjectConfig`](models.md#model-projectconfig) | Project root — names, defaults, profiles, multi-slot knobs. |
 | `stations/<id>.yaml` | [`StationConfig`](models.md#model-stationconfig) | Concrete station deployment — instruments, drivers, resources. |
 | `stations/types/<id>.yaml` | [`StationType`](models.md#model-stationtype) | Abstract station-type template — required roles, capabilities. |
-| `fixtures/<id>.yaml` | [`FixtureConfig`](models.md#model-fixtureconfig) | DUT-pin ↔ instrument-channel routing (single-DUT) or per-slot routing (multi-DUT). |
-| `products/<id>.yaml` | [`Product`](models.md#model-product) | Product specification — pins, signal groups, characteristics. |
+| `fixtures/<id>.yaml` | [`FixtureConfig`](models.md#model-fixtureconfig) | UUT-pin ↔ instrument-channel routing (single-UUT) or per-slot routing (multi-UUT). |
+| `parts/<id>.yaml` | [`Part`](models.md#model-part) | Part specification — pins, signal groups, characteristics. |
 | `tests/test_<name>.yaml` | [`SidecarConfig`](models.md#model-sidecarconfig) | Sidecar test config co-located with `tests/test_<name>.py` — sweeps, limits, mocks, retry, prompts. |
 | `catalog/<vendor>/<model>.yaml` | [`InstrumentCatalogEntry`](models.md#model-instrumentcatalogentry) | Instrument capability catalog — see [catalog-schema.md](catalog-schema.md) for the full reference. |
 <!-- GENERATED:configuration-file-index:end -->
@@ -44,7 +44,7 @@ required_inputs:                  # optional — dict[name, PromptConfig] (opera
     message: "Scan operator badge"
     prompt_type: input
 
-multi_slot:                       # optional — multi-DUT orchestrator knobs
+multi_slot:                       # optional — multi-UUT orchestrator knobs
   child_grace_seconds: 5.0        # seconds from SIGTERM to SIGKILL per child pytest
 ```
 
@@ -70,7 +70,7 @@ profiles:
         - flaky:
             reruns: 2
     limits:                                   # session-wide limits
-      output_voltage: {low: 3.2, high: 3.4, units: V}
+      output_voltage: {low: 3.2, high: 3.4, unit: V}
     tests:                                    # recursive per-class / per-method overrides
       test_thermal:
         sweeps:
@@ -144,18 +144,18 @@ capabilities: [thermal_soak, dual_dmm_compare]
 
 ## Fixture — `fixtures/<id>.yaml` {#fixture-yaml}
 
-DUT-pin ↔ instrument-channel routing. Validated by [`FixtureConfig`](models.md#model-fixtureconfig).
+UUT-pin ↔ instrument-channel routing. Validated by [`FixtureConfig`](models.md#model-fixtureconfig).
 
-Single-DUT — top-level `connections:`:
+Single-UUT — top-level `connections:`:
 
 ```yaml
 id: power_board_fix
 name: "Power Board Test Fixture"
-product_id: power_board                # specific product (preferred)
-product_family: power_boards           # OR product family for shared fixtures
-product_revision: rev_a                # optional — refinement
+part_id: power_board                   # specific part (preferred)
+part_family: power_boards              # OR part family for shared fixtures
+part_revision: rev_a                   # optional — refinement
 station_types: [thermal_bench, rf_bench]  # which StationType templates this can wire against
-dut_resource: "/dev/ttyUSB0"           # optional — DUT control connection
+uut_resource: "/dev/ttyUSB0"           # optional — UUT control connection
 description: "Standard 4-rail board fixture"
 
 connections:                           # dict[name, FixtureConnection]
@@ -164,7 +164,7 @@ connections:                           # dict[name, FixtureConnection]
     instrument: dmm                    # role name on the station
     instrument_channel: "1"
     instrument_terminal: hi            # optional — hi / lo / sense_hi / sense_lo / signal / …
-    dut_pin: VOUT                      # reference into Product.pins
+    uut_pin: VOUT                      # reference into Part.pins
     net: VOUT_3V3                      # optional — schematic net name
     function: dc_voltage               # optional — per-function disambiguation (DMM for DC, scope for AC)
     description: "Direct-wired DMM probe on VOUT"
@@ -173,59 +173,59 @@ connections:                           # dict[name, FixtureConnection]
     name: vout_switched
     instrument: dmm
     instrument_channel: "1"
-    dut_pin: VOUT
+    uut_pin: VOUT
     route:                             # optional — switch routing (SwitchRoute)
       switch: matrix                   # role name of the switch instrument
       channels: ["r0c0"]
       settling_ms: 10
 ```
 
-Multi-DUT — top-level `slots:` instead of `connections:`:
+Multi-UUT — top-level `slots:` instead of `connections:`:
 
 ```yaml
 id: multi_slot_fix
 name: "Quad Power Board Fixture"
-product_id: power_board
+part_id: power_board
 station_types: [bench_4ch]
 slots:                                 # dict[slot_name, FixtureSlot]
   slot_1:
-    dut_resource: "/dev/ttyUSB0"       # per-slot DUT connection
+    uut_resource: "/dev/ttyUSB0"       # per-slot UUT connection
     description: "Bottom-left slot"
     connections:
       vout_measure:
         name: vout_measure
         instrument: dmm
         instrument_channel: "1"
-        dut_pin: VOUT
+        uut_pin: VOUT
   slot_2:
-    dut_resource: "/dev/ttyUSB1"
+    uut_resource: "/dev/ttyUSB1"
     connections:
       vout_measure:
         name: vout_measure
         instrument: dmm
         instrument_channel: "2"
-        dut_pin: VOUT
+        uut_pin: VOUT
 ```
 
 - `FixtureConnection.name` is required — there is no key-as-name auto-fill. Declare `name:` matching the dict key on every connection.
 - `connections:` and `slots:` are mutually exclusive on a single `FixtureConfig` — validator rejects both being set.
 
-See [concepts/fixtures.md](../concepts/configuration/fixtures.md) for the design rationale, [how-to/multi-dut-testing.md](../how-to/execution/multi-dut-testing.md) for slot workflow.
+See [concepts/fixtures.md](../concepts/configuration/fixtures.md) for the design rationale, [how-to/multi-uut-testing.md](../how-to/execution/multi-uut-testing.md) for slot workflow.
 
-## Product — `products/<id>.yaml` {#product-yaml}
+## Part — `parts/<id>.yaml` {#part-yaml}
 
-Product specification. Validated by [`Product`](models.md#model-product). Filename stem must equal `id:`.
+Part specification. Validated by [`Part`](models.md#model-part). Filename stem must equal `id:`.
 
 ```yaml
 id: power_board                       # required — matches filename stem
 name: "DC-DC Power Board"             # required
-part_number: PWR-CONV-001             # optional — operator-facing dut_part_number
-base: power_board_base                # optional — inherits from another product (see Variants)
+part_number: PWR-CONV-001             # optional — operator-facing uut_part_number
+base: power_board_base                # optional — inherits from another part (see Variants)
 revision: rev_a
 description: "5 V → 3.3 V buck converter"
 datasheet: "docs/DS-power-board-001.pdf"
 schematic: "docs/SCH-power-board-001.pdf"
-driver: drivers.power_board.PowerBoard   # optional — dotted import path for DUT driver
+driver: drivers.power_board.PowerBoard   # optional — dotted import path for UUT driver
 
 pins:                                 # dict[key, Pin] — physical connection points
   VIN:
@@ -252,11 +252,11 @@ signal_groups:                        # dict[name, SignalGroup] — bus interfac
     parameters:
       frequency: 100000
 
-characteristics:                      # dict[name, ProductCharacteristic]
+characteristics:                      # dict[name, PartCharacteristic]
   rail_3v3_output:
     function: dc_voltage              # MeasurementFunction enum
     direction: output                 # input | output | bidir | transform
-    units: V
+    unit: V
     pin: VOUT                         # at least one of: pin, pins, net, signal_group
     datasheet_ref: "Table 4.2"
     bands:                            # list[SpecBand]
@@ -264,14 +264,14 @@ characteristics:                      # dict[name, ProductCharacteristic]
         value: 3.3
         accuracy: {pct_reading: 3.0}
       - when:
-          temperature: {min: 0, max: 70, units: degC}
+          temperature: {min: 0, max: 70, unit: degC}
         value: 3.3
         accuracy: {pct_reading: 2.0}
 ```
 
-- `bands:` lives inside each characteristic. There is no top-level `bands:` on `Product`.
-- `ProductCharacteristic` fields: `function`, `direction`, `units`, `pin`, `pins`, `net`, `signal_group`, `datasheet_ref`, plus the inherited `signals`/`conditions`/`controls`/`attributes`/`bands` from `Capability`. There is no `channel:` / `channels:` / `schematic_ref:` on characteristics — the loader rejects unknown keys.
-- `base:` lets a product inherit from another. The loader searches the products directory for a file whose stem matches the `base:` value first, then scans every product YAML for an `id:` match. Circular and missing-base references raise an error at load time.
+- `bands:` lives inside each characteristic. There is no top-level `bands:` on `Part`.
+- `PartCharacteristic` fields: `function`, `direction`, `unit`, `pin`, `pins`, `net`, `signal_group`, `datasheet_ref`, plus the inherited `signals`/`conditions`/`controls`/`attributes`/`bands` from `Capability`. There is no `channel:` / `channels:` / `schematic_ref:` on characteristics — the loader rejects unknown keys.
+- `base:` lets a part inherit from another. The loader searches the parts directory for a file whose stem matches the `base:` value first, then scans every part YAML for an `id:` match. Circular and missing-base references raise an error at load time.
 
 See [tutorial/06-specifications.md](../tutorial/06-specifications.md) for the workflow and [how-to/spec-driven-testing.md](../how-to/execution/spec-driven-testing.md) for spec-driven verify.
 
@@ -282,8 +282,8 @@ Co-located with each test module. Validated by [`SidecarConfig`](models.md#model
 ```yaml
 # tests/test_power.yaml — sibling to tests/test_power.py
 limits:                               # dict[measurement_name, MeasurementLimitConfig]
-  output_voltage: {low: 3.2, high: 3.4, units: V}
-  ripple_mv:    {high: 50, units: mV, characteristic: ripple_spec}
+  output_voltage: {low: 3.2, high: 3.4, unit: V}
+  ripple_mv:    {high: 50, unit: mV, characteristic: ripple_spec}
 
 sweeps:                               # list[SweepEntry] — vector cross-products
   - {vin: [4.5, 5.0, 5.5], load: [0.1, 0.5, 1.0]}
@@ -294,7 +294,7 @@ mocks:                                # list[MockEntry] — installed via patch.
   - target: dmm.measure_dc_voltage
     return_value: 3.31
 
-characteristics: [rail_3v3_output]    # bind tests to product characteristics
+characteristics: [rail_3v3_output]    # bind tests to part characteristics
 
 connections: ["vout_measure"]         # constrain to a subset of fixture connections
 
@@ -304,8 +304,8 @@ retry:                                # RetryConfig
   on: [AssertionError, TimeoutError]  # exception class names; None = retry on any
 
 prompts:                              # dict[id, PromptConfig]
-  confirm_dut_seated:
-    message: "Confirm DUT is seated correctly"
+  confirm_uut_seated:
+    message: "Confirm UUT is seated correctly"
     prompt_type: confirm
 
 runner: {}                            # opaque per-runner config
@@ -313,14 +313,14 @@ runner: {}                            # opaque per-runner config
 tests:                                # recursive — keyed by pytest node-id segment
   TestRails:                          # class-level entry — overrides apply to its methods
     limits:
-      output_voltage: {low: 3.25, high: 3.35, units: V}
+      output_voltage: {low: 3.25, high: 3.35, unit: V}
     tests:                            # per-method entries live under another `tests:` key
       test_rail_under_load:           # most specific
         sweeps:
           - {load: [0.1, 1.0, 2.0]}
 ```
 
-- `limits:` value shape: see [`MeasurementLimitConfig`](models.md#model-measurementlimitconfig). Supports direct `{low, high, nominal, units}`, characteristic-driven `{characteristic, tolerance_pct}`, conditional `{bands: [...]}`, callable, lookup tables, and stepped — see [how-to/limits.md](../how-to/execution/limits.md).
+- `limits:` value shape: see [`MeasurementLimitConfig`](models.md#model-measurementlimitconfig). Supports direct `{low, high, nominal, unit}`, characteristic-driven `{characteristic, tolerance_pct}`, conditional `{bands: [...]}`, callable, lookup tables, and stepped — see [how-to/limits.md](../how-to/execution/limits.md).
 - `sweeps:` value shape is a list of dicts; each dict maps param name → list of values. Multiple dicts in the list compose as axes (cross-product).
 - `retry:` field names are `max_retries` and `delay`, not `max_attempts` / `delay_seconds`.
 
@@ -358,7 +358,7 @@ capabilities:
     direction: input
     signals:
       voltage:
-        range: {min: 0.0001, max: 1000, units: V}
+        range: {min: 0.0001, max: 1000, unit: V}
         accuracy: {pct_reading: 0.0024, pct_range: 0.0005}
 ```
 
@@ -372,7 +372,7 @@ Most loaders live in `litmus.store`:
 from pathlib import Path
 from litmus.store import (
     load_project, load_station, load_station_type,
-    load_fixture, load_product, load_catalog_entry,
+    load_fixture, load_part, load_catalog_entry,
 )
 
 project = load_project(Path("litmus.yaml"))
@@ -398,7 +398,7 @@ Every loader raises with the offending field path on type / shape errors and a c
 - [Profiles (how-to)](../how-to/execution/profiles.md) — workflow for the `profiles:` block
 - [Limits (how-to)](../how-to/execution/limits.md) — `MeasurementLimitConfig` shapes
 - [Spec-driven testing (how-to)](../how-to/execution/spec-driven-testing.md) — characteristic-driven limits
-- [Multi-DUT testing (how-to)](../how-to/execution/multi-dut-testing.md) — fixture `slots:` workflow
+- [Multi-UUT testing (how-to)](../how-to/execution/multi-uut-testing.md) — fixture `slots:` workflow
 - [Mock mode (how-to)](../how-to/configuration/mock-mode.md) — station `mock_config:` and sidecar `mocks:`
 - [Pytest-native (reference)](pytest-native.md) — node IDs, marker surface
 - [Litmus markers (reference)](litmus-markers.md) — every marker with payload shape

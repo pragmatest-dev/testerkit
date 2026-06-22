@@ -22,6 +22,8 @@ pytest = no per-test daemon spawning.
 import os
 from pathlib import Path
 
+import pytest
+
 # Auto-confirm any interactive dialogs so tests don't block.
 os.environ.setdefault("LITMUS_AUTO_CONFIRM", "confirm")
 
@@ -63,3 +65,20 @@ os.environ.setdefault("LITMUS_HOME", str(_PROJECT_DATA.parent))
 # wires up on first spawn (see
 # ``_runs_duckdb_daemon._start_event_subscriber``).
 (_PROJECT_DATA / "events").mkdir(parents=True, exist_ok=True)
+
+
+@pytest.fixture(autouse=True)
+def _reset_filestore_singleton():
+    """Clear the process-wide ``get_filestore()`` singleton after each test.
+
+    Tests that monkeypatch ``resolve_data_dir`` to a ``tmp_path`` can cache a
+    tmp-bound FileStore in the module singleton (ref resolution in
+    ``data/backends/parquet.py`` reaches for ``get_filestore()``). Without a
+    reset that instance leaks into the next test, whose ``/api/files`` route
+    then resolves against the deleted tmp dir and 404s. Reset on teardown so
+    no test inherits a stale singleton.
+    """
+    yield
+    from litmus.data.files import _reset_for_tests
+
+    _reset_for_tests()

@@ -25,8 +25,8 @@ On the [Results detail](../../reference/operator-ui/results/detail.md)
 page, both tabs show the same shape — overview card, step tree,
 measurements table. Quickly scan:
 
-- **Overview**: Outcome, started_at, duration, station, product
-  revision. If the runs ran on different stations or product
+- **Overview**: Outcome, started_at, duration, station, part
+  revision. If the runs ran on different stations or part
   revisions, that's your difference.
 - **Step tree**: which step has a different outcome? Click into the
   step on each tab to see the per-attempt measurements.
@@ -112,4 +112,4 @@ the tool of your choice.
 - [Channels reference](../../reference/operator-ui/channels/list.md) — the channel views used in step 3
 - [Parquet schema](../../reference/data/parquet-schema.md) — the columns you can join on
 - [Three stores](../../concepts/data/three-stores.md) — where the parquet files live
-- [Find flaky tests](find-flaky-tests.md) — when the two runs are the same test on the same DUT
+- [Find flaky tests](find-flaky-tests.md) — when the two runs are the same test on the same UUT

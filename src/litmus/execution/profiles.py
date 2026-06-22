@@ -114,7 +114,7 @@ def collect_profile_facet_keys(project: ProjectConfig) -> list[str]:
 
 
 def facet_key_to_cli_flag(key: str) -> str:
-    """Map a facet key (``product``, ``instrument_set``) to its CLI flag form."""
+    """Map a facet key (``part``, ``instrument_set``) to its CLI flag form."""
     return f"--{key.replace('_', '-')}"
 
 

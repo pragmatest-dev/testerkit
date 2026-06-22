@@ -25,20 +25,19 @@ from litmus.data._collection_indices import StepKey, assign_indices
 from litmus.data.models import CollectedItem, Outcome, escalate_outcome, retry_aware_rollup
 from litmus.execution._state import (
     get_active_instruments,
-    get_active_product_context,
+    get_active_part_context,
     get_active_profile,
     get_active_profile_name,
     get_active_slot_runner,
-    get_current_logger,
+    get_channel_store,
+    get_current_run_scope,
     set_active_instruments,
     set_active_profile,
-    set_channel_store,
     set_collected_items,
     set_current_code_identity,
     set_current_slot_id,
     set_current_step_aliases,
     set_current_step_config,
-    set_event_store,
     set_instrument_records,
     set_test_node_aliases,
     set_test_node_configs,
@@ -205,7 +204,7 @@ def pytest_configure(config):
         "class names to retry on (default: any exception).",
         "litmus_limits(**kwargs): Inject limits by measurement name (merges with sidecar limits:)",
         "litmus_characteristics([<characteristic_id>, ...]): Bind the test to one "
-        "or more product characteristics; provides spec-relative limit "
+        "or more part characteristics; provides spec-relative limit "
         "context and auto-derives fixture connections from the "
         "characteristic's pins. v1 supports one binding per test (single "
         "iteration scope); multi-binding semantics may relax in future.",
@@ -300,8 +299,83 @@ def pytest_report_header(config):
     return lines
 
 
+# Stash keys for the producer session opened at sessionstart and closed at
+# sessionfinish — the run fixture (RunStarted) and pytest_sessionfinish
+# (SessionEnded + close) read the scope/id from here.
+_SESSION_SCOPE_KEY: pytest.StashKey = pytest.StashKey()
+_SESSION_ID_KEY: pytest.StashKey = pytest.StashKey()
+# The run controller (RunScope) for THIS pytest session, stored by the run
+# fixture. Used by pytest_sessionfinish to finalize the session's own run on a
+# KeyboardInterrupt (where sessionfinish fires before the fixture's teardown) —
+# scoped to this session's run, NOT get_current_run_scope() (which a nested
+# in-process pytester run restores to the OUTER run, finalizing it prematurely).
+_RUN_SCOPE_KEY: pytest.StashKey = pytest.StashKey()
+
+
+def _open_session_for_pytest(session) -> None:
+    """Open the producer session (correlation root) at pytest start.
+
+    Lifted out of the run fixture. Station identity resolves through the
+    runner-neutral store path (same as connect()), so it needs no pytest
+    fixtures and matches how any producer opens a session. The SessionScope
+    is stashed on the pytest session for the run fixture (RunStarted) and
+    pytest_sessionfinish (SessionEnded + close) to pick up.
+    """
+    from pathlib import Path
+    from uuid import UUID, uuid4
+
+    from litmus.data.channels.store import ChannelStore
+    from litmus.data.data_dir import resolve_data_dir
+    from litmus.execution.session_scope import build_session_started, open_session
+    from litmus.pytest_plugin.helpers import (
+        find_station_file,
+        is_multi_slot_worker,
+        resolve_station_id,
+    )
+    from litmus.store import load_project_config, load_station
+
+    config = session.config
+    data_dir_opt = config.getoption("--data-dir")
+    data_dir = Path(data_dir_opt) if data_dir_opt else resolve_data_dir()
+
+    env_session_id = os.environ.get("_LITMUS_SESSION_ID")
+    session_id = UUID(env_session_id) if env_session_id else uuid4()
+
+    station_path = find_station_file(config)
+    station_config = load_station(station_path) if station_path else None
+    # Test sessions take the project's session-will defaults as-is (fail-fast
+    # liveness — no interactive lease bump). litmus.yaml ``session:`` → platform
+    # default when unset.
+    project = load_project_config()
+    started = build_session_started(
+        station_config,
+        session_id=session_id,
+        session_type="test_run",
+        operator_id=config.getoption("--operator", default=None),
+        station_id=resolve_station_id(config),
+        session_options=project.session,
+    )
+    scope = open_session(
+        started,
+        session_id=session_id,
+        data_dir=data_dir,
+        reuse_existing=True,
+        emit_lifecycle=not is_multi_slot_worker(),
+    )
+    channel_store = ChannelStore(
+        data_dir,
+        session_id,
+        serve=True,
+        event_log=scope.event_log,
+        checkpoint_cadence=project.stream.resolve_cadence(project.session.idle_lease_seconds),
+    )
+    scope.attach_channel_store(channel_store)
+    session.stash[_SESSION_SCOPE_KEY] = scope
+    session.stash[_SESSION_ID_KEY] = session_id
+
+
 def pytest_sessionstart(session):
-    """Wire prompt routing + validate DUT serial at session start."""
+    """Open the producer session + wire prompt routing + validate UUT serial."""
     _install_termination_handler()
 
     # If we're a test subprocess launched by ``litmus serve``, bridge
@@ -316,10 +390,15 @@ def pytest_sessionstart(session):
     config = session.config
     _resolve_and_install_slot_id(config)
 
-    dut_serial = config.getoption("--dut-serial")
-    dut_serials = config.getoption("--dut-serials")
+    # Open the correlation-root session here (not in the run fixture). Collect-only
+    # runs produce no data, so they open no session.
+    if not config.getoption("--collect-only", default=False):
+        _open_session_for_pytest(session)
 
-    if dut_serials:
+    uut_serial = config.getoption("--uut-serial")
+    uut_serials = config.getoption("--uut-serials")
+
+    if uut_serials:
         return
 
     requested_phase = config.getoption("--test-phase") or os.environ.get("LITMUS_TEST_PHASE")
@@ -328,9 +407,9 @@ def pytest_sessionstart(session):
     if test_phase == "development":
         return
 
-    if dut_serial == "DUT001":
+    if uut_serial == "UUT001":
         serial = prompt_for_serial(test_phase)
-        config.option.dut_serial = serial
+        config.option.uut_serial = serial
 
 
 def _resolve_and_install_slot_id(config) -> None:
@@ -360,7 +439,7 @@ def _resolve_and_install_slot_id(config) -> None:
             raise pytest.UsageError(
                 "--slot is for single-process runs; this process was spawned "
                 "by the multi-slot orchestrator (saw _LITMUS_SLOT_ID env var). "
-                "Use --dut-serials at the orchestrator level instead."
+                "Use --uut-serials at the orchestrator level instead."
             )
         set_current_slot_id(env_slot_id)
         return
@@ -810,20 +889,41 @@ def _apply_cascade_to_items(items: list[pytest.Item]) -> None:
 
 
 def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
-    """Clean up all session-scoped ContextVars and module-level state."""
-    # Close any open class container before the logger is torn down so the
-    # final container's StepEnded reaches the event log.
-    logger_inst = get_current_logger()
-    if logger_inst is not None:
-        _close_open_class_container(logger_inst)
+    """Close the producer session + clean up session-scoped ContextVars.
+
+    On a KeyboardInterrupt, pytest fires this hook BEFORE the session-scoped
+    run fixture's teardown, so finalize THIS session's run here (emit RunEnded)
+    while the event log is still open. ``finalize()`` is idempotent — the run
+    fixture's later teardown is then a no-op. We finalize the run from the
+    stash, NOT ``get_current_run_scope()``: a nested in-process pytester run
+    restores the ContextVar to the OUTER run on teardown, so finalizing the
+    current logger here would seal the outer run prematurely (mid-suite),
+    after which every later step re-triggers a failed materialize.
+    """
+    run = session.stash.get(_RUN_SCOPE_KEY, None)
+    if run is not None:
+        # Close any open class container so its StepEnded reaches the event log,
+        # then finalize the run (RunEnded) before the stores close below.
+        _close_open_class_container(run)
+        run.finalize()
+
+    # Close the producer session: channel store flushes first (subscribers see
+    # the final frames), then SessionEnded (orchestrator-only) + store teardown.
+    # close_stores() resets the EventStore/ChannelStore ContextVar tokens
+    # (restoring any outer binding) — this replaces the blunt set_*(None) clears.
+    scope = session.stash.get(_SESSION_SCOPE_KEY, None)
+    if scope is not None:
+        cs = get_channel_store()
+        if cs is not None:
+            cs.close()
+        scope.emit_ended()
+        scope.close_stores()
 
     set_active_instruments({})
     set_instrument_records({})
     set_test_node_aliases({})
     set_test_node_configs({})
     set_collected_items([])
-    set_channel_store(None)
-    set_event_store(None)
     set_active_profile(None)
     _STEP_JUDGMENT_INTENT.clear()
 
@@ -898,27 +998,27 @@ def pytest_addoption(parser):
     """Add Litmus command-line options."""
     project = load_project_defaults()
     group = parser.getgroup("litmus")
-    group.addoption("--dut-serial", default="DUT001", help="DUT serial number")
+    group.addoption("--uut-serial", default="UUT001", help="UUT serial number")
     group.addoption(
-        "--dut-serials",
+        "--uut-serials",
         default=None,
-        help="Per-slot DUT serials: slot_1=SN1,slot_2=SN2",
+        help="Per-slot UUT serials: slot_1=SN1,slot_2=SN2",
     )
     group.addoption(
         "--slot",
         default=None,
         help="Physical fixture slot for this single-process run "
         "(e.g. ``slot_1``, ``slot_2``). Use this when running a single "
-        "DUT against a specific position in a multi-slot fixture so the "
+        "UUT against a specific position in a multi-slot fixture so the "
         "run records which slot was exercised. Multi-slot orchestration "
-        "uses ``--dut-serials`` instead — supplying both is an error.",
+        "uses ``--uut-serials`` instead — supplying both is an error.",
     )
-    group.addoption("--dut-part-number", default=None, help="DUT part number")
-    group.addoption("--dut-revision", default=None, help="DUT revision")
+    group.addoption("--uut-part-number", default=None, help="UUT part number")
+    group.addoption("--uut-revision", default=None, help="UUT revision")
     group.addoption(
-        "--dut-lot-number",
+        "--uut-lot-number",
         default=None,
-        help="DUT lot/batch number (mirrors LITMUS_DUT_LOT_NUMBER env var)",
+        help="UUT lot/batch number (mirrors LITMUS_UUT_LOT_NUMBER env var)",
     )
     group.addoption(
         "--station",
@@ -937,10 +1037,10 @@ def pytest_addoption(parser):
         help="Directory for Parquet results (default: platform data dir)",
     )
     group.addoption(
-        "--product",
+        "--part",
         default=None,
-        help="Product ID or YAML path. Bare id looks up "
-        "``products/<id>.yaml``; a value with ``/`` or ``.yaml``/"
+        help="Part ID or YAML path. Bare id looks up "
+        "``parts/<id>.yaml``; a value with ``/`` or ``.yaml``/"
         "``.yml`` is used as an explicit path.",
     )
     group.addoption("--guardband", default="0", help="Default guardband percentage")
@@ -982,7 +1082,7 @@ def pytest_addoption(parser):
         action="store_true",
         default=False,
         help="Fail tests whose measurements lack required traceability fields "
-        "(run_id, step_name, and spec_ref/dut_pin when a spec is active).",
+        "(run_id, step_name, and spec_ref/uut_pin when a spec is active).",
     )
     group.addoption(
         "--test-profile",
@@ -1242,8 +1342,8 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     ``def test_*`` functions.
 
     Runs as a hookwrapper (rather than an autouse fixture) so it fires
-    *after* all setup fixtures — including ones that install the logger
-    via ``set_current_logger``. Autouse ordering between unrelated
+    *after* all setup fixtures — including ones that install the run scope
+    via ``set_current_run_scope``. Autouse ordering between unrelated
     autouse fixtures is unspecified, which previously let
     ``log_measurement`` auto-create (and reset) the step before the
     wrapper could open it.
@@ -1255,7 +1355,7 @@ def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
     under ``--strict-traceability``) that every measurement carries the
     required traceability fields.
     """
-    logger_inst = get_current_logger()
+    logger_inst = get_current_run_scope()
     func = getattr(item, "function", None)
     strict = bool(item.config.getoption("--strict-traceability"))
 
@@ -1302,7 +1402,7 @@ def _escalate_step_and_run(logger_inst: Any, step: Any, new_outcome: Outcome) ->
 
     Run-level outcome is NOT stamped incrementally here. ``finalize()``
     walks ``test_run.steps`` via :func:`retry_aware_rollup` and folds
-    in :attr:`TestRunLogger._external_run_outcome` to compute the final
+    in :attr:`RunScope._external_run_outcome` to compute the final
     run outcome. The retry-aware rollup is what makes a passing retry
     correctly stamp the run as ``PASSED`` instead of the worst earlier
     attempt's outcome.
@@ -1310,11 +1410,11 @@ def _escalate_step_and_run(logger_inst: Any, step: Any, new_outcome: Outcome) ->
     When ``step is None`` (setup failure before the step opened, or a
     keyboard interrupt with no test running), the outcome has no step
     to attach to — it routes through
-    :meth:`TestRunLogger.record_external_outcome` so ``finalize()``
+    :meth:`RunScope.record_external_outcome` so ``finalize()``
     still picks it up.
 
     Callers must pass a non-None ``logger_inst`` (they all check upstream
-    via ``get_current_logger()``).
+    via ``get_current_run_scope()``).
     """
     if step is not None:
         step.outcome = escalate_outcome(step.outcome, new_outcome)
@@ -1390,7 +1490,7 @@ def pytest_runtest_makereport(item: pytest.Item, call: Any) -> Iterator[None]:
         return
     if call.excinfo is None:
         return
-    logger_inst = get_current_logger()
+    logger_inst = get_current_run_scope()
     if logger_inst is None:
         return
     exc_type = call.excinfo.type
@@ -1438,7 +1538,7 @@ def pytest_keyboard_interrupt(excinfo: Any) -> None:
     instead of orphan ``Aborted`` fallbacks.
     """
     _ = excinfo
-    logger_inst = get_current_logger()
+    logger_inst = get_current_run_scope()
     if logger_inst is not None:
         from litmus.execution._state import get_current_step
 
@@ -1450,11 +1550,11 @@ def pytest_keyboard_interrupt(excinfo: Any) -> None:
 
 
 def _audit_traceability(logger_inst: Any, *, strict: bool) -> None:
-    """Pytest adapter — read ``--strict-traceability`` + product context, delegate."""
+    """Pytest adapter — read ``--strict-traceability`` + part context, delegate."""
     audit_traceability(
         logger_inst,
         strict=strict,
-        spec_active=get_active_product_context() is not None,
+        spec_active=get_active_part_context() is not None,
     )
 
 
@@ -1504,7 +1604,7 @@ def _entries_from_marks(marks: list[pytest.Mark]) -> list[SweepEntry]:
     """Translate a list of ``litmus_sweeps`` marks into ``SweepEntry`` objects.
 
     Caller controls ordering — pass marks in the order they should
-    cross-product (top decorator = outer = slowest-changing).
+    cross-part (top decorator = outer = slowest-changing).
     """
     out: list[SweepEntry] = []
     for mark in marks:
@@ -1629,7 +1729,7 @@ def _normalize_parametrize_argvalues(argvalues: list[Any]) -> list[Any]:
 def _consume_parametrize_markers(metafunc: pytest.Metafunc) -> list[dict[str, Any]]:
     """Extract function-level parametrize markers and remove them from the node.
 
-    Returns a cross-product list of row dicts across every consumed
+    Returns a cross-part list of row dicts across every consumed
     marker (so ``@parametrize("vin", [...])`` + ``@parametrize("load",
     [...])`` yields ``{vin, load}`` rows). Mutates
     ``metafunc.definition.own_markers`` in place to drop the consumed

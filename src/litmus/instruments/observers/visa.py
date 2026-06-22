@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.instruments.observer import DriverObserver, EventEmitter
+from litmus.instruments.observer import DriverObserver, InstrumentEventBuilder
 from litmus.instruments.observers.generic import GenericObserver
 
 
@@ -61,7 +61,7 @@ class VisaObserver(DriverObserver):
         self,
         driver_class: type,
         role: str,
-        emit: EventEmitter,
+        emit: InstrumentEventBuilder,
         yaml_overrides: dict[str, str] | None = None,
         driver_instance: Any = None,
     ) -> None:

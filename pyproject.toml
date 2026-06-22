@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "litmus-test"
-version = "0.1.3"
+version = "0.2.0"
 description = "Hardware test platform for the AI-assisted era"
 dynamic = ["readme"]
 requires-python = ">=3.11"
@@ -45,6 +45,7 @@ dependencies = [
     "pyvisa-sim>=0.6",
     "pyarrow>=14.0",
     "numpy>=1.24",
+    "tsdownsample>=0.1.5",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "python-multipart>=0.0.9",
@@ -84,6 +85,9 @@ grafana = [
     "buenavista>=0.5.0",
     "duckdb>=1.0",
 ]
+# Richer `litmus benchmark` capture (peak RAM + CPU %). Without it the
+# benchmark still runs and reports throughput; the resource block is omitted.
+benchmark = ["psutil>=5.9"]
 # Bundles
 all-exporters = ["litmus-test[stdf,hdf5,tdms,mdf4]"]
 
@@ -115,6 +119,7 @@ dev = [
     "cyclonedx-python-lib>=11.0",
     "zeroconf>=0.80",
     "pytest-rerunfailures>=16.1",
+    "psutil>=5.9",
 ]
 
 # PyPI renders README.md without the rest of the repo, so relative
@@ -188,9 +193,13 @@ members = [
     "examples/02-verify",
     "examples/03-inline-limits",
     "examples/04-sidecar-markers",
-    "examples/05-product-spec",
+    "examples/05-part-spec",
     "examples/06-station-catalog",
     "examples/07-profiles",
+    "examples/08-waveform-evidence",
+    "examples/09-instrument-streaming",
+    "examples/10-artifacts-and-byte-streams",
+    "examples/11-querying-data",
 ]
 
 [tool.uv.sources]
@@ -198,9 +207,13 @@ litmus-example-01-vanilla = { workspace = true }
 litmus-example-02-verify = { workspace = true }
 litmus-example-03-inline-limits = { workspace = true }
 litmus-example-04-sidecar-markers = { workspace = true }
-litmus-example-05-product-spec = { workspace = true }
+litmus-example-05-part-spec = { workspace = true }
 litmus-example-06-station-catalog = { workspace = true }
 litmus-example-07-profiles = { workspace = true }
+litmus-example-08-waveform-evidence = { workspace = true }
+litmus-example-09-instrument-streaming = { workspace = true }
+litmus-example-10-artifacts-and-byte-streams = { workspace = true }
+litmus-example-11-querying-data = { workspace = true }
 
 [tool.ruff]
 line-length = 100

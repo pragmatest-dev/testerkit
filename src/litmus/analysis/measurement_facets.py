@@ -1,4 +1,4 @@
-"""Filter facets for the parametric viewer — model-driven registry.
+"""Filter facets and field-reference types for the parametric viewer.
 
 The ``/explore`` page lets users scope cross-run measurement queries by
 filtering on columns of the ``measurements`` view. This module is the
@@ -9,7 +9,7 @@ date ranges.
 Closed sets (``Outcome``, ``Comparator``) come straight from the
 Pydantic models in ``litmus.data.models`` / ``litmus.models.enums`` —
 no DB query needed; the universe is known at import time. Open sets
-(``product_id``, ``station_id``, ``dut_serial``, ``step_name``,
+(``part_id``, ``station_id``, ``uut_serial``, ``step_name``,
 ``measurement_name``, ``test_phase``) require a ``SELECT DISTINCT``
 against the current filter set so the dropdowns reflect what the user
 can actually pick from given their other selections.
@@ -30,6 +30,81 @@ from pydantic import BaseModel, Field, model_validator
 
 from litmus.data.models import Outcome
 from litmus.models.enums import Comparator
+
+# ---------------------------------------------------------------------------
+# Field identity — role + name + optional value_type
+# ---------------------------------------------------------------------------
+
+
+class FieldRole(StrEnum):
+    """Which role a recorded field plays in a measurement vector."""
+
+    INPUT = "input"
+    OUTPUT = "output"
+    MEASUREMENT = "measurement"
+
+
+class FieldRef(BaseModel):
+    """Reference to a named field, identified by (role, name).
+
+    Use the classmethod constructors for everyday code::
+
+        FieldRef.measurement("v_rail")
+        FieldRef.output("v_rail")
+        FieldRef.input("vin")
+
+    The plain constructor also works and is used at wire boundaries::
+
+        FieldRef(role=FieldRole.OUTPUT, name="v_rail")
+        FieldRef(role="output", name="v_rail")  # FieldRole coerces from str
+
+    ``value_type`` is an open string (not an enum) — it reflects the
+    stored tag (e.g. ``"scalar:float"``, ``"scalar:int"``) and is only
+    required when a (role, name) pair has mixed value_types in scope.
+    """
+
+    role: FieldRole
+    name: str
+    value_type: str | None = None
+
+    @classmethod
+    def input(cls, name: str, value_type: str | None = None) -> FieldRef:
+        return cls(role=FieldRole.INPUT, name=name, value_type=value_type)
+
+    @classmethod
+    def output(cls, name: str, value_type: str | None = None) -> FieldRef:
+        return cls(role=FieldRole.OUTPUT, name=name, value_type=value_type)
+
+    @classmethod
+    def measurement(cls, name: str, value_type: str | None = None) -> FieldRef:
+        return cls(role=FieldRole.MEASUREMENT, name=name, value_type=value_type)
+
+
+# ---------------------------------------------------------------------------
+# describe_columns() result models
+# ---------------------------------------------------------------------------
+
+
+class FixedColumnDescriptor(BaseModel):
+    """One plottable fixed column from the measurements view."""
+
+    name: str
+    column_type: str
+
+
+class DynamicFieldDescriptor(BaseModel):
+    """One role-keyed field discovered in the catalog."""
+
+    role: FieldRole
+    name: str
+    value_types: list[str]
+
+
+class ColumnSchema(BaseModel):
+    """Return type of ``MeasurementsQuery.describe_columns()``."""
+
+    fixed: list[FixedColumnDescriptor]
+    fields: list[DynamicFieldDescriptor]
 
 
 class FacetKind(StrEnum):
@@ -71,7 +146,7 @@ class SummaryCounts(BaseModel):
     total_rows: int
     distinct_runs: int
     distinct_measurements: int
-    distinct_products: int
+    distinct_parts: int
 
 
 class ParametricRow(BaseModel):
@@ -79,12 +154,21 @@ class ParametricRow(BaseModel):
 
     ``x`` widens to accept datetime / date because measurements view
     columns include timestamps; the chart layer coerces these to
-    epoch ms for ECharts ``time`` axes.
+    epoch ms for ECharts ``time`` axes. ``group`` is always coerced to
+    str so numeric EAV fields used as group_by axes render as labels.
     """
 
     x: float | str | datetime | date | None = None
     y: float
     group: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_group(cls, data: object) -> object:
+        if isinstance(data, dict) and "group" in data and data["group"] is not None:
+            data = dict(data)
+            data["group"] = str(data["group"])
+        return data
 
 
 class HistogramRow(BaseModel):
@@ -94,6 +178,123 @@ class HistogramRow(BaseModel):
     x: float
     y: int
     group: str = ""
+
+
+class YieldRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.yield_summary` or
+    :meth:`MeasurementsQuery.yield_overall`."""
+
+    part: str
+    station: str
+    phase: str
+    period: object  # date from DuckDB — typed as object to accept date/str
+    total_runs: int
+    passed: int
+    failed: int
+    errored: int
+    unique_serials: int
+    first_pass_total: int
+    first_pass_passed: int
+    final_passed: int
+    avg_duration_s: float | None = None
+    p95_duration_s: float | None = None
+    min_duration_s: float | None = None
+    max_duration_s: float | None = None
+    # Quality metrics — rty from step records; dpmo from measurement records; dppm from runs.
+    # rty is None when no step records exist in the matching scope.
+    rty: float | None = None  # Rolled Throughput Yield — product of per-step FPY
+    dpmo: float | None = None  # Defects Per Million Opportunities (measurement-level)
+    dppm: float | None = None  # Defective Parts Per Million (run-level)
+
+
+class ParetoRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.pareto`.
+
+    Represents one (part, station, step, measurement) failure bucket.
+    """
+
+    part: str
+    station: str
+    step_name: str | None = None
+    measurement_name: str | None = None
+    total_count: int
+    fail_count: int
+    fail_rate: float | None = None
+
+    def to_bucket_dict(self) -> dict[str, object]:
+        """Normalize to the shared failure-pareto display shape."""
+        return {
+            "bucket": f"{self.step_name or ''}: {self.measurement_name or ''}",
+            "failed_count": self.fail_count,
+            "total": self.total_count,
+            "fail_rate_pct": self.fail_rate,
+        }
+
+
+class PpkRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.ppk` — one (part, station, measurement_name)."""
+
+    part: str
+    station: str
+    measurement_name: str
+    n: int
+    mean: float | None = None
+    sigma: float | None = None
+    lsl: float | None = None
+    usl: float | None = None
+    pp: float | None = None
+    ppk: float | None = None
+
+
+class TrendRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.trend` — one (part, station, phase, period)."""
+
+    part: str
+    station: str
+    phase: str
+    period: object  # date from DuckDB — typed as object to accept date/str
+    total: int
+    passed: int
+    yield_pct: float | None = None
+
+
+class RetestRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.retest` — one (part, station, phase, period)."""
+
+    part: str
+    station: str
+    phase: str
+    period: object  # date from DuckDB — typed as object to accept date/str
+    total_serials: int
+    retested_count: int
+    retest_rate: float | None = None
+    avg_retries: float | None = None
+
+
+class TimeLossRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.time_loss` — one (part, station, phase, period)."""
+
+    part: str
+    station: str
+    phase: str
+    period: object  # date from DuckDB — typed as object to accept date/str
+    total_time_s: float | None = None
+    pass_time_s: float | None = None
+    fail_time_s: float | None = None
+    error_time_s: float | None = None
+
+
+class LimitBandRow(BaseModel):
+    """One point of a measurement's limit envelope, keyed by the chart's X.
+
+    The chart layer draws ``low`` and ``high`` as step lines against the
+    same X axis as the data — a staircase when limits are condition-indexed,
+    a flat band when they don't vary.
+    """
+
+    x: float | str | datetime | date | None = None
+    low: float | None = None
+    high: float | None = None
 
 
 class FilterSet(BaseModel):
@@ -215,10 +416,10 @@ MEASUREMENT_FACETS: list[FacetSpec] = [
         description="How the measurement is checked against its limits",
     ),
     FacetSpec(
-        column="product_id",
+        column="part_id",
         kind=FacetKind.STRING,
-        label="Product",
-        description="Which product the DUT is (e.g. PN-100)",
+        label="Part",
+        description="Which part the UUT is (e.g. PN-100)",
     ),
     FacetSpec(
         column="station_id",
@@ -245,9 +446,9 @@ MEASUREMENT_FACETS: list[FacetSpec] = [
         description="Named measurement (e.g. vout)",
     ),
     FacetSpec(
-        column="dut_serial",
+        column="uut_serial",
         kind=FacetKind.STRING,
-        label="DUT serial",
+        label="UUT serial",
         description="Specific unit",
     ),
     FacetSpec(

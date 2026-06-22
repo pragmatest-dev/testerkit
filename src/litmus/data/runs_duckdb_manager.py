@@ -9,13 +9,11 @@ is rebuilt from parquet on every daemon start.
 
 from __future__ import annotations
 
-import time
 import warnings
 from pathlib import Path
 
-import pyarrow.flight as flight
-
-from litmus.data._daemon_lifecycle import DaemonManager
+from litmus.data._daemon_lifecycle import DaemonManager, wait_for_location
+from litmus.data._flight_query import probe_sql
 
 
 class RunsDuckDBManager(DaemonManager):
@@ -52,57 +50,21 @@ def acquire(runs_dir: Path) -> str:
     """
     mgr = RunsDuckDBManager(runs_dir)
     mgr.acquire()
-    location = _wait_for_location(mgr, runs_dir)
+    location = wait_for_location(mgr, runs_dir, "runs")
 
     # Verify the Flight server is actually responding. The PID may be alive
     # but the Flight thread may have crashed (e.g. port conflict, OOM).
     # One cheap probe avoids leaving callers with a silent dead connection.
-    if not _flight_probe(location):
+    if not probe_sql(location, "runs"):
         warnings.warn(
             f"Runs daemon at {location} is not responding — killing and respawning.",
             stacklevel=2,
         )
-        from litmus.data._flight_query import _drop_pooled_client  # avoid circular at module level
-
-        _drop_pooled_client(location)
         mgr.force_restart()
         mgr.acquire()
-        location = _wait_for_location(mgr, runs_dir)
+        location = wait_for_location(mgr, runs_dir, "runs")
 
     return location
-
-
-def _wait_for_location(mgr: RunsDuckDBManager, runs_dir: Path) -> str:
-    """Poll the state file until the daemon writes its Flight location (up to 5s)."""
-    deadline = time.monotonic() + 5.0
-    while True:
-        location = mgr.read_state().get("location")
-        if location:
-            return location
-        if time.monotonic() >= deadline:
-            raise RuntimeError(
-                f"runs DuckDB daemon started but no location in state after 5s: {runs_dir}"
-            )
-        time.sleep(0.05)
-
-
-def _flight_probe(location: str) -> bool:
-    """Return True if the Flight server at ``location`` responds to a trivial query.
-
-    Uses the process-wide pooled Flight client so the probe doesn't pay
-    the gRPC channel-setup cost (~50ms) on every ``acquire``. A dead
-    Flight thread still fails the do_get; the dropped client is removed
-    from the pool so the next caller reconnects.
-    """
-    from litmus.data._flight_query import _drop_pooled_client, _get_pooled_client
-
-    try:
-        client = _get_pooled_client(location)
-        client.do_get(flight.Ticket(b"runs\x00SELECT 1")).read_all()
-        return True
-    except Exception:  # noqa: BLE001
-        _drop_pooled_client(location)
-        return False
 
 
 def release(runs_dir: Path) -> None:

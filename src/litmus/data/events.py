@@ -15,10 +15,10 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, model_serializer, model_validator
+from pydantic import BaseModel, Field, model_validator
 
+from litmus.data._process import process_uuid
 from litmus.data.models import _utcnow
-from litmus.data.ref import classify_value, is_ref, make_channel_uri
 
 
 def _detect_client() -> str:
@@ -39,6 +39,60 @@ def _detect_client() -> str:
 # ---------------------------------------------------------------------------
 
 
+# Identifier and name fields promoted from the JSON payload into typed
+# DuckDB columns so the daemon can push WHERE filters down instead of
+# round-tripping rows to Python for post-filtering. The user-facing
+# rule: "all ids and names" — enough to uniquify any event and walk
+# its follow-ons.
+#
+# Three groups, by reason:
+#
+# * **Pairing IDs** — an open-event ``file_id`` / ``dialog_id`` /
+#   ``channel_id`` / ``slot_id`` has a matching close-event with the
+#   same value. The pushdown answers "did this open ever close?"
+# * **Operator-facing identifiers** — ``uut_serial`` /
+#   ``station_hostname`` are how operators name what they're querying
+#   ("everything that happened to SN001 on bench-3").
+# * **Names + roles + enums** — recognition fields and the small set
+#   of kind/state enums that drive routine filters (``outcome``,
+#   ``reason``, ``format``, ``dialog_type``, ``response_type``).
+#
+# Adding a column is two edits — extend this tuple and the parallel
+# ``_EVENTS_COLUMNS`` in ``_duckdb_daemon.py``. The daemon's
+# ``ALTER TABLE ADD COLUMN IF NOT EXISTS`` auto-migrates existing DBs.
+TYPED_PAYLOAD_COLUMNS: tuple[str, ...] = (
+    # Pairing IDs
+    "file_id",
+    "dialog_id",
+    "channel_id",
+    "slot_id",
+    # Operator-facing identifiers
+    "uut_serial",
+    "station_hostname",
+    # Other IDs
+    "instrument_id",
+    "node_id",
+    "step_path",
+    "fixture_id",
+    "operator_id",
+    "station_id",
+    # Names
+    "step_name",
+    "measurement_name",
+    "name",
+    # Instrument roles (two field names for legacy reasons — both
+    # promoted so the role= filter pushes down via SQL OR).
+    "role",
+    "instrument_role",
+    # Kind/state enums
+    "outcome",
+    "reason",
+    "format",
+    "dialog_type",
+    "response_type",
+)
+
+
 class EventBase(BaseModel):
     """Base for all event log events.
 
@@ -50,6 +104,34 @@ class EventBase(BaseModel):
     received_at: datetime | None = None  # Set by EventLog.emit()
     session_id: UUID = Field(default_factory=uuid4)
     run_id: UUID | None = None
+    # ``True`` for events the spine itself derives (the reaper's synthetic closes,
+    # a materializer's ``RunMaterialized``) vs. a producer observation. The
+    # terminal fence rejects post-seal PRODUCER writes (revival) but lets derived
+    # completions through — so a run's async ``RunMaterialized`` still lands after
+    # its session has sealed. Producers never set it.
+    derived: bool = False
+
+    def typed_payload_values(self) -> dict[str, str | None]:
+        """Return promoted column values for this event as ``{col: str | None}``.
+
+        Reads each column in :data:`TYPED_PAYLOAD_COLUMNS` via
+        ``getattr``, stringifying UUIDs and coercing empty strings to
+        ``None`` so the columns stay sparse (``WHERE col IS NOT NULL``
+        cleanly distinguishes "field absent" from "field set to "").
+        Events that don't declare a given column return ``None`` for
+        it — every event produces every column slot.
+        """
+        out: dict[str, str | None] = {}
+        for col in TYPED_PAYLOAD_COLUMNS:
+            val = getattr(self, col, None)
+            if val is None:
+                out[col] = None
+            elif isinstance(val, str):
+                out[col] = val or None
+            else:
+                # UUID stringifies; ints/floats coerce.
+                out[col] = str(val)
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +142,7 @@ class EventBase(BaseModel):
 class SessionStarted(EventBase):
     """Emitted once at the start of a session (interactive or test orchestrator).
 
-    Contains session-wide metadata only. Run-level fields (DUT, config snapshots)
+    Contains session-wide metadata only. Run-level fields (UUT, config snapshots)
     live in ``RunStarted``. Session events must NOT carry run_id.
     """
 
@@ -86,6 +168,16 @@ class SessionStarted(EventBase):
     fixture_id: str | None = None
     slot_count: int = 1
 
+    # The will — the owner's liveness policy, read by the reaper off this event
+    # (never config). ``process_uuid`` pairs with pid + station_hostname as the
+    # producer identity (disambiguates a recycled pid). ``idle_lease_seconds`` /
+    # ``abandon_grace_seconds`` / ``abandon_reason`` are resolved producer-side
+    # from ``SessionOptions`` and stamped here at open.
+    process_uuid: str | None = None
+    idle_lease_seconds: float | None = None
+    abandon_grace_seconds: float | None = None
+    abandon_reason: str | None = None
+
     @model_validator(mode="after")
     def _reject_run_id(self) -> SessionStarted:
         if self.run_id is not None:
@@ -107,12 +199,18 @@ class SessionStarted(EventBase):
         fixture_id: str | None = None,
         slot_count: int | None = None,
         session_type: str = "test_run",
+        idle_lease_seconds: float | None = None,
+        abandon_grace_seconds: float | None = None,
+        abandon_reason: str | None = None,
     ) -> SessionStarted:
         """Build a SessionStarted with common station fields.
 
         Shared by plugin.py (pytest) and connect.py (interactive).
         If ``slot_count`` is None, reads ``_LITMUS_SLOT_COUNT`` env var
-        (defaults to 1).
+        (defaults to 1). The will fields (``idle_lease_seconds`` /
+        ``abandon_grace_seconds`` / ``abandon_reason``) are resolved
+        producer-side from ``SessionOptions`` by the caller; ``process_uuid``
+        is stamped automatically, like ``pid``.
         """
         if slot_count is None:
             slot_count = int(os.environ.get("_LITMUS_SLOT_COUNT", "1"))
@@ -130,14 +228,24 @@ class SessionStarted(EventBase):
             slot_count=slot_count,
             session_type=session_type,
             pid=os.getpid(),
+            process_uuid=process_uuid(),
+            idle_lease_seconds=idle_lease_seconds,
+            abandon_grace_seconds=abandon_grace_seconds,
+            abandon_reason=abandon_reason,
         )
 
 
 class SessionEnded(EventBase):
-    """Emitted at the end of a session. Must NOT carry run_id."""
+    """Emitted at the end of a session. Must NOT carry run_id.
+
+    A clean close (owner leaving) carries the defaults. The reaper emits a
+    *derived* close for an abandoned session — ``derived=True`` and ``reason``
+    from the will (e.g. ``"abandoned"``) — so the synthetic seal is
+    operator-visible and never confused with a cooperative end.
+    """
 
     event_type: Literal["session.ended"] = "session.ended"
-    outcome: str | None = None
+    reason: str | None = None
 
     @model_validator(mode="after")
     def _reject_run_id(self) -> SessionEnded:
@@ -154,8 +262,8 @@ class SessionEnded(EventBase):
 class RunStarted(EventBase):
     """Emitted once per test run. Contains full run context.
 
-    In single-DUT mode, one RunStarted follows SessionStarted.
-    In multi-DUT mode, each worker emits its own RunStarted.
+    In single-UUT mode, one RunStarted follows SessionStarted.
+    In multi-UUT mode, each worker emits its own RunStarted.
     """
 
     event_type: Literal["run.started"] = "run.started"
@@ -173,16 +281,16 @@ class RunStarted(EventBase):
     pid: int | None = None
     client: str = Field(default_factory=_detect_client)
 
-    # DUT
-    dut_serial: str = ""
-    dut_part_number: str | None = None
-    dut_revision: str | None = None
-    dut_lot_number: str | None = None
+    # UUT
+    uut_serial: str = ""
+    uut_part_number: str | None = None
+    uut_revision: str | None = None
+    uut_lot_number: str | None = None
 
-    # Product
-    product_id: str | None = None
-    product_name: str | None = None
-    product_revision: str | None = None
+    # Part
+    part_id: str | None = None
+    part_name: str | None = None
+    part_revision: str | None = None
 
     # Operator
     operator_id: str | None = None
@@ -201,9 +309,6 @@ class RunStarted(EventBase):
 
     # Custom metadata
     custom_metadata: dict[str, Any] = Field(default_factory=dict)
-
-    # Channel references for infrastructure correlation
-    channel_refs: list[str] = Field(default_factory=list)
 
 
 class RunEnded(EventBase):
@@ -246,20 +351,20 @@ class RunMaterialized(EventBase):
 
 
 # ---------------------------------------------------------------------------
-# Slot events (multi-DUT)
+# Slot events (multi-UUT)
 # ---------------------------------------------------------------------------
 
 
 class SlotStarted(EventBase):
-    """Emitted when a DUT slot begins execution."""
+    """Emitted when a UUT slot begins execution."""
 
     event_type: Literal["slot.started"] = "slot.started"
     slot_id: str
-    dut_serial: str
+    uut_serial: str
 
 
 class SlotCompleted(EventBase):
-    """Emitted when a DUT slot finishes execution."""
+    """Emitted when a UUT slot finishes execution."""
 
     event_type: Literal["slot.completed"] = "slot.completed"
     slot_id: str
@@ -325,9 +430,9 @@ class CalibrationWarning(EventBase):
     message: str = ""
 
 
-class DutScanned(EventBase):
-    event_type: Literal["fixture.dut_scanned"] = "fixture.dut_scanned"
-    dut_serial: str
+class UutScanned(EventBase):
+    event_type: Literal["fixture.uut_scanned"] = "fixture.uut_scanned"
+    uut_serial: str
     scan_source: str | None = None
 
 
@@ -355,11 +460,18 @@ class StepStarted(EventBase):
     # Vector context — which sweep condition this execution is.
     # vector_index 0 (the default) is the natural value for non-swept steps;
     # for sweep variants it identifies the specific condition. ``inputs``
-    # carries the commanded sweep parameters (in_*) for this vector — what
+    # carries the commanded sweep parameters for this vector — what
     # subscribers need to disambiguate "test_efficiency starting" from
     # "test_efficiency starting at vin=2.0V".
     vector_index: int = 0
+    # 0-based retry of this execution. 0 for first run, N for the Nth retry.
+    # Meaningful for the Mode-1 fused step-execution≡vector boundary (parametrize
+    # item rerun, or class-container re-execution).
+    retry: int = 0
     inputs: dict[str, Any] = Field(default_factory=dict)
+    # Optional engineering unit per input name (``{"vin": "V"}``) — rides into
+    # the lane's ``unit`` field → the EAV ``unit`` column.
+    input_units: dict[str, str] = Field(default_factory=dict)
 
     # Code identity
     node_id: str | None = None
@@ -372,7 +484,7 @@ class StepStarted(EventBase):
 class MeasurementRecorded(EventBase):
     """A single measurement. Normalized: carries only measurement-specific fields.
 
-    Run metadata (station, DUT, operator, etc.) lives in ``RunStarted``.
+    Run metadata (station, UUT, operator, etc.) lives in ``RunStarted``.
     Instrument arrays live in ``InstrumentConnected`` events.
     Subscribers denormalize at write time.
     """
@@ -390,7 +502,7 @@ class MeasurementRecorded(EventBase):
     measurement_name: str
     measurement_timestamp: datetime | None = None
     value: float | None = None
-    units: str | None = None
+    unit: str | None = None
     outcome: str | None = None
     limit_low: float | None = None
     limit_high: float | None = None
@@ -400,26 +512,44 @@ class MeasurementRecorded(EventBase):
     spec_ref: str | None = None
 
     # Signal path
-    dut_pin: str | None = None
+    uut_pin: str | None = None
     fixture_connection: str | None = None
     instrument_name: str | None = None
     instrument_resource: str | None = None
     instrument_channel: str | None = None
 
-    # Dynamic columns (vector-specific, not available elsewhere)
+    # Carried by in-flight events (live daemon path). At rest, parquet
+    # reconstruction reads conditions from the enclosing vector record.
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
-    custom: dict[str, Any] = Field(default_factory=dict)
 
 
-class RecordEvent(EventBase):
-    """A key/value record emitted by harness.record()."""
+class Observation(EventBase):
+    """Emitted by ``Context.observe(key, value)``.
 
-    event_type: Literal["test.record"] = "test.record"
-    step_name: str
-    step_index: int
-    key: str
-    value: Any
+    Carries the observation that landed in the vector's outputs lane
+    (role ``output``, name = the observation key). Value is the scalar
+    inline when scalar, or the claim URI string (``channel://…`` or
+    ``file://…``) when the value was routed to a store.
+
+    Item 4 in the v0.2.0 data-architecture lift — closes the gap
+    where ``observe()`` calls were silent on the event timeline.
+    """
+
+    event_type: Literal["test.observation"] = "test.observation"
+
+    # Step/vector context (matches MeasurementRecorded shape)
+    step_name: str = ""
+    step_index: int = 0
+    step_path: str = ""
+    vector_index: int = 0
+    retry: int = 0
+
+    # Observation
+    name: str
+    value: Any = None
+    unit: str | None = None
+    uut_pin: str | None = None
 
 
 class StepEnded(EventBase):
@@ -444,9 +574,16 @@ class StepEnded(EventBase):
     # parameters for completeness; ``outputs`` carries vector-level
     # observations not tied to any specific measurement.
     vector_index: int = 0
+    # 0-based retry of this execution (Mode-1 fused boundary). Companion to
+    # ``StepStarted.retry``.
+    retry: int = 0
     vector_outcome: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
+    # Optional engineering unit / pin per input / output name → the lane fields.
+    input_units: dict[str, str] = Field(default_factory=dict)
+    output_units: dict[str, str] = Field(default_factory=dict)
+    output_pins: dict[str, str] = Field(default_factory=dict)
 
     # Code identity
     node_id: str | None = None
@@ -454,6 +591,50 @@ class StepEnded(EventBase):
     module: str | None = None
     class_name: str | None = None
     function: str | None = None
+
+
+class VectorStarted(EventBase):
+    """An in-body loop vector is entered (Mode 2: the ``vectors`` fixture or a
+    ``run_vector`` loop). One per iteration, so every vector — including ones
+    that record no measurement — announces itself, closing the data-less-vector
+    gap and the offline/streaming drift.
+
+    Mode 1 (parametrize / single) and class containers reuse ``StepStarted`` as
+    the fused step-execution≡vector boundary; this event is the in-body analog,
+    nested inside the enclosing leaf step. The measurement's full condition is
+    the merge of this vector's ``inputs`` with the enclosing steps' inputs along
+    ``parent_path``.
+    """
+
+    event_type: Literal["test.vector_started"] = "test.vector_started"
+    step_name: str
+    step_index: int
+    step_path: str = ""
+    vector_index: int = 0
+    retry: int = 0
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    input_units: dict[str, str] = Field(default_factory=dict)
+    node_id: str | None = None
+
+
+class VectorEnded(EventBase):
+    """Completion of an in-body loop vector (Mode 2). Carries the vector's
+    verdict and its observations, mirroring ``StepEnded`` at vector grain.
+    """
+
+    event_type: Literal["test.vector_ended"] = "test.vector_ended"
+    step_name: str
+    step_index: int
+    step_path: str = ""
+    vector_index: int = 0
+    retry: int = 0
+    outcome: str | None = None
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict)
+    input_units: dict[str, str] = Field(default_factory=dict)
+    output_units: dict[str, str] = Field(default_factory=dict)
+    output_pins: dict[str, str] = Field(default_factory=dict)
+    node_id: str | None = None
 
 
 class StepsDiscovered(EventBase):
@@ -522,68 +703,63 @@ class RouteOpened(EventBase):
 # ---------------------------------------------------------------------------
 
 
-class InstrumentRead(EventBase):
-    """Emitted when a driver read method is called via proxy.
+class ChannelStarted(EventBase):
+    """A channel received its first sample in this session.
 
-    For array/waveform data, ``value`` holds the full Python object in memory
-    (subscribers like ChannelStore get the real data), but JSON serialization
-    replaces it with a claim-check summary to keep the JSON column compact.
+    Position 2 lifecycle event: emitted once per ``(channel_id, session_id)``
+    pair. Replaces the per-sample ``InstrumentRead`` event (retired in
+    v0.2.0). Sample data lives in ChannelStore — subscribers wanting
+    per-sample access subscribe to ChannelStore via Flight ``do_get``.
+
+    Carries enough context to let consumers find + subscribe to the
+    channel without further discovery. Instrument fields are populated
+    when the source is an instrument observer; null otherwise (for
+    ``stream(...)`` / ``channels.write`` / daemon-driven writes).
     """
 
-    event_type: Literal["instrument.read"] = "instrument.read"
-    instrument_role: str
+    event_type: Literal["channel.started"] = "channel.started"
     channel_id: str
-    method: str
-    value: Any = None
-    units: str | None = None
-    resource: str = ""
+    unit: str | None = None
+    # Instrument source fields — populated for observer.read; null otherwise.
+    instrument_role: str | None = None
+    method: str | None = None
+    resource: str | None = None
 
-    @model_serializer(mode="wrap")
-    def _serialize_with_claim_check(self, handler: Any) -> dict[str, Any]:
-        """Scalars and URIs inline; raw arrays → ``channel://`` URI claim-check.
 
-        When proxy writes to ChannelStore directly, value is already a URI
-        string — pass through. Fallback for no-channel-store case still
-        builds a claim-check reference.
-        """
-        data = handler(self)
-        v = self.value
+class ChannelEnded(EventBase):
+    """A channel was sealed for this session.
 
-        # Already a URI from proxy writing to ChannelStore
-        if is_ref(v):
-            return data
+    Position 2 lifecycle event. Fires when a session ends (all of its
+    channels close) or when retention pruning removes a channel.
+    Consumers tracking "still being written to" vs "no more data
+    coming" key off this event.
 
-        vtype = classify_value(v)
+    Emission wiring lives downstream — for v0.2.0 initial cut the
+    class exists; SessionEnded-tied emission lands in a follow-up.
+    """
 
-        if vtype == "scalar":
-            return data
+    event_type: Literal["channel.ended"] = "channel.ended"
+    channel_id: str
+    reason: str  # e.g., "session_ended" | "retention_prune"
 
-        if vtype in ("numeric_array", "channel"):
-            uri = make_channel_uri(self.channel_id, str(self.session_id))
-            ref: dict[str, Any] = {
-                "_ref": uri,
-                "channel_id": self.channel_id,
-                "type": "array" if vtype == "numeric_array" else "struct",
-            }
-            if isinstance(v, (list, tuple)) and len(v) >= 1:
-                first = v[0]
-                if isinstance(first, (list, tuple)):
-                    samples = first
-                    dt = v[1] if len(v) > 1 else None
-                    ref["length"] = len(samples)
-                    if dt is not None:
-                        ref["sample_interval"] = dt
-                    if samples:
-                        ref["min"] = min(samples)
-                        ref["max"] = max(samples)
-            elif hasattr(v, "tolist"):
-                ref["length"] = len(v)  # type: ignore[arg-type]
-            data["value"] = ref
-            return data
 
-        # blob — repr for JSON serialization
-        data["value"] = repr(v)
-        return data
+class ChannelCheckpoint(EventBase):
+    """Low-rate liveness + progress marker from an active channel producer.
+
+    A channel's samples ride the off-spine fan-out, so a long active channel
+    emits nothing durable between ``ChannelStarted`` and ``ChannelEnded``. The
+    producer's write path emits one of these when more than the configured
+    cadence (``StreamTuning.checkpoint_cadence``, default ``lease/3``) has
+    elapsed since its last spine event, carrying the sample offset reached so far.
+
+    It renews the session lease like any spine event (so the reaper tells a live
+    channel apart from a crashed one) and records resumable progress. Bounded to
+    one per cadence regardless of sample rate — never per-sample.
+    """
+
+    event_type: Literal["channel.checkpoint"] = "channel.checkpoint"
+    uri: str
+    sample_offset: int = 0
 
 
 class InstrumentSet(EventBase):
@@ -594,7 +770,7 @@ class InstrumentSet(EventBase):
     channel_id: str
     attribute: str
     value: Any = None
-    units: str | None = None
+    unit: str | None = None
     resource: str = ""
 
 
@@ -609,26 +785,64 @@ class InstrumentConfigure(EventBase):
 
 
 # ---------------------------------------------------------------------------
-# Stream events (Phase 2+)
+# File events (Phase 2+)
 # ---------------------------------------------------------------------------
 
 
-class StreamStarted(EventBase):
-    event_type: Literal["stream.started"] = "stream.started"
-    stream_id: UUID
+class FileStarted(EventBase):
+    """Emitted when a FileStore streaming sink opens.
+
+    Once per ``file_id``. Announces an open stream for discovery
+    ("what streams are open / done"); the final ``file://`` URI is
+    announced via :class:`FileEnded` at close (it can't be known until
+    the sink resolves a collision-free name).
+
+    **File events are lifecycle-only** (the FileStore parallel of
+    Position 2 for channels). Per-chunk events would flood the
+    EventStore at high write rates (kHz captures, 30 fps video, etc.)
+    for no real subscriber gain. Live consumers receive each chunk
+    push-style via ephemeral frames (the files daemon, not the event
+    log); they use EventStore only for discovery.
+    """
+
+    event_type: Literal["file.started"] = "file.started"
+    file_id: UUID
+    name: str = ""
     format: str = ""
-    path: str | None = None
 
 
-class StreamEnded(EventBase):
-    event_type: Literal["stream.ended"] = "stream.ended"
-    stream_id: UUID
+class FileEnded(EventBase):
+    """Emitted when a FileStore streaming sink closes.
+
+    Once per ``file_id``. ``uri`` is the final ``file://`` claim that
+    callers can stash into the vector's outputs lane or hand to the
+    artifact viewer. ``size_bytes`` is the total appended-byte count
+    at close.
+    """
+
+    event_type: Literal["file.ended"] = "file.ended"
+    file_id: UUID
+    uri: str | None = None
+    size_bytes: int | None = None
 
 
-class StreamFrameIndex(EventBase):
-    event_type: Literal["stream.frame_index"] = "stream.frame_index"
-    stream_id: UUID
-    frame_count: int = 0
+class FileCheckpoint(EventBase):
+    """Low-rate liveness + progress marker from an active file sink.
+
+    A file stream's frames ride the off-spine fan-out, so a long active stream
+    emits nothing durable between ``FileStarted`` and ``FileEnded``. The sink's
+    write path emits one of these when more than the configured cadence
+    (``StreamTuning.checkpoint_cadence``, default ``lease/3``) has elapsed since
+    its last spine event, carrying the byte offset reached so far.
+
+    It renews the session lease like any spine event (so the reaper tells a live
+    stream apart from a crashed one) and records resumable progress. Bounded to
+    one per cadence regardless of write rate — never per-write.
+    """
+
+    event_type: Literal["file.checkpoint"] = "file.checkpoint"
+    uri: str
+    byte_offset: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -665,20 +879,29 @@ class DialogResponded(EventBase):
 # ---------------------------------------------------------------------------
 
 SESSION_EVENTS = {SessionStarted, SessionEnded}
-RUN_EVENTS = {RunStarted, RunEnded}
+RUN_EVENTS = {RunStarted, RunEnded, RunMaterialized}
 SLOT_EVENTS = {SlotStarted, SlotCompleted, SyncArrived, SyncRelease}
 FIXTURE_EVENTS = {
     InstrumentConnected,
     IdentityVerified,
     CalibrationWarning,
-    DutScanned,
+    UutScanned,
     InstrumentDisconnected,
 }
-TEST_EVENTS = {StepStarted, MeasurementRecorded, RecordEvent, StepEnded, StepsDiscovered}
+TEST_EVENTS = {
+    StepStarted,
+    MeasurementRecorded,
+    Observation,
+    StepEnded,
+    VectorStarted,
+    VectorEnded,
+    StepsDiscovered,
+}
 ROUTE_EVENTS = {RouteClosed, RouteOpened}
-INSTRUMENT_EVENTS = {InstrumentRead, InstrumentSet, InstrumentConfigure}
+INSTRUMENT_EVENTS = {InstrumentSet, InstrumentConfigure}
+CHANNEL_EVENTS = {ChannelStarted, ChannelEnded, ChannelCheckpoint}
 DIAGNOSTIC_EVENTS = {DiagnosticWarning, DiagnosticError}
-STREAM_EVENTS = {StreamStarted, StreamEnded, StreamFrameIndex}
+FILE_EVENTS = {FileStarted, FileEnded, FileCheckpoint}
 DIALOG_EVENTS = {DialogOpened, DialogResponded}
 ALL_EVENTS = (
     SESSION_EVENTS
@@ -688,8 +911,9 @@ ALL_EVENTS = (
     | TEST_EVENTS
     | ROUTE_EVENTS
     | INSTRUMENT_EVENTS
+    | CHANNEL_EVENTS
     | DIAGNOSTIC_EVENTS
-    | STREAM_EVENTS
+    | FILE_EVENTS
     | DIALOG_EVENTS
 )
 
@@ -699,6 +923,7 @@ Event = Annotated[
     | SessionEnded
     | RunStarted
     | RunEnded
+    | RunMaterialized
     | SlotStarted
     | SlotCompleted
     | SyncArrived
@@ -706,23 +931,27 @@ Event = Annotated[
     | InstrumentConnected
     | IdentityVerified
     | CalibrationWarning
-    | DutScanned
+    | UutScanned
     | InstrumentDisconnected
     | StepStarted
     | MeasurementRecorded
-    | RecordEvent
+    | Observation
     | StepEnded
+    | VectorStarted
+    | VectorEnded
     | StepsDiscovered
     | RouteClosed
     | RouteOpened
-    | InstrumentRead
     | InstrumentSet
     | InstrumentConfigure
+    | ChannelStarted
+    | ChannelEnded
+    | ChannelCheckpoint
     | DiagnosticWarning
     | DiagnosticError
-    | StreamStarted
-    | StreamEnded
-    | StreamFrameIndex
+    | FileStarted
+    | FileEnded
+    | FileCheckpoint
     | DialogOpened
     | DialogResponded,
     Field(discriminator="event_type"),

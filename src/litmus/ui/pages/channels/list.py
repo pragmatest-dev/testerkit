@@ -6,11 +6,17 @@ from typing import Any
 
 from nicegui import ui
 
+from litmus.data.data_dir import resolve_data_dir
+from litmus.data.event_store import EventStore
 from litmus.ui.shared.components import (
     data_table,
     format_datetime,
     page_header,
     page_layout,
+    push_url_state,
+    render_no_data_card,
+    session_filter_banner,
+    subscribe_with_refresh,
 )
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import list_channels_recent
@@ -29,7 +35,14 @@ _SAMPLES_PER_CHANNEL = 50
 
 
 @ui.page("/channels")
-def channels_page() -> None:
+def channels_page(
+    name: str = "",
+    value_type: str = "",
+    instrument: str = "",
+    session_id: str = "",
+    since: str = "",
+    until: str = "",
+) -> None:
     """List all registered channels with click-through to detail.
 
     Each row shows a sparkline of recent samples and the latest value;
@@ -37,19 +50,65 @@ def channels_page() -> None:
     live test session updates in place. Click a row to drill into the
     full chart at ``/channels/{id}``.
 
+    Filter state is mirrored into the URL via ``history.replaceState``
+    so views are bookmarkable and shareable. Same pattern as
+    ``/events`` / ``/files``.
+
     The table is built once on first load; subsequent ticks mutate
     ``table.rows`` in place via ``table.update()`` so the cells
     re-render without tearing down the whole DOM (no flash).
     """
     create_layout("Channels")
 
+    filters = _Filters()
+
     with page_layout():
         page_header("Channels")
-        ui.label(
-            "Streaming numeric / array signals captured during test runs — "
-            "scope traces, PSU readback, sensor logs. Sparklines show the "
-            "last 50 samples; values update live."
-        ).classes("text-sm text-slate-500")
+
+        # Session scoping is URL-only — no widget. Set by deep-links
+        # from /results/{run_id} → /channels?session_id=...; banner
+        # is the only affordance to clear. Same shape as /events /
+        # /files. UUIDs never appear in widgets.
+        session_filter_banner(session_id, clear_path="/channels")
+
+        # Filter card renders FIRST (above table) per the operator-UI
+        # consistency rule. ``Type`` options are seeded with "(any)";
+        # the refresh callback rebuilds the dropdown from observed
+        # values once data has been walked.
+        with ui.card().classes("w-full").props('data-testid="channels-filters"'):
+            with ui.row().classes("items-end gap-3 flex-wrap p-2"):
+                filters.name_input = ui.input(
+                    "Channel ID contains",
+                    value=name,
+                    on_change=lambda _: _refresh_render(),
+                ).classes("w-72")
+                filters.type_select = ui.select(
+                    {"": "(any)"},
+                    value="",
+                    label="Type",
+                    with_input=True,
+                    on_change=lambda _: _refresh_render(),
+                ).classes("w-56")
+                filters.instrument_select = ui.select(
+                    {"": "(any)"},
+                    value="",
+                    label="Instrument",
+                    with_input=True,
+                    on_change=lambda _: _refresh_render(),
+                ).classes("w-48")
+                filters.since_input = ui.input(
+                    "Since (ISO)",
+                    value=since,
+                    on_change=lambda _: _refresh_render(),
+                ).classes("w-56")
+                filters.until_input = ui.input(
+                    "Until (ISO)",
+                    value=until,
+                    on_change=lambda _: _refresh_render(),
+                ).classes("w-56")
+                ui.button("Refresh", icon="refresh", on_click=lambda: refresh()).props(
+                    "color=primary"
+                )
 
         count_label = ui.label("…").classes("text-sm text-slate-600")
         # Persistent containers — never cleared. We swap visibility
@@ -67,7 +126,15 @@ def channels_page() -> None:
         # also remember the last-rendered HTML per cell and skip
         # ``table.update()`` entirely when nothing changed — that's
         # what was making the table flash every tick.
-        state: dict[str, Any] = {"table": None, "fingerprint": ""}
+        # ``had_data`` remembers whether the page has EVER seen rows
+        # since this view was opened. The per-tick ``all_rows`` snapshot
+        # is racy when a refresh fires concurrently with a filter change;
+        # using ``has_data=bool(all_rows)`` alone would flash "No
+        # channels recorded yet" mid-toggle. ``had_data`` is set True on
+        # the first non-empty refresh and never reset for the page's
+        # lifetime, so the "filtered out" copy persists once any data
+        # has been seen.
+        state: dict[str, Any] = {"table": None, "fingerprint": "", "had_data": False}
 
         def refresh() -> None:
             try:
@@ -75,32 +142,100 @@ def channels_page() -> None:
             except (OSError, ValueError, RuntimeError):
                 return
             channels = payload.get("channels") or {}
-            count_label.text = f"{len(channels)} channel(s)"
-            new_rows = [
+
+            # Re-seed the Type + Instrument dropdowns from observed
+            # descriptor values so newly-seen values become selectable.
+            # The Instrument dropdown carries a "(none)" sentinel for
+            # channels with no instrument_role (derived / computed /
+            # user-streamed channels). Preserve current selections when
+            # still valid.
+            type_options = {"": "(any)"}
+            instrument_options: dict[str, str] = {"": "(any)"}
+            has_unassigned = False
+            for descriptor in channels.values():
+                dt = descriptor.get("value_type") or ""
+                if dt and dt not in type_options:
+                    type_options[dt] = dt
+                role = descriptor.get("instrument_role") or ""
+                if role:
+                    instrument_options.setdefault(role, role)
+                else:
+                    has_unassigned = True
+            if has_unassigned:
+                instrument_options[_INSTRUMENT_NONE_SENTINEL] = "(none)"
+
+            current_type = filters.type_select.value or ""
+            filters.type_select.options = type_options
+            if current_type not in type_options:
+                filters.type_select.value = ""
+            filters.type_select.update()
+
+            current_inst = filters.instrument_select.value or ""
+            filters.instrument_select.options = instrument_options
+            if current_inst not in instrument_options:
+                filters.instrument_select.value = ""
+            filters.instrument_select.update()
+
+            state["all_rows"] = [
                 _row_for_channel(cid, descriptor) for cid, descriptor in sorted(channels.items())
             ]
+            state["total"] = len(channels)
+            if channels:
+                state["had_data"] = True
+            _render_filtered()
 
-            if not new_rows:
+        def _render_filtered() -> None:
+            """Apply current filter state to ``state['all_rows']`` and render."""
+            push_url_state(
+                "/channels",
+                {
+                    # session_id is URL-only — preserved across filter
+                    # changes via the page-level param, not a widget.
+                    "session_id": session_id,
+                    "name": filters.name(),
+                    "value_type": filters.value_type(),
+                    "instrument": filters.instrument(),
+                    "since": filters.since(),
+                    "until": filters.until(),
+                },
+            )
+            all_rows: list[dict[str, Any]] = state.get("all_rows") or []
+            total = state.get("total", len(all_rows))
+            filtered = _apply_filters(
+                all_rows,
+                name=filters.name(),
+                value_type=filters.value_type(),
+                instrument=filters.instrument(),
+                since=filters.since(),
+                until=filters.until(),
+            )
+            count_label.text = (
+                f"{len(filtered)} of {total} channel(s)"
+                if len(filtered) != total
+                else f"{total} channel(s)"
+            )
+
+            if not filtered:
                 if state["table"] is not None:
                     state["table"].rows.clear()
                     state["table"].update()
                     state["fingerprint"] = ""
-                _show_empty_state(empty_state)
+                _show_empty_state(empty_state, has_data=state["had_data"])
                 return
 
             empty_state.clear()
             table = state["table"]
             if table is None:
                 with table_holder:
-                    state["table"] = _build_table(new_rows)
-                state["fingerprint"] = _row_fingerprint(new_rows)
+                    state["table"] = _build_table(filtered, session_id=session_id)
+                state["fingerprint"] = _row_fingerprint(filtered)
                 return
 
             # Skip the round-trip entirely if nothing changed —
             # otherwise every tick would re-render the v-html cells
-            # and flash. The fingerprint is just the joined cell
-            # values; cheap to compute, robust to identical refreshes.
-            new_fingerprint = _row_fingerprint(new_rows)
+            # and flash. Fingerprint includes filter outputs so a
+            # filter change forces a re-render even at constant data.
+            new_fingerprint = _row_fingerprint(filtered)
             if new_fingerprint == state["fingerprint"]:
                 return
             state["fingerprint"] = new_fingerprint
@@ -112,7 +247,7 @@ def channels_page() -> None:
             # actually changed).
             old_by_id = {r["channel_id"]: r for r in table.rows}
             preserved: list[dict[str, Any]] = []
-            for new_row in new_rows:
+            for new_row in filtered:
                 existing = old_by_id.get(new_row["channel_id"])
                 if existing is None:
                     preserved.append(new_row)
@@ -122,6 +257,21 @@ def channels_page() -> None:
             table.rows[:] = preserved
             table.update()
 
+        def _refresh_render() -> None:
+            """Re-render against the in-memory snapshot when a filter changes."""
+            _render_filtered()
+
+        # Apply URL-driven initial filter values before the first walk
+        # so the count + table reflect the deep-linked state.
+        if value_type:
+            filters.type_select.options = {"": "(any)", value_type: value_type}
+            filters.type_select.value = value_type
+            filters.type_select.update()
+        if instrument:
+            label = "(none)" if instrument == _INSTRUMENT_NONE_SENTINEL else instrument
+            filters.instrument_select.options = {"": "(any)", instrument: label}
+            filters.instrument_select.value = instrument
+            filters.instrument_select.update()
         refresh()
 
         # Subscribe to instrument lifecycle events so the table
@@ -129,10 +279,6 @@ def channels_page() -> None:
         # the legacy ``ui.timer(2.0, refresh)`` polling pattern;
         # the in-place row mutation + fingerprint skip stay
         # exactly as they were.
-        from litmus.data.data_dir import resolve_data_dir
-        from litmus.data.event_store import EventStore
-        from litmus.ui.shared.components import subscribe_with_refresh
-
         try:
             event_store = EventStore.get_shared(resolve_data_dir())
             subscribe_with_refresh(
@@ -147,18 +293,89 @@ def channels_page() -> None:
             ui.timer(_REFRESH_SECONDS, refresh)
 
 
+class _Filters:
+    """Lazy filter-value accessors so callbacks read the live widget state.
+
+    Same shape as the ``_Filters`` in ``/events`` and ``/files`` — class
+    attributes set after the widgets are constructed; getters return the
+    stripped value (empty string = "(any)" / no filter).
+    """
+
+    name_input: ui.input
+    type_select: ui.select
+    instrument_select: ui.select
+    since_input: ui.input
+    until_input: ui.input
+
+    def name(self) -> str:
+        return (self.name_input.value or "").strip()
+
+    def value_type(self) -> str:
+        return (str(self.type_select.value) if self.type_select.value else "").strip()
+
+    def instrument(self) -> str:
+        return (str(self.instrument_select.value) if self.instrument_select.value else "").strip()
+
+    def since(self) -> str:
+        return (self.since_input.value or "").strip()
+
+    def until(self) -> str:
+        return (self.until_input.value or "").strip()
+
+
+# Sentinel for the Instrument dropdown's "no instrument_role set" entry.
+# Channel descriptors carry ``instrument_role: str = ""`` so the empty
+# string is genuinely "unassigned" — distinct from "(any)" which means
+# "don't filter on this dimension."
+_INSTRUMENT_NONE_SENTINEL = "__none__"
+
+
+def _apply_filters(
+    rows: list[dict[str, Any]],
+    *,
+    name: str,
+    value_type: str,
+    instrument: str,
+    since: str,
+    until: str,
+) -> list[dict[str, Any]]:
+    """Apply the channel-list filters to ``rows``. Empty strings = wildcards."""
+    name_lower = name.lower()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        if name_lower and name_lower not in r["channel_id"].lower():
+            continue
+        if value_type and r["value_type"] != value_type:
+            continue
+        if instrument:
+            row_instr = r["instrument_role"]
+            if instrument == _INSTRUMENT_NONE_SENTINEL:
+                if row_instr:
+                    continue
+            elif row_instr != instrument:
+                continue
+        if since or until:
+            last = r["last_updated"] or ""
+            if since and last < since:
+                continue
+            if until and last > until:
+                continue
+        out.append(r)
+    return out
+
+
 def _row_fingerprint(rows: list[dict[str, Any]]) -> str:
     """Cheap content hash to skip no-op refreshes."""
     return "|".join(f"{r['channel_id']}:{r['latest']}:{r['spark']}" for r in rows)
 
 
-def _build_table(rows: list[dict[str, Any]]) -> ui.table:
+def _build_table(rows: list[dict[str, Any]], *, session_id: str = "") -> ui.table:
     """Construct the channels table once. Later ticks mutate ``.rows``."""
     columns = [
         {"name": "channel_id", "label": "Channel ID", "field": "channel_id", "align": "left"},
         {"name": "latest", "label": "Latest", "field": "latest", "align": "right"},
         {"name": "spark", "label": "History", "field": "spark", "align": "left"},
-        {"name": "data_type", "label": "Type", "field": "data_type", "align": "left"},
+        {"name": "value_type", "label": "Type", "field": "value_type", "align": "left"},
         {
             "name": "instrument_role",
             "label": "Instrument",
@@ -176,11 +393,13 @@ def _build_table(rows: list[dict[str, Any]]) -> ui.table:
         columns=columns,
         rows=rows,
         row_key="channel_id",
-        on_row_click=lambda r: ui.navigate.to(f"/channels/{r['channel_id']}"),
+        on_row_click=lambda r: ui.navigate.to(
+            f"/channels/{r['channel_id']}" + (f"?session_id={session_id}" if session_id else "")
+        ),
         time_columns=["last_updated"],
     )
     # ``latest`` and ``spark`` cells carry HTML strings (number with
-    # units, inline SVG) that q-table renders as text by default.
+    # unit, inline SVG) that q-table renders as text by default.
     table.add_slot(
         "body-cell-latest",
         '<q-td :props="props"><span v-html="props.value"></span></q-td>',
@@ -192,20 +411,30 @@ def _build_table(rows: list[dict[str, Any]]) -> ui.table:
     return table
 
 
-def _show_empty_state(slot: ui.column) -> None:
-    """Render the no-channels card. Idempotent — replaces existing content."""
+def _show_empty_state(slot: ui.column, *, has_data: bool = False) -> None:
+    """Render the empty-state card. Distinguishes "no data" from "filtered out"."""
     slot.clear()
-    with slot, ui.card().classes("w-full"), ui.card_section():
-        ui.label("No channels recorded yet.").classes("text-slate-500 italic")
-        ui.label(
+    if has_data:
+        render_no_data_card(
+            slot,
+            title="No channels match the current filters.",
+            reason="Clear the filters above to see all channels.",
+            icon="signal_cellular_off",
+        )
+        return
+    render_no_data_card(
+        slot,
+        title="No channels recorded yet.",
+        reason=(
             "Channels appear once a test writes to ChannelStore "
-            "(e.g. ``context.observe('scope', ndarray)`` or "
-            "instrument observers)."
-        ).classes("text-xs text-slate-400")
+            "(e.g. ``context.observe('scope', ndarray)`` or instrument observers)."
+        ),
+        icon="signal_cellular_off",
+    )
 
 
 def _row_for_channel(channel_id: str, descriptor: dict[str, Any]) -> dict[str, Any]:
-    units = descriptor.get("units") or ""
+    unit = descriptor.get("unit") or ""
     recent = descriptor.get("recent") or {}
     samples = recent.get("samples") or []
     latest_value = recent.get("latest")
@@ -213,27 +442,27 @@ def _row_for_channel(channel_id: str, descriptor: dict[str, Any]) -> dict[str, A
 
     return {
         "channel_id": channel_id,
-        "data_type": descriptor.get("data_type") or "",
+        "value_type": descriptor.get("value_type") or "",
         "instrument_role": descriptor.get("instrument_role") or "",
-        "units": units,
+        "unit": unit,
         "last_updated": format_datetime(last_updated),
-        "latest": _format_latest(latest_value, units),
+        "latest": _format_latest(latest_value, unit),
         "spark": _sparkline_svg(samples),
     }
 
 
-def _format_latest(value: Any, units: str) -> str:
-    """Render the most recent sample as a small inline value+units."""
+def _format_latest(value: Any, unit: str) -> str:
+    """Render the most recent sample as a small inline value+unit."""
     if value is None:
         return '<span class="text-slate-400">—</span>'
     if isinstance(value, (int, float)):
         rendered = f"{value:.6g}"
     else:
         rendered = str(value)
-    if units:
+    if unit:
         return (
             f'<span class="font-mono">{rendered}</span>'
-            f' <span class="text-xs text-slate-500">{units}</span>'
+            f' <span class="text-xs text-slate-500">{unit}</span>'
         )
     return f'<span class="font-mono">{rendered}</span>'
 

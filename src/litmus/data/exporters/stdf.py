@@ -97,7 +97,7 @@ def _build_ptr(
     comparator: str | None,
     limit_low: float | None,
     limit_high: float | None,
-    units: str | None,
+    unit: str | None,
 ) -> bytes:
     """Build and pack a single PTR record."""
     ptr = PTR()
@@ -116,8 +116,8 @@ def _build_ptr(
         ptr.set_value("LO_LIMIT", limit_low)
     if limit_high is not None:
         ptr.set_value("HI_LIMIT", limit_high)
-    if units:
-        ptr.set_value("UNITS", units)
+    if unit:
+        ptr.set_value("UNITS", unit)
     return _pack_record(ptr)
 
 
@@ -184,10 +184,10 @@ class StdfSubscriber(EventSubscriber):
         mir.set_value("START_T", _dt_to_epoch(s.occurred_at))
         mir.set_value("STAT_NUM", 1)
         mir.set_value("MODE_COD", "P")
-        if s.dut_lot_number:
-            mir.set_value("LOT_ID", s.dut_lot_number)
-        if s.dut_part_number:
-            mir.set_value("PART_TYP", s.dut_part_number)
+        if s.uut_lot_number:
+            mir.set_value("LOT_ID", s.uut_lot_number)
+        if s.uut_part_number:
+            mir.set_value("PART_TYP", s.uut_part_number)
         mir.set_value("NODE_NAM", s.station_id)
         mir.set_value("JOB_NAM", s.project_name or "")
         if s.operator_id:
@@ -216,7 +216,7 @@ class StdfSubscriber(EventSubscriber):
                     m.limit_comparator,
                     m.limit_low,
                     m.limit_high,
-                    m.units,
+                    m.unit,
                 )
             )
             if m.outcome == "failed":
@@ -233,7 +233,7 @@ class StdfSubscriber(EventSubscriber):
         prr.set_value("NUM_TEST", len(self._measurements))
         prr.set_value("HARD_BIN", 1 if not any_fail else 0)
         prr.set_value("SOFT_BIN", 1 if not any_fail else 0)
-        prr.set_value("PART_ID", s.dut_serial)
+        prr.set_value("PART_ID", s.uut_serial)
         records.append(_pack_record(prr))
 
         # MRR

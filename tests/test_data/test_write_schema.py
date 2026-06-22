@@ -5,7 +5,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from litmus.data.backends.parquet import ParquetBackend
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 from litmus.data.schemas import (
     _INSTR_ARRAY_TYPES,
     RUN_ROW_SCHEMA,
@@ -22,7 +22,7 @@ class TestBuildWriteSchemaFixed:
             "run_id": "r1",
             "step_name": "test_v",
             "measurement_value": 3.3,
-            "measurement_units": "V",
+            "measurement_unit": "V",
             "measurement_outcome": "PASS",
             "step_index": 0,
         }
@@ -62,18 +62,18 @@ class TestBuildWriteSchemaDynamic:
 class TestAllNoneColumn:
     """All-None columns in canonical schema still get correct types."""
 
-    def test_low_limit_all_none(self):
+    def test_timestamp_all_none(self):
         rows = [
-            {"run_id": "r1", "limit_low": None, "measurement_value": 1.0},
-            {"run_id": "r2", "limit_low": None, "measurement_value": 2.0},
+            {"run_id": "r1", "run_started_at": None},
+            {"run_id": "r2", "run_started_at": None},
         ]
         schema = _build_write_schema(rows)
-        assert schema.field("limit_low").type == pa.float64()
+        assert schema.field("run_started_at").type == pa.timestamp("us", tz="UTC")
 
-    def test_value_all_none(self):
-        rows = [{"run_id": "r1", "measurement_value": None}]
+    def test_int_all_none(self):
+        rows = [{"run_id": "r1", "step_index": None}]
         schema = _build_write_schema(rows)
-        assert schema.field("measurement_value").type == pa.float64()
+        assert schema.field("step_index").type == pa.int64()
 
     def test_dynamic_all_none_defaults_to_string(self):
         rows = [{"run_id": "r1", "in_unknown": None}]
@@ -95,7 +95,7 @@ class TestInstrArrayColumns:
         assert schema.field("step_instruments_mocked").type == pa.list_(pa.bool_())
 
     def test_all_instr_keys_in_type_map(self):
-        from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
+        from litmus.execution.run_scope import INSTRUMENT_ARRAY_KEYS
 
         for key in INSTRUMENT_ARRAY_KEYS:
             assert key in _INSTR_ARRAY_TYPES
@@ -104,20 +104,24 @@ class TestInstrArrayColumns:
 class TestWriteRejectsTypeMismatch:
     """Explicit schema makes Arrow reject invalid data at construction."""
 
-    def test_string_in_float_column_raises(self):
-        rows = [{"run_id": "r1", "measurement_value": "not_a_number"}]
+    def test_string_in_int_column_raises(self):
+        rows = [{"run_id": "r1", "step_index": "not_a_number"}]
         schema = _build_write_schema(rows)
         with pytest.raises(pa.ArrowInvalid):
             table_from_rows(rows, schema)
 
-    def test_mixed_type_error_message(self):
+    def test_mixed_kind_lanes_do_not_raise(self):
+        """Same input name, different kinds across rows → no raise; each value
+        routes to its own value_* lane (the nested EAV at-rest shape)."""
+        from litmus.data.backends._row_helpers import encode_lane_structs
+
         rows = [
-            {"run_id": "r1", "in_voltage": 5.0},
-            {"run_id": "r2", "in_voltage": "high"},
+            {"run_id": "r1", "inputs": encode_lane_structs({"voltage": 5.0})},
+            {"run_id": "r2", "inputs": encode_lane_structs({"voltage": "high"})},
         ]
         schema = _build_write_schema(rows)
-        with pytest.raises(pa.ArrowInvalid, match="mixed types"):
-            table_from_rows(rows, schema)
+        table = table_from_rows(rows, schema)  # does not raise
+        assert table.num_rows == 2
 
 
 class TestRoundTripExplicitSchema:
@@ -127,7 +131,7 @@ class TestRoundTripExplicitSchema:
         m = Measurement(
             name="voltage",
             value=3.3,
-            units="V",
+            unit="V",
             limit_low=3.0,
             limit_high=3.6,
             outcome=Outcome.PASSED,
@@ -135,7 +139,7 @@ class TestRoundTripExplicitSchema:
         v = TestVector(index=0, measurements=[m])
         s = TestStep(name="test_v", vectors=[v])
         run = TestRun(
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             steps=[s],
             station_id="bench_1",
             outcome=Outcome.PASSED,
@@ -145,17 +149,22 @@ class TestRoundTripExplicitSchema:
         path = backend.save_test_run(run)
 
         table = pq.read_table(path)
-        assert table.schema.field("measurement_value").type == pa.float64()
-        assert table.schema.field("limit_low").type == pa.float64()
         assert table.schema.field("run_id").type == pa.string()
         assert table.schema.field("step_index").type == pa.int64()
+        # Measurements are nested on the vector row; the struct carries floats.
+        assert pa.types.is_list(table.schema.field("measurements").type)
+        meas_struct = table.schema.field("measurements").type.value_type
+        assert meas_struct.field("value").type == pa.float64()
+        assert meas_struct.field("limit_low").type == pa.float64()
 
     def test_dynamic_columns_round_trip(self, tmp_path):
-        """Dynamic in_* columns survive the full write path through RecordBatch."""
+        """Vector params survive the write path in the nested inputs lanes."""
+        from litmus.data.backends._row_helpers import decode_lane_structs
+
         m = Measurement(
             name="voltage",
             value=3.3,
-            units="V",
+            unit="V",
             outcome=Outcome.PASSED,
         )
         v = TestVector(
@@ -165,7 +174,7 @@ class TestRoundTripExplicitSchema:
         )
         s = TestStep(name="test_v", vectors=[v])
         run = TestRun(
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             steps=[s],
             station_id="bench_1",
             outcome=Outcome.PASSED,
@@ -175,19 +184,18 @@ class TestRoundTripExplicitSchema:
         path = backend.save_test_run(run)
 
         table = pq.read_table(path)
-        assert "in_voltage" in table.column_names
-        assert "in_mode" in table.column_names
-        assert table.schema.field("in_voltage").type == pa.float64()
-        assert table.schema.field("in_mode").type == pa.string()
-        # Unified schema: 1 run row + 1 measurement row + 1 step row.
-        # The measurement and step rows carry the denormalized ``in_*``
-        # columns; the run row carries NULL there (no vector context).
+        assert "inputs" in table.column_names
+        assert pa.types.is_list(table.schema.field("inputs").type)
+        # v2 nested schema: 1 run + 1 step + 1 scope vector. The conditions live
+        # ONLY on the scope vector; the step record sheds them (empty inputs).
+        # The measurement is nested on the vector, not a separate row.
         rows = table.to_pylist()
         assert len(rows) == 3
-        non_run = [r for r in rows if r["record_type"] != "run"]
-        assert all(r["in_voltage"] == 5.0 for r in non_run)
-        assert all(r["in_mode"] == "fast" for r in non_run)
-        run_rows = [r for r in rows if r["record_type"] == "run"]
-        assert len(run_rows) == 1
-        assert run_rows[0].get("in_voltage") is None
-        assert run_rows[0].get("in_mode") is None
+        vec_rows = [r for r in rows if r["record_type"] == "vector"]
+        assert len(vec_rows) == 1
+        assert decode_lane_structs(vec_rows[0]["inputs"]) == {"voltage": 5.0, "mode": "fast"}
+        assert [m["name"] for m in vec_rows[0]["measurements"]] == ["voltage"]
+        for rt in ("run", "step"):
+            rt_rows = [r for r in rows if r["record_type"] == rt]
+            assert len(rt_rows) == 1
+            assert decode_lane_structs(rt_rows[0]["inputs"]) == {}

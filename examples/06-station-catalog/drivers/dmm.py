@@ -3,7 +3,7 @@
 This defines the interface for a DMM. Use with Mock for testing:
 
     from drivers import DMM
-    from litmus.instruments.mocks import Mock
+    from litmus import Mock
 
     dmm = Mock(DMM, measure_dc_voltage=3.3, measure_dc_current=0.1)
     print(dmm.measure_dc_voltage())  # 3.3

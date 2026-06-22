@@ -12,6 +12,7 @@ Hierarchical structure:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,20 @@ from litmus.data.events import (
     StepStarted,
 )
 from litmus.data.subscribers._output_file import OutputFile
+
+
+def _h5_attr(val: Any) -> Any:
+    """Coerce a free-form value to an h5py-storable attribute.
+
+    h5py attributes accept scalars (int/float/str/bool/bytes); the
+    ``custom_metadata`` / ``inputs`` / ``outputs`` dicts are ``dict[str, Any]``,
+    so a list/dict/datetime/UUID value would raise mid-export. Scalars pass
+    through; everything else is JSON-encoded to a string.
+    """
+    if isinstance(val, (int, float, str, bool, bytes)):
+        return val
+    return json.dumps(val, default=str)
+
 
 # ── Event subscriber ────────────────────────────────────────────────
 
@@ -101,21 +116,21 @@ class Hdf5Subscriber(EventSubscriber):
             f.attrs["station_id"] = s.station_id
             f.attrs["project_name"] = s.project_name or ""
             f.attrs["test_phase"] = s.test_phase or ""
-            f.attrs["dut_serial"] = s.dut_serial
-            if s.dut_part_number:
-                f.attrs["dut_part_number"] = s.dut_part_number
-            if s.dut_revision:
-                f.attrs["dut_revision"] = s.dut_revision
-            if s.dut_lot_number:
-                f.attrs["dut_lot_number"] = s.dut_lot_number
+            f.attrs["uut_serial"] = s.uut_serial
+            if s.uut_part_number:
+                f.attrs["uut_part_number"] = s.uut_part_number
+            if s.uut_revision:
+                f.attrs["uut_revision"] = s.uut_revision
+            if s.uut_lot_number:
+                f.attrs["uut_lot_number"] = s.uut_lot_number
             if s.station_name:
                 f.attrs["station_name"] = s.station_name
             if s.operator_id:
                 f.attrs["operator_id"] = s.operator_id
-            if s.product_id:
-                f.attrs["product_id"] = s.product_id
+            if s.part_id:
+                f.attrs["part_id"] = s.part_id
             for key, val in s.custom_metadata.items():
-                f.attrs[f"custom_{key}"] = val
+                f.attrs[f"custom_{key}"] = _h5_attr(val)
 
             # Instruments
             if self._instruments:
@@ -175,13 +190,13 @@ class Hdf5Subscriber(EventSubscriber):
                 # ``not in vec_grp.attrs`` guard just avoids redundant
                 # h5py writes.
                 for k, v in m.inputs.items():
-                    attr_key = f"in_{k}"
+                    attr_key = f"input_{k}"
                     if attr_key not in vec_grp.attrs:
-                        vec_grp.attrs[attr_key] = v
+                        vec_grp.attrs[attr_key] = _h5_attr(v)
                 for k, v in m.outputs.items():
-                    attr_key = f"out_{k}"
+                    attr_key = f"output_{k}"
                     if attr_key not in vec_grp.attrs:
-                        vec_grp.attrs[attr_key] = v
+                        vec_grp.attrs[attr_key] = _h5_attr(v)
 
                 meas_grp = vec_grp.require_group("measurements")
                 if m.value is not None:
@@ -196,8 +211,8 @@ class Hdf5Subscriber(EventSubscriber):
                     )
                     ds.attrs["value_missing"] = True
 
-                if m.units:
-                    ds.attrs["units"] = m.units
+                if m.unit:
+                    ds.attrs["unit"] = m.unit
                 if m.limit_comparator:
                     ds.attrs["limit_comparator"] = m.limit_comparator
                 if m.limit_low is not None:
@@ -210,8 +225,8 @@ class Hdf5Subscriber(EventSubscriber):
                     ds.attrs["outcome"] = m.outcome
                 if m.characteristic_id:
                     ds.attrs["characteristic_id"] = m.characteristic_id
-                if m.dut_pin:
-                    ds.attrs["dut_pin"] = m.dut_pin
+                if m.uut_pin:
+                    ds.attrs["uut_pin"] = m.uut_pin
                 if m.instrument_name:
                     ds.attrs["instrument_name"] = m.instrument_name
 

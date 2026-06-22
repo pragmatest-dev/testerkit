@@ -7,17 +7,15 @@ added in one place.
 
 from __future__ import annotations
 
-import json as _json
-import pickle
-import shutil
+import json
 from collections.abc import Callable, Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from litmus.data.models import Measurement, TestRun, TestVector, Waveform
+from litmus.data.models import Measurement, TestRun, TestVector
 from litmus.data.ref import classify_value, is_ref
 from litmus.environment import EnvironmentSnapshot
 
@@ -25,7 +23,7 @@ try:
     import importlib.util as _ilu
 
     HAS_NUMPY = _ilu.find_spec("numpy") is not None
-except Exception:
+except (ImportError, ValueError):
     HAS_NUMPY = False
 
 # Canonical list of instrument identity array column names.
@@ -54,21 +52,187 @@ REF_PATH_PREFIX = "_ref/"
 # Vector ID prefix length for filename namespacing in _ref/ directories.
 VECTOR_ID_LENGTH = 8
 
-# Dynamic-column prefixes for denormalized rows.
-INPUT_PREFIX = "in_"
-OUTPUT_PREFIX = "out_"
-CUSTOM_PREFIX = "custom_"
+# EAV lane struct — the at-rest nested representation of one input / output
+# entry. ``value_type`` is the value-type discriminator that selects which
+# ``value_*`` lane holds the value. The Arrow struct type in
+# ``schemas._LANE_STRUCT`` must match these names (guarded there).
+LANE_FIELDS: tuple[str, ...] = (
+    "name",
+    "value_type",
+    "value_int",
+    "value_double",
+    "value_bool",
+    "value_text",
+    "value_timestamp",
+    "value_json",
+    "unit",
+    "uut_pin",
+)
+
+# Fields of the at-rest nested measurement struct carried on the vector row.
+MEASUREMENT_STRUCT_FIELDS: tuple[str, ...] = (
+    "name",
+    "value",
+    "unit",
+    "outcome",
+    "timestamp",
+    "limit_low",
+    "limit_high",
+    "limit_nominal",
+    "limit_comparator",
+    "characteristic_id",
+    "spec_ref",
+    "uut_pin",
+    "fixture_connection",
+    "instrument_name",
+    "instrument_resource",
+    "instrument_channel",
+)
+
+# Flat measurement scalar columns — present on the flat-fact / overlay / export
+# row, but dropped from the at-rest parquet (at rest a measurement lives in the
+# vector row's nested ``measurements`` list, not as flat columns).
+_MEASUREMENT_SCALAR_FIELDS: frozenset[str] = frozenset(
+    {
+        "measurement_name",
+        "measurement_timestamp",
+        "measurement_value",
+        "measurement_unit",
+        "measurement_outcome",
+        "limit_low",
+        "limit_high",
+        "limit_nominal",
+        "limit_comparator",
+        "characteristic_id",
+        "spec_ref",
+        "uut_pin",
+        "fixture_connection",
+        "instrument_name",
+        "instrument_resource",
+        "instrument_channel",
+    }
+)
 
 
-def extract_prefixed_fields(row: dict[str, Any], prefix: str) -> dict[str, Any]:
-    """Extract fields whose key starts with ``prefix`` and strip it.
+def _decode_dynamic_attrs_map(
+    dynamic_attrs: dict | list | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split a ``dynamic_attrs`` MAP into ``(inputs, outputs)`` dicts.
 
-    Used by the parquet reconstruction path to invert the flattening
-    done by :class:`MeasurementRow.to_flat_dict` (``in_*`` / ``out_*`` /
-    ``custom_*``).
+    Shared by :meth:`RunStore.get_measurements` and
+    :meth:`StepsQuery.list_for_run`. Both call sites receive the MAP
+    as either a plain ``dict`` (DuckDB Arrow conversion) or a list of
+    ``(key, value)`` tuples. Keys prefixed ``in_<name>`` go to
+    ``inputs`` (prefix stripped); ``out_<name>`` go to ``outputs``.
+    ``None`` keys or values are skipped. VARCHAR values are coerced:
+    ``"true"``/``"false"`` → ``bool``; numeric strings → ``float``.
     """
-    plen = len(prefix)
-    return {k[plen:]: v for k, v in row.items() if k.startswith(prefix)}
+    inputs: dict[str, Any] = {}
+    outputs: dict[str, Any] = {}
+    if not dynamic_attrs:
+        return inputs, outputs
+    pairs = dynamic_attrs.items() if isinstance(dynamic_attrs, dict) else dynamic_attrs
+    for k, v in pairs:
+        if k is None or v is None:
+            continue
+        v = _coerce_dynamic_attr(v)
+        if k.startswith("in_"):
+            inputs[k[3:]] = v
+        elif k.startswith("out_"):
+            outputs[k[4:]] = v
+    return inputs, outputs
+
+
+def _coerce_dynamic_attr(v: Any) -> Any:
+    """Coerce a dynamic_attrs VARCHAR value to its native Python type."""
+    if not isinstance(v, str):
+        return v
+    if v == "true":
+        return True
+    if v == "false":
+        return False
+    try:
+        return float(v)
+    except ValueError:
+        return v
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Normalise a datetime to tz-aware UTC (assume UTC if naive)."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _lane_entry(
+    name: str, value: Any, unit: str | None = None, uut_pin: str | None = None
+) -> dict[str, Any]:
+    """Encode one ``(name, value)`` into an EAV lane struct dict.
+
+    ``observation_kind`` routes the value to exactly one ``value_*`` lane;
+    the others stay ``None``. ``unit`` carries the optional engineering unit;
+    ``uut_pin`` carries the pin this observation belongs to (or None = all pins).
+    """
+    value_type = observation_kind(value)
+    entry: dict[str, Any] = dict.fromkeys(LANE_FIELDS)
+    entry["name"] = name
+    entry["value_type"] = value_type
+    entry["unit"] = unit
+    entry["uut_pin"] = uut_pin
+    if value_type == "scalar:bool":
+        entry["value_bool"] = bool(value)
+    elif value_type == "scalar:int":
+        entry["value_int"] = int(value)
+    elif value_type == "scalar:float":
+        entry["value_double"] = float(value)
+    elif value_type == "scalar:datetime":
+        entry["value_timestamp"] = _as_utc(value)
+    elif value_type in ("scalar:str", "uri"):
+        entry["value_text"] = str(value)
+    elif value_type in ("list", "dict"):
+        entry["value_json"] = json.dumps(value, default=str)
+    else:  # other:*
+        entry["value_text"] = repr(value)
+    return entry
+
+
+def encode_lane_structs(
+    values: dict[str, Any],
+    units: dict[str, str] | None = None,
+    pins: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Encode an inputs or outputs dict into a list of lane structs.
+
+    ``units`` maps a slot name to its engineering unit; ``pins`` maps a slot
+    name to its ``uut_pin``. Both ride into the lane's named fields.
+    """
+    units = units or {}
+    pins = pins or {}
+    return [
+        _lane_entry(name, value, units.get(name), pins.get(name)) for name, value in values.items()
+    ]
+
+
+def _lane_value(entry: dict[str, Any]) -> Any:
+    """Inverse of :func:`_lane_entry` — read the value from its lane by ``value_type``."""
+    value_type = entry.get("value_type")
+    if value_type == "scalar:bool":
+        return entry.get("value_bool")
+    if value_type == "scalar:int":
+        return entry.get("value_int")
+    if value_type == "scalar:float":
+        return entry.get("value_double")
+    if value_type == "scalar:datetime":
+        return entry.get("value_timestamp")
+    if value_type in ("list", "dict"):
+        raw = entry.get("value_json")
+        return json.loads(raw) if raw is not None else None
+    return entry.get("value_text")  # scalar:str, uri, other:*
+
+
+def decode_lane_structs(entries: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Decode a list of lane structs back into a ``{name: value}`` dict."""
+    return {entry["name"]: _lane_value(entry) for entry in (entries or [])}
 
 
 def _to_datetime(value: Any) -> datetime | None:
@@ -95,26 +259,24 @@ class MeasurementRow(BaseModel):
     discriminator:
 
     * ``record_type = 'run'`` — one row per run; carries run-level
-      identity / DUT / station / fixture / environment context. Step
-      and measurement columns are NULL. Provides an addressable
+      identity / UUT / station / fixture / environment context. Step
+      and vector columns are NULL. Provides an addressable
       "runs table" within the unified per-run parquet (lakehouse
       adopters can ``WHERE record_type = 'run'`` for clean ingest).
     * ``record_type = 'step'`` — one per ``(step_path, vector_index)``
-      execution; ``measurement_*`` columns are NULL. Carries denormalized
-      run-level columns alongside step context.
-    * ``record_type = 'measurement'`` — one per recorded measurement;
-      carries the measurement payload plus the same denormalized run +
-      step context.
+      execution; carries code identity + timing + rolled-up outcome.
+    * ``record_type = 'vector'`` — one execution carrier; holds the
+      ``inputs``/``outputs`` lanes and the nested ``measurements``
+      list for that execution.
 
-    Steps and measurements share grain ``(run_id, step_path,
-    vector_index)``; measurement rows further key on
-    ``measurement_name``. Run rows are keyed by ``run_id`` alone.
+    Run rows are keyed by ``run_id``; steps and vectors share grain
+    ``(run_id, step_path, vector_index)``.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     # Discriminator
-    record_type: Literal["run", "step", "measurement"]
+    record_type: Literal["run", "step", "vector"]
 
     # Session / run identity
     session_id: str
@@ -127,16 +289,16 @@ class MeasurementRow(BaseModel):
     operator_id: str | None = None
     operator_name: str | None = None
 
-    # DUT
-    dut_serial: str
-    dut_part_number: str | None = None
-    dut_revision: str | None = None
-    dut_lot_number: str | None = None
+    # UUT
+    uut_serial: str
+    uut_part_number: str | None = None
+    uut_revision: str | None = None
+    uut_lot_number: str | None = None
 
-    # Product
-    product_id: str | None = None
-    product_name: str | None = None
-    product_revision: str | None = None
+    # Part
+    part_id: str | None = None
+    part_name: str | None = None
+    part_revision: str | None = None
 
     # Station — id is None for bringup tier (no station YAML loaded)
     station_id: str | None = None
@@ -186,7 +348,7 @@ class MeasurementRow(BaseModel):
     measurement_name: str | None = None
     measurement_timestamp: datetime | None = None
     measurement_value: float | None = None
-    measurement_units: str | None = None
+    measurement_unit: str | None = None
     measurement_outcome: str | None = None
     limit_low: float | None = None
     limit_high: float | None = None
@@ -194,7 +356,7 @@ class MeasurementRow(BaseModel):
     limit_comparator: str | None = None
     characteristic_id: str | None = None
     spec_ref: str | None = None
-    dut_pin: str | None = None
+    uut_pin: str | None = None
     fixture_connection: str | None = None
     instrument_name: str | None = None
     instrument_resource: str | None = None
@@ -209,30 +371,44 @@ class MeasurementRow(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
     instruments: dict[str, list[str | bool | None]] = Field(default_factory=dict)
-    custom: dict[str, Any] = Field(default_factory=dict)
+    # Optional per-slot engineering unit for inputs / outputs (name → unit),
+    # flowed into the lane's ``unit`` field at encode time.
+    input_units: dict[str, str] = Field(default_factory=dict)
+    output_units: dict[str, str] = Field(default_factory=dict)
+    output_pins: dict[str, str] = Field(default_factory=dict)
+    # Nested measurements carried on the vector row (LIST<STRUCT>).
+    measurements: list[dict[str, Any]] = Field(default_factory=list)
 
-    def to_flat_dict(self) -> dict[str, Any]:
-        """Flatten to denormalized dict for Parquet write boundary.
+    def to_flat_dict(self, *, at_rest: bool = False) -> dict[str, Any]:
+        """Flatten to denormalized dict for the Parquet write boundary.
 
-        Merges dynamic columns back into the flat namespace:
-        - ``inputs`` keys are prefixed with ``in_`` (provide unprefixed keys)
-        - ``outputs`` keys are prefixed with ``out_`` (provide unprefixed keys)
-        - ``instruments`` keys pass through (already ``instr_``-prefixed)
-        - ``custom`` keys are prefixed with ``custom_`` (provide unprefixed keys)
+        ``inputs`` / ``outputs`` are encoded as nested EAV lane structs
+        (``LIST<STRUCT>``; see :func:`encode_lane_structs`) under the
+        ``inputs`` / ``outputs`` keys. ``input_units`` / ``output_units``
+        ride into each lane's ``unit`` field. ``instruments`` keys pass
+        through (already ``step_instruments_``-prefixed).
+
+        ``at_rest=True`` drops the flat measurement scalar columns: at rest a
+        measurement lives in the vector row's nested ``measurements`` list, not
+        as flat columns. The flat-fact path (overlay / export) keeps them.
 
         Datetime values are left as ``datetime`` objects — callers must
         serialise them at the actual write boundary (e.g. ``.isoformat()``).
         """
-        row = self.model_dump(
-            exclude={"inputs", "outputs", "instruments", "custom"},
-        )
-        for k, v in self.inputs.items():
-            row[f"in_{k}"] = v
-        for k, v in self.outputs.items():
-            row[f"out_{k}"] = v
+        exclude = {
+            "inputs",
+            "outputs",
+            "instruments",
+            "input_units",
+            "output_units",
+            "output_pins",
+        }
+        if at_rest:
+            exclude |= _MEASUREMENT_SCALAR_FIELDS
+        row = self.model_dump(exclude=exclude)
+        row["inputs"] = encode_lane_structs(self.inputs, self.input_units)
+        row["outputs"] = encode_lane_structs(self.outputs, self.output_units, self.output_pins)
         row.update(self.instruments)
-        for k, v in self.custom.items():
-            row[f"custom_{k}"] = v
         return row
 
 
@@ -254,15 +430,15 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
         # WHO
         "operator_id": test_run.operator_id,
         "operator_name": test_run.operator_name,
-        # DUT
-        "dut_serial": test_run.dut.serial,
-        "dut_part_number": test_run.dut.part_number,
-        "dut_revision": test_run.dut.revision,
-        "dut_lot_number": test_run.dut.lot_number,
-        # Product
-        "product_id": test_run.product_id,
-        "product_name": test_run.product_name,
-        "product_revision": test_run.product_revision,
+        # UUT
+        "uut_serial": test_run.uut.serial,
+        "uut_part_number": test_run.uut.part_number,
+        "uut_revision": test_run.uut.revision,
+        "uut_lot_number": test_run.uut.lot_number,
+        # Part
+        "part_id": test_run.part_id,
+        "part_name": test_run.part_name,
+        "part_revision": test_run.part_revision,
         # Station
         "station_id": test_run.station_id,
         "station_name": test_run.station_name,
@@ -327,13 +503,13 @@ def run_context_from_run_started(
             "run_ended_at": None,
             "operator_id": None,
             "operator_name": None,
-            "dut_serial": "unknown",
-            "dut_part_number": None,
-            "dut_revision": None,
-            "dut_lot_number": None,
-            "product_id": None,
-            "product_name": None,
-            "product_revision": None,
+            "uut_serial": "unknown",
+            "uut_part_number": None,
+            "uut_revision": None,
+            "uut_lot_number": None,
+            "part_id": None,
+            "part_name": None,
+            "part_revision": None,
             "station_id": "unknown",
             "station_name": None,
             "station_type": None,
@@ -355,13 +531,13 @@ def run_context_from_run_started(
             "run_ended_at": None,
             "operator_id": run_started.operator_id,
             "operator_name": run_started.operator_name,
-            "dut_serial": run_started.dut_serial,
-            "dut_part_number": run_started.dut_part_number,
-            "dut_revision": run_started.dut_revision,
-            "dut_lot_number": run_started.dut_lot_number,
-            "product_id": run_started.product_id,
-            "product_name": run_started.product_name,
-            "product_revision": run_started.product_revision,
+            "uut_serial": run_started.uut_serial,
+            "uut_part_number": run_started.uut_part_number,
+            "uut_revision": run_started.uut_revision,
+            "uut_lot_number": run_started.uut_lot_number,
+            "part_id": run_started.part_id,
+            "part_name": run_started.part_name,
+            "part_revision": run_started.part_revision,
             "station_id": run_started.station_id,
             "station_name": run_started.station_name,
             "station_type": run_started.station_type,
@@ -386,9 +562,9 @@ def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
         "measurement_name": measurement.name,
         "measurement_timestamp": measurement.timestamp,
         "measurement_value": measurement.value,
-        "measurement_units": measurement.units,
+        "measurement_unit": measurement.unit,
         # measurement.outcome is contractually set by log_measurement
-        # (RuntimeError raised in execution/logger.py if None reaches here).
+        # (RuntimeError raised in execution/run_scope.py if None reaches here).
         "measurement_outcome": measurement.outcome.value if measurement.outcome else None,
         # Limits
         "limit_low": measurement.limit_low,
@@ -399,7 +575,33 @@ def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
         "characteristic_id": measurement.characteristic_id,
         "spec_ref": measurement.spec_ref,
         # Signal path
-        "dut_pin": measurement.dut_pin,
+        "uut_pin": measurement.uut_pin,
+        "fixture_connection": measurement.fixture_connection,
+        "instrument_name": measurement.instrument_name,
+        "instrument_resource": measurement.instrument_resource,
+        "instrument_channel": measurement.instrument_channel,
+    }
+
+
+def build_measurement_struct(measurement: Measurement) -> dict[str, Any]:
+    """Encode a Measurement into the at-rest nested struct on the vector row.
+
+    Field order/names must match ``MEASUREMENT_STRUCT_FIELDS`` (and
+    ``schemas._MEASUREMENT_STRUCT``, guarded there).
+    """
+    return {
+        "name": measurement.name,
+        "value": measurement.value,
+        "unit": measurement.unit,
+        "outcome": measurement.outcome.value if measurement.outcome else None,
+        "timestamp": measurement.timestamp,
+        "limit_low": measurement.limit_low,
+        "limit_high": measurement.limit_high,
+        "limit_nominal": measurement.limit_nominal,
+        "limit_comparator": measurement.limit_comparator,
+        "characteristic_id": measurement.characteristic_id,
+        "spec_ref": measurement.spec_ref,
+        "uut_pin": measurement.uut_pin,
         "fixture_connection": measurement.fixture_connection,
         "instrument_name": measurement.instrument_name,
         "instrument_resource": measurement.instrument_resource,
@@ -410,7 +612,8 @@ def build_measurement_fields(measurement: Measurement) -> dict[str, Any]:
 def build_input_columns(vector: TestVector) -> dict[str, Any]:
     """Build inputs dict from vector params and stimulus records.
 
-    Keys are unprefixed (e.g. ``"vin"``); ``to_flat_dict()`` adds the ``in_`` prefix.
+    Keys are unprefixed (e.g. ``"vin"``); the result is encoded as the
+    ``inputs`` lane struct list by ``to_flat_dict()``.
     """
     cols: dict[str, Any] = {}
 
@@ -429,12 +632,43 @@ def build_input_columns(vector: TestVector) -> dict[str, Any]:
             cols[f"{param}_resource"] = stim.resource
         if stim.channel:
             cols[f"{param}_channel"] = stim.channel
-        if stim.dut_pin:
-            cols[f"{param}_dut_pin"] = stim.dut_pin
+        if stim.uut_pin:
+            cols[f"{param}_uut_pin"] = stim.uut_pin
         if stim.fixture_connection:
             cols[f"{param}_fixture_connection"] = stim.fixture_connection
 
     return cols
+
+
+def observation_kind(value: Any) -> str:
+    """Classify a value into its EAV value-type tag.
+
+    Returns a short tag (``scalar:int`` / ``scalar:float`` / ``scalar:bool`` /
+    ``scalar:str`` / ``scalar:datetime`` / ``uri`` / ``list`` / ``dict`` /
+    ``other:*``) that :func:`_lane_entry` uses to route the value to its
+    ``value_*`` lane and that is stored as the ``value_type`` field.
+
+    URIs (``channel://`` and ``file://``) are tagged ``"uri"`` even
+    though they're ``str`` — keeps a claim-check ref distinct from a free
+    string (both share the ``value_text`` lane, disambiguated by ``value_type``).
+    """
+    if is_ref(value):
+        return "uri"
+    if isinstance(value, bool):
+        return "scalar:bool"
+    if isinstance(value, int):
+        return "scalar:int"
+    if isinstance(value, float):
+        return "scalar:float"
+    if isinstance(value, str):
+        return "scalar:str"
+    if isinstance(value, datetime):
+        return "scalar:datetime"
+    if isinstance(value, list):
+        return "list"
+    if isinstance(value, dict):
+        return "dict"
+    return f"other:{type(value).__name__}"
 
 
 def build_output_columns(
@@ -443,8 +677,8 @@ def build_output_columns(
 ) -> dict[str, Any]:
     """Build outputs dict from vector observations.
 
-    Keys are unprefixed (e.g. ``"temperature"``); ``to_flat_dict()`` adds
-    the ``out_`` prefix.
+    Keys are unprefixed (e.g. ``"temperature"``); the result is encoded as
+    the ``outputs`` lane struct list by ``to_flat_dict()``.
 
     By the time this runs, observations already contain URIs (from
     Context.observe() writing to ChannelStore) or inline scalars.
@@ -482,66 +716,38 @@ def build_output_columns(
 
 
 def save_ref_to_dir(ref_dir: Path, vector_id: str, key: str, value: Any) -> str:
-    """Save large observation data to a _ref/ directory and return the reference path.
+    """Save observation data to a _ref/ directory and return the reference path.
 
-    This is the shared implementation used by both JournalWriter and
-    ParquetBackend — the only difference is which directory they target.
+    Both materialization paths use this helper to save out-of-row
+    artifacts alongside the parquet (the ``_ref/`` sibling directory
+    convention). The dispatch table itself lives in
+    :mod:`litmus.data.files.serializers` (build item 12); this
+    helper just owns the ``_ref/`` filename / URI shape.
 
     Args:
         ref_dir: Target directory for reference files.
-        vector_id: Vector ID prefix (first 8 chars).
+        vector_id: Vector ID prefix.
         key: Key name for the data.
-        value: Data to save (Path, Waveform, bytes, ndarray, Pydantic model).
+        value: Data to save. Routed through
+            :func:`~litmus.data.files.serializers.find_serializer`
+            — see that module for the convention table and the
+            ``litmus_serialize`` / :func:`register_serializer`
+            extension points.
 
     Returns:
-        Reference string like ``"_ref/abc123_waveform.npz"``.
+        Reference string like ``"file://_ref/abc123_waveform.npz"``.
     """
-    prefix = f"{vector_id}_{key}"
+    from litmus.data.files.serializers import find_serializer
 
+    serializer = find_serializer(value)
+    # Path values: source suffix wins over the serializer's default
+    # ``.bin`` so e.g. ``capture.tdms`` stays ``.tdms`` on disk.
     if isinstance(value, Path):
-        ext = value.suffix or ".bin"
-        filename = f"{prefix}{ext}"
-        shutil.copy(value, ref_dir / filename)
-
-    elif isinstance(value, Waveform):
-        if HAS_NUMPY:
-            import numpy as np  # noqa: PLC0415
-
-            filename = f"{prefix}.npz"
-            np.savez(
-                ref_dir / filename,
-                Y=value.Y,
-                t0=value.t0,
-                dt=value.dt,
-                **value.attrs,
-            )
-        else:
-            filename = f"{prefix}.json"
-            (ref_dir / filename).write_text(value.model_dump_json())
-
-    elif isinstance(value, bytes):
-        filename = f"{prefix}.bin"
-        (ref_dir / filename).write_bytes(value)
-
-    elif hasattr(value, "model_dump"):
-        filename = f"{prefix}.json"
-        (ref_dir / filename).write_text(value.model_dump_json())
-
-    elif hasattr(value, "tolist"):
-        if HAS_NUMPY:
-            import numpy as np  # noqa: PLC0415
-
-            filename = f"{prefix}.npy"
-            np.save(ref_dir / filename, value)
-        else:
-            filename = f"{prefix}.json"
-            (ref_dir / filename).write_text(_json.dumps(value.tolist()))
-
+        ext = value.suffix or serializer.extension
     else:
-        filename = f"{prefix}.pkl"
-        with open(ref_dir / filename, "wb") as f:
-            pickle.dump(value, f)
-
+        ext = serializer.extension
+    filename = f"{vector_id}_{key}{ext}"
+    serializer.write(value, ref_dir / filename)
     return f"file://{REF_PATH_PREFIX}{filename}"
 
 
@@ -554,6 +760,7 @@ def build_row(
     instrument_arrays: dict[str, list[str | bool | None]],
     ref_saver: Callable[[str, str, Any], str] | None = None,
     *,
+    denormalize_conditions: bool = True,
     step_path: str = "",
     step_started_at: datetime | None = None,
     step_ended_at: datetime | None = None,
@@ -577,7 +784,7 @@ def build_row(
     meas = build_measurement_fields(measurement)
 
     return MeasurementRow(
-        record_type="measurement",
+        record_type="vector",
         **meta,
         **meas,
         # Step/vector context
@@ -600,30 +807,34 @@ def build_row(
         step_outcome=step_outcome,
         vector_outcome=vector.outcome.value if vector.outcome else None,
         run_outcome=test_run.outcome.value if test_run.outcome else None,
-        # Dynamic columns
-        inputs=build_input_columns(vector),
-        outputs=build_output_columns(vector, ref_saver=ref_saver),
+        # v2: at rest a measurement references (does not copy) its vector —
+        # the in/out conditions live on the vector record and the EAV join
+        # resolves them by the shared vector key (the at-rest path passes
+        # denormalize_conditions=False). Standalone/export callers
+        # (iter_rows → CSV/DataFrame) denormalize the vector's conditions
+        # back onto the flat row. custom_metadata is a run-level fact.
+        inputs=build_input_columns(vector) if denormalize_conditions else {},
+        outputs=(
+            build_output_columns(vector, ref_saver=ref_saver) if denormalize_conditions else {}
+        ),
         instruments=instrument_arrays,
-        custom=dict(test_run.custom_metadata),
     )
 
 
-def iter_rows(test_run: TestRun) -> Iterator[MeasurementRow]:
-    """Yield denormalized :class:`MeasurementRow` for each measurement
-    in ``test_run``.
+def iter_rows(test_run: TestRun) -> Iterator[dict[str, Any]]:
+    """Yield one denormalized flat row dict per measurement in ``test_run``.
 
-    Joins run-level context (DUT, station, operator, etc.) onto each
-    measurement, producing the same flat view used by streaming and
-    Parquet. Intended for analysis and ad-hoc denormalization (CSV
-    export, DataFrames). No ``ref_saver`` is used, so non-serializable
-    observation values (Waveform, ndarray, bytes, etc.) fall back to
-    ``repr()`` strings in the output columns. For full fidelity, call
-    :func:`build_row` directly with a ``ref_saver``.
+    Joins run-level context (UUT, station, operator, etc.) onto each
+    measurement and denormalizes the enclosing vector's conditions back
+    onto the flat row — the analysis/export view (CSV, DataFrames).
+    No ``ref_saver`` is used, so non-serializable observation values
+    (Waveform, ndarray, bytes, etc.) fall back to ``repr()`` strings in
+    the output columns. The flat row is stamped ``record_type='measurement'``.
     """
     for step_index, step in enumerate(test_run.steps):
         for vector in step.vectors:
             for measurement in vector.measurements:
-                yield build_row(
+                row = build_row(
                     test_run,
                     measurement,
                     step.name,
@@ -644,7 +855,10 @@ def iter_rows(test_run: TestRun) -> Iterator[MeasurementRow]:
                     step_function=step.function,
                     step_markers=step.markers,
                     step_outcome=step.outcome.value if step.outcome else None,
-                )
+                ).to_flat_dict()
+                row["record_type"] = "measurement"
+                row.pop("measurements", None)
+                yield row
 
 
 def build_run_row(
@@ -653,13 +867,11 @@ def build_run_row(
     run_outcome: str | None,
     run_ended_at: datetime | None,
     instruments: dict[str, list],
-    custom: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the single ``record_type = 'run'`` row for a parquet.
 
-    Carries run-level identity / DUT / station / fixture / environment
-    columns plus run-level ``custom_metadata`` (flattened to
-    ``custom_*``). Step and measurement columns stay NULL. Provides an
+    Carries run-level identity / UUT / station / fixture / environment
+    columns. Step and measurement columns stay NULL. Provides an
     addressable run-row inside the unified per-run parquet so lakehouse
     adopters can ``WHERE record_type = 'run'`` for clean ingest into a
     ``runs`` table without ``SELECT DISTINCT`` over the denormalized
@@ -698,9 +910,8 @@ def build_run_row(
         inputs={},
         outputs={},
         instruments=instruments,
-        custom=dict(custom or {}),
     )
-    return row.to_flat_dict()
+    return row.to_flat_dict(at_rest=True)
 
 
 def build_step_row(
@@ -724,6 +935,11 @@ def build_step_row(
     measurements; queries count steps via
     ``COUNT(*) FILTER (WHERE record_type = 'step')`` instead of
     deduping over measurement rows.
+
+    The step record carries ONLY code identity + timing + rolled-up
+    outcome (v2). Conditions/observations live on the synthesized scope
+    ``vector`` row (:func:`build_scope_vector_row`), so the step row's
+    ``inputs`` / ``outputs`` lanes are empty.
 
     ``run_context`` is the dict returned by ``build_run_metadata`` or
     ``run_context_from_run_started`` (with ``run_ended_at`` overridden
@@ -757,15 +973,200 @@ def build_step_row(
         vector_retry=None,
         measurement_name=None,
         run_outcome=run_outcome,
+        # v2: the step sheds inputs/outputs onto its scope vector.
+        inputs={},
+        outputs={},
+        instruments=instruments,
+    )
+    return row.to_flat_dict(at_rest=True)
+
+
+def build_scope_vector_row(
+    *,
+    run_context: dict[str, Any],
+    entry: dict[str, Any],
+    run_outcome: str | None,
+    run_ended_at: datetime | None,
+    instruments: dict[str, list],
+) -> dict[str, Any]:
+    """Synthesize one scope ``vector`` row from a step manifest entry (v2).
+
+    Every step execution that has NO in-body iteration vectors (Mode 1,
+    parametrize item, class container, single, measurement-less) gets one
+    uniform scope vector — derived here by the materializer — so the
+    at-rest parquet is uniform: a ``vector`` row per execution. It carries
+    the step's conditions (``inputs``) and observations (``outputs``) that
+    the step record sheds, keyed ``(step_path, vector_index, retry=0)`` to
+    match the step and its measurements, so the EAV vector-key join is
+    unchanged.
+
+    Mode-2 in-body loops emit their own ``vector`` rows
+    (:func:`build_vector_row`) at the iteration grain; for those steps no
+    scope vector is synthesized (the iteration vectors are the carriers).
+    """
+    ctx = dict(run_context)
+    ctx["run_ended_at"] = run_ended_at
+    raw_vi = entry.get("vector_index")
+    raw_idx = entry.get("index")
+    row = MeasurementRow(
+        record_type="vector",
+        **ctx,
+        step_name=entry.get("name") or "",
+        step_index=int(raw_idx) if raw_idx is not None else 0,
+        step_path=entry.get("step_path") or "",
+        parent_path=entry.get("parent_path") or "",
+        step_started_at=_to_datetime(entry.get("started_at")),
+        step_ended_at=_to_datetime(entry.get("ended_at")),
+        step_node_id=entry.get("node_id"),
+        step_module=entry.get("module"),
+        step_file=entry.get("file"),
+        step_class=entry.get("class_name"),
+        step_function=entry.get("function"),
+        step_markers=entry.get("markers"),
+        step_outcome=None,
+        step_vector_count=None,
+        vector_index=raw_vi if raw_vi is not None else 0,
+        vector_retry=0,
+        vector_started_at=_to_datetime(entry.get("started_at")),
+        vector_ended_at=_to_datetime(entry.get("ended_at")),
+        vector_outcome=entry.get("outcome"),
+        measurement_name=None,
+        run_outcome=run_outcome,
         inputs=dict(entry.get("inputs") or {}),
         outputs=dict(entry.get("outputs") or {}),
+        input_units=dict(entry.get("input_units") or {}),
+        output_units=dict(entry.get("output_units") or {}),
+        output_pins=dict(entry.get("output_pins") or {}),
+        measurements=entry.get("measurements") or [],
         instruments=instruments,
-        custom={},
     )
-    return row.to_flat_dict()
+    return row.to_flat_dict(at_rest=True)
 
 
-def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
+def build_vector_row(
+    *,
+    run_context: dict[str, Any],
+    entry: dict[str, Any],
+    run_outcome: str | None,
+    run_ended_at: datetime | None,
+    instruments: dict[str, list],
+) -> dict[str, Any]:
+    """Build one ``record_type = 'vector'`` row from a vector manifest entry.
+
+    A vector row appears ONLY for Mode-2 in-body iterations (the ``vectors``
+    fixture / ``run_vector`` loop) — Mode 1 and class containers fuse into
+    the ``step`` record. It carries the in-body iteration's own
+    ``(step_path, parent_path, vector_index, retry)`` identity, its
+    ``inputs`` (this iteration's conditions), ``outputs``, and
+    ``vector_outcome``. ``measurement_*`` columns are NULL.
+
+    ``entry`` is one vector manifest entry as produced by
+    ``vector_entry_dict``. Mirrors :func:`build_step_row` so both record
+    kinds share the same write boundary.
+    """
+    ctx = dict(run_context)
+    ctx["run_ended_at"] = run_ended_at
+    raw_vi = entry.get("vector_index")
+    raw_retry = entry.get("retry")
+    raw_idx = entry.get("index")
+    row = MeasurementRow(
+        record_type="vector",
+        **ctx,
+        step_name=entry.get("name") or "",
+        step_index=int(raw_idx) if raw_idx is not None else 0,
+        step_path=entry.get("step_path") or "",
+        parent_path=entry.get("parent_path") or "",
+        step_started_at=_to_datetime(entry.get("step_started_at")),
+        step_ended_at=_to_datetime(entry.get("step_ended_at")),
+        step_node_id=entry.get("node_id"),
+        step_module=entry.get("module"),
+        step_file=entry.get("file"),
+        step_class=entry.get("class_name"),
+        step_function=entry.get("function"),
+        step_markers=entry.get("markers"),
+        step_outcome=None,
+        step_vector_count=None,
+        vector_index=raw_vi if raw_vi is not None else 0,
+        vector_retry=raw_retry if raw_retry is not None else 0,
+        vector_started_at=_to_datetime(entry.get("started_at")),
+        vector_ended_at=_to_datetime(entry.get("ended_at")),
+        vector_outcome=entry.get("outcome"),
+        measurement_name=None,
+        run_outcome=run_outcome,
+        inputs=dict(entry.get("inputs") or {}),
+        outputs=dict(entry.get("outputs") or {}),
+        input_units=dict(entry.get("input_units") or {}),
+        output_units=dict(entry.get("output_units") or {}),
+        output_pins=dict(entry.get("output_pins") or {}),
+        measurements=entry.get("measurements") or [],
+        instruments=instruments,
+    )
+    return row.to_flat_dict(at_rest=True)
+
+
+def vector_entry_dict(
+    *,
+    index: int,
+    name: str,
+    node_id: str | None,
+    file: str | None,
+    function: str | None,
+    class_name: str | None,
+    module: str | None,
+    step_path: str,
+    parent_path: str = "",
+    markers: str | None,
+    step_started_at: datetime | None,
+    step_ended_at: datetime | None,
+    vector_index: int,
+    retry: int,
+    outcome: str | None,
+    started_at: datetime | None,
+    ended_at: datetime | None,
+    inputs: dict[str, Any] | None = None,
+    outputs: dict[str, Any] | None = None,
+    input_units: dict[str, str] | None = None,
+    output_units: dict[str, str] | None = None,
+    output_pins: dict[str, str] | None = None,
+    measurements: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Single source of truth for one in-body vector manifest entry's shape.
+
+    Distinct from :func:`step_entry_dict` — a vector entry keys on
+    ``(step_path, vector_index, retry)`` and carries vector-grain timing
+    and outcome. Timestamps are serialised here.
+    """
+    return {
+        "index": index,
+        "name": name,
+        "node_id": node_id,
+        "file": file,
+        "function": function,
+        "class_name": class_name,
+        "module": module,
+        "step_path": step_path,
+        "parent_path": parent_path,
+        "markers": markers,
+        "step_started_at": step_started_at.isoformat() if step_started_at else None,
+        "step_ended_at": step_ended_at.isoformat() if step_ended_at else None,
+        "vector_index": vector_index,
+        "retry": retry,
+        "outcome": outcome,
+        "started_at": started_at.isoformat() if started_at else None,
+        "ended_at": ended_at.isoformat() if ended_at else None,
+        "inputs": inputs or {},
+        "outputs": outputs or {},
+        "input_units": input_units or {},
+        "output_units": output_units or {},
+        "output_pins": output_pins or {},
+        "measurements": measurements or [],
+    }
+
+
+def build_step_manifest(
+    test_run: TestRun,
+    ref_saver: Callable[[str, str, Any], str] | None = None,
+) -> list[dict[str, Any]]:
     """Build step manifest entries from all (step, vector) pairs in a TestRun.
 
     Returns one entry per ``(step_index, vector_index)`` execution so
@@ -773,6 +1174,11 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
     (``EventAccumulator._build_step_results_from_events``). Executed
     entries come first; ``_append_not_started`` follows with entries
     for collected items / planned vectors that never ran.
+
+    ``ref_saver`` claim-checks blob observations through the same saver
+    the measurement path uses (``build_output_columns``) so a raw blob
+    never reaches the step-record lane structs or the ``step_results``
+    JSON metadata. Without it, blobs fall back to ``repr()``.
     """
     manifest: list[dict[str, Any]] = []
     executed_node_ids: set[str] = set()
@@ -799,6 +1205,15 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
                 vector.index if vector is not None and vector.index is not None else vec_offset
             )
             inputs = dict(vector.params) if vector is not None else {}
+            # Vector observations ride on the step record's outputs lanes
+            # (Mode-1 fused) — same as the streaming path merges
+            # StepEnded.outputs / observations into its step entry. Routed
+            # through ``build_output_columns`` (same as the measurement
+            # path) so blobs are claim-checked via ``ref_saver`` rather
+            # than reaching the lane structs / step_results JSON raw.
+            outputs = (
+                build_output_columns(vector, ref_saver=ref_saver) if vector is not None else {}
+            )
             if step.node_id:
                 executed_node_ids.add(step.node_id)
             # ``executed_vectors`` is keyed by (step_path, vector_index) so
@@ -823,7 +1238,14 @@ def build_step_manifest(test_run: TestRun) -> list[dict[str, Any]]:
                     ended_at=step_ended,
                     vector_index=vec_idx,
                     inputs=inputs,
-                    outputs={},
+                    outputs=outputs,
+                    input_units=dict(vector.param_units) if vector is not None else {},
+                    output_units=dict(vector.observation_units) if vector is not None else {},
+                    output_pins=dict(vector.observation_pins) if vector is not None else {},
+                    measurements=[
+                        build_measurement_struct(m)
+                        for m in (vector.measurements if vector is not None else [])
+                    ],
                     has_measurements=measurement_count > 0,
                     measurement_count=measurement_count,
                     vector_count=len(step.vectors) if step.vectors else 1,
@@ -861,9 +1283,14 @@ def step_entry_dict(
     vector_index: int = 0,
     inputs: dict[str, Any] | None = None,
     outputs: dict[str, Any] | None = None,
+    input_units: dict[str, str] | None = None,
+    output_units: dict[str, str] | None = None,
+    output_pins: dict[str, str] | None = None,
+    measurements: list[dict[str, Any]] | None = None,
     has_measurements: bool,
     measurement_count: int,
     vector_count: int,
+    retry_count: int = 0,
 ) -> dict[str, Any]:
     """Single source of truth for one step manifest entry's shape.
 
@@ -901,9 +1328,14 @@ def step_entry_dict(
         "vector_index": vector_index,
         "inputs": inputs or {},
         "outputs": outputs or {},
+        "input_units": input_units or {},
+        "output_units": output_units or {},
+        "output_pins": output_pins or {},
+        "measurements": measurements or [],
         "has_measurements": has_measurements,
         "measurement_count": measurement_count,
         "vector_count": vector_count,
+        "retry_count": retry_count,
     }
 
 

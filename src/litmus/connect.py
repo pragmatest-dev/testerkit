@@ -31,15 +31,18 @@ from uuid import UUID, uuid4
 from litmus.data.channels.store import ChannelStore
 from litmus.data.event_log import EventLog
 from litmus.data.event_store import EventStore
-from litmus.data.events import (
-    InstrumentConfigure,
-    SessionEnded,
-    SessionStarted,
-)
+from litmus.data.events import InstrumentConfigure
+from litmus.execution.session_scope import SessionScope, build_session_started, open_session
 from litmus.instruments.pool import InstrumentPool
+from litmus.models.data_options import SessionOptions, StreamTuning
 from litmus.models.instrument import InstrumentRecord
 from litmus.models.station import StationConfig
 from litmus.signals import deregister_cleanup, register_cleanup
+
+# Interactive sessions outlive long human pauses at the bench, so the owner
+# declares a patient lease floor — never shorter than this, though a project
+# that configured an even longer ``session.idle_lease_seconds`` keeps it.
+_INTERACTIVE_IDLE_LEASE_SECONDS = 3600.0
 
 
 class StationConnection:
@@ -60,6 +63,7 @@ class StationConnection:
         self._data_dir = data_dir
         self._mock = mock
         self._session_id = uuid4()
+        self._scope: SessionScope | None = None
         self._event_store: EventStore | None = None
         self._event_log: EventLog | None = None
         self._pool: InstrumentPool | None = None
@@ -69,20 +73,61 @@ class StationConnection:
         self._started = False
 
     def start(self) -> None:
-        """Create EventLog, emit SessionStarted."""
+        """Open the session (emit SessionStarted, wire ContextVars) + connect capabilities."""
         if self._started:
             return
 
-        self._event_store = EventStore(_data_dir=self._data_dir)
-        self._event_log = self._event_store.get_event_log(self._session_id)
+        # Open the producer session via the shared primitive: it creates the
+        # EventStore + EventLog, wires the EventStore ContextVar, and emits
+        # SessionStarted. connect always owns its EventStore (reuse_existing=False).
+        # Resolve the will from the project's session options (litmus.yaml
+        # ``session:``), then apply the interactive lease floor — the owner-side
+        # per-session_type override the design routes through the caller.
+        _proj = _find_project_config()
+        _base_session = _proj[1].session if _proj else SessionOptions()
+        _session_opts = _base_session.model_copy(
+            update={
+                "idle_lease_seconds": max(
+                    _base_session.idle_lease_seconds, _INTERACTIVE_IDLE_LEASE_SECONDS
+                )
+            }
+        )
+        started = build_session_started(
+            self._config,
+            session_id=self._session_id,
+            session_type="interactive",
+            session_options=_session_opts,
+        )
+        self._scope = open_session(
+            started,
+            session_id=self._session_id,
+            data_dir=self._data_dir,
+            reuse_existing=False,
+            emit_lifecycle=True,
+        )
+        self._event_store = self._scope.event_store
+        self._event_log = self._scope.event_log
 
-        # Create ChannelStore directly (not as EventLog subscriber)
+        # ChannelStore is constructed now but opens lazily on first channel write
+        # (no daemon spin for a zero-channel session). Pass event_log so it can
+        # emit ChannelStarted / ChannelEnded. Channel data options come from the
+        # project config (litmus.yaml channels:), not the station config; absent →
+        # ChannelOptions defaults.
+        _stream_tuning = _proj[1].stream if _proj else StreamTuning()
         self._channel_store = ChannelStore(
             self._event_store._data_dir,
             self._session_id,
+            options=_proj[1].channels if _proj else None,
             serve=True,
+            event_log=self._event_log,
+            checkpoint_cadence=_stream_tuning.resolve_cadence(_session_opts.idle_lease_seconds),
         )
-        self._channel_store.open()
+
+        # Wire the ChannelStore ContextVar (open_session wired the EventStore) so
+        # module-level surfaces (``litmus.channels.stream``, ``litmus.files.write``)
+        # resolve to this session's stores. Token-managed via the scope so a nested
+        # connect()/session restores the outer binding on close.
+        self._scope.attach_channel_store(self._channel_store)
 
         self._pool = InstrumentPool(
             session_id=self._session_id,
@@ -100,17 +145,6 @@ class StationConnection:
         from litmus.execution.sync import get_sync
 
         self._sync_point = get_sync(self._event_store)
-
-        self._event_log.emit(
-            SessionStarted.from_station(
-                session_id=self._session_id,
-                station_id=self._config.id,
-                station_name=self._config.name,
-                station_type=self._config.station_type,
-                station_location=self._config.location,
-                session_type="interactive",
-            )
-        )
         self._started = True
 
     @property
@@ -177,7 +211,7 @@ class StationConnection:
         return self._instrument_server.address_str
 
     def stop(self, outcome: str = "passed") -> None:
-        """Release all instruments, emit SessionEnded, close EventLog."""
+        """Release instruments, then close the session (SessionEnded + store teardown)."""
         if not self._started:
             return
 
@@ -190,13 +224,11 @@ class StationConnection:
         if self._pool:
             self._pool.release_all()
 
-        if self._event_log:
-            self._event_log.emit(
-                SessionEnded(
-                    session_id=self._session_id,
-                    outcome=outcome,
-                )
-            )
+        # End the session via the primitive: emit SessionEnded (best-effort fast-path
+        # — connect is the sole producer of its session), then close stores. The
+        # ChannelStore closes BEFORE the event log so its subscribers flush first.
+        if self._scope is not None:
+            self._scope.emit_ended()
 
         if self._channel_store:
             self._channel_store.close()
@@ -204,9 +236,12 @@ class StationConnection:
 
         self._sync_point = None
 
-        if self._event_store:
-            self._event_store.close()
-            self._event_store = None
+        if self._scope is not None:
+            # Resets both store ContextVar tokens (restoring any outer session's
+            # bindings) + closes the owned EventStore.
+            self._scope.close_stores()
+            self._scope = None
+        self._event_store = None
         self._event_log = None
 
         deregister_cleanup(str(self._session_id))
@@ -334,7 +369,7 @@ class StationConnection:
         key: str,
         value: object,
         *,
-        units: str | None = None,
+        unit: str | None = None,
         sample_interval: float | None = None,
     ) -> str:
         """Write an observation to the ChannelStore.
@@ -344,7 +379,7 @@ class StationConnection:
         Args:
             key: Channel name (e.g. "scope.ch1_waveform", "temp_reading").
             value: Scalar or numeric array.
-            units: Optional unit string.
+            unit: Optional unit string.
             sample_interval: For array data, seconds between samples.
 
         Returns:
@@ -360,12 +395,12 @@ class StationConnection:
         return self._channel_store.write(
             key,
             value,
-            units=units,
+            unit=unit,
             sample_interval=sample_interval,
         )
 
     def sync(self, name: str, timeout: float | None = None) -> None:
-        """Wait at a named sync point (multi-DUT coordination).
+        """Wait at a named sync point (multi-UUT coordination).
 
         In single-slot mode (no _LITMUS_SLOT_ID), returns immediately.
         In multi-slot mode, blocks until all slots arrive at this point.

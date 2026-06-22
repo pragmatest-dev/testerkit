@@ -5,7 +5,7 @@ from nicegui import ui
 from litmus.ui.shared.components import data_table, info_field, setup_hash_sync_for_tabs
 from litmus.ui.shared.layout import create_layout
 from litmus.ui.shared.services import (
-    discover_products,
+    discover_parts,
     get_compatible_stations_for_fixture,
     load_fixture_config,
 )
@@ -15,7 +15,7 @@ from litmus.ui.shared.services import (
 def fixture_detail_page(fixture_id: str):
     """Fixture detail page showing pin mappings and compatible stations."""
     config = load_fixture_config(fixture_id)
-    products = {p["id"]: p for p in discover_products()}
+    parts = {p["id"]: p for p in discover_parts()}
 
     if config:
         create_layout(config.name or fixture_id)
@@ -24,12 +24,12 @@ def fixture_detail_page(fixture_id: str):
 
     with ui.column().classes("w-full p-6 gap-6"):
         if config:
-            _render_fixture_detail(fixture_id, config, products)
+            _render_fixture_detail(fixture_id, config, parts)
         else:
             _render_not_found()
 
 
-def _render_fixture_detail(fixture_id: str, config, products: dict):
+def _render_fixture_detail(fixture_id: str, config, parts: dict):
     """Render the fixture detail view."""
     connections = config.connections or {}
 
@@ -55,7 +55,7 @@ def _render_fixture_detail(fixture_id: str, config, products: dict):
         with ui.card_section():
             with ui.grid(columns=3).classes("gap-6"):
                 info_field("Fixture ID", config.id or fixture_id)
-                info_field("Product Family", config.product_family or "")
+                info_field("Part Family", config.part_family or "")
                 info_field("Connections", str(len(connections)))
 
             if config.description:
@@ -63,20 +63,20 @@ def _render_fixture_detail(fixture_id: str, config, products: dict):
                     ui.label("Description").classes("text-xs text-slate-500 uppercase")
                     ui.label(config.description).classes("text-slate-700")
 
-            # Product link
-            product_family = config.product_family
-            if product_family:
-                product = products.get(product_family)
+            # Part link
+            part_family = config.part_family
+            if part_family:
+                part = parts.get(part_family)
                 with ui.row().classes("items-center gap-2 mt-4"):
                     ui.icon("memory").classes("text-slate-500")
-                    ui.label("Product:").classes("text-slate-500")
-                    if product:
+                    ui.label("Part:").classes("text-slate-500")
+                    if part:
                         ui.link(
-                            product.get("name", product_family),
-                            f"/products/{product_family}",
+                            part.get("name", part_family),
+                            f"/parts/{part_family}",
                         ).classes("text-blue-600 hover:underline font-semibold")
                     else:
-                        ui.label(product_family).classes("font-mono")
+                        ui.label(part_family).classes("font-mono")
 
     # Tabbed content
     with ui.tabs().classes("w-full") as tabs:
@@ -111,7 +111,7 @@ def _render_mappings_tab(connections: dict):
 
     columns = [
         {"name": "connection", "label": "Connection", "field": "connection", "align": "left"},
-        {"name": "dut_pin", "label": "DUT Pin", "field": "dut_pin", "align": "left"},
+        {"name": "uut_pin", "label": "UUT Pin", "field": "uut_pin", "align": "left"},
         {"name": "net", "label": "Net", "field": "net", "align": "left"},
         {
             "name": "instrument",
@@ -135,7 +135,7 @@ def _render_mappings_tab(connections: dict):
     rows = [
         {
             "connection": name,
-            "dut_pin": fc.dut_pin or "",
+            "uut_pin": fc.uut_pin or "",
             "net": fc.net or "",
             "instrument": fc.instrument or "",
             "channel": fc.instrument_channel or "",
@@ -223,22 +223,22 @@ def _render_diagram_tab(fixture, connections: dict):
             by_instrument[inst] = []
         by_instrument[inst].append((name, fc))
 
-    product_family = fixture.product_family or "DUT"
+    part_family = fixture.part_family or "UUT"
 
     # Build Mermaid diagram
     lines = [
         "%%{init: {'flowchart': {'curve': 'stepBefore'}}}%%",
         "flowchart LR",
-        f"    subgraph Product[{product_family}]",
+        f"    subgraph Part[{part_family}]",
     ]
 
-    # Add DUT pins
+    # Add UUT pins
     pin_ids = []
     for name, fc in connections.items():
-        dut_pin = fc.dut_pin or name
+        uut_pin = fc.uut_pin or name
         pin_id = f"pin_{name.replace('-', '_')}"
         pin_ids.append((pin_id, name, fc))
-        lines.append(f"        {pin_id}[{dut_pin}]")
+        lines.append(f"        {pin_id}[{uut_pin}]")
     lines.append("    end")
 
     # Add fixture subgraph

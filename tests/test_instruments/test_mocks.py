@@ -1,5 +1,7 @@
 """Tests for mock instrument factory."""
 
+from typing import cast
+
 from litmus.instruments.mocks import Mock, as_mock
 
 
@@ -315,3 +317,27 @@ class TestMockCallableValues:
 
         assert result == "OK"
         assert calls == [("voltage", 5.0)]
+
+
+class TestMockNoiseSpec:
+    """A ``{nominal, sigma}`` mock value draws gaussian noise per call."""
+
+    def test_noise_spec_varies_around_nominal(self):
+        dmm = Mock(FakeDMM, measure_voltage={"nominal": 3.3, "sigma": 0.05})
+        reads = [cast(float, dmm.measure_voltage()) for _ in range(200)]
+        assert len(set(reads)) > 1  # not a constant
+        assert 3.25 < (sum(reads) / len(reads)) < 3.35  # centered on nominal
+
+    def test_zero_sigma_is_effectively_constant(self):
+        dmm = Mock(FakeDMM, measure_voltage={"nominal": 3.3, "sigma": 0.0})
+        assert dmm.measure_voltage() == 3.3
+
+    def test_plain_dict_without_nominal_is_still_arg_lookup(self):
+        # SCPI-style lookup unaffected — discriminated by the ``nominal`` key.
+        # (uses an arg-taking method so the lookup key has somewhere to come from)
+        dmm = Mock(FakeDMM, configure_voltage_range={"a": 1.0, "b": 2.0})
+        assert dmm.configure_voltage_range("a") == 1.0
+
+    def test_scalar_value_still_returned_literally(self):
+        dmm = Mock(FakeDMM, measure_voltage=3.3)
+        assert dmm.measure_voltage() == 3.3

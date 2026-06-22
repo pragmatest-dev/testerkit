@@ -2,7 +2,7 @@
 
 Uses the canonical singleton runs daemon. Synthetic measurement
 parquets land at ``canonical/runs/test-yield-cli/`` under a unique
-``product_id`` so the CLI's ``--product`` filter can scope cleanly
+``part_id`` so the CLI's ``--part`` filter can scope cleanly
 past whatever else the canonical store holds.
 """
 
@@ -24,8 +24,8 @@ from litmus.data.schemas import _build_write_schema, table_from_rows
 def _row(
     *,
     run_id: str,
-    dut_part_number: str,
-    dut_serial: str = "SN001",
+    uut_part_number: str,
+    uut_serial: str = "SN001",
     run_outcome: str = "passed",
     run_started_at: datetime = datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
     run_ended_at: datetime = datetime(2026, 1, 1, 10, 1, tzinfo=UTC),
@@ -39,32 +39,48 @@ def _row(
     test_phase: str = "production",
 ) -> MeasurementRow:
     return MeasurementRow(
-        record_type="measurement",
+        record_type="vector",
         session_id="sess-1",
         run_id=run_id,
         run_started_at=run_started_at,
         run_ended_at=run_ended_at,
-        dut_serial=dut_serial,
-        dut_part_number=dut_part_number,
-        product_id=dut_part_number,
+        uut_serial=uut_serial,
+        uut_part_number=uut_part_number,
+        part_id=uut_part_number,
         station_id=station_name,
         station_name=station_name,
         test_phase=test_phase,
         step_name=step_name,
         step_index=0,
-        measurement_name=measurement_name,
-        measurement_value=value,
-        measurement_outcome=outcome,
-        limit_low=limit_low,
-        limit_high=limit_high,
+        vector_outcome=outcome,
         run_outcome=run_outcome,
-        measurement_units="V",
-        dut_lot_number="LOT01",
+        uut_lot_number="LOT01",
+        measurements=[
+            {
+                "name": measurement_name,
+                "value": value,
+                "unit": "V",
+                "outcome": outcome,
+                "timestamp": None,
+                "limit_low": limit_low,
+                "limit_high": limit_high,
+                "limit_nominal": None,
+                "limit_comparator": None,
+                "characteristic_id": None,
+                "spec_ref": None,
+                "uut_pin": None,
+                "fixture_connection": None,
+                "instrument_name": None,
+                "instrument_resource": None,
+                "instrument_channel": None,
+                "ref": None,
+            }
+        ],
     )
 
 
 def _write(runs_dir: Path, rows: list[MeasurementRow], filename: str) -> Path:
-    flat = [r.to_flat_dict() for r in rows]
+    flat = [r.to_flat_dict(at_rest=True) for r in rows]
     schema = _build_write_schema(flat)
     table = table_from_rows(flat, schema)
     path = runs_dir / filename
@@ -74,24 +90,24 @@ def _write(runs_dir: Path, rows: list[MeasurementRow], filename: str) -> Path:
 
 @pytest.fixture(scope="module")
 def fixture_data() -> dict[str, str]:
-    """Sample measurement data under a unique product, in canonical."""
-    product = f"prod-yield-{uuid4().hex[:8]}"
+    """Sample measurement data under a unique part, in canonical."""
+    part = f"prod-yield-{uuid4().hex[:8]}"
     canonical_runs = resolve_data_dir() / "runs" / "test-yield-cli" / "2026-01-01"
     canonical_runs.mkdir(parents=True, exist_ok=True)
 
     rows = [
         _row(
             run_id=f"yld-{uuid4()}",
-            dut_part_number=product,
-            dut_serial="SN001",
+            uut_part_number=part,
+            uut_serial="SN001",
             run_outcome="passed",
             value=3.3,
             outcome="passed",
         ),
         _row(
             run_id=f"yld-{uuid4()}",
-            dut_part_number=product,
-            dut_serial="SN002",
+            uut_part_number=part,
+            uut_serial="SN002",
             run_outcome="failed",
             run_started_at=datetime(2026, 1, 1, 11, 0, tzinfo=UTC),
             run_ended_at=datetime(2026, 1, 1, 11, 2, tzinfo=UTC),
@@ -99,7 +115,7 @@ def fixture_data() -> dict[str, str]:
             outcome="failed",
         ),
     ]
-    path = _write(canonical_runs, rows, f"{product}_main.parquet")
+    path = _write(canonical_runs, rows, f"{part}_main.parquet")
 
     notifier = RunStore()
     try:
@@ -107,13 +123,13 @@ def fixture_data() -> dict[str, str]:
     finally:
         notifier.close()
 
-    return {"product": product}
+    return {"part": part}
 
 
 class TestMetricsCLI:
     def test_summary(self, fixture_data):
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "summary", "--product", fixture_data["product"]])
+        result = runner.invoke(main, ["metrics", "summary", "--part", fixture_data["part"]])
         assert result.exit_code == 0
         assert "Pass" in result.output or "Runs" in result.output
 
@@ -121,19 +137,19 @@ class TestMetricsCLI:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["metrics", "summary", "--product", fixture_data["product"], "--json"],
+            ["metrics", "summary", "--part", fixture_data["part"], "--json"],
         )
         assert result.exit_code == 0
         assert "total_runs" in result.output
 
-    def test_pareto_default_dispatches_to_product_lens(self, fixture_data):
-        """Default ``--group-by`` is ``product`` — exits 0 even when the fixture
+    def test_pareto_default_dispatches_to_part_lens(self, fixture_data):
+        """Default ``--group-by`` is ``part`` — exits 0 even when the fixture
         only has measurement parquets (no ``_steps.parquet``); content is
         verified separately for the measurement lens which uses the
         always-populated measurements view.
         """
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "pareto", "--product", fixture_data["product"]])
+        result = runner.invoke(main, ["metrics", "pareto", "--part", fixture_data["part"]])
         assert result.exit_code == 0
 
     def test_pareto_group_by_measurement(self, fixture_data):
@@ -144,8 +160,8 @@ class TestMetricsCLI:
             [
                 "metrics",
                 "pareto",
-                "--product",
-                fixture_data["product"],
+                "--part",
+                fixture_data["part"],
                 "--group-by",
                 "measurement",
             ],
@@ -153,27 +169,27 @@ class TestMetricsCLI:
         assert result.exit_code == 0
         assert "output_voltage" in result.output
 
-    def test_cpk(self, fixture_data):
+    def test_ppk(self, fixture_data):
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "cpk", "--product", fixture_data["product"]])
+        result = runner.invoke(main, ["metrics", "ppk", "--part", fixture_data["part"]])
         assert result.exit_code == 0
 
     def test_trend(self, fixture_data):
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "trend", "--product", fixture_data["product"]])
+        result = runner.invoke(main, ["metrics", "trend", "--part", fixture_data["part"]])
         assert result.exit_code == 0
         assert "2026-01-01" in result.output
 
     def test_retest(self, fixture_data):
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "retest", "--product", fixture_data["product"]])
+        result = runner.invoke(main, ["metrics", "retest", "--part", fixture_data["part"]])
         assert result.exit_code == 0
 
     def test_time_loss(self, fixture_data):
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["metrics", "time-loss", "--product", fixture_data["product"]],
+            ["metrics", "time-loss", "--part", fixture_data["part"]],
         )
         assert result.exit_code == 0
         assert "Total(s)" in result.output

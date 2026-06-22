@@ -56,7 +56,7 @@ class TestFmtAccuracy:
         assert "0.01% rng" in result
 
     def test_absolute_with_units(self):
-        result = fmt_accuracy({"absolute": 0.6, "units": "dB"})
+        result = fmt_accuracy({"absolute": 0.6, "unit": "dB"})
         assert "0.6 dB" in result
 
     def test_none(self):
@@ -68,12 +68,12 @@ class TestFmtAccuracy:
 
 class TestFmtRange:
     def test_basic_range(self):
-        result = fmt_range({"min": 0.1, "max": 1000, "units": "V"})
+        result = fmt_range({"min": 0.1, "max": 1000, "unit": "V"})
         assert "0.1" in result or "100 m" in result
         assert "1 kV" in result or "1000" in result
 
     def test_hz_range(self):
-        result = fmt_range({"min": 250000, "max": 20000000000, "units": "Hz"})
+        result = fmt_range({"min": 250000, "max": 20000000000, "unit": "Hz"})
         assert "250 k" in result
         assert "20 G" in result
 
@@ -86,7 +86,7 @@ class TestFmtResolution:
         assert fmt_resolution({"digits": 6.5}) == "6.5 digits"
 
     def test_value_with_units(self):
-        result = fmt_resolution({"value": 0.001, "units": "V"})
+        result = fmt_resolution({"value": 0.001, "unit": "V"})
         assert "1 mV" in result
 
     def test_none(self):
@@ -98,14 +98,14 @@ class TestFmtResolution:
 
 class TestFmtAttr:
     def test_numeric_with_si_units(self):
-        result = fmt_attr({"value": 1000000, "units": "Hz"})
+        result = fmt_attr({"value": 1000000, "unit": "Hz"})
         assert result == "1 MHz"
 
     def test_string_value(self):
         assert fmt_attr({"value": "enabled"}) == "enabled"
 
     def test_range(self):
-        result = fmt_attr({"range": {"min": 0, "max": 100, "units": "V"}})
+        result = fmt_attr({"range": {"min": 0, "max": 100, "unit": "V"}})
         assert "V" in result
 
     def test_options(self):
@@ -121,7 +121,7 @@ class TestBuildSignalRender:
         render = build_signal_render(
             "voltage",
             {
-                "range": {"min": 0, "max": 10, "units": "V"},
+                "range": {"min": 0, "max": 10, "unit": "V"},
                 "accuracy": None,
                 "resolution": None,
             },
@@ -132,19 +132,19 @@ class TestBuildSignalRender:
     def test_1d_specs(self):
         """Bands with a single when key produce a 1D table."""
         sig = {
-            "range": {"min": 9000, "max": 8.5e9, "units": "Hz"},
+            "range": {"min": 9000, "max": 8.5e9, "unit": "Hz"},
             "accuracy": None,
             "resolution": None,
             "bands": [
                 {
                     "when": {"option": "503"},
-                    "range": {"min": 9000, "max": 3e9, "units": "Hz"},
+                    "range": {"min": 9000, "max": 3e9, "unit": "Hz"},
                     "accuracy": None,
                     "resolution": None,
                 },
                 {
                     "when": {"option": "506"},
-                    "range": {"min": 9000, "max": 6e9, "units": "Hz"},
+                    "range": {"min": 9000, "max": 6e9, "unit": "Hz"},
                     "accuracy": None,
                     "resolution": None,
                 },
@@ -200,13 +200,13 @@ class TestBuildSignalRender:
     def test_separate_tables_per_output_field(self):
         """Bands with different output fields produce separate tables (one per output type)."""
         sig = {
-            "range": {"min": 0, "max": 100, "units": "V"},
+            "range": {"min": 0, "max": 100, "unit": "V"},
             "accuracy": {"pct_reading": 1.0},
             "resolution": None,
             "bands": [
                 {
                     "when": {"freq": "low"},
-                    "range": {"min": 0, "max": 50, "units": "V"},
+                    "range": {"min": 0, "max": 50, "unit": "V"},
                     "accuracy": None,
                     "resolution": None,
                 },
@@ -231,13 +231,13 @@ class TestBuildSignalRender:
             "bands": [
                 {
                     "when": {"freq": "low"},
-                    "range": {"min": 0, "max": 50, "units": "V"},
+                    "range": {"min": 0, "max": 50, "unit": "V"},
                     "accuracy": None,
                     "resolution": None,
                 },
                 {
                     "when": {"power": "high", "temp": "hot"},
-                    "accuracy": {"absolute": 1.0, "units": "dB"},
+                    "accuracy": {"absolute": 1.0, "unit": "dB"},
                     "range": None,
                     "resolution": None,
                 },

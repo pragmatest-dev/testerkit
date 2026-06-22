@@ -65,7 +65,7 @@ class TestRunner:
             "-m",
             "pytest",
             *test_targets,
-            f"--dut-serial={req.dut_serial}",
+            f"--uut-serial={req.uut_serial}",
             f"--station={req.station_id}",
             f"--data-dir={self.data_dir}",
             "-v",
@@ -74,8 +74,10 @@ class TestRunner:
 
         if req.operator:
             cmd.append(f"--operator={req.operator}")
-        if req.product_id:
-            cmd.append(f"--product={req.product_id}")
+        if req.part_id:
+            cmd.append(f"--part={req.part_id}")
+        if req.test_profile:
+            cmd.append(f"--test-profile={req.test_profile}")
 
         # Set up environment for subprocess
         env = os.environ.copy()
@@ -150,7 +152,7 @@ class TestRunner:
                 status=info.status,
                 progress_pct=info.progress_pct,
                 current_step=info.current_step,
-                dut_serial=info.request.dut_serial,
+                uut_serial=info.request.uut_serial,
                 station_id=info.request.station_id,
             )
             for run_id, info in self.runs.items()

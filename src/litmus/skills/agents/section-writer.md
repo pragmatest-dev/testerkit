@@ -37,7 +37,7 @@ For each inventory row, ask: **"What is this quantity DOING here?"**
 | **Signal** | Remove it and the capability makes no sense | `signals.X.range` + `accuracy` + `resolution` |
 | **Condition** | Affects accuracy of a sibling signal | `conditions.X.range` |
 | **Control** | User can set this value | `controls.X` (options or range) |
-| **Attribute** | Fixed hardware fact | `attributes.X` (scalar: `value` + `units`, or min/max: `range`) |
+| **Attribute** | Fixed hardware fact | `attributes.X` (scalar: `value` + `unit`, or min/max: `range`) |
 
 ### Placement Rules
 
@@ -47,7 +47,7 @@ For each inventory row, ask: **"What is this quantity DOING here?"**
 4. **Value varies by condition** → SpecBand on signal or attribute, NEVER flat per-condition attributes
 5. **Multi-row table** → each row becomes a SpecBand
 6. **Dual-unit values** → two attributes (e.g., `residual_distortion_pct` + `residual_distortion_dB`)
-7. **Device-level facts** (operating temp, weight, warmup, cal interval, power) → `catalog_entry.attributes` (use `range` for min/max like `operating_temperature: {range: {min: 0, max: 55, units: degC}}`)
+7. **Device-level facts** (operating temp, weight, warmup, cal interval, power) → `catalog_entry.attributes` (use `range` for min/max like `operating_temperature: {range: {min: 0, max: 55, unit: degC}}`)
 8. **Capability-level facts** (input impedance, sample rate, bandwidth) → `attributes` on each applicable capability
 
 ### Conditional Attribute Antipattern
@@ -68,13 +68,13 @@ NEVER encode conditions in attribute names. This is the #1 most common error. Ex
 ### SpecBand `when` Value Types
 
 Match the type to the referenced control/condition:
-- Range band: `{min: 20, max: 300}` (units inherited from the referenced condition/control — do NOT repeat them)
+- Range band: `{min: 20, max: 300}` (unit inherited from the referenced condition/control — do NOT repeat them)
 - Point value: `frequency: 100000000` (scalar, NOT `{min: 100000000, max: 100000000}`)
-- Point with units: `frequency: {value: 100000000, units: Hz}` (when units differ from parent or need to be explicit)
+- Point with unit: `frequency: {value: 100000000, unit: Hz}` (when unit differ from parent or need to be explicit)
 - Scalar string: `rate: "SLOW"` (string-options control — NOT numeric index)
 - Scalar bool: `autorange: true`
 - List: `output_impedance: [50, 600]`
-- List with units: `impedance: {values: [50, 600], units: ohm}`
+- List with unit: `impedance: {values: [50, 600], unit: ohm}`
 
 When a control has string `options:`, the `when` value MUST use the label string, never a numeric index.
 When min == max, use a scalar value, NEVER a degenerate range.
@@ -82,8 +82,8 @@ When min == max, use a scalar value, NEVER a degenerate range.
 ### Range vs Value
 
 For signal/condition/attribute/SpecBand-override **declarations**:
-- **Different min/max** → `range: {min: 0.1, max: 10, units: V}`
-- **Single fixed value** → `value: 50, units: ohm` (NEVER `range: {min: 50, max: 50, units: ohm}`)
+- **Different min/max** → `range: {min: 0.1, max: 10, unit: V}`
+- **Single fixed value** → `value: 50, unit: ohm` (NEVER `range: {min: 50, max: 50, unit: ohm}`)
 
 For SpecBand **`when` clauses**, single points are bare scalars (see above): `frequency: 100000000`, not `value:` syntax.
 
@@ -104,13 +104,13 @@ Controls support `resolution` (step size) and `specs` (condition-dependent overr
 ```yaml
 controls:
   power:
-    range: {min: -20, max: 25, units: dBm}
-    resolution: {value: 0.01, units: dBm}
+    range: {min: -20, max: 25, unit: dBm}
+    resolution: {value: 0.01, unit: dBm}
     bands:
       - when: {frequency: {min: 250000, max: 3200000000}}
-        range: {min: -20, max: 25, units: dBm}
+        range: {min: -20, max: 25, unit: dBm}
       - when: {frequency: {min: 3200000001, max: 20000000000}}
-        range: {min: -20, max: 20, units: dBm}
+        range: {min: -20, max: 20, unit: dBm}
 ```
 
 ### Vacuous SpecBands

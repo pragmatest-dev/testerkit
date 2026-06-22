@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from litmus.api.app import _serialize_ref, create_api_router
 from litmus.data.backends.parquet import ParquetBackend
 from litmus.data.models import (
-    DUT,
+    UUT,
     Measurement,
     Outcome,
     TestRun,
@@ -29,13 +29,14 @@ class TestSerializeRef:
     """Type-dispatch logic for ref payloads."""
 
     def test_waveform_returns_model_dump(self) -> None:
-        wfm = Waveform(t0=0.0, dt=0.001, Y=[1.0, 2.0, 3.0], attrs={"units": "V"})
+        t0 = datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC)
+        wfm = Waveform(t0=t0, dt=0.001, Y=[1.0, 2.0, 3.0], attributes={"unit": "V"})
         result = _serialize_ref(wfm)
         assert result == {
-            "t0": 0.0,
+            "t0": t0,
             "dt": 0.001,
             "Y": [1.0, 2.0, 3.0],
-            "attrs": {"units": "V"},
+            "attributes": {"unit": "V"},
         }
 
     def test_arbitrary_basemodel_returns_model_dump(self) -> None:
@@ -115,7 +116,7 @@ def app_with_run():
         id=uuid4(),
         started_at=datetime(2026, 5, 2, 12, 0, 0, tzinfo=UTC),
         ended_at=datetime(2026, 5, 2, 12, 1, 0, tzinfo=UTC),
-        dut=DUT(serial="SN-001"),
+        uut=UUT(serial="SN-001"),
         outcome=Outcome.PASSED,
         steps=[
             TestStep(
@@ -125,7 +126,11 @@ def app_with_run():
                     TestVector(
                         outcome=Outcome.PASSED,
                         observations={
-                            "scope": Waveform(t0=0.0, dt=0.001, Y=[1.0, 2.0, 3.0]),
+                            "scope": Waveform(
+                                t0=datetime(2026, 6, 3, 12, 0, 0, tzinfo=UTC),
+                                dt=0.001,
+                                Y=[1.0, 2.0, 3.0],
+                            ),
                             "screenshot": b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR",
                         },
                         measurements=[
@@ -153,15 +158,15 @@ def app_with_run():
 
 
 def _find_ref_uri(rows: list[dict], suffix: str) -> str | None:
-    """Walk parquet rows looking for an out_* column whose value ends in *suffix*."""
+    """Walk measurement rows looking for an output whose value ends in *suffix*.
+
+    Reads from the ``outputs`` dict (bare names) on each row.
+    Matches both legacy ``file://_ref/{filename}`` and new
+    ``file://{session_id}/{filename}`` URI shapes.
+    """
     for row in rows:
-        for key, value in row.items():
-            if (
-                key.startswith("out_")
-                and isinstance(value, str)
-                and value.startswith("file://_ref/")
-                and value.endswith(suffix)
-            ):
+        for value in (row.get("outputs") or {}).values():
+            if isinstance(value, str) and value.startswith("file://") and value.endswith(suffix):
                 return value
     return None
 
@@ -177,7 +182,8 @@ class TestRefEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["Y"] == [1.0, 2.0, 3.0]
-        assert body["t0"] == 0.0
+        # t0 was constructed as 2026-06-03 12:00:00 UTC above; serializes to ISO-8601
+        assert body["t0"] == "2026-06-03T12:00:00+00:00"
         assert body["dt"] == 0.001
 
     def test_png_bytes_return_image_content_type(self, app_with_run) -> None:

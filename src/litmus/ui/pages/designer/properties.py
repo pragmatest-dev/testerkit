@@ -30,7 +30,7 @@ def show_pin_properties(
     rebuild: Callable,
 ) -> None:
     """Render pin editing form in the drawer."""
-    pin = state.dut_pins.get(pin_key)
+    pin = state.uut_pins.get(pin_key)
     if not pin:
         return
 
@@ -231,7 +231,7 @@ def show_instrument_properties(
                     target = f"CH{conn['channel']}"
                     if conn.get("terminal"):
                         target += f":{conn['terminal'].upper()}"
-                    ui.label(f"{conn['dut_pin']} -> {target}").classes(
+                    ui.label(f"{conn['uut_pin']} -> {target}").classes(
                         "text-sm text-slate-500 font-mono"
                     )
 
@@ -272,7 +272,7 @@ def show_connection_properties(
             ui.input("Point Name", value=point_name).classes("w-full").props("readonly")
 
             # Read-only fields
-            ui.input("DUT Pin", value=conn.get("dut_pin", "")).classes("w-full").props("readonly")
+            ui.input("UUT Pin", value=conn.get("uut_pin", "")).classes("w-full").props("readonly")
             ui.input("Net", value=conn.get("net", "")).classes("w-full").props("readonly")
             ui.input("Instrument", value=conn.get("instrument", "")).classes("w-full").props(
                 "readonly"
@@ -301,11 +301,11 @@ def show_connection_properties(
 
 
 def show_add_pin_dialog(state: DesignerState, rebuild: Callable) -> None:
-    """Show dialog to add a new DUT pin."""
+    """Show dialog to add a new UUT pin."""
     form: dict = {"key": "", "name": "", "net": ""}
 
     with ui.dialog() as dialog, ui.card().classes("w-96"):
-        ui.label("Add DUT Pin").classes("text-lg font-semibold")
+        ui.label("Add UUT Pin").classes("text-lg font-semibold")
         ui.separator()
 
         ui.input("Pin Key", placeholder="e.g. TP_VOUT").classes("w-full").bind_value(form, "key")
@@ -320,7 +320,7 @@ def show_add_pin_dialog(state: DesignerState, rebuild: Callable) -> None:
             def _add():
                 if not form["key"]:
                     ui.notify("Pin key is required", type="warning")
-                elif form["key"] in state.dut_pins:
+                elif form["key"] in state.uut_pins:
                     ui.notify("Pin key already exists", type="warning")
                 else:
                     state.add_pin(form["key"], form["name"], form["net"])

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from litmus.data.events import InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentSet
 from litmus.instruments.observers.motion import MotionObserver
 
 from .conftest import make_observer
@@ -38,7 +38,7 @@ class TestMotionMove:
         obs, log = make_observer(MotionObserver, role="stage")
         obs.on_call("get_position", (), {}, 5.0)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].channel_id == "stage.position"
 
     def test_set_velocity(self):
@@ -66,7 +66,7 @@ class TestMotionDescriptors:
         obs, log = make_observer(MotionObserver, driver_class=PositionDriver, role="stage")
         obs.on_getattr("position", 5.0)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)
         assert log.events[0].channel_id == "stage.position"
 
     def test_position_setattr(self):

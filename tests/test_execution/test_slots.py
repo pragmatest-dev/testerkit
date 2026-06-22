@@ -11,10 +11,10 @@ from litmus.execution.slots import (
 from litmus.models.test_config import FixtureConfig, FixtureConnection, FixtureSlot
 
 
-class TestSingleDUTFixture:
-    """Single-DUT fixtures (connections, no slots) produce one implicit slot."""
+class TestSingleUUTFixture:
+    """Single-UUT fixtures (connections, no slots) produce one implicit slot."""
 
-    def test_single_dut_returns_default_slot(self):
+    def test_single_uut_returns_default_slot(self):
         fc = FixtureConfig(
             id="simple",
             connections={
@@ -26,7 +26,7 @@ class TestSingleDUTFixture:
         assert DEFAULT_SLOT_ID in slots
         assert "vout" in slots[DEFAULT_SLOT_ID].connections
 
-    def test_single_dut_instrument_roles(self):
+    def test_single_uut_instrument_roles(self):
         fc = FixtureConfig(
             id="simple",
             connections={
@@ -216,9 +216,9 @@ class TestResolvedSlotModel:
         assert "vout" in slot.connections
         assert "dmm" in slot.instrument_roles
 
-    def test_dut_resource_defaults_none(self):
+    def test_uut_resource_defaults_none(self):
         slot = ResolvedSlot(slot_id="slot_1")
-        assert slot.dut_resource is None
+        assert slot.uut_resource is None
 
 
 class TestDetectSharedInstruments:

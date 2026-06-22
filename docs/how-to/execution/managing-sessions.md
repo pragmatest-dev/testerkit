@@ -7,7 +7,7 @@ Sessions track the connect-to-disconnect lifecycle of instrument usage. This gui
 ### With `connect()` (scripts, notebooks)
 
 ```python
-from litmus.connect import connect
+from litmus import connect
 
 with connect("cell-7") as station:
     dmm = station.instrument("dmm")
@@ -18,7 +18,7 @@ with connect("cell-7") as station:
 
 ### With pytest
 
-Sessions are created automatically by the Litmus pytest plugin. Each test run gets a session with full context (station, DUT, operator).
+Sessions are created automatically by the Litmus pytest plugin. Each test run gets a session with full context (station, UUT, operator).
 
 ## Session Metadata
 
@@ -26,7 +26,7 @@ Every session captures rich context via the `SessionStarted` event (see [referen
 
 - What station was used?
 - Who was the operator?
-- What firmware was on the DUT?
+- What firmware was on the UUT?
 - What was the station config at that time?
 
 ## Querying Sessions
@@ -54,12 +54,12 @@ curl http://localhost:8000/api/sessions/abc12345-1234-5678-abcd-1234567890ab
 ### Python
 
 ```python
-from litmus.data.event_store import EventStore
+from litmus.queries import EventStore
 
 store = EventStore()
 try:
     # All sessions (returns SessionStarted event dicts)
-    # SessionStarted carries session/station/operator fields only — DUT lives on RunStarted.
+    # SessionStarted carries session/station/operator fields only — UUT lives on RunStarted.
     sessions = store.sessions()
     for s in sessions:
         print(f"{s['station_id']} - {s.get('operator_id')} - {s['occurred_at']}")
@@ -70,12 +70,12 @@ finally:
     store.close()
 ```
 
-To get DUT serials, query `RunStarted` events for the session:
+To get UUT serials, query `RunStarted` events for the session:
 
 ```python
 runs = store.events(session_id=session_id, event_type="run.started")
 for r in runs:
-    print(f"{r['dut_serial']} ({r.get('dut_part_number')})")
+    print(f"{r['uut_serial']} ({r.get('uut_part_number')})")
 ```
 
 ## Data Retention

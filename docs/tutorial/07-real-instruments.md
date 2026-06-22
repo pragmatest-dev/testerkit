@@ -45,17 +45,17 @@ When you run with `--station`, Litmus auto-registers each instrument role as a p
 
 ```python
 # tests/test_power.py
-def test_output_voltage(psu, dmm, logger):
+def test_output_voltage(psu, dmm, measure):
     """Instrument roles from station config are auto-registered as fixtures."""
     psu.set_voltage(5.0)
     psu.enable_output()
 
-    logger.measure("output_voltage", dmm.measure_dc_voltage())
+    measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
 Run with real hardware:
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --dut-serial=SN001
+pytest tests/ --station=stations/bench_1.yaml --uut-serial=SN001
 ```
 
 ## Running with Mock Instruments
@@ -63,7 +63,7 @@ pytest tests/ --station=stations/bench_1.yaml --dut-serial=SN001
 When hardware isn't available, add `--mock-instruments`:
 
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --uut-serial=SIM001
 ```
 
 The **same test code** works in both modes.
@@ -85,7 +85,7 @@ mocks:
   - {target: dmm.measure_dc_voltage, return_value: 3.31}
   - {target: psu.measure_current, return_value: 0.5}
 limits:
-  test_output_voltage: {low: 3.2, high: 3.4, units: V}
+  test_output_voltage: {low: 3.2, high: 3.4, unit: V}
 ```
 
 ## Mock Value Priority
@@ -107,7 +107,7 @@ In CI, always run with `--mock-instruments`:
     pytest tests/ \
       --station=stations/bench_1.yaml \
       --mock-instruments \
-      --dut-serial=CI-TEST \
+      --uut-serial=CI-TEST \
       -v
 ```
 
@@ -199,7 +199,7 @@ limits:
     low: 3.135
     high: 3.465
     nominal: 3.3
-    units: V
+    unit: V
 mocks:
   - target: dmm.measure_dc_voltage
     return_value: 3.31
@@ -207,7 +207,7 @@ mocks:
 
 **tests/test_power.py:**
 ```python
-def test_output_voltage(psu, dmm, logger):
+def test_output_voltage(psu, dmm, measure):
     """Works with real hardware OR mock mode."""
     psu.set_voltage(5.0)
     psu.set_current_limit(1.0)
@@ -216,17 +216,17 @@ def test_output_voltage(psu, dmm, logger):
     voltage = dmm.measure_dc_voltage()
 
     psu.disable_output()
-    logger.measure("output_voltage", voltage)
+    measure("output_voltage", voltage)
 ```
 
 **Run with hardware:**
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --dut-serial=SN12345
+pytest tests/ --station=stations/bench_1.yaml --uut-serial=SN12345
 ```
 
 **Run with mocks:**
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SIM001
+pytest tests/ --station=stations/bench_1.yaml --mock-instruments --uut-serial=SIM001
 ```
 
 ## What You Learned
@@ -239,6 +239,6 @@ pytest tests/ --station=stations/bench_1.yaml --mock-instruments --dut-serial=SI
 
 ## Continue
 
-How does Litmus know which station can test which product?
+How does Litmus know which station can test which part?
 
-← [Step 6: Product Specifications](06-specifications.md)  |  [Step 8: Capability Matching →](08-capabilities.md)
+← [Step 6: Part Specifications](06-specifications.md)  |  [Step 8: Capability Matching →](08-capabilities.md)

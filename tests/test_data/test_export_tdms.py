@@ -58,7 +58,7 @@ class TestTdmsSubscriber:
         tf = TdmsFile.read(result)
         props = dict(tf.properties)
         assert props["station_id"] == "station_alpha"
-        assert props["dut_serial"] == "DUT-001"
+        assert props["uut_serial"] == "UUT-001"
 
     def test_step_groups(
         self,
@@ -123,7 +123,7 @@ class TestTdmsSubscriber:
         tf = TdmsFile.read(result)
         vout_ch = tf["power.output.voltage"]["vout"]
         props = dict(vout_ch.properties)
-        assert props["units"] == "V"
+        assert props["unit"] == "V"
         assert props["limit_comparator"] == "GELE"
 
     def test_groups_from_step_path(

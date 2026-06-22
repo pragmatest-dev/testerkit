@@ -18,10 +18,13 @@ class ChannelKind(StrEnum):
     """Classification for instrument channels/attributes.
 
     Drives event emission in InstrumentProxy:
-    - read: measurement/get → emits InstrumentRead
-    - set: set/write → emits InstrumentSet
-    - control: read-write property → emits InstrumentRead on get, InstrumentSet on set
-    - configure: setup/init → emits InstrumentConfigure
+    - read: measurement/get → writes channel; emits ``ChannelStarted`` on
+      first write per (channel, session); subsequent reads are silent on
+      the event log (sample data lives in ChannelStore — Position 2)
+    - set: set/write → emits ``InstrumentSet``
+    - control: read-write property → read side as above; emits
+      ``InstrumentSet`` on set
+    - configure: setup/init → emits ``InstrumentConfigure``
     """
 
     read = "read"

@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import inspect
 import re
+import time
 from collections.abc import Callable
 from datetime import datetime
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
@@ -48,6 +50,39 @@ def format_datetime(dt: datetime | str | None) -> str:
     return f'<span class="litmus-time" data-utc="{iso}">{fallback}</span>'
 
 
+def format_file_size(size_bytes: int) -> str:
+    """Render a byte count as a short human-readable string (B / KB / MB / GB).
+
+    Shared across the ``/files`` list and detail pages so the same
+    threshold logic and precision applies wherever a file size is
+    rendered. Sub-KB stays as integer bytes; KB and MB use one and
+    two decimal places respectively; GB stays at two decimals.
+    """
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    if size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.2f} MB"
+    return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+
+def format_number(value: Any, *, precision: int = 6) -> str:
+    """Render a measurement/limit number without IEEE-754 display noise.
+
+    Floats use ``g`` format (``precision`` significant figures), which strips
+    trailing zeros and the float-repr artifacts (``0.060000000000000005`` →
+    ``0.06``). ``None`` renders as an em dash; non-numbers pass through ``str``.
+    Shared so every numeric display (measurement values, limits, capability
+    indices) formats consistently.
+    """
+    if value is None:
+        return "—"
+    if isinstance(value, float):
+        return f"{value:.{precision}g}"
+    return str(value)
+
+
 def format_session_label(session_event: dict) -> str:
     """Render an operator-readable label for a SessionStarted event.
 
@@ -68,6 +103,138 @@ def format_session_label(session_event: dict) -> str:
         ts_label = "(unknown time)"
     client = session_event.get("client") or "?"
     return f"{ts_label} • {client}"
+
+
+def session_filter_banner(session_id: str, clear_path: str) -> None:
+    """Render the "filtered to session X" status banner.
+
+    Used by pages that accept ``?session=<id>`` as a URL-only
+    navigation filter — the session is reached via a deep-link from
+    another page that already knows it (e.g.
+    ``/results/{run_id}`` → ``/events?session=...``), NEVER by an
+    operator picking from a dropdown or typing a UUID. The banner is
+    the only affordance for clearing the scoping; there is no
+    add/change widget. Renders nothing when ``session_id`` is empty
+    so the page reads clean in its default state.
+
+    The label is built from the canonical SessionStarted-event
+    metadata via :func:`format_session_label` (timestamp + client)
+    plus the UUT serial when available — operators recognize the
+    run by what was being tested, not by UUID. The UUID never
+    appears in the rendered banner.
+
+    Args:
+        session_id: The active session UUID (from the URL param).
+            Empty string renders nothing.
+        clear_path: The path to navigate to when "Clear" is clicked.
+            Typically the same page without the ``?session=`` param.
+    """
+    if not session_id:
+        return
+    label, found = lookup_session_label(session_id)
+
+    from nicegui import ui
+
+    # Banner styling diverges by lookup outcome: known sessions get the
+    # neutral blue "filtered to run" card; an unknown session_id (stale
+    # bookmark, deleted session, typo in the URL) gets an amber "session
+    # not found" card with explicit copy so operators can tell
+    # "filtered, no rows match" apart from "filter targets a session
+    # that doesn't exist."
+    if found:
+        card_classes = "w-full bg-blue-50 border border-blue-200"
+        icon_classes = "text-blue-700"
+        label_classes = "text-sm text-blue-900"
+        text = f"Filtered to run: {label}"
+    else:
+        card_classes = "w-full bg-amber-50 border border-amber-200"
+        icon_classes = "text-amber-700"
+        label_classes = "text-sm text-amber-900"
+        text = (
+            "Session not found — the filtered session may have been removed. "
+            "Clear the filter to see all rows."
+        )
+
+    with ui.card().classes(card_classes).props('data-testid="session-filter-banner"'):
+        with ui.row().classes("items-center justify-between w-full p-2"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("link").classes(icon_classes)
+                ui.label(text).classes(label_classes)
+            ui.button(
+                "Clear",
+                icon="close",
+                on_click=lambda: ui.navigate.to(clear_path),
+            ).props("flat dense color=primary")
+
+
+@lru_cache(maxsize=256)
+def lookup_session_label(session_id: str) -> tuple[str, bool]:
+    """Look up the operator-readable label for ``session_id``.
+
+    Returns ``(label, found)``. SessionStarted events are immutable
+    once written; caching by session_id keeps live-refresh pages
+    (``/channels`` ticks every 2 s) from hammering ``query_sessions``
+    on every render. Cache miss only hits the daemon once per session.
+
+    ``found=False`` means the session_id wasn't in the sessions index
+    — the caller renders a distinct "session not found" banner so
+    operators can tell stale bookmarks apart from empty filters.
+
+    **Cache invariants** (public contract — relied on by every page
+    that surfaces a session label):
+
+    * ``SessionStarted`` is immutable once written, so a ``found=True``
+      result is correct for the lifetime of the server process.
+    * A ``found=False`` result is sticky for the same lifetime — if a
+      session_id starts as unknown and later appears in the sessions
+      index (e.g. delayed materialization), the cache will not refresh.
+      Acceptable because the materialization race is bounded and
+      operators reload the page rarely. Restart the server (or call
+      ``lookup_session_label.cache_clear()``) to flush.
+    """
+    from litmus.ui.shared.services import query_sessions
+
+    try:
+        for s in query_sessions().get("sessions") or []:
+            if str(s.get("session_id")) == session_id:
+                base = format_session_label(s)
+                uut = s.get("uut_serial") or ""
+                label = f"{uut} · {base}" if uut else base
+                return label, True
+    except (OSError, RuntimeError):
+        pass
+    return "(unknown)", False
+
+
+@lru_cache(maxsize=256)
+def lookup_run_label(run_id: str) -> tuple[str, bool]:
+    """Look up an operator-readable label for ``run_id``.
+
+    Returns ``(label, found)``. The label combines ``uut_serial`` and
+    the run's start time so a pending-dialog list reads as e.g.
+    ``"UUT001 · 2026-06-06 07:42:13"`` instead of an opaque UUID
+    prefix. Same cache-invariant story as :func:`lookup_session_label`
+    — runs are immutable once started, so a ``found=True`` result is
+    correct for the process lifetime and a ``found=False`` result is
+    sticky (restart the server or call ``cache_clear()`` to flush).
+    """
+    from litmus.ui.shared.services import get_recent_runs
+
+    try:
+        # ``get_recent_runs`` is the cheapest path that surfaces the
+        # operator-readable fields we want; querying by run_id alone
+        # would need a separate RunsQuery roundtrip per call. A small
+        # recent-window scan is fine — the bell only fires on runs that
+        # are still in flight, which are by definition recent.
+        for r in get_recent_runs(limit=200, include_incomplete=True):
+            if (r.test_run_id or "") == run_id:
+                uut = r.uut_serial or ""
+                ts = format_session_label({"occurred_at": r.started_at, "client": ""}).rstrip(" •?")
+                label = f"{uut} · {ts}" if uut else ts
+                return label, True
+    except (OSError, RuntimeError):
+        pass
+    return run_id[:8], False
 
 
 def local_time_init_script() -> str:
@@ -123,6 +290,55 @@ def info_field(label: str, value: str) -> None:
     with ui.column().classes("gap-1"):
         ui.label(label).classes("text-xs text-slate-500 uppercase")
         ui.html(value or "", sanitize=False).classes("font-semibold")
+
+
+def render_no_data_card(
+    container: Any,
+    *,
+    title: str,
+    reason: str = "",
+    icon: str | None = None,
+    emphasis: str = "default",
+) -> None:
+    """Render a standardized empty-state card.
+
+    Every list page that may have zero rows uses this so the empty
+    state reads the same everywhere: a title (italic, slate by
+    default; amber when ``emphasis="warning"``), an optional small
+    icon, and an optional one- or two-sentence ``reason`` line in
+    smaller muted text below.
+
+    Replaces the per-page hand-rolled empty-state cards (each had
+    slightly different padding, font weights, or label classes) so
+    operators see one visual idiom across /channels, /events, /files,
+    /uuts, /results.
+
+    Args:
+        container: The NiceGUI container (column / card / row) the
+            card renders into. The caller is responsible for entering
+            ``with`` the container if needed; this function uses it
+            via ``with container:``.
+        title: One-line title. Italic and slate-500 by default,
+            amber-700 when ``emphasis="warning"`` (used for missing-
+            directory / lost-data states distinct from "empty").
+        reason: Optional supporting copy explaining the cause and a
+            concrete next step. Rendered as text-xs slate-400 below
+            the title. Empty string skips the line.
+        icon: Optional Quasar icon name (e.g. ``"memory"``,
+            ``"folder"``). Rendered above the title in slate-300.
+        emphasis: ``"default"`` (slate) or ``"warning"`` (amber).
+            Warning emphasis distinguishes "data may have been lost"
+            from "nothing has been recorded yet".
+    """
+    title_classes = (
+        "text-amber-700 italic font-medium" if emphasis == "warning" else ("text-slate-500 italic")
+    )
+    with container, ui.card().classes("w-full p-6 text-center"):
+        if icon:
+            ui.icon(icon).classes("text-4xl text-slate-300")
+        ui.label(title).classes(title_classes + (" mt-2" if icon else ""))
+        if reason:
+            ui.label(reason).classes("text-sm text-slate-400")
 
 
 def page_header(
@@ -409,7 +625,15 @@ def render_skeleton(container: Any, height: str = "h-32") -> None:
 
 
 # Sentinel values that mean "no filter active" — these never get
-# written to the URL even when the widget holds them.
+# written to the URL even when the widget holds them. Both ``0`` (int)
+# and ``"0"`` (str) are listed because filter widgets vary: ``ui.input``
+# returns str, ``ui.number`` / ``ui.select`` may return int. Treating
+# both as the same "no limit / default" sentinel keeps the URL clean
+# regardless of which widget the filter is wired to. NB: this means
+# operators cannot filter on a literal value of zero — fine for every
+# filter shipped today (limits are 1..10000, no zero-valued IDs are
+# user-facing), but worth re-evaluating if a future page introduces a
+# meaningful zero filter.
 _URL_STATE_OMIT_VALUES: tuple[Any, ...] = (None, "", "(any)", "All", 0, "0")
 
 
@@ -687,9 +911,80 @@ class AutoSaver:
         self._do_save()
 
 
-def _format_range(r: dict[str, Any], units: str = "") -> str:
+_LIVE_CLS = "px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700"
+_OPEN_CLS = "px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700"
+_IDLE_CLS = "px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-500"
+_CLOSED_CLS = "px-2 py-0.5 rounded text-xs font-semibold bg-slate-200 text-slate-600"
+
+
+class LiveBadge:
+    """Live indicator driven by channel lifecycle and sample activity.
+
+    Follows the live-UI rule (``docs/_internal/explorations/live-ui-pattern.md``):
+    the state setters write only plain Python fields, so they are safe to
+    call from any thread — a background Flight reader or an event callback —
+    while a ``ui.timer`` on the UI loop is the only code that renders. Four
+    states, recomputed each tick:
+
+    - ``● live``   — started, samples arriving within ``idle_after`` seconds.
+    - ``◐ open``   — started, not closed, but no recent sample (the channel
+      is open but quiet — distinct from never having started).
+    - ``○ closed`` — the channel or its session has closed; terminal.
+    - ``○ idle``   — nothing known yet (no start, no samples).
+
+    Usage::
+
+        badge = LiveBadge()                       # renders itself in place
+        channel_data(ch_id).subscribe(lambda s: badge.ping())
+        # lifecycle from channel.started / channel.ended events:
+        badge.mark_started(); badge.mark_closed()
+    """
+
+    def __init__(self, *, idle_after: float = 5.0) -> None:
+        self._idle_after = idle_after
+        self._last_sample: float | None = None
+        self._started = False
+        self._closed = False
+        self._label = ui.label()
+        self._render()
+        # The only renderer — runs on the UI loop, auto-cancelled on disconnect.
+        ui.timer(1.0, self._render)
+
+    def ping(self) -> None:
+        """Register a received sample (thread-safe: plain field write)."""
+        self._last_sample = time.monotonic()
+
+    def mark_started(self) -> None:
+        """Lifecycle: channel is open — a (re)start clears a prior close."""
+        self._started = True
+        self._closed = False
+
+    def mark_closed(self) -> None:
+        """Lifecycle: ``channel.ended`` / session ended — terminal."""
+        self._closed = True
+
+    def _fresh(self) -> bool:
+        return self._last_sample is not None and (
+            time.monotonic() - self._last_sample < self._idle_after
+        )
+
+    def _render(self) -> None:
+        if self._closed:
+            text, cls = "○ closed", _CLOSED_CLS
+        elif self._fresh():
+            text, cls = "● live", _LIVE_CLS
+        elif self._started:
+            text, cls = "◐ open", _OPEN_CLS
+        else:
+            text, cls = "○ idle", _IDLE_CLS
+        if self._label.text != text:
+            self._label.text = text
+            self._label.classes(replace=cls)
+
+
+def _format_range(r: dict[str, Any], unit: str = "") -> str:
     """Format a min/max range dict as a human-readable string."""
-    u = r.get("units") or units
+    u = r.get("unit") or unit
     rmin, rmax = r.get("min"), r.get("max")
     if rmin is not None and rmax is not None:
         return f"{rmin}–{rmax} {u}".strip()
@@ -705,9 +1000,9 @@ def render_capability_detail(cap: dict[str, Any]) -> None:
 
     Args:
         cap: Capability dict (from model_dump or raw YAML) with optional keys:
-             signals, conditions, controls, attributes, specs, units.
+             signals, conditions, controls, attributes, specs, unit.
     """
-    units = cap.get("units", "")
+    unit = cap.get("unit", "")
 
     # Signals
     signals = cap.get("signals", {})
@@ -718,7 +1013,7 @@ def render_capability_detail(cap: dict[str, Any]) -> None:
             if isinstance(sig, dict):
                 r = sig.get("range")
                 if r and isinstance(r, dict):
-                    fmt = _format_range(r, units)
+                    fmt = _format_range(r, unit)
                     if fmt:
                         parts.append(fmt)
                 v = sig.get("value")
@@ -783,7 +1078,7 @@ def render_capability_detail(cap: dict[str, Any]) -> None:
         for name, attr in attributes.items():
             if isinstance(attr, dict):
                 val = attr.get("value", "")
-                u = attr.get("units", "")
+                u = attr.get("unit", "")
                 ui.label(f"  {name}: {val} {u}".strip()).classes("text-sm font-mono ml-2")
             else:
                 ui.label(f"  {name}: {attr}").classes("text-sm font-mono ml-2")
@@ -866,7 +1161,12 @@ def litmus_table(
     )
 
 
-def attach_status_chip(table: ui.table, column: str = "status") -> None:
+def attach_status_chip(
+    table: ui.table,
+    column: str = "status",
+    *,
+    with_dialog_badge: bool = False,
+) -> None:
     """Render a colored chip for any table column whose value is a
     display status (``passed``, ``running``, ``waiting``, …).
 
@@ -878,19 +1178,44 @@ def attach_status_chip(table: ui.table, column: str = "status") -> None:
       :func:`status_chip_classes`
 
     Use :func:`status_row_fields` to build both at once.
+
+    When ``with_dialog_badge=True``, the cell also renders an amber
+    bell + numeric badge to the right of the chip whenever the row
+    carries ``dialog_count > 0``. The bell is clickable: it navigates
+    straight to ``/live/{full_run_id}`` so the operator can answer
+    the prompt in one click without first opening the run detail
+    page. Adds a fourth required row field:
+
+    * ``full_run_id`` — the UUID of the run, used for the ``Go``
+      target. Bell renders only when the row also has ``dialog_count
+      > 0``; a row with ``dialog_count == 0`` keeps the original
+      chip-only layout.
     """
     # Vue's mustache ``{{ ... }}`` collides with ``str.format``'s
     # placeholder syntax — ``.format()`` would collapse the doubles
     # to single braces and Vue would never interpolate. Build the
     # template via concat so the mustaches reach Vue intact.
-    template = (
-        '<q-td :props="props">'
+    chip = (
         f'<span :class="props.row.{column}_class" '
         'class="px-2 py-0.5 rounded text-xs font-medium">'
         "{{ props.value }}"
         "</span>"
-        "</q-td>"
     )
+    if with_dialog_badge:
+        badge = (
+            '<a v-if="props.row.dialog_count > 0" '
+            ':href="`/live/${props.row.full_run_id}`" '
+            'class="inline-flex items-center gap-1 ml-2 text-amber-600 '
+            'hover:text-amber-700 cursor-pointer" '
+            'title="Operator dialog waiting — click to answer">'
+            '<q-icon name="notification_important" size="xs"/>'
+            '<span v-if="props.row.dialog_count > 1" '
+            'class="text-xs font-medium">{{ props.row.dialog_count }}</span>'
+            "</a>"
+        )
+        template = f'<q-td :props="props">{chip}{badge}</q-td>'
+    else:
+        template = f'<q-td :props="props">{chip}</q-td>'
     table.add_slot(f"body-cell-{column}", template)
 
 

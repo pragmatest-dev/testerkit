@@ -80,9 +80,9 @@ class TestTestEntryShape:
         assert entry.retry.max_retries == 2
 
     def test_prompts_coerced_to_prompt_config(self) -> None:
-        entry = TestEntry.model_validate({"prompts": {"setup": {"message": "Insert DUT"}}})
+        entry = TestEntry.model_validate({"prompts": {"setup": {"message": "Insert UUT"}}})
         assert isinstance(entry.prompts["setup"], PromptConfig)
-        assert entry.prompts["setup"].message == "Insert DUT"
+        assert entry.prompts["setup"].message == "Insert UUT"
 
     def test_runner_is_opaque_dict(self) -> None:
         entry = TestEntry.model_validate({"runner": {"markers": [{"flaky": {"reruns": 2}}]}})

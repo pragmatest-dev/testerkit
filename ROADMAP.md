@@ -31,26 +31,36 @@ Things that make Litmus *good* (not just shippable). Sorted by RICE.
 
 | Item | R | I | C | E | Score |
 |---|---|---|---|---|---|
-| Runner-invocation capture (full vs ad-hoc) | high | 2 | 0.9 | 1.0 | high |
 | Parquet compaction | medium | 2 | 0.7 | 3.0 | high |
 | `ReactiveChart` shared chart primitive | high | 2 | 0.8 | 2.0 | high |
 | Limit resolution strategies (expr / lookup / step / callable) | high | 2 | 0.5 | 3.0 | high |
 | Capability-aware runnability inference | high | 2 | 0.6 | 2.0 | high |
 | Live updates on Events/Channels store pages | medium | 1.5 | 0.6 | 2.0 | medium |
-| Consumer-side ref materialization (waveform viewing) | medium | 2 | 0.7 | 2.0 | medium |
+| Consumer-side ref: CLI `--waveform` + report embedding | small | 1 | 0.8 | 0.5 | small |
 | Operator-UI store browser (Sessions + Artifacts) | medium | 1.5 | 0.7 | 1.5 | medium |
 | Artifact viewer — inline previews + grid | medium | 2 | 0.6 | 2.0 | medium |
 | Facet prompt fallback (TTY interactive) | medium | 2 | 0.7 | 1.0 | medium |
 | Parametric viewer follow-ups | medium | 1.5 | 0.8 | 1.0 | medium |
 | StationType → StationConfig inheritance | medium | 1 | 0.8 | 1.0 | medium |
 | SpecQualifier matching scoring | medium | 1.5 | 0.6 | 1.0 | medium |
-| Exporter row-level cascade outcomes | medium | 1 | 0.7 | 1.0 | medium |
-| Channel EventStore-bridging subscription | medium | 1 | 0.6 | 1.0 | medium |
-| CLI fallback for multi-DUT operator prompts | low-med | 1 | 0.7 | 1.0 | medium |
+| Exporter row-level cascade outcomes | medium | 1 | 0.7 | 1.0 | medium || CLI fallback for multi-UUT operator prompts | low-med | 1 | 0.7 | 1.0 | medium |
 | HTTP support for ImageDialog | small | 0.5 | 0.7 | 0.5 | small |
-| Channel attribution (`instrument_role`/`resource`) | small | 0.5 | 0.9 | 0.3 | small |
 | Array channel empty-result schema | small | 0.5 | 0.9 | 0.2 | small |
 | Runs daemon — record actual `row_count` in `_ingested` | small | 0.5 | 0.9 | 0.2 | small |
+
+### 0.3.0 — analytics release
+
+The deferred quality-metrics work. 0.2.0 shipped the Tier-1 set + the cheap
+wins (Ppk, RTY, DPMO/DPPM); 0.3.0 is the capability + SPC + cross-tab pass.
+Design: `docs/_internal/explorations/0.3.0-analytics-metrics.md`.
+
+| Item | R | I | C | E | Score |
+|---|---|---|---|---|---|
+| Per-measurement SPC control charts (I-MR / X̄-R + Western Electric rules) | high | 2.5 | 0.7 | 3.0 | high |
+| True Cpk / Cp (within-subgroup / I-MR σ) beside the shipped overall-σ Ppk | high | 2 | 0.8 | 1.5 | high |
+| Yield cross-tab by station / fixture / operator / shift | high | 2 | 0.8 | 2.0 | high |
+| What-if limit analysis — retune limits across history for yield (detailed in Backlog) | medium | 2 | 0.6 | 2.0 | medium |
+| Generic `pareto(by=measure)` — measure-agnostic row + cumulative % + Other | medium | 1.5 | 0.7 | 1.5 | medium |
 
 ### Later — strategic but not pre-1.0
 
@@ -70,10 +80,373 @@ to confirm direction.
 | `litmus export --to delta/iceberg/snowflake` | medium | 1.5 | 0.5 | 2.0 | Built-in transform from Litmus parquets to lakehouse table formats. The 3-line SQL pattern is documented at `docs/integration/lakehouse-import.md`; turn it into a first-class command once a real adopter asks. Don't pre-build. |
 | Table-format catalog evaluation (DuckLake / Delta / Iceberg) | medium | 2 | 0.5 | 3.0 | Replace ~3K lines of `_runs_duckdb_daemon.py` ingest sweep + `_materialized` table management with a managed catalog. DuckLake the closest fit (DuckDB-as-catalog, parquet-as-data); Delta/Iceberg as interop options. See `docs/explorations/data-architecture.md` open questions. |
 | Pluggable `Materializer` interface (parquet / postgres / snowflake / etc.) | medium | 2 | 0.6 | 4.0 | The runs daemon currently materializes runs to parquet only. Event payload already carries `materializer` + `destination`, so adding a `Materializer` plugin contract is forward-compatible. Wait until a real consumer asks. |
+| Runner-invocation capture (full vs ad-hoc) | high | 2 | 0.4 | 3.0 | Demoted: the naive `is_adhoc` (CLI `-k`/`-m`/node-ids) is wrong with profiles — a profile injects `markexpr`/`keyword` via `PYTEST_ADDOPTS`, so profile runs mislabel as ad-hoc and "Full" overclaims (a profile already scopes the test set). Needs a profile-aware model: scope = (profile, selection beyond the profile) + `profile` on `RunStarted`. |
 
 ---
 
 ## Backlog
+
+### Channels — streaming & liveness
+
+Open follow-ups deferred from the 2026-06 branch work. Source:
+`docs/_internal/explorations/channels-real-stream-handoff.md`,
+`live-ui-pattern.md`.
+
+_RICE: R=med, I=1.5, C=0.7, E=3w → **med**. Target 0.2.0 for the list
+live-column + liveness MCP/HTTP wiring; Later for declare→standing-watch
+and physical-channel-id (open design forks)._
+
+- **`/channels` list live-status column.** The detail badge derives live
+  from lifecycle events (`ChannelStarted ∧ ¬ChannelEnded`, latest-start vs
+  latest-close); the **list** page has no live column (any liveness it
+  derives is activity-based, not lifecycle). Add a Live column driven by
+  lifecycle events — the channel twin of the `/files` live table. Reuse
+  `LiveBadge` pills + the holder+timer rule. (Also tracked under "Live
+  updates on Events and Channels store-browser pages" below.)
+- **Wire `channels_liveness_query` as an MCP tool + HTTP endpoint** —
+  `litmus_channels_liveness` + `GET /api/channels/_liveness`. Drafted then
+  reverted: on a large store the inline `_maybe_scan_disk()` inside the
+  registry read blocks the Flight `do_get` past the client deadline
+  (`FlightTimedOutError`). **Decouple the disk scan from the registry read
+  first** (no heavy scan inside the read) — do not bump the deadline — then
+  re-wire the tool + endpoint.
+- **Declare → standing-watch + active-match (Half B Slice 2).** Has open
+  design forks; needs a shaping pass before build.
+- **Live-badge "idle while streaming" finding.** Investigate (instrument,
+  don't guess) the case where a channel is streaming but the badge reads
+  idle.
+- **Present polymorphic channels (list + detail).** A `channel_id` can have
+  different shapes across sessions (type locked within a session, not
+  across). Today last-write-wins hides it. Source from the non-unique
+  registry: list Type cell flags divergence, sparkline scoped to the latest
+  shape; detail page facets by shape. Present, not prevent.
+- **Channel identity ↔ physical channel number.** A multi-channel
+  instrument (DMM ch1/ch2, DAQ ai0/ai1, scope ch1–ch4) is only
+  distinguishable today by baking the number into the `channel_id` string.
+  Decide whether channel identity carries the instrument's physical channel
+  number as a first-class field. Subsumes the array-index question
+  (waveform array index = intra-capture time; multi-channel array index =
+  physical channel, which needs a per-channel split + selector + labels).
+- **Stacked cross-session compare on `/channels/{id}`.** Overlay the same
+  channel across sessions for comparison.
+- **`offset` → `sample_offset` rename** (was task #6). Column + index + wire
+  schema + `ChannelSample.offset` + the ticket field/URI param + the
+  surfaced offset in `channels_query` results + the chart's `r.get("offset")`.
+  No backcompat; needs a `data/channels` clear. (Note: the `offset` →
+  `sample_offset` column rename itself landed via `a6c11fc`; verify what
+  remains before scoping.)
+- **Ephemeral (non-persisted) streams — channel and file.** A creation flag
+  ("this will not be persisted" / loss-acceptable, stream-only) that keeps the
+  live fan-out tier but skips the persistence tier: no segment/object writes, no
+  checkpointing, no at-rest registration, and no `run_id`/`session_id`
+  affiliation (which today exists to persist related data). Late subscribers get
+  no history; overflow drops (the bounded-queue overflow-gap model already in
+  place). Use case: transient interactive UI streams purely for data exchange,
+  unaffiliated with run IDs. More important for channels than files. Build on the
+  existing live-fan-out abstraction (live = push frames), not a bespoke side path.
+- **Auto-associate a stream with the vector (`stream` → `out_<name>`).** Today only
+  `observe` stamps the vector's `outputs`; a `stream` opened in a vector scope must be
+  manually `observe(sink)`-d to contextualize. Could auto-stamp `out_<name> = channel://|file://`
+  once on stream open (URI is stable; no per-sample churn), unifying `stream` with `observe`.
+  Discuss-first (see task notes): the lifecycle/checkpoint events carry `run_id`+`uri` but
+  NO step/vector coords (would need time-correlation or new fields); open questions —
+  multiple streams per vector iteration, async/external streams not in the vector's scope,
+  and name collision with an explicit `observe`. Punted from 0.2.0; add later if needed.
+### Channels — write-path & relay performance
+
+Source: `docs/_internal/explorations/channels-write-scaling.md`,
+`store-perf-writemany-handoff.md`, `data-stores.md`.
+
+_RICE: R=low-med, I=2, C=0.6, E=4w → **low-med**. Target Later (bites at
+multi-producer / HIL scale, not single-station). Quick win now: extend the
+`litmus benchmark` sweep to `write_many` / `stream` (E≈0.3w) so a regression
+like the Phase-5 one is visible next time._
+
+- **Daemon write path (`serve=True`) doesn't scale across writers** — one
+  `_index_lock` serializes ingest. Shard parallel ingest per writer.
+- **Index as a pull-consumer tailing segments by offset.** (Note:
+  `pyarrow.dataset` was ruled OUT for this; pull-by-offset is the path.)
+- **Batched-relay fan-out** to raise the ~4k/s live-relay ceiling.
+- **`litmus benchmark` concurrent sweep covers only `channels.write`** —
+  extend to `write_many` / `stream`.
+- **R4 backend-swap proof** (Redis / S3) for the channels store.
+- **Streaming-relay convergence (broken contract).** Channels and files
+  duplicate the producer/consumer relay (bounded queue + drop-oldest
+  overflow + gap count + drain-coalesce); `files/catalog_manager._FrameRelay`
+  *mirrors* the channel push relay instead of reusing it. Extract ONE shared
+  relay component; converge both. Daemons may stay separate; the
+  optimization must not be duplicated.
+
+### FileStore — streaming, atomicity, perf
+
+Large/blocking item per the diaries — the next store after channels.
+Source: `docs/_internal/explorations/data-stores.md`,
+`streaming-media.md`, `streaming-unification.md`,
+`data-store-backends.md`.
+
+_RICE: R=med, I=2.5, C=0.7, E=5w → **high**. Target 0.2.0 — the headline
+next store after channels. Atomicity F1/F2 is a correctness sub-item; the
+warm index + real Range removes today's O(days) `rglob` read path._
+
+- **Files-streaming as the next store** — segment-objects + manifest, S3
+  has no append. Live = push frames (bounded queue, signal overflow gap);
+  history = warm index / at-rest object; persist = local append → ONE
+  immutable object on close. PUT = new record per call; STREAM = append one
+  record. `raw`/`jsonl` byte-drop vs `tdms`/`h5` boundary-rejoin.
+- **Files-streaming perf gate is `@skip`'d and distrusted — re-measure.**
+  (Memory bans flaky/skip markers; this gate must be made trustworthy, not
+  carried skipped.)
+- **FileStore atomicity (F1 / F2).** Temp + rename; emit the index row only
+  after durability.
+- **Files warm index + real HTTP Range (F3).** Today the read path is an
+  O(days) `rglob`.
+- **EventStore dual-write is unmeasured** — benchmark it.
+
+### Streaming media (after files-streaming)
+
+Sequenced after files-streaming. Source:
+`docs/_internal/explorations/streaming-media.md`.
+
+_RICE: R=low-med, I=2, C=0.5, E=4w → **med**. Target Later — gated on
+FileStore streaming landing first; encode-bound, narrower audience
+(video/audio capture)._
+
+- **Media codec / muxer formats** — mp4 via PyAV, wav / flac.
+- **Container rejoin / fragment-boundary checkpoints.**
+- **Flight → HTTP fMP4 / HLS browser bridge.**
+- **Per-media-format benchmark.**
+
+### Store federation & retention remainder
+
+Most of the 2026-06 federation/retention sweep shipped (reference-aware
+channel + file retention #262/#272, `litmus data import` #271,
+promote-carries-refs #269, dangling-ref resilience #263). Remaining open.
+Source: `docs/_internal/explorations/data-stores.md`,
+`data-store-backends.md`, `data-store-unification-invariants.md`.
+
+_RICE: R=med, I=1.5, C=0.7, E=2.5w → **med**. Target 0.2.0 for run
+seal/export + the `materialize` boundary fix; Later for the layout reorg
+(v0.3.0) and req-6 (no real remote server yet — don't ship dead env vars)._
+
+- **Run seal / export bundle.** A `litmus data` verb that seals a run and
+  exports it (with its referenced channel/file data) as a portable bundle.
+  `litmus data import` is the inbound half; the outbound bundle isn't built.
+- **`materialize` globs channel `.arrow`** — store-boundary violation; it
+  reads channel segments through an ephemeral non-indexed `ChannelStore`
+  instead of the channels daemon API. (Gated on the #262 ref-vs-copy
+  decision, which has since landed — re-scope.)
+- **Cross-store retention coordination.**
+- **req-6 serving-tier daemon-location swap.** The remote-daemon-location
+  hook is proven (1 helper + ~4 one-line hooks + a test add) but not
+  shipped — deferred until a real server exists (don't ship dead env vars).
+  Recipe recorded at `docs/_internal/explorations` (req6 swap recipe).
+- **Session-first layout reorg** (v0.3.0).
+### Session / liveness foundation remainder
+
+Session core P1–P4 landed on `spike/session-overhaul` (will + spine-only
+reaper, terminal-fence finality). The remainder is below. Source:
+`docs/_internal/explorations/session-foundation.md`.
+
+_RICE: R=med, I=1.5, C=0.7, E=4w → **med**. Target 0.2.0 for P8 liveness
+projection + `StationInfo` (#35) — they unblock the live UIs; Later for the
+P6 `event_log` optional→required flip (~51 sites, internal) and the P7
+rename (high churn, low user impact)._
+
+- **P5 — envelope-naming discipline.** Per-writer gap detection landed
+  (`def605f`); the envelope-naming half is pending.
+- **P6 remainder.** The session-less `ChannelIndex` reader split landed
+  (`f15a06b`); still open: flip `event_log` from optional → required (~51
+  sites), add a first-class session-less reader entry point, and the
+  public "Store" naming pass.
+- **P7 — rename `StationConnection` → `Session`** (flagged suspect:
+  collides with `SessionScope`).
+- **P8 — liveness projection → UI / MCP / HTTP.**
+- **Multi-participant join / leave emitters.**
+- **Auto-root permissive session creation** (strict → permissive is
+  additive; deferred until the foundation is solid).
+- **Client-side `SessionExpired` typed exception** (the seal IS
+  `SessionEnded`; a typed client exception is the optional follow-on).
+- **Cross-host pid liveness** (P4 self-heal is same-host only).
+- **`StationInfo` event / auto-capture station info at session creation
+  (#35)** — stamp richer station context (instruments + roles/resources,
+  fixture, calibration/asset refs, config snapshot) onto `SessionStarted`,
+  degrading gracefully when a field is unavailable.
+- **Hardware safe-state on abrupt death (#36).**
+
+### Emission-grammar remainder
+
+Part of the uniform `{Entity}Started` / `{Entity}Ended` grammar landed
+this branch (`ChannelClosed → ChannelEnded`, `StreamStarted/Ended →
+FileStarted/FileEnded`, `StreamCheckpoint → ChannelCheckpoint +
+FileCheckpoint`). Remaining inconsistencies. Source:
+`docs/_internal/explorations/session-foundation.md`,
+`store-event-rename-plan.md`, `checkpoint-split-plan.md`.
+
+_RICE: R=low, I=1, C=0.9, E=1w → **small-med**. Target 0.2.0 — cheap, and
+finishes the uniform `{Entity}Started/Ended` grammar. The missing one-shot
+file-write event is the meatier sub-item (a one-shot PUT emits nothing today)._
+
+- **`SlotCompleted` → `SlotEnded`** (the lone non-`Ended` lifecycle event).
+- **`RouteOpened` / `RouteClosed`** + **`SyncArrived` / `SyncRelease`** —
+  align to the verb-keyed tense.
+- **Missing one-shot file-write event.** A one-shot file PUT emits nothing
+  today; add a discrete file-write event (1 event per discrete write, never
+  per-sample).
+
+### Run materialization — failure handling & recovery (#37)
+
+When `materialize_run_to_parquet` raises (e.g. a mixed-type `out_*` column),
+the runs daemon swallows it to a `logger.warning` and returns — the run
+**silently vanishes from `/results`**. Two failures: it's invisible (a green
+CI loses runs with no signal), and the run stays in the "unmaterialized" set
+forever, so the daemon **re-replays + re-fails it on every launch**. The
+unmaterialized auto-replay (`events_for_unmaterialized_runs`) is only bounded
+*because it assumes runs eventually materialize* — a persistent failure breaks
+that bound, turning the replay set into unbounded, growing per-launch cost.
+
+The data isn't lost, though: parquet is a *derived projection*; the events
+are the source of truth and are retained. So a failure is **recoverable** —
+fix the bug, upgrade, re-materialize, and the runs reappear retroactively.
+Making that real is a small lifecycle sub-system (the pieces are coupled —
+the marker alone fixes neither the cost nor recovery):
+
+- **`RunMaterializationFailed`** — a *terminal* event. Run states become
+  in-flight | materialized | failed. Durable + queryable: "deferred, not lost."
+- **Exclude failed from the unmaterialized auto-replay** — replay becomes
+  `RunStarted AND NOT (RunMaterialized OR RunMaterializationFailed)`, so a
+  failing-bug class no longer re-replays every daemon launch. This is the
+  marker's operational point — emitting it *without* excluding doesn't fix
+  the per-launch cost.
+- **`litmus data rematerialize [--run <id> | --all-failed]`** — clears the
+  marker, replays the cohort, re-materializes. Run after upgrading with the
+  fix. Surface a count ("N runs failed to materialize → run
+  `litmus data rematerialize`").
+- **Retention must pin un-materialized / failed cohorts** — `prune_date_dirs`
+  is date-blind today; it must skip date-dirs holding not-yet-materialized
+  runs, mirroring reference-aware channel retention. (The `RunMaterialized`
+  docstring already *claims* retention is materialization-gated, but the code
+  isn't — close that gap, else a recoverable run's events get pruned before
+  the fix lands.)
+
+Independent of the JSON redesign below (that fixes the common *cause*; this
+handles the failure *mode* for any cause) and profile-independent — safe to
+build now, and it's the safety net that makes the breaking redesign
+recoverable.
+
+_RICE: R=med, I=2.5, C=0.7, E=1.5w → **high**. Target 0.2.0 — build alongside
+or ahead of the redesign as its recovery net._
+
+### Measurement-storage redesign — nested-struct at-rest + EAV projection (#37 / #38)
+
+**Large + blocking; sequenced after the session overhaul + files branch.**
+Design + phased plan: `docs/_internal/explorations/measurement-storage-eav.md`.
+Benches: `scripts/bench_measurement_storage.py`, `scripts/bench_at_rest_encoding.py`.
+
+_RICE: R=high, I=3, C=0.7, E=4w → **high**. Target 0.2.0 — today it
+**silently drops runs** (mixed-type column fails materialization on a green
+CI = data loss); the cause fix is below, the recovery net is the Run
+materialization item above._
+
+Today `out_*` / `in_*` are wide dynamically-typed columns: mixed types in one
+column raise → materialize swallows → run **silently dropped**; across files
+`union_by_name` flips a column to VARCHAR corpus-wide (`1.5` → `'1.5'`); distinct
+names explode to tens of thousands of columns; `int` collapses to `float64`.
+
+What needs to land:
+
+- **At-rest:** store `in` / `out` / `custom` as one nested **`LIST<STRUCT<name,
+  kind, value_int, value_double, value_bool, value_text, value_json, unit?>>`**
+  column each — typed lanes, `kind` reusing `observation_kind()`. Benched
+  smallest on disk, fastest rebuild (native `UNNEST`), lossless incl. `int`,
+  and the most portable nested shape (Dremel-native Parquet; `ARRAY<STRUCT>` in
+  BigQuery/Spark, `FLATTEN` in Snowflake). Chosen over VARIANT (6% larger, 2.4×
+  slower rebuild, immature reader) and JSON (2.3× larger). `unit` slot reserved,
+  not plumbed.
+- **Projection:** runs-daemon index `UNNEST`s the nested column into a LONG/EAV
+  table (`run_id, step_index, side, name, kind, value_* lanes`), indexed on
+  `name`; query API reads the long table, lane selected by the query's type
+  expectation. Numeric query on a lane runs at clean-typed speed (~0.8ms); mixed
+  types never coerce (numbers/strings in different lanes → no VARCHAR flip).
+- **Enum drop-downs** stay on the maintained enum index (distinct values +
+  counts per name) — encoding-independent, O(distinct), ~0.2ms flat.
+- Failure handling + recovery is its own item (**Run materialization —
+  failure handling & recovery**, above) — the safety net that makes this
+  breaking change recoverable.
+- Consolidate the ~14 wide instrument fields (`step_instruments_*` parallel
+  array columns, `_INSTR_ARRAY_TYPES`) into the same nested representation —
+  same wide-column smell, same swap-readiness win.
+
+0.2.0-breaking (wipe data, no backcompat). Spiked on `spike/variant-at-rest-eav`.
+
+### Consumer SDK & live API surface
+
+Source: `docs/_internal/explorations/data-stores.md`,
+`streaming-unification.md`.
+
+_RICE: R=med, I=2, C=0.6, E=3w → **med-high**. Target 0.2.0 for the
+`litmus.live` subscribe/deref SDK (the external-consumer + AI adoption
+surface); v0.3.0 for channels/files as test inputs._
+
+- **Consumer SDK — `litmus.live`** (`subscribe_events` / `subscribe_channel`
+  / `subscribe_file` / `run_live`, plus deref). The subscribe-and-deref
+  surface for external consumers (build item 20).
+- **Channels + files as test INPUTS** (v0.3.0) — read live channel / file
+  data into a running test, not just write it.
+- **`observer.read` → `record_read` rename.**
+
+### Long-term store / transport / sync
+
+Source: `docs/_internal/explorations/data-stores.md`,
+`streaming-media.md`.
+
+_RICE: R=low, I=1.5, C=0.5, E=high → **low**. Target Later — all explicitly
+long-term / symptom-driven (shared-mem transport already deferred after its
+PoC)._
+
+- **Local shared-memory transport** (build item 22) — DEFERRED; revisit on
+  symptoms.
+- **Per-store attribute indexes (L1).**
+- **Frame-accurate video ↔ measurement sync** — needs a frame-index event
+  reintroduced.
+- **Materialize-on-prune output format** (`.arrow` → `.parquet` / `.npz`).
+
+### UI — live-panel convergence
+
+Source: `docs/_internal/explorations/live-ui-pattern.md`.
+
+_RICE: R=internal, I=1, C=0.8, E=2w → **low-med**. Target Later — tech debt,
+no user-visible change; do opportunistically as each panel is touched._
+
+Tree-wide `event_binding` → holder+timer convergence. The channel detail
+page, channel values panel, and `LiveBadge` are converged; the other ~8
+live panels (`event_timeline`, `instrument_activity`, `session_table`,
+`file_streams`, `results/detail`, `metrics`, `explore`, `results/list`)
+still mutate elements inside `ui_subscribe` callbacks via the loop
+marshalling. Converge them onto holder+timer, then drop the render-path
+marshalling. Deliberately deferred to avoid changing every live panel at
+once.
+
+### Exporter conformance follow-ups
+
+Source: `docs/_internal/explorations/exporter-conformance-audit.md`.
+
+_RICE: R=low-med, I=1, C=0.9, E=0.5w → **small-med**. Target 0.2.0 — cheap
+export-format correctness for STDF/CSV/TDMS consumers._
+
+- **STDF conformance** — `MRR.FINISH_T`, `PARM_FLG`.
+- **CSV NaN / Inf as strings + TDMS dtype** handling.
+
+### Docs sweeps
+
+Source: session/channels diaries.
+
+_RICE: R=med, I=1, C=0.9, E=1w → **med**. Target 0.1.0 for the verb prose
+sweep (published docs must match the shipped API); 0.2.0 for items 25–30._
+
+- **Prose-docs + skills-template verb sweep** — `logger.measure` → `measure`,
+  `logger` → `RunScope` across user-facing pages and skill templates.
+- **v0.2.0 docs items 25–30** — 5 stale operator-UI pages, uuts / profiles
+  pages, the four-store model.
 
 ### Test audit — find brittle / implementation-coupled tests
 
@@ -113,6 +486,15 @@ offenders. Establish a "behavior-first" pattern others can copy when
 adding new tests.
 
 ### Runner-invocation capture — distinguish full sweeps from ad-hoc subsets
+
+> **Demoted to Later — design unsettled.** A first cut derived `is_adhoc`
+> from CLI `-k`/`-m`/node-ids alone, but **profiles** compose a
+> `markexpr`/`keyword` (injected via `PYTEST_ADDOPTS`), so a normal profile
+> run (`--test-phase=validation`) mislabels as ad-hoc, and "Full" overclaims
+> because a profile already scopes the test set. Corrected model: scope =
+> **(active profile, selection beyond the profile)**; also stamp `profile`
+> onto `RunStarted` (today it's only on `TestRun` — a materialize-from-events
+> drift gap). Rework around profile-awareness before building.
 
 The runs table records *what* was collected (every step that ran)
 but not *how* the runner was invoked. Two runs with identical
@@ -334,7 +716,7 @@ parquet glob directly: every query opens every file's footer
 
 Compaction job (background sweep, daily / weekly):
 - Group "completed" runs (older than some grace window so streaming
-  writes have finished) by some bucket — date, product, station
+  writes have finished) by some bucket — date, part, station
 - Read all parquets in a bucket, write a single combined parquet,
   attach provenance metadata
 - Same for ``_steps.parquet`` sidecars
@@ -486,7 +868,7 @@ mistakes before hitting hardware.
 ### Facet prompt fallback — `pytest` interactive on a TTY when facets are absent
 
 Today, profile selection requires the operator to know which facet
-flags to pass: `pytest --test-phase=production --product=tps54302`.
+flags to pass: `pytest --test-phase=production --part=tps54302`.
 Forget one and you get a `UsageError` listing the available facet
 combinations — workable for a developer, friction for a lab tech.
 
@@ -502,7 +884,7 @@ start, walk the declared keys and resolve each via a three-step chain:
 
 Extend the same chain to **facets**: the auto-registered
 `--<facet>` flags (`hooks.py:450-458`) already gate step 1; add env
-var lookup (`LITMUS_TEST_PHASE`, `LITMUS_PRODUCT`, …) as step 2; then
+var lookup (`LITMUS_TEST_PHASE`, `LITMUS_PART`, …) as step 2; then
 prompt the operator with the union of declared values across the
 profile catalog as the choice list as step 3. Only invoke the prompt
 when no flag and no env var supplied a value — CI runs and explicit
@@ -543,7 +925,7 @@ Split into:
 Layout: `packages/pytest-litmus/` + `packages/litmus-test/` under a
 uv workspace. Shared tests stay at repo root (or split per-package
 for independent CI). Watch for circular imports — models
-(`TestConfig`, `SpecContext`, `Limit`, `ProductCharacteristic`) must
+(`TestConfig`, `SpecContext`, `Limit`, `PartCharacteristic`) must
 live in `litmus-test`; the plugin is strictly a consumer.
 
 Two steps — low-risk first:
@@ -558,21 +940,21 @@ the platform, not the platform itself. Matches the
 `pytest-django` / `pytest-asyncio` convention. Cheaper pre-1.0 than
 after users pin transitive deps.
 
-### CLI fallback for operator prompts (multi-DUT aware)
+### CLI fallback for operator prompts (multi-UUT aware)
 
 When running without the UI/server, operator prompts (e.g. "insert
-DUT", "press button X", "verify LED is green") should fall back to
+UUT", "press button X", "verify LED is green") should fall back to
 **terminal prompts** rather than being no-ops or silently blocking on
 a UI that isn't running.
 
-Multi-DUT scenarios require context in the prompt: the prompt must
-identify **which DUT** ("DUT-2 of 4: insert board into socket B") so
+Multi-UUT scenarios require context in the prompt: the prompt must
+identify **which UUT** ("UUT-2 of 4: insert board into socket B") so
 the operator doesn't act on the wrong unit. Resolution path:
 
 - Single source of truth for the prompt API — one `request_input()`
   surface that dispatches to UI (when the server is running) or CLI
   (when it isn't).
-- CLI renderer shows the active DUT slot / serial / position from the
+- CLI renderer shows the active UUT slot / serial / position from the
   current run manifest.
 - Non-interactive mode (CI, `--yes`, `--no-prompt`) returns a default
   or fails loudly — never blocks silently.
@@ -623,7 +1005,7 @@ switch state needed to land the path:
 
 ```yaml
 TP_VOUT_dc:
-  dut_pin: TP_VOUT
+  uut_pin: TP_VOUT
   function: dc_voltage
   instrument: dmm
   instrument_channel: ch1
@@ -662,7 +1044,7 @@ multi-char relax means this can be added cleanly without reshaping
 ### Sequences for fine-grained execution control
 
 Profiles (config overlay) and pytest classes (test grouping) cover
-v1's "validate product X" use case. What they don't cover:
+v1's "validate part X" use case. What they don't cover:
 operator-pickable, ordered bundles with step-level dependencies —
 "run smoke, then load only if smoke passed, with a dialog before
 load." Today the curriculum has zero examples that need this; v1
@@ -686,7 +1068,7 @@ under the active profile.
 
 **Why:** profile and sequence are orthogonal axes — profile is the
 config lens, sequence is the execution plan. Same profile (config
-for product X) supports multiple sequences (smoke / full /
+for part X) supports multiple sequences (smoke / full /
 characterization) without duplicating limits or mocks. Worth
 rebuilding when there's a real operator-bundle requirement; not
 worth carrying dead model surface in the meantime.
@@ -770,28 +1152,6 @@ The ``replay_to_subscriber`` path in ``data/subscribers/replay.py``
 is where this would naturally land for post-hoc replay; the live
 path needs the cascade backfill.
 
-### Channel EventStore-bridging subscription
-
-`channels/__init__.py:channel_subscribe()` is restored after being
-incorrectly flagged as "dead code" during the auto-picked Phase 6a.3
-audit. Filters ``instrument.read`` / ``instrument.set`` events from
-EventStore by ``channel_id`` — the EventStore-based subscription
-path complementary to ``ChannelStore.on_channel()`` (in-process) and
-``ChannelClient.on_channel()`` (Flight RPC).
-
-Why it exists: queries via ``EventStore`` work cross-process via
-Arrow Flight AND replay from history, so consumers (analytics
-dashboards, MCP tools, post-hoc UI) can subscribe to channel
-activity without the channel daemon running. The Flight
-subscription path requires the live daemon and only delivers new
-samples; the EventStore path can replay from any ``since`` cutoff.
-
-What needs to land: a real consumer. Candidates: the analytics
-metrics-store could subscribe to channels-of-interest for live
-charts; the MCP "watch this channel" tool; the operator UI's
-event-timeline panel. Flag if a use case materializes — otherwise
-keep as the build-out hook.
-
 ### Array channel empty-result schema
 
 `channels/models.py:ARRAY_SCHEMA` is restored after being flagged
@@ -805,8 +1165,8 @@ rows still gets a mismatched schema header.
 What needs to land: ``query()`` should branch on
 ``ChannelDescriptor.data_type`` (which is recorded at registration
 time) and pick ``ARRAY_SCHEMA`` for array channels' empty fallback.
-Currently low-impact (zero rows = no observable bug) but worth
-fixing alongside the Channel attribution work above.
+Currently low-impact (zero rows = no observable bug) but cheap to fix
+when next in the channels store.
 
 ### SpecQualifier matching — capability scoring honors `qualifier`
 
@@ -820,7 +1180,7 @@ typical-only specs (informational, not warranted).
 
 What needs to land: capability matching at session start should
 honor this. When checking whether an instrument's ``signals[v].range``
-covers a product's required range, treat ``guaranteed`` qualifiers
+covers a part's required range, treat ``guaranteed`` qualifiers
 as warranted (must satisfy with margin) and ``typical`` qualifiers
 as advisory (warn but don't block). The matcher in
 ``litmus.matching`` ignores ``qualifier`` today; when a station has
@@ -865,39 +1225,32 @@ test-engineering use case (load-curve specs, temperature-derated
 limits, formula-driven limits) — they're not aspirational, just
 not built yet.
 
-### Channel attribution — wire `instrument_role` / `resource` to ChannelDescriptor
+### What-if limit analysis — retune limits across history for yield (v0.3.0 analytics)
 
-Surfaced by the Phase 6a.3 `data/channels/` design review:
-``ChannelDescriptor`` (in ``data/channels/models.py``) declares fields
-``instrument_role: str``, ``resource: str``, and
-``properties: dict[str, Any]`` that are never populated. Both
-constructor call sites (``store.py:270``, ``client.py:161``) leave
-them at default. Result: the ``_registry.json`` written at session
-end carries no "which instrument owns this channel" data.
+A differentiating analytics surface: take an existing measurement and apply
+*hypothetical* limits to its full historical value distribution, then report the
+resulting yield (% pass) — so a test engineer can tune a limit against real data
+*before* committing it, and see exactly how much yield a tighter/looser bound buys
+or costs.
 
-The data IS available at the call site:
-``instruments/observer.py`` already caches ``self._role`` and
-``self._resource`` from the connected instrument and writes
-channels via ``self._channel_store.write(channel_id, value,
-source=source)`` (line 69). The store's ``write()`` signature just
-doesn't accept the attribution kwargs.
+- **Input:** a measurement (by name / characteristic) + candidate limit(s)
+  (low/high/nominal/comparator), optionally scoped by conditions (DUT / product /
+  station / date, or input-vector values).
+- **Output:** pass-rate over the matched historical values under the candidate
+  limits vs the current limits — a before/after **yield delta**, ideally with the
+  value distribution and where the proposed bounds cut.
+- **Extension:** sweep a limit across a range → plot **yield-vs-limit** (find the
+  knee / the bound that hits a target yield); Cpk under the candidate limits.
 
-What needs to land:
+Why it's differentiating: limit-setting today is intuition + guesswork; this turns
+it into a data-driven "what does this limit do to my yield?" answered from history.
+No mainstream HW-test stack offers it as a first-class loop.
 
-- ``ChannelStore.write()`` accepts ``instrument_role: str | None``,
-  ``resource: str | None``, ``properties: dict[str, Any] | None``.
-- ``instruments/observer.py`` ``_store_value()`` passes
-  ``instrument_role=self._role, resource=self._resource``.
-- Harness ``observe()`` path (``execution/harness.py:203``) passes
-  ``None`` for both — channels written from free-form
-  ``context.observe()`` have no instrument context.
-- Analytics / UI reads ``_registry.json`` to attribute channels to
-  instruments in waveform pickers and filtering.
-
-Decision points: should ``properties`` accept arbitrary kwargs as
-a metadata bag, or stay typed? Should the daemon-side store
-preserve attribution from cross-process producers (today the
-client RPC has no place to pass it)?
+Enabled by the runs redesign: measurements are long-form with the raw typed
+``measurement_value``, and conditions are queryable via the EAV — so re-evaluating
+arbitrary limits across the historical value set is a scan + comparison, no re-run.
+Current limits live in config (``MeasurementLimitConfig``), so "current vs candidate"
+is a clean diff.
 
 ### Consumer-side ref materialization (waveform viewing)
 
@@ -905,41 +1258,19 @@ Surfaced by the Phase 6a.2 `data/backends/` design review: the
 write path saves large observations (Waveform / ndarray / bytes /
 Pydantic models) to `_ref/` sidecar files and stores
 ``file://_ref/abc.npz`` strings in parquet's ``out_*`` columns.
-The read path is implemented but never wired up:
+The deref path is now wired: the API (`GET /api/runs/{run_id}/ref`), the
+`artifact_viewer` UI component, and MCP all call
+`parquet.py:load_ref` (the `channel://` / `file://` URI dispatcher) →
+`load_file` (npz → `Waveform`, npy → ndarray, json → dict/Pydantic, …).
 
-- `parquet.py:load_ref(value, *, parquet_path, channel_store)` —
-  unified URI dispatcher (``channel://`` / ``file://`` / legacy)
-- `parquet.py:load_file(parquet_path, ref)` — loads npz →
-  ``Waveform``, npy → ndarray, json → dict/Pydantic, bin → bytes,
-  pkl → object, arrow → ``pa.Table``
-- `parquet.py:is_file_reference(value)` — predicate
+Remaining gaps (re-scoped 2026-06):
 
-Zero callers across `src/`, `tests/`, `scripts/`. So a consumer
-fetching a measurement row gets the literal string
-``"file://_ref/abc.npz"`` instead of a `Waveform` — there's
-currently **no way for the UI / API / CLI / MCP / reports to load
-waveform data for viewing**, even though the data is on disk.
-
-What needs to land:
-
-- **API**: a `GET /api/runs/{run_id}/measurements/{step}/{name}/waveform`
-  (or similar) that materializes via `load_ref` and returns JSON
-  (Y/t0/dt/attrs) or streams the raw file. Decide eager-in-RunView
-  vs lazy-on-demand vs opt-in query param.
-- **UI**: NiceGUI page renders the waveform via ECharts.
-  Detect ``file://`` strings in `out_*` columns of the run-detail
-  view; plot inline or in a modal.
-- **Reports**: HTML/PDF embed waveform plots instead of showing
-  the literal ref string.
-- **MCP**: a tool that materializes a waveform for an LLM consumer.
-- **CLI**: `litmus show <run> --waveform <name>` round-trips through
-  the same loader.
-
-Decision points: where does dereference happen, what's the wire
-format (JSON vs binary stream), do `channel://` refs need a
-parallel HTTP path now that `litmus serve` is the front door? The
-existing `load_ref` / `load_file` keep the dispatch surface; the
-consumer-side wiring is the missing layer.
+- **Reports**: HTML/PDF still embed the literal ref string instead of a
+  rendered waveform plot.
+- **CLI**: `litmus show <run> --waveform <name>` round-trip through
+  `load_ref`.
+- **RunView eager-vs-lazy**: decide whether run-detail materializes
+  waveforms inline or on demand.
 
 ### HTTP support for ImageDialog
 
@@ -1041,7 +1372,7 @@ sidebar (poll-and-refresh tables, click-through detail). The
 remaining surfaces:
 
 - **Sessions page** — drill into a session and see all sibling slot
-  runs at once (multi-DUT view). Today subsumed by the events
+  runs at once (multi-UUT view). Today subsumed by the events
   ``session_id`` filter, but a dedicated page makes the multi-slot
   cohort obvious.
 - **Artifacts page** — search across every ref ever written, group
@@ -1114,6 +1445,14 @@ chart's `appendData` call. Subscription lifecycle when the page
 unmounts — do we reuse the existing `event_binding` cleanup pattern
 or extend it for Flight subscriptions?
 
+**Update (2026-06 branch work):** the **channel detail page** sub-bullet
+shipped — live tail via a page-level deque + `ui.timer` + `LiveBadge`,
+with a cross-process Flight subscription on the channel daemon
+(`ui/pages/channels/detail.py`). Remaining open scope: the **Events
+page** live-subscription toggle (no live wiring today) and the
+**`/channels` list page** live-status column (deferred item below;
+2s poll-refresh only, no lifecycle column).
+
 ### Parametric measurement viewer — follow-ups
 
 The thin slice (`/explore` page, `MetricsStore.parametric()`,
@@ -1122,7 +1461,7 @@ histogram) shipped 2026-05-02. Outstanding work:
 
 - **Range filters and facet pickers.** Today filters are a JSON
   textarea — equality only. Add dedicated `since`/`until` inputs and
-  multi-select pickers for `station_id` / `product_id` / `test_phase`
+  multi-select pickers for `station_id` / `part_id` / `test_phase`
   / `outcome` so the common filters don't require typing JSON.
 - **Derived metrics for Y.** Pure column queries today — no yield
   rate, Cpk per group, or sigma. Decide where these live: keep them
@@ -1147,6 +1486,31 @@ _None._
 ---
 
 ## Completed
+
+### Channel/file tuning consolidation — per-store data options — 2026-06-16
+
+The scattered channel/file durability + cadence knobs were consolidated into
+per-store Pydantic options in `models/data_options.py` — `ChannelOptions`
+(sink/writer flush rows + interval, push relay), `FileOptions` (frame relay),
+`SessionOptions` (the liveness will), and a shared `StreamTuning` (`cadence`)
+reused by both the channel and file checkpoint paths — all settable in
+`litmus.yaml` under `channels:` / `files:` / `session:` / `stream:`.
+`StreamTuning` keeps its name ("stream" = the streaming activity, a verb),
+and the cadence field is already `cadence` (the `checkpoint_cadence` rename
+was considered and declined — redundant under the `stream:` block). Landed
+across the streaming-unification Phase 2 work.
+
+### Channel attribution — `instrument_role` / `resource` on the descriptor — 2026-06-16
+
+`ChannelStore.write()` now accepts `instrument_role` / `resource` and
+`instruments/observer.py` passes `self._role` / `self._resource` on every
+channel write, so the channel descriptor carries "which instrument owns
+this channel". The daemon serves the full descriptor from segment Arrow
+schema metadata (`_registry.json` retired), and the producer hostname is
+stamped on it — the analytics / UI read path attributes channels to
+instruments via `channels()` rather than a side file. Key commit
+`e8f7742` (daemon serves descriptors; #231); hostname `b43ea50`; write-path
+wiring `46a109c`.
 
 ### Unified per-run parquet — 2026-05-07
 

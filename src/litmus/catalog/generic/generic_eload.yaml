@@ -2,7 +2,7 @@ id: generic_eload
 manufacturer: Generic
 model: Electronic Load
 name: Generic DC Electronic Load
-description: Programmable DC electronic load for sinking current from DUT outputs
+description: Programmable DC electronic load for sinking current from UUT outputs
 type: eload
 scaffold: true
 channels:
@@ -20,7 +20,7 @@ capabilities:
       range:
         min: 0
         max: 30
-        units: A
+        unit: A
 - function: dc_voltage
   direction: input
   signals:
@@ -28,4 +28,4 @@ capabilities:
       range:
         min: 0
         max: 150
-        units: V
+        unit: V

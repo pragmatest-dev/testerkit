@@ -34,12 +34,12 @@ capabilities:
       range:
         min: 0.001
         max: 400
-        units: V
+        unit: V
   attributes:
     bandwidth:
       value: 50000000
-      units: Hz
+      unit: Hz
     sample_rate:
       value: 1000000000
-      units: Sa/s
+      unit: Sa/s
   channels: CH[1:4]

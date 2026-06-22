@@ -153,13 +153,13 @@ class TestAutoRegistration:
             },
         )
 
-        # Neutralize logger to avoid duckdb import errors in child process
+        # Neutralize the run scope to avoid duckdb import errors in child process
         pytester.makeconftest(
             textwrap.dedent("""\
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
-            def logger():
+            def _run_scope():
                 yield None
         """)
         )
@@ -188,7 +188,7 @@ class TestAutoRegistration:
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
-            def logger():
+            def _run_scope():
                 yield None
         """)
         )
@@ -226,7 +226,7 @@ class TestAutoRegistration:
                 import pytest
 
                 @pytest.fixture(scope="session", autouse=True)
-                def logger():
+                def _run_scope():
                     yield None
 
                 @pytest.fixture(scope="session")
@@ -269,7 +269,7 @@ class TestAutoRegistration:
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
-            def logger():
+            def _run_scope():
                 yield None
         """)
         )
@@ -317,7 +317,7 @@ class TestAutoRegistration:
             import pytest
 
             @pytest.fixture(scope="session", autouse=True)
-            def logger():
+            def _run_scope():
                 yield None
         """)
         )

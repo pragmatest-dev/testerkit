@@ -13,7 +13,7 @@ Retest, Time loss, Assets.
 | Control | What it filters | Notes |
 |---|---|---|
 | Phase | Test phase (`development`, `validation`, `characterization`, `production`) | Multi-select. Defaults to "all phases except `development`" — set it explicitly to include dev runs. |
-| Product | DUT part number | Multi-select. Populated from runs in the index. |
+| Part | UUT part number | Multi-select. Populated from runs in the index. |
 | Station | Station hostname | Multi-select. Populated from runs in the index. |
 | Lot (optional) | Lot identifier | Free-text. Leave blank for all. |
 | Since (optional) | Earliest run start, `YYYY-MM-DD` | Date picker, or type the date directly. |
@@ -42,8 +42,8 @@ The default landing tab. Three blocks stacked vertically.
 
 | Card | Meaning |
 |---|---|
-| First Pass Yield | Percentage of DUT serials that passed on their first run |
-| Final Yield | Percentage of DUT serials that ultimately passed (first run or any retest) |
+| First Pass Yield | Percentage of UUT serials that passed on their first run |
+| Final Yield | Percentage of UUT serials that ultimately passed (first run or any retest) |
 | Total Runs | Run count in the filtered window |
 | Total Failures | Run count with outcome `Failed` only. Errored runs are tracked separately under [Time loss](#time-loss); they don't roll into this count. |
 
@@ -64,25 +64,25 @@ parameter: `pareto_group`):
 
 | Group | Bars show |
 |---|---|
-| Product | Most-failing DUT part numbers |
+| Part | Most-failing UUT part numbers |
 | Step | Most-failing test / step names across the filtered runs |
 | Measurement | Top 15 measurements with the most failures. Limited to limit-bearing measurements. Bars are labelled `step_name: measurement_name` so the same measurement name under different steps shows as distinct bars. |
 
 The leftmost bar is the biggest single contributor to lost yield.
 
-### Cpk
+### Ppk
 
-![Metrics — Cpk tab](../../_assets/operator-ui/metrics/cpk.png)
+![Metrics — Ppk tab](../../_assets/operator-ui/metrics/ppk.png)
 
-Process Capability index per measurement — how much margin each
+Process Performance index per measurement — how much margin each
 measurement has against its limits. Top 15 measurements ranked by
-Cpk ascending (**worst Cpk first**, so the table opens on what
+Ppk ascending (**worst Ppk first**, so the table opens on what
 needs attention).
 
 | Column | What it shows |
 |---|---|
 | Measurement | Measurement name |
-| Cpk | Cpk value. Color-coded: green ≥ 1.33, orange ≥ 1.00, red < 1.00. `N/A` (grey) when Cpk can't be computed — typically zero variance across samples, or no limits configured on the measurement. |
+| Ppk | Ppk value. Color-coded: green ≥ 1.33, orange ≥ 1.00, red < 1.00. `N/A` (grey) when Ppk can't be computed — typically zero variance across samples, or no limits configured on the measurement. |
 | Mean | Sample mean |
 | σ (sigma) | Sample standard deviation |
 | n | Sample count |
@@ -98,10 +98,10 @@ Bar chart + table of retest activity per daily period:
 | Column | What it shows |
 |---|---|
 | Period | Daily bucket |
-| Serials | Distinct DUT serials tested in the day |
-| Retested | DUT serials that ran more than once |
+| Serials | Distinct UUT serials tested in the day |
+| Retested | UUT serials that ran more than once |
 | Rate | `Retested / Serials` as a percentage |
-| Avg retries | Mean number of retries (executions − 1) across all DUTs in the day. A day where every DUT ran once shows `0.00`; a day where some DUTs ran twice or more shows a fractional value. |
+| Avg retries | Mean number of retries (executions − 1) across all UUTs in the day. A day where every UUT ran once shows `0.00`; a day where some UUTs ran twice or more shows a fractional value. |
 
 When no rows exist, the tab shows a message about how retest data is
 populated.
@@ -125,7 +125,7 @@ error.
 ### Assets
 
 Per-instrument utilization across the selected date window. Phase /
-Product / Station filters don't apply here — instruments are keyed
+Part / Station filters don't apply here — instruments are keyed
 by role + resource, not by run context.
 
 | Column | What it shows |
@@ -150,12 +150,12 @@ URL captures the exact view:
 | Parameter | Meaning |
 |---|---|
 | `phase` | Repeat for each selected phase: `?phase=production&phase=validation` |
-| `product` | Repeat per selected product |
+| `part` | Repeat per selected part |
 | `station` | Repeat per selected station |
 | `lot` | Lot filter value |
 | `since`, `until` | Date range, `YYYY-MM-DD` |
 | `tab` | `Yield` (default), `Pareto`, `Cpk`, `Retest`, `Time loss`, or `Assets` |
-| `pareto_group` | `product`, `step`, or `measurement` (only meaningful on the Pareto tab) |
+| `pareto_group` | `part`, `step`, or `measurement` (only meaningful on the Pareto tab) |
 
 Sharing a Cpk URL with the Pareto group set has no effect — irrelevant
 parameters are ignored by tabs that don't use them.
@@ -169,7 +169,7 @@ picks up the new data automatically (it watches for `run.ended`) —
 no Refresh needed.
 
 CLI equivalents per tab, all accepting the same filter flags
-(`--phase`, `--product`, `--station`, `--since`, `--until`, `--lot`)
+(`--phase`, `--part`, `--station`, `--since`, `--until`, `--lot`)
 and `--json` for machine-readable output:
 
 | Tab | CLI |
@@ -177,7 +177,7 @@ and `--json` for machine-readable output:
 | Yield (cards + Test Time Statistics) | [`litmus metrics summary`](../cli.md#cli-metrics-summary) |
 | Yield Trend Over Time chart | [`litmus metrics trend`](../cli.md#cli-metrics-trend) |
 | Pareto | [`litmus metrics pareto`](../cli.md#cli-metrics-pareto) |
-| Cpk | [`litmus metrics cpk`](../cli.md#cli-metrics-cpk) |
+| Ppk | [`litmus metrics ppk`](../cli.md#cli-metrics-ppk) |
 | Retest | [`litmus metrics retest`](../cli.md#cli-metrics-retest) |
 | Time loss | [`litmus metrics time-loss`](../cli.md#cli-metrics-time-loss) |
 | Assets | (no CLI equivalent yet) |

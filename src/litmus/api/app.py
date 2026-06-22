@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -10,7 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import HTMLResponse, ORJSONResponse, Response
+from fastapi.responses import HTMLResponse, ORJSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from litmus import __version__ as _litmus_version_str
@@ -35,8 +36,8 @@ from litmus.api.responses import (
     MatchSingleResponse,
     MeasurementsListResponse,
     MetricsResponse,
-    ProductRequirementsResponse,
-    ProductsListResponse,
+    PartRequirementsResponse,
+    PartsListResponse,
     RunLaunchResponse,
     RunsListResponse,
     StationCapabilitiesResponse,
@@ -49,8 +50,12 @@ from litmus.data.backends.parquet import ParquetBackend, is_file_reference, load
 from litmus.data.models import Waveform
 from litmus.models.catalog import InstrumentCatalogEntry
 from litmus.models.instrument_asset import InstrumentAssetFile
-from litmus.models.product import Product
+from litmus.models.part import Part
 from litmus.models.station import StationConfig
+
+# Chunk size for streaming a file artifact body out of the blob backend —
+# big enough to amortize per-read overhead, small enough to bound memory.
+_FILE_STREAM_CHUNK = 1 << 20  # 1 MiB
 
 
 def _serialize_ref(result: object) -> Response | dict:
@@ -161,7 +166,7 @@ def create_api_router() -> APIRouter:
             version=_litmus_version_str,
             description=(
                 "JSON API for runs, steps, measurements, sessions, dialogs, "
-                "channels, products, stations, instruments, metrics, and the "
+                "channels, parts, stations, instruments, metrics, and the "
                 "MCP-parity tool surface."
             ),
             routes=request.app.routes,
@@ -267,8 +272,14 @@ def create_api_router() -> APIRouter:
     def get_ref(run_id: str, uri: str):
         """Materialize a measurement-output ref URI to its underlying data.
 
-        Clients pass the URI from any ``out_*`` column verbatim
-        (``file://_ref/abc.npz`` or ``channel://scope.ch1?session=...``).
+        Clients pass the URI from any ``out_*`` column verbatim. Three
+        URI shapes are recognized (item 1d dual-path):
+
+        * ``file://{date}/{session_id}/{filename}`` — FileStore canonical
+          (post-1d)
+        * ``file://_ref/{filename}`` — legacy per-parquet sidecar
+        * ``channel://scope.ch1?session=...`` — live channel reference
+
         The endpoint resolves the run's parquet path, calls
         :func:`litmus.data.backends.parquet.load_ref`, then dispatches
         on the materialized type:
@@ -287,17 +298,17 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=500, detail="Run has no parquet path")
         parquet_path = Path(run.file_path)
 
-        channel_store = None
-        if uri.startswith("channel://"):
-            from uuid import uuid4
-
-            from litmus.data.channels.store import ChannelStore
-
-            parent = data_dir if data_dir else Path("results")
-            channel_store = ChannelStore(parent, uuid4())
-
+        parent = data_dir if data_dir else Path("results")
         try:
-            result = load_ref(uri, parquet_path=parquet_path, channel_store=channel_store)
+            if uri.startswith("channel://"):
+                # Resolve channel refs through the daemon's warm index,
+                # not an ephemeral globbing store (req 2).
+                from litmus.data.channels.client import channel_query_client
+
+                with channel_query_client(parent / "channels") as client:
+                    result = load_ref(uri, parquet_path=parquet_path, channel_store=client)
+            else:
+                result = load_ref(uri, parquet_path=parquet_path, channel_store=None)
         except Exception as exc:  # noqa: BLE001 — surface load failures uniformly
             raise HTTPException(status_code=502, detail=f"Failed to load ref: {exc}") from exc
 
@@ -307,6 +318,107 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=404, detail=f"Ref payload not found: {uri}")
 
         return _serialize_ref(result)
+
+    @router.get(
+        "/files/catalog",
+        response_model=GenericObjectResponse,
+        response_class=ORJSONResponse,
+    )
+    def list_files(
+        uri: str | None = None,
+        session_id: str | None = None,
+        run_id: str | None = None,
+        limit: int = 50,
+    ):
+        """List FileStore artifacts from the catalog (MCP-parity with ``litmus_files``)."""
+        from litmus.mcp.tools import files_query
+
+        return files_query(
+            uri=uri,
+            session_id=session_id,
+            run_id=run_id,
+            limit=limit,
+            data_dir=data_dir,
+        )
+
+    @router.get("/files")
+    def get_file(uri: str, request: Request) -> Response:
+        """Serve a FileStore artifact directly by ``file://`` URI.
+
+        Companion to :func:`get_ref` for the case where there's no
+        materialized run yet — live streams, in-progress captures, any
+        FileStore artifact reachable by URI alone.
+
+        ``uri`` must be ``file://{date}/{session_id}/{filename}``; the endpoint
+        serves the artifact through the FileStore — which reads it from the
+        blob backend (local disk or a remote object store), never touching
+        the filesystem here. The body is **streamed** from the backend in
+        chunks (never buffered whole), with a magic-byte-sniffed
+        ``Content-Type``. Honors HTTP ``Range`` (``206 Partial Content``)
+        so a consumer can range-read a still-growing stream artifact
+        without re-fetching the whole file.
+        """
+        from litmus.data.files import get_filestore
+
+        if not uri.startswith("file://"):
+            raise HTTPException(status_code=400, detail=f"Not a file:// URI: {uri!r}")
+        store = get_filestore()
+        file_size = store.size(uri)
+        if file_size is None:
+            raise HTTPException(status_code=404, detail=f"Not found: {uri}")
+
+        content_type = sniff_mime(store.read_range(uri, offset=0, length=64) or b"")
+
+        range_header = request.headers.get("range")
+        if not range_header:
+            handle = store.open_input(uri)
+            if handle is None:
+                raise HTTPException(status_code=404, detail=f"Not found: {uri}")
+
+            def _body() -> Iterator[bytes]:
+                try:
+                    while chunk := handle.read(_FILE_STREAM_CHUNK):
+                        yield chunk
+                finally:
+                    handle.close()
+
+            return StreamingResponse(
+                _body(),
+                media_type=content_type,
+                headers={"Accept-Ranges": "bytes", "Content-Length": str(file_size)},
+            )
+
+        # Parse a single ``bytes=start-end`` range (open-ended ends ok).
+        try:
+            unit, _, spec = range_header.partition("=")
+            start_s, _, end_s = spec.partition("-")
+            if unit.strip() != "bytes":
+                raise ValueError(f"unsupported range unit: {unit!r}")
+            start = int(start_s) if start_s else 0
+            end = int(end_s) if end_s else file_size - 1
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Bad Range: {range_header!r} ({exc})"
+            ) from exc
+
+        if start < 0 or start >= file_size or start > end:
+            raise HTTPException(
+                status_code=416,
+                detail="Requested Range Not Satisfiable",
+                headers={"Content-Range": f"bytes */{file_size}"},
+            )
+        end = min(end, file_size - 1)
+        chunk = store.read_range(uri, offset=start, length=end - start + 1) or b""
+        return Response(
+            content=chunk,
+            status_code=206,
+            media_type=content_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(len(chunk)),
+            },
+        )
 
     @router.post("/runs", response_model=RunLaunchResponse)
     async def start_run(request: LaunchRequest):
@@ -528,42 +640,42 @@ def create_api_router() -> APIRouter:
         )
 
     # -------------------------------------------------------------------------
-    # Products & Stations
+    # Parts & Stations
     # -------------------------------------------------------------------------
 
-    @router.get("/products", response_model=ProductsListResponse)
-    def list_products():
-        """List all available product specifications."""
-        from litmus.matching.service import list_products_summary
+    @router.get("/parts", response_model=PartsListResponse)
+    def list_parts():
+        """List all available part specifications."""
+        from litmus.matching.service import list_parts_summary
 
-        products = list_products_summary()
-        return {"products": products}
+        parts = list_parts_summary()
+        return {"parts": parts}
 
-    @router.get("/products/{product_id}", response_model=Product)
-    def get_product(product_id: str):
-        """Get a product specification by ID."""
-        from litmus.store import get_product as store_get_product
+    @router.get("/parts/{part_id}", response_model=Part)
+    def get_part(part_id: str):
+        """Get a part specification by ID."""
+        from litmus.store import get_part as store_get_part
 
-        product = store_get_product(product_id)
-        if not product:
-            raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found")
-        return product.model_dump()
+        part = store_get_part(part_id)
+        if not part:
+            raise HTTPException(status_code=404, detail=f"Part '{part_id}' not found")
+        return part.model_dump()
 
     @router.get(
-        "/products/{product_id}/requirements",
-        response_model=ProductRequirementsResponse,
+        "/parts/{part_id}/requirements",
+        response_model=PartRequirementsResponse,
     )
-    def get_product_requirements(product_id: str):
-        """Get required capabilities for a product."""
+    def get_part_requirements(part_id: str):
+        """Get required capabilities for a part."""
         from litmus.matching.service import get_required_capabilities
-        from litmus.store import get_product as store_get_product
+        from litmus.store import get_part as store_get_part
 
-        product = store_get_product(product_id)
-        if not product:
-            raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found")
-        reqs = get_required_capabilities(product)
+        part = store_get_part(part_id)
+        if not part:
+            raise HTTPException(status_code=404, detail=f"Part '{part_id}' not found")
+        reqs = get_required_capabilities(part)
         return {
-            "product_id": product_id,
+            "part_id": part_id,
             "requirements": [
                 RequirementSummary(
                     function=r.function.value,
@@ -623,8 +735,8 @@ def create_api_router() -> APIRouter:
         }
 
     @router.get("/match", response_model=MatchSingleResponse | MatchAllResponse)
-    def match_capabilities(product_id: str, station_id: str | None = None):
-        """Match product requirements to station capabilities.
+    def match_capabilities(part_id: str, station_id: str | None = None):
+        """Match part requirements to station capabilities.
 
         If station_id is provided, returns detailed match for that station.
         Otherwise, returns all stations with their compatibility status.
@@ -633,28 +745,28 @@ def create_api_router() -> APIRouter:
             find_all_station_matches,
             find_compatible_stations,
         )
-        from litmus.store import get_product as store_get_product
+        from litmus.store import get_part as store_get_part
         from litmus.store import get_station as store_get_station
 
-        product = store_get_product(product_id)
-        if not product:
-            raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found")
+        part = store_get_part(part_id)
+        if not part:
+            raise HTTPException(status_code=404, detail=f"Part '{part_id}' not found")
 
         if station_id:
             # Validate station exists, then find its match result
             config = store_get_station(station_id)
             if not config:
                 raise HTTPException(status_code=404, detail=f"Station '{station_id}' not found")
-            matches = find_compatible_stations(product)
+            matches = find_compatible_stations(part)
             match = next((m for m in matches if m.station_id == station_id), None)
             return {
-                "product_id": product_id,
+                "part_id": part_id,
                 "station_id": station_id,
                 "compatible": match.compatible if match else False,
             }
         else:
-            result = find_all_station_matches(product)
-            return {"product_id": product_id, "stations": result}
+            result = find_all_station_matches(part)
+            return {"part_id": part_id, "stations": result}
 
     # -------------------------------------------------------------------------
     # Instruments & Catalog
@@ -707,28 +819,32 @@ def create_api_router() -> APIRouter:
 
     @router.get("/metrics/summary", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_summary(
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
         until: str | None = None,
         period: str = "day",
     ):
-        """Yield summary — DuckDB SQL aggregated from parquet rows at request time."""
-        return {
-            "data": _measurements_query().yield_summary(
-                product=product,
-                station=station,
-                phase=phase,
-                since=since,
-                until=until,
-                period=period,
-            )
-        }
+        """Yield summary — FPY, final yield, RTY, DPMO, DPPM per (part, station, phase, period)."""
+        with _measurements_query() as q:
+            return {
+                "data": [
+                    r.model_dump()
+                    for r in q.yield_summary(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        period=period,
+                    )
+                ]
+            }
 
     @router.get("/metrics/pareto", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_pareto(
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
@@ -736,36 +852,49 @@ def create_api_router() -> APIRouter:
         top_n: int = 10,
     ):
         """Top failure modes (DuckDB SQL)."""
-        return {
-            "data": _measurements_query().pareto(
-                product=product, station=station, phase=phase, since=since, until=until, top_n=top_n
-            )
-        }
+        with _measurements_query() as q:
+            return {
+                "data": [
+                    r.model_dump()
+                    for r in q.pareto(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        top_n=top_n,
+                    )
+                ]
+            }
 
-    @router.get("/metrics/cpk", response_model=MetricsResponse, response_class=ORJSONResponse)
-    def metrics_cpk(
-        product: str | None = None,
+    @router.get("/metrics/ppk", response_model=MetricsResponse, response_class=ORJSONResponse)
+    def metrics_ppk(
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
         until: str | None = None,
         min_samples: int = 10,
     ):
-        """Process capability (DuckDB SQL)."""
-        return {
-            "data": _measurements_query().cpk(
-                product=product,
-                station=station,
-                phase=phase,
-                since=since,
-                until=until,
-                min_samples=min_samples,
-            )
-        }
+        """Process performance (DuckDB SQL)."""
+        with _measurements_query() as q:
+            return {
+                "data": [
+                    r.model_dump()
+                    for r in q.ppk(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        min_samples=min_samples,
+                    )
+                ]
+            }
 
     @router.get("/metrics/trend", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_trend(
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
@@ -773,20 +902,24 @@ def create_api_router() -> APIRouter:
         period: str = "day",
     ):
         """Yield trend (DuckDB SQL)."""
-        return {
-            "data": _measurements_query().trend(
-                product=product,
-                station=station,
-                phase=phase,
-                since=since,
-                until=until,
-                period=period,
-            )
-        }
+        with _measurements_query() as q:
+            return {
+                "data": [
+                    r.model_dump()
+                    for r in q.trend(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        period=period,
+                    )
+                ]
+            }
 
     @router.get("/metrics/retest", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_retest(
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
@@ -794,20 +927,24 @@ def create_api_router() -> APIRouter:
         period: str = "day",
     ):
         """Retest rates (DuckDB SQL)."""
-        return {
-            "data": _measurements_query().retest(
-                product=product,
-                station=station,
-                phase=phase,
-                since=since,
-                until=until,
-                period=period,
-            )
-        }
+        with _measurements_query() as q:
+            return {
+                "data": [
+                    r.model_dump()
+                    for r in q.retest(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        period=period,
+                    )
+                ]
+            }
 
     @router.get("/metrics/time-loss", response_model=MetricsResponse, response_class=ORJSONResponse)
     def metrics_time_loss(
-        product: str | None = None,
+        part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
         since: str | None = None,
@@ -815,16 +952,20 @@ def create_api_router() -> APIRouter:
         period: str = "day",
     ):
         """Time lost to failures/errors (DuckDB SQL)."""
-        return {
-            "data": _measurements_query().time_loss(
-                product=product,
-                station=station,
-                phase=phase,
-                since=since,
-                until=until,
-                period=period,
-            )
-        }
+        with _measurements_query() as q:
+            return {
+                "data": [
+                    r.model_dump()
+                    for r in q.time_loss(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        period=period,
+                    )
+                ]
+            }
 
     # -------------------------------------------------------------------------
     # MCP parity endpoints (litmus_discover, litmus_open, litmus_schema, save)
@@ -862,7 +1003,7 @@ def create_api_router() -> APIRouter:
 
     @router.post("/save/{entity_type}/{entity_id}", response_model=GenericObjectResponse)
     def save_entity(entity_type: str, entity_id: str, request: SaveRequest):
-        """Create or update an entity (station, product, sequence, fixture, etc.).
+        """Create or update an entity (station, part, sequence, fixture, etc.).
 
         HTTP equivalent of litmus_project(action='save', ...) MCP tool action.
         Returns validation errors if content does not match the schema.

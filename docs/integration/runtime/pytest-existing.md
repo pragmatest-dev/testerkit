@@ -2,7 +2,7 @@
 
 You already have a pytest test suite. This page is the route to wiring Litmus in without rewriting it.
 
-The short version: install Litmus, point a station YAML at your bench, and the [bundled pytest plugin](../../reference/pytest/fixtures.md) auto-loads. Existing tests keep running. New tests that take Litmus fixtures (`verify`, `logger`, `context`, your per-role instrument fixtures) get measurement logging, limit checking, parquet results, and the operator UI for free.
+The short version: install Litmus, point a station YAML at your bench, and the [bundled pytest plugin](../../reference/pytest/fixtures.md) auto-loads. Existing tests keep running. New tests that take Litmus fixtures (`verify`, `measure`, `context`, your per-role instrument fixtures) get measurement logging, limit checking, parquet results, and the operator UI for free.
 
 The longer version is the rest of this page: install, what auto-loads, what fixtures appear, how to keep an old test alongside a new one, and four entry points for mixing in Litmus features at different depths.
 
@@ -22,8 +22,8 @@ That's it. Litmus's pytest plugin registers via its entry point in `pyproject.to
 
 The plugin registers these CLI flags out of the box:
 
-- `--dut-serial`, `--dut-serials`, `--dut-part-number`, `--dut-revision`, `--dut-lot-number`
-- `--station`, `--slot`, `--fixture`, `--product`
+- `--uut-serial`, `--uut-serials`, `--uut-part-number`, `--uut-revision`, `--uut-lot-number`
+- `--station`, `--slot`, `--fixture`, `--part`
 - `--mock-instruments` / `--no-mock-instruments`, `--test-phase`, `--test-profile` / `--no-test-profile`, `--operator`
 - `--data-dir`, `--guardband`, `--strict-traceability`
 
@@ -37,11 +37,11 @@ The full table with defaults and descriptions is in [reference/pytest-native.md]
 pytest --co -q
 ```
 
-The plugin name appears in the loaded-plugins list at the top of the output. If your fixtures collection includes names like `context`, `verify`, `logger`, `pins`, `instruments`, `mock_instruments`, the plugin is live.
+The plugin name appears in the loaded-plugins list at the top of the output. If your fixtures collection includes names like `context`, `verify`, `measure`, `pins`, `instruments`, `mock_instruments`, the plugin is live.
 
 ## What fixtures appear
 
-The plugin provides a fixed set of [20 plugin fixtures](../../reference/pytest/fixtures.md) (most-used: `verify`, `logger`, `context`, `pins`, `instruments`). It also synthesizes one [per-role auto-fixture](../../reference/pytest/fixtures.md#per-role-auto-fixtures) per instrument in the active station YAML — so a station with `instruments: { dmm: ..., psu: ..., scope: ... }` exposes `dmm`, `psu`, `scope` as fixtures automatically. No wrapper code needed.
+The plugin provides a fixed set of [20 plugin fixtures](../../reference/pytest/fixtures.md) (most-used: `verify`, `measure`, `context`, `pins`, `instruments`). It also synthesizes one [per-role auto-fixture](../../reference/pytest/fixtures.md#per-role-auto-fixtures) per instrument in the active station YAML — so a station with `instruments: { dmm: ..., psu: ..., scope: ... }` exposes `dmm`, `psu`, `scope` as fixtures automatically. No wrapper code needed.
 
 ```python
 # tests/test_voltage.py — a new pytest test that uses Litmus
@@ -49,7 +49,7 @@ def test_output_voltage(dmm, verify):
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-The `dmm` fixture resolves to a connected DMM driver from your station YAML. The `verify` fixture resolves the limit (sidecar / marker / product spec / inline `limit=`), records the measurement to parquet, and raises `LimitFailure` if it's out of range.
+The `dmm` fixture resolves to a connected DMM driver from your station YAML. The `verify` fixture resolves the limit (sidecar / marker / part spec / inline `limit=`), records the measurement to parquet, and raises `LimitFailure` if it's out of range.
 
 Your existing tests keep running unmodified — pytest treats them as ordinary tests with no fixture dependencies on the Litmus surface.
 
@@ -62,7 +62,7 @@ def test_calculate_something():
 Both run together:
 
 ```bash
-pytest tests/ --station=bench_1 --dut-serial=SN001
+pytest tests/ --station=bench_1 --uut-serial=SN001
 ```
 
 ## Configuration files
@@ -73,8 +73,8 @@ A complete Litmus-aware project has up to four YAML files. None of them are requ
 |---|---|---|
 | `litmus.yaml` | Project-wide defaults (data dir, default station, etc.) | Always recommended — pin a `data_dir:` so results land somewhere predictable |
 | `stations/<id>.yaml` | Declares instruments and their roles for one bench | Any test that takes an instrument fixture (`dmm`, `psu`, etc.) |
-| `fixtures/<id>.yaml` | Maps DUT pins to instrument channels | Tests that use the `pins` fixture or need pin-level traceability |
-| `products/<id>.yaml` | Declares pins + characteristics + spec bands | Tests that use `verify` against a product spec |
+| `fixtures/<id>.yaml` | Maps UUT pins to instrument channels | Tests that use the `pins` fixture or need pin-level traceability |
+| `parts/<id>.yaml` | Declares pins + characteristics + spec bands | Tests that use `verify` against a part spec |
 
 For the full schemas, see [configuration reference](../../reference/configuration.md).
 
@@ -95,7 +95,7 @@ limits:                        # applied to every test in the file
   voltage:
     low: 3.0
     high: 3.6
-    units: V
+    unit: V
 
 tests:
   test_power_rails:            # per-test overrides nested under tests:
@@ -103,7 +103,7 @@ tests:
       vcc:
         low: 3.2
         high: 3.4
-        units: V
+        unit: V
 ```
 
 Top-level keys must be [SidecarConfig fields](../../reference/configuration.md#sidecar-yaml) (`limits`, `sweeps`, `mocks`, `prompts`, `retry`, `connections`, `characteristics`, `tests`, `runner`). A test name at the YAML root fails validation because the model rejects unknown keys.
@@ -131,14 +131,14 @@ Use this for any test you're writing fresh. See [writing tests](../../how-to/exe
 For tests where rewriting the assertion to use `verify` isn't worth it but you still want measurements landing in parquet:
 
 ```python
-from litmus.client import LitmusClient
+from litmus import LitmusClient
 
 client = LitmusClient()
-run = client.start_run(dut_serial="SN001", station_id="bench_1", test_phase="production")
+run = client.start_run(uut_serial="SN001", station_id="bench_1", test_phase="production")
 
 with run.step("voltage_check") as step:
     voltage = your_existing_measure_function()
-    step.measure("voltage", voltage, units="V", low=3.0, high=3.6)
+    step.measure("voltage", voltage, unit="V", low=3.0, high=3.6)
     assert 3.0 <= voltage <= 3.6   # your existing assertion stays
 
 run.finish()
@@ -147,7 +147,7 @@ run.finish()
 `LitmusClient` is a chained builder — `run.step()` and `step.vector()` are context managers; `run.finish()` finalizes and saves. Full API on [`reference/client.md`](../../reference/runtime/client.md).
 
 - Pros: zero plugin dependency; works from any Python code (LabVIEW Python Node, TestStand Python adapter, standalone scripts).
-- Trade-off: don't mix Path B with Path A in the same pytest session — the autouse `logger` fixture (plugin path) and a manually-constructed `LitmusClient` would each open their own run, producing duplicate parquet rows.
+- Trade-off: don't mix Path B with Path A in the same pytest session — the plugin's autouse run setup and a manually-constructed `LitmusClient` would each open their own run, producing duplicate parquet rows.
 
 Use this when you've got an existing pytest suite you don't want to touch, or when you're driving Litmus from non-pytest code. See also [submitting results from non-pytest sources](../data/results-api.md).
 
@@ -156,25 +156,25 @@ Use this when you've got an existing pytest suite you don't want to touch, or wh
 The lowest-level run-tracking primitive. Same machinery the pytest plugin sits on, but you own the lifecycle.
 
 ```python
+from litmus import Limit
 from litmus.execution.harness import TestHarness
-from litmus.execution.logger import TestRunLogger
-from litmus.models.test_config import Limit
+from litmus.execution.logger import RunScope
 
-logger = TestRunLogger(dut_serial="SN001", station_id="bench_1")
+logger = RunScope(uut_serial="SN001", station_id="bench_1")
 harness = TestHarness(logger=logger)
 
 with harness.step("test_power_rails"):
     vcc = measure_vcc()
     vdd = measure_vdd()
-    harness.measure("vcc", vcc, limit=Limit(low=3.2, high=3.4, units="V"))
-    harness.measure("vdd", vdd, limit=Limit(low=1.7, high=1.9, units="V"))
+    harness.measure("vcc", vcc, limit=Limit(low=3.2, high=3.4, unit="V"))
+    harness.measure("vdd", vdd, limit=Limit(low=1.7, high=1.9, unit="V"))
 ```
 
-`TestHarness.measure()` takes `name`, `value`, optional `units`, `limit` (a `Limit` model — no `low=` / `high=` kwargs), `dut_pin`, `instrument_channel`, `fixture_connection`. When `limit=` is not passed, the harness resolves limits from its `limits=` / `config["limits"]` (whichever you provided at construction) and the active `product_context`; see [integration/harness.md → Recording measurements](harness.md#recording-measurements).
+`TestHarness.measure()` takes `name`, `value`, optional `unit`, `limit` (a `Limit` model — no `low=` / `high=` kwargs), `uut_pin`, `instrument_channel`, `fixture_connection`. When `limit=` is not passed, the harness resolves limits from its `limits=` / `config["limits"]` (whichever you provided at construction) and the active `part_context`; see [integration/harness.md → Recording measurements](harness.md#recording-measurements).
 
 - Pros: the most direct way to drive Litmus from non-pytest Python (Robot Framework, unittest, ad-hoc scripts).
-- Trade-off: don't construct `TestRunLogger` at module-import time — its `__init__` captures git state and the hostname for the `TestRun` record, and you'd rather that snapshot happen at session start, not module load. Open the event log explicitly afterward (`logger.event_log = store.get_event_log(...)`) so it lines up with the session boundary. That work belongs in a session-start hook or `pytest_sessionstart`, not at import.
-- Trade-off: in a pytest project where the plugin is loaded, the autouse `logger` fixture already does this work for you. Path C is for the non-pytest case.
+- Trade-off: don't construct `RunScope` at module-import time — it captures git state and the hostname for the `TestRun` record at construction, and you'd rather that snapshot happen at session start, not module load. Open the event log explicitly afterward (`logger.event_log = store.get_event_log(...)`) so it lines up with the session boundary. That work belongs in a session-start hook or `pytest_sessionstart`, not at import.
+- Trade-off: in a pytest project where the plugin is loaded, the autouse run setup already does this work for you. Path C is for the non-pytest case.
 
 See [test harness](harness.md) for the imperative-runner integration guide.
 
@@ -276,7 +276,7 @@ for role, cfg in station.instruments.items():
 ```bash
 pytest tests/                                  # auto-resolves default_station from litmus.yaml
 pytest tests/ --mock-instruments               # hardware-free run via mock instruments
-pytest tests/ --station=bench_1 --dut-serial=SN001
+pytest tests/ --station=bench_1 --uut-serial=SN001
 ```
 
 ### CI
@@ -286,7 +286,7 @@ pytest tests/ --station=bench_1 --dut-serial=SN001
   run: |
     pytest tests/ \
       --mock-instruments \
-      --dut-serial=CI \
+      --uut-serial=CI \
       --station=ci_station \
       --test-phase=development
 ```
@@ -298,7 +298,7 @@ For CI, the simplest setup is a `stations/ci_station.yaml` whose every instrumen
 ```bash
 pytest tests/ \
   --station=bench_1 \
-  --dut-serial=$SERIAL \
+  --uut-serial=$SERIAL \
   --operator=$OPERATOR \
   --test-phase=production
 ```
@@ -321,11 +321,11 @@ If `litmus runs` is empty, check that the test session reached `RunEnded` (the p
 
 | You get | You spend |
 |---|---|
-| Every measurement persisted with full traceability (DUT serial, station, operator, timestamps, limits, outcomes) | Writing a `stations/<id>.yaml` for each bench |
+| Every measurement persisted with full traceability (UUT serial, station, operator, timestamps, limits, outcomes) | Writing a `stations/<id>.yaml` for each bench |
 | Mock-mode CI without changing test bodies | Per-test `mock_config` setpoints for the simulated bench |
 | Operator UI, MCP tools, HTTP API on the same data | Nothing — they read the same parquet |
-| Spec-driven limits (limits move from test code to product YAML) | Authoring `products/<id>.yaml` |
-| Capability matching (which station can run this product) | A `catalog/<vendor>/<model>.yaml` per instrument model |
+| Spec-driven limits (limits move from test code to part YAML) | Authoring `parts/<id>.yaml` |
+| Capability matching (which station can run this part) | A `catalog/<vendor>/<model>.yaml` per instrument model |
 
 Pick what you need. The plugin doesn't force any of it — without YAMLs, you still get plain pytest with no platform features active.
 

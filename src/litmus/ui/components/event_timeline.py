@@ -26,8 +26,9 @@ _CATEGORIES: dict[str, tuple[str, str, str]] = {
     "sync": ("bg-amber-400", "bg-amber-50 text-amber-700", "Sync"),
     "route": ("bg-teal-500", "bg-teal-100 text-teal-800", "Route"),
     "instrument": ("bg-emerald-500", "bg-emerald-100 text-emerald-800", "Instrument"),
+    "channel": ("bg-emerald-400", "bg-emerald-50 text-emerald-700", "Channel"),
     "diagnostic": ("bg-slate-400", "bg-slate-100 text-slate-600", "Diagnostic"),
-    "stream": ("bg-cyan-500", "bg-cyan-100 text-cyan-800", "Stream"),
+    "file": ("bg-cyan-500", "bg-cyan-100 text-cyan-800", "File"),
     "dialog": ("bg-pink-500", "bg-pink-100 text-pink-800", "Dialog"),
 }
 
@@ -40,12 +41,12 @@ def _category_for(event_type: str) -> str:
 def _detail_measurement(e: dict) -> str:
     val = e.get("value")
     val_str = f"{val:.4g}" if isinstance(val, (int, float)) else str(val)
-    units = e.get("units") or ""
-    return f"{e.get('measurement_name', '')} = {val_str} {units} [{e.get('outcome', '')}]"
+    unit = e.get("unit") or ""
+    return f"{e.get('measurement_name', '')} = {val_str} {unit} [{e.get('outcome', '')}]"
 
 
 def _detail_read(e: dict) -> str:
-    return f"{e.get('channel_id', '')} → {e.get('value', '')} {e.get('units', '')}"
+    return f"{e.get('channel_id', '')} → {e.get('value', '')} {e.get('unit', '')}"
 
 
 def _detail_set(e: dict) -> str:
@@ -57,15 +58,43 @@ def _detail_session_started(e: dict) -> str:
 
 
 def _detail_run_started(e: dict) -> str:
-    return f"station={e.get('station_id', '')} dut={e.get('dut_serial', '')}"
+    return f"station={e.get('station_id', '')} uut={e.get('uut_serial', '')}"
 
 
 def _detail_step_ended(e: dict) -> str:
     return f"{e.get('step_name', '')} ({e.get('outcome', '')})"
 
 
+def _detail_channel_started(e: dict) -> str:
+    role = e.get("instrument_role")
+    method = e.get("method")
+    parts = [e.get("channel_id", "")]
+    if role:
+        parts.append(f"role={role}")
+    if method:
+        parts.append(f"method={method}")
+    return " ".join(parts)
+
+
+def _detail_observation(e: dict) -> str:
+    val = e.get("value")
+    val_str = f"{val:.4g}" if isinstance(val, (int, float)) else str(val)
+    return f"{e.get('name', '')} = {val_str}"
+
+
+def _detail_stream_started(e: dict) -> str:
+    return f"{e.get('name', '')} [{e.get('format', '')}]"
+
+
+def _detail_stream_ended(e: dict) -> str:
+    size = e.get("size_bytes")
+    size_str = f" ({size} B)" if isinstance(size, int) else ""
+    return f"{e.get('uri', '')}{size_str}"
+
+
 _DETAIL_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "test.measurement": _detail_measurement,
+    "test.observation": _detail_observation,
     "instrument.read": _detail_read,
     "instrument.set": _detail_set,
     "session.started": _detail_session_started,
@@ -73,7 +102,10 @@ _DETAIL_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "test.step_started": lambda e: e.get("step_name", ""),
     "test.step_ended": _detail_step_ended,
     "run.ended": lambda e: e.get("outcome", ""),
-    "session.ended": lambda e: e.get("outcome", ""),
+    "channel.started": _detail_channel_started,
+    "channel.ended": lambda e: f"{e.get('channel_id', '')} ({e.get('reason', '')})",
+    "file.started": _detail_stream_started,
+    "file.ended": _detail_stream_ended,
 }
 
 

@@ -85,15 +85,15 @@ class TestFilterSet:
 
     def test_validates_enum_column(self):
         with pytest.raises(ValueError, match="unknown or non-enum"):
-            FilterSet(enum_filters={"product_id": ["PN-100"]})
+            FilterSet(enum_filters={"part_id": ["PN-100"]})
 
     def test_url_round_trip_string_filters(self):
-        fs = FilterSet(string_filters={"product_id": ["PN-100", "PN-200"]})
+        fs = FilterSet(string_filters={"part_id": ["PN-100", "PN-200"]})
         params = fs.to_url_params()
-        assert params == [("product_id", "PN-100"), ("product_id", "PN-200")]
+        assert params == [("part_id", "PN-100"), ("part_id", "PN-200")]
         # Decode round-trip
-        decoded = FilterSet.from_url_params({"product_id": ["PN-100", "PN-200"]})
-        assert decoded.string_filters == {"product_id": ["PN-100", "PN-200"]}
+        decoded = FilterSet.from_url_params({"part_id": ["PN-100", "PN-200"]})
+        assert decoded.string_filters == {"part_id": ["PN-100", "PN-200"]}
 
     def test_url_round_trip_enum_filters(self):
         fs = FilterSet(enum_filters={"measurement_outcome": ["passed", "failed"]})
@@ -113,8 +113,8 @@ class TestFilterSet:
         assert decoded.until == date(2026, 4, 30)
 
     def test_unknown_column_dropped_on_decode(self):
-        decoded = FilterSet.from_url_params({"product_id": ["PN-100"], "fake_column": ["whatever"]})
-        assert decoded.string_filters == {"product_id": ["PN-100"]}
+        decoded = FilterSet.from_url_params({"part_id": ["PN-100"], "fake_column": ["whatever"]})
+        assert decoded.string_filters == {"part_id": ["PN-100"]}
         assert "fake_column" not in decoded.string_filters
         assert "fake_column" not in decoded.enum_filters
 
@@ -155,7 +155,7 @@ class TestRowModels:
             total_rows=42_317,
             distinct_runs=314,
             distinct_measurements=14,
-            distinct_products=6,
+            distinct_parts=6,
         )
         assert sc.total_rows == 42_317
 

@@ -1,10 +1,10 @@
-"""Observer contract and EventEmitter for instrument proxies.
+"""Observer contract and InstrumentEventBuilder for instrument proxies.
 
 The proxy delegates all interpretation to a ``DriverObserver`` subclass.
 Each driver library gets its own observer that understands the library's
 API conventions (descriptors, prefixes, SCPI, etc.).
 
-``EventEmitter`` encapsulates event construction, channel store writes,
+``InstrumentEventBuilder`` encapsulates event construction, channel store writes,
 and session plumbing so observers just call ``emit.read("voltage", 3.3)``.
 """
 
@@ -15,8 +15,10 @@ from typing import Any
 from uuid import UUID
 
 from litmus.data.event_log import EventLog
-from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
+from litmus.data.files import get_filestore
 from litmus.data.ref import classify_value
+from litmus.execution._state import get_current_context
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,7 @@ LIFECYCLE_METHODS = frozenset(
 """Methods the observer should never emit events for."""
 
 
-class EventEmitter:
+class InstrumentEventBuilder:
     """Passed to observers. Handles event log, channel store, session IDs."""
 
     def __init__(
@@ -59,32 +61,116 @@ class EventEmitter:
         self._run_id = run_id
         self._resource = resource
         self._channel_store = channel_store
+        # Per-(channel, session) "started" tracking lives on
+        # :class:`ChannelStore` when one is wired (item 4b
+        # consolidation) — the store emits ``ChannelStarted`` exactly
+        # once per (channel, session) regardless of writer path.
+        # When no store is wired (bringup tier: driver used outside a
+        # station / session), this set is the fallback tracker so the
+        # event still fires for observability of the bare interaction.
+        self._fallback_started_channels: set[str] = set()
 
     def _store_value(self, channel_id: str, value: Any, source: str) -> Any:
-        """Write to channel store if possible, return URI or raw value."""
-        if self._channel_store is not None and value is not None:
-            vtype = classify_value(value)
-            if vtype != "blob":
-                try:
-                    return self._channel_store.write(channel_id, value, source=source)
-                except (OSError, ValueError, TypeError) as exc:
-                    logger.debug("Channel store write failed for %s: %s", channel_id, exc)
+        """Route a value to the right store; return URI or the raw value.
+
+        - Blobs (PIL image, raw bytes, Path, Pydantic model, anything
+          ``classify_value`` flags as ``"blob"``) route through
+          :func:`FileStore.write` (build item 3b). The returned
+          ``file://`` URI is written into ChannelStore as the channel's
+          sample value — a ``scalar:str`` channel (relies on C2's typed
+          leaf-types, build item 14) so the live channel timeline
+          carries the claim-check. URI returned to the caller for
+          ``out_*`` stamping.
+        - Channel-shaped numerics (scalar / list / numpy array / dict)
+          go straight to ChannelStore as before; its ``write`` returns
+          a ``channel://`` URI for downstream stamping.
+        - When no ChannelStore is wired (driver outside a session), the
+          raw value is returned unchanged — blobs are still dropped in
+          that path because there's no session to scope a FileStore put
+          to. This matches pre-3b behavior for the no-session case.
+
+        ``ChannelStarted`` lifecycle event (Position 2) is emitted by
+        :class:`ChannelStore.write` on its first per-(channel, session)
+        write — not here. ``instrument_role`` / ``resource`` / ``run_id``
+        are passed through so ChannelStore can populate the event.
+        """
+        if self._channel_store is None or value is None:
+            return value
+
+        vtype = classify_value(value)
+        if vtype == "blob":
+            uri = get_filestore().write(channel_id, value, session_id=str(self._session_id))
+            try:
+                self._channel_store.write(
+                    channel_id,
+                    uri,
+                    source=source,
+                    instrument_role=self._role,
+                    resource=self._resource,
+                    run_id=self._run_id,
+                )
+            except (OSError, ValueError, TypeError) as exc:
+                logger.debug("Channel store URI write failed for %s: %s", channel_id, exc)
+            return uri
+
+        try:
+            return self._channel_store.write(
+                channel_id,
+                value,
+                source=source,
+                instrument_role=self._role,
+                resource=self._resource,
+                run_id=self._run_id,
+            )
+        except (OSError, ValueError, TypeError) as exc:
+            logger.debug("Channel store write failed for %s: %s", channel_id, exc)
         return value
 
     def read(self, channel: str, value: Any, method: str = "") -> None:
-        """Emit an InstrumentRead event."""
-        event_value = self._store_value(channel, value, method)
-        self._event_log.emit(
-            InstrumentRead(
-                session_id=self._session_id,
-                run_id=self._run_id,
-                instrument_role=self._role,
-                channel_id=channel,
-                method=method,
-                value=event_value,
-                resource=self._resource,
+        """Record an instrument read.
+
+        Under Position 2 (lifecycle-only channel events): the per-sample
+        ``InstrumentRead`` event is retired. This method:
+
+        1. Writes the value to ChannelStore (sample data lives there).
+           ``ChannelStore.write`` emits ``ChannelStarted`` on the first
+           per-(channel, session) write; subsequent writes are silent
+           on the event timeline. Subscribers wanting per-sample access
+           subscribe to ChannelStore via Flight ``do_get``.
+        2. Stamps the active harness Context's ``out_<channel>`` with
+           the channel URI on first write per (vector, channel). This
+           lets ``verify`` measurement rows reference the channel via
+           a denormalized column. ``setdefault`` makes it idempotent.
+
+        Bringup-tier fallback: when no ChannelStore is wired (driver
+        used outside a station / session), this method emits
+        ``ChannelStarted`` directly so the observability surface stays
+        coherent for ad-hoc / interactive driver use.
+        """
+        stored_value = self._store_value(channel, value, method)
+
+        # Bringup-tier fallback: no ChannelStore to own emission.
+        if self._channel_store is None and channel not in self._fallback_started_channels:
+            self._fallback_started_channels.add(channel)
+            self._event_log.emit(
+                ChannelStarted(
+                    session_id=self._session_id,
+                    run_id=self._run_id,
+                    channel_id=channel,
+                    instrument_role=self._role,
+                    method=method,
+                    resource=self._resource,
+                )
             )
-        )
+
+        # Stamp active vector's out_<channel> on first write per
+        # (vector, channel). Idempotent via setdefault.
+        ctx = get_current_context()
+        if ctx is not None and isinstance(stored_value, str):
+            # Only stamp when we have a URI (channel store wrote and
+            # returned channel://...). For inline scalars, the row's
+            # measurement.value carries the data; out_* not needed.
+            ctx._observations.setdefault(channel, stored_value)
 
     def set(self, channel: str, value: Any, attr: str = "") -> None:
         """Emit an InstrumentSet event."""
@@ -146,7 +232,7 @@ class DriverObserver:
         self,
         driver_class: type,
         role: str,
-        emit: EventEmitter,
+        emit: InstrumentEventBuilder,
         yaml_overrides: dict[str, str] | None = None,
         driver_instance: Any = None,
     ) -> None:

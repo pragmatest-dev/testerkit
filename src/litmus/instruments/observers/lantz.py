@@ -1,7 +1,7 @@
 """Lantz observer for Feat/DictFeat descriptor-based instruments.
 
 Lantz uses ``Feat`` and ``DictFeat`` descriptors similar to PyMeasure
-properties but with Pint units and validation. ``Action`` decorator for methods.
+properties but with Pint unit and validation. ``Action`` decorator for methods.
 
 This observer reuses PyMeasureObserver's descriptor introspection since
 Lantz descriptors follow the same ``__get__``/``__set__`` protocol.
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from litmus.instruments.observer import EventEmitter
+from litmus.instruments.observer import InstrumentEventBuilder
 from litmus.instruments.observers.descriptor import DescriptorObserver
 
 
@@ -24,7 +24,7 @@ class LantzObserver(DescriptorObserver):
         self,
         driver_class: type,
         role: str,
-        emit: EventEmitter,
+        emit: InstrumentEventBuilder,
         yaml_overrides: dict[str, str] | None = None,
         driver_instance: Any = None,
     ) -> None:

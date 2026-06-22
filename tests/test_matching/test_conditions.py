@@ -21,11 +21,11 @@ from litmus.models.capability import (
     SpecBand,
 )
 from litmus.models.enums import Direction, MatchDepth, MeasurementFunction
-from litmus.models.product import ProductCharacteristic
+from litmus.models.part import PartCharacteristic
 
 
 def _spec_with_units(cond: object) -> RangeSpec | PointSpec | ListSpec:
-    """Narrow a union-typed ``when``-clause entry to a spec type that has ``units``."""
+    """Narrow a union-typed ``when``-clause entry to a spec type that has ``unit``."""
     assert isinstance(cond, RangeSpec | PointSpec | ListSpec), (
         f"expected RangeSpec/PointSpec/ListSpec, got {type(cond).__name__}"
     )
@@ -39,15 +39,15 @@ def _spec_with_units(cond: object) -> RangeSpec | PointSpec | ListSpec:
 
 def test_spec_band_lookup_finds_matching_band():
     param = Signal(
-        range=RangeSpec(min=0.1, max=750, units="V"),
+        range=RangeSpec(min=0.1, max=750, unit="V"),
         accuracy=AccuracySpec(pct_reading=0.07, pct_range=0.02),
         bands=[
             SpecBand(
-                when={"frequency": RangeSpec(min=3, max=5, units="Hz")},
+                when={"frequency": RangeSpec(min=3, max=5, unit="Hz")},
                 accuracy=AccuracySpec(pct_reading=0.35, pct_range=0.03),
             ),
             SpecBand(
-                when={"frequency": RangeSpec(min=5, max=300, units="Hz")},
+                when={"frequency": RangeSpec(min=5, max=300, unit="Hz")},
                 accuracy=AccuracySpec(pct_reading=0.07, pct_range=0.02),
             ),
         ],
@@ -64,8 +64,8 @@ def test_spec_band_lookup_multi_key_and():
         bands=[
             SpecBand(
                 when={
-                    "frequency": RangeSpec(min=1e9, max=2e9, units="Hz"),
-                    "offset": RangeSpec(min=1000, max=1000, units="Hz"),
+                    "frequency": RangeSpec(min=1e9, max=2e9, unit="Hz"),
+                    "offset": RangeSpec(min=1000, max=1000, unit="Hz"),
                 },
                 value=-121,
             ),
@@ -85,7 +85,7 @@ def test_spec_band_lookup_falls_back_to_default():
         accuracy=AccuracySpec(pct_reading=0.07),
         bands=[
             SpecBand(
-                when={"frequency": RangeSpec(min=3, max=5, units="Hz")},
+                when={"frequency": RangeSpec(min=3, max=5, unit="Hz")},
                 accuracy=AccuracySpec(pct_reading=0.35),
             ),
         ],
@@ -143,7 +143,7 @@ def test_capability_satisfies_with_accuracy_depth():
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=100, units="V"),
+                    range=RangeSpec(min=0, max=100, unit="V"),
                     accuracy=AccuracySpec(pct_reading=0.003, pct_range=0.0005),
                     resolution=ResolutionSpec(digits=6.5),
                 ),
@@ -153,17 +153,17 @@ def test_capability_satisfies_with_accuracy_depth():
         instrument_name="dmm1",
     )
     req = CapabilityRequirement(
-        capability=ProductCharacteristic(
+        capability=PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=50, units="V"),
+                    range=RangeSpec(min=0, max=50, unit="V"),
                     accuracy=AccuracySpec(pct_reading=0.01, pct_range=0.001),
                     resolution=ResolutionSpec(digits=5.5),
                 ),
             },
-            units="V",
+            unit="V",
             net="output_voltage",
         ),
         characteristic_name="output_voltage",
@@ -180,7 +180,7 @@ def test_backward_compat_no_specs():
             direction=Direction.INPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=1000, units="V"),
+                    range=RangeSpec(min=0, max=1000, unit="V"),
                 ),
             },
         ),
@@ -188,15 +188,15 @@ def test_backward_compat_no_specs():
         instrument_name="dmm1",
     )
     req = CapabilityRequirement(
-        capability=ProductCharacteristic(
+        capability=PartCharacteristic(
             function=MeasurementFunction.DC_VOLTAGE,
             direction=Direction.OUTPUT,
             signals={
                 "voltage": Signal(
-                    range=RangeSpec(min=0, max=50, units="V"),
+                    range=RangeSpec(min=0, max=50, unit="V"),
                 ),
             },
-            units="V",
+            unit="V",
             net="output_voltage",
         ),
         characteristic_name="output_voltage",
@@ -246,7 +246,7 @@ def test_spec_band_mixed_string_and_range():
             SpecBand(
                 when={
                     "rate": "MED",
-                    "frequency": RangeSpec(min=20, max=300, units="Hz"),
+                    "frequency": RangeSpec(min=20, max=300, unit="Hz"),
                 },
                 accuracy=AccuracySpec(pct_reading=0.10),
             ),
@@ -334,10 +334,10 @@ def test_spec_band_list_mixed_types():
 
 
 def test_pointspec_yaml_round_trip():
-    """PointSpec parses from dict with value + units."""
-    spec = PointSpec(value=100, units="Hz")
+    """PointSpec parses from dict with value + unit."""
+    spec = PointSpec(value=100, unit="Hz")
     assert spec.value == 100
-    assert spec.units == "Hz"
+    assert spec.unit == "Hz"
 
 
 def test_pointspec_match():
@@ -345,7 +345,7 @@ def test_pointspec_match():
     param = Signal(
         bands=[
             SpecBand(
-                when={"frequency": PointSpec(value=1e8, units="Hz")},
+                when={"frequency": PointSpec(value=1e8, unit="Hz")},
                 accuracy=AccuracySpec(pct_reading=0.01),
             ),
         ],
@@ -358,9 +358,9 @@ def test_pointspec_match():
 
 
 def test_pointspec_no_units():
-    """PointSpec without units still matches on value."""
+    """PointSpec without unit still matches on value."""
     spec = PointSpec(value=50)
-    assert spec.units == ""
+    assert spec.unit == ""
     param = Signal(
         bands=[
             SpecBand(
@@ -379,10 +379,10 @@ def test_pointspec_no_units():
 
 
 def test_listspec_yaml_round_trip():
-    """ListSpec parses from dict with values + units."""
-    spec = ListSpec(values=[50, 600], units="ohm")
+    """ListSpec parses from dict with values + unit."""
+    spec = ListSpec(values=[50, 600], unit="ohm")
     assert spec.values == [50, 600]
-    assert spec.units == "ohm"
+    assert spec.unit == "ohm"
 
 
 def test_listspec_match():
@@ -390,7 +390,7 @@ def test_listspec_match():
     param = Signal(
         bands=[
             SpecBand(
-                when={"impedance": ListSpec(values=[50, 600], units="ohm")},
+                when={"impedance": ListSpec(values=[50, 600], unit="ohm")},
                 accuracy=AccuracySpec(pct_reading=0.05),
             ),
         ],
@@ -401,9 +401,9 @@ def test_listspec_match():
 
 
 def test_listspec_no_units():
-    """ListSpec without units still matches on membership."""
+    """ListSpec without unit still matches on membership."""
     spec = ListSpec(values=["single", "automatic"])
-    assert spec.units == ""
+    assert spec.unit == ""
     param = Signal(
         bands=[
             SpecBand(
@@ -422,13 +422,13 @@ def test_listspec_no_units():
 
 
 def test_units_inheritance_rangespec():
-    """RangeSpec in when-clause inherits units from parent condition."""
+    """RangeSpec in when-clause inherits unit from parent condition."""
     cap = InstrumentCapability(
         function=MeasurementFunction.AC_VOLTAGE,
         direction=Direction.INPUT,
         signals={
             "voltage": Signal(
-                range=RangeSpec(min=0, max=750, units="V"),
+                range=RangeSpec(min=0, max=750, unit="V"),
                 bands=[
                     SpecBand(
                         when={"frequency": RangeSpec(min=20, max=300)},
@@ -438,23 +438,23 @@ def test_units_inheritance_rangespec():
             ),
         },
         conditions={
-            "frequency": Condition(range=RangeSpec(min=20, max=100000, units="Hz")),
+            "frequency": Condition(range=RangeSpec(min=20, max=100000, unit="Hz")),
         },
     )
     specs = cap.signals["voltage"].bands
     assert specs is not None
     band = specs[0]
-    assert _spec_with_units(band.when["frequency"]).units == "Hz"
+    assert _spec_with_units(band.when["frequency"]).unit == "Hz"
 
 
 def test_units_inheritance_pointspec():
-    """PointSpec in when-clause inherits units from parent condition."""
+    """PointSpec in when-clause inherits unit from parent condition."""
     cap = InstrumentCapability(
         function=MeasurementFunction.AC_VOLTAGE,
         direction=Direction.INPUT,
         signals={
             "voltage": Signal(
-                range=RangeSpec(min=0, max=750, units="V"),
+                range=RangeSpec(min=0, max=750, unit="V"),
                 bands=[
                     SpecBand(
                         when={"frequency": PointSpec(value=1000)},
@@ -464,23 +464,23 @@ def test_units_inheritance_pointspec():
             ),
         },
         conditions={
-            "frequency": Condition(range=RangeSpec(min=20, max=100000, units="Hz")),
+            "frequency": Condition(range=RangeSpec(min=20, max=100000, unit="Hz")),
         },
     )
     specs = cap.signals["voltage"].bands
     assert specs is not None
     band = specs[0]
-    assert _spec_with_units(band.when["frequency"]).units == "Hz"
+    assert _spec_with_units(band.when["frequency"]).unit == "Hz"
 
 
 def test_units_inheritance_listspec():
-    """ListSpec in when-clause inherits units from parent control."""
+    """ListSpec in when-clause inherits unit from parent control."""
     cap = InstrumentCapability(
         function=MeasurementFunction.AC_VOLTAGE,
         direction=Direction.INPUT,
         signals={
             "voltage": Signal(
-                range=RangeSpec(min=0, max=750, units="V"),
+                range=RangeSpec(min=0, max=750, unit="V"),
                 bands=[
                     SpecBand(
                         when={"impedance": ListSpec(values=[50, 600])},
@@ -490,36 +490,36 @@ def test_units_inheritance_listspec():
             ),
         },
         controls={
-            "impedance": Control(range=RangeSpec(min=50, max=600, units="ohm")),
+            "impedance": Control(range=RangeSpec(min=50, max=600, unit="ohm")),
         },
     )
     specs = cap.signals["voltage"].bands
     assert specs is not None
     band = specs[0]
-    assert _spec_with_units(band.when["impedance"]).units == "ohm"
+    assert _spec_with_units(band.when["impedance"]).unit == "ohm"
 
 
 def test_units_inheritance_skips_when_already_set():
-    """Units inheritance does NOT override explicitly set units."""
+    """Units inheritance does NOT override explicitly set unit."""
     cap = InstrumentCapability(
         function=MeasurementFunction.AC_VOLTAGE,
         direction=Direction.INPUT,
         signals={
             "voltage": Signal(
-                range=RangeSpec(min=0, max=750, units="V"),
+                range=RangeSpec(min=0, max=750, unit="V"),
                 bands=[
                     SpecBand(
-                        when={"frequency": PointSpec(value=1000, units="kHz")},
+                        when={"frequency": PointSpec(value=1000, unit="kHz")},
                         accuracy=AccuracySpec(pct_reading=0.05),
                     ),
                 ],
             ),
         },
         conditions={
-            "frequency": Condition(range=RangeSpec(min=20, max=100000, units="Hz")),
+            "frequency": Condition(range=RangeSpec(min=20, max=100000, unit="Hz")),
         },
     )
     specs = cap.signals["voltage"].bands
     assert specs is not None
     band = specs[0]
-    assert _spec_with_units(band.when["frequency"]).units == "kHz"
+    assert _spec_with_units(band.when["frequency"]).unit == "kHz"

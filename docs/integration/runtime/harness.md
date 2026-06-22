@@ -1,21 +1,21 @@
 # Test Harness Integration
 
-> **For new pytest projects, use the plugin: [Litmus fixtures](../../reference/pytest/fixtures.md) (`context`, `verify`, `logger`, `pins`, … — 20 in total) and [Litmus markers](../../reference/pytest/markers.md) (`litmus_limits`, `litmus_sweeps`, …) handle setup automatically.** `TestHarness` is the imperative entry point for non-pytest runners (Robot Framework, unittest, custom harnesses) or for situations where you need explicit lifecycle control.
+> **For new pytest projects, use the plugin: [Litmus fixtures](../../reference/pytest/fixtures.md) (`context`, `verify`, `measure`, `pins`, … — 20 in total) and [Litmus markers](../../reference/pytest/markers.md) (`litmus_limits`, `litmus_sweeps`, …) handle setup automatically.** `TestHarness` is the imperative entry point for non-pytest runners (Robot Framework, unittest, custom harnesses) or for situations where you need explicit lifecycle control.
 
 `TestHarness` (in `litmus.execution.harness`) wraps the same machinery the pytest plugin uses: vector expansion, retry, limit resolution, measurement logging with full traceability.
 
 ## Required collaborators
 
-`TestHarness` writes through a `TestRunLogger`. The logger only persists events to disk when it has an `EventLog` attached. The pytest plugin wires this up automatically; outside pytest you do it yourself:
+`TestHarness` writes through a `RunScope`. The logger only persists events to disk when it has an `EventLog` attached. The pytest plugin wires this up automatically; outside pytest you do it yourself:
 
 ```python
-from litmus.data.event_store import EventStore
+from litmus.queries import EventStore
 from litmus.data.events import RunStarted, SessionStarted
 from litmus.execution.harness import TestHarness
-from litmus.execution.logger import TestRunLogger
+from litmus.execution.logger import RunScope
 
-logger = TestRunLogger(
-    dut_serial="SN12345",
+logger = RunScope(
+    uut_serial="SN12345",
     station_id="bench_1",
     test_phase="characterization",
     data_dir="data",
@@ -41,7 +41,7 @@ logger.event_log.emit(
         run_id=logger.test_run.id,
         station_id=logger.test_run.station_id,
         station_hostname=logger.test_run.station_hostname,
-        dut_serial=logger.test_run.dut.serial,
+        uut_serial=logger.test_run.uut.serial,
         test_phase=logger.test_run.test_phase,
     )
 )
@@ -61,7 +61,7 @@ logger.event_log.close()
 
 `finalize()` emits `RunEnded` and closes the open step but does NOT emit `SessionEnded`, does NOT close the event log, and does NOT close the channel store. Leaving any of these open from a long-running process leaks file handles and prevents the runs daemon from retiring the run's cohort. Emit `SessionEnded` and `.close()` the event log (and `channel_store.close()` if you wired one) before exiting.
 
-`TestRunLogger.__init__` takes the run-level metadata directly (`dut_serial`, `station_id`, `station_name`, `operator_id`, `test_phase`, `product_id`, `data_dir`, etc.). The logger constructs a `TestRun` and a `RunContext` (a plain class wrapping the run record, with a `.set(key, value)` method for custom metadata) for you; you don't construct either.
+`RunScope` takes the run-level metadata directly (`uut_serial`, `station_id`, `station_name`, `operator_id`, `test_phase`, `part_id`, `data_dir`, etc.). It constructs a `TestRun` and a `RunContext` (which exposes a `.set(key, value)` method for custom metadata) for you; you don't construct either.
 
 A harness whose logger has no `event_log` still runs, but **nothing is persisted** — every event the harness would emit silently no-ops. Useful for unit-testing the harness loop without writing to disk; not what you want for a real run. If your data dir stays empty, this is the first thing to check.
 
@@ -70,11 +70,11 @@ A harness whose logger has no `event_log` still runs, but **nothing is persisted
 ```python
 TestHarness(
     config: Mapping[str, Any] | None = None,
-    logger: TestRunLogger | None = None,
+    logger: RunScope | None = None,
     step_name: str = "test",
     retry: RetryConfig | None = None,
     limits: dict[str, MeasurementLimitConfig | Limit] | None = None,
-    product_context: ProductContext | None = None,
+    part_context: PartContext | None = None,
     instruments: dict[str, Any] | None = None,
     mock_instruments: bool = False,
     channel_store: Any | None = None,
@@ -84,11 +84,11 @@ TestHarness(
 | Argument | Purpose |
 |---|---|
 | `config` | Optional dict with `vectors:` / `limits:` / `mocks:` / `retry:` keys — same shape as the sidecar YAML |
-| `logger` | `TestRunLogger` that owns the event log writes |
+| `logger` | `RunScope` that owns the event log writes |
 | `step_name` | Name attached to the step records this harness emits |
 | `retry` | Explicit `RetryConfig` (overrides `config["retry"]`) |
 | `limits` | Per-measurement limit map (overrides `config["limits"]`) |
-| `product_context` | Active product spec — enables `verify(name, value)` style limit + traceability resolution |
+| `part_context` | Active part spec — enables `verify(name, value)` style limit + traceability resolution |
 | `instruments` | Dict of instrument instances; used by mock-configuration to patch return values |
 | `mock_instruments` | Whether mocks are enabled |
 | `channel_store` | Optional `ChannelStore` for direct time-series writes |
@@ -127,7 +127,6 @@ step = harness.run_all(measure_rail, step_name="output_voltage")
 |---|---|---|
 | `harness.run_all(test_fn, step_name=None)` | `Callable[[Vector], Any] → TestStep` | Opens a step, iterates `harness.vectors`, runs each through `run_with_retry`. Returns the completed step. |
 | `harness.run_with_retry(vector, test_fn)` | `(Vector, Callable[[Vector], Any]) → TestVector` | Runs `test_fn(vector)` inside `run_vector`, retrying up to `retry_config.max_retries` times. Returns the final `TestVector`. |
-| `harness.record(key, value)` | `(str, Any) → None` | Emits a `RecordEvent` with `(key, value)`. Use for non-measurement diagnostics — firmware version, calibration timestamp, raw register dump. JSON-serializable values only. |
 | `harness.current_vector` (property) | → `Vector \| None` | The vector currently inside `run_vector`, or `None` when called outside a vector boundary. |
 | `harness.retry_config` (property) | → `RetryConfig` | The active `RetryConfig` (constructor arg, sidecar `retry:`, or the default `max_retries=0, delay=0`). |
 
@@ -139,9 +138,9 @@ step = harness.run_all(measure_rail, step_name="output_voltage")
 harness.measure(
     name="output_voltage",
     value=3.31,
-    units="V",                  # optional — defaults to limit.units
-    limit=Limit(low=3.135, high=3.465, units="V"),  # optional — explicit override
-    dut_pin="VOUT",             # optional — auto-resolved from product_context
+    unit="V",                   # optional — defaults to limit.unit
+    limit=Limit(low=3.135, high=3.465, unit="V"),   # optional — explicit override
+    uut_pin="VOUT",             # optional — auto-resolved from part_context
     instrument_channel="CH1",   # optional
     fixture_connection="vout_dmm",  # optional
 )
@@ -151,10 +150,10 @@ Limit resolution order (when `limit=` is not passed):
 
 1. Per-vector limit, if the current vector was built with one
 2. Test-level limits — the harness's `limits=` constructor kwarg if you passed one; **otherwise** the entries parsed from `config["limits"]`. They aren't merged: if you pass `limits=`, the harness ignores `config["limits"]` entirely. Pick one source per test.
-3. The active product context's `get_limit(name, **vector_params)` — vector params are passed as condition kwargs so the right `SpecBand` is selected
+3. The active part context's `get_limit(name, **vector_params)` — vector params are passed as condition kwargs so the right `SpecBand` is selected
 4. `None` — measurement recorded as unchecked
 
-Pass a `Limit` object (`from litmus import Limit`) for explicit limits. The sidecar-style dict shape (`{"low": 3.0, "high": 3.6, "units": "V"}`) goes in `config["limits"]`, not as the `limit=` kwarg.
+Pass a `Limit` object (`from litmus import Limit`) for explicit limits. The sidecar-style dict shape (`{"low": 3.0, "high": 3.6, "unit": "V"}`) goes in `config["limits"]`, not as the `limit=` kwarg.
 
 ## Steps
 
@@ -227,18 +226,18 @@ def log_voltage(ctx, dmm):
 ## Spec-driven limits
 
 ```python
-from litmus.products.context import ProductContext
+from litmus.parts.context import PartContext
 
-product_ctx = ProductContext.from_file("products/power_board.yaml", guardband_pct=10)
+part_ctx = PartContext.from_file("parts/power_board.yaml", guardband_pct=10)
 
 harness = TestHarness(
     logger=logger,
     step_name="characterize",
-    product_context=product_ctx,
+    part_context=part_ctx,
 )
 
 harness.measure("output_voltage", float(dmm.measure_dc_voltage()))
-# Limit resolved from product YAML, guardband applied, traceability columns populated
+# Limit resolved from part YAML, guardband applied, traceability columns populated
 ```
 
 ## Comparison with pytest-native
@@ -247,7 +246,7 @@ harness.measure("output_voltage", float(dmm.measure_dc_voltage()))
 |---|---|---|
 | Lifecycle | Explicit (`step()`, `run_vector()`) | Implicit (pytest collection + hooks) |
 | Vector expansion | Configure via `config["vectors"]` | `@pytest.mark.parametrize` / sidecar `sweeps:` |
-| Limit resolution | Explicit `limits=` / `product_context=` | Fixture + marker chain (see [Litmus fixtures](../../reference/pytest/fixtures.md) + [Litmus markers](../../reference/pytest/markers.md)) |
+| Limit resolution | Explicit `limits=` / `part_context=` | Fixture + marker chain (see [Litmus fixtures](../../reference/pytest/fixtures.md) + [Litmus markers](../../reference/pytest/markers.md)) |
 | Trace context | `harness.context.*` | `context` fixture |
 | Instrument access | Caller-managed | Auto-fixtures from station YAML |
 

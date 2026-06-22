@@ -16,10 +16,12 @@ from litmus.ui.shared.components import (
     data_table,
     display_status,
     format_datetime,
+    format_number,
     info_field,
     page_layout,
     push_url_state,
     render_skeleton,
+    stat_card,
     status_chip_classes,
     status_row_fields,
     subscribe_with_refresh,
@@ -149,8 +151,8 @@ async def result_detail_page(run_id: str, tab: str = ""):
 
             with ui.card_section().classes("py-2 px-3"):
                 with ui.row().classes("flex-wrap gap-x-10 gap-y-2 w-full"):
-                    info_field("Part Number", run_obj.dut_part_number or "")
-                    info_field("Serial", run_obj.dut_serial or "")
+                    info_field("Part Number", run_obj.uut_part_number or "")
+                    info_field("Serial", run_obj.uut_serial or "")
                     info_field("Hostname", run_obj.station_hostname or "")
                     info_field("Project", run_obj.project_name or "")
                     info_field("Started", format_datetime(run_obj.started_at))
@@ -165,6 +167,32 @@ async def result_detail_page(run_id: str, tab: str = ""):
                             state, "ended_text"
                         ).classes("font-semibold")
 
+            # Cross-store navigation — link out to the EventStore and
+            # ChannelStore views scoped to this run's session. Operators
+            # never type a UUID; the deep-link sets the URL param, the
+            # target page shows its session-filter banner. Renders only
+            # when this run has a session_id (every real run does).
+            if run_obj.session_id:
+                _sid = str(run_obj.session_id)
+                with ui.card_section().classes("py-2 px-3 border-t border-slate-100"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.label("View this run's").classes("text-xs text-slate-500 uppercase")
+                        ui.button(
+                            "Events",
+                            icon="notifications",
+                            on_click=lambda sid=_sid: ui.navigate.to(f"/events?session_id={sid}"),
+                        ).props('flat dense color=primary data-testid="run-detail-view-events"')
+                        ui.button(
+                            "Channels",
+                            icon="signal_cellular_alt",
+                            on_click=lambda sid=_sid: ui.navigate.to(f"/channels?session_id={sid}"),
+                        ).props('flat dense color=primary data-testid="run-detail-view-channels"')
+                        ui.button(
+                            "Files",
+                            icon="folder",
+                            on_click=lambda sid=_sid: ui.navigate.to(f"/files?session_id={sid}"),
+                        ).props('flat dense color=primary data-testid="run-detail-view-files"')
+
         has_slots = any(m.get("slot_id") for m in measurements)
         session_id = run_obj.session_id
 
@@ -175,7 +203,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
             measurements_tab = ui.tab("Measurements", icon="science")
             if has_slots and session_id:
                 timeline_tab = ui.tab("Execution Timeline", icon="timeline")
-            history_tab = ui.tab("DUT History", icon="history")
+            history_tab = ui.tab("UUT History", icon="history")
         ui.add_css(
             ".q-tab__icon { font-size: 1rem !important; }"
             ".q-tab { min-height: 32px !important; padding: 0 12px !important; }"
@@ -188,7 +216,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
         _tab_lookup: dict[str, Any] = {
             "Steps": steps_tab,
             "Measurements": measurements_tab,
-            "DUT History": history_tab,
+            "UUT History": history_tab,
         }
         if timeline_tab is not None:
             _tab_lookup["Execution Timeline"] = timeline_tab
@@ -247,7 +275,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
             )
             if active == "Execution Timeline":
                 await _load_timeline()
-            elif active == "DUT History":
+            elif active == "UUT History":
                 await _load_history()
 
         tabs.on_value_change(_on_tab_change)
@@ -364,9 +392,7 @@ def _format_kv(d: dict | None) -> str:
 
 
 def _format_val(v: Any) -> str:
-    if isinstance(v, float):
-        return f"{v:g}"
-    return str(v)
+    return format_number(v)
 
 
 def _build_meas_rows(measurements: list) -> list[dict]:
@@ -376,7 +402,7 @@ def _build_meas_rows(measurements: list) -> list[dict]:
             "name": m.get("measurement_name", ""),
             "value": _format_measurement_value(m),
             "limits": (
-                f"{m.get('limit_low', '—')} – {m.get('limit_high', '—')}"
+                f"{format_number(m.get('limit_low'))} – {format_number(m.get('limit_high'))}"
                 if m.get("limit_low") is not None or m.get("limit_high") is not None
                 else "—"
             ),
@@ -389,11 +415,11 @@ def _build_meas_rows(measurements: list) -> list[dict]:
 def _format_measurement_value(m: dict) -> str:
     """Prefer fixed-schema fields; fall back to legacy dynamic-attr expansion."""
     val = m.get("measurement_value") if m.get("measurement_value") is not None else m.get("value")
-    units = m.get("measurement_units") or m.get("units") or ""
+    unit = m.get("measurement_unit") or m.get("unit") or ""
     if val is None:
         return "—"
-    formatted = f"{val:g}" if isinstance(val, float) else str(val)
-    return f"{formatted} {units}".strip() if units else formatted
+    formatted = format_number(val)
+    return f"{formatted} {unit}".strip() if unit else formatted
 
 
 # ── Table factory functions (create once; updated via table.rows + update()) ──
@@ -507,12 +533,12 @@ def _render_overview_tab(
                     ui.icon("arrow_forward").classes("text-slate-400 text-sm")
             with ui.card_section():
                 with ui.row().classes("gap-8"):
-                    _stat_card(str(total_steps), "Steps", "text-slate-700")
-                    _stat_card(str(total_steps - failed_steps), "Passed", "text-emerald-600")
-                    _stat_card(str(failed_steps), "Failed", "text-red-600")
+                    stat_card(str(total_steps), "Steps", "text-slate-700")
+                    stat_card(str(total_steps - failed_steps), "Passed", "text-emerald-600")
+                    stat_card(str(failed_steps), "Failed", "text-red-600")
                     if total_steps > 0:
                         pct = int(((total_steps - failed_steps) / total_steps) * 100)
-                        _stat_card(f"{pct}%", "Pass Rate", "text-blue-600")
+                        stat_card(f"{pct}%", "Pass Rate", "text-blue-600")
 
         with ui.card().classes(f"flex-1 {clickable}").on("click", lambda _: on_show_measurements()):
             with ui.card_section():
@@ -521,18 +547,12 @@ def _render_overview_tab(
                     ui.icon("arrow_forward").classes("text-slate-400 text-sm")
             with ui.card_section():
                 with ui.row().classes("gap-8"):
-                    _stat_card(str(total_meas), "Measurements", "text-slate-700")
-                    _stat_card(str(passed_meas), "Passed", "text-emerald-600")
-                    _stat_card(str(failed_meas), "Failed", "text-red-600")
+                    stat_card(str(total_meas), "Measurements", "text-slate-700")
+                    stat_card(str(passed_meas), "Passed", "text-emerald-600")
+                    stat_card(str(failed_meas), "Failed", "text-red-600")
                     if total_meas > 0:
                         pct = int((passed_meas / total_meas) * 100)
-                        _stat_card(f"{pct}%", "Pass Rate", "text-blue-600")
-
-
-def _stat_card(value: str, label: str, color_class: str) -> None:
-    from litmus.ui.shared.components import stat_card
-
-    stat_card(value, label, color_class)
+                        stat_card(f"{pct}%", "Pass Rate", "text-blue-600")
 
 
 # ── Secondary tabs ────────────────────────────────────────────────────────────
@@ -545,12 +565,12 @@ def _render_history_tab(
     all_runs: list,
 ) -> None:
     container.clear()
-    dut_serial = run_obj.dut_serial or ""
-    dut_runs = [r for r in all_runs if r.dut_serial == dut_serial and r.test_run_id != run_id]
+    uut_serial = run_obj.uut_serial or ""
+    uut_runs = [r for r in all_runs if r.uut_serial == uut_serial and r.test_run_id != run_id]
 
     with container:
-        if dut_runs:
-            ui.label(f"Other runs for DUT: {dut_serial}").classes("text-sm text-slate-500 mb-2")
+        if uut_runs:
+            ui.label(f"Other runs for UUT: {uut_serial}").classes("text-sm text-slate-500 mb-2")
             columns = [
                 {"name": "project", "label": "Project", "field": "project", "align": "left"},
                 {"name": "started", "label": "Started", "field": "started", "align": "left"},
@@ -563,7 +583,7 @@ def _render_history_tab(
                     "started": format_datetime(r.started_at),
                     "outcome": r.outcome or "",
                 }
-                for r in dut_runs[:10]
+                for r in uut_runs[:10]
             ]
             data_table(
                 columns=columns,
@@ -573,7 +593,7 @@ def _render_history_tab(
                 time_columns=["started"],
             )
         else:
-            ui.label(f"No other runs found for DUT: {dut_serial}").classes("text-slate-500 italic")
+            ui.label(f"No other runs found for UUT: {uut_serial}").classes("text-slate-500 italic")
 
 
 def _render_timeline_tab(

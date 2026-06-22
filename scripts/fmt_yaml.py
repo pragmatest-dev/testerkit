@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Format Litmus YAML files to enforce consistent style.
 
-Works on any Litmus YAML: catalog, products, sequences, stations, fixtures.
+Works on any Litmus YAML: catalog, parts, sequences, stations, fixtures.
 
 Usage:
     python scripts/fmt_yaml.py                      # format all under catalog/
     python scripts/fmt_yaml.py catalog/keysight/    # format directory
-    python scripts/fmt_yaml.py products/            # format products
+    python scripts/fmt_yaml.py parts/            # format parts
     python scripts/fmt_yaml.py some_file.yaml       # single file
     python scripts/fmt_yaml.py --check              # check only, exit 1 if changes needed
 """

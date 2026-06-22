@@ -20,6 +20,17 @@ After install, `litmus` is on `$PATH`. The `litmus` entry point is registered by
 ## Commands
 
 <!-- GENERATED:cli-commands:start -->
+### `litmus benchmark` {#cli-benchmark}
+
+Measure this machine's per-store performance.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--full` | `flag` | Run the full sweep (100/1k/10k unit, 1/2/4 writers) |
+| `--rounds` | `integer` | Timed rounds per case (override) |
+| `-o`/`--output` | `text` | Directory for the result folder  *(default: `.benchmarks`)* |
+| `--no-save` | `flag` | Print the summary but don't write a result folder |
+
 ### `litmus catalog` (group) {#cli-catalog}
 
 Catalog commands.
@@ -66,14 +77,24 @@ Stop selected daemons without respawning.
 
 Data retention and management.
 
-#### `litmus data promote` {#cli-data-promote}
+#### `litmus data import` {#cli-data-import}
 
-Move a starter project's local runs to the global store.
+Merge another ``data_dir`` into this one; the store daemons rebuild from the files.
 
 | Argument / option | Type | Description |
 |---|---|---|
-| `--include-starter` | `flag` | Also promote runs that match starter sentinels (example_product / starter_station / STARTER001 / etc.). Default skips these as throwaway learning runs. |
+| `SOURCE` | `directory` |  |
+| `--data-dir` | `text` | Destination results dir (default: configured). |
+
+#### `litmus data promote` {#cli-data-promote}
+
+Move a starter project's local runs + their referenced data to the global store.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--include-starter` | `flag` | Also promote runs that match starter sentinels (example_part / starter_station / STARTER001 / etc.). Default skips these as throwaway learning runs. |
 | `--dry-run` | `flag` | Show what would be promoted; write nothing. |
+| `--with-events` | `flag` | Also carry each run's session event timeline (audit-grade archive). |
 
 #### `litmus data prune` {#cli-data-prune}
 
@@ -82,9 +103,10 @@ Delete date-partitioned data older than the specified period.
 | Argument / option | Type | Description |
 |---|---|---|
 | `--older-than` | `text` | Retention period (e.g. 30d, 90d) |
-| `--type` | `text` | Data types to prune (e.g. channels, events) |
+| `--type` | `text` | Data types to prune (e.g. channels, files, events) |
 | `--data-dir` | `text` | Results directory |
 | `--dry-run` | `flag` | Show what would be deleted |
+| `--ext` | `text` | Only prune files with these extensions (tiered retention, e.g. --ext tdms). Files only. |
 
 #### `litmus data reindex` {#cli-data-reindex}
 
@@ -114,7 +136,7 @@ Export a test run or session to a different format via event replay.
 | Argument / option | Type | Description |
 |---|---|---|
 | `ID` | `text` |  |
-| `-f`/`--format` | `text` | Target format (csv, json, stdf, hdf5, tdms, mdf4, atml) |
+| `-f`/`--format` | `text` | Target format (csv, json, stdf, hdf5, tdms, mdf4) |
 | `-o`/`--output-dir` | `text` | Output directory |
 | `--data-dir` | `text` | Data directory |
 
@@ -166,7 +188,7 @@ Initialize a new Litmus project.
 | `--no-git` | `flag` | Skip git initialization |
 | `--discover` | `flag` | Auto-discover instruments and create station file |
 | `--starter`/`--no-starter` | `flag` | Generate starter example files (prompts if not specified) |
-| `--tier` | `{bringup, bench, factory}` | Scaffold tier. 'bringup' = Tier 0/1 (MagicMock fixtures, one test, one sidecar, no station/product YAML). 'bench' = Tier 2 starter (equivalent to --starter). 'factory' = Tier 3/4 (bench + profiles). |
+| `--tier` | `{bringup, bench, factory}` | Scaffold tier. 'bringup' = Tier 0/1 (MagicMock fixtures, one test, one sidecar, no station/part YAML). 'bench' = Tier 2 starter (equivalent to --starter). 'factory' = Tier 3/4 (bench + profiles). |
 | `--ai` | `{claude-code, claude-desktop, copilot}` | Set up AI tool integration (MCP server + project instructions) |
 | `--name` | `text` | Project name (overrides auto-detect) |
 
@@ -217,48 +239,48 @@ Start the MCP server for AI agents.
 
 ### `litmus metrics` (group) {#cli-metrics}
 
-Manufacturing-test analytics (yield, pareto, cpk, trend, retest, time-loss).
+Manufacturing-test analytics (yield, pareto, ppk, trend, retest, time-loss).
 
-#### `litmus metrics cpk` {#cli-metrics-cpk}
+#### `litmus metrics pareto` {#cli-metrics-pareto}
 
-Process capability (Cpk/Cp) per measurement.
+Top failures (Pareto). Group by part / step / measurement.
 
 | Argument / option | Type | Description |
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
 | `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
+| `--part` | `text` | Part ID |
+| `--until` | `text` | End date (ISO format) |
+| `--since` | `text` | Start date (ISO format) |
+| `--phase` | `text` | Test phase (or 'all') |
+| `--data-dir` | `text` | Results directory |
+| `--top` | `integer` | Number of top failures  *(default: `10`)* |
+| `--group-by` | `{part, step, measurement}` | Lens for the pareto: ``part`` groups runs by ``uut_part_number`` (most-failing SKUs); ``step`` groups steps by ``step_path`` (most-failing tests); ``measurement`` groups limit-bearing measurements by name (the historical default).  *(default: `part`)* |
+
+#### `litmus metrics ppk` {#cli-metrics-ppk}
+
+Process performance (Ppk/Pp) per measurement.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--json` | `flag` | Output as JSON |
+| `--station` | `text` | Station ID |
+| `--part` | `text` | Part ID |
 | `--until` | `text` | End date (ISO format) |
 | `--since` | `text` | Start date (ISO format) |
 | `--phase` | `text` | Test phase (or 'all') |
 | `--data-dir` | `text` | Results directory |
 | `--min-samples` | `integer` | Minimum sample count  *(default: `10`)* |
 
-#### `litmus metrics pareto` {#cli-metrics-pareto}
-
-Top failures (Pareto). Group by product / step / measurement.
-
-| Argument / option | Type | Description |
-|---|---|---|
-| `--json` | `flag` | Output as JSON |
-| `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
-| `--until` | `text` | End date (ISO format) |
-| `--since` | `text` | Start date (ISO format) |
-| `--phase` | `text` | Test phase (or 'all') |
-| `--data-dir` | `text` | Results directory |
-| `--top` | `integer` | Number of top failures  *(default: `10`)* |
-| `--group-by` | `{product, step, measurement}` | Lens for the pareto: ``product`` groups runs by ``dut_part_number`` (most-failing SKUs); ``step`` groups steps by ``step_path`` (most-failing tests); ``measurement`` groups limit-bearing measurements by name (the historical default).  *(default: `product`)* |
-
 #### `litmus metrics retest` {#cli-metrics-retest}
 
-Retest rates: how often DUTs are retried.
+Retest rates: how often UUTs are retried.
 
 | Argument / option | Type | Description |
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
 | `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
+| `--part` | `text` | Part ID |
 | `--until` | `text` | End date (ISO format) |
 | `--since` | `text` | Start date (ISO format) |
 | `--phase` | `text` | Test phase (or 'all') |
@@ -267,13 +289,13 @@ Retest rates: how often DUTs are retried.
 
 #### `litmus metrics summary` {#cli-metrics-summary}
 
-Yield summary: FPY, final yield, run counts, duration stats.
+Yield summary: FPY, final yield, run counts, RTY, DPMO, DPPM, duration stats.
 
 | Argument / option | Type | Description |
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
 | `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
+| `--part` | `text` | Part ID |
 | `--until` | `text` | End date (ISO format) |
 | `--since` | `text` | Start date (ISO format) |
 | `--phase` | `text` | Test phase (or 'all') |
@@ -288,7 +310,7 @@ Time lost to failures and errors.
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
 | `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
+| `--part` | `text` | Part ID |
 | `--until` | `text` | End date (ISO format) |
 | `--since` | `text` | Start date (ISO format) |
 | `--phase` | `text` | Test phase (or 'all') |
@@ -303,7 +325,7 @@ Yield trend over time.
 |---|---|---|
 | `--json` | `flag` | Output as JSON |
 | `--station` | `text` | Station ID |
-| `--product` | `text` | Product ID |
+| `--part` | `text` | Part ID |
 | `--until` | `text` | End date (ISO format) |
 | `--since` | `text` | Start date (ISO format) |
 | `--phase` | `text` | Test phase (or 'all') |
@@ -488,7 +510,7 @@ Validate YAML configuration files.
 | Argument / option | Type | Description |
 |---|---|---|
 | `PATHS`... | `path` |  |
-| `--type`/`-t` | `{catalog, product, station, sequence, fixture, instrument_asset, project}` | Explicit file type (skips auto-detection). |
+| `--type`/`-t` | `{catalog, part, station, sequence, fixture, instrument_asset, project}` | Explicit file type (skips auto-detection). |
 | `--json` | `flag` | Output as JSON |
 <!-- GENERATED:cli-commands:end -->
 
@@ -548,11 +570,11 @@ See [Profiles](../how-to/execution/profiles.md) for the profile YAML shape.
 | `LITMUS_MOCK_INSTRUMENTS` | Set to `1` to enable mock mode without passing `--mock-instruments`. |
 | `LITMUS_AUTO_CONFIRM` | Truthy → auto-resolve operator prompts and dialogs in non-tty contexts (CI, subprocess runs). Set to `"confirm"` to auto-confirm, `"cancel"` to auto-cancel; any other truthy value defaults to confirm. |
 | `LITMUS_SERVER_URL` | Server URL the dialog bridge uses to POST operator prompts from subprocess test runs back to the UI host (default: `http://localhost:8000`). |
-| `LITMUS_DUT_SERIAL` | Default DUT serial (shared across slots). For per-slot serials, use `LITMUS_DUT_SERIAL_<SLOT_ID>` (e.g. `LITMUS_DUT_SERIAL_SLOT_1`). |
-| `LITMUS_DUT_PART_NUMBER` | Default DUT part number (`dut_part_number` on every run). |
-| `LITMUS_DUT_REVISION` | Default DUT hardware revision. |
-| `LITMUS_DUT_LOT_NUMBER` | Default DUT lot / batch number. |
-| `LITMUS_FIXTURE_SLOT` | JSON-serialized `ResolvedSlot` injected into per-slot child processes by the multi-DUT orchestrator. Operator-set values are ignored. |
+| `LITMUS_UUT_SERIAL` | Default UUT serial (shared across slots). For per-slot serials, use `LITMUS_UUT_SERIAL_<SLOT_ID>` (e.g. `LITMUS_UUT_SERIAL_SLOT_1`). |
+| `LITMUS_UUT_PART_NUMBER` | Default UUT part number (`uut_part_number` on every run). |
+| `LITMUS_UUT_REVISION` | Default UUT hardware revision. |
+| `LITMUS_UUT_LOT_NUMBER` | Default UUT lot / batch number. |
+| `LITMUS_FIXTURE_SLOT` | JSON-serialized `ResolvedSlot` injected into per-slot child processes by the multi-UUT orchestrator. Operator-set values are ignored. |
 | `LITMUS_DAEMON_IDLE_TIMEOUT` | Seconds a background daemon (events, runs, channels) waits idle before self-shutting-down (default: `300`). |
 | `LITMUS_DAEMON_SPAWN_TIMEOUT` | Seconds to wait for a daemon to report ready after spawning (default: `30`). |
 | `LITMUS_SKIP_DAEMON_NOTIFY` | Suppresses the daemon-notify gRPC hop when constructing `ParquetBackend` — useful in tooling scripts that read backends without serving runs. |

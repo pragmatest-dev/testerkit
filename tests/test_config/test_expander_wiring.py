@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from litmus.store import _read_yaml, load_product
+from litmus.store import _read_yaml, load_part
 
 
 def _write(path: Path, content: str) -> Path:
@@ -43,18 +43,18 @@ class TestReadYamlWiring:
         assert data == {"name": "hello", "nums": [1, 2, 3]}
 
 
-class TestLoadProductWiring:
+class TestLoadPartWiring:
     def test_when_clause_list_expands_through_pydantic(self, tmp_path: Path) -> None:
         """A ``when:`` clause with a list-expander resolves to an expanded list
-        by the time Pydantic validates, and the product loads without error."""
+        by the time Pydantic validates, and the part loads without error."""
         yaml_src = """
         id: demo
-        name: Demo Product
+        name: Demo Part
         characteristics:
           rail:
             function: dc_voltage
             direction: output
-            units: V
+            unit: V
             pin: TP
             bands:
               - when: {load: {linspace: [0.1, 0.8, 4]}}
@@ -62,6 +62,6 @@ class TestLoadProductWiring:
                 accuracy: {pct_reading: 2.0}
         """
         path = _write(tmp_path / "demo.yaml", yaml_src)
-        product = load_product(path)
-        band = product.characteristics["rail"].bands[0]
+        part = load_part(path)
+        band = part.characteristics["rail"].bands[0]
         assert band.when["load"] == pytest.approx([0.1, 0.3333333, 0.5666666, 0.8])

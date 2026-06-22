@@ -1,18 +1,22 @@
-"""Test bodies shrink further — limits derive from the product spec.
+"""Test bodies shrink further — limits derive from the part spec.
 
 The sidecar binds each test to a characteristic (``rail_3v3``,
 ``idle_current``). The body iterates ``context.connections`` so each
-measurement row stamps ``characteristic_id`` / ``spec_ref`` / ``dut_pin``.
+measurement row stamps ``characteristic_id`` / ``spec_ref`` / ``uut_pin``.
 Single-pin characteristics iterate once; multi-pin ones iterate
-per-pin — same loop shape either way.
+per-pin — same loop shape either way. ``observe`` inside the loop is
+pinned the same way — the active connection stamps ``uut_pin`` on the
+observation, not just on judged measurements.
 """
 
 from __future__ import annotations
 
 
-def test_rail_within_spec(verify, psu, dmm, context) -> None:
+def test_rail_within_spec(verify, observe, psu, dmm, context) -> None:
     psu.set_voltage(5.0)
     for _ in context.connections:
+        # observe inside the connections loop → uut_pin auto-stamped from the active pin
+        observe("rail_current", psu.measure_current(), unit="A")
         verify("v_rail", dmm.measure_dc_voltage())
 
 

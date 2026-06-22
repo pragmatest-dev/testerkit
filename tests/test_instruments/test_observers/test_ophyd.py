@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
 from litmus.instruments.observers.ophyd import OphydObserver
 
 from .conftest import make_observer
@@ -17,11 +17,9 @@ class TestOphydRead:
         }
         obs.on_call("read", (), {}, result)
         assert len(log.events) == 2
-        assert all(isinstance(e, InstrumentRead) for e in log.events)
+        assert all(isinstance(e, ChannelStarted) for e in log.events)
         channels = {e.channel_id for e in log.events}
         assert channels == {"det.det_voltage", "det.det_current"}
-        values = {e.value for e in log.events}
-        assert values == {3.3, 0.01}
 
     def test_non_dict_result(self):
         obs, log = make_observer(OphydObserver, role="det")

@@ -18,17 +18,17 @@ from litmus.models.capability import Capability, InstrumentCapability, Signal
 from litmus.models.enums import Direction, MeasurementFunction
 
 if TYPE_CHECKING:
-    from litmus.models.product import Product
+    from litmus.models.part import Part
 
 
-def build_pin_characteristic_map(product: Product) -> dict[str, list[str]]:
+def build_pin_characteristic_map(part: Part) -> dict[str, list[str]]:
     """Build reverse map: pin_key -> [characteristic names that reference it].
 
     This is used to look up which characteristics apply to a given pin,
     enabling capability matching when the user selects a pin.
     """
     result: dict[str, list[str]] = {}
-    for char_name, char in product.characteristics.items():
+    for char_name, char in part.characteristics.items():
         for pin_key in char.resolved_pins:
             if pin_key not in result:
                 result[pin_key] = []
@@ -40,9 +40,9 @@ def build_pin_characteristic_map(product: Product) -> dict[str, list[str]]:
 def get_compatible_channels_for_pin(
     pin_key: str,
     char_by_pin: dict[str, list[str]],
-    product: Product | None,
+    part: Part | None,
     instruments: dict[str, dict],
-    dut_pins: dict[str, dict] | None = None,
+    uut_pins: dict[str, dict] | None = None,
     *,
     include_direction: Literal[True],
 ) -> dict[str, Direction]: ...
@@ -52,9 +52,9 @@ def get_compatible_channels_for_pin(
 def get_compatible_channels_for_pin(
     pin_key: str,
     char_by_pin: dict[str, list[str]],
-    product: Product | None,
+    part: Part | None,
     instruments: dict[str, dict],
-    dut_pins: dict[str, dict] | None = None,
+    uut_pins: dict[str, dict] | None = None,
     *,
     include_direction: Literal[False] = False,
 ) -> set[str]: ...
@@ -63,9 +63,9 @@ def get_compatible_channels_for_pin(
 def get_compatible_channels_for_pin(
     pin_key: str,
     char_by_pin: dict[str, list[str]],
-    product: Product | None,
+    part: Part | None,
     instruments: dict[str, dict],
-    dut_pins: dict[str, dict] | None = None,
+    uut_pins: dict[str, dict] | None = None,
     *,
     include_direction: bool = False,
 ) -> set[str] | dict[str, Direction]:
@@ -84,9 +84,9 @@ def get_compatible_channels_for_pin(
     Args:
         pin_key: The selected pin key.
         char_by_pin: Reverse map from build_pin_characteristic_map().
-        product: Product model (may be None).
+        part: Part model (may be None).
         instruments: Dict of role -> {type, driver, capabilities, channels}.
-        dut_pins: Dict of pin_key -> pin data (with role field).
+        uut_pins: Dict of pin_key -> pin data (with role field).
         include_direction: If True, return dict mapping channel to Direction.
 
     Returns:
@@ -94,7 +94,7 @@ def get_compatible_channels_for_pin(
         include_direction=True.
     """
     # Check if this is a ground pin
-    pin_role = _get_pin_role(pin_key, dut_pins)
+    pin_role = _get_pin_role(pin_key, uut_pins)
     if pin_role == "ground":
         lo_channels = _get_lo_channels(instruments)
         if include_direction:
@@ -110,7 +110,7 @@ def get_compatible_channels_for_pin(
 
     # If no characteristics for this pin, all channels are compatible
     char_names = char_by_pin.get(pin_key, [])
-    if not char_names or not product:
+    if not char_names or not part:
         if include_direction:
             # No direction info available — default to INPUT (exclusive)
             return {ch: Direction.INPUT for ch in all_channels}
@@ -119,7 +119,7 @@ def get_compatible_channels_for_pin(
     # Get required capabilities from characteristics
     requirements: list[Capability] = []
     for char_name in char_names:
-        char = product.characteristics.get(char_name)
+        char = part.characteristics.get(char_name)
         if char:
             requirements.append(char)
 
@@ -162,17 +162,17 @@ def _get_lo_channels(instruments: dict[str, dict]) -> set[str]:
     return compatible
 
 
-def _get_pin_role(pin_key: str, dut_pins: dict[str, dict] | None) -> str:
-    """Get the role of a pin from the dut_pins dict."""
-    if dut_pins and pin_key in dut_pins:
-        return dut_pins[pin_key].get("role", "signal")
+def _get_pin_role(pin_key: str, uut_pins: dict[str, dict] | None) -> str:
+    """Get the role of a pin from the uut_pins dict."""
+    if uut_pins and pin_key in uut_pins:
+        return uut_pins[pin_key].get("role", "signal")
     return "signal"
 
 
 def _get_pin_direction(
     pin_key: str,
     char_by_pin: dict[str, list[str]],
-    product: Product | None,
+    part: Part | None,
 ) -> Direction | None:
     """Get the primary direction of a pin from its characteristics.
 
@@ -180,11 +180,11 @@ def _get_pin_direction(
     no characteristics exist for this pin.
     """
     char_names = char_by_pin.get(pin_key, [])
-    if not char_names or not product:
+    if not char_names or not part:
         return None
 
     for char_name in char_names:
-        char = product.characteristics.get(char_name)
+        char = part.characteristics.get(char_name)
         if char and hasattr(char, "direction"):
             return char.direction
     return None
@@ -227,8 +227,8 @@ def _get_channels_satisfying(
             continue
 
         # Directions must be complementary:
-        # - DUT input (receives) ↔ instrument output (sources)
-        # - DUT output (provides) ↔ instrument input (measures)
+        # - UUT input (receives) ↔ instrument output (sources)
+        # - UUT output (provides) ↔ instrument input (measures)
         # BIDIR instruments match either direction
         if cap_direction == Direction.BIDIR:
             pass  # BIDIR matches anything
@@ -262,7 +262,7 @@ def _get_channels_satisfying(
 def _signals_satisfy(cap_measures: dict[str, Signal], req_measures: dict[str, Signal]) -> bool:
     """Check if capability signals satisfy required signals.
 
-    Numeric comparisons are normalised to SI base units so that e.g.
+    Numeric comparisons are normalised to SI base unit so that e.g.
     a 6 mA requirement is correctly compared against a 5 A capability.
     """
     for measure_name, req_measure in req_measures.items():
@@ -276,11 +276,11 @@ def _signals_satisfy(cap_measures: dict[str, Signal], req_measures: dict[str, Si
 
         # Determine unit scale factor: convert requirement values into
         # the capability's unit scale so numbers are directly comparable.
-        req_units = req_measure.units
-        cap_units = cap_signal.units or (cap_range.units if cap_range else None)
-        scale = _unit_scale_factor(req_units, cap_units)
+        req_unit = req_measure.unit
+        cap_unit = cap_signal.unit or (cap_range.unit if cap_range else None)
+        scale = _unit_scale_factor(req_unit, cap_unit)
 
-        # Check value containment (scale requirement value to cap units)
+        # Check value containment (scale requirement value to cap unit)
         if req_measure.value is not None and cap_range:
             scaled_val = req_measure.value * scale
             if cap_range.min is not None and scaled_val < cap_range.min:
@@ -288,7 +288,7 @@ def _signals_satisfy(cap_measures: dict[str, Signal], req_measures: dict[str, Si
             if cap_range.max is not None and scaled_val > cap_range.max:
                 return False
 
-        # Check range containment (scale requirement range to cap units)
+        # Check range containment (scale requirement range to cap unit)
         if req_measure.range is not None and cap_range:
             if (
                 req_measure.range.min is not None
@@ -363,7 +363,7 @@ def _parse_si_unit(unit_str: str | None) -> tuple[float, str]:
         if rest in _BASE_UNITS and prefix in _SI_PREFIXES:
             return _SI_PREFIXES[prefix], rest
 
-    # Two-char base units with prefix (e.g. "kHz", "MHz")
+    # Two-char base unit with prefix (e.g. "kHz", "MHz")
     if len(unit_str) >= 3:
         prefix, rest = unit_str[0], unit_str[1:]
         if rest in _BASE_UNITS and prefix in _SI_PREFIXES:
@@ -373,20 +373,20 @@ def _parse_si_unit(unit_str: str | None) -> tuple[float, str]:
     return 1.0, unit_str
 
 
-def _unit_scale_factor(req_units: str | None, cap_units: str | None) -> float:
-    """Return the multiplier to convert a requirement value into capability units.
+def _unit_scale_factor(req_unit: str | None, cap_unit: str | None) -> float:
+    """Return the multiplier to convert a requirement value into capability unit.
 
     If both units share the same base (e.g. mA and A), returns the ratio
-    so that ``req_value * scale`` is in cap_units.  If units are absent or
+    so that ``req_value * scale`` is in cap_unit.  If units are absent or
     incompatible (different base), returns 1.0 (no scaling).
     """
-    if not req_units or not cap_units:
+    if not req_unit or not cap_unit:
         return 1.0
-    if req_units == cap_units:
+    if req_unit == cap_unit:
         return 1.0
 
-    req_mult, req_base = _parse_si_unit(req_units)
-    cap_mult, cap_base = _parse_si_unit(cap_units)
+    req_mult, req_base = _parse_si_unit(req_unit)
+    cap_mult, cap_base = _parse_si_unit(cap_unit)
 
     if req_base != cap_base or not req_base:
         return 1.0  # Different physical quantities — no conversion
@@ -441,9 +441,9 @@ def resolve_instrument_capabilities(station_config) -> dict:
 
 
 def auto_suggest_connections(
-    dut_pins: dict[str, dict],
+    uut_pins: dict[str, dict],
     char_by_pin: dict[str, list[str]],
-    product: Product | None,
+    part: Part | None,
     instruments: dict[str, dict],
     existing: dict[str, dict],
 ) -> list[dict]:
@@ -454,21 +454,21 @@ def auto_suggest_connections(
     Phase 3: Remaining pins reported as unmatched (no silent allocation)
 
     Args:
-        dut_pins: Pin key -> pin data dict (includes 'role' field).
+        uut_pins: Pin key -> pin data dict (includes 'role' field).
         char_by_pin: Pin key -> characteristic names.
-        product: Product model.
+        part: Part model.
         instruments: Role -> instrument data dict.
         existing: Existing connections (point_name -> connection dict).
 
     Returns:
-        List of dicts with keys: point_name, dut_pin, instrument, channel, terminal, net.
+        List of dicts with keys: point_name, uut_pin, instrument, channel, terminal, net.
     """
     # Track which channels are already used
     used_channels: set[str] = set()
     connected_pins: set[str] = set()
     for conn in existing.values():
         used_channels.add(f"{conn['instrument']}:{conn['channel']}")
-        connected_pins.add(conn["dut_pin"])
+        connected_pins.add(conn["uut_pin"])
 
     suggestions: list[dict] = []
 
@@ -477,7 +477,7 @@ def auto_suggest_connections(
     # compatible channels first so they don't get starved by pins with
     # many options.
     pin_candidates: list[tuple[str, dict, dict[str, Direction]]] = []
-    for pin_key, pin_data in dut_pins.items():
+    for pin_key, pin_data in uut_pins.items():
         if pin_key in connected_pins:
             continue
         pin_role = pin_data.get("role", "signal")
@@ -491,9 +491,9 @@ def auto_suggest_connections(
         compatible = get_compatible_channels_for_pin(
             pin_key,
             char_by_pin,
-            product,
+            part,
             instruments,
-            dut_pins,
+            uut_pins,
             include_direction=True,
         )
         assert isinstance(compatible, dict)  # Type narrowing
@@ -505,7 +505,7 @@ def auto_suggest_connections(
 
     for pin_key, pin_data, compatible in pin_candidates:
         # Get the pin's required direction from its characteristics
-        pin_direction = _get_pin_direction(pin_key, char_by_pin, product)
+        pin_direction = _get_pin_direction(pin_key, char_by_pin, part)
 
         # Sort channels by preference:
         # - For INPUT pins: prefer OUTPUT channels (power sources)
@@ -539,14 +539,14 @@ def auto_suggest_connections(
             suggestions.append(
                 {
                     "point_name": point_name,
-                    "dut_pin": pin_key,
+                    "uut_pin": pin_key,
                     "instrument": role,
                     "channel": channel,
                     "terminal": "hi",
                     "net": pin_data.get("net", ""),
                 }
             )
-            # OUTPUT/BIDIR channels can fan-out to multiple DUT inputs,
+            # OUTPUT/BIDIR channels can fan-out to multiple UUT inputs,
             # only INPUT channels (DMM, scope) are exclusive
             if direction == Direction.INPUT:
                 used_channels.add(channel_key)
@@ -561,7 +561,7 @@ def auto_suggest_connections(
     for s in suggestions:
         allocated_channels.append(s)
 
-    for pin_key, pin_data in dut_pins.items():
+    for pin_key, pin_data in uut_pins.items():
         if pin_key in connected_pins:
             continue
         pin_role = pin_data.get("role", "signal")
@@ -571,14 +571,14 @@ def auto_suggest_connections(
         # Find instrument channels to wire GND to.
         # Strategy: wire to the LO terminal of each unique instrument
         # that has allocated channels (from phase 1 + existing connections).
-        gnd_targets = _find_ground_targets(pin_key, pin_data, allocated_channels, dut_pins)
+        gnd_targets = _find_ground_targets(pin_key, pin_data, allocated_channels, uut_pins)
 
         for role, channel in gnd_targets:
             point_name = _generate_point_name(pin_key, role, channel, terminal="lo")
             suggestions.append(
                 {
                     "point_name": point_name,
-                    "dut_pin": pin_key,
+                    "uut_pin": pin_key,
                     "instrument": role,
                     "channel": channel,
                     "terminal": "lo",
@@ -593,7 +593,7 @@ def _find_ground_targets(
     gnd_pin_key: str,
     gnd_pin_data: dict,
     allocated_channels: list[dict],
-    dut_pins: dict[str, dict],
+    uut_pins: dict[str, dict],
 ) -> list[tuple[str, str]]:
     """Find instrument channels that a ground pin should wire to.
 
@@ -610,8 +610,8 @@ def _find_ground_targets(
     seen: set[str] = set()
 
     for conn in allocated_channels:
-        conn_pin = conn.get("dut_pin", "")
-        conn_pin_data = dut_pins.get(conn_pin, {})
+        conn_pin = conn.get("uut_pin", "")
+        conn_pin_data = uut_pins.get(conn_pin, {})
         conn_role = conn.get("instrument", "")
         conn_channel = conn.get("channel", "")
         key = f"{conn_role}:{conn_channel}"

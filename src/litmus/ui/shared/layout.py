@@ -23,18 +23,29 @@ def _get_pending_dialogs() -> list[dict]:
     ]
 
 
+def get_dialog_counts_by_run() -> dict[str, int]:
+    """Map ``run_id`` → number of pending dialogs.
+
+    Shared by the sidebar's Active Tests indicator, the header bell,
+    and per-row badges on ``/results`` + ``/dashboard``. Single source
+    of truth so the counts can't drift between surfaces. Cheap — reads
+    the in-process DialogManager's pending dict.
+    """
+    counts: dict[str, int] = {}
+    for d in _get_pending_dialogs():
+        rid = d.get("run_id")
+        if rid:
+            counts[rid] = counts.get(rid, 0) + 1
+    return counts
+
+
 def _get_active_runs() -> list[dict]:
     """Get active test runs (running or with pending dialogs)."""
     runner = get_runner()
     active = []
     seen_run_ids = set()
 
-    dialogs = _get_pending_dialogs()
-    dialog_count_by_run: dict[str, int] = {}
-    for d in dialogs:
-        rid = d.get("run_id")
-        if rid:
-            dialog_count_by_run[rid] = dialog_count_by_run.get(rid, 0) + 1
+    dialog_count_by_run = get_dialog_counts_by_run()
 
     for run_id, run_info in list(runner.runs.items()):
         if run_info.status in ("pending", "running"):
@@ -129,16 +140,17 @@ def create_sidebar():
 
             _nav_item("/events", "notifications", "Events")
             _nav_item("/channels", "signal_cellular_alt", "Channels")
+            _nav_item("/files", "folder", "Files")
 
             ui.separator().classes("bg-slate-700 my-2")
             ui.label("CONFIGURATION").classes("text-xs text-slate-500 px-3 pt-2")
 
-            _nav_item("/designer", "design_services", "System Designer")
+            _nav_item("/designer", "design_services", "System Designer", experimental=True)
             _nav_item("/stations", "settings_input_hdmi", "Stations")
-            _nav_item("/products", "inventory_2", "Products")
+            _nav_item("/parts", "inventory_2", "Parts")
             _nav_item("/fixtures", "hub", "Fixtures")
             _nav_item("/instruments", "precision_manufacturing", "Instruments")
-            _nav_item("/duts", "memory", "DUTs")
+            _nav_item("/uuts", "memory", "UUTs")
             _nav_item("/tests", "science", "Tests")
             _nav_item("/profiles", "layers", "Profiles")
 
@@ -150,14 +162,20 @@ def create_sidebar():
     return drawer
 
 
-def _nav_item(target: str, icon: str, label: str):
-    """Create a navigation item."""
+def _nav_item(target: str, icon: str, label: str, *, experimental: bool = False):
+    """Create a navigation item.
+
+    ``experimental=True`` appends a small beaker marker so operators know the
+    area is less mature than the rest of the platform.
+    """
     with ui.link(target=target).classes("no-underline"):
         with ui.row().classes(
             "w-full px-3 py-2 rounded hover:bg-slate-800 items-center gap-3 cursor-pointer"
         ):
             ui.icon(icon).classes("text-slate-400")
             ui.label(label).classes("text-slate-200")
+            if experimental:
+                ui.icon("science").classes("text-amber-400 text-sm").tooltip("Experimental")
 
 
 def create_layout(title: str = "Litmus"):
@@ -189,14 +207,94 @@ def create_layout(title: str = "Litmus"):
 
     create_sidebar()
 
-    # Top header — stable branding, NOT the page name. Each page
-    # renders its own ``page_header(title, icon=..., actions=...)``
-    # inside the content area; duplicating the title in the chrome
-    # bar above ate ~15% of the vertical space saying the same word
-    # twice. ``title`` is kept for the document title (browser tab)
-    # only.
+    # Top header — stable branding on the left, dialogs bell on the
+    # right. Each page renders its own ``page_header(title, icon=...,
+    # actions=...)`` inside the content area; the chrome bar stays
+    # universal.
     _ = title  # used by ``ui.run`` / page metadata; not rendered here
     with ui.header().classes("bg-white border-b border-slate-200 shadow-sm"):
-        with ui.row().classes("items-center gap-2"):
+        with ui.row().classes("items-center gap-2 w-full"):
             ui.label("⚡").classes("text-lg")  # ⚡ favicon-style branding
             ui.label("Litmus").classes("text-lg font-semibold text-slate-800")
+            ui.element("div").classes("flex-1")  # spacer pushes the bell right
+            _create_dialogs_bell()
+
+
+def _create_dialogs_bell() -> None:
+    """Render the global "pending operator dialogs" indicator in the header.
+
+    Two states for the icon:
+
+    * No pending dialogs → ``notifications`` icon, slate-400, no badge.
+    * 1+ pending → ``notifications_active``, amber-600, count badge.
+
+    Clicking opens a NiceGUI ``ui.menu()`` listing each pending dialog
+    with the dialog title, the operator-readable run identifier
+    (``<uut_serial> · <YYYY-MM-DD HH:MM:SS>`` via
+    :func:`lookup_run_label`), and a ``Go →`` link straight to
+    ``/live/{run_id}`` — bypasses the run detail page so the operator
+    can answer in one click. Refreshed by a 1 s timer matching the
+    sidebar's Active Tests indicator.
+    """
+    from litmus.ui.shared.components import lookup_run_label
+
+    bell_button = (
+        ui.button(icon="notifications").props("flat round dense").classes("text-slate-400")
+    )
+
+    with bell_button:
+        with ui.menu().props("anchor='bottom right' self='top right'"):
+            panel = ui.column().classes(
+                "p-2 min-w-[320px] max-w-[400px] max-h-[400px] overflow-y-auto"
+            )
+
+    def update_bell() -> None:
+        dialogs = _get_pending_dialogs()
+        count = len(dialogs)
+        if count > 0:
+            bell_button.props(remove="icon")
+            bell_button.props("icon=notifications_active")
+            bell_button.classes(replace="text-amber-600")
+        else:
+            bell_button.props(remove="icon")
+            bell_button.props("icon=notifications")
+            bell_button.classes(replace="text-slate-400")
+
+        panel.clear()
+        with panel:
+            if not dialogs:
+                ui.label("No dialogs waiting").classes("text-slate-500 italic text-sm px-2 py-3")
+                return
+            ui.label("Pending operator dialogs").classes(
+                "text-xs text-slate-500 uppercase font-medium px-2 pb-1"
+            )
+            for d in dialogs:
+                _render_bell_row(d, lookup_run_label)
+
+    ui.timer(1.0, update_bell)
+    update_bell()
+
+
+def _render_bell_row(dialog: dict, lookup_run_label) -> None:
+    """Render one entry in the header bell's pending-dialog list.
+
+    Layout: amber bell glyph, title (top), step + UUT (mid),
+    operator-readable run label (bottom), right-aligned ``Go →`` link
+    that navigates straight to ``/live/{run_id}``.
+    """
+    run_id = dialog.get("run_id") or ""
+    run_label, _found = lookup_run_label(run_id) if run_id else ("(no run)", False)
+    step_name = dialog.get("step_name") or ""
+    title = dialog.get("title") or "Dialog"
+
+    with ui.row().classes("w-full items-start gap-2 px-2 py-2 rounded hover:bg-slate-100"):
+        ui.icon("notification_important").classes("text-amber-600 mt-1")
+        with ui.column().classes("flex-1 gap-0"):
+            ui.label(title).classes("text-sm font-medium text-slate-800")
+            if step_name:
+                ui.label(f"Step: {step_name}").classes("text-xs text-slate-500")
+            ui.label(run_label).classes("text-xs text-slate-400")
+        if run_id:
+            ui.button("Go →", on_click=lambda rid=run_id: ui.navigate.to(f"/live/{rid}")).props(
+                "flat dense color=primary"
+            ).classes("text-xs")

@@ -58,7 +58,7 @@ class TestHarnessInit:
         assert len(harness.vectors) == 3
         assert harness.vectors[0]["voltage"] == 3.3
 
-    def test_init_with_product_expansion(self):
+    def test_init_with_part_expansion(self):
         config = {
             "vectors": {
                 "expand": "product",
@@ -82,7 +82,7 @@ class TestHarnessInit:
         assert harness.retry_config.max_retries == 4
 
     def test_init_with_limits(self):
-        config = {"limits": {"voltage": {"low": 3.0, "high": 3.6, "units": "V"}}}
+        config = {"limits": {"voltage": {"low": 3.0, "high": 3.6, "unit": "V"}}}
         harness = TestHarness(config=config)
         assert "voltage" in harness._limits
 
@@ -102,19 +102,19 @@ class TestHarnessMeasure:
 
     def test_measure_with_explicit_limit(self):
         harness = TestHarness()
-        limit = Limit(low=3.0, high=3.6, units="V")
+        limit = Limit(low=3.0, high=3.6, unit="V")
 
         with harness.step():
             with harness.run_vector(Vector(_index=0)):
                 m = harness.measure("voltage", 3.3, limit=limit)
                 assert m.limit_low == 3.0
                 assert m.limit_high == 3.6
-                assert m.units == "V"
+                assert m.unit == "V"
                 assert m.outcome == Outcome.PASSED
 
     def test_measure_fail_updates_vector_outcome(self):
         harness = TestHarness()
-        limit = Limit(low=3.0, high=3.6, units="V")
+        limit = Limit(low=3.0, high=3.6, unit="V")
 
         with harness.step():
             with harness.run_vector(Vector(_index=0)) as tv:
@@ -125,7 +125,7 @@ class TestHarnessMeasure:
     def test_measure_error_updates_vector_outcome_no_logger(self):
         """Without a logger, harness updates vector outcome on ERROR."""
         harness = TestHarness()
-        limit = Limit(low=3.0, high=3.6, units="V")
+        limit = Limit(low=3.0, high=3.6, unit="V")
 
         with harness.step():
             with harness.run_vector(Vector(_index=0)) as tv:
@@ -137,7 +137,7 @@ class TestHarnessMeasure:
     def test_measure_error_overrides_fail_no_logger(self):
         """Without a logger, ERROR overrides FAIL — can't trust untrusted state."""
         harness = TestHarness()
-        limit = Limit(low=3.0, high=3.6, units="V")
+        limit = Limit(low=3.0, high=3.6, unit="V")
 
         with harness.step():
             with harness.run_vector(Vector(_index=0)) as tv:
@@ -149,7 +149,7 @@ class TestHarnessMeasure:
         assert tv.outcome == Outcome.ERRORED
 
     def test_measure_from_config_limits(self):
-        config = {"limits": {"voltage": {"low": 3.0, "high": 3.6, "units": "V"}}}
+        config = {"limits": {"voltage": {"low": 3.0, "high": 3.6, "unit": "V"}}}
         harness = TestHarness(config=config)
 
         with harness.step():
@@ -309,7 +309,7 @@ class TestHarnessStep:
 
     def test_step_computes_outcome(self):
         harness = TestHarness()
-        limit = Limit(low=3.0, high=3.6, units="V")
+        limit = Limit(low=3.0, high=3.6, unit="V")
 
         with harness.step() as step:
             with harness.run_vector(Vector(_index=0)):
@@ -828,7 +828,7 @@ class TestHarnessSpecId:
         limit = Limit(
             low=3.0,
             high=3.6,
-            units="V",
+            unit="V",
             characteristic_id="output_voltage",
             spec_ref="Table 4.2 @ temp=25",
         )

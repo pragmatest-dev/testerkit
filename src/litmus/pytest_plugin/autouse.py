@@ -10,7 +10,7 @@ into ContextVar state, building :class:`ConnectionIterator` for the
 
 The underscore prefix on each fixture name reinforces "infrastructure,
 not user-facing." Test authors interact through the public surface
-(:func:`logger`, :func:`verify`, :func:`context`, …) defined in
+(:func:`verify`, :func:`context`, …) defined in
 :mod:`litmus.pytest_plugin.__init__`.
 """
 
@@ -21,13 +21,13 @@ from collections.abc import Iterator
 import pytest
 
 from litmus.execution._state import (
-    get_active_product_context,
+    get_active_part_context,
     push_active_characteristic,
     reset_active_characteristic,
     set_active_limits,
     set_active_test_characteristics,
     set_active_vector_params,
-    set_current_logger,
+    set_current_run_scope,
 )
 from litmus.execution.connections import (
     ConnectionIterator,
@@ -35,8 +35,8 @@ from litmus.execution.connections import (
     resolve_test_connections,
 )
 from litmus.execution.harness import Context
-from litmus.execution.logger import TestRunLogger
 from litmus.execution.mocks import install_mocks
+from litmus.execution.run_scope import RunScope
 from litmus.models.test_config import MeasurementLimitConfig, MockEntry
 from litmus.pytest_plugin.helpers import safe_get_session_fixture
 from litmus.pytest_plugin.markers import (
@@ -108,15 +108,15 @@ def _scope_characteristics(
 
 
 @pytest.fixture(autouse=True)
-def _reseat_current_logger(logger: TestRunLogger) -> None:
-    """Re-install the session logger into the ContextVar for every test.
+def _reseat_current_run_scope(_run_scope: RunScope) -> None:
+    """Re-install the session run scope into the ContextVar for every test.
 
     Pytester-based tests run an inner pytest session whose own teardown
-    clears ``set_current_logger(None)`` — and because ContextVars are
+    clears ``set_current_run_scope(None)`` — and because ContextVars are
     process-wide, that leaks into the outer session. Re-seating on every
-    test keeps ``get_current_logger()`` correct regardless.
+    test keeps ``get_current_run_scope()`` correct regardless.
     """
-    set_current_logger(logger)
+    set_current_run_scope(_run_scope)
 
 
 @pytest.fixture(autouse=True)
@@ -270,7 +270,7 @@ def _litmus_resolve_connections(
         yield
         return
 
-    spec_ctx = get_active_product_context()
+    spec_ctx = get_active_part_context()
     fixture_cfg = safe_get_session_fixture(request, "fixture_config")
     try:
         connections, conn_to_char = resolve_test_connections(
@@ -355,6 +355,6 @@ __all__ = [
     "_litmus_push_limits",
     "_litmus_push_params",
     "_litmus_resolve_connections",
-    "_reseat_current_logger",
+    "_reseat_current_run_scope",
     "_route_cleanup",
 ]

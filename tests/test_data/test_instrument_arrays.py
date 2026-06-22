@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from litmus.data.models import DUT, Measurement, Outcome, TestRun, TestStep, TestVector
+from litmus.data.models import UUT, Measurement, Outcome, TestRun, TestStep, TestVector
 from litmus.models.instrument import CalibrationInfo, InstrumentInfo, InstrumentRecord
 
 
@@ -61,17 +61,17 @@ EXPECTED_KEYS = [
 
 
 class TestBuildInstrumentArrays:
-    """Tests for TestRunLogger.build_instrument_arrays()."""
+    """Tests for RunScope.build_instrument_arrays()."""
 
     def test_build_instrument_arrays_14_keys(self):
         """Verify build_instrument_arrays returns all 14 expected keys."""
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.run_scope import RunScope
 
         dmm = _make_record("dmm", instrument_id="keithley_001", serial="SN-DMM")
         psu = _make_record("psu", instrument_id="keysight_001", serial="SN-PSU")
 
-        logger = TestRunLogger(
-            dut_serial="DUT001",
+        logger = RunScope(
+            uut_serial="UUT001",
             station_id="station_001",
             instruments={"dmm": dmm, "psu": psu},
         )
@@ -90,7 +90,7 @@ class TestBuildInstrumentArrays:
 
     def test_build_instrument_arrays_filtered(self):
         """Verify roles filter returns only requested instruments."""
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.run_scope import RunScope
 
         records = {
             "dmm": _make_record("dmm", serial="SN-DMM"),
@@ -98,8 +98,8 @@ class TestBuildInstrumentArrays:
             "eload": _make_record("eload", serial="SN-ELOAD"),
         }
 
-        logger = TestRunLogger(
-            dut_serial="DUT001",
+        logger = RunScope(
+            uut_serial="UUT001",
             station_id="station_001",
             instruments=records,
         )
@@ -112,10 +112,10 @@ class TestBuildInstrumentArrays:
 
     def test_build_instrument_arrays_empty(self):
         """No instruments produces empty lists for all 14 keys."""
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.run_scope import RunScope
 
-        logger = TestRunLogger(
-            dut_serial="DUT001",
+        logger = RunScope(
+            uut_serial="UUT001",
             station_id="station_001",
         )
 
@@ -127,7 +127,7 @@ class TestBuildInstrumentArrays:
 
     def test_build_instrument_arrays_with_calibration(self):
         """Verify calibration fields are correctly populated."""
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.run_scope import RunScope
 
         record = _make_record(
             "dmm",
@@ -137,8 +137,8 @@ class TestBuildInstrumentArrays:
             lab="NIST",
         )
 
-        logger = TestRunLogger(
-            dut_serial="DUT001",
+        logger = RunScope(
+            uut_serial="UUT001",
             station_id="station_001",
             instruments={"dmm": record},
         )
@@ -156,7 +156,7 @@ class TestSetStepInstruments:
 
     def test_set_step_instruments_caches(self):
         """set_step_instruments caches the filtered arrays."""
-        from litmus.execution.logger import TestRunLogger
+        from litmus.execution.run_scope import RunScope
 
         records = {
             "dmm": _make_record("dmm"),
@@ -164,8 +164,8 @@ class TestSetStepInstruments:
             "eload": _make_record("eload"),
         }
 
-        logger = TestRunLogger(
-            dut_serial="DUT001",
+        logger = RunScope(
+            uut_serial="UUT001",
             station_id="station_001",
             instruments=records,
         )
@@ -186,7 +186,7 @@ class TestEmptyRowSchemaMatches:
         backend = ParquetBackend(data_dir="/tmp/litmus_test_run_row")
 
         test_run = TestRun(
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             station_id="station_001",
         )
 
@@ -210,13 +210,13 @@ class TestParquetRoundTrip:
 
         # Build a test run with a step that has instrument arrays
         test_run = TestRun(
-            dut=DUT(serial="SN001"),
+            uut=UUT(serial="SN001"),
             station_id="station_001",
         )
 
         step = TestStep(name="test_voltage")
         vector = TestVector(index=0)
-        measurement = Measurement(name="vout", value=3.3, units="V", outcome=Outcome.PASSED)
+        measurement = Measurement(name="vout", value=3.3, unit="V", outcome=Outcome.PASSED)
         vector.measurements.append(measurement)
         step.vectors.append(vector)
 
@@ -248,12 +248,13 @@ class TestParquetRoundTrip:
         table = pq.read_table(parquet_path)
         rows = table.to_pylist()
 
-        # Unified schema: 1 run row + 1 measurement row + 1 step row.
-        # Inspect the measurement row for instrument-array round-trip.
+        # v2 nested schema: 1 run + 1 step + 1 scope vector (measurement nested
+        # on the vector). The scope vector carries the instrument arrays.
         assert len(rows) == 3
-        meas_rows = [r for r in rows if r["record_type"] == "measurement"]
-        assert len(meas_rows) == 1
-        row = meas_rows[0]
+        vec_rows = [r for r in rows if r["record_type"] == "vector"]
+        assert len(vec_rows) == 1
+        row = vec_rows[0]
+        assert [m["name"] for m in row["measurements"]] == ["vout"]
 
         # Verify instrument columns
         assert row["step_instruments_name"] == ["dmm"]

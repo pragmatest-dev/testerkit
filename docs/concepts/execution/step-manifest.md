@@ -64,7 +64,7 @@ Key step-row columns (full list in [Parquet schema](../../reference/data/parquet
 - `step_name`, `step_path`, `step_index`, `parent_path`, `step_node_id`
 - `step_started_at`, `step_ended_at`, `step_vector_count`
 - `step_outcome` (rollup), `vector_outcome` (per vector), `run_outcome` (run-wide)
-- Denormalized run context: `run_id`, `dut_serial`, `station_id`, `session_id`
+- Denormalized run context: `run_id`, `uut_serial`, `station_id`, `session_id`
 
 ## "Never ran" rows (`step_outcome IS NULL`) {#never-ran}
 

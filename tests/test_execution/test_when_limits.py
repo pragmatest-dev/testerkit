@@ -42,7 +42,7 @@ def test_single_band_empty_when_always_matches(pytester: pytest.Pytester) -> Non
             """
             limits:
                 v_rail:
-                  units: V
+                  unit: V
                   bands:
                     - {when: {}, low: 3.2, high: 3.4}
 """
@@ -73,7 +73,7 @@ def test_multi_band_selects_matching_by_parametrize(pytester: pytest.Pytester) -
             """
             limits:
                 v_rail:
-                  units: V
+                  unit: V
                   bands:
                     - {when: {vin: 5.0}, low: 3.2, high: 3.4}
                     - {when: {vin: 3.3}, low: 3.1, high: 3.5}
@@ -174,7 +174,7 @@ def test_no_band_matches_falls_back_to_siblings(pytester: pytest.Pytester) -> No
                 v_rail:
                   low: 3.0
                   high: 3.6
-                  units: V
+                  unit: V
                   bands:
                     - {when: {vin: 5.0}, low: 3.2, high: 3.4}
                     - {when: {vin: 3.3}, low: 3.1, high: 3.5}
@@ -222,8 +222,8 @@ def test_no_band_matches_no_siblings_raises_via_verify(pytester: pytest.Pytester
     result.stdout.fnmatch_lines(["*MissingLimitError*"])
 
 
-def test_no_band_matches_logger_measure_records_done(pytester: pytest.Pytester) -> None:
-    """``logger.measure`` is the characterization path — records DONE on no-band-match."""
+def test_no_band_matches_measure_records_done(pytester: pytest.Pytester) -> None:
+    """``measure`` is the characterization path — records DONE on no-band-match."""
     pytester.makeini(_INI)
     pytester.makepyfile(
         test_seq=textwrap.dedent(
@@ -232,8 +232,8 @@ def test_no_band_matches_logger_measure_records_done(pytester: pytest.Pytester) 
             from litmus.data.models import Outcome
 
             @pytest.mark.parametrize("vin", [12.0])
-            def test_rail(logger, vin):
-                m = logger.measure("v_rail", 99.0)
+            def test_rail(measure, vin):
+                m = measure("v_rail", 99.0)
                 assert m.outcome == Outcome.DONE
             """
         )
@@ -268,7 +268,7 @@ def test_scalar_dict_shape_still_resolves(pytester: pytest.Pytester) -> None:
         textwrap.dedent(
             """
             limits:
-                v_rail: {low: 3.2, high: 3.4, units: V}
+                v_rail: {low: 3.2, high: 3.4, unit: V}
             """
         )
     )
@@ -277,7 +277,7 @@ def test_scalar_dict_shape_still_resolves(pytester: pytest.Pytester) -> None:
 
 
 def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -> None:
-    """Band using ``tolerance_pct`` against a product characteristic.
+    """Band using ``tolerance_pct`` against a part characteristic.
 
     The characteristic provides the nominal (3.3 V); the band applies
     ±2% at vin=5.0, ±5% at vin=3.3. A reading of 3.30 passes at vin=5.0
@@ -285,8 +285,8 @@ def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -
     with 3.30 == nominal, both rows pass.
     """
     pytester.makeini(_INI)
-    (pytester.path / "products").mkdir()
-    (pytester.path / "products" / "mini.yaml").write_text(
+    (pytester.path / "parts").mkdir()
+    (pytester.path / "parts" / "mini.yaml").write_text(
         textwrap.dedent(
             """
             id: mini
@@ -296,7 +296,7 @@ def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -
               rail_3v3:
                 function: dc_voltage
                 direction: output
-                units: V
+                unit: V
                 pin: TP_VOUT
                 bands:
                   - value: 3.3
@@ -330,5 +330,5 @@ def test_band_with_tolerance_pct_and_characteristic(pytester: pytest.Pytester) -
 """
         )
     )
-    result = pytester.runpytest("-v", "--product=products/mini.yaml")
+    result = pytester.runpytest("-v", "--part=parts/mini.yaml")
     result.assert_outcomes(passed=2)

@@ -15,10 +15,10 @@ from litmus.models.test_config import (
 
 class TestLimit:
     def test_limit_creation(self):
-        limit = Limit(low=4.5, high=5.5, units="V")
+        limit = Limit(low=4.5, high=5.5, unit="V")
         assert limit.low == 4.5
         assert limit.high == 5.5
-        assert limit.units == "V"
+        assert limit.unit == "V"
         assert limit.nominal is None
         assert limit.spec_ref is None
 
@@ -27,14 +27,14 @@ class TestLimit:
             low=4.5,
             high=5.5,
             nominal=5.0,
-            units="V",
+            unit="V",
             spec_ref="PWR-RAIL-5V",
         )
         assert limit.nominal == 5.0
         assert limit.spec_ref == "PWR-RAIL-5V"
 
     def test_limit_nominal_only(self):
-        limit = Limit(nominal=3.3, units="V")
+        limit = Limit(nominal=3.3, unit="V")
         assert limit.low is None
         assert limit.high is None
         assert limit.nominal == 3.3
@@ -79,8 +79,8 @@ class TestStationType:
 class TestFixtureConfig:
     def test_fixture_config(self):
         config = FixtureConfig(
-            id="product_a_fixture",
-            product_family="product_a",
+            id="part_a_fixture",
+            part_family="part_a",
             connections={
                 "vcc": FixtureConnection(name="VCC", instrument="psu", instrument_channel="CH1"),
                 "gnd": FixtureConnection(
@@ -88,7 +88,7 @@ class TestFixtureConfig:
                 ),
             },
         )
-        assert config.id == "product_a_fixture"
+        assert config.id == "part_a_fixture"
         assert "vcc" in config.connections
         assert config.connections["vcc"].instrument == "psu"
 
@@ -125,8 +125,8 @@ class TestCapabilityDisjointNamespaces:
 
     def test_disjoint_keys_ok(self):
         cap = self._make(
-            signals={"voltage": Signal(range=RangeSpec(min=0, max=10, units="V"))},
-            conditions={"frequency": Condition(range=RangeSpec(min=1, max=1000, units="Hz"))},
+            signals={"voltage": Signal(range=RangeSpec(min=0, max=10, unit="V"))},
+            conditions={"frequency": Condition(range=RangeSpec(min=1, max=1000, unit="Hz"))},
             controls={"coupling": Control(options=["AC", "DC"])},
         )
         assert cap.function == MeasurementFunction.DC_VOLTAGE
@@ -134,20 +134,20 @@ class TestCapabilityDisjointNamespaces:
     def test_signals_conditions_overlap_rejected(self):
         with pytest.raises(ValueError, match="signals.*conditions"):
             self._make(
-                signals={"frequency": Signal(range=RangeSpec(min=0, max=10, units="Hz"))},
-                conditions={"frequency": Condition(range=RangeSpec(min=1, max=1000, units="Hz"))},
+                signals={"frequency": Signal(range=RangeSpec(min=0, max=10, unit="Hz"))},
+                conditions={"frequency": Condition(range=RangeSpec(min=1, max=1000, unit="Hz"))},
             )
 
     def test_signals_controls_overlap_rejected(self):
         with pytest.raises(ValueError, match="signals.*controls"):
             self._make(
-                signals={"voltage": Signal(range=RangeSpec(min=0, max=10, units="V"))},
-                controls={"voltage": Control(range=RangeSpec(min=0, max=5, units="V"))},
+                signals={"voltage": Signal(range=RangeSpec(min=0, max=10, unit="V"))},
+                controls={"voltage": Control(range=RangeSpec(min=0, max=5, unit="V"))},
             )
 
     def test_conditions_controls_overlap_rejected(self):
         with pytest.raises(ValueError, match="conditions.*controls"):
             self._make(
-                conditions={"frequency": Condition(range=RangeSpec(min=1, max=1000, units="Hz"))},
+                conditions={"frequency": Condition(range=RangeSpec(min=1, max=1000, unit="Hz"))},
                 controls={"frequency": Control(options=["50", "60"])},
             )

@@ -28,7 +28,7 @@ _FIXED_COLUMNS = [
     "retry",
     "measurement_name",
     "value",
-    "units",
+    "unit",
     "limit_low",
     "limit_high",
     "limit_nominal",
@@ -36,9 +36,9 @@ _FIXED_COLUMNS = [
     "outcome",
     "characteristic_id",
     "spec_ref",
-    "dut_pin",
+    "uut_pin",
     "instrument_name",
-    "dut_serial",
+    "uut_serial",
     "station_id",
     "operator_id",
     "test_phase",
@@ -106,7 +106,7 @@ class CsvSubscriber(EventSubscriber):
                 "retry": m.retry,
                 "measurement_name": m.measurement_name,
                 "value": m.value,
-                "units": m.units or "",
+                "unit": m.unit or "",
                 "limit_low": m.limit_low,
                 "limit_high": m.limit_high,
                 "limit_nominal": m.limit_nominal,
@@ -114,22 +114,22 @@ class CsvSubscriber(EventSubscriber):
                 "outcome": m.outcome or "",
                 "characteristic_id": m.characteristic_id or "",
                 "spec_ref": m.spec_ref or "",
-                "dut_pin": m.dut_pin or "",
+                "uut_pin": m.uut_pin or "",
                 "instrument_name": m.instrument_name or "",
-                "dut_serial": s.dut_serial,
+                "uut_serial": s.uut_serial,
                 "station_id": s.station_id,
                 "operator_id": s.operator_id or "",
                 "test_phase": s.test_phase,
             }
-            # Dynamic columns from inputs/outputs/custom
+            # Dynamic columns from inputs/outputs
             for k, v in m.inputs.items():
-                key = f"in_{k}"
+                key = f"input_{k}"
                 row[key] = v
                 if key not in seen:
                     seen.add(key)
                     extra_keys.append(key)
             for k, v in m.outputs.items():
-                key = f"out_{k}"
+                key = f"output_{k}"
                 row[key] = v
                 if key not in seen:
                     seen.add(key)

@@ -12,8 +12,8 @@ from __future__ import annotations
 from typing import Any
 
 from litmus.data.events import InstrumentConnected
-from litmus.execution.logger import (
-    TestRunLogger,
+from litmus.execution.run_scope import (
+    RunScope,
     instrument_cal_fields,
     instrument_info_fields,
 )
@@ -21,7 +21,7 @@ from litmus.models.instrument import InstrumentRecord
 
 
 def emit_instrument_events(
-    logger: TestRunLogger,
+    logger: RunScope,
     event_log: Any,
     records: dict[str, InstrumentRecord],
 ) -> None:

@@ -38,12 +38,23 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.flight as flight
 
-from litmus.data._flight_errors import (
-    FlightQueryError,  # noqa: F401 — re-exported for callers
-    FlightTransientError,  # noqa: F401 — re-exported for callers
-    IndexOutOfDate,  # noqa: F401 — back-compat alias re-exported
-)
 from litmus.data._flight_retry import with_retry
+
+# Default deadline for one-shot request/response Flight calls (queries +
+# one-shot puts). Local calls are milliseconds, so this only ever fires on a
+# wedged or dead daemon — converting an otherwise-infinite hang into a
+# FlightTimedOutError that ``with_retry`` classifies TRANSIENT and recovers
+# from. NOT applied to long-lived streams (subscriptions, the channels held
+# do_put writer), where a deadline would wrongly tear the stream down.
+# Client-side by necessity: a wedged server can't enforce its own timeout.
+# Phase F (remote backend) will source this from ProjectConfig per deployment.
+DEFAULT_DAEMON_TIMEOUT_S = 30.0
+
+
+def call_options(timeout_s: float = DEFAULT_DAEMON_TIMEOUT_S) -> flight.FlightCallOptions:
+    """FlightCallOptions carrying a client deadline for one-shot calls."""
+    return flight.FlightCallOptions(timeout=timeout_s)
+
 
 # Process-wide pool: one ``FlightClient`` per ``location``.
 # Reused across every ``FlightQueryClient`` that targets the same
@@ -61,6 +72,31 @@ def _get_pooled_client(location: str) -> flight.FlightClient:
             client = flight.connect(location)
             _CLIENT_POOL[location] = client
         return client
+
+
+def probe_sql(
+    location: str, db_name: str, timeout_s: float = 5.0, *, payload: str = "SELECT 1"
+) -> bool:
+    """Liveness probe for a DuckDBFlightServer daemon (events / runs / files /
+    channels).
+
+    Tests CONNECTIVITY, not data — any result (or an empty one) counts as alive;
+    only an exception (dead Flight thread, deadline on a wedged daemon) marks it
+    down, and the broken client is dropped so the next caller reconnects. Short
+    deadline so a wedged daemon fails fast. ``payload`` is the do_get body: a
+    SQL-backed db uses the default ``SELECT 1``; a query-hook db (channels) passes
+    a dedicated lock-free verb so the probe never contends on a store lock under
+    load (which would falsely declare a busy daemon dead).
+    """
+    try:
+        client = _get_pooled_client(location)
+        client.do_get(
+            flight.Ticket(f"{db_name}\0{payload}".encode()), options=call_options(timeout_s)
+        ).read_all()
+        return True
+    except Exception:  # noqa: BLE001 — any failure means "respawn it"
+        _drop_pooled_client(location)
+        return False
 
 
 def _drop_pooled_client(location: str) -> None:
@@ -127,7 +163,7 @@ class FlightQueryClient:
         def _do_query() -> list[dict[str, Any]]:
             client = _get_pooled_client(self._location)
             ticket = flight.Ticket(f"{self._ticket_prefix}\0{sql}".encode())
-            reader = client.do_get(ticket)
+            reader = client.do_get(ticket, options=call_options())
             return reader.read_all().to_pylist()
 
         def _drop() -> None:

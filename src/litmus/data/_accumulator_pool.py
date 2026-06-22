@@ -33,20 +33,23 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
-import duckdb
 import pyarrow as pa
 
 from litmus.data.backends._event_accumulator import EventAccumulator
 from litmus.data.events import (
     InstrumentConnected,
     MeasurementRecorded,
+    Observation,
     RunEnded,
     RunMaterialized,
     RunStarted,
+    SessionEnded,
     SessionStarted,
     StepEnded,
     StepsDiscovered,
     StepStarted,
+    VectorEnded,
+    VectorStarted,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,6 +60,7 @@ logger = logging.getLogger(__name__)
 # events daemon over Flight; the accumulator works with typed events.
 _EVENT_CLASSES: dict[str, type] = {
     "session.started": SessionStarted,
+    "session.ended": SessionEnded,
     "run.started": RunStarted,
     "run.ended": RunEnded,
     "run.materialized": RunMaterialized,
@@ -64,7 +68,10 @@ _EVENT_CLASSES: dict[str, type] = {
     "test.step_started": StepStarted,
     "test.step_ended": StepEnded,
     "test.measurement": MeasurementRecorded,
-    "instrument.connected": InstrumentConnected,
+    "test.observation": Observation,
+    "test.vector_started": VectorStarted,
+    "test.vector_ended": VectorEnded,
+    "fixture.instrument_connected": InstrumentConnected,
 }
 
 
@@ -79,8 +86,9 @@ class AccumulatorPool:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._accs: dict[str, EventAccumulator] = {}  # run_id → accumulator
-        # Producer pid per session_id, captured from SessionStarted.
-        # Used by the orphan sweep for liveness checks.
+        # Producer pid per session_id, captured from SessionStarted and cleared
+        # on SessionEnded. The RUN orphan sweep resolves a run back to its
+        # producer pid through this (pid-death force-closes a run).
         self._session_pid: dict[str, int] = {}
         # Most recent event timestamp per run_id — wall-clock fallback
         # for the orphan sweep when pid liveness check is unavailable.
@@ -88,16 +96,17 @@ class AccumulatorPool:
         # session_id per run_id, so the orphan sweep can resolve a
         # run_id back to its producer pid.
         self._run_session: dict[str, str] = {}
-        # Monotonic generation counter — incremented under ``_lock`` on
-        # every state change (dispatch / evict). Readers (the runs
-        # daemon's pre-query hook) compare against their last-observed
-        # generation to decide whether to re-snapshot the pool. Using a
-        # counter, not a boolean, closes the dirty-flag race where a
-        # query lands in the microsecond window between
-        # ``pool.dispatch`` releasing its lock and a separate dirty
-        # flag being set — that window dropped one refresh per dispatch
-        # under bursty load and caused live runs to surface late.
+        # Monotonic generation counter — bumped under ``_lock`` on every
+        # state change (dispatch / evict). The overlay-sync thread uses it
+        # only as a cheap "has anything changed?" wake/idle signal.
         self._generation = 0
+        # Per-run delta since the last ``take_delta`` drain. The overlay is
+        # maintained incrementally by ONE background sync thread off the
+        # read path (no per-query refresh): ``dispatch`` dirties a run,
+        # ``evict`` evicts it. The sync thread drains this and rewrites only
+        # the affected runs' overlay rows — O(changed runs), not O(pool).
+        self._dirty: set[str] = set()
+        self._evicted: set[str] = set()
 
     # ------------------------------------------------------------------
     # Write path — fed by the events-daemon subscription
@@ -128,6 +137,14 @@ class AccumulatorPool:
                     self._session_pid[session_id] = typed.pid
             return
 
+        if isinstance(typed, SessionEnded):
+            # A cleanly-ended session is no longer open — drop it so the orphan
+            # sweep can't self-heal (re-emit SessionEnded for) it.
+            session_id = str(typed.session_id) if typed.session_id else None
+            if session_id:
+                self.mark_session_ended(session_id)
+            return
+
         if isinstance(typed, RunMaterialized):
             # Materialization signal — handled by the daemon's _on_event
             # wrapper (it evicts the pool entry). Don't route into an
@@ -146,11 +163,10 @@ class AccumulatorPool:
             self._last_event_at[run_id] = datetime.now(UTC)
             if session_id:
                 self._run_session[run_id] = session_id
-            # Bump generation under the same lock as the state change so
-            # any reader that subsequently observes a generation > its
-            # last-seen value is guaranteed to see this event in the
-            # pool. Atomic with the dispatch — closes the race where a
-            # separate dirty flag could be set after the lock released.
+            # Mark this run dirty + bump generation under the same lock as
+            # the state change, so the sync thread's next drain snapshots
+            # this event. Atomic with the dispatch.
+            self._dirty.add(run_id)
             self._generation += 1
 
     # ------------------------------------------------------------------
@@ -194,6 +210,12 @@ class AccumulatorPool:
                 out.append((run_id, acc, pid, last))
         return out
 
+    def mark_session_ended(self, session_id: str) -> None:
+        """Forget a session's producer pid (on SessionEnded). Keeps the run
+        sweep's pid map from carrying a closed session's producer."""
+        with self._lock:
+            self._session_pid.pop(session_id, None)
+
     def evict(self, run_id: str) -> EventAccumulator | None:
         """Drop the accumulator for ``run_id`` and return it (or ``None``)."""
         with self._lock:
@@ -201,35 +223,60 @@ class AccumulatorPool:
             self._run_session.pop(run_id, None)
             acc = self._accs.pop(run_id, None)
             if acc is not None:
+                # Evicted runs must have their overlay rows removed; drop
+                # any pending dirty mark (the run is gone, not changed).
+                self._dirty.discard(run_id)
+                self._evicted.add(run_id)
                 self._generation += 1
             return acc
 
-    def snapshot_if_changed(
-        self, last_seen_generation: int
-    ) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None:
-        """Atomic snapshot-if-pool-changed-since-last-seen.
+    def take_delta(
+        self,
+    ) -> tuple[set[str], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None:
+        """Drain the per-run delta since the last call; ``None`` if nothing changed.
 
-        Returns ``(new_generation, run_rows, step_rows, meas_rows)``
-        when the pool's generation has advanced past
-        ``last_seen_generation``, else ``None``. The check, generation
-        read, and snapshot all happen under the pool's lock so the
-        caller observes a consistent view: anything that was in the
-        pool when the new generation was assigned is included in the
-        returned rows.
+        Returns ``(touched_run_ids, run_rows, step_rows, meas_rows)``:
 
-        Used by the runs daemon's pre-query hook to gate the
-        ``conn.register("inflight_*", ...)`` calls — refresh only
-        when the pool has changed since last refresh, atomically
-        with the dispatch that changed it.
+        * ``touched_run_ids`` — every run whose overlay rows must be cleared
+          (dirty runs to be re-inserted + evicted runs to be removed).
+        * ``run_rows`` / ``step_rows`` / ``meas_rows`` — the fresh snapshot
+          rows for the still-present dirty runs (flattened, each carries
+          ``run_id``). Evicted / not-yet-started runs contribute no rows, so
+          a clear-then-reinsert leaves them gone.
+
+        Snapshot + clear happen under the pool lock, so a run that changes
+        after the drain is simply re-dirtied for the next drain — never lost.
+        The overlay-sync thread is the sole caller; queries never refresh.
         """
         with self._lock:
-            if self._generation == last_seen_generation:
+            if not self._dirty and not self._evicted:
                 return None
-            gen = self._generation
-            run_rows = [r for a in self._accs.values() if (r := a.snapshot_run_row())]
-            step_rows = [r for a in self._accs.values() for r in a.snapshot_step_rows()]
-            meas_rows = [r for a in self._accs.values() for r in a.snapshot_measurement_rows()]
-            return gen, run_rows, step_rows, meas_rows
+            dirty = self._dirty
+            evicted = self._evicted
+            self._dirty = set()
+            self._evicted = set()
+            run_rows: list[dict[str, Any]] = []
+            step_rows: list[dict[str, Any]] = []
+            meas_rows: list[dict[str, Any]] = []
+            for rid in dirty:
+                acc = self._accs.get(rid)
+                if acc is None:
+                    evicted.add(rid)  # vanished between dispatch and drain
+                    continue
+                if rr := acc.snapshot_run_row():
+                    run_rows.append(rr)
+                step_rows.extend(acc.snapshot_step_rows())
+                meas_rows.extend(acc.snapshot_measurement_rows())
+            return dirty | evicted, run_rows, step_rows, meas_rows
+
+    def generation(self) -> int:
+        """Current monotonic generation — bumps on every pool state change.
+
+        A cheap read for the lock-free fast path of the inflight refresh:
+        compare against the last-refreshed value and skip the snapshot
+        build entirely when nothing has changed.
+        """
+        return self._generation
 
     def has(self, run_id: str) -> bool:
         """Whether the pool currently holds an accumulator for ``run_id``."""
@@ -265,9 +312,9 @@ INFLIGHT_RUNS_SCHEMA = pa.schema(
         ("file_path", pa.string()),
         ("session_id", pa.string()),
         ("slot_id", pa.string()),
-        ("dut_serial", pa.string()),
-        ("dut_part_number", pa.string()),
-        ("dut_lot_number", pa.string()),
+        ("uut_serial", pa.string()),
+        ("uut_part_number", pa.string()),
+        ("uut_lot_number", pa.string()),
         ("station_id", pa.string()),
         ("station_name", pa.string()),
         ("station_hostname", pa.string()),
@@ -278,7 +325,7 @@ INFLIGHT_RUNS_SCHEMA = pa.schema(
         ("num_measurements", pa.int32()),
         ("num_steps", pa.int32()),
         ("test_phase", pa.string()),
-        ("product_id", pa.string()),
+        ("part_id", pa.string()),
         ("operator_id", pa.string()),
         ("project_name", pa.string()),
     ]
@@ -293,6 +340,8 @@ INFLIGHT_STEPS_SCHEMA = pa.schema(
         ("slot_id", pa.string()),
         ("step_name", pa.string()),
         ("step_path", pa.string()),
+        ("parent_path", pa.string()),
+        ("vector_index", pa.int64()),
         ("outcome", pa.string()),
         ("started_at", pa.timestamp("us", tz="UTC")),
         ("ended_at", pa.timestamp("us", tz="UTC")),
@@ -300,9 +349,11 @@ INFLIGHT_STEPS_SCHEMA = pa.schema(
         ("has_measurements", pa.bool_()),
         ("measurement_count", pa.int32()),
         ("vector_count", pa.int32()),
+        ("retry_count", pa.int32()),
         ("markers", pa.string()),
-        ("dut_serial", pa.string()),
+        ("uut_serial", pa.string()),
         ("station_id", pa.string()),
+        ("dynamic_attrs", pa.map_(pa.string(), pa.string())),
     ]
 )
 
@@ -315,13 +366,13 @@ INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
         ("run_started_at", pa.timestamp("us", tz="UTC")),
         ("run_ended_at", pa.timestamp("us", tz="UTC")),
         ("run_outcome", pa.string()),
-        ("dut_serial", pa.string()),
-        ("dut_part_number", pa.string()),
-        ("dut_revision", pa.string()),
-        ("dut_lot_number", pa.string()),
-        ("product_id", pa.string()),
-        ("product_name", pa.string()),
-        ("product_revision", pa.string()),
+        ("uut_serial", pa.string()),
+        ("uut_part_number", pa.string()),
+        ("uut_revision", pa.string()),
+        ("uut_lot_number", pa.string()),
+        ("part_id", pa.string()),
+        ("part_name", pa.string()),
+        ("part_revision", pa.string()),
         ("station_id", pa.string()),
         ("station_name", pa.string()),
         ("station_hostname", pa.string()),
@@ -350,7 +401,7 @@ INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
         ("measurement_name", pa.string()),
         ("measurement_value", pa.float64()),
         ("measurement_outcome", pa.string()),
-        ("measurement_units", pa.string()),
+        ("measurement_unit", pa.string()),
         ("measurement_timestamp", pa.timestamp("us", tz="UTC")),
         ("limit_low", pa.float64()),
         ("limit_high", pa.float64()),
@@ -358,11 +409,12 @@ INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
         ("limit_comparator", pa.string()),
         ("characteristic_id", pa.string()),
         ("spec_ref", pa.string()),
-        ("dut_pin", pa.string()),
+        ("uut_pin", pa.string()),
         ("fixture_connection", pa.string()),
         ("instrument_name", pa.string()),
         ("instrument_resource", pa.string()),
         ("instrument_channel", pa.string()),
+        ("dynamic_attrs", pa.map_(pa.string(), pa.string())),
     ]
 )
 
@@ -372,16 +424,3 @@ INFLIGHT_MEASUREMENTS_SCHEMA = pa.schema(
 EMPTY_INFLIGHT_RUNS = pa.Table.from_pylist([], schema=INFLIGHT_RUNS_SCHEMA)
 EMPTY_INFLIGHT_STEPS = pa.Table.from_pylist([], schema=INFLIGHT_STEPS_SCHEMA)
 EMPTY_INFLIGHT_MEASUREMENTS = pa.Table.from_pylist([], schema=INFLIGHT_MEASUREMENTS_SCHEMA)
-
-
-def register_empty_inflight(conn: duckdb.DuckDBPyConnection) -> None:
-    """Seed the daemon's connection with empty inflight relations.
-
-    Called once at daemon startup, **before** the UNION views in
-    ``_create_views`` are defined. Without this, those views fail
-    to compile because ``inflight_runs`` / ``inflight_steps`` /
-    ``inflight_measurements`` aren't yet bound to anything.
-    """
-    conn.register("inflight_runs", EMPTY_INFLIGHT_RUNS)
-    conn.register("inflight_steps", EMPTY_INFLIGHT_STEPS)
-    conn.register("inflight_measurements", EMPTY_INFLIGHT_MEASUREMENTS)

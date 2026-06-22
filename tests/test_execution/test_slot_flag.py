@@ -1,7 +1,7 @@
 """``--slot=N`` flag — single-process operator targeting of a fixture slot.
 
 The flag is the operator-facing channel: when an operator slots a
-DUT into physical position 2 of a multi-slot fixture and runs solo,
+UUT into physical position 2 of a multi-slot fixture and runs solo,
 ``--slot=slot_2`` makes the resulting parquet record ``slot_id="slot_2"``.
 
 Pinned behaviors:
@@ -79,7 +79,7 @@ def _run_pytest(
         f"--fixture={fixture_path}",
         f"--station={station_path}",
         "--mock-instruments",
-        "--dut-serial=SN42",
+        "--uut-serial=SN42",
         "-v",
     ]
     if slot is not None:
@@ -101,11 +101,11 @@ def _list_runs(session_id: str, *, timeout: float = 15.0) -> list:
     q = RunsQuery()
     try:
         while time.monotonic() < deadline:
-            runs = q.find_for_session(session_id, include_incomplete=True)
+            runs = q.list_for_session(session_id, include_incomplete=True)
             if runs:
                 return runs
             time.sleep(0.2)
-        return q.find_for_session(session_id, include_incomplete=True)
+        return q.list_for_session(session_id, include_incomplete=True)
     finally:
         q.close()
 
@@ -133,9 +133,9 @@ class TestSlotFlag:
         assert result.returncode == 0, (
             f"pytest exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
-        # Single-process run — orchestrator's "Multi-DUT Results"
+        # Single-process run — orchestrator's "Multi-UUT Results"
         # header should NOT appear.
-        assert "Multi-DUT Results" not in result.stdout
+        assert "Multi-UUT Results" not in result.stdout
 
         runs = _list_runs(session_id)
         # Exactly one run row; ``slot_id`` reflects the operator's choice.
@@ -165,7 +165,7 @@ class TestSlotFlag:
         assert "slot_99" in combined and "slot_1" in combined and "slot_2" in combined, combined
 
     def test_no_slot_against_multi_slot_fixture_errors(self, tmp_path):
-        """Single-process invocation against multi-slot needs --slot or --dut-serials."""
+        """Single-process invocation against multi-slot needs --slot or --uut-serials."""
         session_id = str(uuid4())
         fixture_path = tmp_path / "fixture.yaml"
         station_path = tmp_path / "station.yaml"
@@ -187,7 +187,7 @@ class TestSlotFlag:
         # is the way to record a single physical slot.
         combined = result.stdout + result.stderr
         if result.returncode == 0:
-            # Orchestrator dispatch path: should show Multi-DUT Results.
-            assert "Multi-DUT Results" in combined
+            # Orchestrator dispatch path: should show Multi-UUT Results.
+            assert "Multi-UUT Results" in combined
         else:
             assert "Multi-slot fixture" in combined or "--slot" in combined, combined

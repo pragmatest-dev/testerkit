@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime
 import logging
 import traceback
+from collections import defaultdict
 from datetime import date
 from typing import Any
 
@@ -21,12 +22,17 @@ from nicegui import run, ui
 
 from litmus.analysis.measurement_facets import (
     MEASUREMENT_FACETS,
+    ColumnSchema,
+    DynamicFieldDescriptor,
     FacetKind,
     FacetSpec,
+    FieldRef,
+    FieldRole,
     FilterSet,
+    LimitBandRow,
 )
 from litmus.analysis.measurements_query import MeasurementsQuery
-from litmus.data._flight_errors import IndexOutOfDate
+from litmus.data._flight_errors import FlightPermanentError
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_store import EventStore
 from litmus.ui.shared.components import (
@@ -45,10 +51,6 @@ CHART_TYPES = ["scatter", "line", "bar", "histogram"]
 DEFAULT_BINS = 30
 DEFAULT_LIMIT = 5000
 
-# Categorical columns DuckDB reports as VARCHAR — fine as group_by /
-# X candidates. Numeric types stay candidates for Y. We keep the
-# split coarse so users see all real columns; the SQL builder
-# rejects bad identifiers anyway.
 _NUMERIC_TYPES = {
     "DOUBLE",
     "FLOAT",
@@ -62,18 +64,128 @@ _NUMERIC_TYPES = {
 }
 
 
-def _render_no_measurements_state() -> None:
-    """Render the empty state for ``/explore`` when no measurements exist.
+# ---------------------------------------------------------------------------
+# Selector helpers — map display label ↔ str | FieldRef
+# ---------------------------------------------------------------------------
 
-    The page is otherwise an elaborate filter-first dashboard with
-    nothing to filter — that's a confusing landing for someone who
-    just opened the app. Replace it with a single card that names
-    the cause and points at the next step.
 
-    Uses the shared :func:`page_layout` + :func:`page_header`
-    primitives so the empty state shares the same outer shell as
-    every other Litmus page.
+def _selector_label(sel: str | FieldRef) -> str:
+    """Display label for a selector."""
+    if isinstance(sel, FieldRef):
+        return f"{sel.name} ({sel.role.value})"
+    return sel
+
+
+def _build_axis_options(
+    schema: ColumnSchema,
+) -> tuple[
+    dict[str, str | FieldRef],
+    dict[str, str | FieldRef],
+    dict[str, str | FieldRef],
+    dict[str, DynamicFieldDescriptor],
+]:
+    """Build label→selector maps and a polymorphism index from a ColumnSchema.
+
+    Returns (y_map, x_map, group_map, field_descriptor_index).
+    - y_map: numeric-eligible selectors (Y axis)
+    - x_map: X-eligible selectors (numeric + str + date)
+    - group_map: group_by-eligible selectors (string fixed + any dynamic)
+    - field_descriptor_index: label → DynamicFieldDescriptor for value_type picker
     """
+    y_map: dict[str, str | FieldRef] = {}
+    x_map: dict[str, str | FieldRef] = {}
+    group_map: dict[str, str | FieldRef] = {}
+    field_desc: dict[str, DynamicFieldDescriptor] = {}
+
+    for col in schema.fixed:
+        col_type = (col.column_type or "").upper()
+        is_numeric = any(t in col_type for t in _NUMERIC_TYPES)
+        is_string = "VARCHAR" in col_type or "CHAR" in col_type
+        is_date = "DATE" in col_type or "TIMESTAMP" in col_type
+        label = col.name
+        if is_numeric:
+            y_map[label] = col.name
+        if is_numeric or is_string or is_date:
+            x_map[label] = col.name
+        if is_string:
+            group_map[label] = col.name
+
+    for fd in schema.fields:
+        label = f"{fd.name} ({fd.role.value})"
+        ref = FieldRef(role=fd.role, name=fd.name)
+        # All dynamic fields are Y candidates (presume numeric until proven otherwise)
+        y_map[label] = ref
+        x_map[label] = ref
+        group_map[label] = ref
+        field_desc[label] = fd
+
+    return y_map, x_map, group_map, field_desc
+
+
+def _default_y(y_map: dict[str, str | FieldRef]) -> str:
+    """Default Y label — measurement_value, then the first measurement-role field."""
+    if "measurement_value" in y_map:
+        return "measurement_value"
+    for label, sel in y_map.items():
+        if isinstance(sel, FieldRef) and sel.role is FieldRole.MEASUREMENT:
+            return label
+    return next(iter(y_map), "")
+
+
+def _default_x(x_map: dict[str, str | FieldRef]) -> str:
+    """Default X label — vector_index, then run_started_at."""
+    for candidate in ("vector_index", "run_started_at"):
+        if candidate in x_map:
+            return candidate
+    return next(iter(x_map), "")
+
+
+# ---------------------------------------------------------------------------
+# URL encode / decode for selectors
+# ---------------------------------------------------------------------------
+
+
+def _encode_selector_to_url(prefix: str, sel: str | FieldRef) -> dict[str, str]:
+    """Encode a selector to flat URL params with the given prefix."""
+    if isinstance(sel, FieldRef):
+        params: dict[str, str] = {
+            f"{prefix}_name": sel.name,
+            f"{prefix}_role": sel.role.value,
+        }
+        if sel.value_type:
+            params[f"{prefix}_value_type"] = sel.value_type
+        return params
+    return {prefix: sel}
+
+
+def _decode_selector_from_url(
+    prefix: str,
+    qp: Any,
+    label_map: dict[str, str | FieldRef],
+) -> str:
+    """Decode a selector from URL params, returning the display label."""
+    name = qp.get(f"{prefix}_name", "")
+    role = qp.get(f"{prefix}_role", "")
+    if name and role:
+        value_type = qp.get(f"{prefix}_value_type") or None
+        ref = FieldRef(role=FieldRole(role), name=name, value_type=value_type)
+        expected_label = _selector_label(ref)
+        if expected_label in label_map:
+            return expected_label
+        return ""
+    flat = qp.get(prefix, "")
+    if flat and flat in label_map:
+        return flat
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Empty state + page handler
+# ---------------------------------------------------------------------------
+
+
+def _render_no_measurements_state() -> None:
+    """Render the empty state for ``/explore`` when no measurements exist."""
     with page_layout():
         page_header("Measurements", icon="scatter_plot")
         with ui.card().classes("w-full max-w-3xl"):
@@ -93,7 +205,7 @@ def _render_no_measurements_state() -> None:
                     <pre class="text-xs bg-slate-50 p-3 rounded mt-2 overflow-auto">"""
                     """from litmus.models.test_config import Limit\n\n"""
                     """def test_voltage_in_range(verify):\n"""
-                    """    verify("vout", 3.3, limit=Limit(low=3.0, high=3.6, units="V"))</pre>""",
+                    """    verify("vout", 3.3, limit=Limit(low=3.0, high=3.6, unit="V"))</pre>""",
                     sanitize=False,
                 )
                 ui.label(
@@ -102,37 +214,11 @@ def _render_no_measurements_state() -> None:
                 ).classes("text-xs text-slate-500 mt-2")
 
 
-def _classify_columns(
-    schema: list[dict[str, str]],
-) -> tuple[list[str], list[str], list[str]]:
-    """Return (y_candidates, x_candidates, group_candidates).
-
-    Y wants numerics. X accepts numerics, dates, and bare strings.
-    Group wants strings (low-cardinality presumed).
-    """
-    y_candidates: list[str] = []
-    x_candidates: list[str] = []
-    group_candidates: list[str] = []
-    for col in schema:
-        name = col["column_name"]
-        col_type = (col.get("column_type") or "").upper()
-        is_numeric = any(t in col_type for t in _NUMERIC_TYPES)
-        is_string = "VARCHAR" in col_type or "CHAR" in col_type
-        is_date = "DATE" in col_type or "TIMESTAMP" in col_type
-        if is_numeric:
-            y_candidates.append(name)
-        if is_numeric or is_string or is_date:
-            x_candidates.append(name)
-        if is_string:
-            group_candidates.append(name)
-    return sorted(y_candidates), sorted(x_candidates), sorted(group_candidates)
-
-
 def _query_dict_from_request(request: Request) -> dict[str, list[str]]:
     """Multi-value query string → ``{key: [v1, v2, ...]}``.
 
     FastAPI's ``request.query_params`` is a multi-dict; ``getlist`` is
-    the way to recover repeated keys (e.g. ``?product=A&product=B``).
+    the way to recover repeated keys (e.g. ``?part=A&part=B``).
     """
     return {k: request.query_params.getlist(k) for k in set(request.query_params)}
 
@@ -145,23 +231,20 @@ async def explore_page(request: Request):
     data queries run off the event loop via run.io_bound. The chart renders
     via ui.timer after the page is connected.
 
-    URL state encodes the full view: each filter facet's selected
-    values as repeated query keys (``?product=PN-100&product=PN-200``)
-    plus ``y`` / ``x`` / ``chart_type`` / ``group_by`` / ``bins`` /
-    ``limit`` / ``since`` / ``until``.
+    URL state encodes the full view: filter facets as repeated query keys,
+    plus ``y``/``y_name``/``y_role``/``y_value_type``, ``x``/``x_name``/
+    ``x_role``/``x_value_type``, ``group_by``/``group_by_name``/
+    ``group_by_role``, ``chart_type``, ``bins``, ``limit``, ``since``,
+    and ``until``.
     """
     data_dir = str(resolve_data_dir())
     create_layout("Measurements")
 
-    # Decode URL state — pure dict ops, no queries.
     qp = request.query_params
     qd = _query_dict_from_request(request)
     is_bare_url = not qd
     initial_filters = FilterSet.from_url_params(qd)
-    initial_y = qp.get("y", "")
-    initial_x = qp.get("x", "")
     initial_chart_type = qp.get("chart_type", "scatter")
-    initial_group_by = qp.get("group_by", "")
     try:
         initial_bins = int(qp.get("bins") or DEFAULT_BINS)
     except ValueError:
@@ -171,23 +254,17 @@ async def explore_page(request: Request):
     except ValueError:
         initial_limit = DEFAULT_LIMIT
 
-    # Fetch schema + counts + smart defaults off the event loop.
     init_result = await run.io_bound(
         _fetch_initial_schema,
         data_dir,
         is_bare_url,
         initial_filters,
-        initial_y,
-        initial_x,
         initial_chart_type,
-        initial_group_by,
     )
     if init_result is None:
-        # No measurements yet.
         _render_no_measurements_state()
         return
     if isinstance(init_result, str):
-        # Error string
         with page_layout():
             page_header("Measurements", icon="scatter_plot")
             error_container = ui.column().classes("w-full")
@@ -195,47 +272,76 @@ async def explore_page(request: Request):
         return
 
     (
-        y_options,
-        x_options,
-        group_options,
-        initial_y,
-        initial_x,
+        y_map,
+        x_map,
+        group_map,
+        field_desc,
+        initial_y_label,
+        initial_x_label,
         initial_chart_type,
-        initial_group_by,
         initial_filters,
     ) = init_result
 
-    # Mutable state captured by closures.
+    # Decode Y / X / group_by from URL after the maps are known.
+    url_y = _decode_selector_from_url("y", qp, y_map) if not is_bare_url else ""
+    url_x = _decode_selector_from_url("x", qp, x_map) if not is_bare_url else ""
+    url_group = _decode_selector_from_url("group_by", qp, group_map) if not is_bare_url else ""
+    initial_y_label = url_y or initial_y_label
+    initial_x_label = url_x or initial_x_label
+    initial_group_label = url_group
+
     state: dict[str, Any] = {
         "filter_set": initial_filters,
-        "y": initial_y,
-        "x": initial_x,
+        "y_label": initial_y_label,
+        "x_label": initial_x_label,
         "chart_type": initial_chart_type,
-        "group_by": initial_group_by,
+        "group_label": initial_group_label,
         "bins": initial_bins,
         "limit": initial_limit,
+        # value_type overrides when user picks from the picker
+        "y_value_type": qp.get("y_value_type") or None,
+        "x_value_type": qp.get("x_value_type") or None,
     }
 
     facet_widgets: dict[str, Any] = {}
     cardinality_label: Any = None
     chart_container: Any = None
+    chart_widget: Any = None
+    chart_status: Any = None
+    y_vtype_widget: Any = None
+    x_vtype_widget: Any = None
 
     def _new_query() -> MeasurementsQuery:
         return MeasurementsQuery(_data_dir=data_dir)
+
+    def _effective_selector(
+        label: str,
+        label_map: dict[str, str | FieldRef],
+        value_type_override: str | None,
+    ) -> str | FieldRef:
+        sel = label_map.get(label, label)
+        if isinstance(sel, FieldRef) and value_type_override:
+            return FieldRef(role=sel.role, name=sel.name, value_type=value_type_override)
+        return sel
 
     def _push_url() -> None:
         grouped: dict[str, list[str]] = {}
         for key, value in state["filter_set"].to_url_params():
             grouped.setdefault(key, []).append(value)
         params: dict[str, Any] = dict(grouped)
-        if state["y"]:
-            params["y"] = state["y"]
-        if state["x"] and state["chart_type"] != "histogram":
-            params["x"] = state["x"]
+
+        y_sel = _effective_selector(state["y_label"], y_map, state["y_value_type"])
+        x_sel = _effective_selector(state["x_label"], x_map, state["x_value_type"])
+        group_sel = _effective_selector(state["group_label"], group_map, None)
+
+        if state["y_label"]:
+            params.update(_encode_selector_to_url("y", y_sel))
+        if state["x_label"] and state["chart_type"] != "histogram":
+            params.update(_encode_selector_to_url("x", x_sel))
         if state["chart_type"] != "scatter":
             params["chart_type"] = state["chart_type"]
-        if state["group_by"]:
-            params["group_by"] = state["group_by"]
+        if state["group_label"]:
+            params.update(_encode_selector_to_url("group_by", group_sel))
         if state["bins"] != DEFAULT_BINS:
             params["bins"] = str(state["bins"])
         if state["limit"] != DEFAULT_LIMIT:
@@ -243,8 +349,6 @@ async def explore_page(request: Request):
         push_url_state("/explore", params)
 
     async def _refresh_string_facets() -> None:
-        """Re-populate STRING facet options based on current filter set."""
-
         def _fetch() -> list[tuple[str, list, list]]:
             results = []
             with _new_query() as q:
@@ -267,9 +371,6 @@ async def explore_page(request: Request):
             if widget is None:
                 continue
             widget.options = {o.value: f"{o.value} ({o.count:,})" for o in opts}
-            # Only update value if it actually changed — setting widget.value
-            # always fires on_change (even when identical), which would trigger
-            # a recursive _refresh_all and prevent the chart from rendering.
             current = state["filter_set"].string_filters.get(column, [])
             if still_valid != current:
                 widget.value = still_valid
@@ -286,58 +387,116 @@ async def explore_page(request: Request):
             f"{counts.total_rows:,} measurements · "
             f"{counts.distinct_runs:,} runs · "
             f"{counts.distinct_measurements:,} measurement names · "
-            f"{counts.distinct_products:,} products"
+            f"{counts.distinct_parts:,} parts"
         )
 
+    def _update_vtype_widgets() -> None:
+        """Show/hide value_type pickers based on current Y/X selections."""
+        if y_vtype_widget is None or x_vtype_widget is None:
+            return
+        y_fd = field_desc.get(state["y_label"])
+        x_fd = field_desc.get(state["x_label"])
+        if y_fd is not None and len(y_fd.value_types) > 1:
+            y_vtype_widget.options = y_fd.value_types
+            y_vtype_widget.set_visibility(True)
+        else:
+            y_vtype_widget.set_visibility(False)
+            state["y_value_type"] = None
+        if x_fd is not None and len(x_fd.value_types) > 1:
+            x_vtype_widget.options = x_fd.value_types
+            x_vtype_widget.set_visibility(True)
+        else:
+            x_vtype_widget.set_visibility(False)
+            state["x_value_type"] = None
+
     async def _refresh_chart() -> None:
-        render_skeleton(chart_container, "h-[28rem]")
-        y_val = state["y"]
-        x_val = state["x"]
+        render_skeleton(chart_status, "h-[28rem]")
+        y_label = state["y_label"]
+        x_label = state["x_label"]
         ct = state["chart_type"]
-        if not y_val or (not x_val and ct != "histogram"):
-            chart_container.clear()
-            with chart_container:
+        if not y_label or (not x_label and ct != "histogram"):
+            chart_status.clear()
+            with chart_status:
                 ui.label("Pick a Y and X column").classes("text-slate-500 italic")
             return
 
+        y_sel = _effective_selector(y_label, y_map, state["y_value_type"])
+        x_sel = _effective_selector(x_label, x_map, state["x_value_type"])
+        group_label = state["group_label"]
+        group_sel: str | FieldRef | None = (
+            _effective_selector(group_label, group_map, None) if group_label else None
+        )
+
         def _fetch():
             with _new_query() as q:
+                if ct == "histogram":
+                    return q.histogram(
+                        field=y_sel,
+                        bins=state["bins"],
+                        group_by=group_sel,
+                        filters=state["filter_set"],
+                    )
                 return q.parametric(
-                    y=y_val,
-                    x=x_val,
+                    y=y_sel,
+                    x=x_sel,
                     filters=state["filter_set"],
-                    group_by=state["group_by"] or None,
-                    chart_type=ct,
-                    bins=state["bins"],
+                    group_by=group_sel,
                     limit=state["limit"],
                 )
 
         try:
             rows = await run.io_bound(_fetch)
         except (OSError, ValueError, RuntimeError) as exc:
-            chart_container.clear()
-            with chart_container:
+            chart_status.clear()
+            with chart_status:
                 ui.label(f"Query failed: {exc}").classes("text-red-600")
                 with ui.expansion("Stack trace", icon="bug_report").classes("w-full"):
                     ui.code(traceback.format_exc()).classes("text-xs")
             return
-        chart_container.clear()
-        with chart_container:
-            _render_chart([r.model_dump() for r in rows], ct, y_val, x_val)
+
+        row_dicts = [r.model_dump() for r in rows]
+        # Bar: aggregate client-side — average Y per distinct X, per group
+        if ct == "bar":
+            row_dicts = _aggregate_bar(row_dicts)
+
+        option = _build_chart_option(row_dicts, ct, y_label, x_label)
+
+        meas = _single_scoped_measurement(state["filter_set"])
+        plotting_value = y_label == "measurement_value"
+        if option is not None and ct in ("scatter", "line") and plotting_value and meas:
+
+            def _fetch_limits() -> list[LimitBandRow]:
+                with _new_query() as q:
+                    return q.latest_run_limits(x=x_sel, filters=state["filter_set"])
+
+            try:
+                bounds = await run.io_bound(_fetch_limits)
+            except (OSError, ValueError, RuntimeError):
+                bounds = []
+            _add_limit_series(option, bounds)
+
+        chart_status.clear()
+        chart_widget.options.clear()
+        if option is None:
+            chart_widget.update()
+            with chart_status:
+                ui.label("No data matches these selections").classes("text-slate-500 italic")
+            return
+        chart_widget.options.update(option)
+        chart_widget.update()
+        ui.timer(0.1, lambda: chart_widget.run_chart_method("resize"), once=True)
 
     _refreshing: dict[str, bool] = {"active": False}
 
     async def _refresh_all() -> None:
         if cardinality_label is None or chart_container is None:
             return
-        # Gate re-entrant calls: if _refresh_string_facets triggers on_change
-        # callbacks that call _refresh_all again, drop them. The in-progress
-        # refresh will complete and render the chart.
         if _refreshing["active"]:
             return
         _refreshing["active"] = True
         try:
             _push_url()
+            _update_vtype_widgets()
             await _refresh_cardinality()
             await _refresh_string_facets()
             await _refresh_chart()
@@ -382,10 +541,6 @@ async def explore_page(request: Request):
             ui.icon("scatter_plot").classes("text-slate-600")
             ui.label("Measurements").classes("text-2xl font-semibold text-slate-700")
 
-        # data-testid attributes are stable selectors for the
-        # screenshot-regeneration script (scripts/regenerate-ui-
-        # screenshots.py). Don't drop them without updating that
-        # script's MANIFEST.
         # FILTER section
         with ui.card().classes("w-full").props('data-testid="explore-filters"'):
             ui.label("FILTER").classes("text-xs font-semibold text-slate-500 tracking-wider")
@@ -407,11 +562,13 @@ async def explore_page(request: Request):
             with ui.row().classes("items-end gap-3 flex-wrap w-full"):
 
                 async def _on_y_change(e: Any) -> None:
-                    state["y"] = str(e.value or "")
+                    state["y_label"] = str(e.value or "")
+                    state["y_value_type"] = None
                     await _refresh_all()
 
                 async def _on_x_change(e: Any) -> None:
-                    state["x"] = str(e.value or "")
+                    state["x_label"] = str(e.value or "")
+                    state["x_value_type"] = None
                     await _refresh_all()
 
                 async def _on_chart_type_change(e: Any) -> None:
@@ -419,7 +576,7 @@ async def explore_page(request: Request):
                     await _refresh_all()
 
                 async def _on_group_by_change(e: Any) -> None:
-                    state["group_by"] = str(e.value or "")
+                    state["group_label"] = str(e.value or "")
                     await _refresh_all()
 
                 async def _on_bins_change(e: Any) -> None:
@@ -432,20 +589,64 @@ async def explore_page(request: Request):
                     await _refresh_chart()
                     _push_url()
 
+                async def _on_y_vtype_change(e: Any) -> None:
+                    state["y_value_type"] = str(e.value or "") or None
+                    await _refresh_chart()
+                    _push_url()
+
+                async def _on_x_vtype_change(e: Any) -> None:
+                    state["x_value_type"] = str(e.value or "") or None
+                    await _refresh_chart()
+                    _push_url()
+
                 ui.select(
-                    y_options,
-                    value=state["y"],
+                    list(y_map),
+                    value=state["y_label"],
                     label="Y axis",
                     with_input=True,
                     on_change=_on_y_change,
                 ).classes("w-56")
+
+                # Value-type picker for Y (hidden unless Y is polymorphic)
+                y_fd_init = field_desc.get(state["y_label"])
+                y_has_multi = y_fd_init is not None and len(y_fd_init.value_types) > 1
+                y_vtype_init = y_fd_init.value_types if y_has_multi else []
+                y_vtype_widget = (
+                    ui.select(
+                        y_vtype_init,
+                        value=state["y_value_type"],
+                        label="Y type",
+                        on_change=_on_y_vtype_change,
+                    )
+                    .classes("w-40")
+                    .props("dense outlined")
+                )
+                y_vtype_widget.set_visibility(bool(y_vtype_init))
+
                 ui.select(
-                    x_options,
-                    value=state["x"],
+                    list(x_map),
+                    value=state["x_label"],
                     label="X axis",
                     with_input=True,
                     on_change=_on_x_change,
                 ).classes("w-56")
+
+                # Value-type picker for X (hidden unless X is polymorphic)
+                x_fd_init = field_desc.get(state["x_label"])
+                x_has_multi = x_fd_init is not None and len(x_fd_init.value_types) > 1
+                x_vtype_init = x_fd_init.value_types if x_has_multi else []
+                x_vtype_widget = (
+                    ui.select(
+                        x_vtype_init,
+                        value=state["x_value_type"],
+                        label="X type",
+                        on_change=_on_x_vtype_change,
+                    )
+                    .classes("w-40")
+                    .props("dense outlined")
+                )
+                x_vtype_widget.set_visibility(bool(x_vtype_init))
+
                 ui.select(
                     CHART_TYPES,
                     value=state["chart_type"],
@@ -453,8 +654,8 @@ async def explore_page(request: Request):
                     on_change=_on_chart_type_change,
                 ).classes("w-32")
                 ui.select(
-                    [""] + group_options,
-                    value=state["group_by"],
+                    [""] + list(group_map),
+                    value=state["group_label"],
                     label="Group by",
                     with_input=True,
                     on_change=_on_group_by_change,
@@ -479,14 +680,15 @@ async def explore_page(request: Request):
                     "outline"
                 )
 
-        # Chart container — skeleton until first refresh fires.
+        # Chart container
         chart_container = ui.column().classes("w-full").props('data-testid="explore-chart"')
-        render_skeleton(chart_container, "h-[28rem]")
+        with chart_container:
+            chart_status = ui.column().classes("w-full")
+            chart_widget = ui.echart({}).classes("w-full h-[28rem]")
+        render_skeleton(chart_status, "h-[28rem]")
 
-    # First load fires after page renders.
     ui.timer(0.0, _refresh_all, once=True)
 
-    # Live updates on run.ended.
     try:
         event_store = EventStore.get_shared(resolve_data_dir())
         subscribe_with_refresh(event_store, ["run.ended"], _refresh_all)
@@ -498,67 +700,47 @@ def _fetch_initial_schema(
     data_dir: str,
     is_bare_url: bool,
     initial_filters: FilterSet,
-    initial_y: str,
-    initial_x: str,
     initial_chart_type: str,
-    initial_group_by: str,
 ) -> tuple | None | str:
     """Pure data fetch for explore page init. Returns None (no data), str (error), or tuple."""
     try:
         with MeasurementsQuery(_data_dir=data_dir) as q:
-            schema = q.describe_columns()
-    except IndexOutOfDate:
+            schema: ColumnSchema = q.describe_columns()
+            initial_counts = q.summary_counts()
+    except FlightPermanentError:
         return None
     except (OSError, ValueError, RuntimeError) as exc:
         return str(exc)
 
-    try:
-        with MeasurementsQuery(_data_dir=data_dir) as q:
-            initial_counts = q.summary_counts()
-    except (OSError, ValueError, RuntimeError):
-        initial_counts = None
-    if initial_counts is not None and initial_counts.total_rows == 0:
+    if initial_counts.total_rows == 0:
         return None
 
-    y_options, x_options, group_options = _classify_columns(schema)
+    y_map, x_map, group_map, field_desc = _build_axis_options(schema)
+
+    initial_y_label = _default_y(y_map)
+    initial_x_label = _default_x(x_map)
 
     if is_bare_url:
         try:
             with MeasurementsQuery(_data_dir=data_dir) as q:
                 top_names = q.distinct_values("measurement_name", filters=FilterSet(), limit=20)
-        except (OSError, ValueError, RuntimeError, IndexOutOfDate):
+        except (OSError, ValueError, RuntimeError, FlightPermanentError):
             top_names = []
         real_names = [o for o in top_names if not o.value.startswith("_")]
         if real_names:
             initial_filters = FilterSet(string_filters={"measurement_name": [real_names[0].value]})
-        if not initial_y:
-            for candidate in ("measurement_value", "value"):
-                if candidate in y_options:
-                    initial_y = candidate
-                    break
-        if not initial_x:
-            for candidate in ("vector_index", "run_started_at"):
-                if candidate in x_options:
-                    initial_x = candidate
-                    break
 
-    if initial_y not in y_options:
-        initial_y = y_options[0] if y_options else ""
-    if initial_x not in x_options:
-        initial_x = x_options[0] if x_options else ""
     if initial_chart_type not in CHART_TYPES:
         initial_chart_type = "scatter"
-    if initial_group_by and initial_group_by not in group_options:
-        initial_group_by = ""
 
     return (
-        y_options,
-        x_options,
-        group_options,
-        initial_y,
-        initial_x,
+        y_map,
+        x_map,
+        group_map,
+        field_desc,
+        initial_y_label,
+        initial_x_label,
         initial_chart_type,
-        initial_group_by,
         initial_filters,
     )
 
@@ -582,13 +764,7 @@ def _build_facet_widget(  # noqa: PLR0913
     on_since_change: Any,
     on_until_change: Any,
 ) -> Any:
-    """Render one compact facet block and return its primary widget.
-
-    Each facet is a single labelled select (or a since/until pair for
-    dates). They flex-wrap horizontally in the parent row instead of
-    stacking. Descriptions become tooltips so they don't bloat the
-    section vertically.
-    """
+    """Render one compact facet block and return its primary widget."""
     if facet.kind is FacetKind.DATE:
         with ui.row().classes("gap-2 items-end"):
             since_input = (
@@ -643,11 +819,11 @@ def _build_facet_widget(  # noqa: PLR0913
             sel.tooltip(facet.description)
         return sel
 
-    # FacetKind.STRING — options populated lazily by _refresh_string_facets
+    # FacetKind.STRING
     current = filter_set.string_filters.get(facet.column, [])
     sel = (
         ui.select(
-            {v: v for v in current},  # seed with current selections so they render
+            {v: v for v in current},
             multiple=True,
             value=current,
             label=facet.label,
@@ -662,15 +838,28 @@ def _build_facet_widget(  # noqa: PLR0913
     return sel
 
 
-# ── Chart helpers (preserved from previous iteration) ────────────────
+# ── Chart helpers ──────────────────────────────────────────────────────
+
+
+def _aggregate_bar(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Client-side bar aggregation: average Y per distinct (group, x)."""
+    buckets: dict[tuple[str, Any], list[float]] = defaultdict(list)
+    for r in rows:
+        key = (str(r.get("group", "")), r.get("x"))
+        y = r.get("y")
+        if y is not None:
+            buckets[key].append(float(y))
+    result: list[dict[str, Any]] = []
+    seen_x: dict[str, list[Any]] = defaultdict(list)
+    for (grp, x_val), ys in buckets.items():
+        seen_x[grp].append(x_val)
+        result.append({"group": grp, "x": x_val, "y": sum(ys) / len(ys)})
+    result.sort(key=lambda r: (str(r["group"]), str(r["x"])))
+    return result
 
 
 def _coerce_x(value: Any) -> Any:
-    """Convert a Python value to something ECharts can plot.
-
-    datetime → epoch ms (ECharts ``time`` axis expects this). Other
-    types pass through.
-    """
+    """Convert a Python value to something ECharts can plot."""
     if isinstance(value, datetime.datetime):
         return int(value.timestamp() * 1000)
     if isinstance(value, datetime.date):
@@ -681,11 +870,42 @@ def _coerce_x(value: Any) -> Any:
     return value
 
 
-def _x_axis_type(rows: list[dict[str, Any]]) -> str:
-    """Pick the ECharts xAxis type based on the first non-null x value.
+def _single_scoped_measurement(filter_set: FilterSet) -> str | None:
+    """The lone measurement_name in scope, or None."""
+    names = filter_set.string_filters.get("measurement_name", [])
+    return names[0] if len(names) == 1 else None
 
-    datetime → ``time``, str → ``category``, numeric → ``value``.
-    """
+
+_LIMIT_COLOR = "#1f2937"
+
+
+def _add_limit_series(option: dict[str, Any], bounds: list[LimitBandRow]) -> None:
+    """Overlay the latest run's low/high envelope as step lines."""
+    sides = (
+        ("Limit low", [[_coerce_x(b.x), b.low] for b in bounds if b.low is not None]),
+        ("Limit high", [[_coerce_x(b.x), b.high] for b in bounds if b.high is not None]),
+    )
+    for name, points in sides:
+        if not points:
+            continue
+        option["series"].append(
+            {
+                "type": "line",
+                "name": name,
+                "data": points,
+                "step": "middle",
+                "showSymbol": False,
+                "silent": True,
+                "lineStyle": {"type": "dashed", "color": _LIMIT_COLOR, "width": 1.5},
+                "itemStyle": {"color": _LIMIT_COLOR},
+                "z": 1,
+            }
+        )
+        option["legend"]["data"].append(name)
+
+
+def _x_axis_type(rows: list[dict[str, Any]]) -> str:
+    """Pick the ECharts xAxis type based on the first non-null x value."""
     for r in rows:
         xv = r.get("x")
         if xv is None:
@@ -699,7 +919,7 @@ def _x_axis_type(rows: list[dict[str, Any]]) -> str:
 
 
 def _x_axis_opt(label: str, x_type: str, *, data: list[Any] | None = None) -> dict[str, Any]:
-    """Standard X-axis with centered name, units-friendly gap, bold style."""
+    """Standard X-axis with centered name."""
     opt: dict[str, Any] = {
         "type": x_type,
         "name": label,
@@ -717,7 +937,7 @@ def _x_axis_opt(label: str, x_type: str, *, data: list[Any] | None = None) -> di
 
 
 def _y_axis_opt(label: str) -> dict[str, Any]:
-    """Standard Y-axis with rotated centered name, scale=True for headroom."""
+    """Standard Y-axis with rotated centered name."""
     return {
         "type": "value",
         "name": label,
@@ -761,7 +981,7 @@ def _toolbox(*, allow_y_zoom: bool) -> dict[str, Any]:
 
 
 def _series_label(group_key: str, fallback: str) -> str:
-    """Display name for a series — empty / null groups become legible labels."""
+    """Display name for a series."""
     if group_key == "":
         return fallback
     if group_key in ("None", "null"):
@@ -769,16 +989,15 @@ def _series_label(group_key: str, fallback: str) -> str:
     return group_key
 
 
-def _render_chart(  # noqa: PLR0912
+def _build_chart_option(  # noqa: PLR0912
     rows: list[dict[str, Any]],
     chart_type: str,
     y_label: str,
     x_label: str,
-) -> None:
-    """Render rows into an ECharts plot. Long-format → grouped series."""
+) -> dict[str, Any] | None:
+    """Build an ECharts option dict from rows (long-format → grouped series)."""
     if not rows:
-        ui.label("No data matches these selections").classes("text-slate-500 italic")
-        return
+        return None
 
     by_group: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
@@ -854,5 +1073,4 @@ def _render_chart(  # noqa: PLR0912
             "dataZoom": _DATA_ZOOM_XY,
         }
 
-    chart = ui.echart(option).classes("w-full h-[28rem]")
-    ui.timer(0.1, lambda: chart.run_chart_method("resize"), once=True)
+    return option

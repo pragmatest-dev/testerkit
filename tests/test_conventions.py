@@ -77,7 +77,7 @@ def test_no_tmp_path_daemon_spawners():
         backend = ParquetBackend(data_dir=canonical)
 
     Per-test isolation by ``run_id`` (uuid4), ``session_id``, or a
-    unique ``dut_serial`` / ``product_id`` filter — not by directory.
+    unique ``uut_serial`` / ``part_id`` filter — not by directory.
     """
     offenders: list[tuple[Path, int, str]] = []
     for path in _iter_test_files():
@@ -122,4 +122,183 @@ def test_no_hardcoded_platformdirs_paths():
             "Tests must use ``resolve_data_dir()`` instead of "
             'hardcoded ``platformdirs.user_data_dir("litmus")``:\n'
             f"{msg}"
+        )
+
+
+def test_query_clients_read_daemon_not_parquet():
+    """Query clients read the daemon index — never re-read parquet.
+
+    A client-side ``read_parquet`` (the old ``StepsQuery._enrich_io``)
+    bypasses the daemon's warm index, races the materialize write, and
+    breaks the backend swap (a remote backend has no local parquet
+    path). Per-vector inputs/outputs live in the index as
+    ``dynamic_attrs``; clients read them from the daemon, not the files.
+    """
+    offenders: list[tuple[Path, int, str]] = []
+    for path in sorted((_REPO_ROOT / "src" / "litmus" / "analysis").glob("*_query.py")):
+        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+            if _is_doc_line(line):
+                continue
+            if "read_parquet" in line:
+                offenders.append((path.relative_to(_REPO_ROOT), lineno, line.strip()))
+    if offenders:
+        msg = "\n".join(f"  {p}:{n}  {line}" for p, n, line in offenders)
+        pytest.fail(
+            "Query clients must read the daemon index, not re-read parquet "
+            "(req-2 / req-6, and the #228 projection drift):\n" + msg
+        )
+
+
+_CHANNELSTORE_ALLOWED = {
+    # Producers (write their own segments + push) and the daemon
+    # legitimately construct a ChannelStore. Everyone else queries
+    # via the daemon.
+    "src/litmus/connect.py",
+    "src/litmus/pytest_plugin/hooks.py",
+    "src/litmus/data/channels/_flight_daemon.py",
+    "src/litmus/data/channels/store.py",
+    # The benchmark's write/stream workloads are serve=True producers;
+    # its channel QUERY workload reads through the daemon (ChannelClient),
+    # never a globbing store. runner.py pre-warms the channels daemon the
+    # same way (serve=True producer) before timing.
+    "src/litmus/benchmark/workloads.py",
+    "src/litmus/benchmark/concurrency.py",
+    "src/litmus/benchmark/runner.py",
+}
+
+
+def test_channel_reads_go_through_daemon_not_globbing_store():
+    """Channel read paths query the daemon — never build a globbing store.
+
+    An ephemeral ``ChannelStore(base, uuid4())`` re-globs every segment
+    per call: a client-side disk re-index (req 2) that also can't reach a
+    remote backend (req 6). Reads go through ``channel_query_client`` →
+    the daemon's warm index. Only producers, the daemon, and batch
+    materialize may construct a ChannelStore.
+    """
+    src = _REPO_ROOT / "src" / "litmus"
+    pattern = re.compile(r"\bChannelStore\(")
+    offenders: list[tuple[str, int, str]] = []
+    for path in src.rglob("*.py"):
+        rel = path.relative_to(_REPO_ROOT).as_posix()
+        if rel in _CHANNELSTORE_ALLOWED:
+            continue
+        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+            if _is_doc_line(line):
+                continue
+            if pattern.search(line):
+                offenders.append((rel, lineno, line.strip()))
+    if offenders:
+        msg = "\n".join(f"  {p}:{n}  {line}" for p, n, line in offenders)
+        pytest.fail(
+            "Channel reads must go through the daemon (``channel_query_client``), "
+            "not a per-call globbing ChannelStore (req-2 / req-6):\n" + msg
+        )
+
+
+def test_no_channel_registry_file():
+    """No ``_registry.json`` — the channel descriptor rides on each segment's
+    Arrow schema metadata and is served by the daemon. A client-side registry
+    file would be a disk re-index (req 2) the backend swap (req 6) can't reach.
+    """
+    src = _REPO_ROOT / "src" / "litmus"
+    offenders: list[tuple[str, int, str]] = []
+    for path in src.rglob("*.py"):
+        rel = path.relative_to(_REPO_ROOT).as_posix()
+        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+            if "_registry.json" in line:
+                offenders.append((rel, lineno, line.strip()))
+    if offenders:
+        msg = "\n".join(f"  {p}:{n}  {line}" for p, n, line in offenders)
+        pytest.fail(
+            "The channel _registry.json file is gone — descriptors ride the "
+            "segment Arrow schema metadata, served by the daemon:\n" + msg
+        )
+
+
+# Files-store source allowed to touch the on-disk blob layout directly: the
+# backend (which IS the filesystem adapter) and the catalog daemon's index
+# rebuild — a store reading its OWN data to build its OWN index, the one
+# legitimate place (feedback_store_boundary_is_api_boundary). Everything else
+# reads bytes through the BlobBackend, so the backend swap (req 6) holds.
+_FILES_BLOB_GLOB_ALLOWED = {
+    "src/litmus/data/files/_backend.py",
+    "src/litmus/data/files/catalog.py",
+}
+
+
+def test_filestore_reads_dont_glob_the_blob_layout():
+    """FileStore reads go through the BlobBackend / catalog — never a disk walk.
+
+    A ``glob``/``rglob``/``OSFile`` over the blob layout is the three-hatted
+    defect: it re-indexes disk per call (req 1), can't reach a remote backend
+    (req 6), and reaches past the store's API into its physical layout
+    (encapsulation). The ``file://{date}/{session}/{filename}`` URI carries the
+    full backend key, so a point read is pure parsing; the only legitimate disk
+    scan is the catalog daemon rebuilding its own index from sidecars.
+    """
+    files = _REPO_ROOT / "src" / "litmus" / "data" / "files"
+    pattern = re.compile(r"\.r?glob\(|\bOSFile\(")
+    offenders: list[tuple[str, int, str]] = []
+    for path in files.rglob("*.py"):
+        rel = path.relative_to(_REPO_ROOT).as_posix()
+        if rel in _FILES_BLOB_GLOB_ALLOWED:
+            continue
+        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+            if _is_doc_line(line):
+                continue
+            if pattern.search(line):
+                offenders.append((rel, lineno, line.strip()))
+    if offenders:
+        msg = "\n".join(f"  {p}:{n}  {line}" for p, n, line in offenders)
+        pytest.fail(
+            "FileStore reads must go through the BlobBackend / catalog, not a disk "
+            "walk (req-1 / req-6 / store encapsulation). Only the backend and the "
+            "catalog daemon's index rebuild may touch the blob layout:\n" + msg
+        )
+
+
+def test_inflight_schemas_carry_materialized_data_columns():
+    """Inflight overlay must carry the same data columns as the materialized
+    tables, so a live run renders identically to a finalized one.
+
+    Removing ``dynamic_attrs`` / ``vector_index`` / ``parent_path`` from
+    either the inflight schema or the materialized table is the #228
+    projection-drift bug — caught here against the real schema.
+    """
+    import duckdb
+
+    from litmus.data._accumulator_pool import (
+        INFLIGHT_MEASUREMENTS_SCHEMA,
+        INFLIGHT_STEPS_SCHEMA,
+    )
+    from litmus.data._runs_duckdb_daemon import _ensure_schema
+
+    conn = duckdb.connect(":memory:")
+    _ensure_schema(conn)
+
+    def mat_cols(table: str) -> set[str]:
+        return {row[0] for row in conn.execute(f"DESCRIBE {table}").fetchall()}
+
+    checks = (
+        (
+            "steps_materialized",
+            INFLIGHT_STEPS_SCHEMA,
+            ("vector_index", "parent_path", "dynamic_attrs"),
+        ),
+        ("measurements_materialized", INFLIGHT_MEASUREMENTS_SCHEMA, ("dynamic_attrs",)),
+    )
+    problems: list[str] = []
+    for table, schema, must_have in checks:
+        mat = mat_cols(table)
+        inflight = set(schema.names)
+        for col in must_have:
+            if col not in mat:
+                problems.append(f"{table} (materialized) is missing {col!r}")
+            if col not in inflight:
+                problems.append(f"{table} inflight schema is missing {col!r} (#228 drift)")
+    if problems:
+        pytest.fail(
+            "Inflight overlay drifted from the materialized tables — a live "
+            "run would render differently from a finalized one:\n  " + "\n  ".join(problems)
         )

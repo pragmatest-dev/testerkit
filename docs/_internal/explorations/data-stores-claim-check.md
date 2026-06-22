@@ -17,7 +17,7 @@ bears responsibility**, and it has to serve four jobs at once, for a long
 time. Every store/claim/index decision below traces back to one of these:
 
 1. **Disposition (the gate).** Did *this* unit meet spec? Pass/fail, bin,
-   ship-or-scrap — per-unit, against limits derived from the product spec.
+   ship-or-scrap — per-unit, against limits derived from the part spec.
 2. **Traceability & provenance (the defense).** A durable, reconstructable
    record tying a **serial** → the **spec/limits** judged against → the
    **instruments + calibration** that measured it → **station, operator,
@@ -158,6 +158,10 @@ rides from the observation into the `InstrumentRead` event and the parquet
 `out_*` column. So a run "has" a channel by *referencing its
 session-scoped URI*, not by tagging the channel with a run id.
 
+> **Superseded 2026-06-09 — see "The federation model" below.** Copy-on-prune is
+> dropped in favor of reference-aware retention. This paragraph is kept for context
+> on what `materialize` did and why it's a lateral no-op.
+
 **Materialization is session-keyed and copy-on-prune** (not RunEnded).
 `materialize_channel_refs` (`materialize.py`) runs *before channel
 pruning* (retention): it collects `(channel_id, session_short)` pairs,
@@ -190,7 +194,7 @@ an accident of which store got an index, not the design.
    fix.** (Cuts directly at Diagnosis: a failure's captured image is
    evidence, and it's being thrown away.)
 2. **No streaming sink.** `save_ref_to_dir` writes whole values. The stream
-   events exist — `StreamStarted(stream_id, format, path)`, `StreamEnded`,
+   events exist — `FileStarted(file_id, format, path)`, `FileEnded`,
    `StreamFrameIndex` (`events.py:616`) — the claim vocabulary for
    "video/protocol streaming to a file destination" is defined, but no
    writer backs it.
@@ -267,7 +271,7 @@ before.
   unify the two `_ref` dirs.
 - **Streaming sink** — `open(key, format) -> sink; write(chunk); close()`
   for video / large captures; emits the existing
-  `StreamStarted`→`StreamFrameIndex`→`StreamEnded` events; final
+  `FileStarted`→`StreamFrameIndex`→`FileEnded` events; final
   `file://` claim in the closing event.
 - **`file://` claim-check from events and from materialized run
   archives** — fixes the image-drop (`InstrumentRead` blobs and
@@ -367,12 +371,12 @@ The synthesis of the verb table, the dispatch table, and the data-type taxonomy.
 |---|---|---|---|---|---|
 | Judge a scalar against limits | `verify(name, v, limit=L)` | `float` / `int` / `bool` | event payload | `Measurement` | judged row (`value=v`, `outcome=PASSED/FAILED`) |
 | Record a scalar with no judgment (characterization scalar) | `verify(name, v)` no limit | `float` / `int` / `bool` / `str` | event payload | `Measurement` | DONE row (`value=v`, `outcome=DONE`) |
-| Stamp contextual scalar on the vector (DUT temp, supply, operator) | `observe(name, v)` | `float` / `int` / `bool` / `str` | `out_<name>` inline | `Observation` | only if vector has no `verify` → DONE row; else rides along |
+| Stamp contextual scalar on the vector (UUT temp, supply, operator) | `observe(name, v)` | `float` / `int` / `bool` / `str` | `out_<name>` inline | `Observation` | only if vector has no `verify` → DONE row; else rides along |
 | Capture a discrete artifact (waveform, image, file, vendor blob) | `observe(name, v)` | `Waveform` / `ndarray` / `Path` / `bytes` / image / model | FileStore (`file://…`) | `Observation` w/ `file://` claim | same auto-promotion rule |
 | Force a first-class row for an artifact (alongside derived verifies) | `verify(name, v)` no limit | non-scalar | FileStore | `Measurement` w/ `file://` claim | explicit DONE row (`value=NULL`, `outcome=DONE`) |
 | Judge a derived stat computed from a captured artifact | `verify(name, derived_scalar, limit=L)` | `float` (computed from the artifact) | event payload | `Measurement` | judged row; sees source URI via `out_*` on the same vector |
 | Stream live numerics from an instrument | `observer.read(...)` (inside driver code) | scalar or array | ChannelStore row | `InstrumentRead` | no (channel data is not a measurement) |
-| Stream bytes incrementally to one file (video, large continuous capture) | `with filestore.stream(name, format) as sink:` | bytes via `sink.write(chunk)` | FileStore (one file written incrementally) | `StreamStarted` / `StreamFrameIndex` ×N / `StreamEnded` | no (artifact is not a measurement) |
+| Stream bytes incrementally to one file (video, large continuous capture) | `with filestore.stream(name, format) as sink:` | bytes via `sink.write(chunk)` | FileStore (one file written incrementally) | `FileStarted` / `StreamFrameIndex` ×N / `FileEnded` | no (artifact is not a measurement) |
 
 ### Quick decision tree
 
@@ -408,7 +412,7 @@ observe("supply_voltage", psu.measure_voltage())
 # discrete artifact captures (anything non-scalar)
 observe("scope.ch1.capture", scope.acquire())              # → file://… (Waveform)
 observe("front_panel_photo", camera.snap())                # → file://… (Image)
-observe("nicom_dump",        Path("dut.tdms"))             # → file://… (Path copy)
+observe("nicom_dump",        Path("uut.tdms"))             # → file://… (Path copy)
 
 # derived stats from a captured artifact (judged scalars; share out_ source)
 wf = scope.acquire()
@@ -421,7 +425,7 @@ verify("max",       wf.max(),       Limit(low=3.2, high=3.4))
 # call ChannelStore directly
 
 # streaming captures (video / DAQ-to-file) — opt-in API
-with filestore.stream("dut_video", format="mp4") as sink:
+with filestore.stream("uut_video", format="mp4") as sink:
     camera.stream_to(sink)
 ```
 
@@ -493,7 +497,7 @@ Every meaningful operation emits an event; each carries data inline (when small)
 | `verify(name, non_scalar)` | `Measurement` | FileStore | `name`, `value=NULL`, `outcome=DONE`, `file://…` claim |
 | `observer.read(scalar)` *(driver)* | `InstrumentRead` | ChannelStore row | scalar inline |
 | `observer.read(array)` *(driver)* | `InstrumentRead` | ChannelStore row | `channel://…` claim + `{length, sample_interval, min, max}` inline (`events.py:543`) |
-| `filestore.stream(name, format)` | `StreamStarted` / `StreamFrameIndex` ×N / `StreamEnded` (`events.py:616-628`) | FileStore (one file, written incrementally) | `stream_id` / `format` / `path`, final `file://…` in `StreamEnded` |
+| `filestore.stream(name, format)` | `FileStarted` / `StreamFrameIndex` ×N / `FileEnded` (`events.py:616-628`) | FileStore (one file, written incrementally) | `file_id` / `format` / `path`, final `file://…` in `FileEnded` |
 | Run / step / vector lifecycle | `RunStarted` / `StepStarted` / `VectorStarted` / `VectorEnded` / `StepEnded` / `RunEnded` | event itself | identifiers + timestamps |
 
 ### Three lifecycle phases — same events, three roles
@@ -502,7 +506,7 @@ Every meaningful operation emits an event; each carries data inline (when small)
 
 **Phase 2 — Materialization (at `RunEnded`).** The materializer walks the event log for the run and builds the parquet measurement table. Measurement events → rows. Observation events in the same vector → `out_*` columns denormalized onto every measurement row in that vector. The auto-promotion rule decides whether observations also become DONE rows. Claim URIs flow through as-is into the parquet columns. `materialize_channel_refs` does its session-keyed copy-on-prune step when channel retention triggers (separate, retention-driven, not at RunEnded).
 
-**Phase 3 — At rest (post-run).** Two query surfaces, two purposes. **Parquet** is the analytical surface — `SELECT … FROM measurements WHERE …` by name / value / outcome. `out_*` columns hold scalar snapshots or claim URIs. Joins to product / station / spec for SPC. **Event log** stays queryable for replay / audit / "what exactly happened in this vector." Filter by `event_type`, `run_id`, `session_id`, `event_number`. **Following a URI** is the raw-data drill-down — `file://…` resolves via FileStore (artifact viewer renders or serves bytes); `channel://…` resolves via ChannelStore (rows for the session, plot or compute).
+**Phase 3 — At rest (post-run).** Two query surfaces, two purposes. **Parquet** is the analytical surface — `SELECT … FROM measurements WHERE …` by name / value / outcome. `out_*` columns hold scalar snapshots or claim URIs. Joins to part / station / spec for SPC. **Event log** stays queryable for replay / audit / "what exactly happened in this vector." Filter by `event_type`, `run_id`, `session_id`, `event_number`. **Following a URI** is the raw-data drill-down — `file://…` resolves via FileStore (artifact viewer renders or serves bytes); `channel://…` resolves via ChannelStore (rows for the session, plot or compute).
 
 ### Why events aren't the search surface
 
@@ -510,15 +514,15 @@ The event IPC schema (`event_log.py:31-40`) is typed envelope columns (`event_nu
 
 ### Time sync between continuous artifacts and point measurements
 
-A **measurement** is a point event — one `received_at` timestamp, fired the moment `verify` was called. A **vector / step / run** is a range — bracketed by `VectorStarted`/`VectorEnded`, `StepStarted`/`StepEnded`, `RunStarted`/`RunEnded`. A **continuous artifact** (video, audio, long DAQ file) is also a range — bracketed by `StreamStarted`/`StreamEnded`.
+A **measurement** is a point event — one `received_at` timestamp, fired the moment `verify` was called. A **vector / step / run** is a range — bracketed by `VectorStarted`/`VectorEnded`, `StepStarted`/`StepEnded`, `RunStarted`/`RunEnded`. A **continuous artifact** (video, audio, long DAQ file) is also a range — bracketed by `FileStarted`/`FileEnded`.
 
 Given a continuous artifact and any of the above, the sync mechanic is the same — subtract on the shared event clock:
 
 | You want | Compute |
 |---|---|
-| Video moment for a single measurement | `measurement.received_at − StreamStarted.received_at` → one offset (seconds) |
-| Video segment for a vector | `(VectorStarted − StreamStarted, VectorEnded − StreamStarted)` → start/end offsets |
-| Video segment for a step | `(StepStarted − StreamStarted, StepEnded − StreamStarted)` |
+| Video moment for a single measurement | `measurement.received_at − FileStarted.received_at` → one offset (seconds) |
+| Video segment for a vector | `(VectorStarted − FileStarted, VectorEnded − FileStarted)` → start/end offsets |
+| Video segment for a step | `(StepStarted − FileStarted, StepEnded − FileStarted)` |
 | Channel samples concurrent with a measurement | `ChannelStore.query(channel_id, since=measurement.received_at − ε, until=measurement.received_at + ε)` |
 | Channel samples covering a vector | same query, keyed on the vector's start/end |
 
@@ -539,6 +543,158 @@ The platform commits to one clock (the event log's `received_at`); everything el
 
 ---
 
+## The federation model: ownership, retention, portability (ref-vs-copy resolution, 2026-06-09)
+
+A design session — grounded in lakehouse / TSDB / ML-platform prior art — resolved how
+cross-store references, retention, and archival actually work, and concluded the eager
+**copy** (`materialize_channel_refs`) is the wrong mechanism. This supersedes the
+copy-on-prune description above.
+
+### The stores are a federation, not a relational database
+
+The four stores reference each other by URI (`channel://`, `file://`) but they are **not
+related tables in one engine**: separate stores, separate daemons, separate files,
+separate retention, no cross-store transaction, no enforced foreign keys. This is
+unsettling only against an RDBMS mental model. The correct model is the **data-lake /
+metadata-store split**, the dominant pattern wherever heavy data is separated from
+metadata:
+
+- **MLflow** — backend store (metadata DB) + artifact store (S3); a run references
+  artifacts by URI; the metadata DB neither holds the bytes nor enforces the link.
+  One-to-one with events/runs (metadata) ↔ channels/files (heavy data).
+- **Iceberg / Delta Lake** — a catalog/manifest + data files in object storage; the
+  "table" is a list of **relative** file paths; no engine prevents deleting a referenced
+  file — "missing/orphan file" is a *handled* state, not an impossibility.
+
+So "they know about each other but aren't one database" is the defining property of a
+lakehouse, not a smell.
+
+### Two coordination seams (the only places the stores touch)
+
+Both are plain API calls — never a shared transaction, never reaching into another
+store's files:
+
+1. **Read-resolution** — a consumer follows a `channel://` / `file://` URI by calling the
+   *owning* store's API (`channel_query_client(...).query(...)`), never by reading files.
+   (Store boundary = API boundary.)
+2. **Retention-reachability** — before pruning, a store asks "who references this?" via
+   `run_store.find_channel_refs(...)`. Referenced → kept; unreferenced → pruned.
+
+### Reference-aware retention — don't copy, pin the referenced
+
+**Decision: do not copy referenced data. Keep it in place; prune only the unreferenced.**
+The lakehouse `VACUUM` model: Delta removes files "no longer referenced *and* older than
+the threshold" (referenced files are never vacuumed); Iceberg removes files "not
+referenced by any current snapshot" (data lives while reachable).
+
+The reachability query **already exists** — `materialize` calls
+`run_store.find_channel_refs(session_shorts)`. Reference-aware retention is the *same
+query, opposite action*: instead of *"copy what it returns"*, *"prune everything **except**
+what it returns."* No copy, no cross-store glob, **no redundant large-file duplication**.
+Channel data **no run references** ages out normally (the TSDB pattern: raw is transient;
+TimescaleDB/Influx age-out + downsample + tier).
+
+**`materialize`-on-prune is a lateral no-op and is dropped.** It copies a slice from the
+channel store into the *file* store and rewrites `channel://` → `file://` — changing
+*which* store owns the bytes without making the run self-sufficient (it still points
+outward, now at FileStore). It pays an export's duplication cost with none of an export's
+portability benefit. Reference-aware retention replaces it.
+
+### Lifecycle-dependent ownership
+
+Ownership changes with lifecycle stage, exactly as in MLflow/lakehouses:
+
+| Stage | Who owns the bytes | Precedent |
+|---|---|---|
+| Operating (bench / central server) | the **store** owns its data; runs hold federation pointers | lakehouse table ↔ data files; MLflow run ↔ artifacts |
+| Archiving (hand-off / backup / audit) | a **sealed bundle** owns a copy of everything | Iceberg clone; MLflow export dir; OpenHTF `result.json` |
+
+A run is **not** expected to be self-sufficient while it lives in the system — it becomes
+self-sufficient when it *leaves*, via an explicit seal/export. Self-sufficiency is a
+property of the boundary, not the live store.
+
+### Two portable grains — and they are different tools
+
+Because **the data files are the source of truth, every index is a derived cache rebuilt
+from them, and every reference is relative** (`file://` is a backend-root-relative key;
+`channel://` is channel-id + session — never an absolute path):
+
+- **Coarse — whole `data_dir`:** `cp` / `rsync` / **merge** two dirs; first daemon access
+  rebuilds the index from the (possibly unioned) files. Safe because identities are uuid4
+  (no collisions) and refs never cross a `data_dir`. The lakehouse superpower (copy the
+  table dir, the catalog recomputes) — impossible with an RDBMS. The **backup/relocate**
+  tool.
+- **Fine — selected runs + what they reference:** the run parquet + *only* the
+  `channel://`/`file://` slices it points at (reachability via `find_channel_refs`),
+  daemon-free. The **promote / seal / hand-off** tool. Matches MLflow export (run + its
+  artifacts) and OpenHTF `result.json` (record + attachments) — "record + what it
+  references," never "everything."
+
+**Gotcha (coarse grain):** the *data* relocates cleanly; the *daemon state files*
+(`_*.json` / `_*_pid` / `_*.lock` / `_ready` / port files) are machine-specific and must
+be cleared on copy/merge so daemons cleanly respawn + rebuild — a tooling job
+(`litmus import` / `merge` / `relocate`).
+
+### The integrity contract — tooling, not engine constraints
+
+There is no constraint engine, so **the tooling is the integrity layer**: reference-aware
+retention, emit-ref-only-after-durable (atomic publish), import/merge/relocate.
+
+- **Through the tooling → the system's responsibility.** Referenced data is never pruned;
+  refs are never emitted before bytes are durable; relocation rebuilds cleanly.
+- **Outside the tooling (manual file surgery) → the user's responsibility.** Nothing can
+  stop a manual `rm` of referenced data or a bad hand-merge; the user owns that outcome.
+  Verbatim the lakehouse contract ("don't manually delete data files; use `VACUUM`").
+- **The system's guarantee in return: fail loud, never silent.** A dangling reference
+  resolves to a clean "not found" and is **surfaced** (flagged in the index, shown to the
+  operator — #263), never silently corrupted. The same no-hide-data rule applied
+  everywhere: a missing reference is an operator-visible signal.
+
+### `litmus data promote` is the first cross-federation tool — and today it's broken
+
+`litmus data promote` (`cli.py:2511`) copies **only** `runs/runs/*.parquet` to the global
+store and suggests `rm -rf {src_data}` afterward. Under the federation model that dangles
+every `channel://`/`file://` ref the promoted parquet holds **and** discards the events
+spine (the *source* the parquet is merely a derived view of). It promotes one store, not
+the run's reachable set.
+
+Fix: promote the **fine grain** — runs + their referenced channel slices + referenced
+files (reachability via `find_channel_refs`). **Default = runs + references**; the parquet
+already denormalizes serial/spec/station/cal/operator/conditions per row, so it's
+audit-ish without the raw timeline. **`--with-events`** adds the session event trail for
+compliance-grade archives. Unreferenced channels are *not* carried (transient monitoring —
+what retention prunes). Promote and reference-aware retention share the same reachability
+machinery.
+
+### Work items
+
+1. **Reference-aware retention** — flip `find_channel_refs` from copy-what's-referenced to
+   prune-all-but-referenced; delete `materialize_channel_refs`'s copy + the cross-store
+   channel glob. Unreferenced channel data ages out (configurable; TSDB default).
+2. **Run seal/export** — explicit op producing a self-contained, daemon-free bundle
+   (manifest + referenced channel slices + files; `--with-events` optional). OpenHTF
+   output-callback / MLflow-export shape. Net-new.
+3. **Fix `litmus data promote`** — carry runs + references (reachability-scoped), not just
+   `runs/`; never suggest `rm -rf` the source while refs are unresolved. Shares (2)'s
+   machinery.
+4. **Dangling-reference resilience** (#263) — the safety net for manual surgery: a missing
+   ref reads as a clean, surfaced "not found," never silent corruption.
+5. **Relocation tooling** — `litmus import` / `merge` clears stale daemon state + triggers
+   rebuild (vs. relying on the incremental scan).
+
+### Prior art
+
+- Reference-aware GC: [Delta VACUUM](https://docs.delta.io/latest/delta-utility.html),
+  [Iceberg VACUUM TABLE](https://www.dremio.com/blog/apache-iceberg-table-storage-management-with-dremios-vacuum-table/)
+- Time-series age-out + downsample + tier:
+  [TimescaleDB downsampling](https://www.tigerdata.com/blog/how-to-proactively-manage-long-term-data-storage-with-downsampling)
+- Self-contained export: [OpenHTF output callbacks](https://www.openhtf.com/output-callbacks),
+  [mlflow-export-import](https://github.com/mlflow/mlflow-export-import)
+- Metadata-store + artifact-store federation:
+  [MLflow Artifact Stores](https://mlflow.org/docs/latest/self-hosting/architecture/artifact-store/)
+
+---
+
 ## Build items
 
 Each MVP lift names the **symptom** in current source it fixes. Order is conceptual, not strictly sequential — many are independent.
@@ -548,7 +704,7 @@ Each MVP lift names the **symptom** in current source it fixes. Order is concept
 **Stores**
 
 1. **Stand up the raw-data store (FileStore)** as a first-class, session-scoped peer of ChannelStore: durable `put(key, value, attrs) -> file://…`, live lifecycle, `file://` URI, attributes captured at put as self-description (mime / dtype / dimensions / size). Unify the two existing `_ref` dirs (`events/{session_id}_ref` + `runs/{stem}_ref` — `event_log.py:247`, `parquet.py:367`).
-2. **Streaming sink** behind the existing `Stream*` events (`events.py:616-628`) — `open(key, format) -> sink; write(chunk); close()` for video and large continuous captures. Final `file://` claim in `StreamEnded`.
+2. **Streaming sink** behind the existing `File*` events (`events.py:616-628`) — `open(key, format) -> sink; write(chunk); close()` for video and large continuous captures. Final `file://` claim in `FileEnded`.
 
 **API consistency (fix the four asymmetries)**
 
@@ -639,7 +795,7 @@ The audit is useful anyway for three reasons: it gives readers from other ecosys
 
 *Gap 2 — the relational shape of the analytic surface.* MLflow's entities (params, metrics, tags, artifacts) are **flat siblings under a run**. They share `run_id` as grouping but have no row-level relationship to each other — a metric does not reference a param or an artifact; an artifact does not reference a metric. To ask "which params and artifacts correspond to metric `loss=0.2`?" you join via `run_id` and get *all* params and *all* artifacts on that run.
 
-Our analytic shape is opposite: **everything denormalizes onto the measurement row**. A `verify` row carries its own `value` / `outcome` / `limit_*`, the vector's `in_*` (inputs from `configure`), the vector's `out_*` (observations including artifact URIs), and the session/run context (DUT serial, station, spec) — one query, no joins. "Which inputs and which captured artifact correspond to this overshoot row?" is answered by the row's own columns.
+Our analytic shape is opposite: **everything denormalizes onto the measurement row**. A `verify` row carries its own `value` / `outcome` / `limit_*`, the vector's `in_*` (inputs from `configure`), the vector's `out_*` (observations including artifact URIs), and the session/run context (UUT serial, station, spec) — one query, no joins. "Which inputs and which captured artifact correspond to this overshoot row?" is answered by the row's own columns.
 
 This is a real architectural difference, driven by data-shape needs:
 
@@ -676,7 +832,7 @@ So our shape **converges with** MLflow on the **storage split** (lean metadata +
 | **The four jobs** (disposition / traceability / yield / diagnosis) | ISO/IEC 17025 (lab quality / traceability), SEMI E10 / E58 (equipment metrics), AIAG MSA (Cpk / Gauge R&R), Western Electric / Six Sigma (SPC) — each job traces to an established T&M domain |
 | Measurements with limits + outcomes, attachments as side artifacts | **OpenHTF** — `measurements` (with limits) + `phase.attach_from_file()` (artifacts) |
 | Calibration cert + traceability spine | ISO/IEC 17025, A2LA accreditation |
-| DUT serial + station + operator + spec on every row | MES / shop-floor data; SEMI SECS/GEM; IEEE 1671 ATML test result format |
+| UUT serial + station + operator + spec on every row | MES / shop-floor data; SEMI SECS/GEM; IEEE 1671 ATML test result format |
 | Sample-rate-derived time axis (`t0 + dt`) | TDMS waveform encoding; IEEE 1671; MATLAB time-series objects |
 
 ### Observability lineage (close cousin, lighter reuse)

@@ -21,6 +21,16 @@ def _make_store(tmp_path: Path, flush_threshold: int = 100) -> ChannelStore:
 
 
 class TestScalarChannel:
+    def test_lazy_open_on_first_write_and_idempotent_open(self, tmp_path: Path):
+        """P2b: a never-opened store opens on first write; open() is idempotent."""
+        store = ChannelStore(tmp_path, uuid4())  # constructed, NOT opened
+        assert store._opened is False
+        store.write("dmm.dc_voltage", 3.3, source="measure")  # first write opens it
+        assert store._opened is True
+        store.open()  # idempotent — no re-init, no error
+        store.close()
+        assert len(list((tmp_path / "channels").glob("*/*.arrow"))) == 1
+
     def test_writes_arrow_ipc_on_close(self, tmp_path: Path):
         store = _make_store(tmp_path)
         store.write("dmm.dc_voltage", 3.3, source="measure_dc_voltage")
@@ -34,7 +44,9 @@ class TestScalarChannel:
         table = reader.read_all()
         assert len(table) == 2
         assert "value" in table.schema.names
-        assert "timestamp" in table.schema.names
+        # Item 11: ``timestamp`` → ``received_at`` + nullable ``sampled_at``.
+        assert "received_at" in table.schema.names
+        assert "sampled_at" in table.schema.names
 
     def test_empty_session_no_files(self, tmp_path: Path):
         store = _make_store(tmp_path)
@@ -68,8 +80,11 @@ class TestArrayChannel:
         assert len(arrow_files) == 1
         reader = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb"))
         table = reader.read_all()
-        assert "samples" in table.schema.names
-        assert table.column("samples")[0].as_py() == [1.0, 2.0, 3.0, 4.0]
+        # Post-C3a-pre: array payload lives in the ``value`` column
+        # (uniform with scalar rows). ``sample_interval`` distinguishes
+        # array-shape rows from scalar-shape rows.
+        assert "value" in table.schema.names
+        assert table.column("value")[0].as_py() == [1.0, 2.0, 3.0, 4.0]
         assert table.column("sample_interval")[0].as_py() == 1e-5
 
     def test_flat_list_stored(self, tmp_path: Path):
@@ -80,7 +95,7 @@ class TestArrayChannel:
         arrow_files = list((tmp_path / "channels").glob("*/*.arrow"))
         reader = ipc.open_stream(pa.OSFile(str(arrow_files[0]), "rb"))
         table = reader.read_all()
-        assert table.column("samples")[0].as_py() == [1.0, 2.0, 3.0]
+        assert table.column("value")[0].as_py() == [1.0, 2.0, 3.0]
 
 
 class TestMultipleChannels:
@@ -94,19 +109,33 @@ class TestMultipleChannels:
         assert len(arrow_files) == 2
 
 
-class TestRegistry:
-    def test_registry_written_on_close(self, tmp_path: Path):
-        import json
+class TestDescriptor:
+    def test_descriptor_rides_on_segment_schema_metadata(self, tmp_path: Path):
+        import pyarrow as pa
+        import pyarrow.ipc as ipc
+
+        from litmus.data.channels.models import ChannelDescriptor
 
         store = _make_store(tmp_path)
         store.write("dmm.dc_voltage", 3.3)
         store.close()
 
-        registry_path = tmp_path / "channels" / "_registry.json"
-        assert registry_path.exists()
-        data = json.loads(registry_path.read_text())
-        assert "dmm.dc_voltage" in data
-        assert data["dmm.dc_voltage"]["data_type"] == "scalar"
+        # The descriptor rides on each segment's Arrow schema metadata — the
+        # daemon reads + serves it from there (and the do_put stream).
+        segments = list((tmp_path / "channels").glob("*/*.arrow"))
+        assert segments
+        meta = ipc.open_stream(pa.OSFile(str(segments[0]), "rb")).schema.metadata
+        assert meta and b"litmus.channel_descriptor" in meta
+        desc = ChannelDescriptor.model_validate_json(meta[b"litmus.channel_descriptor"])
+        assert desc.channel_id == "dmm.dc_voltage"
+        # Build item 14: typed leaf — ``3.3`` is ``float`` → ``"scalar:float"``.
+        assert desc.value_type == "scalar:float"
+
+    def test_no_registry_json_written(self, tmp_path: Path):
+        store = _make_store(tmp_path)
+        store.write("dmm.dc_voltage", 3.3)
+        store.close()
+        assert not (tmp_path / "channels" / "_registry.json").exists()
 
 
 class TestStreaming:
@@ -118,7 +147,7 @@ class TestStreaming:
         # After 7 writes with threshold 5, writer should have flushed once
         writer = store._writers["dmm.dc_voltage"]
         assert writer._row_count == 5  # One flush of 5
-        assert len(writer._buffer) == 2  # 2 remaining in buffer
+        assert writer._pending_rows == 2  # 2 remaining buffered (unflushed)
 
         store.close()
 
@@ -181,7 +210,9 @@ class TestSubscriptions:
 
         assert len(received) == 1
         # Normalized to dict
-        assert received[0].value == {"samples": [1.0, 2.0, 3.0], "sample_interval": 1e-5}
+        # Post-C3a-pre: normalize folds the array payload into ``value``
+        # (uniform with the scalar row's ``value``).
+        assert received[0].value == {"value": [1.0, 2.0, 3.0], "sample_interval": 1e-5}
         store.close()
 
 
@@ -218,7 +249,7 @@ class TestQuery:
 class TestWrite:
     def test_write_scalar(self, tmp_path: Path):
         store = _make_store(tmp_path)
-        uri = store.write("temp.reading", 24.5, units="°C")
+        uri = store.write("temp.reading", 24.5, unit="°C")
         assert uri.startswith("channel://")
         assert "temp.reading" in uri
 
@@ -235,7 +266,7 @@ class TestWrite:
 
         result = store.query("scope.ch1_waveform")
         assert len(result) == 1
-        assert result.column("samples")[0].as_py() == [1.0, 2.0, 3.0]
+        assert result.column("value")[0].as_py() == [1.0, 2.0, 3.0]
         store.close()
 
     def test_write_blob_raises(self, tmp_path: Path):

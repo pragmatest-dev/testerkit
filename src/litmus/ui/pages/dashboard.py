@@ -4,8 +4,16 @@ import logging
 
 from nicegui import run, ui
 
-from litmus.ui.shared.components import data_table, format_datetime, render_skeleton
-from litmus.ui.shared.layout import create_layout
+from litmus.ui.shared.components import (
+    attach_status_chip,
+    data_table,
+    display_status,
+    format_datetime,
+    render_no_data_card,
+    render_skeleton,
+    status_chip_classes,
+)
+from litmus.ui.shared.layout import create_layout, get_dialog_counts_by_run
 from litmus.ui.shared.services import discover_stations, get_recent_runs
 
 logger = logging.getLogger(__name__)
@@ -59,7 +67,12 @@ async def dashboard_page():
                 for station in stations:
                     _station_card(station)
             else:
-                ui.label("No stations configured.").classes("text-slate-500 italic")
+                render_no_data_card(
+                    ui.column().classes("w-full"),
+                    title="No stations configured.",
+                    reason="Add a station YAML under stations/ to populate this panel.",
+                    icon="dns",
+                )
 
         runs_container.clear()
         with runs_container:
@@ -147,33 +160,77 @@ def _getting_started_card():
 
 
 def _render_recent_runs(runs: list) -> None:
-    """Render recent runs table."""
+    """Render recent runs table.
+
+    The Outcome cell carries the standard status chip and — when the
+    run has pending operator dialogs — an amber bell badge that
+    deep-links straight to ``/live/{run_id}``. Same shape as the
+    main ``/results`` table so the operator sees one visual idiom
+    everywhere they look at run outcomes.
+    """
     if runs:
+        dialog_count_by_run = get_dialog_counts_by_run()
+
         # Station column shows ``station_hostname`` (the machine an
         # operator recognizes), not the internal slug. Universal
         # rule — see feedback_operator_facing_identifiers.md.
         columns = [
-            {"name": "dut", "label": "DUT", "field": "dut_serial", "align": "left"},
+            {"name": "uut", "label": "UUT", "field": "uut_serial", "align": "left"},
             {"name": "station", "label": "Station", "field": "station_hostname", "align": "left"},
             {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
             {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
         ]
-        rows = [
-            {
-                "full_run_id": r.test_run_id or "",
-                "dut_serial": r.dut_serial or "",
-                "station_hostname": r.station_hostname or "",
-                "started_at": format_datetime(r.started_at),
-                "outcome": r.outcome or "",
-            }
-            for r in runs
-        ]
-        data_table(
+        rows = []
+        for r in runs:
+            run_id = r.test_run_id or ""
+            status = display_status(
+                started_at=r.started_at,
+                ended_at=r.ended_at,
+                outcome=r.outcome,
+            )
+            rows.append(
+                {
+                    "full_run_id": run_id,
+                    "uut_serial": r.uut_serial or "",
+                    "station_hostname": r.station_hostname or "",
+                    "started_at": format_datetime(r.started_at),
+                    "outcome": status,
+                    "outcome_class": status_chip_classes(status),
+                    "dialog_count": dialog_count_by_run.get(run_id, 0),
+                }
+            )
+        table = data_table(
             columns=columns,
             rows=rows,
             row_key="full_run_id",
             on_row_click=lambda r: ui.navigate.to(f"/results/{r['full_run_id']}"),
             time_columns=["started"],
         )
+        attach_status_chip(table, "outcome", with_dialog_badge=True)
+
+        def _patch_dialog_counts() -> None:
+            """In-place dialog-count refresh on the dashboard table.
+
+            Same 1 s cadence as ``/results`` and the sidebar so the
+            bell badge picks up new prompts within a second without
+            re-running the recent-runs query.
+            """
+            counts = get_dialog_counts_by_run()
+            changed = False
+            for row in table.rows:
+                rid = row.get("full_run_id") or ""
+                new_count = counts.get(rid, 0)
+                if row.get("dialog_count") != new_count:
+                    row["dialog_count"] = new_count
+                    changed = True
+            if changed:
+                table.update()
+
+        ui.timer(1.0, _patch_dialog_counts)
     else:
-        ui.label("No test runs yet.").classes("text-slate-500 italic")
+        render_no_data_card(
+            ui.column().classes("w-full"),
+            title="No test runs yet.",
+            reason="Launch a test to populate this list.",
+            icon="history",
+        )

@@ -1,7 +1,7 @@
 # Find flaky tests
 
 A test is flaky if it sometimes passes and sometimes fails on the
-same DUT under the same conditions. Real flakes hide one of three
+same UUT under the same conditions. Real flakes hide one of three
 things: a marginal limit, a measurement that depends on
 uncontrolled environment, or a race in setup. This recipe walks
 the operator UI and the parquet store to identify which.
@@ -9,29 +9,29 @@ the operator UI and the parquet store to identify which.
 ## Prerequisites
 
 - A few weeks of accumulated runs in the project's data dir (the
-  retest signal needs repeated DUT serials across sessions to mean
+  retest signal needs repeated UUT serials across sessions to mean
   anything).
 - `litmus serve` running on the bench.
 
 ## 1. Find the suspects in the Metrics → Retest tab
 
 Open [`/metrics`](../../reference/operator-ui/metrics.md), click the
-**Retest** tab. The chart shows the percentage of unique DUTs that
+**Retest** tab. The chart shows the percentage of unique UUTs that
 needed more than one attempt to clear the same step, bucketed by
 period. The table below shows Period / Serials / Retested / Rate /
 Avg retries.
 
 High retest rates flag flaky tests OR marginal hardware. To narrow
-to "is it the test", filter the same Metrics view by product or
+to "is it the test", filter the same Metrics view by part or
 station with the filter bar above the tabs and see whether the
-spike follows the test, the station, or the product.
+spike follows the test, the station, or the part.
 
 ## 2. Pin the test that's flaking
 
 The Retest tab is aggregate; for the specific test, open
 [`/results`](../../reference/operator-ui/results/list.md). The list
-doesn't text-filter by DUT serial, so sort by Started descending
-and scan the DUT column for one of the affected serials. A flaky
+doesn't text-filter by UUT serial, so sort by Started descending
+and scan the UUT column for one of the affected serials. A flaky
 test shows up as a serial that has both `passed` and `failed` rows
 in its history without an obvious code change between them.
 
@@ -68,11 +68,11 @@ across the project, query the parquet store directly:
 
 ```bash
 duckdb -c "
-SELECT run_id, dut_serial, step_path, vector_index, vector_retry,
+SELECT run_id, uut_serial, step_path, vector_index, vector_retry,
        measurement_outcome, measurement_value
 FROM read_parquet('<data_dir>/runs/**/*.parquet')
 WHERE step_path = 'test_output_voltage'
-  AND dut_serial = 'DPB001-0001'
+  AND uut_serial = 'DPB001-0001'
   AND record_type = 'measurement'
 ORDER BY run_started_at DESC, vector_retry ASC
 "
@@ -92,7 +92,7 @@ locations.
 
 ## 5. Cross-check the environment with channels
 
-If the measurement is wild but the DUT is fine, the cause is
+If the measurement is wild but the UUT is fine, the cause is
 usually environmental. Open
 [`/channels`](../../reference/operator-ui/channels/list.md), find the
 session ID from the failing run's detail page, and look at any

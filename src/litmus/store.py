@@ -16,8 +16,8 @@ When None (the default), falls back to Path.cwd() for backwards compatibility.
 
 Carve-outs from the four-verb pattern:
 
-* ``ProductManifest`` only exposes ``load_manifest`` / ``save_manifest`` —
-  manifests are co-located with their product folder rather than indexed,
+* ``PartManifest`` only exposes ``load_manifest`` / ``save_manifest`` —
+  manifests are co-located with their part folder rather than indexed,
   so callers manage the path explicitly.
 * ``StationType`` only exposes ``load_station_type`` / ``save_station_type``
   — types live in ``stations/types/`` and are typically authored once per
@@ -56,8 +56,8 @@ from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 from litmus.models.catalog import InstrumentCatalogEntry
 from litmus.models.enums import InstrumentType
 from litmus.models.instrument_asset import InstrumentAssetFile
-from litmus.models.product import Product
-from litmus.models.product_manifest import ProductManifest
+from litmus.models.part import Part
+from litmus.models.part_manifest import PartManifest
 from litmus.models.project import ProfileConfig, ProjectConfig
 from litmus.models.station import StationConfig, StationType
 from litmus.models.test_config import FixtureConfig
@@ -65,7 +65,7 @@ from litmus.utils.paths import (
     _resolve_root,
     get_fixture_paths,
     get_instrument_paths,
-    get_product_paths,
+    get_part_paths,
     get_station_paths,
 )
 
@@ -136,14 +136,14 @@ __all__ = [
     "load_instrument_asset",
     "load_instrument_files",
     "save_instrument_asset",
-    # Product
-    "create_product",
-    "get_product",
-    "list_products",
+    # Part
+    "create_part",
+    "get_part",
+    "list_parts",
     "load_manifest",
-    "load_product",
+    "load_part",
     "save_manifest",
-    "save_product",
+    "save_part",
     # Project
     "load_project",
     "load_project_config",
@@ -186,7 +186,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 def detect_file_type(path: Path) -> str | None:
     """Auto-detect the Litmus file type from YAML structure.
 
-    Returns a FILE_LOADERS key ("station", "fixture", "product",
+    Returns a FILE_LOADERS key ("station", "fixture", "part",
     "catalog", "instrument_asset", "project") or None.
     """
     try:
@@ -203,7 +203,7 @@ def detect_file_type(path: Path) -> str | None:
     if "id" in data and ("protocol" in data or "driver" in data):
         return "instrument_asset"
     if "id" in data and "characteristics" in data:
-        return "product"
+        return "part"
     return None
 
 
@@ -297,7 +297,7 @@ def _find_existing_path(
 
     Used by save_* functions that need to overwrite the existing on-disk
     file for an entity rather than creating a new one. Accepts an explicit
-    iterator so callers using nested layouts (e.g. products) can supply
+    iterator so callers using nested layouts (e.g. parts) can supply
     rglob output.
     """
     for yaml_file in yaml_files:
@@ -524,8 +524,8 @@ def save_fixture(
 def create_fixture(
     fixture_id: str,
     name: str,
-    product_id: str = "",
-    product_revision: str = "",
+    part_id: str = "",
+    part_revision: str = "",
     description: str = "",
     *,
     project_root: Path | None = None,
@@ -545,8 +545,8 @@ def create_fixture(
     fixture = FixtureConfig(
         id=fixture_id,
         name=name,
-        product_id=product_id or None,
-        product_revision=product_revision or None,
+        part_id=part_id or None,
+        part_revision=part_revision or None,
         description=description or None,
     )
     _write_model(fixture_file, fixture.model_dump(exclude_none=True))
@@ -554,7 +554,7 @@ def create_fixture(
 
 
 # =============================================================================
-# Product: load / get / list / save / create
+# Part: load / get / list / save / create
 # =============================================================================
 
 _MAX_INHERIT_DEPTH = 5
@@ -576,7 +576,7 @@ def _load_with_inheritance(
 ) -> dict[str, Any]:
     """Recursive ``base:``-resolving YAML loader.
 
-    Shared by :func:`load_product` and :func:`load_catalog_entry` —
+    Shared by :func:`load_part` and :func:`load_catalog_entry` —
     both walk the same scaffolding (depth check, cycle guard, recurse,
     merge) but differ on how to find a base file and how to merge the
     raw data. ``find_base(base_ref, current_path)`` returns the resolved
@@ -615,26 +615,26 @@ def _load_with_inheritance(
     return merge(base_data, data)
 
 
-def load_product(path: Path, products_dir: Path | None = None) -> Product:
-    """Load a product specification from YAML, resolving inheritance.
+def load_part(path: Path, parts_dir: Path | None = None) -> Part:
+    """Load a part specification from YAML, resolving inheritance.
 
     Args:
-        path: Path to the product YAML file.
-        products_dir: Directory to search for base products.
+        path: Path to the part YAML file.
+        parts_dir: Directory to search for base parts.
     """
-    if products_dir is None:
-        # Nested layout (`products/foo/foo.yaml`) → grandparent is the products
-        # root; flat layout (`products/foo.yaml`) → parent is.
+    if parts_dir is None:
+        # Nested layout (`parts/foo/foo.yaml`) → grandparent is the parts
+        # root; flat layout (`parts/foo.yaml`) → parent is.
         candidate = path.parent.parent
-        products_dir = candidate if candidate.name == "products" else path.parent
+        parts_dir = candidate if candidate.name == "parts" else path.parent
 
     def find_base(base_ref: str, _current: Path) -> Path | None:
         # Direct hit by filename stem.
-        base_path = products_dir / f"{base_ref}.yaml"
+        base_path = parts_dir / f"{base_ref}.yaml"
         if base_path.exists():
             return base_path
         # Fallback: scan for a file whose ``id:`` equals the base_ref.
-        for candidate in products_dir.rglob("*.yaml"):
+        for candidate in parts_dir.rglob("*.yaml"):
             if candidate.name.startswith("_"):
                 continue
             try:
@@ -647,13 +647,13 @@ def load_product(path: Path, products_dir: Path | None = None) -> Product:
 
     data = _load_with_inheritance(
         path,
-        label="Product",
+        label="Part",
         find_base=find_base,
-        merge=_merge_product_data,
+        merge=_merge_part_data,
         seen=set(),
         depth=0,
     )
-    return _validate_with_filename_id(Product, data, path)
+    return _validate_with_filename_id(Part, data, path)
 
 
 def _merge_dicts_with_sections(
@@ -682,7 +682,7 @@ def _merge_dicts_with_sections(
     return merged
 
 
-_PRODUCT_SCALAR_KEYS = (
+_PART_SCALAR_KEYS = (
     "name",
     "description",
     "revision",
@@ -691,145 +691,143 @@ _PRODUCT_SCALAR_KEYS = (
     "schematic",
     "driver",
 )
-_PRODUCT_SECTION_KEYS = ("pins", "signal_groups", "characteristics")
+_PART_SECTION_KEYS = ("pins", "signal_groups", "characteristics")
 
 
-def _merge_product_data(
+def _merge_part_data(
     base: dict[str, Any],
     variant: dict[str, Any],
 ) -> dict[str, Any]:
-    """Merge base and variant product YAML with section-level override."""
-    return _merge_dicts_with_sections(base, variant, _PRODUCT_SCALAR_KEYS, _PRODUCT_SECTION_KEYS)
+    """Merge base and variant part YAML with section-level override."""
+    return _merge_dicts_with_sections(base, variant, _PART_SCALAR_KEYS, _PART_SECTION_KEYS)
 
 
-def _product_yaml_files(products_dir: Path, glob: str = "*.yaml") -> Iterator[Path]:
-    """Iterate ``<products_dir>/**/<glob>``, skipping ``_``-prefixed files.
+def _part_yaml_files(parts_dir: Path, glob: str = "*.yaml") -> Iterator[Path]:
+    """Iterate ``<parts_dir>/**/<glob>``, skipping ``_``-prefixed files.
 
-    Used by :func:`get_product`, :func:`list_products`, and
-    :func:`save_product` so the underscore-prefix skip is applied
+    Used by :func:`get_part`, :func:`list_parts`, and
+    :func:`save_part` so the underscore-prefix skip is applied
     consistently. Sorted output for deterministic iteration. Yields
-    nothing if *products_dir* does not exist.
+    nothing if *parts_dir* does not exist.
     """
-    if not products_dir.exists():
+    if not parts_dir.exists():
         return
-    for yaml_file in sorted(products_dir.rglob(glob)):
+    for yaml_file in sorted(parts_dir.rglob(glob)):
         if yaml_file.name.startswith("_"):
             continue
         yield yaml_file
 
 
-def get_product(
-    product_id: str,
+def get_part(
+    part_id: str,
     *,
     project_root: Path | None = None,
-) -> Product | None:
-    """Load a Product model by ID."""
-    for products_dir in get_product_paths(project_root):
-        flat_file = products_dir / f"{product_id}.yaml"
+) -> Part | None:
+    """Load a Part model by ID."""
+    for parts_dir in get_part_paths(project_root):
+        flat_file = parts_dir / f"{part_id}.yaml"
         if flat_file.exists():
             try:
-                return load_product(flat_file)
+                return load_part(flat_file)
             except _YAML_LOAD_ERRORS as exc:
                 warnings.warn(
-                    f"product: failed to load {flat_file.name}: {exc}",
+                    f"part: failed to load {flat_file.name}: {exc}",
                     stacklevel=2,
                 )
                 # Canonical file exists but failed — don't paper over with a
-                # nested duplicate; move on to the next products_dir.
+                # nested duplicate; move on to the next parts_dir.
                 continue
-        for yaml_file in _product_yaml_files(products_dir, f"{product_id}.yaml"):
+        for yaml_file in _part_yaml_files(parts_dir, f"{part_id}.yaml"):
             if yaml_file == flat_file:
                 continue
             try:
-                return load_product(yaml_file)
+                return load_part(yaml_file)
             except _YAML_LOAD_ERRORS:
                 continue
     return None
 
 
-def list_products(*, project_root: Path | None = None) -> list[Product]:
-    """List all available products as Product models."""
-    products: list[Product] = []
+def list_parts(*, project_root: Path | None = None) -> list[Part]:
+    """List all available parts as Part models."""
+    parts: list[Part] = []
     seen_ids: set[str] = set()
-    for products_dir in get_product_paths(project_root):
-        if not products_dir.exists():
+    for parts_dir in get_part_paths(project_root):
+        if not parts_dir.exists():
             continue
-        for yaml_file in _product_yaml_files(products_dir):
+        for yaml_file in _part_yaml_files(parts_dir):
             try:
-                product = load_product(yaml_file)
+                part = load_part(yaml_file)
             except _YAML_LOAD_ERRORS:
                 continue
-            if product.id in seen_ids:
+            if part.id in seen_ids:
                 continue
-            seen_ids.add(product.id)
-            products.append(product)
-    return products
+            seen_ids.add(part.id)
+            parts.append(part)
+    return parts
 
 
-def save_product(
-    product: Product,
+def save_part(
+    part: Part,
     *,
     project_root: Path | None = None,
 ) -> None:
-    """Save product specification to YAML file."""
+    """Save part specification to YAML file."""
     target_file: Path | None = None
-    for products_dir in get_product_paths(project_root):
-        if not products_dir.exists():
+    for parts_dir in get_part_paths(project_root):
+        if not parts_dir.exists():
             continue
         # Preserve existing file location (flat or nested) by matching id.
-        target_file = _find_existing_path(
-            product.id, load_product, _product_yaml_files(products_dir)
-        )
+        target_file = _find_existing_path(part.id, load_part, _part_yaml_files(parts_dir))
         if target_file is not None:
             break
 
     if target_file is None:
         root = _resolve_root(project_root)
-        products_dir = root / "products"
-        products_dir.mkdir(exist_ok=True)
-        target_file = products_dir / f"{product.id}.yaml"
+        parts_dir = root / "parts"
+        parts_dir.mkdir(exist_ok=True)
+        target_file = parts_dir / f"{part.id}.yaml"
 
-    _write_model(target_file, product.model_dump(exclude_none=True))
+    _write_model(target_file, part.model_dump(exclude_none=True))
 
 
-def create_product(
-    product_id: str,
+def create_part(
+    part_id: str,
     name: str,
     description: str = "",
     *,
     project_root: Path | None = None,
-) -> Product | None:
-    """Create a new product YAML file.
+) -> Part | None:
+    """Create a new part YAML file.
 
-    Returns Product if successful, None if product already exists.
+    Returns Part if successful, None if part already exists.
     """
     root = _resolve_root(project_root)
-    products_dir = root / "products"
-    products_dir.mkdir(exist_ok=True)
+    parts_dir = root / "parts"
+    parts_dir.mkdir(exist_ok=True)
 
-    target_file = products_dir / f"{product_id}.yaml"
+    target_file = parts_dir / f"{part_id}.yaml"
     if target_file.exists():
         return None
 
-    product = Product(id=product_id, name=name, description=description or None)
-    _write_model(target_file, product.model_dump(exclude_none=True))
-    return product
+    part = Part(id=part_id, name=name, description=description or None)
+    _write_model(target_file, part.model_dump(exclude_none=True))
+    return part
 
 
 # =============================================================================
-# Product Manifest: load / save
+# Part Manifest: load / save
 # =============================================================================
 
 
-def load_manifest(path: Path) -> ProductManifest:
-    """Load and validate a product manifest YAML file."""
-    return ProductManifest.model_validate(_read_yaml(path))
+def load_manifest(path: Path) -> PartManifest:
+    """Load and validate a part manifest YAML file."""
+    return PartManifest.model_validate(_read_yaml(path))
 
 
-def save_manifest(manifest: ProductManifest, path: Path) -> None:
-    """Save a product manifest to YAML at the given path.
+def save_manifest(manifest: PartManifest, path: Path) -> None:
+    """Save a part manifest to YAML at the given path.
 
-    Manifests live next to their product folder (not in a globally-
+    Manifests live next to their part folder (not in a globally-
     indexed location like the other ``save_*`` entities), so the
     caller passes the explicit path rather than a project root.
     """
@@ -1287,7 +1285,7 @@ def save_instrument_asset(
 ) -> None:
     """Save an instrument asset file.
 
-    Unlike ``save_station`` / ``save_product`` / etc., this function accepts
+    Unlike ``save_station`` / ``save_part`` / etc., this function accepts
     an explicit ``target_path``. Instrument assets are organized into typed
     subdirectories (``instruments/<type>/<id>.yaml``) rather than the flat
     layout the other entities use, and CLI / MCP callers compute the
@@ -1384,7 +1382,7 @@ FILE_LOADERS: dict[str, Callable[[Path], object]] = {
     "fixture": load_fixture,
     "instrument_asset": load_instrument_asset,
     "project": load_project,
-    "product": load_product,
+    "part": load_part,
     "catalog": load_catalog_entry,
 }
 
@@ -1466,7 +1464,7 @@ _FMT_BLOCK_KEYS = {
     "channels",
     "catalog_entry",
     "specs",
-    # Products
+    # Parts
     "characteristics",
     "vectors",
     "limits",

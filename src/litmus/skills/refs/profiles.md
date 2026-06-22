@@ -57,7 +57,7 @@ Litmus auto-synthesizes a `--<facet>=<value>` CLI flag for every facet
 key any profile declares:
 
 ```bash
-pytest --test-phase=production --product=tps54302     # two facets
+pytest --test-phase=production --part=tps54302     # two facets
 pytest --test-phase=characterization                   # one facet
 pytest                                                 # no profile → baseline
 pytest --test-profile=<name>                         # name-based escape hatch
@@ -87,7 +87,7 @@ tests:
 
 ```yaml
 # profiles/production-tps54302.yaml — child
-facets: {test_phase: production, product: tps54302}
+facets: {test_phase: production, part: tps54302}
 extends: power_family
 tests:
   TestRails.test_rail:
@@ -145,7 +145,7 @@ instruments: { ... }              # actual driver/resource per role
 
 # fixtures/buck_3v3_production.yaml — declares which types it works on
 id: buck_3v3_production
-product_id: buck_3v3
+part_id: buck_3v3
 station_types: [production_bench] # cross-checked vs. profile.station_type
 connections: { ... }
 ```

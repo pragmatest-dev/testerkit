@@ -3,7 +3,7 @@
 **URLs:** `/stations` (list), `/stations/new`, `/stations/{id}`, `/stations/{id}/edit`
 
 A station is a bench — the set of instruments at a physical location
-that run tests against DUTs. The Stations entity pages are the
+that run tests against UUTs. The Stations entity pages are the
 browser surface for configuring them. Test engineers usually author
 station YAML directly in `stations/*.yaml`; the UI exists for quick
 edits, bench operators who don't want to touch YAML, and a usage
@@ -11,25 +11,32 @@ overview that the YAML files don't give you on their own.
 
 ## List — `/stations`
 
-A table with one row per station configured in the project. Columns:
+A table with one row per station that is either configured in the project
+(a YAML file exists) or has been observed in run history (no YAML file,
+only referenced by past runs). Columns:
 
 | Column | What it shows |
 |---|---|
+| Status | **Configured** chip (grey) — a YAML file exists. **Observed** chip (amber) — appears in run history but has no YAML file. |
 | ID | Station identifier |
 | Name | Human-readable station name (falls back to ID when blank) |
 | Location | Physical location, when set |
-| Instruments | Count of instruments configured on the station |
+| Instruments | Count of instruments configured on the station; `—` for Observed rows |
 | Runs | Total runs that have used this station |
 | Passed | Run count with outcome `passed` |
 | Failed | Run count with outcome `failed` |
 | Last Run | Most recent run start timestamp, browser-local time |
 
-A **New Station** button at the top right jumps to `/stations/new`.
-Clicking a row jumps to the detail view at `/stations/{id}`.
+Above the table, a filter card with **All / Configured / Observed** buttons
+narrows the view. The active filter is mirrored into the URL so the view is
+bookmarkable.
 
-When no stations are configured, the table is replaced with an
-empty-state card explaining the entity and offering a Create Station
-button.
+A **New Station** button at the top right jumps to `/stations/new`.
+Clicking a Configured row jumps to the detail view at `/stations/{id}`.
+Observed rows are not clickable — no YAML exists to display.
+
+When no stations are configured or observed, the table is replaced with an
+empty-state card explaining the entity and offering a Create Station button.
 
 ## Detail — `/stations/{id}`
 
@@ -40,8 +47,8 @@ test phases, then a tab strip with three tabs:
 | Tab | Content |
 |---|---|
 | Instruments | One row per instrument: Name, Driver, Resource, Manufacturer / Model, Serial, Cal Due, Status |
-| Sequences | The sequences this station supports, with derived capability summary |
-| Recent Runs | A run table scoped to this station (DUT, Project, Started, Outcome) |
+| Capabilities | A table of what this station's instruments can measure or source: Instrument, Capability, Function, Direction |
+| Recent Runs | A run table scoped to this station (UUT, Project, Started, Outcome) |
 
 When the URL points at a station that doesn't exist, the page shows
 a "Station not found." card.

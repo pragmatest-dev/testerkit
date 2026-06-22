@@ -25,8 +25,8 @@ class VerbKind(StrEnum):
 
     # Domain composition — each verb carries Litmus-specific meaning.
     # See src/litmus/ontology/litmus.yaml preamble for prose definitions.
-    EXPOSES = "exposes"  # Product → Pin/SignalGroup
-    SPECIFIES = "specifies"  # Product → ProductCharacteristic
+    EXPOSES = "exposes"  # Part → Pin/SignalGroup
+    SPECIFIES = "specifies"  # Part → PartCharacteristic
     BUNDLES = "bundles"  # SignalGroup → BusSignal
     PARAMETERIZED_BY = "parameterized_by"  # Capability → Signal/Cond./Ctrl/Attr/Band
     EQUIPS = "equips"  # Station(Config|Type) → instruments
@@ -41,7 +41,7 @@ class VerbKind(StrEnum):
     NESTS = "nests"  # TestEntry → TestEntry (recursive)
     RESOLVES_VIA = "resolves_via"  # MLC → bands/lookup/step
     RESOLVES_TO = "resolves_to"  # MLC → Limit (materialized)
-    DERIVES_FROM = "derives_from"  # MLC → ProductCharacteristic
+    DERIVES_FROM = "derives_from"  # MLC → PartCharacteristic
     APPLIES_STIMULUS = "applies_stimulus"  # TestVector → StimulusRecord
 
     # Temporal containment — Session → Run → Step/CollectedItem → Vector → Measurement.
@@ -49,15 +49,15 @@ class VerbKind(StrEnum):
 
     # Class / type-instance
     INHERITS_FROM = "inherits_from"  # Pydantic class inheritance
-    INSTANCE_OF = "instance_of"  # DUT instance_of Product
-    INSTANTIATED_AS = "instantiated_as"  # Product instantiated_as DUT (inverse)
+    INSTANCE_OF = "instance_of"  # UUT instance_of Part
+    INSTANTIATED_AS = "instantiated_as"  # Part instantiated_as UUT (inverse)
 
     # Naming pointers (FK by id) — used when no domain verb fits
     REFERENCES = "references"  # plain id pointer
     EXTENDS = "extends"  # YAML profile-chain merge (last-wins)
 
     # Execution semantics
-    TESTS = "tests"  # TestRun tests DUT
+    TESTS = "tests"  # TestRun tests UUT
     RUNS_ON = "runs_on"  # TestRun runs_on Station
     VALIDATES_AGAINST = "validates_against"  # StationConfig validates_against StationType
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from litmus.data.events import InstrumentRead, InstrumentSet
+from litmus.data.events import ChannelStarted, InstrumentSet
 from litmus.instruments.observers.scpi import ScpiObserver
 
 from .conftest import make_observer
@@ -14,9 +14,8 @@ class TestScpiObserverQuery:
         obs.on_call("query_float", ("FREQ?",), {}, 1000.0)
         assert len(log.events) == 1
         e = log.events[0]
-        assert isinstance(e, InstrumentRead)
+        assert isinstance(e, ChannelStarted)
         assert e.channel_id == "dmm.freq"
-        assert e.value == 1000.0
 
     def test_query_str_with_opc(self):
         obs, log = make_observer(ScpiObserver, role="dmm")
@@ -47,4 +46,4 @@ class TestScpiObserverFallback:
         obs, log = make_observer(ScpiObserver, role="gen")
         obs.on_call("measure_power", (), {}, 42.0)
         assert len(log.events) == 1
-        assert isinstance(log.events[0], InstrumentRead)
+        assert isinstance(log.events[0], ChannelStarted)

@@ -162,7 +162,7 @@ class TestCatalogInheritance:
                 direction: input
                 signals:
                   voltage:
-                    range: {min: 0.001, max: 100, units: V}
+                    range: {min: 0.001, max: 100, unit: V}
                     accuracy: {pct_reading: 0.01}
                 channels: ["1"]
         """
@@ -225,7 +225,7 @@ class TestCatalogInheritance:
                 direction: input
                 signals:
                   voltage:
-                    range: {min: 0.01, max: 750, units: V}
+                    range: {min: 0.01, max: 750, unit: V}
                 channels: ["1"]
         """,
         )
@@ -313,7 +313,7 @@ class TestCatalogInheritance:
                 direction: input
                 signals:
                   voltage:
-                    range: {min: 0.001, max: 100, units: V}
+                    range: {min: 0.001, max: 100, unit: V}
                 channels: ["1"]
         """,
         )

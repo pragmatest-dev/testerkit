@@ -31,7 +31,7 @@ def _step(
     step_path: str | None = None,
     outcome: str = "passed",
     measurement_count: int = 1,
-    dut_serial: str = "SN001",
+    uut_serial: str = "SN001",
     station_id: str = "STA-01",
     slot_id: str | None = None,
 ) -> dict:
@@ -59,7 +59,7 @@ def _step(
             "run_started_at": started,
             "run_ended_at": ended,
             "run_outcome": outcome,
-            "dut_serial": dut_serial,
+            "uut_serial": uut_serial,
             "station_id": station_id,
         }
     )
@@ -237,7 +237,7 @@ class TestListForSession:
                 started=base,
                 step_index=0,
                 step_name="warmup",
-                dut_serial="SN002",
+                uut_serial="SN002",
             ),
         ]
         path_a = _write_steps_file(canonical_runs, run_a, slot_a_steps)
@@ -267,7 +267,10 @@ class TestListForSession:
 
 class TestDescribeColumns:
     def test_returns_table_columns(self):
+        from litmus.analysis.measurement_facets import ColumnSchema
+
         with StepsQuery() as q:
-            cols = q.describe_columns()
-        names = {c["column_name"] for c in cols}
+            schema = q.describe_columns()
+        assert isinstance(schema, ColumnSchema)
+        names = {c.name for c in schema.fixed}
         assert {"run_id", "step_index", "step_name", "step_path", "outcome"} <= names

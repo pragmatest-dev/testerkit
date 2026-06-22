@@ -73,7 +73,7 @@ def _read_step_outcomes(
     steps_q = StepsQuery()
     try:
         while time.monotonic() < deadline:
-            runs = runs_q.find_for_session(session_id, include_incomplete=True)
+            runs = runs_q.list_for_session(session_id, include_incomplete=True)
             if runs:
                 break
             time.sleep(0.2)

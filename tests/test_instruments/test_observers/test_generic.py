@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from litmus.data.events import InstrumentConfigure, InstrumentRead, InstrumentSet
-from litmus.instruments.observer import EventEmitter
+from litmus.data.events import ChannelStarted, InstrumentConfigure, InstrumentSet
+from litmus.instruments.observer import InstrumentEventBuilder
 from litmus.instruments.observers.generic import GenericObserver, classify_by_prefix, strip_prefix
 from litmus.models.instrument import ChannelKind
 
@@ -20,7 +20,7 @@ class CollectingLog:
 
 def _make_observer() -> tuple[GenericObserver, CollectingLog]:
     log = CollectingLog()
-    emitter = EventEmitter(event_log=log, session_id=uuid4(), role="dmm")  # type: ignore[arg-type]
+    emitter = InstrumentEventBuilder(event_log=log, session_id=uuid4(), role="dmm")  # type: ignore[arg-type]
     obs = GenericObserver(object, "dmm", emitter)
     return obs, log
 
@@ -60,9 +60,8 @@ class TestGenericObserverOnCall:
 
         assert len(log.events) == 1
         event = log.events[0]
-        assert isinstance(event, InstrumentRead)
+        assert isinstance(event, ChannelStarted)
         assert event.channel_id == "dmm.dc_voltage"
-        assert event.value == 3.3
 
     def test_set_method(self):
         obs, log = _make_observer()
