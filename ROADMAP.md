@@ -48,6 +48,20 @@ Things that make Litmus *good* (not just shippable). Sorted by RICE.
 | Array channel empty-result schema | small | 0.5 | 0.9 | 0.2 | small |
 | Runs daemon — record actual `row_count` in `_ingested` | small | 0.5 | 0.9 | 0.2 | small |
 
+### 0.3.0 — analytics release
+
+The deferred quality-metrics work. 0.2.0 shipped the Tier-1 set + the cheap
+wins (Ppk, RTY, DPMO/DPPM); 0.3.0 is the capability + SPC + cross-tab pass.
+Design: `docs/_internal/explorations/0.3.0-analytics-metrics.md`.
+
+| Item | R | I | C | E | Score |
+|---|---|---|---|---|---|
+| Per-measurement SPC control charts (I-MR / X̄-R + Western Electric rules) | high | 2.5 | 0.7 | 3.0 | high |
+| True Cpk / Cp (within-subgroup / I-MR σ) beside the shipped overall-σ Ppk | high | 2 | 0.8 | 1.5 | high |
+| Yield cross-tab by station / fixture / operator / shift | high | 2 | 0.8 | 2.0 | high |
+| What-if limit analysis — retune limits across history for yield (detailed in Backlog) | medium | 2 | 0.6 | 2.0 | medium |
+| Generic `pareto(by=measure)` — measure-agnostic row + cumulative % + Other | medium | 1.5 | 0.7 | 1.5 | medium |
+
 ### Later — strategic but not pre-1.0
 
 Big architectural moves or features that depend on adoption signals
