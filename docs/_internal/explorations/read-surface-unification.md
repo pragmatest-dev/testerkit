@@ -227,8 +227,20 @@ logic. Pareto = the 80/20 "what's worth investigating": rank top-N contributors 
 measure** (failures, time loss, retest churn, cycle time …), descending, with cumulative % and
 an **"Other"** bucket summarizing the tail. Shape like `parametric` — **the caller specifies
 what to count and how to group; the result is shaped to the ask** (long-format rows), not a
-fixed failure schema. It would unify today's `failure_pareto` / `time_loss` / `retest` as
-measures behind one call. Build on `FailureParetoRow` as the failure-measure specialization.
+fixed failure schema. It would unify today's `pareto` (failures) / `time_loss` / `retest` as
+measures behind one call.
+
+**`ParetoRow` does NOT evolve into this — design a fresh row in 0.3.0.** Today's `ParetoRow`
+(`part`/`station`/`step_name`/`measurement_name` + `total_count`/`fail_count`/`fail_rate`) bakes
+in (a) the failure measure and (b) a fixed multi-dimensional grouping. The generic version wants
+a measure-agnostic shape: a single chosen grouping (`bucket` + `group_by`), a `value`/`total`/
+`share`, plus `cumulative` and an `is_other` tail flag. So 0.3.0 designs that row fresh
+(alongside the `by=`/grouping/Other semantics — "shaped to the ask"), NOT an evolution of
+`ParetoRow`. **Low severity** (decided 2026-06-21, not reshaping now): `ParetoRow` is a *pre-1.0
+query return type*, so the 0.3.0 change is rename-the-row + update cli/mcp/ui consumers — no
+storage/wire lock-in (the wire returns `model_dump()` dicts; the external name `pareto` is
+already stable). Note: `RunsQuery`/`StepsQuery.pareto`'s existing `bucket`/value shape is already
+closer to the generic target than the multi-dim `ParetoRow`.
 
 - **2026-06-21** — Phase B3 done: `pareto → failure_pareto` (method, 3 classes, 9 call sites) +
   `ParetoRow → FailureParetoRow`. Ref docs regenerated. suite 2156, pyright 0. OPEN (flagged):
