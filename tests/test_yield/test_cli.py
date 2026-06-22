@@ -169,9 +169,9 @@ class TestMetricsCLI:
         assert result.exit_code == 0
         assert "output_voltage" in result.output
 
-    def test_cpk(self, fixture_data):
+    def test_ppk(self, fixture_data):
         runner = CliRunner()
-        result = runner.invoke(main, ["metrics", "cpk", "--part", fixture_data["part"]])
+        result = runner.invoke(main, ["metrics", "ppk", "--part", fixture_data["part"]])
         assert result.exit_code == 0
 
     def test_trend(self, fixture_data):

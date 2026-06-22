@@ -261,11 +261,11 @@ class TestMetricsAnalytics:
         result = _litmus("metrics", "pareto", "--phase", "all", cwd=project, home=home)
         assert result.returncode == 0
 
-    def test_metrics_cpk(self, starter_project: tuple[Path, Path]):
+    def test_metrics_ppk(self, starter_project: tuple[Path, Path]):
         project, home = starter_project
         result = _litmus(
             "metrics",
-            "cpk",
+            "ppk",
             "--phase",
             "all",
             "--min-samples",

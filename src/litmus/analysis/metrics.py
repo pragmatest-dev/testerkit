@@ -86,13 +86,13 @@ def calculate_rty(fpy_by_phase: dict[str, float]) -> float:
     return rty
 
 
-def calculate_cpk(
+def calculate_ppk(
     values: list[float],
     lsl: float | None,
     usl: float | None,
     min_samples: int = 30,
 ) -> dict:
-    """Process capability index.
+    """Process performance index (overall σ).
 
     Args:
         values: Measured values (numeric).
@@ -101,7 +101,7 @@ def calculate_cpk(
         min_samples: Minimum sample size. Returns warning if below.
 
     Returns:
-        Dict with keys: cpk, cp, mean, sigma, lsl, usl, n, warning.
+        Dict with keys: ppk, pp, mean, sigma, lsl, usl, n, warning.
     """
     n = len(values)
     result: dict = {"n": n, "lsl": lsl, "usl": usl}
@@ -109,8 +109,8 @@ def calculate_cpk(
     if n < 2:
         result.update(
             {
-                "cpk": None,
-                "cp": None,
+                "ppk": None,
+                "pp": None,
                 "mean": None,
                 "sigma": None,
                 "warning": "insufficient data",
@@ -130,45 +130,45 @@ def calculate_cpk(
         warning = f"only {n} samples (recommend {min_samples}+)"
 
     if sigma == 0:
-        result.update({"cpk": None, "cp": None, "warning": "zero variance"})
+        result.update({"ppk": None, "pp": None, "warning": "zero variance"})
         return result
 
-    # Cp = (USL - LSL) / (6 * sigma)
+    # Pp = (USL - LSL) / (6 * sigma)
     if usl is not None and lsl is not None:
-        result["cp"] = (usl - lsl) / (6 * sigma)
-        cpu = (usl - mean) / (3 * sigma)
-        cpl = (mean - lsl) / (3 * sigma)
-        result["cpk"] = min(cpu, cpl)
+        result["pp"] = (usl - lsl) / (6 * sigma)
+        ppu = (usl - mean) / (3 * sigma)
+        ppl = (mean - lsl) / (3 * sigma)
+        result["ppk"] = min(ppu, ppl)
     elif usl is not None:
-        result["cp"] = None
-        result["cpk"] = (usl - mean) / (3 * sigma)
+        result["pp"] = None
+        result["ppk"] = (usl - mean) / (3 * sigma)
     elif lsl is not None:
-        result["cp"] = None
-        result["cpk"] = (mean - lsl) / (3 * sigma)
+        result["pp"] = None
+        result["ppk"] = (mean - lsl) / (3 * sigma)
     else:
-        result.update({"cpk": None, "cp": None, "warning": "no limits defined"})
+        result.update({"ppk": None, "pp": None, "warning": "no limits defined"})
         return result
 
     result["warning"] = warning
     return result
 
 
-def calculate_cpk_for_measurements(
+def calculate_ppk_for_measurements(
     measurements: list[dict],
     min_samples: int = 10,
 ) -> list[dict]:
-    """Calculate Cpk for all measurement types in a dataset.
+    """Calculate Ppk for all measurement types in a dataset.
 
     Groups measurements by name, extracts values and limits, then computes
-    Cpk for each group. Results are sorted by Cpk descending.
+    Ppk for each group. Results are sorted by Ppk descending.
 
     Args:
         measurements: List of measurement dicts with measurement_name,
             value, limit_low, limit_high.
-        min_samples: Minimum sample size for Cpk warning.
+        min_samples: Minimum sample size for Ppk warning.
 
     Returns:
-        List of Cpk result dicts, each with an added measurement_name key.
+        List of Ppk result dicts, each with an added measurement_name key.
     """
     by_name: dict[str, list[dict]] = defaultdict(list)
     for m in measurements:
@@ -176,7 +176,7 @@ def calculate_cpk_for_measurements(
         if name:
             by_name[name].append(m)
 
-    cpk_results = []
+    ppk_results = []
     for name, meas_list in by_name.items():
         values = [
             float(m["measurement_value"])
@@ -193,12 +193,12 @@ def calculate_cpk_for_measurements(
         )
 
         if values and (lsl is not None or usl is not None):
-            result = calculate_cpk(values, lsl, usl, min_samples=min_samples)
+            result = calculate_ppk(values, lsl, usl, min_samples=min_samples)
             result["measurement_name"] = name
-            cpk_results.append(result)
+            ppk_results.append(result)
 
-    cpk_results.sort(key=lambda x: x.get("cpk") or 0, reverse=True)
-    return cpk_results
+    ppk_results.sort(key=lambda x: x.get("ppk") or 0, reverse=True)
+    return ppk_results
 
 
 def pareto_analysis(

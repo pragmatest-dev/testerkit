@@ -31,7 +31,7 @@ def _measurements_query(data_dir: str | None):
 
 @main.group("metrics")
 def metrics_group():
-    """Manufacturing-test analytics (yield, pareto, cpk, trend, retest, time-loss)."""
+    """Manufacturing-test analytics (yield, pareto, ppk, trend, retest, time-loss)."""
     pass
 
 
@@ -166,13 +166,13 @@ def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, gro
         )
 
 
-@metrics_group.command("cpk")
+@metrics_group.command("ppk")
 @_base_filters
 @click.option("--min-samples", default=10, help="Minimum sample count")
-def metrics_cpk(data_dir, phase, since, until_date, part, station, min_samples, as_json):
-    """Process capability (Cpk/Cp) per measurement."""
+def metrics_ppk(data_dir, phase, since, until_date, part, station, min_samples, as_json):
+    """Process performance (Ppk/Pp) per measurement."""
     with _measurements_query(data_dir) as store:
-        rows = store.cpk(
+        rows = store.ppk(
             part=part,
             station=station,
             phase=phase,
@@ -189,17 +189,17 @@ def metrics_cpk(data_dir, phase, since, until_date, part, station, min_samples, 
             click.echo(json.dumps([r.model_dump() for r in rows], indent=2, default=str))
             return
 
-        click.echo(f"{'Measurement':<30} {'N':>5} {'Mean':>10} {'Sigma':>10} {'Cpk':>7} {'Cp':>7}")
+        click.echo(f"{'Measurement':<30} {'N':>5} {'Mean':>10} {'Sigma':>10} {'Ppk':>7} {'Pp':>7}")
         click.echo("-" * 75)
         for r in rows:
             name = str(r.measurement_name)
             if len(name) > 28:
                 name = name[:25] + "..."
-            cpk_val = f"{r.cpk:.3f}" if r.cpk is not None else "N/A"
-            cp_val = f"{r.cp:.3f}" if r.cp is not None else "N/A"
+            ppk_val = f"{r.ppk:.3f}" if r.ppk is not None else "N/A"
+            pp_val = f"{r.pp:.3f}" if r.pp is not None else "N/A"
             click.echo(
                 f"{name:<30} {r.n or 0:>5} {r.mean or 0:>10.4f} "
-                f"{r.sigma or 0:>10.4f} {cpk_val:>7} {cp_val:>7}"
+                f"{r.sigma or 0:>10.4f} {ppk_val:>7} {pp_val:>7}"
             )
 
 

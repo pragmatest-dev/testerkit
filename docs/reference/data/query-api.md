@@ -8,7 +8,7 @@ Three classes, one per materialized table. Every call goes through the runs Duck
 |---|---|---|
 | [`RunsQuery`](#runsquery) | `runs` (one row per run) | Recent runs, per-run summary, run-level filters (phase, part, station, lot, outcome, date range) |
 | [`StepsQuery`](#stepsquery) | `steps` (one row per pytest item × vector, plus container rows for class- and module-scoped step paths) | Step-level results, per-run step list, step-tree views, failure pareto by step |
-| [`MeasurementsQuery`](#measurementsquery) | `measurements` view | Yield, Cpk, retest rates, parametric histograms, time-loss analytics |
+| [`MeasurementsQuery`](#measurementsquery) | `measurements` view | Yield, Ppk, retest rates, parametric histograms, time-loss analytics |
 
 Open one with no args to read the active project's data dir — resolution is `_data_dir=<path>` arg → project `litmus.yaml` `data_dir:` → `LITMUS_HOME` env var → platform default. Pass `_data_dir=<path>` to point elsewhere. Always close it (the daemon ref-counts open clients):
 
@@ -158,11 +158,11 @@ Yield summary: FPY, final yield, run counts, duration stats.
 
 Failure pareto analysis: top failure modes by count.
 
-### `MeasurementsQuery.cpk` {#measurementsquery-cpk}
+### `MeasurementsQuery.ppk` {#measurementsquery-ppk}
 
-`cpk(field: str | FieldRef | None = None, *, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, min_samples: int = 10) → list[CpkRow]`
+`ppk(field: str | FieldRef | None = None, *, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, min_samples: int = 10) → list[PpkRow]`
 
-Process capability (Cpk/Cp) per measurement.
+Process performance (Ppk/Pp) per measurement.
 
 ### `MeasurementsQuery.trend` {#measurementsquery-trend}
 

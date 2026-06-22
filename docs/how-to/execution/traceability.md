@@ -182,8 +182,8 @@ with MeasurementsQuery() as q:
     # Yield summary by part
     rows = q.yield_summary(part="PN-123", period="week")
 
-    # Cpk for a specific measurement
-    cpk_rows = q.cpk(field="output_voltage", part="PN-123")
+    # Ppk for a specific measurement
+    ppk_rows = q.ppk(field="output_voltage", part="PN-123")
 
     # Parametric: output_voltage vs vin (input) across runs
     points = q.parametric(

@@ -17,7 +17,6 @@ from typing import Any
 
 from litmus.analysis.measurement_facets import (
     ColumnSchema,
-    CpkRow,
     DynamicFieldDescriptor,
     FacetOption,
     FieldRef,
@@ -28,6 +27,7 @@ from litmus.analysis.measurement_facets import (
     LimitBandRow,
     ParametricRow,
     ParetoRow,
+    PpkRow,
     RetestRow,
     SummaryCounts,
     TimeLossRow,
@@ -366,7 +366,7 @@ def _build_and_clauses(
     since: str | None = None,
     until: str | None = None,
 ) -> str:
-    """Build SQL ``AND`` clauses for inline queries (pareto, cpk).
+    """Build SQL ``AND`` clauses for inline queries (pareto, ppk).
 
     Uses raw measurement column names with COALESCE wrappers.
     """
@@ -479,7 +479,7 @@ ORDER BY fail_count DESC
 LIMIT {top_n}
 """
 
-_CPK_SQL = """
+_PPK_SQL = """
 SELECT
     COALESCE(uut_part_number, part_id, 'unknown') AS part,
     COALESCE(station_hostname, station_id, 'unknown') AS station,
@@ -493,7 +493,7 @@ SELECT
          AND MIN(limit_low) IS NOT NULL AND MAX(limit_high) IS NOT NULL
         THEN ROUND((MAX(limit_high) - MIN(limit_low))
                     / (6 * STDDEV_SAMP(measurement_value)), 3)
-    END AS cp,
+    END AS pp,
     CASE WHEN STDDEV_SAMP(measurement_value) > 0
          AND (MIN(limit_low) IS NOT NULL OR MAX(limit_high) IS NOT NULL)
         THEN ROUND(LEAST(
@@ -502,13 +502,13 @@ SELECT
             COALESCE((AVG(measurement_value) - MIN(limit_low))
                      / (3 * STDDEV_SAMP(measurement_value)), 1e9)
         ), 3)
-    END AS cpk
+    END AS ppk
 FROM measurements
 WHERE record_type = 'measurement' AND measurement_value IS NOT NULL
     {and_clauses}
 GROUP BY part, station, measurement_name
 HAVING COUNT(*) >= {min_samples}
-ORDER BY cpk ASC NULLS LAST
+ORDER BY ppk ASC NULLS LAST
 """
 
 _TREND_SQL = """
@@ -707,7 +707,7 @@ class MeasurementsQuery:
         )
         return [ParetoRow(**r) for r in self._query_dicts(sql)]
 
-    def cpk(
+    def ppk(
         self,
         field: str | FieldRef | None = None,
         *,
@@ -717,8 +717,8 @@ class MeasurementsQuery:
         since: str | None = None,
         until: str | None = None,
         min_samples: int = 10,
-    ) -> list[CpkRow]:
-        """Process capability (Cpk/Cp) per measurement.
+    ) -> list[PpkRow]:
+        """Process performance (Ppk/Pp) per measurement.
 
         ``field`` selects which measurement to scope — a bare string or
         ``FieldRef.measurement(...)``. Passing a non-measurement FieldRef
@@ -737,7 +737,7 @@ class MeasurementsQuery:
                 ref = resolved
                 if ref.role is not FieldRole.MEASUREMENT:
                     raise ValueError(
-                        f"cpk() requires a measurement FieldRef; got role={ref.role.value!r}. "
+                        f"ppk() requires a measurement FieldRef; got role={ref.role.value!r}. "
                         "Outputs and inputs have no limits — use histogram() for distributions."
                     )
                 name_clause = f"\n    AND measurement_name = '{sql_escape(ref.name)}'"
@@ -748,11 +748,11 @@ class MeasurementsQuery:
             since=since,
             until=until,
         )
-        sql = _CPK_SQL.format(
+        sql = _PPK_SQL.format(
             and_clauses=base_and + name_clause,
             min_samples=int(min_samples),
         )
-        return [CpkRow(**r) for r in self._query_dicts(sql)]
+        return [PpkRow(**r) for r in self._query_dicts(sql)]
 
     def trend(
         self,

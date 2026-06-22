@@ -174,7 +174,7 @@ class InstrumentAssetsResponse(BaseModel):
 class MetricsResponse(BaseModel):
     """Shared shape for ``GET /metrics/*`` endpoints.
 
-    Each metric (``summary``, ``pareto``, ``cpk``, ``trend``,
+    Each metric (``summary``, ``pareto``, ``ppk``, ``trend``,
     ``retest``, ``time-loss``) wraps its DuckDB-aggregated rows under
     ``data``. The row shape is metric-specific; this stays loosely
     typed until 1.0 when the analytics surface freezes.

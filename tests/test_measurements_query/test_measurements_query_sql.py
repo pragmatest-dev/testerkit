@@ -26,7 +26,7 @@ from litmus.analysis.measurement_facets import (
     ParametricRow,
 )
 from litmus.analysis.measurements_query import MeasurementsQuery
-from litmus.analysis.metrics import calculate_cpk, calculate_fpy
+from litmus.analysis.metrics import calculate_fpy, calculate_ppk
 from litmus.data.backends._row_helpers import MeasurementRow
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.run_store import RunStore
@@ -260,15 +260,15 @@ class TestPareto:
         assert store.pareto(phase="all", part=part) == []
 
 
-class TestCpk:
-    def test_cpk_matches_python(self):
-        """Gold Cpk must match metrics.calculate_cpk on same data."""
-        part = f"TEST-MQS-CPK-{uuid4().hex[:8]}"
-        canonical_runs = resolve_data_dir() / "runs" / "test-mqs-cpk" / "2026-01-01"
+class TestPpk:
+    def test_ppk_matches_python(self):
+        """Gold Ppk must match metrics.calculate_ppk on same data."""
+        part = f"TEST-MQS-PPK-{uuid4().hex[:8]}"
+        canonical_runs = resolve_data_dir() / "runs" / "test-mqs-ppk" / "2026-01-01"
         values = [3.3, 3.31, 3.29, 3.32, 3.28, 3.30, 3.33, 3.27, 3.31, 3.29]
         rows = [
             _row(
-                run_id=f"mqs-cpk-{uuid4()}",
+                run_id=f"mqs-ppk-{uuid4()}",
                 uut_part_number=part,
                 uut_serial=f"SN{i:03d}",
                 value=v,
@@ -279,12 +279,12 @@ class TestCpk:
         _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
 
         store = MeasurementsQuery()
-        gold_rows = store.cpk(phase="all", part=part, min_samples=5)
+        gold_rows = store.ppk(phase="all", part=part, min_samples=5)
         assert len(gold_rows) >= 1
-        gold_cpk = gold_rows[0].cpk
+        gold_ppk = gold_rows[0].ppk
 
-        python_result = calculate_cpk(values, lsl=3.0, usl=3.6, min_samples=5)
-        assert gold_cpk == pytest.approx(python_result["cpk"], abs=0.01)
+        python_result = calculate_ppk(values, lsl=3.0, usl=3.6, min_samples=5)
+        assert gold_ppk == pytest.approx(python_result["ppk"], abs=0.01)
 
     def test_min_samples_filter(self):
         part = f"TEST-MQS-MIN-{uuid4().hex[:8]}"
@@ -304,7 +304,7 @@ class TestCpk:
             filename=f"{part}_main.parquet",
         )
         store = MeasurementsQuery()
-        assert store.cpk(phase="all", part=part, min_samples=10) == []
+        assert store.ppk(phase="all", part=part, min_samples=10) == []
 
 
 class TestTrend:
@@ -351,7 +351,7 @@ class TestEmptyDataset:
         store = MeasurementsQuery()
         assert store.yield_summary(part=unknown, phase="all") == []
         assert store.pareto(part=unknown, phase="all") == []
-        assert store.cpk(part=unknown, phase="all") == []
+        assert store.ppk(part=unknown, phase="all") == []
         assert store.trend(part=unknown, phase="all") == []
         assert store.retest(part=unknown, phase="all") == []
         assert store.time_loss(part=unknown, phase="all") == []

@@ -18,7 +18,7 @@ servers in a multi-server agent setup. Within the prefix:
   ``action=`` parameter so the tool count stays manageable:
   ``litmus_runs(action="list"|"get")``, ``litmus_steps(action=
   "list"|"tree")``, ``litmus_metrics(action="summary"|"pareto"|
-  "cpk"|"trend"|"retest"|"time_loss")``. Single-action queries
+  "ppk"|"trend"|"retest"|"time_loss")``. Single-action queries
   drop the ``action`` parameter: ``litmus_events``, ``litmus_
   sessions``, ``litmus_channels``, ``litmus_files``.
 - **Project-scoped CRUD** is ``litmus_project`` — the unified
@@ -581,13 +581,13 @@ def create_mcp_server() -> FastMCP:
         Fast analytics without loading all data into Python. Supports:
         - summary: FPY, final yield, run counts, duration stats
         - pareto: Top failure modes by count
-        - cpk: Process capability (Cpk/Cp) per measurement
+        - ppk: Process performance (Ppk/Pp) per measurement
         - trend: Yield trend over time
         - retest: Retest rates per serial
         - time_loss: Time lost to failures and errors
 
         Args:
-            action: One of: summary, pareto, cpk, trend, retest, time_loss.
+            action: One of: summary, pareto, ppk, trend, retest, time_loss.
             part: Filter by part/part number.
             station: Filter by station name.
             phase: Test phase (default: exclude development, 'all' = no filter).
@@ -595,7 +595,7 @@ def create_mcp_server() -> FastMCP:
             until: End date (ISO format, inclusive).
             period: Time bucket — day, week, or month.
             top_n: Number of top failures for pareto.
-            min_samples: Minimum sample count for cpk.
+            min_samples: Minimum sample count for ppk.
             project: Project root path.
         """
         return metrics_tool(

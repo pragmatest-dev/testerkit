@@ -867,8 +867,8 @@ def create_api_router() -> APIRouter:
                 ]
             }
 
-    @router.get("/metrics/cpk", response_model=MetricsResponse, response_class=ORJSONResponse)
-    def metrics_cpk(
+    @router.get("/metrics/ppk", response_model=MetricsResponse, response_class=ORJSONResponse)
+    def metrics_ppk(
         part: str | None = None,
         station: str | None = None,
         phase: str | None = None,
@@ -876,12 +876,12 @@ def create_api_router() -> APIRouter:
         until: str | None = None,
         min_samples: int = 10,
     ):
-        """Process capability (DuckDB SQL)."""
+        """Process performance (DuckDB SQL)."""
         with _measurements_query() as q:
             return {
                 "data": [
                     r.model_dump()
-                    for r in q.cpk(
+                    for r in q.ppk(
                         part=part,
                         station=station,
                         phase=phase,

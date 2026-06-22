@@ -223,8 +223,8 @@ class ParetoRow(BaseModel):
         }
 
 
-class CpkRow(BaseModel):
-    """One row from :meth:`MeasurementsQuery.cpk` — one (part, station, measurement_name)."""
+class PpkRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.ppk` — one (part, station, measurement_name)."""
 
     part: str
     station: str
@@ -234,8 +234,8 @@ class CpkRow(BaseModel):
     sigma: float | None = None
     lsl: float | None = None
     usl: float | None = None
-    cp: float | None = None
-    cpk: float | None = None
+    pp: float | None = None
+    ppk: float | None = None
 
 
 class TrendRow(BaseModel):

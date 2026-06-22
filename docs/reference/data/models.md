@@ -1649,9 +1649,9 @@ One row from :meth:`MeasurementsQuery.pareto`.
 | `fail_count` | `int` | *required* |
 | `fail_rate` | `float \| None` | `None` |
 
-#### `CpkRow` {#model-cpkrow}
+#### `PpkRow` {#model-ppkrow}
 
-One row from :meth:`MeasurementsQuery.cpk` — one (part, station, measurement_name).
+One row from :meth:`MeasurementsQuery.ppk` — one (part, station, measurement_name).
 
 | Field | Type | Default |
 |---|---|---|
@@ -1663,8 +1663,8 @@ One row from :meth:`MeasurementsQuery.cpk` — one (part, station, measurement_n
 | `sigma` | `float \| None` | `None` |
 | `lsl` | `float \| None` | `None` |
 | `usl` | `float \| None` | `None` |
-| `cp` | `float \| None` | `None` |
-| `cpk` | `float \| None` | `None` |
+| `pp` | `float \| None` | `None` |
+| `ppk` | `float \| None` | `None` |
 
 #### `TrendRow` {#model-trendrow}
 

@@ -41,7 +41,7 @@ See:
 - :class:`StepsQuery` — step-level queries (by-run / step paths /
   per-step measurements)
 - :class:`MeasurementsQuery` — measurement-level queries (yield /
-  Cpk / distinct values / time-series)
+  Ppk / distinct values / time-series)
 - :class:`EventStore` — raw event timeline (session lifecycle,
   instrument reads, dialogs)
 

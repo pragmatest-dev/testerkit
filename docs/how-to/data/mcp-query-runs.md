@@ -67,14 +67,14 @@ has no MCP equivalent yet:
 |---|---|
 | `summary` | First-pass yield, final yield, run counts, duration stats |
 | `pareto` | Top failure modes ranked by count |
-| `cpk` | Per-measurement process capability (Cpk / Cp) |
+| `ppk` | Per-measurement process performance (Ppk / Pp) |
 | `trend` | Yield trend over time, bucketed by `period` (`day` / `week` / `month`) |
 | `retest` | Retest rates per serial bucketed by period |
 | `time_loss` | Time lost to failed / errored runs |
 
 Filters available on every action: `part`, `station`, `phase`,
 `since`, `until`. Plus per-action tuning: `top_n` (Pareto cutoff),
-`min_samples` (Cpk minimum-N filter).
+`min_samples` (Ppk minimum-N filter).
 
 Common asks:
 
@@ -88,10 +88,10 @@ from "the last 14 days".
 
 `litmus_metrics(action="pareto", station="prod-1", top_n=10)`.
 
-> Which measurements have Cpk below 1.33?
+> Which measurements have Ppk below 1.33?
 
-`litmus_metrics(action="cpk")` then filter on the response client-side.
-(The tool doesn't take a Cpk threshold; the assistant inspects the
+`litmus_metrics(action="ppk")` then filter on the response client-side.
+(The tool doesn't take a Ppk threshold; the assistant inspects the
 JSON.)
 
 ## Recipe 4 — "Walk me through the run history" (chained)

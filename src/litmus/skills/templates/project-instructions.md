@@ -40,7 +40,7 @@ litmus instrument show <id> [--json]  # Show instrument details + cal status
 ```bash
 litmus metrics summary [--period day|week|month] [--json]
 litmus metrics pareto [--top N] [--json]
-litmus metrics cpk [--min-samples N] [--json]
+litmus metrics ppk [--min-samples N] [--json]
 litmus metrics trend [--period day|week|month] [--json]
 litmus metrics retest [--period day|week|month] [--json]
 litmus metrics time-loss [--period day|week|month] [--json]
@@ -80,7 +80,7 @@ def test_output_voltage(verify, psu, dmm) -> None:
 - `litmus_discover` — Discover instruments on VISA / NI / Serial / LXI buses
 - `litmus_match` — Check whether a station can test a part
 - `litmus_run` — Execute tests and stream results
-- `litmus_runs` / `litmus_steps` / `litmus_metrics` — Runs and steps tables; yield / pareto / cpk / trend / retest / time-loss analytics
+- `litmus_runs` / `litmus_steps` / `litmus_metrics` — Runs and steps tables; yield / pareto / ppk / trend / retest / time-loss analytics
 - `litmus_events` / `litmus_sessions` / `litmus_channels` / `litmus_files` — Event log, sessions, channel data, and FileStore artifacts
 
 **Test data** is Parquet, queryable with DuckDB:

@@ -3,9 +3,9 @@
 import pytest
 
 from litmus.analysis.metrics import (
-    calculate_cpk,
     calculate_final_yield,
     calculate_fpy,
+    calculate_ppk,
     calculate_rty,
     pareto_analysis,
     timing_stats,
@@ -90,49 +90,49 @@ class TestRTY:
 
 
 # ---------------------------------------------------------------------------
-# Cpk
+# Ppk
 # ---------------------------------------------------------------------------
 
 
-class TestCpk:
+class TestPpk:
     def test_centered_process(self):
         """Perfectly centered with tight distribution."""
         values = [10.0] * 50  # zero variance edge case
-        result = calculate_cpk(values, lsl=9.0, usl=11.0)
+        result = calculate_ppk(values, lsl=9.0, usl=11.0)
         assert result["warning"] == "zero variance"
-        assert result["cpk"] is None
+        assert result["ppk"] is None
 
     def test_normal_process(self):
         import random
 
         random.seed(42)
         values = [10.0 + random.gauss(0, 0.1) for _ in range(100)]
-        result = calculate_cpk(values, lsl=9.5, usl=10.5)
-        assert result["cpk"] is not None
-        assert result["cpk"] > 1.0  # should be capable
-        assert result["cp"] is not None
+        result = calculate_ppk(values, lsl=9.5, usl=10.5)
+        assert result["ppk"] is not None
+        assert result["ppk"] > 1.0  # should be capable
+        assert result["pp"] is not None
         assert result["n"] == 100
         assert result["warning"] is None
 
     def test_one_sided_upper(self):
         values = [5.0, 5.1, 4.9, 5.05, 4.95]
-        result = calculate_cpk(values, lsl=None, usl=6.0)
-        assert result["cpk"] is not None
-        assert result["cp"] is None  # one-sided
+        result = calculate_ppk(values, lsl=None, usl=6.0)
+        assert result["ppk"] is not None
+        assert result["pp"] is None  # one-sided
 
     def test_insufficient_data(self):
-        result = calculate_cpk([1.0], lsl=0.0, usl=2.0)
-        assert result["cpk"] is None
+        result = calculate_ppk([1.0], lsl=0.0, usl=2.0)
+        assert result["ppk"] is None
         assert result["warning"] == "insufficient data"
 
     def test_below_min_samples(self):
         values = [1.0, 1.1, 0.9, 1.05, 0.95]
-        result = calculate_cpk(values, lsl=0.0, usl=2.0, min_samples=30)
+        result = calculate_ppk(values, lsl=0.0, usl=2.0, min_samples=30)
         assert "only 5 samples" in result["warning"]
 
     def test_no_limits(self):
-        result = calculate_cpk([1.0, 2.0, 3.0], lsl=None, usl=None)
-        assert result["cpk"] is None
+        result = calculate_ppk([1.0, 2.0, 3.0], lsl=None, usl=None)
+        assert result["ppk"] is None
         assert result["warning"] == "no limits defined"
 
 

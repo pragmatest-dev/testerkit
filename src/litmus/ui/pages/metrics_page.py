@@ -32,7 +32,7 @@ class MetricsDashboardData(TypedDict):
     final_yield: float
     total_runs: int
     total_failed: int
-    cpk_data: list[Any]
+    ppk_data: list[Any]
     trend_data: list[Any]
     time_stats: dict[str, Any]
 
@@ -46,7 +46,7 @@ async def metrics_page(
     tab: str = "",
     pareto_group: str = "",
 ):
-    """Metrics dashboard — yield, pareto, cpk, retest, time-loss, assets.
+    """Metrics dashboard — yield, pareto, ppk, retest, time-loss, assets.
 
     Page handler returns immediately with chrome + skeleton placeholders.
     Per-tab data loads asynchronously via ui.timer after the page paints.
@@ -56,7 +56,7 @@ async def metrics_page(
         request: FastAPI Request — used to read repeated query params.
         lot: Lot number filter (free text).
         since / until: Date range (YYYY-MM-DD).
-        tab: Active tab name (Yield / Pareto / Cpk / Retest /
+        tab: Active tab name (Yield / Pareto / Ppk / Retest /
             Time loss / Assets).
         pareto_group: Pareto group-by lens (part / step /
             measurement) — only meaningful on the Pareto tab.
@@ -65,7 +65,7 @@ async def metrics_page(
     part = request.query_params.getlist("part")
     station = request.query_params.getlist("station")
 
-    # Metrics are per-phase. Default to production — the phase yield / Cpk /
+    # Metrics are per-phase. Default to production — the phase yield / Ppk /
     # pareto are actually meaningful for (development is mock/dirty-git data;
     # characterization deliberately drives out-of-spec) — and to a recent
     # window rather than all of history. Both stay overridable via filters/URL.
@@ -102,7 +102,7 @@ async def metrics_page(
     trend_chart_container: Any = None
     time_stats_container: Any = None
     pareto_chart_container: Any = None
-    cpk_table_container: Any = None
+    ppk_table_container: Any = None
     retest_container: Any = None
     time_loss_container: Any = None
     assets_container: Any = None
@@ -215,23 +215,23 @@ async def metrics_page(
         _render_trend_chart(trend_chart_container, data["trend_data"])
         _render_time_stats(time_stats_container, data["time_stats"])
 
-    async def _load_cpk() -> None:
-        if cpk_table_container is None:
+    async def _load_ppk() -> None:
+        if ppk_table_container is None:
             return
-        render_skeleton(cpk_table_container, "h-48")
+        render_skeleton(ppk_table_container, "h-48")
         phase_, part_, station_, since_, until_ = _filter_args()
         data = await run.io_bound(
             _fetch_yield_data, data_dir, phase_, part_, station_, since_, until_
         )
         if data is None:
             render_empty_card(
-                cpk_table_container,
-                "Process Capability (Cpk)",
+                ppk_table_container,
+                "Process Performance (Ppk)",
                 "No measurements with limits — record values via "
                 "``verify(name, value, limit=Limit(...))`` to populate.",
             )
             return
-        _render_cpk_table(cpk_table_container, data["cpk_data"])
+        _render_ppk_table(ppk_table_container, data["ppk_data"])
 
     async def _load_pareto() -> None:
         if pareto_chart_container is None or pareto_group_select is None:
@@ -320,7 +320,7 @@ async def metrics_page(
         {
             "Yield": _load_yield,
             "Pareto": _load_pareto,
-            "Cpk": _load_cpk,
+            "Ppk": _load_ppk,
             "Retest": _load_retest,
             "Time loss": _load_time_loss,
             "Assets": _load_assets,
@@ -423,12 +423,12 @@ async def metrics_page(
         with ui.tabs(on_change=_on_tab_change).classes("w-full") as tabs:
             yield_tab = ui.tab("Yield", icon="check_circle")
             pareto_tab = ui.tab("Pareto", icon="bar_chart")
-            cpk_tab = ui.tab("Cpk", icon="show_chart")
+            ppk_tab = ui.tab("Ppk", icon="show_chart")
             retest_tab = ui.tab("Retest", icon="loop")
             time_loss_tab = ui.tab("Time loss", icon="timer_off")
             assets_tab = ui.tab("Assets", icon="memory")
 
-        valid_tab_names = {"Yield", "Pareto", "Cpk", "Retest", "Time loss", "Assets"}
+        valid_tab_names = {"Yield", "Pareto", "Ppk", "Retest", "Time loss", "Assets"}
         initial_tab_name = tab if tab in valid_tab_names else "Yield"
         tabs.set_value(initial_tab_name)
 
@@ -449,8 +449,8 @@ async def metrics_page(
                     on_change=_on_filter_change,
                 ).classes("w-96")
                 pareto_chart_container = ui.column().classes("w-full")
-            with ui.tab_panel(cpk_tab).props('data-testid="metrics-cpk"'):
-                cpk_table_container = ui.column().classes("w-full")
+            with ui.tab_panel(ppk_tab).props('data-testid="metrics-ppk"'):
+                ppk_table_container = ui.column().classes("w-full")
             with ui.tab_panel(retest_tab).props('data-testid="metrics-retest"'):
                 retest_container = ui.column().classes("w-full")
             with ui.tab_panel(time_loss_tab).props('data-testid="metrics-time-loss"'):
@@ -468,7 +468,7 @@ async def metrics_page(
             (time_stats_container, "h-20"),
         ],
         "Pareto": [(pareto_chart_container, "h-48")],
-        "Cpk": [(cpk_table_container, "h-48")],
+        "Ppk": [(ppk_table_container, "h-48")],
         "Retest": [(retest_container, "h-48")],
         "Time loss": [(time_loss_container, "h-48")],
         "Assets": [(assets_container, "h-32")],
@@ -523,7 +523,7 @@ def _fetch_yield_data(
         fpy = fp_passed / fp_total if fp_total else 0.0
         final_yield = final_passed / unique_serials if unique_serials else 0.0
 
-        cpk_data = store.cpk(
+        ppk_data = store.ppk(
             part=part,
             station=station,
             phase=phase,
@@ -555,7 +555,7 @@ def _fetch_yield_data(
         "final_yield": final_yield,
         "total_runs": total_runs,
         "total_failed": total_failed,
-        "cpk_data": cpk_data,
+        "ppk_data": ppk_data,
         "trend_data": trend_data,
         "time_stats": time_stats,
     }
@@ -874,17 +874,17 @@ def _render_pareto_chart(
         ).classes("w-full h-96")
 
 
-def _render_cpk_table(container: Any, cpk_data: list[Any]) -> None:
-    """Render Cpk table with color coding."""
+def _render_ppk_table(container: Any, ppk_data: list[Any]) -> None:
+    """Render Ppk table with color coding."""
     container.clear()
 
-    if not cpk_data:
-        render_empty_card(container, "Process Capability (Cpk)", "No Cpk data available")
+    if not ppk_data:
+        render_empty_card(container, "Process Performance (Ppk)", "No Ppk data available")
         return
 
     with container:
         with ui.card().classes("w-full h-fit"):
-            ui.label("Process Capability (Cpk)").classes("text-lg font-semibold mb-4")
+            ui.label("Process Performance (Ppk)").classes("text-lg font-semibold mb-4")
 
             columns = [
                 {
@@ -893,18 +893,18 @@ def _render_cpk_table(container: Any, cpk_data: list[Any]) -> None:
                     "field": "measurement",
                     "align": "left",
                 },
-                {"name": "cpk", "label": "Cpk", "field": "cpk", "align": "center"},
+                {"name": "ppk", "label": "Ppk", "field": "ppk", "align": "center"},
                 {"name": "mean", "label": "Mean", "field": "mean", "align": "center"},
                 {"name": "sigma", "label": "σ", "field": "sigma", "align": "center"},
                 {"name": "n", "label": "n", "field": "n", "align": "center"},
             ]
 
             rows = []
-            for item in cpk_data[:15]:
-                cpk_val = item.cpk
+            for item in ppk_data[:15]:
+                ppk_val = item.ppk
                 row = {
                     "measurement": item.measurement_name,
-                    "cpk": f"{cpk_val:.2f}" if cpk_val is not None else "N/A",
+                    "ppk": f"{ppk_val:.2f}" if ppk_val is not None else "N/A",
                     "mean": f"{(item.mean or 0):.3f}",
                     "sigma": f"{(item.sigma or 0):.3f}",
                     "n": str(item.n),
@@ -913,7 +913,7 @@ def _render_cpk_table(container: Any, cpk_data: list[Any]) -> None:
 
             table = data_table(columns=columns, rows=rows, row_key="measurement")
             table.add_slot(
-                "body-cell-cpk",
+                "body-cell-ppk",
                 r"""
                 <q-td :props="props">
                     <q-badge :color="
