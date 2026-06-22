@@ -1635,9 +1635,9 @@ One row from :meth:`MeasurementsQuery.yield_summary` — one (part, station, pha
 | `avg_duration_s` | `float \| None` | `None` |
 | `p95_duration_s` | `float \| None` | `None` |
 
-#### `FailureParetoRow` {#model-failureparetorow}
+#### `ParetoRow` {#model-paretorow}
 
-One row from :meth:`MeasurementsQuery.failure_pareto`.
+One row from :meth:`MeasurementsQuery.pareto`.
 
 | Field | Type | Default |
 |---|---|---|

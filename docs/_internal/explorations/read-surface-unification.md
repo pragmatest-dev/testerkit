@@ -258,3 +258,10 @@ measures behind one call. Build on `FailureParetoRow` as the failure-measure spe
   restored — the first baseline was contaminated by concurrent agents): **no regression** —
   throughput metrics flat within run-to-run noise (block/query/stream@1k, capture, ingest all
   ±~10%, several faster with the change); only the sub-ms `@1` micro-cases swing (jitter).
+- **2026-06-21** — B3 REVERTED → unify on `pareto` everywhere. With the decision to keep the
+  external name `pareto` (failures-by-default, gains a `by`/measure option later), B3's internal
+  `failure_pareto` left a Python-vs-wire split. Renamed the identifier back: `failure_pareto →
+  pareto` (method on all 3 query classes + every call site in mcp/api/cli/ui/tests) and
+  `FailureParetoRow → ParetoRow`. Wire names were already `pareto` (untouched). One forward-looking
+  name across Python + wire; not an over-claim ("pareto, defaulting to failures, generalizes
+  later"). Ref docs regenerated; suite 2163, pyright 0, ruff clean.

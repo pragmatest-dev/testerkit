@@ -160,7 +160,7 @@ class StepsQuery:
             step_rows.append(sr)
         return step_rows
 
-    def failure_pareto(
+    def pareto(
         self,
         *,
         top_n: int = 10,
@@ -174,7 +174,7 @@ class StepsQuery:
 
         Cross-run aggregate: which test step name has the most
         failures across the matching set of runs. Same semantic as
-        :meth:`MeasurementsQuery.failure_pareto` but at step-level instead
+        :meth:`MeasurementsQuery.pareto` but at step-level instead
         of measurement-level — useful when the operator wants to
         spot a flaky test rather than a flaky measurement within a
         test.

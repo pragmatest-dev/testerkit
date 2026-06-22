@@ -243,7 +243,7 @@ async def metrics_page(
         rows, title, subtitle, bucket_label = await run.io_bound(
             _fetch_pareto_data, data_dir, group_by, phase_, part_, station_, since_, until_
         )
-        _render_failure_pareto_chart(
+        _render_pareto_chart(
             pareto_chart_container,
             rows,
             title=title,
@@ -524,7 +524,7 @@ def _fetch_yield_data(
         fpy = fp_passed / fp_total if fp_total else 0.0
         final_yield = final_passed / unique_serials if unique_serials else 0.0
 
-        pareto_rows = store.failure_pareto(
+        pareto_rows = store.pareto(
             part=part,
             station=station,
             phase=phase,
@@ -608,13 +608,13 @@ def _fetch_pareto_data(
     """Fetch pareto rows for the selected lens. Returns (rows, title, subtitle, bucket_label).
 
     All three lenses return rows in the shared shape expected by
-    ``_render_failure_pareto_chart``: ``{bucket, failed_count, total,
+    ``_render_pareto_chart``: ``{bucket, failed_count, total,
     fail_rate_pct}``. Measurement rows are normalized here.
     """
     if group_by == "step":
         try:
             with StepsQuery(_data_dir=data_dir) as q:
-                rows = q.failure_pareto(
+                rows = q.pareto(
                     top_n=15,
                     phase=phase,
                     part=part,
@@ -633,7 +633,7 @@ def _fetch_pareto_data(
     elif group_by == "measurement":
         try:
             with MeasurementsQuery(_data_dir=data_dir) as q:
-                raw = q.failure_pareto(
+                raw = q.pareto(
                     part=part,
                     station=station,
                     phase=phase,
@@ -652,7 +652,7 @@ def _fetch_pareto_data(
     else:  # part (default)
         try:
             with RunsQuery(_data_dir=data_dir) as q:
-                rows = q.failure_pareto(
+                rows = q.pareto(
                     group_by="uut_part_number",
                     top_n=15,
                     phase=phase,
@@ -823,7 +823,7 @@ def _metric_card(label: str, value: str, icon: str, color: str) -> None:
 
 
 def _normalize_measurement_pareto_rows(raw: list[Any]) -> list[dict[str, Any]]:
-    """Normalize MeasurementsQuery.failure_pareto rows to the shared failure-pareto shape."""
+    """Normalize MeasurementsQuery.pareto rows to the shared failure-pareto shape."""
     return [
         {
             "bucket": f"{r.step_name or ''}: {r.measurement_name or ''}",
@@ -835,7 +835,7 @@ def _normalize_measurement_pareto_rows(raw: list[Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _render_failure_pareto_chart(
+def _render_pareto_chart(
     container: Any,
     rows: list[dict[str, Any]],
     *,

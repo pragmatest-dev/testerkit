@@ -56,9 +56,9 @@ Return one run by id-prefix (8-char) or ``None`` if not found.
 
 Return all runs sharing a ``session_id`` (multi-UUT siblings).
 
-### `RunsQuery.failure_pareto` {#runsquery-failure_pareto}
+### `RunsQuery.pareto` {#runsquery-pareto}
 
-`failure_pareto(*, group_by: str = 'uut_part_number', top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
+`pareto(*, group_by: str = 'uut_part_number', top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
 
 Pareto of failing runs grouped by ``group_by`` column.
 
@@ -110,9 +110,9 @@ Release daemon ref and close Flight client.
 
 Return every step row for a run, ordered by ``step_index``.
 
-### `StepsQuery.failure_pareto` {#stepsquery-failure_pareto}
+### `StepsQuery.pareto` {#stepsquery-pareto}
 
-`failure_pareto(*, top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
+`pareto(*, top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
 
 Failure pareto of failing steps grouped by ``step_path``.
 
@@ -152,9 +152,9 @@ Release daemon ref and close Flight client.
 
 Yield summary: FPY, final yield, run counts, duration stats.
 
-### `MeasurementsQuery.failure_pareto` {#measurementsquery-failure_pareto}
+### `MeasurementsQuery.pareto` {#measurementsquery-pareto}
 
-`failure_pareto(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, top_n: int = 10) → list[FailureParetoRow]`
+`pareto(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, top_n: int = 10) → list[ParetoRow]`
 
 Failure pareto analysis: top failure modes by count.
 

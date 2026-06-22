@@ -1784,7 +1784,7 @@ def metrics_tool(
                 rows = store.yield_summary(**kwargs, period=period)
                 return {"data": [r.model_dump() for r in rows]}
             case "pareto":
-                rows = store.failure_pareto(**kwargs, top_n=top_n)
+                rows = store.pareto(**kwargs, top_n=top_n)
                 return {"data": [r.model_dump() for r in rows]}
             case "cpk":
                 rows = store.cpk(**kwargs, min_samples=min_samples)
