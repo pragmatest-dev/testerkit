@@ -378,7 +378,7 @@ def _build_and_clauses(
         until=until,
         part_expr="COALESCE(uut_part_number, part_id, 'unknown')",
         # Match the same column the operator's dropdown is built
-        # from (``station_hostname`` first; see ``get_yield_filter_options``
+        # from (``station_hostname`` first; see ``get_runs_filter_options``
         # in ``ui/shared/services.py``). ``station_name`` is admin-
         # facing — never used as a filter target.
         station_expr="COALESCE(station_hostname, station_id, 'unknown')",

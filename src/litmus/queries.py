@@ -26,7 +26,7 @@ promptly when you want deterministic cleanup::
         outcomes = q.count_by_outcome()
 
     with queries.MeasurementsQuery() as q:
-        yields = q.yield_summary(group_by="uut_part_number")
+        yields = q.yield_summary(part="PN-123", period="week")
 
 ``EventStore`` additionally offers ``get_shared()`` to share the
 watcher thread across multiple callers in the same process::

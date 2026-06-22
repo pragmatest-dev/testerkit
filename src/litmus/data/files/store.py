@@ -74,7 +74,9 @@ class FileStore:
     user attributes). Read it back with :meth:`read_attributes`.
     """
 
-    def __init__(self, *, _data_dir: Path | None = None, backend_uri: str | None = None) -> None:
+    def __init__(
+        self, *, _data_dir: Path | str | None = None, backend_uri: str | None = None
+    ) -> None:
         self._data_dir = resolve_data_dir(_data_dir)
         self._files_dir = self._data_dir / "files"
         # Blob bytes flow through this backend (local disk by default; an

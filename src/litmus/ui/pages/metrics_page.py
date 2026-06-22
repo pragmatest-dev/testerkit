@@ -32,7 +32,6 @@ class MetricsDashboardData(TypedDict):
     final_yield: float
     total_runs: int
     total_failed: int
-    pareto_data: list[dict]
     cpk_data: list[Any]
     trend_data: list[Any]
     time_stats: dict[str, Any]
@@ -524,30 +523,6 @@ def _fetch_yield_data(
         fpy = fp_passed / fp_total if fp_total else 0.0
         final_yield = final_passed / unique_serials if unique_serials else 0.0
 
-        pareto_rows = store.pareto(
-            part=part,
-            station=station,
-            phase=phase,
-            since=since,
-            until=until,
-            top_n=10,
-        )
-        pareto_data = []
-        total_fails = sum(r.fail_count for r in pareto_rows)
-        cumulative = 0.0
-        for r in pareto_rows:
-            pct = r.fail_count / total_fails * 100 if total_fails else 0
-            cumulative += pct
-            pareto_data.append(
-                {
-                    "step_name": r.step_name or "",
-                    "measurement_name": r.measurement_name or "",
-                    "count": r.fail_count,
-                    "pct": round(pct, 1),
-                    "cumulative_pct": round(cumulative, 1),
-                }
-            )
-
         cpk_data = store.cpk(
             part=part,
             station=station,
@@ -580,7 +555,6 @@ def _fetch_yield_data(
         "final_yield": final_yield,
         "total_runs": total_runs,
         "total_failed": total_failed,
-        "pareto_data": pareto_data,
         "cpk_data": cpk_data,
         "trend_data": trend_data,
         "time_stats": time_stats,

@@ -277,3 +277,12 @@ closer to the generic target than the multi-dim `ParetoRow`.
   `FailureParetoRow → ParetoRow`. Wire names were already `pareto` (untouched). One forward-looking
   name across Python + wire; not an over-claim ("pareto, defaulting to failures, generalizes
   later"). Ref docs regenerated; suite 2163, pyright 0, ruff clean.
+- **2026-06-21** — Design review of the branch (3 rounds). Notable reversal: B1's
+  `distinct_filter_values → distinct_values` rename on **RunsQuery was reverted** back to
+  `distinct_filter_values`. Reason: `RunsQuery.distinct_filter_values(self) → dict[str, list[str]]`
+  (all filter columns at once) and `MeasurementsQuery.distinct_values(column, …) → list[FacetOption]`
+  (one column + counts) are *different operations* — the shared name was a misleading collision;
+  the distinct names are the honest state. (So §3/B1 above is superseded for RunsQuery.) Also
+  fixed: a real cli pareto `total` bug (→ shared `ParetoRow.to_bucket_dict()`); FileStore
+  `close()`/`__enter__`/`__exit__`; exported the `Store` Protocol; dead `events_dir`/`pareto_data`
+  removed; docstring/comment scrubs. Suite green, pyright 0 throughout.

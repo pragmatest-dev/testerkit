@@ -1491,11 +1491,11 @@ def channels_liveness_query(
     closed: set[tuple[str, str]] = set()
     ended: set[str] = set()
     try:
-        es = EventStore(_data_dir=base)
-        for e in es.events(event_type="channel.ended"):
-            closed.add((str(e.get("session_id")), json.loads(e["json"]).get("channel_id", "")))
-        for e in es.events(event_type="session.ended"):
-            ended.add(str(e.get("session_id")))
+        with EventStore(_data_dir=base) as es:
+            for e in es.events(event_type="channel.ended"):
+                closed.add((str(e.get("session_id")), json.loads(e["json"]).get("channel_id", "")))
+            for e in es.events(event_type="session.ended"):
+                ended.add(str(e.get("session_id")))
     except Exception:  # noqa: BLE001
         pass
 
