@@ -67,6 +67,22 @@ def format_file_size(size_bytes: int) -> str:
     return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
 
+def format_number(value: Any, *, precision: int = 6) -> str:
+    """Render a measurement/limit number without IEEE-754 display noise.
+
+    Floats use ``g`` format (``precision`` significant figures), which strips
+    trailing zeros and the float-repr artifacts (``0.060000000000000005`` →
+    ``0.06``). ``None`` renders as an em dash; non-numbers pass through ``str``.
+    Shared so every numeric display (measurement values, limits, capability
+    indices) formats consistently.
+    """
+    if value is None:
+        return "—"
+    if isinstance(value, float):
+        return f"{value:.{precision}g}"
+    return str(value)
+
+
 def format_session_label(session_event: dict) -> str:
     """Render an operator-readable label for a SessionStarted event.
 

@@ -16,6 +16,7 @@ from litmus.ui.shared.components import (
     data_table,
     display_status,
     format_datetime,
+    format_number,
     info_field,
     page_layout,
     push_url_state,
@@ -391,9 +392,7 @@ def _format_kv(d: dict | None) -> str:
 
 
 def _format_val(v: Any) -> str:
-    if isinstance(v, float):
-        return f"{v:g}"
-    return str(v)
+    return format_number(v)
 
 
 def _build_meas_rows(measurements: list) -> list[dict]:
@@ -403,7 +402,7 @@ def _build_meas_rows(measurements: list) -> list[dict]:
             "name": m.get("measurement_name", ""),
             "value": _format_measurement_value(m),
             "limits": (
-                f"{m.get('limit_low', '—')} – {m.get('limit_high', '—')}"
+                f"{format_number(m.get('limit_low'))} – {format_number(m.get('limit_high'))}"
                 if m.get("limit_low") is not None or m.get("limit_high") is not None
                 else "—"
             ),
@@ -419,7 +418,7 @@ def _format_measurement_value(m: dict) -> str:
     unit = m.get("measurement_unit") or m.get("unit") or ""
     if val is None:
         return "—"
-    formatted = f"{val:g}" if isinstance(val, float) else str(val)
+    formatted = format_number(val)
     return f"{formatted} {unit}".strip() if unit else formatted
 
 
