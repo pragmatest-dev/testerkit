@@ -36,6 +36,21 @@ _VALID_PARETO_GROUP_BY = frozenset(
     }
 )
 
+# Group-by dimensions for usage_stats — broader than the pareto set:
+# asset/utilization reporting also allows the internal ``station_id`` and
+# ``project_name``.
+_VALID_USAGE_STATS_COLUMNS = frozenset(
+    {
+        "uut_part_number",
+        "station_hostname",
+        "station_id",
+        "fixture_id",
+        "test_phase",
+        "operator_id",
+        "project_name",
+    }
+)
+
 
 class RunRow(BaseModel):
     """One row from the ``runs`` table — denormalized run-level summary.
@@ -236,9 +251,9 @@ class RunsQuery:
 
         Args:
             group_by: Column to group by — ``uut_part_number``
-                (part), ``station_id``, ``operator_id``,
-                ``test_phase``. Validated against an allowlist; bad
-                values raise ``ValueError``.
+                (part), ``station_hostname``, ``operator_id``,
+                ``test_phase``, ``fixture_id``. Validated against an
+                allowlist; bad values raise ``ValueError``.
             top_n: Max rows.
             phase / part / station / since / until: Filter the
                 run set before grouping. Same semantics as the
@@ -376,21 +391,10 @@ class RunsQuery:
         daemon returns one row per distinct value rather than up to
         ``limit`` full run rows — safe regardless of total run count.
         """
-        _VALID_BY_COLUMNS = frozenset(
-            {
-                "uut_part_number",
-                "station_hostname",
-                "station_id",
-                "fixture_id",
-                "test_phase",
-                "operator_id",
-                "project_name",
-            }
-        )
-        if by not in _VALID_BY_COLUMNS:
+        if by not in _VALID_USAGE_STATS_COLUMNS:
             raise ValueError(
                 f"usage_stats: invalid group-by column {by!r}. "
-                f"Must be one of {sorted(_VALID_BY_COLUMNS)}."
+                f"Must be one of {sorted(_VALID_USAGE_STATS_COLUMNS)}."
             )
         sql = f"""
             SELECT
