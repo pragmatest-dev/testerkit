@@ -138,7 +138,7 @@ def test_channel_no_checkpoint_without_cadence(tmp_path: Path):
 
 def test_file_stream_emits_checkpoint_once_per_cadence(tmp_path: Path):
     log = CollectingLog()
-    store = FileStore(data_dir=tmp_path)
+    store = FileStore(_data_dir=tmp_path)
     sink = store.open_stream(
         name="capture",
         format="raw",
@@ -165,7 +165,7 @@ def test_file_stream_emits_checkpoint_once_per_cadence(tmp_path: Path):
 
 def test_file_stream_no_checkpoint_without_cadence(tmp_path: Path):
     log = CollectingLog()
-    store = FileStore(data_dir=tmp_path)
+    store = FileStore(_data_dir=tmp_path)
     sink = store.open_stream(name="capture", format="raw", session_id=str(uuid4()), event_log=log)
     assert isinstance(sink, _BaseSink)
     sink._last_spine_emit = time.monotonic() - 10_000.0

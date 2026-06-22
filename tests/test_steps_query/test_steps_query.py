@@ -267,7 +267,10 @@ class TestListForSession:
 
 class TestDescribeColumns:
     def test_returns_table_columns(self):
+        from litmus.analysis.measurement_facets import ColumnSchema
+
         with StepsQuery() as q:
-            cols = q.describe_columns()
-        names = {c["column_name"] for c in cols}
+            schema = q.describe_columns()
+        assert isinstance(schema, ColumnSchema)
+        names = {c.name for c in schema.fixed}
         assert {"run_id", "step_index", "step_name", "step_path", "outcome"} <= names

@@ -55,7 +55,7 @@ def metrics_summary(data_dir, phase, since, until_date, part, station, period, a
             return
 
         if as_json:
-            click.echo(json.dumps(rows, indent=2, default=str))
+            click.echo(json.dumps([r.model_dump() for r in rows], indent=2, default=str))
             return
 
         click.echo(
@@ -64,18 +64,18 @@ def metrics_summary(data_dir, phase, since, until_date, part, station, period, a
         )
         click.echo("-" * 96)
         for r in rows:
-            fpt = r.get("first_pass_total", 0)
-            fpp = r.get("first_pass_passed", 0)
+            fpt = r.first_pass_total
+            fpp = r.first_pass_passed
             fpy = f"{fpp / fpt * 100:.1f}%" if fpt else "N/A"
-            us = r.get("unique_serials", 0)
-            fp = r.get("final_passed", 0)
+            us = r.unique_serials
+            fp = r.final_passed
             final = f"{fp / us * 100:.1f}%" if us else "N/A"
-            avg_d = r.get("avg_duration_s")
+            avg_d = r.avg_duration_s
             avg = f"{avg_d:.1f}" if avg_d is not None else "N/A"
             click.echo(
-                f"{str(r.get('period', '')):<12} {str(r.get('part', '')):<16} "
-                f"{str(r.get('station', '')):<16} {r.get('total_runs', 0):>5} "
-                f"{r.get('passed', 0):>5} {r.get('failed', 0):>5} "
+                f"{str(r.period):<12} {str(r.part):<16} "
+                f"{str(r.station):<16} {r.total_runs:>5} "
+                f"{r.passed:>5} {r.failed:>5} "
                 f"{fpy:>6} {final:>6} {avg:>7}"
             )
 
@@ -101,7 +101,7 @@ def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, gro
 
         store = StepsQuery(_data_dir=data_dir or None)
         try:
-            rows = store.failure_pareto(
+            rows = store.pareto(
                 top_n=top_n,
                 phase=phase,
                 part=part,
@@ -117,7 +117,7 @@ def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, gro
 
         store = RunsQuery(_data_dir=data_dir or None)
         try:
-            rows = store.failure_pareto(
+            rows = store.pareto(
                 group_by="uut_part_number",
                 top_n=top_n,
                 phase=phase,
@@ -142,15 +142,7 @@ def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, gro
             )
         finally:
             store.close()
-        rows = [
-            {
-                "bucket": f"{r.get('step_name', '')}: {r.get('measurement_name', '')}",
-                "failed_count": r.get("fail_count", 0),
-                "total": r.get("fail_count", 0),
-                "fail_rate_pct": r.get("fail_rate", 0),
-            }
-            for r in raw
-        ]
+        rows = [r.to_bucket_dict() for r in raw]
         header = "Measurement (step: name)"
 
     if not rows:
@@ -194,20 +186,20 @@ def metrics_cpk(data_dir, phase, since, until_date, part, station, min_samples, 
             return
 
         if as_json:
-            click.echo(json.dumps(rows, indent=2, default=str))
+            click.echo(json.dumps([r.model_dump() for r in rows], indent=2, default=str))
             return
 
         click.echo(f"{'Measurement':<30} {'N':>5} {'Mean':>10} {'Sigma':>10} {'Cpk':>7} {'Cp':>7}")
         click.echo("-" * 75)
         for r in rows:
-            name = str(r.get("measurement_name", ""))
+            name = str(r.measurement_name)
             if len(name) > 28:
                 name = name[:25] + "..."
-            cpk_val = f"{r['cpk']:.3f}" if r.get("cpk") is not None else "N/A"
-            cp_val = f"{r['cp']:.3f}" if r.get("cp") is not None else "N/A"
+            cpk_val = f"{r.cpk:.3f}" if r.cpk is not None else "N/A"
+            cp_val = f"{r.cp:.3f}" if r.cp is not None else "N/A"
             click.echo(
-                f"{name:<30} {r.get('n') or 0:>5} {r.get('mean') or 0:>10.4f} "
-                f"{r.get('sigma') or 0:>10.4f} {cpk_val:>7} {cp_val:>7}"
+                f"{name:<30} {r.n or 0:>5} {r.mean or 0:>10.4f} "
+                f"{r.sigma or 0:>10.4f} {cpk_val:>7} {cp_val:>7}"
             )
 
 
@@ -231,16 +223,13 @@ def metrics_trend(data_dir, phase, since, until_date, part, station, period, as_
             return
 
         if as_json:
-            click.echo(json.dumps(rows, indent=2, default=str))
+            click.echo(json.dumps([r.model_dump() for r in rows], indent=2, default=str))
             return
 
         click.echo(f"{'Period':<14} {'Total':>6} {'Passed':>7} {'Yield':>7}")
         click.echo("-" * 38)
         for r in rows:
-            click.echo(
-                f"{str(r.get('period', '')):<14} {r.get('total', 0):>6} "
-                f"{r.get('passed', 0):>7} {r.get('yield_pct', 0):>6.1f}%"
-            )
+            click.echo(f"{str(r.period):<14} {r.total:>6} {r.passed:>7} {r.yield_pct or 0:>6.1f}%")
 
 
 @metrics_group.command("retest")
@@ -263,16 +252,16 @@ def metrics_retest(data_dir, phase, since, until_date, part, station, period, as
             return
 
         if as_json:
-            click.echo(json.dumps(rows, indent=2, default=str))
+            click.echo(json.dumps([r.model_dump() for r in rows], indent=2, default=str))
             return
 
         click.echo(f"{'Period':<14} {'Serials':>8} {'Retested':>9} {'Rate':>7} {'Avg Ret':>8}")
         click.echo("-" * 50)
         for r in rows:
             click.echo(
-                f"{str(r.get('period', '')):<14} {r.get('total_serials', 0):>8} "
-                f"{r.get('retested_count', 0):>9} {r.get('retest_rate', 0):>6.1f}% "
-                f"{r.get('avg_retries', 0):>7.1f}"
+                f"{str(r.period):<14} {r.total_serials:>8} "
+                f"{r.retested_count:>9} {r.retest_rate or 0:>6.1f}% "
+                f"{r.avg_retries or 0:>7.1f}"
             )
 
 
@@ -296,7 +285,7 @@ def metrics_time_loss(data_dir, phase, since, until_date, part, station, period,
             return
 
         if as_json:
-            click.echo(json.dumps(rows, indent=2, default=str))
+            click.echo(json.dumps([r.model_dump() for r in rows], indent=2, default=str))
             return
 
         click.echo(
@@ -305,9 +294,9 @@ def metrics_time_loss(data_dir, phase, since, until_date, part, station, period,
         click.echo("-" * 58)
         for r in rows:
             click.echo(
-                f"{str(r.get('period', '')):<14} "
-                f"{r.get('total_time_s', 0) or 0:>10.1f} "
-                f"{r.get('pass_time_s', 0) or 0:>10.1f} "
-                f"{r.get('fail_time_s', 0) or 0:>10.1f} "
-                f"{r.get('error_time_s', 0) or 0:>10.1f}"
+                f"{str(r.period):<14} "
+                f"{r.total_time_s or 0:>10.1f} "
+                f"{r.pass_time_s or 0:>10.1f} "
+                f"{r.fail_time_s or 0:>10.1f} "
+                f"{r.error_time_s or 0:>10.1f}"
             )

@@ -302,7 +302,7 @@ _MEASURE_CONFTEST = textwrap.dedent(
     """
     import pytest
     from litmus.execution._state import get_current_run_scope, set_current_run_scope
-    from litmus.execution.logger import RunScope
+    from litmus.execution.run_scope import RunScope
 
     # Session-scoped so the main plugin's session-scoped fixtures that
     # depend on ``_run_scope`` (e.g. ``instruments``) can resolve it without

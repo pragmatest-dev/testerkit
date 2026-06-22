@@ -50,15 +50,15 @@ Return one page of recent runs, most recent first.
 
 Return one run by id-prefix (8-char) or ``None`` if not found.
 
-### `RunsQuery.find_for_session` {#runsquery-find_for_session}
+### `RunsQuery.list_for_session` {#runsquery-list_for_session}
 
-`find_for_session(session_id: str, *, include_incomplete: bool = False) → list[RunRow]`
+`list_for_session(session_id: str, *, include_incomplete: bool = False) → list[RunRow]`
 
 Return all runs sharing a ``session_id`` (multi-UUT siblings).
 
-### `RunsQuery.failure_pareto` {#runsquery-failure_pareto}
+### `RunsQuery.pareto` {#runsquery-pareto}
 
-`failure_pareto(*, group_by: str = 'uut_part_number', top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
+`pareto(*, group_by: str = 'uut_part_number', top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
 
 Pareto of failing runs grouped by ``group_by`` column.
 
@@ -88,9 +88,9 @@ Aggregate run stats grouped by a column, entirely in SQL.
 
 ### `RunsQuery.describe_columns` {#runsquery-describe_columns}
 
-`describe_columns() → list[dict[str, str]]`
+`describe_columns() → ColumnSchema`
 
-Return the ``runs`` table's columns: ``[{name, type}, ...]``.
+Return the ``runs`` table's column schema.
 
 ## `StepsQuery` {#stepsquery}
 
@@ -110,11 +110,11 @@ Release daemon ref and close Flight client.
 
 Return every step row for a run, ordered by ``step_index``.
 
-### `StepsQuery.failure_pareto` {#stepsquery-failure_pareto}
+### `StepsQuery.pareto` {#stepsquery-pareto}
 
-`failure_pareto(*, top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
+`pareto(*, top_n: int = 10, phase: str | list[str] | None = None, part: str | list[str] | None = None, station: str | list[str] | None = None, since: str | None = None, until: str | None = None) → list[dict[str, Any]]`
 
-Pareto of failing steps grouped by ``step_path``.
+Failure pareto of failing steps grouped by ``step_path``.
 
 ### `StepsQuery.list_for_session` {#stepsquery-list_for_session}
 
@@ -130,9 +130,9 @@ Return the step tree for a run, built from ``step_path``.
 
 ### `StepsQuery.describe_columns` {#stepsquery-describe_columns}
 
-`describe_columns() → list[dict[str, str]]`
+`describe_columns() → ColumnSchema`
 
-Return the ``steps`` table's columns: ``[{name, type}, ...]``.
+Return the ``steps`` table's column schema.
 
 ## `MeasurementsQuery` {#measurementsquery}
 
@@ -148,37 +148,37 @@ Release daemon ref and close Flight client.
 
 ### `MeasurementsQuery.yield_summary` {#measurementsquery-yield_summary}
 
-`yield_summary(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[dict[str, Any]]`
+`yield_summary(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[YieldRow]`
 
 Yield summary: FPY, final yield, run counts, duration stats.
 
 ### `MeasurementsQuery.pareto` {#measurementsquery-pareto}
 
-`pareto(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, top_n: int = 10) → list[dict[str, Any]]`
+`pareto(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, top_n: int = 10) → list[ParetoRow]`
 
-Pareto analysis: top failure modes by count.
+Failure pareto analysis: top failure modes by count.
 
 ### `MeasurementsQuery.cpk` {#measurementsquery-cpk}
 
-`cpk(field: str | FieldRef | None = None, *, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, min_samples: int = 10) → list[dict[str, Any]]`
+`cpk(field: str | FieldRef | None = None, *, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, min_samples: int = 10) → list[CpkRow]`
 
 Process capability (Cpk/Cp) per measurement.
 
 ### `MeasurementsQuery.trend` {#measurementsquery-trend}
 
-`trend(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[dict[str, Any]]`
+`trend(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[TrendRow]`
 
 Yield trend over time.
 
 ### `MeasurementsQuery.retest` {#measurementsquery-retest}
 
-`retest(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[dict[str, Any]]`
+`retest(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[RetestRow]`
 
 Retest rates: how often UUTs require multiple attempts.
 
 ### `MeasurementsQuery.time_loss` {#measurementsquery-time_loss}
 
-`time_loss(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[dict[str, Any]]`
+`time_loss(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, period: str = 'day') → list[TimeLossRow]`
 
 Time lost to failures and errors.
 

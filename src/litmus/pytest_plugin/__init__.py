@@ -37,9 +37,9 @@ from litmus.execution.accessors import InstrumentAccessor
 from litmus.execution.connections import ConnectionIterator
 from litmus.execution.harness import Context
 from litmus.execution.instrument_events import emit_instrument_events
-from litmus.execution.logger import RunContext, RunScope
 from litmus.execution.metadata import build_run_metadata
 from litmus.execution.profiles import resolve_test_phase
+from litmus.execution.run_scope import RunContext, RunScope
 from litmus.execution.verify import (
     LimitsFn,
     MeasureFn,

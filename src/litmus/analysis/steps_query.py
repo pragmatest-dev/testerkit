@@ -18,26 +18,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from litmus.analysis.measurement_facets import ColumnSchema, FixedColumnDescriptor
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import multi_filter_clauses, sql_escape
+from litmus.data.backends._row_helpers import _decode_dynamic_attrs_map
 from litmus.data.data_dir import resolve_data_dir
 
 logger = logging.getLogger(__name__)
-
-
-def _coerce(v: Any) -> Any:
-    """dynamic_attrs values are VARCHAR; recover bool/float scalars."""
-    if not isinstance(v, str):
-        return v
-    if v == "true":
-        return True
-    if v == "false":
-        return False
-    try:
-        return float(v)
-    except ValueError:
-        return v
 
 
 class StepRow(BaseModel):
@@ -101,12 +89,16 @@ class StepNode(BaseModel):
 class StepsQuery:
     """Read-only client over the runs daemon's ``steps`` table.
 
-    Usage::
+    Construct once and reuse — no explicit close needed::
 
         q = StepsQuery()
         rows = q.list_for_run("run-001-abc")
         tree = q.tree_for_run("run-001-abc")
-        q.close()
+
+    Or use as a context manager for deterministic cleanup::
+
+        with StepsQuery() as q:
+            rows = q.list_for_run("run-001-abc")
     """
 
     def __init__(self, *, _data_dir: Path | str | None = None) -> None:
@@ -168,18 +160,11 @@ class StepsQuery:
         step_rows: list[StepRow] = []
         for r in rows:
             sr = StepRow(**r)
-            da = r.get("dynamic_attrs")
-            pairs = da.items() if isinstance(da, dict) else (da or [])
-            sr.inputs = {
-                k[3:]: _coerce(v) for k, v in pairs if k.startswith("in_") and v is not None
-            }
-            sr.outputs = {
-                k[4:]: _coerce(v) for k, v in pairs if k.startswith("out_") and v is not None
-            }
+            sr.inputs, sr.outputs = _decode_dynamic_attrs_map(r.get("dynamic_attrs"))
             step_rows.append(sr)
         return step_rows
 
-    def failure_pareto(
+    def pareto(
         self,
         *,
         top_n: int = 10,
@@ -189,7 +174,7 @@ class StepsQuery:
         since: str | None = None,
         until: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Pareto of failing steps grouped by ``step_path``.
+        """Failure pareto of failing steps grouped by ``step_path``.
 
         Cross-run aggregate: which test step name has the most
         failures across the matching set of runs. Same semantic as
@@ -268,7 +253,12 @@ class StepsQuery:
             {ended_clause}
             ORDER BY slot_id, step_index
         """)
-        return [StepRow(**r) for r in rows]
+        step_rows: list[StepRow] = []
+        for r in rows:
+            sr = StepRow(**r)
+            sr.inputs, sr.outputs = _decode_dynamic_attrs_map(r.get("dynamic_attrs"))
+            step_rows.append(sr)
+        return step_rows
 
     def tree_for_run(self, run_id: str) -> list[StepNode]:
         """Return the step tree for a run, built from ``step_path``.
@@ -297,6 +287,11 @@ class StepsQuery:
                 roots.append(node)
         return roots
 
-    def describe_columns(self) -> list[dict[str, str]]:
-        """Return the ``steps`` table's columns: ``[{name, type}, ...]``."""
-        return self._query_dicts("DESCRIBE steps")
+    def describe_columns(self) -> ColumnSchema:
+        """Return the ``steps`` table's column schema."""
+        rows = self._query_dicts("DESCRIBE steps")
+        fixed = [
+            FixedColumnDescriptor(name=str(r["column_name"]), column_type=str(r["column_type"]))
+            for r in rows
+        ]
+        return ColumnSchema(fixed=fixed, fields=[])

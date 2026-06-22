@@ -74,17 +74,19 @@ class FileStore:
     user attributes). Read it back with :meth:`read_attributes`.
     """
 
-    def __init__(self, data_dir: Path | None = None, *, backend_uri: str | None = None) -> None:
-        self._data_dir = resolve_data_dir(data_dir)
+    def __init__(
+        self, *, _data_dir: Path | str | None = None, backend_uri: str | None = None
+    ) -> None:
+        self._data_dir = resolve_data_dir(_data_dir)
         self._files_dir = self._data_dir / "files"
         # Blob bytes flow through this backend (local disk by default; an
         # object store by config — the only thing that changes for a swap).
         # Default root is self._files_dir so it tracks whatever resolved the
         # data dir (incl. test monkeypatches); env/config override only when
-        # no explicit data_dir was given.
+        # no explicit _data_dir was given.
         self._backend = BlobBackend.from_uri(
             resolve_files_backend(
-                self._files_dir, allow_override=data_dir is None, backend_uri=backend_uri
+                self._files_dir, allow_override=_data_dir is None, backend_uri=backend_uri
             )
         )
 
@@ -395,6 +397,19 @@ class FileStore:
             return
         self._backend.delete(key)
         self._backend.delete(f"{key}{_SIDECAR_SUFFIX}")
+
+    def close(self) -> None:
+        """No-op — FileStore holds no daemon ref or background thread.
+
+        Present so FileStore satisfies the optional-close store contract
+        (usable as ``with FileStore(...) as fs:``) like the other stores.
+        """
+
+    def __enter__(self) -> FileStore:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
     def _resolve_key(self, uri: str) -> str | None:
         """Map a ``file://`` URI to its backend-relative key — pure parsing.

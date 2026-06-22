@@ -116,7 +116,7 @@ class TestOpportunisticHandlers:
     def test_pil_image_writes_actual_png_bytes(self, tmp_path: Path) -> None:
         PIL = pytest.importorskip("PIL.Image")
         img = PIL.new("RGB", (8, 8), "blue")
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         uri = store.write("preview", img, session_id="testsess")
         assert uri.endswith(".png")
 
@@ -129,7 +129,7 @@ class TestOpportunisticHandlers:
         pd = pytest.importorskip("pandas")
         pq = pytest.importorskip("pyarrow.parquet")
         df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         uri = store.write("export", df, session_id="testsess2")
         assert uri.endswith(".parquet")
 
@@ -181,7 +181,7 @@ class TestRegisterSerializer:
             write=write_as_b64,
         )
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         uri = store.write("payload", b"\x01\x02\x03", session_id="testsess3")
         assert uri.endswith(".b64")
 
@@ -226,7 +226,7 @@ class TestLitmusSerializeProtocol:
                 dest.write_text("MYZ:custom-format")
                 return dest
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         uri = store.write("artifact", MyArtifact(), session_id="testsess4")
         assert uri.endswith(".myz")
 
@@ -273,7 +273,7 @@ class TestPickleFallback:
         assert "register_serializer" in str(runtime_warnings[0].message)
 
     def test_pickle_fallback_round_trips(self, tmp_path: Path) -> None:
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         val = _UnregisteredCustom(7)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

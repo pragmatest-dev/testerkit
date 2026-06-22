@@ -12,6 +12,7 @@ import os
 import re
 import socket
 import warnings
+import weakref
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -161,6 +162,21 @@ class _ChannelWriter(BufferedIPCWriter):
             self._segment += 1
 
 
+def _finalize_channel_store(push_relay: PushRelay) -> None:
+    """Best-effort teardown for a ChannelStore that was never close()d.
+
+    Bound via weakref.finalize to the PushRelay object (never to self). The
+    relay is the only resource that won't self-clean on GC — a running thread
+    keeps itself alive. Once it's stopped, the held writers / flight client are
+    unreferenced and collected, and the daemon prunes our dead ref like the
+    other daemons.
+    """
+    try:
+        push_relay.close()
+    except Exception:  # noqa: BLE001 — best-effort finalizer
+        pass
+
+
 class ChannelStore:
     """Streaming Arrow IPC store for instrument channel data.
 
@@ -275,6 +291,7 @@ class ChannelStore:
         # (A/B benchmarking + rollback).
         self._async_push = os.environ.get("LITMUS_CHANNELS_SYNC_PUSH") != "1"
         self._push_relay: PushRelay | None = None
+        self._finalizer: weakref.finalize | None = None
 
     def open(self) -> None:
         if self._opened:
@@ -285,8 +302,19 @@ class ChannelStore:
         if self._serve:
             self._connect_or_serve()
             if self._async_push and self._flight_location is not None:
+                # Weakref the relay's flush back-ref so the relay (a live thread)
+                # doesn't pin the store — else the store can never be GC'd and the
+                # finalizer below never fires. Behaviour is identical while the
+                # store is alive; after it's collected there's nothing to flush.
+                _self_ref = weakref.ref(self)
+
+                def _relay_flush(channel_id: object, items: list) -> None:
+                    s = _self_ref()
+                    if s is not None:
+                        s._push_flush(channel_id, items)
+
                 self._push_relay = PushRelay(
-                    flush=self._push_flush,
+                    flush=_relay_flush,
                     key=lambda item: item[0],
                     weight=lambda item: item[1].num_rows,
                     max_weight=self._options.push_max_rows,
@@ -294,6 +322,11 @@ class ChannelStore:
                     queue_max=self._options.push_queue_max,
                     thread_name="channel-pusher",
                 )
+                # Safety net: a producer that forgets close() (e.g. a notebook
+                # script doing ChannelStore(..., serve=True)) won't leak the
+                # pusher thread. weakref.finalize fires on GC or interpreter exit;
+                # bound to the relay object, never self.
+                self._finalizer = weakref.finalize(self, _finalize_channel_store, self._push_relay)
         # Set last: a failed open() can be retried; a single producer thread means
         # no concurrent re-entry to guard against (see the single-writer model).
         self._opened = True
@@ -1364,6 +1397,12 @@ class ChannelStore:
                     refs.add((m.group(1), m.group(2)))
         return refs
 
+    def __enter__(self) -> ChannelStore:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
     def close(self) -> None:
         """Flush all writers, write channel registry, close.
 
@@ -1373,6 +1412,8 @@ class ChannelStore:
         that fired on first write. Idempotent — second close() emits
         nothing.
         """
+        if self._finalizer is not None:
+            self._finalizer.detach()
         # Position 2: emit ChannelEnded for every channel touched in
         # this session — before tearing down Flight / writers so the
         # event log captures the lifecycle marker while the event log

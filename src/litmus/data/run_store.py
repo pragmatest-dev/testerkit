@@ -3,6 +3,11 @@
 Mirrors EventStore's pattern: parquet files are the source of truth,
 a DuckDB daemon indexes them, and RunStore provides a clean query API.
 ParquetBackend keeps the write path; RunStore owns reads + ref management.
+
+Construct once and reuse across notebook cells or long-running scripts.
+The analytical daemon is a separate process with its own PID-ref and idle
+timeout, so forgetting to call ``close()`` does not leak it. ``close()``
+and ``with`` are optional.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import pyarrow.parquet as pq
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient, call_options
 from litmus.data._sql_helpers import sql_escape as _sql_escape
+from litmus.data.backends._row_helpers import _decode_dynamic_attrs_map
 from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import RunSummary
 
@@ -43,9 +49,13 @@ class RunStore:
 
     Uses a ref-counted in-memory DuckDB daemon for indexed queries — same
     lifecycle pattern as EventStore. Queries go via Arrow Flight (gRPC).
+
+    Construct once and reuse across calls. ``close()`` / ``with`` are optional
+    — the daemon is a separate process that self-manages via PID-ref and idle
+    timeout, so forgetting to close does not leak it.
     """
 
-    def __init__(self, *, _data_dir: Path | None = None) -> None:
+    def __init__(self, *, _data_dir: Path | str | None = None) -> None:
         data_dir = resolve_data_dir(_data_dir)
 
         self._runs_dir = data_dir / "runs"
@@ -201,34 +211,11 @@ class RunStore:
             logger.debug("Failed to query measurements for %s: %s", run_id, exc)
             return []
 
-        # Un-fuse dynamic_attrs MAP into role-split inputs/outputs dicts.
-        # dynamic_attrs MAP(VARCHAR,VARCHAR) arrives from Arrow as either a
-        # plain dict or a list of (key, value) tuples. Keys are prefixed
-        # in_<name> (stimulus) and out_<name> (observation); we strip the
-        # prefix and coerce VARCHAR numerics back to float.
-        def _coerce(v: Any) -> Any:
-            if isinstance(v, str):
-                try:
-                    return float(v)
-                except ValueError:
-                    return v
-            return v
-
         for row in rows:
-            da = row.pop("dynamic_attrs", None)
-            inputs: dict[str, Any] = {}
-            outputs: dict[str, Any] = {}
-            if da:
-                items = da.items() if isinstance(da, dict) else da
-                for k, v in items:
-                    if k is None or v is None:
-                        continue
-                    if k.startswith("in_"):
-                        inputs[k[3:]] = _coerce(v)
-                    elif k.startswith("out_"):
-                        outputs[k[4:]] = _coerce(v)
-            row["inputs"] = inputs
-            row["outputs"] = outputs
+            # pop removes dynamic_attrs from the dict before returning it
+            row["inputs"], row["outputs"] = _decode_dynamic_attrs_map(
+                row.pop("dynamic_attrs", None)
+            )
         return rows
 
     # --- Ref management (for materialize) ---
@@ -330,3 +317,9 @@ class RunStore:
             runs_duckdb_manager.release(self._runs_dir)
         except Exception as exc:
             warnings.warn(f"runs_duckdb_manager.release failed: {exc}", stacklevel=2)
+
+    def __enter__(self) -> RunStore:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()

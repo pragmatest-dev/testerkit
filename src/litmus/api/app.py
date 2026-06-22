@@ -829,14 +829,17 @@ def create_api_router() -> APIRouter:
         """Yield summary — DuckDB SQL aggregated from parquet rows at request time."""
         with _measurements_query() as q:
             return {
-                "data": q.yield_summary(
-                    part=part,
-                    station=station,
-                    phase=phase,
-                    since=since,
-                    until=until,
-                    period=period,
-                )
+                "data": [
+                    r.model_dump()
+                    for r in q.yield_summary(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        period=period,
+                    )
+                ]
             }
 
     @router.get("/metrics/pareto", response_model=MetricsResponse, response_class=ORJSONResponse)
@@ -851,14 +854,17 @@ def create_api_router() -> APIRouter:
         """Top failure modes (DuckDB SQL)."""
         with _measurements_query() as q:
             return {
-                "data": q.pareto(
-                    part=part,
-                    station=station,
-                    phase=phase,
-                    since=since,
-                    until=until,
-                    top_n=top_n,
-                )
+                "data": [
+                    r.model_dump()
+                    for r in q.pareto(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        top_n=top_n,
+                    )
+                ]
             }
 
     @router.get("/metrics/cpk", response_model=MetricsResponse, response_class=ORJSONResponse)
@@ -873,14 +879,17 @@ def create_api_router() -> APIRouter:
         """Process capability (DuckDB SQL)."""
         with _measurements_query() as q:
             return {
-                "data": q.cpk(
-                    part=part,
-                    station=station,
-                    phase=phase,
-                    since=since,
-                    until=until,
-                    min_samples=min_samples,
-                )
+                "data": [
+                    r.model_dump()
+                    for r in q.cpk(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        min_samples=min_samples,
+                    )
+                ]
             }
 
     @router.get("/metrics/trend", response_model=MetricsResponse, response_class=ORJSONResponse)
@@ -895,14 +904,17 @@ def create_api_router() -> APIRouter:
         """Yield trend (DuckDB SQL)."""
         with _measurements_query() as q:
             return {
-                "data": q.trend(
-                    part=part,
-                    station=station,
-                    phase=phase,
-                    since=since,
-                    until=until,
-                    period=period,
-                )
+                "data": [
+                    r.model_dump()
+                    for r in q.trend(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        period=period,
+                    )
+                ]
             }
 
     @router.get("/metrics/retest", response_model=MetricsResponse, response_class=ORJSONResponse)
@@ -917,14 +929,17 @@ def create_api_router() -> APIRouter:
         """Retest rates (DuckDB SQL)."""
         with _measurements_query() as q:
             return {
-                "data": q.retest(
-                    part=part,
-                    station=station,
-                    phase=phase,
-                    since=since,
-                    until=until,
-                    period=period,
-                )
+                "data": [
+                    r.model_dump()
+                    for r in q.retest(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        period=period,
+                    )
+                ]
             }
 
     @router.get("/metrics/time-loss", response_model=MetricsResponse, response_class=ORJSONResponse)
@@ -939,14 +954,17 @@ def create_api_router() -> APIRouter:
         """Time lost to failures/errors (DuckDB SQL)."""
         with _measurements_query() as q:
             return {
-                "data": q.time_loss(
-                    part=part,
-                    station=station,
-                    phase=phase,
-                    since=since,
-                    until=until,
-                    period=period,
-                )
+                "data": [
+                    r.model_dump()
+                    for r in q.time_loss(
+                        part=part,
+                        station=station,
+                        phase=phase,
+                        since=since,
+                        until=until,
+                        period=period,
+                    )
+                ]
             }
 
     # -------------------------------------------------------------------------

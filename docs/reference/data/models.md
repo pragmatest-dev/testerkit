@@ -1614,6 +1614,102 @@ One bin in a histogram result. ``x`` is the bin midpoint.
 | `y` | `int` | *required* |
 | `group` | `str` | `''` |
 
+#### `YieldRow` {#model-yieldrow}
+
+One row from :meth:`MeasurementsQuery.yield_summary` — one (part, station, phase, period).
+
+| Field | Type | Default |
+|---|---|---|
+| `part` | `str` | *required* |
+| `station` | `str` | *required* |
+| `phase` | `str` | *required* |
+| `period` | `object` | *required* |
+| `total_runs` | `int` | *required* |
+| `passed` | `int` | *required* |
+| `failed` | `int` | *required* |
+| `errored` | `int` | *required* |
+| `unique_serials` | `int` | *required* |
+| `first_pass_total` | `int` | *required* |
+| `first_pass_passed` | `int` | *required* |
+| `final_passed` | `int` | *required* |
+| `avg_duration_s` | `float \| None` | `None` |
+| `p95_duration_s` | `float \| None` | `None` |
+
+#### `ParetoRow` {#model-paretorow}
+
+One row from :meth:`MeasurementsQuery.pareto`.
+
+| Field | Type | Default |
+|---|---|---|
+| `part` | `str` | *required* |
+| `station` | `str` | *required* |
+| `step_name` | `str \| None` | `None` |
+| `measurement_name` | `str \| None` | `None` |
+| `total_count` | `int` | *required* |
+| `fail_count` | `int` | *required* |
+| `fail_rate` | `float \| None` | `None` |
+
+#### `CpkRow` {#model-cpkrow}
+
+One row from :meth:`MeasurementsQuery.cpk` — one (part, station, measurement_name).
+
+| Field | Type | Default |
+|---|---|---|
+| `part` | `str` | *required* |
+| `station` | `str` | *required* |
+| `measurement_name` | `str` | *required* |
+| `n` | `int` | *required* |
+| `mean` | `float \| None` | `None` |
+| `sigma` | `float \| None` | `None` |
+| `lsl` | `float \| None` | `None` |
+| `usl` | `float \| None` | `None` |
+| `cp` | `float \| None` | `None` |
+| `cpk` | `float \| None` | `None` |
+
+#### `TrendRow` {#model-trendrow}
+
+One row from :meth:`MeasurementsQuery.trend` — one (part, station, phase, period).
+
+| Field | Type | Default |
+|---|---|---|
+| `part` | `str` | *required* |
+| `station` | `str` | *required* |
+| `phase` | `str` | *required* |
+| `period` | `object` | *required* |
+| `total` | `int` | *required* |
+| `passed` | `int` | *required* |
+| `yield_pct` | `float \| None` | `None` |
+
+#### `RetestRow` {#model-retestrow}
+
+One row from :meth:`MeasurementsQuery.retest` — one (part, station, phase, period).
+
+| Field | Type | Default |
+|---|---|---|
+| `part` | `str` | *required* |
+| `station` | `str` | *required* |
+| `phase` | `str` | *required* |
+| `period` | `object` | *required* |
+| `total_serials` | `int` | *required* |
+| `retested_count` | `int` | *required* |
+| `retest_rate` | `float \| None` | `None` |
+| `avg_retries` | `float \| None` | `None` |
+
+#### `TimeLossRow` {#model-timelossrow}
+
+One row from :meth:`MeasurementsQuery.time_loss` — one (part, station, phase, period).
+
+| Field | Type | Default |
+|---|---|---|
+| `part` | `str` | *required* |
+| `station` | `str` | *required* |
+| `phase` | `str` | *required* |
+| `period` | `object` | *required* |
+| `total_time_s` | `float \| None` | `None` |
+| `pass_time_s` | `float \| None` | `None` |
+| `fail_time_s` | `float \| None` | `None` |
+| `error_time_s` | `float \| None` | `None` |
+
 #### `LimitBandRow` {#model-limitbandrow}
 
 One point of a measurement's limit envelope, keyed by the chart's X.

@@ -95,7 +95,7 @@ class TestInstrArrayColumns:
         assert schema.field("step_instruments_mocked").type == pa.list_(pa.bool_())
 
     def test_all_instr_keys_in_type_map(self):
-        from litmus.execution.logger import INSTRUMENT_ARRAY_KEYS
+        from litmus.execution.run_scope import INSTRUMENT_ARRAY_KEYS
 
         for key in INSTRUMENT_ARRAY_KEYS:
             assert key in _INSTR_ARRAY_TYPES

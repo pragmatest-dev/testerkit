@@ -38,10 +38,10 @@ from litmus.models.project import ProfileConfig
 from litmus.models.test_config import FixtureConnection
 
 if TYPE_CHECKING:
-    from litmus.execution.logger import RunScope
+    from litmus.execution.run_scope import RunScope
     from litmus.models.station import StationConfig
 
-# Step/vector — stack-like, push/pop with token. Used by logger.py + harness.py.
+# Step/vector — stack-like, push/pop with token. Used by run_scope.py + harness.py.
 _current_step_var: ContextVar[Any] = ContextVar("current_step", default=None)
 _current_vector_var: ContextVar[Any] = ContextVar("current_vector", default=None)
 # The active ``Context`` (harness.Context, not to be confused with PartContext).

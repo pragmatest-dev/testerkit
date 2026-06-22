@@ -31,7 +31,7 @@ from litmus.execution._state import (
     set_current_run_scope,
 )
 from litmus.execution.harness import Context, TestHarness
-from litmus.execution.logger import RunScope
+from litmus.execution.run_scope import RunScope
 from litmus.execution.verify import _perform_verify
 from litmus.models.test_config import Limit
 

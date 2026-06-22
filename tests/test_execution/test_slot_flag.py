@@ -101,11 +101,11 @@ def _list_runs(session_id: str, *, timeout: float = 15.0) -> list:
     q = RunsQuery()
     try:
         while time.monotonic() < deadline:
-            runs = q.find_for_session(session_id, include_incomplete=True)
+            runs = q.list_for_session(session_id, include_incomplete=True)
             if runs:
                 return runs
             time.sleep(0.2)
-        return q.find_for_session(session_id, include_incomplete=True)
+        return q.list_for_session(session_id, include_incomplete=True)
     finally:
         q.close()
 

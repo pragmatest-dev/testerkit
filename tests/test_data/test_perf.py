@@ -440,7 +440,7 @@ class TestFileStorePerf:
         no serialization cost beyond the disk write + sidecar metadata."""
         from litmus.data.files.store import FileStore
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
         payload = b"x" * (size_kb * 1024)
 
@@ -458,7 +458,7 @@ class TestFileStorePerf:
 
         from litmus.data.files.store import FileStore
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
         n_floats = (size_kb * 1024) // 8  # float64 = 8 bytes
         arr = np.random.default_rng(0).normal(size=n_floats)
@@ -477,7 +477,7 @@ class TestFileStorePerf:
         from litmus.data.files.store import FileStore
         from litmus.data.models import Waveform
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
         y = np.random.default_rng(0).normal(size=10_000)
         wf = Waveform(Y=y.tolist(), dt=1e-6)
@@ -494,7 +494,7 @@ class TestFileStorePerf:
         + file open. Models the operator UI / RunsQuery hot path."""
         from litmus.data.files.store import FileStore
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
         payload = b"y" * (size_kb * 1024)
         uri = store.write("readme", payload, session_id=sid)
@@ -511,7 +511,7 @@ class TestFileStorePerf:
         tight loop."""
         from litmus.data.files.store import FileStore
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
         uri = store.write("zzz", b"k", session_id=sid)
 
@@ -555,7 +555,7 @@ class TestFileStreamPerf:
 
         from litmus.data.files.store import FileStore
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
         n_chunks = 200
         chunk = b"a" * (64 * 1024)
@@ -601,7 +601,7 @@ class TestFileStreamPerf:
         platform's sustained byte rate before format overhead."""
         from litmus.data.files.store import FileStore
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
         chunk = b"a" * (chunk_kb * 1024)
         n_chunks = 64
@@ -621,7 +621,7 @@ class TestFileStreamPerf:
         rows or per-vector measurement dumps."""
         from litmus.data.files.store import FileStore
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
         row = {"t": 1.23, "v": 4.56, "label": "scope_ch1", "ok": True}
         chunk = [row] * rows_per_chunk
@@ -646,7 +646,7 @@ class TestFileStreamPerf:
 
         from litmus.data.files.store import FileStore
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
         data = np.random.default_rng(0).normal(size=10_000)
         n_chunks = 16
@@ -669,7 +669,7 @@ class TestFileStreamPerf:
 
         from litmus.data.files.store import FileStore
 
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = str(uuid4())
         chunk = {"voltage": np.random.default_rng(0).normal(size=10_000)}
         n_chunks = 16

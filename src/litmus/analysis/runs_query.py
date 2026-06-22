@@ -17,6 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from litmus.analysis.measurement_facets import ColumnSchema, FixedColumnDescriptor
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
 from litmus.data._sql_helpers import multi_filter_clauses, sql_escape
@@ -32,6 +33,21 @@ _VALID_PARETO_GROUP_BY = frozenset(
         "operator_id",
         "test_phase",
         "fixture_id",
+    }
+)
+
+# Group-by dimensions for usage_stats — broader than the pareto set:
+# asset/utilization reporting also allows the internal ``station_id`` and
+# ``project_name``.
+_VALID_USAGE_STATS_COLUMNS = frozenset(
+    {
+        "uut_part_number",
+        "station_hostname",
+        "station_id",
+        "fixture_id",
+        "test_phase",
+        "operator_id",
+        "project_name",
     }
 )
 
@@ -69,12 +85,16 @@ class RunRow(BaseModel):
 class RunsQuery:
     """Read-only client over the runs daemon's ``runs`` table.
 
-    Usage::
+    Construct once and reuse — no explicit close needed::
 
         q = RunsQuery()
         recent = q.list_recent(limit=20)
         run = q.get("run-001-abc")
-        q.close()
+
+    Or use as a context manager for deterministic cleanup::
+
+        with RunsQuery() as q:
+            recent = q.list_recent(limit=20)
     """
 
     def __init__(self, *, _data_dir: Path | str | None = None) -> None:
@@ -181,7 +201,7 @@ class RunsQuery:
         """)
         return RunRow(**rows[0]) if rows else None
 
-    def find_for_session(
+    def list_for_session(
         self,
         session_id: str,
         *,
@@ -202,7 +222,7 @@ class RunsQuery:
         """)
         return [RunRow(**r) for r in rows]
 
-    def failure_pareto(
+    def pareto(
         self,
         *,
         group_by: str = "uut_part_number",
@@ -231,9 +251,9 @@ class RunsQuery:
 
         Args:
             group_by: Column to group by — ``uut_part_number``
-                (part), ``station_id``, ``operator_id``,
-                ``test_phase``. Validated against an allowlist; bad
-                values raise ``ValueError``.
+                (part), ``station_hostname``, ``operator_id``,
+                ``test_phase``, ``fixture_id``. Validated against an
+                allowlist; bad values raise ``ValueError``.
             top_n: Max rows.
             phase / part / station / since / until: Filter the
                 run set before grouping. Same semantics as the
@@ -371,21 +391,10 @@ class RunsQuery:
         daemon returns one row per distinct value rather than up to
         ``limit`` full run rows — safe regardless of total run count.
         """
-        _VALID_BY_COLUMNS = frozenset(
-            {
-                "uut_part_number",
-                "station_hostname",
-                "station_id",
-                "fixture_id",
-                "test_phase",
-                "operator_id",
-                "project_name",
-            }
-        )
-        if by not in _VALID_BY_COLUMNS:
+        if by not in _VALID_USAGE_STATS_COLUMNS:
             raise ValueError(
                 f"usage_stats: invalid group-by column {by!r}. "
-                f"Must be one of {sorted(_VALID_BY_COLUMNS)}."
+                f"Must be one of {sorted(_VALID_USAGE_STATS_COLUMNS)}."
             )
         sql = f"""
             SELECT
@@ -402,6 +411,11 @@ class RunsQuery:
         """
         return self._query_dicts(sql)
 
-    def describe_columns(self) -> list[dict[str, str]]:
-        """Return the ``runs`` table's columns: ``[{name, type}, ...]``."""
-        return self._query_dicts("DESCRIBE runs")
+    def describe_columns(self) -> ColumnSchema:
+        """Return the ``runs`` table's column schema."""
+        rows = self._query_dicts("DESCRIBE runs")
+        fixed = [
+            FixedColumnDescriptor(name=str(r["column_name"]), column_type=str(r["column_type"]))
+            for r in rows
+        ]
+        return ColumnSchema(fixed=fixed, fields=[])

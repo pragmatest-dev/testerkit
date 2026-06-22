@@ -35,8 +35,8 @@ from litmus.execution.connections import (
     resolve_test_connections,
 )
 from litmus.execution.harness import Context
-from litmus.execution.logger import RunScope
 from litmus.execution.mocks import install_mocks
+from litmus.execution.run_scope import RunScope
 from litmus.models.test_config import MeasurementLimitConfig, MockEntry
 from litmus.pytest_plugin.helpers import safe_get_session_fixture
 from litmus.pytest_plugin.markers import (

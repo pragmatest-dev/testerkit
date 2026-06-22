@@ -66,7 +66,7 @@ def _wait_for_run(session_id: str, *, timeout: float = 15.0) -> str:
     runs_q = RunsQuery()
     try:
         while time.monotonic() < deadline:
-            runs = runs_q.find_for_session(session_id)
+            runs = runs_q.list_for_session(session_id)
             if runs:
                 assert runs[0].run_id is not None
                 return runs[0].run_id

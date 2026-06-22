@@ -98,7 +98,7 @@ class TestChannelsPersistentIndex:
 
 class TestFilesPersistentCatalog:
     def test_scan_is_incremental_no_duplicate(self, tmp_path: Path) -> None:
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = uuid4().hex
         store.write("a.bin", b"aaa", session_id=sid)
         store.write("b.bin", b"bbb", session_id=sid)
@@ -125,7 +125,7 @@ class TestFilesPersistentCatalog:
         conn2.close()
 
     def test_upsert_by_uri_is_idempotent(self, tmp_path: Path) -> None:
-        store = FileStore(data_dir=tmp_path)
+        store = FileStore(_data_dir=tmp_path)
         sid = uuid4().hex
         store.write("dup.bin", b"first", session_id=sid)
 
