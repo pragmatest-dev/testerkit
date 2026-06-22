@@ -243,3 +243,13 @@ measures behind one call. Build on `FailureParetoRow` as the failure-measure spe
   interpreter exit; `close()` detaches it. FIXED a latent ref-cycle (the `reacquire` lambdas
   captured `self` → would've blocked GC → finalizer never fires; now capture the `_events_dir`
   Path). 4 new tests incl. a GC-fires assertion; 10/10 resilience-test hammer; suite 2160, pyright 0.
+- **2026-06-21** — Phase A2c done (A2 COMPLETE): ChannelStore — `__enter__`/`__exit__` (no eager
+  open) + finalizer net. Insight: the PushRelay **thread** is the only resource that won't
+  self-clean on GC; the finalizer just stops it (writers/client cascade-collect; daemon prunes
+  the dead ref). Required the same cycle fix as EventStore — the relay's `flush` back-ref was a
+  bound method pinning the store; now weakref'd so the store is collectible. All ChannelStore
+  behavior preserved (lazy first-write open, flush thresholds, `close()→None`). New GC-fires
+  test; channel tests 3×46; suite 2163, pyright 0. BENCHMARK (clean back-to-back, A2c stashed vs
+  restored — the first baseline was contaminated by concurrent agents): **no regression** —
+  throughput metrics flat within run-to-run noise (block/query/stream@1k, capture, ingest all
+  ±~10%, several faster with the change); only the sub-ms `@1` micro-cases swing (jitter).
