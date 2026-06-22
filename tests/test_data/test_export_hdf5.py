@@ -144,8 +144,8 @@ class TestHdf5Subscriber:
         )
         with h5py.File(result, "r") as f:
             vec0 = f["steps/power/output/voltage/vectors/0"]
-            assert vec0.attrs["in_vin"] == 5.0
-            assert vec0.attrs["in_load"] == 100.0
+            assert vec0.attrs["input_vin"] == 5.0
+            assert vec0.attrs["input_load"] == 100.0
 
     def test_null_value_stored_as_nan(
         self,
