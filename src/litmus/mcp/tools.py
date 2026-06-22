@@ -1753,6 +1753,9 @@ def metrics_tool(
 
     Args:
         action: One of: summary, pareto, ppk, trend, retest, time_loss.
+            ``summary`` returns yield rows with FPY, final yield, run counts,
+            duration stats, RTY (rolled throughput yield), DPMO (defects per
+            million step opportunities), and DPPM (defective parts per million).
         part: Filter by part/part number.
         station: Filter by station name.
         phase: Filter by test phase (default: exclude development, 'all' = no filter).

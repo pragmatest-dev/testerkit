@@ -927,3 +927,205 @@ class TestResolveValueTypeFilterScoped:
                 x="measurement_value",
                 filters=filters,
             )
+
+
+def _step_row(
+    *,
+    run_id: str,
+    uut_part_number: str,
+    uut_serial: str = "SN001",
+    run_outcome: str = "passed",
+    run_started_at: str = "2026-01-01T10:00:00",
+    run_ended_at: str = "2026-01-01T10:05:00",
+    step_name: str = "test_voltage",
+    step_path: str = "test_voltage",
+    step_index: int = 0,
+    step_outcome: str = "passed",
+    station_name: str = "STA-RTY",
+    test_phase: str = "production",
+) -> MeasurementRow:
+    """Build a step MeasurementRow (record_type='step')."""
+    return MeasurementRow(
+        record_type="step",
+        session_id="sess-rty",
+        run_id=run_id,
+        run_started_at=datetime.fromisoformat(run_started_at).replace(tzinfo=UTC),
+        run_ended_at=datetime.fromisoformat(run_ended_at).replace(tzinfo=UTC),
+        uut_serial=uut_serial,
+        uut_part_number=uut_part_number,
+        part_id=uut_part_number,
+        station_id=station_name,
+        station_name=station_name,
+        test_phase=test_phase,
+        step_name=step_name,
+        step_path=step_path,
+        step_index=step_index,
+        step_outcome=step_outcome,
+        run_outcome=run_outcome,
+    )
+
+
+@pytest.fixture(scope="module")
+def rty_fixture_data() -> dict[str, str]:
+    """3 runs with 2 steps each; one run fails step_b.
+
+    run-A: step_a=passed, step_b=passed  → run outcome=passed
+    run-B: step_a=passed, step_b=failed  → run outcome=failed
+    run-C: step_a=passed, step_b=passed  → run outcome=passed
+
+    Expected values:
+      step_a FPY = 3/3 = 1.0
+      step_b FPY = 2/3
+      RTY = 1.0 * (2/3) = 2/3 ≈ 0.6667
+
+      total_steps = 6, failed_steps = 1 (step_b on run-B)
+      DPMO = 1/6 * 1e6 ≈ 166667
+
+      total_runs = 3, failed_runs = 1
+      DPPM = 1/3 * 1e6 ≈ 333333
+    """
+    part = f"TEST-RTY-{uuid4().hex[:8]}"
+    canonical_runs = resolve_data_dir() / "runs" / "test-rty" / "2026-01-01"
+    run_a = f"rty-{uuid4()}"
+    run_b = f"rty-{uuid4()}"
+    run_c = f"rty-{uuid4()}"
+    rows = [
+        # run-A: both steps pass
+        _step_row(
+            run_id=run_a,
+            uut_part_number=part,
+            uut_serial="RTY-SN001",
+            step_name="step_a",
+            step_path="step_a",
+            step_index=0,
+            step_outcome="passed",
+            run_outcome="passed",
+        ),
+        _step_row(
+            run_id=run_a,
+            uut_part_number=part,
+            uut_serial="RTY-SN001",
+            step_name="step_b",
+            step_path="step_b",
+            step_index=1,
+            step_outcome="passed",
+            run_outcome="passed",
+        ),
+        # run-B: step_b fails → run failed
+        _step_row(
+            run_id=run_b,
+            uut_part_number=part,
+            uut_serial="RTY-SN002",
+            step_name="step_a",
+            step_path="step_a",
+            step_index=0,
+            step_outcome="passed",
+            run_outcome="failed",
+        ),
+        _step_row(
+            run_id=run_b,
+            uut_part_number=part,
+            uut_serial="RTY-SN002",
+            step_name="step_b",
+            step_path="step_b",
+            step_index=1,
+            step_outcome="failed",
+            run_outcome="failed",
+        ),
+        # run-C: both steps pass
+        _step_row(
+            run_id=run_c,
+            uut_part_number=part,
+            uut_serial="RTY-SN003",
+            step_name="step_a",
+            step_path="step_a",
+            step_index=0,
+            step_outcome="passed",
+            run_outcome="passed",
+        ),
+        _step_row(
+            run_id=run_c,
+            uut_part_number=part,
+            uut_serial="RTY-SN003",
+            step_name="step_b",
+            step_path="step_b",
+            step_index=1,
+            step_outcome="passed",
+            run_outcome="passed",
+        ),
+        # One vector row per run so yield_summary has measurement rows to aggregate.
+        _row(
+            run_id=run_a,
+            uut_part_number=part,
+            uut_serial="RTY-SN001",
+            run_outcome="passed",
+            step_name="step_b",
+        ),
+        _row(
+            run_id=run_b,
+            uut_part_number=part,
+            uut_serial="RTY-SN002",
+            run_outcome="failed",
+            step_name="step_b",
+            value=2.5,
+            outcome="failed",
+        ),
+        _row(
+            run_id=run_c,
+            uut_part_number=part,
+            uut_serial="RTY-SN003",
+            run_outcome="passed",
+            step_name="step_b",
+        ),
+    ]
+    _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
+    return {"part": part, "station": "STA-RTY"}
+
+
+class TestYieldRTY_DPMO_DPPM:
+    """RTY, DPMO, DPPM are computed from step-level outcome data."""
+
+    def test_rty_is_product_of_step_fpy(self, rty_fixture_data):
+        store = MeasurementsQuery()
+        rows = store.yield_summary(phase="all", part=rty_fixture_data["part"])
+        assert rows, "expected at least one yield row"
+        # Sum across periods (fixture uses a single day).
+        rty_val = next((r.rty for r in rows if r.rty is not None), None)
+        assert rty_val is not None, "rty must be populated when step data exists"
+        # step_a: 3/3=1.0; step_b: 2/3 → RTY = 2/3
+        assert rty_val == pytest.approx(2 / 3, rel=0.01)
+
+    def test_dpmo_is_failed_steps_per_million(self, rty_fixture_data):
+        store = MeasurementsQuery()
+        rows = store.yield_summary(phase="all", part=rty_fixture_data["part"])
+        assert rows
+        dpmo_val = next((r.dpmo for r in rows if r.dpmo is not None), None)
+        assert dpmo_val is not None, "dpmo must be populated when step data exists"
+        # 1 failed step out of 6 total → 1/6 * 1e6 ≈ 166667
+        assert dpmo_val == pytest.approx(1_000_000 / 6, rel=0.01)
+
+    def test_dppm_is_failed_runs_per_million(self, rty_fixture_data):
+        store = MeasurementsQuery()
+        rows = store.yield_summary(phase="all", part=rty_fixture_data["part"])
+        assert rows
+        dppm_val = next((r.dppm for r in rows if r.dppm is not None), None)
+        assert dppm_val is not None, "dppm must be populated"
+        # 1 failed run out of 3 → 1/3 * 1e6 ≈ 333333
+        assert dppm_val == pytest.approx(1_000_000 / 3, rel=0.01)
+
+    def test_no_step_data_yields_none_fields(self):
+        """A part with only vector rows (no step records) gets None for rty/dpmo/dppm."""
+        # fixture_data from TestYieldSummary writes only vector rows.
+        part = f"TEST-RTY-NOSTEP-{uuid4().hex[:8]}"
+        canonical_runs = resolve_data_dir() / "runs" / "test-rty-nostep" / "2026-01-01"
+        _write_measurements(
+            canonical_runs,
+            [_row(run_id=f"ns-{uuid4()}", uut_part_number=part, value=3.3, outcome="passed")],
+            filename=f"{part}_main.parquet",
+        )
+        store = MeasurementsQuery()
+        rows = store.yield_summary(phase="all", part=part)
+        assert rows
+        r = rows[0]
+        assert r.rty is None
+        assert r.dpmo is None

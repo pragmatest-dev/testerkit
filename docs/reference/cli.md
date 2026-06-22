@@ -289,7 +289,7 @@ Retest rates: how often UUTs are retried.
 
 #### `litmus metrics summary` {#cli-metrics-summary}
 
-Yield summary: FPY, final yield, run counts, duration stats.
+Yield summary: FPY, final yield, run counts, RTY, DPMO, DPPM, duration stats.
 
 | Argument / option | Type | Description |
 |---|---|---|

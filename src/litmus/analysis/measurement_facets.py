@@ -197,6 +197,12 @@ class YieldRow(BaseModel):
     final_passed: int
     avg_duration_s: float | None = None
     p95_duration_s: float | None = None
+    # Step-level quality metrics — populated from steps_materialized via JOIN.
+    # None when no step records exist in the matching scope (e.g. bare runs
+    # with no step tracking, or legacy data without step rows).
+    rty: float | None = None  # Rolled Throughput Yield — product of per-step FPY
+    dpmo: float | None = None  # Defects Per Million Opportunities (step-level)
+    dppm: float | None = None  # Defective Parts Per Million (run-level)
 
 
 class ParetoRow(BaseModel):

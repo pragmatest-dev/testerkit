@@ -826,7 +826,7 @@ def create_api_router() -> APIRouter:
         until: str | None = None,
         period: str = "day",
     ):
-        """Yield summary — DuckDB SQL aggregated from parquet rows at request time."""
+        """Yield summary — FPY, final yield, RTY, DPMO, DPPM per (part, station, phase, period)."""
         with _measurements_query() as q:
             return {
                 "data": [

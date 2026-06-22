@@ -1634,6 +1634,9 @@ One row from :meth:`MeasurementsQuery.yield_summary` — one (part, station, pha
 | `final_passed` | `int` | *required* |
 | `avg_duration_s` | `float \| None` | `None` |
 | `p95_duration_s` | `float \| None` | `None` |
+| `rty` | `float \| None` | `None` |
+| `dpmo` | `float \| None` | `None` |
+| `dppm` | `float \| None` | `None` |
 
 #### `ParetoRow` {#model-paretorow}
 

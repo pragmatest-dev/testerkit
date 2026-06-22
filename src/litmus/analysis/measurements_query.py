@@ -389,7 +389,7 @@ def _build_and_clauses(
 
 
 def _period_col(period: str) -> str:
-    """Return the SQL expression for a period bucket."""
+    """Return the SQL expression for a period bucket (measurements view column: run_started_at)."""
     if period == "week":
         return "DATE_TRUNC('week', run_started_at::TIMESTAMP)::DATE"
     if period == "month":
@@ -416,13 +416,16 @@ WITH runs AS (
     FROM measurements
     ORDER BY run_id
 ),
+runs_filtered AS (
+    SELECT * FROM runs {where}
+),
 first_runs AS (
     SELECT *,
         ROW_NUMBER() OVER (
             PARTITION BY uut_serial, part, station, phase
             ORDER BY run_started_at
         ) AS rn
-    FROM runs
+    FROM runs_filtered
 ),
 last_runs AS (
     SELECT *,
@@ -430,34 +433,89 @@ last_runs AS (
             PARTITION BY uut_serial, part, station, phase
             ORDER BY run_started_at DESC
         ) AS rn
-    FROM runs
+    FROM runs_filtered
+),
+step_agg AS (
+    -- Per-(part, station, phase, period_day, step_path) pass rate, joined from
+    -- steps + runs views. Filters to runs already matching the caller's scope
+    -- by joining on run_id from runs_filtered.
+    SELECT
+        rf.part,
+        rf.station,
+        rf.phase,
+        rf.period_day,
+        s.step_path,
+        COUNT(*) AS step_total,
+        COUNT(*) FILTER (WHERE s.outcome = 'passed') AS step_passed
+    FROM steps AS s
+    JOIN runs_filtered AS rf USING (run_id)
+    WHERE s.step_path IS NOT NULL AND s.outcome IS NOT NULL
+    GROUP BY rf.part, rf.station, rf.phase, rf.period_day, s.step_path
+),
+step_rty AS (
+    -- RTY = EXP(SUM(LN(step_fpy))) over distinct steps, guarded against zero.
+    -- DPMO = total defective steps / total step opportunities x 1e6.
+    SELECT
+        part,
+        station,
+        phase,
+        period_day,
+        EXP(SUM(LN(NULLIF(step_passed::DOUBLE / NULLIF(step_total, 0), 0)))) AS rty,
+        ROUND(
+            SUM(step_total - step_passed) * 1000000.0
+            / NULLIF(SUM(step_total), 0),
+        0) AS dpmo
+    FROM step_agg
+    GROUP BY part, station, phase, period_day
+),
+run_dppm AS (
+    -- DPPM = (failed + errored) runs / total_runs x 1e6.
+    SELECT
+        part,
+        station,
+        phase,
+        period_day,
+        ROUND(
+            COUNT(*) FILTER (WHERE run_outcome IN ('failed', 'errored')) * 1000000.0
+            / NULLIF(COUNT(*), 0),
+        0) AS dppm
+    FROM runs_filtered
+    GROUP BY part, station, phase, period_day
 )
 SELECT
-    part,
-    station,
-    phase,
-    period_day AS period,
+    r.part,
+    r.station,
+    r.phase,
+    r.period_day AS period,
     COUNT(*) AS total_runs,
-    COUNT(*) FILTER (WHERE run_outcome = 'passed') AS passed,
-    COUNT(*) FILTER (WHERE run_outcome = 'failed') AS failed,
-    COUNT(*) FILTER (WHERE run_outcome = 'errored') AS errored,
-    COUNT(DISTINCT uut_serial) AS unique_serials,
-    COUNT(DISTINCT uut_serial) FILTER (
-        WHERE run_id IN (SELECT run_id FROM first_runs WHERE rn = 1)
+    COUNT(*) FILTER (WHERE r.run_outcome = 'passed') AS passed,
+    COUNT(*) FILTER (WHERE r.run_outcome = 'failed') AS failed,
+    COUNT(*) FILTER (WHERE r.run_outcome = 'errored') AS errored,
+    COUNT(DISTINCT r.uut_serial) AS unique_serials,
+    COUNT(DISTINCT r.uut_serial) FILTER (
+        WHERE r.run_id IN (SELECT run_id FROM first_runs WHERE rn = 1)
     ) AS first_pass_total,
-    COUNT(DISTINCT uut_serial) FILTER (
-        WHERE run_id IN (SELECT run_id FROM first_runs WHERE rn = 1 AND run_outcome = 'passed')
+    COUNT(DISTINCT r.uut_serial) FILTER (
+        WHERE r.run_id IN (SELECT run_id FROM first_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS first_pass_passed,
-    COUNT(DISTINCT uut_serial) FILTER (
-        WHERE run_id IN (SELECT run_id FROM last_runs WHERE rn = 1 AND run_outcome = 'passed')
+    COUNT(DISTINCT r.uut_serial) FILTER (
+        WHERE r.run_id IN (SELECT run_id FROM last_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS final_passed,
-    ROUND(AVG(EPOCH(run_ended_at::TIMESTAMP - run_started_at::TIMESTAMP)), 2) AS avg_duration_s,
-    ROUND(QUANTILE_CONT(EPOCH(run_ended_at::TIMESTAMP - run_started_at::TIMESTAMP), 0.95), 2)
-        AS p95_duration_s
-FROM runs
-{where}
-GROUP BY part, station, phase, period_day
-ORDER BY period_day
+    ROUND(AVG(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP)), 2) AS avg_duration_s,
+    ROUND(QUANTILE_CONT(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP), 0.95), 2)
+        AS p95_duration_s,
+    sr.rty,
+    sr.dpmo,
+    rd.dppm
+FROM runs_filtered AS r
+LEFT JOIN step_rty AS sr
+    ON sr.part = r.part AND sr.station = r.station
+    AND sr.phase = r.phase AND sr.period_day = r.period_day
+LEFT JOIN run_dppm AS rd
+    ON rd.part = r.part AND rd.station = r.station
+    AND rd.phase = r.phase AND rd.period_day = r.period_day
+GROUP BY r.part, r.station, r.phase, r.period_day, sr.rty, sr.dpmo, rd.dppm
+ORDER BY r.period_day
 """
 
 _PARETO_SQL = """

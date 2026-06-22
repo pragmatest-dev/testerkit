@@ -15,6 +15,7 @@ from litmus.data.data_dir import resolve_data_dir
 from litmus.data.event_store import EventStore
 from litmus.ui.shared.components import (
     data_table,
+    format_number,
     multi_select_filter,
     push_url_state,
     render_empty_card,
@@ -32,6 +33,9 @@ class MetricsDashboardData(TypedDict):
     final_yield: float
     total_runs: int
     total_failed: int
+    rty: float | None
+    dpmo: float | None
+    dppm: float | None
     ppk_data: list[Any]
     trend_data: list[Any]
     time_stats: dict[str, Any]
@@ -211,6 +215,9 @@ async def metrics_page(
             data["final_yield"],
             data["total_runs"],
             data["total_failed"],
+            data["rty"],
+            data["dpmo"],
+            data["dppm"],
         )
         _render_trend_chart(trend_chart_container, data["trend_data"])
         _render_time_stats(time_stats_container, data["time_stats"])
@@ -523,6 +530,25 @@ def _fetch_yield_data(
         fpy = fp_passed / fp_total if fp_total else 0.0
         final_yield = final_passed / unique_serials if unique_serials else 0.0
 
+        # Aggregate RTY: product across all period rows (multiply the per-period RTY values).
+        # RTY is multiplicative — overall RTY = product of per-period RTYs.
+        # If any period has no step data, the aggregate is None.
+        rty_values = [r.rty for r in summary_rows if r.rty is not None]
+        rty: float | None = None
+        if rty_values:
+            rty_product = 1.0
+            for v in rty_values:
+                rty_product *= v
+            rty = rty_product
+
+        # DPMO/DPPM: weighted average across periods (weight by step count / run count).
+        # Simpler: average the per-period values (periods are equal weight by convention).
+        dpmo_values = [r.dpmo for r in summary_rows if r.dpmo is not None]
+        dpmo: float | None = round(sum(dpmo_values) / len(dpmo_values)) if dpmo_values else None
+
+        dppm_values = [r.dppm for r in summary_rows if r.dppm is not None]
+        dppm: float | None = round(sum(dppm_values) / len(dppm_values)) if dppm_values else None
+
         ppk_data = store.ppk(
             part=part,
             station=station,
@@ -555,6 +581,9 @@ def _fetch_yield_data(
         "final_yield": final_yield,
         "total_runs": total_runs,
         "total_failed": total_failed,
+        "rty": rty,
+        "dpmo": dpmo,
+        "dppm": dppm,
         "ppk_data": ppk_data,
         "trend_data": trend_data,
         "time_stats": time_stats,
@@ -774,14 +803,23 @@ def _render_summary_cards(
     final_yield: float,
     total_runs: int,
     total_failures: int,
+    rty: float | None,
+    dpmo: float | None,
+    dppm: float | None,
 ) -> None:
     """Render summary metric cards."""
     container.clear()
+    rty_str = f"{rty * 100:.1f}%" if rty is not None else "—"
+    dpmo_str = format_number(int(dpmo)) if dpmo is not None else "—"
+    dppm_str = format_number(int(dppm)) if dppm is not None else "—"
     with container:
         _metric_card("First Pass Yield", f"{fpy * 100:.1f}%", "check_circle", "green")
         _metric_card("Final Yield", f"{final_yield * 100:.1f}%", "verified", "blue")
+        _metric_card("RTY", rty_str, "playlist_add_check", "teal")
         _metric_card("Total Runs", str(total_runs), "list_alt", "slate")
         _metric_card("Total Failures", str(total_failures), "error", "red")
+        _metric_card("DPMO", dpmo_str, "pest_control", "orange")
+        _metric_card("DPPM", dppm_str, "device_unknown", "amber")
 
 
 def _metric_card(label: str, value: str, icon: str, color: str) -> None:

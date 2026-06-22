@@ -39,7 +39,7 @@ def metrics_group():
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_summary(data_dir, phase, since, until_date, part, station, period, as_json):
-    """Yield summary: FPY, final yield, run counts, duration stats."""
+    """Yield summary: FPY, final yield, run counts, RTY, DPMO, DPPM, duration stats."""
     with _measurements_query(data_dir) as store:
         rows = store.yield_summary(
             part=part,
