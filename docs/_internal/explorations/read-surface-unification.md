@@ -233,8 +233,13 @@ measures behind one call. Build on `FailureParetoRow` as the failure-measure spe
 - **2026-06-21** — Phase B3 done: `pareto → failure_pareto` (method, 3 classes, 9 call sites) +
   `ParetoRow → FailureParetoRow`. Ref docs regenerated. suite 2156, pyright 0. OPEN (flagged):
   the *external* metric NAME `"pareto"` (MCP/CLI/HTTP dispatch `case "pareto":`) was left as-is —
-  only the internal method renamed. Honest-external-name (`"pareto"→"failure_pareto"`) is a
-  separate decision (external blast radius: MCP agents, HTTP clients, CLI, docs).
+  only the internal method renamed.
+  **DECISION (2026-06-21): keep the external name `pareto`** (concise; `failure-pareto` is too
+  verbose for the CLI/API/MCP surface). It returns failures *by default* today — backed by the
+  internal `failure_pareto` — and gains a `by`/measure option later (the 0.3.0 generic version,
+  see northstar above). So external `pareto` is the forward-looking name; the internal
+  `failure_pareto` is its current failure-measure implementation. The attempted external rename
+  was reverted.
 - **2026-06-21** — Phase A2a done: optional-close contract (`__enter__`/`__exit__` on
   RunStore/EventStore; close() untouched) + lean `Store` Protocol (`data/_store.py`, lifecycle
   only) + queries.py docstring leads with construct-and-reuse. suite 2156, pyright 0.
