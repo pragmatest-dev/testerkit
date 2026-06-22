@@ -10,7 +10,7 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-06-12
+## [0.2.0] - 2026-06-22
 
 Data-architecture release. A fourth store (FileStore) joins Runs,
 Events, Channels for blobs / waveforms / streaming captures. Three
@@ -18,6 +18,12 @@ test-author verbs — `observe`, `verify`, `stream` — replace ad-hoc
 measurement recording with a typed, routeable surface. The operator UI
 gains entity-observed-view across inventory pages, two new pages
 (UUTs, Profiles), and an AST-driven Tests rewrite.
+
+A follow-on pass deepens the execution data model (vector-grained,
+chronological parquet + EAV), the programmatic read surface (query
+measurements by role + name; consistent, typed query/store interfaces
+with fool-proof lifecycles), and the quality metrics (Ppk, RTY,
+DPMO/DPPM).
 
 ### Added
 
@@ -109,6 +115,32 @@ gains entity-observed-view across inventory pages, two new pages
   `files.stream`), querying data (consumer-side via
   `RunsQuery` / `MeasurementsQuery` / `EventStore`). New tutorial
   steps 11–12 + four how-to pages teach the pattern.
+- **Query measurements by role + name.** `MeasurementsQuery` selects via
+  `FieldRef` / `MeasurementRole` / `Axis` (e.g. `parametric(y="v_rail")`),
+  scoping to a measurement by role + name instead of the fused wide columns.
+- **RTY + DPMO/DPPM on the yield tab.** Rolled throughput yield
+  (`∏` per-step first-pass rate), defects-per-million-opportunities
+  (opportunity = a measurement, matching the failure-pareto), and
+  defective-parts-per-million, surfaced as headline cards + on the CLI /
+  MCP / HTTP yield summary. A pooled `MeasurementsQuery.yield_overall`
+  computes the headline numbers over the whole filtered set (distinct
+  serials once; RTY as the pooled per-step product).
+- **`format_number()`** shared UI formatter — `g`-format numeric display
+  that strips IEEE float-repr noise (e.g. limits `0.04 – 0.06`, not
+  `…0600000000000005`).
+- **`scripts/seed-demo-data.py`** — official maintained script that
+  generates a representative analytics dataset (multiple parts / serials /
+  stations, realistic failures + measurement spread, backdated over a
+  multi-day window) so the metrics screenshots and dashboards show real data.
+- **Optional-close store contract + lean `Store` Protocol.** `RunStore` /
+  `EventStore` / `ChannelStore` / `FileStore` are construct-and-reuse;
+  `with` / `close()` are optional, and `EventStore` + `ChannelStore` carry
+  `weakref.finalize` nets so a forgotten `close()` can't leak the
+  in-process resources.
+- **Vector-grained execution model.** `VectorStarted` / `VectorEnded`
+  events + retry-aware step events; measurements nested under the vector
+  in a chronological-telling parquet with an EAV projection. Observation
+  pinning records `uut_pin` on output lanes.
 
 ### Changed
 
@@ -176,6 +208,33 @@ gains entity-observed-view across inventory pages, two new pages
 - Two new operator-UI reference pages (`uuts.md`, `profiles.md`) bring
   the total to 18. Four reference pages updated for the chip + filter.
   Tests reference page rewritten for the AST layout.
+- **BREAKING — `Cpk` / `Cp` → `Ppk` / `Pp`.** The capability metric computes
+  `STDDEV_SAMP` (overall, long-term σ) — which is Ppk/Pp's basis, not
+  within-subgroup Cpk/Cp — so it was renamed for honesty across
+  `MeasurementsQuery`, the CLI command, the MCP action, the `/metrics/ppk`
+  route, the operator-UI tab, and the docs. True Cpk (within-subgroup /
+  I-MR σ) is deferred to v0.3.0.
+- **BREAKING — measurements queried by role + name.** The fused
+  `out_<name>` / `in_<name>` wide columns are dropped;
+  `RunStore.get_measurements` and the run-detail read surface return
+  role-split inputs / outputs.
+- **BREAKING — channel schema: `data_type` → `value_type`** (cross-store
+  datatype-name consistency) and channel `offset` → `sample_offset`. A
+  channel's `unit` is unified with the channel descriptor and fails loud
+  on conflict (matching `stream`).
+- **Scalar `units` → `unit`** across the recording verbs and models
+  (collections stay plural); `unit=` is accepted on every recording verb.
+- **Consistent query/store interfaces.** Uniform query method names + a
+  shared `dynamic_attrs` decoder; typed `Row` returns + `ColumnSchema`
+  describe-columns; `FileStore`'s `data_dir` is now the private
+  keyword-only `_data_dir` (an infrastructure path, not user-facing).
+- `execution/logger.py` → `run_scope.py` (and the `logger` fixture →
+  `_run_scope`); `StreamCheckpoint` split into `ChannelCheckpoint` +
+  `FileCheckpoint`; store-lifecycle events renamed for grammatical
+  consistency.
+- The ~3k-line `cli.py` monolith split into a `cli/` package; the System
+  Designer page marked experimental. `run_id` is now in the per-run
+  parquet filename (prevents silent overwrite).
 
 ### Removed
 
@@ -184,6 +243,7 @@ gains entity-observed-view across inventory pages, two new pages
   (`ChannelStarted` / `ChannelClosed`) replace it.
 - `StreamFrameIndex` event class — same flood problem at chunk rate.
   Live consumers read the file directly.
+- Dormant measurement-ref struct slot on the run schema (unused).
 
 ### Fixed
 
@@ -212,6 +272,20 @@ gains entity-observed-view across inventory pages, two new pages
   in `test_perf_daemon.py` flaked under suite load (~30% of full
   runs). Hard caps (100ms / 200ms) unchanged; sampling now takes the
   min over 11 calls so transient spikes don't trip the gate.
+- **`StepBuilder` propagates `PASSED` step outcomes** on the default-vector
+  (`step.measure()`) path. Previously only `FAILED` propagated, so a passing
+  step written via the catch-all `LitmusClient` results API ended
+  `outcome=None` — excluded from step counts and leaving the run outcome
+  `None`. Now consistent with the explicit `step.vector()` path.
+- **Yield headline cards are pooled.** They previously combined the
+  per-(part × station × period) rows, which broke RTY (multiplied as a
+  product across groups) and Final Yield (double-counted serials across
+  groups, so Final < FPY). `yield_overall` computes them over the whole
+  filtered set instead.
+- **Daemon write-path resilience.** A daemon killed mid-write reacquires a
+  fresh one and resends the un-acked batches (idempotent via
+  `ON CONFLICT (id) DO NOTHING`); subscribers resume from their cursor; a
+  spawn that times out fails fast and surfaces the crash reason.
 
 ### Deferred to v0.3.0
 
@@ -225,6 +299,11 @@ gains entity-observed-view across inventory pages, two new pages
 - **Channels + files as test INPUTS** — current verbs are producer-only;
   a first-class input surface (`channels.read` / `files.read`) lands
   in v0.3.0.
+- **Analytics metrics release** — true Cpk (within-subgroup / I-MR σ,
+  distinct from the overall-σ Ppk shipped here), per-measurement SPC
+  control charts (I-MR / X̄-R + Western Electric rules), yield cross-tab by
+  station / fixture / operator, and a generic `pareto(by=measure)`. Roadmap:
+  `docs/_internal/explorations/0.3.0-analytics-metrics.md`.
 
 ## [0.1.3] - 2026-05-24
 
