@@ -1322,7 +1322,7 @@ def get_runs_filter_options() -> dict[str, list[str]]:
     that have at least one matching run.
 
     Per-column failure isolation lives in
-    :meth:`RunsQuery.distinct_values` (a missing column
+    :meth:`RunsQuery.distinct_filter_values` (a missing column
     yields ``[]`` for that one filter without affecting the
     others). Wholesale daemon failure (transient connection
     error after retries) raises here; the page handler catches
@@ -1331,7 +1331,7 @@ def get_runs_filter_options() -> dict[str, list[str]]:
     from litmus.analysis.runs_query import RunsQuery
 
     with RunsQuery() as q:
-        return q.distinct_values()
+        return q.distinct_filter_values()
 
 
 def _run_row_to_summary(row: Any) -> RunSummary:

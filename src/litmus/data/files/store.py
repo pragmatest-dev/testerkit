@@ -406,7 +406,7 @@ class FileStore:
     def __enter__(self) -> FileStore:
         return self
 
-    def __exit__(self, *exc: object) -> None:
+    def __exit__(self, *_: object) -> None:
         self.close()
 
     def _resolve_key(self, uri: str) -> str | None:

@@ -68,9 +68,9 @@ Pareto of failing runs grouped by ``group_by`` column.
 
 Total number of runs matching the same filters as :meth:`list_recent`.
 
-### `RunsQuery.distinct_values` {#runsquery-distinct_values}
+### `RunsQuery.distinct_filter_values` {#runsquery-distinct_filter_values}
 
-`distinct_values() → dict[str, list[str]]`
+`distinct_filter_values() → dict[str, list[str]]`
 
 Return distinct values for each filterable run column.
 

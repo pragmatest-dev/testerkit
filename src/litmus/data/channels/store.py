@@ -1400,7 +1400,7 @@ class ChannelStore:
     def __enter__(self) -> ChannelStore:
         return self
 
-    def __exit__(self, *exc: object) -> None:
+    def __exit__(self, *_: object) -> None:
         self.close()
 
     def close(self) -> None:

@@ -142,15 +142,7 @@ def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, gro
             )
         finally:
             store.close()
-        rows = [
-            {
-                "bucket": f"{r.step_name or ''}: {r.measurement_name or ''}",
-                "failed_count": r.fail_count,
-                "total": r.fail_count,
-                "fail_rate_pct": r.fail_rate or 0,
-            }
-            for r in raw
-        ]
+        rows = [r.to_bucket_dict() for r in raw]
         header = "Measurement (step: name)"
 
     if not rows:

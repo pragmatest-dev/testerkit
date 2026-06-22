@@ -615,11 +615,15 @@ class MeasurementsQuery:
     raw measurement parquet files. Methods on this class send SQL
     queries over Arrow Flight and return typed result rows.
 
-    Usage::
+    Construct once and reuse — no explicit close needed::
 
         q = MeasurementsQuery()
         rows = q.yield_summary(part="PN-123", period="week")
-        q.close()
+
+    Or use as a context manager for deterministic cleanup::
+
+        with MeasurementsQuery() as q:
+            rows = q.yield_summary(part="PN-123", period="week")
     """
 
     def __init__(self, *, _data_dir: Path | str | None = None) -> None:

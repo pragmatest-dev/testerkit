@@ -55,7 +55,7 @@ class RunStore:
     timeout, so forgetting to close does not leak it.
     """
 
-    def __init__(self, *, _data_dir: Path | None = None) -> None:
+    def __init__(self, *, _data_dir: Path | str | None = None) -> None:
         data_dir = resolve_data_dir(_data_dir)
 
         self._runs_dir = data_dir / "runs"
@@ -212,6 +212,7 @@ class RunStore:
             return []
 
         for row in rows:
+            # pop removes dynamic_attrs from the dict before returning it
             row["inputs"], row["outputs"] = _decode_dynamic_attrs_map(
                 row.pop("dynamic_attrs", None)
             )

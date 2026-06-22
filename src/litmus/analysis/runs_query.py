@@ -70,12 +70,16 @@ class RunRow(BaseModel):
 class RunsQuery:
     """Read-only client over the runs daemon's ``runs`` table.
 
-    Usage::
+    Construct once and reuse — no explicit close needed::
 
         q = RunsQuery()
         recent = q.list_recent(limit=20)
         run = q.get("run-001-abc")
-        q.close()
+
+    Or use as a context manager for deterministic cleanup::
+
+        with RunsQuery() as q:
+            recent = q.list_recent(limit=20)
     """
 
     def __init__(self, *, _data_dir: Path | str | None = None) -> None:
@@ -321,7 +325,7 @@ class RunsQuery:
         rows = self._query_dicts(f"SELECT COUNT(*) AS n FROM runs{where}")
         return int(rows[0]["n"]) if rows else 0
 
-    def distinct_values(self) -> dict[str, list[str]]:
+    def distinct_filter_values(self) -> dict[str, list[str]]:
         """Return distinct values for each filterable run column.
 
         Used by the /results filter strip to populate the

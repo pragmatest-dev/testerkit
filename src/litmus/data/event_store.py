@@ -166,7 +166,7 @@ class EventStore:
             cls._shared[key] = cls(_data_dir=key)
         return cls._shared[key]
 
-    def __init__(self, *, _data_dir: Path | None = None) -> None:
+    def __init__(self, *, _data_dir: Path | str | None = None) -> None:
         self._data_dir = resolve_data_dir(_data_dir)
         self._events_dir = self._data_dir / "events"
         self._events_dir.mkdir(parents=True, exist_ok=True)

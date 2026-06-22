@@ -708,12 +708,9 @@ def _compute_instrument_utilization(
     if not (base / "events").exists():
         return []
     since_dt = _dt.fromisoformat(since).replace(tzinfo=UTC) if since else None
-    store = EventStore(_data_dir=base)
-    try:
-        connects = store.events(event_type="instrument.connected", since=since_dt)
-        disconnects = store.events(event_type="instrument.disconnected", since=since_dt)
-    finally:
-        store.close()
+    store = EventStore.get_shared(base)
+    connects = store.events(event_type="instrument.connected", since=since_dt)
+    disconnects = store.events(event_type="instrument.disconnected", since=since_dt)
 
     until_dt = _dt.fromisoformat(until).replace(tzinfo=UTC) if until else None
 
@@ -824,15 +821,7 @@ def _metric_card(label: str, value: str, icon: str, color: str) -> None:
 
 def _normalize_measurement_pareto_rows(raw: list[Any]) -> list[dict[str, Any]]:
     """Normalize MeasurementsQuery.pareto rows to the shared failure-pareto shape."""
-    return [
-        {
-            "bucket": f"{r.step_name or ''}: {r.measurement_name or ''}",
-            "failed_count": r.fail_count,
-            "total": r.total_count,
-            "fail_rate_pct": r.fail_rate,
-        }
-        for r in raw
-    ]
+    return [r.to_bucket_dict() for r in raw]
 
 
 def _render_pareto_chart(

@@ -213,6 +213,15 @@ class ParetoRow(BaseModel):
     fail_count: int
     fail_rate: float | None = None
 
+    def to_bucket_dict(self) -> dict[str, object]:
+        """Normalize to the shared failure-pareto display shape."""
+        return {
+            "bucket": f"{self.step_name or ''}: {self.measurement_name or ''}",
+            "failed_count": self.fail_count,
+            "total": self.total_count,
+            "fail_rate_pct": self.fail_rate,
+        }
+
 
 class CpkRow(BaseModel):
     """One row from :meth:`MeasurementsQuery.cpk` — one (part, station, measurement_name)."""

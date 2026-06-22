@@ -89,12 +89,16 @@ class StepNode(BaseModel):
 class StepsQuery:
     """Read-only client over the runs daemon's ``steps`` table.
 
-    Usage::
+    Construct once and reuse — no explicit close needed::
 
         q = StepsQuery()
         rows = q.list_for_run("run-001-abc")
         tree = q.tree_for_run("run-001-abc")
-        q.close()
+
+    Or use as a context manager for deterministic cleanup::
+
+        with StepsQuery() as q:
+            rows = q.list_for_run("run-001-abc")
     """
 
     def __init__(self, *, _data_dir: Path | str | None = None) -> None:
