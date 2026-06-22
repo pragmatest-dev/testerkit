@@ -60,9 +60,10 @@ def metrics_summary(data_dir, phase, since, until_date, part, station, period, a
 
         click.echo(
             f"{'Period':<12} {'Part':<16} {'Station':<16} {'Runs':>5} "
-            f"{'Pass':>5} {'Fail':>5} {'FPY':>6} {'Final':>6} {'Avg(s)':>7}"
+            f"{'Pass':>5} {'Fail':>5} {'FPY':>6} {'Final':>6} "
+            f"{'RTY':>6} {'DPMO':>8} {'DPPM':>8} {'Avg(s)':>7}"
         )
-        click.echo("-" * 96)
+        click.echo("-" * 120)
         for r in rows:
             fpt = r.first_pass_total
             fpp = r.first_pass_passed
@@ -70,13 +71,17 @@ def metrics_summary(data_dir, phase, since, until_date, part, station, period, a
             us = r.unique_serials
             fp = r.final_passed
             final = f"{fp / us * 100:.1f}%" if us else "N/A"
+            rty = f"{r.rty * 100:.1f}%" if r.rty is not None else "N/A"
+            dpmo = f"{r.dpmo:.0f}" if r.dpmo is not None else "N/A"
+            dppm = f"{r.dppm:.0f}" if r.dppm is not None else "N/A"
             avg_d = r.avg_duration_s
             avg = f"{avg_d:.1f}" if avg_d is not None else "N/A"
             click.echo(
                 f"{str(r.period):<12} {str(r.part):<16} "
                 f"{str(r.station):<16} {r.total_runs:>5} "
                 f"{r.passed:>5} {r.failed:>5} "
-                f"{fpy:>6} {final:>6} {avg:>7}"
+                f"{fpy:>6} {final:>6} "
+                f"{rty:>6} {dpmo:>8} {dppm:>8} {avg:>7}"
             )
 
 

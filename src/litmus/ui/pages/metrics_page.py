@@ -509,45 +509,23 @@ def _fetch_yield_data(
 ) -> MetricsDashboardData | None:
     """Compute all yield dashboard data. Returns None when filters match no data."""
     with MeasurementsQuery(_data_dir=data_dir) as store:
-        summary_rows = store.yield_summary(
+        overall = store.yield_overall(
             part=part,
             station=station,
             phase=phase,
             since=since,
             until=until,
-            period="day",
         )
-        if not summary_rows:
+        if overall is None:
             return None
 
-        total_runs = sum(r.total_runs for r in summary_rows)
-        total_failed = sum(r.failed for r in summary_rows)
-        fp_total = sum(r.first_pass_total for r in summary_rows)
-        fp_passed = sum(r.first_pass_passed for r in summary_rows)
-        final_passed = sum(r.final_passed for r in summary_rows)
-        unique_serials = sum(r.unique_serials for r in summary_rows)
+        fpy_num = overall.first_pass_passed
+        fpy_den = overall.first_pass_total
+        fpy = fpy_num / fpy_den if fpy_den else 0.0
 
-        fpy = fp_passed / fp_total if fp_total else 0.0
-        final_yield = final_passed / unique_serials if unique_serials else 0.0
-
-        # Aggregate RTY: product across all period rows (multiply the per-period RTY values).
-        # RTY is multiplicative — overall RTY = product of per-period RTYs.
-        # If any period has no step data, the aggregate is None.
-        rty_values = [r.rty for r in summary_rows if r.rty is not None]
-        rty: float | None = None
-        if rty_values:
-            rty_product = 1.0
-            for v in rty_values:
-                rty_product *= v
-            rty = rty_product
-
-        # DPMO/DPPM: weighted average across periods (weight by step count / run count).
-        # Simpler: average the per-period values (periods are equal weight by convention).
-        dpmo_values = [r.dpmo for r in summary_rows if r.dpmo is not None]
-        dpmo: float | None = round(sum(dpmo_values) / len(dpmo_values)) if dpmo_values else None
-
-        dppm_values = [r.dppm for r in summary_rows if r.dppm is not None]
-        dppm: float | None = round(sum(dppm_values) / len(dppm_values)) if dppm_values else None
+        final_yield = (
+            overall.final_passed / overall.unique_serials if overall.unique_serials else 0.0
+        )
 
         ppk_data = store.ppk(
             part=part,
@@ -566,24 +544,22 @@ def _fetch_yield_data(
             period="day",
         )
 
-    durations = [r.avg_duration_s for r in summary_rows if r.avg_duration_s is not None]
-    p95s = [r.p95_duration_s for r in summary_rows if r.p95_duration_s is not None]
     time_stats = {
-        "avg_s": round(sum(durations) / len(durations), 2) if durations else None,
-        "min_s": round(min(durations), 2) if durations else None,
-        "max_s": round(max(durations), 2) if durations else None,
-        "p95_s": round(max(p95s), 2) if p95s else None,
-        "count": total_runs,
+        "avg_s": overall.avg_duration_s,
+        "min_s": overall.min_duration_s,
+        "max_s": overall.max_duration_s,
+        "p95_s": overall.p95_duration_s,
+        "count": overall.total_runs,
     }
 
     return {
         "fpy": fpy,
         "final_yield": final_yield,
-        "total_runs": total_runs,
-        "total_failed": total_failed,
-        "rty": rty,
-        "dpmo": dpmo,
-        "dppm": dppm,
+        "total_runs": overall.total_runs,
+        "total_failed": overall.failed,
+        "rty": overall.rty,
+        "dpmo": overall.dpmo,
+        "dppm": overall.dppm,
         "ppk_data": ppk_data,
         "trend_data": trend_data,
         "time_stats": time_stats,

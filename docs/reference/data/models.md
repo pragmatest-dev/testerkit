@@ -1616,7 +1616,7 @@ One bin in a histogram result. ``x`` is the bin midpoint.
 
 #### `YieldRow` {#model-yieldrow}
 
-One row from :meth:`MeasurementsQuery.yield_summary` — one (part, station, phase, period).
+One row from :meth:`MeasurementsQuery.yield_summary` or :meth:`MeasurementsQuery.yield_overall`.
 
 | Field | Type | Default |
 |---|---|---|
@@ -1634,6 +1634,8 @@ One row from :meth:`MeasurementsQuery.yield_summary` — one (part, station, pha
 | `final_passed` | `int` | *required* |
 | `avg_duration_s` | `float \| None` | `None` |
 | `p95_duration_s` | `float \| None` | `None` |
+| `min_duration_s` | `float \| None` | `None` |
+| `max_duration_s` | `float \| None` | `None` |
 | `rty` | `float \| None` | `None` |
 | `dpmo` | `float \| None` | `None` |
 | `dppm` | `float \| None` | `None` |

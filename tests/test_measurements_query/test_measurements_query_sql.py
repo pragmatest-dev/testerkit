@@ -978,8 +978,8 @@ def rty_fixture_data() -> dict[str, str]:
       step_b FPY = 2/3
       RTY = 1.0 * (2/3) = 2/3 ≈ 0.6667
 
-      total_steps = 6, failed_steps = 1 (step_b on run-B)
-      DPMO = 1/6 * 1e6 ≈ 166667
+      total_measurements = 3 (one _row per run), failed_measurements = 1 (run-B)
+      DPMO = 1/3 * 1e6 ≈ 333333
 
       total_runs = 3, failed_runs = 1
       DPPM = 1/3 * 1e6 ≈ 333333
@@ -1083,7 +1083,7 @@ def rty_fixture_data() -> dict[str, str]:
 
 
 class TestYieldRTY_DPMO_DPPM:
-    """RTY, DPMO, DPPM are computed from step-level outcome data."""
+    """RTY (step-based), DPMO (measurement-based), DPPM (run-based)."""
 
     def test_rty_is_product_of_step_fpy(self, rty_fixture_data):
         store = MeasurementsQuery()
@@ -1095,14 +1095,15 @@ class TestYieldRTY_DPMO_DPPM:
         # step_a: 3/3=1.0; step_b: 2/3 → RTY = 2/3
         assert rty_val == pytest.approx(2 / 3, rel=0.01)
 
-    def test_dpmo_is_failed_steps_per_million(self, rty_fixture_data):
+    def test_dpmo_is_failed_measurements_per_million(self, rty_fixture_data):
         store = MeasurementsQuery()
         rows = store.yield_summary(phase="all", part=rty_fixture_data["part"])
         assert rows
         dpmo_val = next((r.dpmo for r in rows if r.dpmo is not None), None)
-        assert dpmo_val is not None, "dpmo must be populated when step data exists"
-        # 1 failed step out of 6 total → 1/6 * 1e6 ≈ 166667
-        assert dpmo_val == pytest.approx(1_000_000 / 6, rel=0.01)
+        assert dpmo_val is not None, "dpmo must be populated when measurement data exists"
+        # 3 measurement records (1 per run): run_b=failed, run_a/c=passed
+        # failed_measurements=1, total_measurements=3 → 1/3 * 1e6 ≈ 333333
+        assert dpmo_val == pytest.approx(1_000_000 / 3, rel=0.01)
 
     def test_dppm_is_failed_runs_per_million(self, rty_fixture_data):
         store = MeasurementsQuery()
@@ -1113,9 +1114,8 @@ class TestYieldRTY_DPMO_DPPM:
         # 1 failed run out of 3 → 1/3 * 1e6 ≈ 333333
         assert dppm_val == pytest.approx(1_000_000 / 3, rel=0.01)
 
-    def test_no_step_data_yields_none_fields(self):
-        """A part with only vector rows (no step records) gets None for rty/dpmo/dppm."""
-        # fixture_data from TestYieldSummary writes only vector rows.
+    def test_no_step_data_yields_none_rty(self):
+        """No step records → rty is None; measurement-based dpmo is 0 when all pass."""
         part = f"TEST-RTY-NOSTEP-{uuid4().hex[:8]}"
         canonical_runs = resolve_data_dir() / "runs" / "test-rty-nostep" / "2026-01-01"
         _write_measurements(
@@ -1128,4 +1128,220 @@ class TestYieldRTY_DPMO_DPPM:
         assert rows
         r = rows[0]
         assert r.rty is None
-        assert r.dpmo is None
+        # 1 measurement, outcome=passed → failed_measurements=0, dpmo=0
+        assert r.dpmo == pytest.approx(0.0)
+
+
+@pytest.fixture(scope="module")
+def overall_fixture_data() -> dict[str, str]:
+    """SN001 tested on two stations; SN002 tested on one station only.
+
+    SN001 @ station_a: run_x — failed (first run, two steps: step_a pass, step_b fail)
+    SN001 @ station_b: run_y — passed (two steps: step_a pass, step_b pass)
+    SN002 @ station_a: run_z — passed (two steps: step_a pass, step_b pass)
+
+    Expected overall pooled values:
+      unique_serials = 2  (DISTINCT — no double-count across stations)
+      first_pass_total = 2, first_pass_passed = 1  → FPY = 0.5
+      final_passed = 2  (both pass on their last run)  → Final Yield = 1.0
+      total_runs = 3, failed = 1  → DPPM = 1/3 × 1e6 ≈ 333333
+      step_a: 3/3=1.0, step_b: 2/3  → RTY = 2/3 ≈ 0.6667
+      total_measurements = 3 (one _row per run), failed_measurements = 1 (run_x)
+      DPMO = 1/3 × 1e6 ≈ 333333
+      run durations: run_x=180s, run_y=240s, run_z=300s
+        → min=180, max=300, avg=240, p95≈294
+    """
+    part = f"TEST-OVERALL-{uuid4().hex[:8]}"
+    canonical_runs = resolve_data_dir() / "runs" / "test-overall" / "2026-02-01"
+    run_x = f"overall-{uuid4()}"
+    run_y = f"overall-{uuid4()}"
+    run_z = f"overall-{uuid4()}"
+    station_a = f"STA-OVR-A-{part[-4:]}"
+    station_b = f"STA-OVR-B-{part[-4:]}"
+    rows = [
+        # run_x: SN001 @ station_a, failed — step_b fails
+        _step_row(
+            run_id=run_x,
+            uut_part_number=part,
+            uut_serial="OVR-SN001",
+            step_name="step_a",
+            step_path="step_a",
+            step_index=0,
+            step_outcome="passed",
+            run_outcome="failed",
+            station_name=station_a,
+            run_started_at="2026-02-01T10:00:00",
+            run_ended_at="2026-02-01T10:03:00",
+        ),
+        _step_row(
+            run_id=run_x,
+            uut_part_number=part,
+            uut_serial="OVR-SN001",
+            step_name="step_b",
+            step_path="step_b",
+            step_index=1,
+            step_outcome="failed",
+            run_outcome="failed",
+            station_name=station_a,
+            run_started_at="2026-02-01T10:00:00",
+            run_ended_at="2026-02-01T10:03:00",
+        ),
+        # run_y: SN001 @ station_b, passed — both steps pass
+        _step_row(
+            run_id=run_y,
+            uut_part_number=part,
+            uut_serial="OVR-SN001",
+            step_name="step_a",
+            step_path="step_a",
+            step_index=0,
+            step_outcome="passed",
+            run_outcome="passed",
+            station_name=station_b,
+            run_started_at="2026-02-01T11:00:00",
+            run_ended_at="2026-02-01T11:04:00",
+        ),
+        _step_row(
+            run_id=run_y,
+            uut_part_number=part,
+            uut_serial="OVR-SN001",
+            step_name="step_b",
+            step_path="step_b",
+            step_index=1,
+            step_outcome="passed",
+            run_outcome="passed",
+            station_name=station_b,
+            run_started_at="2026-02-01T11:00:00",
+            run_ended_at="2026-02-01T11:04:00",
+        ),
+        # run_z: SN002 @ station_a, passed — both steps pass
+        _step_row(
+            run_id=run_z,
+            uut_part_number=part,
+            uut_serial="OVR-SN002",
+            step_name="step_a",
+            step_path="step_a",
+            step_index=0,
+            step_outcome="passed",
+            run_outcome="passed",
+            station_name=station_a,
+            run_started_at="2026-02-01T12:00:00",
+            run_ended_at="2026-02-01T12:05:00",
+        ),
+        _step_row(
+            run_id=run_z,
+            uut_part_number=part,
+            uut_serial="OVR-SN002",
+            step_name="step_b",
+            step_path="step_b",
+            step_index=1,
+            step_outcome="passed",
+            run_outcome="passed",
+            station_name=station_a,
+            run_started_at="2026-02-01T12:00:00",
+            run_ended_at="2026-02-01T12:05:00",
+        ),
+        # One vector row per run so runs appear in the measurements view.
+        _row(
+            run_id=run_x,
+            uut_part_number=part,
+            uut_serial="OVR-SN001",
+            run_outcome="failed",
+            run_started_at="2026-02-01T10:00:00",
+            run_ended_at="2026-02-01T10:03:00",
+            station_name=station_a,
+            value=2.5,
+            outcome="failed",
+        ),
+        _row(
+            run_id=run_y,
+            uut_part_number=part,
+            uut_serial="OVR-SN001",
+            run_outcome="passed",
+            run_started_at="2026-02-01T11:00:00",
+            run_ended_at="2026-02-01T11:04:00",
+            station_name=station_b,
+            value=3.3,
+            outcome="passed",
+        ),
+        _row(
+            run_id=run_z,
+            uut_part_number=part,
+            uut_serial="OVR-SN002",
+            run_outcome="passed",
+            run_started_at="2026-02-01T12:00:00",
+            run_ended_at="2026-02-01T12:05:00",
+            station_name=station_a,
+            value=3.3,
+            outcome="passed",
+        ),
+    ]
+    _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
+    return {"part": part, "station_a": station_a, "station_b": station_b}
+
+
+class TestYieldOverall:
+    """yield_overall returns one pooled YieldRow; no double-counting across stations."""
+
+    def test_unique_serials_not_doubled(self, overall_fixture_data):
+        """COUNT(DISTINCT uut_serial) must be 2, not 3 (SN001 across 2 stations)."""
+        store = MeasurementsQuery()
+        row = store.yield_overall(phase="all", part=overall_fixture_data["part"])
+        assert row is not None
+        assert row.unique_serials == 2
+
+    def test_final_yield_gte_fpy(self, overall_fixture_data):
+        """Final Yield >= FPY when all serials eventually pass."""
+        store = MeasurementsQuery()
+        row = store.yield_overall(phase="all", part=overall_fixture_data["part"])
+        assert row is not None
+        fpy = row.first_pass_passed / row.first_pass_total if row.first_pass_total else 0.0
+        final_yield = row.final_passed / row.unique_serials if row.unique_serials else 0.0
+        assert fpy == pytest.approx(0.5, abs=0.01)
+        assert final_yield == pytest.approx(1.0, abs=0.01)
+        assert final_yield >= fpy
+
+    def test_rty_is_pooled_product(self, overall_fixture_data):
+        """RTY = EXP(SUM(LN(per-step FPY))) pooled over all filtered runs."""
+        store = MeasurementsQuery()
+        row = store.yield_overall(phase="all", part=overall_fixture_data["part"])
+        assert row is not None
+        assert row.rty is not None
+        # step_a: 3/3=1.0; step_b: 2/3 → RTY = 2/3
+        assert row.rty == pytest.approx(2 / 3, rel=0.01)
+
+    def test_dpmo_pooled(self, overall_fixture_data):
+        """DPMO = 1 failed measurement / 3 total measurements × 1e6."""
+        store = MeasurementsQuery()
+        row = store.yield_overall(phase="all", part=overall_fixture_data["part"])
+        assert row is not None
+        # 3 measurement records (1 per run): run_x=failed, run_y/z=passed
+        # failed_measurements=1, total_measurements=3 → 1/3 * 1e6 ≈ 333333
+        assert row.dpmo == pytest.approx(1_000_000 / 3, rel=0.01)
+
+    def test_dppm_pooled(self, overall_fixture_data):
+        """DPPM = 1 failed run / 3 total runs × 1e6."""
+        store = MeasurementsQuery()
+        row = store.yield_overall(phase="all", part=overall_fixture_data["part"])
+        assert row is not None
+        assert row.dppm == pytest.approx(1_000_000 / 3, rel=0.01)
+
+    def test_duration_min_max(self, overall_fixture_data):
+        """min_duration_s and max_duration_s reflect true MIN/MAX over all runs."""
+        store = MeasurementsQuery()
+        row = store.yield_overall(phase="all", part=overall_fixture_data["part"])
+        assert row is not None
+        assert row.min_duration_s == pytest.approx(180.0, abs=1.0)  # run_x: 3 min
+        assert row.max_duration_s == pytest.approx(300.0, abs=1.0)  # run_z: 5 min
+
+    def test_returns_none_for_unknown_part(self):
+        store = MeasurementsQuery()
+        result = store.yield_overall(phase="all", part=f"NOPE-{uuid4().hex}")
+        assert result is None
+
+    def test_part_station_period_are_all(self, overall_fixture_data):
+        store = MeasurementsQuery()
+        row = store.yield_overall(phase="all", part=overall_fixture_data["part"])
+        assert row is not None
+        assert row.part == "all"
+        assert row.station == "all"
+        assert row.period == "all"

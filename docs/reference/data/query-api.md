@@ -152,6 +152,12 @@ Release daemon ref and close Flight client.
 
 Yield summary: FPY, final yield, run counts, duration stats.
 
+### `MeasurementsQuery.yield_overall` {#measurementsquery-yield_overall}
+
+`yield_overall(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None) → YieldRow | None`
+
+Pooled yield metrics over the entire filtered set — no part/station/period grouping.
+
 ### `MeasurementsQuery.pareto` {#measurementsquery-pareto}
 
 `pareto(*, part: str | list[str] | None = None, station: str | list[str] | None = None, phase: str | list[str] | None = None, since: str | None = None, until: str | None = None, top_n: int = 10) → list[ParetoRow]`
