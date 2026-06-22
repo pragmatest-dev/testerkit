@@ -396,6 +396,19 @@ class FileStore:
         self._backend.delete(key)
         self._backend.delete(f"{key}{_SIDECAR_SUFFIX}")
 
+    def close(self) -> None:
+        """No-op — FileStore holds no daemon ref or background thread.
+
+        Present so FileStore satisfies the optional-close store contract
+        (usable as ``with FileStore(...) as fs:``) like the other stores.
+        """
+
+    def __enter__(self) -> FileStore:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
     def _resolve_key(self, uri: str) -> str | None:
         """Map a ``file://`` URI to its backend-relative key — pure parsing.
 

@@ -249,7 +249,12 @@ class StepsQuery:
             {ended_clause}
             ORDER BY slot_id, step_index
         """)
-        return [StepRow(**r) for r in rows]
+        step_rows: list[StepRow] = []
+        for r in rows:
+            sr = StepRow(**r)
+            sr.inputs, sr.outputs = _decode_dynamic_attrs_map(r.get("dynamic_attrs"))
+            step_rows.append(sr)
+        return step_rows
 
     def tree_for_run(self, run_id: str) -> list[StepNode]:
         """Return the step tree for a run, built from ``step_path``.

@@ -726,11 +726,6 @@ class EventStore:
 
     # -- Lifecycle -----------------------------------------------------------
 
-    @property
-    def events_dir(self) -> Path:
-        """Internal events directory (for backwards compat during migration)."""
-        return self._events_dir
-
     def close(self) -> None:
         """Stop watchers, release resources. Safe to call multiple times."""
         self._finalizer.detach()

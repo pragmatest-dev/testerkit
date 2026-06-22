@@ -23,7 +23,7 @@ try:
     import importlib.util as _ilu
 
     HAS_NUMPY = _ilu.find_spec("numpy") is not None
-except Exception:
+except (ImportError, ValueError):
     HAS_NUMPY = False
 
 # Canonical list of instrument identity array column names.

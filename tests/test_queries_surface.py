@@ -41,4 +41,5 @@ def test_queries_dunder_all_matches_actual_exports() -> None:
         "FieldRef",
         "FieldRole",
         "ColumnSchema",
+        "Store",
     }
