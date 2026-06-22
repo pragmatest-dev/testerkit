@@ -70,19 +70,19 @@ parameter: `pareto_group`):
 
 The leftmost bar is the biggest single contributor to lost yield.
 
-### Cpk
+### Ppk
 
-![Metrics — Cpk tab](../../_assets/operator-ui/metrics/cpk.png)
+![Metrics — Ppk tab](../../_assets/operator-ui/metrics/ppk.png)
 
-Process Capability index per measurement — how much margin each
+Process Performance index per measurement — how much margin each
 measurement has against its limits. Top 15 measurements ranked by
-Cpk ascending (**worst Cpk first**, so the table opens on what
+Ppk ascending (**worst Ppk first**, so the table opens on what
 needs attention).
 
 | Column | What it shows |
 |---|---|
 | Measurement | Measurement name |
-| Cpk | Cpk value. Color-coded: green ≥ 1.33, orange ≥ 1.00, red < 1.00. `N/A` (grey) when Cpk can't be computed — typically zero variance across samples, or no limits configured on the measurement. |
+| Ppk | Ppk value. Color-coded: green ≥ 1.33, orange ≥ 1.00, red < 1.00. `N/A` (grey) when Ppk can't be computed — typically zero variance across samples, or no limits configured on the measurement. |
 | Mean | Sample mean |
 | σ (sigma) | Sample standard deviation |
 | n | Sample count |
@@ -177,7 +177,7 @@ and `--json` for machine-readable output:
 | Yield (cards + Test Time Statistics) | [`litmus metrics summary`](../cli.md#cli-metrics-summary) |
 | Yield Trend Over Time chart | [`litmus metrics trend`](../cli.md#cli-metrics-trend) |
 | Pareto | [`litmus metrics pareto`](../cli.md#cli-metrics-pareto) |
-| Cpk | [`litmus metrics cpk`](../cli.md#cli-metrics-cpk) |
+| Ppk | [`litmus metrics ppk`](../cli.md#cli-metrics-ppk) |
 | Retest | [`litmus metrics retest`](../cli.md#cli-metrics-retest) |
 | Time loss | [`litmus metrics time-loss`](../cli.md#cli-metrics-time-loss) |
 | Assets | (no CLI equivalent yet) |

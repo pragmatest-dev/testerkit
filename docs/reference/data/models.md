@@ -1616,7 +1616,7 @@ One bin in a histogram result. ``x`` is the bin midpoint.
 
 #### `YieldRow` {#model-yieldrow}
 
-One row from :meth:`MeasurementsQuery.yield_summary` — one (part, station, phase, period).
+One row from :meth:`MeasurementsQuery.yield_summary` or :meth:`MeasurementsQuery.yield_overall`.
 
 | Field | Type | Default |
 |---|---|---|
@@ -1634,6 +1634,11 @@ One row from :meth:`MeasurementsQuery.yield_summary` — one (part, station, pha
 | `final_passed` | `int` | *required* |
 | `avg_duration_s` | `float \| None` | `None` |
 | `p95_duration_s` | `float \| None` | `None` |
+| `min_duration_s` | `float \| None` | `None` |
+| `max_duration_s` | `float \| None` | `None` |
+| `rty` | `float \| None` | `None` |
+| `dpmo` | `float \| None` | `None` |
+| `dppm` | `float \| None` | `None` |
 
 #### `ParetoRow` {#model-paretorow}
 
@@ -1649,9 +1654,9 @@ One row from :meth:`MeasurementsQuery.pareto`.
 | `fail_count` | `int` | *required* |
 | `fail_rate` | `float \| None` | `None` |
 
-#### `CpkRow` {#model-cpkrow}
+#### `PpkRow` {#model-ppkrow}
 
-One row from :meth:`MeasurementsQuery.cpk` — one (part, station, measurement_name).
+One row from :meth:`MeasurementsQuery.ppk` — one (part, station, measurement_name).
 
 | Field | Type | Default |
 |---|---|---|
@@ -1663,8 +1668,8 @@ One row from :meth:`MeasurementsQuery.cpk` — one (part, station, measurement_n
 | `sigma` | `float \| None` | `None` |
 | `lsl` | `float \| None` | `None` |
 | `usl` | `float \| None` | `None` |
-| `cp` | `float \| None` | `None` |
-| `cpk` | `float \| None` | `None` |
+| `pp` | `float \| None` | `None` |
+| `ppk` | `float \| None` | `None` |
 
 #### `TrendRow` {#model-trendrow}
 

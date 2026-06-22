@@ -31,7 +31,7 @@ def _measurements_query(data_dir: str | None):
 
 @main.group("metrics")
 def metrics_group():
-    """Manufacturing-test analytics (yield, pareto, cpk, trend, retest, time-loss)."""
+    """Manufacturing-test analytics (yield, pareto, ppk, trend, retest, time-loss)."""
     pass
 
 
@@ -39,7 +39,7 @@ def metrics_group():
 @_base_filters
 @click.option("--period", type=click.Choice(["day", "week", "month"]), default="day")
 def metrics_summary(data_dir, phase, since, until_date, part, station, period, as_json):
-    """Yield summary: FPY, final yield, run counts, duration stats."""
+    """Yield summary: FPY, final yield, run counts, RTY, DPMO, DPPM, duration stats."""
     with _measurements_query(data_dir) as store:
         rows = store.yield_summary(
             part=part,
@@ -60,9 +60,10 @@ def metrics_summary(data_dir, phase, since, until_date, part, station, period, a
 
         click.echo(
             f"{'Period':<12} {'Part':<16} {'Station':<16} {'Runs':>5} "
-            f"{'Pass':>5} {'Fail':>5} {'FPY':>6} {'Final':>6} {'Avg(s)':>7}"
+            f"{'Pass':>5} {'Fail':>5} {'FPY':>6} {'Final':>6} "
+            f"{'RTY':>6} {'DPMO':>8} {'DPPM':>8} {'Avg(s)':>7}"
         )
-        click.echo("-" * 96)
+        click.echo("-" * 120)
         for r in rows:
             fpt = r.first_pass_total
             fpp = r.first_pass_passed
@@ -70,13 +71,17 @@ def metrics_summary(data_dir, phase, since, until_date, part, station, period, a
             us = r.unique_serials
             fp = r.final_passed
             final = f"{fp / us * 100:.1f}%" if us else "N/A"
+            rty = f"{r.rty * 100:.1f}%" if r.rty is not None else "N/A"
+            dpmo = f"{r.dpmo:.0f}" if r.dpmo is not None else "N/A"
+            dppm = f"{r.dppm:.0f}" if r.dppm is not None else "N/A"
             avg_d = r.avg_duration_s
             avg = f"{avg_d:.1f}" if avg_d is not None else "N/A"
             click.echo(
                 f"{str(r.period):<12} {str(r.part):<16} "
                 f"{str(r.station):<16} {r.total_runs:>5} "
                 f"{r.passed:>5} {r.failed:>5} "
-                f"{fpy:>6} {final:>6} {avg:>7}"
+                f"{fpy:>6} {final:>6} "
+                f"{rty:>6} {dpmo:>8} {dppm:>8} {avg:>7}"
             )
 
 
@@ -166,13 +171,13 @@ def metrics_pareto(data_dir, phase, since, until_date, part, station, top_n, gro
         )
 
 
-@metrics_group.command("cpk")
+@metrics_group.command("ppk")
 @_base_filters
 @click.option("--min-samples", default=10, help="Minimum sample count")
-def metrics_cpk(data_dir, phase, since, until_date, part, station, min_samples, as_json):
-    """Process capability (Cpk/Cp) per measurement."""
+def metrics_ppk(data_dir, phase, since, until_date, part, station, min_samples, as_json):
+    """Process performance (Ppk/Pp) per measurement."""
     with _measurements_query(data_dir) as store:
-        rows = store.cpk(
+        rows = store.ppk(
             part=part,
             station=station,
             phase=phase,
@@ -189,17 +194,17 @@ def metrics_cpk(data_dir, phase, since, until_date, part, station, min_samples, 
             click.echo(json.dumps([r.model_dump() for r in rows], indent=2, default=str))
             return
 
-        click.echo(f"{'Measurement':<30} {'N':>5} {'Mean':>10} {'Sigma':>10} {'Cpk':>7} {'Cp':>7}")
+        click.echo(f"{'Measurement':<30} {'N':>5} {'Mean':>10} {'Sigma':>10} {'Ppk':>7} {'Pp':>7}")
         click.echo("-" * 75)
         for r in rows:
             name = str(r.measurement_name)
             if len(name) > 28:
                 name = name[:25] + "..."
-            cpk_val = f"{r.cpk:.3f}" if r.cpk is not None else "N/A"
-            cp_val = f"{r.cp:.3f}" if r.cp is not None else "N/A"
+            ppk_val = f"{r.ppk:.3f}" if r.ppk is not None else "N/A"
+            pp_val = f"{r.pp:.3f}" if r.pp is not None else "N/A"
             click.echo(
                 f"{name:<30} {r.n or 0:>5} {r.mean or 0:>10.4f} "
-                f"{r.sigma or 0:>10.4f} {cpk_val:>7} {cp_val:>7}"
+                f"{r.sigma or 0:>10.4f} {ppk_val:>7} {pp_val:>7}"
             )
 
 

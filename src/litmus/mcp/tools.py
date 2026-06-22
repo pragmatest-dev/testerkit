@@ -1726,11 +1726,11 @@ def schema_tool(yaml_type: str | None = None) -> dict[str, Any]:
 # Tool 10: litmus_metrics — manufacturing-test analytics
 # ---------------------------------------------------------------------------
 
-MetricsAction = Literal["summary", "pareto", "cpk", "trend", "retest", "time_loss"]
+MetricsAction = Literal["summary", "pareto", "ppk", "trend", "retest", "time_loss"]
 _METRICS_ACTIONS: tuple[MetricsAction, ...] = (
     "summary",
     "pareto",
-    "cpk",
+    "ppk",
     "trend",
     "retest",
     "time_loss",
@@ -1752,7 +1752,10 @@ def metrics_tool(
     """Query manufacturing-test analytics (DuckDB SQL aggregated from parquet rows).
 
     Args:
-        action: One of: summary, pareto, cpk, trend, retest, time_loss.
+        action: One of: summary, pareto, ppk, trend, retest, time_loss.
+            ``summary`` returns yield rows with FPY, final yield, run counts,
+            duration stats, RTY (rolled throughput yield), DPMO (defects per
+            million step opportunities), and DPPM (defective parts per million).
         part: Filter by part/part number.
         station: Filter by station name.
         phase: Filter by test phase (default: exclude development, 'all' = no filter).
@@ -1760,7 +1763,7 @@ def metrics_tool(
         until: End date (ISO format, inclusive).
         period: Time bucket — day, week, or month (default: day).
         top_n: Number of top failures for pareto (default: 10).
-        min_samples: Minimum sample count for cpk (default: 10).
+        min_samples: Minimum sample count for ppk (default: 10).
         project: Project root path.
     """
     if action not in _METRICS_ACTIONS:
@@ -1786,8 +1789,8 @@ def metrics_tool(
             case "pareto":
                 rows = store.pareto(**kwargs, top_n=top_n)
                 return {"data": [r.model_dump() for r in rows]}
-            case "cpk":
-                rows = store.cpk(**kwargs, min_samples=min_samples)
+            case "ppk":
+                rows = store.ppk(**kwargs, min_samples=min_samples)
                 return {"data": [r.model_dump() for r in rows]}
             case "trend":
                 rows = store.trend(**kwargs, period=period)

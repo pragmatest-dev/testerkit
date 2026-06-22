@@ -188,9 +188,9 @@ Every route is mounted under the `/api/` prefix. Field shapes for request / resp
 
 | Method | Path | Response model | Summary |
 |---|---|---|---|
-| `GET` | `/api/metrics/summary` | `MetricsResponse` | Yield summary — DuckDB SQL aggregated from parquet rows at request time. |
+| `GET` | `/api/metrics/summary` | `MetricsResponse` | Yield summary — FPY, final yield, RTY, DPMO, DPPM per (part, station, phase, period). |
 | `GET` | `/api/metrics/pareto` | `MetricsResponse` | Top failure modes (DuckDB SQL). |
-| `GET` | `/api/metrics/cpk` | `MetricsResponse` | Process capability (DuckDB SQL). |
+| `GET` | `/api/metrics/ppk` | `MetricsResponse` | Process performance (DuckDB SQL). |
 | `GET` | `/api/metrics/trend` | `MetricsResponse` | Yield trend (DuckDB SQL). |
 | `GET` | `/api/metrics/retest` | `MetricsResponse` | Retest rates (DuckDB SQL). |
 | `GET` | `/api/metrics/time-loss` | `MetricsResponse` | Time lost to failures/errors (DuckDB SQL). |

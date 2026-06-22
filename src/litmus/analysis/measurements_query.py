@@ -17,7 +17,6 @@ from typing import Any
 
 from litmus.analysis.measurement_facets import (
     ColumnSchema,
-    CpkRow,
     DynamicFieldDescriptor,
     FacetOption,
     FieldRef,
@@ -28,6 +27,7 @@ from litmus.analysis.measurement_facets import (
     LimitBandRow,
     ParametricRow,
     ParetoRow,
+    PpkRow,
     RetestRow,
     SummaryCounts,
     TimeLossRow,
@@ -366,7 +366,7 @@ def _build_and_clauses(
     since: str | None = None,
     until: str | None = None,
 ) -> str:
-    """Build SQL ``AND`` clauses for inline queries (pareto, cpk).
+    """Build SQL ``AND`` clauses for inline queries (pareto, ppk).
 
     Uses raw measurement column names with COALESCE wrappers.
     """
@@ -389,7 +389,7 @@ def _build_and_clauses(
 
 
 def _period_col(period: str) -> str:
-    """Return the SQL expression for a period bucket."""
+    """Return the SQL expression for a period bucket (measurements view column: run_started_at)."""
     if period == "week":
         return "DATE_TRUNC('week', run_started_at::TIMESTAMP)::DATE"
     if period == "month":
@@ -416,13 +416,16 @@ WITH runs AS (
     FROM measurements
     ORDER BY run_id
 ),
+runs_filtered AS (
+    SELECT * FROM runs {where}
+),
 first_runs AS (
     SELECT *,
         ROW_NUMBER() OVER (
             PARTITION BY uut_serial, part, station, phase
             ORDER BY run_started_at
         ) AS rn
-    FROM runs
+    FROM runs_filtered
 ),
 last_runs AS (
     SELECT *,
@@ -430,34 +433,221 @@ last_runs AS (
             PARTITION BY uut_serial, part, station, phase
             ORDER BY run_started_at DESC
         ) AS rn
-    FROM runs
+    FROM runs_filtered
+),
+step_agg AS (
+    -- Per-(part, station, phase, period_day, step_path) pass rate, joined from
+    -- steps + runs views. Filters to runs already matching the caller's scope
+    -- by joining on run_id from runs_filtered.
+    SELECT
+        rf.part,
+        rf.station,
+        rf.phase,
+        rf.period_day,
+        s.step_path,
+        COUNT(*) AS step_total,
+        COUNT(*) FILTER (WHERE s.outcome = 'passed') AS step_passed
+    FROM steps AS s
+    JOIN runs_filtered AS rf USING (run_id)
+    WHERE s.step_path IS NOT NULL AND s.outcome IS NOT NULL
+    GROUP BY rf.part, rf.station, rf.phase, rf.period_day, s.step_path
+),
+step_rty AS (
+    -- RTY = EXP(SUM(LN(step_fpy))) over distinct steps, guarded against zero.
+    SELECT
+        part,
+        station,
+        phase,
+        period_day,
+        EXP(SUM(LN(NULLIF(step_passed::DOUBLE / NULLIF(step_total, 0), 0)))) AS rty
+    FROM step_agg
+    GROUP BY part, station, phase, period_day
+),
+meas_agg AS (
+    -- Per-(part, station, phase, period_day) measurement defect counts.
+    -- Predicate mirrors pareto: record_type='measurement', failed=measurement_outcome='failed'.
+    SELECT
+        rf.part,
+        rf.station,
+        rf.phase,
+        rf.period_day,
+        COUNT(*) AS total_measurements,
+        COUNT(*) FILTER (WHERE m.measurement_outcome = 'failed') AS failed_measurements
+    FROM measurements AS m
+    JOIN runs_filtered AS rf USING (run_id)
+    WHERE m.record_type = 'measurement'
+    GROUP BY rf.part, rf.station, rf.phase, rf.period_day
+),
+meas_dpmo AS (
+    -- DPMO = failed measurement opportunities / total measurement opportunities x 1e6.
+    SELECT
+        part,
+        station,
+        phase,
+        period_day,
+        ROUND(failed_measurements * 1000000.0 / NULLIF(total_measurements, 0), 0) AS dpmo
+    FROM meas_agg
+),
+run_dppm AS (
+    -- DPPM = (failed + errored) runs / total_runs x 1e6.
+    SELECT
+        part,
+        station,
+        phase,
+        period_day,
+        ROUND(
+            COUNT(*) FILTER (WHERE run_outcome IN ('failed', 'errored')) * 1000000.0
+            / NULLIF(COUNT(*), 0),
+        0) AS dppm
+    FROM runs_filtered
+    GROUP BY part, station, phase, period_day
 )
 SELECT
-    part,
-    station,
-    phase,
-    period_day AS period,
+    r.part,
+    r.station,
+    r.phase,
+    r.period_day AS period,
     COUNT(*) AS total_runs,
-    COUNT(*) FILTER (WHERE run_outcome = 'passed') AS passed,
-    COUNT(*) FILTER (WHERE run_outcome = 'failed') AS failed,
-    COUNT(*) FILTER (WHERE run_outcome = 'errored') AS errored,
-    COUNT(DISTINCT uut_serial) AS unique_serials,
-    COUNT(DISTINCT uut_serial) FILTER (
-        WHERE run_id IN (SELECT run_id FROM first_runs WHERE rn = 1)
+    COUNT(*) FILTER (WHERE r.run_outcome = 'passed') AS passed,
+    COUNT(*) FILTER (WHERE r.run_outcome = 'failed') AS failed,
+    COUNT(*) FILTER (WHERE r.run_outcome = 'errored') AS errored,
+    COUNT(DISTINCT r.uut_serial) AS unique_serials,
+    COUNT(DISTINCT r.uut_serial) FILTER (
+        WHERE r.run_id IN (SELECT run_id FROM first_runs WHERE rn = 1)
     ) AS first_pass_total,
-    COUNT(DISTINCT uut_serial) FILTER (
-        WHERE run_id IN (SELECT run_id FROM first_runs WHERE rn = 1 AND run_outcome = 'passed')
+    COUNT(DISTINCT r.uut_serial) FILTER (
+        WHERE r.run_id IN (SELECT run_id FROM first_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS first_pass_passed,
-    COUNT(DISTINCT uut_serial) FILTER (
-        WHERE run_id IN (SELECT run_id FROM last_runs WHERE rn = 1 AND run_outcome = 'passed')
+    COUNT(DISTINCT r.uut_serial) FILTER (
+        WHERE r.run_id IN (SELECT run_id FROM last_runs WHERE rn = 1 AND run_outcome = 'passed')
     ) AS final_passed,
-    ROUND(AVG(EPOCH(run_ended_at::TIMESTAMP - run_started_at::TIMESTAMP)), 2) AS avg_duration_s,
-    ROUND(QUANTILE_CONT(EPOCH(run_ended_at::TIMESTAMP - run_started_at::TIMESTAMP), 0.95), 2)
-        AS p95_duration_s
-FROM runs
-{where}
-GROUP BY part, station, phase, period_day
-ORDER BY period_day
+    ROUND(AVG(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP)), 2) AS avg_duration_s,
+    ROUND(QUANTILE_CONT(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP), 0.95), 2)
+        AS p95_duration_s,
+    ROUND(MIN(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP)), 2) AS min_duration_s,
+    ROUND(MAX(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP)), 2) AS max_duration_s,
+    sr.rty,
+    md.dpmo,
+    rd.dppm
+FROM runs_filtered AS r
+LEFT JOIN step_rty AS sr
+    ON sr.part = r.part AND sr.station = r.station
+    AND sr.phase = r.phase AND sr.period_day = r.period_day
+LEFT JOIN meas_dpmo AS md
+    ON md.part = r.part AND md.station = r.station
+    AND md.phase = r.phase AND md.period_day = r.period_day
+LEFT JOIN run_dppm AS rd
+    ON rd.part = r.part AND rd.station = r.station
+    AND rd.phase = r.phase AND rd.period_day = r.period_day
+GROUP BY r.part, r.station, r.phase, r.period_day, sr.rty, md.dpmo, rd.dppm
+ORDER BY r.period_day
+"""
+
+_YIELD_OVERALL_SQL = """
+WITH runs AS (
+    SELECT DISTINCT ON (run_id)
+        run_id,
+        COALESCE(uut_part_number, part_id, 'unknown') AS part,
+        COALESCE(station_hostname, station_id, 'unknown') AS station,
+        COALESCE(test_phase, 'unknown') AS phase,
+        uut_serial,
+        run_outcome,
+        run_started_at,
+        run_ended_at,
+        CAST(run_started_at AS DATE) AS period_day
+    FROM measurements
+    ORDER BY run_id
+),
+runs_filtered AS (
+    SELECT * FROM runs {where}
+),
+first_runs AS (
+    SELECT *,
+        ROW_NUMBER() OVER (
+            PARTITION BY uut_serial
+            ORDER BY run_started_at
+        ) AS rn
+    FROM runs_filtered
+),
+last_runs AS (
+    SELECT *,
+        ROW_NUMBER() OVER (
+            PARTITION BY uut_serial
+            ORDER BY run_started_at DESC
+        ) AS rn
+    FROM runs_filtered
+),
+step_agg AS (
+    SELECT
+        s.step_path,
+        COUNT(*) AS step_total,
+        COUNT(*) FILTER (WHERE s.outcome = 'passed') AS step_passed
+    FROM steps AS s
+    JOIN runs_filtered AS rf USING (run_id)
+    WHERE s.step_path IS NOT NULL AND s.outcome IS NOT NULL
+    GROUP BY s.step_path
+),
+step_rty AS (
+    SELECT
+        EXP(SUM(LN(NULLIF(step_passed::DOUBLE / NULLIF(step_total, 0), 0)))) AS rty
+    FROM step_agg
+),
+meas_agg AS (
+    -- Measurement defect counts over all filtered runs.
+    -- Predicate mirrors pareto: record_type='measurement', failed=measurement_outcome='failed'.
+    SELECT
+        COUNT(*) AS total_measurements,
+        COUNT(*) FILTER (WHERE m.measurement_outcome = 'failed') AS failed_measurements
+    FROM measurements AS m
+    JOIN runs_filtered AS rf USING (run_id)
+    WHERE m.record_type = 'measurement'
+),
+meas_dpmo AS (
+    -- DPMO = failed measurement opportunities / total measurement opportunities x 1e6.
+    SELECT
+        ROUND(failed_measurements * 1000000.0 / NULLIF(total_measurements, 0), 0) AS dpmo
+    FROM meas_agg
+),
+run_dppm AS (
+    SELECT
+        ROUND(
+            COUNT(*) FILTER (WHERE run_outcome IN ('failed', 'errored')) * 1000000.0
+            / NULLIF(COUNT(*), 0),
+        0) AS dppm
+    FROM runs_filtered
+)
+SELECT
+    'all' AS part,
+    'all' AS station,
+    'all' AS phase,
+    'all' AS period,
+    COUNT(*) AS total_runs,
+    COUNT(*) FILTER (WHERE r.run_outcome = 'passed') AS passed,
+    COUNT(*) FILTER (WHERE r.run_outcome = 'failed') AS failed,
+    COUNT(*) FILTER (WHERE r.run_outcome = 'errored') AS errored,
+    COUNT(DISTINCT r.uut_serial) AS unique_serials,
+    COUNT(DISTINCT r.uut_serial) FILTER (
+        WHERE r.run_id IN (SELECT run_id FROM first_runs WHERE rn = 1)
+    ) AS first_pass_total,
+    COUNT(DISTINCT r.uut_serial) FILTER (
+        WHERE r.run_id IN (SELECT run_id FROM first_runs WHERE rn = 1 AND run_outcome = 'passed')
+    ) AS first_pass_passed,
+    COUNT(DISTINCT r.uut_serial) FILTER (
+        WHERE r.run_id IN (SELECT run_id FROM last_runs WHERE rn = 1 AND run_outcome = 'passed')
+    ) AS final_passed,
+    ROUND(AVG(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP)), 2) AS avg_duration_s,
+    ROUND(QUANTILE_CONT(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP), 0.95), 2)
+        AS p95_duration_s,
+    ROUND(MIN(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP)), 2) AS min_duration_s,
+    ROUND(MAX(EPOCH(r.run_ended_at::TIMESTAMP - r.run_started_at::TIMESTAMP)), 2) AS max_duration_s,
+    sr.rty,
+    md.dpmo,
+    rd.dppm
+FROM runs_filtered AS r
+CROSS JOIN step_rty AS sr
+CROSS JOIN meas_dpmo AS md
+CROSS JOIN run_dppm AS rd
+GROUP BY sr.rty, md.dpmo, rd.dppm
 """
 
 _PARETO_SQL = """
@@ -479,7 +669,7 @@ ORDER BY fail_count DESC
 LIMIT {top_n}
 """
 
-_CPK_SQL = """
+_PPK_SQL = """
 SELECT
     COALESCE(uut_part_number, part_id, 'unknown') AS part,
     COALESCE(station_hostname, station_id, 'unknown') AS station,
@@ -493,7 +683,7 @@ SELECT
          AND MIN(limit_low) IS NOT NULL AND MAX(limit_high) IS NOT NULL
         THEN ROUND((MAX(limit_high) - MIN(limit_low))
                     / (6 * STDDEV_SAMP(measurement_value)), 3)
-    END AS cp,
+    END AS pp,
     CASE WHEN STDDEV_SAMP(measurement_value) > 0
          AND (MIN(limit_low) IS NOT NULL OR MAX(limit_high) IS NOT NULL)
         THEN ROUND(LEAST(
@@ -502,13 +692,13 @@ SELECT
             COALESCE((AVG(measurement_value) - MIN(limit_low))
                      / (3 * STDDEV_SAMP(measurement_value)), 1e9)
         ), 3)
-    END AS cpk
+    END AS ppk
 FROM measurements
 WHERE record_type = 'measurement' AND measurement_value IS NOT NULL
     {and_clauses}
 GROUP BY part, station, measurement_name
 HAVING COUNT(*) >= {min_samples}
-ORDER BY cpk ASC NULLS LAST
+ORDER BY ppk ASC NULLS LAST
 """
 
 _TREND_SQL = """
@@ -681,6 +871,41 @@ class MeasurementsQuery:
         )
         return [YieldRow(**r) for r in self._query_dicts(sql)]
 
+    def yield_overall(
+        self,
+        *,
+        part: str | list[str] | None = None,
+        station: str | list[str] | None = None,
+        phase: str | list[str] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> YieldRow | None:
+        """Pooled yield metrics over the entire filtered set — no part/station/period grouping.
+
+        Returns one :class:`YieldRow` with ``part``, ``station``, and ``period`` all
+        set to ``"all"``, or ``None`` when no runs match the filters.
+
+        Use this for headline cards (FPY, Final Yield, RTY, DPMO, DPPM) where
+        per-group aggregation would produce incorrect values:
+
+        - ``unique_serials`` is ``COUNT(DISTINCT uut_serial)`` over all rows — no
+          double-counting of serials tested on multiple stations.
+        - ``rty`` is ``EXP(SUM(LN(per-step FPY)))`` pooled over all filtered runs.
+        - ``dpmo`` is pooled over all filtered measurement records; ``dppm`` is pooled over runs.
+        """
+        where = _build_where(
+            part=part,
+            station=station,
+            phase=phase,
+            since=since,
+            until=until,
+        )
+        sql = _YIELD_OVERALL_SQL.format(where=where)
+        rows = self._query_dicts(sql)
+        if not rows:
+            return None
+        return YieldRow(**rows[0])
+
     def pareto(
         self,
         *,
@@ -707,7 +932,7 @@ class MeasurementsQuery:
         )
         return [ParetoRow(**r) for r in self._query_dicts(sql)]
 
-    def cpk(
+    def ppk(
         self,
         field: str | FieldRef | None = None,
         *,
@@ -717,8 +942,8 @@ class MeasurementsQuery:
         since: str | None = None,
         until: str | None = None,
         min_samples: int = 10,
-    ) -> list[CpkRow]:
-        """Process capability (Cpk/Cp) per measurement.
+    ) -> list[PpkRow]:
+        """Process performance (Ppk/Pp) per measurement.
 
         ``field`` selects which measurement to scope — a bare string or
         ``FieldRef.measurement(...)``. Passing a non-measurement FieldRef
@@ -737,7 +962,7 @@ class MeasurementsQuery:
                 ref = resolved
                 if ref.role is not FieldRole.MEASUREMENT:
                     raise ValueError(
-                        f"cpk() requires a measurement FieldRef; got role={ref.role.value!r}. "
+                        f"ppk() requires a measurement FieldRef; got role={ref.role.value!r}. "
                         "Outputs and inputs have no limits — use histogram() for distributions."
                     )
                 name_clause = f"\n    AND measurement_name = '{sql_escape(ref.name)}'"
@@ -748,11 +973,11 @@ class MeasurementsQuery:
             since=since,
             until=until,
         )
-        sql = _CPK_SQL.format(
+        sql = _PPK_SQL.format(
             and_clauses=base_and + name_clause,
             min_samples=int(min_samples),
         )
-        return [CpkRow(**r) for r in self._query_dicts(sql)]
+        return [PpkRow(**r) for r in self._query_dicts(sql)]
 
     def trend(
         self,

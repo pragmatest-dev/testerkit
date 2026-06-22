@@ -154,7 +154,7 @@ Defaults are stripped from the URL to keep it short.
 
 - [Results detail → Measurements tab](results/detail.md#measurements)
   — per-run measurement view
-- [Metrics → Cpk](metrics.md#cpk) — process capability ranking
+- [Metrics → Ppk](metrics.md#ppk) — process performance ranking
   across the same data
 - [Query API reference](../query-api.md) — the `MeasurementsQuery`
   class this page calls

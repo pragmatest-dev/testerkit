@@ -239,22 +239,7 @@ Start the MCP server for AI agents.
 
 ### `litmus metrics` (group) {#cli-metrics}
 
-Manufacturing-test analytics (yield, pareto, cpk, trend, retest, time-loss).
-
-#### `litmus metrics cpk` {#cli-metrics-cpk}
-
-Process capability (Cpk/Cp) per measurement.
-
-| Argument / option | Type | Description |
-|---|---|---|
-| `--json` | `flag` | Output as JSON |
-| `--station` | `text` | Station ID |
-| `--part` | `text` | Part ID |
-| `--until` | `text` | End date (ISO format) |
-| `--since` | `text` | Start date (ISO format) |
-| `--phase` | `text` | Test phase (or 'all') |
-| `--data-dir` | `text` | Results directory |
-| `--min-samples` | `integer` | Minimum sample count  *(default: `10`)* |
+Manufacturing-test analytics (yield, pareto, ppk, trend, retest, time-loss).
 
 #### `litmus metrics pareto` {#cli-metrics-pareto}
 
@@ -271,6 +256,21 @@ Top failures (Pareto). Group by part / step / measurement.
 | `--data-dir` | `text` | Results directory |
 | `--top` | `integer` | Number of top failures  *(default: `10`)* |
 | `--group-by` | `{part, step, measurement}` | Lens for the pareto: ``part`` groups runs by ``uut_part_number`` (most-failing SKUs); ``step`` groups steps by ``step_path`` (most-failing tests); ``measurement`` groups limit-bearing measurements by name (the historical default).  *(default: `part`)* |
+
+#### `litmus metrics ppk` {#cli-metrics-ppk}
+
+Process performance (Ppk/Pp) per measurement.
+
+| Argument / option | Type | Description |
+|---|---|---|
+| `--json` | `flag` | Output as JSON |
+| `--station` | `text` | Station ID |
+| `--part` | `text` | Part ID |
+| `--until` | `text` | End date (ISO format) |
+| `--since` | `text` | Start date (ISO format) |
+| `--phase` | `text` | Test phase (or 'all') |
+| `--data-dir` | `text` | Results directory |
+| `--min-samples` | `integer` | Minimum sample count  *(default: `10`)* |
 
 #### `litmus metrics retest` {#cli-metrics-retest}
 
@@ -289,7 +289,7 @@ Retest rates: how often UUTs are retried.
 
 #### `litmus metrics summary` {#cli-metrics-summary}
 
-Yield summary: FPY, final yield, run counts, duration stats.
+Yield summary: FPY, final yield, run counts, RTY, DPMO, DPPM, duration stats.
 
 | Argument / option | Type | Description |
 |---|---|---|

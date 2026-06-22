@@ -249,8 +249,9 @@ class StepBuilder:
         # Finalize default vector if it exists
         if self._default_vector is not None:
             self._test_step.vectors.append(self._default_vector._finish())
-            if self._default_vector._vector.outcome == Outcome.FAILED:
-                self._test_step.outcome = Outcome.FAILED
+            self._test_step.outcome = escalate_outcome(
+                self._test_step.outcome, self._default_vector._vector.outcome
+            )
 
         self._test_step.ended_at = datetime.now(UTC)
         return self._test_step

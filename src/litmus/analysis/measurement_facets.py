@@ -181,7 +181,8 @@ class HistogramRow(BaseModel):
 
 
 class YieldRow(BaseModel):
-    """One row from :meth:`MeasurementsQuery.yield_summary` — one (part, station, phase, period)."""
+    """One row from :meth:`MeasurementsQuery.yield_summary` or
+    :meth:`MeasurementsQuery.yield_overall`."""
 
     part: str
     station: str
@@ -197,6 +198,13 @@ class YieldRow(BaseModel):
     final_passed: int
     avg_duration_s: float | None = None
     p95_duration_s: float | None = None
+    min_duration_s: float | None = None
+    max_duration_s: float | None = None
+    # Quality metrics — rty from step records; dpmo from measurement records; dppm from runs.
+    # rty is None when no step records exist in the matching scope.
+    rty: float | None = None  # Rolled Throughput Yield — product of per-step FPY
+    dpmo: float | None = None  # Defects Per Million Opportunities (measurement-level)
+    dppm: float | None = None  # Defective Parts Per Million (run-level)
 
 
 class ParetoRow(BaseModel):
@@ -223,8 +231,8 @@ class ParetoRow(BaseModel):
         }
 
 
-class CpkRow(BaseModel):
-    """One row from :meth:`MeasurementsQuery.cpk` — one (part, station, measurement_name)."""
+class PpkRow(BaseModel):
+    """One row from :meth:`MeasurementsQuery.ppk` — one (part, station, measurement_name)."""
 
     part: str
     station: str
@@ -234,8 +242,8 @@ class CpkRow(BaseModel):
     sigma: float | None = None
     lsl: float | None = None
     usl: float | None = None
-    cp: float | None = None
-    cpk: float | None = None
+    pp: float | None = None
+    ppk: float | None = None
 
 
 class TrendRow(BaseModel):
