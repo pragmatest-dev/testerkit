@@ -276,11 +276,11 @@ litmus setup copilot           # GitHub Copilot (VS Code + CLI)
 
 When you're ready to move from mocks to real instruments, see [Step 7: Real Instruments](07-real-instruments.md). It covers station configuration, `litmus discover`, driver wiring, and common troubleshooting.
 
-[Step 1: Run Something →](01-first-test.md)
-
 ## Next Steps
 
-- [Tutorial index](index.md) — full step-by-step path (recommended next)
+You've seen the whole loop. From here:
+
+- **Learn it from the ground up** → the [step-by-step tutorial](index.md) builds a project from nothing, one concept at a time. It's a separate path from this batteries-included tour, not a continuation of it.
 - [Core Concepts](../concepts/) — Understand parts, stations, and capabilities
 - [Writing Tests](../how-to/execution/writing-tests.md) — Patterns and best practices
 - [Configuration Reference](../reference/configuration.md) — YAML schema details

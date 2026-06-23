@@ -1,12 +1,24 @@
-# Tutorial: Engineer's First Project
+# Tutorials
 
-Welcome to Litmus! This tutorial takes you from your first test to a production-ready test suite. Each step builds on the previous one, introducing one concept at a time.
+Two independent ways to learn Litmus — pick the one that fits how you want to start. They are not a sequence: the Quick Start is **not** "step 0" of the step-by-step path.
 
-## Learning Path
+## Quick Start
+
+Batteries-included. `litmus init quick_start --starter` scaffolds a complete project — part spec, station, fixture, a test, and config — that passes `pytest` immediately with mock instruments. Best when you want to see the whole thing working in a minute, then read the walkthrough to understand each piece.
+
+```bash
+litmus init quick_start --starter && cd quick_start
+uv sync && pytest
+```
+
+[Quick Start walkthrough →](00-quickstart.md)
+
+## Step-by-step tutorial
+
+Start from nothing — a bare `conftest.py` with one mock fixture — and add a single concept per step, up to a production-ready, fully traceable suite with live monitoring. Best when you want to learn each piece as you introduce it; each step builds on the previous one.
 
 | Step | Goal | What You'll Learn |
 |------|------|-------------------|
-| [0. Quick Start](00-quickstart.md) | Smallest end-to-end loop | install, run, see results |
 | [1. First Test](01-first-test.md) | Run something | pytest, project structure |
 | [2. Running Without Hardware](02-mock-instruments.md) | Use mock mode | `--mock-instruments`, `mock_config` (station-config block of canned return values used when `--mock-instruments` is on) |
 | [3. pytest-native tests](03-fixtures.md) | Log measurements | the core per-test [Litmus fixtures](../reference/overview/pytest-native.md) — `context` is the ambient run/UUT/station/vector state (always available; carries sweep params when present, observations always), `verify` records the measurement row AND raises on FAIL, `measure` records the row without raising (plus ~17 other public fixtures the plugin exposes — see [litmus-fixtures](../reference/pytest/fixtures.md)) |
@@ -41,17 +53,7 @@ By the end of this tutorial, you'll have:
 5. Full traceability from requirements to results
 6. Live monitoring of test sessions with event queries
 
-## Quick Start
-
-If you just want to see working code:
-
-```bash
-litmus init quick_start --starter && cd quick_start
-pytest
-```
-
-Then come back here to understand how it works.
-
 ## Ready?
 
-[Start with Step 1: First Test →](01-first-test.md)
+- See it working now → [Quick Start](00-quickstart.md)
+- Learn it from the ground up → [Step 1: First Test](01-first-test.md)
