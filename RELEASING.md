@@ -10,6 +10,13 @@ irreversible — do them last, deliberately.
 - [ ] `pyright` clean — no new diagnostics
 - [ ] `pytest` — full suite green
 - [ ] Examples run end-to-end (`tests/test_e2e/`)
+- [ ] **Benchmark gate** — the release `benchmarks` job overlays the
+      current `test_perf*.py` onto the previous tag for a min-vs-min
+      comparison. If this release adds modules those tests import, the
+      prev-tag passes import-fail and the comparison is skipped (no
+      baseline) — expected. `benchmarks` does **not** gate `publish-pypi`,
+      so this never blocks the release; just don't read a green publish as
+      "benchmarks compared".
 
 ## 2. Surfaces reflect this release's API / schema changes
 
