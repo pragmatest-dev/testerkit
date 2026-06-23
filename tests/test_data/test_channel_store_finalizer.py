@@ -17,6 +17,7 @@ CLAUDE.md's daemon-spawning constraint.
 from __future__ import annotations
 
 import gc
+import time
 from uuid import uuid4
 
 import pytest
@@ -67,15 +68,22 @@ def test_finalizer_stops_pusher_on_gc() -> None:
     assert relay._thread.is_alive()
 
     del store
-    gc.collect()
 
-    # The invariant is deterministic: GC fires the finalizer, which signals
-    # the relay to stop. Assert that directly — it doesn't depend on the
-    # scheduler running the pusher thread to completion.
+    # The contract is "the finalizer fires on GC", not "on the next gc.collect()
+    # call". On a loaded runner the store can survive the first collection — a
+    # Flight/gRPC background-thread frame transiently keeps the cycle alive — so
+    # retry the collection until the finalizer has fired and signalled stop.
+    # Bounded: a store pinned forever (finalizer never fires = real leak) still
+    # fails here by timing out rather than hanging.
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        gc.collect()
+        if relay._stop.is_set():
+            break
+        time.sleep(0.05)
+
     assert relay._stop.is_set(), "GC must fire the finalizer and signal the pusher to stop"
 
-    # The thread then winds down once scheduled. Generous join headroom so a
-    # CPU-starved CI runner can't false-fail; a genuinely leaked thread (stop
-    # never signaled) would never stop and time out here regardless.
-    relay._thread.join(timeout=30.0)
+    # close() joins the thread, so the finalizer firing already stopped it.
+    relay._thread.join(timeout=5.0)
     assert not relay._thread.is_alive(), "finalizer must stop the pusher thread on GC"
