@@ -69,5 +69,13 @@ def test_finalizer_stops_pusher_on_gc() -> None:
     del store
     gc.collect()
 
-    relay._thread.join(timeout=5.0)
+    # The invariant is deterministic: GC fires the finalizer, which signals
+    # the relay to stop. Assert that directly — it doesn't depend on the
+    # scheduler running the pusher thread to completion.
+    assert relay._stop.is_set(), "GC must fire the finalizer and signal the pusher to stop"
+
+    # The thread then winds down once scheduled. Generous join headroom so a
+    # CPU-starved CI runner can't false-fail; a genuinely leaked thread (stop
+    # never signaled) would never stop and time out here regardless.
+    relay._thread.join(timeout=30.0)
     assert not relay._thread.is_alive(), "finalizer must stop the pusher thread on GC"

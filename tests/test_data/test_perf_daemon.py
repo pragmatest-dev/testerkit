@@ -2,7 +2,11 @@
 
 Catches regressions in:
 1. Daemon spawn time — from process exec to ready signal.
-   Baseline (after __init__ cleanup): ~300ms. Hard cap: 1500ms.
+   Baseline (after __init__ cleanup): ~300ms. Regression-gated by the
+   release workflow's relative min-vs-min comparison, not an absolute cap:
+   spawn is a cold subprocess exec + DuckDB import + Flight bind, whose
+   wall time swings too widely on a shared CI runner for an absolute ms
+   line to be meaningful.
 
 2. Warm query latency — Flight round-trip to already-running daemon.
    Hard cap: 100ms. Baseline: ~3ms.
@@ -91,21 +95,19 @@ def _ensure_daemon_live() -> str:
 def test_daemon_spawn_time(benchmark):
     """Daemon spawn: acquire() wall time after a clean kill.
 
-    Hard cap: 1500ms. Baseline: ~300ms.
-    Each benchmark round kills the daemon and measures spawn time.
+    Baseline: ~300ms. Each round kills the daemon and re-acquires.
+    Regression is owned by the release workflow's interleaved min-vs-min
+    comparison (10% threshold) — runner-relative, so it doesn't depend on
+    the absolute speed of whatever CI host the job lands on.
     """
 
     def _spawn():
         _kill_daemon()
         runs_dir = resolve_data_dir() / "runs"
-        t0 = time.perf_counter()
         location = runs_duckdb_manager.acquire(runs_dir)
-        ms = (time.perf_counter() - t0) * 1000
         _drop_pooled_client(location)  # clean pool for next round
-        return ms
 
-    result = benchmark(_spawn)
-    assert result < 1500, f"Daemon spawn took {result:.0f}ms — exceeds 1500ms hard cap"
+    benchmark(_spawn)
 
 
 # ---------------------------------------------------------------------------
