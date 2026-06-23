@@ -61,8 +61,8 @@ Bundle: `pip install litmus-test[all-exporters]` installs `stdf`, `hdf5`, `tdms`
 
 For shipping data to cloud destinations or lakehouse formats (Snowflake, Delta, Iceberg), Litmus does not ship a built-in transport in the current release — design with real requirements is deferred to a future release. The parquet files in `runs/` are the contract. Consumers run their own pipeline:
 
-- **DuckDB / Polars / Pandas:** read directly from `data/runs/{date}/*.parquet` with `record_type` filtering.
-- **Snowflake / Databricks / Trino-Iceberg:** copy parquets to your storage layer and ingest with an `INSERT INTO ... SELECT ... WHERE record_type = ...` split.
+- **DuckDB / Polars / Pandas:** read directly from `data/runs/{date}/*.parquet`. Rows are typed by `record_type` (`run` / `step` / `vector`); measurements are nested under the vector rows, so `UNNEST(measurements)` to flatten them.
+- **Snowflake / Databricks / Trino-Iceberg:** copy parquets to your storage layer and ingest with a `record_type`-keyed split (`run` / `step` / `vector`), unnesting the vector rows' `measurements` list into your measurement fact table.
 
 Canonical recipes — see [Lakehouse Import](../../integration/data/lakehouse-import.md).
 

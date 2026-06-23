@@ -38,23 +38,25 @@ parquet diff.
 
 ## 2. Diff measurements with DuckDB
 
-The parquet store keeps one row per measurement per
-`(run_id, step_path, vector_index, measurement_name)`. Joining a
-pair of runs on those keys gives a direct diff:
+The at-rest parquet nests measurements under each vector row, one per
+`(run_id, step_path, vector_index, measurement name)`. `UNNEST` them, then
+join a pair of runs on those keys for a direct diff:
 
 ```bash
 duckdb -c "
 WITH a AS (
-  SELECT step_path, vector_index, measurement_name,
-         measurement_value, measurement_outcome, limit_low, limit_high
-  FROM read_parquet('<data_dir>/runs/**/*.parquet')
-  WHERE run_id = '<run_id_a>' AND record_type = 'measurement'
+  SELECT step_path, vector_index, m.name AS measurement_name,
+         m.value AS measurement_value, m.outcome AS measurement_outcome,
+         m.limit_low, m.limit_high
+  FROM read_parquet('<data_dir>/runs/**/*.parquet'), UNNEST(measurements) AS t(m)
+  WHERE run_id = '<run_id_a>' AND record_type = 'vector'
 ),
 b AS (
-  SELECT step_path, vector_index, measurement_name,
-         measurement_value, measurement_outcome, limit_low, limit_high
-  FROM read_parquet('<data_dir>/runs/**/*.parquet')
-  WHERE run_id = '<run_id_b>' AND record_type = 'measurement'
+  SELECT step_path, vector_index, m.name AS measurement_name,
+         m.value AS measurement_value, m.outcome AS measurement_outcome,
+         m.limit_low, m.limit_high
+  FROM read_parquet('<data_dir>/runs/**/*.parquet'), UNNEST(measurements) AS t(m)
+  WHERE run_id = '<run_id_b>' AND record_type = 'vector'
 )
 SELECT
   COALESCE(a.step_path, b.step_path) AS step_path,

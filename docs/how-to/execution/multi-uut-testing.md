@@ -123,14 +123,14 @@ Access via: `litmus serve` then navigate to a multi-UUT result detail page.
 Each measurement row includes a `slot_id` column for multi-UUT runs. Query with DuckDB:
 
 ```sql
-SELECT slot_id, step_name, measurement_outcome, measurement_value
-FROM read_parquet('<data_dir>/runs/**/*.parquet')
-WHERE record_type = 'measurement'
+SELECT slot_id, step_name, m.outcome, m.value
+FROM read_parquet('<data_dir>/runs/**/*.parquet'), UNNEST(measurements) AS t(m)
+WHERE record_type = 'vector'
   AND slot_id IS NOT NULL
 ORDER BY slot_id, step_index
 ```
 
-Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `litmus.yaml` → `LITMUS_HOME` → platform default. See [reference/parquet-schema.md](../../reference/data/parquet-schema.md) for the column shape and the `record_type` discriminator that lets one file carry run / step / measurement rows.
+Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `litmus.yaml` → `LITMUS_HOME` → platform default. See [reference/parquet-schema.md](../../reference/data/parquet-schema.md) for the column shape and the `record_type` discriminator (`run` / `step` / `vector`); measurements are nested under the vector rows.
 
 ## Debugging Failures
 
