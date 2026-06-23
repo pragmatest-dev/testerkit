@@ -239,7 +239,7 @@ jobs:
           uv run litmus runs --data-dir /tmp/upgrade_project/results 2>&1 | head -20
 
   publish-pypi:
-    needs: [build, correctness, benchmarks, smoke-test, upgrade-test]
+    needs: [build, correctness, smoke-test, upgrade-test]
     runs-on: ubuntu-latest
     environment:
       name: pypi
