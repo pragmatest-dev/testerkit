@@ -674,6 +674,8 @@ SELECT
     COALESCE(uut_part_number, part_id, 'unknown') AS part,
     COALESCE(station_hostname, station_id, 'unknown') AS station,
     measurement_name,
+    characteristic_id,
+    uut_pin,
     COUNT(*) AS n,
     ROUND(AVG(measurement_value), 6) AS mean,
     ROUND(STDDEV_SAMP(measurement_value), 6) AS sigma,
@@ -696,7 +698,7 @@ SELECT
 FROM measurements
 WHERE record_type = 'measurement' AND measurement_value IS NOT NULL
     {and_clauses}
-GROUP BY part, station, measurement_name
+GROUP BY part, station, measurement_name, characteristic_id, uut_pin, limit_low, limit_high
 HAVING COUNT(*) >= {min_samples}
 ORDER BY ppk ASC NULLS LAST
 """
@@ -950,7 +952,10 @@ class MeasurementsQuery:
         is an error (outputs have no limits). ``None`` includes all
         measurements (existing behavior).
 
-        Returns one row per (part, station, measurement_name).
+        Returns one row per homogeneous population — (part, station,
+        measurement_name, characteristic_id, uut_pin) sharing a single spec
+        limit pair — so Ppk is computed over one distribution rather than
+        pooling the same name across pins / characteristics / differing specs.
         """
         name_clause = ""
         if field is not None:

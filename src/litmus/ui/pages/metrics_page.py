@@ -907,6 +907,13 @@ def _render_ppk_table(container: Any, ppk_data: list[Any]) -> None:
                     "field": "measurement",
                     "align": "left",
                 },
+                {
+                    "name": "characteristic",
+                    "label": "Characteristic",
+                    "field": "characteristic",
+                    "align": "left",
+                },
+                {"name": "pin", "label": "Pin", "field": "pin", "align": "left"},
                 {"name": "ppk", "label": "Ppk", "field": "ppk", "align": "center"},
                 {"name": "mean", "label": "Mean", "field": "mean", "align": "center"},
                 {"name": "sigma", "label": "σ", "field": "sigma", "align": "center"},
@@ -916,8 +923,14 @@ def _render_ppk_table(container: Any, ppk_data: list[Any]) -> None:
             rows = []
             for item in ppk_data[:15]:
                 ppk_val = item.ppk
+                # Composite key: rows can share a measurement name across
+                # characteristics / pins (the Ppk grain), so name alone is not unique.
+                key = f"{item.measurement_name}|{item.characteristic_id or ''}|{item.uut_pin or ''}"
                 row = {
+                    "_key": key,
                     "measurement": item.measurement_name,
+                    "characteristic": item.characteristic_id or "—",
+                    "pin": item.uut_pin or "—",
                     "ppk": f"{ppk_val:.2f}" if ppk_val is not None else "N/A",
                     "mean": f"{(item.mean or 0):.3f}",
                     "sigma": f"{(item.sigma or 0):.3f}",
@@ -925,7 +938,7 @@ def _render_ppk_table(container: Any, ppk_data: list[Any]) -> None:
                 }
                 rows.append(row)
 
-            table = data_table(columns=columns, rows=rows, row_key="measurement")
+            table = data_table(columns=columns, rows=rows, row_key="_key")
             table.add_slot(
                 "body-cell-ppk",
                 r"""

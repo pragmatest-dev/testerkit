@@ -1656,13 +1656,15 @@ One row from :meth:`MeasurementsQuery.pareto`.
 
 #### `PpkRow` {#model-ppkrow}
 
-One row from :meth:`MeasurementsQuery.ppk` — one (part, station, measurement_name).
+One row from :meth:`MeasurementsQuery.ppk` — one homogeneous population: one (part, station, measurement_name, characteristic_id, uut_pin) sharing a single spec limit pair. Splitting on characteristic / pin / limits keeps Ppk over a single distribution instead of pooling differing specs under a shared name.
 
 | Field | Type | Default |
 |---|---|---|
 | `part` | `str` | *required* |
 | `station` | `str` | *required* |
 | `measurement_name` | `str` | *required* |
+| `characteristic_id` | `str \| None` | `None` |
+| `uut_pin` | `str \| None` | `None` |
 | `n` | `int` | *required* |
 | `mean` | `float \| None` | `None` |
 | `sigma` | `float \| None` | `None` |

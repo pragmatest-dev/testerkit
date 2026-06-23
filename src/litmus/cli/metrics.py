@@ -194,16 +194,25 @@ def metrics_ppk(data_dir, phase, since, until_date, part, station, min_samples, 
             click.echo(json.dumps([r.model_dump() for r in rows], indent=2, default=str))
             return
 
-        click.echo(f"{'Measurement':<30} {'N':>5} {'Mean':>10} {'Sigma':>10} {'Ppk':>7} {'Pp':>7}")
-        click.echo("-" * 75)
+        click.echo(
+            f"{'Measurement':<24} {'Characteristic':<16} {'Pin':<10} "
+            f"{'N':>5} {'Mean':>10} {'Sigma':>10} {'Ppk':>7} {'Pp':>7}"
+        )
+        click.echo("-" * 95)
         for r in rows:
             name = str(r.measurement_name)
-            if len(name) > 28:
-                name = name[:25] + "..."
+            if len(name) > 22:
+                name = name[:19] + "..."
+            char = str(r.characteristic_id or "-")
+            if len(char) > 14:
+                char = char[:11] + "..."
+            pin = str(r.uut_pin or "-")
+            if len(pin) > 8:
+                pin = pin[:5] + "..."
             ppk_val = f"{r.ppk:.3f}" if r.ppk is not None else "N/A"
             pp_val = f"{r.pp:.3f}" if r.pp is not None else "N/A"
             click.echo(
-                f"{name:<30} {r.n or 0:>5} {r.mean or 0:>10.4f} "
+                f"{name:<24} {char:<16} {pin:<10} {r.n or 0:>5} {r.mean or 0:>10.4f} "
                 f"{r.sigma or 0:>10.4f} {ppk_val:>7} {pp_val:>7}"
             )
 

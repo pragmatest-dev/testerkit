@@ -40,6 +40,8 @@ def _meas_struct(
     outcome: str = "passed",
     limit_low: float | None = None,
     limit_high: float | None = None,
+    characteristic_id: str | None = None,
+    uut_pin: str | None = None,
 ) -> dict:
     """Build one nested measurement struct (the at-rest measurement shape)."""
     return {
@@ -52,9 +54,9 @@ def _meas_struct(
         "limit_high": limit_high,
         "limit_nominal": None,
         "limit_comparator": None,
-        "characteristic_id": None,
+        "characteristic_id": characteristic_id,
         "spec_ref": None,
-        "uut_pin": None,
+        "uut_pin": uut_pin,
         "fixture_connection": None,
         "instrument_name": None,
         "instrument_resource": None,
@@ -77,6 +79,8 @@ def _row(
     outcome: str = "passed",
     limit_low: float | None = 3.0,
     limit_high: float | None = 3.6,
+    characteristic_id: str | None = None,
+    uut_pin: str | None = None,
     station_name: str = "STA-MQS",
     test_phase: str = "production",
     step_index: int = 0,
@@ -105,6 +109,8 @@ def _row(
                 outcome=outcome,
                 limit_low=limit_low,
                 limit_high=limit_high,
+                characteristic_id=characteristic_id,
+                uut_pin=uut_pin,
             )
         ],
     )
@@ -305,6 +311,71 @@ class TestPpk:
         )
         store = MeasurementsQuery()
         assert store.ppk(phase="all", part=part, min_samples=10) == []
+
+    def test_same_name_different_pin_splits(self):
+        """Same measurement_name at two pins yields two Ppk rows, not one pooled."""
+        part = f"TEST-MQS-PIN-{uuid4().hex[:8]}"
+        canonical_runs = resolve_data_dir() / "runs" / "test-mqs-pin" / "2026-01-01"
+        rows = []
+        for i in range(6):
+            rows.append(
+                _row(
+                    run_id=f"mqs-pin-a-{uuid4()}",
+                    uut_part_number=part,
+                    uut_serial=f"SNA{i:03d}",
+                    value=3.30,
+                    uut_pin="TP_VOUT",
+                )
+            )
+            rows.append(
+                _row(
+                    run_id=f"mqs-pin-b-{uuid4()}",
+                    uut_part_number=part,
+                    uut_serial=f"SNB{i:03d}",
+                    value=1.80,
+                    uut_pin="TP_VAUX",
+                )
+            )
+        _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
+
+        store = MeasurementsQuery()
+        ppk_rows = store.ppk(phase="all", part=part, min_samples=5)
+        pins = {r.uut_pin for r in ppk_rows}
+        assert pins == {"TP_VOUT", "TP_VAUX"}
+        assert all(r.measurement_name == "vout" for r in ppk_rows)
+
+    def test_same_name_different_limits_splits(self):
+        """Same name with two spec bands is not pooled under the widened union."""
+        part = f"TEST-MQS-LIM-{uuid4().hex[:8]}"
+        canonical_runs = resolve_data_dir() / "runs" / "test-mqs-lim" / "2026-01-01"
+        rows = []
+        for i in range(6):
+            rows.append(
+                _row(
+                    run_id=f"mqs-lim-a-{uuid4()}",
+                    uut_part_number=part,
+                    uut_serial=f"SNA{i:03d}",
+                    value=3.30,
+                    limit_low=3.234,
+                    limit_high=3.366,
+                )
+            )
+            rows.append(
+                _row(
+                    run_id=f"mqs-lim-b-{uuid4()}",
+                    uut_part_number=part,
+                    uut_serial=f"SNB{i:03d}",
+                    value=3.30,
+                    limit_low=3.0,
+                    limit_high=3.6,
+                )
+            )
+        _write_measurements(canonical_runs, rows, filename=f"{part}_main.parquet")
+
+        store = MeasurementsQuery()
+        ppk_rows = store.ppk(phase="all", part=part, min_samples=5)
+        bands = {(r.lsl, r.usl) for r in ppk_rows}
+        assert bands == {(3.234, 3.366), (3.0, 3.6)}
 
 
 class TestTrend:
