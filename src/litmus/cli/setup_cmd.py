@@ -336,8 +336,8 @@ def setup_copilot(print_only: bool):
         "servers": {
             "litmus": {
                 "type": "stdio",
-                "command": "uv",
-                "args": ["run", "litmus", "mcp", "serve"],
+                "command": "litmus",
+                "args": ["mcp", "serve"],
             }
         }
     }
