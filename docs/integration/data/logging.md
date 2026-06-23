@@ -90,7 +90,7 @@ def upload_results(run_id: str, bucket: str):
     s3.upload_file(local_path, bucket, s3_key)
 ```
 
-Litmus writes one parquet per run at `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. There is no separate `test_runs/`, `measurements/`, or `vectors/` directory — the multi-row schema (`record_type='run'` / `'step'` / `'measurement'`) lives inside the one file.
+Litmus writes one parquet per run at `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. There is no separate `test_runs/`, `measurements/`, or `vectors/` directory — the multi-row schema (`record_type='run'` / `'step'` / `'vector'`, with measurements nested under the vector rows) lives inside the one file.
 
 ## Querying the existing store
 

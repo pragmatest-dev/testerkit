@@ -107,7 +107,7 @@ Until the 1.0 cut, the following invariants hold:
 - **New columns only.** Every release may add columns. Existing column names, types, and semantics are stable across 0.x releases.
 - **No removals or type changes** in 0.x. If a column would otherwise be removed or repurposed, it stays in the schema and reads as NULL for newly-written rows; the old meaning is documented as deprecated.
 - **PK stability.** `(run_id, step_path, vector_index)` is the per-step identity in the materialized table; `(run_id, step_path, vector_index, measurement_name, vector_retry)` discriminates measurement rows. These tuples do not change shape in 0.x.
-- **`record_type` discriminator stable.** The `'run'` / `'step'` / `'measurement'` values are part of the wire format and do not change.
+- **`record_type` discriminator stable.** The at-rest `'run'` / `'step'` / `'vector'` values are part of the wire format and do not change (the daemon also projects a `'measurement'` type at query time).
 - **Read with `union_by_name=true`.** Consumer queries that follow the recommended `read_parquet(..., union_by_name=true)` pattern survive every additive evolution automatically.
 
 ```sql

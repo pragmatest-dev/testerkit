@@ -69,11 +69,11 @@ across the project, query the parquet store directly:
 ```bash
 duckdb -c "
 SELECT run_id, uut_serial, step_path, vector_index, vector_retry,
-       measurement_outcome, measurement_value
-FROM read_parquet('<data_dir>/runs/**/*.parquet')
+       m.outcome, m.value
+FROM read_parquet('<data_dir>/runs/**/*.parquet'), UNNEST(measurements) AS t(m)
 WHERE step_path = 'test_output_voltage'
   AND uut_serial = 'DPB001-0001'
-  AND record_type = 'measurement'
+  AND record_type = 'vector'
 ORDER BY run_started_at DESC, vector_retry ASC
 "
 ```

@@ -8,12 +8,16 @@ Each Litmus run produces **one sealed parquet** at
 | `record_type` | Cardinality | Carries |
 |---|---|---|
 | `'run'` | Exactly one per file | Run-level identity, timing, outcome — start/end timestamps, UUT, station, project, git, environment |
-| `'step'` | One per `(step_path, vector_index)` | Step identity + outcome + timing + denormalized run / UUT / station context; measurement columns NULL |
-| `'measurement'` | One per recorded measurement | Full measurement payload + the same denormalized step + run context |
+| `'step'` | One per `(step_path, vector_index)` | Step identity + outcome + timing + denormalized run / UUT / station context |
+| `'vector'` | One per execution | The `inputs` / `outputs` lanes and the nested `measurements` list (`LIST<STRUCT>`) for that execution |
 
-Run-level identity is also denormalized onto step and measurement rows,
-so you can reconstruct a runs-table either by filtering `record_type = 'run'`
-or by taking `DISTINCT` run-level columns from any row kind.
+Measurements are **nested** inside each vector row's `measurements` list, not
+their own row kind — `UNNEST` them to build a flat measurement table (the
+Litmus daemon does the same projection to surface a virtual
+`record_type = 'measurement'` at query time). Run-level identity is
+denormalized onto step and vector rows, so you can reconstruct a runs-table
+either by filtering `record_type = 'run'` or by taking `DISTINCT` run-level
+columns from any row kind.
 
 This file is everything you need for a single run — sealed, atomic,
 write-once, portable. Drop the directory into S3, GCS, or your local lake;
@@ -33,17 +37,21 @@ SELECT DISTINCT run_id, session_id, run_started_at, run_ended_at,
 FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_SN001.parquet');
 
 INSERT INTO steps
-SELECT * EXCLUDE (record_type, measurement_name, measurement_value, /* … */)
+SELECT * EXCLUDE (record_type, measurements, inputs, outputs)
 FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_SN001.parquet')
 WHERE record_type = 'step';
 
+-- Measurements are nested under each vector row (a LIST<STRUCT>).
+-- UNNEST flattens one row per measurement; m.* expands the struct fields.
 INSERT INTO measurements
-SELECT * EXCLUDE (record_type)
-FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_SN001.parquet')
-WHERE record_type = 'measurement';
+SELECT run_id, session_id, step_path, vector_index, vector_retry, m.*
+FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_SN001.parquet'),
+     UNNEST(measurements) AS t(m)
+WHERE record_type = 'vector';
 ```
 
-`EXCLUDE` lists the columns each target table doesn't need. DuckDB's
+`EXCLUDE` lists the columns each target table doesn't need — for steps,
+the nested `measurements` / `inputs` / `outputs` lists. DuckDB's
 `SELECT * EXCLUDE` is the cleanest way to do this; other engines have
 equivalents (`SELECT col1, col2, …` or column lists at COPY time).
 
@@ -63,7 +71,15 @@ COPY INTO runs FROM (
 );
 
 COPY INTO steps        FROM (… WHERE $1:record_type = 'step');
-COPY INTO measurements FROM (… WHERE $1:record_type = 'measurement');
+
+-- Measurements are nested under each vector row — FLATTEN the array
+COPY INTO measurements FROM (
+  SELECT $1:run_id::STRING, $1:step_path::STRING,
+         m.value:name::STRING, m.value:value::FLOAT, m.value:outcome::STRING, /* … */
+  FROM @litmus_runs/2026-05-08/20260508T120000Z_SN001.parquet (FILE_FORMAT => 'PARQUET'),
+       LATERAL FLATTEN(input => $1:measurements) m
+  WHERE $1:record_type = 'vector'
+);
 ```
 
 For batch ingest of many runs, wrap this in a Snowflake task or external
@@ -86,7 +102,12 @@ SELECT DISTINCT run_id, uut_serial, station_hostname, run_started_at, run_ended_
 FROM litmus.run_rows;
 
 INSERT INTO litmus.steps        SELECT … WHERE record_type = 'step';
-INSERT INTO litmus.measurements SELECT … WHERE record_type = 'measurement';
+
+-- Measurements are nested — UNNEST the repeated measurements field
+INSERT INTO litmus.measurements
+SELECT run_id, step_path, m.name, m.value, m.outcome, /* … */
+FROM litmus.run_rows, UNNEST(measurements) AS m
+WHERE record_type = 'vector';
 ```
 
 ## Databricks / Delta Lake
@@ -102,11 +123,13 @@ df = spark.read.parquet("s3://my-bucket/data/runs/")
    .write.mode("append").format("delta").saveAsTable("litmus.runs"))
 
 (df.where(F.col("record_type") == "step")
-   .drop("measurement_name", "measurement_value")
+   .drop("measurements", "inputs", "outputs")
    .write.mode("append").format("delta").saveAsTable("litmus.steps"))
 
-(df.where(F.col("record_type") == "measurement")
-   .drop("record_type")
+# Measurements are nested — explode the array, then expand the struct
+(df.where(F.col("record_type") == "vector")
+   .select("run_id", "step_path", F.explode("measurements").alias("m"))
+   .select("run_id", "step_path", "m.*")
    .write.mode("append").format("delta").saveAsTable("litmus.measurements"))
 ```
 
@@ -125,7 +148,12 @@ WITH (
 -- runs is the DISTINCT projection; steps / measurements filter by record_type
 INSERT INTO litmus.runs         SELECT DISTINCT run_id, uut_serial, … FROM litmus.run_rows;
 INSERT INTO litmus.steps        SELECT … FROM litmus.run_rows WHERE record_type = 'step';
-INSERT INTO litmus.measurements SELECT … FROM litmus.run_rows WHERE record_type = 'measurement';
+
+-- measurements is an ARRAY(ROW(...)) column on the vector rows — UNNEST it
+INSERT INTO litmus.measurements
+SELECT run_id, step_path, m.name, m.value, m.outcome  -- …
+FROM litmus.run_rows, UNNEST(measurements) AS t(m)
+WHERE record_type = 'vector';
 ```
 
 ## Pandas / Polars (one-off analysis)
@@ -133,12 +161,12 @@ INSERT INTO litmus.measurements SELECT … FROM litmus.run_rows WHERE record_typ
 ```python
 import duckdb
 
-# Three logical views over the parquet glob.
-# runs is DISTINCT over the denormalized run-identity columns; the other
-# two filter by record_type.
+# Three logical views over the parquet glob. runs is DISTINCT over the
+# denormalized run-identity columns; steps filters by record_type;
+# measurements UNNESTs the nested list off the vector rows.
 runs   = duckdb.sql("SELECT DISTINCT run_id, uut_serial, station_hostname, run_started_at, run_ended_at, run_outcome FROM read_parquet('data/runs/*/*.parquet')").df()
-steps  = duckdb.sql("SELECT * FROM read_parquet('data/runs/*/*.parquet') WHERE record_type = 'step'").df()
-meas   = duckdb.sql("SELECT * FROM read_parquet('data/runs/*/*.parquet') WHERE record_type = 'measurement'").df()
+steps  = duckdb.sql("SELECT * EXCLUDE (measurements, inputs, outputs) FROM read_parquet('data/runs/*/*.parquet') WHERE record_type = 'step'").df()
+meas   = duckdb.sql("SELECT run_id, step_path, vector_index, vector_retry, m.* FROM read_parquet('data/runs/*/*.parquet'), UNNEST(measurements) AS t(m) WHERE record_type = 'vector'").df()
 ```
 
 ## Why a single parquet (not three)

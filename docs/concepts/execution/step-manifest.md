@@ -42,21 +42,21 @@ flowchart LR
     EL --> AR[Arrow IPC]
     EL --> RD[runs daemon: AccumulatorPool]
     RD --> M[materialize_run_to_parquet on RunEnded]
-    M --> PQ["{run}.parquet (record_type='run' + 'step' + 'measurement' rows)"]
+    M --> PQ["{run}.parquet (record_type='run' + 'step' + 'vector' rows; measurements nested)"]
 ```
 
 The runs daemon caches the discovered items in memory via its accumulator. When the run ends, `materialize_run_to_parquet()` emits one row per planned step into the unified parquet — executed steps with real outcomes and timing, plus synthetic rows with `step_outcome IS NULL` for items that never produced a `StepStarted` event.
 
 ## Storage
 
-There is **one parquet file per run**. Step records and measurement records share the same file, discriminated by the [`record_type`](../../reference/data/parquet-schema.md) column:
+There is **one parquet file per run**. Run, step, and vector records share the same file, discriminated by the [`record_type`](../../reference/data/parquet-schema.md) column; measurements are nested under each vector row (the daemon projects them as a virtual `measurement` type at query time):
 
 ```
 <data_dir>/runs/{date}/
 └── {timestamp}_{serial}.parquet          # All rows for one run
    ├── record_type='run'                  # exactly one row, run-level metadata
    ├── record_type='step'                 # one row per (step_path, vector_index)
-   └── record_type='measurement'          # one row per recorded measurement
+   └── record_type='vector'               # one row per execution; nests the measurements list
 ```
 
 Key step-row columns (full list in [Parquet schema](../../reference/data/parquet-schema.md)):

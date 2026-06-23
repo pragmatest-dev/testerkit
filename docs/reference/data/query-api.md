@@ -229,7 +229,7 @@ Cardinality stats for the filter section's badge.
 
 The three classes above expose the methods the UI, HTTP routes, and `litmus metrics` CLI use. If you hit a query the Query API doesn't have, the right move is to add the method to the class so every consumer benefits — not to drop to raw SQL inside your test code. File the gap; the surface is meant to grow.
 
-For one-off ad-hoc exploration outside production code, raw DuckDB recipes live on [Querying events](../../how-to/data/querying-events.md), which also covers the on-disk parquet layout and the `record_type` discriminator that lets one file carry run / step / measurement rows.
+For one-off ad-hoc exploration outside production code, raw DuckDB recipes live on [Querying events](../../how-to/data/querying-events.md), which also covers the on-disk parquet layout and the `record_type` discriminator that lets one file carry run / step / vector rows (measurements are nested under the vector rows).
 
 ## See also
 

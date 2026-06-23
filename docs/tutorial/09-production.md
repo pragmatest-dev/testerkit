@@ -286,14 +286,17 @@ litmus serve
 ### Programmatic
 
 ```python
-import pyarrow.parquet as pq
+import duckdb
 
-# Read all run parquets under the date-partitioned runs directory
-table = pq.read_table("data/runs")                # recurses into date subdirs
-rows = table.to_pylist()
-# Filter to measurement rows (vs. step rows)
-for row in (r for r in rows if r["record_type"] == "measurement"):
-    print(f"{row['measurement_name']}: {row['measurement_value']} {row['measurement_unit']}")
+# Measurements are nested under the vector rows — UNNEST them into flat rows.
+rows = duckdb.sql("""
+    SELECT m.name, m.value, m.unit
+    FROM read_parquet('data/runs/**/*.parquet', union_by_name=true),
+         UNNEST(measurements) AS t(m)
+    WHERE record_type = 'vector'
+""").fetchall()
+for name, value, unit in rows:
+    print(f"{name}: {value} {unit}")
 ```
 
 ## Full Traceability

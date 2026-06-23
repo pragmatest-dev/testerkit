@@ -150,7 +150,7 @@ Severity ladder: `ABORTED > TERMINATED > ERRORED > FAILED > PASSED > DONE > SKIP
 
 ## Materialized record identity
 
-The per-run parquet contains four `record_type` values: `run`, `step`, `vector`, and `measurement`. Container steps and method steps share the `step` record type — discriminate by `parent_path`:
+The at-rest per-run parquet contains three `record_type` values: `run`, `step`, and `vector` (the daemon projects a fourth, `measurement`, at query time by unnesting each vector's nested measurements). Container steps and method steps share the `step` record type — discriminate by `parent_path`:
 
 - `parent_path = ''` → root-level (run-level test functions or class containers)
 - `parent_path = '<class_name>'` → method directly under a class container
