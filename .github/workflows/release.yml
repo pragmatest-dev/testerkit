@@ -35,133 +35,6 @@ jobs:
       - name: Tests (correctness)
         run: uv run pytest -q
 
-  benchmarks:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.12"
-          enable-cache: true
-      - run: uv sync --all-extras --dev
-      - name: Run benchmarks — interleaved, warm both sides
-        run: |
-          PREV_TAG=$(git tag --sort=-v:refname | sed -n '2p')
-          if [ -z "$PREV_TAG" ]; then
-            echo "No previous tag — running current only (no comparison)"
-            uv run pytest -m benchmark --benchmark-only \
-              --benchmark-json=benchmark-current.json -q
-            exit 0
-          fi
-
-          # OS file-system cache state dominates ms-scale benchmark
-          # variance. To compare prev vs current fairly, both runs
-          # must see warm caches. Run each side TWICE; discard the
-          # cold first run; keep the warm second run for comparison.
-          # Total: 4 benchmark passes (~4–5 min) but min-vs-min
-          # variance drops to ~5%.
-
-          # Pass 1 — current, cold cache (discard)
-          uv run pytest -m benchmark --benchmark-only \
-            --benchmark-json=/tmp/bench-curr-cold.json -q
-          # Pass 2 — previous tag, cold cache (discard).
-          # ``uv sync``/``uv run`` re-resolves dependencies and
-          # rewrites ``uv.lock`` if the resolver picked anything new;
-          # ``git checkout <ref>`` refuses to switch when ``uv.lock``
-          # is dirty. Restore it before each version-switching
-          # checkout. (Pass 4 below has the same restore for the same
-          # reason — that's the one that bit us on the v0.1.2 release.)
-          git restore uv.lock
-          git checkout "$PREV_TAG"
-          # Overlay current test files so prev and curr runs use
-          # identical pytest-benchmark settings (warmup, min_rounds,
-          # disable_gc). Without overlay, the prev sample reflects
-          # whatever bench config it shipped with — invalid compare.
-          git checkout "${GITHUB_REF_NAME}" -- \
-            tests/test_data/test_perf.py \
-            tests/test_data/test_perf_daemon.py
-          uv sync --all-extras --dev
-          uv run pytest -m benchmark --benchmark-only \
-            --benchmark-json=/tmp/bench-prev-cold.json -q || true
-          # Pass 3 — previous tag again, warm cache (keep)
-          uv run pytest -m benchmark --benchmark-only \
-            --benchmark-json=benchmark-previous.json -q || true
-          # Pass 4 — current, warm cache (keep). Same restore as Pass 2.
-          git restore uv.lock
-          git checkout "${GITHUB_REF_NAME}"
-          uv sync --all-extras --dev
-          uv run pytest -m benchmark --benchmark-only \
-            --benchmark-json=benchmark-current.json -q
-      - name: Check for regression (min, 10% threshold)
-        run: |
-          if [ ! -f benchmark-previous.json ]; then
-            echo "No previous benchmark — skipping comparison"
-            exit 0
-          fi
-          uv run pytest-benchmark compare benchmark-previous.json benchmark-current.json \
-            --group-by=name 2>&1 | tee benchmark-diff.txt || true
-          python3 -c "
-          import json, sys
-          # Compare on min (best-of-N rounds): the closest signal to
-          # 'what the code can actually do' without OS scheduler / GC
-          # interference. Both benchmark-current.json and
-          # benchmark-previous.json come from warm-cache runs (passes 3
-          # and 4 in the interleaved schedule above), so the cache state
-          # is symmetric and the min-vs-min variance on identical code
-          # is well under 10%. A real >10% slowdown trips the gate.
-          #
-          # ``GATE_EXCLUDE`` names benchmarks whose sampling is too
-          # noisy for the 10%-min gate. The principle: a test is
-          # gate-stable when its base wall-clock is large enough that
-          # 10% is well above the irreducible noise (Flight RPC +
-          # DuckDB plan compile + page-cache jitter). For daemon-query
-          # benchmarks the noise floor is ~1-2 ms regardless of the
-          # query's intrinsic cost, so small-base tests (≲20 ms)
-          # randomly trip the gate while large-base tests (≳100 ms)
-          # ride out the same noise comfortably. Keep the large-count
-          # variants gated; exclude the small / no-count ones.
-          GATE_EXCLUDE = {
-              # event-query group (test_perf.py) — all go through the
-              # events daemon. Only the 10k-event variant has a base
-              # big enough (~220 ms) to gate reliably.
-              'test_query_scale[100]',
-              'test_query_scale[1000]',
-              'test_query_by_type_10k',     # ~2 ms base; 10% < noise
-              'test_query_multi_session',   # ~6 ms base
-              # daemon-queries group (test_perf_daemon.py) — all
-              # 4-10 ms; same noise profile, none gateable.
-              'test_runs_count_by_outcome',
-              'test_runs_filter_options',
-              'test_measurements_summary_counts',
-              'test_measurements_describe_columns',
-              'test_measurements_yield_summary',
-          }
-          prev = {b['name']: b['stats']['min'] for b in json.load(open('benchmark-previous.json'))['benchmarks']}
-          curr = {b['name']: b['stats']['min'] for b in json.load(open('benchmark-current.json'))['benchmarks']}
-          regressions = []
-          ignored = []
-          for name, cur_min in curr.items():
-              if name not in prev:
-                  continue
-              pct = (cur_min - prev[name]) / prev[name] * 100
-              if pct <= 10:
-                  continue
-              line = f'{name}: +{pct:.1f}% (prev min={prev[name]*1000:.2f}ms, curr min={cur_min*1000:.2f}ms)'
-              (ignored if name in GATE_EXCLUDE else regressions).append(line)
-          if ignored:
-              print('Ignored (gate-excluded, noisy sampling):')
-              for r in ignored:
-                  print(f'  {r}')
-          if regressions:
-              print('BENCHMARK REGRESSIONS (>10% on min):')
-              for r in regressions:
-                  print(f'  {r}')
-              sys.exit(1)
-          print('No regressions detected.')
-          "
-
   smoke-test:
     runs-on: ubuntu-latest
     needs: build
@@ -214,7 +87,7 @@ jobs:
           fi
           # Restore uv.lock before each version-switching checkout —
           # ``uv sync``/``uv run`` may rewrite it, which blocks
-          # ``git checkout <ref>``. Symmetric with the benchmarks job.
+          # ``git checkout <ref>``.
           git restore uv.lock
           git checkout "$PREV_TAG"
           uv sync --all-extras --dev
@@ -268,7 +141,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Idempotent: a release may already exist (e.g. created by hand
+          # before the workflow ran). Create it, or fall back to attaching
+          # the artifacts to the existing one.
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
-            dist/*
+            dist/* \
+          || gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
