@@ -20,6 +20,10 @@ cd examples/07-profiles
 for i in $(seq 1 24); do
   uv run pytest --test-phase=production --uut-serial="SN-$(printf %03d $i)" -q
 done
+# the test suite records runs/measurements but does not stream channels,
+# and the channel registry is populated only by live writes — seed a few
+# so the /channels shot renders a populated table instead of empty:
+uv run python scripts/seed_channels.py
 cd ../..
 ```
 
