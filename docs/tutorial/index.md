@@ -11,7 +11,7 @@ litmus init quick_start --starter && cd quick_start
 uv sync && pytest
 ```
 
-[Quick Start walkthrough →](00-quickstart.md)
+[Quick Start walkthrough →](quickstart.md)
 
 ## Step-by-step tutorial
 
@@ -55,5 +55,5 @@ By the end of this tutorial, you'll have:
 
 ## Ready?
 
-- See it working now → [Quick Start](00-quickstart.md)
+- See it working now → [Quick Start](quickstart.md)
 - Learn it from the ground up → [Step 1: First Test](01-first-test.md)

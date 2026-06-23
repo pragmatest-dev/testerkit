@@ -162,7 +162,7 @@ litmus setup <tool>             # AI tool integration
 
 ## Docs
 
-- [Quick start](./docs/tutorial/00-quickstart.md) — First project in 5 minutes
+- [Quick start](./docs/tutorial/quickstart.md) — First project in 5 minutes
 - [Architecture overview](./docs/concepts/architecture.md) — How things connect
 - [docs/](./docs/) — Tutorial, how-to, reference, concepts
 

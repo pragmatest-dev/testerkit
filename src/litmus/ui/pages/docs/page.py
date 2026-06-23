@@ -403,7 +403,7 @@ def _flatten_outline(outline: list[tuple[str | None, list[tuple[str, str]]]]) ->
 
 
 def _numeric_prefix(slug: str) -> str | None:
-    """Return the leading numeric prefix of a doc slug, e.g. `00-quickstart` → `00`."""
+    """Return the leading numeric prefix of a doc slug, e.g. `01-first-test` → `01`."""
     m = re.match(r"^(\d+)-", slug)
     return m.group(1) if m else None
 

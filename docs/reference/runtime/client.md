@@ -277,4 +277,4 @@ for m in measurements:
 ## Next Steps
 
 - [API Reference](api.md) — HTTP and MCP endpoints
-- [Quick Start](../../tutorial/00-quickstart.md) — Getting started guide
+- [Quick Start](../../tutorial/quickstart.md) — Getting started guide

@@ -143,4 +143,4 @@ source .venv/bin/activate  # Linux/Mac
 
 Now let's make the test actually do something useful.
 
-← [Quick Start](00-quickstart.md)  |  [Step 2: Mock Instruments →](02-mock-instruments.md)
+← [Quick Start](quickstart.md)  |  [Step 2: Mock Instruments →](02-mock-instruments.md)
