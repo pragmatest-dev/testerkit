@@ -39,21 +39,22 @@ pip install litmus-test
 Litmus projects follow a standard folder structure. The UI is driven by these folders.
 
 ```
-my_project/
-├── parts/                    # WHAT you're testing
-│   └── my_part.yaml          # Part specification
+quick_start/
+├── litmus.yaml                  # Project config (data_dir, default station, mock mode)
+├── parts/                       # WHAT you're testing
+│   └── example_part.yaml        # Part specification
 ├── stations/                    # WHERE you test
-│   └── my_station.yaml          # Instruments + addresses
+│   └── starter_station.yaml     # Instruments + addresses
 ├── fixtures/                    # HOW pins connect to instruments
-│   └── my_fixture.yaml          # Pin-to-channel mappings
-├── instruments/                 # Custom instrument drivers
-│   └── custom_dmm.yaml          # Driver definitions
+│   └── example_fixture.yaml     # Pin-to-channel mappings
+├── instruments/                 # Instrument asset records (identity, calibration)
+│   ├── generic_psu_001.yaml
+│   └── generic_dmm_001.yaml
 ├── tests/                       # Test code + sidecar config
 │   ├── conftest.py              # Custom fixtures (optional — roles auto-register)
-│   ├── test_my_part.py       # Test functions
-│   └── test_my_part.yaml     # Sidecar (vectors, limits, mocks)
-├── results/                     # Output (gitignored)
-│   └── measurements/            # Parquet files
+│   ├── test_example.py          # Test functions
+│   └── test_example.yaml        # Sidecar (limits, sweeps, mocks)
+├── data/                        # Output (gitignored)
 └── pyproject.toml
 ```
 
@@ -64,44 +65,45 @@ When you run `litmus init quick_start --starter`, it generates all of these file
 ### Part Spec (`parts/example_part.yaml`)
 
 ```yaml
-# parts/my_part.yaml
-id: my_part
-name: "5V to 3.3V Power Module"
+# parts/example_part.yaml
+id: "example_part"
+name: "Example Part"
+description: "Auto-generated example part specification"
+
+pins:
+  TP_VOUT: {name: "TP1", net: "VOUT_3V3", description: "Output voltage test point"}
 
 characteristics:
   output_voltage:
-    function: dc_voltage
-    direction: output
-    unit: V
+    function: "dc_voltage"
+    direction: "output"
+    unit: "V"
+    pin: "TP_VOUT"
     bands:
-      - when: {temperature: 25}
-        value: 3.3
-        accuracy: {pct_reading: 2.0}
+    - value: 3.3
+      accuracy: {pct_reading: 2.0}
 ```
 
 ### Station Config (`stations/starter_station.yaml`)
 
 ```yaml
-# stations/my_station.yaml
-id: my_station
-name: "My Test Bench"
+# stations/starter_station.yaml
+id: "starter_station"
+name: "Starter Station"
+description: "Auto-generated starter station with mock instruments"
 
 instruments:
   psu:
-    type: psu
+    type: "psu"
     resource: "TCPIP::192.168.1.100::INSTR"
     mock: true  # Start with mocks, switch to real hardware later
-    mock_config:
-      set_voltage: null      # No-op methods
-      enable_output: null
-      measure_voltage: 5.0   # Return values
+    mock_config: {set_voltage: null, enable_output: null, measure_voltage: 5.0, measure_current: 0.25}
 
   dmm:
-    type: dmm
+    type: "dmm"
     resource: "TCPIP::192.168.1.101::INSTR"
     mock: true
-    mock_config:
-      measure_dc_voltage: 3.31
+    mock_config: {measure_dc_voltage: 3.3}
 ```
 
 For real hardware, just remove `mock: true`. Litmus uses [PyVISA](https://pyvisa.readthedocs.io/) directly:
@@ -133,52 +135,52 @@ instruments:
 Tests are **plain pytest** — no decorator, no base class. The Litmus plugin contributes [20 fixtures](../reference/pytest/fixtures.md) (the per-test `context` / `verify` / `measure`, plus `pins`, `instruments`, per-role auto-fixtures from the station YAML, etc.) and [seven markers](../reference/pytest/markers.md). For how Litmus tests use pytest's own collection / fixture / marker mechanisms see [pytest-native reference](../reference/overview/pytest-native.md).
 
 ```python
-# tests/test_my_part.py
-class TestMyPart:
-    def test_output_voltage(self, context, psu, dmm, verify):
-        """Verify output voltage is within spec.
-
-        verify() resolves the limit from the part YAML,
-        records a measurement, and raises on fail.
-        """
-        vin = context.get_param("vin", 5.0)
-
-        psu.set_voltage(vin)
-        psu.enable_output()
-
-        verify("output_voltage", dmm.measure_dc_voltage())
+# tests/test_example.py
+def test_output_voltage(context, psu, dmm, verify) -> None:
+    """Verify output voltage is within spec."""
+    vin = context.get_param("vin", 5.0)
+    psu.set_voltage(vin)
+    psu.enable_output()
+    # verify() resolves the limit from the sidecar / part YAML,
+    # records the measurement, and raises on fail.
+    verify("output_voltage", float(dmm.measure_dc_voltage()))
 ```
 
 For measurements that don't come from the part spec, use `measure(name, value, limit={"low": ..., "high": ..., "unit": "V"})` with inline limits or a sidecar `test_<module>.yaml`.
 
-### Sidecar (`tests/test_my_part.yaml`)
+### Sidecar (`tests/test_example.yaml`)
 
-Sidecar YAML carries vectors, limits, and mocks alongside the test file. Same merge rules as stacked pytest decorators — file scope, class scope, per-test:
+Sidecar YAML carries limits, sweeps, and mocks alongside the test file. A top-level key applies to every test in the module; per-test overrides go under `tests:`. The starter ships a per-test limit:
 
 ```yaml
-# tests/test_my_part.yaml
-limits:
-  output_voltage:
-    low: 3.234
-    high: 3.366
-    nominal: 3.3
-    unit: V
+# tests/test_example.yaml
 tests:
-  TestMyPart:
-    sweeps:
-      - {vin: [5.0]}
-    mocks:
-      - {target: dmm.measure_dc_voltage, return_value: 3.31}
+  test_output_voltage:
+    limits:
+      output_voltage:
+        low: 3.234
+        high: 3.366
+        unit: V
 ```
+
+Sweeps and mocks live here too — e.g. a module-level `sweeps: [{vin: [5.0]}]` to parametrize, or `mocks: [{target: dmm.measure_dc_voltage, return_value: 3.31}]` (the starter instead sets mock returns in the station's `mock_config`).
 
 ### Running Tests
 
-```bash
-# Mock-instrument run (default for development)
-pytest tests/ --station=my_station --mock-instruments --uut-serial=TEST001 -v
+The starter's `pyproject.toml` bakes the station, mock mode, and a UUT serial into `addopts` (and `litmus.yaml` sets the same defaults), so the everyday command is just:
 
-# With real hardware
-pytest tests/ --station=my_station --uut-serial=SN001 -v
+```bash
+pytest
+```
+
+That expands to the explicit form below — useful when you want to override a default or run from outside the project:
+
+```bash
+# Mock-instrument run (the starter's default)
+pytest tests/ --station=starter_station --mock-instruments --uut-serial=STARTER001 -v
+
+# With real hardware (drop --mock-instruments; use a real serial)
+pytest tests/ --station=starter_station --uut-serial=SN001 -v
 ```
 
 > **On `--uut-serial` for early articles:** if your first UUT doesn't have
@@ -228,14 +230,26 @@ litmus serve
 
 ### Programmatic
 
-```python
-import pyarrow.parquet as pq
+Each run writes one parquet at `data/runs/{date}/*.parquet`. Measurements are
+nested under the vector rows (`record_type = 'vector'`), so read them with a
+DuckDB `UNNEST`:
 
-# Each run writes one parquet at <data_dir>/runs/{date}/*.parquet
-table = pq.read_table("data/runs")              # recurses into date subdirs
-df = table.to_pandas()
-print(df[df["record_type"] == "measurement"])   # measurement rows only
+```python
+import duckdb
+
+rows = duckdb.sql("""
+    SELECT run_id, m.name, m.value, m.unit, m.outcome
+    FROM read_parquet('data/runs/**/*.parquet', union_by_name=true),
+         UNNEST(measurements) AS t(m)
+    WHERE record_type = 'vector'
+""").fetchall()
+for row in rows:
+    print(row)
 ```
+
+For cross-run analytics (yield, Ppk, Pareto) use the higher-level
+[`MeasurementsQuery`](../reference/data/query-api.md) API instead of reading
+parquet directly.
 
 ## Key Folders
 
@@ -244,7 +258,7 @@ print(df[df["record_type"] == "measurement"])   # measurement rows only
 | `parts/` | Part specs (what you're testing) | /parts |
 | `stations/` | Station configs (instruments + addresses) | /stations |
 | `fixtures/` | Pin-to-instrument mappings | /fixtures |
-| `instruments/` | Custom instrument drivers | /instruments |
+| `instruments/` | Instrument asset records (identity, calibration) | /instruments |
 | `tests/` | Test code + sidecar config | - |
 | `data/` | Parquet + event log output (gitignored) | /runs |
 
