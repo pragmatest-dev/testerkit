@@ -1,44 +1,55 @@
-name: Notify pragmatest.com on docs change
+name: Redeploy pragmatest.com on release
 
-# Fire whenever a push to main touches docs/. The pragmatest.com docs
-# subsystem fetches docs live from this repo's main branch via the
-# GitHub API and caches with `revalidateTag('litmus-docs', ...)`. This
-# workflow POSTs to its webhook to invalidate the cache so the next
-# request to pragmatest.com/litmus/docs/* fetches fresh content.
+# Fire when a version tag (vX.Y.Z) is pushed — i.e. when a release goes
+# out. pragmatest.com pins its published litmus docs to the latest
+# release tag (so the docs match the shipped wheel, not in-progress
+# main) and bakes them into the build at BUILD TIME via a `prebuild`
+# clone. Refreshing the published docs therefore requires a full
+# rebuild + redeploy — we POST to a Vercel Deploy Hook for the
+# pragmatest-com project to kick off that production build.
+#
+# Why tag-push and not `on: release`: this repo's release.yml creates
+# the GitHub Release with the default GITHUB_TOKEN, and GitHub does NOT
+# fire `on: release` workflows for releases created by GITHUB_TOKEN
+# (anti-recursion). A tag push is human-initiated and always fires.
+#
+# (Previously this POSTed to a `revalidateTag` webhook on docs-path
+# pushes to main. That was a no-op under the build-time-clone model —
+# static docs have no tagged runtime fetch to revalidate — and tracked
+# main rather than the released version.)
+#
+# Setup: in the Vercel pragmatest-com project, create a Deploy Hook
+# (Settings -> Git -> Deploy Hooks) for the `main` branch, then store
+# its URL as the repo secret VERCEL_DEPLOY_HOOK_URL.
 #
 # README in the litmus tree is bundled into the wheel's METADATA at
 # build time but rendered on PyPI from a frozen snapshot — that's a
-# separate path and not invalidated here.
+# separate path and not triggered here.
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'docs/**'
+    tags:
+      - 'v*'
   workflow_dispatch: # allow manual triggers from the Actions tab
 
 jobs:
-  revalidate:
+  redeploy:
     runs-on: ubuntu-latest
     steps:
-      - name: POST revalidation webhook
+      - name: Trigger Vercel deploy hook
         env:
-          URL: ${{ secrets.PRAGMATEST_REVALIDATE_URL }}
-          SECRET: ${{ secrets.PRAGMATEST_REVALIDATE_SECRET }}
+          HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
         run: |
-          if [ -z "$URL" ] || [ -z "$SECRET" ]; then
-            echo "::error::PRAGMATEST_REVALIDATE_URL or PRAGMATEST_REVALIDATE_SECRET not set in repo secrets"
+          if [ -z "$HOOK_URL" ]; then
+            echo "::error::VERCEL_DEPLOY_HOOK_URL not set in repo secrets"
             exit 1
           fi
-          response=$(curl -sS -o /tmp/body -w "%{http_code}" \
-            -X POST "$URL" \
-            -H "Content-Type: application/json" \
-            -H "x-pragmatest-revalidate-secret: $SECRET" \
-            -d '{"product":"litmus"}')
+          response=$(curl -sS -o /tmp/body -w "%{http_code}" -X POST "$HOOK_URL")
           echo "HTTP $response"
           cat /tmp/body
           echo
-          if [ "$response" != "200" ]; then
-            echo "::error::Revalidation webhook returned $response"
+          # Vercel deploy hooks return 201 (job created); accept 200 too.
+          if [ "$response" != "200" ] && [ "$response" != "201" ]; then
+            echo "::error::Deploy hook returned $response"
             exit 1
           fi
