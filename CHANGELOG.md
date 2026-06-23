@@ -10,6 +10,13 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ## [Unreleased]
 
+### Fixed
+
+- `litmus setup copilot` now writes `litmus mcp serve` to `.vscode/mcp.json`
+  instead of `uv run litmus mcp serve`, so the Copilot MCP server works for
+  pip / pipx / conda installs, not only uv. Brings it in line with the
+  `claude-code` / `claude-desktop` setups.
+
 ## [0.2.0] - 2026-06-22
 
 Data-architecture release. A fourth store (FileStore) joins Runs,
