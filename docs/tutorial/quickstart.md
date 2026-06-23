@@ -16,6 +16,8 @@ uv sync && pytest
 
 That's it. You'll see tests pass with mock instruments, limits checked, and results recorded.
 
+> **Explore without hardware.** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/pragmatest-dev/litmus-starter) opens a browser sandbox to try Litmus with no install — mock-instrument tests, the operator UI, analytics, and AI integration. Real instrument control (PyVISA/serial to a bench) needs a local install, so the sandbox stops there.
+
 > **Concepts cheat-sheet.** Quick Start shows a complete Litmus project, which means it uses every concept the framework has — most for the first time. Each term in the rest of this page links forward to the tutorial step that introduces it properly:
 >
 > - **Part spec** — `parts/*.yaml`. Describes the device under test. → [Step 6](06-specifications.md), [concepts/parts](../concepts/configuration/parts.md)

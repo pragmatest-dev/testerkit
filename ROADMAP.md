@@ -62,6 +62,7 @@ Design: `docs/_internal/explorations/0.3.0-analytics-metrics.md`.
 | What-if limit analysis — retune limits across history for yield (detailed in Backlog) | medium | 2 | 0.6 | 2.0 | medium |
 | Generic `pareto(by=measure)` — measure-agnostic row + cumulative % + Other | medium | 1.5 | 0.7 | 1.5 | medium |
 | Per-condition Ppk grouping — extend the homogeneous-population grain (0.2.0 splits by characteristic / pin / limit pair) to also split/pool by condition values (e.g. temperature / vin) via the `measurements_dynamic` EAV join; decide whether `spec_ref` joins the grain | medium | 2 | 0.6 | 2.0 | medium |
+| Colab analytics notebook — no-install, notebook-native test-data analytics (Query API + DuckDB + plotting); distinct from the Codespace starter eval | medium | 1.5 | 0.8 | 1.5 | medium |
 
 ### Later — strategic but not pre-1.0
 

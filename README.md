@@ -19,6 +19,8 @@ pytest
 
 Four tests pass against mock instruments. The [tutorial](./docs/tutorial/index.md) walks you from this starter project to a production-ready suite, one concept at a time.
 
+**Or explore it without installing:** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/pragmatest-dev/litmus-starter) — a browser sandbox with mock instruments, the UI, analytics, and AI. Real instrument control needs a local install.
+
 ## What `--starter` generated
 
 ```yaml
