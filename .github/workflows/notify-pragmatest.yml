@@ -34,7 +34,7 @@ jobs:
             -X POST "$URL" \
             -H "Content-Type: application/json" \
             -H "x-pragmatest-revalidate-secret: $SECRET" \
-            -d '{"part":"litmus"}')
+            -d '{"product":"litmus"}')
           echo "HTTP $response"
           cat /tmp/body
           echo
