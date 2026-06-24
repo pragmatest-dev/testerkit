@@ -1,6 +1,6 @@
 # Capabilities
 
-**Capabilities** describe what instruments can do and what parts need. The capability system enables automatic matching between parts and stations using an ATML (Automatic Test Markup Language) / IEEE 1641-inspired signal-parameter model — ATML / IEEE 1671 is the industry test-data interchange standard Litmus aligns with.
+**Capabilities** describe what instruments can do and what parts need. The capability system enables automatic matching between parts and stations using a signal-parameter model inspired by ATML (Automatic Test Markup Language) and IEEE 1641.
 
 ## The problem
 
@@ -26,7 +26,7 @@ Capability (base)
 └── PartCharacteristic   — adds pin / pins / net / signal_group, datasheet_ref
 ```
 
-A `PartCharacteristic` must specify at least one physical interface (`pin`, `pins`, `net`, or `signal_group`) — the validator rejects characteristics that don't.
+Every part characteristic must name at least one physical interface (`pin`, `pins`, `net`, or `signal_group`) — Litmus won't load one without it.
 
 Both share the same `function + direction + signals/conditions/controls/attributes` core. Direction always describes the hardware it's on: "input" means "this device receives/sinks signal."
 
@@ -78,7 +78,7 @@ capabilities:
 
   - function: dc_voltage
     direction: input      # Built-in readback meter
-    readback: true        # Excluded from auto-matching
+    readback: true        # Marks a built-in readback meter
     signals:
       voltage:
         range: {min: 0, max: 30, unit: V}
@@ -114,14 +114,14 @@ input_voltage                    (OUTPUT)
    (INPUT)
 ```
 
-Direction pairing happens in the matching service (`_directions_compatible()`), not in the models. Both sides store direction as-is — "input" always means "sink" regardless of whether it's on a part or instrument.
+You always write `direction` from the point of view of the hardware it sits on: `input` means that device receives signal, `output` means it sources signal — the same on a part or an instrument. The matcher pairs an OUTPUT on one side with an INPUT on the other.
 
 ## Capability Matching
 
-The matcher determines whether a station can test a part using tiered matching controlled by `MatchDepth` (an enum naming how deep to take the match check):
+The matcher determines whether a station can test a part by checking in tiers — you can stop at any tier, from function-only down through accuracy and resolution:
 
 1. **Function match** — instrument has same `MeasurementFunction` as requirement
-2. **Direction match** — directions pair correctly (OUTPUT↔INPUT, BIDIR satisfies both)
+2. **Direction match** — directions pair correctly (part OUTPUT ↔ instrument INPUT, and vice versa). A `bidir` instrument satisfies any part direction; a `bidir` part needs a `bidir` instrument.
 3. **Parameter range containment** — instrument's parameter ranges contain required values
 4. **Accuracy** — instrument accuracy must be better than required (condition-aware via [`SpecBand`](../../reference/data/models.md), the value-plus-condition record)
 5. **Resolution** — instrument resolution must meet or exceed required
@@ -147,7 +147,7 @@ char = part.characteristics["output_voltage"]
 # function: dc_voltage, direction: OUTPUT
 
 # Matching wraps characteristics into CapabilityRequirement
-# Direction stays as-is (OUTPUT) — pairing happens in capability_satisfies()
+# Direction stays as-is (OUTPUT) — the matcher pairs the part's OUTPUT with the DMM's INPUT
 
 # Station instrument provides:
 # function: dc_voltage, direction: INPUT, signals: {voltage: {range: 0-1000V}}
@@ -215,7 +215,7 @@ The `MeasurementFunction` enum provides fine-grained signal identification, alig
 
 The `transform` direction is used for signal-path components (amplifiers, filters, mixers) that modify signals rather than measuring or sourcing them.
 
-This replaces the old `Domain + SignalType` combination, providing much finer granularity. A DMM measuring `dc_voltage` is now distinct from an scope capturing `waveform` — they can no longer be confused.
+Each function names one measurement precisely — a DMM measuring `dc_voltage` and a scope capturing `waveform` are separate functions.
 
 ### Waveform Shapes
 
@@ -248,14 +248,14 @@ Each capability organizes parameters into four semantic categories:
 
 ### Why four separate collections?
 
-The four-collection approach is clearer than tagging a single `parameters` dict with roles, because each collection has a well-defined purpose:
+Each collection has a well-defined purpose:
 
 - **Signals** participate in matching and have accuracy/range specs.
 - **Conditions** appear in SpecBand `when:` constraints but don't participate directly in matching logic.
 - **Controls** are user-configurable but don't affect the fundamental capability.
 - **Attributes** are hardware facts that may participate in matching (e.g. scope bandwidth must exceed signal frequency), but are never measured — they're just limits.
 
-Dimension names must be disjoint across `signals` / `conditions` / `controls` (the validator rejects overlap). A name appearing in `attributes` does not collide with the others.
+A dimension name can't appear in more than one of `signals` / `conditions` / `controls` — Litmus won't load a capability with that overlap. A name in `attributes` doesn't collide with the others.
 
 ### Condition-Dependent Specs (SpecBand)
 
@@ -361,22 +361,9 @@ curl "http://localhost:8000/api/match?part_id=power_board"
 curl "http://localhost:8000/api/match?part_id=power_board&station_id=bench_1"
 ```
 
-## Lineage: where this model came from
+## Where this model comes from
 
-The model draws from three industry standards, taking the parts that fit Litmus's hardware-test scope:
-
-| Standard | What we took | What we didn't take |
-|---|---|---|
-| **IEEE 1641** (Signal & Test Definition) | Signal-oriented thinking: capabilities describe signals, not instruments. Waveform shapes are parameters, not types. | The full signal grammar / composition model (too complex for our scope today). |
-| **ATML / IEEE 1671** (Test Description) | Comparator types (`GELE`, `EQ`, etc.), UUT characteristics with conditions, the direction-pairing concept. | XML schema, the verbose specification structure. |
-| **IVI Foundation** (Instrument Classes) | Function names from instrument class specs (DMM, Scope, FGen, DCPwr, RFSigGen). | Driver API patterns — we use PyVISA / PyMeasure instead. |
-
-Key design decisions:
-
-- **Flat function enum** instead of IEEE 1641's signal grammar — simpler; covers 95% of real use cases.
-- **Same model for parts and instruments** instead of ATML's separate UUT / instrument schemas — enables direct matching without translation.
-- **Structured conditions** instead of freeform text — machine-parseable, which is what unlocks automated matching.
-- **Typed parameter collections** instead of role tags — four focused dicts (`signals` / `conditions` / `controls` / `attributes`) are clearer than one dict with role metadata.
+The capability model draws on established test standards: signal-oriented thinking from IEEE 1641 (capabilities describe signals, not instruments; waveform shapes are parameters, not types), the comparator types and direction-pairing concept from ATML / IEEE 1671, and function names from the IVI Foundation instrument classes (DMM, Scope, FGen, DCPwr, RFSigGen). Parts and instruments use the same model, so matching pairs them directly — no translation step.
 
 ## Custom Instruments
 

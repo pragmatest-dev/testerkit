@@ -31,9 +31,12 @@ Each instrument has:
 | Field | Description |
 |-------|-------------|
 | `type` | Instrument type (dmm, scope, psu, eload, etc.) |
+| `driver` | Import path to the driver class (PyMeasure / PyVISA / vendor) |
 | `resource` | VISA address or connection string |
-| `mock_config` | Values for `--mock-instruments` mode |
-Instruments can be shared across multiple UUT slots in a multi-UUT fixture. When shared, the orchestrator connects them once and serves them to worker subprocesses via an `InstrumentServer` (an internal RPC server that lets multiple test workers share one physical instrument — TCP with per-resource locking). No special flags needed — sharing is detected automatically from the fixture topology. See [Configuring Stations](../../how-to/configuration/configuring-stations.md#shared-instruments-multi-uut) for details.
+| `mock_config` | Canned return values used in `--mock-instruments` mode |
+| `mock` | Force mock mode for this instrument |
+
+Instruments can be shared across multiple UUT slots in a multi-UUT fixture. Litmus connects a shared instrument once and lets each UUT's test use it one at a time, so two tests never drive the same instrument at the same moment. Sharing is detected automatically — no extra flags. See [Configuring Stations](../../how-to/configuration/configuring-stations.md#shared-instruments-multi-uut) for details.
 
 ### Common Instrument Types
 
@@ -75,19 +78,19 @@ instruments:
 
 ## Station Types and Instances
 
-Litmus supports a two-level station architecture:
+A station can be split into a reusable template and the actual bench that fills it in:
 
 ### Station Types (Templates)
 
-Define abstract station requirements:
+List the instrument roles and drivers a station needs:
 
 ```yaml
 # stations/types/voltage_tester.yaml
 id: voltage_tester
 description: "Station for voltage testing"
 instruments:
-  dmm: {type: dmm}
-  psu: {type: psu}
+  dmm: {type: dmm, driver: pymeasure.instruments.keysight.Keysight34461A}
+  psu: {type: psu, driver: pymeasure.instruments.keysight.KeysightE36312A}
 capabilities:                                # catalog capability ids
   - keysight.34461a.dc_voltage
   - keysight.e36312a.dc_source
@@ -95,13 +98,14 @@ capabilities:                                # catalog capability ids
 
 One file per station type under `stations/types/`. Every role listed under `instruments:` is required (there is no `required:` field). `capabilities:` is a list of catalog capability id strings — not inline `Capability` dicts.
 
-### Station Instances (Deployments)
+### Station Instances (Real Benches)
 
 Concrete stations that implement a type:
 
 ```yaml
 # stations/bench_1.yaml
 id: bench_1
+name: "Bench 1"
 station_type: voltage_tester
 location: "Lab A, Bench 1"
 
@@ -118,7 +122,7 @@ instruments:
 
 ### Instrument aliases per test
 
-Station configs define the physical instrument inventory. A sidecar YAML can optionally remap fixture names to different station instruments on a per-test or per-class basis via marker fields. See [Writing Tests](../../how-to/execution/writing-tests.md) for details.
+Station configs define the physical instrument inventory. You can override which station instrument a fixture name points to for a specific test or class — without editing the station config — using a per-test override file. See [Writing Tests](../../how-to/execution/writing-tests.md) for details.
 
 ## Using Stations in Tests
 
@@ -132,7 +136,7 @@ pytest tests/ --station=bench_1 --uut-serial=SN001
 
 ```python
 def test_voltage(dmm, measure):
-    """Instrument roles from station config are auto-registered as fixtures."""
+    """Each instrument role in the station config is available as a fixture (here: dmm)."""
     measure("voltage", dmm.measure_voltage())
 ```
 
@@ -146,7 +150,7 @@ litmus show <run_id>            # Show run details
 
 ## Supported Test Phases
 
-Stations can optionally declare which test phases (`test_phase` is a station-level setting selecting the workflow phase — development, validation, production — and gating mocks; see [how-to/profiles](../../how-to/execution/profiles.md)) they support:
+Stations can optionally declare which test phases they support, via `supported_phases`. This lets you filter stations when selecting one for a run or profile (see [Profiles](../../how-to/execution/profiles.md)):
 
 ```yaml
 id: bench_1
@@ -160,8 +164,6 @@ supported_phases:
 instruments:
   # ...
 ```
-
-This enables filtering when selecting stations for a given test run or profile.
 
 ## Multiple Stations
 

@@ -53,7 +53,7 @@ For development without any fixture, see [Mock mode](../../how-to/configuration/
 
 ## Data model
 
-A fixture YAML loads into a `FixtureConfig` (in `src/litmus/models/test_config.py`). Two top-level shapes:
+A fixture YAML loads into a `FixtureConfig`. Two top-level shapes:
 
 - **Single-UUT** — fields directly on the fixture
 - **Multi-UUT** — `slots:` with one `FixtureSlot` per UUT position
@@ -75,7 +75,7 @@ Both share the same `FixtureConnection` shape underneath.
 | `slots` | Per-UUT-position connections for multi-UUT fixtures. Multi-UUT shape. |
 | `description` | Free-form documentation |
 
-`connections` and `slots` are mutually exclusive — the validator (`extra="forbid"`) **rejects** fixtures that set both.
+`connections` and `slots` are mutually exclusive — a fixture that sets both is rejected.
 
 ### `FixtureConnection` fields
 
@@ -140,14 +140,14 @@ def test_output_voltage(pins, verify):
 When `verify("output_voltage", pins["VOUT"].measure_voltage())` runs:
 
 1. `pins["VOUT"]` looks up the fixture connection named `VOUT` → finds `{instrument: dmm, instrument_channel: "CH1"}`.
-2. The proxy resolves `dmm` from the connected station instruments and dispatches `measure_voltage()` against the right channel.
+2. It finds the `dmm` on the bench and runs `measure_voltage()` on channel `CH1`.
 3. `verify()` records the measurement row. Because the active connection is `VOUT`, the row carries `uut_pin=VOUT`, `instrument_channel=CH1`, and the resolved `instrument_name` / `instrument_resource` automatically.
 
 That auto-population is the traceability payoff: tests stay clean, parquet rows know exactly which signal path each measurement came through.
 
-## Function as a routing dimension
+## Routing one pin to different instruments by measurement
 
-One UUT pin can route to different instruments for different measurement functions. Set `function:` on each connection and the resolver matches `(uut_pin, function)` instead of `uut_pin` alone:
+One UUT pin can route to different instruments depending on what you're measuring. Set `function:` on each connection and Litmus picks the connection whose `(pin, function)` matches, instead of pin alone:
 
 ```yaml
 connections:
@@ -166,11 +166,11 @@ connections:
 
 A test asking for `VOUT` with no function context falls back to first-match by pin. A test bound to a specific characteristic (via `litmus_characteristics`) picks the connection whose `function` matches.
 
-When unset, the resolver uses the first connection for that pin — backward-compatible for fixtures that don't need per-function routing.
+When `function` is unset, the first connection for that pin is used.
 
 ## Multi-UUT scaling: slots, shared instruments, switching
 
-Three orthogonal mechanisms scale the single-UUT shape:
+Three independent features scale the single-UUT shape to multiple boards:
 
 ### Slots — parallel UUT positions
 
@@ -202,13 +202,13 @@ slots:
         instrument_channel: "2"
 ```
 
-The orchestrator spawns a worker per slot. Each worker sees a flat fixture with just its slot's connections. Per-slot `uut_resource` overrides the fixture-level value. See [Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) for the operational guide.
+Litmus runs each slot in parallel; each slot's test sees only its own connections. Per-slot `uut_resource` overrides the fixture-level value. See [Multi-UUT testing](../../how-to/execution/multi-uut-testing.md) for the operational guide.
 
 ### Shared instruments
 
-When multiple slots reference the same instrument role (e.g. both slots' `dmm` connections point at the bench's single DMM), the orchestrator detects it as **shared**. The instrument connects once in a host process and is exposed to worker subprocesses via `InstrumentServer` — a `multiprocessing.connection`-based RPC server (not raw TCP). Workers see `RemoteInstrumentProxy` objects that look like normal driver instances; method calls cross the process boundary.
+When multiple slots reference the same instrument role (e.g. both slots' `dmm` connections point at the bench's single DMM), Litmus treats it as a **shared** instrument. It connects once and shares it across the parallel slot workers — each one calls it as if it owned it.
 
-Locking is per **resource** (the VISA address, COM port, or other connection identifier registered with `InstrumentServer`), so roles sharing one physical session serialize while roles on independent sessions run in parallel.
+Locking is per **resource** (the VISA address, COM port, or other connection identifier), so roles sharing one physical connection take turns, while roles on separate connections run at the same time.
 
 ### Switched routing
 
@@ -227,7 +227,7 @@ slot_1:
         settling_ms: 10
 ```
 
-Switch routes activate lazily — the first method call on the resolved instrument triggers route closure, settling, then dispatch. Multiple slots can share one instrument through different routes, with the switch as the coordinator. Switches participate in locking differently from measurement instruments (their `concurrent=True` flag exempts them from serialization, since closing channels in parallel is what makes the matrix useful).
+Switch routes activate on demand — the first time a test touches that instrument, Litmus closes the listed switch channels, waits the settling time, then takes the measurement. Multiple slots can share one instrument through different routes. Switches (instruments with `type: switch`) are exempt from the take-turns locking — closing channels in parallel is the point of the matrix.
 
 ## Selecting a fixture at run time
 

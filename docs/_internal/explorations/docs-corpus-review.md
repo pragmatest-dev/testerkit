@@ -168,6 +168,23 @@ before any accuracy audit that diffs against it.
   parquet readback fallback, check_limit/SlotResult-strings); cut the "Persistence path" subsection;
   "cascade"→"rolls up from" in table cells; kept the conceptual ladder/cascade-rule section. ✅
 - concepts/data/data-stores — full four-store rework (see four-store sweep above). ✅
+- concepts/configuration/parts — accurate; fixed `load_part("str")`→`load_part(Path(...))` (would raise
+  AttributeError); relabeled Characteristics bullets to real YAML keys (direction/function/unit/pins/bands,
+  defines `function`); specs→spec bands; de-stuffed part_number parenthetical; +`driver` inherited field.
+  `uut_part_number` confirmed CORRECT (not dut_part_number here). ✅
+- concepts/configuration/capabilities — 4 audience CRITs: internals (`_directions_compatible`/
+  `capability_satisfies`), `Domain+SignalType` tombstone, evaluator Lineage-table+hype, validator-narration.
+  Accuracy: BIDIR is asymmetric (not "satisfies both"); readback NOT excluded by the matching service.
+  KEPT real `find_compatible_stations`/`station_id`/`/api/match?part_id=&station_id=` (system identity, not
+  operator labels). Re-audit 0/0. ✅
+- concepts/configuration/stations — 2 accuracy CRITs: station-TYPE example missing required `driver:`;
+  station-INSTANCE example missing required `name:`. `test_phase` (CLI/session) ≠ `supported_phases`
+  (station field) — conflation fixed. `InstrumentServer`/RPC→user-facing; +`driver`/`mock` table rows.
+  Re-audit 0/0. ✅
+- concepts/configuration/fixtures — 35/37 accurate; scrubbed multiprocessing/RPC internals
+  (`InstrumentServer`/`RemoteInstrumentProxy`/"not raw TCP" — it IS TCP localhost); `concurrent=True` is NOT
+  a user flag → switches exempt because `type: switch`; cut "backward-compatible" tombstone + `src/...`
+  citation + `extra="forbid"`. ✅
 - concepts/overview/platform-vs-framework — CRIT MCP count 12→13 (+`litmus_files`, `Cpk`→`Ppk`);
   POST /api/runs verified real; no OpenHTF-adapter claim; audience prose. ✅ (MCP-count drift recurs
   corpus-wide — watch ai-integration, reference pages.)

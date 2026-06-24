@@ -75,12 +75,13 @@ pins:
 
 ## Characteristics
 
-**Characteristics** are measurable properties of the part. Each characteristic has:
+**Characteristics** are measurable properties of the part. Each one is written with these keys:
 
-- **Direction** — Does the UUT provide or receive this?
-- **Domain** — What physical quantity? (voltage, current, etc.)
-- **Signal types** — DC, AC, pulsed?
-- **Conditions** — Expected values and tolerances
+- **`direction`** — does the UUT provide or receive this? (`input` / `output` / `bidir`)
+- **`function`** — the measurement function (`dc_voltage`, `ac_voltage`, …); see [MeasurementFunction](../../reference/configuration.md)
+- **`unit`** — the engineering unit (`V`, `mV`, `A`, …)
+- **`pins`** — which pin(s) the measurement is taken on
+- **`bands`** — expected values and tolerances, per operating point
 
 ### Direction Matters
 
@@ -125,7 +126,7 @@ characteristics:
 
 ## Specifications with Conditions
 
-Each characteristic has one or more **specs** (SpecBands) that define expected values at specific operating conditions:
+Each characteristic has one or more **spec bands** (the entries under `bands:`) that define expected values at specific operating conditions:
 
 ```yaml
 characteristics:
@@ -210,7 +211,7 @@ characteristics:
 
 ## Part Numbers
 
-The `part_number` field maps a part to its manufacturing part number. When present, it automatically populates `uut_part_number` in test results (`uut_part_number` is the operator-facing identifier — the printed/scanned part number — as opposed to the internal `part_id`; see [how-to/traceability](../../how-to/execution/traceability.md)). Overridable via `--uut-part-number` on the CLI. This enables yield analytics filtering by part number.
+The `part_number` field is the manufacturing part number — the one printed or scanned on the unit. When set, every test result records it as `uut_part_number`, the operator-facing identifier (distinct from the internal `part_id`). You can override it per run with `--uut-part-number`, then filter yield by part number. See [traceability](../../how-to/execution/traceability.md).
 
 ```yaml
 id: power_board
@@ -244,7 +245,7 @@ characteristics:
 ```
 
 Inheritance rules:
-- **Header fields** (`name`, `description`, `revision`, `part_number`, `datasheet`, `schematic`) — inherited when absent in variant
+- **Header fields** (`name`, `description`, `revision`, `part_number`, `datasheet`, `schematic`, `driver`) — inherited when absent in variant
 - **Sections** (`pins`, `characteristics`, `signal_groups`) — variant replaces entirely if present, otherwise inherited
 - `id` and `base` always come from the variant
 - Max inheritance depth: 5 levels. Circular references raise an error.
@@ -254,9 +255,11 @@ Inheritance rules:
 In Python:
 
 ```python
+from pathlib import Path
+
 from litmus.store import load_part
 
-part = load_part("parts/power_board.yaml")
+part = load_part(Path("parts/power_board.yaml"))
 print(part.id)
 # Nominal lives on each SpecBand, not on the characteristic itself.
 # Resolve the right band for the current operating point:
