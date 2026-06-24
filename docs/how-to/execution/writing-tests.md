@@ -11,7 +11,7 @@ Both produce identical rows on PASS. They differ only on FAIL:
 
 Rule of thumb: _would a fail here stop the line?_ → `verify`. Else → `measure`.
 
-`verify` also raises `MissingLimitError` (from `litmus.execution.verify`) when no limit can be resolved for the measurement — markers, sidecar, profile, and part spec are all checked, and an empty result is a config bug rather than an "unchecked" path. Switch to `measure` if you intentionally want to record a value without judging it.
+`verify` also raises `MissingLimitError` when no limit can be resolved for the measurement — markers, sidecar, profile, and part spec are all checked, and an empty result is a config bug rather than an "unchecked" path. Switch to `measure` if you intentionally want to record a value without judging it.
 
 ## The core per-test fixtures
 
@@ -21,7 +21,7 @@ Rule of thumb: _would a fail here stop the line?_ → `verify`. Else → `measur
 | `verify`  | Limit check + record + raise on FAIL         | `verify(name, value, limit=..., characteristic=...)` |
 | `measure` | Record-only measurement — no judgment, never raises | `measure(name, value, limit=...)` |
 
-Data flow is one-way: `test → spec → measurement row`. The recording path snapshots ambient [ContextVars](https://docs.python.org/3/library/contextvars.html) (Python's built-in async-safe scoped state — Litmus uses them for run id, station, UUT, active instruments) at write time.
+Data flow is one-way: `test → spec → measurement row`. `verify` and `measure` automatically stamp each row with the active run, station, UUT, and instruments — you don't pass them in.
 
 ## Minimum viable test
 
@@ -37,9 +37,9 @@ class TestPowerUp:
 
 ## Test classes are sequences
 
-A pytest test class is a hardware-test **sequence** — a named, ordered group of methods that run together. Litmus treats it as a first-class step container: each class iteration emits its own `StepStarted` / `StepEnded` events in the run log, and the methods nest underneath it. Outcomes roll up via the severity-max ladder (worst child wins), so a failed measurement inside `test_output_voltage` propagates to `TestPowerUp`'s container outcome to the run outcome.
+A pytest test class is a hardware-test **sequence** — a named, ordered group of methods that run together. Each class run logs its own step start/end events, with the methods nested under it. The worst result wins: a failed measurement fails its test, which fails the class, which fails the run.
 
-This matches the way TestStand (National Instruments' commercial test executive), OpenTAP (Keysight's open-source test sequencer), and Spintop OpenHTF (a community OpenHTF wrapper) model test sequences — and how a hardware engineer would naturally write the equivalent pseudocode (`for each voltage: run the warmup → load test → cooldown sequence`).
+It's the sequence you'd write by hand: `for each voltage: warmup → load test → cooldown`.
 
 ```python
 @pytest.mark.litmus_sweeps([{"voltage": [1, 2, 3]}])      # class becomes the outer loop
@@ -166,16 +166,16 @@ def test_rails(context, verify, measure, dmm):
     verify("efficiency", compute_eff(...))
 ```
 
-## Litmus markers (`--strict-markers` safe)
+## Litmus markers
 
 | Marker                            | Purpose                                                       |
 |-----------------------------------|---------------------------------------------------------------|
 | `litmus_sweeps([{argname: values, ...}, ...])` | Sweep one or more parameters across values (multiple keys in one dict = zipped; multiple dicts = cross-product) |
 | `litmus_limits(**by_name)`        | Limits by measurement name (supports `when:`-keyed bands)     |
-| `litmus_characteristics([<id>, ...])` | Bind the test to one or more part characteristics (limits + UUT pin auto-resolve) |
-| `litmus_connections([name, ...])` or `litmus_connections(**by_instrument)` | Bind to fixture-connection names (positional list, like `litmus_characteristics`) OR to raw instrument channels (kwargs by instrument, like `litmus_limits`) |
+| `litmus_characteristics([<id>, ...])` | Attach the test to one or more part characteristics (limits + UUT pin auto-resolve) |
+| `litmus_connections([name, ...])` or `litmus_connections(**by_instrument)` | Select fixture-connection names (positional list, like `litmus_characteristics`) or raw instrument channels (kwargs by instrument, like `litmus_limits`) |
 | `litmus_mocks([{target: ..., ...}, ...])` | Patch one or more methods for the test (uses `unittest.mock.patch.object`) |
-| `litmus_prompts(message=...)`      | Manual operator setup at a lifecycle point                    |
+| `litmus_prompts(message=...)`      | Pause for manual operator setup before, during, or after a test |
 | `litmus_retry(max_retries=N)`     | Retry on transient failure (N retries beyond original; translates to `flaky` for pytest) |
 
 Markers can be authored three ways and all merge into the same cascade:
@@ -196,58 +196,22 @@ Part is session-global: pick it with `--part=<id>` (looks up
 `parts/<id>.yaml`) or `--part=<path>` (explicit path). There is no
 per-test part override marker.
 
-## `litmus_characteristics` × `litmus_connections` resolution
+## Binding a test to characteristics or connections
 
-The two markers below are the two halves of selecting which pins/connections a test iterates over: `litmus_characteristics` says *which characteristic* on the part, and `litmus_connections` says *which fixture connections* to bind. The matrix exists because they're independent — every combination of "present / absent / by-name / by-channel / fixture loaded / fixture absent" gets a defined behaviour. Skim the table for the case that matches your test.
+`litmus_characteristics` and `litmus_connections` select which pins/connections a test iterates over via `context.connections`. The common bindings:
 
-`litmus_characteristics` and `litmus_connections` are independent markers that
-compose into the iterable connection set on `ctx.connections`. `litmus_connections`
-takes one of two shapes — Pydantic discriminates by structure at YAML load:
+- **Bind to a part characteristic** — limits and UUT pins resolve from the part spec:
+  `@pytest.mark.litmus_characteristics(["output_voltage"])`
+- **Bind to named fixture connections** — needs a fixture YAML so the names resolve:
+  `@pytest.mark.litmus_connections(["vout_1", "vout_2"])`
+- **Early bringup, before a fixture YAML exists** — bind raw instrument channels:
+  `@pytest.mark.litmus_connections(dmm=["1", "2"])`
 
-* **`connections: [name, ...]`** — bind by fixture-connection name (matches
-  `litmus_characteristics`' positional-list shape). Requires a fixture YAML
-  so the names resolve.
-* **`connections: {instrument: channels, ...}`** — bind by instrument →
-  channel selectors (matches `litmus_limits`' kwargs-by-name shape). Works
-  pre-fixture-config for early bringup; synthesizes connection stubs.
-
-Behavior depends on which markers are present and whether a fixture YAML is
-loaded for the run:
-
-| Case | `litmus_characteristics` | `litmus_connections` | Fixture loaded? | Result |
-|------|---------------|----------------------|-----------------|--------|
-| 1 | — | — | any | No markers → `ctx.connections` is `None`; test runs once with no connection context. |
-| 2 | `characteristic: X` | — | yes | Iterate every fixture connection whose `uut_pin` (or `net`) is in `X.resolved_pins`. Fixture-order. |
-| 3 | `characteristic: X` | — | no | Empty iterator (no connections to bind to). Test still iterates `ctx.connections` and gets zero rounds. |
-| 4 | — | `[a, b, …]` (by name) | yes | Iterate the listed connections in user-listed order. Unknown name → `UsageError`. |
-| 5 | — | `[a, b, …]` (by name) | no | `UsageError` — connection names are nonsense without a fixture YAML. |
-| 6 | — | `{inst: [ch, …]}` (by channel) | yes | Match each `(inst, ch)` against fixture connections; user-listed order. No match → `UsageError`. `'all'` → all connections on that instrument. |
-| 7 | — | `{inst: [ch, …]}` (by channel) | no | Synthesize `FixtureConnection` stubs (`name=f"{inst}_ch{ch}"`, no `uut_pin`). Iterable for early bringup. `'all'` → `UsageError` (nothing to enumerate). |
-| 8 | `characteristic: X` | `[a, b, …]` (by name) | yes | Resolve as case 4, then validate every selected connection's `uut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
-| 9 | `characteristic: X` | `[a, b, …]` (by name) | no | `UsageError` (case 5 — fixture required for connection names). |
-| 10 | `characteristic: X` | `{inst: [ch, …]}` (by channel) | yes | Resolve as case 6, then validate every match's `uut_pin` ∈ `X.resolved_pins`. Out-of-set → `UsageError`. User-listed order wins. |
-| 11 | `characteristic: X` | `{inst: [ch, …]}` (by channel) | no | Synthesize stubs (case 7). No `uut_pin` mapping exists, so spec membership cannot be enforced — stubs pass through. |
-
-Invariants across the matrix:
-
-- **Missing spec context** (cases 2/3/8/10/11 with no part loaded): `UsageError`.
-- **Unknown characteristic** on the part: `UsageError`.
-- **Iteration order**: when `litmus_connections` is present, follows the
-  user-listed order; spec-only (case 2) follows fixture iteration order.
-- **Zero remaining connections** after spec × connections filtering:
-  `UsageError` (no silent skip).
-- **Declared but un-iterated**: if `litmus_connections` is present and the test body
-  never iterates `ctx.connections`, the test fails with `AssertionError`.
+The two markers compose — a characteristic constrains which connections are valid. If you declare `litmus_connections` but never iterate `context.connections` in the test body, the test fails, so the binding can't be silently ignored. For the full resolution rules — every combination of marker presence and fixture state — see the [markers reference](../../reference/pytest/markers.md).
 
 ## Sidecar YAML
 
-A sibling `test_<module>.yaml` carries config in a recursive tree
-mirroring pytest's `file::Class::method` node ids: file-level marker
-fields plus a `tests:` dict where each entry is either a function leaf
-(marker fields only) or a class branch (marker fields plus nested
-`tests:` for its methods). Reserved keys at every level are `runner:`
-(opaque per-runner config) and `tests:`; everything else is a Litmus
-marker name.
+A sibling `test_<module>.yaml` adds marker config without touching code. Fields at the top apply to every test in the file; nest under `tests:` to scope to a class or method. (`runner:` and `tests:` are reserved keys; everything else is a Litmus marker name.)
 
 ```yaml
 # test_power_board.yaml
@@ -308,7 +272,7 @@ if str(_ROOT) not in sys.path:
 
 Tests can now `from drivers import DMM`. No packaging ceremony. This is what `examples/03-profiles/conftest.py` does.
 
-**2. `pyproject.toml` package (stable).** Put drivers under `src/<project>/drivers/`, declare the project in `pyproject.toml`, and `uv sync`. Tests `from <project>.drivers import DMM`. More up-front work, but no `sys.path` surprises.
+**2. `pyproject.toml` package (stable).** Put drivers under `src/<project>/drivers/`, declare the project in `pyproject.toml`, and `pip install -e .`. Tests `from <project>.drivers import DMM`. More up-front work, but no `sys.path` surprises.
 
 The conftest shim is the fastest route from "I have a folder of tests" to "green runs." Graduate to the pyproject layout when you need the drivers reusable across projects.
 
@@ -325,7 +289,7 @@ Tests are independent by default — there is no implicit prereq chain. Reach fo
 
 ## Duplicate-name guard
 
-Recording a measurement maintains a `seen_names` set per step. A second call with the same name raises `DuplicateMeasurementError` — typical trigger is `verify("v")` followed by a stray `measure("v", ...)`. For intentional streaming, opt in with `allow_repeat=True`.
+Each step rejects a duplicate measurement name: `verify("v")` followed by a stray `measure("v", ...)` raises `DuplicateMeasurementError`. For intentional repeats, opt in with `allow_repeat=True`.
 
 ## Graceful degradation
 

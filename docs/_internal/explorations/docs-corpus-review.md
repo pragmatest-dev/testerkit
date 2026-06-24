@@ -163,6 +163,18 @@ before any accuracy audit that diffs against it.
 
 ## Per-page progress log
 
+### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- NEW POLICY 2026-06-24: NO competitor references in docs (TestStand/LabVIEW/OpenTAP/OpenHTF/NI/Keysight)
+  except concept-translation or migration guidance. Marketing made separately. See memory
+  feedback_no_competitor_references_in_docs. Worth a corpus-wide vendor-name sweep.
+- how-to/execution/writing-tests — CRIT: 11-row litmus_characteristics×litmus_connections resolution
+  MATRIX was reference content in a how-to → condensed to 3 common-binding recipes + link to markers.md
+  (TRACKED: the full matrix should land in reference/pytest/markers.md — Piece 5). Cut TestStand/OpenTAP/
+  Spintop comparison (new policy); uv sync→pip install -e .; scrubbed ContextVars/seen_names/FixtureConnection/
+  resolved_pins/litmus.execution.verify internals; lifecycle/first-class-container jargon. Verified touched
+  facts directly (context.connections, DuplicateMeasurementError/allow_repeat, MissingLimitError) — the
+  audit-accuracy agent was cut off by a session rate-limit, so this page got audience + spot-accuracy. ✅
+
 ### Piece 3 — concepts (lean 2-lens)
 - concepts/execution/outcomes — factually PERFECT (38 claims verified: enum/ladder/cascade/
   verdict-intent/builders all correct). Pure audience scrub: removed bottom-half internals
