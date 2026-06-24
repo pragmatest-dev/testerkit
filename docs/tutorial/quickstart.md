@@ -1,6 +1,6 @@
 # Quick Start
 
-Get up and running with Litmus in under a minute.
+Install Litmus, scaffold a starter project, and run a passing test. Requires Python 3.11+.
 
 ```bash
 # 1. Install Litmus
@@ -10,15 +10,15 @@ pip install litmus-test
 litmus init quick_start --starter
 cd quick_start
 
-# 3. Run the tests
-uv sync && pytest
+# 3. Run the test
+pytest
 ```
 
-That's it. You'll see tests pass with mock instruments, limits checked, and results recorded.
+The starter ships a single test (`test_output_voltage`). Run it and pytest reports `1 passed` — the measurement was taken against a mock instrument, checked against its limit, and recorded.
 
 > **Explore without hardware.** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/pragmatest-dev/litmus-starter) opens a browser sandbox to try Litmus with no install — mock-instrument tests, the operator UI, analytics, and AI integration. Real instrument control (PyVISA/serial to a bench) needs a local install, so the sandbox stops there.
 
-> **Concepts cheat-sheet.** Quick Start shows a complete Litmus project, which means it uses every concept the framework has — most for the first time. Each term in the rest of this page links forward to the tutorial step that introduces it properly:
+> **Concepts cheat-sheet.** This quick start runs a complete Litmus project, so it touches nearly every Litmus concept at once — most for the first time. Each term below links forward to the tutorial step that introduces it properly:
 >
 > - **Part spec** — `parts/*.yaml`. Describes the device under test. → [Step 6](06-specifications.md), [concepts/parts](../concepts/configuration/parts.md)
 > - **Station YAML** — `stations/*.yaml`. Declares the bench's instruments. → [Step 7](07-real-instruments.md), [concepts/stations](../concepts/configuration/stations.md)
@@ -29,12 +29,6 @@ That's it. You'll see tests pass with mock instruments, limits checked, and resu
 > - **Characteristics, bands, accuracy, `when:`** — Part-spec vocabulary. → [Step 6](06-specifications.md), [reference/catalog-schema](../reference/catalog/schema.md)
 > - **Capability matching** — How Litmus pairs a part to a station. → [Step 8](08-capabilities.md), [concepts/capabilities](../concepts/configuration/capabilities.md)
 > - **MCP** — Model Context Protocol; how AI agents drive Litmus. → [how-to/mcp-integration](../how-to/overview/mcp-integration.md)
-
-## How to Install
-
-```bash
-pip install litmus-test
-```
 
 ## Project Structure
 
@@ -134,7 +128,7 @@ instruments:
 
 ### Test Code (`tests/test_example.py`)
 
-Tests are **plain pytest** — no decorator, no base class. The Litmus plugin contributes [20 fixtures](../reference/pytest/fixtures.md) (the per-test `context` / `verify` / `measure`, plus `pins`, `instruments`, per-role auto-fixtures from the station YAML, etc.) and [seven markers](../reference/pytest/markers.md). For how Litmus tests use pytest's own collection / fixture / marker mechanisms see [pytest-native reference](../reference/overview/pytest-native.md).
+Tests are **plain pytest** — no decorator, no base class. Litmus's pytest integration contributes [20 fixtures](../reference/pytest/fixtures.md) (the per-test `context` / `verify` / `measure`, plus `pins`, `instruments`, per-role auto-fixtures from the station YAML, etc.) and [seven markers](../reference/pytest/markers.md). For how Litmus tests use pytest's own collection / fixture / marker mechanisms see [pytest-native reference](../reference/overview/pytest-native.md).
 
 ```python
 # tests/test_example.py
@@ -266,7 +260,7 @@ parquet directly.
 
 ## Optional: Set Up AI Assistance
 
-If you use an AI coding tool, Litmus can register its [MCP (Model Context Protocol)](../how-to/overview/mcp-integration.md) server and generate project instructions so your AI understands the framework:
+If you use an AI coding tool, Litmus can register its [MCP (Model Context Protocol)](../how-to/overview/mcp-integration.md) server and generate project instructions so your AI understands Litmus:
 
 ```bash
 litmus setup claude-code       # Claude Code
@@ -282,7 +276,7 @@ When you're ready to move from mocks to real instruments, see [Step 7: Real Inst
 
 You've seen the whole loop. From here:
 
-- **Learn it from the ground up** → the [step-by-step tutorial](index.md) builds a project from nothing, one concept at a time. It's a separate path from this batteries-included tour, not a continuation of it.
+- **Learn it from the ground up** → the [step-by-step tutorial](index.md) builds a project from nothing, one concept at a time. It's a separate path from this complete-project quick start, not a continuation of it.
 - [Core Concepts](../concepts/) — Understand parts, stations, and capabilities
 - [Writing Tests](../how-to/execution/writing-tests.md) — Patterns and best practices
 - [Configuration Reference](../reference/configuration.md) — YAML schema details

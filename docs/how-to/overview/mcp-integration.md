@@ -1,12 +1,12 @@
 # AI-assisted test development via MCP
 
-Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with **12 tools** that expose the datasheet → test workflow to AI assistants. The platform does **not** call LLMs itself — it only exposes tools that an AI agent drives.
+Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with **13 tools** that expose the datasheet → test workflow to AI assistants. The platform does **not** call LLMs itself — it only exposes tools that an AI agent drives.
 
 This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../../concepts/overview/ai-integration.md); for the end-to-end workflow walkthrough see [datasheet-to-test](../catalog/datasheet-to-test.md); for the full inventory of shipped skills + sub-agents + slash commands see [reference/skills](../../reference/overview/skills.md). Per-tool MCP reference: [api.md → MCP tools](../../reference/runtime/api.md#tools).
 
 > **CLI as a peer surface.** Any agent with a terminal — Claude Code with Bash, Cursor with terminal, the GitHub Copilot CLI — can drive Litmus through `litmus …` commands instead of (or alongside) MCP. The CLI surface mirrors most of the MCP tools (`litmus runs`, `litmus show`, `litmus discover`, `litmus metrics`, `litmus schema`, `litmus validate`, …). See [reference/cli](../../reference/cli.md). This page is for AI clients that speak MCP natively.
 
-> **Prerequisites.** `litmus` installed and on `$PATH` (`uv pip install litmus-test` — the PyPI distribution is `litmus-test`; the import is `litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, real or mock instruments configured in `stations/`.
+> **Prerequisites.** `litmus` installed and on `$PATH` (`pip install litmus-test` — distribution `litmus-test`, import `litmus`). One of the supported AI clients listed below — Claude Code, Claude Desktop, GitHub Copilot, Cursor, or Cline. A working project directory (`litmus init` to scaffold one). For `litmus_run`, a station configured in `stations/` — note `litmus_run` always executes in mock mode (see below).
 
 ## Setup
 
@@ -21,9 +21,11 @@ This page is the operational how-to: registering Litmus with each supported AI c
 | Cline (VS Code) | `litmus setup cline` | `cline_mcp_settings.json` in VS Code User settings (`~/.config/Code/User/` on Linux, `~/Library/Application Support/Code/User/` on macOS, `~/AppData/Roaming/Code/User/` on Windows) |
 | Anything else | `litmus mcp serve` directly | You configure your AI client manually |
 
-After running any setup command, restart the client to pick up the new MCP server.
+After running any setup command, restart the client to pick up the new MCP server. To confirm it registered, ask the assistant to list its tools (or open the client's MCP panel) — the `litmus_*` tools should appear. If they don't, the client didn't load the server: re-run the setup command, restart the client again, and confirm the config file from the table above was written.
 
-To inspect the active config across all clients:
+If the `claude` CLI isn't on `$PATH`, `litmus setup claude-code` prints the manual `claude mcp add …` command for you to run instead of registering automatically. For the VS Code clients, run with `--print-only` first to preview the exact `.vscode/mcp.json` / `.cursor/mcp.json` it will write.
+
+To print the server command and stdio transport Litmus registers:
 
 ```bash
 litmus setup show
@@ -40,9 +42,7 @@ litmus mcp serve
 
 Add a server entry to your AI client's MCP config pointing at the above. See `litmus setup claude-desktop --print-only` for a working example you can adapt.
 
-## The 12 MCP tools
-
-Defined in `src/litmus/mcp/server.py` via `@mcp.tool(name=...)`.
+## The 13 MCP tools
 
 | Tool | Purpose | Detail |
 |---|---|---|
@@ -55,7 +55,8 @@ Defined in `src/litmus/mcp/server.py` via `@mcp.tool(name=...)`.
 | `litmus_events` | Query the event store | Filter by session / event type |
 | `litmus_sessions` | List sessions with metadata | Each session = one `connect()` lifetime or pytest run |
 | `litmus_channels` | Query channel data from the streaming store | For waveform / time-series readouts referenced by events |
-| `litmus_metrics` | Compute yield / Pareto / Cpk / retest / time-loss | Aggregations over a date range |
+| `litmus_files` | List FileStore artifacts (blobs, waveforms, streaming captures) | Each row carries its `file://` URI, name, format, session / run id, created_at |
+| `litmus_metrics` | Compute yield / Pareto / Ppk / retest / time-loss | Aggregations over a date range |
 | `litmus_runs` | Query the runs view (filtered, paginated) | Same data the operator-UI runs list reads |
 | `litmus_steps` | Query the steps view (one row per step execution) | Step-level rollup with outcome and timing |
 
@@ -85,7 +86,7 @@ litmus_project(action="read", path="parts/tps54302.yaml", project=project)
 litmus_project(action="read", path="template:test", project=project)
 ```
 
-**Entity types depend on the action** (`src/litmus/mcp/tools.py:224-240`):
+**Entity types depend on the action:**
 
 - `list` / `get` accept: `station`, `part`, `fixture`, `catalog`, `instrument_asset`, `run`
 - `save` accepts: `station`, `part`, `fixture`, `catalog`, `instrument_asset`, `test`
@@ -94,11 +95,13 @@ litmus_project(action="read", path="template:test", project=project)
 
 #### Saving test code with `action="save", type="test"`
 
-When `type="test"`, the tool writes a **Python file** under `<project_root>/tests/`. The `id` is treated as the path; if it doesn't end in `.py`, the tool appends `.py` (`mcp/tools.py:608`). Files saved this way will not be loaded as sidecar YAML — for the colocated sidecar (`tests/test_<module>.yaml`), write it via `litmus_project(action="save", type="test", id="tests/test_<module>.yaml.py", ...)` is **wrong**; the sidecar shape requires a real `.yaml` file. Write sidecar YAML directly to disk (the AI client's filesystem tool, not this MCP tool).
+When `type="test"`, the tool writes a **Python file** under `<project_root>/tests/`. The `id` is treated as the path, and if it doesn't end in `.py` the tool appends `.py`. So this tool cannot write the colocated sidecar (`tests/test_<module>.yaml`) — it would force a `.py` extension. Write the sidecar YAML directly to disk with your AI client's filesystem tool, not via `litmus_project`.
 
 ### `litmus_run`
 
 Spawns pytest as a subprocess and returns the parsed exit summary. **It does not return structured measurement results** — those land in the parquet store and are queried separately via `litmus_runs` / `litmus_metrics` / `litmus_steps`.
+
+`litmus_run` always runs with `--mock-instruments` — `station=` selects which station's `mock_config` to use, but no real hardware is touched. To run against a real bench, drive pytest directly: `pytest --station=<bench> --uut-serial=<sn>` (see [writing tests](../execution/writing-tests.md)).
 
 ```python
 result = litmus_run(
@@ -109,7 +112,7 @@ result = litmus_run(
 )
 ```
 
-Return shape (`mcp/tools.py:1164-1173`):
+Return shape:
 
 ```python
 {
@@ -132,12 +135,11 @@ Return shape (`mcp/tools.py:1164-1173`):
 | 1 | `"failed"` |
 | any other | `"error"` |
 
-For the full 7-value `Outcome` enum (`passed`/`failed`/`errored`/`skipped`/`done`/`terminated`/`aborted`) that the runtime cascade produces, query the parquet store after the run finishes:
+For the full 7-value `Outcome` enum (`passed`/`failed`/`errored`/`skipped`/`done`/`terminated`/`aborted`) that the runtime produces, fetch the run's stored row after it finishes:
 
 ```python
-runs = litmus_runs(filters={"run_id": result["run_id"]}, project=project)
-run = runs["runs"][0]
-print(run["run_outcome"])           # one of the 7 Outcome values
+run = litmus_runs(action="get", run_id=result["run_id"], project=project)["run"]
+print(run["outcome"])               # one of the 7 Outcome values
 ```
 
 See [outcomes](../../concepts/execution/outcomes.md) for what each value means.
@@ -153,9 +155,9 @@ result = litmus_project(action="init", path="~/my-hardware-tests")
 project = result["project_root"]
 ```
 
-Creates the project skeleton: `pyproject.toml`, `litmus.yaml`, `conftest.py`, and the directories `parts/`, `stations/`, `fixtures/`, `instruments/`, `tests/`, `results/`, `reports/` (`bringup` tier only creates `tests/`, `results/`, `reports/`).
+Creates the project skeleton: `pyproject.toml`, `litmus.yaml`, `conftest.py`, and the directories `parts/`, `stations/`, `fixtures/`, `instruments/`, `tests/`, `reports/` (`bringup` tier only creates `tests/`, `reports/`).
 
-After this, **you** (the human) need to drop to a terminal and run `uv sync` to install dependencies. The AI assistant cannot do this for you — running shell commands requires explicit user action.
+After this, **you** (the human) install the project's dependencies in a terminal — `pip install -e .` (or `uv sync` if you use uv). The AI assistant cannot do this for you — running shell commands requires explicit user action.
 
 ### Step 1 — Create a part spec from the datasheet
 
@@ -212,7 +214,7 @@ litmus_project(action="save", type="part", id="tps54302", content={
 }, project=project)
 ```
 
-For the full part schema see [configuration reference → part](../../reference/configuration.md#part-specification). For the band-matching and `accuracy:` semantics see [capabilities → condition-dependent specs](../../concepts/configuration/capabilities.md#condition-dependent-specs-specband).
+For the full part schema see [configuration reference → part](../../reference/configuration.md#part-yaml). For the band-matching and `accuracy:` semantics see [capabilities → condition-dependent specs](../../concepts/configuration/capabilities.md#condition-dependent-specs-specband).
 
 ### Step 2 — Set up the test station
 
@@ -257,7 +259,7 @@ litmus_project(action="save", type="station", id="bench_1", content={
 }, project=project)
 ```
 
-`mock_config:` keys are the **method names** the driver class exposes, not signal names. With `--mock-instruments` (or `mock: true`), the platform substitutes `Mock(driver_class, **mock_config)` for the real driver, and those methods return the configured values. See [mock mode](../configuration/mock-mode.md) for the full story.
+`mock_config:` keys are the **method names** the driver class exposes, not signal names. With `--mock-instruments` (or `mock: true`), the platform substitutes a mock for the real driver, and those methods return the configured values. See [mock mode](../configuration/mock-mode.md) for the full story.
 
 ### Step 3 — Generate the test files
 
@@ -357,13 +359,18 @@ print(result["status"])    # "passed" | "failed" | "error" (from subprocess retu
 print(result["summary"])   # "1 passed in 0.42s" (parsed pytest tail line)
 ```
 
-For the structured results — every measurement row, every step outcome, full traceability — query the parquet store:
+For the structured results — the run's outcome, its per-step rollups, and cross-run analytics — query the store:
 
 ```python
-runs = litmus_runs(filters={"run_id": result["run_id"]}, project=project)
-steps = litmus_steps(filters={"run_id": result["run_id"]}, project=project)
-events = litmus_events(filters={"run_id": result["run_id"]}, project=project)
-metrics = litmus_metrics(filters={"run_id": result["run_id"]}, kind="yield", project=project)
+# Run-scoped: this run's summary row and its per-step outcomes
+run = litmus_runs(action="get", run_id=result["run_id"], project=project)["run"]
+steps = litmus_steps(run_id=result["run_id"], action="list", project=project)
+
+# Cross-run analytics (aggregated over many runs, not one):
+yield_summary = litmus_metrics(action="summary", project=project)
+
+# Events are queried by session or type (not by run id):
+events = litmus_events(event_type="session.started", project=project)
 ```
 
 For visual inspection, get a UI URL:
@@ -375,7 +382,7 @@ info = litmus_open(type="run", id=result["run_id"])
 
 ## Limit shapes
 
-A sidecar `limits:` entry (or the kwargs to `@pytest.mark.litmus_limits`) is a `MeasurementLimitConfig` dict (defined in `src/litmus/models/test_config.py`). At evaluation time every shape ultimately resolves to `low` / `high` / `nominal` / `comparator`.
+A sidecar `limits:` entry (or the kwargs to `@pytest.mark.litmus_limits`) is a `MeasurementLimitConfig` dict. At evaluation time every shape ultimately resolves to `low` / `high` / `nominal` / `comparator`.
 
 | Shape | Example | When |
 |---|---|---|
@@ -387,7 +394,7 @@ A sidecar `limits:` entry (or the kwargs to `@pytest.mark.litmus_limits`) is a `
 
 Most common for AI-driven tests: **characteristic delegation** (when there's a part spec) and **direct** (when there isn't). See [limits how-to](../execution/limits.md) for the full resolution chain.
 
-The plain `Limit` model (also in `test_config.py`) is what the resolver hands the runtime — it carries only the resolved `low / high / nominal / unit / characteristic_id / spec_ref / comparator`. `tolerance_pct`, `bands:`, and `characteristic:` live on `MeasurementLimitConfig` (the sidecar/marker shape).
+`tolerance_pct`, `bands:`, and `characteristic:` are inputs on the sidecar/marker shape (`MeasurementLimitConfig`); they resolve away into the concrete `low / high / nominal / unit / comparator` the runtime checks against.
 
 ## Test code pattern
 

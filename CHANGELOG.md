@@ -47,11 +47,11 @@ DPMO/DPPM).
   a limit (non-scalar raises pointing at `observe`). `stream` explicitly
   routes a sample to ChannelStore. All three available as Context
   methods + bare pytest fixtures.
-- **Channel lifecycle events** — `ChannelStarted` / `ChannelClosed`
+- **Channel start/end events** — `ChannelStarted` / `ChannelEnded`
   bracket every channel session.
-- **Stream lifecycle events** — `StreamStarted` / `StreamEnded` bracket
+- **File start/end events** — `FileStarted` / `FileEnded` bracket
   every streaming sink session. Live consumers range-read the file
-  directly via the path in `StreamStarted`.
+  directly via the path in `FileStarted`.
 - **Typed event payload columns** — 22 IDs and names (channel_id,
   uut_serial, role, outcome, etc.) promoted from JSON payload to
   typed DuckDB columns, enabling WHERE pushdown. Measured: 2.74×
@@ -123,7 +123,7 @@ DPMO/DPPM).
   `RunsQuery` / `MeasurementsQuery` / `EventStore`). New tutorial
   steps 11–12 + four how-to pages teach the pattern.
 - **Query measurements by role + name.** `MeasurementsQuery` selects via
-  `FieldRef` / `MeasurementRole` / `Axis` (e.g. `parametric(y="v_rail")`),
+  `FieldRef` / `FieldRole` (e.g. `parametric(y="v_rail")`),
   scoping to a measurement by role + name instead of the fused wide columns.
 - **RTY + DPMO/DPPM on the yield tab.** Rolled throughput yield
   (`∏` per-step first-pass rate), defects-per-million-opportunities
@@ -198,10 +198,9 @@ DPMO/DPPM).
   artifact recorded via `observe(name, value, namespace="psu")` and
   one recorded via `files.write(name, value, namespace="psu")` land at
   the same effective name.
-- **`FileStore.resolve_uri` is public** (renamed from
-  `_resolve_uri`). Maps a `file://{session_id}/{filename}` URI to its
-  current on-disk path. UI service, materializer, `/files-static`
-  route, and HTTP API all use the public name.
+- **`FileStore` serves artifact bytes by URI** via `read(uri)` /
+  `read_range(uri, ...)` / `open_input(uri)`. The UI service,
+  materializer, `/files-static` route, and HTTP API read through these.
 - Channel detail Sequences tab renamed to Capabilities (the tab's
   content was always station capabilities; sequences are deferred).
 - ChannelStore schema: `timestamp` → `received_at` (store-side, always
@@ -246,8 +245,8 @@ DPMO/DPPM).
 ### Removed
 
 - `InstrumentRead` event class — per-sample events at DAQ rates flooded
-  the EventStore. Sample data lives in ChannelStore; lifecycle events
-  (`ChannelStarted` / `ChannelClosed`) replace it.
+  the EventStore. Sample data lives in ChannelStore; start/end events
+  (`ChannelStarted` / `ChannelEnded`) replace it.
 - `StreamFrameIndex` event class — same flood problem at chunk rate.
   Live consumers read the file directly.
 - Dormant measurement-ref struct slot on the run schema (unused).
@@ -275,9 +274,9 @@ DPMO/DPPM).
   `vector.observations` (empty), so the operator UI's Measurements
   tab showed no artifacts. Now `observe` mirrors to the active
   vector at write time.
-- **Warm-query perf gates stabilized.** The two single-shot timers
-  in `test_perf_daemon.py` flaked under suite load (~30% of full
-  runs). Hard caps (100ms / 200ms) unchanged; sampling now takes the
+- **Warm-query perf gates stabilized.** Two single-shot perf timers
+  flaked under suite load (~30% of full runs). Hard caps (100ms / 200ms)
+  unchanged; sampling now takes the
   min over 11 calls so transient spikes don't trip the gate.
 - **`StepBuilder` propagates `PASSED` step outcomes** on the default-vector
   (`step.measure()`) path. Previously only `FAILED` propagated, so a passing
@@ -374,16 +373,12 @@ predictable `<quadrant>/<category>/<topic>.md` cell, with cross-quadrant
 
 ### Fixed
 
-- **Test race**: `_wait_for_run` in `tests/test_execution/test_class_step_containers.py`
-  (and 6 e2e workflow tests) was polling for `RunStarted` then
-  immediately reading partially-materialised steps. Now waits for the
-  run to finalise (`ended_at IS NOT NULL`) before reading. Same shape
-  as the `test_inputs_auto_projected_to_parquet` flake that was
-  intermittent in pre-commit pytest.
-- **System Designer auto-save**: `src/litmus/ui/pages/designer/page.py`
-  was passing `fixture_data["points"]` to `save_fixture`, but
-  `to_fixture_yaml()` returns key `"connections"`. Every auto-save
-  raised `KeyError: 'points'` silently caught by the except clause.
+- **Test race**: a run-status test helper polled for `RunStarted` then
+  read partially-materialised steps; it now waits for the run to
+  finalise (`ended_at IS NOT NULL`) before reading.
+- **System Designer auto-save**: edits to a fixture silently failed to
+  save — the save raised an error that was swallowed, so changes weren't
+  persisted. Auto-save now writes the fixture correctly.
 - Docs viewer's `/docs/_assets/` path was being gobbled by the
   `{page:path}` catch-all and returning HTML instead of PNGs. Mounted
   as static files before the dynamic route.
@@ -423,8 +418,9 @@ Initial public release on PyPI as `litmus-test`.
 
 ### Added
 
-- `@litmus_test` decorator for pytest-native hardware tests with vector
-  expansion, limit checking, measurement recording, retries, and mock injection
+- Pytest-native hardware tests — plain `def test_*` functions with
+  fixtures and markers for vector expansion, limit checking, measurement
+  recording, retries, and mock injection
 - Station / fixture / part / sequence YAML configuration, loaded through a
   single store layer with Pydantic validation
 - Instrument fixtures resolved from station config (no `conftest.py`

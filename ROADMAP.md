@@ -43,7 +43,8 @@ Things that make Litmus *good* (not just shippable). Sorted by RICE.
 | Parametric viewer follow-ups | medium | 1.5 | 0.8 | 1.0 | medium |
 | StationType → StationConfig inheritance | medium | 1 | 0.8 | 1.0 | medium |
 | SpecQualifier matching scoring | medium | 1.5 | 0.6 | 1.0 | medium |
-| Exporter row-level cascade outcomes | medium | 1 | 0.7 | 1.0 | medium || CLI fallback for multi-UUT operator prompts | low-med | 1 | 0.7 | 1.0 | medium |
+| Exporter row-level cascade outcomes | medium | 1 | 0.7 | 1.0 | medium |
+| CLI fallback for multi-UUT operator prompts | low-med | 1 | 0.7 | 1.0 | medium |
 | HTTP support for ImageDialog | small | 0.5 | 0.7 | 0.5 | small |
 | Array channel empty-result schema | small | 0.5 | 0.9 | 0.2 | small |
 | Runs daemon — record actual `row_count` in `_ingested` | small | 0.5 | 0.9 | 0.2 | small |
@@ -449,6 +450,36 @@ sweep (published docs must match the shipped API); 0.2.0 for items 25–30._
   `logger` → `RunScope` across user-facing pages and skill templates.
 - **v0.2.0 docs items 25–30** — 5 stale operator-UI pages, uuts / profiles
   pages, the four-store model.
+
+### Example portability — copy-out + `litmus init --from-example`
+
+Make the bundled examples something a user can **get and run** after installing
+Litmus, bound to their installed `litmus-test` and with data isolated from theirs.
+Design: `docs/_internal/explorations/examples-portability.md`.
+
+_RICE: R=med, I=2, C=0.7, E=1.5w → **med-high**. Target 0.2.0 (adoption /
+getting-started). The relocate-to-root prerequisite is do-now-cheap and unblocks
+"copy an example from the repo and it runs with pip or uv"; the command + wheel
+bundling is the larger half._
+
+- **Relocate uv source to the workspace root** (prerequisite, small) — move
+  `litmus-test = { workspace = true }` from the 11 example tomls up into the root
+  `pyproject.toml`. Verified: root sources propagate to members, so example tomls
+  become clean PEP 621 (bind to the user's installed `litmus-test`) while in-repo
+  `uv sync` still resolves examples to local HEAD (`editable = "."`).
+- **Bundle examples into the wheel** — they ship in the sdist but not the wheel
+  today; needed for `init --from-example` to pull from a `pip install`ed package.
+- **`litmus init <name> --from-example <id>`** — scaffold an example as a fresh
+  standalone project the user names.
+- **`.examples/<id>/` mode** (`litmus pull-example`, name TBD) — the *only*
+  sanctioned in-project placement; dot-dir, so hidden from the user's pytest
+  collection and data, isolated by the example's own `litmus.yaml`.
+- **Project-aware guard** — refuse to scaffold over an existing project root
+  (resolve via `_find_project_config`); no silent merges. The blessed in-project
+  path is `.examples/` only.
+- **Cleanup** — delete the `examples/05-product-spec/` orphan (verboten "product"
+  term; stale product→part leftover) and refresh `examples/README.md` (advertises
+  "Seven" but 08–11 exist).
 
 ### Test audit — find brittle / implementation-coupled tests
 
@@ -1131,7 +1162,7 @@ Surfaced by the Phase 6a.4 design review: ``MeasurementRow`` and
 ``MEASUREMENT_SCHEMA`` carry ``step_outcome`` / ``vector_outcome``
 / ``run_outcome`` (cascade rollups added in Phase 6a.2), but the
 event-driven exporters (``EventSubscriber`` subclasses for CSV /
-JSON / ATML / HDF5 / TDMS / MDF4 / STDF) consume the raw
+JSON / HDF5 / TDMS / MDF4 / STDF) consume the raw
 ``MeasurementRecorded`` event stream and don't see those rolled-up
 columns directly. They reconstruct step outcome from
 ``StepEnded.outcome`` (which works for executed steps) but have
@@ -1244,9 +1275,9 @@ or costs.
 - **Extension:** sweep a limit across a range → plot **yield-vs-limit** (find the
   knee / the bound that hits a target yield); Cpk under the candidate limits.
 
-Why it's differentiating: limit-setting today is intuition + guesswork; this turns
-it into a data-driven "what does this limit do to my yield?" answered from history.
-No mainstream HW-test stack offers it as a first-class loop.
+Why it's differentiating: limit-setting is usually a matter of engineering judgment;
+this adds a data-driven "what does this limit do to my yield?" loop on top of that,
+answered from history. No mainstream HW-test stack offers it as a first-class loop.
 
 Enabled by the runs redesign: measurements are long-form with the raw typed
 ``measurement_value``, and conditions are queryable via the EAV — so re-evaluating

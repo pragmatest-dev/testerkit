@@ -7,17 +7,17 @@
 
 **Python hardware test platform for electronics validation and production.**
 
-Litmus is a pytest plugin and command-line tool for hardware test engineers. You write tests as plain pytest functions; Litmus handles the parts that aren't your test — instrument setup, limit checking, results storage, operator UI. Tests run against mock instruments out of the box, so you can start without hardware and move to a real bench later.
+Litmus is a hardware test platform for test engineers. The main path is plain pytest — you write ordinary pytest functions and Litmus handles the parts that aren't your test: instrument setup, limit checking, results storage, operator UI. Already running OpenHTF, LabVIEW, TestStand, or custom scripts? A results API records runs from any source, so you can adopt Litmus without rewriting your suite. Tests run against mock instruments out of the box — start without hardware, move to a real bench later.
 
 ## Get started in under a minute
 
 ```bash
-pip install litmus-test            # or: uv add litmus-test
+pip install litmus-test
 litmus init my_project --starter && cd my_project
 pytest
 ```
 
-Four tests pass against mock instruments. The [tutorial](./docs/tutorial/index.md) walks you from this starter project to a production-ready suite, one concept at a time.
+The starter's test passes against mock instruments. The [tutorial](./docs/tutorial/index.md) walks you from this starter project to a production-ready suite, one concept at a time.
 
 **Or explore it without installing:** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/pragmatest-dev/litmus-starter) — a browser sandbox with mock instruments, the UI, analytics, and AI. Real instrument control needs a local install.
 
@@ -55,17 +55,17 @@ def test_output_voltage(context, psu, dmm, verify):
 ```
 
 `psu` and `dmm` come from your station config. `context` and `verify`
-come from the Litmus pytest plugin. No conftest.py needed.
+come from the Litmus plugin for pytest. No conftest.py needed.
 
 ## Learning path
 
 After the starter project runs, the recommended progression:
 
-1. **[Tutorial](./docs/tutorial/index.md)** — Ten short chapters from a first test through live production monitoring. Read in order; each builds on the last.
-2. **[Examples](./examples/README.md)** — Seven self-contained projects (`01-vanilla` → `07-profiles`) that isolate one concept each. Clone, run, modify.
+1. **[Tutorial](./docs/tutorial/index.md)** — Twelve short chapters from a first test through continuous production monitoring. Read in order; each builds on the last.
+2. **[Examples](./examples/README.md)** — A seven-step learning chain (`01-vanilla` → `07-profiles`), each a diff off the last, plus standalone data-tier examples. Clone, run, modify.
 3. **[Concepts](./docs/concepts/index.md)** — Reference for the vocabulary: station, fixture, part, sequence, capability, vector.
 
-When you're ready to leave mocks behind, [From Mocks to Hardware](./docs/tutorial/from-mocks-to-hardware.md) covers the transition.
+When you're ready to leave mocks behind, [Real Instruments](./docs/tutorial/07-real-instruments.md) covers the transition.
 
 ```bash
 litmus discover                 # scan for real instruments
@@ -78,7 +78,7 @@ litmus runs                     # see results
 
 ## Design principles
 
-1. **Built for hardware test, end to end** — Every measurement carries its limits, signal path, and the instrument that took it (with serial, cal date, firmware) — a field failure traces back to the exact bench state. Yield, Cpk, Pareto, retest, and time-loss analytics ship built in. Industry exporters (STDF, ATML, HDF5, TDMS, MDF4) bridge your reporting pipeline.
+1. **Built for hardware test, end to end** — Every measurement carries its limits, signal path, and the instrument that took it (with serial, cal date, firmware) — a field failure traces back to the exact bench state. Yield, Cpk, Pareto, retest, and time-loss analytics ship built in. Industry exporters (STDF, HDF5, TDMS, MDF4) bridge your reporting pipeline.
 2. **Everything is a file you can version** — Limits, stations, parts, fixtures, sequences, results — all files. Edit them in your text editor, diff them in git, review changes like code. A project moves between machines as a folder.
 3. **Open and extensible, no lock-in** — Pytest tests (plus its plugin ecosystem), PyVISA for any VISA-compatible instrument, YAML config, Parquet results that any data tool can read. All open source. If you change your mind about Litmus, your tests, configs, and results travel with you.
 4. **AI-ready, never AI-dependent** — Built on technology AI assistants know deeply (pytest, YAML, Python, markdown). MCP tools expose every Litmus operation; JSON Schemas act as guardrails for any config the AI writes. The platform itself never calls out to an AI model.
@@ -93,10 +93,10 @@ stations/*.yaml           → Which instruments are at this bench
 fixtures/*.yaml           → How UUT pins connect to instruments
 sequences/*.yaml          → What to test and in what order
 tests/*.py                → Test code
-results/*.parquet         → Measurements with full traceability
+data/*.parquet            → Measurements (run output, gitignored)
 ```
 
-Everything is files. That means it goes in git. You get diffs on limit changes, code review on test sequences, and a history of every config change.
+Your specs, stations, limits, and tests are all files — versioned in git. You get diffs on limit changes, code review on test sequences, and a history of every config change. (Run results land in `data/`, which stays out of git.)
 
 ## `verify()` vs plain `assert`
 
@@ -128,14 +128,14 @@ file alongside the test — no extra wrapper code in your test function.
 
 ```python
 litmus_match(requirements=[
-    {"function": "dc_voltage", "direction": "input", "range_max": 50, "units": "V"},
-    {"function": "dc_current", "direction": "output", "range_max": 3, "units": "A"},
+    {"function": "dc_voltage", "direction": "input", "range_max": 50, "unit": "V"},
+    {"function": "dc_current", "direction": "output", "range_max": 3, "unit": "A"},
 ])
 # → Keysight 34461A covers dc_voltage input
 # → Keysight E36312A covers dc_current output
 ```
 
-Run it from the command line, from an AI tool, or from a web request.
+Litmus exposes this as an MCP tool, so an AI assistant can answer it directly from your catalog.
 
 ## AI integration
 
@@ -165,7 +165,7 @@ litmus setup <tool>             # AI tool integration
 ## Docs
 
 - [Quick start](./docs/tutorial/quickstart.md) — First project in 5 minutes
-- [Architecture overview](./docs/concepts/architecture.md) — How things connect
+- [Architecture overview](./docs/concepts/overview/architecture.md) — How things connect
 - [docs/](./docs/) — Tutorial, how-to, reference, concepts
 
 ## License

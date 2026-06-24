@@ -4,11 +4,12 @@ Two independent ways to learn Litmus — pick the one that fits how you want to 
 
 ## Quick Start
 
-Batteries-included. `litmus init quick_start --starter` scaffolds a complete project — part spec, station, fixture, a test, and config — that passes `pytest` immediately with mock instruments. Best when you want to see the whole thing working in a minute, then read the walkthrough to understand each piece.
+`litmus init quick_start --starter` scaffolds a complete project — part spec, station, fixture, a test, and config — that passes `pytest` immediately with mock instruments. Best when you want to see the whole thing working first, then read the walkthrough to understand each piece.
 
 ```bash
+pip install litmus-test
 litmus init quick_start --starter && cd quick_start
-uv sync && pytest
+pytest
 ```
 
 [Quick Start walkthrough →](quickstart.md)
@@ -36,7 +37,7 @@ Start from nothing — a bare `conftest.py` with one mock fixture — and add a 
 
 - Python 3.11 or later
 - Basic familiarity with pytest
-- Litmus installed (`uv sync` or `pip install -e .`)
+- Litmus installed (`pip install litmus-test`)
 
 ## Time Commitment
 

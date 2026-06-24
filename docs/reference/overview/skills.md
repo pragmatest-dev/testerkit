@@ -1,26 +1,18 @@
 # Skills reference
 
-Litmus ships a set of **AI workflow prompts** under `src/litmus/skills/` that drive Claude / Copilot / Cursor / Cline through hardware-test authoring tasks. This page is the inventory: what each prompt does, what it calls, and how it's installed.
+Litmus ships a set of **AI workflow prompts** that drive Claude / Copilot / Cursor / Cline through hardware-test authoring tasks. This page is the inventory: what each prompt does, what it calls, and how it's installed.
 
 For motivation (why AI integration at all), see [concepts/why-ai-integration](../../concepts/overview/ai-integration.md). For setup commands (`litmus setup <client>`), see [how-to/mcp-integration](../../how-to/overview/mcp-integration.md).
 
+> **Prerequisites.** These prompts run inside an AI client (Claude Code, Copilot, Cursor, or Cline) that you've connected to Litmus with `litmus setup <client>`. The client launches the `litmus mcp serve` server on demand over stdio — you don't start it yourself.
+
 ## Three layers
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Workflows         Multi-step prompts you invoke directly.  │
-│  (3 files)         Drive the whole datasheet-to-tests flow. │
-├─────────────────────────────────────────────────────────────┤
-│  Sub-agent         Single-job prompts that workflows spawn  │
-│  templates         via the Task tool. Not invoked directly. │
-│  (5 files)                                                  │
-├─────────────────────────────────────────────────────────────┤
-│  Slash commands    Client-specific wrappers that invoke the │
-│  (2 per client)    workflows from your editor's prompt UI.  │
-└─────────────────────────────────────────────────────────────┘
-```
+- **Workflows** (3 prompts) — multi-step prompts you invoke directly; they drive the whole datasheet-to-tests flow.
+- **Sub-agent templates** (5 prompts) — single-job prompts the workflows spawn as sub-agents; not invoked directly.
+- **Slash commands** (2 per client) — client-specific wrappers that invoke the workflows from your editor's prompt UI.
 
-All three layers ship as plain markdown — you can read every prompt in `src/litmus/skills/` of the installed wheel or the [source on GitHub](https://github.com/pragmatest-dev/litmus/tree/main/src/litmus/skills).
+All three layers ship as plain markdown — read any prompt on [GitHub](https://github.com/pragmatest-dev/litmus/tree/main/src/litmus/skills), or in the `litmus/skills/` directory of your installed copy.
 
 ## Workflows
 
@@ -63,7 +55,7 @@ Fast path. For instruments the model doesn't know well, use `datasheet-to-catalo
 
 ## Sub-agent templates
 
-Single-responsibility prompts the workflows spawn via the Task tool. **Not invoked directly.** Each ships with a recommended model tier (see the source file for the per-agent justification).
+Single-responsibility prompts the workflows spawn as sub-agents. **Not invoked directly.** Each names a recommended model size for its job — the `Tier` column below.
 
 | Template | Job | Tier |
 |---|---|---|
@@ -73,7 +65,7 @@ Single-responsibility prompts the workflows spawn via the Task tool. **Not invok
 | [`section-reviewer`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/agents/section-reviewer.md) | Review AND fix catalog YAML against the inventory. Semantic checks only, no PDF access. | high |
 | [`scaffold-writer`](https://github.com/pragmatest-dev/litmus/blob/main/src/litmus/skills/agents/scaffold-writer.md) | Read targeted pages and write the device-level YAML (channels, interfaces, board attributes). Does NOT extract capabilities. | high |
 
-The single-responsibility split is deliberate. Each agent does one job with a narrow context; the workflow chains them with a fix loop (extractor → writer → reviewer → fix → reviewer until clean). A single mega-agent doing all four jobs tends to confabulate; the chain catches errors at the boundary between agents.
+The single-responsibility split is deliberate. Each agent does one job with a narrow context; the workflow chains them with a fix loop (extractor → writer → reviewer → fix → reviewer until clean). A single agent doing all four jobs is more error-prone; the chain catches mistakes at each boundary between agents.
 
 ## Slash commands
 
@@ -98,7 +90,7 @@ Claude Desktop, Cursor, and Cline get the MCP server registration (so the agent 
 
 ## MCP tools the workflows call
 
-The 12 MCP tools exposed by `litmus mcp serve`. Per-tool parameter detail in the [API reference](../runtime/api.md#tools).
+The 13 MCP tools exposed by the `litmus mcp serve` server (the AI client launches it on demand over stdio; you don't run it yourself). Per-tool parameter detail in the [API reference](../runtime/api.md#tools).
 
 | Tool | Workflows that use it |
 |---|---|
@@ -108,11 +100,11 @@ The 12 MCP tools exposed by `litmus mcp serve`. Per-tool parameter detail in the
 | `litmus_open` | `datasheet-to-test` |
 | `litmus_discover` | `datasheet-to-test` |
 | `litmus_schema` | (available; rarely called by workflows directly) |
-| `litmus_events`, `litmus_sessions`, `litmus_channels`, `litmus_runs`, `litmus_steps`, `litmus_metrics` | Post-run analysis (available to any agent) |
+| `litmus_events`, `litmus_sessions`, `litmus_channels`, `litmus_files`, `litmus_runs`, `litmus_steps`, `litmus_metrics` | Post-run analysis (available to any agent) |
 
 ## MCP prompts
 
-Prompts that AI clients can fetch via the MCP `prompts/get` protocol method (alternative to slash commands for clients that prefer prompt-list discovery).
+Workflows that MCP clients can fetch as a prompt — an alternative to slash commands for clients that surface a prompt list.
 
 | Prompt | Returns | Equivalent to |
 |---|---|---|
