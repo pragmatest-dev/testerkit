@@ -1,6 +1,6 @@
 # Managing Sessions
 
-Sessions track the connect-to-disconnect lifecycle of instrument usage. This guide covers creating, querying, and maintaining sessions.
+Open a session to use instruments outside pytest — in a script, a notebook, or the operator UI. This guide shows how to open a session, query it, and prune old session data. For what a session is, see [Sessions](../../concepts/data/sessions.md).
 
 ## Starting a Session
 
@@ -13,8 +13,10 @@ with connect("cell-7") as station:
     dmm = station.instrument("dmm")
     v = dmm.measure_voltage()
     print(f"Session: {station.session_id}")
-# SessionEnded emitted automatically
+# Leaving the with-block closes the session and disconnects instruments
 ```
+
+Leaving the `with` block ends the session for you. In a notebook where a `with` block is awkward, call `station.start()` after `connect(...)` and `station.stop()` when you're done.
 
 ### With pytest
 
@@ -22,7 +24,7 @@ Sessions are created automatically by the Litmus pytest plugin. Each test run ge
 
 ## Session Metadata
 
-Every session captures rich context via the `SessionStarted` event (see [reference/event-types](../../reference/data/event-types.md)). Query it to answer questions like:
+Every session records the station, operator, and config it ran under (see [event types](../../reference/data/event-types.md) for the fields). Query it to answer questions like:
 
 - What station was used?
 - Who was the operator?
@@ -64,8 +66,8 @@ try:
     for s in sessions:
         print(f"{s['station_id']} - {s.get('operator_id')} - {s['occurred_at']}")
 
-    # Events for a session
-    events = store.events(session_id=UUID("abc12345-..."))
+    # Events for one session — take an id from the list above
+    events = store.events(session_id=sessions[0]["session_id"])
 finally:
     store.close()
 ```
@@ -80,16 +82,17 @@ for r in runs:
 
 ## Data Retention
 
-Session data is stored in date-partitioned directories under `<data_dir>/events/`. Manage retention with:
+Session data is stored in date-partitioned directories under `<data_dir>/events/`. Nothing is deleted automatically — Litmus keeps everything until you prune it. Use `litmus data prune`:
 
 ```bash
-# Prune old data (planned CLI command)
+# Preview what a 90-day cutoff would delete — nothing is removed
+litmus data prune --older-than 90d --dry-run
+
+# Prune data older than 90 days (run the preview first — this is permanent)
 litmus data prune --older-than 90d
 ```
 
-Data retention settings can be configured in the global config at `~/.config/litmus/config.yaml` or per-project in `litmus.yaml`.
-
-Default: unlimited (keep everything). No surprise data loss.
+Pass `--data-types` to limit the prune to specific stores. Without `--dry-run`, the prune is permanent.
 
 ## See also
 - [Sessions Concept](../../concepts/data/sessions.md) — Why sessions exist

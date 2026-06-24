@@ -167,6 +167,13 @@ before any accuracy audit that diffs against it.
 - NEW POLICY 2026-06-24: NO competitor references in docs (TestStand/LabVIEW/OpenTAP/OpenHTF/NI/Keysight)
   except concept-translation or migration guidance. Marketing made separately. See memory
   feedback_no_competitor_references_in_docs. Worth a corpus-wide vendor-name sweep.
+- how-to/execution/managing-sessions — 2 CRIT accuracy: the whole Data Retention section was fabricated
+  (a `litmus.yaml` `retention:` key — ProjectConfig is extra=forbid, would ValidationError; a nonexistent
+  `~/.config/litmus/config.yaml` global file) + labeled the REAL `litmus data prune` command "(planned)".
+  Rewrote to the real command (--older-than/--dry-run/--data-types). Audience: lead reframe (drop
+  "lifecycle"), close-step note, SessionStarted-event/rich-context scrub, non-runnable UUID→captured id. ✅
+- how-to/execution/index — updated link descriptions to match the scrubbed pages (drop "lifecycle"/
+  "subprocess-per-slot"/"design guide"/"ATML metadata"). Execution how-to sub-cluster (11 pages) DONE. ✅
 - how-to/execution/operator-prompts — factually accurate (24 claims: litmus_prompts confirm/choice/input
   types, prompt fixture, PromptUnavailableError, LITMUS_AUTO_CONFIRM all verified). Audience: retitled
   "Design operator prompts"→"Pause a test for operator input" (was a design-checklist, not a task);
