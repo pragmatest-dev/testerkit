@@ -164,6 +164,16 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/querying-channels — CRIT accuracy: removed the `ChannelStore(Path("<data_dir>/channels"))`
+  example — wrong (store appends channels/ itself → `channels/channels/`, empty) AND the direct-store glob
+  read is discouraged (boundary breach). Lead with `channels.query` (in-process), `ChannelClient` for remote.
+  Audience: UUID→placeholder + source note, LTTB-algorithm section→benefit+link, decimation/daemon-index/
+  instrument-proxy jargon, added end-to-end plot snippet (verified cols `received_at`/`value`). docs-writer;
+  re-audit 0/0. ✅
+- how-to/data/choosing-a-channel-verb — factually PERFECT (23 claims; ALL/LATEST = live-every-sample vs
+  latest-newest-only verified correct). Audience: de-jargoned subscription/push/pull/conflated/coalesced →
+  bench language; added a decision tree (the page's key job); collapsed channel-store concept narration→link.
+  docs-writer. ✅
 - how-to/data/querying-events — 2 CRIT accuracy: `event_type="instrument.read"` (×3) returns ZERO rows —
   InstrumentRead retired 0.2.0 → `channel.started`. Audience: non-runnable truncated UUIDs → `<session-id>`
   placeholders + Python example restructured to capture a real id from `sessions()`; role-filter narration
