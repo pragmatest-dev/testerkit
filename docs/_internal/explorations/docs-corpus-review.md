@@ -176,7 +176,7 @@ before any accuracy audit that diffs against it.
   broken See-also link `how-to/writing-tests.md`→`writing-tests.md`); accuracy: `profile_facets` is
   file-metadata not a column, `litmus show` does NOT display profile name/description (removed false
   claims), +station_type/fixture/verify_requires_limit to field table. Scrubbed facet-jargon/merge-ladder/
-  UsageError class names/"escape hatch". docs-writer; re-audit pending. ✅(pending re-audit)
+  UsageError class names/"escape hatch". docs-writer; re-audit 0/0. ✅
 - how-to/execution/spec-driven-testing — factually PERFECT (38 claims verified: characteristic= kwarg,
   SpecBand resolution, guardband math, spec_ref format all correct). Pure audience/quadrant scrub:
   removed resolver-internals narration (page narrated HOW the resolver decides, not what to type),

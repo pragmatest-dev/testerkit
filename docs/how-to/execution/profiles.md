@@ -1,11 +1,11 @@
 # Profiles — Named Config Sets
 
-A **profile** is a named set of pytest overrides that applies across a
+A **profile** is a named set of overrides that applies across a
 session. You select one per run: validation on Monday, production on
 Tuesday, a quick debug profile for bench work. Profiles live as one file
 per scenario under `profiles/*.yaml` (or inline under `litmus.yaml`) and
-are selected by **facets** — `--test-phase=production --part=tps54302`
-picks exactly one profile whose declared facets match.
+are selected by matching selection tags — `--test-phase=production --part=tps54302`
+picks exactly one profile whose declared `facets:` tags match.
 
 Profiles speak the **same language as sidecars**: Litmus marker
 fields (`limits`, `sweeps`, …) at the profile root and a recursive
@@ -13,6 +13,24 @@ fields (`limits`, `sweeps`, …) at the profile root and a recursive
 branches with their own marker fields plus nested `tests:`; functions
 are leaves). If you already know how to write a sidecar, you already
 know how to write a profile — same shape, session scope.
+
+## Create and run a profile
+
+1. Add `profiles/validation.yaml` with a `facets:` line and your
+   overrides:
+
+   ```yaml
+   facets: {test_phase: validation}
+   runner:
+     addopts: "-x -vv"
+   ```
+
+2. Run `pytest --test-phase=validation`.
+
+The file's stem (`validation`) is the profile name. The `facets:` block
+declares the selection tags that `--test-phase=validation` must match.
+Bare `pytest` with no flags runs on `default_profile` from `litmus.yaml`
+(or no profile if none is declared).
 
 ## Why profiles?
 
@@ -33,40 +51,41 @@ overlaid on top of sidecars.
 
 ## Selecting a profile
 
-Profiles declare facets; CLI flags query facets.
+Profiles declare selection tags under `facets:`; CLI flags query those tags.
 
 ```bash
-pytest --test-phase=validation                   # one facet
-pytest --test-phase=production --part=tps54302   # two facets
-pytest --test-phase=production --mock-instruments   # facet + other flags
-pytest                                           # no facets → baseline
-pytest --test-profile=validation               # name-based escape hatch
+pytest --test-phase=validation                   # one tag
+pytest --test-phase=production --part=tps54302   # two tags
+pytest --test-phase=production --mock-instruments   # tag + other flags
+pytest                                           # no tags → baseline
+pytest --test-profile=validation               # select by name directly (bypassing facet matching)
 ```
 
-Litmus auto-synthesizes a `--<facet>=<value>` CLI flag for every facet
-key declared under any profile's `facets:` block. The facet query must
-match exactly one profile:
+Litmus auto-synthesizes a `--<key>=<value>` CLI flag for every `facets:`
+key declared under any profile. The query must match exactly one profile:
 
-- Zero matches → `UsageError` listing declared facet combinations.
-- More than one match → `UsageError` (tighten the query).
+- Zero or multiple matches → the run errors and lists the declared facet combinations.
 
-`--test-profile=<name>` is an escape hatch: it selects by profile name
-regardless of facets. Facet flags passed alongside cross-check against
-the named profile's declared facets and error on mismatch.
+`--test-profile=<name>` selects by profile name directly, bypassing facet
+matching. Facet flags passed alongside cross-check against the named
+profile's declared facets and error on mismatch.
 
 ## Profile shape
 
-A profile is a [`TestEntry`](../../reference/data/models.md) (the same per-test config record the sidecar uses) plus three
-profile-only fields:
+A profile uses the same per-test config shape as a sidecar (`TestEntry`)
+plus these profile-only fields:
 
-| Field         | Type                                 | Purpose                                     |
-|---------------|--------------------------------------|---------------------------------------------|
-| `facets`      | `dict[str, str]`                     | Exact-match keys for CLI selection          |
-| `extends`     | `str \| None`                        | Parent profile name (single parent)         |
-| `description` | `str \| None`                        | Shown in `litmus show <run_id>`             |
-| `runner`      | `dict[str, Any]`                     | Opaque per-runner block (validated by plugin) |
-| `limits` / `sweeps` / `mocks` / `characteristics` / `connections` / `retry` / `prompts` | (Litmus marker fields)               | Applied to **every** test in the session    |
-| `tests`       | `dict[str, TestEntry]`               | Per-class / per-test overrides (recursive)  |
+| Field                | Type                                 | Purpose                                     |
+|----------------------|--------------------------------------|---------------------------------------------|
+| `facets`             | `dict[str, str]`                     | Exact-match selection tags for CLI          |
+| `extends`            | `str \| None`                        | Parent profile name (single parent)         |
+| `description`        | `str \| None`                        | Documentation in the YAML; not displayed by `litmus show` |
+| `station_type`       | `str \| None`                        | Require a matching station type at session start |
+| `fixture`            | `str \| None`                        | Declare the fixture this profile targets    |
+| `verify_requires_limit` | `bool \| None`                    | When `false`, `verify()` records without judging when no limit resolves |
+| `runner`             | `dict[str, Any]`                     | Runner-specific options (e.g. pytest `addopts`, ecosystem markers) |
+| `limits` / `sweeps` / `mocks` / `characteristics` / `connections` / `retry` / `prompts` | (Litmus marker fields) | Applied to **every** test in the session |
+| `tests`              | `dict[str, TestEntry]`               | Per-class / per-test overrides (recursive)  |
 
 Litmus marker fields live directly on the profile. Ecosystem markers
 (`flaky`, `skipif`, `parametrize`, …) live under `runner.markers:`;
@@ -89,10 +108,10 @@ the same method name:
 
 ```yaml
 tests:
-  TestRails.test_rail:     # qualified — binds to TestRails.test_rail
+  TestRails.test_rail:     # qualified — matches TestRails.test_rail
     limits:
       v_rail: {tolerance_pct: 1.0}
-  test_standalone:         # bare — binds to module-level test_standalone
+  test_standalone:         # bare — matches module-level test_standalone
     runner:
       markers:
         - skip: "bench required"
@@ -120,16 +139,17 @@ project/
 
 The loader reads **both** `litmus.yaml`'s inline `profiles:` block and
 every `profiles/*.yaml` file. A name conflict across the two sources
-raises `UsageError` at project load.
+raises an error at project load.
 
 Families are just parent profiles with no `facets:` block — reachable
 only as an `extends:` target, never selectable from the CLI.
 
 ## `extends:` chain
 
-A child profile inherits from a single parent via `extends:`. Chains
-walk parent-first; child overrides last-wins on same marker name +
-first key:
+A child profile inherits from a single parent via `extends:`. Child
+values override the parent on the same key; everything else is inherited.
+For the full merge order across sidecars, decorators, profiles, and CLI,
+see [writing-tests.md](writing-tests.md).
 
 ```yaml
 # profiles/power_family.yaml — shared base, unselectable directly
@@ -163,14 +183,14 @@ extends: power_family
 ```yaml
 # profiles/characterization.yaml — wide sweep, record-only
 facets: {test_phase: characterization}
-verify_requires_limit: false   # verify() records w/o judging when no limit resolves
+verify_requires_limit: false   # verify() records without judging when no limit resolves
 tests:
   TestRails.test_rail:
     sweeps:
       - {vin: [3.0, 3.3, 3.6, 4.0, 4.5, 5.0, 5.5, 6.0]}
 ```
 
-`verify_requires_limit: false` flips `verify()` to record-only when no limit resolves from any source — the same test bodies that judge in `production` record values in `characterization` without raising `MissingLimitError`. Default is to require a limit.
+`verify_requires_limit: false` flips `verify()` to record-only when no limit resolves from any source — the same test bodies that judge in `production` record values in `characterization` without failing. Default is to require a limit.
 
 `pytest --test-phase=production --part=tps54302` resolves:
 
@@ -180,46 +200,21 @@ tests:
   parent's `{low: 3.2, high: 3.4}`.
 - `runner.addopts: "--strict-markers"` inherited from family.
 
-Cycles and unknown parents raise `UsageError` at project load.
-
-## Merge order (least → most specific)
-
-```
-project defaults (litmus.yaml)
-    ↓
-file-level sidecar marker fields (at sidecar root)
-    ↓
-class-branch sidecar marker fields (tests.<Cls>.<marker>)
-    ↓
-per-test sidecar marker fields (tests.<name>.<marker>
-                                or tests.<Cls>.tests.<method>.<marker>)
-    ↓
-per-test inline @decorators
-    ↓
-selected profile chain (parent first, child last)
-    ↓
-CLI flags
-```
-
-Same rule at every level: later marker with the same name + key wins on
-overlap; non-overlapping keys pass through. Exactly one profile is
-selected per run; its `extends:` chain flattens before merging into the
-cascade above. CLI always wins.
+Cycles and unknown parents raise an error at project load.
 
 ## Test phase and mocks
 
-`test_phase` is the conventional facet key for deployment stage
+`test_phase` is the conventional `facets:` key for deployment stage
 (`validation` / `production` / `characterization`). Pass
 `--test-phase=production` to select a profile whose
-`facets: {test_phase: production}` matches. The raw CLI value is used
-for profile selection regardless of the run environment.
+`facets: {test_phase: production}` matches.
 
 **Run record stamp.** A dirty git tree or `--mock-instruments` demotes
 the recorded `test_phase` stamp to `development` — the profile still
 applies (limits, markers, fixtures all fire as production), but the
-Parquet row is stamped `development` so production dashboards never
-treat it as a real production run. The `profile_facets` column on the
-same row holds the raw CLI facet dict for reproducibility.
+run record is stamped `development` so production dashboards never
+treat it as a real production run. The raw CLI facet dict is recorded
+as run metadata (`profile_facets_json`) for reproducibility.
 
 ## Worked example
 
@@ -281,19 +276,19 @@ runner:
 
 ## Provenance
 
-The active profile name is recorded on the run as `profile=<name>` and
-shows up in `litmus show <run_id>`. The `profile_facets` column on the
-Parquet row holds the raw CLI facet dict. Combined with the git commit,
-that's the minimum reproducibility payload: re-run at the same SHA with
-the same facet flags and the same profile chain resolves.
+The active profile name is recorded on the run record (`TestRun.profile`).
+The raw CLI facet dict is recorded as run metadata (`profile_facets_json`)
+in the Parquet file. Combined with the git commit, that's the minimum
+reproducibility payload: re-run at the same SHA with the same facet flags
+and the same profile chain resolves.
 
-## Non-goals (today)
+## Limits of profile selection
 
 - Wildcards / globs on facet values. Exact-match only. Family sharing
   goes through `extends:`, not `part: "tps5430*"`.
 - Multi-parent `extends:`. Single parent per profile; chains are linear.
 - Multi-match facet composition. Exactly one profile must match the
-  query. Ambiguous = `UsageError`.
+  query. Ambiguous queries error and list declared facet combinations.
 - Per-directory profile stacking. `profiles/*.yaml` is flat.
 - Runtime profile switching mid-session. Session-scoped.
 - Marker *removal* in child profiles. Child overrides by replacement;
@@ -302,7 +297,7 @@ the same facet flags and the same profile chain resolves.
 ## See also
 
 - `docs/reference/configuration.md` — full `profiles:` schema
-- `docs/how-to/writing-tests.md` — sidecar and marker mechanics
+- [writing-tests.md](writing-tests.md) — sidecar and marker mechanics
 - Pytest plugins commonly combined with profiles:
   - [pytest-rerunfailures](https://github.com/pytest-dev/pytest-rerunfailures)
   - [pytest-xdist](https://github.com/pytest-dev/pytest-xdist)
