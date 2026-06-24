@@ -18,14 +18,14 @@ from litmus import connect
 with connect("bench_1", mock=True) as station:
     dmm = station.instrument("dmm")
 
-    # Every instrument interaction is logged as an event
+    # Each read is captured to the channel store as the session runs
     voltage = dmm.measure_voltage()
 
     print(f"Session ID: {station.session_id}")
     print(f"Voltage: {voltage}")
 ```
 
-This creates a session, connects instruments, and logs all interactions to the [event store](../concepts/data/event-log.md) (see also [three-stores](../concepts/data/three-stores.md)).
+This creates a session and records what happens — instrument reads land in the [channel store](../concepts/data/three-stores.md), session and step events in the [event store](../concepts/data/event-log.md).
 
 ## Monitor in the UI
 
@@ -49,10 +49,10 @@ Open `http://localhost:8000` — the operator UI shows live session activity, in
 pytest tests/ -s
 ```
 
-The UI updates in real time as tests execute. Events flow through the system (see [concepts/event-log](../concepts/data/event-log.md) for `EventLog` / `EventStore` definitions):
+The UI updates in real time as tests execute:
 
 ```
-pytest → EventLog.emit() → EventStore → UI subscription
+pytest run → events recorded → UI updates live
 ```
 
 ## View the Run in Results
@@ -119,37 +119,35 @@ litmus_channels(channel_id="dmm.voltage")
 
 ## Channel Data from Instrument Reads
 
-When instruments are read through the proxy, scalar values appear in events directly. Array data (waveforms) is stored in the [`ChannelStore`](../concepts/data/three-stores.md) (Litmus's time-series store for instrument arrays) with a `channel://` claim-check URI in the event:
+Instrument reads route to the [`ChannelStore`](../concepts/data/three-stores.md) — Litmus's time-series store for sample data, both scalar readings and arrays like waveforms. A `ChannelStarted` event marks each channel; the event carries a `channel://` reference (a URI string) pointing at the channel, not the samples themselves:
 
 ```python
 with connect("bench_1", mock=True) as station:
     scope = station.instrument("scope")
-    waveform = scope.read_waveform()
-    # Event contains: {"value": {"_ref": "channel://scope.ch1/...", "length": 1000}}
-    # Actual waveform data is in the ChannelStore
+    waveform = scope.waveform()
+    # Samples land in the ChannelStore under a channel id like ``scope.waveform``;
+    # the event holds a ``channel://`` URI pointing to them.
 ```
 
-Query channel data:
+Query channel data by channel id:
 
 ```bash
-curl "http://localhost:8000/api/channels/scope.ch1?max_points=500"
+curl "http://localhost:8000/api/channels/scope.waveform?max_points=500"
 ```
 
 See also: [Step 12: Continuous Monitoring](12-continuous-monitoring.md) — streaming into ChannelStore directly from an interactive script using `litmus.channels.stream`.
 
-## What's Happening Under the Hood
+## How live monitoring works
 
-1. `connect()` creates an `EventStore` and `EventLog` for the session
-2. The EventStore acquires a [DuckDB Flight daemon](../concepts/data/flight-streaming.md) for cross-process queries
-3. Each `emit()` writes to Arrow IPC files and pushes to DuckDB
-4. The UI subscribes via `EventStore.on_event()` and receives events in real time
-5. Channel data flows to `ChannelStore` with LTTB (Largest Triangle Three Buckets) decimation — a downsampling algorithm that preserves visual peaks — for display
+When you connect to a station, Litmus records every instrument read and step result as it happens and makes it available to the operator UI in real time. Large arrays like waveforms are downsampled before display, so big captures still draw quickly.
+
+For the mechanics, see [Three Stores](../concepts/data/three-stores.md) and [Flight streaming](../concepts/data/flight-streaming.md).
 
 ← [Step 9: Production Ready](09-production.md)  |  [Tutorial index](index.md)
 
 ## Next Steps
 
-- [Tour of the Operator UI](../how-to/overview/operator-ui-tour.md) — orientation map of all 14 sidebar entries
+- [Tour of the Operator UI](../how-to/overview/operator-ui-tour.md) — orientation map of the operator UI sidebar
 - [Find flaky tests](../how-to/data/find-flaky-tests.md) — diagnostic recipe combining Metrics + Results + parquet queries
 - [Compare two runs](../how-to/data/compare-runs.md) — diff known-good vs failing
 - [Event Log Architecture](../concepts/data/event-log.md) — How events work

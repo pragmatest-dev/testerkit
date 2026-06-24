@@ -197,6 +197,27 @@ before any accuracy audit that diffs against it.
   (harness.py:831); (b) precedence was BACKWARDS — actual is inline<sidecar<profile, sidecar
   WINS (cascade appended after inline). Plus `@pytest.mark.flaky`→`litmus_retry` (respects the
   no-flaky axiom; litmus_retry wraps rerunfailures) + `changed()` first-vector + jargon. Re-audit 0. ✅
+- 06-specifications — CRIT: step 6 never showed the `characteristic:` AUTO-DERIVE (the whole point) —
+  page hand-computed limits + leaned on `spec_ref` (a no-op note); Conditions example claimed
+  per-condition resolution with NO `characteristic:` binding (resolved nothing). Introduced
+  `characteristic:` (alone uses band's own accuracy → 3.3±5%=3.135/3.465; verified), fixed conditions,
+  `tolerance_pct` vs `guardband_pct`. Re-audit 0. ✅
+- 07-real-instruments — `Zero`→`None` mock default; `measure`→`verify` (limit was inert with measure);
+  `litmus_mocks`(marker) vs `mocks:`(sidecar key) disambiguated; `--station=bench_1` id form; jargon. ✅
+- 08-capabilities — CRIT `match.missing`→`match.match_result.missing` (AttributeError); removed false
+  `MatchDepth.ACCURACY` knob claim (API hard-codes RANGE); CUT old Domain+SignalType tombstone. Re-audit 0. ✅
+- 09-production — promote glob `*/` level, `results/`→`data/`, `--station`/`--fixture` id forms,
+  Abstraction/node-id jargon, dropped brittle fixture count. ✅
+- 10-live-monitoring — CRIT: "Channel Data" built on RETIRED `InstrumentRead` + invented
+  `{"_ref","length"}` event shape → reads route to ChannelStore, only `ChannelStarted`, `channel://`
+  is a URI STRING. Channel ids `dmm.voltage`/`scope.waveform` (GenericObserver PREFIX-STRIPS
+  measure_/read_; re-audit caught my OWN wrong `.measure_voltage` fix). Cut under-the-hood internals. Re-audit ✅.
+- 11-waveforms-and-evidence — accurate; added missing `import math`; URI→link, dropped sample count,
+  synthesizer→mock. (observe stamps out_<name>, channel id = user-given name — verified.) ✅
+- 12-continuous-monitoring — filename uses channel_id VERBATIM (`dmm.voltage_…arrow`, dot not sanitized);
+  cut Flight-subscription/`out_*`/`Observation`-event internals; lifecycle/proxied/push-style jargon. ✅
+- PIECE 2 COMPLETE — all 12 tutorial steps at 0 critical (6 had real criticals). Lean 2-lens method
+  held ~50–150k/page; re-audit only on criticals (caught 2 of my own fix-introduced errors).
 
 - Piece 1 ROADMAP.md — 2026-06-23 — fixed 1 tone critical (L1277 "limit-setting today is
   intuition + guesswork" → "engineering judgment … this adds a … loop on top of that") + ATML

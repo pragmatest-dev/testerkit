@@ -12,9 +12,9 @@
 
 A PSU steps from 0 V to 5 V. A scope captures the transient. You want two judgments: rise time under 20 µs and overshoot under 0.5 V. Both numbers come from the same captured trace.
 
-The problem: `verify` accepts a scalar. `scope.capture()` returns a `Waveform` — 1 000 samples, a `t0` timestamp, and a `dt` sample interval. Passing the waveform directly to `verify` raises `TypeError`.
+The problem: `verify` accepts a scalar. `scope.capture()` returns a `Waveform` — a block of samples with a `t0` timestamp and a `dt` sample interval. Passing the waveform directly to `verify` raises `TypeError`.
 
-The solution is two verbs in sequence: `observe` the raw waveform first, then `verify` each derived scalar. `observe` routes the waveform to ChannelStore and stamps its URI on the active test vector — so both verify rows carry `out_scope_step`, a `channel://` link to the waveform they were computed from.
+The solution is two verbs in sequence: `observe` the raw waveform first, then `verify` each derived scalar. `observe` writes the waveform to ChannelStore and records a `channel://` link to it on the active test vector — so both verify rows carry `out_scope_step`, pointing back to the trace they were computed from.
 
 See [The Three Test-Author Verbs](../concepts/data/three-verbs.md) for the model behind this pattern.
 
@@ -22,6 +22,8 @@ See [The Three Test-Author Verbs](../concepts/data/three-verbs.md) for the model
 
 ```python
 # tests/test_psu_step_response.py
+
+import math
 
 from litmus import Limit
 from litmus import Waveform
@@ -60,7 +62,7 @@ What each line does:
 
 1. `psu.set_voltage(5.0)` — triggers the step. The PSU fixture is mocked; its `set_voltage` is a no-op.
 2. `scope.capture()` — acquires one trace. With the mock wired to `synthesize_psu_step_response`, this returns a fresh `Waveform` with realistic shape and small per-call jitter.
-3. `observe("scope_step", wf)` — writes the waveform to ChannelStore and stamps `out_scope_step = channel://scope_step?session=…` on the active test vector. Every measurement row emitted from this point forward in this test carries that URI.
+3. `observe("scope_step", wf)` — writes the waveform to ChannelStore and stamps a `channel://` link (`out_scope_step = channel://scope_step?session=…`) on the active test vector. Every measurement recorded after this point in the test carries that link.
 4. `compute_rise_time_us` / `compute_overshoot_v` — pure functions that work on `wf.Y` (sample values) and `wf.dt` (sample interval in seconds).
 5. `verify(...)` — records a parquet measurement row with value, limit, and `out_scope_step`. Both rows carry the same URI.
 
@@ -126,7 +128,7 @@ cd examples/08-waveform-evidence
 uv run pytest -v
 ```
 
-pytest runs one test — `test_psu_step_response` — with both `rise_time_us` and `overshoot_v` passing. Each run produces a slightly different rise time and overshoot because the synthesizer jitters each capture.
+pytest runs one test — `test_psu_step_response` — with both `rise_time_us` and `overshoot_v` passing. Each run produces a slightly different rise time and overshoot because the mock varies each capture.
 
 Then start the operator UI:
 
@@ -148,7 +150,7 @@ data/
       <run_id>-<timestamp>.arrow         ← run events (EventStore)
 ```
 
-The `scope_step_<session_short>.arrow` file is one Arrow row per `observe` call. Its session-scoped filename means two concurrent test sessions writing `observe("scope_step", wf)` never collide. See [Three Stores Architecture](../concepts/data/three-stores.md) for the full on-disk layout.
+The `scope_step_<session_short>.arrow` file is one Arrow row per `observe` call. Each session writes its own file, so parallel runs don't overwrite each other. See [Three Stores Architecture](../concepts/data/three-stores.md) for the full on-disk layout.
 
 ## Where to see it in the UI
 

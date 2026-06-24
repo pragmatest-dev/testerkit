@@ -26,7 +26,7 @@ Match!
 
 ## Direction Flip
 
-The key insight: **directions flip** between parts and instruments.
+The rule: **directions flip** between parts and instruments.
 
 | Part Direction | Instrument Direction | Why |
 |-------------------|---------------------|-----|
@@ -72,15 +72,13 @@ instruments:
 
 ## Tiered Matching
 
-The matcher checks up to five tiers, controlled by `MatchDepth` (an enum naming how deep the match check should go):
+The matcher checks each requirement in tiers:
 
 1. **Function match** — Same `MeasurementFunction` (e.g., `dc_voltage`)
 2. **Direction match** — Directions pair (OUTPUT↔INPUT, BIDIR satisfies both)
-3. **Parameter range** — Instrument's range contains the required value (default depth)
-4. **Accuracy** — Instrument accuracy ≤ required (condition-aware via [`SpecBand`](../reference/data/models.md), the value-plus-condition record)
-5. **Resolution** — Instrument resolution ≥ required
+3. **Parameter range** — Instrument's range contains the required value
 
-Most use cases stop at range (tier 3). Use `MatchDepth.ACCURACY` or `MatchDepth.RESOLUTION` when you need tighter validation — for example, checking that a DMM's accuracy at a specific frequency band meets your part's requirements.
+The matcher functions and the `/api/match` endpoint check through range. Two finer tiers — **accuracy** (instrument accuracy ≤ required, checked per condition) and **resolution** (instrument resolution ≥ required) — are part of the capability model and come into play when recommending instruments from the catalog.
 
 ## Try It: Using the Matcher
 
@@ -93,17 +91,17 @@ from litmus.matching.service import (
 )
 from litmus.store import get_part
 
-# Load part by id (looks up parts/<id>.yaml from the project root)
+# Load the power_board part spec
 part = get_part("power_board")
 
-# Find all compatible stations (takes the loaded Part object)
+# Find every station that can test it
 matches = find_compatible_stations(part)
 
 for match in matches:
     if match.compatible:
         print(f"✓ {match.station_id} can test {part.id}")
     else:
-        print(f"✗ {match.station_id} missing: {match.missing}")
+        print(f"✗ {match.station_id} missing: {match.match_result.missing}")
 ```
 
 ### HTTP API
@@ -177,23 +175,9 @@ instruments:
 Station A can measure dc_voltage but not dc_current → Missing capabilities.
 Station B can measure both → Compatible.
 
-## MeasurementFunction vs. Domain+SignalType
+## Functions Are Specific
 
-The old model used `domain: voltage` + `signal_types: [dc]`. The new model uses `function: dc_voltage`. This matters because:
-
-| Old Model | Problem |
-|-----------|---------|
-| DMM: `domain: voltage, signal_types: [dc], direction: input` | |
-| Scope: `domain: voltage, signal_types: [dc], direction: input` | Same capability! |
-
-Both matched any "dc voltage input" requirement, even though they're fundamentally different instruments.
-
-| New Model | No Confusion |
-|-----------|-------------|
-| DMM: `function: dc_voltage, direction: input` | Precision measurement |
-| Scope: `function: waveform, direction: input` | Time-domain capture |
-
-The scope's `waveform` function won't match a `dc_voltage` requirement.
+Each capability names a specific `function`, so similar-looking instruments don't get confused. A DMM declares `function: dc_voltage`; a scope declares `function: waveform`. Both are "voltage, input" instruments, but a precision DC-voltage requirement matches only the DMM — the scope's `waveform` function won't match a `dc_voltage` requirement, and vice versa.
 
 ## Handling Missing Capabilities
 
@@ -207,7 +191,7 @@ if result and not result["compatible"]:
         print(f"Need: {cap['direction']} {cap['function']}")
 ```
 
-`check_station_compatibility(part_id, station_id)` takes ID strings (not loaded objects) and returns a `dict | None`. The `missing` value is a list of dicts shaped `{characteristic, function, direction}`.
+`check_station_compatibility(part_id, station_id)` takes the part and station IDs (not loaded objects). If the station can't test the part, each entry under `missing` names the unmet requirement — its characteristic, function, and direction.
 
 Output:
 ```

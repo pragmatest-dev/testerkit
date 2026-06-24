@@ -6,7 +6,7 @@
 
 A production-ready test class with:
 - Pin-to-instrument mapping (fixtures)
-- Ordered test execution (pytest class methods, in definition order)
+- Ordered test execution (pytest class methods, in the order you write them)
 - Per-test limits, mocks, sweeps, and retries (sidecar YAML)
 - Full signal traceability
 
@@ -24,7 +24,7 @@ my_project/
 │   ├── conftest.py
 │   ├── test_power_board.py         # Test class — execution order = method order
 │   └── test_power_board.yaml       # Sidecar — limits, sweeps, mocks per method
-└── results/                        # Output (gitignored)
+└── data/                           # Run output (gitignored)
 ```
 
 ## The Fixture: Pin-to-Instrument Mapping
@@ -39,7 +39,7 @@ part_id: power_board
 
 connections:
   vin_supply:
-    name: vin_supply          # Required — matches the dict key
+    name: vin_supply          # Required (by convention, the dict key)
     uut_pin: VIN              # From part spec
     instrument: psu           # From station config
     instrument_channel: "1"
@@ -74,8 +74,8 @@ def test_output_voltage(pins, measure):
 Run with fixture config:
 ```bash
 pytest tests/ \
-  --station=stations/bench_1.yaml \
-  --fixture=fixtures/power_board_fixture.yaml \
+  --station=bench_1 \
+  --fixture=power_board_fixture \
   --uut-serial=SN001
 ```
 
@@ -89,7 +89,7 @@ pytest tests/ \
 | No traceability | Full traceability |
 
 The `pins` approach provides:
-- **Abstraction** — Test code doesn't know which instrument measures VOUT
+- **Instrument-independent** — Test code doesn't name an instrument; it names the UUT pin, and the fixture routes it
 - **Portability** — Same test works on stations with different instruments
 - **Traceability** — Measurements linked to UUT pins
 
@@ -144,7 +144,7 @@ tests:
           max_retries: 2
 ```
 
-The sidecar mirrors pytest's node-id structure (the `path::Class::method` identifier pytest assigns each test). Top-level keys (`limits`, `mocks`) apply file-wide. The recursive `tests:` tree lets you scope per-class and per-method overrides.
+The sidecar keys follow the same `path::Class::method` naming pytest gives each test. Top-level keys (`limits`, `mocks`) apply to the whole file; nest under `tests:` → class name → method name to override limits, sweeps, mocks, or retries for one class or one method.
 
 ## Sidecar Features
 
@@ -250,8 +250,8 @@ class TestPowerBoardProduction:
 
 ```bash
 pytest tests/ \
-  --station=stations/bench_1.yaml \
-  --fixture=fixtures/power_board_fixture.yaml \
+  --station=bench_1 \
+  --fixture=power_board_fixture \
   --uut-serial=SN12345 \
   --operator="Jane Doe" \
   -v
@@ -260,8 +260,8 @@ pytest tests/ \
 With simulation:
 ```bash
 pytest tests/ \
-  --station=stations/bench_1.yaml \
-  --fixture=fixtures/power_board_fixture.yaml \
+  --station=bench_1 \
+  --fixture=power_board_fixture \
   --mock-instruments \
   --uut-serial=SIM001 \
   -v
@@ -288,7 +288,7 @@ litmus serve
 ```python
 import duckdb
 
-# Measurements are nested under the vector rows — UNNEST them into flat rows.
+# Each run stores its measurements as a list per row; expand them into one row each.
 rows = duckdb.sql("""
     SELECT m.name, m.value, m.unit
     FROM read_parquet('data/runs/**/*.parquet', union_by_name=true),
@@ -308,7 +308,7 @@ Measurement: output_voltage = 3.31V PASS
     ↓
 UUT Pin: VOUT (from fixture)
     ↓
-Fixture Point: vout_measure
+Fixture connection: vout_measure
     ↓
 Instrument: dmm
     ↓
@@ -339,7 +339,7 @@ Spec: output_voltage @ tolerance=5%
 
 ## Sharing data across projects: `litmus data promote`
 
-`litmus init --starter` ships your project with a `data_dir: data` override in `litmus.yaml`. Runs land in the project-local `data/` folder so your tutorial / mock-instrument exploration doesn't pollute the global store every other project on this machine will share.
+`litmus init --starter` ships your project with a `data_dir: data` override in `litmus.yaml`. Runs land in the project-local `data/` folder so your tutorial and mock-instrument runs stay out of the shared global store other projects use.
 
 When you're ready to share data across projects and benches — typically once you have real hardware wired up and you want operator-UI access from any directory — run:
 
@@ -349,7 +349,7 @@ litmus data promote
 
 This:
 
-- Walks your project-local `data/runs/runs/*.parquet`
+- Walks your project-local `data/runs/runs/*/*.parquet`
 - **Skips** runs that match starter sentinels (`part_id: example_part`, `uut_serial: STARTER001`, etc.) — the throwaway scaffolding you ran while learning
 - Copies the rest into the global store (`~/.local/share/litmus/data/` on Linux; platformdirs equivalents on Mac/Windows)
 - Removes the `data_dir:` override from your `litmus.yaml` so future runs go straight to the global store
@@ -368,7 +368,7 @@ You've completed the tutorial. You now have a foundation for production hardware
 
 - [API Reference](../reference/runtime/api.md) — MCP tools and HTTP endpoints
 - [Configuration Reference](../reference/configuration.md) — All YAML options
-- [Litmus fixtures](../reference/pytest/fixtures.md) — all 20 fixtures the plugin exposes
-- [Litmus markers](../reference/pytest/markers.md) — the seven `litmus_*` markers and their sidecar equivalents
+- [Litmus fixtures](../reference/pytest/fixtures.md) — every fixture the pytest plugin provides
+- [Litmus markers](../reference/pytest/markers.md) — the `litmus_*` markers and their sidecar equivalents
 - [pytest-native Reference](../reference/overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
 - [Test Harness Integration](../integration/runtime/harness.md) — Advanced patterns

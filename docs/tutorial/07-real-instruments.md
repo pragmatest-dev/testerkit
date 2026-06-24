@@ -41,12 +41,12 @@ This defines:
 
 ## Instrument Role Fixtures
 
-When you run with `--station`, Litmus auto-registers each instrument role as a pytest fixture. Use them directly as function parameters:
+When you run with `--station`, each instrument role in the station YAML becomes available to your test by name — list it as a parameter and you get the live instrument:
 
 ```python
 # tests/test_power.py
 def test_output_voltage(psu, dmm, measure):
-    """Instrument roles from station config are auto-registered as fixtures."""
+    """psu and dmm come from the station config."""
     psu.set_voltage(5.0)
     psu.enable_output()
 
@@ -55,7 +55,7 @@ def test_output_voltage(psu, dmm, measure):
 
 Run with real hardware:
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --uut-serial=SN001
+pytest tests/ --station=bench_1 --uut-serial=SN001
 ```
 
 ## Running with Mock Instruments
@@ -63,7 +63,7 @@ pytest tests/ --station=stations/bench_1.yaml --uut-serial=SN001
 When hardware isn't available, add `--mock-instruments`:
 
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --mock-instruments --uut-serial=SIM001
+pytest tests/ --station=bench_1 --mock-instruments --uut-serial=SIM001
 ```
 
 The **same test code** works in both modes.
@@ -77,7 +77,7 @@ When `--mock-instruments` is set:
 
 ## Per-Test Mock Values
 
-For tests that need specific mock values, use `litmus_mocks` in the sidecar:
+For tests that need specific mock values, add a `mocks:` block to the sidecar:
 
 ```yaml
 # tests/test_voltage.yaml
@@ -90,11 +90,11 @@ limits:
 
 ## Mock Value Priority
 
-When running with `--mock-instruments`, values are resolved in order:
+When running with `--mock-instruments`, a mock value is taken from the first of these that's set:
 
-1. **`litmus_mocks` marker** — Per-test mock values (sidecar or inline)
+1. **`mocks:` in the sidecar** (or the `litmus_mocks` marker inline) — Per-test mock values
 2. **Station `mock_config`** — Default for this instrument
-3. **Zero** — If nothing else configured
+3. **`None`** — If nothing else is configured
 
 ## CI/CD Configuration
 
@@ -105,7 +105,7 @@ In CI, always run with `--mock-instruments`:
 - name: Run tests
   run: |
     pytest tests/ \
-      --station=stations/bench_1.yaml \
+      --station=bench_1 \
       --mock-instruments \
       --uut-serial=CI-TEST \
       -v
@@ -147,8 +147,9 @@ Next: litmus station init
 Each line shows the manufacturer + model + serial + VISA resource
 string (the value that goes in `resource:` above). The MCP tool
 `litmus_discover()` returns the same instruments as JSON, with
-extra structured fields (`catalog_ref`, separated manufacturer /
-model / serial / type) that the CLI doesn't print.
+extra structured fields (`catalog_ref` — the catalog entry matched to
+the model — plus separated manufacturer / model / serial / type) that
+the CLI doesn't print.
 
 To walk a station scaffold interactively — pick a role per
 discovered instrument and write the YAML — follow the CLI's
@@ -207,7 +208,7 @@ mocks:
 
 **tests/test_power.py:**
 ```python
-def test_output_voltage(psu, dmm, measure):
+def test_output_voltage(psu, dmm, verify):
     """Works with real hardware OR mock mode."""
     psu.set_voltage(5.0)
     psu.set_current_limit(1.0)
@@ -216,17 +217,17 @@ def test_output_voltage(psu, dmm, measure):
     voltage = dmm.measure_dc_voltage()
 
     psu.disable_output()
-    measure("output_voltage", voltage)
+    verify("output_voltage", voltage)
 ```
 
 **Run with hardware:**
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --uut-serial=SN12345
+pytest tests/ --station=bench_1 --uut-serial=SN12345
 ```
 
 **Run with mocks:**
 ```bash
-pytest tests/ --station=stations/bench_1.yaml --mock-instruments --uut-serial=SIM001
+pytest tests/ --station=bench_1 --mock-instruments --uut-serial=SIM001
 ```
 
 ## What You Learned

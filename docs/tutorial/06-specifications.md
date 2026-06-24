@@ -88,7 +88,7 @@ pins:
 
 ### [Characteristics](../concepts/configuration/capabilities.md)
 
-Measurable properties with expected values (each entry in `bands:` is a [`SpecBand`](../reference/data/models.md) — a value-plus-condition record):
+Measurable properties with expected values (each entry in `bands:` is a [`SpecBand`](../reference/data/models.md) — an expected value with the operating conditions it applies at):
 
 ```yaml
 characteristics:
@@ -105,26 +105,30 @@ characteristics:
 
 ## Deriving Limits from Specs
 
-The spec says: output_voltage = 3.3V ± 5%
-
-Calculate limits:
-- Low: 3.3 × (1 - 0.05) = 3.135V
-- High: 3.3 × (1 + 0.05) = 3.465V
-
-Put these in the sidecar YAML next to the test file:
+A sidecar limit can pull its bounds straight from the part spec. Set `characteristic:` on the limit and Litmus reads that characteristic's value and accuracy from the part spec — at the operating condition in play — and turns it into `low`/`high`:
 
 ```yaml
 # tests/test_power.yaml
+limits:
+  output_voltage:
+    characteristic: output_voltage    # pull value + accuracy from the part spec
+```
+
+With the spec above (`3.3 V ± 5%`) that resolves to `low: 3.135`, `high: 3.465` automatically. Change the spec and every test that references it follows — no hand-computed numbers to keep in sync.
+
+When a limit doesn't come from a part spec, write explicit `low`/`high` instead:
+
+```yaml
 limits:
   output_voltage:
     low: 3.135
     high: 3.465
     nominal: 3.3
     unit: V
-    spec_ref: "output_voltage @ tolerance_pct=5"  # Traceability!
+    spec_ref: "TPS54302 datasheet, Table 6.5"   # free-text note, documentation only
 ```
 
-The `spec_ref` field provides [traceability](../how-to/execution/traceability.md) back to the specification.
+`spec_ref` is a free-text [traceability](../how-to/execution/traceability.md) note recorded with the measurement — it isn't read to compute the limit. The field that links a limit to the spec is `characteristic:`.
 
 ## Guardbanding
 
@@ -136,19 +140,17 @@ Guardband:  10% tighter
 Production: 3.152V to 3.449V
 ```
 
-Calculate guardbanded limits in the sidecar — the part spec stays
-the source-of-truth for the characteristic value/accuracy, and the
-sidecar narrows it via `tolerance_pct` (or hard `low`/`high`) for
-the production run:
+Add `guardband_pct:` to a spec-derived limit to pull both bounds inward:
 
 ```yaml
 # tests/test_power.yaml
 limits:
   output_voltage:
-    low: 3.152      # With 10% guardband
-    high: 3.449
-    spec_ref: "output_voltage @ guardband=10%"
+    characteristic: output_voltage
+    guardband_pct: 10        # tighten the spec band by 10% for production
 ```
+
+The part spec stays the master copy of the value and accuracy; the sidecar tightens it per run. (To set a band width directly from a nominal instead of the spec's accuracy, use `tolerance_pct:`.)
 
 ## Conditions
 
@@ -174,7 +176,7 @@ characteristics:
           load: 0.5
 ```
 
-Sweep these conditions from the sidecar:
+Sweep these conditions from the sidecar and bind the limit to the characteristic — Litmus picks the `SpecBand` whose `when:` matches each vector:
 
 ```yaml
 # tests/test_power.yaml
@@ -182,7 +184,8 @@ sweeps:
   - temperature: [25, 85]
   - load: [0.5]
 limits:
-  # Different limits per condition resolve from the spec at runtime
+  output_voltage:
+    characteristic: output_voltage    # ±5% at 25 °C, ±7% at 85 °C — picked per vector
 ```
 
 ## Why Separate Spec from Sidecar?
@@ -231,11 +234,8 @@ characteristics:
 ```yaml
 limits:
   output_voltage:
-    low: 3.152
-    high: 3.449
-    nominal: 3.3
-    unit: V
-    spec_ref: "output_voltage @ guardband=10%"
+    characteristic: output_voltage
+    guardband_pct: 10
 mocks:
   - target: dmm.measure_dc_voltage
     return_value: 3.31
@@ -261,8 +261,9 @@ Every measurement can be traced back to the original specification.
 ## What You Learned
 
 - Part specification structure (part, pins, characteristics)
+- Auto-deriving limits from the spec with `characteristic:`
 - Conditions for operating points
-- Guardbanding for production margins
+- Guardbanding for production margins with `guardband_pct:`
 - Traceability from spec to test results
 
 ## Continue

@@ -22,7 +22,7 @@ Before looking at the script, the relevant piece from [The Three Test-Author Ver
 | Test-author verbs | Inside a pytest test body | `stream` fixture |
 | Store-direct | Outside a test — notebook, script, REPL | `litmus.channels.stream` |
 
-The store-direct surface is the same ChannelStore underneath. What it skips is the test-context bookkeeping (`out_*` stamp on a vector, `Observation` event per call) — because there is no vector to anchor to.
+The store-direct surface is the same ChannelStore underneath. It skips the per-test bookkeeping that `observe` does inside a test — here there's no test step to attach the readings to.
 
 ## The streaming script
 
@@ -63,25 +63,25 @@ if __name__ == "__main__":
 
 Two calls do all the work:
 
-- `connect("bench_01")` opens a Litmus session — EventStore, ChannelStore, and the instrument pool. It reads `bench_01` from `stations/bench_01.yaml` (or the `default_station` in `litmus.yaml`). The `with` block emits `SessionStarted` on entry and `SessionEnded` on exit, with proper cleanup on Ctrl-C.
+- `connect("bench_01")` opens a Litmus session — EventStore, ChannelStore, and the instrument pool. It reads `bench_01` from `stations/bench_01.yaml` (or the `default_station` in `litmus.yaml`). The `with` block records `SessionStarted` on entry and `SessionEnded` on exit, with proper cleanup on Ctrl-C.
 - `litmus.channels.stream("dmm.voltage")` opens a context-managed sink named `dmm.voltage`. Every `sink.write(value)` appends one sample to ChannelStore. The sink closes cleanly at the end of the `with` block; Ctrl-C mid-stream leaves partial data on disk.
 
-`station.instrument("dmm")` connects the driver declared in `stations/bench_01.yaml` under role `dmm` and returns a proxied instance.
+`station.instrument("dmm")` connects the driver declared in `stations/bench_01.yaml` under role `dmm` and returns the connected instrument.
 
 ## The interactive entry point
 
-`from litmus import connect` is the non-pytest on-ramp. The pytest plugin opens and closes a session for you around each run; here you own the lifecycle directly.
+`from litmus import connect` is the non-pytest on-ramp. The pytest plugin opens and closes a session for you around each run; here you open and close the session yourself.
 
 ```python
 with connect("bench_01") as station:
     ...
 ```
 
-This is equivalent to what the pytest plugin does at session scope. Outside pytest, you write it explicitly.
+Inside a pytest run, the session opens and closes for you; outside pytest, you write it explicitly.
 
 ## The self-simulating DMM
 
-`drivers/dmm.py` is a concrete `DMM` class whose `measure_voltage()` returns a 30-second sine wave (±50 mV) around 3.3 V with ±5 mV per-sample noise. It has no dependency on Litmus's mock infrastructure — `litmus.yaml` does not set `mock_instruments: true`, so the real-driver path instantiates it directly.
+`drivers/dmm.py` is a concrete `DMM` class whose `measure_voltage()` returns a 30-second sine wave (±50 mV) around 3.3 V with ±5 mV per-sample noise. `litmus.yaml` does not set `mock_instruments: true`, so the script runs the real `DMM` class — no mocking involved.
 
 ```python
 # drivers/dmm.py (excerpt)
@@ -118,7 +118,7 @@ cd examples/09-instrument-streaming
 uv run python scripts/live_dmm_monitor.py
 ```
 
-The channel panel updates push-style as samples arrive — no page reload. The chart is fed by a Flight subscription wired in `litmus serve` startup, not by polling. Stop early with Ctrl-C; partial data stays on disk.
+The channel panel updates as each sample lands — no page reload. Stop early with Ctrl-C; partial data stays on disk.
 
 For reference on what the Channels page shows, see [Operator UI → Channels](../reference/operator-ui/channels/list.md).
 
@@ -129,10 +129,10 @@ The example sets `data_dir: data` in `litmus.yaml`, so everything lands under `e
 ```
 data/
 ├── events/{date}/{session_id}-{pid}.arrow      ← SessionStarted, ChannelStarted, etc.
-└── channels/{date}/dmm_voltage_{session_short}.arrow   ← the 3 000 samples
+└── channels/{date}/dmm.voltage_{session_short}.arrow   ← the recorded samples
 ```
 
-ChannelStore files are session-scoped — two concurrent script runs write to two separate files. The operator UI unifies them on the `dmm.voltage` panel by channel name. Run the script a second time and both sessions' data appear on the same timeline; add `session_id=…` to a query to scope to one run.
+ChannelStore files are session-scoped — two concurrent script runs write to two separate files. The operator UI shows both on the same `dmm.voltage` panel, matched by channel name. Run the script a second time and both sessions' data appear on the same timeline; add `session_id=…` to a query to scope to one run.
 
 See [Three Stores Architecture](../concepts/data/three-stores.md) for the full on-disk layout and retention model.
 
