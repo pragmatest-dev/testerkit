@@ -24,6 +24,19 @@ content.
 `reference/overview/pytest-native.md`. Regenerate:
 `uv run python scripts/generate_reference_docs.py --all`.
 
+## Method (REVISED 2026-06-24 — cost + focus)
+
+Per user direction, to control token spend and prioritize the highest-value work:
+- **Two lenses per page:** `audit-accuracy` (factual safety net — I keep introducing subtle
+  format/default errors, e.g. data_dir, row-per-measurement) + `audit-audience` (jargon→plain
+  T&M language, prose simplification — the value the user most wants). Skip the full 6-lens
+  coordinator; spot-fix obvious voice/marketing myself.
+- **Self-verify small/factual fixes**; full re-audit ONLY after a critical or a structural rewrite.
+- **Prioritized subset:** tutorial → concepts → hand-written reference. DEFER the 13 operator-UI
+  reference pages + low-traffic how-tos to a later pass.
+- Verify load-bearing format/schema/default claims DIRECTLY against source before writing — the
+  audits miss these.
+
 ## The four lenses → audit agents
 
 `audit-coordinator` runs all six on one page in parallel (writes `.tmp/page-audits/<slug>.md`):
@@ -172,6 +185,19 @@ before any accuracy audit that diffs against it.
   (`designer/page.py`, `_wait_for_run` test path) reworded to user-facing symptoms. Also
   `@litmus_test`→pytest-native (0.1.0 never shipped it) and scrubbed the `test_perf_daemon.py`
   path. Re-audit CERTIFIED 0 critical. ✅
+
+### Piece 2 — tutorial (lean 2-lens method from 06-24)
+- 02-mock-instruments — accurate as-is; 5 jargon fixes (quacks-like→stand-in, factory→helper,
+  seam→fails-loudly, lift-conditional→move-the-choice). ✅
+- 03-fixtures — 1 CRIT (`measure(..., allow_repeat=True)` via fixture = TypeError; allow_repeat
+  is RunScope-only → replaced w/ channels `stream` pointer) + storage reframed to query-view +
+  `done` outcome added + brittle fixture count DROPPED (sidesteps 20→22 drift) + jargon. Re-audit 0. ✅
+- 04-limits — accurate (outcome ladder + full comparator table verified); 6 jargon fixes. ✅
+- 05-configuration — 2 CRIT: (a) `get_param("key")` does NOT raise, returns None/default
+  (harness.py:831); (b) precedence was BACKWARDS — actual is inline<sidecar<profile, sidecar
+  WINS (cascade appended after inline). Plus `@pytest.mark.flaky`→`litmus_retry` (respects the
+  no-flaky axiom; litmus_retry wraps rerunfailures) + `changed()` first-vector + jargon. Re-audit 0. ✅
+
 - Piece 1 ROADMAP.md — 2026-06-23 — fixed 1 tone critical (L1277 "limit-setting today is
   intuition + guesswork" → "engineering judgment … this adds a … loop on top of that") + ATML
   removed from the exporter list (no ATML exporter) + split a malformed concatenated RICE row
@@ -179,3 +205,16 @@ before any accuracy audit that diffs against it.
   (not fixed — can't determine intent): L1691 no-op self-rename
   "`litmus.pytest_plugin` → `litmus.pytest_plugin`" (typo; intended target unknown).
   PIECE 1 COMPLETE — install/entry cluster all 7 pages at 0 critical.
+- Piece 2 tutorial/01-first-test.md — 2026-06-23 — full rewrite resolving 6 structural
+  criticals (dual reader-context, two conflicting first-tests, `verify`-before-precondition,
+  repo-dev clone+uv-sync install). Now centers on the real `litmus init --tier=bringup`
+  scaffold: pip install → scaffold → `pytest -v` (3 smoke tests); `verify` shown as scaffold
+  output with precondition stated + full explanation deferred to steps 3-4. Every code/CLI/
+  path/fixture claim verified against source (init.py:147-179,644-682; pytest_plugin verify).
+  CERTIFIED 0 critical (5 passes). USER caught 2 errors the audits missed: (a) bringup
+  `litmus.yaml` has NO `data_dir` — `data_dir: data` is bench/starter-only (`init.py:73-74,234`),
+  so bringup runs go to the GLOBAL platformdirs store; (b) measurements are NOT "a parquet row
+  per measurement" — at rest they're a nested LIST<STRUCT> on the vector row (schemas.py v2),
+  flat-per-measurement is only a query-time UNNEST. Also: the store is the "run store" (RunStore),
+  used everywhere — not "data store". Cut the premature parquet/data_dir/traceability detail from
+  step 1 entirely. WATCH for these traps on later pages.

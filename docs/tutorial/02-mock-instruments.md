@@ -1,6 +1,6 @@
 # Step 2: Running Without Hardware
 
-**Goal:** Run your tests without real instruments by wrapping your driver classes with Litmus's `Mock` factory.
+**Goal:** Run your tests without real instruments by wrapping your driver classes with Litmus's `Mock` helper.
 
 In step 1 you wrote vanilla pytest tests against `psu` and `dmm` fixtures defined in `conftest.py`. This step shows the smallest change that lets the same tests run on a laptop with no hardware attached.
 
@@ -31,7 +31,7 @@ def dmm(mock_instruments) -> DMM:
 
 `mock_instruments` is a fixture Litmus provides — it returns `True` whenever `--mock-instruments` is on the command line or `LITMUS_MOCK_INSTRUMENTS=1` is set.
 
-`Mock(DMM, measure_dc_voltage=3.31)` returns an object that quacks like a `DMM` — every method call is a no-op unless you configure a return value. Pass a literal for a constant return, a `dict` to map argument values, or a callable for dynamic behavior.
+`Mock(DMM, measure_dc_voltage=3.31)` returns a stand-in `DMM` — every method call does nothing and returns `None` unless you give it a return value. Pass a literal for a constant reading, a `dict` to map an argument value to a reading, or a function for dynamic behavior.
 
 This is exactly what [`examples/01-vanilla`](https://github.com/pragmatest-dev/litmus/tree/main/examples/01-vanilla) and [`examples/02-verify`](https://github.com/pragmatest-dev/litmus/tree/main/examples/02-verify) ship.
 
@@ -48,7 +48,7 @@ Same test code as step 1, no hardware required.
 LITMUS_MOCK_INSTRUMENTS=1 pytest tests/ -v
 ```
 
-## Mock factory cheat sheet
+## Mock cheat sheet
 
 ```python
 # Constant return
@@ -62,7 +62,7 @@ import random
 dmm = Mock(DMM, measure_dc_voltage=lambda: 3.3 + random.gauss(0, 0.005))
 ```
 
-Every method not configured is a silent no-op. Reading an unconfigured *attribute* (not a method call) raises `AttributeError` — that's the seam where a missing mock spec shows up.
+Every method you don't configure does nothing and returns `None`. Reading an attribute you never configured raises an `AttributeError` instead — so a missing mock value fails loudly rather than silently returning nothing.
 
 ## Mocks vs real hardware
 
@@ -79,7 +79,7 @@ The point of the wrap-in-conftest pattern: **the test code is the same on a lapt
 - `Mock(DriverClass, method=return_value, ...)` wraps any driver class
 - The conftest fixture decides real vs mock — tests don't change
 
-In later steps you'll lift this conftest conditional into station YAML (step 7) so the same setup serves a whole bench of tests. For now, conftest is enough.
+In later steps you'll move this real-vs-mock choice out of `conftest.py` and into station YAML (step 7), so one setting serves a whole bench of tests. For now, conftest is enough.
 
 ## Continue
 

@@ -1,83 +1,58 @@
 # Step 1: Run Something
 
-**Goal:** Write and run your first Litmus test.
+**Goal:** Install Litmus and run your first test against a mock instrument.
 
 ## What You'll Build
 
-A simple test that passes. Nothing fancy yet — just getting the basics working.
+A tiny project with one mock instrument and a passing measurement test — no hardware, and no station or part YAML yet. This is the **bench-bringup** scaffold: the smallest thing that records a real measurement.
 
-## Prerequisites
-
-```bash
-# Clone and install
-git clone https://github.com/pragmatest-dev/litmus.git
-cd litmus
-uv sync
-```
-
-## The Code
-
-Create a test file:
-
-```python
-# tests/test_hello.py
-
-def test_litmus_works():
-    """Verify Litmus is installed and pytest runs."""
-    assert True
-```
-
-Run it:
+## Install
 
 ```bash
-pytest tests/test_hello.py -v
+pip install litmus-test
 ```
 
-Expected output:
+That installs the `litmus` CLI and the pytest plugin — your tests are ordinary pytest functions; the plugin adds the hardware-test pieces.
+
+## Scaffold a project
+
+```bash
+litmus init my_project --tier=bringup
+cd my_project
 ```
-tests/test_hello.py::test_litmus_works PASSED
-```
 
-## What's Happening
-
-This is a plain pytest test. Nothing Litmus-specific yet. We're just verifying:
-
-1. Your Python environment is set up
-2. pytest discovers and runs tests
-3. The test passes
-
-## Project Structure
-
-Your project should look like:
+The `bringup` tier is the smallest scaffold: mock instrument fixtures in a `conftest.py`, one smoke test, and one sidecar — no station, catalog, or part YAML. It creates:
 
 ```
 my_project/
+├── litmus.yaml          # project config
+├── pyproject.toml
 ├── tests/
-│   ├── __init__.py      # (optional) marks as package
-│   └── test_hello.py    # your test
-├── pyproject.toml       # or requirements.txt
-└── ...
+│   ├── conftest.py      # mock dmm / psu fixtures
+│   ├── test_smoke.py    # measurement tests
+│   └── test_smoke.yaml  # sidecar limits
+└── reports/
 ```
 
-## Why Start Simple?
+## Run it
 
-Hardware testing can get complex fast. Starting with the simplest possible test ensures:
+```bash
+pytest -v
+```
 
-- Your environment works
-- You can iterate quickly
-- Problems are easy to diagnose
+Expected output:
 
-Once this works, we'll add actual measurements.
+```
+tests/test_smoke.py::test_rail_inline PASSED
+tests/test_smoke.py::test_rail_sidecar PASSED
+tests/test_smoke.py::test_current_draw PASSED
+```
 
-## About conftest.py
+Three measurements recorded against mock instruments, each checked against a limit.
 
-This step uses a `conftest.py` to define the `dmm` (and later `psu`) fixtures. That's the same pattern you'd use in any pytest project — Litmus does not require its own configuration to get started.
+## What's in the scaffold
 
-Later steps will introduce a **[station YAML](../concepts/configuration/stations.md)** — a single file that declares the bench's instruments. When that exists, Litmus auto-registers an instrument-role fixture (for each instrument declared in the station YAML, a pytest fixture by that name is provided to your tests automatically) such as `dmm`, `psu`, etc., and you can drop the corresponding `conftest.py` fixtures. For step 1, ignore station YAML entirely.
-
-## Bench-bringup pattern
-
-For a brand-new board, the smallest scaffold is just a `conftest.py` fixture and one test. `litmus init --tier=bringup` creates this layout. (Forward references: [`Limit`](../reference/data/models.md) is Litmus's pass/fail-bound model, [`verify`](../reference/pytest/fixtures.md#verify-function) is the fixture that records a measurement and checks it against a limit — both introduced fully in step 3 / step 4. [PyVISA](https://pyvisa.readthedocs.io/) and [PyMeasure](https://pymeasure.readthedocs.io/) are the external instrument-driver libraries you'd swap into the fixture for real hardware.)
+The `conftest.py` defines instrument fixtures with `MagicMock` standing in for a real driver:
 
 ```python
 # tests/conftest.py
@@ -87,14 +62,17 @@ import pytest
 
 @pytest.fixture
 def dmm() -> MagicMock:
+    """Bench DMM. Replace MagicMock with a real driver."""
     inst = MagicMock()
     inst.measure_dc_voltage.return_value = 3.3
-    return inst  # swap MagicMock for your PyVISA / PyMeasure driver
+    return inst
 ```
+
+`test_smoke.py` ships three measurement tests; here's the first — it takes the `dmm` fixture and records a measurement:
 
 ```python
 # tests/test_smoke.py
-def test_rail(dmm, verify):
+def test_rail_inline(dmm, verify) -> None:
     verify(
         "v_rail",
         float(dmm.measure_dc_voltage()),
@@ -102,45 +80,34 @@ def test_rail(dmm, verify):
     )
 ```
 
-Rows land in parquet with `measurement_value`, `limit_low` / `limit_high`, and `measurement_outcome` populated. [Traceability](../how-to/execution/traceability.md) columns (`uut_pin`, `instrument_channel`, `fixture_connection`, `spec_ref`) stay NULL until you graduate to a [station](../concepts/configuration/stations.md) + [part](../concepts/configuration/parts.md) + [fixture](../concepts/configuration/fixtures.md) — at which point the test bodies don't change.
+`verify` is a fixture the Litmus plugin provides (installed with `litmus-test`): it records the measurement and checks it against the limit, failing the test if the value is out of band. You'll meet `verify` and limits properly in [Step 3](03-fixtures.md) and [Step 4](04-limits.md) — for now, you've run a test that captures a real measurement. Swap the `MagicMock` for a [PyVISA](https://pyvisa.readthedocs.io/) or [PyMeasure](https://pymeasure.readthedocs.io/) driver when you move to the bench; the test body doesn't change.
 
-See [`examples/01-vanilla`](https://github.com/pragmatest-dev/litmus/tree/main/examples/01-vanilla) for a runnable example.
+## About conftest.py
 
-## Verify the Setup
+Right now the instruments come from `conftest.py` fixtures — the same pattern you'd use in any pytest project. Litmus doesn't need its own configuration to get started.
 
-Run tests with verbose output:
+Later steps introduce a [station YAML](../concepts/configuration/stations.md) — one file that declares the bench's instruments. When it exists, Litmus auto-registers an instrument-role fixture for each instrument it declares (`dmm`, `psu`, …), and you delete the matching `conftest.py` fixtures. The test bodies stay the same.
 
-```bash
-pytest tests/ -v --collect-only
-```
+## Results
 
-This shows what pytest discovered without running tests.
+Each measurement is recorded to Litmus's **run store** — the value `verify` captured, not just a pass/fail. Viewing and querying runs comes in later steps; the point for now is that the test recorded a real measurement.
 
 ## Troubleshooting
 
-**"pytest: command not found"**
-```bash
-# Activate your virtual environment
-source .venv/bin/activate  # Linux/Mac
-# or
-.venv\Scripts\activate     # Windows
-```
+**"pytest: command not found"** — make sure `litmus-test` installed into the active environment, and if you use a virtualenv, that it's activated.
 
-**"No tests collected"**
-- Check that test file starts with `test_`
-- Check that function starts with `test_`
+**"No tests collected"** — check the test file name starts with `test_` and each function starts with `test_`.
 
-**"fixture 'dmm' not found" (or any instrument role)**
-- Define the fixture in `tests/conftest.py` — see the bench-bringup pattern above. `litmus init --tier=bringup` creates this scaffold for you. Later tutorial steps will lift the fixture definition into a station YAML, at which point the role fixture is auto-registered.
+**"fixture 'dmm' not found"** — the fixture lives in `tests/conftest.py`, which `litmus init --tier=bringup` creates. Later steps lift the fixture into a station YAML, where the role fixture is auto-registered.
 
 ## What You Learned
 
-- How to create a pytest test file
-- How to run tests with pytest
-- Basic project structure for Litmus tests
+- Install Litmus with `pip install litmus-test`
+- Scaffold the smallest project with `litmus init --tier=bringup`
+- Run measurement tests against mock instruments with `pytest`
 
 ## Continue
 
-Now let's make the test actually do something useful.
+Next, run the same tests in Litmus's mock mode and control the returned values from config.
 
 ← [Quick Start](quickstart.md)  |  [Step 2: Mock Instruments →](02-mock-instruments.md)

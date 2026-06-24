@@ -2,7 +2,7 @@
 
 **Goal:** Decide pass/fail for a measurement.
 
-In step 3 your tests called `verify(name, value, limit=...)`. The pass/fail decision happens because a **limit** is attached. This step covers the limit shape and the two ways to attach a limit from code: inline on the call, or via the `litmus_limits` marker on the test function. Both feed the same resolution chain.
+In step 3 your tests called `verify(name, value, limit=...)`. The pass/fail decision happens because a **limit** is attached. This step covers the limit shape and the two ways to attach a limit from code: inline on the call, or via the `litmus_limits` marker on the test function. Both end up as the same limit.
 
 Step 5 moves limits out of code into a YAML file next to the test — keep that destination in mind, but don't reach for YAML yet.
 
@@ -19,7 +19,7 @@ limit = {
 }
 ```
 
-Both `verify(name, value, limit=...)` and `measure(name, value, limit=...)` accept this dict directly. Internally it's validated against the `Limit` Pydantic model in [`litmus.models.test_config`](../reference/data/models.md#model-limit). If you'd rather construct the model explicitly — for IDE type-checking or for a shared constant — `Limit` is re-exported from the top-level package:
+Both `verify(name, value, limit=...)` and `measure(name, value, limit=...)` accept this dict directly. It's validated against the [`Limit`](../reference/data/models.md#model-limit) model. If you'd rather construct it explicitly — for IDE type-checking or a shared constant — `Limit` is re-exported from the top-level package:
 
 ```python
 from litmus import Limit
@@ -27,7 +27,7 @@ from litmus import Limit
 V_RAIL = Limit(low=3.135, high=3.465, unit="V")
 ```
 
-The dict form is the canonical idiom in tutorials and examples; reach for `Limit(...)` when you want the model object.
+The dict form is what tutorials and examples use; reach for `Limit(...)` when you want the model object.
 
 ## How a measurement is checked
 
@@ -43,7 +43,7 @@ The dict form is the canonical idiom in tutorials and examples; reach for `Limit
 | `Outcome.TERMINATED` | `"terminated"` | Run terminated (keyboard interrupt, signal) |
 | `Outcome.DONE` | `"done"` | Recorded without a limit, or container with no measurements |
 
-Container outcomes roll up via the ladder `skipped < done < passed < failed < errored < terminated < aborted` — the worst child wins (`skipped` and `done` rank below `passed` so a parent with one skipped child and one passing child still resolves to `passed`).
+A parent step takes the **worst** outcome of its children, ranked `skipped < done < passed < failed < errored < terminated < aborted` (so a parent with one skipped child and one passing child still resolves to `passed`).
 
 ## Inline limit on the call
 
@@ -115,7 +115,7 @@ def test_voltage(dmm, measure):
     measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-`verify` is judgment-bearing: calling it with no limit (no inline `limit=`, no marker, no sidecar, no part spec) raises `MissingLimitError`. For a wide characterization sweep where you want the same `verify()` test code to record values without judging, set `verify_requires_limit: false` on a [profile](../how-to/execution/profiles.md) — `verify` then falls back to `measure` semantics for that session.
+`verify` requires a limit: calling it with none (no inline `limit=`, no marker, no sidecar, no part spec) raises `MissingLimitError`. For a wide characterization sweep where you want the same `verify()` test code to record values without judging, set `verify_requires_limit: false` on a [profile](../how-to/execution/profiles.md) — `verify` then falls back to `measure` semantics for that session.
 
 ## What's missing — and what step 5 fixes
 
@@ -127,7 +127,7 @@ For [condition-indexed bands](../how-to/execution/limits.md#condition-indexed-ba
 
 - The limit dict — `low`, `high`, `nominal`, `unit`, `comparator`
 - Inline limits via `verify(..., limit={...})` or `measure(..., limit={...})`
-- The `litmus_limits` marker for class/function-level limit binding
+- The `litmus_limits` marker for attaching limits at class or function level
 - The `Outcome` ladder and what each value means
 - The `Comparator` enum for non-`GELE` checks
 - Recording without judging via `measure(no limit)` or a record-only profile

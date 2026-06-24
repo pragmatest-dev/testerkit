@@ -2,21 +2,21 @@
 
 **Goal:** Adopt Litmus's per-test fixtures so measurements get recorded with full [traceability](../how-to/execution/traceability.md).
 
-In step 2, your tests called driver methods and used `assert` for pass/fail. Litmus's `measure` and `verify` fixtures slot in alongside that, recording each measurement to the run record (the row Litmus writes per test in parquet — see [three stores](../concepts/data/three-stores.md)) without changing how your test reads.
+In step 2, your tests called driver methods and used `assert` for pass/fail. Litmus's `measure` and `verify` fixtures slot in alongside that, recording each measurement to the run record (see [three stores](../concepts/data/three-stores.md)) without changing how your test reads.
 
 You don't need any new YAML for this step. Keep the `conftest.py` from step 2 — the `psu` / `dmm` fixtures still work.
 
 ## The fixtures you add
 
-All three are available on every test run — no station, no sidecar, no sweep required. `measure` and `verify` write measurement rows; `context` exposes the active run / UUT / station / vector state.
+All three are available on every test run — no station, no sidecar, no sweep required. `measure` and `verify` record measurements; `context` exposes what's active for this test — the run, UUT, station, and any sweep values.
 
 | Fixture  | What it gives the test                                 | Verbs                                            |
 |----------|--------------------------------------------------------|--------------------------------------------------|
-| `measure`| Records a measurement row without judging              | `measure(name, value, limit=None, characteristic=None)` |
+| `measure`| Records a measurement row — no pass/fail check          | `measure(name, value, limit=None, characteristic=None)` |
 | `verify` | Records the row, resolves a limit, raises on FAIL      | `verify(name, value, limit=..., characteristic=...)` (`characteristic` = a named measurable property on the part spec — covered in step 6 / [concepts/capabilities](../concepts/configuration/capabilities.md)) |
-| `context`| Ambient run / UUT / station / vector state             | `get_param`, `changed`, `last`, `observe`, `.part`, `.station`, `.run` |
+| `context`| What's active — the run, UUT, station, and (if parametrized) sweep values | `get_param`, `changed`, `last`, `observe`, `.part`, `.station`, `.run` |
 
-These are the common per-test entry points. The plugin exposes 17 others (hardware accessors like `pins` / `instruments` / `uut`, configuration accessors like `part` / `station_config`, special modes like `vectors` / `sync`) — see the [Litmus fixtures reference](../reference/pytest/fixtures.md) for the full set.
+These are the three you'll reach for most. The Litmus plugin for pytest provides more — hardware accessors (`pins`, `instruments`, `uut`), config accessors (`part`, `station_config`), and special-purpose fixtures (`vectors`, `sync`) — see the [Litmus fixtures reference](../reference/pytest/fixtures.md) for the full set.
 
 ## From assert to measure
 
@@ -41,7 +41,7 @@ def test_output_voltage(psu, dmm, measure):
     assert 3.2 <= v <= 3.4
 ```
 
-Same control flow, but now there's a row in the run record with the value, units, limits, and outcome — visible to `litmus runs`, the operator UI, and any downstream analysis.
+Same control flow, but now there's a measurement recorded in the run record — value, units, limits, and outcome — visible to `litmus runs`, the operator UI, and any downstream analysis.
 
 ## Skip the assert with `verify`
 
@@ -59,7 +59,7 @@ For one-off tests, passing `limit=` inline is fine. The cleaner home for limits 
 
 ## Classes group related tests
 
-A plain pytest class with hardware-test-shaped methods is the canonical Litmus shape:
+Grouping related tests in a plain pytest class is the standard way to structure a Litmus test:
 
 ```python
 class TestPowerUp:
@@ -80,7 +80,7 @@ If a downstream test should skip when an upstream one fails, use `@pytest.mark.d
 
 ## Parametrize is first-class
 
-`@pytest.mark.parametrize` works the way it always does. Add the `context` fixture if you want the test to read its current parametrize values through Litmus's traceability path:
+`@pytest.mark.parametrize` works the way it always does. Add the `context` fixture if you want those parametrize values recorded with the measurement:
 
 ```python
 import pytest
@@ -92,7 +92,7 @@ def test_output_voltage(vin, psu, dmm, verify):
            limit={"low": 3.2, "high": 3.4, "unit": "V"})
 ```
 
-Each parametrized `vin` value is recorded as an **input** named `vin` on the measurement (its role is `input` — see [traceability](../how-to/execution/traceability.md)), so you can later query "how did output_voltage track vin?" — inputs are addressable by name and role — without re-instrumenting the test. Sweeping from YAML instead of inline arrives in step 5.
+Each parametrized `vin` value is recorded as an **input** named `vin` on the measurement (its role is `input` — see [traceability](../how-to/execution/traceability.md)), so you can later query "how did output_voltage track vin?" — inputs are addressable by name and role — without adding extra code to the test. Sweeping from YAML instead of inline arrives in step 5.
 
 Litmus also adds a native sweep marker, `@pytest.mark.litmus_sweeps`, that records the same inputs and supports range expanders (`linspace`, `arange`, `logspace`):
 
@@ -104,7 +104,7 @@ def test_output_voltage(vin, psu, dmm, verify):
     ...
 ```
 
-Use `@pytest.mark.parametrize` when you want pytest's per-row `pytest.param(..., id="...")` metadata; use `@pytest.mark.litmus_sweeps` when you want range expanders or sidecar parity. See [`litmus_sweeps`](../reference/pytest/markers.md#litmus_sweeps) and the [Litmus markers reference](../reference/pytest/markers.md) for all seven `litmus_*` markers.
+Use `@pytest.mark.parametrize` when you want pytest's per-row `pytest.param(..., id="...")` metadata; use `@pytest.mark.litmus_sweeps` when you want range expanders (`linspace` / `arange` / `logspace`) or want the sweep to match how you'll define it in YAML (step 5). See [`litmus_sweeps`](../reference/pytest/markers.md#litmus_sweeps) and the [Litmus markers reference](../reference/pytest/markers.md) for all seven `litmus_*` markers.
 
 ## Multiple measurements per test
 
@@ -120,22 +120,9 @@ def test_power_analysis(psu, dmm, verify):
            limit={"low": 3.2, "high": 3.4, "unit": "V"})
 ```
 
-## Streaming samples under one name
+## Recording many samples
 
-`measure` enforces unique names within a step. To record many samples under one name (e.g. a stability sweep), pass `allow_repeat=True`:
-
-```python
-import time
-def test_stability(dmm, measure):
-    for _ in range(10):
-        measure(
-            "voltage_sample",
-            dmm.measure_dc_voltage(),
-            limit={"low": 3.2, "high": 3.4, "unit": "V"},
-            allow_repeat=True,
-        )
-        time.sleep(1)
-```
+`measure` records one row per name within a step. For a stream of samples under a single name — a stability capture or a scope trace — use a channel (`stream`), covered in [Step 10](10-live-monitoring.md) and [Step 11](11-waveforms-and-evidence.md).
 
 ## Running the tests
 
@@ -152,21 +139,21 @@ litmus runs
 litmus show <run_id>
 ```
 
-## What gets stored
+## What a measurement records
 
-Each measurement row carries:
+Read a run back and each measurement gives you:
 
-| Column | Description |
+| Field | Description |
 |--------|-------------|
 | `measurement_name` | name passed to `verify` / `measure` |
 | `measurement_value` | the measured value |
 | `measurement_unit` | unit (from `limit.unit`) |
-| `measurement_outcome` | `passed` / `failed` / `skipped` / `errored` |
+| `measurement_outcome` | `passed` / `failed` / `done` / `skipped` / `errored` |
 | `limit_low`, `limit_high`, `limit_nominal`, `limit_comparator` | the active limit |
 | `measurement_timestamp` | when it was recorded |
 | `vector_index` | which sweep variant (NULL for non-parametrized tests) |
 
-Full schema in [Parquet storage schema](../reference/data/parquet-schema.md).
+Read these with `litmus runs` / the operator UI, or the [Query API](../reference/data/query-api.md).
 
 ## What you learned
 

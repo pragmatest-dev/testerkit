@@ -4,14 +4,15 @@
 
 ## Where Test Config Lives
 
-Test configuration (vectors, limits, mocks) can come from several places,
-resolved in priority order:
+Test configuration (vectors, limits, mocks) can come from two places, listed
+lowest-priority first:
 
-1. **Pytest markers** — `@pytest.mark.parametrize(...)`, `@pytest.mark.litmus_limits`
+1. **Inline pytest markers** — `@pytest.mark.parametrize(...)`, `@pytest.mark.litmus_limits`
 2. **Sidecar YAML** — a `test_<module>.yaml` next to the test file
 
-Markers and sidecar entries merge by name+key — later wins on overlap, the
-same rule pytest applies to stacked decorators.
+When a marker and a sidecar entry set the same value, the **sidecar wins** —
+they combine by test name and value name. (Profiles add a third layer that
+overrides both; see [profiles](../how-to/execution/profiles.md).)
 
 ## Sidecar YAML
 
@@ -61,8 +62,7 @@ def test_output_voltage(vin, context, psu, dmm, measure):
     measure("output_voltage", dmm.measure_dc_voltage())
 ```
 
-The [`@pytest.mark.litmus_sweeps(...)`](../reference/pytest/markers.md#litmus_sweeps) form is also available for inline use
-of the runner-neutral vector vocabulary:
+The [`@pytest.mark.litmus_sweeps(...)`](../reference/pytest/markers.md#litmus_sweeps) marker defines the same sweeps inline:
 
 ```python
 @pytest.mark.litmus_sweeps([{"vin": [4.5, 5.0, 5.5], "load": [0.1, 0.4, 0.8]}])
@@ -80,10 +80,9 @@ sweeps:
   - {load_percent: [0, 50, 100]}
 ```
 
-Each top-level dict in the list is one independent loop; multi-key dicts
-inside one entry zip together; stacked entries cross-product (top entry =
-outermost / slowest loop). For zipped variables, put both keys in one
-entry:
+Each entry in the list is its own loop. Stacked entries cross-product (the
+top entry is the outermost, slowest loop). To sweep two values together
+instead, put both in one entry — they zip:
 
 ```yaml
 sweeps:
@@ -101,10 +100,10 @@ def test_voltage_sweep(context, dmm, measure):
 
 ```python
 def test_sweep(context, psu, dmm, measure):
-    # Get required parameter (raises if missing)
+    # Get a parameter (returns None if not set)
     vin = context.get_param("input_voltage")
 
-    # Get optional parameter with default
+    # Get a parameter with a fallback default
     load = context.get_param("load_percent", 0)
 
     # Get all parameters
@@ -115,14 +114,13 @@ def test_sweep(context, psu, dmm, measure):
 ```
 
 The context provides:
-- `context.get_param("key")` - Required parameter (raises if missing)
-- `context.get_param("key", default)` - Optional parameter with default
+- `context.get_param("key")` - The value, or `None` if it isn't set
+- `context.get_param("key", default)` - The value, or `default` if it isn't set
 - `context.params` - All parameters as a dict
 
 ## Range Expanders
 
-Any vector argvalues position accepts a range-expander dict that fans out
-to a flat list at YAML load:
+Instead of listing every value, use a range-expander to generate the list:
 
 ```yaml
 sweeps:
@@ -133,12 +131,12 @@ sweeps:
 ```
 
 Available expanders: `linspace`, `arange`, `logspace`, `geomspace`,
-`repeat`, `range`. Same shape works in any list position across all Litmus
-YAML (sidecars, profiles, stations, parts).
+`repeat`, `range`. They work anywhere a list of values is accepted — in
+sidecars, profiles, stations, and parts.
 
 ## Part with Change Detection
 
-Put slow-changing parameters first. Use `context.changed(key)` — returns True iff this iteration's value differs from the previous iteration's — to detect outer loop changes:
+Put slow-changing parameters first. Use `context.changed(key)` — True on the first iteration and whenever this iteration's value differs from the previous one — to skip work when an outer loop hasn't moved:
 
 ```yaml
 sweeps:
@@ -158,28 +156,36 @@ def test_temp_sweep(context, chamber, dmm, measure):
 
 ## Retries
 
-For flaky tests, use the pytest ecosystem (the [`@pytest.mark.flaky`](https://github.com/pytest-dev/pytest-rerunfailures) marker is provided by `pytest-rerunfailures`):
+A measurement can occasionally fail for a genuinely transient reason — a slow-settling rail, an intermittent comms link. The `litmus_retry` marker re-runs the test before recording a fail:
 
 ```python
 import pytest
 
 
-@pytest.mark.flaky(reruns=3, reruns_delay=0.5)
-def test_flaky(dmm, measure):
+@pytest.mark.litmus_retry(max_retries=2, delay=0.5)
+def test_voltage(dmm, measure):
     measure("voltage", dmm.measure_voltage())
 ```
 
-This uses `pytest-rerunfailures` (already a Litmus dependency).
+`max_retries=2` allows up to two retries (three runs total); `delay` is the wait between them. In a sidecar, the same config goes under the test as a `retry:` block:
+
+```yaml
+tests:
+  test_voltage:
+    retry: {max_retries: 2, delay: 0.5}
+```
+
+Retries are for transient hardware conditions — not for masking a test that fails because something is genuinely wrong. (Under the hood, `litmus_retry` drives `pytest-rerunfailures`, a Litmus dependency.)
 
 ## What You Learned
 
-- Config lives in markers (inline) or sidecar YAML (declarative)
-- Markers and sidecar entries merge by name+key — later wins on overlap
+- Config lives in inline markers or a sidecar YAML file
+- When a marker and a sidecar entry set the same value, the sidecar wins
 - Vector expansion: cross-product across keys, zip via comma-joined argnames
 - Range expanders (`linspace`, `arange`, `logspace`, …) for compact sweeps
 - Accessing vector parameters via `context.get_param()` and `context.params`
 - Using `context.changed()` for outer-loop detection
-- Retries via `@pytest.mark.flaky`
+- Retries via the `litmus_retry` marker
 
 ## Continue
 
