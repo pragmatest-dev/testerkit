@@ -21,7 +21,7 @@ This is a COLLABORATIVE workflow — the user approves at every gate.
 - Present choices as numbered lists at the END of your message.
 - ALWAYS use ask_user_input_v0 (or AskUserQuestion in Claude Code) at approval gates — never present options as text like [A]pprove [E]dit.
 - Pass project= to ALL MCP calls after init.
-- Part characteristics use the full Capability schema (signals, conditions, controls, attributes). See docs/capability-schema.md.
+- Part characteristics use the full Capability schema (signals, conditions, controls, attributes). See docs/reference/catalog/schema.md.
 </rules>
 
 <tools>

@@ -11,6 +11,7 @@ Grouped by what you reach for the fixture **for**:
 | Group | What you'd reach for it for | Fixtures |
 |---|---|---|
 | Recording measurements | Write a measurement row, resolve a limit, raise on FAIL, prompt the operator | `verify`, `measure`, `limits`, `prompt` |
+| Recording outputs & streams | Record a read-back value, or append samples to a channel | `observe`, `stream` |
 | Talking to instruments | Get a driver instance, route a signal, hit a UUT pin | `instruments`, `instrument`, `instrument_records`, `uut`, `pins`, `routes`, `fixture_manager` |
 | Reading per-test state | Active sweep params, observations, the connection currently being iterated | `context`, `connections` |
 | Reading loaded configuration | The typed YAML / CLI that shaped this run | `part`, `station_config`, `fixture_config`, `run_context`, `mock_instruments` |
@@ -81,6 +82,34 @@ def test_visual(prompt, verify):
 ```
 
 See [`litmus_prompts`](markers.md#litmus_prompts) for the marker shape.
+
+---
+
+## Recording outputs & streams
+
+The verbs for read-back values and continuous samples. Like `verify`/`measure`, these are callable fixtures — take the name in the test signature, then call it. Each wraps the matching `context` method.
+
+### `observe` — function
+
+Callable: `observe(name, value, *, namespace=None, unit=None)`. Records a read-back value (the response side — a measured output, not a pass/fail judgment) onto the active vector. The value's shape decides where it lands: scalars stay inline; arrays / `Waveform` go to the ChannelStore; blobs go to the FileStore — with a `channel://` / `file://` reference stamped on the vector.
+
+```python
+def test_rail(dmm, observe, verify):
+    observe("v_rail", dmm.measure_dc_voltage())   # output, recorded not judged
+    observe("scope_cap", scope.capture())          # Waveform → ChannelStore
+```
+
+See [the three verbs](../../concepts/data/three-verbs.md) for how a value routes to the right store by shape.
+
+### `stream` — function
+
+Callable: `stream(name, sample, *, namespace=None, unit=None) -> str`. Appends one sample to a named channel timeline (continuous capture). Returns the `channel://` reference. Use it for a live sensor feed or free-running acquisition, where the channel — not the individual call — is the unit you query later.
+
+```python
+def test_soak(dmm, stream):
+    for _ in range(n):
+        stream("supply_rail", dmm.measure_dc_voltage(), unit="V")
+```
 
 ---
 

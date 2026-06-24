@@ -279,7 +279,7 @@ concepts:
       entries. Tier 1 of (catalog → asset → record).
     model: litmus.models.catalog.InstrumentCatalogEntry
     authored_at: catalog/**/*.yaml
-    docs: docs/reference/capability-schema.md
+    docs: docs/reference/catalog/schema.md
     relationships:
       - { kind: offers,  target: channel_topology }
       - { kind: offers,  target: attribute }

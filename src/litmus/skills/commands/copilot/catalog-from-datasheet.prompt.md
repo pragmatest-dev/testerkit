@@ -7,7 +7,7 @@ Read and follow the workflow file at `litmus/skills/workflow/datasheet-to-catalo
 **Input:** The user will provide `<pdf_path>` and `<output_filename>`.
 
 **Key references:**
-- Schema: `docs/capability-schema.md`
+- Schema: `docs/reference/catalog/schema.md`
 - Capability + SpecBand: `src/litmus/models/capability.py`
 - Enums (unit, MeasurementFunction, Comparator): `src/litmus/models/enums.py`
 - Agent specs: `src/litmus/skills/agents/*.md` (use as reference for prompt construction)

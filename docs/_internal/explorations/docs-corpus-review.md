@@ -132,9 +132,9 @@ before any accuracy audit that diffs against it.
   defines 22 public `@pytest.fixture`s (`__init__.py`); `stream` (`:965`) and `observe`
   (`:997`) are genuine fixtures MISSING from the hand-written `reference/pytest/fixtures.md`
   (NOT generated). DONE: dropped the count from `reference/pytest/fixtures.md` L3 + concepts
-  `overview/pytest.md`. REMAINING (Piece 5): add `stream`/`observe` rows to the fixtures.md
-  at-a-glance table + detail sections (real coverage gap). Drop any explicit fixture-number
-  wording on the other citing pages: `tutorial/quickstart.md`, `tutorial/09-production.md`,
+  `overview/pytest.md`. DONE 2026-06-24: added `observe` + `stream` to `reference/pytest/fixtures.md`
+  (at-a-glance "Recording outputs & streams" row + detail sections; verified signatures + `stream`
+  returns the `channel://` URI). Dropped explicit fixture-number wording on the other citing pages: `tutorial/quickstart.md`, `tutorial/09-production.md`,
   `integration/runtime/pytest-existing.md`, `reference/index.md`,
   `reference/pytest/{index,markers}.md`, `how-to/execution/writing-tests.md`,
   `concepts/overview/pytest.md`, and `reference/overview/pytest-native.md` (GENERATED —
@@ -228,8 +228,10 @@ before any accuracy audit that diffs against it.
   subdirectory homes (sessions→data/, parts/stations/fixtures/capabilities→configuration/, step-manifest→
   execution/, event-log/flight-streaming→data/, capability-model→configuration/capabilities);
   results-storage.md docs_extra → reference/data/parquet-schema.md. LEFT (intentional, per file header):
-  architecture-erd.md + ontology.md = GENERATED outputs. FLAG for user: `docs/reference/capability-schema.md`
-  (ontology L282 + CLAUDE.md both reference it but it doesn't exist; real schema doc is reference/catalog/schema.md).
+  architecture-erd.md + ontology.md = GENERATED outputs. capability-schema.md RESOLVED 2026-06-24:
+  repointed to `docs/reference/catalog/schema.md` across 6 refs (ontology, CLAUDE.md, 4 catalog skill
+  files) — that page verified to fully cover the Capability model (signals/conditions/controls/
+  attributes/SpecBand). No new page needed.
 - concepts/overview/platform-vs-framework — CRIT MCP count 12→13 (+`litmus_files`, `Cpk`→`Ppk`);
   POST /api/runs verified real; no OpenHTF-adapter claim; audience prose. ✅ (MCP-count drift recurs
   corpus-wide — watch ai-integration, reference pages.)

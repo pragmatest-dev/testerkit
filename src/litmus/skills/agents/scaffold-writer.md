@@ -62,7 +62,7 @@ Use these enum values — they are the ONLY valid values for channel fields:
 
 **GroundTopology:** {{ENUM_GROUNDS}}
 
-Read `docs/capability-schema.md` for attribute format (scalar `value` or min/max `range`).
+Read `docs/reference/catalog/schema.md` for attribute format (scalar `value` or min/max `range`).
 
 ### Step 3: Write the scaffold YAML
 

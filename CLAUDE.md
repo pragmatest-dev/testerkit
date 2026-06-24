@@ -104,7 +104,7 @@ Do NOT bloat CLAUDE.md with implementation details — the AI can discover those
 
 ## Catalog YAML
 
-Use `/catalog-from-datasheet` skill for all catalog work. Schema reference: `docs/reference/capability-schema.md`. Models: `src/litmus/models/capability.py`.
+Use `/catalog-from-datasheet` skill for all catalog work. Schema reference: `docs/reference/catalog/schema.md`. Models: `src/litmus/models/capability.py`.
 
 ## Tool Usage Rules
 
