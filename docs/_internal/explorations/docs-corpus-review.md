@@ -107,6 +107,25 @@ before any accuracy audit that diffs against it.
 
 ### Corpus-wide fact-fixes (verified against source; apply SOURCE-FIRST, then propagate)
 
+- **FOUR-store model (NOT three).** There are 4 user-facing stores: EventStore, ChannelStore,
+  **FileStore** (`data/files/`, `file://`, artifacts — verified `files/store.py:58`), RunStore
+  (parquet). The "three stores" framing is STALE corpus-wide (predates FileStore; a known ROADMAP
+  "four-store model" task). `concepts/data/three-stores.md` FIXED to four (2026-06-24). 17 files
+  still say "three stores": tutorial/{03,10,11,12}, how-to/data/{index,grafana-dashboards,
+  find-flaky-tests,querying-channels}, reference/data/{performance-limits,outputs,index},
+  integration/data/index, concepts/data/{three-verbs,sessions,flight-streaming},
+  concepts/overview/{platform-vs-framework(COMMITTED — enumerates 3, missing FileStore),architecture}.
+  Distinguish ENUMERATION errors (list exactly event/channel/parquet → wrong, add FileStore) from
+  LINK-TEXT/nomenclature ("[three stores](three-stores.md)" → just rename to "the data stores").
+  **RESOLVED 2026-06-24: user chose FULL sweep + file rename.** `three-stores.md` → `data-stores.md`
+  (git mv); all ~39 path refs updated; all "three stores" text gone (0 remnants in docs/ + src/);
+  8 enumeration errors fixed (+FileStore, ParquetBackend→RunStore); grafana="event/channel/run",
+  perf-limits="four"; 2 store-layer mermaids (overview.md + platform-vs-framework) got a Files node;
+  ontology litmus.yaml docs: paths fixed. NOTE pre-existing dangling ref: ontology L721
+  `docs_extra: docs/concepts/results-storage.md` — that file does not exist (NOT caused by rename).
+  Pending user decision on sweep scope.
+- ATML mention: there is NO ATML exporter (exporters are csv/hdf5/json/mdf4/stdf/tdms).
+
 - **Fixture count: 20 → 22.** The plugin defines **22** public `@pytest.fixture`s
   (`src/litmus/pytest_plugin/__init__.py`); `stream` (`:965`) and `observe` (`:997`)
   are genuine fixtures added to code but never propagated to docs. Source of truth is

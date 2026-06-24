@@ -6,7 +6,7 @@ Visualize test results, events, and instrument channel data with pre-built Grafa
 
 ## Overview
 
-Litmus ships 10 Grafana dashboards that query all three data stores:
+Litmus ships 10 Grafana dashboards that query the event, channel, and run stores:
 
 - **Parquet** (runs, measurements) — yield, duration, failure analysis, traceability
 - **Arrow IPC** (events) — session timeline, instrument activity, dialogs

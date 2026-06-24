@@ -229,7 +229,7 @@ If two test sessions run concurrently and both share a scope (locked atomically 
 - ChannelStore: `session_id` is in the filename
 - FileStore: `session_id` is in the directory
 - EventStore: events from both sessions interleave on one timeline, but every event carries `session_id`
-- ParquetBackend: one parquet file per run, never cross-run mixing
+- RunStore: one parquet file per run, never cross-run mixing
 
 The instrument lock orders captures in time; storage isolation is independent. The one shared thing is the channel-id namespace — `/channels/scope_cap` shows both sessions' data unless filtered. That's deliberate: cross-session views matter for trends and fixture-channel accumulation.
 
@@ -252,7 +252,7 @@ Alternatively, implement `litmus_serialize(dest: Path) -> Path` on your type —
 
 ## See also
 
-- [Three Stores Architecture](three-stores.md) — where parquet, ChannelStore, and FileStore live on disk and how they relate
+- [Data stores](data-stores.md) — where parquet, ChannelStore, and FileStore live on disk and how they relate
 - [Tutorial 11 — Waveforms and evidence](../../tutorial/11-waveforms-and-evidence.md) — pytest test with `observe` + `verify`
 - [Tutorial 12 — Continuous monitoring](../../tutorial/12-continuous-monitoring.md) — interactive session with `channels.stream` + live UI
 - [Reference → Query API](../../reference/data/query-api.md) — `MeasurementsQuery`, `FieldRef`, and the role-based query surface

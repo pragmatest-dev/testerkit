@@ -118,4 +118,4 @@ store.events(event_type="test.steps_discovered", session_id=sid)
 
 - [Event log](../data/event-log.md) — how events get to Parquet
 - [Parquet schema](../../reference/data/parquet-schema.md) — full column list
-- [Three stores](../data/three-stores.md) — EventStore, ChannelStore, ParquetBackend
+- [Data stores](../data/data-stores.md) — EventStore, ChannelStore, FileStore, RunStore

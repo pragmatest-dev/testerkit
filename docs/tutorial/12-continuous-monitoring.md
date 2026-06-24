@@ -134,7 +134,7 @@ data/
 
 ChannelStore files are session-scoped — two concurrent script runs write to two separate files. The operator UI shows both on the same `dmm.voltage` panel, matched by channel name. Run the script a second time and both sessions' data appear on the same timeline; add `session_id=…` to a query to scope to one run.
 
-See [Three Stores Architecture](../concepts/data/three-stores.md) for the full on-disk layout and retention model.
+See [Data stores](../concepts/data/data-stores.md) for the full on-disk layout and retention model.
 
 ## What's next
 

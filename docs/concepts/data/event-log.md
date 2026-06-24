@@ -203,5 +203,5 @@ required fields) defer to the 1.0 cut.
 **Sibling concepts:**
 
 - [Event sourcing](event-sourcing.md) — why the platform is event-sourced rather than mutation-based
-- [Three stores](three-stores.md) — how EventStore fits with ChannelStore and ParquetBackend
+- [Data stores](data-stores.md) — how EventStore fits with ChannelStore, FileStore, and RunStore
 - [Sessions](sessions.md) — the observation window the event log keys events by

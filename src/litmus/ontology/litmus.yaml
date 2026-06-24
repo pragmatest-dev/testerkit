@@ -559,7 +559,7 @@ concepts:
       git context, operator, collected items, executed steps, custom
       metadata, and the final outcome.
     model: litmus.data.models.TestRun
-    docs: docs/concepts/three-stores.md
+    docs: docs/concepts/data/data-stores.md
     relationships:
       - { kind: stored_in,  target: run_store }
       - { kind: contains,   target: test_step }
@@ -717,7 +717,7 @@ concepts:
       measurements. Backed by a long-lived daemon ingesting RunEnded
       cohorts into DuckDB-queryable parquet.
     model: litmus.data.run_store.RunStore
-    docs: docs/concepts/three-stores.md
+    docs: docs/concepts/data/data-stores.md
     docs_extra: docs/concepts/results-storage.md
 
   - id: event_store

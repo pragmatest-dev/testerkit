@@ -2,7 +2,7 @@
 
 The platform stores test execution data as an immutable, append-only log of events. The queryable Run / Step / Measurement views (parquet, DuckDB index) are *materialized projections* of that log — derived, regenerable, never the source of truth.
 
-The companion pages cover the **what**: [Event log](event-log.md) for the event-type taxonomy and dispatch; [Three stores](three-stores.md) for the on-disk layout of events, channels, and the materialized parquet. This page covers the **why** — what traditional CRUD test-result schemas force a platform into, and what falls out of inverting the model.
+The companion pages cover the **what**: [Event log](event-log.md) for the event-type taxonomy and dispatch; [Data stores](data-stores.md) for the on-disk layout of events, channels, files, and the run parquet. This page covers the **why** — what traditional CRUD test-result schemas force a platform into, and what falls out of inverting the model.
 
 ## The CRUD trap for test results
 
@@ -73,4 +73,4 @@ There's no "the materialization service" everyone has to wait on, no central wri
 **Sibling concepts:**
 
 - [Event log](event-log.md) — the *what*: event types, dispatch, durability
-- [Three stores](three-stores.md) — events / channels / parquet projection; on-disk layout, `data_dir` resolution, schema-evolution contract
+- [Data stores](data-stores.md) — events / channels / files / run projection; on-disk layout, `data_dir` resolution, schema-evolution contract

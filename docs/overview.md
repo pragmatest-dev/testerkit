@@ -54,9 +54,10 @@ flowchart TB
 
     subgraph Storage["Storage Layer"]
         direction LR
-        events["Events<br/>(Arrow IPC + DuckDB via Flight)"]
-        channels["Channels<br/>(Arrow + LTTB decimation)"]
-        parquet["Parquet<br/>(results)"]
+        events["Events<br/>(Arrow IPC + DuckDB)"]
+        channels["Channels<br/>(time-series)"]
+        files["Files<br/>(artifacts)"]
+        parquet["Runs<br/>(Parquet)"]
     end
 
     pytest --> Platform

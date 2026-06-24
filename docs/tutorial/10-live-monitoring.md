@@ -25,7 +25,7 @@ with connect("bench_1", mock=True) as station:
     print(f"Voltage: {voltage}")
 ```
 
-This creates a session and records what happens — instrument reads land in the [channel store](../concepts/data/three-stores.md), session and step events in the [event store](../concepts/data/event-log.md).
+This creates a session and records what happens — instrument reads land in the [channel store](../concepts/data/data-stores.md), session and step events in the [event store](../concepts/data/event-log.md).
 
 ## Monitor in the UI
 
@@ -119,7 +119,7 @@ litmus_channels(channel_id="dmm.voltage")
 
 ## Channel Data from Instrument Reads
 
-Instrument reads route to the [`ChannelStore`](../concepts/data/three-stores.md) — Litmus's time-series store for sample data, both scalar readings and arrays like waveforms. A `ChannelStarted` event marks each channel; the event carries a `channel://` reference (a URI string) pointing at the channel, not the samples themselves:
+Instrument reads route to the [`ChannelStore`](../concepts/data/data-stores.md) — Litmus's time-series store for sample data, both scalar readings and arrays like waveforms. A `ChannelStarted` event marks each channel; the event carries a `channel://` reference (a URI string) pointing at the channel, not the samples themselves:
 
 ```python
 with connect("bench_1", mock=True) as station:
@@ -141,7 +141,7 @@ See also: [Step 12: Continuous Monitoring](12-continuous-monitoring.md) — stre
 
 When you connect to a station, Litmus records every instrument read and step result as it happens and makes it available to the operator UI in real time. Large arrays like waveforms are downsampled before display, so big captures still draw quickly.
 
-For the mechanics, see [Three Stores](../concepts/data/three-stores.md) and [Flight streaming](../concepts/data/flight-streaming.md).
+For the mechanics, see [Data stores](../concepts/data/data-stores.md) and [Flight streaming](../concepts/data/flight-streaming.md).
 
 ← [Step 9: Production Ready](09-production.md)  |  [Tutorial index](index.md)
 
@@ -151,6 +151,6 @@ For the mechanics, see [Three Stores](../concepts/data/three-stores.md) and [Fli
 - [Find flaky tests](../how-to/data/find-flaky-tests.md) — diagnostic recipe combining Metrics + Results + parquet queries
 - [Compare two runs](../how-to/data/compare-runs.md) — diff known-good vs failing
 - [Event Log Architecture](../concepts/data/event-log.md) — How events work
-- [Three Stores Architecture](../concepts/data/three-stores.md) — EventStore, ChannelStore, ParquetBackend
+- [Data stores](../concepts/data/data-stores.md) — EventStore, ChannelStore, FileStore, RunStore
 - [Querying Events](../how-to/data/querying-events.md) — All query patterns
 - [Querying Channels](../how-to/data/querying-channels.md) — Channel query with LTTB

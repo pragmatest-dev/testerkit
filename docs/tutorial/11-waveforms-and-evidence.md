@@ -150,7 +150,7 @@ data/
       <run_id>-<timestamp>.arrow         ← run events (EventStore)
 ```
 
-The `scope_step_<session_short>.arrow` file is one Arrow row per `observe` call. Each session writes its own file, so parallel runs don't overwrite each other. See [Three Stores Architecture](../concepts/data/three-stores.md) for the full on-disk layout.
+The `scope_step_<session_short>.arrow` file is one Arrow row per `observe` call. Each session writes its own file, so parallel runs don't overwrite each other. See [Data stores](../concepts/data/data-stores.md) for the full on-disk layout.
 
 ## Where to see it in the UI
 

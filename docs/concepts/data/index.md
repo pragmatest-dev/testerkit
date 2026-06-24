@@ -6,7 +6,7 @@ Where the run data lives and how the platform stays consistent across processes.
 - [Event sourcing](event-sourcing.md) — why the platform is event-sourced rather than mutation-based; what that buys you for replay, debugging, and audit
 - [Sessions](sessions.md) — connect-to-disconnect observation windows; how a single session can contain multiple runs (multi-UUT) or a long-running instrument session (operator UI, scripts)
 - [Three verbs](three-verbs.md) — `observe`, `verify`, `stream`; how the platform routes a measured value to the right store by shape
-- [Three stores](three-stores.md) — EventStore (events), ChannelStore (time-series), ParquetBackend (run rows); on-disk layout, `data_dir` resolution, schema-evolution contract
+- [Data stores](data-stores.md) — EventStore (events), ChannelStore (time-series), FileStore (artifacts), RunStore (run rows); on-disk layout, `data_dir` resolution, schema-evolution contract
 - [Flight streaming](flight-streaming.md) — cross-process data access via Apache Arrow Flight; why the platform uses it for low-latency queries
 
 ## See also

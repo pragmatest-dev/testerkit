@@ -13,7 +13,7 @@ The infrastructure pieces a hardware-test team needs whether they're running pyt
 - **Configuration** — `litmus.yaml` (project), `stations/*.yaml` (benches), `fixtures/*.yaml` (UUT routing), `parts/*.yaml` (specs), `catalog/*.yaml` (instrument capabilities). All YAML, all Pydantic-validated, all editable without touching test code.
 - **Instrument plumbing** — a ready-made handle per instrument from station YAML, the `Mock` substitution for hardware-free tests, switch-route activation through fixture connections. Drivers themselves are user-supplied (PyMeasure, PyVISA, vendor SDK).
 - **Capability matching** — does this station have what this part needs? See [capabilities](../configuration/capabilities.md).
-- **Results storage** — three stores feeding one queryable surface: the [event log](../data/event-log.md), the parquet runs store, and the channel store for time-series. See [three stores](../data/three-stores.md) for the layout and tradeoffs.
+- **Results storage** — four stores feeding one queryable surface: the [event log](../data/event-log.md), the run store (parquet), the channel store for time-series, and the file store for artifacts. See [data stores](../data/data-stores.md) for the layout and tradeoffs.
 - **Operator surface** — NiceGUI web UI, operator prompts during a test, real-time dashboards.
 - **AI surface** — MCP server exposing tools an agent can drive: discovery, matching, run launching, results query. Platform never calls an LLM itself.
 
@@ -127,6 +127,7 @@ flowchart TB
         direction LR
         events["Events<br/>(Arrow)"]
         channels["Channels<br/>(Arrow)"]
+        files["Files<br/>(Artifacts)"]
         parquet["Runs<br/>(Parquet)"]
     end
 

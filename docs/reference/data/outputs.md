@@ -9,9 +9,10 @@ test execution
     └→ events/   (Arrow IPC + DuckDB index — typed events, durable WAL)
     └→ runs/     (sealed per-run Parquet — analysis-ready, lakehouse-readable)
     └→ channels/ (Arrow IPC — time-series instrument samples)
+    └→ files/    (captured artifacts — images, video, vendor files)
 ```
 
-These three stores are the platform. They're populated automatically by every test run; there's no configuration knob to disable them. See [Three Stores Architecture](../../concepts/data/three-stores.md) and [Event Log](../../concepts/data/event-log.md) for the data model.
+These four stores are the platform. They're populated automatically by every test run; there's no configuration knob to disable them. See [Data stores](../../concepts/data/data-stores.md) and [Event Log](../../concepts/data/event-log.md) for the data model.
 
 ## Reading runs back
 

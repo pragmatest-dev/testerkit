@@ -234,7 +234,7 @@ For one-off ad-hoc exploration outside production code, raw DuckDB recipes live 
 ## See also
 
 - [Models](models.md) — `RunRow`, `StepRow`, `StepNode`, `FilterSet`, `FacetSpec`, `FacetOption`, `SummaryCounts`, `ParametricRow`, `HistogramRow`
-- [Three stores](../../concepts/data/three-stores.md) — what feeds these tables
+- [Data stores](../../concepts/data/data-stores.md) — what feeds these tables
 - [Parquet schema](parquet-schema.md) — the column shape underneath
 - [API reference](../runtime/api.md) — HTTP endpoints that wrap the Query API
 - [Querying events](../../how-to/data/querying-events.md) — raw DuckDB recipes

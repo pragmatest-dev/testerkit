@@ -27,11 +27,11 @@ Once results are in the store, query through any of:
 - `client.list_runs()` / `client.get_run()` / `client.get_measurements()` — see [client.md](../../reference/runtime/client.md#querying-results)
 - CLI: `litmus runs`, `litmus show <run_id>` — see [cli.md](../../reference/cli.md)
 - HTTP: `GET /api/runs`, `GET /api/runs/{run_id}`, `GET /api/runs/{run_id}/measurements` — see [api.md](../../reference/runtime/api.md)
-- Raw parquet via DuckDB / pandas / Polars — see [parquet-schema.md](../../reference/data/parquet-schema.md) for columns and [three-stores.md](../../concepts/data/three-stores.md) for the on-disk layout
+- Raw parquet via DuckDB / pandas / Polars — see [parquet-schema.md](../../reference/data/parquet-schema.md) for columns and [data-stores.md](../../concepts/data/data-stores.md) for the on-disk layout
 
 ## See also
 
 - [Python client reference](../../reference/runtime/client.md) — full API, integration patterns, examples
 - [Logging integration](logging.md) — sending results onward to external systems (S3, databases, Python logging)
 - [Parquet schema](../../reference/data/parquet-schema.md) — column-by-column reference for the stored data
-- [Three stores](../../concepts/data/three-stores.md) — where the data lives, data_dir resolution, schema-evolution contract
+- [Data stores](../../concepts/data/data-stores.md) — where the data lives, data_dir resolution, schema-evolution contract

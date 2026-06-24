@@ -155,7 +155,7 @@ scoped surface for this release.
 
 ## Concurrency — multi-process scaling
 
-All three stores hold up under N concurrent writers. Numbers below
+All four stores hold up under N concurrent writers. Numbers below
 measured at N = 1, 2, 4 spawned subprocesses (the `multiprocessing`
 `spawn` start method, see the **fork-deadlock pitfall** below). Each
 worker writes its own session / channel / artifact bucket so the

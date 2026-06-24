@@ -2,7 +2,7 @@
 
 Channel data stores time-series instrument readings — waveforms, voltage traces, temperature logs. Query it via MCP tool, HTTP API, or Python.
 
-> **Prerequisites.** Channel data already written under `<data_dir>/channels/` — drivers that write to the [channel store](../../concepts/data/three-stores.md) via `context.observe()` or via instrument-proxy traffic. Empty stores return empty lists, not errors. For the HTTP path, `litmus serve` must be running.
+> **Prerequisites.** Channel data already written under `<data_dir>/channels/` — drivers that write to the [channel store](../../concepts/data/data-stores.md) via `context.observe()` or via instrument-proxy traffic. Empty stores return empty lists, not errors. For the HTTP path, `litmus serve` must be running.
 
 ## MCP Tool: `litmus_channels`
 
@@ -48,7 +48,7 @@ table = channels.query("dmm.voltage", last_n=500, max_points=500)  # PyArrow Tab
 
 `query` is the **pull** verb. Poll it in your own loop for a refreshing sparkline; for *push* (react as data lands) use `channels.latest` / `channels.live` instead — see [Choosing a channel verb](choosing-a-channel-verb.md). The lower-level `ChannelStore` / `ChannelClient` forms below are for when you already hold a store or a daemon address.
 
-## Python: [`ChannelStore`](../../concepts/data/three-stores.md)
+## Python: [`ChannelStore`](../../concepts/data/data-stores.md)
 
 ```python
 from uuid import uuid4
@@ -104,5 +104,5 @@ Use `max_points` when displaying data in charts. For analysis, query without dec
 Filters apply in order: session → time range → last_n → max_points.
 
 ## See also
-- [Three Stores Architecture](../../concepts/data/three-stores.md) — Where channels fit
+- [Data stores](../../concepts/data/data-stores.md) — Where channels fit
 - [Flight Streaming](../../concepts/data/flight-streaming.md) — Cross-process access model

@@ -10,6 +10,6 @@ The shapes the system writes. If you're reading parquet, the event log, or any e
 
 ## See also
 
-- [Concepts → Data](../../concepts/data/index.md) — event log, three stores, sessions, flight streaming
+- [Concepts → Data](../../concepts/data/index.md) — event log, data stores, sessions, flight streaming
 - [How-to → Data](../../how-to/data/index.md) — recipes for querying, exporting, debugging via the data plane
 - [Integration → Grafana](../../integration/data/grafana.md) — pgwire data source over the same DuckDB views

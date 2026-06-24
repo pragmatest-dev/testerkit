@@ -6,7 +6,7 @@ For the underlying API to write into Litmus's store, see the [Python client refe
 
 ## Where the data already is
 
-Results land in Parquet under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet` regardless of which submission path you use (pytest plugin, `LitmusClient`, OpenHTF bridge — see [three-stores.md](../../concepts/data/three-stores.md) for the canonical layout and the `data_dir` resolution chain). The integration patterns below all read from that store and forward the data elsewhere.
+Results land in Parquet under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet` regardless of which submission path you use (pytest plugin, `LitmusClient`, OpenHTF bridge — see [data-stores.md](../../concepts/data/data-stores.md) for the canonical layout and the `data_dir` resolution chain). The integration patterns below all read from that store and forward the data elsewhere.
 
 For the on-write side, see:
 
@@ -121,5 +121,5 @@ Or use `litmus runs` / `litmus show` / the HTTP API — see [results-api.md](res
 - [Python client reference](../../reference/runtime/client.md) — full `LitmusClient` API surface
 - [Submitting results from non-pytest sources](results-api.md) — when to use which submission path
 - [Parquet schema](../../reference/data/parquet-schema.md) — column-by-column reference
-- [Three stores](../../concepts/data/three-stores.md) — on-disk layout, data_dir resolution, schema-evolution contract
+- [Data stores](../../concepts/data/data-stores.md) — on-disk layout, data_dir resolution, schema-evolution contract
 - [HTTP / MCP API](../../reference/runtime/api.md) — REST + tool endpoints

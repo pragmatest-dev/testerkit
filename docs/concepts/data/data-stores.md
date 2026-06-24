@@ -1,81 +1,94 @@
-# Three Stores Architecture
+# The Litmus data stores
 
-Litmus uses three complementary data stores, each optimized for a different access pattern. Together they provide a complete picture of test activity.
+Litmus uses four complementary data stores, each optimized for a different access pattern. Together they provide a complete picture of test activity.
 
 ## Overview
 
-| Store | Data | Format | Query Layer |
-|-------|------|--------|-------------|
-| **EventStore** | Typed events (sessions, measurements, diagnostics) | Arrow IPC files | DuckDB via Flight |
-| **ChannelStore** | Time-series instrument data (waveforms, readings) | Arrow IPC segments | Flight server |
-| **ParquetBackend** | Denormalized test results (one row per measurement) | Parquet files | DuckDB |
+| Store | Data | Format |
+|-------|------|--------|
+| **EventStore** | Typed events (sessions, measurements, diagnostics) — the source of truth | Arrow files (DuckDB-queryable) |
+| **ChannelStore** | Time-series instrument data (waveforms, readings) | Arrow segments |
+| **FileStore** | Captured artifacts — images, video, vendor capture files (`file://`) | files + index |
+| **RunStore** | Flat test results, one row per measurement | Parquet files |
 
 ## EventStore — Source of Truth
 
 The event log captures every significant action as a typed event. It is the canonical record of what happened.
 
-- **Write path:** `EventLog.emit()` → buffered Arrow IPC → Flight `do_put` to DuckDB (see [flight-streaming](flight-streaming.md) for `do_put`/`do_get` / DuckDB daemon details; Arrow IPC is Apache Arrow's on-disk record-batch format)
-- **Read path:** SQL via Flight `do_get`, or direct IPC file reads
-- **Storage:** `<data_dir>/events/{date}/{session_id}.arrow`
+- **Write path:** events are buffered and streamed into the DuckDB-backed event log (see [flight-streaming](flight-streaming.md) for the cross-process detail).
+- **Read path:** SQL queries, or direct reads of the Arrow files.
+- **Storage:** `<data_dir>/events/{date}/{session_id}-{pid}.arrow`
 
-Events are normalized — `SessionStarted` carries session/station/operator metadata once (and must NOT carry `run_id`); `RunStarted` carries the run/UUT context per test run; `MeasurementRecorded` carries only measurement fields. Subscribers denormalize at write time.
+Each event carries only its own fields — `SessionStarted` carries the session/station/operator metadata once (and never a `run_id`); `RunStarted` carries the run/UUT context; `MeasurementRecorded` carries just the measurement. The flat run rows fill in the shared context when they're written.
 
 ## ChannelStore — Time-Series Data
 
-Instrument reads that produce arrays, waveforms, or high-frequency scalar streams go to the ChannelStore. The EventStore gets a compact claim-check URI (`channel://scope.ch1/...`) instead of the raw data.
+Instrument reads that produce arrays, waveforms, or high-frequency scalar streams go to the ChannelStore. The event carries a compact reference URI (`channel://scope.ch1.waveform?session=…`) that points at the data, instead of the bulk samples.
 
-- **Write path:** `ChannelStore.write()` → buffered Arrow IPC with segment rotation
-- **Read path:** `ChannelStore.query()` with LTTB decimation for visualization
+- **Write path:** samples are buffered and written to rotating Arrow segments (each closed and readable after every flush).
+- **Read path:** query the channel back, with optional downsampling for plotting.
 - **Storage:** `<data_dir>/channels/{date}/{channel_id}_{session_short}.arrow`
 
 Each channel gets its own IPC file with a schema inferred from the first write. Segment rotation ensures files are always readable (closed after each flush).
 
-## ParquetBackend — Materialized View
+## RunStore — Analysis-Ready Results
 
-The Parquet backend produces analysis-ready files with one row per measurement, all metadata denormalized. This is what users query with DuckDB, Polars, or Spark for yield analysis and SPC.
+The run store produces analysis-ready parquet files with one row per measurement, every row carrying its full context. This is what you query with DuckDB, Polars, or Spark for yield analysis and SPC.
 
-- **Write path:** The runs daemon accumulates events via `AccumulatorPool` and calls `materialize_run_to_parquet()` on `RunEnded`
-- **Read path:** Standard Parquet readers (DuckDB, Polars, pandas)
-- **Storage:** `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`
+- **Write path:** the runs daemon collects events as a run executes and writes the per-run parquet when the run ends.
+- **Read path:** any Parquet reader (DuckDB, Polars, pandas).
+- **Storage:** `<data_dir>/runs/{date}/{timestamp}_{run_id8}_{serial}.parquet`
 
-The Parquet files are a **materialized view** of the event stream. They can be regenerated from events if the schema changes.
+The parquet files are built from the event stream — if the schema changes, they can be rebuilt from events.
 
 ### Live streaming + crash safety
 
 During execution, the materializer holds row state in-process and flushes to a single per-run parquet at run end. The operator UI subscribes to the in-process event stream for live updates — there is no separate JSONL journal on disk. If the process is killed before the parquet is finalized, the close-time fallback writes whatever rows reached the materializer with `run_outcome = aborted`.
 
+## FileStore — Captured Artifacts
+
+Bulk artifacts — scope screenshots, camera frames, vendor capture files (`.tdms`, NPZ), any blob — go to the FileStore. Like the ChannelStore, the event carries a compact `file://` reference instead of the bytes.
+
+- **Write path:** `observe(name, value)` with an image / `bytes` / `Path`, or `files.write` / `files.stream` directly.
+- **Read path:** fetch the artifact by its `file://` reference.
+- **Storage:** `<data_dir>/files/{date}/{session_id}/{filename}`
+
+See [the three verbs](three-verbs.md) for how a test routes a value to the FileStore.
+
 ## How They Relate
 
 ```
 Events (source of truth)
-  ├── EventStore (Arrow IPC + DuckDB)
-  │     └── runs daemon (AccumulatorPool + materialize_run_to_parquet on RunEnded)
-  └── ChannelStore (time-series, claim-check URIs in events)
+  ├── RunStore — per-run parquet, written when the run ends
+  ├── ChannelStore — time-series; events carry a channel:// reference
+  └── FileStore — artifacts; events carry a file:// reference
 ```
 
-1. All activity flows through `EventStore.emit()`
-2. The runs daemon accumulates events via `AccumulatorPool` and materializes a per-run parquet on `RunEnded` via `materialize_run_to_parquet()`
-3. `InstrumentRead` events with array data write to `ChannelStore`, storing a URI in the event
-4. Queries can join across stores using `session_id`
+1. All activity flows through the EventStore — the source of truth.
+2. The runs daemon collects events and writes a per-run parquet when the run ends.
+3. Array/waveform values write to the ChannelStore and artifacts to the FileStore; the event keeps a `channel://` or `file://` reference.
+4. Queries join across stores using `session_id`.
 
 ## Storage Layout
 
 ```
 <data_dir>/
 ├── events/                    # EventStore
-│   ├── 2026-03-10/
-│   │   ├── {session_id}.arrow
-│   │   └── {session_id}_ref/  # Large reference data
-│   └── 2026-03-11/
+│   └── 2026-03-10/
+│       └── {session_id}-{pid}.arrow
 ├── channels/                  # ChannelStore
 │   ├── 2026-03-10/
 │   │   ├── dmm.voltage_{session_short}.arrow
-│   │   └── scope.ch1_{session_short}.arrow
-│   └── _registry.json         # Channel metadata
-└── runs/                      # ParquetBackend
-    └── 2026-03-10/
-        ├── 20260310T143022Z_SN001.parquet
-        └── 20260310T143022Z_SN001_ref/
+│   │   └── scope.ch1.waveform_{session_short}.arrow
+│   └── _index.duckdb          # channel descriptors + query index
+├── files/                     # FileStore
+│   └── 2026-03-10/
+│       └── {session_id}/
+│           └── setup_photo.png
+└── runs/                      # RunStore (parquet)
+    ├── 2026-03-10/
+    │   └── 20260310T143022Z_a1b2c3d4_SN001.parquet
+    └── _index.duckdb          # disposable query index
 ```
 
 Sessions are not a stored entity — they're derived from events at query time.
@@ -95,7 +108,7 @@ To isolate a project's results from the shared pool, add to `litmus.yaml`:
 
 ```yaml
 name: my-project
-data_dir: results    # writes to ./results/ instead of the global pool
+data_dir: data       # writes to ./data/ instead of the global pool
 ```
 
 ## Schema evolution — HARD contract
@@ -148,7 +161,7 @@ The rule: newer is always a superset. An older litmus version reading newer resu
 **Same topic, other quadrants:**
 
 - [Reference → Parquet schema](../../reference/data/parquet-schema.md) — column-level reference for the materialized run rows
-- [Reference → Query API](../../reference/data/query-api.md) — `RunsQuery` / `StepsQuery` / `MeasurementsQuery` — the read path over all three stores
+- [Reference → Query API](../../reference/data/query-api.md) — `RunsQuery` / `StepsQuery` / `MeasurementsQuery` — the read path over the run store
 - [How-to → Querying events](../../how-to/data/querying-events.md), [Querying channels](../../how-to/data/querying-channels.md) — task recipes against each store
 - [How-to → Export results](../../how-to/data/export-results.md) — pulling rows out of the parquet store
 - [Integration → Lakehouse import](../../integration/data/lakehouse-import.md) — pulling Litmus parquet into your warehouse

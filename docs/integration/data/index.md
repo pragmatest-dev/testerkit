@@ -9,7 +9,7 @@ Get Litmus's data into external systems — warehouse imports, dashboards, log s
 
 ## See also
 
-- [Concepts → Data](../../concepts/data/index.md) — event log, three stores, sessions, flight streaming
+- [Concepts → Data](../../concepts/data/index.md) — event log, data stores, sessions, flight streaming
 - [How-to → Data](../../how-to/data/index.md) — recipes for querying, exporting, debugging via the data plane
 - [Reference → Data](../../reference/data/index.md) — Pydantic models, event types, parquet schema, query API
 - [Reference → Runtime](../../reference/runtime/index.md) — `LitmusClient`, `connect()`, HTTP + MCP API

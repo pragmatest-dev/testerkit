@@ -335,15 +335,16 @@ flowchart LR
 
 ## Data Architecture
 
-The storage layer uses three complementary stores:
+The storage layer uses four complementary stores:
 
 | Store | Purpose | Format |
 |-------|---------|--------|
-| **EventStore** | All test activity as typed events | Arrow IPC + DuckDB via Flight |
-| **ChannelStore** | Time-series instrument data | Arrow IPC segments |
-| **ParquetBackend** | Denormalized test results | Parquet files |
+| **EventStore** | All test activity as typed events | Arrow files (DuckDB-queryable) |
+| **ChannelStore** | Time-series instrument data | Arrow segments |
+| **FileStore** | Captured artifacts (images, video, vendor files) | files + index |
+| **RunStore** | Flat test results, one row per measurement | Parquet files |
 
-Events are the source of truth. Parquet files are a materialized view produced by `materialize_run_to_parquet()`, called from the runs daemon on `RunEnded`. See [Three Stores Architecture](../data/three-stores.md) and [Event Log Architecture](../data/event-log.md) for details.
+Events are the source of truth. The parquet run rows are built from the event stream by the runs daemon when a run ends. See [Data stores](../data/data-stores.md) and [Event Log Architecture](../data/event-log.md) for details.
 
 
 ## See also

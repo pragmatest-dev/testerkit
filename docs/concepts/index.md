@@ -35,5 +35,5 @@ Why Litmus is built the way it is. Concepts are grouped by what you're trying to
 - [Event log](data/event-log.md) — the durable record of every run
 - [Event sourcing](data/event-sourcing.md) — append-only event log as the source of truth
 - [Sessions](data/sessions.md) — connect-to-disconnect observation windows for instrument use
-- [Three stores](data/three-stores.md) — EventStore, ChannelStore, ParquetBackend; on-disk layout, data_dir resolution, schema-evolution contract
+- [Data stores](data/data-stores.md) — EventStore, ChannelStore, FileStore, RunStore; on-disk layout, data_dir resolution, schema-evolution contract
 - [Flight streaming](data/flight-streaming.md) — cross-process data access via Arrow Flight

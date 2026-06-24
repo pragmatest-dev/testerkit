@@ -72,6 +72,6 @@ station.stop()
 
 ## See also
 - [Event Log Architecture](event-log.md) — How events are stored and queried
-- [Three Stores Architecture](three-stores.md) — Where session data lives
+- [Data stores](data-stores.md) — Where session data lives
 - [connect() reference](../../reference/runtime/connect.md) — full API surface
 - [Managing Sessions Guide](../../how-to/execution/managing-sessions.md) — Practical session management
