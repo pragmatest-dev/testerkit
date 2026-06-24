@@ -1,6 +1,6 @@
 # Concepts — Overview
 
-The framework's mental model from above. Read in order if you're new; jump to the specific page if you're chasing a particular framing.
+The platform's mental model from above. Read in order if you're new; jump to the specific page if you're chasing a particular framing.
 
 - [Architecture](architecture.md) — system-level view of parts, stations, fixtures, and runs, with the pytest plugin in the middle
 - [Platform vs framework](platform-vs-framework.md) — Litmus owns infrastructure (configuration, data, instrumentation, AI / operator surface); pytest owns test execution

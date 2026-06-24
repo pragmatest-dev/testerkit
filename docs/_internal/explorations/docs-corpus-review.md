@@ -220,6 +220,16 @@ before any accuracy audit that diffs against it.
   ParquetBackend; FileStore present). Fixed Framework→Litmus heading (platform conflation), lead diagram
   parquet→event-log-source-of-truth, `units`→`unit` (ER ×2), event path `-{pid}`, get_limit signature,
   cut Mermaid-internals note. ✅
+- concepts/{index, overview/index, execution/index} — fixed severity-ladder ORDER (was passed/failed/
+  errored/skipped/done/... — skipped+done are sev 1-2, belong FIRST): now skipped→done→passed→failed→
+  errored→terminated→aborted. "framework's mental model"→"platform's"; added missing three-verbs link to
+  concepts/index data section; "materializer"→"platform". configuration/index + data/index clean. ✅
+- ONTOLOGY docs-ref check (src/litmus/ontology/litmus.yaml) — 10 stale FLAT doc paths fixed to their real
+  subdirectory homes (sessions→data/, parts/stations/fixtures/capabilities→configuration/, step-manifest→
+  execution/, event-log/flight-streaming→data/, capability-model→configuration/capabilities);
+  results-storage.md docs_extra → reference/data/parquet-schema.md. LEFT (intentional, per file header):
+  architecture-erd.md + ontology.md = GENERATED outputs. FLAG for user: `docs/reference/capability-schema.md`
+  (ontology L282 + CLAUDE.md both reference it but it doesn't exist; real schema doc is reference/catalog/schema.md).
 - concepts/overview/platform-vs-framework — CRIT MCP count 12→13 (+`litmus_files`, `Cpk`→`Ppk`);
   POST /api/runs verified real; no OpenHTF-adapter claim; audience prose. ✅ (MCP-count drift recurs
   corpus-wide — watch ai-integration, reference pages.)

@@ -4,7 +4,7 @@ Why Litmus is built the way it is. Concepts are grouped by what you're trying to
 
 ## Overview
 
-[Overview index →](overview/index.md). The framework's mental model from above — what Litmus is, what it isn't, and why pytest sits underneath.
+[Overview index →](overview/index.md). The platform's mental model from above — what Litmus is, what it isn't, and why pytest sits underneath.
 
 - [Architecture](overview/architecture.md) — system-level view of parts, stations, fixtures, and runs
 - [Platform vs framework](overview/platform-vs-framework.md) — what the platform owns vs what the runner owns
@@ -26,7 +26,7 @@ Why Litmus is built the way it is. Concepts are grouped by what you're trying to
 
 - [Step hierarchy](execution/step-hierarchy.md) — how test classes, methods, and vectors nest
 - [Step manifest](execution/step-manifest.md) — what each step records
-- [Outcomes](execution/outcomes.md) — passed / failed / errored / skipped / done / terminated / aborted severity ladder
+- [Outcomes](execution/outcomes.md) — skipped / done / passed / failed / errored / terminated / aborted severity ladder
 
 ## Data
 
@@ -35,5 +35,6 @@ Why Litmus is built the way it is. Concepts are grouped by what you're trying to
 - [Event log](data/event-log.md) — the durable record of every run
 - [Event sourcing](data/event-sourcing.md) — append-only event log as the source of truth
 - [Sessions](data/sessions.md) — connect-to-disconnect observation windows for instrument use
+- [Three verbs](data/three-verbs.md) — `observe` / `verify` / `stream`; routing a value to the right store by shape
 - [Data stores](data/data-stores.md) — EventStore, ChannelStore, FileStore, RunStore; on-disk layout, data_dir resolution, schema-evolution contract
 - [Flight streaming](data/flight-streaming.md) — cross-process data access via Arrow Flight

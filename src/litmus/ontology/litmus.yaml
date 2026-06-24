@@ -126,7 +126,7 @@ concepts:
       optional station_type / fixture binding. Selected via CLI facets.
     model: litmus.models.project.ProfileConfig
     authored_at: litmus.yaml (under profiles:)
-    docs: docs/concepts/sessions.md
+    docs: docs/concepts/data/sessions.md
     relationships:
       - { kind: inherits_from,     target: test_entry }
       - { kind: extends,           target: profile_config }   # ProfileConfig.extends
@@ -179,7 +179,7 @@ concepts:
       characteristics. ATML "UUT Description".
     model: litmus.models.part.Part
     authored_at: parts/*.yaml | parts/{id}/spec.yaml
-    docs: docs/concepts/parts.md
+    docs: docs/concepts/configuration/parts.md
     relationships:
       - { kind: exposes,             target: pin }
       - { kind: exposes,             target: signal_group }
@@ -226,7 +226,7 @@ concepts:
       instrument INPUT capabilities by direction flip.
     model: litmus.models.part.PartCharacteristic
     authored_at: parts/*.yaml (under characteristics:)
-    docs: docs/concepts/capability-model.md
+    docs: docs/concepts/configuration/capabilities.md
     relationships:
       - { kind: inherits_from, target: capability }
       - { kind: references,    target: pin }
@@ -239,7 +239,7 @@ concepts:
       socket.gethostname().
     model: litmus.models.station.StationConfig
     authored_at: stations/*.yaml
-    docs: docs/concepts/stations.md
+    docs: docs/concepts/configuration/stations.md
     relationships:
       - { kind: equips,  target: station_instrument_config }
       - { kind: references,         target: station_type }
@@ -306,7 +306,7 @@ concepts:
       layouts this fixture can wire against.
     model: litmus.models.test_config.FixtureConfig
     authored_at: fixtures/*.yaml
-    docs: docs/concepts/fixtures.md
+    docs: docs/concepts/configuration/fixtures.md
     relationships:
       - { kind: wires,  target: fixture_connection }
       - { kind: partitions_into,  target: fixture_slot }
@@ -352,7 +352,7 @@ concepts:
       direction + signals/conditions/controls/attributes. ATML/IVI/
       IEEE 1641 lineage.
     model: litmus.models.capability.Capability
-    docs: docs/concepts/capabilities.md
+    docs: docs/concepts/configuration/capabilities.md
     relationships:
       - { kind: references, target: measurement_function }   # function: MeasurementFunction
       - { kind: references, target: direction }              # direction: Direction
@@ -438,7 +438,7 @@ concepts:
       tests:; function = leaf. Reserved keys at every level: runner,
       tests. Every other key is a typed Litmus-marker sub-model.
     model: litmus.models.test_config.TestEntry
-    docs: docs/concepts/step-manifest.md
+    docs: docs/concepts/execution/step-manifest.md
     relationships:
       - { kind: nests,  target: test_entry }                # recursive tests:
       - { kind: configures,  target: measurement_limit_config }  # limits:
@@ -455,7 +455,7 @@ concepts:
       and a nested tests: tree.
     model: litmus.models.test_config.SidecarConfig
     authored_at: tests/test_*.yaml
-    docs: docs/concepts/step-manifest.md
+    docs: docs/concepts/execution/step-manifest.md
     relationships:
       - { kind: inherits_from, target: test_entry }
       - { kind: overlays,      target: pytest_test_function }
@@ -545,7 +545,7 @@ concepts:
       joins use it as the parent key. No single Pydantic model — the
       lifecycle is bracketed by SessionStarted/SessionEnded events.
     model: null
-    docs: docs/concepts/sessions.md
+    docs: docs/concepts/data/sessions.md
     relationships:
       - { kind: contains, target: test_run }    # one or many (single-UUT vs multi-slot)
       - { kind: emits,    target: session_started }
@@ -718,7 +718,7 @@ concepts:
       cohorts into DuckDB-queryable parquet.
     model: litmus.data.run_store.RunStore
     docs: docs/concepts/data/data-stores.md
-    docs_extra: docs/concepts/results-storage.md
+    docs_extra: docs/reference/data/parquet-schema.md
 
   - id: event_store
     category: store
@@ -726,7 +726,7 @@ concepts:
       Append-only parquet log of every emitted Event. The source of
       truth before materialization; subscribers tail it for live UI.
     model: litmus.data.event_store.EventStore
-    docs: docs/concepts/event-log.md
+    docs: docs/concepts/data/event-log.md
 
   - id: channel_store
     category: store
@@ -734,7 +734,7 @@ concepts:
       Live waveform / streaming-data store served over Arrow Flight.
       Subscribers receive ChannelSample batches in real time.
     model: litmus.data.channels.store.ChannelStore
-    docs: docs/concepts/flight-streaming.md
+    docs: docs/concepts/data/flight-streaming.md
 
 
 # =============================================================================

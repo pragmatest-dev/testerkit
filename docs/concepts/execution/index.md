@@ -3,8 +3,8 @@
 How a test run unfolds — the step model, what each step records, and how outcomes roll up from leaves to runs.
 
 - [Step hierarchy](step-hierarchy.md) — how test classes, methods, and parametrize vectors nest into a tree of step events
-- [Step manifest](step-manifest.md) — what each step records (inputs, outputs, measurements, retries) and how the materializer turns events into parquet rows
-- [Outcomes](outcomes.md) — the severity ladder (`passed` → `failed` → `errored` → `skipped` → `done` → `terminated` → `aborted`) and how parent steps roll up child outcomes
+- [Step manifest](step-manifest.md) — what each step records (inputs, outputs, measurements, retries) and how the platform turns events into parquet rows
+- [Outcomes](outcomes.md) — the severity ladder (`skipped` → `done` → `passed` → `failed` → `errored` → `terminated` → `aborted`) and how parent steps roll up child outcomes
 
 ## See also
 
