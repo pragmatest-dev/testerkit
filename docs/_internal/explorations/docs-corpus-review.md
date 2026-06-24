@@ -167,6 +167,12 @@ before any accuracy audit that diffs against it.
 - NEW POLICY 2026-06-24: NO competitor references in docs (TestStand/LabVIEW/OpenTAP/OpenHTF/NI/Keysight)
   except concept-translation or migration guidance. Marketing made separately. See memory
   feedback_no_competitor_references_in_docs. Worth a corpus-wide vendor-name sweep.
+- how-to/execution/limits — CRIT accuracy: removed `expr`/`lookup`/`steps`/`callable` from the
+  policy-field list — they're declared but UNWIRED (ROADMAP-deferred); a user writing them silently
+  gets an *unchecked* measurement. Noted `tolerance_pct`/`tolerance_abs` need a `characteristic:`.
+  CRIT audience: stripped the "Where limits come from" resolver-mechanism narration to an actionable
+  precedence rule; cut resolver/short-circuit/vector-params jargon + the `litmus.execution.verify`
+  import path. Cascade direction (inline<sidecar<profile, last-wins) verified. ✅
 - how-to/execution/writing-tests — CRIT: 11-row litmus_characteristics×litmus_connections resolution
   MATRIX was reference content in a how-to → condensed to 3 common-binding recipes + link to markers.md
   (TRACKED: the full matrix should land in reference/pytest/markers.md — Piece 5). Cut TestStand/OpenTAP/

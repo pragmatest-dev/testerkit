@@ -15,11 +15,11 @@ measurement_name:
   characteristic: "..."    # delegate to a part-spec characteristic
 ```
 
-A limit needs at least one policy field that tells `verify` what to check. The flat-scalar shape above (`low` / `high` / `nominal` / `characteristic`) is the common case; the [Condition-indexed bands](#condition-indexed-bands) section below covers the `bands:` shape. Other policy fields — `tolerance_pct` / `tolerance_abs` (around a characteristic nominal), `expr` (a Python expression), `lookup` (a table keyed by sweep params), `steps` (multi-stage criteria), `callable` (a dotted path to a Python function) — work in the same place a `low` / `high` would go; combine with `bands:` for condition-indexed variants.
+A limit needs at least one policy field that tells `verify` what to check. The flat-scalar shape above (`low` / `high` / `nominal` / `characteristic`) is the common case; the [Condition-indexed bands](#condition-indexed-bands) section below covers the `bands:` shape. To set a window around a part-spec nominal, add `tolerance_pct` or `tolerance_abs` alongside a `characteristic:`.
 
 | Field            | Required | Description                                     |
 |------------------|:--------:|-------------------------------------------------|
-| `low`            | *        | Lower limit (* at least one policy field: low / high / nominal / characteristic / bands / tolerance_pct / tolerance_abs / expr / lookup / steps / callable) |
+| `low`            | *        | Lower limit                                     |
 | `high`           | *        | Upper limit                                     |
 | `nominal`        |          | Expected value (EQ/NE comparators)              |
 | `unit`           |          | Unit of measure (for reporting)                 |
@@ -27,27 +27,18 @@ A limit needs at least one policy field that tells `verify` what to check. The f
 | `spec_ref`       |          | Traceability annotation (free-form string)      |
 | `characteristic` |          | Delegate to `part.<char_name>` (inherits limits, unit) |
 
+\* At least one policy field is required: `low`, `high`, `nominal`, `characteristic`, or `bands` (or `tolerance_pct` / `tolerance_abs` paired with a `characteristic`).
+
 ## Where limits come from
 
-Both `verify(name, value)` and `measure(name, value)` go through the same resolver. When `limit=` is passed explicitly, that value short-circuits the rest — every other source is ignored. Otherwise the resolver checks, in this order, and the **first match wins**:
+`verify` and `measure` look up the limit the same way. If you pass `limit=` explicitly, it's used as-is and nothing else is checked. Otherwise the lookup tries, in order, and the **first match wins**:
 
-1. **Explicit `limit=`** — `verify("v", val, limit={"low": ..., "high": ..., "unit": "V"})` or `measure(...)` with the same kwarg. The kwarg accepts either a dict literal or a `Limit(...)` model. Short-circuits everything below.
-2. **Active limits entry for `name`** — populated from the sidecar / marker / profile cascade (merged into one entry per measurement name at test setup; details below).
-3. **Active part spec** — if the cascade has nothing and `verify` is in play, the resolver tries the active `PartContext` for a characteristic named `name`. This works for unconditional characteristics; condition-indexed bands need the explicit `characteristic:` delegation in step 2 to forward sweep params correctly (see [Spec-driven testing](spec-driven-testing.md#condition-indexed-example-when-accuracy-varies-with-operating-point)).
-4. **None** — characterization mode. `measure` records the value with `outcome = DONE`. `verify` raises `MissingLimitError` — judgment-bearing calls don't silently fall through unless the active profile sets `verify_requires_limit: false`, which routes `verify` to the same record-only fallback.
+1. **Explicit `limit=`** — `verify("v", val, limit={"low": ..., "high": ..., "unit": "V"})` (dict literal or `Limit(...)`).
+2. **Active limits for `name`** — merged from the marker / sidecar / profile cascade (precedence below).
+3. **Part spec** — if nothing matched and a part is selected, an unmatched `name` falls back to a part-spec characteristic of the same name. For condition-indexed bands, declare `characteristic:` explicitly so sweep values forward correctly (see [Spec-driven testing](spec-driven-testing.md#condition-indexed-example-when-accuracy-varies-with-operating-point)).
+4. **None** — characterization mode: `measure` records the value with `outcome = DONE`; `verify` raises `MissingLimitError`. To let `verify` record without a limit, set `verify_requires_limit: false` in the active profile.
 
-The cascade inside step 2 stacks marker sources in this order, with later entries overriding earlier ones key-by-key per measurement name:
-
-1. Inline `@pytest.mark.litmus_limits(...)` on the test's class — earliest, weakest.
-2. Inline `@pytest.mark.litmus_limits(...)` on the method.
-3. Sidecar **file-level** `limits: {...}` (top of `tests/test_*.yaml`).
-4. Sidecar **class branch** — `tests.<Cls>.limits: {...}`.
-5. Sidecar **per-test** — `tests.<Cls>.tests.<method>.limits: {...}`.
-6. Profile chain — parent profile first, leaf last. Strongest.
-
-This may feel inverted relative to other Python config libraries: sidecar overrides inline because the platform applies sidecar-derived markers *after* inline decorators are already on the test item, and the resolver walks markers in insertion order with last-wins. Profile entries land after sidecar for the same reason.
-
-`verify(name, value)` does NOT bypass this chain — it walks the same resolver, and adds the `MissingLimitError` behavior in step 4 if nothing produces a limit.
+**Cascade precedence** (weakest → strongest, last to set a key wins): inline class marker → inline method marker → sidecar file → sidecar class → sidecar per-test → profile chain. So a sidecar entry overrides an inline decorator, and a profile overrides both.
 
 ## Marker form
 
@@ -94,7 +85,7 @@ Sidecar is the preferred home for operator-edited limits — non-developers can 
 
 ## Condition-indexed bands
 
-When a single measurement needs different limits under different conditions, add a `bands:` list inside the limit dict. Each band carries a `when:` mapping plus the fields it overrides. The dict's top-level fields are **defaults** — bands inherit them and override per-row. At measurement time the first band whose `when:` matches the active vector params wins.
+When a single measurement needs different limits under different conditions, add a `bands:` list inside the limit dict. Each band carries a `when:` mapping plus the fields it overrides. The dict's top-level fields are **defaults** — bands inherit them and override per-row. At measurement time the first band whose `when:` matches the active conditions wins.
 
 ```yaml
 # test_power_board.yaml
@@ -117,9 +108,9 @@ Matching rules:
 - Siblings to `bands:` are the catch-all by design — used when no band's `when:` matches. No `when: {}` entry needed.
 - No catch-all + no band match: the parent has no policy fields, so the measurement records in characterization mode (`outcome=DONE`, no pass/fail). Provide siblings if you want strict behavior.
 
-The match is performed against the current row's vector params, so the feature composes naturally with both native `@pytest.mark.parametrize` and Litmus sweeps — every iteration re-resolves against the active row.
+The match is performed against the active row's values, so it works with both `@pytest.mark.parametrize` and Litmus sweeps — every iteration re-checks against the current row.
 
-The default cascade keeps repetition out of the YAML. Common fields (`unit`, `characteristic`) live once at the top; bands carry only what changes. Bands can use any policy field a flat limit supports, including `tolerance_pct` against a part characteristic:
+The default cascade keeps repetition out of the YAML. Common fields (`unit`, `characteristic`) live once at the top; bands carry only what changes. Bands can use the same policy fields as a flat limit — `low` / `high` / `nominal`, or `tolerance_pct` against a part characteristic:
 
 ```yaml
 limits:
@@ -179,7 +170,7 @@ Values show up in the parquet output for post-hoc analysis.
 
 ### `MissingLimitError` — why `verify` won't fall through to "unchecked"
 
-`verify` is judgment-bearing — calling it with no resolvable limit raises `MissingLimitError` (importable from `litmus.execution.verify`) rather than silently recording the value. The error names every source the resolver checked — `limit=` kwarg, sidecar / marker / profile cascade, and the active part spec — so the missing source is obvious.
+`verify` is judgment-bearing — calling it with no resolvable limit raises `MissingLimitError` rather than silently recording the value. The error names every source that was checked — `limit=` kwarg, sidecar / marker / profile cascade, and the active part spec — so the missing source is obvious.
 
 If you genuinely want to record without judging, use `measure(name, value)` instead — it records the value with `outcome = DONE` and never raises on missing limits. The two methods divide cleanly: `verify` if a pass/fail decision belongs on the row, `measure` if not.
 
