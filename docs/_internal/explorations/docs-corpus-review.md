@@ -167,6 +167,12 @@ before any accuracy audit that diffs against it.
 - NEW POLICY 2026-06-24: NO competitor references in docs (TestStand/LabVIEW/OpenTAP/OpenHTF/NI/Keysight)
   except concept-translation or migration guidance. Marketing made separately. See memory
   feedback_no_competitor_references_in_docs. Worth a corpus-wide vendor-name sweep.
+- how-to/execution/traceability — CRIT accuracy: "Manual instrument traceability" recipe showed
+  `verify(uut_pin=, instrument_name=, instrument_channel=)` → TypeError (verify rejects those kwargs);
+  replaced — those fields auto-stamp from the part-spec characteristic + active fixture connection, no
+  hand-stamp path. Heavy audience scrub: cut EAV/daemon-projection internals; reconciled the table-name
+  contradiction (`measurements` is a real VIEW backed by `measurements_materialized` — SQL now uses the
+  view); added CSV `measurement_`-prefix-drop note. docs-writer; re-audit 0/0. ✅
 - how-to/execution/test-context — CRIT accuracy: `Limit` field `units`→`unit` (would AttributeError).
   Audience: reframed L3 lead off the writer/stash mechanic to the active-context view; cut a
   fixture-connection definition mid-recipe → task + link; fixed the `station_id` bullet. Context API

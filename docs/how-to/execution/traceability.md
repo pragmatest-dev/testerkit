@@ -28,9 +28,9 @@ These fields attach to each individual measurement. They come from the `verify` 
 
 ### Stimulus inputs and environmental readings
 
-Values recorded with `context.configure()` (stimulus) and `context.observe()` (environmental readings) are stored in the parquet `inputs` and `outputs` nested columns. Each entry carries `name`, `value`, `unit`, and `uut_pin` for that specific entry. There are no per-input `instrument_name` or `resource` columns — instrument identity for measurements is on the measurement row itself.
+Values recorded with `context.configure()` (stimulus) and `context.observe()` (environmental readings) are stored in the parquet `inputs` and `outputs` nested columns. Each entry carries `name`, `value`, `unit`, and `uut_pin`. Instrument identity (`instrument_name`, `instrument_resource`) lives on the measurement row, not on each entry.
 
-The `inputs` and `outputs` columns are EAV (entity-attribute-value) lists, not wide columns. The DuckDB daemon projects them into the `measurements_dynamic` table for queries, keyed by `(role, name)` where `role` is `"input"` or `"output"`.
+Values from `configure()` land in the `inputs` lane and `observe()` in the `outputs` lane — nested columns on the measurement row. To query them flattened, see [the querying section below](#from-the-duckdb-query-api). For the full at-rest column layout, see the [Parquet schema reference](../../reference/data/parquet-schema.md).
 
 ### Run context
 
@@ -50,21 +50,11 @@ def test_all_rails(self, context, dmm, verify):
         # uut_pin and characteristic_id are stamped from conn
 ```
 
-### Manual instrument traceability
+### How `uut_pin` and `instrument_name` are stamped
 
-When using instruments directly without fixture connections, pass traceability fields to `verify`:
+`verify` does not accept `uut_pin`, `instrument_name`, or `instrument_channel` as arguments. These fields are stamped automatically from the active part-spec characteristic and the active fixture connection — the same `@pytest.mark.litmus_characteristics` / `@pytest.mark.litmus_connections` binding shown in the section above.
 
-```python
-def test_output_voltage(self, dmm, verify):
-    voltage = dmm.measure_dc_voltage()
-    verify(
-        "output_voltage",
-        voltage,
-        uut_pin="J1.3",
-        instrument_name="dmm",
-        instrument_channel="CH1",
-    )
-```
+To control which pin and instrument appear on the measurement row, use the marker to select the right connection before calling `verify`. There is no hand-stamp path for these fields.
 
 ### Recording stimulus conditions with `configure()`
 
@@ -170,9 +160,11 @@ failures = df[(df["outcome"] == "failed") & (df["input_vin"] == 12.0)]
 
 Key CSV columns: `measurement_name`, `value`, `unit`, `outcome`, `uut_pin`, `instrument_name`, `spec_ref`, `characteristic_id`, `limit_low`, `limit_high`, `limit_comparator`, `uut_serial`, `step_name`. Dynamic inputs appear as `input_{name}` and dynamic outputs as `output_{name}`.
 
+The CSV export drops the `measurement_` prefix relative to the DuckDB column names: `measurement_outcome` in DuckDB becomes `outcome` in CSV, and `measurement_value` becomes `value`.
+
 ### From the DuckDB query API
 
-For cross-run analytics, use `MeasurementsQuery`. The `measurements` view exposes fixed columns (`measurement_name`, `measurement_value`, `measurement_outcome`, `uut_pin`, `instrument_name`, etc.) directly. Input and output fields live in the `measurements_dynamic` EAV table and are accessed via `FieldRef`:
+For cross-run analytics, use `MeasurementsQuery`. The `measurements` view exposes fixed columns (`measurement_name`, `measurement_value`, `measurement_outcome`, `uut_pin`, `instrument_name`, etc.) directly. Input and output fields from `configure()` and `observe()` are accessed via `FieldRef`:
 
 ```python
 from litmus.analysis.measurements_query import MeasurementsQuery
@@ -196,7 +188,7 @@ with MeasurementsQuery() as q:
 
 ### Direct DuckDB (advanced)
 
-For ad-hoc queries, the `measurements_materialized` table in the DuckDB index carries the full flattened measurement fact. Dynamic inputs and outputs are in `measurements_dynamic` (EAV, keyed by `run_id, step_index, vector_index, vector_retry, role, name`):
+For ad-hoc queries, the `measurements` view in the DuckDB index carries the full flattened measurement fact (backed by `measurements_materialized` plus the in-flight overlay). Dynamic inputs and outputs are in `measurements_dynamic` — a list of name/value/unit entries per row, one row per (vector, role, name). See the [Parquet schema reference](../../reference/data/parquet-schema.md) for exact column and join-key names.
 
 ```sql
 -- All failed measurements with their UUT pin and instrument
@@ -207,7 +199,7 @@ SELECT
     instrument_name,
     uut_pin,
     spec_ref
-FROM measurements_materialized
+FROM measurements
 WHERE measurement_outcome = 'failed';
 
 -- Measurements joined with a specific input condition (vin)
@@ -216,7 +208,7 @@ SELECT
     m.measurement_name,
     m.measurement_value,
     d.value_double AS vin
-FROM measurements_materialized m
+FROM measurements m
 LEFT JOIN measurements_dynamic d
     ON  d.run_id       = m.run_id
     AND d.step_index   = m.step_index
@@ -227,7 +219,7 @@ LEFT JOIN measurements_dynamic d
 WHERE m.measurement_outcome = 'failed';
 ```
 
-> **Note:** Direct parquet queries via `read_parquet()` see the nested `inputs` / `outputs` list columns (EAV structs), not flat `input_vin` columns. Use the DuckDB index (`measurements_materialized` + `measurements_dynamic`) for flat access, or use the CSV export for pandas workflows.
+> **Note:** Direct parquet queries via `read_parquet()` see the nested `inputs` / `outputs` list columns, not flat `input_vin` columns. Use the DuckDB index (`measurements` view + `measurements_dynamic`) for flat access, or use the CSV export for pandas workflows.
 
 ## The traceability chain
 
