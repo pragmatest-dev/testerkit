@@ -211,6 +211,15 @@ before any accuracy audit that diffs against it.
 - concepts/execution/step-hierarchy — factually accurate (27 claims). Cut OpenTAP framework-comparison
   + private internal names (`_step_stack`/`assign_indices`/`_stamp_container_outcome`); container-not-
   sweep-only clarify; record_type projection plainened. ✅
+- concepts/execution/step-manifest — 3 accuracy CRITs (`step['step_outcome']`→KeyError, should be
+  `['outcome']`; `items` type missing `int`; fabricated `name` field + omitted manifest-critical
+  vector_count_planned/step_index/vector_index). Heavy audience scrub: title (StepsDiscovered→manifest),
+  How-it-flows impl-chain diagram cut, `materialize_run_to_parquet`/`AccumulatorPool` removed,
+  never-ran reframed from NULL-jargon to plain, synthetic→placeholder. docs-writer; re-audit 0/0. ✅
+- concepts/overview/architecture — four-store table VERIFIED correct (sweep held; RunStore not
+  ParquetBackend; FileStore present). Fixed Framework→Litmus heading (platform conflation), lead diagram
+  parquet→event-log-source-of-truth, `units`→`unit` (ER ×2), event path `-{pid}`, get_limit signature,
+  cut Mermaid-internals note. ✅
 - concepts/overview/platform-vs-framework — CRIT MCP count 12→13 (+`litmus_files`, `Cpk`→`Ppk`);
   POST /api/runs verified real; no OpenHTF-adapter claim; audience prose. ✅ (MCP-count drift recurs
   corpus-wide — watch ai-integration, reference pages.)

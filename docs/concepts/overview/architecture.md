@@ -1,8 +1,8 @@
 # Litmus Architecture
 
-## How the Framework Works
+## How Litmus Works
 
-> **Vocabulary primer.** This page drops a lot of names into one diagram. If you haven't seen them yet: **[part](../configuration/parts.md)** and **[station](../configuration/stations.md)** are YAML definitions; **[sidecar](../../reference/configuration.md)** is the per-test YAML carrying limits / sweeps / mocks; **`verify` / `context` / `measure`** are three of the pytest fixtures Litmus adds — the common per-test entry points (see [reference/litmus-fixtures](../../reference/pytest/fixtures.md)); **[characteristic](../configuration/capabilities.md)** is a measurable property on a part; **[capability](../configuration/capabilities.md)** is what an instrument can do.
+> **Vocabulary primer.** This page packs several concepts into one diagram. If you haven't seen them yet: **[part](../configuration/parts.md)** and **[station](../configuration/stations.md)** are YAML definitions; **[sidecar](../../reference/configuration.md)** is the per-test YAML carrying limits / sweeps / mocks; **`verify` / `context` / `measure`** are three of the pytest fixtures Litmus adds — the common per-test entry points (see [reference/litmus-fixtures](../../reference/pytest/fixtures.md)); **[characteristic](../configuration/capabilities.md)** is a measurable property on a part; **[capability](../configuration/capabilities.md)** is what an instrument can do.
 
 ```mermaid
 flowchart LR
@@ -24,7 +24,7 @@ flowchart LR
     SC --> Plugin
     T --> Plugin
 
-    Plugin --> O[results/*.parquet<br/>+ event log]
+    Plugin --> O[event log<br/>→ results/*.parquet]
     O --> A[CLI / UI / Python API / MCP tools]
 ```
 
@@ -72,7 +72,7 @@ flowchart LR
 
 ## Entity Relationships
 
-The platform's data model splits cleanly into three concerns: **what you're testing** (parts and their specs), **how you test it** (stations, fixtures, capabilities), and **what gets executed and recorded** (sidecar configuration and runs). Each diagram below covers one concern. For the full per-model schema with every field, see [reference/models](../../reference/data/models.md) and [reference/catalog-schema](../../reference/catalog/schema.md). Click any diagram to expand.
+The platform's data model covers three concerns: **what you're testing** (parts and their specs), **how you test it** (stations, fixtures, capabilities), and **what gets executed and recorded** (sidecar configuration and runs). Each diagram below covers one concern. For the full per-model schema with every field, see [reference/models](../../reference/data/models.md) and [reference/catalog-schema](../../reference/catalog/schema.md). Click any diagram to expand.
 
 ### 1. Parts & Specs
 
@@ -96,7 +96,7 @@ erDiagram
         name string PK
         direction enum
         function enum
-        units string
+        unit string
         signals dict
         conditions dict
         controls dict
@@ -182,7 +182,7 @@ erDiagram
 
 ### 3. Test Configuration & Execution
 
-The sidecar YAML tree on the left, the runtime objects it produces on the right. `TestEntry` is a recursive node — file-scope, class-scope, method-scope all share the same shape; the recursion is described in the field list rather than drawn as a self-edge (Mermaid routes self-edges through neighbouring entities and the line reads as a phantom relationship).
+The sidecar YAML tree on the left, the runtime objects it produces on the right. `TestEntry` is a recursive node — file-scope, class-scope, and method-scope all share the same shape.
 
 ```mermaid
 erDiagram
@@ -227,7 +227,7 @@ erDiagram
     Measurement {
         name string
         value float
-        units string
+        unit string
         outcome enum
     }
     Part {
@@ -284,7 +284,7 @@ flowchart LR
 
     subgraph Runtime["Runtime (per vector)"]
         V["Vector params<br/>{temp:25, load:0.5} ..."]
-        CR["Resolve limit<br/>spec.get_limit(name, when={temp, load})"]
+        CR["Resolve limit<br/>(match the spec band for temp + load)"]
         VR["verify / measure<br/>checks + records measurement row"]
     end
 
@@ -330,7 +330,7 @@ flowchart LR
 | Fixtures | `fixtures/*.yaml` |
 | Instrument catalog | `catalog/**/*.yaml` |
 | Test results (Parquet) | `<data_dir>/runs/{date}/*.parquet` |
-| Event logs (Arrow IPC) | `<data_dir>/events/{date}/{session_id}.arrow` |
+| Event logs (Arrow IPC) | `<data_dir>/events/{date}/{session_id}-{pid}.arrow` |
 | Channel data (Arrow IPC) | `<data_dir>/channels/{date}/{channel}_{session}.arrow` |
 
 ## Data Architecture
