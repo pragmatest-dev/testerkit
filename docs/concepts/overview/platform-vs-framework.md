@@ -11,7 +11,7 @@ A test framework's job ends at "run the test." A test platform's job is everythi
 The infrastructure pieces a hardware-test team needs whether they're running pytest, a hand-written loop, or a bridge from a non-Python runner:
 
 - **Configuration** — `litmus.yaml` (project), `stations/*.yaml` (benches), `fixtures/*.yaml` (UUT routing), `parts/*.yaml` (specs), `catalog/*.yaml` (instrument capabilities). All YAML, all Pydantic-validated, all editable without touching test code.
-- **Instrument plumbing** — auto-fixtures from station YAML, the `Mock` substitution for hardware-free tests, switch-route activation through fixture connections. Drivers themselves are user-supplied (PyMeasure, PyVISA, vendor SDK).
+- **Instrument plumbing** — a ready-made handle per instrument from station YAML, the `Mock` substitution for hardware-free tests, switch-route activation through fixture connections. Drivers themselves are user-supplied (PyMeasure, PyVISA, vendor SDK).
 - **Capability matching** — does this station have what this part needs? See [capabilities](../configuration/capabilities.md).
 - **Results storage** — three stores feeding one queryable surface: the [event log](../data/event-log.md), the parquet runs store, and the channel store for time-series. See [three stores](../data/three-stores.md) for the layout and tradeoffs.
 - **Operator surface** — NiceGUI web UI, operator prompts during a test, real-time dashboards.
@@ -20,7 +20,7 @@ The infrastructure pieces a hardware-test team needs whether they're running pyt
 ## What Litmus does not provide
 
 - **A test execution engine.** Litmus delegates to pytest for new projects; non-pytest runners (LabVIEW / TestStand bridges, hand-written loops, etc.) use [`LitmusClient`](../../reference/runtime/client.md) to submit results.
-- **Instrument drivers.** Bring your own — PyMeasure, PyVISA, vendor libraries, or your own classes derived from `Instrument` / `VisaInstrument` (importable from `litmus.instruments.base` and `litmus.instruments.visa` respectively). See [custom drivers](../../how-to/configuration/custom-drivers.md).
+- **Instrument drivers.** Bring your own — PyMeasure, PyVISA, vendor libraries, or your own classes derived from `Instrument` / `VisaInstrument`. See [custom drivers](../../how-to/configuration/custom-drivers.md).
 
 ## Multiple Entry Points
 
@@ -83,7 +83,7 @@ Litmus exposes its platform services via MCP (Model Context Protocol):
 ```mermaid
 flowchart TB
     agent["AI Agent (Claude Code)"]
-    mcp["**MCP Server**<br/><br/>Tools (twelve, all litmus_*):<br/>• litmus_project (CRUD on YAML)<br/>• litmus_discover (find instruments)<br/>• litmus_match (capability check)<br/>• litmus_run (execute tests)<br/>• litmus_open (browser URLs)<br/>• litmus_schema (entity JSON schema)<br/>• litmus_events (query events)<br/>• litmus_sessions (list sessions)<br/>• litmus_channels (query channels)<br/>• litmus_metrics (yield / Pareto / Cpk)<br/>• litmus_runs (query runs view)<br/>• litmus_steps (query steps view)"]
+    mcp["**MCP Server**<br/><br/>Tools (thirteen, all litmus_*):<br/>• litmus_project (CRUD on YAML)<br/>• litmus_discover (find instruments)<br/>• litmus_match (capability check)<br/>• litmus_run (execute tests)<br/>• litmus_open (browser URLs)<br/>• litmus_schema (entity JSON schema)<br/>• litmus_events (query events)<br/>• litmus_sessions (list sessions)<br/>• litmus_channels (query channels)<br/>• litmus_files (list artifacts)<br/>• litmus_metrics (yield / Pareto / Ppk)<br/>• litmus_runs (query runs view)<br/>• litmus_steps (query steps view)"]
     platform["Litmus Platform Services"]
 
     agent --> mcp --> platform
@@ -100,7 +100,7 @@ flowchart TB
 | LabVIEW / TestStand / non-pytest runners | Use [`LitmusClient`](../../reference/runtime/client.md) to write run results from any Python boundary the other runner can shell out to. |
 | AI-assisted test authoring | Run the [MCP server](../../how-to/overview/mcp-integration.md) and point Claude Code / Cursor / Cline at it. |
 
-## Architecture Summary
+## How it fits together
 
 ```mermaid
 flowchart TB
@@ -133,7 +133,7 @@ flowchart TB
     UI --> Platform --> Storage
 ```
 
-Litmus is the infrastructure layer that connects your tests (top) to your data (bottom), regardless of how you choose to run them.
+Litmus is the infrastructure layer that connects your tests (top) to your data (bottom), whether you run them through pytest, the results API, or a bridge from another runner.
 
 
 ## See also

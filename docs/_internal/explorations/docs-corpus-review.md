@@ -142,6 +142,15 @@ before any accuracy audit that diffs against it.
 
 ## Per-page progress log
 
+### Piece 3 — concepts (lean 2-lens)
+- concepts/overview/platform-vs-framework — CRIT MCP count 12→13 (+`litmus_files`, `Cpk`→`Ppk`);
+  POST /api/runs verified real; no OpenHTF-adapter claim; audience prose. ✅ (MCP-count drift recurs
+  corpus-wide — watch ai-integration, reference pages.)
+- concepts/data/three-verbs — page highly accurate (verbs verified; `Observation` event IS real);
+  10 jargon fixes (polymorphic/orthogonal/role-keyed/fused-prefixes/clobber/latching) + ERRORED outcome.
+  Kept "stamps" (established framing) + the storage-partition section (legit for a concepts page). ✅
+
+
 (Append one line per page as it converges to 0 critical: `<piece> <path> — <date> — <notes>`.)
 
 - Piece 1 README.md — 2026-06-23 — fix pass 1 cleared 8 criticals (plugin→platform

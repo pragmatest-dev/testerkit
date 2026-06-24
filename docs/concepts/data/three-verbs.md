@@ -10,7 +10,7 @@ Every value a test records plays one of three roles:
 
 The platform routes each call to the right store. You write the verb; the role follows automatically.
 
-`stream` is a fourth verb — for continuous signals — and is covered below. It does not produce a role-keyed field on the vector; it writes to the channel timeline.
+`stream` is a fourth verb — for continuous signals — and is covered below. It does not add an input/output/measurement field to the vector; it writes to the channel timeline.
 
 ## What `configure` does
 
@@ -37,7 +37,7 @@ observe("v_rail", dmm.measure_dc_voltage())        # → output role, scalar
 observe("scope_cap", scope.capture())              # → output role, Waveform
 ```
 
-`observe` is polymorphic — the value's shape determines which store receives it:
+`observe` accepts any shape — the value's shape determines which store receives it:
 
 | Value shape | Routes to | How to query later |
 |---|---|---|
@@ -45,9 +45,9 @@ observe("scope_cap", scope.capture())              # → output role, Waveform
 | Array of scalars (list / ndarray) | ChannelStore | `/channels/{id}` chart panel |
 | `Waveform` (Y + `sample_interval`) | ChannelStore | `/channels/{id}` chart panel |
 | `XYData` (paired x/y arrays with per-axis units) | FileStore as `.npz` | `FieldRef.output("iv_curve")` → URI |
-| Blob (image / `bytes` / `Path` / Pydantic model) | FileStore via serializer registry | `FieldRef.output("setup_photo")` → URI |
+| File / object (image / `bytes` / `Path` / Pydantic model) | FileStore (via a registered serializer) | `FieldRef.output("setup_photo")` → URI |
 
-The verb you call decides that a value is an output. The value's shape decides where the bytes land. They're orthogonal.
+The verb you call decides that a value is an output. The value's shape decides where the bytes land. The two choices are independent.
 
 ## What `verify` and `measure` do
 
@@ -55,7 +55,7 @@ The verb you call decides that a value is an output. The value's shape decides w
 
 ```python
 verify("rise_time_us", rise_time(wf), limit=Limit(low=0, high=20, unit="us"))
-# → measurement role: value, limits, outcome (PASSED / FAILED), unit
+# → measurement role: value, limits, outcome (PASSED / FAILED / ERRORED), unit
 ```
 
 `measure` is the record-only sibling — it stamps `Outcome.DONE` and never raises on a missing limit:
@@ -69,7 +69,7 @@ Both are scalar-only. Passing a `Waveform`, array, or blob to `verify` or `measu
 
 ## Querying by role
 
-Because role is stored with every field, the query API lets you reference any field by `(role, name)` — no fused prefixes, no column-name guessing:
+Because role is stored with every field, the query API lets you reference any field by its role and name — you don't have to guess a prefixed column name like `in_vin`:
 
 ```python
 from litmus.queries import MeasurementsQuery, FieldRef
@@ -85,7 +85,7 @@ rows = q.parametric(
 # Plot temperature (output) vs date across runs
 rows = q.parametric(
     y=FieldRef.output("temp"),
-    x="run_started_at",     # bare string = fixed infrastructure column
+    x="run_started_at",     # bare string = a built-in run column
 )
 
 # A bare string is measurement shorthand — the most common case
@@ -104,7 +104,7 @@ See [Reference → Query API](../../reference/data/query-api.md) for the full `M
 |---|---|---|
 | Unit of data | One call, one captured value | The channel itself; samples are unnamed appends |
 | Identity | Each call has a name and a vector context | The channel has a name; samples don't |
-| Role on the vector | `output` (for scalars / URIs) | None — stream does not produce a role-keyed field |
+| Role on the vector | `output` (for scalars / URIs) | None — stream doesn't add an input/output/measurement field |
 | T&M shape | Triggered acquisition, scope capture, snapshot | Live sensor feed, free-run, continuous monitor |
 
 **Rate doesn't decide. Intent does.** A 1-sample-per-5-minute temperature probe is continuous because the temperature is a signal that exists whether you sample it or not.
@@ -114,7 +114,7 @@ See [Reference → Query API](../../reference/data/query-api.md) for the full `M
 
 What breaks if you mix them up:
 
-- `observe` in a high-rate loop → one `Observation` event per call (EventStore flood) + last-wins URI clobber on scalar outputs
+- `observe` in a high-rate loop → one event recorded per call (floods the event log), and the last call overwrites the previous output URI on scalar outputs
 - `stream` for a single discrete capture → no output stamped on the vector → can't navigate from the measurement to the supporting waveform without knowing the `channel_id` + time window
 
 To associate a streamed channel with a measurement vector, pass the sink to `observe`:
@@ -135,7 +135,7 @@ Litmus exposes data writing at two layers:
 | **Test-author verbs** | Inside a test (has a vector context) | `observe(name, value)`, `verify(name, value, limit=…)` | `stream(name, sample)` |
 | **Store-direct** | Outside a test — notebooks, scripts, operator UI | `channels.write(name, sample)` | `channels.stream(name)` |
 
-The test-author verbs are built on top of the store-direct calls. What `observe` adds is vector bookkeeping: stamping the value's role and URI on the active vector, emitting an `Observation` event, handling URI latching. None of that makes sense outside a test, so the store-direct surface skips it.
+The test-author verbs are built on top of the store-direct calls. What `observe` adds is recording the value's role and storage URI on the active test vector. None of that makes sense outside a test, so the store-direct surface skips it.
 
 `stream` does not associate with the vector automatically. Only `observe` stamps the vector. To associate a streamed channel with the active vector, pass the sink to `observe` as shown above.
 
