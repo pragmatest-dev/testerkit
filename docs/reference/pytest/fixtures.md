@@ -1,8 +1,8 @@
 # Litmus fixtures
 
-The bundled pytest plugin registers **20 public fixtures**, defined in `src/litmus/pytest_plugin/__init__.py`. Take any of them in a test's signature; pytest resolves and injects them by name. Names beginning with `_` (e.g. `_route_manager`, `_litmus_push_params`) are internal and may change without notice.
+The bundled pytest plugin registers a set of public fixtures, defined in `src/litmus/pytest_plugin/__init__.py`. Take any of them in a test's signature; pytest resolves and injects them by name. Names beginning with `_` (e.g. `_route_manager`, `_litmus_push_params`) are internal and may change without notice.
 
-This page is the comprehensive reference. For a guided introduction see the [tutorial](../../tutorial/); for the seven `@pytest.mark.litmus_*` markers see [Litmus markers](litmus-markers.md).
+This page is the comprehensive reference. For a guided introduction see the [tutorial](../../tutorial/); for the seven `@pytest.mark.litmus_*` markers see [Litmus markers](markers.md).
 
 ## At a glance
 
@@ -80,7 +80,7 @@ def test_visual(prompt, verify):
     verify("led_state", read_led_color())
 ```
 
-See [`litmus_prompts`](litmus-markers.md#litmus_prompts) for the marker shape.
+See [`litmus_prompts`](markers.md#litmus_prompts) for the marker shape.
 
 ---
 
@@ -306,7 +306,7 @@ These names are not hard-coded — they come from your station YAML at session s
 
 ## See also
 
-- [Litmus markers](litmus-markers.md) — the seven `@pytest.mark.litmus_*` decorators and their sidecar equivalents
+- [Litmus markers](markers.md) — the seven `@pytest.mark.litmus_*` decorators and their sidecar equivalents
 - [pytest-native reference](../overview/pytest-native.md) — how the bundled plugin uses pytest's own collection / fixtures / markers
 - [Models](../data/models.md) — `Limit`, `MeasurementLimitConfig`, `PartContext`, `StationConfig`, `FixtureConfig` field shapes
 - [Test vectors & sweeps](../../how-to/execution/vector-expansion.md) — `litmus_sweeps`, `parametrize`, and the `vectors` self-loop fixture

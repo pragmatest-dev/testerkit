@@ -139,4 +139,4 @@ If `station` is `None`, it reads `default_station` from `litmus.yaml` in the CWD
 - [Sessions](../../concepts/data/sessions.md) — why sessions exist and what they capture
 - [Managing sessions](../../how-to/execution/managing-sessions.md) — practical workflows
 - [Flight streaming](../../concepts/data/flight-streaming.md) — the DuckDB daemon `connect()` rides on
-- [Litmus fixtures](../pytest/litmus-fixtures.md) — the pytest equivalents (every fixture is backed by the same `StationConnection` machinery)
+- [Litmus fixtures](../pytest/fixtures.md) — the pytest equivalents (every fixture is backed by the same `StationConnection` machinery)

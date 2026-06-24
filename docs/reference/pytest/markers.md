@@ -223,6 +223,6 @@ Resolution order (least → most specific): inline marker (class then method) �
 ## See also
 
 - [pytest-native reference](../overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers
-- [Litmus fixtures reference](litmus-fixtures.md) — all 20 fixtures the plugin exposes
+- [Litmus fixtures reference](fixtures.md) — all the fixtures the plugin exposes
 - [Models](../data/models.md) — `MeasurementLimitConfig`, `MockEntry`, `SweepEntry`, `RetryConfig`, `PromptConfig` field shapes
 - [Test vectors & sweeps](../../how-to/execution/vector-expansion.md) — `litmus_sweeps` semantics + `vectors` self-loop fixture

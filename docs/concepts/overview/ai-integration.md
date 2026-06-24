@@ -1,8 +1,8 @@
 # AI integration
 
-The platform exposes its operations as **typed tool calls** an AI client can drive — over an MCP server for clients that speak MCP, or via the CLI for any agent with a terminal: discovery, capability matching, run launching, results query, schema validation, datasheet extraction, test scaffolding. It does not embed an LLM client itself — the user brings their own assistant (Claude Code, Cursor, Cline, Claude Desktop, Copilot CLI, …), and Litmus is the typed surface on the other end of the wire.
+The platform exposes its operations as **typed tool calls** an AI client can drive — over an MCP server (the open protocol AI assistants use to call external tools) for clients that speak it, or via the CLI for any agent with a terminal: discovery, capability matching, run launching, results query, config validation, datasheet extraction, test scaffolding. It does not embed an LLM client itself — the user brings their own assistant (Claude Code, Cursor, Cline, Claude Desktop, Copilot CLI, …), and Litmus is the typed surface the assistant drives.
 
-The cost of any structured platform is the upfront encoding work — getting existing instruments and parts into the schema. AI integration is the platform's answer to that cost. An agent reads a datasheet PDF, drafts the catalog YAML, lands it as a file you can diff and review. The structured approach becomes worth adopting because the encoding work shrinks from hours to minutes.
+The cost of any structured platform is the upfront encoding work — getting existing instruments and parts encoded as catalog and spec YAML. AI integration is the platform's answer to that cost. An agent reads a datasheet PDF, drafts the catalog YAML, lands it as a file you can diff and review. The structured approach becomes worth adopting because the encoding work shrinks from hours to minutes.
 
 The rest of this page documents the integration's boundary: what changes for the user, why it's safe to lean on without losing visibility, what it deliberately doesn't do, and the adoption ramp.
 
@@ -35,7 +35,7 @@ A few things AI integration in Litmus deliberately does **not** try to do:
 
 - **Run the test.** Test execution is pytest. The AI can scaffold a test file, but the test runs the same way it would without the AI.
 - **Decide pass/fail.** Limit checking, traceability, capability matching — all in code. The AI proposes; the deterministic platform decides.
-- **Hide the prompt.** All shipped workflows ([skills reference](../../reference/overview/skills.md)) ship as plain markdown files at `src/litmus/skills/`. You can read them, audit them, fork them, ignore them.
+- **Hide the prompt.** All shipped workflows ([skills reference](../../reference/overview/skills.md)) ship as plain markdown files you can read, audit, fork, or ignore.
 - **Lock you to one model.** Sub-agent prompts include a recommended **tier** (high-capability / mid-capability) but no hard-coded model name. Pick whichever your client supports.
 
 ## Adoption ramp

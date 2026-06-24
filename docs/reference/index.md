@@ -21,7 +21,7 @@ The YAML schemas every entity validates against, plus the catalog (its own thing
 
 The fixtures and markers the bundled pytest plugin contributes on top of stock pytest.
 
-- [Fixtures](pytest/fixtures.md) — all 20 fixtures the plugin contributes on top of pytest's, with signatures, scopes, and per-fixture examples.
+- [Fixtures](pytest/fixtures.md) — all the fixtures the plugin contributes on top of pytest's, with signatures, scopes, and per-fixture examples.
 - [Markers](pytest/markers.md) — the seven `@pytest.mark.litmus_*` decorators the plugin registers and their 1:1 sidecar equivalents.
 
 ## Data

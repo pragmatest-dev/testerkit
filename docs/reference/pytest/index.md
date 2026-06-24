@@ -2,7 +2,7 @@
 
 The fixtures and markers the bundled pytest plugin contributes on top of stock pytest. For pytest-native mechanics (collection, parametrize, conftest, CLI flags), see [pytest-native](../overview/pytest-native.md).
 
-- [Fixtures](fixtures.md) — all 20 fixtures the plugin contributes, with signatures, scopes, and per-fixture examples
+- [Fixtures](fixtures.md) — all the fixtures the plugin contributes, with signatures, scopes, and per-fixture examples
 - [Markers](markers.md) — the seven `@pytest.mark.litmus_*` decorators and their 1:1 sidecar equivalents
 
 ## See also

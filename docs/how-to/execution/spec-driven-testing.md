@@ -167,5 +167,5 @@ No manual threading of traceability fields — they're injected by the plugin.
 ## See also
 
 - [Limits guide](limits.md) — `characteristic:`, callables, resolution order
-- [Litmus fixtures](../../reference/pytest/fixtures.md) — all 20 plugin fixtures with signatures
+- [Litmus fixtures](../../reference/pytest/fixtures.md) — all the plugin fixtures with signatures
 - [Writing Tests](writing-tests.md) — end-to-end patterns

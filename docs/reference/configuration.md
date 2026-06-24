@@ -337,7 +337,7 @@ Sidecar entries override inline decorators because sidecar-derived markers are a
 
 CLI flags compose with this chain rather than overriding it wholesale. For example `--mock-instruments` overrides `ProjectConfig.mock_instruments`; `-k` / `-m` compose with `runner.keyword` / `runner.markexpr`.
 
-See [pytest-native.md](pytest-native.md) for pytest node IDs and [reference/litmus-markers.md](litmus-markers.md) for the full marker surface.
+See [pytest-native.md](pytest-native.md) for pytest node IDs and [reference/markers.md](markers.md) for the full marker surface.
 
 ## Catalog — `catalog/<vendor>/<model>.yaml` {#catalog-yaml}
 
@@ -401,5 +401,5 @@ Every loader raises with the offending field path on type / shape errors and a c
 - [Multi-UUT testing (how-to)](../how-to/execution/multi-uut-testing.md) — fixture `slots:` workflow
 - [Mock mode (how-to)](../how-to/configuration/mock-mode.md) — station `mock_config:` and sidecar `mocks:`
 - [Pytest-native (reference)](pytest-native.md) — node IDs, marker surface
-- [Litmus markers (reference)](litmus-markers.md) — every marker with payload shape
+- [Litmus markers (reference)](markers.md) — every marker with payload shape
 - [Fixtures (concept)](../concepts/configuration/fixtures.md) — design rationale for fixtures

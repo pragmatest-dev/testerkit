@@ -41,7 +41,7 @@ The plugin name appears in the loaded-plugins list at the top of the output. If 
 
 ## What fixtures appear
 
-The plugin provides a fixed set of [20 plugin fixtures](../../reference/pytest/fixtures.md) (most-used: `verify`, `measure`, `context`, `pins`, `instruments`). It also synthesizes one [per-role auto-fixture](../../reference/pytest/fixtures.md#per-role-auto-fixtures) per instrument in the active station YAML — so a station with `instruments: { dmm: ..., psu: ..., scope: ... }` exposes `dmm`, `psu`, `scope` as fixtures automatically. No wrapper code needed.
+The plugin provides a set of [plugin fixtures](../../reference/pytest/fixtures.md) (most-used: `verify`, `measure`, `context`, `pins`, `instruments`). It also synthesizes one [per-role auto-fixture](../../reference/pytest/fixtures.md#per-role-auto-fixtures) per instrument in the active station YAML — so a station with `instruments: { dmm: ..., psu: ..., scope: ... }` exposes `dmm`, `psu`, `scope` as fixtures automatically. No wrapper code needed.
 
 ```python
 # tests/test_voltage.py — a new pytest test that uses Litmus
@@ -331,7 +331,7 @@ Pick what you need. The plugin doesn't force any of it — without YAMLs, you st
 
 ## See also
 
-- [Litmus fixtures](../../reference/pytest/fixtures.md) — the 20 fixtures the plugin contributes (and the per-role auto-fixtures from station YAML)
+- [Litmus fixtures](../../reference/pytest/fixtures.md) — the fixtures the plugin contributes (and the per-role auto-fixtures from station YAML)
 - [Litmus markers](../../reference/pytest/markers.md) — `litmus_limits`, `litmus_sweeps`, `litmus_mocks`, `litmus_characteristics`, `litmus_connections`, `litmus_retry`, `litmus_prompts`
 - [pytest-native reference](../../reference/overview/pytest-native.md) — how Litmus tests use pytest's own collection / fixtures / markers / CLI flags
 - [Writing tests](../../how-to/execution/writing-tests.md) — end-to-end patterns for new Litmus-flavored tests

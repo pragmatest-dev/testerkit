@@ -126,13 +126,15 @@ before any accuracy audit that diffs against it.
   Pending user decision on sweep scope.
 - ATML mention: there is NO ATML exporter (exporters are csv/hdf5/json/mdf4/stdf/tdms).
 
-- **Fixture count: 20 → 22.** The plugin defines **22** public `@pytest.fixture`s
-  (`src/litmus/pytest_plugin/__init__.py`); `stream` (`:965`) and `observe` (`:997`)
-  are genuine fixtures added to code but never propagated to docs. Source of truth is
-  the hand-written `reference/pytest/fixtures.md` (NOT generated) — it says "20 public
-  fixtures" and omits both from its inventory. Fix there first (add `stream`/`observe`
-  entries + bump count), THEN propagate the "20"/"three of the 20" wording on the
-  citing pages: `tutorial/quickstart.md`, `tutorial/09-production.md`,
+- **Fixture count: DROP the literal (decided 2026-06-24, user).** Don't note a number
+  anywhere — brittle, drift-prone (it WAS wrong: docs said "20" while the real public
+  count is **22**), and unactionable; the fixture LIST is self-counting. The plugin
+  defines 22 public `@pytest.fixture`s (`__init__.py`); `stream` (`:965`) and `observe`
+  (`:997`) are genuine fixtures MISSING from the hand-written `reference/pytest/fixtures.md`
+  (NOT generated). DONE: dropped the count from `reference/pytest/fixtures.md` L3 + concepts
+  `overview/pytest.md`. REMAINING (Piece 5): add `stream`/`observe` rows to the fixtures.md
+  at-a-glance table + detail sections (real coverage gap). Drop any explicit fixture-number
+  wording on the other citing pages: `tutorial/quickstart.md`, `tutorial/09-production.md`,
   `integration/runtime/pytest-existing.md`, `reference/index.md`,
   `reference/pytest/{index,markers}.md`, `how-to/execution/writing-tests.md`,
   `concepts/overview/pytest.md`, and `reference/overview/pytest-native.md` (GENERATED —
@@ -185,6 +187,14 @@ before any accuracy audit that diffs against it.
   (`InstrumentServer`/`RemoteInstrumentProxy`/"not raw TCP" — it IS TCP localhost); `concurrent=True` is NOT
   a user flag → switches exempt because `type: switch`; cut "backward-compatible" tombstone + `src/...`
   citation + `extra="forbid"`. ✅
+- concepts/overview/ai-integration — accurate (13 claims; page makes few specific claims, all
+  correct — no MCP-count to go stale, litmus_run mock-only not violated). schema→config/YAML jargon,
+  added MCP one-line gloss, dropped `src/litmus/skills/` path leak. ✅
+- concepts/overview/pytest — accurate (platform-not-plugin framing correct; litmus_retry/flaky verified).
+  Dropped brittle fixture count (docs said "20", REAL public count is **22** — observe+stream were
+  uncounted), tightened LLM-training marketing, flags→markers. → triggered corpus-wide fixture-count
+  DROP (8 pages, no number anywhere) + fixed 12+ broken `litmus-fixtures.md`/`litmus-markers.md` →
+  `fixtures.md`/`markers.md` links. observe+stream reference entries still pending (Piece 5). ✅
 - concepts/overview/platform-vs-framework — CRIT MCP count 12→13 (+`litmus_files`, `Cpk`→`Ppk`);
   POST /api/runs verified real; no OpenHTF-adapter claim; audience prose. ✅ (MCP-count drift recurs
   corpus-wide — watch ai-integration, reference pages.)
@@ -206,7 +216,7 @@ before any accuracy audit that diffs against it.
   install-section dup removed; prereq Python 3.11+ added; plural→single test). The 9
   cross-link "criticals" were FALSE (paths exist). Cheat-sheet forward-links kept as an
   intentional quickstart device. Re-audit CERTIFIED 0 critical. ✅ One tracked warning:
-  "20 fixtures" → 22 (deferred to the source-first fixture-count fix above).
+  "20 fixtures" → DROPPED (no number; see fixture-count note above). observe/stream entries pending Piece 5.
 - Piece 1 tutorial/index.md — 2026-06-23 — fixed 3 criticals (Batteries-included opener
   removed; canonical `pip install litmus-test` added to Quick Start block + Prerequisites,
   repo-dev `uv sync`/`-e .` removed). False broken-link + `--starter`-missing findings
