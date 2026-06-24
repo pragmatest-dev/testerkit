@@ -24,8 +24,7 @@ Three places to declare vectors, all using the same shape:
 
 `litmus_sweeps` is the **recommended** marker for new tests.
 Pytest's own `@pytest.mark.parametrize` keeps working unchanged for
-existing tests (chapter 1 of the curriculum). Don't *mix* the two on
-a single test — pick one.
+existing tests. Don't *mix* the two on a single test — pick one.
 
 ---
 
@@ -49,7 +48,7 @@ sweeps:
 ### Paired values (one loop, two variables stepping together)
 
 When you have a list of input/expected pairs (think: rows in a spec
-table), put both keys in one axis-group dict. The two lists
+table), put both keys in one dict. The two lists
 **must be the same length**; mismatched lists raise a clear error
 right away, before pytest tries to run anything:
 
@@ -68,14 +67,14 @@ If you write `vin=[3, 4]` and `expected=[5, 6, 7]` (two vs three),
 pytest reports the mismatch at decoration time:
 
 ```
-litmus_sweeps zip requires all argvalues to have the same length;
+sweep zip requires all argvalues to have the same length;
 got {'vin': 2, 'expected': 3}
 ```
 
-### Nested loops (cross-product)
+### Nested loops (every combination)
 
-To sweep two independent variables, pass multiple axis-group dicts
-in one marker (or use multiple list items in YAML). The order reads
+To sweep two independent variables, pass two dicts
+in one marker (or two list items in YAML). The order reads
 top-to-bottom as **outer-to-inner**:
 
 ```python
@@ -121,16 +120,13 @@ warmup[2] → load_regulation[2,4] → load_regulation[2,5] → load_regulation[
 warmup[3] → load_regulation[3,4] → load_regulation[3,5] → load_regulation[3,6] → cooldown[3]
 ```
 
-That matches the way T&M frameworks (TestStand, OpenTAP, Spintop
-OpenHTF) treat sequences and how a hardware engineer would write
-the equivalent nested `for` loops: outer dimension changes least
-often, so expensive setup (chamber soak, fixture swap) only fires
-when the slow parameter rolls over.
+This is how you'd write the equivalent nested `for` loops by hand: the
+outer dimension changes least often, so expensive setup (chamber soak,
+fixture swap) only fires when the slow parameter rolls over.
 
-Pytest's own collection order for class-level `@parametrize` is
-method-first (all warmup variants, then all load_regulation
-variants, then all cooldown variants); `litmus_sweeps` reorders to
-condition-first because that's what hardware test sequences want.
+Class sweeps run **condition-first**: the full class sequence
+(warmup → load_regulation → cooldown) repeats once per outer value, so
+each value gets a complete pass before the next.
 
 Each class iteration emits its own **container step** in the event
 log — see [Step Hierarchy](../../concepts/execution/step-hierarchy.md) for what
@@ -319,11 +315,10 @@ as in normal parametrized mode.
 When the method using `vectors` lives inside a class that's also
 swept, the two dimensions split:
 
-- **Outer (class-level) sweeps** still fan out at pytest's
-  parametrize layer — one pytest item per outer condition, one
-  class-container iteration each.
-- **Inner (method-level) sweeps** get consumed into the matrix
-  that the `vectors` fixture iterates internally.
+- **Outer (class-level) sweeps** produce one pytest item per outer
+  value, one class-container iteration each.
+- **Inner (method-level) sweeps** run inside the `vectors` loop for
+  that item.
 
 The outer parameter must appear in the method signature so pytest
 can pass it as an argument:

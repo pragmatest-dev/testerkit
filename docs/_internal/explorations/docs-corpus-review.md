@@ -167,6 +167,16 @@ before any accuracy audit that diffs against it.
 - NEW POLICY 2026-06-24: NO competitor references in docs (TestStand/LabVIEW/OpenTAP/OpenHTF/NI/Keysight)
   except concept-translation or migration guidance. Marketing made separately. See memory
   feedback_no_competitor_references_in_docs. Worth a corpus-wide vendor-name sweep.
+- how-to/execution/vector-expansion — factually accurate (18 claims: litmus_sweeps shape, linspace/
+  arange/logspace/geomspace/repeat/range generators, vectors fixture all verified). Fixed error-text
+  `litmus_sweeps zip`→`sweep zip`. CRIT audience: cut competitor design-validation (TestStand/OpenTAP/
+  Spintop, per no-competitor policy); removed @parametrize collection-order concept-narration; scrubbed
+  parametrize-layer/axis-group/curriculum jargon. Outer-to-inner ordering (the load-bearing bit) kept. ✅
+- how-to/execution/profiles — 2 CRIT audience (no create-task block → added "Create and run a profile";
+  broken See-also link `how-to/writing-tests.md`→`writing-tests.md`); accuracy: `profile_facets` is
+  file-metadata not a column, `litmus show` does NOT display profile name/description (removed false
+  claims), +station_type/fixture/verify_requires_limit to field table. Scrubbed facet-jargon/merge-ladder/
+  UsageError class names/"escape hatch". docs-writer; re-audit pending. ✅(pending re-audit)
 - how-to/execution/spec-driven-testing — factually PERFECT (38 claims verified: characteristic= kwarg,
   SpecBand resolution, guardband math, spec_ref format all correct). Pure audience/quadrant scrub:
   removed resolver-internals narration (page narrated HOW the resolver decides, not what to type),
