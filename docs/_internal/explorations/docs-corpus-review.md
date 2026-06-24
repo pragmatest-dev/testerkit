@@ -167,6 +167,15 @@ before any accuracy audit that diffs against it.
 - NEW POLICY 2026-06-24: NO competitor references in docs (TestStand/LabVIEW/OpenTAP/OpenHTF/NI/Keysight)
   except concept-translation or migration guidance. Marketing made separately. See memory
   feedback_no_competitor_references_in_docs. Worth a corpus-wide vendor-name sweep.
+- how-to/execution/operator-prompts — factually accurate (24 claims: litmus_prompts confirm/choice/input
+  types, prompt fixture, PromptUnavailableError, LITMUS_AUTO_CONFIRM all verified). Audience: retitled
+  "Design operator prompts"→"Pause a test for operator input" (was a design-checklist, not a task);
+  "one ask() entry point"→"one fixture call" (ask is internal; the `prompt` fixture is the public surface);
+  dropped the `src/litmus/api/dialogs/` source link; blocks→waits, dialog-manager→prompt, abstraction heading. ✅
+- how-to/execution/multi-uut-testing — accuracy: parquet filename +run_id8; --fixture multi only with 2+
+  slots; softened crash-cleanup. HEAVY internals scrub: InstrumentServer/RemoteInstrumentProxy/
+  SyncCoordinator/orchestrator/worker/subprocess-per-slot all removed → plain "connect once, serialized,
+  mocks not shared" + sync.wait behavior; dropped private `_LITMUS_*` env rows. docs-writer; re-audit pending.
 - how-to/execution/vector-expansion — factually accurate (18 claims: litmus_sweeps shape, linspace/
   arange/logspace/geomspace/repeat/range generators, vectors fixture all verified). Fixed error-text
   `litmus_sweeps zip`→`sweep zip`. CRIT audience: cut competitor design-validation (TestStand/OpenTAP/

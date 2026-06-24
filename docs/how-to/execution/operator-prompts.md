@@ -1,11 +1,6 @@
-# Design operator prompts
+# Pause a test for operator input
 
-The `prompt` fixture lets a test pause and ask the operator a
-question — confirm a setup step, pick from a list of fixtures,
-type in a value. The mechanism is small (`litmus_prompts` marker,
-three prompt types, one `ask()` entry point) but the design of the
-prompts is where operator confidence is won or lost. This guide is
-the design checklist.
+To pause a test and ask the operator to confirm a step, pick an option, or type a value, declare the prompts with the `litmus_prompts` marker and read each response by calling the `prompt` fixture. The mechanism is small — one marker, three prompt types, one fixture call. The example below shows the patterns; the design rules later help you write prompts an operator can act on with confidence.
 
 ## The mechanism in 30 seconds
 
@@ -19,7 +14,7 @@ import pytest
     chamber_temp={"message": "Set chamber temperature (°C):", "prompt_type": "input"},
 )
 def test_setup(prompt):
-    prompt("insert_uut")                # blocks until operator clicks Confirm
+    prompt("insert_uut")                # waits for the operator to click Confirm
     bench = prompt("pick_bench")        # returns the selected choice (str)
     temp = prompt("chamber_temp")       # returns the typed input (str)
 ```
@@ -44,7 +39,7 @@ specific wins). Routing of the prompt itself is automatic:
 | `input` | Free-text field — "what value did you set?" | The typed string |
 
 `timeout_seconds` is an optional cap on how long the prompt waits.
-When exceeded the dialog manager raises `PromptUnavailableError`
+When exceeded the prompt raises `PromptUnavailableError`
 and the test fails — it does not auto-respond. Use this as a
 "don't hang forever" safety net.
 
@@ -58,13 +53,13 @@ than a question ("Have you inserted the UUT?"). Use the imperative
 when you can — questions for `choice` and `input`, statements for
 `confirm`.
 
-### 2. Name the action, not the abstraction
+### 2. Name the concrete action
 
 > ❌ `message="Begin verification protocol"`
 >
 > ✅ `message="Insert UUT serial 0001 into bench socket 3, then click Confirm."`
 
-The first reads like documentation. The second tells the operator
+The first reads like a spec heading. The second tells the operator
 exactly what to do. Include the concrete thing (serial number,
 slot, value) when the test knows it.
 
@@ -122,10 +117,7 @@ scope wins.
 
 ## Operator UX in the running UI
 
-When the operator UI is up, prompts route through the dialog queue
-defined in
-[`src/litmus/api/dialogs/`](https://github.com/pragmatest-dev/litmus/tree/main/src/litmus/api/dialogs).
-That gives you:
+When the operator UI is up, each prompt becomes a modal at the live monitor. That gives you:
 
 - An amber row in the **ACTIVE TESTS** sidebar block (visible from
   every page) showing "N dialog(s) waiting".
