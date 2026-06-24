@@ -167,6 +167,10 @@ before any accuracy audit that diffs against it.
 - NEW POLICY 2026-06-24: NO competitor references in docs (TestStand/LabVIEW/OpenTAP/OpenHTF/NI/Keysight)
   except concept-translation or migration guidance. Marketing made separately. See memory
   feedback_no_competitor_references_in_docs. Worth a corpus-wide vendor-name sweep.
+- how-to/execution/test-context — CRIT accuracy: `Limit` field `units`→`unit` (would AttributeError).
+  Audience: reframed L3 lead off the writer/stash mechanic to the active-context view; cut a
+  fixture-connection definition mid-recipe → task + link; fixed the `station_id` bullet. Context API
+  verified accurate (30 claims: get_param/changed/last/observe/configure/.connections/.run/.station/.part). ✅
 - how-to/execution/limits — CRIT accuracy: removed `expr`/`lookup`/`steps`/`callable` from the
   policy-field list — they're declared but UNWIRED (ROADMAP-deferred); a user writing them silently
   gets an *unchecked* measurement. Noted `tolerance_pct`/`tolerance_abs` need a `characteristic:`.

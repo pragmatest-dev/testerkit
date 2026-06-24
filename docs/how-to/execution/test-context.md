@@ -1,6 +1,6 @@
 # Read and write the test context
 
-The `context` fixture is the test's view of what's active right now: the run record, the station, the part, the current sweep iteration's params, the resolved limits, and the active fixture connections. It also has two writer methods — `configure()` for stimulus values and `observe()` for environmental readings — that stash data on the same context object so the next sweep iteration can read it back via `last()`.
+The `context` fixture is the test's view of what's active right now: the run record, the station, the part, the current sweep iteration's params, the resolved limits, and the active fixture connections. It also stamps two kinds of side data onto the row — `configure()` for the stimulus inputs you set, `observe()` for the environmental readings you take.
 
 Take `context` as a test argument when you need any of that. If a test only takes a single measurement against a single setpoint and never sweeps, you can skip it.
 
@@ -139,13 +139,13 @@ def test_adaptive(self, context, dmm, verify):
     verify("output_voltage", sum(readings) / len(readings))
 ```
 
-The `Limit` object exposes `low` / `high` / `nominal` / `units` / `comparator` plus traceability fields — see [`Limit` in the models reference](../../reference/data/models.md#model-limit) for the full surface. `get_limit` returns `None` when no limit is defined for that name. For *applying* a limit to a measurement, just pass `limit=...` to `verify` — the resolver runs there automatically.
+The `Limit` object exposes `low` / `high` / `nominal` / `unit` / `comparator` plus traceability fields — see [`Limit` in the models reference](../../reference/data/models.md#model-limit) for the full surface. `get_limit` returns `None` when no limit is defined for that name. For *applying* a limit to a measurement, just pass `limit=...` to `verify` — the resolver runs there automatically.
 
 See [Limits](limits.md) for limit resolution order and [Spec-driven testing](spec-driven-testing.md) for how part specs feed in.
 
 ## Iterate active fixture connections
 
-A fixture connection wires a single UUT pin (or net) to a specific instrument channel — and optionally through a switch route. When the test declares `@pytest.mark.litmus_characteristics([...])` or `@pytest.mark.litmus_connections(...)`, iterating `context.connections` is what *physically moves the bench* between measurements: each step of the loop closes the switch matrix to that connection's pin, so the same `dmm.measure_dc_voltage()` call lands on a different rail every time around. The platform also stamps the measurement row with the connection's `uut_pin` and the matching characteristic id, so the test body stays the same shape no matter how many rails you're walking.
+To take the same measurement on every rail, iterate `context.connections` (after declaring `@pytest.mark.litmus_characteristics([...])` or `@pytest.mark.litmus_connections(...)`). Each step of the loop closes the switch matrix to that connection's pin, so the same `dmm.measure_dc_voltage()` call lands on a different rail every time around — and the platform stamps the row with the connection's `uut_pin` and the matching characteristic id automatically. (What a fixture connection is: see [Fixtures](../../concepts/configuration/fixtures.md).)
 
 ```python
 @pytest.mark.litmus_characteristics(["rail_3v3", "rail_5v"])
@@ -199,7 +199,7 @@ class TestPowerBoard:
 - **`context.changed("foo")` is `True` on the first iteration.** Use `context.last("foo") is not None` if you mean "from the second iteration onward."
 - **`context.last("output_voltage")` returns `None` when you `verify`d but didn't `configure`/`observe`.** It reads the prior context's `configure` / `observe` stash, not the measurement log.
 - **`context.limits["x"]` is the config, not the resolved limit.** Use `context.get_limit("x")` for `low` / `high` / `nominal`.
-- **Don't take `context.run.station_id` from inside a fixture helper that already has `station_config` in scope.** Take the typed fixture argument — it's cleaner and lets pytest skip the helper when no station is loaded.
+- **Reading the station inside a helper? Take the `station_config` fixture argument** instead of reaching through `context.run` — it's cleaner and lets pytest skip the helper automatically when no station is loaded.
 
 ## See also
 
