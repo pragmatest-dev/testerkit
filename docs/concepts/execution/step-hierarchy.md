@@ -1,4 +1,4 @@
-# Step Hierarchy — runs, containers, steps, vectors, measurements
+# Step Hierarchy — runs, steps, vectors, measurements
 
 This page is the single reference for Litmus's run-data hierarchy: what each level represents, how the levels nest, and how they're identified in the event log and the materialized tables. Pair it with [Outcomes](outcomes.md) for what each level's verdict means and where it gets set, and [Step Manifest](step-manifest.md) for the planned-vs-executed reconciliation.
 
@@ -6,7 +6,7 @@ This page is the single reference for Litmus's run-data hierarchy: what each lev
 
 ```
 TestRun                              ← one per pytest session
-└── Step                             ← class container (when the class is swept, one per outer iteration)
+└── Step                             ← class container (one per class; one per outer iteration if the class is swept)
     └── Step                         ← test method (one per pytest item)
         └── TestVector               ← one per inner iteration (1 for normal swept tests; N for `vectors`-fixture tests)
             └── Measurement          ← one per `measure` / `verify` call
@@ -30,7 +30,7 @@ A step is a named, ordered unit. Two kinds, but they share one event type and on
 
 2. **Method step.** One per pytest-collected item. The test function's body is the step's work.
 
-Container vs method is **structural** — not flagged. A step is a container iff at least one other step in the run references it as `parent_path`. This matches OpenTAP's (Keysight's open-source test sequencer) recursive TestStep model.
+Whether a step is a class container or a method isn't a separate flag — it's implied by the nesting: a step is a container when at least one other step names it as its `parent_path`.
 
 Events: `StepStarted` when the step opens, `StepEnded` when it closes. `parent_path` on both events names the enclosing step (empty string for root-level).
 
@@ -52,9 +52,9 @@ Events: `MeasurementRecorded`. Carries the full effective `inputs` dict — oute
 
 | Field | Where it's set | Used for |
 |---|---|---|
-| `step_path` | Logger derives from `_step_stack` (e.g., `TestPower/test_voltage`) | Hierarchical identity; rolls up via `parent_path` |
-| `parent_path` | Same — `step_stack[:-1]` joined | Walk parent→children without JOIN |
-| `step_index` | Pre-assigned per logical step at collection time (`assign_indices`) | Sequence-relative ordering within a parent bucket |
+| `step_path` | Built from the chain of enclosing steps (e.g., `TestPower/test_voltage`) | Hierarchical identity; rolls up via `parent_path` |
+| `parent_path` | The enclosing step's path (the parent) | Find a step's children without a database join |
+| `step_index` | Assigned to each step before the run, when tests are collected | Sequence-relative ordering within a parent bucket |
 | `vector_index` | Pre-assigned at collection time for swept items; 0 for plain steps | Distinguishes sweep variants of the same logical step |
 | `step_name` | The function or class name | Display |
 | `inputs` (on `StepStarted`) | Outer sweep params from `callspec.params` | Step row's commanded conditions |
@@ -140,7 +140,7 @@ measurement.outcome
 TestVector.outcome  (per inner iteration)
    ↓ escalate
 StepEnded.outcome   (the method's aggregate verdict)
-   ↓ escalate (via container's `_stamp_container_outcome` walking its iteration's children)
+   ↓ escalate (the container takes the worst verdict among its children)
 container.outcome   (the class iteration's verdict, on its StepEnded)
    ↓ escalate
 TestRun.outcome     (the run's overall verdict, on RunEnded)
@@ -150,13 +150,13 @@ Severity ladder: `ABORTED > TERMINATED > ERRORED > FAILED > PASSED > DONE > SKIP
 
 ## Materialized record identity
 
-The at-rest per-run parquet contains three `record_type` values: `run`, `step`, and `vector` (the daemon projects a fourth, `measurement`, at query time by unnesting each vector's nested measurements). Container steps and method steps share the `step` record type — discriminate by `parent_path`:
+The at-rest per-run parquet contains three `record_type` values: `run`, `step`, and `vector` (querying also gives you a `measurement` record type, expanded from the measurements inside each vector). Container steps and method steps share the `step` record type — tell them apart by `parent_path`:
 
 - `parent_path = ''` → root-level (run-level test functions or class containers)
 - `parent_path = '<class_name>'` → method directly under a class container
 - `parent_path = '<class>/<method>'` → nested step (via `harness.step()` self-loops)
 
-`vector` records appear only for Mode-2 in-body iterations (`vectors` fixture). They key on `(step_path, parent_path, vector_index, retry)` and sit below their enclosing `step` row. Mode-1 steps (parametrize / single) have no `vector` rows — the `step` row IS the fused step+vector.
+`vector` records appear only for Mode-2 in-body iterations (`vectors` fixture). They key on `(step_path, parent_path, vector_index, retry)` and sit below their enclosing `step` row. Mode-1 steps (parametrize / single) have no `vector` rows — the `step` row already carries the vector data.
 
 `MAX(severity)` over `step` rows sharing a `step_path` aggregates "did this class ever fail in this run" across its iterations. See the [results storage reference](../../reference/data/parquet-schema.md) for the full column schema.
 

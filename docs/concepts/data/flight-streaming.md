@@ -6,67 +6,42 @@ Litmus uses Apache Arrow Flight for cross-process data access. This enables real
 
 Arrow Flight provides:
 
-- **Zero-copy** — Arrow record batches transfer between processes without serialization overhead
-- **Cross-process** — Multiple processes query the same data through a shared gRPC server
+- **Zero-copy** — Arrow record batches transfer between processes without being copied or re-encoded, so live queries stay fast even with a lot of data
+- **Cross-process** — Multiple processes query the same data through a shared background service
 - **Language-agnostic** — Any Arrow Flight client (Python, Go, Rust, Java) can connect
-- **SQL queryability** — [DuckDB](https://duckdb.org/) (an embedded analytical SQL engine that reads Parquet/Arrow directly) runs as the in-memory query engine behind the Flight server
+- **SQL queryability** — [DuckDB](https://duckdb.org/) (an embedded analytical SQL engine that reads Parquet/Arrow directly) runs as the query engine behind the service
 
-The alternative — having each process read Arrow IPC files directly — creates file locking issues and can't provide real-time access to buffered (unflushed) data.
+Reading the files directly from each process works, but processes can collide on file locks, and a reader can't see data still buffered in memory — the shared background service avoids both.
 
-## Architecture
+## How multiple processes see the same live data
 
 ```mermaid
 flowchart LR
-    subgraph A["Process A (pytest)"]
-        emit["EventLog.emit()"]
-        ipc["IPC file write"]
-        doput["Flight do_put"]
-        emit --> ipc
-        emit --> doput
-    end
-
-    subgraph B["Process B (litmus serve)"]
-        query["EventStore.events()"]
-        doget["Flight do_get (SQL)"]
-        query --> doget
-    end
-
-    daemon["DuckDB Daemon<br/>(in-memory)"]
-    grpc["Flight gRPC Server"]
-
-    doput --> daemon
-    doget --> daemon
-    daemon --> grpc
+    A["pytest run"] -->|write + read| svc["Shared background service"]
+    B["litmus serve / UI"] -->|read| svc
+    C["litmus runs / your script"] -->|read| svc
+    svc --> disk["Persistent index on disk"]
+    svc --> live["Live in-memory overlay\n(in-progress runs)"]
 ```
 
-A ref-counted daemon process manages the DuckDB instance:
+Your pytest run, `litmus serve`, `litmus runs`, and any script you write all talk to the same shared background service. The service keeps data in two places: a persistent index on disk (a DuckDB file) and a live in-memory overlay for in-progress runs. The overlay is what lets a query see a result the instant after it's written — before the run is even complete.
 
-1. **First caller** spawns the daemon (detached process)
-2. **Subsequent callers** increment the ref count and connect
-3. **On release**, the ref is decremented; daemon exits after idle timeout
+The first tool that needs the data starts the shared background service automatically; everything else just connects to it. You never manage it yourself. The service shuts itself down after it has been idle for a while.
 
-## How `connect()` Starts the Server
+## On disk and live at the same time
 
-When `EventStore` is created, it calls `duckdb_manager.acquire(events_dir)` which:
+The event data uses a dual-write pattern for crash safety and instant queryability:
 
-1. Checks for an existing daemon at the events directory
-2. If none exists, spawns one and writes the gRPC location to a lock file
-3. Returns the `grpc://host:port` location string
+1. **Arrow files on disk** — append-only, survive crashes. Date-partitioned, with one file per writing process.
+2. **Live push to the shared service** — new data is sent to the service as it's written, making it available for SQL queries immediately.
 
-The daemon bootstraps by scanning existing Arrow IPC files and registering them as a DuckDB table. New data arrives via Flight `do_put`.
+If that live push fails, the data is still safe in the Arrow files on disk. On the next start, the service loads those files into the index and picks up where it left off.
 
-## Dual-Write Path
+Event data and channel (waveform) data each have their own shared service — separate background processes running the same mechanism — so a heavy waveform capture doesn't compete with event queries.
 
-EventStore uses a dual-write pattern for crash safety + queryability:
+## Downsampling waveforms for display
 
-1. **Arrow IPC file** — append-only, survives crashes. One file per session, date-partitioned.
-2. **Flight do_put** — pushes batches to in-memory DuckDB for immediate SQL access.
-
-If the Flight push fails, data is still safe in IPC files. The daemon rebuilds its state from files on restart.
-
-## Channel Queries with LTTB
-
-ChannelStore has its own Flight server for time-series data. Queries support LTTB (Largest Triangle Three Buckets) decimation — a visually lossless downsampling algorithm that preserves peaks and valleys.
+A captured waveform can have millions of samples — too many to plot. The `max_points` parameter thins it to a target count using LTTB (Largest Triangle Three Buckets), a downsampling algorithm that preserves peaks and dips so the displayed shape still matches the real signal.
 
 ```python
 # Query with decimation for visualization
@@ -76,8 +51,6 @@ table = channel_store.query(
     max_points=1000,  # LTTB downsample to 1000 points
 )
 ```
-
-This is critical for the operator UI, which may need to display waveforms with millions of samples.
 
 ## See also
 - [Event Log Architecture](event-log.md) — How events flow through the system

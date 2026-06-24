@@ -1,16 +1,18 @@
 # Sessions as Observation Windows
 
-A session represents a connect-to-disconnect lifecycle — the window during which a process is actively using instruments and logging data.
+A session is the window from connect to disconnect — the time a process is actively using instruments and logging data.
 
 ## What is a Session?
 
 A session begins when a process calls `connect()` and ends when the connection is released. During a session, all events share the same `session_id`, making it easy to group and query related activity.
 
+There's no sessions table. A session is simply every event that shares one `session_id` — Litmus groups them when you query. It "begins" and "ends" because the first and last events (`SessionStarted` / `SessionEnded`) mark the boundaries.
+
 Sessions are broader than test runs. A single session might contain multiple test runs (e.g., retesting the same UUT), or no test runs at all (e.g., a calibration script or manual instrument exploration).
 
 ## Session Metadata
 
-`SessionStarted` (see [event-log](event-log.md) for the event-type taxonomy) captures session-wide context — the *who/where/how* of the process holding the connection. Per-run context (UUT, part, test phase, git, environment) lives on `RunStarted`, emitted once per test run within the session.
+`SessionStarted` (see [event-log](event-log.md) for the full event list) records who ran it, on which station, and how (pytest, Jupyter, a script). Per-run context (UUT, part, test phase, git, environment) lives on `RunStarted`, emitted once per test run within the session.
 
 | Category | Fields |
 |----------|--------|
@@ -30,7 +32,7 @@ Sessions are broader than test runs. A single session might contain multiple tes
 | **Test context** | `fixture_id`, `test_phase`, `project_name` |
 | **Git** | `git_commit`, `git_branch`, `git_remote` |
 | **Environment** | `environment_json` (Python version, litmus version, top-level deps, lockfile hash) |
-| **Custom** | `custom_metadata` dict, `channel_refs` list |
+| **Custom** | `custom_metadata` dict |
 
 Config files (station, fixture, part spec) are tracked via git — the `git_commit` field on each `RunStarted` identifies the exact code and config state.
 
@@ -49,13 +51,13 @@ Sessions solve three problems:
 ```python
 from litmus import connect
 
-# Context manager (scripts, notebooks)
+# Using a `with` block (scripts, notebooks)
 with connect("cell-7", mock=True) as station:
     dmm = station.instrument("dmm")
     v = dmm.measure_voltage()
     # All interactions logged with this session's ID
 
-# Explicit lifecycle (UI, long-running processes)
+# Explicit start/stop (UI, long-running processes)
 station = connect("cell-7")
 station.start()
 dmm = station.instrument("dmm")
@@ -63,15 +65,14 @@ dmm = station.instrument("dmm")
 station.stop()
 ```
 
-`connect()` creates a `StationConnection` that:
-- Generates a new `session_id`
-- Creates an `EventLog` for this session
-- Emits `SessionStarted` with full context
-- Manages per-resource instrument locking
-- Emits `SessionEnded` on close
+`connect()` starts a session that:
+- gets a new `session_id`
+- emits `SessionStarted` with full context
+- locks each instrument it uses, so two scripts can share a station
+- emits `SessionEnded` when it closes
 
 ## See also
 - [Event Log Architecture](event-log.md) — How events are stored and queried
-- [Data stores](data-stores.md) — Where session data lives
+- [Data stores](data-stores.md) — where the events behind a session are stored
 - [connect() reference](../../reference/runtime/connect.md) — full API surface
 - [Managing Sessions Guide](../../how-to/execution/managing-sessions.md) — Practical session management

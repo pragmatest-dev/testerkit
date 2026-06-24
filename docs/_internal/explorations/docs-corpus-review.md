@@ -195,6 +195,22 @@ before any accuracy audit that diffs against it.
   uncounted), tightened LLM-training marketing, flags→markers. → triggered corpus-wide fixture-count
   DROP (8 pages, no number anywhere) + fixed 12+ broken `litmus-fixtures.md`/`litmus-markers.md` →
   `fixtures.md`/`markers.md` links. observe+stream reference entries still pending (Piece 5). ✅
+- concepts/data/sessions — CRIT: added the missing "a session is derived from events grouped by
+  session_id, not a stored table" framing; removed fabricated `channel_refs` RunStarted field;
+  lifecycle/context-manager jargon + `EventLog` internals scrubbed. ✅
+- concepts/data/event-sourcing — factually perfect (24 claims). Audience: scrub internals
+  (`AccumulatorPool`/`materialize_run_to_parquet`/subscribers), de-disparage CRUD ("trap"/"unappealing"/
+  "footgun") + gloss it once, WAL→event log, projection glossed. ✅
+- concepts/data/event-log — 3 accuracy CRITs (retired `InstrumentRead` listed live; `RunMaterialized`
+  "not in union" wrong; Test category 4→7 events) + storage filename `-{pid}` / retired `_ref` dir;
+  heavy internals+tombstone scrub (title, "Previous approaches", EventBase/EventLog/EventSubscriber/
+  EventStore/Flight do_put). Done via docs-writer; re-audit 0/0. ✅
+- concepts/data/flight-streaming — accuracy: NOT "in-memory" (on-disk `_index.duckdb` + live overlay);
+  no phantom `connect()`; `release()` is a no-op (no ref-decrement); bootstrap ingests (not registers);
+  file-per-process. Heavy Flight/daemon/gRPC/do_put scrub. docs-writer; re-audit 0 crit. ✅
+- concepts/execution/step-hierarchy — factually accurate (27 claims). Cut OpenTAP framework-comparison
+  + private internal names (`_step_stack`/`assign_indices`/`_stamp_container_outcome`); container-not-
+  sweep-only clarify; record_type projection plainened. ✅
 - concepts/overview/platform-vs-framework — CRIT MCP count 12→13 (+`litmus_files`, `Cpk`→`Ppk`);
   POST /api/runs verified real; no OpenHTF-adapter claim; audience prose. ✅ (MCP-count drift recurs
   corpus-wide — watch ai-integration, reference pages.)

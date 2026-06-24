@@ -1,26 +1,24 @@
-# Event Log Architecture
+# The Event Log
 
-The event log is Litmus's unified record of everything that happens during testing — sessions, instrument connections, measurements, diagnostics, and more. It replaces earlier text-log + streaming patterns with a single, typed event stream.
+The event log is Litmus's unified record of everything that happens during testing — sessions, instrument connections, measurements, diagnostics, and more.
 
-## Why a Unified Event Stream
+## One stream, in order
 
-Previous approaches split test data across multiple systems: a journal for text logs, streaming destinations for live data, and Parquet files for results. This made it hard to reconstruct what happened during a test, correlate instrument reads with measurements, or monitor tests in real time.
-
-The event log unifies all of this into one ordered stream. Every significant action emits a typed event. Subscribers process events for their own purposes — writing Parquet files, updating the UI, streaming to Grafana.
+Every significant action emits a typed event into a single ordered stream. That stream lets you reconstruct what happened during a test, line up instrument reads with measurements, and watch a test live as it runs.
 
 ## Event Hierarchy
 
-All events inherit from `EventBase`, which provides:
+Every event carries the same common fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | UUID | Unique event identifier |
 | `occurred_at` | datetime | When the event happened |
-| `received_at` | datetime | When EventLog.emit() processed it |
+| `received_at` | datetime | When the log processed it for storage |
 | `session_id` | UUID | Which session this event belongs to |
 | `run_id` | UUID | Which test run (if applicable) |
 
-Each event type adds a `Literal` `event_type` field used as a discriminator for deserialization.
+Each event also carries an `event_type` string (e.g. `test.measurement`) naming which kind of event it is.
 
 ## Event Categories
 
@@ -37,7 +35,7 @@ Litmus defines events across 12 categories.
 |-------|-------------|-------------|
 | `RunStarted` | `run.started` | Full run context: UUT, part, operator, config snapshots |
 | `RunEnded` | `run.ended` | Run outcome |
-| `RunMaterialized` | `run.materialized` | Parquet file written; ready for downstream consumers (defined but not currently in the `Event` discriminated union). |
+| `RunMaterialized` | `run.materialized` | Emitted after the run's Parquet file is durably written; signals that the run is ready for downstream consumers |
 
 ### Slot (2 events — multi-UUT)
 | Event | Type String | Description |
@@ -66,18 +64,20 @@ Litmus defines events across 12 categories.
 | `UutScanned` | `fixture.uut_scanned` | UUT serial barcode scanned |
 | `InstrumentDisconnected` | `fixture.instrument_disconnected` | Instrument released during teardown |
 
-### Test (4 events)
+### Test (7 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
 | `StepsDiscovered` | `test.steps_discovered` | Full list of collected test items |
 | `StepStarted` | `test.step_started` | A test step begins execution |
 | `MeasurementRecorded` | `test.measurement` | A single measurement with limits and outcome |
 | `StepEnded` | `test.step_ended` | A test step finishes |
+| `Observation` | `test.observation` | An environmental or contextual reading recorded during a step |
+| `VectorStarted` | `test.vector_started` | A parametric sweep vector begins |
+| `VectorEnded` | `test.vector_ended` | A parametric sweep vector finishes |
 
-### Instrument (3 events)
+### Instrument (2 events)
 | Event | Type String | Description |
 |-------|-------------|-------------|
-| `InstrumentRead` | `instrument.read` | Driver read via proxy (scalars inline, arrays as claim-check URIs) |
 | `InstrumentSet` | `instrument.set` | Driver set via proxy |
 | `InstrumentConfigure` | `instrument.configure` | Driver configure via proxy |
 
@@ -118,7 +118,6 @@ SessionStarted          # Session-wide metadata (station, operator)
 ├── IdentityVerified    # Optional identity check
 ├── StepsDiscovered     # Full list of collected test items
 ├── StepStarted         # First test step
-│   ├── InstrumentRead  # Instrument interactions
 │   ├── InstrumentSet
 │   └── MeasurementRecorded
 ├── StepEnded
@@ -126,69 +125,48 @@ SessionStarted          # Session-wide metadata (station, operator)
 │   └── ...
 ├── StepEnded
 ├── RunEnded            # All steps complete
+├── RunMaterialized     # Parquet file durably written
 ├── InstrumentDisconnected
 └── SessionEnded        # Cleanup complete
 ```
 
-## Push Model: emit() → internal materializers
+## How the log is written
 
-The `EventLog` class manages the write path:
+When an event is written:
 
-1. **`emit(event)`** stamps `received_at`, buffers the event for batched Arrow IPC writes
-2. **Internal materializers** are notified immediately — the runs daemon ingests events into an `AccumulatorPool`, and `materialize_run_to_parquet()` writes the canonical per-run parquet on `RunEnded`. The `litmus export` CLI replay path drives the same materializer post-hoc against stored events.
-3. **IPC flush** happens every 50 events (configurable), writing a batch to the Arrow IPC file
+1. **`received_at` is stamped** and the event is buffered for batched writes to an Arrow file (a fast columnar on-disk format)
+2. **On `RunEnded`** the run's Parquet file is written. The same path runs when you replay stored events with `litmus export`.
+3. **Flush** happens every 50 events (configurable), writing a batch to the Arrow file
 
-The `EventSubscriber` base class is internal scaffolding for these materializers — not a public extension protocol. Adding a new format requires editing `litmus.data.exporters`, not a third-party plugin.
+The set of writers (Parquet, the live UI feed) is built in; adding a new output format is a change to Litmus itself, not a drop-in plugin.
 
 ## Storage
 
-Events are stored as Arrow IPC files, date-partitioned:
+Events are stored as Arrow files, date-partitioned:
 
 ```
 <data_dir>/events/
 ├── 2026-03-10/
-│   ├── {session_id}.arrow
-│   └── {session_id}_ref/     # Large data (waveforms, images)
+│   ├── {session_id}-{pid}.arrow
+│   └── {session_id}-{pid}_0001.arrow   # rotation for large sessions
 └── 2026-03-11/
     └── ...
 ```
 
-Each `.arrow` file contains index columns (`id`, `event_type`, `occurred_at`, `received_at`, `session_id`, `run_id`) plus a `json` column with the full serialized event for lossless replay.
+Each Arrow file contains index columns (`id`, `event_type`, `occurred_at`, `received_at`, `session_id`, `run_id`) plus a `json` column with the full serialized event for lossless replay.
 
 ## Dual-Write Pattern
 
-The `EventStore` layer adds queryability on top of `EventLog`:
+Events are also loaded into an in-memory database as they're written, so you can query them with SQL right away:
 
-1. **Arrow IPC file** — crash-safe append-only storage
-2. **In-memory DuckDB via Flight** — immediate SQL queryability
+1. **Arrow file** — crash-safe append-only storage
+2. **In-memory DuckDB** — immediate SQL queryability
 
-On each flush, batches are pushed to the DuckDB daemon via Arrow Flight `do_put`. Queries go through Flight `do_get` with SQL, so you get read-after-write consistency.
+Each batch is loaded into an in-memory SQL database as it's written, so a query sees an event the instant after it's written.
 
-## HARD contract — additive evolution only
+## What stays stable across releases
 
-The event WAL is a **HARD contract** alongside the parquet artifact —
-events are written append-only and consumers can replay arbitrary
-history, so the wire format has to evolve additively. Until the 1.0
-cut, the following invariants hold and the project must not break them:
-
-- **New event types only.** Every release may add event types. The
-  existing event-type discriminator strings (e.g.
-  `"test.step_started"`, `"test.measurement"`, `"run.started"`) and
-  their `Literal` tags are stable across 0.x.
-- **New optional fields only.** Existing event types may grow new
-  fields; they must be optional (have a default) so older events
-  (replayed from disk or read from older daemons) still validate
-  against the current schema. Required fields are frozen for 0.x.
-- **No type changes** on existing fields.
-- **`event_number` monotonicity** is part of the contract: insert-order
-  monotonic per-daemon, used as the watcher cursor for live subscribers.
-- **JSON column preserves the full serialized event** for lossless
-  replay, regardless of which index columns the daemon's DuckDB
-  schema happens to project. Consumers that need the full payload
-  read from JSON and don't depend on the index column set.
-
-Breaking event-shape changes (renaming, removing, type-narrowing
-required fields) defer to the 1.0 cut.
+Once an event type and its fields exist, they don't change or disappear within 0.x. Only new event types and new optional fields are added. A query or report you write today keeps working as the platform evolves.
 
 ## See also
 
