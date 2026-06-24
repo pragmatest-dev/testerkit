@@ -1,26 +1,26 @@
 # Query Historical Events
 
-Three ways to query events: MCP tool (AI agents), HTTP API (any client), or Python (in-process).
+Three ways to query events: MCP tool (AI agents), HTTP API (any client), or Python (in-process). Most filters take a `session_id` — list recent sessions with `litmus runs` or `store.sessions()` and copy one.
 
-> **Prerequisites.** Events already written under `<data_dir>/events/` — every Litmus test run writes events automatically; empty stores return empty lists, not errors. `<data_dir>` is the active project's data dir — resolved from `--data-dir` / `litmus.yaml` `data_dir:` / `LITMUS_HOME` env / platform default; run `litmus daemon status` to see what's active. For the HTTP path, `litmus serve` must be running. For the Python path, only `litmus` itself.
+> **Prerequisites.** Every Litmus test run writes events automatically; an empty store returns an empty list, not an error. The HTTP path needs `litmus serve` running; the Python path needs only `litmus` installed. Run `litmus daemon status` to confirm which data dir is active.
 
 ## MCP Tool: `litmus_events`
 
 ```
 # All events for a session
-litmus_events(session_id="abc12345-...")
+litmus_events(session_id="<session-id>")
 
 # Only measurement events
 litmus_events(event_type="test.measurement")
 
-# Instrument reads for the DMM
-litmus_events(event_type="instrument.read", role="dmm")
+# Channel events for the DMM (instrument reads land in the channel store)
+litmus_events(event_type="channel.started", role="dmm")
 
 # Events at or after a timestamp (`since` is inclusive; UTC, ISO 8601)
 litmus_events(since="2026-03-10T14:00:00Z")
 
 # Combine filters
-litmus_events(session_id="abc...", event_type="test.step_ended", limit=50)
+litmus_events(session_id="<session-id>", event_type="test.step_ended", limit=50)
 ```
 
 ## HTTP API
@@ -30,10 +30,10 @@ litmus_events(session_id="abc...", event_type="test.step_ended", limit=50)
 curl http://localhost:8000/api/events
 
 # Filter by session
-curl "http://localhost:8000/api/events?session_id=abc12345-..."
+curl "http://localhost:8000/api/events?session_id=<session-id>"
 
 # Filter by type and role
-curl "http://localhost:8000/api/events?type=instrument.read&role=dmm"
+curl "http://localhost:8000/api/events?type=channel.started&role=dmm"
 
 # Events at or after a time (`since` is inclusive; UTC)
 curl "http://localhost:8000/api/events?since=2026-03-10T14:00:00Z&limit=50"
@@ -42,14 +42,17 @@ curl "http://localhost:8000/api/events?since=2026-03-10T14:00:00Z&limit=50"
 ## Python: `EventStore`
 
 ```python
-from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from litmus.queries import EventStore
 
 store = EventStore()
 try:
-    # All events for a session
-    events = store.events(session_id=UUID("abc12345-..."))
+    # List recent sessions and take one id to drill into
+    sessions = store.sessions()
+    sid = sessions[0]["session_id"] if sessions else None
+
+    # All events for that session
+    events = store.events(session_id=sid)
 
     # Filter by type
     measurements = store.events(event_type="test.measurement")
@@ -58,12 +61,8 @@ try:
     dmm_reads = store.events(role="dmm")
 
     # Events at or after a time (`since` is inclusive; pass UTC-aware datetimes —
-    # stored timestamps are UTC, naive datetimes will compare incorrectly).
-    from datetime import timezone
+    # naive datetimes compare incorrectly against the stored UTC timestamps).
     recent = store.events(since=datetime(2026, 3, 10, 14, 0, tzinfo=timezone.utc))
-
-    # List sessions
-    sessions = store.sessions()
 finally:
     store.close()
 ```
@@ -72,13 +71,13 @@ finally:
 
 | Filter | Description | Example Values |
 |--------|-------------|----------------|
-| `session_id` | UUID of the session | `"abc12345-1234-..."` |
-| `event_type` | Dotted event type string | `"test.measurement"`, `"instrument.read"`, `"session.started"` |
+| `session_id` | id of the session (from `litmus runs`) | `"<session-id>"` |
+| `event_type` | Dotted event type string | `"test.measurement"`, `"channel.started"`, `"session.started"` |
 | `role` | Instrument role name | `"dmm"`, `"psu"`, `"scope"` |
 | `since` | ISO timestamp (UTC). Inclusive — `received_at >= since`. | `"2026-03-10T14:00:00Z"` |
 | `limit` | Max results | `100` (default for HTTP / MCP; Python defaults to no cap) |
 
-Role filtering checks `role`, `instrument_role`, and the `channel_id` prefix (anything before the first `.`) across all event types.
+`role` matches the instrument role on any event that carries one — e.g. `dmm`, `psu`, `scope`.
 
 ## See also
 - [Event Types Reference](../../reference/data/event-types.md) — All event type fields

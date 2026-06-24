@@ -164,6 +164,11 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/querying-events — 2 CRIT accuracy: `event_type="instrument.read"` (×3) returns ZERO rows —
+  InstrumentRead retired 0.2.0 → `channel.started`. Audience: non-runnable truncated UUIDs → `<session-id>`
+  placeholders + Python example restructured to capture a real id from `sessions()`; role-filter narration
+  + data-dir-precedence prereq trimmed. ✅ NOTE (code, not docs — track): `instrument.read` is STALE in
+  source docstrings: mcp/server.py:489, mcp/tools.py:1228, connect.py:330, event_log.py:296.
 - NEW POLICY 2026-06-24: NO competitor references in docs (TestStand/LabVIEW/OpenTAP/OpenHTF/NI/Keysight)
   except concept-translation or migration guidance. Marketing made separately. See memory
   feedback_no_competitor_references_in_docs. Worth a corpus-wide vendor-name sweep.
