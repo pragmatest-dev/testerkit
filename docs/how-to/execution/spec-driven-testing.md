@@ -48,9 +48,7 @@ def test_output_voltage(dmm, verify):
 
 ## Condition-indexed example — when accuracy varies with operating point
 
-When a characteristic's bands have `when:` clauses (different accuracy bands per temperature / load / etc.), `verify("name", value)` on its own won't pick the right band. The part-spec-only path inside `verify` doesn't forward your active sweep params to the band matcher, so condition-indexed lookups raise `ValueError` ("No spec band matches: …").
-
-Bind through `@pytest.mark.litmus_limits` (or sidecar) using `characteristic:`. That route reads the active vector params, picks the matching band, and passes the limit back to `verify`:
+When a characteristic's bands have `when:` clauses (different accuracy bands per temperature / load / etc.), a bare `verify("name", value)` can't choose between them — it doesn't see your active conditions. To match on temperature, load, or any other condition, point the measurement at its spec characteristic with `@pytest.mark.litmus_limits` (or a sidecar) using `characteristic:` (see [Condition matching](#condition-matching)):
 
 ```yaml
 # parts/power_board.yaml
@@ -82,7 +80,7 @@ def test_output_voltage(temperature, load, dmm, verify, chamber, eload):
     verify("output_voltage", dmm.measure_dc_voltage())
 ```
 
-(The two parametrize axes are zipped into one combined axis so every case hits a declared band — the cross-product `{25,85} × {0.5,1.0}` would produce the case `(25, 1.0)` that matches neither band. Through the marker path the no-match falls through to `None` and `verify` then raises `MissingLimitError` with the resolution chain in the message. Make your parametrize cover the bands your spec declares.)
+The parametrize cases are paired `(25, 0.5)` and `(85, 1.0)`, not crossed. A crossed `{25,85} × {0.5,1.0}` would produce `(25, 1.0)`, which matches no declared band, and `verify` would raise `MissingLimitError`. Cover only the condition combinations your spec declares bands for.
 
 `spec_ref` on the recorded row reflects the matched band's conditions in **alphabetical order by key**:
 
@@ -90,7 +88,7 @@ def test_output_voltage(temperature, load, dmm, verify, chamber, eload):
 spec_ref = "Section 7.2 @ load=0.5, temperature=25"
 ```
 
-(The base — `"Section 7.2"` — comes from the characteristic's `datasheet_ref:` and the conditions are appended after `@`, alphabetized.)
+`"Section 7.2"` comes from the characteristic's `datasheet_ref:`; conditions are appended after `@`, alphabetized.
 
 ## Guardband
 
@@ -112,9 +110,9 @@ spec:                                  3.3 V ± 5 %      → 3.135 .. 3.465
 with 10 % guardband (tighten by 10 %):                  → 3.152 .. 3.449
 ```
 
-## Delegate a limit by name — `characteristic:`
+## Map a test name to a spec characteristic
 
-When a test reports a value under a different name than the spec, delegate via `characteristic:`:
+When a test reports a value under a different name than the spec, point the measurement at its spec characteristic with `characteristic:`:
 
 ```python
 @pytest.mark.litmus_limits(rail_3v3={"characteristic": "output_voltage"})
@@ -132,9 +130,9 @@ limits:
 
 ## Condition matching
 
-When the limit is bound through `@pytest.mark.litmus_limits(<name>={"characteristic": "<char_id>"})` (or sidecar), the resolver reads the active sweep params and selects the first `band` whose `when:` clauses all match. Drive different conditions by adding parametrize / `litmus_sweeps` axes, not by passing condition kwargs to `verify`.
+When the limit is pointed at a characteristic through `@pytest.mark.litmus_limits(<name>={"characteristic": "<char_id>"})` (or a sidecar), Litmus reads your active sweep conditions and uses the first `band` whose `when:` clauses all match. Drive different conditions by adding `parametrize` / `litmus_sweeps` axes, not by passing condition kwargs to `verify`.
 
-If you call `verify("name", value)` without a `litmus_limits` binding and the characteristic has condition-indexed bands, the resolver can't match and raises `ValueError`. The unconditional-characteristic shortcut in [Minimal example](#minimal-example--unconditional-characteristic) only works because that characteristic has a single band whose empty `when:` matches anything.
+A bare `verify` against a characteristic that has per-condition bands raises an error — point it at the characteristic through `litmus_limits` so the conditions are available. The minimal example above works without this only because its single band has no conditions.
 
 ## What ends up in the parquet row
 
@@ -146,12 +144,12 @@ Every `verify` records:
 | `measurement_value` | the `value` arg                                    |
 | `limit_low` / `limit_high` / `limit_nominal` / `measurement_unit` | spec characteristic + tolerance |
 | `measurement_outcome` | `passed` / `failed` (lowercase enum value)        |
-| `spec_ref`       | e.g. `"Section 7.2 @ load=0.5, temperature=25"` (`datasheet_ref` or `"spec"` + conditions sorted alphabetically) |
-| `uut_pin`        | `Part.pins[primary_pin_id].name` (the human pin designator, e.g. `"J1.3"`) |
+| `spec_ref`       | e.g. `"Section 7.2 @ load=0.5, temperature=25"` — see [Condition-indexed example](#condition-indexed-example--when-accuracy-varies-with-operating-point) |
+| `uut_pin`        | the pin's `name:` from the part YAML (e.g. `"J1.3"`) |
 | `fixture_connection`  | from the active fixture YAML                          |
-| `instrument_*`   | ambient ContextVars from the driver layer             |
+| `instrument_*`   | filled in automatically from the active instrument driver |
 
-No manual threading of traceability fields — they're injected by the plugin.
+Your test body only names the measurement and supplies the reading. Pins, limits, spec references, and conditions all live in the part YAML — Litmus fills the traceability fields in for you. Change a limit by editing the spec, not the test.
 
 ## When to reach for `verify` vs `measure`
 
@@ -159,10 +157,10 @@ No manual threading of traceability fields — they're injected by the plugin.
 |--------------------------------------------------------|-----------------------------------------|
 | Measurement maps to a part-spec characteristic      | `verify("output_voltage", v)`       |
 | Procedure-only measurement (no part characteristic) | `measure("startup_time", t, ...)` |
-| Dynamic limit from conditions                          | Callable limit via marker / sidecar     |
+| Dynamic limit from conditions                          | a function-valued limit — see [Limits guide](limits.md) |
 | No limits, data collection only                        | `measure(...)` with no limits    |
 
-`verify` raises `MissingLimitError` (from `litmus.execution.verify`) when none of the resolution sources — markers, sidecar, profile, or part spec — produce a limit for the named measurement. This is intentional: a `verify` call with no spec is a config bug, not a silent "unchecked" recording. Use `measure` for characterization sweeps where unchecked rows are the point.
+`verify` raises `MissingLimitError` when none of the resolution sources — markers, sidecar, profile, or part spec — produce a limit for the named measurement. `verify` always expects a limit, so a missing one surfaces immediately rather than recording an unchecked value. Use `measure` when an unchecked row is what you want.
 
 ## See also
 

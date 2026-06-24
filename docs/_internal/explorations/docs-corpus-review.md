@@ -167,6 +167,13 @@ before any accuracy audit that diffs against it.
 - NEW POLICY 2026-06-24: NO competitor references in docs (TestStand/LabVIEW/OpenTAP/OpenHTF/NI/Keysight)
   except concept-translation or migration guidance. Marketing made separately. See memory
   feedback_no_competitor_references_in_docs. Worth a corpus-wide vendor-name sweep.
+- how-to/execution/spec-driven-testing — factually PERFECT (38 claims verified: characteristic= kwarg,
+  SpecBand resolution, guardband math, spec_ref format all correct). Pure audience/quadrant scrub:
+  removed resolver-internals narration (page narrated HOW the resolver decides, not what to type),
+  consolidated the condition-binding rule that was stated 3×, fixed internal-notation leaks
+  (`Part.pins[primary_pin_id].name`, "ContextVars from the driver layer", `litmus.execution.verify`),
+  de-jargoned Bind/Delegate, landed the measurement-layer-separation framing, softened "config bug" tone.
+  docs-writer. ✅
 - how-to/execution/traceability — CRIT accuracy: "Manual instrument traceability" recipe showed
   `verify(uut_pin=, instrument_name=, instrument_channel=)` → TypeError (verify rejects those kwargs);
   replaced — those fields auto-stamp from the part-spec characteristic + active fixture connection, no
