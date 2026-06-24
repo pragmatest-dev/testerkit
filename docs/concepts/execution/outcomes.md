@@ -1,6 +1,6 @@
 # Outcomes
 
-Every measurement, vector, step, and run carries an `Outcome` (an enum) or `None` if no verdict was ever rendered. This page explains what each value means, how a worse outcome on a child rolls up to the parent, and where each value gets stamped.
+Every measurement, vector, step, and run carries an `Outcome` — one of seven values — or `None` if no verdict was ever rendered. This page explains what each value means, how a worse outcome on a child rolls up to the parent, and where each value gets stamped.
 
 For the column-by-column shape of how outcomes land in parquet, see [parquet schema → outcome values](../../reference/data/parquet-schema.md). For the level hierarchy (measurement → vector → step → run) the cascade walks, see [step hierarchy](step-hierarchy.md).
 
@@ -31,8 +31,8 @@ The difference between PASSED and DONE on a step that ran cleanly: did the body 
 
 A step has **verdict intent** if either fires during the test:
 
-- A passing rewritten `assert` — pytest fires a hook for every rewritten assertion that passes, and Litmus records the step id when that hook fires.
-- A measurement whose limits resolved — when `measurement.limit_low` or `measurement.limit_high` is set, recording that measurement marks the step as having intent.
+- A passing `assert` ran in the test body.
+- A measurement with a limit was recorded — the limit is the thing that gets judged.
 
 At step end, the plugin picks PASSED if the step had any verdict intent, DONE if not.
 
@@ -50,13 +50,13 @@ So:
 
 - **Measurement-level**: value was checked against a limit and was in range (`value in limit` returned `True`).
 - **Step-level**: the test body exited cleanly AND verdict intent fired at least once.
-- **Run-level**: cascade rollup from PASSED steps with nothing worse anywhere.
+- **Run-level**: rolls up from PASSED steps with nothing worse anywhere.
 
 ### `FAILED` — a verdict ran and was violated
 
 - **Measurement-level**: value was checked and `value in limit` returned `False`.
 - **Step-level**: the test body raised `AssertionError` (rewritten or bare), OR a contained measurement landed FAILED and cascaded up.
-- **Run-level**: cascade rollup from any FAILED step.
+- **Run-level**: rolls up from any FAILED step.
 
 ### `DONE` — clean run, no verdict
 
@@ -64,7 +64,7 @@ The "I logged data" outcome. Not a "good" outcome and not a "bad" one — judgme
 
 - **Measurement-level**: a value was recorded with no `low`/`high`/`nominal` (no limit to check against).
 - **Step-level**: the body exited cleanly AND no verdict intent fired.
-- **Run-level**: cascade rollup from DONE steps with nothing worse.
+- **Run-level**: rolls up from DONE steps with nothing worse.
 
 ### `SKIPPED` — explicit skip
 
@@ -79,15 +79,14 @@ Two distinct paths land here, and they're not interchangeable:
 - **Step-level**: the test body (or setup / teardown) raised any non-`AssertionError`, non-skip exception. A `ValueError`, `RuntimeError`, `pyvisa.VisaIOError`, etc. **No `Measurement` row is recorded for the broken call** — the step is ERRORED, not the (non-existent) measurement.
 - **Measurement-level**: the row exists, with `value=None`. Happens when:
   - `verify("vout", instr.measure_voltage())` was called and `measure_voltage()` *returned* None silently (broken driver, mock not configured, swallowed timeout).
-  - A direct `Measurement(value=None)` was constructed and `check_limit()` was called on it (rare).
 
 Exceptions do not produce ERRORED measurements — they produce a step-level ERRORED with no measurement row.
 
-- **Run-level**: cascade rollup from any ERRORED step or measurement.
+- **Run-level**: rolls up from any ERRORED step or measurement.
 
 ### `TERMINATED` — operator stopped cleanly
 
-A SIGTERM or Ctrl-C reached pytest, the SIGTERM-to-`KeyboardInterrupt` handler converted it, `pytest_keyboard_interrupt` fired, fixture teardowns ran, instruments went to safe state, the parquet was flushed.
+The operator stopped the run (Ctrl-C or SIGTERM). Cleanup ran to completion — fixture teardowns finished, instruments went to a safe state, and results were saved.
 
 The rig **is** in a known state. The run was stopped on purpose, with cleanup. Downstream tooling and operator runbooks can read TERMINATED as "intentional stop; rig safe."
 
@@ -98,10 +97,7 @@ The runs daemon was asked to write a run that never saw a `RunEnded` event. The 
 - The process was killed mid-flight (SIGKILL, segfault, OOM kill, host shutdown).
 - An exception bypassed teardown before finalization could run.
 
-The rig state is **unknown**. ABORTED can be set on a `TestRun` two ways, but only one of them writes the row to parquet:
-
-- The runs daemon stamps `"aborted"` directly into `run_outcome` when it reaches a run that never closed — the materializer fallback. This is the involuntary path (process died) and is the only path that lands an ABORTED row in parquet automatically.
-- `LitmusClient.RunBuilder.abort(message=...)` sets `outcome = Outcome.ABORTED` on the in-memory `TestRun` and returns it. `abort()` does NOT save the run — the caller has to do something with the returned object (e.g. inspect, log, or persist it explicitly).
+The rig state is **unknown**. When a run is killed before it finalizes, Litmus records the unfinished run as ABORTED automatically — so a process that dies mid-run is never silently lost. A non-pytest runner can also mark a run ABORTED through the results API; see the [client reference](../../reference/runtime/client.md).
 
 ABORTED on a parquet row means the run never closed cleanly — downstream tooling and operator runbooks should treat the rig as "physically inspect required."
 
@@ -112,24 +108,24 @@ The row exists (it was collected, or a step was opened) but no outcome was ever 
 - A pytest test that pytest collected but never ran — earlier failure aborted the session, or `--exitfirst` cut things short.
 - A vector that ran but recorded nothing and didn't raise.
 
-Field-missingness IS the receipt: `outcome=None` on a finalized run's row means that row never reached the verdict stage. The display layer derives "Never Ran" from `outcome IS NULL` plus the run's finalized state — see [step manifest](step-manifest.md#never-ran).
+A finalized run whose row has no outcome simply never reached a verdict. The operator UI shows these as "Never Ran" — see [step manifest](step-manifest.md#never-ran).
 
 ## Where each outcome gets stamped
 
-The tables below list what triggers each outcome at each level, ordered worst → least severe (the cascade direction). **If you're an operator reading a report, the plain-meaning section above is enough.**
+The tables below list what triggers each outcome at each level, worst → least severe.
 
 ### Measurement level
 
-`Measurement.outcome` defaults to `None`. `Measurement.check_limit()` is the recorder; the `verify` function is the judgment-only sibling that returns an `Outcome` without mutating.
+A measurement has no outcome until its value is checked against a limit.
 
 | Outcome | Triggering conditions |
 |---|---|
 | `ABORTED` | *(never produced at this level)* |
 | `TERMINATED` | *(never produced at this level)* |
-| `ERRORED` | `Measurement(value=None).check_limit()` — caller passed `None`, typically a driver returned `None` silently; `verify("name", None)` — same cause via the judgment path |
-| `FAILED` | Value set, limit reconstructed, `value in limit` is `False` |
-| `PASSED` | Value set, limit reconstructed, `value in limit` is `True` |
-| `DONE` | Value set but no `low`/`high`/`nominal` (no limit to judge against); `LitmusClient.measure()` with no limits and a non-None value |
+| `ERRORED` | A `None` value reached the check — typically a driver returned `None` silently (e.g. `verify("vout", None)`) |
+| `FAILED` | Value checked against its limit and out of range |
+| `PASSED` | Value checked against its limit and in range |
+| `DONE` | Value recorded with no limit to judge against — e.g. `measure(...)` with no limit |
 | `SKIPPED` | *(never produced at this level)* |
 | `None` | Default; row constructed but limit check not invoked |
 
@@ -143,60 +139,54 @@ An exception in a called function (e.g. driver raises a VISA timeout) does **not
 |---|---|
 | `ABORTED` | *(never produced at this level)* |
 | `TERMINATED` | *(never produced at this level)* |
-| `ERRORED` | Cascade up from a measurement that landed ERRORED; vector body raises any non-`AssertionError` exception; `LitmusClient` builder: vector measurement landed ERRORED and current isn't already FAILED |
-| `FAILED` | Cascade up from a measurement that landed FAILED; vector body raises `AssertionError`; `LitmusClient` builder: vector measurement landed FAILED; `VectorBuilder.fail(...)` explicit call |
-| `PASSED` | Cascade up from a PASSED measurement |
-| `DONE` | Cascade up from a recorded-but-unjudged measurement |
+| `ERRORED` | Rolls up from an ERRORED measurement; or the vector body raised a non-`AssertionError` exception |
+| `FAILED` | Rolls up from a FAILED measurement; or the vector body raised `AssertionError`; or `VectorBuilder.fail(...)` was called (results-API path) |
+| `PASSED` | Rolls up from a PASSED measurement |
+| `DONE` | Rolls up from a recorded-but-unjudged measurement |
 | `SKIPPED` | `VectorBuilder.skip(...)` explicit call (`LitmusClient` builder path only — not produced by the runtime cascade) |
 | `None` | Default; vector ran but recorded nothing and didn't raise |
 
 ### Step level
 
-`TestStep.outcome` defaults to `None`. Cascades both up from measurements and from runner signals (pytest plugin). Every plugin-side stamp goes through the cascade so a worse outcome already on the step isn't weakened.
+A step's outcome rolls up from its measurements and from how the test body ended; once a worse outcome is set, a less-severe later result doesn't weaken it.
 
 | Outcome | Triggering conditions |
 |---|---|
-| `ABORTED` | *(never produced at this level — only the run-level materializer fallback stamps `"aborted"`)* |
-| `TERMINATED` | Operator hit Ctrl-C, or SIGTERM was converted to `KeyboardInterrupt` by the SIGTERM handler |
-| `ERRORED` | Test body raised any non-`AssertionError`, non-skip exception; setup or teardown phase raised any non-skip exception; cascade up from a measurement or vector that landed ERRORED; `LitmusClient` builder: vector ERRORED and step isn't already FAILED |
-| `FAILED` | Test body raised `AssertionError` (rewritten or bare); cascade up from a measurement or vector that landed FAILED; `LitmusClient` builder: vector FAILED; `StepBuilder.fail(...)` explicit call; a contained vector landed FAILED during finalization; parquet readback fallback when any contained vector has `outcome == FAILED` |
-| `PASSED` | Test body exited cleanly AND verdict intent was recorded for this step; cascade up from a PASSED measurement; parquet readback fallback when no FAILED vectors |
+| `ABORTED` | *(never produced at this level — see Run level)* |
+| `TERMINATED` | Operator stopped the run (Ctrl-C or SIGTERM) |
+| `ERRORED` | Test body raised any non-`AssertionError`, non-skip exception; setup or teardown raised any non-skip exception; or rolls up from an ERRORED measurement or vector |
+| `FAILED` | Test body raised `AssertionError`; or rolls up from a FAILED measurement or vector; or `StepBuilder.fail(...)` was called (results-API path) |
+| `PASSED` | Test body exited cleanly AND verdict intent was recorded for this step; or rolls up from a PASSED measurement with nothing worse |
 | `DONE` | Test body exited cleanly with **no** verdict intent (no asserts ran, no measurements with limits) |
 | `SKIPPED` | Test body raised `pytest.skip.Exception` (`pytest.skip(...)`, `@pytest.mark.skip`, `skipif`); setup-phase skip exception (e.g. `skipif` from a fixture); `StepBuilder.skip(...)` explicit call |
-| `None` | Default; step opened but the call hook never escalated (e.g. test never ran due to upstream failure) |
+| `None` | Default; the step opened but never ran (e.g. an upstream failure stopped the session) |
 
 ### Run level
 
-`TestRun.outcome` defaults to `None`. The cascade rolls up through every measurement and every step-level escalation; the runs daemon writes the final `run_outcome` column when the run is materialized.
+A run's outcome rolls up through every measurement and step; it's written to the run's saved record when the run ends.
 
 | Outcome | Triggering conditions |
 |---|---|
-| `ABORTED` (string `"aborted"`) | Materializer fallback when the runs daemon is asked to write a run with `outcome=None` because it never saw a `RunEnded`. Bypasses the cascade. `LitmusClient.RunBuilder.abort()` also stamps `Outcome.ABORTED` on the in-memory `TestRun`, but does not save it — only the materializer-fallback path writes an ABORTED row to parquet automatically. |
-| `TERMINATED` | Cascade rollup from any step that landed TERMINATED |
-| `ERRORED` | Cascade rollup from any ERRORED step or measurement |
-| `FAILED` | Cascade rollup from any FAILED step or measurement |
-| `PASSED` | Cascade rollup from PASSED step(s) with nothing worse anywhere |
-| `DONE` | Cascade rollup from step(s) that ran cleanly without verdict intent |
+| `ABORTED` | The run was killed before it finalized; Litmus records the unfinished run as ABORTED automatically. A non-pytest runner can also mark a run ABORTED via the results API. |
+| `TERMINATED` | Rolls up from any step that landed TERMINATED |
+| `ERRORED` | Rolls up from any ERRORED step or measurement |
+| `FAILED` | Rolls up from any FAILED step or measurement |
+| `PASSED` | Rolls up from PASSED step(s) with nothing worse anywhere |
+| `DONE` | Rolls up from step(s) that ran cleanly without verdict intent |
 | `SKIPPED` | Cascade rollup where the only contained outcomes were SKIPPED |
-| `None` | Default; emitted via `RunEnded` only when the cascade never escalated. The materializer treats this case as `"aborted"` (see top row). |
-
-#### Persistence path
-
-The runs daemon accumulates events (`SessionStarted`, `RunStarted`, `StepStarted`, `MeasurementRecorded`, etc.) into per-run accumulators. On `RunEnded`, the daemon materializes the run to parquet; the cascade-derived outcome rides in through `RunEnded`. If the daemon's close runs before a `RunEnded` for a still-open run, the materializer is invoked with no outcome and stamps `"aborted"` as the fallback.
-
-The cascade never produces ABORTED. The materializer fallback above is the only path that writes an ABORTED row to parquet automatically. `LitmusClient.RunBuilder.abort()` stamps `Outcome.ABORTED` on the run object it returns, but does not save it; an external runner that wants to land that row has to persist the returned object explicitly.
+| `None` | Default; a run that ended without any outcome being set. A run killed before it finalizes is recorded as ABORTED instead (see top row). |
 
 ### Multi-UUT slot orchestrator
 
-Per-slot child outcomes are derived from subprocess exit codes. These are **strings, not the Outcome enum** — they aggregate process exit codes, not the per-run cascade.
+In a multi-UUT run, each slot (one DUT) gets its own result; the session's overall result is the worst across slots.
 
-| `SlotResult.outcome` | Triggering condition |
+| Slot result | Triggering condition |
 |---|---|
-| `"errored"` | `SlotResult` initialized; child never exited cleanly (orphan, killed by orchestrator finally) |
-| `"failed"` | Child pytest exited non-zero |
-| `"passed"` | Child pytest exited with code 0 |
+| `errored` | The slot's run never finished cleanly (killed, orphaned) |
+| `failed` | The slot's run finished with a failure |
+| `passed` | The slot's run finished clean |
 
-The session-level result is the worst of these across slots. Each child still writes its own `RunEnded` carrying its cascade-derived `Outcome` from the per-run tables above. For the operational guide, see [multi-UUT testing](../../how-to/execution/multi-uut-testing.md).
+Each DUT still records its own detailed outcome from the per-run tables above. For the operational guide, see [multi-UUT testing](../../how-to/execution/multi-uut-testing.md).
 
 ## See also
 

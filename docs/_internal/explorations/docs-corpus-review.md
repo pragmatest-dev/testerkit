@@ -162,6 +162,12 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 3 — concepts (lean 2-lens)
+- concepts/execution/outcomes — factually PERFECT (38 claims verified: enum/ladder/cascade/
+  verdict-intent/builders all correct). Pure audience scrub: removed bottom-half internals
+  (materializer fallback, accumulators, keyboard-interrupt hook chain, abort()-doesn't-save ×3,
+  parquet readback fallback, check_limit/SlotResult-strings); cut the "Persistence path" subsection;
+  "cascade"→"rolls up from" in table cells; kept the conceptual ladder/cascade-rule section. ✅
+- concepts/data/data-stores — full four-store rework (see four-store sweep above). ✅
 - concepts/overview/platform-vs-framework — CRIT MCP count 12→13 (+`litmus_files`, `Cpk`→`Ppk`);
   POST /api/runs verified real; no OpenHTF-adapter claim; audience prose. ✅ (MCP-count drift recurs
   corpus-wide — watch ai-integration, reference pages.)
