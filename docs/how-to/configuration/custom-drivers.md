@@ -468,7 +468,7 @@ pytest -m hardware                  # only hardware tests
 pytest -m "not hardware"            # only simulation tests (CI default)
 ```
 
-`hardware` is not a Litmus-registered marker; the seven `litmus_*` markers are listed in [`litmus-markers.md`](../../reference/pytest/markers.md). You own this marker locally.
+`hardware` is not a Litmus-registered marker; the seven `litmus_*` markers are listed in [Litmus markers](../../reference/pytest/markers.md). You own this marker locally.
 
 ---
 

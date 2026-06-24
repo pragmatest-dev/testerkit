@@ -124,7 +124,7 @@ def test_output_voltage(dmm, verify):
 - Pros: smallest possible surface; standard pytest; uses everything the plugin offers.
 - Trade-off: requires a station YAML to define `dmm`.
 
-Use this for any test you're writing fresh. See [writing tests](../../how-to/execution/writing-tests.md) for end-to-end patterns and [`reference/litmus-fixtures.md`](../../reference/pytest/fixtures.md) for the full 20-fixture surface.
+Use this for any test you're writing fresh. See [writing tests](../../how-to/execution/writing-tests.md) for end-to-end patterns and [Litmus fixtures](../../reference/pytest/fixtures.md) for the full fixture surface.
 
 ### Path B — `LitmusClient` for result tracking from any existing test
 

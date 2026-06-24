@@ -456,7 +456,7 @@ def test_output():
 
 - [api.md → MCP tools](../../reference/runtime/api.md#tools) — full per-tool reference: parameters, return shapes, every keyword
 - [cli.md → litmus setup](../../reference/cli.md#cli-setup) — `litmus setup show` and the `--print-only` flag
-- [litmus-fixtures.md → context, verify, measure](../../reference/pytest/fixtures.md) — every pytest fixture this page references
+- [Litmus fixtures](../../reference/pytest/fixtures.md) — `context`, `verify`, `measure`, and every other fixture this page references
 - [outcomes](../../concepts/execution/outcomes.md) — what each `run_outcome` / `step_outcome` / `measurement_outcome` value means
 - [capabilities](../../concepts/configuration/capabilities.md) — characteristics, SpecBand, the matching model
 - [limits](../execution/limits.md) — the full limit-resolution chain (sidecar / marker / part spec / inline)
