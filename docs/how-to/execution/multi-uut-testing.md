@@ -1,6 +1,6 @@
 # Multi-UUT Testing
 
-Litmus supports parallel testing of multiple UUTs (Devices Under Test) using a subprocess-per-slot architecture. Each UUT slot runs in its own process with isolated environment, while shared instruments are served centrally so multiple slots can drive one physical instrument without colliding.
+Litmus runs multiple UUTs in parallel, one slot per UUT. Each slot is isolated, and a shared instrument (one physical DMM or PSU) can drive every slot without slots colliding on it. This page shows how to define the slots and run them.
 
 > **Prerequisites.** Single-UUT tests already working against your station — multi-UUT is a layer on top, not a replacement (see [tutorial step 7](../../tutorial/07-real-instruments.md)). A fixture YAML defining at least two slots (template in this page). Instruments that can be channel-shared or one physical instrument per slot.
 
@@ -36,11 +36,11 @@ slots:
 
 Every connection block needs a `name:` field — Litmus doesn't auto-fill it from the dict key. Omit it and the file fails to load at session start with a clear error pointing at the missing field.
 
-Slots are spawned in YAML order and **run in parallel**, one subprocess each. The instrument channel mappings route each slot to different physical channels on shared instruments.
+Slots run in parallel, in YAML order. The `instrument_channel` mappings route each slot to its own channel on a shared instrument.
 
 ## Running Multi-UUT Tests
 
-Pass `--fixture` to activate multi-UUT mode:
+Pass `--fixture` with a multi-slot fixture (2+ slots) to run slots in parallel:
 
 ```bash
 pytest tests/ \
@@ -53,10 +53,10 @@ pytest tests/ \
 
 | Option | Description |
 |--------|-------------|
-| `--fixture` | Path to fixture YAML (triggers multi-UUT mode) |
+| `--fixture` | Path to fixture YAML (2+ slots → parallel slots) |
 | `--uut-serial` | Single serial applied to all slots (with warning) |
 | `--uut-serials` | Per-slot assignment: `slot_1=SN001,slot_2=SN002` |
-| `--slot` | Run a single slot in a non-orchestrator process (e.g. for debugging one slot in isolation against the multi-UUT fixture). Supplying `--slot` and `--uut-serials` together is an error. |
+| `--slot` | Run just one slot of the fixture by itself — useful for debugging a single UUT position in isolation. Cannot be combined with `--uut-serials`. |
 | `--mock-instruments` | Use mock instruments (each slot gets independent mocks) |
 
 ## Serial Assignment
@@ -67,33 +67,6 @@ pytest tests/ \
 ```
 
 **Single serial:** Using `--uut-serial` with multiple slots applies the same serial to all slots and emits a warning. This is useful for development but not recommended for production.
-
-## Shared Instruments and InstrumentServer
-
-When multiple slots reference the same instrument (e.g., a shared DMM or PSU), Litmus automatically:
-
-1. Detects shared instrument roles across slots
-2. Connects shared instruments once in the orchestrator process
-3. Starts an InstrumentServer with per-resource locking
-4. Workers get `RemoteInstrumentProxy` objects for shared roles
-
-Mocked instruments are NOT shared -- each worker gets its own independent mock instance so mock state doesn't leak between slots.
-
-## Sync Points
-
-Use the `sync` fixture to coordinate between slots:
-
-```python
-def test_thermal_soak(dmm, sync):
-    # All slots wait here until every slot arrives
-    if sync:
-        sync.wait("thermal_soak", timeout=300)
-
-    # Now all slots measure simultaneously
-    v = dmm.measure_voltage()
-```
-
-The `SyncCoordinator` (an internal helper that brokers `sync.wait()` rendezvous between slot workers) in the orchestrator process handles sync point coordination via [EventStore](../../concepts/data/event-log.md) events. If a slot dies, the coordinator unblocks remaining slots to prevent deadlocks.
 
 ## Reading Per-Slot Results
 
@@ -130,32 +103,48 @@ WHERE record_type = 'vector'
 ORDER BY slot_id, step_index
 ```
 
-Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `litmus.yaml` → `LITMUS_HOME` → platform default. See [reference/parquet-schema.md](../../reference/data/parquet-schema.md) for the column shape and the `record_type` discriminator (`run` / `step` / `vector`); measurements are nested under the vector rows.
+Per-run parquet files live under `<data_dir>/runs/{date}/{timestamp}_{run_id8}_{serial}.parquet`. `<data_dir>` is the active project's data dir — resolved from `--data-dir` → project `litmus.yaml` → `LITMUS_HOME` → platform default. See [reference/parquet-schema.md](../../reference/data/parquet-schema.md) for the column shape and the `record_type` discriminator (`run` / `step` / `vector`); measurements are nested under the vector rows.
+
+## Sharing One Instrument Across Slots
+
+When two slots map to the same instrument role, Litmus connects it once and lets every slot use it safely — calls are serialized so two slots never talk to it at the same time. You write your test exactly as in the single-UUT case; the shared connection is transparent.
+
+Mock instruments are NOT shared — each slot gets its own mock so mock state never leaks between slots.
+
+## Sync Points
+
+Use the `sync` fixture to hold all slots at a named point until every slot arrives:
+
+```python
+def test_thermal_soak(dmm, sync):
+    # All slots wait here until every slot arrives
+    if sync:
+        sync.wait("thermal_soak", timeout=300)
+
+    # Now all slots measure simultaneously
+    v = dmm.measure_voltage()
+```
+
+`sync.wait("label", timeout=...)` blocks each slot until every slot reaches the same labeled point, then releases them together. If a slot fails or exits before reaching the point, the remaining slots are released automatically so the run does not get stuck.
 
 ## Debugging Failures
 
 ### Environment Variables
 
-Each worker subprocess has these env vars for debugging:
+Inside a slot's test process these identify the UUT, so your test or a serial-port helper can read them:
 
 | Variable | Description |
 |----------|-------------|
-| `_LITMUS_SLOT_ID` | Slot identifier (e.g., `slot_1`) |
-| `_LITMUS_SLOT_INDEX` | 0-based index of this slot in the orchestrator's spawn order |
-| `_LITMUS_SLOT_COUNT` | Total number of slots |
-| `_LITMUS_SESSION_ID` | Shared session ID across all slots |
-| `LITMUS_UUT_SERIAL` | UUT serial for this slot (orchestrator sets per-slot from `--uut-serials`) |
+| `LITMUS_UUT_SERIAL` | UUT serial for this slot |
 | `LITMUS_UUT_PART_NUMBER` | UUT part number (shared across slots) |
-| `LITMUS_UUT_REVISION` | UUT revision (shared) |
-| `LITMUS_UUT_LOT_NUMBER` | UUT lot / batch (shared) |
+| `LITMUS_UUT_REVISION` | UUT revision (shared across slots) |
+| `LITMUS_UUT_LOT_NUMBER` | UUT lot / batch (shared across slots) |
 | `LITMUS_UUT_RESOURCE` | Per-slot UUT control connection (e.g. `/dev/ttyUSB0`) from the slot's `uut_resource:` field |
 | `LITMUS_FIXTURE_SLOT` | JSON-serialized slot configuration |
-| `_LITMUS_INSTRUMENT_SERVER` | InstrumentServer address (if shared instruments) |
-| `_LITMUS_SHARED_ROLES` | Comma-separated shared instrument roles |
 
 ### Viewing Per-Slot Output
 
-Worker stdout is prefixed with `[slot_id]` in the orchestrator's output:
+Slot stdout is prefixed with `[slot_id]` in the terminal output:
 
 ```
 [slot_1] PASSED test_voltage
@@ -164,13 +153,13 @@ Worker stdout is prefixed with `[slot_id]` in the orchestrator's output:
 
 ### Common Issues
 
-**Slots appear to hang:** Check if a sync point is waiting for a dead slot. The coordinator auto-unblocks after a slot dies, but custom timeouts in `sync.wait()` may need adjustment.
+**Slots appear to hang:** A `sync.wait()` may be waiting on a slot that already failed. Litmus releases the other slots automatically when a slot exits, but shorten a too-long `timeout=` if the wait is the bottleneck.
 
 **Same serial warning:** If you see "Single --uut-serial applied to all N slots", use `--uut-serials` for per-slot assignment.
 
-**Shared instrument contention:** The InstrumentServer uses per-resource locking. If tests are slow, consider whether instrument access is the bottleneck (check the execution timeline).
+**Shared instrument is the bottleneck:** Slots queue for a shared instrument — check the Execution Timeline to see whether slots are waiting on instrument access.
 
-**Orphaned processes:** If the orchestrator crashes, worker processes are automatically terminated in the cleanup handler.
+**Orphaned slot processes:** On normal teardown or Ctrl-C, all slots are shut down automatically, so you shouldn't be left with orphaned slot processes. A hard kill (e.g. `kill -9` on the parent) can bypass this cleanup.
 
 
 ## See also

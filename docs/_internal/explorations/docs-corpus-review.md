@@ -175,7 +175,7 @@ before any accuracy audit that diffs against it.
 - how-to/execution/multi-uut-testing — accuracy: parquet filename +run_id8; --fixture multi only with 2+
   slots; softened crash-cleanup. HEAVY internals scrub: InstrumentServer/RemoteInstrumentProxy/
   SyncCoordinator/orchestrator/worker/subprocess-per-slot all removed → plain "connect once, serialized,
-  mocks not shared" + sync.wait behavior; dropped private `_LITMUS_*` env rows. docs-writer; re-audit pending.
+  mocks not shared" + sync.wait behavior; dropped private `_LITMUS_*` env rows. docs-writer; re-audit 0/0. ✅
 - how-to/execution/vector-expansion — factually accurate (18 claims: litmus_sweeps shape, linspace/
   arange/logspace/geomspace/repeat/range generators, vectors fixture all verified). Fixed error-text
   `litmus_sweeps zip`→`sweep zip`. CRIT audience: cut competitor design-validation (TestStand/OpenTAP/
