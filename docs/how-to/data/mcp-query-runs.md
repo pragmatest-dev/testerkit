@@ -16,14 +16,13 @@ the three tools you'll use most.
 
 | Tool | Use it for |
 |---|---|
-| `litmus_runs(action="list")` | "show me recent runs" — returns the most recent N run summaries (the MCP tool accepts only `limit`; for per-part / per-station filtering, follow up with the assistant filtering the response client-side) |
+| `litmus_runs(action="list")` | "show me recent runs" — returns the most recent N run summaries (the MCP tool accepts only `limit`; for per-part / per-station filtering, follow up and the assistant filters the results for you) |
 | `litmus_runs(action="get", run_id=...)` | "tell me about run X" — one run's full summary, accepts 8-char prefix |
 | `litmus_steps(run_id=...)` | "what did run X actually execute" — flat list (`action="list"`) or hierarchy (`action="tree"`) |
 | `litmus_metrics(action=...)` | "is the line healthy" — aggregate analytics over a date range |
 
-All three tools read the same parquet store the operator UI's
-Results and Metrics pages read. Behavior is identical; what you
-get back is JSON instead of pixels.
+These tools return the same numbers you see on the operator UI's
+Results and Metrics pages — just in the chat instead of the browser.
 
 ## Recipe 1 — "What ran recently?"
 
@@ -31,11 +30,10 @@ Ask your assistant:
 
 > List the last 20 runs.
 
-It calls `litmus_runs(action="list", limit=20)` and gets a JSON
-array of run summaries (run_id, started, outcome, UUT serial,
-station, part). Then you can ask follow-ups like "filter to
-the ones that failed", and the assistant either re-queries or
-filters the in-memory list.
+It calls `litmus_runs(action="list", limit=20)` and gets back the
+recent runs with each one's outcome, serial, station, and part.
+Then you can ask follow-ups like "filter to the ones that failed",
+and the assistant re-queries or narrows the results for you.
 
 ## Recipe 2 — "What does this run look like?"
 
@@ -46,9 +44,9 @@ When the recent-runs list surfaces a suspect run id:
 The assistant calls `litmus_steps(run_id="a4f8b201", action="tree")`
 (8-char prefix is fine — the tool resolves it) and gets the
 step hierarchy with each step's outcome, vector index, and
-measurement count. The `tree` action returns the step_path-derived
-hierarchy; `list` returns flat ordered rows — pick whichever the
-assistant needs for the question.
+measurement count. `tree` gives you the nested step hierarchy;
+`list` gives a flat ordered list — the assistant picks whichever
+fits the question.
 
 To drill further, `litmus_runs(action="get", run_id="a4f8b201")`
 returns the run-level summary (project, phase, outcome, started /
@@ -57,11 +55,7 @@ Overview tab renders.
 
 ## Recipe 3 — "Is the line healthy?"
 
-The `litmus_metrics` tool exposes the analytical lenses behind the
-[Metrics page](../../reference/operator-ui/metrics.md). The split
-between MCP actions and UI tabs is not 1:1 — the UI's "Yield" tab
-is `summary` + `trend` on the MCP side, and the UI's "Assets" tab
-has no MCP equivalent yet:
+`litmus_metrics` answers the line-health questions. Pick an action:
 
 | Action | Question it answers |
 |---|---|
@@ -71,6 +65,8 @@ has no MCP equivalent yet:
 | `trend` | Yield trend over time, bucketed by `period` (`day` / `week` / `month`) |
 | `retest` | Retest rates per serial bucketed by period |
 | `time_loss` | Time lost to failed / errored runs |
+
+See [Operator UI → Metrics](../../reference/operator-ui/metrics.md) for how these map to UI tabs.
 
 Filters available on every action: `part`, `station`, `phase`,
 `since`, `until`. Plus per-action tuning: `top_n` (Pareto cutoff),
@@ -84,15 +80,14 @@ Translates to `litmus_metrics(action="trend", period="week",
 since="<two weeks ago>")`. The assistant fills in the ISO date
 from "the last 14 days".
 
-> What's the top failure mode on station prod-1?
+> What's the top failure mode on station bench-3?
 
-`litmus_metrics(action="pareto", station="prod-1", top_n=10)`.
+`litmus_metrics(action="pareto", station="bench-3", top_n=10)`.
 
 > Which measurements have Ppk below 1.33?
 
-`litmus_metrics(action="ppk")` then filter on the response client-side.
-(The tool doesn't take a Ppk threshold; the assistant inspects the
-JSON.)
+Ask that and the assistant runs `litmus_metrics(action="ppk")` and
+reads the threshold off the results for you.
 
 ## Recipe 4 — "Walk me through the run history" (chained)
 
@@ -105,8 +100,8 @@ For a longer diagnostic, chain the tools:
 That's:
 
 1. `litmus_runs(action="list", limit=200)` — fetch recent runs
-2. Group client-side by `uut_serial`, find one with multiple
-   failures on the same `step_path`
+2. The assistant groups by serial, finds one with multiple failures
+   on the same step
 3. `litmus_steps(run_id=<first>, action="list")` and again for the
    second
 4. Diff the measurement values

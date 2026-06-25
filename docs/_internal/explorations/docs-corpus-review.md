@@ -164,6 +164,12 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/mcp-query-runs — factually PERFECT (34 claims: litmus_runs/steps/metrics + 6 metrics actions
+  summary/pareto/ppk/trend/retest/time_loss, filters part/station/phase/since/until, phase default excludes
+  development, period day/week/month, run_id[:8] prefix). Audience: de-jargoned client-side/in-memory/
+  parquet-store/step_path-derived/"JSON instead of pixels"; removed the "Assets tab has no MCP equivalent
+  yet" tombstone; trimmed the UI-tab↔MCP-action concept prose→action table; station prod-1→bench-3.
+  docs-writer. (pip/uv: agent suggested switching to uv — NOT done; pip is the user workflow.) ✅
 - how-to/data/mcp-debug-failures — factually PERFECT (27 claims: litmus_runs/steps/events/sessions/
   channels/open tools + params, outcome taxonomy failed/errored/terminated/aborted, run_id[:8] prefix match,
   max_points/LTTB). Audience: fixed broken link `../how-to/data/querying-channels.md`→`querying-channels.md`;
