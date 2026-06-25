@@ -164,6 +164,18 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+**PIECE 4 COMPLETE — all 35 how-to pages done** (execution 11, data 14, configuration 4, catalog 2, overview 3,
+root index 1). Sub-cluster summary: execution + data + configuration + catalog + overview all closed; biggest
+single change = mcp-integration 466→157 (cut duplicated datasheet→test walkthrough). Real bugs found across
+the cluster: unwired limit fields, verify(uut_pin=) TypeError, retired instrument.read event, fabricated
+retention config, ChannelStore path bug, idPart/idProduct product→part leak, sidecar vectors:→sweeps:,
+/catalog-scaffold non-command, Cpk→Ppk, missing Files screen, units→unit. ⚠️ SOURCE bugs flagged for follow-up:
+(1) Grafana dashboards query flat columns on the nested measurements view; (2) mcp/server.py + skills
+datasheet-to-test write invalid `vectors:`/`{ref:}` YAML; (3) instrument.read stale in 4 source docstrings.
+- how-to/index (root) — fixed link descriptions to match revised pages (dropped "14 sidebar entries";
+  "subprocess-per-slot"→parallel; "ATML metadata"→UUT/part/pin/instrument identity; "design guide"→pause-for-
+  input; "time-series data plane"→instrument data) + ADDED the 5 missing Data links (choosing-a-channel-verb,
+  capture-waveform, stream-live-channel, capture-an-artifact, benchmarking) so the root index is complete. ✅
 - how-to/overview/mcp-integration — accuracy: litmus_discover scans ALL protocols (not VISA-only);
   "--print-only" is on the setup <client> commands (setup show IS the print cmd). The 13-tool count is
   CORRECT but dropped the brittle restatements (13×3, "7-value", "Four steps"); scrubbed stdio/transport +
