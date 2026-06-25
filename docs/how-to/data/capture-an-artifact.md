@@ -1,10 +1,10 @@
 # Capture an artifact
 
-Attach a non-numeric artifact (image, vendor blob, Pydantic model, byte stream) to a test run so it lands in the operator UI as a clickable, viewable file.
+Attach a file artifact (scope screenshot, camera frame, vendor capture file, IV curve, or a Pydantic record) to a test run so it lands in the operator UI as a clickable, viewable file.
 
-> **Prerequisites.** The `observe` fixture from the bundled pytest plugin, and a value that's not a scalar/array (i.e. doesn't fit ChannelStore's typed-row schema). For byte streams, `files.stream` from `litmus.files`.
+> **Prerequisites.** The `observe` fixture from the bundled pytest plugin, and a value that isn't a scalar or array — an image, a byte capture, or a record. For continuous byte streams, `files.stream` from `litmus.files`.
 
-## Step 1: Single-shot — `observe(name, value)` with a blob-shaped value
+## Step 1: Single-shot — `observe(name, value)` with a file value
 
 ```python
 from PIL import Image
@@ -33,7 +33,7 @@ def test_thing(observe, verify, ...):
     observe("iv_curve", iv)
 ```
 
-The platform routes by value shape: scalars/arrays → ChannelStore, blobs → FileStore. Each call records an OUTPUT named `<name>` on the active vector, carrying the resulting `file://...` URI. The measurement detail reached from `/results/{run_id}` shows each output by name; clicking any URI opens the artifact.
+`observe()` records the file in the FileStore and stamps an output named `<name>` carrying a `file://...` URI on the active measurement — click it in `/results/{run_id}` to open the artifact. (Scalars are recorded inline on the measurement row; arrays and waveforms go to the channel store; files go to the FileStore. Why it splits by value shape: see [the three verbs](../../concepts/data/three-verbs.md).)
 
 ## Step 2: Continuous byte stream — `files.stream(name, format=...)`
 
@@ -52,27 +52,15 @@ def test_thing(verify, psu):
 
 Available formats today: `raw` (binary append), `jsonl` (one JSON value per line), `tdms` (requires `[tdms]` extra), `h5` (requires `[hdf5]` extra). `format=` is the one place the platform makes you be explicit — it can't infer `mp4` vs `wav` vs `tdms` from opaque bytes.
 
-`FileStarted` and `FileEnded` lifecycle events bracket the sink session. When the `with` block exits, the `file://...` URI is recorded as an OUTPUT named `<name>` on the active vector.
+When the `with` block exits, the finished file's `file://...` URI is recorded as an output named `<name>` on the active measurement. (Litmus brackets the capture with `FileStarted` / `FileEnded` events.)
 
 ## Step 3: Read it back
 
-In the operator UI:
-
-- `/results/{run_id}` — each measurement shows its named outputs; `file://...` URIs render as clickable links
-- Inline view by MIME: PNG renders as `<img>`, JSON is pretty-printed, text shown plain, binary falls back to download
-
-In code:
-
-```python
-from litmus.data.backends.parquet import load_file
-
-artifact = load_file(parquet_path=None, ref="file://abc.../uut_photo.png")
-# → PIL.Image (PNG decoded via the serializer registry's PIL handler)
-```
+Open `/results/{run_id}` in the operator UI. Each measurement row shows its named outputs; `file://...` URIs render as clickable links. Inline view by MIME: PNG renders as `<img>`, JSON is pretty-printed, text shown plain, binary falls back to download.
 
 ## Step 4: Custom types
 
-For types the registry doesn't know:
+For types the platform doesn't recognize yet:
 
 ```python
 from litmus.data.files import register_serializer
@@ -86,7 +74,7 @@ register_serializer(
 )
 ```
 
-Register once at module level; subsequent `observe(name, my_vendor_frame_instance)` calls route automatically. Without a registered serializer, the platform falls back to pickle and emits a `RuntimeWarning` naming the type so you see what needs registering.
+Register once at module level; subsequent `observe(name, my_vendor_frame_instance)` calls route automatically. Without a registered handler, the platform falls back to pickle and emits a `RuntimeWarning` naming the type so you see what needs registering.
 
 ## See also
 

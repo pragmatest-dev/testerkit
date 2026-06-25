@@ -164,6 +164,12 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/capture-an-artifact — CRIT accuracy: removed the `load_file` from `litmus.data.backends.parquet`
+  read-back example — claimed it returns a PIL.Image but `load_file` on a .png ref returns raw BYTES (no
+  decode on the read path; serializer registry is write-only) + backend-internal import → UI read-back.
+  Fixed routing (scalars INLINE on the measurement row, not ChannelStore). Audience: blob→file/artifact,
+  routing-theory→link, serializer-registry→handler, lifecycle-events/active-vector→plain. docs-writer;
+  re-audit 0/0. ✅
 - how-to/data/capture-waveform — in good shape (13 claims verified: observe→ChannelStore routing,
   Waveform Y/dt/t0, channel:// URI, Mock(Scope, capture=)). Accuracy: LTTB threshold 500→1,000 points;
   Waveform import `litmus.data.models`→`litmus` (match the examples). Audience: observe URI-stamp narration
