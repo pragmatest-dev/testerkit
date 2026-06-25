@@ -19,7 +19,7 @@ workflow — "the run failed, why?"
 | `litmus_steps(run_id=..., action="list")` | Every step the run executed, in order, with outcome + measurement count |
 | `litmus_steps(run_id=..., action="tree")` | Same data as a step_path hierarchy (better for cluster / parametrize layouts) |
 | `litmus_events(session_id=..., event_type=..., role=..., since=..., limit=...)` | Events around the failure — dialogs, instrument connects, errors |
-| `litmus_sessions()` | List of sessions; useful to map a run back to its `connect()` lifetime |
+| `litmus_sessions()` | List of sessions; useful to map a run back to the session it ran in |
 | `litmus_channels(channel_id=..., session_id=..., last_n=..., max_points=...)` | Time-series channel data — supply rails, temperatures, anything logged via `context.observe()` |
 | `litmus_open(type="run", id=...)` | Returns a browser URL to the operator UI's Results detail — fallback when you need to see the rendered view |
 
@@ -34,9 +34,9 @@ and reports outcome, station, part, started time. If
 outcome != `failed`, redirect — Litmus distinguishes `failed`
 (measurement crossed a limit or assertion failed), `errored`
 (exception during the step), `terminated` (operator or harness
-graceful stop with cleanup), and `aborted` (no `RunEnded` was ever
-emitted — the close-time fallback path, rig may be in unknown
-state). Each implies a different next step.
+graceful stop with cleanup), and `aborted` (the run ended without a
+proper close — the rig may be in an unknown state). Each implies a
+different next step.
 
 ### 2. Find the step that flipped
 
@@ -57,11 +57,9 @@ When the step errored, the exception is in the event log. Get the
 run's session id from step 1, then:
 
 `litmus_events(session_id="<session_id>", since="<step_started_at>",
-limit=100)` returns the events in order. The assistant scans for
-`test.step_ended` events with `outcome="errored"` (the canonical
-step-error signal) and `diagnostic.error` events (the catch-all
-for raised exceptions). The event body carries the exception type
-and message.
+limit=100)` returns the events in order. The assistant scans the
+`test.step_ended` and `diagnostic.error` events for the step's
+error; the event body carries the exception type and message.
 
 When the step failed (limit violation), events are less useful
 than the measurement table itself — skip to step 4.
@@ -74,8 +72,7 @@ method, so the assistant either:
 
 - Opens the run in the operator UI via `litmus_open(type="run",
   id="a4f8b201")` (returns the URL — paste it into a browser), or
-- Drops to a parquet query (the assistant can call out to a shell)
-  for programmatic comparison
+- Queries the measurements directly with a parquet / DuckDB query
 
 For a programmatic measurement diff across runs, see the
 [Compare two runs](compare-runs.md) recipe — that walks the
@@ -92,9 +89,9 @@ usually environmental. Get the channel ids the run logged:
 `litmus_channels(channel_id="<rail_name>", session_id="<session_id>",
 last_n=300)` returns timestamped values. The assistant inspects for
 brown-outs, glitches, or thermal drift coincident with the failure
-window. `max_points` controls server-side downsampling
-([LTTB](../how-to/data/querying-channels.md)) when the raw series is
-too large to ship over the wire.
+window. `max_points` thins a large series down to that many points
+([details](querying-channels.md)) when it has too many points to
+return in one response.
 
 ### 6. Hand off to a human if needed
 
@@ -115,9 +112,9 @@ opens it.
   explicit, or `phase="all"` to include development noise when you
   want to see everything.
 - **Channel queries return raw rows by default.** Setting
-  `max_points` enables server-side LTTB decimation — useful when
-  the raw waveform is too large to ship over the wire, skip it
-  when you want pixel-accurate data.
+  `max_points` thins a large waveform down to that many points —
+  useful when it has too many points to return in one response;
+  skip it when you want every raw point.
 
 ## See also
 

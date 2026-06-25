@@ -164,6 +164,12 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/mcp-debug-failures — factually PERFECT (27 claims: litmus_runs/steps/events/sessions/
+  channels/open tools + params, outcome taxonomy failed/errored/terminated/aborted, run_id[:8] prefix match,
+  max_points/LTTB). Audience: fixed broken link `../how-to/data/querying-channels.md`→`querying-channels.md`;
+  trimmed RunEnded/close-time-fallback + canonical-signal/catch-all event internals; "ship over the wire"/
+  "server-side decimation"→plain; connect()-lifetime→"the session it ran in". ✅ (kept a4f8b201 worked-example
+  prefix — verified runnable via run_id[:8] match, explained at the page's prefix tip.)
 - how-to/data/grafana-dashboards — accuracy: the `measurements` SQL table is RAW NESTED run rows (the view
   is `SELECT * FROM read_parquet`, no UNNEST), NOT "one row per measurement" — corrected to say
   `UNNEST(measurements)` in panel queries; "naive UTC at pgwire layer"→"exposed as naive UTC" (conversion
