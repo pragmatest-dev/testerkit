@@ -164,6 +164,10 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/capture-waveform — in good shape (13 claims verified: observe→ChannelStore routing,
+  Waveform Y/dt/t0, channel:// URI, Mock(Scope, capture=)). Accuracy: LTTB threshold 500→1,000 points;
+  Waveform import `litmus.data.models`→`litmus` (match the examples). Audience: observe URI-stamp narration
+  →action+link, vector/parquet-row→"this test's measurement rows", synthesize_psu helper one-liner. ✅
 - how-to/data/querying-channels — CRIT accuracy: removed the `ChannelStore(Path("<data_dir>/channels"))`
   example — wrong (store appends channels/ itself → `channels/channels/`, empty) AND the direct-store glob
   read is discouraged (boundary breach). Lead with `channels.query` (in-process), `ChannelClient` for remote.

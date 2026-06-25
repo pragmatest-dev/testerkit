@@ -2,7 +2,7 @@
 
 Capture a scope trace in a test, store it in ChannelStore, and verify rise time and overshoot against limits — so every failing measurement row links directly to the supporting waveform.
 
-> **Prerequisites.** A scope driver class with a `capture() -> Waveform` method (mock or real); the `observe` and `verify` fixtures from the bundled pytest plugin (taken by name in the test signature, no import); `Limit` imported from `litmus`; `Waveform` imported from `litmus.data.models`.
+> **Prerequisites.** A scope driver class with a `capture() -> Waveform` method (mock or real); the `observe` and `verify` fixtures from the bundled pytest plugin (taken by name in the test signature, no import); `Limit` and `Waveform` imported from `litmus`.
 
 ## Step 1: Define the scope driver
 
@@ -41,16 +41,16 @@ def scope(mock_instruments) -> Scope:
     return Scope(resource="TCPIP::192.168.1.103::INSTR")
 ```
 
-Real drivers return `Waveform` from whatever block-mode acquisition call they expose. The fixture shape is the same.
+`synthesize_psu_step_response` is your own helper — anything that returns a `Waveform` with a realistic step edge, so the mock can exercise the rise-time/overshoot math without hardware. Real drivers return `Waveform` from whatever block-mode acquisition call they expose; the fixture shape is the same.
 
 ## Step 2: Capture and observe in the test body
 
 ```python
 wf = scope.capture()
-observe("scope_step", wf)  # routes to ChannelStore; stamps out_scope_step on this vector
+observe("scope_step", wf)  # records the waveform; links it to this test's measurement rows
 ```
 
-`observe` routes the `Waveform` to ChannelStore and stamps `out_scope_step = channel://scope_step?session=…` on the active test vector. Every `verify` call that follows in this test carries that URI in its parquet row. Call `observe` before the `verify` calls that depend on the same waveform.
+`observe` records the `Waveform` in ChannelStore and tags this test with its `channel://` URI (as `out_scope_step`). Every `verify` you call afterward links back to that waveform automatically — so call `observe` before the `verify` calls that depend on it. (See [Three verbs](../../concepts/data/three-verbs.md) for how the link is stored.)
 
 ## Step 3: Derive scalars and verify each
 
@@ -99,7 +99,7 @@ Open `http://localhost:8000/results`. Click the run row to reach `/results/<run_
 
 From any failing measurement you are one click from the trace that produced it.
 
-LTTB downsampling applies automatically above 500 points when the channels page renders — the peaks and valleys that matter for rise time and overshoot are preserved.
+Above 1,000 points the channels page automatically thins the trace for display, preserving the peaks and valleys that matter for rise time and overshoot — so what you judged is what you see.
 
 ## See also
 
