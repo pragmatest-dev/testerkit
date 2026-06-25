@@ -164,6 +164,13 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/configuration/mock-mode — factually PERFECT (27 claims: Mock(object,…) substitution [not driver
+  subclass], silent-None-on-typo, mock_config scalar/{nominal,sigma}/callable/dict shapes, enable paths
+  CLI>env>litmus.yaml, litmus_mocks cascade file→class→test→profile, test_phase auto-demote, deleted
+  *voltage*/*current* auto-mock fallback correctly ABSENT). Pure AUDIENCE restructure: added "pytest passes
+  anywhere" value prop; demoted "what mock does"/"three layers" internals to a "How it works" note + a 3-row
+  WHERE/WHEN/USE table; scrubbed Mock(object)/raw-patch.object/_mocks/isinstance/mermaid internals; surfaced
+  the typo→None gotcha as one prominent callout; `uv add --dev`→`pip install pytest-mock`. docs-writer. ✅
 - how-to/configuration/configuring-stations — 2 CRIT accuracy: station-TYPE examples omitted the required
   `InstrumentConfig.driver` (ValidationError) — added drivers; `load_station("str")` AttributeError snippet
   →`pytest --collect-only --station=`. Also: `name` required (table+examples), `id` defaults-to-stem,
