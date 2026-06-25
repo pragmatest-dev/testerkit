@@ -164,6 +164,11 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/stream-live-channel — factually PERFECT (18 claims verified: channels.stream/.write,
+  latest/live/window/query, connect/instrument, ChannelStarted). Audience: cut Flight-transport internals
+  leak (L73→link); renamed "sink"→`ch` and dropped "sink"/"context manager" framing; added the in-test
+  `stream` fixture vs store-direct `litmus.channels.stream` distinction (key gap); de-jargoned
+  "subscriptions", trimmed store-on-disk narration. docs-writer. ✅
 - how-to/data/capture-an-artifact — CRIT accuracy: removed the `load_file` from `litmus.data.backends.parquet`
   read-back example — claimed it returns a PIL.Image but `load_file` on a .png ref returns raw BYTES (no
   decode on the read path; serializer registry is write-only) + backend-internal import → UI read-back.
