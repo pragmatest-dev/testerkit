@@ -33,14 +33,17 @@ measurements table. Quickly scan:
 - **Measurements table**: sort by `step_path`, scan for rows where
   the value crossed the limit on one tab but not the other.
 
-This is fast for ~10-step runs. For longer runs, jump to the
-parquet diff.
+The two-tab scan is fastest for short runs you can eyeball. Once the
+step tree is long enough that scanning is slow, jump to the parquet diff.
 
 ## 2. Diff measurements with DuckDB
 
-The at-rest parquet nests measurements under each vector row, one per
-`(run_id, step_path, vector_index, measurement name)`. `UNNEST` them, then
-join a pair of runs on those keys for a direct diff:
+For most diffs, [`MeasurementsQuery`](../../reference/data/query-api.md) filtered to each
+`run_id` is enough. For a one-shot SQL diff, read the parquet directly: each row carries
+its measurements nested inside it, so `UNNEST` them and join the two runs on `step_path`,
+`vector_index`, and `measurement_name`. (Resolve `<data_dir>` from
+[`ProjectConfig`](../../reference/configuration.md); the
+[parquet schema](../../reference/data/parquet-schema.md) lists the columns.)
 
 ```bash
 duckdb -c "
@@ -101,7 +104,7 @@ Pipe the DuckDB query above to CSV for attaching to the bug
 report:
 
 ```bash
-duckdb -c "...query above..." -csv > .tmp/run_diff.csv
+duckdb -c "...query above..." -csv > run_diff.csv
 ```
 
 Or export both runs in full via
