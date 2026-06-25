@@ -164,6 +164,14 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/configuration/configuring-stations — 2 CRIT accuracy: station-TYPE examples omitted the required
+  `InstrumentConfig.driver` (ValidationError) — added drivers; `load_station("str")` AttributeError snippet
+  →`pytest --collect-only --station=`. Also: `name` required (table+examples), `id` defaults-to-stem,
+  `supported_phases` display-only (no enforcement), `channels` dict[str,str], env-var best-practice REMOVED
+  (loader doesn't expand ${VAR}). Audience: ADDED the missing role→fixture recipe ("Using a station's
+  instruments in a test"); scrubbed Shared-Instruments InstrumentServer/RemoteInstrumentProxy/file:line→
+  1-line role-based-sharing + multi-uut link; removed L36 src file:line; dotted-path jargon; capability
+  resolution-chain. docs-writer; re-audit 0/0. ✅
 - how-to/data/index — accuracy: removed ATML from the export interchange list (`litmus export` =
   CSV/JSON/STDF/HDF5/TDMS/MDF4; the ATML exporter was dropped). Audience: push-style→"as samples land",
   data-plane→"instrument data", PIL.Image→"image". **DATA how-to sub-cluster (14 pages) DONE.** ✅
