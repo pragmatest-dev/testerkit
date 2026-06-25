@@ -2,7 +2,7 @@
 
 Visualize test results, events, and instrument channel data with pre-built Grafana dashboards.
 
-> **Prerequisites.** A running Grafana instance (10.x or later, with the built-in PostgreSQL datasource — earlier versions don't have the `grafana-postgresql-datasource` plugin the dashboards target). `litmus` installed with the Grafana extras (`uv pip install 'litmus-test[grafana]'` — the PyPI name is `litmus-test`; the import is `litmus`). At least one run already recorded under `data/` — empty stores render empty dashboards.
+> **Prerequisites.** A running Grafana instance (10.x or later, with the built-in PostgreSQL datasource — earlier versions don't have the `grafana-postgresql-datasource` plugin the dashboards target). `litmus` installed with the Grafana extras (`pip install 'litmus-test[grafana]'` — the PyPI name is `litmus-test`; the import is `litmus`). At least one run already recorded under `data/` — empty stores render empty dashboards.
 
 ## Overview
 
@@ -19,9 +19,7 @@ No Grafana plugins required. Litmus includes a `pgwire` server (the PostgreSQL w
 ### 1. Install Grafana extras
 
 ```bash
-pip install litmus-test[grafana]
-# or
-uv add litmus-test[grafana]
+pip install 'litmus-test[grafana]'
 ```
 
 ### 2. Start the data server
@@ -102,7 +100,7 @@ litmus grafana serve (Buena Vista + DuckDB)
     |-- Arrow IPC (<data_dir>/channels/**/*.arrow)    --> channels
 ```
 
-All timestamps are stored as UTC and converted to naive UTC timestamps at the pgwire layer for Grafana compatibility.
+`<data_dir>` is resolved automatically from your project's `litmus.yaml` — you only pass `--data-dir` to point at a different store. All timestamps are stored as UTC and exposed as naive UTC timestamps for Grafana compatibility.
 
 The data server auto-refreshes Arrow IPC tables every 30 seconds (configurable with `--refresh-seconds`). Parquet views are always live (DuckDB reads on query).
 
@@ -110,7 +108,7 @@ The data server auto-refreshes Arrow IPC tables every 30 seconds (configurable w
 
 | Table | Source | Description |
 |-------|--------|-------------|
-| `measurements` | Parquet | One row per measurement with full denormalized metadata |
+| `measurements` | Parquet | Raw run rows; each row's measurements are nested — `UNNEST(measurements)` in a panel query for one row per measurement |
 | `runs` | Parquet (VIEW) | One row per run — aggregated from measurements |
 | `events` | Arrow IPC | All event bus events with JSON payload |
 | `channels` | Arrow IPC | Instrument channel time-series data |
@@ -121,7 +119,7 @@ The data server auto-refreshes Arrow IPC tables every 30 seconds (configurable w
 litmus grafana serve [OPTIONS]
     --host TEXT       Bind address (default: 0.0.0.0)
     --port INTEGER    pgwire port (default: 5433)
-    --data-dir PATH
+    --data-dir PATH   Override the data dir (default: resolved from litmus.yaml)
     --refresh-seconds INTEGER  Seconds between IPC refreshes (default: 30)
 
 litmus grafana setup [OPTIONS]

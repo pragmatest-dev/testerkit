@@ -164,6 +164,16 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/grafana-dashboards — accuracy: the `measurements` SQL table is RAW NESTED run rows (the view
+  is `SELECT * FROM read_parquet`, no UNNEST), NOT "one row per measurement" — corrected to say
+  `UNNEST(measurements)` in panel queries; "naive UTC at pgwire layer"→"exposed as naive UTC" (conversion
+  is in the view defs). Audience: `pip install 'litmus-test[grafana]'` (quoted; pip is the USER workflow —
+  did NOT follow the audience agent's switch-to-uv suggestion, which contradicts policy); `<data_dir>`
+  auto-resolves note. DEFERRED: did not add a from-scratch "build one panel" SQL section — can't verify the
+  SQL runs against the live pgwire views. ⚠️ FLAG (CODE, not docs — surface to user): the 10 shipped Grafana
+  dashboards query flat `value`/`measurement_name`/`outcome` columns that DON'T exist on the nested
+  `measurements` view; they must UNNEST in-panel — needs an end-to-end run to confirm they aren't broken
+  (audit-accuracy aa779cdc, grafana/server.py:65-77 vs dashboards/*.json). ✅
 - how-to/data/find-flaky-tests — tone correctly frames flakiness as investigate-the-hardware (no
   mark-and-skip). 3 accuracy WARNs fixed: `m.outcome`→aliased `measurement_outcome` (prose referenced a
   column the query didn't expose); dropped the "same `vector_index` per retry" invariant (Mode-2/vectors-
