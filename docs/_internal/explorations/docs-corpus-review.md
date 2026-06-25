@@ -164,6 +164,11 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/benchmarking — in good shape (18 claims: `litmus benchmark` CLI, --full/--rounds/-o/--no-save
+  flags, 4 stores, best-of-N=min, dated .benchmarks/<date>/ with report.md+report.json, psutil footprint).
+  Accuracy: --full concurrency sweep is 1/2/4/8 not 1/2/4. Audience: coefficient-block/"extrapolated from
+  coefficients"→"per-operation time and size". (pip install 'litmus-test[benchmark]' correctly LEFT — pip
+  is the user workflow; audience agent's uv suggestion declined.) ✅
 - how-to/data/mcp-query-runs — factually PERFECT (34 claims: litmus_runs/steps/metrics + 6 metrics actions
   summary/pareto/ppk/trend/retest/time_loss, filters part/station/phase/since/until, phase default excludes
   development, period day/week/month, run_id[:8] prefix). Audience: de-jargoned client-side/in-memory/

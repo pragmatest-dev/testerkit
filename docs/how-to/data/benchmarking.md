@@ -58,8 +58,8 @@ below it is "measured on *this* machine," not a guarantee.
 - **Recording test runs (by phase)** shows three representative test phases —
   characterization (raw-heavy), validation (corners), production (lean) — with
   the time and on-disk size per run and how many fit on your free disk. The
-  compositions are illustrative and tunable; the costs are extrapolated from the
-  per-component coefficients this run measured.
+  compositions are illustrative and tunable; the costs are computed from the
+  per-operation time and size this run measured.
 - **Capturing instrument data** answers the channels question in datasheet
   terms: how many channels you can log at 1 kS/s and 10 kS/s, the ingest
   ceiling, and how long a given capture fits on disk — compare it to your own
@@ -71,7 +71,7 @@ below it is "measured on *this* machine," not a guarantee.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--full` | off | Full sweep: more sizes and writer counts (1 / 2 / 4). A few minutes. |
+| `--full` | off | Full sweep: more sizes and a wider concurrency sweep (1 / 2 / 4 / 8). A few minutes. |
 | `--rounds N` | `3` (fast), `5` (full) | Timed rounds per case (best-of-N is reported). |
 | `-o, --output DIR` | `.benchmarks` | Where the result folder is written. |
 | `--no-save` | off | Print the summary only; write no folder. |
@@ -83,9 +83,9 @@ Each run writes a dated folder, `.benchmarks/<date>/`, with two files:
 - **`report.md`** — the human deliverable: the report above, as tables. Paste it
   into a GitHub issue and it renders.
 - **`report.json`** — the same run, machine-readable. Alongside every per-case
-  number it carries the **coefficient block** (per-component cost, on-disk bytes,
-  concurrency sweep, footprint) — the data behind the capacity figures, so a
-  scenario can be recomputed for any composition.
+  number it carries the raw per-component costs (time and bytes per operation, the
+  concurrency sweep, the footprint) — the data behind the capacity figures, so any
+  test-phase mix can be recomputed.
 
 Both record your hardware, the library versions, and exactly which options you
 ran, so a maintainer can read either one cold. A second run on the same day gets
