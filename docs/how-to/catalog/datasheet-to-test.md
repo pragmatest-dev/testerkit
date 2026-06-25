@@ -1,6 +1,6 @@
 # Datasheet → tests with Claude Code
 
-Walks through the `datasheet-to-test` workflow end-to-end: from a part datasheet PDF to a runnable pytest suite, with operator approval at every step. This is the highest-leverage AI-assisted flow Litmus ships — it covers spec extraction, instrument selection, station config, and test scaffolding in one chained conversation.
+Walks through the `datasheet-to-test` workflow end-to-end: from a part datasheet PDF to a runnable pytest suite, with operator approval at every step. This flow chains spec extraction, instrument selection, station config, and test scaffolding into one conversation, with an approval gate at each step.
 
 For motivation see [why AI integration](../../concepts/overview/ai-integration.md). For the full inventory of what ships, see the [skills reference](../../reference/overview/skills.md).
 
@@ -48,7 +48,7 @@ Run the datasheet-to-test workflow on this datasheet:
 
 Claude fetches the workflow prompt via MCP (`prompts/get datasheet-to-test`) and begins **Phase 1**.
 
-## The six phases
+## The phases
 
 The workflow STOPS at every gate. You approve, edit, or reject before it moves on.
 
@@ -69,13 +69,13 @@ Common edits at this gate:
 
 ### Phase 2 — Save part spec
 
-Claude saves the spec to `parts/<part_number>.yaml`. The spec uses the [Capability schema](../../reference/catalog/schema.md) — same `signals`/`conditions`/`controls`/`attributes` shape as catalog entries. The MCP `litmus_project(action="save", type="part", ...)` call validates the YAML server-side against the live Pydantic model; you'll see Claude correct shape errors in-flight if it tries to save something invalid.
+Claude saves the spec to `parts/<id>.yaml`. The spec uses the same [Capability schema](../../reference/catalog/schema.md) as catalog entries. Litmus validates the YAML against the catalog schema as it saves; you'll see Claude correct shape errors in-flight if it tries to save something invalid.
 
 Approval gate: review the saved YAML. Edit directly if you want — the agent re-reads on the next step.
 
 ### Phase 2b — Recommend instruments
 
-Claude calls `litmus_match(part_id=<id>)`. The platform derives capability requirements from the saved characteristics automatically (you don't build the requirements manually). Three outcomes:
+Claude calls `litmus_match(part_id=<id>)` and proposes instruments that cover the part's specs (see [how capability matching works](../../concepts/overview/ai-integration.md)). Three outcomes:
 
 | Outcome | What Claude proposes |
 |---|---|
@@ -85,15 +85,15 @@ Claude calls `litmus_match(part_id=<id>)`. The platform derives capability requi
 
 If you have a specific model the catalog doesn't know yet, Claude offers three paths:
 
-1. `/catalog-scaffold <model>` — fast, from the model's prior knowledge
-2. `generic_dmm` / `generic_psu` / `generic_eload` / `generic_oscilloscope` — bundled with Litmus, approximate capabilities, fine for mocked development
-3. `/catalog-from-datasheet <pdf>` — slow, accurate, for production work where spec correctness matters
+1. **Fast, approximate:** ask Claude to scaffold a catalog entry from just the model number using its prior knowledge — good for a quick start, not production-accurate.
+2. `generic_dmm` / `generic_psu` / `generic_eload` / `generic_oscilloscope` — bundled with Litmus, approximate capabilities, fine for mocked development.
+3. **Accurate, for production:** `/catalog-from-datasheet <pdf>` — correct to the datasheet, for catalog entries where spec correctness matters.
 
-Pick whichever fits where you are: generics if you're sketching, scaffold for well-known instruments, full datasheet for the actual production catalog entry.
+Pick whichever fits where you are: generics if you're sketching, Claude's prior knowledge for well-known instruments, full datasheet for the production catalog entry.
 
 ### Phase 3 — Create station config
 
-Claude generates `stations/<id>.yaml` wiring the selected instruments to roles (`psu`, `dmm`, `uut_load`, etc.) with realistic mock values. Schema is validated server-side.
+Claude generates `stations/<id>.yaml` wiring the selected instruments to roles (`psu`, `dmm`, `uut_load`, etc.) with realistic mock values. Litmus validates the wiring when it saves.
 
 Approval gate: review the wiring. Most edits here are around VISA resource strings (the agent has no way to discover your bench's actual `TCPIP::*::INSTR` addresses unless you've already populated them or it can call `litmus_discover` against a live bench).
 
@@ -102,13 +102,13 @@ Approval gate: review the wiring. Most edits here are around VISA resource strin
 Two files generated:
 
 - `tests/test_<part>.py` — pytest-native test code using the Litmus fixtures (`context`, `verify`, `measure`, plus instrument role fixtures like `psu`, `dmm`)
-- `tests/test_<part>.yaml` — sidecar YAML with `vectors:`, `limits:`, `mocks:` for operator-editable values
+- `tests/test_<part>.yaml` — sidecar YAML with `sweeps:`, `limits:`, `mocks:` for operator-editable values
 
 The generated tests use:
 - `verify(name, value)` for judgment-bearing measurements — limits resolve from the active part spec / sidecar / profile, raises on out-of-band
 - `measure(name, value)` for record-only setup readouts
 - `context.changed("vin")` in parametrized sweeps to skip expensive reconfig
-- Native `@pytest.mark.parametrize` for code-owned sweeps; sidecar `vectors:` for operator-edited sweeps
+- Native `@pytest.mark.parametrize` for code-owned sweeps; sidecar `sweeps:` for operator-edited sweeps
 
 Approval gate: review both files. Edit directly — pytest and the YAML are the source of truth, not Claude's memory of what it generated.
 
@@ -130,13 +130,13 @@ After the workflow completes, your project tree has:
 my_project/
 ├── litmus.yaml                          # set by litmus_project init
 ├── parts/
-│   └── <part_number>.yaml               # phase 2
+│   └── <id>.yaml                        # phase 2
 ├── stations/
 │   └── <station_id>.yaml                # phase 3
 ├── tests/
 │   ├── test_<part>.py                # phase 4
 │   └── test_<part>.yaml              # phase 4 sidecar
-└── catalog/                             # only if /catalog-scaffold or similar ran
+└── catalog/                             # only if Phase 2b added an instrument entry
     └── <instrument>.yaml
 ```
 
@@ -147,7 +147,7 @@ Every file is plain YAML or Python. Git diffs work. Code review works. If you wa
 | Symptom | Cause | Fix |
 |---|---|---|
 | Claude can't find the workflow | MCP server not registered or Claude not restarted after `litmus setup` | `claude mcp list` to verify; restart Claude Code |
-| Agent loops trying to save an invalid YAML | The Pydantic model rejected the shape it tried to save | Let it iterate — server-side validation is the feedback signal; or stop it and edit the YAML by hand |
+| Agent loops trying to save an invalid YAML | The save was rejected because the YAML didn't match the catalog schema | Let it iterate — validation is the feedback signal; or stop it and edit the YAML by hand |
 | Test runs but every row is `SKIP` / `MISSING_LIMIT` | Phase 4 generated `verify()` calls without limits, and no sidecar / part spec covers them | Either add limits to the sidecar `limits:` block or switch the calls to `measure()` for characterization-only |
 | Instrument match returns nothing | Catalog is empty or capability requirements aren't covered | Use generics for development, or run `/catalog-from-datasheet` for the missing instruments |
 | Agent picks the wrong instrument | The capability match is correct but the agent's preference doesn't match yours | Tell it directly: "I want the Keithley 2400 for the load instead of the eload" — it'll update the station and re-validate |

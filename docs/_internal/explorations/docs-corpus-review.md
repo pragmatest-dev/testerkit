@@ -164,6 +164,18 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/catalog/datasheet-to-test — CRIT accuracy: sidecar `vectors:`→`sweeps:` (SidecarConfig extra=forbid
+  rejects `vectors:` — the example would FAIL to load); `parts/<part_number>.yaml`→`parts/<id>.yaml` (filename
+  from Part.id, not part_number); removed `/catalog-scaffold` (NOT an installed command — only
+  /catalog-from-datasheet + /process-catalog are; fast path→natural-language ask). Audience: "Pydantic
+  model"→"catalog schema", derivation narration→action+link, "highest-leverage flow Litmus ships" hype→
+  factual, "six phases"(1/2/2b/3/4/5)→"the phases". pip install litmus-test LEFT (correct user install).
+  docs-writer; re-audit 0/0. ✅ ⚠️ SOURCE BUG (flag to user): mcp/server.py datasheet-to-test prompt +
+  skills/datasheet-to-test.md write `vectors:` sidecar + `{ref:}` limit-delegation examples that produce
+  INVALID YAML per the models (real keys: `sweeps:`, `characteristic:`) — AI clients following the bundled
+  prompts generate non-loading configs.
+- how-to/catalog/index — reviewed, clean (links resolve; no changes). **CATALOG how-to sub-cluster (2 pages)
+  DONE.** ✅
 - how-to/configuration/custom-drivers — CRIT accuracy: `idPart`/`PART_ID` — the product→part rename WRONGLY
   hit pyusb's legit USB `idProduct` API (→ TypeError) — restored idVendor/idProduct + PRODUCT_ID. Rest
   verified (28 claims: Instrument/VisaInstrument bases, Mock(MyDMM)→isinstance True vs platform Mock(object)
