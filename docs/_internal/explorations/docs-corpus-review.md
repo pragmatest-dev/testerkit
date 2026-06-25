@@ -164,6 +164,16 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/export-results — factually PERFECT (24 claims: `litmus show -f html/pdf/json/csv` +
+  `litmus export -f csv/json/stdf/hdf5/tdms/mdf4` BOTH real; -t templates HTML/PDF only; exports/<fmt>/
+  default; PDF via WeasyPrint gated on [pdf] extra). Audience: DELETED the exporter-architecture paragraph
+  (Arrow IPC/subscriber/format_name); scrubbed Jinja2/src-exporters-path/denormalized-parquet/events-file
+  leaks; added the PDF extra `pip install 'litmus-test[pdf]'`. docs-writer. ✅
+- how-to/data/compare-runs — factually PERFECT (18 claims: SQL UNNEST(measurements), record_type=vector,
+  struct fields name/value/outcome/limit_low/high, /results+/channels routes, litmus show -f csv). Audience:
+  trimmed at-rest-parquet narration→MeasurementsQuery steer (../../reference/data/query-api.md) + schema
+  link; "~10-step" count→decision rule; .tmp/→cwd. ✅ (read_parquet glob into runs-store layout =
+  established sibling-page convention; framed as the power-user fallback under the Query API.)
 - how-to/data/stream-live-channel — factually PERFECT (18 claims verified: channels.stream/.write,
   latest/live/window/query, connect/instrument, ChannelStarted). Audience: cut Flight-transport internals
   leak (L73→link); renamed "sink"→`ch` and dropped "sink"/"context manager" framing; added the in-test
