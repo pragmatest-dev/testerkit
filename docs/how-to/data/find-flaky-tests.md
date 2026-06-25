@@ -37,18 +37,18 @@ in its history without an obvious code change between them.
 
 Click into a failing run. The
 [Results detail](../../reference/operator-ui/results/detail.md) step
-tree shows one row per `(step_path, vector_index)` regardless of
-retry count; to see the individual attempts, jump to the parquet
-query in the next step. Confirm the failing step's measurements
+tree shows one row per step, collapsing retries; to see the
+individual attempts, jump to the parquet query in the next step. Confirm the failing step's measurements
 table: a borderline value just outside the limit is a marginal
 limit; a wild value is environment or hardware.
 
 ## 3. Make the retry behaviour explicit
 
-If the test is genuinely intermittent and you can't fix the root
-cause yet, set an explicit retry policy with the
+When the hardware is genuinely non-deterministic — a measurement with
+irreducible jitter, not a bug you haven't found yet — make the retries
+explicit and auditable with the
 [`@pytest.mark.litmus_retry`](../../reference/pytest/markers.md#litmus_retry)
-marker:
+marker, so every attempt is recorded rather than hidden:
 
 ```python
 @pytest.mark.litmus_retry(max_retries=2, delay=0.5, on=["AssertionError"])
@@ -56,20 +56,23 @@ def test_output_voltage(context, verify):
     ...
 ```
 
-This translates to `pytest-rerunfailures` under the hood. Every
-retry produces parquet rows with the same `vector_index` and an
-incremented `vector_retry` — the operator UI's step tree counts
-those and shows them as retries.
+Litmus reruns the test up to `max_retries` times on the listed
+exceptions and records every attempt with an incremented
+`vector_retry` — so the step tree and the query in the next step
+show them as separate retries rather than hiding them.
 
 ## 4. Confirm with a parquet query
 
 To see every attempt for one (run, step, serial) combination
-across the project, query the parquet store directly:
+across the project, query the parquet store directly. Resolve
+`<data_dir>` from your project's `litmus.yaml`
+([`ProjectConfig`](../../reference/configuration.md); see also
+[Data stores](../../concepts/data/data-stores.md)):
 
 ```bash
 duckdb -c "
 SELECT run_id, uut_serial, step_path, vector_index, vector_retry,
-       m.outcome, m.value
+       m.outcome AS measurement_outcome, m.value AS measurement_value
 FROM read_parquet('<data_dir>/runs/**/*.parquet'), UNNEST(measurements) AS t(m)
 WHERE step_path = 'test_output_voltage'
   AND uut_serial = 'DPB001-0001'
@@ -84,11 +87,6 @@ but earlier retries were `failed` is a real intermittent — the
 unit is right, the test just had to try again. A row where every
 retry of the same step on the same serial fails the same way is
 not a flake at all; it's a deterministic failure.
-
-Resolve `<data_dir>` from
-[`ProjectConfig`](../../reference/configuration.md) or check the
-[Data stores](../../concepts/data/data-stores.md) page for the default
-locations.
 
 ## 5. Cross-check the environment with channels
 

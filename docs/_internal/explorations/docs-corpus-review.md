@@ -164,6 +164,12 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/find-flaky-tests — tone correctly frames flakiness as investigate-the-hardware (no
+  mark-and-skip). 3 accuracy WARNs fixed: `m.outcome`→aliased `measurement_outcome` (prose referenced a
+  column the query didn't expose); dropped the "same `vector_index` per retry" invariant (Mode-2/vectors-
+  fixture only — wrong for the page's own unswept example); reframed `litmus_retry` from "can't fix root
+  cause yet"→an auditable retry budget for genuinely non-deterministic hardware. Audience: moved the
+  ProjectConfig note before the glob; cut "pytest-rerunfailures under the hood"; tuple→"one row per step". ✅
 - how-to/data/export-results — factually PERFECT (24 claims: `litmus show -f html/pdf/json/csv` +
   `litmus export -f csv/json/stdf/hdf5/tdms/mdf4` BOTH real; -t templates HTML/PDF only; exports/<fmt>/
   default; PDF via WeasyPrint gated on [pdf] extra). Audience: DELETED the exporter-architecture paragraph
