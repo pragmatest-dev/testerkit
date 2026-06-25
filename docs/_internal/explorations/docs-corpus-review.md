@@ -164,6 +164,9 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/data/index — accuracy: removed ATML from the export interchange list (`litmus export` =
+  CSV/JSON/STDF/HDF5/TDMS/MDF4; the ATML exporter was dropped). Audience: push-style→"as samples land",
+  data-plane→"instrument data", PIL.Image→"image". **DATA how-to sub-cluster (14 pages) DONE.** ✅
 - how-to/data/benchmarking — in good shape (18 claims: `litmus benchmark` CLI, --full/--rounds/-o/--no-save
   flags, 4 stores, best-of-N=min, dated .benchmarks/<date>/ with report.md+report.json, psutil footprint).
   Accuracy: --full concurrency sweep is 1/2/4/8 not 1/2/4. Audience: coefficient-block/"extrapolated from
