@@ -164,6 +164,15 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/overview/mcp-integration — accuracy: litmus_discover scans ALL protocols (not VISA-only);
+  "--print-only" is on the setup <client> commands (setup show IS the print cmd). The 13-tool count is
+  CORRECT but dropped the brittle restatements (13×3, "7-value", "Four steps"); scrubbed stdio/transport +
+  dispatcher/subprocess/returncode-table internals. BIG STRUCTURAL: CUT 466→157 lines (~309) — removed the
+  duplicated datasheet→test authoring walkthrough (part-spec/station-YAML/sweeps/limit-shapes/test-pattern/
+  checklist; it lives on datasheet-to-test.md) → "What the agent does next" + link. Registration recipe
+  (setup table, mcp serve, verify step, 13-tool table, CLI-as-peer callout) INTACT. docs-writer; re-audit 0/0. ✅
+- how-to/overview/index — dropped the wrong+brittle "14 sidebar entries" count. **OVERVIEW how-to sub-cluster
+  (3 pages) DONE.** ✅
 - how-to/overview/operator-ui-tour — 3 CRIT accuracy: Metrics tab Cpk→Ppk; dropped the wrong+brittle counts
   ("16 entries/15 screens" → actually 17/16); ADDED the missing Files `/files` screen to DATA STORES. Plus
   Inventory chip is 3 states (Configured/In use/Observed, not 2); Events "Session" is URL-only (removed from

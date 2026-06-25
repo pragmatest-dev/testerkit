@@ -1,6 +1,6 @@
 # AI-assisted test development via MCP
 
-Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server with **13 tools** that expose the datasheet → test workflow to AI assistants. The platform does **not** call LLMs itself — it only exposes tools that an AI agent drives.
+Litmus exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server whose tools expose run/query/authoring actions to AI assistants. The platform does **not** call LLMs itself — it only exposes tools that an AI agent drives.
 
 This page is the operational how-to: registering Litmus with each supported AI client. For motivation see [concepts/why-ai-integration](../../concepts/overview/ai-integration.md); for the end-to-end workflow walkthrough see [datasheet-to-test](../catalog/datasheet-to-test.md); for the full inventory of shipped skills + sub-agents + slash commands see [reference/skills](../../reference/overview/skills.md). Per-tool MCP reference: [api.md → MCP tools](../../reference/runtime/api.md#tools).
 
@@ -10,7 +10,7 @@ This page is the operational how-to: registering Litmus with each supported AI c
 
 ## Setup
 
-`litmus setup <client>` writes the right MCP config file for each supported client. All commands accept `--print-only` to show the config that would be written without modifying anything on disk.
+`litmus setup <client>` writes the right MCP config file for each supported client. All `litmus setup <client>` commands accept `--print-only` to show the config that would be written without modifying anything on disk.
 
 | Client | Command | What gets written |
 |---|---|---|
@@ -25,29 +25,29 @@ After running any setup command, restart the client to pick up the new MCP serve
 
 If the `claude` CLI isn't on `$PATH`, `litmus setup claude-code` prints the manual `claude mcp add …` command for you to run instead of registering automatically. For the VS Code clients, run with `--print-only` first to preview the exact `.vscode/mcp.json` / `.cursor/mcp.json` it will write.
 
-To print the server command and stdio transport Litmus registers:
+To print the exact command Litmus registers (for a manual setup):
 
 ```bash
 litmus setup show
 ```
 
-For the manual path (any client that doesn't have a `litmus setup` subcommand), the MCP server runs over stdio:
+For the manual path (any client that doesn't have a `litmus setup` subcommand), start the server with:
 
 ```bash
 litmus mcp serve
 # command: litmus
 # args: ["mcp", "serve"]
-# transport: stdio (only supported transport — see cli.md)
+# transport: stdio
 ```
 
 Add a server entry to your AI client's MCP config pointing at the above. See `litmus setup claude-desktop --print-only` for a working example you can adapt.
 
-## The 13 MCP tools
+## The MCP tools
 
 | Tool | Purpose | Detail |
 |---|---|---|
 | `litmus_project` | Unified CRUD: init, list, get, save, read | [details below](#litmus_project) |
-| `litmus_discover` | Scan for connected VISA instruments | Returns the list of resources VISA can see on this host |
+| `litmus_discover` | Scan for connected instruments across all registered protocols (VISA, NI, serial, …) | Returns the list of resources reachable on this host |
 | `litmus_match` | Find compatible instruments and stations | Two modes: requirements (catalog recommendation) and station (compatibility check) |
 | `litmus_run` | Execute a test file via pytest, return exit summary | [details below](#litmus_run) |
 | `litmus_open` | Get a browser URL for the operator UI | Allowed `type`: `part`, `station`, `run`, `fixture` |
@@ -64,7 +64,7 @@ For each tool's full parameter list and return shape, see [`api.md`](../../refer
 
 ### `litmus_project`
 
-The CRUD entry point. One tool with an `action:` dispatcher; the rest of the workflow goes through it.
+The CRUD entry point. One tool with an `action:` argument; the rest of the workflow goes through it.
 
 ```python
 # Initialize a project (call this first)
@@ -99,7 +99,7 @@ When `type="test"`, the tool writes a **Python file** under `<project_root>/test
 
 ### `litmus_run`
 
-Spawns pytest as a subprocess and returns the parsed exit summary. **It does not return structured measurement results** — those land in the parquet store and are queried separately via `litmus_runs` / `litmus_metrics` / `litmus_steps`.
+Runs the test file with pytest in mock mode and returns the pass/fail summary. **It does not return structured measurement results** — those land in the parquet store and are queried separately via `litmus_runs` / `litmus_metrics` / `litmus_steps`.
 
 `litmus_run` always runs with `--mock-instruments` — `station=` selects which station's `mock_config` to use, but no real hardware is touched. To run against a real bench, drive pytest directly: `pytest --station=<bench> --uut-serial=<sn>` (see [writing tests](../execution/writing-tests.md)).
 
@@ -127,330 +127,29 @@ Return shape:
 }
 ```
 
-`status` is **not** an `Outcome` enum value — it's derived from `subprocess.returncode`:
+`status` is a quick pass/fail/error from the pytest run, not the full outcome — fetch the stored run for the real `outcome` (next block).
 
-| returncode | `status` |
-|---|---|
-| 0 | `"passed"` |
-| 1 | `"failed"` |
-| any other | `"error"` |
-
-For the full 7-value `Outcome` enum (`passed`/`failed`/`errored`/`skipped`/`done`/`terminated`/`aborted`) that the runtime produces, fetch the run's stored row after it finishes:
+For the full `Outcome` value (`passed`/`failed`/`errored`/`skipped`/`done`/`terminated`/`aborted`) that the runtime produces, fetch the run's stored row after it finishes:
 
 ```python
 run = litmus_runs(action="get", run_id=result["run_id"], project=project)["run"]
-print(run["outcome"])               # one of the 7 Outcome values
+print(run["outcome"])               # one of the Outcome values
 ```
 
 See [outcomes](../../concepts/execution/outcomes.md) for what each value means.
 
-## The AI-driven workflow
+## What the agent does next
 
-Four steps + an init. The AI assistant drives them through MCP tools; you drive the AI assistant.
+Once the server is registered, the agent drives the datasheet → test workflow through these tools: initialize a project, create a part spec from the datasheet, set up the station, generate tests, run, and inspect results.
 
-### Step 0 — Initialize the project
+Start the conversation by having the agent call:
 
 ```python
 result = litmus_project(action="init", path="~/my-hardware-tests")
 project = result["project_root"]
 ```
 
-Creates the project skeleton: `pyproject.toml`, `litmus.yaml`, `conftest.py`, and the directories `parts/`, `stations/`, `fixtures/`, `instruments/`, `tests/`, `reports/` (`bringup` tier only creates `tests/`, `reports/`).
-
-After this, **you** (the human) install the project's dependencies in a terminal — `pip install -e .` (or `uv sync` if you use uv). The AI assistant cannot do this for you — running shell commands requires explicit user action.
-
-### Step 1 — Create a part spec from the datasheet
-
-A part spec declares the UUT's pins and its [characteristics](../../concepts/configuration/capabilities.md) (measurable properties + their spec bands). The spec is what `verify(name, value)` resolves limits against later.
-
-Key concepts in datasheet vocabulary:
-
-| Litmus term | Datasheet vocabulary | What it captures |
-|---|---|---|
-| Characteristic | An Electrical Characteristic table row | A measurable UUT property — output voltage, quiescent current, etc. |
-| SpecBand | One condition row in the EC table | A nominal value + tolerance at a specific operating point |
-| `when:` clause | The "Conditions" column entry for that row | The operating point this band applies at (temperature, load, frequency) |
-| `accuracy:` | The `±tol` and `(min, typ, max)` columns | How tight the band is around the nominal |
-
-Worked example for a TPS54302 buck converter:
-
-```python
-litmus_project(action="save", type="part", id="tps54302", content={
-    "id": "tps54302",
-    "name": "TPS54302 3A Synchronous Buck Converter",
-    "part_number": "TPS54302DSGR",
-    "pins": {
-        # name: physical designator on the part (J1, U3.5, TP7, Pin 1, etc.)
-        "VIN":  {"name": "1", "net": "VIN",      "role": "power"},
-        "VOUT": {"name": "5", "net": "VOUT_3V3", "role": "power"},
-        "FB":   {"name": "3", "net": "FB",       "role": "signal"},
-    },
-    "characteristics": {
-        "output_voltage": {
-            "function": "dc_voltage",
-            "direction": "output",
-            "unit": "V",
-            "pin": "VOUT",
-            "bands": [
-                {"when": {"temperature": 25, "load": 0.5},
-                 "value": 3.3, "accuracy": {"pct_reading": 1.5}},
-                {"when": {"temperature": 25, "load": 3.0},
-                 "value": 3.3, "accuracy": {"pct_reading": 2.0}},
-                {"when": {"temperature": 85, "load": 3.0},
-                 "value": 3.3, "accuracy": {"pct_reading": 3.0}},
-            ],
-        },
-        "quiescent_current": {
-            "function": "dc_current",
-            "direction": "input",
-            "unit": "mA",
-            "pin": "VIN",
-            "bands": [
-                {"when": {"temperature": 25, "load": 0},
-                 "value": 5, "accuracy": {"absolute": 0.5}},
-            ],
-        },
-    },
-}, project=project)
-```
-
-For the full part schema see [configuration reference → part](../../reference/configuration.md#part-yaml). For the band-matching and `accuracy:` semantics see [capabilities → condition-dependent specs](../../concepts/configuration/capabilities.md#condition-dependent-specs-specband).
-
-### Step 2 — Set up the test station
-
-The station YAML declares what instruments live on this bench and what `mock_config:` returns when running without hardware.
-
-```python
-# Optionally, ask the matcher for compatible instruments first
-matches = litmus_match(
-    requirements=[
-        {"function": "dc_voltage", "direction": "output", "range_max": 20, "unit": "V"},
-        {"function": "dc_voltage", "direction": "input",  "range_max": 50, "unit": "V"},
-    ],
-    project=project,
-)
-
-litmus_project(action="save", type="station", id="bench_1", content={
-    "id": "bench_1",
-    "name": "Development Bench",
-    "instruments": {
-        "psu": {
-            "type": "psu",
-            "driver": "drivers.PSU",
-            "resource": "GPIB0::1::INSTR",
-            "catalog_ref": "keysight_e36312a",
-            "mock": True,
-            "mock_config": {                # keys must be METHOD names
-                "set_voltage": None,
-                "measure_voltage": 12.0,
-            },
-        },
-        "dmm": {
-            "type": "dmm",
-            "driver": "drivers.DMM",
-            "resource": "GPIB0::5::INSTR",
-            "catalog_ref": "keysight_34461a",
-            "mock": True,
-            "mock_config": {
-                "measure_dc_voltage": 3.3,
-            },
-        },
-    },
-}, project=project)
-```
-
-`mock_config:` keys are the **method names** the driver class exposes, not signal names. With `--mock-instruments` (or `mock: true`), the platform substitutes a mock for the real driver, and those methods return the configured values. See [mock mode](../configuration/mock-mode.md) for the full story.
-
-### Step 3 — Generate the test files
-
-Two files: the Python test module and its colocated sidecar YAML.
-
-Ask for the current test template first so the AI client sees the canonical patterns:
-
-```python
-template = litmus_project(action="read", path="template:test", project=project)
-```
-
-**Test code** (`tests/test_tps54302.py`):
-
-```python
-litmus_project(
-    action="save",
-    type="test",
-    id="tests/test_tps54302.py",
-    content={"code": '''
-def test_output_voltage(context, psu, dmm, verify):
-    """Verify output voltage across temperature and load conditions."""
-    temperature = context.get_param("temperature", 25)
-    load = context.get_param("load", 0.5)
-    vin = context.get_param("vin", 12.0)
-
-    psu.set_voltage(vin)
-    psu.enable_output()
-
-    # verify() resolves the limit from the part spec at this vector
-    # condition and raises LimitFailure if the value is out of band.
-    verify("output_voltage", dmm.measure_dc_voltage())
-
-
-def test_quiescent_current(context, psu, dmm, verify):
-    psu.set_voltage(context.get_param("vin", 12.0))
-    psu.enable_output()
-    verify("quiescent_current", dmm.measure_dc_current())
-'''},
-    project=project,
-)
-```
-
-The `context`, `psu`, `dmm`, `verify` test arguments are all [pytest fixtures the plugin synthesizes](../../reference/pytest/fixtures.md):
-
-- `verify(name, value)` — resolve limit from part/sidecar, record measurement row, raise on FAIL
-- `context.get_param(name, default)` — read the active vector's parameter value
-- `psu` / `dmm` — [per-role auto-fixtures](../../reference/pytest/fixtures.md#per-role-auto-fixtures) synthesized from the station YAML
-
-**Sidecar YAML** (`tests/test_tps54302.yaml`) — write this with your AI client's filesystem tool, not via `litmus_project(action="save", type="test")` (which forces a `.py` extension):
-
-```yaml
-tests:
-  test_output_voltage:
-    sweeps:
-      - {temperature: [25, 85]}         # outer loop (slowest)
-      - {load: [0.1, 0.5, 0.8, 3.0]}    # middle loop
-      - {vin: [10.5, 12.0, 15.0]}       # inner loop (fastest)
-    characteristics: [output_voltage]
-    limits:
-      output_voltage:
-        characteristic: output_voltage  # auto-derive from part SpecBand at vector conditions
-        tolerance_pct: 10               # widen to manufacturing margin
-        comparator: GELE                # low <= value <= high
-
-  test_quiescent_current:
-    sweeps:
-      - {temperature: [25], load: [0], vin: [12.0]}
-    characteristics: [quiescent_current]
-    limits:
-      quiescent_current:
-        characteristic: quiescent_current
-        tolerance_pct: 15
-        comparator: LE                  # value <= high
-```
-
-### What happens at runtime
-
-For each vector (e.g. `temperature=25, load=0.5`):
-
-1. The matcher finds the part `SpecBand` whose `when:` clause matches the vector.
-2. The resolver derives a nominal + accuracy from that band and applies the sidecar's `tolerance_pct` to widen it into a production limit.
-3. The test body runs, `dmm.measure_dc_voltage()` returns a value, `verify` checks it against the resolved limit, and the result lands as a parquet row with `outcome=PASSED` or `FAILED`.
-
-If no band matches the active vector and the limit has no flat top-level fields (`low:` / `high:`), the measurement records in characterization mode (`outcome=DONE`, no pass/fail). See [limits → condition-indexed bands](../execution/limits.md#condition-indexed-bands) for the precedence rules.
-
-### Step 4 — Execute and inspect
-
-```python
-result = litmus_run(
-    test="tests/test_tps54302.py",
-    station="bench_1",
-    serial="SN001",
-    project=project,
-)
-
-print(result["status"])    # "passed" | "failed" | "error" (from subprocess returncode)
-print(result["summary"])   # "1 passed in 0.42s" (parsed pytest tail line)
-```
-
-For the structured results — the run's outcome, its per-step rollups, and cross-run analytics — query the store:
-
-```python
-# Run-scoped: this run's summary row and its per-step outcomes
-run = litmus_runs(action="get", run_id=result["run_id"], project=project)["run"]
-steps = litmus_steps(run_id=result["run_id"], action="list", project=project)
-
-# Cross-run analytics (aggregated over many runs, not one):
-yield_summary = litmus_metrics(action="summary", project=project)
-
-# Events are queried by session or type (not by run id):
-events = litmus_events(event_type="session.started", project=project)
-```
-
-For visual inspection, get a UI URL:
-
-```python
-info = litmus_open(type="run", id=result["run_id"])
-# Returns {"success": True, "url": "http://localhost:8000/results/<id>", "message": "..."}
-```
-
-## Limit shapes
-
-A sidecar `limits:` entry (or the kwargs to `@pytest.mark.litmus_limits`) is a `MeasurementLimitConfig` dict. At evaluation time every shape ultimately resolves to `low` / `high` / `nominal` / `comparator`.
-
-| Shape | Example | When |
-|---|---|---|
-| Direct | `{low: 3.2, high: 3.4, unit: V}` | Static numeric limits |
-| Nominal + tolerance | `{nominal: 3.3, tolerance_pct: 5, unit: V}` | Symmetric tolerance around a nominal |
-| Characteristic delegation | `{characteristic: "output_voltage", tolerance_pct: 10}` | Pull nominal + accuracy from the part spec (resolves per-vector via SpecBand match). `characteristic:` is the **auto-derive trigger**; `spec_ref:` is a free-form annotation only — it does NOT look anything up. |
-| Bands | `{bands: [{when: {temperature: 25}, low: 3.2, high: 3.4}, ...]}` | Condition-dependent inline bands evaluated against the vector |
-| Comparator override | `{nominal: 5.0, comparator: EQ}` | Pick an ATML comparator (`EQ`/`NE`/`LT`/`LE`/`GT`/`GE`/`GELE`/`GELT`/`GTLE`/`GTLT`) |
-
-Most common for AI-driven tests: **characteristic delegation** (when there's a part spec) and **direct** (when there isn't). See [limits how-to](../execution/limits.md) for the full resolution chain.
-
-`tolerance_pct`, `bands:`, and `characteristic:` are inputs on the sidecar/marker shape (`MeasurementLimitConfig`); they resolve away into the concrete `low / high / nominal / unit / comparator` the runtime checks against.
-
-## Test code pattern
-
-### Correct
-
-```python
-def test_output_voltage(context, psu, dmm, verify):
-    """Measure output voltage at specified conditions."""
-    # 1. Get test parameters from the active vector
-    temperature = context.get_param("temperature", 25)
-    load = context.get_param("load", 0.5)
-    vin = context.get_param("vin", 12.0)
-
-    # 2. Set up stimulus (instrument methods don't return data)
-    psu.set_voltage(vin)
-    psu.enable_output()
-
-    # 3. Measure + verify — resolves the limit, raises LimitFailure on FAIL
-    verify("output_voltage", dmm.measure_dc_voltage())
-```
-
-### Wrong
-
-```python
-# WRONG: hardcoded stimulus — use context.get_param so the matrix sweeps
-def test_output(psu, dmm, verify):
-    psu.set_voltage(12.0)
-    verify("output_voltage", dmm.measure_dc_voltage())
-
-# WRONG: bare assert instead of verify — no limit resolution, no parquet row,
-# no traceability
-def test_output(dmm):
-    value = dmm.measure_dc_voltage()
-    assert value == 3.3
-
-# WRONG: standalone calculation — no instrument connection, no measurement
-class Converter:
-    def calculate_vout(self, vin):
-        return vin * (1000 / (1000 + 2000))
-
-def test_output():
-    assert Converter().calculate_vout(12.0) == 4.0
-```
-
-## Checklist before generating tests
-
-- [ ] Part spec exists with characteristics whose `bands:` cover every operating point you want to sweep.
-- [ ] Each band has `when:`, `value`, and `accuracy:` populated.
-- [ ] Station configured with real or mock instruments. `mock_config:` keys are method names, not signal names.
-- [ ] Pulled the current test template: `litmus_project(action="read", path="template:test")`.
-- [ ] Test functions are plain `def test_*(...)` taking `context`, `verify`, `measure`, and the per-role instrument fixtures as needed.
-- [ ] Test reads vector parameters via `context.get_param("key", default)` — no hardcoded stimulus values.
-- [ ] Test records measurements via `verify(name, value)` (raises on FAIL) or `measure(name, value)` (records without judgment).
-- [ ] Sidecar limits use `characteristic:` to delegate to the part spec (not `spec_ref:`, which is annotation-only).
-- [ ] `tolerance_pct` applied where the spec tolerance needs widening for production margin.
-- [ ] Sidecar YAML written to disk as a real `.yaml` file alongside `test_<module>.py` — not via `litmus_project(action="save", type="test")` (which forces `.py`).
+Then hand the agent the datasheet. See [Datasheet → tests](../catalog/datasheet-to-test.md) for the full walkthrough.
 
 ## See also
 
