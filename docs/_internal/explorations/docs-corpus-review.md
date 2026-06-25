@@ -164,6 +164,13 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/overview/operator-ui-tour — 3 CRIT accuracy: Metrics tab Cpk→Ppk; dropped the wrong+brittle counts
+  ("16 entries/15 screens" → actually 17/16); ADDED the missing Files `/files` screen to DATA STORES. Plus
+  Inventory chip is 3 states (Configured/In use/Observed, not 2); Events "Session" is URL-only (removed from
+  the visible-filter list); System Designer flagged experimental. Audience: "per-step instrument arrays"/
+  "at runtime/by design" internals→operator-friendly; added the click-path sentence. NOTE: LEFT
+  `/launch?station=<id>` — accuracy confirms the route uses the station id (s.id), NOT hostname, so I
+  OVERRODE the audience agent's hostname suggestion (it's a click-populated route param). ✅
 - how-to/catalog/datasheet-to-test — CRIT accuracy: sidecar `vectors:`→`sweeps:` (SidecarConfig extra=forbid
   rejects `vectors:` — the example would FAIL to load); `parts/<part_number>.yaml`→`parts/<id>.yaml` (filename
   from Part.id, not part_number); removed `/catalog-scaffold` (NOT an installed command — only

@@ -1,13 +1,13 @@
 # Tour of the Operator UI
 
-A map of the 16 sidebar entries behind `litmus serve`, grouped by
-the same section bands the sidebar uses (15 functional screens
-plus the in-app docs viewer). Use this as a "what does each
+A map of the sidebar entries behind `litmus serve`, grouped by
+the same section bands the sidebar uses. Use this as a "what does each
 sidebar entry do" lookup; the per-screen [reference pages](../../reference/operator-ui/)
 have the field-by-field detail.
 
 The operator UI starts when you run `litmus serve` from a project
-root — by default it listens on `http://localhost:8000`.
+root — by default it listens on `http://localhost:8000`. Open that
+URL in a browser; everything below is a click in the left sidebar.
 
 ## ACTIVE TESTS (dynamic)
 
@@ -55,7 +55,7 @@ measurements table).
 
 ### Metrics — `/metrics`
 
-Six analytical lenses on the run history (Yield, Pareto, Cpk,
+Six analytical lenses on the run history (Yield, Pareto, Ppk,
 Retest, Time loss, Assets). Filters above the tab strip — same
 filter set as the Results list, applied to whichever lens is
 active. Best entry point for "is the line healthy" questions.
@@ -78,8 +78,8 @@ The raw streams behind the analytical views.
 ### Events — `/events`
 
 The event log browser — every event the framework emitted, in
-chronological order. Filters by Session, Event type, Role, Since
-(time cutoff), and row Limit. Useful for debugging "what actually
+chronological order. Filters by Event type, Role, Since (time
+cutoff), and row Limit; a specific session can be pinned via the URL. Useful for debugging "what actually
 happened" when a run looks wrong.
 
 → [Events reference](../../reference/operator-ui/events.md)
@@ -94,13 +94,22 @@ run" view.
 → [Channels list](../../reference/operator-ui/channels/list.md) ·
 [Channels detail](../../reference/operator-ui/channels/detail.md)
 
+### Files — `/files`
+
+The file store. One row per captured artifact — scope screenshots,
+vendor capture files, and byte streams written via `observe(...)` or
+`files.stream`. Open a row to view or download the file. The "show me
+the photo or capture this run saved" view.
+
+→ [Files reference](../../reference/operator-ui/files.md)
+
 ## CONFIGURATION
 
 The entities Litmus tests against — stations, parts, fixtures,
 instruments, tests, plus the visual designer that wires them
 together.
 
-### System Designer — `/designer`
+### System Designer — `/designer` (experimental)
 
 The interactive fixture-wiring surface. Pick a part, pick a
 station, click a pin, click a channel — wire saved to disk. The
@@ -149,9 +158,9 @@ detail view's Diagram tab renders the connection map as Mermaid.
 Two tabs: **Catalog** (instrument types — the templates that
 describe capabilities) and **Inventory** (physical assets — the
 actual units on the bench with serial numbers and calibration
-dates). The Inventory tab carries the `Configured` / `Observed`
-chip — an instrument id that appears in the per-step instrument
-arrays without an asset YAML shows up as `Observed`.
+dates). The Inventory tab tags each asset `Configured`, `In use`, or
+`Observed` — an instrument seen in run history but with no asset
+YAML on the bench shows up as `Observed`.
 
 ![Instruments — Catalog tab](../../_assets/operator-ui/tour/instruments.png)
 
@@ -160,8 +169,8 @@ arrays without an asset YAML shows up as `Observed`.
 ### UUTs — `/uuts`
 
 The list of every UUT serial Litmus has seen in run history. UUTs
-are never declared in YAML by design (the unit-under-test is
-identified at runtime), so every row is observation-derived — no
+aren't configured ahead of time — each serial is recorded as it's
+tested — so every row comes from run history; no
 `Configured` / `Observed` chip is needed. Columns: serial, part
 number, lot, runs, passed, failed, last run.
 
