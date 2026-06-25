@@ -164,6 +164,15 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
+- how-to/configuration/custom-drivers — CRIT accuracy: `idPart`/`PART_ID` — the product→part rename WRONGLY
+  hit pyusb's legit USB `idProduct` API (→ TypeError) — restored idVendor/idProduct + PRODUCT_ID. Rest
+  verified (28 claims: Instrument/VisaInstrument bases, Mock(MyDMM)→isinstance True vs platform Mock(object)
+  →False, driver_class(resource) single-arg, pyvisa-sim voltage→MEAS:VOLT?/current→MEAS:CURR?, _sim_responses).
+  Audience: led with "a driver is just a Python class" + 6-line MyDMM, DELETED the ASCII inheritance tree +
+  Architecture-overview; scrubbed ABC/importlib/instantiates/MockClass/mocks.py/_get_sim_value/three-pipelines;
+  added pip install nidaqmx/pyusb; dropped "seven markers" count. docs-writer; re-audit 0/0. ✅
+- how-to/configuration/index — reviewed, clean (value prop + descriptions accurate, links resolve; no
+  changes). **CONFIGURATION how-to sub-cluster (4 pages) DONE.** ✅
 - how-to/configuration/mock-mode — factually PERFECT (27 claims: Mock(object,…) substitution [not driver
   subclass], silent-None-on-typo, mock_config scalar/{nominal,sigma}/callable/dict shapes, enable paths
   CLI>env>litmus.yaml, litmus_mocks cascade file→class→test→profile, test_phase auto-demote, deleted

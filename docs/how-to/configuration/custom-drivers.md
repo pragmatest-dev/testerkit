@@ -2,39 +2,32 @@
 
 Litmus doesn't ship instrument drivers — you bring your own. This page covers writing a driver, registering it so the platform finds it, and the two hardware-free paths Litmus supports.
 
+A Litmus driver is just a Python class. Subclass `VisaInstrument` for SCPI-over-VISA, or `Instrument` for anything else, and add one method per thing your test reads (`measure_voltage()`, `set_voltage()`, …). The method names are whatever your test calls — that's the whole contract.
+
+```python
+from litmus.instruments.visa import VisaInstrument
+
+
+class MyDMM(VisaInstrument):
+    def measure_voltage(self) -> float:
+        return float(self.query("MEAS:VOLT?"))
+
+    def measure_current(self) -> float:
+        return float(self.query("MEAS:CURR?"))
+```
+
 If your instrument speaks SCPI over VISA, [start with `VisaInstrument`](#scpi-instruments-via-visa). For serial, DAQmx, USB, or proprietary protocols, [extend `Instrument` directly](#non-visa-instruments).
 
-## Architecture overview
+**Which base class?**
 
-The instrument package (`litmus.instruments.*`) gives you two base classes and one mock factory:
+| Import | Use it for |
+|---|---|
+| `from litmus.instruments.visa import VisaInstrument` | SCPI / IEEE 488.2 instruments — wraps PyVISA, adds `query()` / `write()` / `*IDN?` parsing, generates a `pyvisa-sim` config when `simulate=True` |
+| `from litmus.instruments.base import Instrument` | Any protocol you handle yourself — serial, DAQmx, USB, HID, proprietary RPC |
 
-| Surface | Import | Use it for |
-|---|---|---|
-| `Instrument` | `from litmus.instruments.base import Instrument` | Any protocol you handle yourself — serial, DAQmx, USB, HID, proprietary RPC |
-| `VisaInstrument` | `from litmus.instruments.visa import VisaInstrument` | SCPI / IEEE 488.2 instruments — wraps PyVISA, adds `query()` / `write()` / `*IDN?` parsing, generates a `pyvisa-sim` config when `simulate=True` |
-| `Mock` | `from litmus import Mock` | Substitute for a driver class in tests. Returns a `class MockClass(cls)` instance so `isinstance(mock, MyDMM)` passes, `connect()`/`disconnect()` are auto-wired no-ops, and only explicitly-configured methods return values. The platform calls this for you from station YAML's `mock_config:`; you import it directly only for bringup-tier conftest fixtures. |
+`Mock` is top-level (`from litmus import Mock`). `Mock(MyDMM, ...)` returns a stand-in that passes `isinstance(x, MyDMM)`, no-ops `connect()`/`disconnect()`, and returns only the values you configure.
 
-`Mock` is re-exported at the top level (`from litmus import Mock`). `Instrument` and `VisaInstrument` live one level deeper because they're driver-author surfaces, not test-author surfaces — `from litmus.instruments import Instrument` does not work; the deep `.base` / `.visa` paths are intentional.
-
-```
-Instrument (ABC, in base.py)
-   │
-   ├── VisaInstrument (in visa.py) — SCPI + pyvisa-sim
-   │      └── your concrete VISA drivers (MyDMM, MyPSU, ...)
-   └── your direct subclasses (SerialDMM, DaqmxAI, USBPowerSupply, ...)
-
-Mock (mocks.py) — orthogonal to the class hierarchy
-   └── Mock(AnyClass, **method_values) → instance of a subclass of AnyClass
-```
-
-## What an instrument advertises to the platform
-
-A driver class is just Python — it doesn't declare capabilities in code. The capability metadata that the matcher uses ("this is a DMM that measures DC voltage") lives in the [catalog YAML](../../reference/catalog/schema.md), referenced from the station YAML's `instruments:` block. Two pieces wire your driver into the platform:
-
-1. **Station YAML** — `instruments: { dmm: { driver: my_pkg.MyDMM, catalog_ref: my_pkg.my_dmm, resource: ... } }`. The `driver:` path is what Python imports; the dictionary key `dmm:` is the [per-role auto-fixture](../../reference/pytest/fixtures.md#per-role-auto-fixtures) name tests see.
-2. **Catalog YAML** — declares the function / direction / signals the matcher pairs against part characteristics. See [catalog schema](../../reference/catalog/schema.md) and the [catalog cookbook](../../reference/catalog/cookbook.md) for the YAML shape.
-
-The driver's class is what gets called; the catalog is what gets matched. They're independent.
+Capabilities (what the matcher pairs against parts) live in the catalog YAML you point `catalog_ref:` at, not in your driver class — see [catalog schema](../../reference/catalog/schema.md).
 
 ---
 
@@ -95,7 +88,7 @@ The auto-generated pyvisa-sim YAML wires `voltage` and `current` from `sim_confi
 | `current: <float>` | Default value returned by `MEAS:CURR?`; `CURR <value>` updates it |
 | `idn: "Vendor,Model,Serial,Firmware"` | Overrides the `*IDN?` response (default: `Litmus,SimulatedVisa,SN001,1.0`) |
 | `responses: {<scpi-cmd>: <response>}` | Static query-response dialogues for any other SCPI command. The response is returned as a literal string. |
-| `noise: {<name>: <pct>}` | Used by `_get_sim_value(name)` helper to add random noise. Useful if your driver implements `simulate` branches by hand. |
+| `noise: {<name>: <pct>}` | Adds random noise to the simulated `<name>` value. Useful if your driver implements `simulate` branches by hand. |
 
 If your driver uses non-standard SCPI commands (e.g. `MEAS:VOLT:DC?` instead of `MEAS:VOLT?`), add them via `responses`:
 
@@ -175,7 +168,7 @@ class SerialDMM(Instrument):
 
 ### Pattern: NI DAQmx
 
-Guard the import so the driver imports on machines without DAQmx installed:
+Guard the import so the driver imports on machines without DAQmx installed (`pip install nidaqmx`):
 
 ```python
 from typing import Any
@@ -233,6 +226,8 @@ class DaqmxAnalogInput(Instrument):
 
 ### Pattern: proprietary USB / HID
 
+Guard the import so the driver imports on machines without pyusb installed (`pip install pyusb`):
+
 ```python
 import struct
 
@@ -250,11 +245,11 @@ class USBPowerSupply(Instrument):
     """Power supply with a proprietary HID protocol."""
 
     VENDOR_ID = 0x1234
-    PART_ID = 0x5678
+    PRODUCT_ID = 0x5678
 
     def __init__(self, simulate: bool = False, sim_config: dict | None = None):
         super().__init__(
-            resource=f"USB:{self.VENDOR_ID:04x}:{self.PART_ID:04x}",
+            resource=f"USB:{self.VENDOR_ID:04x}:{self.PRODUCT_ID:04x}",
             simulate=simulate,
             sim_config=sim_config,
         )
@@ -268,7 +263,7 @@ class USBPowerSupply(Instrument):
             return
         if not HAS_USB:
             raise RuntimeError("pyusb not installed; pass simulate=True for tests.")
-        self._device = usb.core.find(idVendor=self.VENDOR_ID, idPart=self.PART_ID)
+        self._device = usb.core.find(idVendor=self.VENDOR_ID, idProduct=self.PRODUCT_ID)
         if self._device is None:
             raise RuntimeError("Device not found")
         self._connected = True
@@ -347,7 +342,7 @@ def test_voltage(dmm, verify):
 
 The test calls `dmm.measure_voltage()` whether `dmm` is a real `MyDMM` or the stand-in returning `5.0` from `mock_config:` — pytest never sees the difference. The auto-fixture is registered from the station YAML's `instruments:` keys; see [Litmus fixtures](../../reference/pytest/fixtures.md#per-role-auto-fixtures). One thing to note: `isinstance(dmm, MyDMM)` is `False` under platform mock-mode (the stand-in isn't a subclass of your driver class). If a test path depends on that check, use the bringup-tier `conftest.py` pattern below where `Mock(MyDMM, ...)` does preserve isinstance.
 
-For the full mock-mode surface (sidecar `mocks:` overrides, the three layered pipelines, resolution order) see [mock-mode.md](mock-mode.md).
+For sidecar `mocks:` overrides and resolution order — see [mock-mode.md](mock-mode.md).
 
 ### Driver-internal `simulate=True` — when you write the simulation yourself
 
@@ -355,7 +350,7 @@ For the full mock-mode surface (sidecar `mocks:` overrides, the three layered pi
 
 The exception is `VisaInstrument`, which auto-generates a pyvisa-sim YAML on `connect()`. The generator wires exactly two SCPI properties: `voltage` (queries `MEAS:VOLT?`, setter `VOLT {value}`) and `current` (queries `MEAS:CURR?`, setter `CURR {value}`), plus `*IDN?` and whatever static dialogues you list in `sim_config["responses"]`. That covers a DMM measuring DC voltage / current. Resistance, frequency, scope waveforms, PSU output-enable state, anything else — your driver writes its own `if self.simulate:` branches or its own SCPI dialogue entries.
 
-For non-VISA protocols, there is no framework simulation. `Instrument.__init__` stores `simulate=True`; the rest is your code. The DAQmx and serial examples below show the pattern.
+For non-VISA protocols, there is no framework simulation. `Instrument.__init__` stores `simulate=True`; the rest is your code. The DAQmx and serial examples above show the pattern.
 
 Use `simulate=True` when you've put real work into the driver's own simulation logic — a pyvisa-sim setup that holds state, a state machine for a sequencer, a closed-loop model for a PSU — and the test needs to exercise that logic. Otherwise use platform mock-mode (`mock_config:`); it doesn't require any simulation code in the driver at all.
 
@@ -365,7 +360,7 @@ Use `simulate=True` when you've put real work into the driver's own simulation l
 
 ### Station YAML (production path)
 
-The canonical way: name the driver via dotted import path in your station YAML. The platform imports it via `importlib`, instantiates with `driver_class(resource)`, and registers a fixture under the dictionary key:
+Point `driver:` at your driver class's dotted path. Litmus loads that class, constructs it with the `resource:` you give, and exposes it to tests as a fixture named after the YAML key (`dmm:` → `dmm` fixture):
 
 ```yaml
 # stations/my_station.yaml
@@ -375,7 +370,7 @@ name: "My Test Station"
 instruments:
   dmm:                              # ← becomes the `dmm` pytest fixture
     type: dmm
-    driver: my_pkg.drivers.MyDMM    # ← importlib.import_module + getattr
+    driver: my_pkg.drivers.MyDMM    # dotted path to your driver class
     catalog_ref: my_pkg.my_dmm      # ← what the matcher reads
     resource: "TCPIP::192.168.1.100::INSTR"
 ```
@@ -468,13 +463,13 @@ pytest -m hardware                  # only hardware tests
 pytest -m "not hardware"            # only simulation tests (CI default)
 ```
 
-`hardware` is not a Litmus-registered marker; the seven `litmus_*` markers are listed in [Litmus markers](../../reference/pytest/markers.md). You own this marker locally.
+`hardware` is not a Litmus-registered marker; the `litmus_*` markers are listed in [Litmus markers](../../reference/pytest/markers.md). You own this marker locally.
 
 ---
 
 ## Best practices
 
-- **Pass `resource=` to the base.** Non-VISA drivers should pass the connection identifier (port, channel, vendor:part) to `super().__init__(resource=...)` so traceability and the operator UI display something meaningful.
+- **Pass `resource=` to the base.** Non-VISA drivers should pass the connection identifier (port, channel, vendor:product) to `super().__init__(resource=...)` so traceability and the operator UI display something meaningful.
 - **Guard optional dependencies.** Wrap `import nidaqmx` / `import usb.core` / etc. in a `try / except ImportError` block so the driver imports cleanly on hardware-free hosts.
 - **Let the station YAML decide mock vs real.** Don't import any mock class in your driver or test code. `mock: true` + `mock_config:` in the station block is the canonical path; the platform substitutes a stand-in that returns your listed method values. Reach for driver-internal `simulate=True` only when you've written non-trivial simulation logic that the test should exercise.
 - **Capabilities live in the catalog, not in code.** Your driver class is just code — Litmus learns "this is a DMM that measures DC voltage" from the catalog YAML you point `catalog_ref:` at. Don't try to declare capabilities via Python mixins or class attributes.
