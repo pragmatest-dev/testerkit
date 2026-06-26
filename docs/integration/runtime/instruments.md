@@ -226,7 +226,7 @@ if __name__ == "__main__":
 
 Every measurement records the instrument that took it (name, serial, model, firmware, resource),
 joined from the instrument asset YAML. For the per-step column layout, see
-[query API reference](../../reference/query-api.md).
+[query API reference](../../reference/data/query-api.md).
 
 ### Instrument Asset Files
 

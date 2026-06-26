@@ -99,8 +99,8 @@ SCPI / simulation editing happens via the four-tab edit surface.
   the bundled generic catalog (`litmus.catalog.generic`)
 - Inventory assets come from `instruments/*.yaml`
 
-For the YAML schemas, see [Catalog schema](../catalog-schema.md) for
-catalog types and [Models → `InstrumentAssetFile`](../models.md#model-instrumentassetfile)
+For the YAML schemas, see [Catalog schema](../catalog/schema.md) for
+catalog types and [Models → `InstrumentAssetFile`](../data/models.md#model-instrumentassetfile)
 for asset files.
 
 ## Common tasks
@@ -115,7 +115,7 @@ for asset files.
 
 ## See also
 
-- [Configuration reference → Catalog](../catalog-schema.md)
+- [Configuration reference → Catalog](../catalog/schema.md)
 - [Concepts → Capabilities](../../concepts/configuration/capabilities.md) — how
   catalog capabilities feed station ↔ part matching
 - [`litmus station init`](../cli.md#cli-station-init) — discover

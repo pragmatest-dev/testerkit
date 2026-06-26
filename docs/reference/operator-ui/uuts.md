@@ -67,7 +67,7 @@ For the query surface the UI reads through, see
 
 - [Parquet schema](../data/parquet-schema.md) — the `uut_serial`,
   `uut_part_number`, and `uut_lot_number` run columns
-- [Results](results/index.md) — per-run view; filter by serial to see
+- [Results](results/list.md) — per-run view; filter by serial to see
   the full history of one UUT
 - [Launch Test](launch.md) — where the operator supplies the serial
   number that populates this page

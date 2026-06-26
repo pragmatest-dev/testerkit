@@ -163,6 +163,30 @@ before any accuracy audit that diffs against it.
 
 ## Per-page progress log
 
+### Piece 8 — final corpus-wide consistency pass (static; live-Playwright pass deferred — see note)
+The planned rendered-site docs-reader (Playwright) pass is NOT feasible unattended: there's no local mkdocs (no mkdocs.yml;
+the litmus docs render via the SEPARATE pragmatest Next.js site, synced from docs/), so a live pass would mean standing up +
+syncing the marketing site's dev server, and Playwright screenshots need human eyes anyway (HTTP-200≠correctness). Did the
+high-value, low-risk substance instead — a corpus-wide STATIC verification across all 148 md files:
+- **Link graph:** found 22 broken relative links; fixed all 19 user-facing ones. 4 had slipped into reviewed pages
+  (reference/data/models see-also configuration.md→../configuration.md + catalog-schema.md→catalog/schema.md;
+  reference/data/query-api + reference/runtime/api see-also cli.md→../cli.md (+#cli-serve); integration/runtime/instruments
+  →reference/data/query-api.md). 15 were in the DEFERRED operator-UI pages (wrong ../ depth to data/models.md / data/query-api.md
+  / data/event-types.md / catalog/schema.md; `results/index.md`→`results/list.md`). Verified all 4 referenced model anchors exist.
+  Re-scan: **0 user-facing broken relative links.** (Left the 1 internal-diary `three-stores.md` ref — it's a rename note.)
+- **Stale-fact sweep (whole corpus):** "twelve MCP"=0, "uv pip install litmus"=0, "is a pytest plugin"=0. Fixed the last 3
+  stale "Three stores" link-TEXTS (operator-UI channels detail/list — link already pointed at data-stores.md). Now 0 residual.
+- Generated-docs drift re-checked = 0.
+NOTE: the operator-UI pages got only mechanical link/nomenclature fixes here — their full 2-lens CONTENT audit is still DEFERRED
+(per the 06-24 method revision). The live rendered-UX docs-reader pass is best run interactively with the pragmatest dev server
+up so the user can eyeball screenshots.
+
+**PIECE 8 COMPLETE (static scope). CORPUS REVIEW Pieces 1-8 done** — full corpus (tutorial/concepts/how-to/integration/
+reference hand-written+generated) + external surfaces reviewed; link graph clean; cross-cutting facts consistent.
+Still open for the user: (a) operator-UI content audit (deferred); (b) live Playwright rendered-UX pass (needs dev server +
+human review); (c) the tracked source nits (parquet.py:224-225, connections.py:411, store.py:946-955, LitmusClient ./results
+default); (d) litmus.channels declare/write_many doc home; (e) merge the 2 external topic branches (litmus-starter, pragmatest).
+
 ### Piece 7 — external surfaces (separate repos; changes pushed as TOPIC BRANCHES, NOT to main — user merges)
 - litmus-starter (repo `/home/ryanf/repos/litmus-starter`, branch `docs/corpus-review-fixes`, pushed): README.md +
   .devcontainer/welcome.txt reviewed clean (pip-forward, real commands, `litmus data prune` real, `litmus init --starter`

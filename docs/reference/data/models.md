@@ -2201,8 +2201,8 @@ See [concepts/capabilities](../../concepts/configuration/capabilities.md) for th
 ## See also
 
 - [Event types](event-types.md) — every `EventBase` subclass
-- [Configuration](configuration.md) — YAML schema reference (uses these same models)
+- [Configuration](../configuration.md) — YAML schema reference (uses these same models)
 - [Parquet schema](parquet-schema.md) — the materialized row shape
-- [Catalog schema](../catalog/catalog-schema.md) — `InstrumentCatalogEntry` in depth
+- [Catalog schema](../catalog/schema.md) — `InstrumentCatalogEntry` in depth
 - [Capabilities (concept)](../../concepts/configuration/capabilities.md) — `InstrumentCapability` / `PartCharacteristic` design
 - [Context architecture (how-to)](../../how-to/execution/test-context.md) — the runtime `Context` class (not a `BaseModel`)

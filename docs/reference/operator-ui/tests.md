@@ -172,5 +172,5 @@ and matching keys against function and class names.
 - [Profiles](profiles.md) — how profiles override sidecar config at session
   start (the cascade note on the detail page)
 - [Launch Test](launch.md) — start a run targeting one of these test files
-- [Results](results/index.md) — per-run view; the step-level detail that feeds
+- [Results](results/list.md) — per-run view; the step-level detail that feeds
   the Runs / Passed / Failed counts on this page

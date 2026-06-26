@@ -156,5 +156,5 @@ Defaults are stripped from the URL to keep it short.
   — per-run measurement view
 - [Metrics → Ppk](metrics.md#ppk) — process performance ranking
   across the same data
-- [Query API reference](../query-api.md) — the `MeasurementsQuery`
+- [Query API reference](../data/query-api.md) — the `MeasurementsQuery`
   class this page calls

@@ -64,5 +64,5 @@ equivalent today.
 
 - [Channel detail](detail.md) — the per-channel view you reach by
   clicking a row
-- [Concepts → Three stores](../../../concepts/data/data-stores.md) — why
+- [Concepts → Data stores](../../../concepts/data/data-stores.md) — why
   ChannelStore is separate from EventStore and the parquet runs index

@@ -238,4 +238,4 @@ For one-off ad-hoc exploration outside production code, raw DuckDB recipes live 
 - [Parquet schema](parquet-schema.md) — the column shape underneath
 - [API reference](../runtime/api.md) — HTTP endpoints that wrap the Query API
 - [Querying events](../../how-to/data/querying-events.md) — raw DuckDB recipes
-- [CLI reference](cli.md) — `litmus metrics …` subcommands (CLI surface for `MeasurementsQuery`)
+- [CLI reference](../cli.md) — `litmus metrics …` subcommands (CLI surface for `MeasurementsQuery`)

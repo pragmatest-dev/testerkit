@@ -79,10 +79,10 @@ run — the same record you get from:
 
 - `litmus runs` on the command line
 - `litmus runs --json` for machine-readable output
-- `RunsQuery` in the [Python query API](../../query-api.md)
+- `RunsQuery` in the [Python query API](../../data/query-api.md)
 
 For the full schema of one run row, see
-[Models reference → `RunSummary`](../../models.md#model-runsummary).
+[Models reference → `RunSummary`](../../data/models.md#model-runsummary).
 For the underlying event log Litmus materialises run rows from, see
 [Concepts → Event log](../../../concepts/data/event-log.md).
 

@@ -175,12 +175,12 @@ The CLI equivalents:
 - [`litmus export {run_id} -f csv|json|stdf|hdf5|tdms|mdf4|atml`](../../cli.md#cli-export)
   — dump the run in a downstream-tool format
 
-For the Python equivalents, see [`RunsQuery` and friends](../../query-api.md).
+For the Python equivalents, see [`RunsQuery` and friends](../../data/query-api.md).
 
 For the underlying schemas, see
-[Models reference → `RunSummary`](../../models.md#model-runsummary),
-[`TestStep`](../../models.md#model-teststep), and
-[`Measurement`](../../models.md#model-measurement).
+[Models reference → `RunSummary`](../../data/models.md#model-runsummary),
+[`TestStep`](../../data/models.md#model-teststep), and
+[`Measurement`](../../data/models.md#model-measurement).
 
 ## Common tasks
 
