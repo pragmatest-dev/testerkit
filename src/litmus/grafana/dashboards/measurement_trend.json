@@ -20,7 +20,7 @@
           "type": "grafana-postgresql-datasource",
           "uid": "${DS_LITMUS}"
         },
-        "query": "SELECT DISTINCT step_name || ' / ' || measurement_name AS m FROM measurements WHERE value IS NOT NULL ORDER BY m",
+        "query": "SELECT DISTINCT step_name || ' / ' || measurement_name AS m FROM measurement_values WHERE value IS NOT NULL ORDER BY m",
         "current": {}
       }
     ]
@@ -42,19 +42,19 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT measurement_timestamp AS time, value FROM measurements WHERE step_name || ' / ' || measurement_name = '${measurement}' AND value IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
+          "rawSql": "SELECT measurement_timestamp AS time, value FROM measurement_values WHERE step_name || ' / ' || measurement_name = '${measurement}' AND value IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
           "format": "table"
         },
         {
-          "rawSql": "SELECT measurement_timestamp AS time, limit_high AS \"Upper Limit\" FROM measurements WHERE step_name || ' / ' || measurement_name = '${measurement}' AND limit_high IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
+          "rawSql": "SELECT measurement_timestamp AS time, limit_high AS \"Upper Limit\" FROM measurement_values WHERE step_name || ' / ' || measurement_name = '${measurement}' AND limit_high IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
           "format": "table"
         },
         {
-          "rawSql": "SELECT measurement_timestamp AS time, limit_low AS \"Lower Limit\" FROM measurements WHERE step_name || ' / ' || measurement_name = '${measurement}' AND limit_low IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
+          "rawSql": "SELECT measurement_timestamp AS time, limit_low AS \"Lower Limit\" FROM measurement_values WHERE step_name || ' / ' || measurement_name = '${measurement}' AND limit_low IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
           "format": "table"
         },
         {
-          "rawSql": "SELECT measurement_timestamp AS time, nominal AS \"Nominal\" FROM measurements WHERE step_name || ' / ' || measurement_name = '${measurement}' AND nominal IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
+          "rawSql": "SELECT measurement_timestamp AS time, nominal AS \"Nominal\" FROM measurement_values WHERE step_name || ' / ' || measurement_name = '${measurement}' AND nominal IS NOT NULL AND measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' ORDER BY time",
           "format": "table"
         }
       ],

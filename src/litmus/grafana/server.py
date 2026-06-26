@@ -55,6 +55,8 @@ def create_connection(data_dir: Path) -> duckdb.DuckDBPyConnection:
     """Create an in-memory DuckDB connection with VIEWs over Litmus data.
 
     - ``measurements`` / ``runs``: VIEWs over Parquet files (lazy, live)
+    - ``measurement_values``: flat one-row-per-measurement VIEW (UNNEST of
+      the nested ``measurements`` list) for measurement-centric dashboards
     - ``events``: registered Arrow table from IPC files (zero-copy)
     - ``channels``: registered Arrow table from IPC files (zero-copy)
     """
@@ -70,8 +72,7 @@ def create_connection(data_dir: Path) -> duckdb.DuckDBPyConnection:
         f"step_started_at AT TIME ZONE 'UTC' AS step_started_at, "
         f"step_ended_at AT TIME ZONE 'UTC' AS step_ended_at, "
         f"vector_started_at AT TIME ZONE 'UTC' AS vector_started_at, "
-        f"vector_ended_at AT TIME ZONE 'UTC' AS vector_ended_at, "
-        f"measurement_timestamp AT TIME ZONE 'UTC' AS measurement_timestamp) "
+        f"vector_ended_at AT TIME ZONE 'UTC' AS vector_ended_at) "
         f"FROM read_parquet('{results_str}/runs/**/*.parquet', "
         f"union_by_name=true)"
     )
@@ -86,6 +87,28 @@ def create_connection(data_dir: Path) -> duckdb.DuckDBPyConnection:
         "first(part_id) AS part_id, first(part_name) AS part_name, "
         "first(test_phase) AS phase, count(*) AS num_measurements "
         "FROM measurements GROUP BY run_id"
+    )
+    # Flat one-row-per-measurement view: UNNEST the nested `measurements`
+    # list (schema 2.0 nests measurements under each vector row). Column
+    # names match what the measurement-centric dashboards query.
+    conn.execute(
+        "CREATE OR REPLACE VIEW measurement_values AS "
+        "SELECT v.* EXCLUDE (measurements, inputs, outputs), "
+        "m.name AS measurement_name, "
+        "m.value AS value, "
+        "m.unit AS units, "
+        "m.outcome AS outcome, "
+        "m.timestamp AT TIME ZONE 'UTC' AS measurement_timestamp, "
+        "m.limit_low AS limit_low, "
+        "m.limit_high AS limit_high, "
+        "m.limit_nominal AS nominal, "
+        "m.limit_comparator AS limit_comparator, "
+        "m.characteristic_id AS characteristic_id, "
+        "m.spec_ref AS spec_ref, "
+        "m.uut_pin AS uut_pin, "
+        "m.instrument_name AS instrument_name "
+        "FROM measurements AS v, UNNEST(v.measurements) AS t(m) "
+        "WHERE v.record_type = 'vector'"
     )
 
     # Arrow IPC data — load into DuckDB tables via PyArrow.

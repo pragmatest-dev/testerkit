@@ -57,7 +57,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT step_name, round(avg(epoch(step_ended_at - step_started_at)), 2) AS avg_step_s FROM measurements WHERE measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' AND step_ended_at IS NOT NULL AND step_started_at IS NOT NULL GROUP BY step_name ORDER BY avg_step_s DESC LIMIT 20",
+          "rawSql": "SELECT step_name, round(avg(epoch(step_ended_at - step_started_at)), 2) AS avg_step_s FROM measurement_values WHERE measurement_timestamp BETWEEN '${__from:date}' AND '${__to:date}' AND step_ended_at IS NOT NULL AND step_started_at IS NOT NULL GROUP BY step_name ORDER BY avg_step_s DESC LIMIT 20",
           "format": "table"
         }
       ],

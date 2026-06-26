@@ -254,10 +254,16 @@ datasheet-to-test write invalid `vectors:`/`{ref:}` YAML; (3) instrument.read st
   is in the view defs). Audience: `pip install 'litmus-test[grafana]'` (quoted; pip is the USER workflow —
   did NOT follow the audience agent's switch-to-uv suggestion, which contradicts policy); `<data_dir>`
   auto-resolves note. DEFERRED: did not add a from-scratch "build one panel" SQL section — can't verify the
-  SQL runs against the live pgwire views. ⚠️ FLAG (CODE, not docs — surface to user): the 10 shipped Grafana
-  dashboards query flat `value`/`measurement_name`/`outcome` columns that DON'T exist on the nested
-  `measurements` view; they must UNNEST in-panel — needs an end-to-end run to confirm they aren't broken
-  (audit-accuracy aa779cdc, grafana/server.py:65-77 vs dashboards/*.json). ✅
+  SQL runs against the live pgwire views. ✅
+  ⚠️→✅ SOURCE BUG (now FIXED, 2026-06-25): the Grafana measurement dashboards queried flat
+  `value`/`measurement_name`/`outcome` columns absent from the nested `measurements` view. A regression test
+  (tests/test_grafana_server.py) revealed the bug was WORSE than analysis predicted: the `measurements` view
+  itself raised `BinderException` on real data — its REPLACE clause referenced `measurement_timestamp`, a
+  column removed in schema 2.0 (it's nested), so `create_connection` threw before any dashboard could load.
+  FIX: removed the dead `measurement_timestamp` REPLACE; added a flat `measurement_values` view (UNNEST of
+  the nested list, time = the measurement's own `m.timestamp` which defaults to record-time _utcnow);
+  repointed the 5 measurement dashboards (13 `FROM measurements`→`FROM measurement_values`, leaving template
+  vars + `FROM runs`). Verified by the new regression test (writes a nested vector row, asserts the unnest).
 - how-to/data/find-flaky-tests — tone correctly frames flakiness as investigate-the-hardware (no
   mark-and-skip). 3 accuracy WARNs fixed: `m.outcome`→aliased `measurement_outcome` (prose referenced a
   column the query didn't expose); dropped the "same `vector_index` per retry" invariant (Mode-2/vectors-

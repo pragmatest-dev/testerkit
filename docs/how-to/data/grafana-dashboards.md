@@ -108,7 +108,8 @@ The data server auto-refreshes Arrow IPC tables every 30 seconds (configurable w
 
 | Table | Source | Description |
 |-------|--------|-------------|
-| `measurements` | Parquet | Raw run rows; each row's measurements are nested — `UNNEST(measurements)` in a panel query for one row per measurement |
+| `measurements` | Parquet | Raw run/step/vector rows; each vector row's measurements are nested in a `measurements` list |
+| `measurement_values` | Parquet (VIEW) | One row per measurement — the flat view the measurement panels query (`measurement_name`, `value`, `outcome`, `units`, `nominal`, `limit_low`/`limit_high`, `measurement_timestamp`) |
 | `runs` | Parquet (VIEW) | One row per run — aggregated from measurements |
 | `events` | Arrow IPC | All event bus events with JSON payload |
 | `channels` | Arrow IPC | Instrument channel time-series data |
