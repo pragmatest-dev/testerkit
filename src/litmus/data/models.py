@@ -540,7 +540,7 @@ class Waveform(BaseModel):
 
 
 class XYData(BaseModel):
-    """Paired x/y arrays for related-but-non-time-series data (item 15).
+    """Paired x/y arrays for related-but-non-time-series data.
 
     For data the test author thinks of as one artifact rather than two
     parallel channels: IV curves, eye diagrams, S-parameter sweeps,

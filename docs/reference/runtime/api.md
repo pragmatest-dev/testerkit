@@ -60,7 +60,7 @@ litmus mcp serve             # Manual stdio server (auto-launched by the setup c
 
 ### Tools
 
-Twelve tools, all prefixed `litmus_`. Each tool's parameter shape and full docstring is also available via the MCP `tools/list` protocol method; the table below summarizes.
+All tools are prefixed `litmus_`. Each tool's parameter shape and full docstring is also available via the MCP `tools/list` protocol method; the table below summarizes.
 
 <!-- GENERATED:api-mcp-tools:start -->
 | Tool | Parameters | Summary |

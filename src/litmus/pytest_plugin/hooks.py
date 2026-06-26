@@ -1075,7 +1075,8 @@ def pytest_addoption(parser):
         "--test-phase",
         default=None,
         help="Test phase (development, validation, characterization, production). "
-        "If not specified, auto-detects from git status.",
+        "Defaults to development; a non-development phase is demoted to development "
+        "on a dirty git tree or under --mock-instruments.",
     )
     group.addoption(
         "--strict-traceability",

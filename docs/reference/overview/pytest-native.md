@@ -4,7 +4,7 @@ Litmus is a hardware test **platform**; pytest is its primary test-runner integr
 
 ## Collection
 
-The bundled pytest plugin uses pytest's default collection. No custom collectors, no replacement of `pytest_collect_file`.
+The bundled pytest plugin uses pytest's default collection — no custom file collectors.
 
 | Convention | Default |
 |---|---|
@@ -18,7 +18,7 @@ What Litmus adds at collection time:
 - A `pytest_collection_modifyitems` hook merges per-test sidecar YAML (`tests/test_<module>.yaml`) into each item's marker set. This expands `litmus_sweeps` into one pytest case per row exactly as if you had written `@pytest.mark.parametrize` — pytest still owns the case multiplication.
 - Profiles (`--test-profile=<name>`) add `pytest.mark.skip` to items they exclude. The selection is visible in `pytest --collect-only -q`.
 
-The sidecar is recursive: top-level keys apply to every test in the file; `tests: { ClassName: { ... } }` scopes per class; `tests: { ClassName: { tests: { test_method: { ... } } } }` scopes per method. See [Sidecar configuration](configuration.md#sidecar-yaml).
+The sidecar is recursive: top-level keys apply to every test in the file; `tests: { ClassName: { ... } }` scopes per class; `tests: { ClassName: { tests: { test_method: { ... } } } }` scopes per method. See [Sidecar configuration](../configuration.md#sidecar-yaml).
 
 ## Fixtures
 
@@ -46,7 +46,7 @@ pytest's marker mechanism is unchanged. All of these work on Litmus tests as doc
 | `@pytest.mark.filterwarnings` | Per-test warning filters. |
 | Custom markers via `pytest.ini` / `pyproject.toml` | Register and filter with `-m`. |
 
-The seven `@pytest.mark.litmus_*` markers Litmus adds live in the same registry and stack with native ones (with one constraint — see the [no-stacking rule](../pytest/markers.md#no-stacking-rule) for Litmus markers). See [Litmus markers](../pytest/markers.md) for full details.
+The seven `@pytest.mark.litmus_*` markers Litmus adds are registered the same way as native markers and stack with them (with one constraint — see the [no-stacking rule](../pytest/markers.md#no-stacking-rule) for Litmus markers). See [Litmus markers](../pytest/markers.md) for full details.
 
 `@pytest.mark.parametrize` and `@pytest.mark.litmus_sweeps` interoperate: both feed the same `context.get_param(name)` API and the same parquet `in_*` columns at runtime.
 
@@ -77,7 +77,10 @@ All pytest flags work. The ones that matter most for hardware test work:
 | `-p no:plugin` | Disable a specific plugin. |
 | `--co` | Alias for `--collect-only`. |
 
-Litmus adds the flags below. The table is generated from `pytest_addoption` in `src/litmus/pytest_plugin/hooks.py`; regenerate with `uv run python scripts/generate_reference_docs.py pytest-native` after editing the hook.
+Litmus adds the flags below.
+
+<!-- Generated from pytest_addoption; regenerate with
+     `uv run python scripts/generate_reference_docs.py pytest-native` after editing the hook. -->
 
 <!-- GENERATED:pytest-plugin-flags:start -->
 | Flag | Type | Default | Description |
@@ -96,12 +99,12 @@ Litmus adds the flags below. The table is generated from `pytest_addoption` in `
 | `--mock-instruments` | `flag` | `False` | Use mock instruments instead of real hardware. Resolution: this flag > LITMUS_MOCK_INSTRUMENTS env var > litmus.yaml `mock_instruments:` > false. |
 | `--no-mock-instruments` | `flag` (inverse) | `True` | Use real hardware (overrides LITMUS_MOCK_INSTRUMENTS env and litmus.yaml `mock_instruments: true`). |
 | `--fixture` | `text` |  | Fixture ID or YAML path. Bare id looks up ``fixtures/<id>.yaml``; a value with ``/`` or ``.yaml``/``.yml`` is used as an explicit path. When unset, the resolver tries the active profile's ``fixture:`` field, then ``ProjectConfig.default_fixture``, then the single-file fallback in ``fixtures/``. |
-| `--test-phase` | `text` |  | Test phase (development, validation, characterization, production). If not specified, auto-detects from git status. |
+| `--test-phase` | `text` |  | Test phase (development, validation, characterization, production). Defaults to development; a non-development phase is demoted to development on a dirty git tree or under --mock-instruments. |
 | `--strict-traceability` | `flag` | `False` | Fail tests whose measurements lack required traceability fields (run_id, step_name, and spec_ref/uut_pin when a spec is active). |
 | `--test-profile` | `text` | *resolved at runtime* | Named profile from litmus.yaml `profiles:` (overrides vectors, limits, markers, and filter for the session). |
 | `--no-test-profile` | `flag` | `False` | Skip profile resolution. Use when profiles are declared but you want to run with bare project defaults (ad-hoc runs). |
 
-Plus dynamic flags generated from `litmus.yaml`: every `profiles[*].facets:` key becomes `--<facet-key>` and every `required_inputs:` key becomes `--<required-input-key>`. See [how-to/profiles.md](../how-to/profiles.md) for the resolution chain (CLI flag → env var → profile binding → `default_*`).
+Plus dynamic flags generated from `litmus.yaml`: every `profiles[*].facets:` key becomes `--<facet-key>` and every `required_inputs:` key becomes `--<required-input-key>`. See [how-to/profiles.md](../../how-to/execution/profiles.md) for the resolution chain (CLI flag → env var → profile binding → `default_*`).
 <!-- GENERATED:pytest-plugin-flags:end -->
 
 ## Plugins that interact with Litmus
@@ -126,8 +129,8 @@ A test that runs on a bringup tier with no station YAML and a test that runs on 
 
 - [Litmus fixtures](../pytest/fixtures.md) — all the fixtures the plugin contributes
 - [Litmus markers](../pytest/markers.md) — the seven `litmus_*` markers and their sidecar equivalents
-- [Sidecar configuration](configuration.md#sidecar-yaml) — sidecar YAML merge semantics
-- [CLI reference](cli.md) — full flag list, including the non-pytest commands (`litmus serve`, `litmus runs`, etc.)
+- [Sidecar configuration](../configuration.md#sidecar-yaml) — sidecar YAML merge semantics
+- [CLI reference](../cli.md) — full flag list, including the non-pytest commands (`litmus serve`, `litmus runs`, etc.)
 - [pytest documentation](https://docs.pytest.org/en/stable/) — canonical reference for everything in the "pytest-native" half of this page
 
 

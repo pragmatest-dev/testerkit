@@ -163,6 +163,50 @@ before any accuracy audit that diffs against it.
 
 ## Per-page progress log
 
+### Piece 6 — reference generated (7 pages, verify-only: regenerate, fix source + regen if wrong, fold coverage gaps)
+Drift check `generate_reference_docs.py --all --check` = exit 0 (generated tables in sync with source). These 7 pages also
+carry LARGE hand-written regions outside the markers that Piece 5 never covered (configuration.md ~385 hand-written lines,
+models.md ~447-line ERD/example tail, cli/pytest-native intros + tails) — audited those.
+- Coverage gaps re-verified (scan was 06-23): gap3 (litmus.queries FieldRef/ColumnSchema/FieldRole) CLOSED — now defined in
+  models.md (L1526/1555/1741). gap5 (XYData) PRESENT — fixed its source docstring "(item 15)" internal-roadmap leak +
+  regenerated models.md. gap4 (env vars) DONE — added LITMUS_FILES_BACKEND + LITMUS_CHANNELS_SYNC_PUSH to cli.md (the table is
+  curated to user-facing knobs; the other 12 missing LITMUS_* are internal orchestrator-injection/debug vars, correctly excluded).
+- reference/data/models — accuracy: XYData "(item 15)" docstring leak fixed at source + regen (only that line changed). ERD
+  `units`→`unit` (SpecBand field is `unit`, capability.py:203). ERD/capability-matching tail otherwise sound. ✅
+- reference/runtime/api — "Twelve tools"→dropped the count (MCP=13; generated table lists them). Tail (response format/auth/
+  see-also) accurate. Regenerate note (src paths) is the project's intentional maintainer convention near the markers — left. ✅
+- reference/data/query-api — hand-written prose accurate (RunsQuery/StepsQuery/MeasurementsQuery, FilterSet/FacetSpec, data_dir
+  resolution, daemon lifecycle). "daemon" KEPT here — this audience manages the client lifecycle (open/close, ref-count), unlike
+  the parquet-schema SQL reader. Clean. ✅
+- reference/data/event-types — intro accurate; "EventBase" names the base-fields model (structural, not a constructed internal). Clean. ✅
+- reference/configuration — (effectively a full hand-written schema reference; only the L9-19 index is generated). Accuracy:
+  schema content ALL correct (every field/default/required verified), but SIX broken-link targets — all flat filenames that don't
+  resolve from reference/ (files live a dir deeper): models.md→data/models.md, catalog-schema.md→catalog/schema.md (stem too!),
+  catalog-cookbook.md→catalog/cookbook.md, pytest-native.md→overview/pytest-native.md, markers.md→pytest/markers.md,
+  api.md→runtime/api.md. Fixed the index-block links in the GENERATOR (data/models.md + catalog/schema.md) + regen; replace_all
+  for the hand-written ones. Audience: dropped `_INSTRUMENT_TYPE_ALIASES`/`litmus.store`, `validate_station_against_type(...)`
+  signature, `patch.object` (×2), the sidecar-loader "because it lives in litmus.execution.sidecar" rationale. ✅
+- reference/cli — accuracy CRIT: "Auto-detect — `production` if git clean" is WRONG; `resolve_test_phase(None)` returns
+  `development` (no auto-promotion), and `--mock-instruments` ALSO demotes to development (missing). Rewrote the resolution order
+  (--test-phase / LITMUS_TEST_PHASE / default development) + the git/mock enforcement table + row. Profile YAML does NOT feed the
+  stamp (hooks.py:404 = --test-phase or env only) — removed from the stamp resolution. Broken see-also `api.md`→`runtime/api.md`.
+  Audience: intro dropped Click/`cli:main`/pyproject entry-point internals + `uv pip`→`pip`; regen note→HTML comment; env rows
+  scrubbed `ResolvedSlot` + `ParquetBackend`/gRPC. ✅
+- reference/overview/pytest-native — accuracy CRIT: broken links (page is in overview/) configuration.md→../configuration.md (×2),
+  cli.md→../cli.md. SOURCE fixes (generated block): the `--test-phase` flag help "auto-detects from git status" (same bug)→
+  "defaults to development; demoted on dirty tree or --mock-instruments" (hooks.py); the dynamic-flags `profiles.md` link
+  →`../../how-to/execution/profiles.md` (generator) — both regenerated. Audience: regen note→HTML comment; "live in the same
+  registry"→"registered the same way as native markers"; soften `pytest_collect_file`. Platform framing already correct. ✅
+
+**PIECE 6 COMPLETE — 7 generated pages verified (drift=0) + their hand-written regions reviewed.** Source fixes (committed,
+not just docs): XYData docstring "(item 15)"; `--test-phase` flag help (hooks.py); generator config-index links + pytest-native
+profiles link. Real doc bugs: cli test-phase production→development CRITICAL; 9 broken-link targets across configuration +
+pytest-native + cli; MCP-count on api.md; XYData/ERD field leaks.
+- ⚠️ OPEN GAP for USER (gaps 1-2, NOT auto-fixed — needs a structural decision): `litmus.channels` `declare` + `write_many` are
+  public (`channels.__all__`) but have ZERO user-doc references and no generated home (they're module functions, not models/
+  queries/CLI). The how-to pages cover stream/write/query/latest/window only. Decision needed: add a `reference/data/channels.md`
+  page for the full litmus.channels API, or fold declare/write_many into stream-live-channel.md. Did not auto-create a page.
+
 ### Piece 5 — reference (hand-written; excludes the 7 generated [Piece 6] + the operator-UI pages [deferred per 06-24 method revision])
 Working set = 15 pages in 4 sub-clusters: root+overview (2), pytest (3), runtime (3), catalog (3), data (4).
 `overview/skills.md` already done in Piece 1. Coverage gaps 1–5 land mostly in GENERATED pages

@@ -512,7 +512,7 @@ _CONFIG_FILES: list[tuple[str, str, str]] = [
         "`catalog/<vendor>/<model>.yaml`",
         "litmus.models.catalog.InstrumentCatalogEntry",
         "Instrument capability catalog"
-        " — see [catalog-schema.md](catalog-schema.md) for the full reference.",
+        " — see [the catalog schema](catalog/schema.md) for the full reference.",
     ),
 ]
 
@@ -526,7 +526,7 @@ def _generate_configuration(*, check: bool) -> bool:
     ]
     for pattern, dotted, purpose in _CONFIG_FILES:
         cls_name = dotted.rsplit(".", 1)[1]
-        model_anchor = f"models.md#model-{cls_name.lower()}"
+        model_anchor = f"data/models.md#model-{cls_name.lower()}"
         rows.append(f"| {pattern} | [`{cls_name}`]({model_anchor}) | {purpose} |")
 
     body = "\n".join(rows)
@@ -900,7 +900,7 @@ def _generate_pytest_native(*, check: bool) -> bool:
         "Plus dynamic flags generated from `litmus.yaml`:"
         " every `profiles[*].facets:` key becomes `--<facet-key>` and"
         " every `required_inputs:` key becomes `--<required-input-key>`."
-        " See [how-to/profiles.md](../how-to/profiles.md) for the resolution"
+        " See [how-to/profiles.md](../../how-to/execution/profiles.md) for the resolution"
         " chain (CLI flag → env var → profile binding → `default_*`)."
     )
 

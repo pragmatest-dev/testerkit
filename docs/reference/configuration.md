@@ -1,26 +1,26 @@
 # Configuration reference
 
-Litmus uses YAML files for every config surface, validated by Pydantic models. This page enumerates the files, their canonical locations, and the shape of each. Most models reject unknown fields — typos like `descriptin:` fail the load with a clear error pointing at the offending key. (One exception: per-test `mocks:` entries deliberately allow arbitrary keys so they can pass them through to `unittest.mock.patch.object`.) Filename stems must match the `id:` field for id-keyed entities.
+Litmus uses YAML files for every config surface, validated by Pydantic models. This page enumerates the files, their canonical locations, and the shape of each. Most models reject unknown fields — typos like `descriptin:` fail the load with a clear error pointing at the offending key. (One exception: per-test `mocks:` entries deliberately allow arbitrary keys so they can be forwarded to the underlying mock.) Filename stems must match the `id:` field for id-keyed entities.
 
-For the full field-by-field reference of each model, see [models.md](models.md). For deep-dive references on catalog YAML and profile resolution, see the dedicated pages linked from each section.
+For the full field-by-field reference of each model, see [models.md](data/models.md). For deep-dive references on catalog YAML and profile resolution, see the dedicated pages linked from each section.
 
 ## YAML files at a glance
 
 <!-- GENERATED:configuration-file-index:start -->
 | File | Pydantic model | What it carries |
 |---|---|---|
-| `litmus.yaml` | [`ProjectConfig`](models.md#model-projectconfig) | Project root — names, defaults, profiles, multi-slot knobs. |
-| `stations/<id>.yaml` | [`StationConfig`](models.md#model-stationconfig) | Concrete station deployment — instruments, drivers, resources. |
-| `stations/types/<id>.yaml` | [`StationType`](models.md#model-stationtype) | Abstract station-type template — required roles, capabilities. |
-| `fixtures/<id>.yaml` | [`FixtureConfig`](models.md#model-fixtureconfig) | UUT-pin ↔ instrument-channel routing (single-UUT) or per-slot routing (multi-UUT). |
-| `parts/<id>.yaml` | [`Part`](models.md#model-part) | Part specification — pins, signal groups, characteristics. |
-| `tests/test_<name>.yaml` | [`SidecarConfig`](models.md#model-sidecarconfig) | Sidecar test config co-located with `tests/test_<name>.py` — sweeps, limits, mocks, retry, prompts. |
-| `catalog/<vendor>/<model>.yaml` | [`InstrumentCatalogEntry`](models.md#model-instrumentcatalogentry) | Instrument capability catalog — see [catalog-schema.md](catalog-schema.md) for the full reference. |
+| `litmus.yaml` | [`ProjectConfig`](data/models.md#model-projectconfig) | Project root — names, defaults, profiles, multi-slot knobs. |
+| `stations/<id>.yaml` | [`StationConfig`](data/models.md#model-stationconfig) | Concrete station deployment — instruments, drivers, resources. |
+| `stations/types/<id>.yaml` | [`StationType`](data/models.md#model-stationtype) | Abstract station-type template — required roles, capabilities. |
+| `fixtures/<id>.yaml` | [`FixtureConfig`](data/models.md#model-fixtureconfig) | UUT-pin ↔ instrument-channel routing (single-UUT) or per-slot routing (multi-UUT). |
+| `parts/<id>.yaml` | [`Part`](data/models.md#model-part) | Part specification — pins, signal groups, characteristics. |
+| `tests/test_<name>.yaml` | [`SidecarConfig`](data/models.md#model-sidecarconfig) | Sidecar test config co-located with `tests/test_<name>.py` — sweeps, limits, mocks, retry, prompts. |
+| `catalog/<vendor>/<model>.yaml` | [`InstrumentCatalogEntry`](data/models.md#model-instrumentcatalogentry) | Instrument capability catalog — see [the catalog schema](catalog/schema.md) for the full reference. |
 <!-- GENERATED:configuration-file-index:end -->
 
 ## Project — `litmus.yaml` {#project-litmus-yaml}
 
-The project root. Lives at the repo root; every other YAML resolves relative to it. Validated by [`ProjectConfig`](models.md#model-projectconfig).
+The project root. Lives at the repo root; every other YAML resolves relative to it. Validated by [`ProjectConfig`](data/models.md#model-projectconfig).
 
 ```yaml
 name: my_project                  # required — project name
@@ -54,7 +54,7 @@ multi_slot:                       # optional — multi-UUT orchestrator knobs
 
 ### Profile blocks under `profiles:`
 
-A profile is a [`ProfileConfig`](models.md#model-profileconfig) — same flat shape as a test entry (limits / sweeps / mocks / retry / prompts apply session-wide), plus profile-only metadata. Selected at session start via `--test-profile <name>` or the `default_profile`.
+A profile is a [`ProfileConfig`](data/models.md#model-profileconfig) — same flat shape as a test entry (limits / sweeps / mocks / retry / prompts apply session-wide), plus profile-only metadata. Selected at session start via `--test-profile <name>` or the `default_profile`.
 
 ```yaml
 profiles:
@@ -81,7 +81,7 @@ profiles:
 
 ## Station — `stations/<id>.yaml` {#station-yaml}
 
-Concrete station deployment. Validated by [`StationConfig`](models.md#model-stationconfig). Filename stem must equal `id:`.
+Concrete station deployment. Validated by [`StationConfig`](data/models.md#model-stationconfig). Filename stem must equal `id:`.
 
 ```yaml
 id: bench_1                       # required — matches filename stem
@@ -114,12 +114,12 @@ instruments:                      # dict[role, StationInstrumentConfig]
 
 - `instruments.<role>.channels` is `dict[str, str]`, not a list.
 - `mock_config` keys are driver method names (`measure_dc_voltage`, `set_voltage`), not signal names. See [how-to/mock-mode.md](../how-to/configuration/mock-mode.md).
-- For `type:` values: canonical names live on [`InstrumentType`](models.md#enum-instrumenttype). Short aliases (e.g. `fgen` → `function_generator`) are accepted via `_INSTRUMENT_TYPE_ALIASES` in `litmus.store`. Unknown values trigger a warning, not an error.
+- For `type:` values: canonical names live on [`InstrumentType`](data/models.md#enum-instrumenttype). Short aliases (e.g. `fgen` → `function_generator`) are also accepted. Unknown values trigger a warning, not an error.
 - Validator: real-hardware instruments (`mock: false`) require at least one of `resource:` or `driver:`. Mock-only instruments don't.
 
 ## Station type — `stations/types/<id>.yaml` {#station-type-yaml}
 
-Abstract station-type template. Concrete stations declare compatibility via `station_type:`. Validated by [`StationType`](models.md#model-stationtype).
+Abstract station-type template. Concrete stations declare compatibility via `station_type:`. Validated by [`StationType`](data/models.md#model-stationtype).
 
 ```yaml
 id: thermal_bench
@@ -140,11 +140,11 @@ instruments:                      # dict[role, InstrumentConfig] — required ro
 capabilities: [thermal_soak, dual_dmm_compare]
 ```
 
-`validate_station_against_type(station, station_type)` enforces role coverage at session start. A station declaring `station_type: thermal_bench` must define instruments under every role the type names, with matching `type:` values.
+Role coverage is enforced at session start: a station declaring `station_type: thermal_bench` must define instruments under every role the type names, with matching `type:` values.
 
 ## Fixture — `fixtures/<id>.yaml` {#fixture-yaml}
 
-UUT-pin ↔ instrument-channel routing. Validated by [`FixtureConfig`](models.md#model-fixtureconfig).
+UUT-pin ↔ instrument-channel routing. Validated by [`FixtureConfig`](data/models.md#model-fixtureconfig).
 
 Single-UUT — top-level `connections:`:
 
@@ -214,7 +214,7 @@ See [concepts/fixtures.md](../concepts/configuration/fixtures.md) for the design
 
 ## Part — `parts/<id>.yaml` {#part-yaml}
 
-Part specification. Validated by [`Part`](models.md#model-part). Filename stem must equal `id:`.
+Part specification. Validated by [`Part`](data/models.md#model-part). Filename stem must equal `id:`.
 
 ```yaml
 id: power_board                       # required — matches filename stem
@@ -277,7 +277,7 @@ See [tutorial/06-specifications.md](../tutorial/06-specifications.md) for the wo
 
 ## Sidecar — `tests/test_<name>.yaml` {#sidecar-yaml}
 
-Co-located with each test module. Validated by [`SidecarConfig`](models.md#model-sidecarconfig). Top-level shape is the same as a `TestEntry`, plus a recursive `tests:` tree for per-class / per-method overrides.
+Co-located with each test module. Validated by [`SidecarConfig`](data/models.md#model-sidecarconfig). Top-level shape is the same as a `TestEntry`, plus a recursive `tests:` tree for per-class / per-method overrides.
 
 ```yaml
 # tests/test_power.yaml — sibling to tests/test_power.py
@@ -288,7 +288,7 @@ limits:                               # dict[measurement_name, MeasurementLimitC
 sweeps:                               # list[SweepEntry] — vector cross-products
   - {vin: [4.5, 5.0, 5.5], load: [0.1, 0.5, 1.0]}
 
-mocks:                                # list[MockEntry] — installed via patch.object
+mocks:                                # list[MockEntry] — override a driver method per entry
   - target: psu.set_voltage
     return_value: null
   - target: dmm.measure_dc_voltage
@@ -320,7 +320,7 @@ tests:                                # recursive — keyed by pytest node-id se
           - {load: [0.1, 1.0, 2.0]}
 ```
 
-- `limits:` value shape: see [`MeasurementLimitConfig`](models.md#model-measurementlimitconfig). Supports direct `{low, high, nominal, unit}`, characteristic-driven `{characteristic, tolerance_pct}`, conditional `{bands: [...]}`, callable, lookup tables, and stepped — see [how-to/limits.md](../how-to/execution/limits.md).
+- `limits:` value shape: see [`MeasurementLimitConfig`](data/models.md#model-measurementlimitconfig). Supports direct `{low, high, nominal, unit}`, characteristic-driven `{characteristic, tolerance_pct}`, conditional `{bands: [...]}`, callable, lookup tables, and stepped — see [how-to/limits.md](../how-to/execution/limits.md).
 - `sweeps:` value shape is a list of dicts; each dict maps param name → list of values. Multiple dicts in the list compose as axes (cross-product).
 - `retry:` field names are `max_retries` and `delay`, not `max_attempts` / `delay_seconds`.
 
@@ -337,11 +337,11 @@ Sidecar entries override inline decorators because sidecar-derived markers are a
 
 CLI flags compose with this chain rather than overriding it wholesale. For example `--mock-instruments` overrides `ProjectConfig.mock_instruments`; `-k` / `-m` compose with `runner.keyword` / `runner.markexpr`.
 
-See [pytest-native.md](pytest-native.md) for pytest node IDs and [reference/markers.md](markers.md) for the full marker surface.
+See [pytest-native.md](overview/pytest-native.md) for pytest node IDs and [reference/markers.md](pytest/markers.md) for the full marker surface.
 
 ## Catalog — `catalog/<vendor>/<model>.yaml` {#catalog-yaml}
 
-Instrument capability catalog. Validated by [`InstrumentCatalogEntry`](models.md#model-instrumentcatalogentry). Full reference: [catalog-schema.md](catalog-schema.md); worked recipes: [catalog-cookbook.md](catalog-cookbook.md).
+Instrument capability catalog. Validated by [`InstrumentCatalogEntry`](data/models.md#model-instrumentcatalogentry). Full reference: [catalog-schema.md](catalog/schema.md); worked recipes: [catalog-cookbook.md](catalog/cookbook.md).
 
 In brief — fields sit at the root, *not* under a `catalog_entry:` wrapper:
 
@@ -362,7 +362,7 @@ capabilities:
         accuracy: {pct_reading: 0.0024, pct_range: 0.0005}
 ```
 
-Variant SKUs use a separate file with `base:` pointing at the parent — the loader merges capabilities by `(function, direction)` key and deep-merges signals/conditions/controls/attributes inside matching capabilities. See [catalog-schema.md#variants-option-codes](catalog-schema.md#variants-option-codes).
+Variant SKUs use a separate file with `base:` pointing at the parent — the loader merges capabilities by `(function, direction)` key and deep-merges signals/conditions/controls/attributes inside matching capabilities. See [catalog-schema.md#variants-option-codes](catalog/schema.md#variants-option-codes).
 
 ## Loading a YAML file
 
@@ -379,7 +379,7 @@ project = load_project(Path("litmus.yaml"))
 station = load_station(Path("stations/bench_1.yaml"))
 ```
 
-The sidecar loader is separate — it lives in `litmus.execution.sidecar` because the sidecar is keyed by the **test module file** (`tests/test_power.py`), not the YAML file directly. It derives the matching YAML by swapping `.py` → `.yaml`:
+The sidecar loader is separate, because the sidecar is keyed by the **test module file** (`tests/test_power.py`), not the YAML file directly. It derives the matching YAML by swapping `.py` → `.yaml`:
 
 ```python
 from pathlib import Path
@@ -388,18 +388,18 @@ from litmus.execution.sidecar import load_sidecar
 sidecar = load_sidecar(Path("tests/test_power.py"))   # reads tests/test_power.yaml
 ```
 
-Every loader raises with the offending field path on type / shape errors and a clear message on semantic problems (unknown SpecBand `when:` keys, namespace overlap, mutually-exclusive fields). See [models.md](models.md) for the full model surface, [api.md](api.md) for the JSON / MCP entry points.
+Every loader raises with the offending field path on type / shape errors and a clear message on semantic problems (unknown SpecBand `when:` keys, namespace overlap, mutually-exclusive fields). See [models.md](data/models.md) for the full model surface, [api.md](runtime/api.md) for the JSON / MCP entry points.
 
 ## See also
 
-- [Models](models.md) — every Pydantic model with field tables
-- [Catalog schema](catalog-schema.md) — full `InstrumentCatalogEntry` reference
-- [Catalog cookbook](catalog-cookbook.md) — recipes per datasheet shape
+- [Models](data/models.md) — every Pydantic model with field tables
+- [Catalog schema](catalog/schema.md) — full `InstrumentCatalogEntry` reference
+- [Catalog cookbook](catalog/cookbook.md) — recipes per datasheet shape
 - [Profiles (how-to)](../how-to/execution/profiles.md) — workflow for the `profiles:` block
 - [Limits (how-to)](../how-to/execution/limits.md) — `MeasurementLimitConfig` shapes
 - [Spec-driven testing (how-to)](../how-to/execution/spec-driven-testing.md) — characteristic-driven limits
 - [Multi-UUT testing (how-to)](../how-to/execution/multi-uut-testing.md) — fixture `slots:` workflow
 - [Mock mode (how-to)](../how-to/configuration/mock-mode.md) — station `mock_config:` and sidecar `mocks:`
-- [Pytest-native (reference)](pytest-native.md) — node IDs, marker surface
-- [Litmus markers (reference)](markers.md) — every marker with payload shape
+- [Pytest-native (reference)](overview/pytest-native.md) — node IDs, marker surface
+- [Litmus markers (reference)](pytest/markers.md) — every marker with payload shape
 - [Fixtures (concept)](../concepts/configuration/fixtures.md) — design rationale for fixtures

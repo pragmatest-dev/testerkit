@@ -1143,7 +1143,7 @@ Time-series waveform data with metadata.
 
 #### `XYData` {#model-xydata}
 
-Paired x/y arrays for related-but-non-time-series data (item 15).
+Paired x/y arrays for related-but-non-time-series data.
 
 | Field | Type | Default |
 |---|---|---|
@@ -1811,7 +1811,7 @@ erDiagram
         when dict
         range RangeSpec
         value float_or_str
-        units string
+        unit string
         accuracy AccuracySpec
         resolution ResolutionSpec
         qualifier SpecQualifier
