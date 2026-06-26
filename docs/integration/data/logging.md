@@ -6,7 +6,7 @@ For the underlying API to write into Litmus's store, see the [Python client refe
 
 ## Where the data already is
 
-Results land in Parquet under `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet` regardless of which submission path you use (pytest plugin, `LitmusClient`, OpenHTF bridge — see [data-stores.md](../../concepts/data/data-stores.md) for the canonical layout and the `data_dir` resolution chain). The integration patterns below all read from that store and forward the data elsewhere.
+Results land in parquet under `<data_dir>/runs/{date}/{timestamp}_{run_id8}_{serial}.parquet` (or `{timestamp}_{run_id8}.parquet` when there is no serial), regardless of which submission path you use — pytest plugin, `LitmusClient`, or the OpenHTF bridge. See [data-stores.md](../../concepts/data/data-stores.md) for the canonical layout and the `data_dir` resolution chain. The integration patterns below read from that store and forward data elsewhere.
 
 For the on-write side, see:
 
@@ -16,37 +16,38 @@ For the on-write side, see:
 
 ## Python logging-framework bridge
 
-Attach a `logging.Handler` that turns log records into step failures on the active run:
+Attach a `logging.Handler` that turns log records into step failures on the active step:
 
 ```python
 import logging
 from litmus import LitmusClient
 
 class LitmusHandler(logging.Handler):
-    """Forward warnings/errors to the active run as step failures."""
-
-    def __init__(self, run):
+    """Forward warning/error log records to the active step as a failure."""
+    def __init__(self, step):
         super().__init__()
-        self.run = run
-        self.step = None  # set by caller before emitting failing records
+        self.step = step
 
     def emit(self, record):
-        if record.levelno >= logging.WARNING and self.step is not None:
+        if record.levelno >= logging.WARNING:
             self.step.fail(record.getMessage())
-```
 
-Wire it up in the calling code:
-
-```python
 client = LitmusClient()
 run = client.start_run(uut_serial="SN001", station_id="bench_1")
-handler = LitmusHandler(run)
-logging.getLogger("my_test").addHandler(handler)
+log = logging.getLogger("my_test")
+
+with run.step("power_on") as step:
+    log.addHandler(LitmusHandler(step))
+    log.warning("rail sagged to 2.9 V")   # -> step.fail(...)
+
+run.finish()
 ```
+
+`run.step()` is a context manager that yields a `StepBuilder`. The handler is scoped to the step — create a new one (or call `removeHandler`) for subsequent steps if your logger is long-lived.
 
 ## Sync to an external database
 
-After a run finishes, push its summary + measurement rows into a SQL database:
+After a run finishes, push its summary and measurement rows into a SQL database:
 
 ```python
 from litmus import LitmusClient
@@ -54,66 +55,71 @@ from litmus import LitmusClient
 def sync_to_database(run_id: str, db_connection):
     """Mirror one Litmus run's summary + measurements into an external DB."""
     client = LitmusClient()
-    run = client.get_run(run_id)              # RunSummary (Pydantic model)
-    measurements = client.get_measurements(run_id)  # list[dict] keyed by parquet columns
+    run = client.get_run(run_id)              # RunSummary | None
+    measurements = client.get_measurements(run_id)  # list[dict]
 
     db_connection.execute(
-        "INSERT INTO test_runs (id, serial, outcome) VALUES (?, ?, ?)",
-        (run_id, run.uut_serial, run.outcome)
+        "INSERT INTO test_runs (run_id, serial, outcome) VALUES (?, ?, ?)",
+        (run.test_run_id, run.uut_serial, run.outcome)
     )
 
     for m in measurements:
         db_connection.execute(
             "INSERT INTO measurements (run_id, name, value) VALUES (?, ?, ?)",
-            (run_id, m["measurement_name"], m["measurement_value"])
+            (run.test_run_id, m["measurement_name"], m["measurement_value"])
         )
 ```
 
-`run` is a Pydantic `RunSummary` — use attribute access. `measurements` is a list of dicts keyed by parquet column names (`measurement_name`, `measurement_value`, `measurement_unit`, `measurement_outcome`, `limit_low`, `limit_high`, etc. — see [parquet-schema.md](../../reference/data/parquet-schema.md) for the full list).
+`run` is a `RunSummary` — use attribute access (`run.test_run_id`, `run.uut_serial`, `run.outcome`). `measurements` is a list of dicts with the columns `get_measurements()` returns (`measurement_name`, `measurement_value`, `measurement_unit`, `measurement_outcome`, `limit_low`, `limit_high` — see [parquet-schema.md](../../reference/data/parquet-schema.md) for the full list).
 
-## Upload a sealed run to cloud storage
+## Upload sealed runs to cloud storage
 
-Each run's parquet file is self-contained. Upload it as a single object:
+Each run's parquet file is self-contained. The natural integration pattern is to mirror the runs directory to a bucket — one object per parquet file:
 
 ```python
+import pathlib
 import boto3
 from litmus import LitmusClient
 
-def upload_results(run_id: str, bucket: str):
-    """Upload the sealed run parquet to S3."""
+def upload_runs(data_dir: str, bucket: str, prefix: str = "test_results"):
+    """Upload all sealed run parquets to S3, preserving the date-partitioned layout."""
     s3 = boto3.client("s3")
-    client = LitmusClient()
-    run = client.get_run(run_id)
+    runs_dir = pathlib.Path(data_dir) / "runs"
 
-    local_path = run.file_path                  # attribute on RunSummary
-    s3_key = f"test_results/{run.uut_serial}/{run_id}.parquet"
-    s3.upload_file(local_path, bucket, s3_key)
+    for parquet_file in sorted(runs_dir.glob("**/*.parquet")):
+        # Preserve: runs/{date}/{timestamp}_{run_id8}_{serial}.parquet
+        relative = parquet_file.relative_to(runs_dir)
+        s3_key = f"{prefix}/{relative}"
+        s3.upload_file(str(parquet_file), bucket, s3_key)
 ```
 
-Litmus writes one parquet per run at `<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. There is no separate `test_runs/`, `measurements/`, or `vectors/` directory — the multi-row schema (`record_type='run'` / `'step'` / `'vector'`, with measurements nested under the vector rows) lives inside the one file.
+Litmus writes one self-contained parquet per run — no separate `test_runs/`, `measurements/`, or `vectors/` directories; upload each file as a single object. The schema is documented in [parquet-schema.md](../../reference/data/parquet-schema.md).
 
 ## Querying the existing store
 
-For ad-hoc analysis (not external-system integration), prefer the canonical reader paths:
+For ad-hoc analysis, prefer the canonical reader surfaces first:
+
+- `litmus runs` — tabular view of recent runs in the terminal
+- `litmus show <run_id>` — per-run detail, with `-f html/pdf/json/csv` export
+- HTTP `GET /api/runs` — machine-readable; see [api.md](../../reference/runtime/api.md)
+
+For cross-run queries not covered by those surfaces, DuckDB can read the parquet files directly. This couples your query to the on-disk layout — treat it as an escape hatch:
 
 ```python
 import duckdb
 
-# Cross-run query — DuckDB reads the parquet directly
 duckdb.sql("""
     SELECT uut_serial, step_name, measurement_outcome, COUNT(*)
-    FROM '<data_dir>/runs/**/*.parquet'
+    FROM read_parquet('<data_dir>/runs/**/*.parquet', union_by_name=true)
     GROUP BY uut_serial, step_name, measurement_outcome
 """).show()
 ```
 
-Or use `litmus runs` / `litmus show` / the HTTP API — see [results-api.md](results-api.md) for the routing.
-
 ## Best practices
 
-1. **Don't block the test on external syncs.** Run database / cloud-storage forwarders out-of-band against finished runs, not inline with `run.finish()`.
-2. **Use `run_id` as the join key everywhere.** It's the stable identifier across the parquet file, the event log, channel data, and any downstream system.
-3. **Read with `union_by_name=true`** when querying across multiple runs — the schema is additive across litmus versions, so a query that uses this flag survives every release.
+1. **Don't block the test on external syncs.** Run database or cloud-storage forwarders out-of-band against finished runs, not inline with `run.finish()`.
+2. **Use `run_id` as the join key everywhere.** It is the stable identifier across the parquet file, the event log, channel data, and any downstream system.
+3. **Read with `union_by_name=true`** when querying across multiple runs — the schema is additive across Litmus versions, so this flag survives every release.
 4. **Don't re-implement the schema downstream.** Mirror columns by name; let Litmus stay canonical for the data shape.
 
 ## See also

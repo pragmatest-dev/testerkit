@@ -164,6 +164,13 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4b — integration (migration/integration surface; competitor refs ALLOWED here for concept-translation/migration)
+- integration/data/logging — 2 CRIT (non-runnable examples) + 1 CRIT accuracy: the flagship logging.Handler
+  example never wired self.step (start_run→RunBuilder; steps come from the run.step() ctx-mgr) → rewrote
+  runnable (step.fail on WARNING+); DB example reached for run.id (field is test_run_id) → fixed; parquet
+  filename missing run_id8 → {timestamp}_{run_id8}_{serial}. Audience: S3 recipe used the INTERNAL-marked
+  run.file_path → glob runs/**/*.parquet instead; trimmed record_type schema-internals; reordered Querying
+  to lead with litmus runs/show/HTTP (raw glob = escape hatch). docs-writer; re-audit 0/0. ✅
+  (source nit tracked: parquet.py:224-225 has a stale two-field filename comment — code, not docs.)
 - integration/data/results-api — factually accurate (12 claims; correctly documents the non-obvious truth
   that there is NO HTTP results-submission endpoint — POST /api/runs launches a pytest subprocess; writing
   goes via the Python LitmusClient). Audience: dropped the "see the open follow-up" TOMBSTONE (self-contained
