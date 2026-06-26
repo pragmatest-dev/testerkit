@@ -44,29 +44,37 @@ empty-state card explaining the entity and offering a Create Fixture button.
 ## Detail — `/fixtures/{id}`
 
 A header bar (Back + Edit buttons), one Fixture Information card
-(ID, name, part binding, revision, description), then a tab
-strip with three tabs:
+(Fixture ID, Part Family, Connections count, Description, and a link
+to the Part), then a tab strip with three tabs:
 
 | Tab | Content |
 |---|---|
 | Pin Mappings | The connections table — one row per (UUT pin → instrument channel) mapping. Columns: Connection (the mapping's name), UUT Pin, Net, Instrument, Channel, Description. |
-| Compatible Stations | Stations whose instruments cover this fixture's required instruments and channels. |
+| Compatible Stations | Stations whose instruments cover this fixture's required instruments (matched by instrument role). |
 | Diagram | A Mermaid-rendered diagram of the pin-to-instrument wiring. |
 
-## Edit — `/fixtures/{id}/edit` and New — `/fixtures/new`
+## Edit — `/fixtures/{id}/edit`
 
-A form for the same fields the fixture YAML carries. The Part
-binding is a dropdown — editable on both New and Edit (no read-only
-restriction). The UUT Pin and Instrument Channel fields on each
-connection row are **free-text inputs**, not dropdowns sourced from
-the part pin map.
+The Edit page carries the fixture's info fields (Fixture ID, Name,
+Part, Part Revision, Description) plus a **Pin Mappings** card where
+you manage connections. The Part is a dropdown. The UUT Pin and
+Instrument Channel fields on each connection row are **free-text
+inputs**, not dropdowns sourced from the part pin map. The Instrument
+dropdown on each connection row pulls its options from the union of
+all stations' instruments in the project, so any instrument role
+declared anywhere is selectable. Connections are managed as rows —
+Add / Edit / Delete one at a time via per-row buttons and an Add
+Connection dialog.
 
-The Instrument dropdown on each connection row pulls its options
-from the union of all stations' instruments in the project, so any
-instrument role registered anywhere is selectable.
+Not every YAML field is editable here — `instrument_terminal`,
+`function`, `route`, `station_types`, `uut_resource`, and `slots` are
+YAML-only.
 
-Connections are managed as rows — Add / Edit / Delete one at a time
-via per-row buttons and an Add Connection dialog.
+## New — `/fixtures/new`
+
+A short form for just the fixture info (ID, Name, Part, Part Revision,
+Description) — no connection rows. On create it redirects to the Edit
+page, where you add the pin mappings.
 
 ## Underlying data
 

@@ -65,12 +65,13 @@ automatically:
   | Tab | Content |
   |---|---|
   | Capabilities | The full capability list — function, direction, signals, specs, and parameters per entry |
-  | SCPI Commands | The instrument's SCPI command vocabulary (when set) |
-  | Simulation | Simulation-mode response definitions (when set) |
+  | SCPI Commands | A placeholder on the detail view — SCPI vocabulary isn't surfaced here today (view and edit it on the Edit page). |
+  | Simulation | Likewise a placeholder on the detail view; edit simulation responses on the Edit page. |
 
-- **Asset** — info card followed by **stacked cards** (no tabs):
-  Calibration card (last cal date, due date, lab) and Linked
-  Stations card (the stations whose YAML references this asset).
+- **Asset** — info card (ID, Driver, Protocol, Manufacturer / Model,
+  Serial, Firmware) followed by **stacked cards** (no tabs): a
+  Calibration card (last cal date, due date, certificate, lab) and a
+  Linked Stations card (the stations whose YAML references this asset).
 
 ## Edit — `/instruments/{id}/edit`
 
@@ -90,14 +91,16 @@ A tab strip with four tabs:
 
 A form for creating a new catalog type. Sets type id, name,
 description, and an initial capability list. After creation, the
-page redirects to `/instruments/{id}` so further capability /
-SCPI / simulation editing happens via the four-tab edit surface.
+page redirects to the four-tab Edit surface
+(`/instruments/{type}/edit`) for further capability / SCPI /
+simulation editing.
 
 ## Underlying data
 
 - Catalog types come from the project's `catalog/` directory plus
   the bundled generic catalog (`litmus.catalog.generic`)
-- Inventory assets come from `instruments/*.yaml`
+- Inventory assets come from `instruments/*.yaml`, plus observed-only
+  assets seen in run history (no YAML file)
 
 For the YAML schemas, see [Catalog schema](../catalog/schema.md) for
 catalog types and [Models → `InstrumentAssetFile`](../data/models.md#model-instrumentassetfile)
@@ -108,8 +111,9 @@ for asset files.
 - **Add a new instrument type to the project's catalog** — open
   `/instruments/new`, fill the type form.
 - **Discover instruments on the bench** — run `litmus station init`
-  from the project root; it walks the VISA bus and writes one asset
-  YAML per found device.
+  from the project root; it discovers instruments, prompts you to
+  assign a role to each, and writes an asset YAML for the ones you
+  assign (plus a station YAML).
 - **Check calibration status** — the Inventory tab's Cal Due
   column, sorted ascending, surfaces what's about to expire.
 

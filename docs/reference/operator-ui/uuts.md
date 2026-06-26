@@ -2,11 +2,9 @@
 
 **URLs:** `/uuts`
 
-A UUT (device under test) is the physical unit a test run exercises. UUTs
-are never declared in YAML — they are identified at runtime by the serial
-number the operator (or automation) supplies when starting a run. Every
-distinct `uut_serial` that has ever appeared in run history gets one row
-on this page.
+Every distinct UUT serial that has appeared in run history gets one row
+here. A UUT isn't declared in YAML — it's identified at run time by the
+serial number the operator (or automation) supplies when starting a run.
 
 ## List — `/uuts`
 
@@ -48,8 +46,7 @@ contribute to the **Runs** total but are not reflected in either column.
 
 ## Underlying data
 
-The table is built from the run history parquet. Each column maps to a
-field in the run record:
+Each column maps to a field on the run:
 
 | Column | Run field |
 |---|---|
@@ -58,16 +55,13 @@ field in the run record:
 | Lot | `uut_lot_number` |
 
 For the full set of run fields, see
-[Parquet schema → Run columns](../data/parquet-schema.md).
-
-For the query surface the UI reads through, see
-[Query API](../data/query-api.md).
+[Parquet schema](../data/parquet-schema.md).
 
 ## See also
 
 - [Parquet schema](../data/parquet-schema.md) — the `uut_serial`,
   `uut_part_number`, and `uut_lot_number` run columns
-- [Results](results/list.md) — per-run view; filter by serial to see
-  the full history of one UUT
+- [Results](results/list.md) — per-run view; its Serial column shows
+  which runs belong to a UUT
 - [Launch Test](launch.md) — where the operator supplies the serial
   number that populates this page

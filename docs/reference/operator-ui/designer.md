@@ -10,13 +10,18 @@ draws the wire and auto-saves a fixture YAML to disk.
 The bottom of the page has three tabs (Connections, Station Type,
 YAML Preview) that always reflect the current graph state.
 
+> **Experimental.** The System Designer is less mature than the rest
+> of Litmus, and the screen carries an "Experimental" banner. Expect
+> rough edges, and check the saved fixture YAML before you depend on it
+> in a run.
+
 ## Top bar — selection
 
 | Control | Purpose |
 |---|---|
 | Part | Dropdown of every part in the project's `parts/` directory. Picking one loads the part's pin map onto the design surface and, if a matching fixture YAML already exists for the auto-generated fixture ID, loads its connections too. |
 | Station | Dropdown of every station in the project's `stations/` directory. Picking one loads the station's instruments + channels into the right-side pool of wiring targets. |
-| Load Fixture | Opens a dialog listing every fixture in `fixtures/`. Pick one and the designer overlays its connections onto the current part. |
+| Load Fixture | Opens a dialog listing every fixture in `fixtures/`. Pick one and the designer replaces the current connections with that fixture's. |
 | Add Instrument | Opens a dialog to add an instrument to the current station definition. Fields: Instrument Type (optional dropdown from the project catalog — selecting one pre-fills channel names from the type's capability spec), Role Name (e.g. `dmm`, `psu`), Driver (e.g. `examples.drivers.DMM`), Channels (comma-separated). |
 
 ## ID bar
@@ -26,20 +31,19 @@ YAML Preview) that always reflect the current graph state.
 | System ID | Identifier the Station Type tab uses when rendering the station-type YAML preview. The designer does not write a station-type YAML on its own — the preview is for copy-paste or for matching against a hand-written `stations/<id>.yaml`. |
 | Fixture ID | Identifier for the fixture YAML the designer writes on auto-save. |
 
-**Auto-save** writes `fixtures/<fixture_id>.yaml` whenever both
-IDs are set and the current graph has at least one connection.
-Triggered on:
+**Auto-save** writes `fixtures/<fixture_id>.yaml` whenever both IDs
+are set and the graph has at least one connection. It runs after:
 
-- Adding a wire by clicking a channel node while a pin is selected
+- Adding a wire (clicking a channel node while a pin is selected)
 - Auto-Match
+- Clear All
 
-Things that do **not** trigger auto-save and require a wire add to
-flush:
-
-- Clear All — the empty-connections short-circuit means the on-disk
-  file is not rewritten to reflect the cleared state
-- Drawer-initiated actions (Delete Connection, Delete Pin, Delete
-  Instrument, edit a pin field)
+Because auto-save only writes when at least one connection exists,
+**Clear All does not rewrite the file to the empty state** — the saved
+fixture keeps its last non-empty connections until you add the next
+wire. Drawer-initiated actions (Delete Connection, Delete Pin, Delete
+Instrument, editing a pin field) don't save on their own either; add a
+wire to write them out.
 
 There is no Save button anywhere on the page.
 
@@ -55,7 +59,7 @@ A row of counters and toggles, just above the design surface:
 | Wiring: \<pin\> | When a pin is selected and waiting for a channel click, the status bar shows it in a blue chip. |
 | Hide Unused checkbox | Filters the graph to only nodes with at least one connection. |
 | Auto-Match button | Walks every unconnected pin that has a characteristic defined on it, asks the matching engine for a compatible channel from the current station, and creates the connection. Pins without a characteristic are skipped silently. |
-| Clear All button | Wipes every connection on the current fixture in memory. Does not trigger an on-disk write (see auto-save notes above) — the cleared state lives in the page until you add the next wire. |
+| Clear All button | Wipes every connection on the current fixture in memory. The saved file is not rewritten to the empty state (auto-save only writes when at least one connection exists) — the cleared state lives in the page until you add the next wire. |
 
 ## Design Surface
 
@@ -138,7 +142,7 @@ the current state is bookmarkable.
 - Stations come from `stations/`.
 - Fixtures (loaded and saved) live in `fixtures/`.
 - Auto-Match uses the same
-  [capability matching](../../concepts/configuration/capabilities.md) machinery
+  [capability matching](../../concepts/configuration/capabilities.md)
   used elsewhere to find a station-channel that satisfies a part
   pin's required signal direction.
 

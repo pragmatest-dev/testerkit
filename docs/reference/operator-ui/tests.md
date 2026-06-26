@@ -21,10 +21,10 @@ Each row shows:
 | Filename | The `test_*.py` filename, in monospace |
 | Test count | Number of `def test_*` functions found in the file (top-level and inside `class Test*`) |
 | Class count | Number of `class Test*` definitions, shown inline when non-zero |
-| Vectors | A `~N vectors` badge, present when the file has parametrize or `litmus_sweeps` decorators. The count is a rough upper-bound estimate from the decorator arguments — not an exact cross-product |
+| Vectors | A `~N vectors` badge, present when the file has parametrize, `litmus_sweeps`, or similar list-valued markers. The count is a rough upper-bound estimate from the decorator arguments — not an exact cross-product |
 | Markers | Up to four marker chips (decorator names, without the `pytest.mark.` prefix), then `+N` when there are more |
 | Runs | Count of distinct `run_id` values in history where any step from this file executed; omitted when zero |
-| Failed | Count of those runs with at least one failed step; omitted when the Runs total is zero |
+| Failed | Count of those runs with at least one failed step; omitted when there are no runs or no failures |
 | Sidecar | A `sidecar` badge when a `.yaml` file with the same stem exists alongside the `.py`; a dash otherwise |
 
 Clicking any row navigates to `/tests/{path}` for that file.
@@ -93,7 +93,7 @@ A note below the header reads:
 > (last-wins). See Profiles.
 
 "Profiles" is a link to `/profiles`. For the cascade order, see
-[Profiles](../configuration.md#profile-yaml).
+[Profiles](../configuration.md#profile-blocks-under-profiles).
 
 ### Test functions table
 
@@ -113,7 +113,7 @@ A table with one row per `def test_*` function found in the file. Columns:
 
 The step path used to look up run history is `Class/method` when the function
 is inside a class, or the bare function name for top-level functions. This
-matches the `step_path` value the pytest plugin writes into the steps parquet.
+matches the `step_path` value recorded in run history.
 
 The test functions table is omitted when the file has a parse error.
 
@@ -143,25 +143,22 @@ tree, the page shows a card:
 
 > Test file '{path}' not found.
 
-with a "← Back to Tests" link. There is no HTTP 404 — NiceGUI renders this as
-a page-level card.
+with a "← Back to Tests" link.
 
 ## Underlying data
 
-The file list is built by AST-walking every `test_*.py` under `tests/` at
-page load time. No imports are executed — the walk uses Python's `ast` module
-to extract function names, class names, and decorator lists from the source
-text. Files that fail to parse are included with a `parse_error` field set.
+The file list is built by reading every `test_*.py` under `tests/` directly —
+without importing or running any test code — to extract its function names,
+class names, and decorators. Files that fail to parse are still listed,
+flagged with the parse error.
 
-Run history (Runs / Passed / Failed / Last Run) comes from the steps parquet,
-aggregated by `step_path`. The query counts distinct `run_id` values and
-filters on `outcome`. For the full step record schema, see
-[Parquet schema → Step columns](../data/parquet-schema.md).
+Run history (Runs / Passed / Failed / Last Run) is tallied from run history
+for each test, by step path. For the full step record schema, see
+[Parquet schema](../data/parquet-schema.md).
 
-Sidecar presence is detected by checking whether a `.yaml` file with the same
-stem exists alongside the `.py` file. Sidecar coverage per function (the `✓`
-column on the detail page) is detected by reading the sidecar's `tests:` block
-and matching keys against function and class names.
+A test shows the `sidecar` badge when a `.yaml` file with the same stem sits
+alongside the `.py`. On the detail page, a function gets the `✓` when it (or
+its class) has an entry in the sidecar's `tests:` block.
 
 ## See also
 
