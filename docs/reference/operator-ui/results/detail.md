@@ -33,6 +33,7 @@ content. It carries:
 | Project | Project name from `litmus.yaml` |
 | Started | Run start timestamp, rendered in browser-local time |
 | Ended | Run end timestamp, `—` while the run is in-flight (replaced live when the `run.ended` event arrives) |
+| View this run's… | Buttons that open the **Events**, **Channels**, and **Files** screens filtered to this run's session |
 
 ## Tabs
 
@@ -81,14 +82,14 @@ the corresponding tab.
 ![Detail — Steps tab](../../../_assets/operator-ui/results/detail-steps.png)
 
 One row per step execution, in execution order — including skipped,
-planned, and setup-only steps.
+never-run, and setup-only steps.
 
 | Column | What it shows |
 |---|---|
 | # | Sequence-relative position within the parent step. Sweep variants of the same step share this number, distinguished by Vector. |
 | Step | Sequence-qualified path (e.g. `TestPowerSequence/test_efficiency`). Falls back to the step name when no path is recorded. |
 | Vector | Which sweep variant. `0` for non-swept steps; otherwise `0..N-1` across the variants of a step. |
-| Outcome | Colored chip showing the step's outcome. Beyond the final-state vocabulary listed for the header chip, step rows can also show `RUNNING` (step in flight), `WAITING` (queued / setup-only), `NEVER RAN` (collected but never started), and `PLANNED` (in the run manifest but the run ended first). |
+| Outcome | Colored chip showing the step's outcome. Beyond the final-state vocabulary listed for the header chip, step rows can also show `RUNNING` (step in flight), `WAITING` (queued / setup-only), and `NEVER RAN` (collected but never started). |
 | Duration (s) | Wall-clock duration in seconds, formatted to 3 decimals. `—` when the step hasn't finished. |
 | Measurements | Number of measurements recorded inside this step |
 | Inputs | Commanded sweep parameters for this step / vector, rendered as compact `key=value` pairs (bare parameter names, e.g. `freq=1000.0, level=-10.0`). Blank for non-swept steps. |
@@ -154,25 +155,20 @@ live updates:
   Overview stats
 
 Once the run ends, the page stops watching for updates and keeps the
-final values. If the events daemon isn't reachable when the page
-loads, the page stays static — refresh manually to see new rows.
+final values. If live updates aren't available when the page loads,
+the page stays static — refresh manually to see new rows.
 
 ## Underlying data
 
-The page reads from three Litmus stores:
-
-- **Run header / status** — from the runs index, same as the
-  [Results list](list.md)
-- **Steps** — from the per-run steps view (one row per step execution)
-- **Measurements** — from the per-run measurements view (one row per
-  recorded measurement)
-
-The CLI equivalents:
+The detail view shows the run header/status, its steps, and its
+measurements — the same run data as the [Results list](list.md), with
+the step and measurement detail. The same data is available from the
+CLI and Python:
 
 - [`litmus show {run_id}`](../../cli.md#cli-show) — pretty-printed
   overview; `-f json` for machine-readable, `-f html`/`pdf` for a
   rendered report
-- [`litmus export {run_id} -f csv|json|stdf|hdf5|tdms|mdf4|atml`](../../cli.md#cli-export)
+- [`litmus export {run_id} -f csv|json|stdf|hdf5|tdms|mdf4`](../../cli.md#cli-export)
   — dump the run in a downstream-tool format
 
 For the Python equivalents, see [`RunsQuery` and friends](../../data/query-api.md).

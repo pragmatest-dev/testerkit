@@ -3,7 +3,7 @@
 **URL:** `/metrics`
 
 The Metrics view answers fleet-level questions across all runs in
-the index. Six tabs share one filter bar: Yield, Pareto, Cpk,
+the index. Six tabs share one filter bar: Yield, Pareto, Ppk,
 Retest, Time loss, Assets.
 
 ## Filter bar
@@ -12,13 +12,13 @@ Retest, Time loss, Assets.
 
 | Control | What it filters | Notes |
 |---|---|---|
-| Phase | Test phase (`development`, `validation`, `characterization`, `production`) | Multi-select. Defaults to "all phases except `development`" — set it explicitly to include dev runs. |
+| Phase | Test phase (`development`, `validation`, `characterization`, `production`) | Multi-select. Defaults to `production` — set it explicitly to include other phases. |
 | Part | UUT part number | Multi-select. Populated from runs in the index. |
 | Station | Station hostname | Multi-select. Populated from runs in the index. |
 | Lot (optional) | Lot identifier | Free-text. Leave blank for all. |
-| Since (optional) | Earliest run start, `YYYY-MM-DD` | Date picker, or type the date directly. |
-| Until (optional) | Latest run start, `YYYY-MM-DD` | Date picker, or type directly. |
-| Refresh | Force a re-fetch of the active tab | Filter changes already re-fetch automatically; use Refresh only to pick up new runs that arrived while the page was open, or when the live event subscription isn't running. |
+| Since (optional) | Earliest run start, `YYYY-MM-DD` | Date picker, or type the date directly. Defaults to 30 days ago when left blank. |
+| Until (optional) | Latest run start, `YYYY-MM-DD` | Date picker, or type directly. Defaults to now when left blank. |
+| Refresh | Force a re-fetch of the active tab | Filter changes already re-fetch automatically; use Refresh only to pick up new runs that arrived while the page was open. |
 
 All filters apply to every tab except Assets, which is keyed by
 instrument role + resource rather than by run context.
@@ -38,14 +38,17 @@ the same filtered set of runs.
 
 The default landing tab. Three blocks stacked vertically.
 
-**Summary cards** (top row, 4 cards):
+**Summary cards** (top row, 7 cards):
 
 | Card | Meaning |
 |---|---|
 | First Pass Yield | Percentage of UUT serials that passed on their first run |
 | Final Yield | Percentage of UUT serials that ultimately passed (first run or any retest) |
+| RTY | Rolled throughput yield — the chance a unit clears every step with no rework |
 | Total Runs | Run count in the filtered window |
 | Total Failures | Run count with outcome `Failed` only. Errored runs are tracked separately under [Time loss](#time-loss); they don't roll into this count. |
+| DPMO | Defects per million opportunities |
+| DPPM | Defective parts per million |
 
 **Yield Trend Over Time** — line chart of yield percentage bucketed
 by day. The window's resolution is always daily; longer ranges show
@@ -65,7 +68,7 @@ parameter: `pareto_group`):
 | Group | Bars show |
 |---|---|
 | Part | Most-failing UUT part numbers |
-| Step | Most-failing test / step names across the filtered runs |
+| Step | Top failing steps, grouped by step path, across the filtered runs |
 | Measurement | Top 15 measurements with the most failures. Limited to limit-bearing measurements. Bars are labelled `step_name: measurement_name` so the same measurement name under different steps shows as distinct bars. |
 
 The leftmost bar is the biggest single contributor to lost yield.
@@ -82,6 +85,8 @@ needs attention).
 | Column | What it shows |
 |---|---|
 | Measurement | Measurement name |
+| Characteristic | The part characteristic the measurement maps to, when one is configured |
+| Pin | The UUT pin, when configured |
 | Ppk | Ppk value. Color-coded: green ≥ 1.33, orange ≥ 1.00, red < 1.00. `N/A` (grey) when Ppk can't be computed — typically zero variance across samples, or no limits configured on the measurement. |
 | Mean | Sample mean |
 | σ (sigma) | Sample standard deviation |
@@ -89,7 +94,7 @@ needs attention).
 
 A measurement that doesn't appear in this table either has no
 limits configured or has fewer than 10 samples in the filtered
-window (the minimum-sample threshold for Cpk calculation).
+window (the minimum-sample threshold for the Ppk calculation).
 
 ### Retest
 
@@ -139,13 +144,13 @@ by role + resource, not by run context.
 A blank `Since` means "no lower bound" — Litmus uses every event it
 has. A blank `Until` means "up to right now."
 
-When the window is empty (no instrument lifecycle events recorded),
-the tab shows a message about how the data is populated.
+When the window is empty (no instrument connect/disconnect events
+recorded), the tab shows a message about how the data is populated.
 
 ## Bookmarkable URL state
 
-Every filter and the active tab serialize to query parameters, so a
-URL captures the exact view:
+Every filter and the active tab are written to the URL as query
+parameters, so a URL captures the exact view:
 
 | Parameter | Meaning |
 |---|---|
@@ -154,10 +159,10 @@ URL captures the exact view:
 | `station` | Repeat per selected station |
 | `lot` | Lot filter value |
 | `since`, `until` | Date range, `YYYY-MM-DD` |
-| `tab` | `Yield` (default), `Pareto`, `Cpk`, `Retest`, `Time loss`, or `Assets` |
+| `tab` | `Yield` (default), `Pareto`, `Ppk`, `Retest`, `Time loss`, or `Assets` |
 | `pareto_group` | `part`, `step`, or `measurement` (only meaningful on the Pareto tab) |
 
-Sharing a Cpk URL with the Pareto group set has no effect — irrelevant
+Sharing a Ppk URL with the Pareto group set has no effect — irrelevant
 parameters are ignored by tabs that don't use them.
 
 ## Underlying data
@@ -169,7 +174,7 @@ picks up the new data automatically (it watches for `run.ended`) —
 no Refresh needed.
 
 CLI equivalents per tab, all accepting the same filter flags
-(`--phase`, `--part`, `--station`, `--since`, `--until`, `--lot`)
+(`--phase`, `--part`, `--station`, `--since`, `--until`)
 and `--json` for machine-readable output:
 
 | Tab | CLI |
@@ -191,11 +196,11 @@ report.
 - **Find the dominant failure mode** — Pareto tab, set Group by to
   `Step`, then `Measurement`. The leftmost bar is the biggest single
   source of failures.
-- **Spot a measurement riding the limit** — Cpk tab, scan for orange
-  or red chips (Cpk < 1.33). Note the measurement name, then open
+- **Spot a measurement riding the limit** — Ppk tab, scan for orange
+  or red chips (Ppk < 1.33). Note the measurement name, then open
   the [Results list](results/list.md), drill into a recent run, and
   search the Measurements tab for that name to see the actual values.
-  (The Cpk table itself doesn't link out.)
+  (The Ppk table itself doesn't link out.)
 - **Justify a new station** — Time loss tab, sum the fail + error
   columns over the last month. Compare with the cost of operator
   rework.
