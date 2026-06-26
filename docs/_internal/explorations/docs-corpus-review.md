@@ -164,6 +164,12 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4b — integration (migration/integration surface; competitor refs ALLOWED here for concept-translation/migration)
+- integration/data/results-api — factually accurate (12 claims; correctly documents the non-obvious truth
+  that there is NO HTTP results-submission endpoint — POST /api/runs launches a pytest subprocess; writing
+  goes via the Python LitmusClient). Audience: dropped the "see the open follow-up" TOMBSTONE (self-contained
+  caveat); "the pytest plugin writes to"→"every Litmus runner writes to" (platform framing); softened "every
+  method signature"; ADDED a verified LitmusClient submit snippet (start_run→step.measure→run.finish, mirrors
+  client.md). ✅
 - integration/data/grafana — 3 CRIT accuracy (the page predated today's measurement_values source fix):
   listed only 4 views, called `measurements` the flat per-measurement source (it's the NESTED vector rows),
   said "four tables". Rewrote the SQL-views section to the 5 current views (added `measurement_values` =

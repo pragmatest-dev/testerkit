@@ -1,10 +1,24 @@
 # Submitting results from non-pytest sources
 
-When the test isn't a pytest function — LabVIEW, TestStand, a custom script, a legacy framework — use the Python `LitmusClient` to push results into the same store the pytest plugin writes to. The same `litmus runs`, `litmus serve`, and DuckDB queries see them.
+When the test isn't a pytest function — LabVIEW, TestStand, a custom script, a legacy framework — use the Python `LitmusClient` to write results into the same store every Litmus runner writes to. The same `litmus runs`, `litmus serve`, and DuckDB queries see them.
+
+## Submit a result
+
+```python
+from litmus import LitmusClient
+
+client = LitmusClient()
+run = client.start_run(uut_serial="SN12345", station_id="bench_1", test_phase="production")
+with run.step("voltage_check") as step:
+    step.measure("vcc", 3.31, unit="V", low=3.0, high=3.6)
+run.finish()
+```
+
+Wrap this in a one-file CLI to call it from a toolchain that can't run Python inline (LabVIEW Python Node, TestStand Python adapter, or `subprocess`).
 
 ## Canonical reference
 
-The full API surface — `LitmusClient`, `RunBuilder`, `StepBuilder`, `VectorBuilder`, every method signature, the LabVIEW / TestStand / CLI integration patterns — lives on the [Python client reference](../../reference/runtime/client.md). This page is the integration-level entry point; that page is the API.
+The full API surface — `LitmusClient`, `RunBuilder`, `StepBuilder`, `VectorBuilder`, and the LabVIEW / TestStand / CLI integration patterns — lives on the [Python client reference](../../reference/runtime/client.md). This page is the integration-level entry point; that page is the API.
 
 ## When to use which path
 
@@ -18,7 +32,7 @@ The full API surface — `LitmusClient`, `RunBuilder`, `StepBuilder`, `VectorBui
 
 ## HTTP API caveat
 
-`POST /api/runs` does NOT accept submitted results. It launches a pytest subprocess against a `test_path`. For results submission from non-Python sources, the supported path is the Python `LitmusClient` (wrapped behind a thin CLI or subprocess if needed). An HTTP results-submission endpoint is not currently shipped — see the open follow-up.
+`POST /api/runs` does NOT accept submitted results — it launches a pytest subprocess against a `test_path`. To submit results from a non-Python source, wrap the `LitmusClient` snippet above in a one-file CLI and call it from your toolchain. A direct HTTP results-submission endpoint is not currently available.
 
 ## Querying results
 
