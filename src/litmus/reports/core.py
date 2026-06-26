@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from litmus.api.schemas import load_run_view
+from litmus.data.data_dir import resolve_data_dir
 
 
 @dataclass
@@ -71,7 +72,7 @@ class ReportData:
     pass_rate: float = 0.0
 
 
-def load_run_data(run_id: str, data_dir: str = "results") -> ReportData:
+def load_run_data(run_id: str, data_dir: str | None = None) -> ReportData:
     """Load a test run into ReportData via the typed run-detail composition.
 
     Structure (run / steps / measurements) comes from
@@ -83,11 +84,14 @@ def load_run_data(run_id: str, data_dir: str = "results") -> ReportData:
 
     Args:
         run_id: Full or partial run ID.
-        data_dir: Path to results directory.
+        data_dir: Data directory. Defaults to the project's resolved data
+            dir (``litmus.yaml`` ``data_dir``, else the global default).
 
     Raises:
         FileNotFoundError: If no run with ``run_id`` exists.
     """
+    if data_dir is None:
+        data_dir = str(resolve_data_dir())
     run_view = load_run_view(run_id, data_dir=data_dir)
     if run_view is None:
         raise FileNotFoundError(f"No run found for '{run_id}' in {data_dir}/")

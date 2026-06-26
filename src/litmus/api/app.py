@@ -47,6 +47,7 @@ from litmus.api.responses import (
 )
 from litmus.api.schemas import CapabilitySummary, RequirementSummary, RunView, load_run_view
 from litmus.data.backends.parquet import ParquetBackend, is_file_reference, load_ref
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import Waveform
 from litmus.models.catalog import InstrumentCatalogEntry
 from litmus.models.instrument_asset import InstrumentAssetFile
@@ -298,7 +299,7 @@ def create_api_router() -> APIRouter:
             raise HTTPException(status_code=500, detail="Run has no parquet path")
         parquet_path = Path(run.file_path)
 
-        parent = data_dir if data_dir else Path("results")
+        parent = data_dir if data_dir else resolve_data_dir()
         try:
             if uri.startswith("channel://"):
                 # Resolve channel refs through the daemon's warm index,

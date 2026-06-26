@@ -361,8 +361,7 @@ def _list_runs(project: str) -> list[dict[str, Any]]:
     """List recent test runs (typed RunRow rows from RunsQuery)."""
     from litmus.analysis.runs_query import RunsQuery
 
-    data_dir = str(get_project_root(project) / "results")
-    q = RunsQuery(_data_dir=data_dir)
+    q = RunsQuery(_data_dir=_resolve_data_dir(project))
     try:
         return [r.model_dump(exclude={"file_path"}) for r in q.list_recent(limit=50)]
     finally:
@@ -467,7 +466,7 @@ def _get_run(run_id: str, project: str) -> dict[str, Any]:
     """Get test run details — typed run+steps+measurements composition."""
     from litmus.api.schemas import load_run_view
 
-    data_dir = str(get_project_root(project) / "results")
+    data_dir = str(_resolve_data_dir(project))
     view = load_run_view(run_id, data_dir=data_dir)
     if view is None:
         return {"error": f"Run '{run_id}' not found"}
@@ -1092,6 +1091,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
 
     # Determine test target
     root = get_project_root(project)
+    data_dir = _resolve_data_dir(project)
     if test.endswith(".py") or "/" in test:
         test_path = root / test
         if not test_path.exists():
@@ -1122,7 +1122,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
         *test_targets,
         f"--uut-serial={serial}",
         f"--station={station}",
-        "--data-dir=results",
+        f"--data-dir={data_dir}",
         "-v",
         "--tb=short",
         "--mock-instruments",
@@ -1156,7 +1156,7 @@ def run_tool(test: str, station: str, serial: str, project: str | None = None) -
         # Get run_id from results
         from litmus.data.backends.parquet import ParquetBackend
 
-        backend = ParquetBackend(data_dir=str(root / "results"))
+        backend = ParquetBackend(data_dir=str(data_dir))
         recent_runs = backend.list_runs(limit=1)
         run_id = recent_runs[0].test_run_id or "unknown" if recent_runs else "unknown"
 
@@ -1204,10 +1204,19 @@ def open_tool(entity_type: str, id: str, base_url: str = "http://localhost:8000"
 
 
 def _resolve_data_dir(project: str | None) -> Path | None:
-    """Resolve results dir from a project path."""
-    if project:
-        return get_project_root(project) / "results"
-    return None
+    """Resolve a project's data dir, honoring its ``litmus.yaml`` ``data_dir``.
+
+    Returns ``None`` when no project is given so callers fall back to the
+    global default.
+    """
+    if not project:
+        return None
+    from litmus.data.data_dir import resolve_data_dir
+    from litmus.store import load_project_config
+
+    root = get_project_root(project)
+    config = load_project_config(root)
+    return root / config.data_dir if config.data_dir else resolve_data_dir()
 
 
 def events_query(

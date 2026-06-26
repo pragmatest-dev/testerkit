@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from litmus.api.models import ActiveRun, LaunchRequest, RunStatus
+from litmus.data.data_dir import resolve_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,8 @@ class TestRunner:
 
     __test__ = False  # Prevent pytest collection
 
-    def __init__(self, data_dir: Path | str = "results"):
-        self.data_dir = Path(data_dir)
+    def __init__(self, data_dir: Path | str | None = None):
+        self.data_dir = Path(data_dir) if data_dir else resolve_data_dir()
         self.runs: dict[str, RunInfo] = {}
 
     async def start(self, request: LaunchRequest) -> str:
@@ -206,17 +207,14 @@ _runner: TestRunner | None = None
 def get_runner() -> TestRunner:
     """Get or create the global test runner.
 
-    On first access we resolve ``ProjectConfig.data_dir`` so the
-    subprocess writes to the same parquet tree that ``ParquetBackend``
-    reads from. Without this, runs launched via the API would land in
-    ``./results`` while the read side looks under
-    ``project.data_dir`` (or the platformdirs default), and the new
-    run would be invisible in run listings.
+    On first access we resolve the project's data dir (``litmus.yaml``
+    ``data_dir``, else the global default) so the subprocess writes to
+    the same parquet tree that ``ParquetBackend`` reads from. Without
+    this, runs launched via the API would land in ``./results`` while
+    the read side looks elsewhere, and the new run would be invisible in
+    run listings.
     """
     global _runner
     if _runner is None:
-        from litmus.store import load_project_config
-
-        project = load_project_config()
-        _runner = TestRunner(data_dir=project.data_dir or "results")
+        _runner = TestRunner(data_dir=resolve_data_dir())
     return _runner
