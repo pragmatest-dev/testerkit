@@ -1,10 +1,15 @@
 # Grafana
 
-The Grafana integration ships ten dashboards and a PostgreSQL-wire
+The Grafana integration ships a set of dashboards and a PostgreSQL-wire
 data server that exposes every Litmus store as queryable SQL
 tables. Grafana's built-in PostgreSQL data source connects to the
 server — no plugin install required, no Litmus-specific shim on
 the Grafana side.
+
+**Quickstart:** `litmus grafana serve` starts the data server;
+`litmus grafana setup` installs the data source and dashboards into
+Grafana. Full ordered walkthrough in the
+[Grafana dashboards how-to](../../how-to/data/grafana-dashboards.md).
 
 For a step-by-step setup walkthrough (install the extras, start
 the server, import the dashboards), see the
@@ -24,23 +29,47 @@ litmus channels (Arrow IPC)            ┘         │
                                        Grafana PostgreSQL data source
                                                  │
                                                  ▼
-                                       Ten provisioned dashboards
+                                       Provisioned dashboards
 ```
 
 `litmus grafana serve` boots a buenavista pgwire server on port
 5433 by default. The server creates an in-memory DuckDB connection
 with:
 
-- `measurements` — view over `<data_dir>/runs/**/*.parquet`
-- `runs` — view that aggregates the measurements view to one row
-  per run
+- `measurements` — view over `<data_dir>/runs/**/*.parquet`: the
+  raw run / step / vector rows, with each vector row's measurements
+  nested in a `measurements` list
+- `measurement_values` — flat view that unnests that list to one row
+  per measurement (`measurement_name`, `value`, `outcome`, `units`,
+  `nominal`, `limit_low` / `limit_high`, `measurement_timestamp`, …);
+  this is the source the measurement panels query
+- `runs` — view that aggregates to one row per run
 - `events` — Arrow table loaded from `<data_dir>/events/*.arrow`
 - `channels` — Arrow table loaded from `<data_dir>/channels/*.arrow`
 
-Grafana queries these four tables (or three logical sources — the
-runs view rolls up measurements) over the wire. Parquet views are
-lazy and pick up new files between queries; Arrow tables refresh
-every 30 seconds by default (`--refresh-seconds` overrides).
+Grafana queries these views over the wire. Parquet views are lazy
+and pick up new files between queries; Arrow tables refresh every 30
+seconds by default (`--refresh-seconds` overrides).
+
+A first-pass-yield-by-station query against the `runs` view:
+
+```sql
+SELECT station_name,
+       count(*)                                          AS runs,
+       100.0 * count(*) FILTER (WHERE outcome = 'passed') / count(*) AS fpy_pct
+FROM runs
+GROUP BY station_name
+ORDER BY fpy_pct;
+```
+
+For per-measurement SPC, query `measurement_values`:
+
+```sql
+SELECT measurement_timestamp, value, limit_low, limit_high
+FROM measurement_values
+WHERE measurement_name = 'output_voltage'
+ORDER BY measurement_timestamp;
+```
 
 ## CLI commands
 
@@ -51,16 +80,16 @@ every 30 seconds by default (`--refresh-seconds` overrides).
 | `litmus grafana export` | Write the dashboard JSON files and provisioning Jinja2 templates to a directory. Useful when you want to inspect them, hand-edit, or check into your project's infra repo. |
 
 All three commands require the `grafana` extras:
-`uv pip install 'litmus-test[grafana]'`. The extras install
+`pip install 'litmus-test[grafana]'`. The extras install
 buenavista (the pgwire implementation) — without it, the import
 in `litmus grafana serve` fails fast with a clear error.
 
-## Ten shipped dashboards
+## Shipped dashboards
 
-All ten live under `src/litmus/grafana/dashboards/` as JSON files
-that reference the data source through the `${DS_LITMUS}` template
-variable. The setup commands substitute the data source UID at
-import time.
+Each dashboard is JSON that references the data source through the
+`${DS_LITMUS}` template variable; the setup commands substitute the
+data source UID at import time. Run `litmus grafana export` to get
+the JSON files directly (see Customizing dashboards below).
 
 | Dashboard | What it shows |
 |---|---|
@@ -76,8 +105,8 @@ import time.
 | **Channel Explorer** | Time-series visualization of instrument channel data by session |
 
 Each dashboard targets the Litmus PostgreSQL data source. Variables
-on the dashboard let operators pick part, station, time window,
-serial number, etc. without editing panels.
+on the dashboard let operators pick DUT part number, station, time
+window, serial number, etc. without editing panels.
 
 ## Customizing dashboards
 
@@ -95,7 +124,7 @@ Two patterns:
 For panel-level reference (which SQL the panels run, which
 variables drive which selectors), open the panel in Grafana and
 inspect the query — every panel is a transparent SQL query over
-the four tables above.
+the views above.
 
 ## Limitations and caveats
 
@@ -111,7 +140,7 @@ the four tables above.
   --grafana-url ...`) also sends `litmus` as the password. Suitable
   for localhost or a trusted LAN; not for an exposed endpoint
   without further hardening.
-- **PostgreSQL plugin requirement** — the bundled dashboards
+- **PostgreSQL data source** — the bundled dashboards
   target `grafana-postgresql-datasource`. Grafana 10.x or later
   ships it built-in. Earlier versions need the plugin installed
   separately.

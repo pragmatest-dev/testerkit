@@ -163,6 +163,16 @@ before any accuracy audit that diffs against it.
 
 ## Per-page progress log
 
+### Piece 4b — integration (migration/integration surface; competitor refs ALLOWED here for concept-translation/migration)
+- integration/data/grafana — 3 CRIT accuracy (the page predated today's measurement_values source fix):
+  listed only 4 views, called `measurements` the flat per-measurement source (it's the NESTED vector rows),
+  said "four tables". Rewrote the SQL-views section to the 5 current views (added `measurement_values` =
+  flat one-row-per-measurement UNNEST; `measurements` = nested; `runs` = per-run aggregate). Audience: dropped
+  the brittle "ten dashboards" counts (heading/diagram/intro), removed the `src/litmus/grafana/dashboards/`
+  source-path leak (→ `litmus grafana export`), uv-pip→pip, "operators pick part"→DUT part number,
+  "plugin requirement"→data source, added a quickstart pointer + two verified example queries (runs FPY-by-
+  station; measurement_values SPC). ✅
+
 ### Piece 4 — how-to (lean 2-lens; how-to quadrant = runnable recipes, pip-not-uv, no competitor refs)
 **PIECE 4 COMPLETE — all 35 how-to pages done** (execution 11, data 14, configuration 4, catalog 2, overview 3,
 root index 1). Sub-cluster summary: execution + data + configuration + catalog + overview all closed; biggest
