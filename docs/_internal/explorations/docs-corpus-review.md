@@ -163,6 +163,22 @@ before any accuracy audit that diffs against it.
 
 ## Per-page progress log
 
+### Piece 7 — external surfaces (separate repos; changes pushed as TOPIC BRANCHES, NOT to main — user merges)
+- litmus-starter (repo `/home/ryanf/repos/litmus-starter`, branch `docs/corpus-review-fixes`, pushed): README.md +
+  .devcontainer/welcome.txt reviewed clean (pip-forward, real commands, `litmus data prune` real, `litmus init --starter`
+  verified a real flag = Tier 2 bench). WELCOME.md 2 accuracy fixes: "Four pass"→one test (the --starter scaffold creates a
+  single `test_output_voltage`, no sweep in test_example.yaml → pytest collects 1); "Cpk/Ppk"→"Ppk" (metrics_page.py tabs are
+  Yield/Pareto/Ppk/Retest/Time loss/Assets — no Cpk). Branch pushed; needs user merge to main.
+- pragmatest.com (repo `/home/ryanf/repos/pragmatest.com`, branch `litmus/corpus-review-part-vocab`, pushed): landing
+  `src/app/litmus/page.tsx`. Mostly sound — platform framing correct ("Your platform for hardware test"; pytest-native not
+  "is a plugin"), `pip install litmus-test`, MCP+CLI+skills, Parquet/Arrow formats, codespaces + quickstart links all accurate.
+  Fixed `products`→`parts` in 2 config-entity lists + 1 capability-matching line (litmus's DUT entity is `part`/`parts/`, per
+  the product→part rule). LEFT the general hero line "Mapping product specs to a test plan" (top-of-funnel plain English).
+  The page's `getProduct('litmus')` infra correctly uses "product"=business-product (legit). Branch pushed; needs user merge.
+  ⚠️ FLAG FOR USER: the product→part edit on marketing copy is a judgment call — revert the one-commit branch if "product"
+  was intentional for top-of-funnel accessibility. pragmatest's litmus DOCS are synced from docs/ (already fixed Pieces 1-6);
+  did NOT double-edit synced content.
+
 ### Piece 6 — reference generated (7 pages, verify-only: regenerate, fix source + regen if wrong, fold coverage gaps)
 Drift check `generate_reference_docs.py --all --check` = exit 0 (generated tables in sync with source). These 7 pages also
 carry LARGE hand-written regions outside the markers that Piece 5 never covered (configuration.md ~385 hand-written lines,
