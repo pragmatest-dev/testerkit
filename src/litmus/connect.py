@@ -327,7 +327,7 @@ class StationConnection:
         """Read events from this session's log.
 
         Args:
-            event_type: Filter by event_type (e.g. "instrument.read").
+            event_type: Filter by event_type (e.g. "channel.started").
             role: Filter by instrument role.
 
         Returns:

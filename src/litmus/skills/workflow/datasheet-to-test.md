@@ -238,7 +238,7 @@ Notes for good generation:
 - Use `stream(name, sample)` to push one time-series sample to ChannelStore across a sweep (e.g. a rail logged under increasing load)
 - `observe` / `verify` / `stream` are the three test-author verbs — see `litmus refs show observe`
 - Use `context.changed(k)` in parametrized sweeps to skip expensive reconfig
-- Prefer native `@pytest.mark.parametrize` for code-owned sweeps; use sidecar `vectors:` for operator-edited sweeps
+- Prefer native `@pytest.mark.parametrize` for code-owned sweeps; use sidecar `sweeps:` for operator-edited sweeps
 </step>
 
 <step id="4.2">
@@ -248,12 +248,12 @@ Example:
 
 ```yaml
 # tests/test_<part>.yaml
-vectors:
-  vin: [4.5, 5.0, 5.5]
-  load: [0.1, 0.4, 0.8]
+sweeps:
+  - {vin: [4.5, 5.0, 5.5]}
+  - {load: [0.1, 0.4, 0.8]}
 limits:
   efficiency:     {low: 55, high: 100, unit: "%"}
-  output_voltage: {ref: "output_voltage"}    # delegates to part spec
+  output_voltage: {characteristic: "output_voltage"}    # delegates to part spec
 mocks:
   dmm.measure_dc_voltage: 3.3
 ```

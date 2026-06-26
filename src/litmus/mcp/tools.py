@@ -1225,7 +1225,7 @@ def events_query(
 
     Args:
         session_id: Filter by session UUID.
-        event_type: Filter by event type (e.g. "instrument.read").
+        event_type: Filter by event type (e.g. "channel.started").
         role: Filter by instrument role.
         since: ISO timestamp — only events after this time.
         limit: Max events to return (default 100).

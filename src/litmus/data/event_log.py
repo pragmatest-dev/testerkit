@@ -293,7 +293,7 @@ class EventLog:
         """Read events from this session's Arrow IPC file + buffer.
 
         Args:
-            event_type: Filter by event_type (e.g. "instrument.read").
+            event_type: Filter by event_type (e.g. "channel.started").
             role: Filter by instrument role (checks role,
                   instrument_role, and channel_id prefix).
 

@@ -244,7 +244,7 @@ This is COLLABORATIVE — propose and wait for approval at each step.
 6. **Create Test Files**: MUST create BOTH files
    - `tests/test_<part>.py` — plain pytest test using the ``context`` and
      ``verify`` fixtures (no decorator)
-   - `tests/test_<part>.yaml` — sidecar: ``vectors``, ``limits``, and
+   - `tests/test_<part>.yaml` — sidecar: ``sweeps``, ``limits``, and
      ``mocks`` keyed by test function name
    ```python
    litmus_project(action="save", type="test", id="tests/test_part.py", content={
@@ -486,7 +486,7 @@ def create_mcp_server() -> FastMCP:
 
         Args:
             session_id: Filter by session UUID.
-            event_type: Filter by event type (e.g. "instrument.read", "session.started").
+            event_type: Filter by event type (e.g. "channel.started", "session.started").
             role: Filter by instrument role.
             since: ISO timestamp — only events after this time.
             limit: Max events to return (default 100).
