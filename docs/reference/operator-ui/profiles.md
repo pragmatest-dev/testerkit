@@ -4,8 +4,8 @@
 
 A profile is a named configuration set declared in `litmus.yaml` under `profiles:` or
 as a standalone file in `profiles/*.yaml`. It carries session-wide test configuration —
-limits, mocks, markers, retry rules — plus metadata that binds a station type, a
-fixture, and optional facet labels. Profiles are config-only: they exist in YAML and
+limits, mocks, markers, retry rules — plus metadata that ties the profile to a
+station type and a fixture, with optional facet labels. Profiles are config-only: they exist in YAML and
 are resolved at session start. The Profiles pages browse declared profiles and inspect
 one profile's resolved state.
 
@@ -19,7 +19,7 @@ total count.
 | Name | The profile name (key in `litmus.yaml` or YAML filename stem) |
 | Extends | The parent profile this profile inherits from, or `—` if none |
 | Station Type | The `station_type` this profile requires at session start, or `—` if unset |
-| Fixture | The fixture ID bound by this profile, or `—` if unset |
+| Fixture | The fixture ID this profile selects, or `—` if unset |
 | Facets | Key=value pairs from the profile's `facets:` map, comma-separated, or `—` |
 | Tests | Count of test-level overrides declared in this profile's `tests:` block |
 
@@ -54,20 +54,16 @@ profile's name appears as a primary badge (not a link). The card carries a note:
 The Inheritance card is omitted when the profile has no `extends:` set.
 
 **Resolved YAML card** — displays the profile's merged configuration as YAML in a
-code block. The content is produced from the in-memory `ProfileConfig` after the
-extends chain resolves at session start — field values from parent profiles that were
-not overridden by this profile appear here as if they were declared locally. The YAML
-is read-only; edits require changing the source file directly.
+code block. It shows the profile's configuration after its parent profiles are
+merged in — values inherited from a parent that this profile didn't override appear
+here as if declared locally. The YAML is read-only; edits require changing the source
+file directly.
 
 ### Launch shortcut
 
 A **Launch Test** button appears in the page header (top right). It navigates to
-`/launch?test_profile={name}`.
-
-> **Note:** At the time of writing, the `/launch` page does not consume the
-> `test_profile` query parameter from its function signature. The button navigates
-> to the launch page but does not pre-fill a profile selection. This gap is flagged
-> as a known limitation.
+`/launch?test_profile={name}`, which pre-selects this profile in the launch page's
+Profile dropdown.
 
 ### Not-found state
 
@@ -75,8 +71,7 @@ When `{name}` does not match any declared profile, the page shows a card:
 
 > Profile '{name}' not found.
 
-with a "← Back to Profiles" link. There is no HTTP 404 — NiceGUI renders this as
-a page-level card.
+with a "← Back to Profiles" link.
 
 ## Underlying data
 
@@ -90,19 +85,19 @@ The detail page's Resolved YAML reflects this merged state — the same config t
 session resolver acts on at runtime.
 
 For the full schema of a profile block, see
-[Configuration reference → Profile blocks](../configuration.md#profile-yaml).
+[Configuration reference → Profile blocks](../configuration.md#profile-blocks-under-profiles).
 
 For the workflow of authoring and selecting profiles, see
 [How-to → Profiles](../../how-to/execution/profiles.md).
 
 ## See also
 
-- [Configuration reference → Profile blocks](../configuration.md#profile-yaml) —
+- [Configuration reference → Profile blocks](../configuration.md#profile-blocks-under-profiles) —
   every field in a `ProfileConfig`, including `extends`, `facets`, `station_type`,
   `fixture`, and `verify_requires_limit`
 - [How-to → Profiles](../../how-to/execution/profiles.md) — how to author, extend,
   and select profiles at session start
 - [Launch Test](launch.md) — the `/launch` page the detail page's Launch button
   navigates to
-- [Stations](stations.md) — `station_type` binds a profile to a class of station
-- [Fixtures](fixtures.md) — `fixture` binds a profile to a fixture ID
+- [Stations](stations.md) — `station_type` ties a profile to a class of station
+- [Fixtures](fixtures.md) — `fixture` ties a profile to a fixture ID
