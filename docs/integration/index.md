@@ -16,5 +16,5 @@ Get Litmus's data into external systems — warehouse imports, dashboards, log s
 
 - [Results API](data/results-api.md) — `LitmusClient` for submitting runs from any language
 - [Logging](data/logging.md) — patterns for capturing measurements alongside existing test code; bridging to Python's `logging`, syncing to external databases, sealing runs to cloud storage
-- [Grafana](data/grafana.md) — pgwire data source plus ten shipped dashboards
+- [Grafana](data/grafana.md) — pgwire data source plus a set of shipped dashboards
 - [Lakehouse import](data/lakehouse-import.md) — pull Litmus parquet runs into your warehouse

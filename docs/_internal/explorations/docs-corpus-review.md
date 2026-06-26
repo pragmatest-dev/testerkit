@@ -164,6 +164,23 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4b — integration (migration/integration surface; competitor refs ALLOWED here for concept-translation/migration)
+**PIECE 4b COMPLETE — all 10 integration pages done** (data 5: grafana, results-api, logging, lakehouse-import,
+index; runtime 4: pytest-existing, harness, instruments, index; integration/index). Real bugs found: grafana
+view inventory stale vs today's measurement_values fix; logging + lakehouse v1→v2 schema drift + non-runnable
+examples; pytest-existing + harness shared the litmus.execution.logger→run_scope stale import; pytest-existing
+stale "PyPI release coming" (litmus-test IS live 0.2.0); instruments had 3 fabricated YAML shapes (raw-PyVISA
+driver, top-level asset serial, invented station resources: block). Source nit tracked: parquet.py:224-225
+stale filename comment.
+- integration/runtime/instruments — 3 CRIT accuracy (fabricated YAML): raw PyVISA `driver:
+  pyvisa.resources.MessageBasedResource` can't single-arg instantiate → omit `driver:`, give `resource:`
+  (loader rm.open_resource fallback); asset YAML top-level `serial:` (extra=forbid) → under `info:`; station
+  YAML invented a `resources:` block + bare-id instruments → real StationInstrumentConfig mappings, and the
+  station↔asset link is by ROLE NAME (asset `id` == station role; loader instrument_files.get(role)). Audience:
+  deleted the private INSTRUMENT_ARRAY_KEYS/_row_helpers citation; collapsed the Mock-taxonomy DUPLICATION with
+  custom-drivers.md→a pointer; context/catalog_ref cold-drop glosses; instantiate→constructs. docs-writer;
+  re-audit 0/0. ✅
+- integration/index — dropped the "ten shipped dashboards" count. integration/runtime/index — reviewed, clean.
+  **Integration RUNTIME sub-cluster (4 pages) DONE.** ✅
 - integration/runtime/harness — CRIT accuracy: the SAME `litmus.execution.logger`→`run_scope` import fix
   (stale logger rename; this page is the right home for the TestHarness/RunScope detail so I fixed the
   import rather than removing it). Audience (3 structural CRITs): added the LitmusClient-vs-TestHarness
