@@ -88,11 +88,13 @@ class TestFilterSet:
             FilterSet(enum_filters={"part_id": ["PN-100"]})
 
     def test_url_round_trip_string_filters(self):
+        # The Part facet's internal column is ``part_id`` but its URL key
+        # is the operator-facing ``part`` (matching the metrics page).
         fs = FilterSet(string_filters={"part_id": ["PN-100", "PN-200"]})
         params = fs.to_url_params()
-        assert params == [("part_id", "PN-100"), ("part_id", "PN-200")]
-        # Decode round-trip
-        decoded = FilterSet.from_url_params({"part_id": ["PN-100", "PN-200"]})
+        assert params == [("part", "PN-100"), ("part", "PN-200")]
+        # Decode round-trip: URL key ``part`` maps back to column ``part_id``.
+        decoded = FilterSet.from_url_params({"part": ["PN-100", "PN-200"]})
         assert decoded.string_filters == {"part_id": ["PN-100", "PN-200"]}
 
     def test_url_round_trip_enum_filters(self):
@@ -113,7 +115,7 @@ class TestFilterSet:
         assert decoded.until == date(2026, 4, 30)
 
     def test_unknown_column_dropped_on_decode(self):
-        decoded = FilterSet.from_url_params({"part_id": ["PN-100"], "fake_column": ["whatever"]})
+        decoded = FilterSet.from_url_params({"part": ["PN-100"], "fake_column": ["whatever"]})
         assert decoded.string_filters == {"part_id": ["PN-100"]}
         assert "fake_column" not in decoded.string_filters
         assert "fake_column" not in decoded.enum_filters

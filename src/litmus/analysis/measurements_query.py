@@ -33,6 +33,7 @@ from litmus.analysis.measurement_facets import (
     TimeLossRow,
     TrendRow,
     YieldRow,
+    facet_sql_expr,
 )
 from litmus.data import runs_duckdb_manager
 from litmus.data._flight_query import FlightQueryClient
@@ -229,7 +230,8 @@ def _filter_clauses(filters: FilterSet | None) -> list[str]:
         if not values:
             continue
         escaped = ", ".join(f"'{sql_escape(v)}'" for v in values)
-        clauses.append(f"{_safe_ident(col)} IN ({escaped})")
+        col_expr = facet_sql_expr(col) or _safe_ident(col)
+        clauses.append(f"{col_expr} IN ({escaped})")
     if filters.since is not None:
         clauses.append(f"CAST(run_started_at AS DATE) >= '{filters.since.isoformat()}'")
     if filters.until is not None:
@@ -1357,7 +1359,7 @@ class MeasurementsQuery:
         Counts are aggregated so the UI can show "PN-100 (12,304)" —
         useful for spotting which buckets actually have data.
         """
-        col = _safe_ident(column)
+        col = facet_sql_expr(column) or _safe_ident(column)
         if role is not None:
             role_val = FieldRole(role) if isinstance(role, str) else role
             scoped = _filters_excluding(filters, column) if exclude_self else filters

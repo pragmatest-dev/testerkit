@@ -1572,6 +1572,8 @@ Self-describing definition of one filter facet.
 | `enum_class` | `type[StrEnum] \| None` | `None` |
 | `label` | `str` | *required* |
 | `description` | `str` | `''` |
+| `param` | `str` | `''` |
+| `expr` | `str` | `''` |
 
 #### `FacetOption` {#model-facetoption}
 

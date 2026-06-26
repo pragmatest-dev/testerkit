@@ -116,13 +116,32 @@ class FacetKind(StrEnum):
 
 
 class FacetSpec(BaseModel):
-    """Self-describing definition of one filter facet."""
+    """Self-describing definition of one filter facet.
+
+    ``column`` is the facet's stable internal key (the ``FilterSet``
+    dict key). ``param`` overrides the URL query key when the
+    operator-facing name differs from the column, and ``expr`` lets the
+    facet filter/enumerate on a SQL expression instead of a bare column.
+    Together they let the Part / Station / Test phase facets keep their
+    internal ``*_id`` / ``test_phase`` columns while exposing the
+    operator-facing ``?part=`` / ``?station=`` / ``?phase=`` URL keys
+    backed by the same ``COALESCE`` the metrics page uses — so a shared
+    URL means the same thing on both pages. Empty ``param`` → URL key is
+    ``column``; empty ``expr`` → filter on ``column`` directly.
+    """
 
     column: str
     kind: FacetKind
     enum_class: type[StrEnum] | None = None
     label: str
     description: str = ""
+    param: str = ""
+    expr: str = ""
+
+    @property
+    def url_key(self) -> str:
+        """The query-string key this facet reads/writes (``param`` or ``column``)."""
+        return self.param or self.column
 
     @model_validator(mode="after")
     def _enum_class_required_for_enum_kind(self) -> FacetSpec:
@@ -338,14 +357,18 @@ class FilterSet(BaseModel):
         )
 
     def to_url_params(self) -> list[tuple[str, str]]:
-        """Encode as repeated query keys for ``urlencode([(k, v), ...])``."""
+        """Encode as repeated query keys for ``urlencode([(k, v), ...])``.
+
+        Each filter's URL key is its facet's ``url_key`` (the operator-
+        facing ``param`` when set, else the column).
+        """
         params: list[tuple[str, str]] = []
-        for col, values in self.string_filters.items():
-            for v in values:
-                params.append((col, v))
-        for col, values in self.enum_filters.items():
-            for v in values:
-                params.append((col, v))
+        for filters in (self.string_filters, self.enum_filters):
+            for col, values in filters.items():
+                spec = _spec_by_column(col)
+                key = spec.url_key if spec is not None else col
+                for v in values:
+                    params.append((key, v))
         if self.since is not None:
             params.append(("since", self.since.isoformat()))
         if self.until is not None:
@@ -378,15 +401,15 @@ class FilterSet(BaseModel):
                 except ValueError:
                     pass
                 continue
-            spec = _spec_by_column(key)
+            spec = _spec_by_url_key(key)
             if spec is None:
                 continue
             if spec.kind is FacetKind.STRING:
-                string_filters[key] = list(values)
+                string_filters[spec.column] = list(values)
             elif spec.kind is FacetKind.ENUM:
                 assert spec.enum_class is not None
                 allowed = {m.value for m in spec.enum_class.__members__.values()}
-                enum_filters[key] = [v for v in values if v in allowed]
+                enum_filters[spec.column] = [v for v in values if v in allowed]
         return cls(
             string_filters=string_filters,
             enum_filters=enum_filters,
@@ -423,21 +446,27 @@ MEASUREMENT_FACETS: list[FacetSpec] = [
     ),
     FacetSpec(
         column="part_id",
+        param="part",
         kind=FacetKind.STRING,
         label="Part",
         description="Which part the UUT is (e.g. PN-100)",
+        expr="COALESCE(uut_part_number, part_id, 'unknown')",
     ),
     FacetSpec(
         column="station_id",
+        param="station",
         kind=FacetKind.STRING,
         label="Station",
         description="Which station ran the test",
+        expr="COALESCE(station_hostname, station_id, 'unknown')",
     ),
     FacetSpec(
         column="test_phase",
+        param="phase",
         kind=FacetKind.STRING,
         label="Test phase",
         description="Production / qual / development",
+        expr="COALESCE(test_phase, 'unknown')",
     ),
     FacetSpec(
         column="step_name",
@@ -472,6 +501,26 @@ _BY_COLUMN: dict[str, FacetSpec] = {f.column: f for f in MEASUREMENT_FACETS}
 def _spec_by_column(column: str) -> FacetSpec | None:
     """Look up a facet by column name, or ``None`` if not in the registry."""
     return _BY_COLUMN.get(column)
+
+
+_BY_URL_KEY: dict[str, FacetSpec] = {f.url_key: f for f in MEASUREMENT_FACETS}
+
+
+def _spec_by_url_key(key: str) -> FacetSpec | None:
+    """Look up a facet by its URL query key (``param`` or ``column``)."""
+    return _BY_URL_KEY.get(key)
+
+
+def facet_sql_expr(column: str) -> str | None:
+    """The SQL expression a facet filters / enumerates on.
+
+    Returns the facet's ``expr`` (e.g. the operator-facing ``COALESCE``
+    for Part / Station / Test phase) when it has one, else ``None`` — in
+    which case callers quote ``column`` as a plain identifier. Lives here
+    so the column→expression mapping has one source of truth.
+    """
+    spec = _spec_by_column(column)
+    return spec.expr if (spec is not None and spec.expr) else None
 
 
 def facets_by_kind(kind: FacetKind) -> list[FacetSpec]:

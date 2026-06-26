@@ -121,7 +121,7 @@ URL captures the exact view.
 
 | Parameter | Meaning |
 |---|---|
-| Per-facet | Each multi-value facet repeats its column name as a query key (e.g. `?measurement_name=vout&measurement_name=iq`) |
+| Per-facet | Each multi-value facet repeats its query key (e.g. `?measurement_name=vout&measurement_name=iq`). Part, Station, and Test phase use the operator-facing keys `part`, `station`, and `phase` — the same keys and values as the [Metrics](metrics.md) page, so a filtered URL means the same thing on both. |
 | `since`, `until` | Date range, `YYYY-MM-DD` (omitted when blank) |
 | `y` | Y axis when a fixed column is selected (e.g. `?y=measurement_value`) |
 | `y_name`, `y_role` | Y axis when an input or output field is selected (e.g. `?y_name=vin&y_role=input`) |
