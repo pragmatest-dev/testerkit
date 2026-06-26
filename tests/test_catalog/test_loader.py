@@ -235,6 +235,55 @@ class TestCatalogInheritance:
         assert MeasurementFunction.DC_VOLTAGE in funcs  # inherited from base
         assert MeasurementFunction.AC_VOLTAGE in funcs  # added by variant
 
+    def test_variant_appends_signal_bands(self, tmp_path):
+        """A variant redeclaring a matching capability/signal appends its
+        bands to the base's (deep-merge of deltas), keeping base-only keys."""
+        _write_yaml(
+            tmp_path / "base_dmm.yaml",
+            """\
+            id: base_dmm
+            manufacturer: Acme
+            model: "1000"
+            type: dmm
+            channels:
+              "1": {terminals: [hi, lo], connector: binding_post, ground: shared}
+            capabilities:
+              - function: dc_voltage
+                direction: input
+                signals:
+                  voltage:
+                    range: {min: 0.001, max: 100, unit: V}
+                    bands:
+                      - when: {frequency: {min: 50, max: 50, unit: Hz}}
+                        accuracy: {pct_reading: 0.01}
+                conditions:
+                  frequency: {range: {min: 50, max: 60, unit: Hz}}
+                channels: ["1"]
+        """,
+        )
+        _write_yaml(
+            tmp_path / "variant_dmm.yaml",
+            """\
+            id: variant_dmm
+            model: "2000"
+            base: base_dmm
+            capabilities:
+              - function: dc_voltage
+                direction: input
+                signals:
+                  voltage:
+                    bands:
+                      - when: {frequency: {min: 60, max: 60, unit: Hz}}
+                        accuracy: {pct_reading: 0.02}
+        """,
+        )
+        entry = load_catalog_entry(tmp_path / "variant_dmm.yaml", catalog_dir=tmp_path)
+        (cap,) = entry.capabilities
+        voltage = cap.signals["voltage"]
+        assert voltage.bands is not None
+        assert len(voltage.bands) == 2  # base band + variant band appended
+        assert voltage.range is not None  # base-only key survived the delta merge
+
     def test_variant_inherits_header_fields(self, tmp_path):
         """manufacturer, type inherited from base."""
         _write_yaml(tmp_path / "base_dmm.yaml", self._base_yaml())

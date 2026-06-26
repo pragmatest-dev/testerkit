@@ -407,8 +407,10 @@ def resolve_test_connections(
     * **chars + connections** — connections narrows the union of the
       chars' pin sets. Iteration order follows the user-listed
       connections; every selected connection must lie within the
-      union pin set (or, for fixtureless ``instrument_channels``, no
-      UUT-pin validation is possible and the stubs pass through).
+      union pin set. Fixtureless ``instrument_channels`` with
+      characteristics in scope is rejected — there is no ``uut_pin``
+      to validate against (drop the characteristics for pure bringup,
+      or load a fixture).
 
     Returns a tuple of ``(connections, conn_to_char)`` where
     ``conn_to_char`` maps each connection's ``name`` to the char that

@@ -179,13 +179,13 @@ class SpecBand(BaseModel):
     Any field that is ``None`` means "no override — use the top-level default."
 
     Example YAML (accuracy varies with frequency):
-        specs:
+        bands:
           - when:
               frequency: {min: 3, max: 5, unit: Hz}
             accuracy: {pct_reading: 0.35, pct_range: 0.03}
 
     Example YAML (range derated at high frequency):
-        specs:
+        bands:
           - when:
               frequency: {min: 3e9, max: 6e9, unit: Hz}
             range: {min: -130, max: 5, unit: dBm}

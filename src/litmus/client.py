@@ -46,6 +46,7 @@ from typing import Any
 from uuid import UUID
 
 from litmus.data.backends.parquet import ParquetBackend
+from litmus.data.data_dir import resolve_data_dir
 from litmus.data.models import (
     UUT,
     Measurement,
@@ -359,13 +360,16 @@ class LitmusClient:
         run.finish()
     """
 
-    def __init__(self, data_dir: str | Path = "results"):
+    def __init__(self, data_dir: str | Path | None = None):
         """Initialize the client.
 
         Args:
-            data_dir: Directory for Parquet result files.
+            data_dir: Directory for Parquet result files. Defaults to the
+                project's resolved data dir (``litmus.yaml`` ``data_dir:`` →
+                ``LITMUS_HOME`` → platform default) — the same store every
+                Litmus runner writes to. Pass a path to override.
         """
-        self._backend = ParquetBackend(data_dir=Path(data_dir))
+        self._backend = ParquetBackend(data_dir=resolve_data_dir(data_dir))
 
     def start_run(
         self,

@@ -100,6 +100,31 @@ stop_window()
 
 `latest`, `live`, and `window` each call your function every time new data arrives, until you call the stop handle they return. `window` first replays the last `dur` seconds, then continues live. For a one-shot read (or to poll a refreshing view) use `channels.query(...)` instead. See [Choosing a channel verb](choosing-a-channel-verb.md) for which to reach for; a runnable consumer lives at `examples/09-instrument-streaming/scripts/live_dmm_reader.py`.
 
+## Writing without a sink: one-shot and batch
+
+The `stream` sink is the right tool for a live producer loop — it buffers samples and flushes them as columnar blocks (up to a size cap or a flush interval, set in `litmus.yaml` under `channels:`), trading a little per-sample latency for throughput. When you're not running a sample-by-sample loop, two explicit module-level verbs cover the rest:
+
+```python
+import litmus.channels as channels
+
+# one sample, one message — the explicit form of the stream verb
+channels.write("dmm.voltage", dmm.measure_voltage())
+
+# a batch you already hold, sent in one message — the N samples ride a
+# single message instead of N, so a buffer you've already collected lands
+# far faster than N separate write() calls
+readings = [(v, None) for v in dmm.read_block()]   # (value, sampled_at) pairs
+channels.write_many("dmm.voltage", readings)
+```
+
+`write_many` takes `(value, sampled_at)` pairs — `value` is any shape `write` accepts (scalar, array, dict) and `sampled_at` is each sample's hardware instant, or `None`. Reach for it when you already have the samples in hand: an instrument that returns a block of readings, or a logged buffer you're replaying. It doesn't add latency of its own — it amortizes the per-message cost across the whole batch. (The `stream` sink uses the same batched core internally; the latency-for-throughput trade there comes from its buffering, not from the batch write itself.) Both `write` and `write_many` run inside an active session, the same as `stream`.
+
+To pin a channel's unit (or other identity) before the first sample, declare it once — otherwise the first write auto-registers the channel with defaults:
+
+```python
+channels.declare("dmm.voltage", unit="V")
+```
+
 ## See also
 
 - [Choosing a channel verb](choosing-a-channel-verb.md) — write/stream vs latest/live/query, by cadence and intent

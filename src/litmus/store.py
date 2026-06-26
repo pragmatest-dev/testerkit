@@ -943,15 +943,15 @@ def _deep_merge_cap(base_cap: dict[str, Any], variant_cap: dict[str, Any]) -> No
                 b_section[param_name] = copy.deepcopy(v_param)
                 continue
 
-            if isinstance(v_param, dict) and "specs" in v_param:
+            if isinstance(v_param, dict) and "bands" in v_param:
                 b_param = b_section[param_name]
                 if not isinstance(b_param, dict):
                     b_section[param_name] = copy.deepcopy(v_param)
                     continue
-                b_specs = b_param.get("specs", [])
-                b_param["specs"] = b_specs + copy.deepcopy(v_param["specs"])
+                b_bands = b_param.get("bands", [])
+                b_param["bands"] = b_bands + copy.deepcopy(v_param["bands"])
                 for k, v in v_param.items():
-                    if k != "specs":
+                    if k != "bands":
                         b_param[k] = copy.deepcopy(v)
             else:
                 b_section[param_name] = copy.deepcopy(v_param)

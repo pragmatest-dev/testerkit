@@ -221,8 +221,8 @@ class ParquetBackend:
         """Save test run to Parquet with analysis-ready schema.
 
         Creates files:
-            results/runs/{date}/{timestamp}_{serial}.parquet  (with serial)
-            results/runs/{date}/{timestamp}.parquet           (without serial)
+            runs/{date}/{timestamp}_{run_id8}_{serial}.parquet  (with serial)
+            runs/{date}/{timestamp}_{run_id8}.parquet           (without serial)
 
         All timestamps are UTC for consistent cross-timezone analysis.
 
