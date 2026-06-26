@@ -163,6 +163,35 @@ before any accuracy audit that diffs against it.
 
 ## Per-page progress log
 
+### Followups (post Pieces 1–8; branch `docs/corpus-review-followups`, source + docs)
+User direction after the corpus review: fix the tracked source nits, document `write_many`, then do the deferred
+operator-UI content audit. "persevere" → autonomous.
+- **Source nits (commit 60e7fa40):** parquet.py save-docstring filename comment → real `{timestamp}_{run_id8}_{serial}`
+  under runs/; capability.py SpecBand docstrings `specs:`→`bands:`; connections.py resolve docstring (chars+fixtureless
+  channels is rejected, not "stubs pass through"); **store.py `_deep_merge_cap` REAL BUG** — branched on the non-existent
+  `"specs"` key so variant bands REPLACED the base's instead of appending (documented deep-merge) → fixed to `bands` +
+  added a regression test (test_catalog/test_loader.py ...appends_signal_bands); **LitmusClient default `data_dir`
+  "results"→`resolve_data_dir()`** so the client writes to the same store every runner writes to (results-api docs already
+  promised this). Full suite + pyright passed.
+- **write_many (commit 60e7fa40):** documented `channels.write_many` (+ `write`, `declare`) in stream-live-channel.md.
+  Corrected the user's hypothesis: the latency-for-throughput trade is the STREAM SINK's buffering, not write_many —
+  write_many is "a batch you already hold, one message" (amortizes per-message cost, no added latency).
+- **Operator-UI content audit — ALL 19 pages DONE** (deferred by the 06-24 method revision; 2-lens per page, verified vs
+  `src/litmus/ui/pages/*`). Commits a125ed6c / fbbb30aa / 8c87c603 / e3a4b84e / c3fd29c0 / 4102ba4b. Real bugs: metrics
+  Cpk→Ppk pervasive + Yield cards 4→7 (RTY/DPMO/DPPM) + fabricated `--lot` + missing Ppk columns; results/list "Sortable"
+  columns (server-side pagination — headers don't sort); results/detail fabricated PLANNED chip + `atml` export; live
+  missing Streams tab + wrong channel/poll mechanisms; launch missing Profile field; measurements fabricated Role facet;
+  events non-existent Session/Run columns + dialog.requested→dialog.opened; channels/detail fabricated Session dropdown;
+  fixtures no-revision + instruments-only matching; instruments empty SCPI/Sim tabs + interactive station-init; **designer
+  missing Experimental flag + inverted Clear-All auto-save**; parts Pins Name/Net (not "signal"); profiles STALE "/launch
+  ignores test_profile" (it doesn't — contradicted the launch fix); plus many data_dir/store/daemon/EAV audience scrubs.
+  **3 SOURCE drift fixes:** events dropdown + channels/list live-subscription both subscribed to the RETIRED
+  `instrument.read` (filter/refresh returned nothing) → `channel.started`. DECLINED the recurring agent suggestion to
+  change UUT→DUT (UUT is canonical, rename #258). Final: 0 user-facing broken links, generated-docs drift 0.
+- ⚠️ TRACKED CODE OBSERVATION (not fixed): the /explore (measurements) facet URL keys are the raw `part_id`/`station_id`
+  columns, so a shared URL reads `?station_id=...` — a code/URL-scheme operator-identifier-rule issue (the page PROSE is
+  compliant). Surface to user.
+
 ### Piece 8 — final corpus-wide consistency pass (static; live-Playwright pass deferred — see note)
 The planned rendered-site docs-reader (Playwright) pass is NOT feasible unattended: there's no local mkdocs (no mkdocs.yml;
 the litmus docs render via the SEPARATE pragmatest Next.js site, synced from docs/), so a live pass would mean standing up +
