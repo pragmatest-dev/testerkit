@@ -20,28 +20,25 @@ If the channel ID in the URL isn't registered, the page shows a
 ## Descriptor card
 
 Below the header, a card summarises the channel's static metadata:
-the data type, units, the instrument role it belongs to (when set),
-and the first-seen timestamp. Sample-shape fields beyond the basics
-appear as well when present in the descriptor.
+the data type, units, the instrument role and resource it belongs to
+(when set), and the first-seen timestamp. Any recorded attributes
+appear below when present.
 
 ## Filters
 
-A filter card sits above the chart and data table:
+A filter card sits above the chart and data table with **Since** /
+**Until** date pickers (default to no bounds — full history) and an
+**X-axis toggle** between absolute time and elapsed offset.
 
-| Filter | What it does |
-|---|---|
-| Session | Restrict samples to one session. The dropdown is populated from sessions that actually wrote to this channel — no UUID typing required. |
-| Since | Earliest sample timestamp |
-| Until | Latest sample timestamp |
-
-The dropdown defaults to `(any)`; the date pickers default to no
-bounds (full history).
+Session scoping isn't a picker here: when you arrive from a run's
+detail page with a session in the URL, a banner shows it with a Clear
+button. To see one session's samples, reach this page from that run.
 
 ## Chart
 
 Time-series chart of the filtered samples. Litmus decimates large
-series to ~1,000 points using LTTB (Largest-Triangle-Three-Buckets)
-so the chart stays responsive even for long-running captures. The
+series to ~1,000 points (LTTB) so the chart stays responsive even for
+long-running captures. The
 visible decimation preserves visual shape: peaks and troughs at
 their original positions, intermediate points dropped.
 
@@ -55,25 +52,26 @@ shows drift over time.
 ## Data table
 
 Below the chart, a paginated table of the same data — same filters,
-no decimation. Useful for copying specific (timestamp, value) pairs
-into a notebook or for spotting outliers the chart's decimation
-smoothed over.
+no decimation. Columns: Received, Value, Source, and Session (shown as
+the UUT serial + run start, not a UUID). Useful for copying specific
+(timestamp, value) pairs into a notebook or for spotting outliers the
+chart's decimation smoothed over.
 
 ## Bookmarkable URL state
 
 | Parameter | Meaning |
 |---|---|
-| `session` | Session UUID (omitted for `(any)`) |
+| `session_id` | Session scope (set by a deep-link from a run) |
 | `since` | Earliest sample timestamp |
 | `until` | Latest sample timestamp |
+| `x_mode` | X axis: `time` (absolute) or `offset` (elapsed) |
 
 Bookmark the URL to share a specific channel + filter combination.
 
 ## Underlying data
 
-The page reads from the channel store directly. The chart's LTTB
-decimation runs server-side (the chart asks for up to 1,000 points;
-the raw data table sees the full filtered set).
+The samples shown here come from the channel store. The chart is
+decimated to ~1,000 points; the raw-data table is not.
 
 For the storage layout, see
 [Concepts → Data stores](../../../concepts/data/data-stores.md).

@@ -1,11 +1,11 @@
 # Parts
 
-**URLs:** `/parts` (list), `/parts/new`, `/parts/{id}`, `/parts/{id}/edit`, `/parts/{id}/stations` (the Stations tab as its own URL — bookmarkable)
+**URLs:** `/parts` (list), `/parts/new`, `/parts/{id}`, `/parts/{id}/edit`, `/parts/{id}/stations` (compatible / partial / incompatible stations for the part, with Launch buttons)
 
-A part is a UUT under test — its part number, revision,
-characteristics (named measurements with limits and units), and pin
-map. The Parts entity pages are the browser surface for the
-project's `parts/` directory.
+A part is a hardware part number — its revision, characteristics
+(named measurements with limits and units), and pin map. UUTs of this
+part are tested against it. The Parts entity pages are the browser
+surface for the project's `parts/` directory.
 
 ## List — `/parts`
 
@@ -38,12 +38,13 @@ empty-state card explaining the entity and offering a New Part button.
 
 ## Detail — `/parts/{id}`
 
-A header bar (Back + Edit buttons), one Part Information card
-(ID, name, revision, description), then a tab strip with three tabs:
+A header bar (Back + Edit buttons, with a `Rev <x>` badge when set),
+one Part Information card (ID, name, description), then a tab strip
+with three tabs:
 
 | Tab | Content |
 |---|---|
-| Pins | The UUT pin map (one row per pin: pin, signal, description) |
+| Pins | The part's pin map (one row per pin: Name, Net, Description) |
 | Characteristics | One row per characteristic: name, function, direction, units, limit shape |
 | Stations | Compatible stations + the required capabilities the matcher resolved against. Each entry is a card with a View button that opens the matching station detail page. |
 
@@ -58,7 +59,7 @@ A header bar with the part name + a "Changes auto-saved" hint
 | Tab | Content |
 |---|---|
 | Info | Name / Description / Revision (Part ID is read-only) |
-| Pins | Per-pin rows — add, remove, or edit pin / signal / description |
+| Pins | Per-pin rows — add, remove, or edit Name / Net / Description |
 | Characteristics | Existing characteristics show Function / Direction / Units as a read-only summary; the **Add Characteristic** dialog is where you set those fields on new entries. |
 
 ## New — `/parts/new`
@@ -70,9 +71,9 @@ characteristics in their dedicated tabs.
 
 ## Underlying data
 
-Parts are stored as YAML — either flat (`parts/<id>.yaml`) or
-in a per-part subdirectory (`parts/<id>/<id>.yaml`); both
-layouts are supported.
+Parts are stored as YAML — either flat (`parts/<id>.yaml`) or as a
+per-part folder (`parts/<id>/spec.yaml`, with an optional
+`manifest.yaml`); both layouts are supported.
 
 For the YAML schema, see
 [Configuration reference → Parts](../configuration.md#part-yaml).
@@ -83,9 +84,9 @@ For the concept, see [Concepts → Parts](../../concepts/configuration/parts.md)
 - **Add a characteristic** — open `/parts/{id}/edit`, switch to
   the Characteristics tab, click Add. The dialog captures name,
   function, direction, and units. **Limits and tolerance bands are
-  set in the part YAML**, not in this UI — edit the YAML in
-  `parts/<id>/<id>.yaml` (or the flat-layout equivalent) and the
-  Detail page picks them up on next load.
+  set in the part YAML**, not in this UI — edit the part YAML
+  (`parts/<id>.yaml` or `parts/<id>/spec.yaml`) and the Detail page
+  picks them up on next load.
 - **Check which stations can run this part** — pre-fill the
   [Launch Test](launch.md) page with `?part=<id>` and read the
   Station hint.

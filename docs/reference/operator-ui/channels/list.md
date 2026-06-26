@@ -12,45 +12,47 @@ row to drill into the [single-channel chart](detail.md).
 
 ![Channels — table](../../../_assets/operator-ui/channels/table.png)
 
-A count above the table tells you how many channels are registered.
+A count above the table tells you how many channels have been seen.
 
 | Column | What it shows |
 |---|---|
 | Channel ID | The channel's identifier — typically `<instrument-role>.<signal>` or `<channel-name>` |
 | Latest | The most recent sample, with units appended when known. `—` when no samples yet. |
 | History | An inline sparkline of the last 50 samples (or `—` for series with fewer than 2 samples). |
-| Type | Sample data type (`float`, `array`, ...) from the channel descriptor |
+| Type | Sample data type (e.g. `scalar:float`, `array:float`) from the channel descriptor |
 | Instrument | The instrument role this channel belongs to, when known |
 | Last updated | When the most recent sample arrived, in browser-local time |
 
 The table is dense — rows are about 30 pixels tall; sparklines
 render inside the row at 80×24 pixels.
 
+## Filters
+
+A filter card above the table narrows the list: **Channel ID contains**,
+**Type**, **Instrument**, and a **Since / Until** date window, plus a
+**Refresh** button. When you arrive from a run (via its detail page), a
+banner scopes the list to that session with a Clear button.
+
 ## Live updates
 
-The view watches the event log for `instrument.read` and
-`instrument.set` events and refreshes the table when a new sample
-arrives — no manual reload needed. Cells re-render in place;
-unchanged rows don't repaint, so the view stays calm during quiet
-periods. If the event log isn't running, the page falls back to a
-2-second polling loop.
+The view refreshes live as channels appear and update — no manual
+reload needed. Cells re-render in place; unchanged rows don't repaint,
+so the view stays calm during quiet periods. If live events aren't
+available, the page falls back to polling every couple of seconds.
 
 ## Empty state
 
-When no channels are registered, the table is replaced with a card
+When no channels have been written yet, the table is replaced with a card
 explaining how channels get populated: "Channels appear once a test
 writes to the channel store (e.g. `context.observe('scope', value)`
 or instrument observers)."
 
 ## Underlying data
 
-Channels live in the channel store — separate from the run / event /
-measurement stores because the sample shape (numeric streams, arrays,
-images) doesn't fit the row-per-measurement model the other stores use.
-
-The page reads from the channel store directly. Programmatic access
-goes through `litmus.data.ChannelStore`; there is no first-class CLI
-equivalent today.
+Channel samples are stored separately from runs and measurements.
+Programmatic access goes through `ChannelStore`
+(`from litmus.data.channels.store import ChannelStore`); there is no
+first-class CLI equivalent today.
 
 ## Common tasks
 

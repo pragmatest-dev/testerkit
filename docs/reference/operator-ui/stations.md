@@ -66,10 +66,11 @@ header, a tab strip with two tabs:
 
 ## New — `/stations/new`
 
-A single form with the same Info + Instruments fields as Edit, plus
-an editable Station ID at the top (renaming after creation means
-delete + recreate). After creation, the page redirects to
-`/stations/{id}`.
+A single form with the same Info fields as Edit, plus an editable
+Station ID at the top (renaming after creation means delete +
+recreate). Its Add Instrument dialog selects an instrument **type**
+(Edit's dialog instead takes a driver / import path). After creation,
+the page redirects to `/stations/{id}`.
 
 ## Underlying data
 

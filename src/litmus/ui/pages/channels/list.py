@@ -283,7 +283,7 @@ def channels_page(
             event_store = EventStore.get_shared(resolve_data_dir())
             subscribe_with_refresh(
                 event_store,
-                ["instrument.read", "instrument.set"],
+                ["channel.started", "instrument.set"],
                 refresh,
             )
         except (OSError, RuntimeError):
