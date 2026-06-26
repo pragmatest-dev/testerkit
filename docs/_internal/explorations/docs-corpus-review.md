@@ -164,6 +164,13 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4b — integration (migration/integration surface; competitor refs ALLOWED here for concept-translation/migration)
+- integration/runtime/pytest-existing — CRIT accuracy: `from litmus.execution.logger import RunScope` is a
+  ModuleNotFoundError (the module was renamed logger→run_scope) — resolved by demoting Path C to a harness.md
+  pointer (wrong audience for inline TestHarness/RunScope anyway). Install: git-clone + `uv add ~/src/litmus`
+  + "PyPI release coming" → `pip install litmus-test` (verified litmus-test IS live on PyPI 0.2.0 — the stale
+  checkout framing was wrong). Audience: RunEnded/autouse-logger→aborted symptom, argparse.ArgumentError→
+  actionable, "synthesizes per-role auto-fixture"→"one fixture per instrument", trimmed "autouse run setup".
+  Kept the strong incremental-adoption value prop + Path A/B examples. docs-writer; re-audit 0/0. ✅
 - integration/data/index — clean; dropped the brittle "ten shipped dashboards" count to match grafana.md.
   **Integration DATA sub-cluster (5 pages) DONE.** ✅
 - integration/data/lakehouse-import — 3 CRIT accuracy (v1→v2 schema drift): the filename pattern + every

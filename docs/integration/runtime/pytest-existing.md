@@ -8,14 +8,8 @@ The longer version is the rest of this page: install, what auto-loads, what fixt
 
 ## Install
 
-Add `litmus-test` to your project (PyPI release coming; for now install from a checkout):
-
 ```bash
-git clone https://github.com/pragmatest-dev/litmus.git ~/src/litmus
-
-# From inside your existing pytest project:
-uv add ~/src/litmus
-# or: uv pip install -e ~/src/litmus
+pip install litmus-test
 ```
 
 That's it. Litmus's pytest plugin registers via its entry point in `pyproject.toml` — pytest discovers and loads it automatically. **You do not need to add `pytest_plugins = ["litmus"]` to your conftest.**
@@ -29,7 +23,7 @@ The plugin registers these CLI flags out of the box:
 
 The full table with defaults and descriptions is in [reference/pytest-native.md](../../reference/overview/pytest-native.md). Dynamic flags for profile facets and `required_inputs:` keys are also registered — see that page.
 
-**Do not re-register these in your own `pytest_addoption`** — pytest treats duplicate flag registration as a fatal `argparse.ArgumentError` at collection. The plugin already owns them.
+Don't re-register these in your own `pytest_addoption` — pytest fails at collection if a flag is registered twice; the plugin already owns them.
 
 ## Verify it loaded
 
@@ -41,7 +35,7 @@ The plugin name appears in the loaded-plugins list at the top of the output. If 
 
 ## What fixtures appear
 
-The plugin provides a set of [plugin fixtures](../../reference/pytest/fixtures.md) (most-used: `verify`, `measure`, `context`, `pins`, `instruments`). It also synthesizes one [per-role auto-fixture](../../reference/pytest/fixtures.md#per-role-auto-fixtures) per instrument in the active station YAML — so a station with `instruments: { dmm: ..., psu: ..., scope: ... }` exposes `dmm`, `psu`, `scope` as fixtures automatically. No wrapper code needed.
+The plugin provides a set of [plugin fixtures](../../reference/pytest/fixtures.md) (most-used: `verify`, `measure`, `context`, `pins`, `instruments`). It also creates one fixture per instrument in the active station YAML — a station with `instruments: { dmm: ..., psu: ..., scope: ... }` exposes `dmm`, `psu`, `scope` as fixtures automatically. No wrapper code needed.
 
 ```python
 # tests/test_voltage.py — a new pytest test that uses Litmus
@@ -147,36 +141,13 @@ run.finish()
 `LitmusClient` is a chained builder — `run.step()` and `step.vector()` are context managers; `run.finish()` finalizes and saves. Full API on [`reference/client.md`](../../reference/runtime/client.md).
 
 - Pros: zero plugin dependency; works from any Python code (LabVIEW Python Node, TestStand Python adapter, standalone scripts).
-- Trade-off: don't mix Path B with Path A in the same pytest session — the plugin's autouse run setup and a manually-constructed `LitmusClient` would each open their own run, producing duplicate parquet rows.
+- Trade-off: don't mix Path B with Path A in the same pytest session — the plugin and a manual `LitmusClient` would each open a run, producing duplicate rows.
 
 Use this when you've got an existing pytest suite you don't want to touch, or when you're driving Litmus from non-pytest code. See also [submitting results from non-pytest sources](../data/results-api.md).
 
-### Path C — `TestHarness` for non-pytest runners
+### Path C — non-pytest runners
 
-The lowest-level run-tracking primitive. Same machinery the pytest plugin sits on, but you own the lifecycle.
-
-```python
-from litmus import Limit
-from litmus.execution.harness import TestHarness
-from litmus.execution.logger import RunScope
-
-logger = RunScope(uut_serial="SN001", station_id="bench_1")
-harness = TestHarness(logger=logger)
-
-with harness.step("test_power_rails"):
-    vcc = measure_vcc()
-    vdd = measure_vdd()
-    harness.measure("vcc", vcc, limit=Limit(low=3.2, high=3.4, unit="V"))
-    harness.measure("vdd", vdd, limit=Limit(low=1.7, high=1.9, unit="V"))
-```
-
-`TestHarness.measure()` takes `name`, `value`, optional `unit`, `limit` (a `Limit` model — no `low=` / `high=` kwargs), `uut_pin`, `instrument_channel`, `fixture_connection`. When `limit=` is not passed, the harness resolves limits from its `limits=` / `config["limits"]` (whichever you provided at construction) and the active `part_context`; see [integration/harness.md → Recording measurements](harness.md#recording-measurements).
-
-- Pros: the most direct way to drive Litmus from non-pytest Python (Robot Framework, unittest, ad-hoc scripts).
-- Trade-off: don't construct `RunScope` at module-import time — it captures git state and the hostname for the `TestRun` record at construction, and you'd rather that snapshot happen at session start, not module load. Open the event log explicitly afterward (`logger.event_log = store.get_event_log(...)`) so it lines up with the session boundary. That work belongs in a session-start hook or `pytest_sessionstart`, not at import.
-- Trade-off: in a pytest project where the plugin is loaded, the autouse run setup already does this work for you. Path C is for the non-pytest case.
-
-See [test harness](harness.md) for the imperative-runner integration guide.
+**Driving Litmus from a non-pytest runner** (Robot Framework, unittest, ad-hoc scripts)? Use `TestHarness` — see [test harness](harness.md). In a pytest project the plugin already does this for you; you don't need it here.
 
 ### Path D — `VisaInstrument` to replace ad-hoc driver code
 
@@ -315,7 +286,7 @@ litmus show <run_id>         # detailed report for one run
 litmus serve                 # operator UI at http://localhost:8000
 ```
 
-If `litmus runs` is empty, check that the test session reached `RunEnded` (the plugin's autouse `logger` finalizes the run at session end). A killed pytest process produces a parquet stamped `aborted` — see [outcomes](../../concepts/execution/outcomes.md#aborted-process-died-before-cleanup).
+If `litmus runs` is empty, the session likely didn't finish cleanly — a killed pytest process leaves the run stamped `aborted`. See [outcomes](../../concepts/execution/outcomes.md#aborted-process-died-before-cleanup).
 
 ## What this gets you vs what it costs
 
