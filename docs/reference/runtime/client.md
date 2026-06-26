@@ -145,7 +145,7 @@ with run.step("voltage_sweep") as step:
 | `vec.fail(message=None)` | Mark this vector as failed; does not propagate to the parent step until the step ends. |
 | `vec.skip(message=None)` | Mark this vector as skipped. |
 
-`vec.fail` / `vec.skip` are the vector-scoped versions of the step methods — set the outcome on the active `TestVector` instead of the `TestStep`. Use them when an inner sweep iteration should be marked individually while the rest of the step proceeds.
+`vec.fail` / `vec.skip` are the vector-scoped versions of the step methods — they mark this vector's outcome individually, leaving the rest of the step untouched. Use them when an inner sweep iteration should be marked while the rest of the step proceeds.
 
 ## Complete Example
 

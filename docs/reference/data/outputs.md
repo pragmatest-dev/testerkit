@@ -1,14 +1,14 @@
 # Output Formats
 
-Litmus produces test data through a fixed pipeline — three on-disk stores plus two CLI commands for post-hoc rendering and conversion.
+Litmus produces test data through a fixed pipeline — four on-disk stores plus two CLI commands for post-hoc rendering and conversion.
 
 ## What's always on
 
 ```
 test execution
-    └→ events/   (Arrow IPC + DuckDB index — typed events, durable WAL)
-    └→ runs/     (sealed per-run Parquet — analysis-ready, lakehouse-readable)
-    └→ channels/ (Arrow IPC — time-series instrument samples)
+    └→ events/   (typed event log)
+    └→ runs/     (sealed per-run Parquet — analysis-ready)
+    └→ channels/ (time-series instrument samples)
     └→ files/    (captured artifacts — images, video, vendor files)
 ```
 
@@ -32,7 +32,7 @@ litmus show abc123 -f json         # JSON
 
 ### `litmus export <run_id> -f <format> [-o <dir>]`
 
-Converts a stored run to industry data formats by replaying its events through the format converter.
+Converts a stored run to industry data formats.
 
 ```bash
 litmus export abc123 -f csv                            # CSV (built-in)
@@ -60,16 +60,16 @@ Bundle: `pip install litmus-test[all-exporters]` installs `stdf`, `hdf5`, `tdms`
 
 ## Cloud destinations (S3, Snowflake, lakehouse)
 
-For shipping data to cloud destinations or lakehouse formats (Snowflake, Delta, Iceberg), Litmus does not ship a built-in transport in the current release — design with real requirements is deferred to a future release. The parquet files in `runs/` are the contract. Consumers run their own pipeline:
+For shipping data to cloud destinations or lakehouse formats (Snowflake, Delta, Iceberg), Litmus does not ship a built-in transport in the current release. The parquet files in `runs/` are the contract. Consumers run their own pipeline:
 
 - **DuckDB / Polars / Pandas:** read directly from `data/runs/{date}/*.parquet`. Rows are typed by `record_type` (`run` / `step` / `vector`); measurements are nested under the vector rows, so `UNNEST(measurements)` to flatten them.
 - **Snowflake / Databricks / Trino-Iceberg:** copy parquets to your storage layer and ingest with a `record_type`-keyed split (`run` / `step` / `vector`), unnesting the vector rows' `measurements` list into your measurement fact table.
 
 Canonical recipes — see [Lakehouse Import](../../integration/data/lakehouse-import.md).
 
-## Subscribers — internal mechanism
+## Adding a format
 
-The `EventSubscriber` class in `litmus.data.event_log` powers the exporter subscribers (`CsvSubscriber`, `JsonSubscriber`, `Hdf5Subscriber`, `Mdf4Subscriber`, `StdfSubscriber`) and the `litmus export` replay path. The canonical run parquet is produced by `materialize_run_to_parquet()` rather than a subscriber — it runs from the runs daemon's `AccumulatorPool` on `RunEnded`. This is not a public extension protocol: third-party packages should not register subscribers via entry points or any other mechanism. The set of supported formats is fixed by the package and surfaced through `litmus show` / `litmus export`.
+The set of export formats is fixed by the package; there is no third-party plugin hook to register new ones. To produce a format Litmus doesn't ship, read the parquet in `runs/` and convert it yourself (see the cloud-destinations recipe above).
 
 
 ## See also

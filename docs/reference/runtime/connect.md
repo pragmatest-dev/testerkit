@@ -2,8 +2,6 @@
 
 `connect()` is the entry point for non-pytest instrument access. Scripts, Jupyter notebooks, the operator UI, and background monitors all use it to acquire a `StationConnection` that owns the event log, the channel store, and the locked instruments for the session.
 
-Source: `src/litmus/connect.py`.
-
 ## Function signature
 
 ```python
@@ -12,7 +10,7 @@ from litmus import connect
 connect(
     station: str | None = None,
     *,
-    data_dir: Path | str | None = None,
+    data_dir: Path | None = None,
     mock: bool = False,
 ) -> StationConnection
 ```
@@ -20,10 +18,10 @@ connect(
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `station` | `str \| None` | `None` | Station id. `None` reads `default_station` from `litmus.yaml` in the CWD ancestors. |
-| `data_dir` | `Path \| str \| None` | `None` | Where to write events / channels. Resolution: explicit arg → `litmus.yaml` `data_dir:` → `LITMUS_HOME` → `platformdirs.user_data_dir("litmus")`. |
+| `data_dir` | `Path \| None` | `None` | Where to write events / channels. Resolution: explicit arg → `litmus.yaml` `data_dir:` → `LITMUS_HOME` → the platform default user-data directory. |
 | `mock` | `bool` | `False` | Use mock instruments. Skips resource locking — multiple mock connections can hold the same role. |
 
-Returns a `StationConnection`. Usable as a context manager (`with connect(...) as station:`) or with the explicit `start()` / `stop()` lifecycle.
+Returns a `StationConnection`. Usable as a context manager (`with connect(...) as station:`) or with the explicit `start()` / `stop()` calls.
 
 ## Quick start
 
@@ -63,13 +61,13 @@ Constructor: `StationConnection(station_config: StationConfig, *, data_dir: Path
 | `event_log` | `EventLog \| None` | Active event log (after `start()`). |
 | `event_store` | `EventStore \| None` | Active event store (after `start()`). |
 | `channel_store` | `ChannelStore \| None` | Active channel store (after `start()`). |
-| `instrument_server_address` | `str \| None` | `host:port` of the IPC instrument server, if running. |
+| `instrument_server_address` | `str \| None` | `host:port` of the instrument server, if running. |
 
-### Lifecycle
+### Start / stop
 
 | Method | Description |
 |---|---|
-| `start()` | Create `EventLog`, emit `SessionStarted`, open `ChannelStore`, build the `InstrumentPool`, register process-exit cleanup. |
+| `start()` | Create `EventLog`, emit `SessionStarted`, open `ChannelStore`, connect and lock the session's instruments, register process-exit cleanup. |
 | `stop(outcome: str = "passed")` | Release all instruments, emit `SessionEnded`, close the event / channel stores. |
 
 ### Instrument access
@@ -79,7 +77,7 @@ Constructor: `StationConnection(station_config: StationConfig, *, data_dir: Path
 | `instrument(role, timeout: float = 0)` | proxied driver | Connect and lock a single instrument by role. Raises `ResourceInUse` if the underlying resource address is locked. |
 | `release(role)` | `None` | Disconnect and unlock a single instrument. |
 | `configure(role, method, **parameters)` | `None` | Emit an `InstrumentConfigure` event — for UI-initiated operations the user needs in the event log. |
-| `start_instrument_server(roles: set[str] \| None = None)` | `str` (`host:port`) | Start the IPC instrument server so external processes can share these instruments. |
+| `start_instrument_server(roles: set[str] \| None = None)` | `str` (`host:port`) | Start the instrument server so external processes can share these instruments. |
 
 ### Events + observations
 
@@ -87,7 +85,7 @@ Constructor: `StationConnection(station_config: StationConfig, *, data_dir: Path
 |---|---|---|
 | `events(*, event_type=None, role=None)` | `list[dict]` | Read events from this session's log. Both filters are optional. |
 | `on_event(callback, *, event_type=None, role=None, since=None)` | `Callable[[], None]` (unsubscribe) | Subscribe to events. Replays matching past events first, then pushes new ones as they arrive. |
-| `observe(key, value, *, unit=None, sample_interval=None)` | `str` (`channel://` URI) | Append a sample to the `ChannelStore`. Returns the claim-check URI other events can reference. |
+| `observe(key, value, *, unit=None, sample_interval=None)` | `str` (`channel://` URI) | Append a sample to the `ChannelStore`. Returns the `channel://` URI other events can reference. |
 | `sync(name, timeout: float \| None = None)` | `None` | Wait at a named sync point. Used for multi-UUT slot coordination. |
 
 ### Context-manager protocol
@@ -111,7 +109,7 @@ psu = station_b.instrument("psu")      # locks GPIB::17::INSTR — works
 dmm = station_b.instrument("dmm")      # raises ResourceInUse
 ```
 
-Lock files live in `~/.local/share/litmus/locks/` (Linux) and use `fcntl.flock()`. They auto-release when the process exits, even on `SIGKILL` — single-machine only; cross-machine coordination is future work.
+Lock files live in `~/.local/share/litmus/locks/` (Linux) and use an OS file lock. They auto-release when the process exits, even on `SIGKILL` — single-machine only; cross-machine coordination is future work.
 
 `mock=True` connections skip locking entirely; multiple mock sessions can hold the same role.
 

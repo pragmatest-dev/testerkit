@@ -163,6 +163,106 @@ before any accuracy audit that diffs against it.
 
 ## Per-page progress log
 
+### Piece 5 — reference (hand-written; excludes the 7 generated [Piece 6] + the operator-UI pages [deferred per 06-24 method revision])
+Working set = 15 pages in 4 sub-clusters: root+overview (2), pytest (3), runtime (3), catalog (3), data (4).
+`overview/skills.md` already done in Piece 1. Coverage gaps 1–5 land mostly in GENERATED pages
+(models.md/query-api.md/cli.md) → handled in Piece 6, not forced into hand-written pages.
+- reference/index — accuracy: `twelve MCP tools`→dropped the count (real count is 13; api.md is the
+  authoritative generated list — a number here is just a second drift site). Verified "seven markers"
+  (`@pytest.mark.litmus_*`) is CORRECT + stable (frozen `LITMUS_MARKER_NAMES` 7-tuple) → left. ✅
+- reference/overview/index — reviewed, clean (no counts, descriptions accurate, links resolve). **Root+overview
+  sub-cluster (2 pages) DONE.** ✅
+- reference/pytest/index — tiny nav page; "seven markers" correct, links resolve, descriptions accurate. Clean. ✅
+- reference/pytest/markers — accuracy 1 CRIT (link `configuration.md#sidecar-yaml`→`../configuration.md#sidecar-yaml`;
+  it lives at reference/, not reference/pytest/) + 1 WARN (`timeout_seconds` "auto-fail after timeout" overstates →
+  "stop waiting after N seconds (returns a timed-out response)"; source returns timed_out=True, no unconditional fail).
+  Audience CRIT: L3 dropped the `LITMUS_MARKER_NAMES` constant + `src/...markers.py` path. KEPT `StackedMarkersError`
+  (user-visible collection-error name, same class as the retained UsageError/MissingLimitError). 30 claims verified
+  correct. STRUCTURAL ADD (tracked Piece-5 task from writing-tests.md): added the `litmus_characteristics` ×
+  `litmus_connections` composition matrix (11 cases + invariants) — VERIFIED line-by-line against connections.py +
+  autouse.py, then re-audited (14/14 claims confirmed, 0 issues). Corrected 2 STALE claims from the old writing-tests.md
+  version before re-adding: case-2 order is char→pin order NOT "fixture-order"; case-11 (chars+channels+no-fixture)
+  now RAISES pytest.UsageError (the "tighten bug #15" guard) NOT "stubs pass through". ✅
+- reference/pytest/fixtures — accuracy 0 CRIT, 2 WARN: `context.limits` was equated "(= `limits` fixture)" but they
+  return different types (LimitsView→raw MeasurementLimitConfig vs _LimitsMapping→resolved Limit) → dropped the
+  equivalence; `vectors` "every source consolidated into one pytest case" is wrong for class/module-level sweeps
+  (they still fan out) → qualified to function-level sources + a note. Audience 3 CRIT internals: L3 `src/...__init__.py`
+  path + private fixture names (`_route_manager`/`_litmus_push_params`); L332 `hooks.py:232–274` file:line → all removed.
+  2 WARN: "currently-bound connection"→"connection currently being iterated"; `_LITMUS_SLOT_ID`→"(multi-slot)".
+  ~40 fixture claims verified. **pytest reference sub-cluster (3 pages) DONE.** ✅
+  ⚠️ SOURCE NIT (track, code not docs): `connections.py:411` `resolve_test_connections` docstring still says fixtureless
+  instrument_channels "stubs pass through" — stale vs the active L449-456 guard that raises. (joins parquet.py:224-225.)
+- reference/runtime/index — same MCP-count drift: "twelve MCP tools"→dropped the count. OpenHTF mention in See-also
+  points to the integration tree (migration context, allowed) + doesn't claim an adapter → left. ✅
+- reference/runtime/connect — accuracy: 1 WARN only (`connect()` sig + table said `data_dir: Path|str|None`; source is
+  `Path|None` — the `__init__` line already had it right) → fixed both. 30+ claims verified (signature, data_dir resolution,
+  ctx-mgr outcome map, all properties/methods, event class names SessionStarted/SessionEnded/InstrumentConfigure live,
+  per-resource locking, station-config resolution). Audience CRIT L5 `Source: src/litmus/connect.py` removed; scrubs:
+  `platformdirs.user_data_dir`→"platform default user-data directory", `fcntl.flock()`→"an OS file lock", `InstrumentPool`
+  build→"connect and lock the session's instruments", "IPC instrument server"→"instrument server" (×2), "claim-check URI"
+  →"`channel://` URI", "### Lifecycle"→"### Start / stop". ✅
+- reference/runtime/client — accuracy: 28 claims verified, 0 issues. Two of MY suspicions were WRONG: `run.id` IS real
+  (`RunBuilder.id`→UUID; `RunSummary.test_run_id` is the separate query type — both used correctly), and `data_dir="results"`
+  IS the real LitmusClient default. Audience CRIT L148: internal `TestVector`/`TestStep` model names → builder vocab. DECLINED
+  the audience agent's "add 'same store as every runner' framing" — accuracy shows LitmusClient defaults to `./results`, NOT
+  the pytest/connect() litmus.yaml data_dir, so that framing would be FALSE by default. Heading-case/anchors left intact
+  (#from-labview/#querying-results are link targets). **runtime reference sub-cluster (3 pages) DONE.** ✅
+  ⚠️ TRACKED DIVERGENCE (code design, not a doc bug): `LitmusClient(data_dir="results")` hardcoded default ≠ the
+  `resolve_data_dir()`/litmus.yaml convention pytest + connect() use. So LitmusClient writes to ./results by default while
+  pytest writes to the project data_dir — they are NOT the same store unless data_dir is passed. integration/data/results-api.md
+  (Piece 4b, already closed) says "the same store every Litmus runner writes to" — mildly overclaims given this default.
+  Surface to user as a source-design question; do NOT silently edit.
+- reference/catalog/index — reviewed, clean (descriptions accurate, links resolve). No changes.
+- reference/catalog/schema — accuracy: 2 CRIT broken links (`catalog-cookbook.md`→`cookbook.md` at L5 + L372) + 1 WARN
+  fragile anchor (`models.md#catalog-entry--litmusmodelscatalog`→ stable `#model-instrumentcatalogentry`, matching
+  configuration.md). 40+ field/enum/validator claims verified correct. Audience: `ValueError`×2 (L226/L333)→outcome
+  language (mirroring L364's "raises with the offending field path"); "deep-merge / (function, direction) key" jargon
+  (L335)→"matched to its base by function+direction; declare only what changes". DECLINED the agent's L20 `UUT`→`DUT`
+  (agent had it BACKWARDS — dut→uut rename #258 makes UUT canonical; `uut_serial` confirms). ✅
+- reference/catalog/cookbook — 3 CRIT accuracy (real load failures): L3 dead link `catalog-schema.md`→`schema.md`;
+  Recipe 2 first block `when:` referenced undeclared `fundamental_frequency` (when-key validator raises) AND matched the
+  options control `acquisition_mode` with integer ranges `{min:0,max:0}` (band_matches needs bare-string equality) →
+  declared `fundamental_frequency` as a condition + switched to `acquisition_mode: single/automatic`; Recipe 9 nested
+  board attrs under a `catalog_entry:` wrapper key (extra=forbid → fails; schema.md L13 confirms "no catalog_entry wrapper")
+  → moved to root `attributes:`. WARN: Recipe 7 `function: cap_A/B/C` non-enum → real MeasurementFunctions
+  (dc_voltage/ac_voltage/resistance); `specs[]`→`bands` (L375). Audience: scrubbed the leaked `/catalog-from-datasheet`
+  skill-pipeline vocabulary — "# Inventory:"→"# Datasheet:" throughout, dropped "the inventory agent read the datasheet,
+  you didn't" (wrong reader), "USER-SELECTABLE SETTINGS/GROUND TRUTH"→"what the datasheet states". Re-audit: all 14
+  recipes parse, 3 rewrites correct, 0 new errors. **catalog reference sub-cluster (3 pages) DONE.** ✅
+  ⚠️ SOURCE BUG (track, code not docs): `store.py:946-955` `_deep_merge_cap` branches on `"specs" in v_param` when
+  appending variant band lists, but the model field is `bands` (extra=forbid rejects `specs:`) — variant band-merge is
+  dead/stale. (joins parquet.py:224-225 + connections.py:411.) Also model docstrings capability.py:182,188 use stale `specs:`.
+- reference/data/index — accuracy: removed `ATML` from the export-format list (no ATML exporter; csv/json/stdf/hdf5/tdms/mdf4).
+  Descriptions accurate, links resolve. ✅
+- reference/data/parquet-schema — accuracy: 68 claims verified, 0 issues (schema 2.0 nested-measurements, all column/struct/
+  lane/enum/comparator names, filename pattern, retries, measurements_dynamic EAV all correct). Audience: 3 CRIT source-path
+  citations (L15 schemas.py/RUN_ROW_SCHEMA, L334 models.py/Outcome, L383 schemas.py/SCHEMA_VERSION) → dropped paths (kept
+  user-visible `"2.0"` value); reframed "the DuckDB daemon UNNESTs/projects…" → "the query projection / the Query API …"
+  (8 occurrences) — internal actor the SQL user never sees. EAV/ATML-traceability table left (legit mappings). ✅
+- reference/data/outputs — accuracy: 1 WARN (L3 "three on-disk stores"→"four"; diagram+L15 already said four). NO ATML
+  confirmed absent (appears only as standards-lineage in models). All show/export formats + extras verified. Audience CRIT:
+  deleted the "## Subscribers — internal mechanism" section (EventSubscriber/*Subscriber/materialize_run_to_parquet/
+  AccumulatorPool/RunEnded class+fn+module leaks) → one user-facing "## Adding a format" para (closed set, no plugin hook,
+  read the parquet yourself). Scrubs: diagram storage-engine internals (Arrow IPC/DuckDB index/durable WAL/lakehouse-readable);
+  "replaying its events through the format converter"→"Converts a stored run…"; dropped the aspirational "design…deferred to
+  a future release" hedge. ✅
+- reference/data/performance-limits — accuracy: 38 claims verified, 0 CRIT/WARN; numbers correctly framed as empirical (not
+  hard-coded). 1 SUGGESTION (unverifiable "5 s READY budget"→"repeated re-scans add perceptible lag"). Audience (heavily
+  dev-facing page): CRIT dropped the `_internal/explorations/data-stores.md` link from a published page; CRIT scrubbed the
+  fork-deadlock section's deepest internals (mutex-copy mechanics, `pstack`) but KEPT the warning + the verified `spawn`-not-
+  `fork` fix (the page's most load-bearing operational caveat). Scrubs: PR #39 / shm-transport item #22 provenance; internal
+  cause-clauses (Flight RPC handshake / ext4 dirent / save_test_run / log-segment-blob writers) → observable phrasing;
+  `.npy serializer`→"Writes a .npy file"; gate-authoring repetition + roadmap-scope narration trimmed. Kept all empirical
+  ceilings/cliffs + `litmus benchmark` repro path. **data reference sub-cluster (4 pages) DONE.** ✅
+
+**PIECE 5 COMPLETE — all 15 hand-written reference pages at 0 critical** (root+overview 2, pytest 3, runtime 3, catalog 3,
+data 4). Method held: 2-lens (accuracy+audience), direct source-verification of every load-bearing claim, re-audit only on
+criticals/structural adds. Real bugs found: 3 broken catalog links, 2 cookbook recipes that failed to load (when-validator +
+extra=forbid wrapper), cookbook non-enum functions, ATML in 2 export lists, MCP-count drift (12→13) on 3 nav pages, and the
+markers composition matrix (verified-correct 11-case add). Source nits tracked for user: parquet.py:224-225, connections.py:411,
+store.py:946-955 (+capability.py:182,188 docstrings). DEFERRED to a later pass (per 06-24 method revision): the operator-UI
+reference pages. Generated reference (7) = Piece 6 (verify-only).
+
 ### Piece 4b — integration (migration/integration surface; competitor refs ALLOWED here for concept-translation/migration)
 **PIECE 4b COMPLETE — all 10 integration pages done** (data 5: grafana, results-api, logging, lakehouse-import,
 index; runtime 4: pytest-existing, harness, instruments, index; integration/index). Real bugs found: grafana

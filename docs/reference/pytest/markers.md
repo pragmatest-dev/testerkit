@@ -1,6 +1,6 @@
 # Litmus markers
 
-The Litmus pytest plugin registers **seven markers** (`LITMUS_MARKER_NAMES` in `src/litmus/pytest_plugin/markers.py`). Each maps 1:1 to a field on `TestEntry` (the recursive node type in the sidecar YAML), so anything you can write inline as a marker, you can write in the sidecar — and vice versa.
+The Litmus pytest plugin registers **seven markers**. Each maps 1:1 to a field on `TestEntry` (the recursive node type in the sidecar YAML), so anything you can write inline as a marker, you can write in the sidecar — and vice versa.
 
 Pytest's own markers (`@pytest.mark.parametrize`, `@pytest.mark.skip`, `@pytest.mark.flaky` from `pytest-rerunfailures`, etc.) work unchanged. Litmus's markers slot in alongside them.
 
@@ -197,7 +197,7 @@ def test_visual(prompt, verify):
 | `message` | `str` | (required) | Prompt text shown to the operator |
 | `prompt_type` | `"confirm" \| "choice" \| "input"` | `"confirm"` | What the operator UI shows |
 | `choices` | `list[str] \| None` | `None` | For `"choice"` type |
-| `timeout_seconds` | `int \| None` | `None` | Auto-fail after timeout |
+| `timeout_seconds` | `int \| None` | `None` | Stop waiting after N seconds (returns a timed-out response) |
 
 **Sidecar equivalent:**
 
@@ -207,6 +207,35 @@ prompts:
 ```
 
 ---
+
+## Composing `litmus_characteristics` + `litmus_connections`
+
+These two markers are the two halves of selecting which connections a test iterates over `ctx.connections` (the `connections` fixture): `litmus_characteristics` says *which characteristic* on the part, and `litmus_connections` says *which fixture connections* to bind. They're independent, so every combination of present / absent / by-name / by-channel / fixture-loaded / fixture-absent has a defined behavior. Find the row that matches your test.
+
+`litmus_connections` takes one of two shapes (not both at once):
+
+- **`[name, ...]`** — bind by fixture-connection name. Requires a fixture YAML.
+- **`{instrument: [channels], ...}`** — bind by instrument → channel selector. Works without a fixture (synthesizes stubs) for early bringup.
+
+| Case | `litmus_characteristics` | `litmus_connections` | Fixture loaded? | Result |
+|------|---------------|----------------------|-----------------|--------|
+| 1 | — | — | any | No markers → `ctx.connections` is `None`; the test runs once with no connection context. |
+| 2 | `[X]` | — | yes | Iterate the fixture connections whose `uut_pin` (or `net`) matches a pin in `X`'s resolved pins. Order: characteristic order, then each characteristic's pin order (deduplicated). |
+| 3 | `[X]` | — | no | Empty iterator — no fixture means no connections to bind. The test iterates `ctx.connections` zero times. |
+| 4 | — | `[a, b]` (names) | yes | Iterate the named connections in the order listed. Unknown name → `pytest.UsageError`. |
+| 5 | — | `[a, b]` (names) | no | `pytest.UsageError` — connection names are only meaningful against a fixture YAML. |
+| 6 | — | `{inst: [ch]}` (channels) | yes | Match each `(instrument, channel)` against fixture connections, in listed order. No match → `pytest.UsageError`. `'all'` selects every connection on that instrument. |
+| 7 | — | `{inst: [ch]}` (channels) | no | Synthesize connection stubs (`name="{inst}_ch{ch}"`, no `uut_pin`) for early bringup. `'all'` → `pytest.UsageError` (nothing to enumerate). |
+| 8 | `[X]` | `[a, b]` (names) | yes | Resolve the names (case 4), then require every selected connection's `uut_pin` to fall in the union of the characteristics' pin sets. Out-of-set → `pytest.UsageError`. Listed order wins. |
+| 9 | `[X]` | `[a, b]` (names) | no | `pytest.UsageError` (case 5 — a fixture is required for connection names). |
+| 10 | `[X]` | `{inst: [ch]}` (channels) | yes | Resolve the channels (case 6), then require every match's `uut_pin` to fall in the union pin set. Out-of-set → `pytest.UsageError`. Listed order wins. |
+| 11 | `[X]` | `{inst: [ch]}` (channels) | no | `pytest.UsageError` — fixtureless channel stubs have no `uut_pin` to cross-check against the characteristics. Drop `litmus_characteristics` for pure bringup, or load a fixture. |
+
+Invariants across the matrix:
+
+- **No part loaded, or an unknown characteristic ID** → `pytest.UsageError`.
+- **Iteration order** — when `litmus_connections` is present it sets the order (user-listed); with characteristics alone, the order follows characteristic order then each characteristic's pin order.
+- **Declared but un-iterated** — if connections resolve to a non-empty set and the test body never iterates `ctx.connections`, the test fails with `AssertionError`. An empty resolved set (case 3) is not an error; the body just runs zero rounds.
 
 ## Where markers live
 
@@ -218,7 +247,7 @@ Same vocabulary, three delivery channels:
 | Sidecar YAML (`tests/test_<module>.yaml`) | `limits: { output_voltage: { low: 3.135, high: 3.465, unit: V } }` |
 | Profile YAML (`profiles/*.yaml`) | Same shape; applies session-wide via `--test-profile=<name>` |
 
-Resolution order (least → most specific): inline marker (class then method) → sidecar file-level → sidecar class/method → profile chain. Sidecar overrides inline because sidecar markers are applied after inline decorators and the resolver is last-wins. CLI flags (`-k`, `-m`, `--mock-instruments`, etc.) compose with this chain rather than overriding it wholesale. See [Test configuration](configuration.md#sidecar-yaml) for the full merge semantics.
+Resolution order (least → most specific): inline marker (class then method) → sidecar file-level → sidecar class/method → profile chain. Sidecar overrides inline because sidecar markers are applied after inline decorators and the resolver is last-wins. CLI flags (`-k`, `-m`, `--mock-instruments`, etc.) compose with this chain rather than overriding it wholesale. See [Test configuration](../configuration.md#sidecar-yaml) for the full merge semantics.
 
 ## See also
 

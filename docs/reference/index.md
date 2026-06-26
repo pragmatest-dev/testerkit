@@ -40,7 +40,7 @@ The interactive and programmatic surfaces — for LabVIEW, TestStand, scripts, d
 
 - [`LitmusClient`](runtime/client.md) — Python client that submits test runs (no pytest required). Suits LabVIEW / TestStand bridges.
 - [`connect()`](runtime/connect.md) — interactive instrument access for scripts, notebooks, the operator UI. Returns a `StationConnection` with the full event-log / channel-store / instrument-pool surface.
-- [HTTP & MCP API](runtime/api.md) — REST endpoints exposed by `litmus serve`, plus the twelve MCP tools (generated). Same shapes either way.
+- [HTTP & MCP API](runtime/api.md) — REST endpoints exposed by `litmus serve`, plus the MCP tools (generated). Same shapes either way.
 
 ## Operator UI (`litmus serve`)
 

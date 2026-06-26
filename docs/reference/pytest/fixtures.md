@@ -1,6 +1,6 @@
 # Litmus fixtures
 
-The bundled pytest plugin registers a set of public fixtures, defined in `src/litmus/pytest_plugin/__init__.py`. Take any of them in a test's signature; pytest resolves and injects them by name. Names beginning with `_` (e.g. `_route_manager`, `_litmus_push_params`) are internal and may change without notice.
+The bundled pytest plugin registers a set of public fixtures. Take any of them in a test's signature; pytest resolves and injects them by name. Names beginning with `_` are internal and may change without notice.
 
 This page is the comprehensive reference. For a guided introduction see the [tutorial](../../tutorial/); for the seven `@pytest.mark.litmus_*` markers see [Litmus markers](markers.md).
 
@@ -193,7 +193,7 @@ def test_lookup(fixture_manager):
 
 ## Reading per-test state
 
-The active vector's params, observations, and currently-bound connection.
+The active vector's params, observations, and the connection currently being iterated.
 
 ### `context` — function
 
@@ -210,7 +210,7 @@ Returns a `Context` exposing the run / UUT / station / vector state for the acti
 | `context.part` | `Part \| None` | Active part definition (= `part` fixture). |
 | `context.station` | `StationConfig \| None` | Active station config (= `station_config` fixture). |
 | `context.run` | `TestRun \| None` | The current `TestRun`. |
-| `context.limits` | `LimitsView` | Read-only limits mapping (= `limits` fixture). |
+| `context.limits` | `LimitsView` | Read-only view of the active limits. |
 | `context.characteristics` | `tuple[str, ...]` | Active characteristic IDs from `litmus_characteristics`. |
 
 ```python
@@ -284,7 +284,7 @@ Two fixtures that drive the test body's iteration shape, not just expose data. `
 
 ### `vectors` — function
 
-Taking `vectors` in the test signature switches collection to **self-loop mode**: every source of vectors (`@pytest.mark.parametrize`, `litmus_sweeps`, sidecar `sweeps:`, profile overrides) is consolidated into one matrix at collection time, and the test runs as a single pytest case. The test body iterates the matrix itself:
+Taking `vectors` in the test signature switches collection to **self-loop mode**: the function-level vector sources (`@pytest.mark.parametrize`, function-level `litmus_sweeps`, sidecar `sweeps:`, profile overrides) are consolidated into one matrix at collection time, and the test runs as a single pytest case. (Class- or module-level `litmus_sweeps` still fan out as separate pytest cases — one per outer condition — each running the consolidated inner matrix.) The test body iterates the matrix itself:
 
 ```python
 def test_sweep(vectors, psu, dmm, measure):
@@ -329,7 +329,7 @@ def test_rail(dmm, psu, verify):
     verify("vout", dmm.measure_dc_voltage())
 ```
 
-These names are not hard-coded — they come from your station YAML at session start. Source: `src/litmus/pytest_plugin/hooks.py:232–274`.
+These names are not hard-coded — they come from your station YAML at session start.
 
 ---
 

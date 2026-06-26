@@ -10,9 +10,9 @@ Each Litmus run produces **one Parquet file**. The file has two layers: the at-r
 
 **Measurements are nested, not rows.** Measurements live inside the vector row's `measurements` column as a typed nested list (`LIST<STRUCT>`). Each struct holds `name`, `value`, `unit`, `outcome`, `timestamp`, `limit_*`, `characteristic_id`, `spec_ref`, and signal-path fields (`uut_pin`, `fixture_connection`, `instrument_*`). There is no at-rest `record_type = 'measurement'` row.
 
-**Query projection — four virtual types.** The DuckDB daemon UNNESTs the nested measurements from each vector row into a flat fact and presents a fourth virtual row type `record_type = 'measurement'` in query results. All `WHERE record_type = 'measurement'` queries target this projected view, not the at-rest file. The `inputs` / `outputs` lanes are also projected into the `measurements_dynamic` EAV table (keyed by `role` and `name`) for query-time access. Query output shape is byte-stable regardless of at-rest format changes.
+**Query projection — four virtual types.** The query projection UNNESTs the nested measurements from each vector row into a flat fact and presents a fourth virtual row type `record_type = 'measurement'` in query results. All `WHERE record_type = 'measurement'` queries target this projected view, not the at-rest file. The `inputs` / `outputs` lanes are also projected into the `measurements_dynamic` EAV table (keyed by `role` and `name`) for query-time access. Query output shape is byte-stable regardless of at-rest format changes.
 
-The canonical schema lives in `src/litmus/data/schemas.py` (`RUN_ROW_SCHEMA`); this page is a human-readable mirror of it.
+This page mirrors the canonical at-rest schema; the column names and types here match what `read_parquet` returns.
 
 ## File layout
 
@@ -40,7 +40,7 @@ Timestamps are UTC and sort naturally. The 8-char `run_id` sits right after the 
 - `vector` — one row per execution, keyed `(step_path, vector_index, retry)`. Every step has at least one vector row: its scope vector. Mode-2 (`vectors`-fixture) loops add one iteration vector per pass. The vector row carries `inputs` / `outputs` lane columns and a nested `measurements` list.
 
 **Query projection (virtual fourth type):**
-- `measurement` — the daemon UNNESTs each vector's nested `measurements` list into a flat fact row stamped `record_type = 'measurement'`. These rows exist in query results but not in the at-rest file.
+- `measurement` — the query projection UNNESTs each vector's nested `measurements` list into a flat fact row stamped `record_type = 'measurement'`. These rows exist in query results but not in the at-rest file.
 
 To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type = 'vector'`. To list measurements: `WHERE record_type = 'measurement'`. All kinds: omit the filter.
 
@@ -159,7 +159,7 @@ WHERE record_type = 'step';
 
 At rest, each vector's commanded conditions are stored in the `inputs` column as a typed nested list: `LIST<STRUCT<name, value_type, value_int, value_double, value_bool, value_text, value_timestamp, value_json, unit, uut_pin>>`. One struct per parameter; `value_type` selects which `value_*` field holds the actual value.
 
-The DuckDB daemon projects these lane structs into the `measurements_dynamic` EAV table (keyed by `role='input'` and `name`) for query-time access. See [Query API](query-api.md) for how to select input fields in analysis.
+The Query API projects these lane structs into the `measurements_dynamic` EAV table (keyed by `role='input'` and `name`) for query-time access. See [Query API](query-api.md) for how to select input fields in analysis.
 
 **Entry structure** (one item in the `inputs` list):
 
@@ -197,7 +197,7 @@ Stimulus signal-path sub-fields for each param (also stored in the `inputs` lane
 
 ## Observations (`outputs` lane — at-rest format)
 
-Observations are measured context — readings captured during the test, not commanded values. Stored at rest in the `outputs` column with the same `LIST<STRUCT>` shape as `inputs`. The DuckDB daemon projects these into the `measurements_dynamic` EAV table with `role='output'`.
+Observations are measured context — readings captured during the test, not commanded values. Stored at rest in the `outputs` column with the same `LIST<STRUCT>` shape as `inputs`. The Query API projects these into the `measurements_dynamic` EAV table with `role='output'`.
 
 Each struct entry encodes one observation under `name`. Non-scalar payloads route to the `_ref/` sibling directory and are stored as `file://` URIs with `value_type = 'uri'` in the `value_text` field:
 
@@ -220,7 +220,7 @@ if is_file_reference(column_value):
 
 ## Measurement fields (projected from nested struct)
 
-At rest, measurements live in the vector row's `measurements` column as a `LIST<STRUCT>`. The fields below are exposed as flat columns on the projected `record_type = 'measurement'` rows the daemon surfaces.
+At rest, measurements live in the vector row's `measurements` column as a `LIST<STRUCT>`. The fields below are exposed as flat columns on the projected `record_type = 'measurement'` rows the Query API surfaces.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -297,7 +297,7 @@ At rest, custom metadata is stored as a JSON blob in the Parquet **file-level me
 
 ## `measurements_dynamic` EAV table (query projection)
 
-The daemon projects all `inputs` and `outputs` lane entries into a long EAV table named `measurements_dynamic`. This is what the [Query API](query-api.md) reads when you select inputs or outputs by name.
+The Query API projects all `inputs` and `outputs` lane entries into a long EAV table named `measurements_dynamic`. This is what the [Query API](query-api.md) reads when you select inputs or outputs by name.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -331,8 +331,6 @@ Querying this table directly is rarely needed — use the [Query API](query-api.
 | `aborted` | Run was aborted by operator |
 | `done` | Container outcome — work finished, no measurements |
 
-Source of truth: `src/litmus/data/models.py` (`Outcome`).
-
 ## Comparator values
 
 | Comparator | Pass condition |
@@ -358,7 +356,7 @@ All retries are stored. Each retry produces a new step + vector pair at that exe
 record_type | vector_index | vector_retry | step_outcome   | measurement_name | measurement_value
 step        | 0            | 0            | failed         | —                | —                  ← first attempt (at-rest)
 vector      | 0            | 0            | failed         | —                | —                  ← scope vector with nested measurements
-measurement | 0            | 0            | —              | output_voltage   | 3.50               ← projected (daemon UNNEST)
+measurement | 0            | 0            | —              | output_voltage   | 3.50               ← projected (query-time UNNEST)
 step        | 0            | 1            | failed         | —                | —                  ← first retry
 vector      | 0            | 1            | failed         | —                | —
 measurement | 0            | 1            | —              | output_voltage   | 3.48               ← projected
@@ -380,7 +378,7 @@ Beyond columns, each Parquet file carries metadata:
 | `environment_json` | Full environment snapshot (Python version, OS, Litmus version, top-level deps, lockfile hash) |
 | `custom_metadata` | Run-level custom metadata set via `run_context.set()`, serialized as a JSON object |
 | `litmus_version` | Litmus version that produced this file |
-| `schema_version` | Schema version (`"2.0"` — see `SCHEMA_VERSION` in `src/litmus/data/schemas.py`) |
+| `schema_version` | Schema version (`"2.0"`) |
 
 ```python
 import pyarrow.parquet as pq
@@ -443,7 +441,7 @@ print(failures[["step_name", "measurement_name", "measurement_value",
                 "limit_low", "limit_high", "uut_pin", "instrument_name"]])
 ```
 
-When using Litmus's [Query API](query-api.md), the daemon handles the UNNEST automatically — `WHERE record_type = 'measurement'` works as expected in daemon-mediated queries.
+When using Litmus's [Query API](query-api.md), the UNNEST is handled automatically — `WHERE record_type = 'measurement'` works as expected.
 
 ### Yield by station with DuckDB (direct file — UNNEST required)
 
@@ -464,7 +462,7 @@ GROUP BY 1, 2, 3
 ORDER BY yield_pct ASC;
 ```
 
-When querying via the Litmus Query API or daemon, the UNNEST runs automatically and `WHERE record_type = 'measurement'` works as-is.
+When querying via the Litmus Query API, the UNNEST runs automatically and `WHERE record_type = 'measurement'` works as-is.
 
 ### Cross-run instrument-failure correlation (direct file)
 

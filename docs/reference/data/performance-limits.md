@@ -15,10 +15,9 @@ pytest tests/test_data/test_perf.py -m benchmark --benchmark-only \
     --benchmark-columns=min,mean,stddev,median,iqr,ops
 ```
 
-The 11-sample minimum-over-rounds methodology used by the daemon
-regression gates (`tests/test_data/test_perf_daemon.py`) gives more
-stable numbers than the means below — if you want a *gate*, copy that
-pattern, not the means here.
+The means below are a "what to expect" baseline, not a regression
+gate — a gate wants minimum-over-rounds sampling, which is more stable
+than the means here.
 
 To measure these numbers on **your own** machine — and get a result
 file you can send in when you hit a performance problem — run
@@ -39,14 +38,13 @@ footprint.
 | Query by multi-session | mixed | 5.7 ms | |
 | Pushdown `outcome=failed` | 10k | 38 ms | Typed column. |
 | Pushdown `instrument_role=dmm` | 10k | 26 ms | Typed column. |
-| Query by JSON payload field | 10k | 108 ms | 2.8–4× slower than typed-column pushdown — the headline win from PR #39 (typed payload columns). |
+| Query by JSON payload field | 10k | 108 ms | 2.8–4× slower than typed-column pushdown — the win from promoting common fields to typed payload columns. |
 | Parse-only cost | 10k | 32 ms | Lower bound — what you pay even when the daemon hands you a perfect result set. |
 
 **Cliff:** linear scan past ~10k matched events trends into 100 ms+
-territory. Above that, the UI's 5 s `READY` budget gets nervous if a
-query has to re-scan multiple times in a render. Use the typed-column
-filters when you can — they're the difference between "instant" and
-"perceptible lag."
+territory. Above that, repeated re-scans within a single render add
+perceptible lag. Use the typed-column filters when you can — they're
+the difference between "instant" and "perceptible lag."
 
 ## ChannelStore
 
@@ -66,10 +64,9 @@ filters when you can — they're the difference between "instant" and
 **Cliff:** ChannelStore writes scale linearly through 10k samples. At
 ~130k samples/s the bottleneck is the per-write append + flush
 batching. If you need higher sustained rates — > 50 kHz acquisition,
-many concurrent channels — the data path holds up but the Flight
-subscribe-side starts to lag the producer. The shm-transport PoC
-(item #22, deferred) was an attempt to relieve that path; the v0.2.0
-recommendation is to stay under 50 kHz per channel until that lands.
+many concurrent channels — the data path holds up but the subscribe
+side starts to lag the producer. Stay under ~50 kHz per channel on
+this release.
 
 ## FileStore
 
@@ -81,7 +78,7 @@ recommendation is to stay under 50 kHz per channel until that lands.
 | Bytes blob | 100 KB | 172 µs | 4.7k ops/s, ~470 MB/s | |
 | Bytes blob | 1 MB | 808 µs | 1.1k ops/s, ~1.1 GB/s | Disk cache; the OS hasn't fsynced yet. |
 | Bytes blob | 10 MB | 11 ms median, **23 ms mean** | ~430 MB/s amortized | Stddev climbs sharply — disk pressure dominates above ~5 MB per artifact. |
-| ndarray | 1 KB | 119 µs | 6.9k ops/s | `.npy` serializer + sidecar. |
+| ndarray | 1 KB | 119 µs | 6.9k ops/s | Writes a `.npy` file + sidecar. |
 | ndarray | 100 KB | 210 µs | 4.1k ops/s | |
 | ndarray | 1 MB | 793 µs | 1.1k ops/s | |
 | Waveform (10k samples, .npz) | ~80 KB | 432 µs | 2.1k ops/s | The shape used by `examples/08-waveform-evidence`. |
@@ -100,8 +97,8 @@ page cache). Production retention design should assume reads from
 cold storage are 100×–1000× slower for large artifacts. The
 `resolve_uri` walk is fast today because every test session lands
 in the current date partition; the worst case (cross-month historical
-reads) scales O(days). That's the long-term motivator for L1
-(per-store attribute indexes — see [`data-stores.md` §12](../../_internal/explorations/data-stores.md)).
+reads) scales with the number of days spanned. Per-store indexing to
+flatten that is on the roadmap.
 
 ## Streaming sinks (`files.stream(format=...)`)
 
@@ -148,10 +145,8 @@ Three benchmarks are *known noisy*:
 | `test_write_bytes[10240]` (10 MB) | Disk pressure. The stddev is bigger than the mean. |
 | `test_stream_raw[64]` and `[1024]` | Per-chunk variance dominates. Median is meaningful, mean is not. |
 
-When the v0.3.0 retention work lands, expect to add cold-storage read
-benchmarks plus a "many concurrent producers" sustained-rate test for
-ChannelStore. Neither is in v0.2.0 scope; the producer side is the
-scoped surface for this release.
+Cold-storage read benchmarks and a "many concurrent producers"
+sustained-rate test for ChannelStore are not measured in this release.
 
 ## Concurrency — multi-process scaling
 
@@ -176,17 +171,16 @@ linear scaling; 50 % at N=4 = pretending 4 workers run as 2.)
 * No singleton catastrophe. The EventStore daemon serves N writers
   without going serial; total throughput climbs ~3.9× from N=1 to N=4.
 * Constant per-process cost on EventStore (~89 % efficiency at all N
-  ≥ 2) is the Flight RPC handshake — not the daemon's DuckDB write
-  path. Adding more workers gives you more total work done; it doesn't
-  speed up any one worker.
-* ChannelStore + FileStore lose ~20 % efficiency at N=4 — ext4 dirent
+  ≥ 2) is fixed per-process overhead. Adding more workers gives you
+  more total work done; it doesn't speed up any one worker.
+* ChannelStore + FileStore lose ~20 % efficiency at N=4 — filesystem
   contention on the atomic rename pair dominates. Stddev climbs
   sharply at N=4 on both. Below N=4 it's free.
-* RunStore barely parallelizes (~1.3× from N=1 to N=4): each
-  `save_test_run` writes a parquet file and materializes the run, which
-  is heavy per-op and serializes more than the log/segment/blob writers.
-  Concurrent run materialization is the weakest scaling of the four
-  stores — size accordingly if many stations finalize runs at once.
+* RunStore barely parallelizes (~1.3× from N=1 to N=4): finalizing a
+  run writes a parquet file and materializes it, which is heavy per-op
+  and serializes more than the other stores' writes. Concurrent run
+  finalization is the weakest scaling of the four stores — size
+  accordingly if many stations finalize runs at once.
 
 To reproduce all of this on your own machine, run
 [`litmus benchmark --full`](../../how-to/data/benchmarking.md): it runs
@@ -195,15 +189,13 @@ single-writer throughput and the run's RAM/CPU footprint.
 
 ### ⚠ Fork-deadlock pitfall — must use `spawn`, not `fork`
 
-The EventStore daemon is multi-threaded (Flight RPC threads + ingest
-thread). Python's default `multiprocessing.Pool()` uses `fork()` on
-Linux, which copies the parent's mutex state but **not** the threads
-holding those mutexes. Child processes deadlock on the first
-`event_store.emit(...)` call.
+The EventStore runs background threads. Python's default
+`multiprocessing.Pool()` uses `fork()` on Linux, which doesn't carry
+those threads into the child, so the children deadlock on the first
+store write.
 
-**Symptom:** workers spawn, then hang indefinitely. The parent never
-sees output from the children. `pstack` on a child shows it waiting
-on a mutex no other thread in the child holds.
+**Symptom:** workers spawn, then hang indefinitely; the parent never
+sees output from the children.
 
 **Fix:** use `multiprocessing.get_context("spawn").Pool(...)` instead
 of `Pool(...)`. Slower spawn (each child re-imports Python + libs)

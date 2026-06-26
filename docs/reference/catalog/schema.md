@@ -2,11 +2,11 @@
 
 Authoritative shape of a `catalog/<vendor>/<model>.yaml` entry — fields, validation rules, and a decision tree for where each datasheet spec lands.
 
-For worked recipes (one per recurring datasheet shape), see the [catalog cookbook](catalog-cookbook.md).
+For worked recipes (one per recurring datasheet shape), see the [catalog cookbook](cookbook.md).
 
 **Status:** Frozen at `CATALOG_SCHEMA_VERSION = "1.0"` for the 0.1.0 release. Schema evolution within `1.0` is additive only — new optional fields and new enum values are allowed; renames, removals, and type narrowing require a version bump.
 
-For the full Pydantic model surface backing every field below, see [models reference](../data/models.md#catalog-entry--litmusmodelscatalog).
+For the full Pydantic model surface backing every field below, see [models reference](../data/models.md#model-instrumentcatalogentry).
 
 ## File shape
 
@@ -223,7 +223,7 @@ bands:
     accuracy: {pct_reading: 0.05}
 ```
 
-**`when:` keys** must reference a name in `signals`, `conditions`, or `controls` on the *same capability*. Unknown keys raise `ValueError` and the file fails to load.
+**`when:` keys** must reference a name in `signals`, `conditions`, or `controls` on the *same capability*. Unknown keys are rejected at load time, naming the offending key.
 
 **`when:` values** — pick by what you need to express:
 
@@ -330,9 +330,9 @@ capabilities:
       power: {range: {min: -20, max: 25, unit: dBm}}    # higher output, same shape
 ```
 
-`base:` resolution searches the same directory first, then the catalog root. Circular inheritance and missing-base references raise `ValueError` at load time.
+`base:` resolution searches the same directory first, then the catalog root. Circular inheritance and missing-base references fail to load, naming the offending `base:`.
 
-**What `base:` merges and what it replaces:** capabilities (matched by `(function, direction)` key) deep-merge — variant entries only need to declare the deltas inside matching signals/conditions/controls/attributes. Root-level dicts (`channels:`, `interfaces:`, `attributes:`) and root-level scalars (`type:`, `model:`, etc.) are *replaced wholesale* by the variant if present, *inherited* from the base otherwise. So a variant that needs one extra channel must redeclare all the channels, not just the new one.
+**What `base:` merges and what it replaces:** a variant capability is matched to its base by its `function` + `direction`; inside a matched capability you declare only the values that change — everything else is inherited from the base. Root-level dicts (`channels:`, `interfaces:`, `attributes:`) and root-level scalars (`type:`, `model:`, etc.) are *replaced wholesale* by the variant if present, *inherited* from the base otherwise. So a variant that needs one extra channel must redeclare all the channels, not just the new one.
 
 ## Same quantity, different roles
 
@@ -369,7 +369,7 @@ No comments in catalog YAML. All metadata belongs in the schema — extend the m
 
 ## See also
 
-- [Catalog cookbook](catalog-cookbook.md) — worked recipes per datasheet shape
+- [Catalog cookbook](cookbook.md) — worked recipes per datasheet shape
 - [Capabilities](../../concepts/configuration/capabilities.md) — what the catalog enables (matching, profile selection)
 - [Tutorial: capabilities](../../tutorial/08-capabilities.md) — introduces the schema in context
 - [Models reference](../data/models.md) — full Pydantic model surface
