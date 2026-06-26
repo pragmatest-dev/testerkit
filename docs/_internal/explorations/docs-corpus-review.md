@@ -164,6 +164,8 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4b — integration (migration/integration surface; competitor refs ALLOWED here for concept-translation/migration)
+- integration/data/index — clean; dropped the brittle "ten shipped dashboards" count to match grafana.md.
+  **Integration DATA sub-cluster (5 pages) DONE.** ✅
 - integration/data/lakehouse-import — 3 CRIT accuracy (v1→v2 schema drift): the filename pattern + every
   example path omitted the always-present run_id8 → {timestamp}_{run_id8}_{serial}; the reference-data
   section documented REMOVED v1 surface (out_* wide columns + file://_ref/ sibling URIs) → rewrote to v2
