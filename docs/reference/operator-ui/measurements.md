@@ -37,7 +37,6 @@ lists to reflect what remains available under your current selections
 | Measurement | The named measurement (`vout`, `iq`, ...) | Multi-select |
 | UUT serial | A specific unit | Multi-select |
 | Date range | Run start date Since / Until | Date pickers |
-| Role | Whether the field is an `input`, `output`, or `measurement` | Multi-select |
 
 A count below the row shows how many measurement rows the current
 filter set matches, along with the number of distinct runs, measurement
@@ -70,8 +69,8 @@ The dropdown lists two kinds of entries:
 
 - **Fixed columns** — system columns with a single stable name, such as
   `measurement_value`, `run_started_at`, `vector_index`, `uut_serial`.
-  These appear by their plain column name. Identity and admin columns
-  (run IDs, file paths, etc.) are excluded.
+  These appear by their plain column name. Internal identity and
+  bookkeeping columns are excluded.
 
 - **Input and output fields** — fields your tests recorded via
   `configure()` (inputs) and `observe()` (outputs). These appear as
@@ -79,9 +78,10 @@ The dropdown lists two kinds of entries:
   `v_rail (output)`. The label reflects the field's role, not a
   prefix attached to the name.
 
-The [Role facet](#filter-section) in the filter row lets you narrow the
-axis options and data scope to a specific role (input / output /
-measurement) before plotting.
+Which role an axis field belongs to (input / output / measurement) is
+built into the field you pick — `vin (input)` plots that input,
+`measurement_value` plots the measured value. There is no separate role
+control.
 
 ## Chart
 
@@ -125,11 +125,10 @@ URL captures the exact view.
 | `since`, `until` | Date range, `YYYY-MM-DD` (omitted when blank) |
 | `y` | Y axis when a fixed column is selected (e.g. `?y=measurement_value`) |
 | `y_name`, `y_role` | Y axis when an input or output field is selected (e.g. `?y_name=vin&y_role=input`) |
-| `y_value_type` | Y type override — only present when a polymorphic field requires disambiguation |
+| `y_value_type` | Y type override — only present when a field was recorded with more than one value type |
 | `x`, `x_name`, `x_role`, `x_value_type` | Same scheme for X axis. `x` and related params are omitted when chart is histogram. |
 | `group_by`, `group_by_name`, `group_by_role` | Selected group-by field (same fixed/field split as Y/X). Omitted when blank. |
 | `chart_type` | `scatter` (default — omitted), `line`, `bar`, or `histogram` |
-| `role` | Role facet selection — one `role=` key per selected role value. Omitted when blank. |
 | `bins` | Histogram bin count (omitted at default 30) |
 | `limit` | Max row count fetched (omitted at default 5,000) |
 

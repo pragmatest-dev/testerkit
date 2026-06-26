@@ -37,7 +37,7 @@ _EVENT_TYPE_OPTIONS: list[str] = [
     "test.step_started",
     "test.step_ended",
     "test.measurement",
-    "instrument.read",
+    "channel.started",
     "instrument.set",
     "fixture.instrument_connected",
     "fixture.instrument_disconnected",
@@ -240,11 +240,10 @@ def _show_detail_dialog(event: dict[str, Any]) -> None:
 def _summarize(event: dict[str, Any]) -> str:
     """One-line summary for the table — picks salient fields per event type."""
     et = event.get("event_type") or ""
-    if et == "instrument.read":
+    if et == "channel.started":
         ch = event.get("channel_id") or ""
-        val = event.get("value")
         unit = event.get("unit") or ""
-        return f"{ch} = {val} {unit}".strip()
+        return f"{ch} ({unit})" if unit else ch
     if et == "instrument.set":
         ch = event.get("channel_id") or ""
         val = event.get("value")

@@ -4,7 +4,7 @@
 
 Browse the event log — the append-only stream of everything Litmus
 records: session lifecycle, run lifecycle, test step starts and ends,
-measurements, instrument reads and writes, dialog requests, and
+measurements, channel starts, instrument writes, operator dialogs, and
 diagnostics. The Results pages roll events up into runs; this page
 shows them raw.
 
@@ -20,7 +20,7 @@ calibration before that batch?").
 | Filter | What it does | Notes |
 |---|---|---|
 | Session ID | Restrict to events for one session | Free-text. Full or short (first 8 chars) UUID works. |
-| Event type | Pick one of 15 curated event types, or `(any)` for all | The store can hold any event type; this dropdown lists the categories worth a one-click filter — it is **not exhaustive**. Other event types (e.g. `fixture.uut_scanned`, `route.*`, `slot.*`, `stream.*`) only appear under `(any)`. See the [Event types reference](../data/event-types.md) for the full list. |
+| Event type | Pick one of 15 curated event types, or `(any)` for all | The event log can hold any event type; this dropdown lists the categories worth a one-click filter — it is **not exhaustive**. Other event types (e.g. `fixture.uut_scanned`, `route.*`, `slot.*`, `stream.*`) only appear under `(any)`. See the [Event types reference](../data/event-types.md) for the full list. |
 | Role | Filter by instrument role (e.g. `dmm`, `psu`) | Free-text. |
 | Since (ISO) | Earliest event timestamp | ISO-8601 string. |
 | Limit | Maximum events fetched | Default 100, range 1–10,000. |
@@ -36,11 +36,9 @@ how many events matched.
 | Column | What it shows |
 |---|---|
 | Timestamp | When the event was recorded, in browser-local time |
-| Type | Event type (e.g. `instrument.read`, `test.measurement`) |
-| Session | First 8 chars of the session UUID |
-| Run | First 8 chars of the run UUID (when present) |
-| Role | Instrument role for instrument.* events; otherwise blank |
-| Summary | A type-specific one-liner — channel + value for instrument reads/writes, measurement name + value + outcome for measurements, station id for session events, UUT serial for run events, step name for step events |
+| Type | Event type (e.g. `channel.started`, `test.measurement`) |
+| Role | Instrument or fixture role for events that carry one; otherwise blank |
+| Summary | A type-specific one-liner — channel name for channel starts, measurement name + value + outcome for measurements, station id for session events, UUT serial for run events, step name for step events |
 
 Click a row to open a detail dialog showing the full event JSON
 (every field on the event record).
@@ -62,16 +60,16 @@ All filters serialize to query parameters so a URL captures the view:
 
 ## Underlying data
 
-The page reads from the event store — the same append-only log every
+The page reads from the event log — the same append-only stream every
 other view reads from. There is no first-class CLI equivalent today;
-events are observable in aggregate via the Runs / Metrics CLIs and
-in raw form by reading the parquet event files directly with
-DuckDB.
+events are observable in aggregate via the Runs / Metrics CLIs, and
+raw events can be read programmatically — see
+[Querying events](../../how-to/data/querying-events.md).
 
 For the schema of each event type, see
 [Event types reference](../data/event-types.md).
 
-For the storage layout that makes the event log queryable, see
+For how the event log works, see
 [Concepts → Event log](../../concepts/data/event-log.md).
 
 ## Common tasks
@@ -79,11 +77,9 @@ For the storage layout that makes the event log queryable, see
 - **Why did this run pause?** — Filter by Session ID, sort by
   timestamp, look for gaps between consecutive `test.step_*` events.
 - **Did the operator confirm before the batch?** — Filter event type
-  to `dialog.requested` then `dialog.responded`, narrow by Session
-  ID.
+  to `dialog.opened` then `dialog.responded`, narrow by Session ID.
 - **Which channels did this test actually touch?** — Filter event
-  type to `instrument.read` and `instrument.set`, scoped by Session
-  ID.
+  type to `channel.started`, scoped by Session ID.
 
 ## See also
 
