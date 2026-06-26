@@ -164,6 +164,15 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4b — integration (migration/integration surface; competitor refs ALLOWED here for concept-translation/migration)
+- integration/runtime/harness — CRIT accuracy: the SAME `litmus.execution.logger`→`run_scope` import fix
+  (stale logger rename; this page is the right home for the TestHarness/RunScope detail so I fixed the
+  import rather than removing it). Audience (3 structural CRITs): added the LitmusClient-vs-TestHarness
+  decision (4-line managed results path vs the lower-level engine with vectors/retry/limits/prompts/channels)
+  — the reader's #1 question, previously absent; reframed the manual RunScope wiring as the explicit-control
+  path (point first-timers at LitmusClient); added a "confirm the run landed" step (litmus runs / litmus show).
+  Plus: daemon-materializer internals→ordering rule + dropped "retiring the cohort"; linked the config dict→
+  sidecar + a concrete example; MeasurementLimitConfig→"raw limit entry" in prose; step_name default noted.
+  docs-writer; re-audit 0/0 (~40 claims). ✅
 - integration/runtime/pytest-existing — CRIT accuracy: `from litmus.execution.logger import RunScope` is a
   ModuleNotFoundError (the module was renamed logger→run_scope) — resolved by demoting Path C to a harness.md
   pointer (wrong audience for inline TestHarness/RunScope anyway). Install: git-clone + `uv add ~/src/litmus`
