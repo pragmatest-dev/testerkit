@@ -10,12 +10,23 @@ Pre-1.0 note: the public API is unstable. Breaking changes are possible in any
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-26
+
+Improved documentation: a corpus-wide accuracy pass across the reference,
+how-to, and operator-UI docs, plus the bug fixes it surfaced.
+
 ### Fixed
 
-- `litmus setup copilot` now writes `litmus mcp serve` to `.vscode/mcp.json`
-  instead of `uv run litmus mcp serve`, so the Copilot MCP server works for
-  pip / pipx / conda installs, not only uv. Brings it in line with the
-  `claude-code` / `claude-desktop` setups.
+- Catalog variant `bands:` now append to the base signal instead of replacing it.
+- `data_dir` no longer falls back to a hardcoded `./results`; it resolves through `litmus.yaml`.
+- Events filter and Channels list subscribe to `channel.started` (the retired `instrument.read` returned nothing).
+- Grafana measurement views and dashboards work against the schema-2.0 layout.
+- MCP and skill prompts no longer use a retired event type or invalid sidecar YAML.
+- `litmus setup copilot` writes installer-agnostic `litmus mcp serve` to `.vscode/mcp.json`.
+
+### Changed
+
+- Measurements (`/explore`) Part/Station/Phase filters use the operator-facing URL keys `part`/`station`/`phase`, matching Metrics. Old `?part_id=` URLs no longer apply.
 
 ## [0.2.0] - 2026-06-22
 
