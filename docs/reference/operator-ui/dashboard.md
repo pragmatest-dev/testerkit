@@ -15,36 +15,37 @@ One card per station configured in the project. Each card shows:
 
 | Element | What it shows |
 |---|---|
-| Title | Station name (falls back to station id when name isn't set) |
+| Title | Station name (falls back to the station id if the name is left blank) |
 | Status badge | A green outlined `Ready` badge |
 | Description | The station's description, when set |
 | Identifier row | Station id + location, prefixed with tag and pin icons |
 | Start Test button | Jumps to `/launch?station=<id>` ([Launch Test](launch.md), prefilled with this station) |
 
 When no stations are configured but runs exist, the section renders
-"No stations configured." as italic placeholder text.
+an empty-state card naming the cause and the next step — add a station
+YAML under `stations/`.
 
 ## Recent Runs
 
 ![Dashboard — recent runs](../../_assets/operator-ui/dashboard/runs.png)
 
-A 10-row table of the most recent finished runs across the project,
-queried via the same query class the [Results list](results/list.md)
-uses. In-flight runs (still waiting on `RunEnded`) are NOT shown
-here — open the Results list to see them. The Dashboard's table is
-deliberately a quick-glance summary.
+A 10-row table of the most recent finished runs across the project.
+Runs still in progress (not yet finished) are NOT shown here — open
+the [Results list](results/list.md) to see them. The Dashboard's table
+is deliberately a quick-glance summary.
 
 | Column | What it shows |
 |---|---|
 | UUT | UUT serial number |
 | Station | Station hostname (the machine an operator recognizes), not the internal station id |
 | Started | Run start timestamp, browser-local time |
-| Outcome | Final outcome value |
+| Outcome | Outcome status; a bell badge appears (linking to the live view) when the run has operator dialogs waiting |
 
 Click a row to open the [Results detail](results/detail.md) for that run.
 
-When no runs have been recorded yet, the section renders "No test
-runs yet." as italic placeholder text.
+When no runs have been recorded yet, the section renders an empty-state
+card naming the cause and the next step — launch a test to populate
+the list.
 
 ## Getting Started (empty state)
 
@@ -62,10 +63,10 @@ authors who'd rather start from a fully populated example project.
 
 ## Live updates
 
-The Dashboard reads its data once on first paint via background
-fetches that don't block the page; subsequent visits re-fetch. The
-view does not currently subscribe to live events — refresh the
-browser to pick up new runs or station changes.
+The Dashboard loads its data once when you open the page; it doesn't
+update live — refresh the browser to pick up new runs or station
+changes. (The one exception: a run's pending-dialog bell badge
+refreshes on its own every second.)
 
 ## Underlying data
 

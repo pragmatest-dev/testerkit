@@ -19,21 +19,21 @@ A pinned card at the top of the page with two rows:
 
 - **Status** — current state pill. Starts at `Starting...`, then
   shifts to an uppercase status (`RUNNING`, `PASSED`, `FAILED`,
-  `ERROR`) once the runner emits progress / complete events.
-  Colors track state (blue while active, green on pass, red on
-  fail / error).
+  `ERROR`) as the test runs. Colors track state (blue while active,
+  green on pass, red on fail / error).
 - **Run ID** — the full run UUID, monospaced.
 
 Below the rows: a horizontal progress bar and the current step
-label. Both update as the runner emits progress events.
+label. Both update as the test progresses.
 
 ## Tab strip
 
 | Tab | What it shows |
 |---|---|
-| Events | Streaming timeline of every event the run has emitted so far, in chronological order. Subscribes to the EventStore push channel — new rows append as they arrive. |
-| Channels | Current channel readouts (per-channel last values + sparkline-style recent history). |
-| Output | Tail of the runner's captured stdout / stderr, last 100 lines, monospace on a dark background. |
+| Events | Streaming timeline of every event the run has emitted so far, in chronological order, with per-category filter chips (Session, Run, Test, Channel, File, Dialog, …) and expandable JSON rows. New rows append in real time as the run emits events. |
+| Channels | Current channel readouts (per-channel last values + sparkline-style recent history). Channels are discovered from the run's events; their live values come from the channel data stream. |
+| Streams | Live file streams the run is writing — name, format, `OPEN` → `DONE` status, size, and a link to the captured artifact. |
+| Output | Tail of the test's captured output (stdout and stderr combined), last 100 lines, monospace on a dark background. |
 
 The default tab is **Events**.
 
@@ -65,21 +65,23 @@ new runs.
 
 ## On stream errors
 
-If the underlying runner connection fails (OS error, runtime
-error, value error during stream consumption), the Status pill
-turns red and reads `ERROR`. A toast at the bottom of the page
+If the underlying runner connection fails (a connection or runtime
+failure), the Status pill turns red and reads `ERROR`. A toast at
+the bottom of the page
 prints the exception type and message. The page does not
 auto-retry — refresh to reconnect.
 
 ## Underlying data
 
-- The streaming subscription is to the `EventStore` for the run's
-  data dir, scoped by `run_id`.
-- Channel readouts share the same EventStore subscription as the
-  Events tab — pushed updates instead of pull queries.
-- The captured stdout / stderr buffer is held in-process by the
-  active runner; closing the tab and re-opening this URL re-attaches
-  to the existing stream.
+- The status pill, progress bar, step label, and Output tail come
+  from the runner's live status stream — a poll of the in-progress
+  run.
+- The Events, Channels, and Streams tabs stream from the run's event
+  log as new events land; the Channels tab reads live sample values
+  from the channel data stream.
+- The captured output is held by the active runner; closing and
+  re-opening this page reconnects to the live output without losing
+  anything.
 
 ## Common tasks
 
