@@ -164,6 +164,14 @@ before any accuracy audit that diffs against it.
 ## Per-page progress log
 
 ### Piece 4b — integration (migration/integration surface; competitor refs ALLOWED here for concept-translation/migration)
+- integration/data/lakehouse-import — 3 CRIT accuracy (v1→v2 schema drift): the filename pattern + every
+  example path omitted the always-present run_id8 → {timestamp}_{run_id8}_{serial}; the reference-data
+  section documented REMOVED v1 surface (out_* wide columns + file://_ref/ sibling URIs) → rewrote to v2
+  (no out_*/in_* columns; inputs/outputs are nested LIST<STRUCT> lanes; a blob URI lives in the lane's
+  value_text with value_type="uri"; FileStore URIs are file://{date}/{session_id}/{vector_id_short}_{name}.{ext};
+  file://_ref/ = legacy). Audience: trimmed the daemon virtual-record_type + "DuckDB-internal hot path"
+  internals; added a layout-stability caveat (glob runs/**/*.parquet) + a RUN_ROW_SCHEMA cross-link for the
+  elided columns. docs-writer; re-audit 0/0. ✅
 - integration/data/logging — 2 CRIT (non-runnable examples) + 1 CRIT accuracy: the flagship logging.Handler
   example never wired self.step (start_run→RunBuilder; steps come from the run.step() ctx-mgr) → rewrote
   runnable (step.fail on WARNING+); DB example reached for run.id (field is test_run_id) → fixed; parquet

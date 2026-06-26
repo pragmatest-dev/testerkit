@@ -1,9 +1,13 @@
 # Importing Litmus run parquets into a lakehouse
 
 Each Litmus run produces **one sealed parquet** at
-`<data_dir>/runs/{date}/{timestamp}_{serial}.parquet`. The parquet's unified
-`RUN_ROW_SCHEMA` carries three row kinds, distinguished by an explicit
-`record_type` column:
+`<data_dir>/runs/{date}/{timestamp}_{run_id8}_{serial}.parquet`. The
+8-char `run_id8` sits in a fixed position right after the timestamp; the
+serial trails and is omitted for dev/debug runs
+(`{timestamp}_{run_id8}.parquet`). The parquet's unified `RUN_ROW_SCHEMA`
+carries three row kinds, distinguished by an explicit `record_type` column:
+
+Full column list and types: [Reference → Parquet schema](../../reference/data/parquet-schema.md) (`RUN_ROW_SCHEMA`).
 
 | `record_type` | Cardinality | Carries |
 |---|---|---|
@@ -11,13 +15,12 @@ Each Litmus run produces **one sealed parquet** at
 | `'step'` | One per `(step_path, vector_index)` | Step identity + outcome + timing + denormalized run / UUT / station context |
 | `'vector'` | One per execution | The `inputs` / `outputs` lanes and the nested `measurements` list (`LIST<STRUCT>`) for that execution |
 
-Measurements are **nested** inside each vector row's `measurements` list, not
-their own row kind — `UNNEST` them to build a flat measurement table (the
-Litmus daemon does the same projection to surface a virtual
-`record_type = 'measurement'` at query time). Run-level identity is
-denormalized onto step and vector rows, so you can reconstruct a runs-table
-either by filtering `record_type = 'run'` or by taking `DISTINCT` run-level
-columns from any row kind.
+Measurements are **nested** inside each vector row's `measurements` list —
+there is no `record_type='measurement'` row on disk; `UNNEST` them to build
+a flat measurement table. Run-level identity is denormalized onto step and
+vector rows, so you can reconstruct a runs-table either by filtering
+`record_type = 'run'` or by taking `DISTINCT` run-level columns from any
+row kind.
 
 This file is everything you need for a single run — sealed, atomic,
 write-once, portable. Drop the directory into S3, GCS, or your local lake;
@@ -34,18 +37,18 @@ INSERT INTO runs
 SELECT DISTINCT run_id, session_id, run_started_at, run_ended_at,
        uut_serial, uut_part_number, station_id, station_hostname,
        run_outcome, project_name, git_commit
-FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_SN001.parquet');
+FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_a1b2c3d4_SN001.parquet');
 
 INSERT INTO steps
 SELECT * EXCLUDE (record_type, measurements, inputs, outputs)
-FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_SN001.parquet')
+FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_a1b2c3d4_SN001.parquet')
 WHERE record_type = 'step';
 
 -- Measurements are nested under each vector row (a LIST<STRUCT>).
 -- UNNEST flattens one row per measurement; m.* expands the struct fields.
 INSERT INTO measurements
 SELECT run_id, session_id, step_path, vector_index, vector_retry, m.*
-FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_SN001.parquet'),
+FROM read_parquet('data/runs/2026-05-08/20260508T120000Z_a1b2c3d4_SN001.parquet'),
      UNNEST(measurements) AS t(m)
 WHERE record_type = 'vector';
 ```
@@ -66,7 +69,7 @@ CREATE OR REPLACE STAGE litmus_runs
 -- runs is derived via DISTINCT — run identity is denormalized onto every row
 COPY INTO runs FROM (
   SELECT DISTINCT $1:run_id::STRING, $1:uut_serial::STRING, /* ... */
-  FROM @litmus_runs/2026-05-08/20260508T120000Z_SN001.parquet
+  FROM @litmus_runs/2026-05-08/20260508T120000Z_a1b2c3d4_SN001.parquet
   (FILE_FORMAT => 'PARQUET')
 );
 
@@ -76,7 +79,7 @@ COPY INTO steps        FROM (… WHERE $1:record_type = 'step');
 COPY INTO measurements FROM (
   SELECT $1:run_id::STRING, $1:step_path::STRING,
          m.value:name::STRING, m.value:value::FLOAT, m.value:outcome::STRING, /* … */
-  FROM @litmus_runs/2026-05-08/20260508T120000Z_SN001.parquet (FILE_FORMAT => 'PARQUET'),
+  FROM @litmus_runs/2026-05-08/20260508T120000Z_a1b2c3d4_SN001.parquet (FILE_FORMAT => 'PARQUET'),
        LATERAL FLATTEN(input => $1:measurements) m
   WHERE $1:record_type = 'vector'
 );
@@ -176,8 +179,7 @@ Litmus stores one parquet per run for several reasons:
 1. **One sealed atomic artifact per run** — write-once, portable, easy to
    archive / sync / inspect. Single file → single `mv` for atomic publish.
 2. **Run-level identity is denormalized onto every row** — cross-run
-   measurement queries don't need joins. This works for our DuckDB-internal
-   query path (the hot path).
+   measurement queries don't need joins.
 3. **Lakehouse imports are an explicit, auditable transform** — you see
    exactly what's loaded into each target table; no magic file-layout
    convention to learn.
@@ -196,12 +198,22 @@ short enough to live in any of them.
   via column adds. Older parquets read forward-compatibly via
   `union_by_name=true` (DuckDB) or `mergeSchema=true` (Spark/Delta) /
   `name mapping` (Iceberg). The `schema_version` is stamped in parquet
-  file-level KV metadata if you need to gate behavior.
-- **Reference data**: large outputs (waveforms, images) live in
-  `_ref/` directories alongside each parquet. The parquet's `out_*`
-  columns carry URI strings (`file://_ref/{vector_id}_{key}.npy`) referencing
-  these files. Consumers either dereference at query time or copy the
-  `_ref/` directory alongside.
+  file-level KV metadata if you need to gate behavior. The directory
+  layout (`runs/{date}/…`) and `RUN_ROW_SCHEMA` column names are the
+  stable import surface — glob `runs/**/*.parquet` rather than
+  hard-coding the `{timestamp}_{run_id8}_{serial}` filename shape, which
+  can change across major versions.
+- **Array/blob outputs**: there are no `out_*` wide columns. Inputs and
+  outputs are nested lane lists on the vector row — `inputs` and `outputs`
+  are each `LIST<STRUCT<name, value_type, value_*, unit, uut_pin>>`. A
+  blob output's URI lives inside a lane struct's `value_text` field. New
+  parquets route all blobs through the FileStore; the URI form is
+  `file://{date}/{session_id}/{filename}` where filename is
+  `{vector_id_short}_{name}.{ext}`. Pre-2.0 parquets carried
+  `file://_ref/…` URIs pointing to a sibling `{stem}_ref/` directory —
+  that layout is legacy; treat those URIs as opaque and use `load_ref`
+  from `litmus.data.backends.parquet` to dereference either form. For the
+  full lane struct schema, see [Reference → Parquet schema](../../reference/data/parquet-schema.md).
 
 
 ## See also
