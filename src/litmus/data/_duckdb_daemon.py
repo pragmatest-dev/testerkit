@@ -247,7 +247,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
         # cheap on them.
         "CREATE INDEX IF NOT EXISTS idx_events_channel_id ON events(channel_id)",
         "CREATE INDEX IF NOT EXISTS idx_events_outcome ON events(outcome)",
-        "CREATE INDEX IF NOT EXISTS idx_events_uut_serial ON events(uut_serial)",
+        "CREATE INDEX IF NOT EXISTS idx_events_uut_serial_number ON events(uut_serial_number)",
         "CREATE INDEX IF NOT EXISTS idx_events_role ON events(role)",
         "CREATE INDEX IF NOT EXISTS idx_events_instrument_role ON events(instrument_role)",
         "CREATE INDEX IF NOT EXISTS idx_events_step_name ON events(step_name)",

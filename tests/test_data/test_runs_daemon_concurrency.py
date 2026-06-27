@@ -60,7 +60,7 @@ def _step_row(
             "run_started_at": started,
             "run_ended_at": ended,
             "run_outcome": "passed",
-            "uut_serial": uut_serial,
+            "uut_serial_number": uut_serial,
             "station_id": "test-station",
             "test_phase": "production",
             "part_id": "PN-100",

@@ -1079,7 +1079,7 @@ Lightweight run header read from parquet index (no steps/measurements).
 | `slot_id` | `str \| None` | `None` |
 | `started_at` | `datetime \| None` | `None` |
 | `ended_at` | `datetime \| None` | `None` |
-| `uut_serial` | `str \| None` | `None` |
+| `uut_serial_number` | `str \| None` | `None` |
 | `uut_part_number` | `str \| None` | `None` |
 | `part_id` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
@@ -1221,7 +1221,7 @@ Request to launch a test run.
 | Field | Type | Default |
 |---|---|---|
 | `part_id` | `str \| None` | `None` |
-| `uut_serial` | `str` | *required* |
+| `uut_serial_number` | `str` | *required* |
 | `station_id` | `str` | *required* |
 | `test_path` | `str` | `'tests'` |
 | `test_profile` | `str \| None` | `None` |
@@ -1249,7 +1249,7 @@ Public summary of one currently-tracked run.
 | `status` | `Literal['pending', 'running', 'completed', 'failed']` | *required* |
 | `progress_pct` | `int` | `0` |
 | `current_step` | `str \| None` | `None` |
-| `uut_serial` | `str` | *required* |
+| `uut_serial_number` | `str` | *required* |
 | `station_id` | `str` | *required* |
 
 #### `DialogCreate` {#model-dialogcreate}
@@ -1465,7 +1465,7 @@ One row from the ``runs`` table — denormalized run-level summary.
 | `run_id` | `str \| None` | `None` |
 | `session_id` | `str \| None` | `None` |
 | `slot_id` | `str \| None` | `None` |
-| `uut_serial` | `str \| None` | `None` |
+| `uut_serial_number` | `str \| None` | `None` |
 | `uut_part_number` | `str \| None` | `None` |
 | `uut_lot_number` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
@@ -1506,7 +1506,7 @@ One row from the ``steps`` table — full denormalized run + step context.
 | `measurement_count` | `int \| None` | `None` |
 | `step_retry` | `int \| None` | `None` |
 | `markers` | `str \| None` | `None` |
-| `uut_serial` | `str \| None` | `None` |
+| `uut_serial_number` | `str \| None` | `None` |
 | `station_id` | `str \| None` | `None` |
 | `inputs` | `dict[str, Any]` | `{}` |
 | `outputs` | `dict[str, Any]` | `{}` |

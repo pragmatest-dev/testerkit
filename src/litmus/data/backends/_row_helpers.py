@@ -290,7 +290,7 @@ class MeasurementRow(BaseModel):
     operator_name: str | None = None
 
     # UUT
-    uut_serial: str
+    uut_serial_number: str
     uut_part_number: str | None = None
     uut_revision: str | None = None
     uut_lot_number: str | None = None
@@ -435,7 +435,7 @@ def build_run_metadata(test_run: TestRun) -> dict[str, Any]:
         "operator_id": test_run.operator_id,
         "operator_name": test_run.operator_name,
         # UUT
-        "uut_serial": test_run.uut.serial,
+        "uut_serial_number": test_run.uut.serial,
         "uut_part_number": test_run.uut.part_number,
         "uut_revision": test_run.uut.revision,
         "uut_lot_number": test_run.uut.lot_number,
@@ -504,7 +504,7 @@ def run_context_from_run_started(
             "run_ended_at": None,
             "operator_id": None,
             "operator_name": None,
-            "uut_serial": "unknown",
+            "uut_serial_number": "unknown",
             "uut_part_number": None,
             "uut_revision": None,
             "uut_lot_number": None,
@@ -532,7 +532,7 @@ def run_context_from_run_started(
             "run_ended_at": None,
             "operator_id": run_started.operator_id,
             "operator_name": run_started.operator_name,
-            "uut_serial": run_started.uut_serial,
+            "uut_serial_number": run_started.uut_serial_number,
             "uut_part_number": run_started.uut_part_number,
             "uut_revision": run_started.uut_revision,
             "uut_lot_number": run_started.uut_lot_number,

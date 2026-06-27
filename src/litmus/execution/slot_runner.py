@@ -254,7 +254,7 @@ class SlotRunner:
                         SlotStarted(
                             session_id=self._session_id,
                             slot_id=slot_id,
-                            uut_serial=uut.serial,
+                            uut_serial_number=uut.serial,
                         )
                     )
 

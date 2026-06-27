@@ -231,7 +231,7 @@ def _render_runs_tab(station_id: str):
         rows = [
             {
                 "full_run_id": r.test_run_id or "",
-                "uut": r.uut_serial or "",
+                "uut": r.uut_serial_number or "",
                 "project": r.project_name or "",
                 "started": format_datetime(r.started_at),
                 "outcome": r.outcome or "",

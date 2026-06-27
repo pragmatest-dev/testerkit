@@ -541,7 +541,7 @@ class UUTRow(BaseModel):
 def uuts_from_runs() -> list[UUTRow]:
     """Distinct UUTs observed in run history, with per-UUT run counts.
 
-    Groups by ``uut_serial``; the part number and lot number are
+    Groups by ``uut_serial_number``; the part number and lot number are
     aggregated via ``MAX`` (expected constant per serial — taking ``MAX``
     is just a SQL-idiomatic way to surface one value when the GROUP BY
     key uniquely determines the row).
@@ -550,7 +550,7 @@ def uuts_from_runs() -> list[UUTRow]:
 
     sql = """
         SELECT
-            uut_serial AS serial,
+            uut_serial_number AS serial,
             MAX(uut_part_number) AS part_number,
             MAX(uut_lot_number) AS lot_number,
             COUNT(*) AS runs,
@@ -558,8 +558,8 @@ def uuts_from_runs() -> list[UUTRow]:
             COUNT(*) FILTER (WHERE outcome = 'failed') AS failed,
             MAX(started_at) AS last_run
         FROM runs
-        WHERE uut_serial IS NOT NULL AND uut_serial <> ''
-        GROUP BY uut_serial
+        WHERE uut_serial_number IS NOT NULL AND uut_serial_number <> ''
+        GROUP BY uut_serial_number
         ORDER BY last_run DESC NULLS LAST
     """
     try:
@@ -1348,7 +1348,7 @@ def _run_row_to_summary(row: Any) -> RunSummary:
         slot_id=row.slot_id,
         started_at=row.started_at,
         ended_at=row.ended_at,
-        uut_serial=row.uut_serial,
+        uut_serial_number=row.uut_serial_number,
         uut_part_number=row.uut_part_number,
         part_id=row.part_id,
         station_id=row.station_id,

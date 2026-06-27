@@ -6,7 +6,7 @@ showing its duration.
 
 Sources from typed :class:`StepRow` objects so the chart never sees
 raw measurement dicts — slot_id, started_at, ended_at, outcome, and
-uut_serial are all first-class fields.
+uut_serial_number are all first-class fields.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def render_execution_gantt(
                 "started": s.started_at,
                 "ended": s.ended_at,
                 "outcome": s.outcome,
-                "uut_serial": s.uut_serial or "",
+                "uut_serial_number": s.uut_serial_number or "",
             }
         else:
             # Worst-outcome wins when multiple step rows share a name in a slot.
@@ -78,7 +78,7 @@ def render_execution_gantt(
     slot_ids = list(slots.keys())
     slot_labels = []
     for sid in slot_ids:
-        uut = next(iter(slots[sid].values()))["uut_serial"]
+        uut = next(iter(slots[sid].values()))["uut_serial_number"]
         label = f"{sid} ({uut})" if uut else sid
         if sid == current_slot_id:
             label = f"► {label}"

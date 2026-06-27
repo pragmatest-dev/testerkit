@@ -59,7 +59,7 @@ def _step(
             "run_started_at": started,
             "run_ended_at": ended,
             "run_outcome": outcome,
-            "uut_serial": uut_serial,
+            "uut_serial_number": uut_serial,
             "station_id": station_id,
         }
     )

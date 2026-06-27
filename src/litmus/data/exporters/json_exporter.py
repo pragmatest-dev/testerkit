@@ -201,7 +201,7 @@ class JsonSubscriber(EventSubscriber):
             "run_id": str(s.run_id) if s.run_id else None,
             "station_id": s.station_id,
             "uut": {
-                "serial": s.uut_serial,
+                "serial": s.uut_serial_number,
                 "part_number": s.uut_part_number,
                 "revision": s.uut_revision,
                 "lot_number": s.uut_lot_number,

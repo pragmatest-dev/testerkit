@@ -61,7 +61,9 @@ def _new_acc():
     acc = EventAccumulator()
     rid, sid = uuid4(), uuid4()
     acc.on_event(
-        RunStarted(session_id=sid, run_id=rid, station_id="st1", uut_serial="SN1", occurred_at=_T0)
+        RunStarted(
+            session_id=sid, run_id=rid, station_id="st1", uut_serial_number="SN1", occurred_at=_T0
+        )
     )
     return acc, rid, sid
 

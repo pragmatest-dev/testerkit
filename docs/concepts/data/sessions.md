@@ -26,7 +26,7 @@ Sessions are broader than test runs. A single session might contain multiple tes
 
 | Category | Fields |
 |----------|--------|
-| **UUT** | `uut_serial`, `uut_part_number`, `uut_revision`, `uut_lot_number` |
+| **UUT** | `uut_serial_number`, `uut_part_number`, `uut_revision`, `uut_lot_number` |
 | **Part** | `part_id`, `part_name`, `part_revision` |
 | **Slot** | `slot_id`, `slot_index` |
 | **Test context** | `fixture_id`, `test_phase`, `project_name` |

@@ -44,7 +44,7 @@ def _row(
         run_id=run_id,
         run_started_at=run_started_at,
         run_ended_at=run_ended_at,
-        uut_serial=uut_serial,
+        uut_serial_number=uut_serial,
         uut_part_number=uut_part_number,
         part_id=uut_part_number,
         station_id=station_name,

@@ -36,7 +36,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -73,7 +73,7 @@ class TestMaterializer:
         assert [m["name"] for m in vec_row["measurements"]] == ["vout"]
         assert vec_row["measurements"][0]["value"] == 3.3
         assert vec_row["station_id"] == "st1"
-        assert vec_row["uut_serial"] == "SN001"
+        assert vec_row["uut_serial_number"] == "SN001"
         assert vec_row["run_outcome"] == "passed"
 
     def test_instruments_cached(self, tmp_path):
@@ -86,7 +86,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -131,7 +131,7 @@ class TestMaterializer:
             RunStarted(
                 run_id=run_id,
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -168,7 +168,7 @@ class TestMaterializer:
             RunStarted(
                 run_id=uuid4(),
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -183,7 +183,7 @@ class TestMaterializer:
         assert len(rows) == 1
         assert rows[0]["record_type"] == "run"
         assert rows[0]["station_id"] == "st1"
-        assert rows[0]["uut_serial"] == "SN001"
+        assert rows[0]["uut_serial_number"] == "SN001"
 
     def test_step_identity_columns(self, tmp_path):
         """Step code identity fields appear in Parquet rows."""
@@ -196,7 +196,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -260,7 +260,7 @@ class TestMaterializer:
                 session_id=session_id,
                 run_id=run_id,
                 station_id="st1",
-                uut_serial="SN001",
+                uut_serial_number="SN001",
                 occurred_at=datetime(2026, 3, 6, 14, 0, 0, tzinfo=UTC),
             )
         )
@@ -365,7 +365,7 @@ class TestMaterializer:
             RunStarted(
                 session_id=session_id,
                 run_id=run_id,
-                uut_serial="SN-CUSTOM",
+                uut_serial_number="SN-CUSTOM",
                 occurred_at=datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC),
                 custom_metadata={"badge": "EMP-999", "batch": "Q2-2026"},
             )

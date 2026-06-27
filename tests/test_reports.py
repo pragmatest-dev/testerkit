@@ -121,7 +121,7 @@ class TestLoadRunData:
     def test_basic_fields(self, data_dir, run_id):
         data = load_run_data(run_id, str(data_dir))
         assert data.run_id == run_id
-        assert data.uut_serial == "SN-001"
+        assert data.uut_serial_number == "SN-001"
         assert data.station_id == "bench_01"
         assert data.part_id == "widget_v1"
         assert data.operator_id == "test_op"

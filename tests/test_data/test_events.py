@@ -39,11 +39,11 @@ class TestEventModels:
     def test_run_started_defaults(self):
         e = RunStarted(
             station_id="st1",
-            uut_serial="SN001",
+            uut_serial_number="SN001",
         )
         assert e.event_type == "run.started"
         assert e.station_id == "st1"
-        assert e.uut_serial == "SN001"
+        assert e.uut_serial_number == "SN001"
         assert e.test_phase is None
 
     def test_measurement_recorded_fields(self):
@@ -88,7 +88,7 @@ class TestEventModels:
     def test_serialization_roundtrip(self):
         e = RunStarted(
             station_id="st1",
-            uut_serial="SN001",
+            uut_serial_number="SN001",
             custom_metadata={"badge": "EMP-123"},
         )
         json_str = e.model_dump_json()

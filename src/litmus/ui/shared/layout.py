@@ -230,7 +230,7 @@ def _create_dialogs_bell() -> None:
 
     Clicking opens a NiceGUI ``ui.menu()`` listing each pending dialog
     with the dialog title, the operator-readable run identifier
-    (``<uut_serial> · <YYYY-MM-DD HH:MM:SS>`` via
+    (``<uut_serial_number> · <YYYY-MM-DD HH:MM:SS>`` via
     :func:`lookup_run_label`), and a ``Go →`` link straight to
     ``/live/{run_id}`` — bypasses the run detail page so the operator
     can answer in one click. Refreshed by a 1 s timer matching the

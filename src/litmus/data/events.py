@@ -50,7 +50,7 @@ def _detect_client() -> str:
 # * **Pairing IDs** — an open-event ``file_id`` / ``dialog_id`` /
 #   ``channel_id`` / ``slot_id`` has a matching close-event with the
 #   same value. The pushdown answers "did this open ever close?"
-# * **Operator-facing identifiers** — ``uut_serial`` /
+# * **Operator-facing identifiers** — ``uut_serial_number`` /
 #   ``station_hostname`` are how operators name what they're querying
 #   ("everything that happened to SN001 on bench-3").
 # * **Names + roles + enums** — recognition fields and the small set
@@ -67,7 +67,7 @@ TYPED_PAYLOAD_COLUMNS: tuple[str, ...] = (
     "channel_id",
     "slot_id",
     # Operator-facing identifiers
-    "uut_serial",
+    "uut_serial_number",
     "station_hostname",
     # Other IDs
     "instrument_id",
@@ -282,7 +282,7 @@ class RunStarted(EventBase):
     client: str = Field(default_factory=_detect_client)
 
     # UUT
-    uut_serial: str = ""
+    uut_serial_number: str = ""
     uut_part_number: str | None = None
     uut_revision: str | None = None
     uut_lot_number: str | None = None
@@ -360,7 +360,7 @@ class SlotStarted(EventBase):
 
     event_type: Literal["slot.started"] = "slot.started"
     slot_id: str
-    uut_serial: str
+    uut_serial_number: str
 
 
 class SlotCompleted(EventBase):
@@ -432,7 +432,7 @@ class CalibrationWarning(EventBase):
 
 class UutScanned(EventBase):
     event_type: Literal["fixture.uut_scanned"] = "fixture.uut_scanned"
-    uut_serial: str
+    uut_serial_number: str
     scan_source: str | None = None
 
 

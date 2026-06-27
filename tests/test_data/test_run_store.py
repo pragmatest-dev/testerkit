@@ -54,7 +54,7 @@ def _measurement_row(
             "run_started_at": run_started_at,
             "run_ended_at": run_ended_at,
             "run_outcome": run_outcome,
-            "uut_serial": uut_serial,
+            "uut_serial_number": uut_serial,
             "station_id": station_id,
             "step_name": step_name,
             "step_index": step_index,
@@ -183,7 +183,7 @@ def test_get_run(runs_store: RunStore, fixture_data: dict[str, str]) -> None:
     run = runs_store.get_run(fixture_data["run_001"][:8])
     assert run is not None
     assert run.test_run_id == fixture_data["run_001"]
-    assert run.uut_serial == "SN001"
+    assert run.uut_serial_number == "SN001"
     assert run.outcome == "passed"
 
 
@@ -265,4 +265,4 @@ def test_notify_new_run(runs_store: RunStore) -> None:
     found = runs_store.get_run(run_id[:8])
     assert found is not None
     assert found.test_run_id == run_id
-    assert found.uut_serial == "SN099"
+    assert found.uut_serial_number == "SN099"

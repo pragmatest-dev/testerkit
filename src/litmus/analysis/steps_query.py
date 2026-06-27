@@ -59,7 +59,7 @@ class StepRow(BaseModel):
     # execution is its own row, so ``WHERE step_retry > 0`` finds reruns.
     step_retry: int | None = None
     markers: str | None = None
-    uut_serial: str | None = None
+    uut_serial_number: str | None = None
     station_id: str | None = None
     # Per-vector commanded inputs (in_*) and recorded outputs (out_*) —
     # populated by the daemon by aggregating the unified parquet's

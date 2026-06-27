@@ -60,7 +60,7 @@ def runs(data_dir: str | None, limit: int, as_json: bool):
 
     for run in test_runs:
         run_id = (run.test_run_id or "")[:8]
-        uut = run.uut_serial or ""
+        uut = run.uut_serial_number or ""
         project = run.project_name or ""
         station = run.station_id or ""
         outcome = run.outcome or ""
@@ -128,7 +128,7 @@ def show(
         return
 
     click.echo(f"Test Run: {data.run_id}")
-    click.echo(f"  UUT Serial: {data.uut_serial}")
+    click.echo(f"  UUT Serial: {data.uut_serial_number}")
     click.echo(f"  Station: {data.station_id}")
     click.echo(f"  Outcome: {data.outcome}")
     click.echo(f"  Started: {data.started_at}")

@@ -175,7 +175,7 @@ def _render_recent_runs(runs: list) -> None:
         # operator recognizes), not the internal slug. Universal
         # rule — see feedback_operator_facing_identifiers.md.
         columns = [
-            {"name": "uut", "label": "UUT", "field": "uut_serial", "align": "left"},
+            {"name": "uut", "label": "UUT", "field": "uut_serial_number", "align": "left"},
             {"name": "station", "label": "Station", "field": "station_hostname", "align": "left"},
             {"name": "started", "label": "Started", "field": "started_at", "align": "left"},
             {"name": "outcome", "label": "Outcome", "field": "outcome", "align": "center"},
@@ -191,7 +191,7 @@ def _render_recent_runs(runs: list) -> None:
             rows.append(
                 {
                     "full_run_id": run_id,
-                    "uut_serial": r.uut_serial or "",
+                    "uut_serial_number": r.uut_serial_number or "",
                     "station_hostname": r.station_hostname or "",
                     "started_at": format_datetime(r.started_at),
                     "outcome": status,

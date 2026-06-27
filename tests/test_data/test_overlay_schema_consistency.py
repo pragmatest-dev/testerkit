@@ -90,7 +90,7 @@ def _build_accumulator() -> EventAccumulator:
             station_name="Station One",
             station_hostname="host-1",
             slot_id="slotA",
-            uut_serial="SN001",
+            uut_serial_number="SN001",
             uut_part_number="PN-100",
             uut_lot_number="LOT-9",
             fixture_id="fix1",

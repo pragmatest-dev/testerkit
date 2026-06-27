@@ -818,7 +818,7 @@ concepts:
   - id: slot_started
     category: event
     event_type: slot.started
-    summary: A UUT slot begins execution. Carries slot_id and uut_serial.
+    summary: A UUT slot begins execution. Carries slot_id and uut_serial_number.
     model: litmus.data.events.SlotStarted
     relationships:
       - { kind: stored_in,     target: event_store }

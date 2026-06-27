@@ -198,7 +198,7 @@ def lookup_session_label(session_id: str) -> tuple[str, bool]:
         for s in query_sessions().get("sessions") or []:
             if str(s.get("session_id")) == session_id:
                 base = format_session_label(s)
-                uut = s.get("uut_serial") or ""
+                uut = s.get("uut_serial_number") or ""
                 label = f"{uut} · {base}" if uut else base
                 return label, True
     except (OSError, RuntimeError):
@@ -210,7 +210,7 @@ def lookup_session_label(session_id: str) -> tuple[str, bool]:
 def lookup_run_label(run_id: str) -> tuple[str, bool]:
     """Look up an operator-readable label for ``run_id``.
 
-    Returns ``(label, found)``. The label combines ``uut_serial`` and
+    Returns ``(label, found)``. The label combines ``uut_serial_number`` and
     the run's start time so a pending-dialog list reads as e.g.
     ``"UUT001 · 2026-06-06 07:42:13"`` instead of an opaque UUID
     prefix. Same cache-invariant story as :func:`lookup_session_label`
@@ -228,7 +228,7 @@ def lookup_run_label(run_id: str) -> tuple[str, bool]:
         # are still in flight, which are by definition recent.
         for r in get_recent_runs(limit=200, include_incomplete=True):
             if (r.test_run_id or "") == run_id:
-                uut = r.uut_serial or ""
+                uut = r.uut_serial_number or ""
                 ts = format_session_label({"occurred_at": r.started_at, "client": ""}).rstrip(" •?")
                 label = f"{uut} · {ts}" if uut else ts
                 return label, True

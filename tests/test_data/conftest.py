@@ -259,7 +259,7 @@ def _replay_events(
             station_name=test_run.station_name,
             station_type=test_run.station_type,
             station_location=test_run.station_location,
-            uut_serial=test_run.uut.serial,
+            uut_serial_number=test_run.uut.serial,
             uut_part_number=test_run.uut.part_number,
             uut_revision=test_run.uut.revision,
             uut_lot_number=test_run.uut.lot_number,

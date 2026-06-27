@@ -129,7 +129,7 @@ def launch_page(part: str = "", station: str = "", test_profile: str = "", mock:
 
         request = LaunchRequest(
             part_id=form["part_id"] or None,
-            uut_serial=form["uut_serial"],
+            uut_serial_number=form["uut_serial"],
             station_id=form["station_id"],
             test_path=form["test_path"] or "tests",
             test_profile=form["test_profile"] or None,

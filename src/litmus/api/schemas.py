@@ -125,7 +125,7 @@ class RunView(BaseModel):
     run_id: str
     session_id: str | None = None
     station_id: str | None = None
-    uut_serial: str | None = None
+    uut_serial_number: str | None = None
     uut_part_number: str | None = None
     part_id: str | None = None
     test_phase: str | None = None
@@ -276,7 +276,7 @@ def build_run_view(
         run_id=run.run_id or "",
         session_id=run.session_id,
         station_id=run.station_id,
-        uut_serial=run.uut_serial,
+        uut_serial_number=run.uut_serial_number,
         uut_part_number=run.uut_part_number,
         part_id=run.part_id,
         test_phase=run.test_phase,

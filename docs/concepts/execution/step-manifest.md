@@ -59,7 +59,7 @@ Key step-row columns (full list in [Parquet schema](../../reference/data/parquet
 - `step_name`, `step_path`, `step_index`, `parent_path`, `step_node_id`
 - `step_started_at`, `step_ended_at`, `step_vector_count`
 - `step_outcome` (rollup), `vector_outcome` (per vector), `run_outcome` (run-wide)
-- Run context repeated on every step row (so a step row is self-contained): `run_id`, `uut_serial`, `station_id`, `session_id`
+- Run context repeated on every step row (so a step row is self-contained): `run_id`, `uut_serial_number`, `station_id`, `session_id`
 
 ## Steps that never ran {#never-ran}
 

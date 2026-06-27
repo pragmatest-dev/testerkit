@@ -341,7 +341,7 @@ class TestMeasurementRow:
 
         assert isinstance(row, MeasurementRow)
         assert row.run_id == str(sample_test_run.id)
-        assert row.uut_serial == "UUT001"
+        assert row.uut_serial_number == "UUT001"
         assert row.station_id == "station_001"
         assert row.step_name == "test_voltage"
         assert row.measurement_name == "vout"
@@ -382,7 +382,7 @@ class TestMeasurementRow:
         assert all(isinstance(r, dict) for r in rows)
         assert rows[0]["measurement_name"] == "vout"
         assert rows[1]["measurement_name"] == "iout"
-        assert rows[0]["uut_serial"] == "UUT001"
+        assert rows[0]["uut_serial_number"] == "UUT001"
 
 
 class TestEventSubscriberLifecycle:

@@ -65,7 +65,7 @@ def _run_started(run_id, session_id):
         session_id=session_id,
         run_id=run_id,
         station_id="st1",
-        uut_serial="SN001",
+        uut_serial_number="SN001",
         occurred_at=_T0,
     )
 

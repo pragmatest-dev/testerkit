@@ -30,7 +30,7 @@ class ReportData:
     outcome: str = ""
 
     # UUT
-    uut_serial: str = ""
+    uut_serial_number: str = ""
     uut_part_number: str = ""
     uut_revision: str = ""
     uut_lot_number: str = ""
@@ -133,7 +133,7 @@ def load_run_data(run_id: str, data_dir: str | None = None) -> ReportData:
         started_at=_fmt_dt_raw(run_view.started_at),
         ended_at=_fmt_dt_raw(run_view.ended_at),
         outcome=run_view.outcome or "",
-        uut_serial=run_view.uut_serial or "",
+        uut_serial_number=run_view.uut_serial_number or "",
         uut_part_number=run_view.uut_part_number or "",
         uut_revision=extras.get("uut_revision", ""),
         uut_lot_number=extras.get("uut_lot_number", ""),
@@ -265,7 +265,7 @@ def _write_json(data: ReportData, output: Path) -> None:
         "ended_at": data.ended_at,
         "outcome": data.outcome,
         "uut": {
-            "serial": data.uut_serial,
+            "serial": data.uut_serial_number,
             "part_number": data.uut_part_number,
             "revision": data.uut_revision,
             "lot_number": data.uut_lot_number,

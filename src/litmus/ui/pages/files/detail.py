@@ -98,7 +98,7 @@ def _render_metadata_card(
             if modified is not None:
                 info_field("Modified", format_datetime(modified))
             # Resolve session_id to an operator-readable label
-            # (``<uut_serial> · <YYYY-MM-DD HH:MM:SS>``) rather than
+            # (``<uut_serial_number> · <YYYY-MM-DD HH:MM:SS>``) rather than
             # leaking the raw UUID. Same convention as the session
             # filter banner on /events / /channels / /files.
             # When the session is unknown (stale bookmark, deleted

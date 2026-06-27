@@ -89,7 +89,7 @@ class TestMeasurementLessRun:
         body = resp.json()
 
         assert body["run_id"].startswith(run_id[:8])
-        assert body["uut_serial"] == "SN-001"
+        assert body["uut_serial_number"] == "SN-001"
         assert body["outcome"] == "passed"
         assert body["started_at"] is not None
 

@@ -22,8 +22,8 @@ pytest_plugins = ["pytester"]
 _CANONICAL_RESULTS = resolve_data_dir()
 
 
-def _find_parquet_by_serial(uut_serial: str, *, timeout: float = 15.0) -> Path | None:
-    """Find the most recent run parquet under canonical for ``uut_serial``.
+def _find_parquet_by_serial(uut_serial_number: str, *, timeout: float = 15.0) -> Path | None:
+    """Find the most recent run parquet under canonical for ``uut_serial_number``.
 
     Polls because the runs daemon writes parquets asynchronously after
     receiving ``RunEnded`` from the test process. The subprocess exits
@@ -33,7 +33,7 @@ def _find_parquet_by_serial(uut_serial: str, *, timeout: float = 15.0) -> Path |
 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        matches = list(_CANONICAL_RESULTS.glob(f"runs/**/*_{uut_serial}.parquet"))
+        matches = list(_CANONICAL_RESULTS.glob(f"runs/**/*_{uut_serial_number}.parquet"))
         if matches:
             return max(matches, key=lambda p: p.stat().st_mtime)
         time.sleep(0.2)
@@ -106,7 +106,7 @@ def test_uut_options_land_in_parquet(pytester_with_test):
     table = pq.read_table(parquet)
     row = table.to_pylist()[0]
 
-    assert row["uut_serial"] == serial
+    assert row["uut_serial_number"] == serial
     assert row["uut_part_number"] == "WIDGET-200"
     assert row["uut_revision"] == "C"
     assert row["uut_lot_number"] == "LOT-42"
@@ -131,7 +131,7 @@ def test_uut_options_default_to_none(pytester_with_test):
     table = pq.read_table(parquet)
     row = table.to_pylist()[0]
 
-    assert row["uut_serial"] == "UUT001"  # default
+    assert row["uut_serial_number"] == "UUT001"  # default
     assert row.get("uut_part_number") is None
     assert row.get("uut_revision") is None
     assert row.get("uut_lot_number") is None

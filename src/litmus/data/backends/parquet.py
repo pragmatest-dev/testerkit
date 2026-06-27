@@ -462,7 +462,7 @@ class ParquetBackend:
                     "outcome": m.get("vector_outcome"),
                     "started_at": m.get("vector_started_at"),
                     "ended_at": m.get("vector_ended_at"),
-                    "uut_serial": m.get("uut_serial"),
+                    "uut_serial_number": m.get("uut_serial_number"),
                     "part_id": m.get("part_id"),
                     "station_id": m.get("station_id"),
                 }
@@ -718,7 +718,7 @@ def materialize_run_to_parquet(
     return backend.save_from_rows(
         rows,
         started_at=s.occurred_at,
-        uut_serial=s.uut_serial,
+        uut_serial=s.uut_serial_number,
         run_id=str(s.run_id) if s.run_id else "",
         file_metadata=_build_file_metadata_from_acc(acc),
     )
@@ -1146,7 +1146,7 @@ def reconstruct_test_run_from_file(pq_file: Path) -> TestRun:
         started_at=run_started_at,
         ended_at=first.get("run_ended_at"),
         uut=UUT(
-            serial=first.get("uut_serial") or "",
+            serial=first.get("uut_serial_number") or "",
             part_number=first.get("uut_part_number"),
             revision=first.get("uut_revision"),
             lot_number=first.get("uut_lot_number"),

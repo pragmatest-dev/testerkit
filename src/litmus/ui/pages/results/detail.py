@@ -152,7 +152,7 @@ async def result_detail_page(run_id: str, tab: str = ""):
             with ui.card_section().classes("py-2 px-3"):
                 with ui.row().classes("flex-wrap gap-x-10 gap-y-2 w-full"):
                     info_field("Part Number", run_obj.uut_part_number or "")
-                    info_field("Serial", run_obj.uut_serial or "")
+                    info_field("Serial", run_obj.uut_serial_number or "")
                     info_field("Hostname", run_obj.station_hostname or "")
                     info_field("Project", run_obj.project_name or "")
                     info_field("Started", format_datetime(run_obj.started_at))
@@ -565,8 +565,10 @@ def _render_history_tab(
     all_runs: list,
 ) -> None:
     container.clear()
-    uut_serial = run_obj.uut_serial or ""
-    uut_runs = [r for r in all_runs if r.uut_serial == uut_serial and r.test_run_id != run_id]
+    uut_serial = run_obj.uut_serial_number or ""
+    uut_runs = [
+        r for r in all_runs if r.uut_serial_number == uut_serial and r.test_run_id != run_id
+    ]
 
     with container:
         if uut_runs:

@@ -72,7 +72,7 @@ class TestReplayToSubscriber:
         assert len(run_starts) == 1
         assert len(run_ends) == 1
         assert len(measurements) > 0
-        assert run_starts[0].uut_serial == "UUT-001"
+        assert run_starts[0].uut_serial_number == "UUT-001"
 
     def test_filters_by_event_types(self, realistic_test_run: TestRun):
         """Subscriber only receives events in its event_types set."""

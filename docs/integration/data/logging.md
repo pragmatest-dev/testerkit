@@ -60,7 +60,7 @@ def sync_to_database(run_id: str, db_connection):
 
     db_connection.execute(
         "INSERT INTO test_runs (run_id, serial, outcome) VALUES (?, ?, ?)",
-        (run.test_run_id, run.uut_serial, run.outcome)
+        (run.test_run_id, run.uut_serial_number, run.outcome)
     )
 
     for m in measurements:
@@ -70,7 +70,7 @@ def sync_to_database(run_id: str, db_connection):
         )
 ```
 
-`run` is a `RunSummary` — use attribute access (`run.test_run_id`, `run.uut_serial`, `run.outcome`). `measurements` is a list of dicts with the columns `get_measurements()` returns (`measurement_name`, `measurement_value`, `measurement_unit`, `measurement_outcome`, `limit_low`, `limit_high` — see [parquet-schema.md](../../reference/data/parquet-schema.md) for the full list).
+`run` is a `RunSummary` — use attribute access (`run.test_run_id`, `run.uut_serial_number`, `run.outcome`). `measurements` is a list of dicts with the columns `get_measurements()` returns (`measurement_name`, `measurement_value`, `measurement_unit`, `measurement_outcome`, `limit_low`, `limit_high` — see [parquet-schema.md](../../reference/data/parquet-schema.md) for the full list).
 
 ## Upload sealed runs to cloud storage
 
@@ -109,9 +109,9 @@ For cross-run queries not covered by those surfaces, DuckDB can read the parquet
 import duckdb
 
 duckdb.sql("""
-    SELECT uut_serial, step_name, measurement_outcome, COUNT(*)
+    SELECT uut_serial_number, step_name, measurement_outcome, COUNT(*)
     FROM read_parquet('<data_dir>/runs/**/*.parquet', union_by_name=true)
-    GROUP BY uut_serial, step_name, measurement_outcome
+    GROUP BY uut_serial_number, step_name, measurement_outcome
 """).show()
 ```
 

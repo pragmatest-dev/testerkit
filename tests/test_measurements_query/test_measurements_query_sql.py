@@ -92,7 +92,7 @@ def _row(
         run_id=run_id,
         run_started_at=datetime.fromisoformat(run_started_at).replace(tzinfo=UTC),
         run_ended_at=datetime.fromisoformat(run_ended_at).replace(tzinfo=UTC),
-        uut_serial=uut_serial,
+        uut_serial_number=uut_serial,
         uut_part_number=uut_part_number,
         part_id=uut_part_number,
         station_id=station_name,
@@ -216,10 +216,10 @@ class TestYieldSummary:
 
         # fmt: off
         python_runs = [
-            {"uut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T10:00:00"},  # noqa: E501
-            {"uut_serial": "SN002", "run_outcome": "failed", "run_started_at": "2026-01-01T11:00:00"},  # noqa: E501
-            {"uut_serial": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T12:00:00"},  # noqa: E501
-            {"uut_serial": "SN002", "run_outcome": "passed", "run_started_at": "2026-01-01T13:00:00"},  # noqa: E501
+            {"uut_serial_number": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T10:00:00"},  # noqa: E501
+            {"uut_serial_number": "SN002", "run_outcome": "failed", "run_started_at": "2026-01-01T11:00:00"},  # noqa: E501
+            {"uut_serial_number": "SN001", "run_outcome": "passed", "run_started_at": "2026-01-01T12:00:00"},  # noqa: E501
+            {"uut_serial_number": "SN002", "run_outcome": "passed", "run_started_at": "2026-01-01T13:00:00"},  # noqa: E501
         ]
         # fmt: on
         python_fpy = calculate_fpy(python_runs)
@@ -468,7 +468,7 @@ class TestParametric:
     def test_scatter_returns_typed_rows(self, fixture_data):
         store = MeasurementsQuery()
         filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
-        rows = store.parametric(y="measurement_value", x="uut_serial", filters=filters)
+        rows = store.parametric(y="measurement_value", x="uut_serial_number", filters=filters)
         assert len(rows) == 4
         assert all(isinstance(r, ParametricRow) for r in rows)
         assert all(r.group == "" for r in rows)
@@ -477,7 +477,7 @@ class TestParametric:
         store = MeasurementsQuery()
         filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
         rows = store.parametric(
-            y="measurement_value", x="uut_serial", group_by="run_outcome", filters=filters
+            y="measurement_value", x="uut_serial_number", group_by="run_outcome", filters=filters
         )
         groups = {r.group for r in rows}
         assert groups == {"passed", "failed"}
@@ -486,7 +486,7 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="uut_serial",
+            x="uut_serial_number",
             filters=FilterSet(
                 string_filters={"uut_part_number": [fixture_data["part"]]},
                 enum_filters={"run_outcome": ["passed"]},
@@ -498,7 +498,7 @@ class TestParametric:
         store = MeasurementsQuery()
         rows = store.parametric(
             y="measurement_value",
-            x="uut_serial",
+            x="uut_serial_number",
             filters=FilterSet(
                 string_filters={"uut_part_number": [fixture_data["part"]]},
                 enum_filters={"run_outcome": ["passed", "failed"]},
@@ -544,7 +544,7 @@ def dynamic_axis_data() -> dict[str, str]:
             run_started_at=datetime.fromisoformat("2026-03-01T10:00:00").replace(tzinfo=UTC),
             run_ended_at=datetime.fromisoformat("2026-03-01T10:05:00").replace(tzinfo=UTC),
             run_outcome="passed",
-            uut_serial="SN-DYN",
+            uut_serial_number="SN-DYN",
             uut_part_number=part,
             part_id=part,
             test_phase="production",
@@ -581,7 +581,7 @@ class TestDynamicAxisEAV:
         store = MeasurementsQuery()
         rows = store.parametric(
             y=FieldRef.input("freq"),
-            x="uut_serial",
+            x="uut_serial_number",
             filters=self._scope(dynamic_axis_data["part"]),
         )
         assert {r.y for r in rows} == {1000.0, 2000.0}
@@ -703,7 +703,7 @@ def parametric_scope_data() -> dict[str, str]:
             run_started_at=datetime.fromisoformat("2026-03-01T10:00:00").replace(tzinfo=UTC),
             run_ended_at=datetime.fromisoformat("2026-03-01T10:05:00").replace(tzinfo=UTC),
             run_outcome="passed",
-            uut_serial=f"SN-{i}",
+            uut_serial_number=f"SN-{i}",
             uut_part_number=part,
             part_id=part,
             test_phase="production",
@@ -769,14 +769,14 @@ class TestDistinctValues:
         store = MeasurementsQuery()
         # Scope by part so the canonical store's other rows don't pollute.
         filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
-        opts = store.distinct_values("uut_serial", filters=filters)
+        opts = store.distinct_values("uut_serial_number", filters=filters)
         values = {o.value for o in opts}
         assert values == {"SN001", "SN002"}
 
     def test_options_carry_counts(self, fixture_data):
         store = MeasurementsQuery()
         filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
-        opts = store.distinct_values("uut_serial", filters=filters)
+        opts = store.distinct_values("uut_serial_number", filters=filters)
         # 2 measurements per serial in the fixture
         assert all(o.count == 2 for o in opts)
 
@@ -795,7 +795,7 @@ class TestDistinctValues:
             string_filters={"uut_part_number": [fixture_data["part"]]},
             enum_filters={"run_outcome": ["failed"]},
         )
-        opts = store.distinct_values("uut_serial", filters=filters)
+        opts = store.distinct_values("uut_serial_number", filters=filters)
         # Only SN002 has a failed run for our part
         assert {o.value for o in opts} == {"SN002"}
 
@@ -870,7 +870,7 @@ def distinct_role_data() -> dict[str, str]:
                 run_started_at=datetime.fromisoformat("2026-04-01T10:00:00").replace(tzinfo=UTC),
                 run_ended_at=datetime.fromisoformat("2026-04-01T10:05:00").replace(tzinfo=UTC),
                 run_outcome="passed",
-                uut_serial=f"SN-{i}",
+                uut_serial_number=f"SN-{i}",
                 uut_part_number=part,
                 part_id=part,
                 test_phase="production",
@@ -949,7 +949,7 @@ def mixed_type_field_data() -> dict[str, str]:
                 run_started_at=datetime.fromisoformat("2026-05-01T10:00:00").replace(tzinfo=UTC),
                 run_ended_at=datetime.fromisoformat("2026-05-01T10:05:00").replace(tzinfo=UTC),
                 run_outcome="passed",
-                uut_serial="SN-MT",
+                uut_serial_number="SN-MT",
                 uut_part_number=part,
                 part_id=part,
                 test_phase="production",
@@ -1024,7 +1024,7 @@ def _step_row(
         run_id=run_id,
         run_started_at=datetime.fromisoformat(run_started_at).replace(tzinfo=UTC),
         run_ended_at=datetime.fromisoformat(run_ended_at).replace(tzinfo=UTC),
-        uut_serial=uut_serial,
+        uut_serial_number=uut_serial,
         uut_part_number=uut_part_number,
         part_id=uut_part_number,
         station_id=station_name,

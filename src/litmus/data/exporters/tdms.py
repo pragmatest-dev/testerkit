@@ -241,7 +241,7 @@ class TdmsSubscriber(EventSubscriber):
             "station_id": s.station_id,
             "project_name": s.project_name or "",
             "test_phase": s.test_phase or "",
-            "uut_serial": s.uut_serial,
+            "uut_serial_number": s.uut_serial_number,
         }
         if s.uut_part_number:
             root_props["uut_part_number"] = s.uut_part_number

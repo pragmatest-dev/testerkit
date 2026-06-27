@@ -144,7 +144,7 @@ RUN_ROW_SCHEMA = pa.schema(
         ("operator_id", pa.string()),
         ("operator_name", pa.string()),
         # UUT
-        ("uut_serial", pa.string()),
+        ("uut_serial_number", pa.string()),
         ("uut_part_number", pa.string()),
         ("uut_revision", pa.string()),
         ("uut_lot_number", pa.string()),

@@ -76,7 +76,7 @@ Emitted once per test run. Contains full run context.
 | `slot_index` | `int \| None` | `None` |
 | `pid` | `int \| None` | `None` |
 | `client` | `str` | *via* `_detect_client()` |
-| `uut_serial` | `str` | `''` |
+| `uut_serial_number` | `str` | `''` |
 | `uut_part_number` | `str \| None` | `None` |
 | `uut_revision` | `str \| None` | `None` |
 | `uut_lot_number` | `str \| None` | `None` |
@@ -122,7 +122,7 @@ Emitted when a UUT slot begins execution.
 | Field | Type | Default |
 |---|---|---|
 | `slot_id` | `str` | *required* |
-| `uut_serial` | `str` | *required* |
+| `uut_serial_number` | `str` | *required* |
 
 ### `slot.completed` — `SlotCompleted`
 
@@ -197,7 +197,7 @@ Emitted when an instrument is connected and identified.
 
 | Field | Type | Default |
 |---|---|---|
-| `uut_serial` | `str` | *required* |
+| `uut_serial_number` | `str` | *required* |
 | `scan_source` | `str \| None` | `None` |
 
 ### `fixture.instrument_disconnected` — `InstrumentDisconnected`

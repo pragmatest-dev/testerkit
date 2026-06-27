@@ -406,7 +406,7 @@ class RunSummary(BaseModel):
     slot_id: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
-    uut_serial: str | None = None
+    uut_serial_number: str | None = None
     uut_part_number: str | None = None
     part_id: str | None = None
     station_id: str | None = None

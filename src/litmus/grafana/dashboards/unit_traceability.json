@@ -20,7 +20,7 @@
           "type": "grafana-postgresql-datasource",
           "uid": "${DS_LITMUS}"
         },
-        "query": "SELECT DISTINCT uut_serial FROM runs WHERE uut_serial IS NOT NULL ORDER BY uut_serial DESC LIMIT 200",
+        "query": "SELECT DISTINCT uut_serial_number FROM runs WHERE uut_serial_number IS NOT NULL ORDER BY uut_serial_number DESC LIMIT 200",
         "current": {}
       }
     ]
@@ -42,7 +42,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT run_id, session_id, started_at, ended_at, outcome, phase, station_id, station_name, num_measurements FROM runs WHERE uut_serial = '${serial}' ORDER BY started_at DESC",
+          "rawSql": "SELECT run_id, session_id, started_at, ended_at, outcome, phase, station_id, station_name, num_measurements FROM runs WHERE uut_serial_number = '${serial}' ORDER BY started_at DESC",
           "format": "table"
         }
       ]
@@ -63,7 +63,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT run_id, step_name, measurement_name, value, units, limit_low, limit_high, nominal, outcome, measurement_timestamp FROM measurement_values WHERE uut_serial = '${serial}' ORDER BY measurement_timestamp DESC LIMIT 500",
+          "rawSql": "SELECT run_id, step_name, measurement_name, value, units, limit_low, limit_high, nominal, outcome, measurement_timestamp FROM measurement_values WHERE uut_serial_number = '${serial}' ORDER BY measurement_timestamp DESC LIMIT 500",
           "format": "table"
         }
       ]

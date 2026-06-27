@@ -82,7 +82,7 @@ To list steps: `WHERE record_type = 'step'`. To list vectors: `WHERE record_type
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `uut_serial` | string | From `--uut-serial` |
+| `uut_serial_number` | string | From `--uut-serial` |
 | `uut_part_number` | string | Operator-facing part identifier (NOT `part_id`) |
 | `uut_revision` | string | Hardware revision |
 | `uut_lot_number` | string | Manufacturing lot |
@@ -415,7 +415,7 @@ import pandas as pd
 con = duckdb.connect()
 df = con.execute("""
     SELECT
-        v.run_id, v.uut_serial, v.station_hostname,
+        v.run_id, v.uut_serial_number, v.station_hostname,
         v.step_name, v.step_path, v.vector_index, v.vector_retry,
         v.step_outcome, v.vector_outcome, v.run_outcome,
         m.name  AS measurement_name,
