@@ -467,7 +467,7 @@ class TestParametric:
 
     def test_scatter_returns_typed_rows(self, fixture_data):
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
+        filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
         rows = store.parametric(y="measurement_value", x="uut_serial", filters=filters)
         assert len(rows) == 4
         assert all(isinstance(r, ParametricRow) for r in rows)
@@ -475,7 +475,7 @@ class TestParametric:
 
     def test_group_by_populates_group_column(self, fixture_data):
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
+        filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
         rows = store.parametric(
             y="measurement_value", x="uut_serial", group_by="run_outcome", filters=filters
         )
@@ -488,7 +488,7 @@ class TestParametric:
             y="measurement_value",
             x="uut_serial",
             filters=FilterSet(
-                string_filters={"part_id": [fixture_data["part"]]},
+                string_filters={"uut_part_number": [fixture_data["part"]]},
                 enum_filters={"run_outcome": ["passed"]},
             ),
         )
@@ -500,7 +500,7 @@ class TestParametric:
             y="measurement_value",
             x="uut_serial",
             filters=FilterSet(
-                string_filters={"part_id": [fixture_data["part"]]},
+                string_filters={"uut_part_number": [fixture_data["part"]]},
                 enum_filters={"run_outcome": ["passed", "failed"]},
             ),
         )
@@ -511,7 +511,7 @@ class TestParametric:
         rows = store.histogram(
             field="measurement_value",
             bins=4,
-            filters=FilterSet(string_filters={"part_id": [fixture_data["part"]]}),
+            filters=FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]}),
         )
         assert all(isinstance(r, HistogramRow) for r in rows)
         assert sum(r.y for r in rows) == 4
@@ -565,7 +565,7 @@ class TestDynamicAxisEAV:
     """The dynamic ``in_*``/``out_*`` axis path resolves via the EAV join."""
 
     def _scope(self, part: str) -> FilterSet:
-        return FilterSet(string_filters={"part_id": [part]})
+        return FilterSet(string_filters={"uut_part_number": [part]})
 
     def test_dynamic_x_scatter(self, dynamic_axis_data):
         store = MeasurementsQuery()
@@ -647,7 +647,7 @@ def limit_band_data() -> dict[str, str]:
 
 class TestLatestRunLimits:
     def _scope(self, part: str) -> FilterSet:
-        return FilterSet(string_filters={"part_id": [part], "measurement_name": ["vout"]})
+        return FilterSet(string_filters={"uut_part_number": [part], "measurement_name": ["vout"]})
 
     def test_returns_latest_run_per_step_bounds(self, limit_band_data):
         store = MeasurementsQuery()
@@ -678,7 +678,9 @@ class TestLatestRunLimits:
         store = MeasurementsQuery()
         result = store.latest_run_limits(
             x="step_index",
-            filters=FilterSet(string_filters={"part_id": [part], "measurement_name": ["vout"]}),
+            filters=FilterSet(
+                string_filters={"uut_part_number": [part], "measurement_name": ["vout"]}
+            ),
         )
         assert result == []
 
@@ -727,7 +729,7 @@ class TestParametricMeasurementScoping:
         """y=FieldRef.measurement("v_rail") returns only v_rail measurement_name rows."""
         part = parametric_scope_data["part"]
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"part_id": [part]})
+        filters = FilterSet(string_filters={"uut_part_number": [part]})
         rows = store.parametric(
             y=FieldRef.measurement("v_rail"),
             x="vector_index",
@@ -744,7 +746,7 @@ class TestParametricMeasurementScoping:
         """y="v_rail" and y="i_rail" return disjoint value ranges."""
         part = parametric_scope_data["part"]
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"part_id": [part]})
+        filters = FilterSet(string_filters={"uut_part_number": [part]})
         v_rows = store.parametric(
             y=FieldRef.measurement("v_rail"),
             x="vector_index",
@@ -766,14 +768,14 @@ class TestDistinctValues:
     def test_no_filter_returns_fixture_serials(self, fixture_data):
         store = MeasurementsQuery()
         # Scope by part so the canonical store's other rows don't pollute.
-        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
+        filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
         opts = store.distinct_values("uut_serial", filters=filters)
         values = {o.value for o in opts}
         assert values == {"SN001", "SN002"}
 
     def test_options_carry_counts(self, fixture_data):
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
+        filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
         opts = store.distinct_values("uut_serial", filters=filters)
         # 2 measurements per serial in the fixture
         assert all(o.count == 2 for o in opts)
@@ -781,8 +783,8 @@ class TestDistinctValues:
     def test_cross_filter_excludes_self(self, fixture_data):
         """exclude_self=True means filtering on part_id doesn't narrow itself."""
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
-        opts = store.distinct_values("part_id", filters=filters, exclude_self=True)
+        filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
+        opts = store.distinct_values("uut_part_number", filters=filters, exclude_self=True)
         # Returns all known parts (since we excluded the part_id filter on itself).
         assert fixture_data["part"] in {o.value for o in opts}
 
@@ -790,7 +792,7 @@ class TestDistinctValues:
         """A filter on run_outcome narrows the uut_serial options to passing serials."""
         store = MeasurementsQuery()
         filters = FilterSet(
-            string_filters={"part_id": [fixture_data["part"]]},
+            string_filters={"uut_part_number": [fixture_data["part"]]},
             enum_filters={"run_outcome": ["failed"]},
         )
         opts = store.distinct_values("uut_serial", filters=filters)
@@ -806,7 +808,7 @@ class TestDistinctValues:
 class TestSummaryCounts:
     def test_filter_counts_match_fixture(self, fixture_data):
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"part_id": [fixture_data["part"]]})
+        filters = FilterSet(string_filters={"uut_part_number": [fixture_data["part"]]})
         counts = store.summary_counts(filters=filters)
         assert counts.total_rows == 4
         assert counts.distinct_runs == 4
@@ -816,7 +818,7 @@ class TestSummaryCounts:
     def test_filter_narrows_counts(self, fixture_data):
         store = MeasurementsQuery()
         filters = FilterSet(
-            string_filters={"part_id": [fixture_data["part"]]},
+            string_filters={"uut_part_number": [fixture_data["part"]]},
             enum_filters={"run_outcome": ["passed"]},
         )
         counts = store.summary_counts(filters=filters)
@@ -824,7 +826,7 @@ class TestSummaryCounts:
 
     def test_unknown_part_returns_zeros(self):
         store = MeasurementsQuery()
-        filters = FilterSet(string_filters={"part_id": [f"NOPE-{uuid4().hex}"]})
+        filters = FilterSet(string_filters={"uut_part_number": [f"NOPE-{uuid4().hex}"]})
         counts = store.summary_counts(filters=filters)
         assert counts.total_rows == 0
         assert counts.distinct_runs == 0
@@ -891,7 +893,7 @@ class TestDistinctValuesRoleHonorsFilters:
     def test_role_filter_scoped_to_part(self, distinct_role_data):
         store = MeasurementsQuery()
         part_a = distinct_role_data["part_a"]
-        filters = FilterSet(string_filters={"part_id": [part_a]})
+        filters = FilterSet(string_filters={"uut_part_number": [part_a]})
         opts = store.distinct_values("name", role="output", filters=filters)
         assert len(opts) >= 1
         assert any(o.value == "freq" for o in opts)
@@ -908,10 +910,10 @@ class TestDistinctValuesRoleHonorsFilters:
         part_a = distinct_role_data["part_a"]
         part_b = distinct_role_data["part_b"]
         opts_a = store.distinct_values(
-            "name", role="output", filters=FilterSet(string_filters={"part_id": [part_a]})
+            "name", role="output", filters=FilterSet(string_filters={"uut_part_number": [part_a]})
         )
         opts_b = store.distinct_values(
-            "name", role="output", filters=FilterSet(string_filters={"part_id": [part_b]})
+            "name", role="output", filters=FilterSet(string_filters={"uut_part_number": [part_b]})
         )
         count_a = next((o.count for o in opts_a if o.value == "freq"), 0)
         count_b = next((o.count for o in opts_b if o.value == "freq"), 0)
@@ -975,7 +977,7 @@ class TestResolveValueTypeFilterScoped:
         """Globally mixed-type field resolves cleanly when filter scopes to one part."""
         store = MeasurementsQuery()
         part_float = mixed_type_field_data["part_float"]
-        filters = FilterSet(string_filters={"part_id": [part_float]})
+        filters = FilterSet(string_filters={"uut_part_number": [part_float]})
         # Must not raise — field is uniform (scalar:float) within this filter.
         rows = store.parametric(
             y=FieldRef.output("sensor"),
@@ -991,7 +993,7 @@ class TestResolveValueTypeFilterScoped:
         part_float = mixed_type_field_data["part_float"]
         part_str = mixed_type_field_data["part_str"]
         # Both parts in scope → two value_types → ValueError.
-        filters = FilterSet(string_filters={"part_id": [part_float, part_str]})
+        filters = FilterSet(string_filters={"uut_part_number": [part_float, part_str]})
         with pytest.raises(ValueError, match="value_types in scope"):
             store.parametric(
                 y=FieldRef.output("sensor"),

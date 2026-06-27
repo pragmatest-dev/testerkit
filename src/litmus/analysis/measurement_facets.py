@@ -118,16 +118,14 @@ class FacetKind(StrEnum):
 class FacetSpec(BaseModel):
     """Self-describing definition of one filter facet.
 
-    ``column`` is the facet's stable internal key (the ``FilterSet``
-    dict key). ``param`` overrides the URL query key when the
-    operator-facing name differs from the column, and ``expr`` lets the
-    facet filter/enumerate on a SQL expression instead of a bare column.
-    Together they let the Part / Station / Test phase facets keep their
-    internal ``*_id`` / ``test_phase`` columns while exposing the
-    operator-facing ``?part=`` / ``?station=`` / ``?phase=`` URL keys
-    backed by the same ``COALESCE`` the metrics page uses — so a shared
-    URL means the same thing on both pages. Empty ``param`` → URL key is
-    ``column``; empty ``expr`` → filter on ``column`` directly.
+    ``column`` is the facet's storage column — the ``FilterSet`` dict key,
+    and the value that's filtered and enumerated. Facets name the real
+    storage column (read follows storage), so the same key means the same
+    thing on every page. ``param`` gives an optional friendlier URL query
+    key (e.g. ``?part=`` for ``uut_part_number``); empty ``param`` → URL
+    key is ``column``. ``expr`` lets a facet filter/enumerate on a SQL
+    expression instead of the bare column (e.g. ``test_phase`` labels its
+    NULLs ``'unknown'``); empty ``expr`` → ``column`` directly.
     """
 
     column: str
@@ -445,20 +443,18 @@ MEASUREMENT_FACETS: list[FacetSpec] = [
         description="How the measurement is checked against its limits",
     ),
     FacetSpec(
-        column="part_id",
+        column="uut_part_number",
         param="part",
         kind=FacetKind.STRING,
         label="Part",
-        description="Which part the UUT is (e.g. PN-100)",
-        expr="COALESCE(uut_part_number, part_id, 'unknown')",
+        description="Manufacturer part number of the UUT (scanned, or from the part config)",
     ),
     FacetSpec(
-        column="station_id",
+        column="station_hostname",
         param="station",
         kind=FacetKind.STRING,
         label="Station",
-        description="Which station ran the test",
-        expr="COALESCE(station_hostname, station_id, 'unknown')",
+        description="Hostname of the station that ran the test",
     ),
     FacetSpec(
         column="test_phase",

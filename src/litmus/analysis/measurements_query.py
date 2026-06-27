@@ -378,12 +378,12 @@ def _build_and_clauses(
         phase=phase,
         since=since,
         until=until,
-        part_expr="COALESCE(uut_part_number, part_id, 'unknown')",
+        part_expr="COALESCE(uut_part_number, 'unknown')",
         # Match the same column the operator's dropdown is built
         # from (``station_hostname`` first; see ``get_runs_filter_options``
         # in ``ui/shared/services.py``). ``station_name`` is admin-
         # facing — never used as a filter target.
-        station_expr="COALESCE(station_hostname, station_id, 'unknown')",
+        station_expr="COALESCE(station_hostname, 'unknown')",
         phase_expr="COALESCE(test_phase, 'unknown')",
         date_expr="CAST(run_started_at AS DATE)",
     )
@@ -407,8 +407,8 @@ _YIELD_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(uut_part_number, part_id, 'unknown') AS part,
-        COALESCE(station_hostname, station_id, 'unknown') AS station,
+        COALESCE(uut_part_number, 'unknown') AS part,
+        COALESCE(station_hostname, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         uut_serial,
         run_outcome,
@@ -549,8 +549,8 @@ _YIELD_OVERALL_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(uut_part_number, part_id, 'unknown') AS part,
-        COALESCE(station_hostname, station_id, 'unknown') AS station,
+        COALESCE(uut_part_number, 'unknown') AS part,
+        COALESCE(station_hostname, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         uut_serial,
         run_outcome,
@@ -654,8 +654,8 @@ GROUP BY sr.rty, md.dpmo, rd.dppm
 
 _PARETO_SQL = """
 SELECT
-    COALESCE(uut_part_number, part_id, 'unknown') AS part,
-    COALESCE(station_hostname, station_id, 'unknown') AS station,
+    COALESCE(uut_part_number, 'unknown') AS part,
+    COALESCE(station_hostname, 'unknown') AS station,
     step_name,
     measurement_name,
     COUNT(*) AS total_count,
@@ -673,8 +673,8 @@ LIMIT {top_n}
 
 _PPK_SQL = """
 SELECT
-    COALESCE(uut_part_number, part_id, 'unknown') AS part,
-    COALESCE(station_hostname, station_id, 'unknown') AS station,
+    COALESCE(uut_part_number, 'unknown') AS part,
+    COALESCE(station_hostname, 'unknown') AS station,
     measurement_name,
     characteristic_id,
     uut_pin,
@@ -709,8 +709,8 @@ _TREND_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(uut_part_number, part_id, 'unknown') AS part,
-        COALESCE(station_hostname, station_id, 'unknown') AS station,
+        COALESCE(uut_part_number, 'unknown') AS part,
+        COALESCE(station_hostname, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         run_outcome,
         {period_expr} AS period_day
@@ -736,8 +736,8 @@ _RETEST_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(uut_part_number, part_id, 'unknown') AS part,
-        COALESCE(station_hostname, station_id, 'unknown') AS station,
+        COALESCE(uut_part_number, 'unknown') AS part,
+        COALESCE(station_hostname, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         uut_serial,
         {period_expr} AS period_day
@@ -771,8 +771,8 @@ _TIME_LOSS_SQL = """
 WITH runs AS (
     SELECT DISTINCT ON (run_id)
         run_id,
-        COALESCE(uut_part_number, part_id, 'unknown') AS part,
-        COALESCE(station_hostname, station_id, 'unknown') AS station,
+        COALESCE(uut_part_number, 'unknown') AS part,
+        COALESCE(station_hostname, 'unknown') AS station,
         COALESCE(test_phase, 'unknown') AS phase,
         run_outcome,
         EPOCH(run_ended_at::TIMESTAMP - run_started_at::TIMESTAMP) AS duration_s,
@@ -1410,7 +1410,7 @@ class MeasurementsQuery:
             COUNT(*) AS total_rows,
             COUNT(DISTINCT run_id) AS distinct_runs,
             COUNT(DISTINCT measurement_name) AS distinct_measurements,
-            COUNT(DISTINCT COALESCE(uut_part_number, part_id, 'unknown')) AS distinct_parts
+            COUNT(DISTINCT COALESCE(uut_part_number, 'unknown')) AS distinct_parts
         FROM measurements{where}
         """
         rows = self._query_dicts(sql)

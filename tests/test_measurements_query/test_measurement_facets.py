@@ -85,17 +85,17 @@ class TestFilterSet:
 
     def test_validates_enum_column(self):
         with pytest.raises(ValueError, match="unknown or non-enum"):
-            FilterSet(enum_filters={"part_id": ["PN-100"]})
+            FilterSet(enum_filters={"uut_part_number": ["PN-100"]})
 
     def test_url_round_trip_string_filters(self):
-        # The Part facet's internal column is ``part_id`` but its URL key
-        # is the operator-facing ``part`` (matching the metrics page).
-        fs = FilterSet(string_filters={"part_id": ["PN-100", "PN-200"]})
+        # The Part facet's storage column is ``uut_part_number``; its URL
+        # key is the operator-facing ``part`` (matching the metrics page).
+        fs = FilterSet(string_filters={"uut_part_number": ["PN-100", "PN-200"]})
         params = fs.to_url_params()
         assert params == [("part", "PN-100"), ("part", "PN-200")]
-        # Decode round-trip: URL key ``part`` maps back to column ``part_id``.
+        # Decode round-trip: URL key ``part`` maps back to ``uut_part_number``.
         decoded = FilterSet.from_url_params({"part": ["PN-100", "PN-200"]})
-        assert decoded.string_filters == {"part_id": ["PN-100", "PN-200"]}
+        assert decoded.string_filters == {"uut_part_number": ["PN-100", "PN-200"]}
 
     def test_url_round_trip_enum_filters(self):
         fs = FilterSet(enum_filters={"measurement_outcome": ["passed", "failed"]})
@@ -116,7 +116,7 @@ class TestFilterSet:
 
     def test_unknown_column_dropped_on_decode(self):
         decoded = FilterSet.from_url_params({"part": ["PN-100"], "fake_column": ["whatever"]})
-        assert decoded.string_filters == {"part_id": ["PN-100"]}
+        assert decoded.string_filters == {"uut_part_number": ["PN-100"]}
         assert "fake_column" not in decoded.string_filters
         assert "fake_column" not in decoded.enum_filters
 
