@@ -36,8 +36,12 @@ from typing import Any
 from uuid import UUID
 
 import duckdb
+import pytest
 
 from litmus.data._runs_duckdb_daemon import (
+    _MEASUREMENTS_PERSISTED_COLUMNS,
+    _RUNS_PERSISTED_COLUMNS,
+    _STEPS_PERSISTED_COLUMNS,
     _bulk_insert_measurement_rows,
     _bulk_insert_runs,
     _bulk_insert_steps,
@@ -543,3 +547,65 @@ def _signature(col: str) -> str:
 # NOT NULL), the dynamic_attrs prefix rule (in_/out_/custom_ only), and the
 # record_type<>'run' filter on the steps aggregation.
 _KNOWN_DIVERGENCES: set[tuple[str, str]] = set()
+
+
+# ── CREATE↔migration-tuple drift guard ───────────────────────────────
+#
+# Each ``*_materialized`` table is declared TWICE: the ``CREATE TABLE``
+# body (full fresh schema, incl. structural PK / NOT NULL columns) and a
+# ``_*_PERSISTED_COLUMNS`` tuple that drives ``ALTER TABLE ADD COLUMN IF
+# NOT EXISTS`` so existing DBs migrate. The two drifted historically
+# (``retry_count`` reached the tuple but not the CREATE; ``parent_path``
+# the CREATE but not the tuple — the latter breaks the bulk-insert on any
+# pre-existing DB that never got the column). This guard fails the moment
+# they diverge again.
+
+
+def _table_info(conn: duckdb.DuckDBPyConnection, table: str) -> list[tuple[str, bool, bool]]:
+    """Return ``[(name, is_not_null, is_pk)]`` for a table's columns."""
+    rows = conn.execute(f"PRAGMA table_info('{table}')").fetchall()
+    # PRAGMA table_info: (cid, name, type, notnull, dflt_value, pk)
+    return [(r[1], bool(r[3]), bool(r[5])) for r in rows]
+
+
+@pytest.mark.parametrize(
+    "table, persisted",
+    [
+        ("runs_materialized", _RUNS_PERSISTED_COLUMNS),
+        ("steps_materialized", _STEPS_PERSISTED_COLUMNS),
+        ("measurements_materialized", _MEASUREMENTS_PERSISTED_COLUMNS),
+    ],
+)
+def test_materialized_data_columns_are_in_migration_tuple(
+    table: str, persisted: tuple[tuple[str, str], ...]
+) -> None:
+    """Every migratable (nullable, non-PK) materialized column must be in
+    its ``_*_PERSISTED_COLUMNS`` tuple.
+
+    A data column present only in the ``CREATE`` never backfills onto an
+    older DB (the ALTER loop only adds tuple columns), so its bulk-insert
+    breaks there. Structural PK / NOT NULL columns are CREATE-only by
+    necessity (can't be ``ALTER``-added) and are exempt.
+    """
+    conn = duckdb.connect()
+    try:
+        _ensure_schema(conn)
+        info = _table_info(conn, table)
+    finally:
+        conn.close()
+
+    actual = {name for name, _nn, _pk in info}
+    structural = {name for name, nn, pk in info if pk or nn}
+    tuple_cols = {name for name, _type in persisted}
+
+    missing_from_tuple = (actual - structural) - tuple_cols
+    assert not missing_from_tuple, (
+        f"{table}: nullable data columns present in the schema but missing from its "
+        f"migration tuple — existing DBs won't backfill them and the bulk-insert breaks: "
+        f"{sorted(missing_from_tuple)}"
+    )
+
+    extra_in_tuple = tuple_cols - actual
+    assert not extra_in_tuple, (
+        f"{table}: migration tuple names columns the table lacks: {sorted(extra_in_tuple)}"
+    )
